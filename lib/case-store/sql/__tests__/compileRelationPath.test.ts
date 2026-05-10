@@ -160,9 +160,10 @@ describe("compileRelationPath — ancestor (single hop)", () => {
 		// Tenant filter parameters are present.
 		expect(sql.parameters).toContain(APP_ID);
 		expect(sql.parameters).toContain(OWNER_ID);
-		// Materialization-agnostic depth filter is present so the
-		// query works under both Option A (full closure) and Option B
-		// (direct edges only).
+		// `depth = 1` filter is present on the `case_indices` lookup —
+		// pinned to direct edges so a single-hop ancestor walk only
+		// reads the one-hop row, not any transitive entries a future
+		// closure materialization would carry.
 		expect(sql.sql).toContain('"depth"');
 		expect(sql.parameters).toContain(1);
 	});
@@ -237,11 +238,11 @@ describe("compileRelationPath — ancestor (two hop)", () => {
 	});
 
 	it("filters `depth = 1` on every `case_indices` lookup", () => {
-		// The materialization-agnostic discipline: under Option A
-		// (full closure), `depth = 1` skips the transitive rows;
-		// under Option B (direct edges only), every row has
-		// `depth = 1` so the filter is a no-op. Either way, the
-		// SQL is correct.
+		// Each AST step in a multi-hop walk emits its own
+		// `case_indices` join, and each join pins `depth = 1` so the
+		// chain only reads direct edges — transitive rows from a
+		// future closure materialization stay excluded from every
+		// step.
 		const compiled = compileRelationPath(
 			ancestorPath(relationStep("parent"), relationStep("host")),
 			makeCtx(),

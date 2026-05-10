@@ -71,11 +71,14 @@
 # otherwise install extensions at dev-container boot is Atlas Pro
 # only.
 #
-# Production extensions are installed at Cloud SQL provisioning
-# time (Task 0 runbook §Phase 5); the testcontainers harness
-# installs them via `globalSetup.ts`. Both paths get them in
-# place before atlas runs any application query against the
-# database.
+# `pg_trgm` / `fuzzystrmatch` / `postgis` are installed at
+# Cloud SQL provisioning time under the built-in `postgres`
+# superuser (`CREATE EXTENSION` requires `cloudsqlsuperuser`,
+# and the runtime IAM SA atlas runs as does not carry that
+# role); the testcontainers harness installs the same set via
+# `globalSetup.ts` under its container's superuser. Both paths
+# get the extensions in place before atlas runs any application
+# query against the database.
 
 # -----------------------------------------------------------------
 # Local dev URL — shared between `local` and `testcontainer` envs
@@ -99,13 +102,11 @@ locals {
 # ### Diff policy — destructive changes are auto-skipped
 #
 # `diff { skip { ... } }` tells Atlas not to emit DROP statements
-# during diff generation. Schema changes that remove a column /
-# table / schema must go through expand-contract across multiple
-# deploys (Task 0 runbook + Plan 2's destructive-change policy).
-# Auto-skipping at diff time means a developer who removes a column
-# from `schema.sql` will get an empty diff — a loud signal that
-# the contract migration must be authored manually as a separate
-# step after the expand migration ships.
+# during diff generation. Auto-skipping at diff time means a
+# developer who removes a column from `schema.sql` will get an
+# empty diff — a loud signal that the contract migration must be
+# authored manually as a separate file after the expand migration
+# ships.
 #
 # ### Lint policy — destructive changes error in CI
 #
@@ -113,7 +114,13 @@ locals {
 # auto-skip: if a destructive statement somehow lands in a generated
 # migration (a manual edit, a future Atlas behavior change), `atlas
 # migrate lint` exits non-zero and the lefthook pre-commit hook
-# blocks the commit.
+# blocks the commit. The combined effect — auto-skip at diff time +
+# destructive-error at lint time — forces destructive schema changes
+# (column / table / schema removal) through expand-contract across
+# multiple deploys: ship the additive expand migration first, cut
+# application code over to the new surface in a second deploy, then
+# author the contract migration manually as a separate file once the
+# old surface has no live readers.
 env "local" {
   src = "file://lib/case-store/schema.sql"
   dev = local.dev_url
@@ -142,10 +149,11 @@ env "local" {
 # out to `atlas migrate apply --env testcontainer --url <uri>
 # --allow-dirty` against testcontainers booted by `globalSetup.ts`
 # and per-test databases provisioned by `setupPerTestDatabase`.
-# Both consumers live in this repo; the `--allow-dirty` rationale
-# (postgis pre-installed → non-empty `tiger`/`topology` schemas)
-# is documented at `lib/case-store/CLAUDE.md` § Tests:
-# testcontainers harness.
+# `--allow-dirty` suppresses Atlas's empty-database precondition
+# check — postgis is pre-installed in the harness's image, so the
+# `tiger` and `topology` schemas are non-empty before Atlas runs;
+# without the flag, Atlas would refuse to apply against a
+# "non-empty" database.
 #
 # The `--url` flag overrides the env's URL (which has no static
 # value here; the testcontainer's port is dynamic per run). The
@@ -178,17 +186,17 @@ env "testcontainer" {
 # ### URL composition
 #
 # Atlas connects to Cloud SQL over Direct VPC Egress + private IP
-# using a standard `postgres://` URL. The four env vars are wired
-# in the Cloud Run revision (Task 0 runbook §Phase 6 + the Atlas
-# rework's `NOVA_DB_HOST` re-add):
+# using a standard `postgres://` URL. The three env vars are wired
+# on the Cloud Run revision:
 #
 #   - NOVA_DB_USER     — IAM service-account identity in Cloud SQL's
 #                        truncated form (`51003905459-compute@developer`).
 #   - NOVA_DB_HOST     — private IPv4 address of the Cloud SQL
-#                        instance (10.9.160.3 per Task 0 runbook line 489).
-#                        Atlas can't resolve an instance-connection-name
-#                        the way `@google-cloud/cloud-sql-connector`
-#                        does — it speaks raw `postgres://` only.
+#                        instance (10.9.160.3). Atlas can't resolve an
+#                        instance-connection-name the way
+#                        `@google-cloud/cloud-sql-connector` does — it
+#                        speaks raw `postgres://` only, so the host
+#                        must be a literal address.
 #   - NOVA_DB_NAME     — application database name (`nova_cases`).
 #
 # Application code (`lib/case-store/postgres/connection.ts`)
@@ -207,8 +215,9 @@ env "testcontainer" {
 # Credentials (the Cloud Run runtime SA) to mint a short-lived IAM
 # token. The token replaces the password slot in the URL; Postgres
 # accepts it because the IAM user (`NOVA_DB_USER`) was created with
-# `--type=CLOUD_IAM_SERVICE_ACCOUNT` (Task 0 runbook P4-5) and the
-# instance has `cloudsql.iam_authentication=on` (P2-1).
+# `--type=CLOUD_IAM_SERVICE_ACCOUNT` and the instance has
+# `cloudsql.iam_authentication=on` — the two server-side
+# preconditions IAM-token authentication relies on.
 #
 # `urlescape()` is required on both userinfo components.
 # `NOVA_DB_USER` is `<account-id>-compute@developer` — the `@`

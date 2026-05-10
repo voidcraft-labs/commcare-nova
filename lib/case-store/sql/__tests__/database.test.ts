@@ -78,8 +78,8 @@ function compile(query: { compile: () => CompiledQuery }): CompiledQuery {
 describe("Database.cases", () => {
 	it("compiles a tenant-scoped select with the (app_id, owner_id) isolation pair", () => {
 		// The structural tenancy contract: every read filters by
-		// `(app_id, owner_id)`. Spec line 389 states this is the
-		// isolation key on the `cases` table.
+		// `(app_id, owner_id)` — the isolation key on the `cases`
+		// table.
 		const compiled = compile(
 			db
 				.selectFrom("cases")
@@ -145,8 +145,9 @@ describe("Database.cases", () => {
 	it("compiles an open-cases query (closed_on IS NULL)", () => {
 		// Domain idiom: an open case has a null `closed_on`. Every
 		// case-list read filters this way unless the user explicitly
-		// opts into closed cases. Spec line 262: `closed_on
-		// TIMESTAMPTZ` is nullable.
+		// opts into closed cases. `closed_on` is nullable on `cases`
+		// — closed cases retain a close timestamp, open cases hold
+		// null.
 		const compiled = compile(
 			db
 				.selectFrom("cases")
@@ -219,7 +220,7 @@ describe("Database.case_type_schemas", () => {
 		// The blueprint-write pipeline upserts one row per
 		// `(app_id, case_type)`. This test pins the lookup shape
 		// the case-store uses to fetch the schema for write-time
-		// validation. Spec lines 267-272.
+		// validation.
 		const compiled = compile(
 			db
 				.selectFrom("case_type_schemas")
@@ -236,8 +237,8 @@ describe("Database.case_type_schemas", () => {
 
 	it("compiles an upsert (insert ... on conflict) on the composite PK", () => {
 		// `applySchemaChange` upserts the JSON Schema for
-		// `(app_id, case_type)`. The composite primary key is the
-		// conflict target. Spec line 271.
+		// `(app_id, case_type)`. The composite primary key
+		// `(app_id, case_type)` is the conflict target.
 		const compiled = compile(
 			db
 				.insertInto("case_type_schemas")
@@ -278,8 +279,9 @@ describe("Database.case_type_schemas", () => {
 describe("Database.case_indices", () => {
 	it("compiles a one-hop ancestor join from cases to case_indices", () => {
 		// The simplest relational read: a child case wants its
-		// parent. Spec line 280: PK is `(case_id, ancestor_id,
-		// identifier)` — the join key is `case_id`.
+		// parent. The join key is `case_id` — `case_indices` keys
+		// on the composite PK `(case_id, ancestor_id, identifier)`,
+		// and the leading column is what the join targets.
 		const compiled = compile(
 			db
 				.selectFrom("cases")
@@ -304,8 +306,8 @@ describe("Database.case_indices", () => {
 
 	it("compiles a depth-1 direct-edge insert", () => {
 		// The materialization policy stores direct edges only
-		// (depth=1); transitive walks compose via recursive CTE on
-		// read. Spec lines 274-295.
+		// (`depth = 1`); transitive walks compose at read time as a
+		// chain of `(case_indices, cases)` joins, one per AST step.
 		const compiled = compile(
 			db.insertInto("case_indices").values({
 				case_id: "child-uuid",
@@ -367,8 +369,7 @@ describe("Database.cases_quarantine", () => {
 		// to `now()` so omitting it from the insert is the canonical
 		// shape; Kysely's `Insertable<CasesQuarantineTable>` shape
 		// with `ColumnType<Date, Date | string | undefined, ...>`
-		// accepts `undefined` for the default to fire. Spec §
-		// "Schema migration policy" lines 309-340.
+		// accepts `undefined` for the default to fire.
 		const compiled = compile(
 			db.insertInto("cases_quarantine").values({
 				case_id: "case-uuid",

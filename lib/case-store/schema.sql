@@ -134,10 +134,8 @@ CREATE TABLE "case_indices" (
 -- Per-property expression indexes are NOT in this static schema —
 -- property names are blueprint-specific and search modes are
 -- search-input-config-specific. `applySchemaChange` emits the
--- matching CREATE / DROP set in a Phase B that runs OUTSIDE the
--- schema-sync transaction; see `lib/case-store/CLAUDE.md` §
--- "`applySchemaChange` runs in two phases" for the
--- `SnapshotAny`-vs-`CONCURRENTLY` rationale.
+-- matching CREATE / DROP set; the static-vs-dynamic split lives
+-- there, not here.
 CREATE INDEX "case_indices_ancestor_id_identifier_idx"
   ON "case_indices" ("ancestor_id", "identifier");
 
