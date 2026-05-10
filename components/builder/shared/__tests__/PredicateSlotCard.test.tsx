@@ -3,8 +3,7 @@
 // components/builder/shared/__tests__/PredicateSlotCard.test.tsx
 //
 // PredicateSlotCard composition tests — pin the public contract of
-// the optional-Predicate slot primitive that FiltersSection and
-// DisplaySection (case-search) both consume:
+// the optional-Predicate slot primitive:
 //
 //   - Slot-empty state surfaces the "Add ..." dashed CTA; the
 //     "Clear ..." button is absent.
