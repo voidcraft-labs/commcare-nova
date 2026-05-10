@@ -143,6 +143,14 @@ export function emitRemoteRequest(args: {
 	// `commcare-hq/corehq/apps/app_manager/id_strings.py::search_command`.
 	const moduleId = `m${moduleIndex}`;
 	const commandLocaleId = `case_search.${moduleId}`;
+	// `"Search All Cases"` is CCHQ's contract default for an unset
+	// `search_button_label`, lifted verbatim from
+	// `commcare-hq/corehq/apps/app_manager/models.py::CaseSearch.search_button_label`
+	// (`LabelProperty(default={'en': 'Search All Cases'})`). Mirroring
+	// the upstream default keeps unset Nova authoring round-trip-
+	// identical with a CCHQ-authored search whose button label was
+	// never customised — a fresh search command renders the same
+	// English text on both surfaces.
 	const commandLabel =
 		caseSearchConfig.searchButtonLabel !== undefined &&
 		caseSearchConfig.searchButtonLabel !== ""
