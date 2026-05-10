@@ -12,9 +12,12 @@
 //
 //   - `url` — the CCHQ-side claim endpoint URL. Emitted with the
 //     `__DOMAIN__` placeholder string at compile time. CCHQ's
-//     server-side `import_app` regenerates the suite XML with the
-//     real domain substituted; direct sideload of the .ccz onto a
-//     mobile player is not a current path.
+//     server-side `Application.create_suite` regenerates suite.xml
+//     at build time (via `SuiteGenerator.generate_suite`), and
+//     `RemoteRequestFactory` substitutes the live domain through
+//     `absolute_reverse('claim_case', args=[self.domain])`. The
+//     uploaded .ccz never reaches a runtime carrying the literal
+//     placeholder; direct sideload is not a current path.
 //
 //   - `relevant` — the case-not-already-claimed guard. Lifted
 //     verbatim from
@@ -39,13 +42,16 @@
 // additional `relevant` composition).
 
 /**
- * The CCHQ-side claim URL placeholder. CCHQ's `import_app` rebuilds
- * suite.xml server-side and substitutes the real domain at import
- * time, so the literal placeholder reaching the wire matches what
- * CCHQ emits when the .ccz is consumed via direct sideload (a path
- * Nova does not currently surface). The constant lives at module
- * scope so both the fixture-comparison tests and the runtime
- * emitter share the same source.
+ * The CCHQ-side claim URL placeholder. CCHQ rebuilds suite.xml at
+ * BUILD time via
+ * `commcare-hq/corehq/apps/app_manager/models.py::Application.create_suite`
+ * (which delegates to `SuiteGenerator.generate_suite`); the live
+ * domain is substituted at that point through
+ * `absolute_reverse('claim_case', args=[self.domain])` inside
+ * `RemoteRequestFactory`. The literal placeholder never reaches a
+ * runtime — direct .ccz sideload is not a current Nova path. The
+ * constant lives at module scope so both the fixture-comparison
+ * tests and the runtime emitter share the same source.
  */
 export const CLAIM_URL_TEMPLATE =
 	"https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/";

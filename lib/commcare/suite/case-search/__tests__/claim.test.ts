@@ -21,7 +21,7 @@
 //   3. The `<post>` body carries exactly one `<data>` child —
 //      `case_id` referencing the session's `search_case_id`
 //      datum. No other data children (the excluded-owners +
-//      xpath_query slots live on `<query>` per Task 8).
+//      xpath_query slots live on `<query>`, not `<post>`).
 
 import { describe, expect, it } from "vitest";
 import {
@@ -64,9 +64,9 @@ describe("emitClaimPost — structural shape", () => {
 		// `commcare-hq/corehq/apps/app_manager/xpath.py::CaseClaimXpath.default_relevant`,
 		// surfaced through
 		// `commcare-hq/corehq/apps/app_manager/models.py::CaseSearch.get_relevant`'s
-		// no-additional-relevant branch. The single-author-allowed
-		// composition affordance was nuked in Task 21; every emission
-		// carries the bare default guard.
+		// no-additional-relevant branch. Nova exposes no author
+		// composition affordance; every emission carries the bare
+		// default guard string.
 		const xml = emitClaimPost();
 		expect(xml).toContain(`relevant="${CLAIM_DEFAULT_RELEVANT}"`);
 		expect(CLAIM_DEFAULT_RELEVANT).toBe(

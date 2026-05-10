@@ -42,11 +42,15 @@ import type { WireShape } from "./types";
 
 /**
  * The CCHQ-side `app_aware_remote_search` endpoint URL template.
- * Same `__DOMAIN__` placeholder rationale as `CLAIM_URL_TEMPLATE`
- * in `claim.ts`. CCHQ's `import_app` rebuilds suite.xml server-side
- * and substitutes both the domain and the freshly-allocated
- * `__APP_ID__` at import time. Direct sideload of the .ccz is not
- * a current path.
+ * Same placeholder rationale as `CLAIM_URL_TEMPLATE` in `claim.ts`.
+ * CCHQ rebuilds suite.xml at BUILD time via
+ * `commcare-hq/corehq/apps/app_manager/models.py::Application.create_suite`
+ * (which delegates to `SuiteGenerator.generate_suite`);
+ * `RemoteRequestFactory.build_remote_request_queries` substitutes
+ * both the live domain and the live app id through
+ * `absolute_reverse('app_aware_remote_search', args=[self.app.domain, self.app._id])`.
+ * The literal placeholders never reach a runtime — direct .ccz
+ * sideload is not a current path.
  */
 const SEARCH_URL_TEMPLATE =
 	"https://www.commcarehq.org/a/__DOMAIN__/phone/search/__APP_ID__/";
@@ -310,15 +314,18 @@ function composeDatumNodeset(
  * the unified filter (`caseListConfig.filter`) with every advanced-
  * arm search input's predicate, runs the result through the CSQL
  * emitter, and returns either the full emission (for the
- * orchestrator to splice in) or `undefined` when the AND-composed
+ * orchestrator to splice in) or `undefined` when the composed
  * result is `match-all` (the no-op identity — CCHQ accepts the
  * `_xpath_query` absence cleanly when there is no authored
  * predicate).
  *
- * The match-all check runs after `and(...)` reduces — `and(match-all,
- * match-all)` collapses to `match-all`, and a single trivial input
- * carries through to the same shape. The reducer is the gate, not
- * a manual emptiness check.
+ * Two arms collapse trivial input to the `match-all` no-op:
+ * multi-clause inputs flow through `and(...)`'s reducer (which
+ * folds authored `match-all` clauses on the way through); the
+ * single-clause arm short-circuits the reducer and falls through
+ * to the explicit `composed.kind === "match-all"` check below. A
+ * length-zero clause list is rejected at the top of the function;
+ * length-one preserves the clause; length-N runs the reducer.
  */
 function composeXPathQueryEmission(
 	caseListConfig: CaseListConfig,

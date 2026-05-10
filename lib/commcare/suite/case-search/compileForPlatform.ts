@@ -28,10 +28,15 @@
 //     attribute inside `<remote-request>/<session>` (per
 //     `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_remote_request_queries`).
 //   - `inlineSearch` selects the storage-instance identifier the
-//     search-side `<datum nodeset>` references:
-//     `instance('results')` (standalone) vs `instance('results:inline')`
-//     (inline). Wire consumers also emit the `<query inline_search>`
-//     attribute from this same flag.
+//     search-side `<datum nodeset>` references and the matching
+//     `<query storage-instance>` attribute value: `results`
+//     (standalone) vs `results:inline` (inline). CCHQ does not emit
+//     a separate `<query inline_search>` attribute — the inline-vs-
+//     standalone distinction surfaces only through the chosen
+//     storage-instance identifier (per
+//     `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_remote_request_queries`,
+//     which sets `default_search` unconditionally and `search_on_clear`
+//     conditionally but never `inline_search`).
 
 import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
 import type { PlatformContext, WireShape } from "./types";
