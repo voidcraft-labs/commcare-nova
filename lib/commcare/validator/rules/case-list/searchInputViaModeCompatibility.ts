@@ -1,62 +1,59 @@
 /**
- * Rule: simple-arm search inputs whose `via` is a non-self relation
- * walk are restricted to mode kinds that produce a single-input-ref
- * predicate at wire-emit time.
+ * Rule: reject simple-arm `(mode, via)` combinations that no CCHQ
+ * wire shape can carry faithfully.
  *
- * Why the restriction. The CCHQ wire shape binds exactly one user-
- * typed value per `<prompt key="X">` element — the runtime reads
- * `instance('search-input:results')/input/field[@name='X']` and
- * substitutes the bound value at predicate-evaluation time. The
- * simple-arm-with-via wire pipeline auto-derives an advanced-style
- * predicate from `(property, mode, via)` at emission and routes the
- * relation walk through `_xpath_query` instead of the bare `<prompt>`
- * (otherwise the relation walk would silently drop on the wire — see
- * the wire emitters at
- * `lib/commcare/suite/case-search/searchPrompts.ts::emitPromptElement`
- * and `lib/commcare/hqJson/caseList.ts::projectSimpleSearchInput`,
- * neither of which encodes `input.via`).
+ * Two distinct rejections fire here:
  *
- * Two simple-arm mode kinds break that derivation:
+ *   - `range` mode is allowed only when the input's `via` is absent
+ *     or `self`. CCHQ's `date` / `daterange` widget reads two
+ *     bindings (`<name>:from` and `<name>:to`) and the prompt slot
+ *     handles the two-value semantic internally for the current
+ *     case. A non-self via has no equivalent two-binding wire
+ *     shape — the single `<prompt key="X">` element binds one
+ *     value per input.
  *
- *   - `range`: the runtime case-list preview reads two separate
- *     bindings, `<name>:from` and `<name>:to`. The wire pipeline
- *     binds exactly one prompt key per input, so there's no
- *     equivalent two-binding shape on the CCHQ side. Self-walk
- *     `range` inputs work because CCHQ's `date` / `daterange` widget
- *     handles the two-bound semantic internally; the relation walk
- *     can't ride on that single binding.
+ *   - `multi-select-contains` mode is rejected on every simple-arm
+ *     input, including self-walk. The runtime preview comma-splits
+ *     one user-typed value into a token list at evaluation time;
+ *     CCHQ's wire side has two failure modes:
  *
- *   - `multi-select-contains`: the runtime preview comma-splits one
- *     bound value into a token list at evaluation time. CCHQ's
- *     wire-side prompt binds one literal string; the relation-walked
- *     `_xpath_query` predicate would carry a single-token comparison
- *     against the relation-walked property, which is not what the
- *     author meant.
+ *       - Self-walk: the bare `<prompt key="X">` element binds one
+ *         literal string at the search-input slot, and CCHQ's
+ *         runtime defaults a `case_property = "<bound value>"`
+ *         criteria to full-string exact match
+ *         (`commcare-hq/corehq/apps/es/case_search.py::case_property_query`
+ *         → `exact_case_property_text_query`). The author's intent
+ *         ("does this multi-select property contain this token?")
+ *         silently mismatches.
  *
- * For the other mode kinds (`exact` / `fuzzy` / `starts-with` /
- * `phonetic` / `fuzzy-date`), the wire pipeline derives a clean
- * single-input-ref predicate (`eq(prop, input(name))` /
- * `match(prop, input(name), mode)`) that AND-composes into
- * `_xpath_query` cleanly. The author's intent survives the wire
- * round-trip.
+ *       - Cross-walk: the simple-arm derivation lifts to an
+ *         advanced-style predicate at wire emission, but
+ *         `multi-select-contains` in Nova's AST stores the values
+ *         list as literals — no operator in the simple-arm
+ *         derivation admits an `input(name)` Term as the
+ *         membership source, so the lift has no faithful target.
  *
- * The rule fires only on simple-arm inputs with a non-self `via`;
- * advanced-arm inputs already author the predicate by hand and have
- * their own type checker. Short-circuits cleanly on absent
- * `caseListConfig` or empty `searchInputs`.
+ *     Authors who need token containment compose the explicit
+ *     `selected(prop, input("name"))` predicate on the advanced
+ *     arm, where CCHQ's `selected_any` query function gives the
+ *     desired space-delimited-token semantic.
+ *
+ * Modes that ride cleanly on the wire — `exact` (bare prompt for
+ * self-walk; predicate in `_xpath_query` for cross-walk) and
+ * `fuzzy` / `starts-with` / `phonetic` / `fuzzy-date` (always
+ * predicate in `_xpath_query`, regardless of via) — pass through
+ * without firing the rule. The wire-emission pipeline in
+ * `lib/commcare/suite/case-search/simpleArmDerivation.ts` routes
+ * those modes accordingly.
+ *
+ * Advanced-arm inputs already author the predicate by hand and run
+ * through their own type checker; the rule short-circuits on them.
+ * Short-circuits cleanly on absent `caseListConfig` or empty
+ * `searchInputs`.
  */
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
-
-/** Mode kinds that derive cleanly to a single-input-ref wire predicate. */
-const VIA_COMPATIBLE_MODE_KINDS = new Set<string>([
-	"exact",
-	"fuzzy",
-	"starts-with",
-	"phonetic",
-	"fuzzy-date",
-]);
 
 export function searchInputViaModeCompatibility(
 	mod: Module,
@@ -70,32 +67,54 @@ export function searchInputViaModeCompatibility(
 	for (let i = 0; i < inputs.length; i++) {
 		const input = inputs[i];
 		if (input.kind !== "simple") continue;
-		const via = input.via;
-		if (via === undefined || via.kind === "self") continue;
-		// The mode defaults at wire-emit time when absent; the default
-		// for every `SearchInputType` is `exact`-equivalent (text /
-		// select / barcode → `exact`, date → `exact`, date-range →
-		// `range`). The `date-range` type's default is `range`, which
-		// trips the rule; gate by the resolved mode kind, not just the
-		// authored `mode` slot.
+		// Resolve the effective mode kind, applying the same default
+		// the runtime preview applies. The `date-range` type's default
+		// resolves to `range`, which trips the cross-walk rejection;
+		// gate by the resolved mode kind, not just the authored `mode`
+		// slot.
 		const modeKind = resolveModeKind(input);
-		if (VIA_COMPATIBLE_MODE_KINDS.has(modeKind)) continue;
 
-		const directionLabel = relationDirectionLabel(via.kind);
-		errors.push(
-			validationError(
-				"CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE",
-				"module",
-				`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" walks ${directionLabel} but uses the \`${modeKind}\` mode. The CCHQ wire layer binds exactly one user-typed value per search input, so the wire pipeline derives a single-comparison predicate from \`(property, mode, via)\` at upload time — but \`${modeKind}\` mode reads more than one value at runtime, which the single-binding wire shape can't encode without dropping the relation walk. Open the input editor and either pick a single-value mode (\`exact\` / \`fuzzy\` / \`starts-with\` / \`phonetic\` / \`fuzzy-date\`), drop the relation walk back to the current case, or convert the input to the advanced arm so the predicate is fully authored.`,
-				{ moduleUuid, moduleName: mod.name },
-				{
-					inputName: input.name,
-					inputUuid: input.uuid,
-					modeKind,
-					viaKind: via.kind,
-				},
-			),
-		);
+		// `multi-select-contains` rejects on every simple-arm input;
+		// see the rule docstring for the wire-shape rationale.
+		if (modeKind === "multi-select-contains") {
+			errors.push(
+				validationError(
+					"CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE",
+					"module",
+					`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses the \`multi-select-contains\` mode on the simple arm. CCHQ's runtime treats a bare search-input value as a full-string exact match against the case property, so simple-arm \`multi-select-contains\` silently mismatches — a multi-select case property storing "red green blue" would not match the typed value "green". Convert this input to the advanced arm and author the predicate as \`selected(prop("${mod.caseType ?? "<case-type>"}", "${input.property}"), input("${input.name}"))\`, which CCHQ evaluates as space-delimited token containment via its \`selected_any\` query function.`,
+					{ moduleUuid, moduleName: mod.name },
+					{
+						inputName: input.name,
+						inputUuid: input.uuid,
+						modeKind,
+						viaKind: input.via?.kind ?? "absent",
+					},
+				),
+			);
+			continue;
+		}
+
+		// `range` only rejects on a non-self / non-absent via — the
+		// two-value wire shape can't ride on a single prompt binding
+		// when the property lives on a related case.
+		const via = input.via;
+		if (modeKind === "range" && via !== undefined && via.kind !== "self") {
+			const directionLabel = relationDirectionLabel(via.kind);
+			errors.push(
+				validationError(
+					"CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE",
+					"module",
+					`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" walks ${directionLabel} but uses the \`range\` mode. CCHQ's \`daterange\` widget reads two separate values per input (a start and an end), but each \`<prompt>\` element binds only one value on the wire — so a range-mode input only works when the property lives on the current case (the widget handles the two-bound semantic internally). Either drop the relation walk back to the current case, pick a single-value mode like \`exact\` or \`fuzzy-date\`, or convert the input to the advanced arm so the predicate is fully authored.`,
+					{ moduleUuid, moduleName: mod.name },
+					{
+						inputName: input.name,
+						inputUuid: input.uuid,
+						modeKind,
+						viaKind: via.kind,
+					},
+				),
+			);
+		}
 	}
 	return errors;
 }

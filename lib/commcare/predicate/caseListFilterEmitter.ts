@@ -97,8 +97,10 @@ import { formatNumeric, quoteLiteral } from "./stringQuoting";
 import {
 	buildAncestorJoinNodeset,
 	buildSubcaseJoinNodeset,
+	DEFAULT_INSTANCE_ROOT,
 	emitOnDeviceLiteralValue,
 	emitTerm,
+	type InstanceRoot,
 } from "./termEmitter";
 
 /**
@@ -141,11 +143,20 @@ const PREC_AND = 2;
  * The starting `parentPrec` is `0` so the outermost predicate is
  * never wrapped in parens — only nested operators trigger grouping.
  *
+ * `root` selects the storage-instance id woven into every relation-
+ * walk anchor — `"casedb"` (the default) for the case-loading
+ * roster, `"results"` for emission inside a search-target detail
+ * block (the `<detail id="m{N}_search_*">` block runs against the
+ * search-result roster, not the local casedb).
+ *
  * Throws only on structural-bypass shapes the schema is meant to
  * reject (`between` with both bounds absent).
  */
-export function emitCaseListFilter(predicate: Predicate): string {
-	return emitPredicate(predicate, 0);
+export function emitCaseListFilter(
+	predicate: Predicate,
+	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+): string {
+	return emitPredicate(predicate, 0, root);
 }
 
 /**
@@ -155,8 +166,16 @@ export function emitCaseListFilter(predicate: Predicate): string {
  * this operator. Leaf operators (comparisons) ignore `parentPrec` —
  * they never produce a parsing ambiguity at this layer because their
  * operands are value expressions, not predicates.
+ *
+ * `root` threads through every recursive call so a single
+ * authored AST emits consistently against one instance root, even
+ * when relation walks compose inside nested operators.
  */
-function emitPredicate(p: Predicate, parentPrec: number): string {
+function emitPredicate(
+	p: Predicate,
+	parentPrec: number,
+	root: InstanceRoot,
+): string {
 	switch (p.kind) {
 		case "match-all":
 			// XPath 1.0 zero-arg literal function. The boolean-algebra
@@ -178,7 +197,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// shape. Operands are `ValueExpression`; the on-device
 			// expression emitter handles every arm of the union (term,
 			// arith, conditional, count, etc.).
-			return `${emitOnDeviceExpression(p.left)} ${COMPARISON_OPS[p.kind]} ${emitOnDeviceExpression(p.right)}`;
+			return `${emitOnDeviceExpression(p.left, root)} ${COMPARISON_OPS[p.kind]} ${emitOnDeviceExpression(p.right, root)}`;
 		case "and": {
 			// `and` recurses with `PREC_AND` as parent precedence so any
 			// `or` nested inside an `and` clause wraps itself in parens.
@@ -186,7 +205,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// re-associate to `A or (B and C)` rather than `(A or B) and
 			// C` if grouping were dropped.
 			const inner = p.clauses
-				.map((c) => emitPredicate(c, PREC_AND))
+				.map((c) => emitPredicate(c, PREC_AND, root))
 				.join(" and ");
 			return parentPrec > PREC_AND ? `(${inner})` : inner;
 		}
@@ -196,7 +215,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// beneath an `or` — XPath's precedence already resolves them
 			// correctly.
 			const inner = p.clauses
-				.map((c) => emitPredicate(c, PREC_OR))
+				.map((c) => emitPredicate(c, PREC_OR, root))
 				.join(" or ");
 			return parentPrec > PREC_OR ? `(${inner})` : inner;
 		}
@@ -205,21 +224,21 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// the parens around the inner are the function-call argument
 			// list. Pass `parentPrec` of `0` so the inner never adds
 			// redundant grouping.
-			return `not(${emitPredicate(p.clause, 0)})`;
+			return `not(${emitPredicate(p.clause, 0, root)})`;
 		case "in":
-			return emitIn(p);
+			return emitIn(p, root);
 		case "between":
-			return emitBetween(p);
+			return emitBetween(p, root);
 		case "match":
-			return emitMatch(p);
+			return emitMatch(p, root);
 		case "multi-select-contains":
-			return emitMultiSelectContains(p);
+			return emitMultiSelectContains(p, root);
 		case "exists":
-			return emitExistsOrMissing(p.via, p.where, "exists");
+			return emitExistsOrMissing(p.via, p.where, "exists", root);
 		case "missing":
-			return emitExistsOrMissing(p.via, p.where, "missing");
+			return emitExistsOrMissing(p.via, p.where, "missing", root);
 		case "when-input-present":
-			return emitWhenInputPresent(p);
+			return emitWhenInputPresent(p, root);
 		case "is-blank":
 		case "is-null":
 			// Both the absent-or-empty operator and the strict-absent
@@ -227,7 +246,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// absent / cleared / empty alike, and the equality form is
 			// the closest available CCHQ shape for both. The AST
 			// distinction is preserved at the Postgres runtime.
-			return `${emitOnDeviceExpression(p.left)} = ''`;
+			return `${emitOnDeviceExpression(p.left, root)} = ''`;
 		case "within-distance":
 			// CCHQ wire signature:
 			// `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
@@ -246,7 +265,7 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
 			// on the same lexical helper preserves the centralised
 			// per-dialect escape rule that `stringQuoting.ts` exists to
 			// enforce.
-			return `within-distance(${emitTerm(p.property)}, ${emitOnDeviceExpression(p.center)}, ${formatNumeric(p.distance)}, ${quoteLiteral(p.unit, "case-list-filter")})`;
+			return `within-distance(${emitTerm(p.property, root)}, ${emitOnDeviceExpression(p.center, root)}, ${formatNumeric(p.distance)}, ${quoteLiteral(p.unit, "case-list-filter")})`;
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
@@ -281,8 +300,11 @@ function emitPredicate(p: Predicate, parentPrec: number): string {
  * `and` binds tighter than `or`, so an unwrapped or-chain inside an
  * and-chain would silently change meaning.
  */
-function emitIn(p: Extract<Predicate, { kind: "in" }>): string {
-	const left = emitOnDeviceExpression(p.left);
+function emitIn(
+	p: Extract<Predicate, { kind: "in" }>,
+	root: InstanceRoot,
+): string {
+	const left = emitOnDeviceExpression(p.left, root);
 	if (p.values.length === 1) {
 		return `${left} = ${emitOnDeviceLiteralValue(p.values[0].value)}`;
 	}
@@ -304,17 +326,20 @@ function emitIn(p: Extract<Predicate, { kind: "in" }>): string {
  * comparison without grouping; the outer `parentPrec` is what
  * decides whether the parent operator needs to wrap.
  */
-function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
-	const left = emitOnDeviceExpression(p.left);
+function emitBetween(
+	p: Extract<Predicate, { kind: "between" }>,
+	root: InstanceRoot,
+): string {
+	const left = emitOnDeviceExpression(p.left, root);
 	const lowerOp = p.lowerInclusive ? ">=" : ">";
 	const upperOp = p.upperInclusive ? "<=" : "<";
 	const lowerClause =
 		p.lower !== undefined
-			? `${left} ${lowerOp} ${emitOnDeviceExpression(p.lower)}`
+			? `${left} ${lowerOp} ${emitOnDeviceExpression(p.lower, root)}`
 			: undefined;
 	const upperClause =
 		p.upper !== undefined
-			? `${left} ${upperOp} ${emitOnDeviceExpression(p.upper)}`
+			? `${left} ${upperOp} ${emitOnDeviceExpression(p.upper, root)}`
 			: undefined;
 	if (lowerClause !== undefined && upperClause !== undefined) {
 		return `(${lowerClause} and ${upperClause})`;
@@ -357,7 +382,10 @@ function emitBetween(p: Extract<Predicate, { kind: "between" }>): string {
  * — through the shared term emitter, which composes naturally with
  * the function-call syntax.
  */
-function emitMatch(p: Extract<Predicate, { kind: "match" }>): string {
+function emitMatch(
+	p: Extract<Predicate, { kind: "match" }>,
+	root: InstanceRoot,
+): string {
 	const wireFunction = matchModeToWireFunction(p.mode);
 	// `match.value` is a term-arm `ValueExpression` (per the type
 	// checker's `checkMatch` rule). Non-term arms are rejected at
@@ -367,7 +395,7 @@ function emitMatch(p: Extract<Predicate, { kind: "match" }>): string {
 			`caseListFilterEmitter: 'match' requires a term-arm value (per typeChecker.checkMatch); received '${p.value.kind}'.`,
 		);
 	}
-	return `${wireFunction}(${emitTerm(p.property)}, ${emitTerm(p.value.term)})`;
+	return `${wireFunction}(${emitTerm(p.property, root)}, ${emitTerm(p.value.term, root)})`;
 }
 
 /**
@@ -405,8 +433,9 @@ function matchModeToWireFunction(
  */
 function emitMultiSelectContains(
 	p: Extract<Predicate, { kind: "multi-select-contains" }>,
+	root: InstanceRoot,
 ): string {
-	const left = emitTerm(p.property);
+	const left = emitTerm(p.property, root);
 	const calls = p.values.map(
 		(v) => `selected(${left}, ${emitOnDeviceLiteralValue(v.value)})`,
 	);
@@ -475,10 +504,11 @@ function emitExistsOrMissing(
 	via: RelationPath,
 	where: Predicate | undefined,
 	kind: "exists" | "missing",
+	root: InstanceRoot,
 ): string {
 	switch (via.kind) {
 		case "self":
-			return emitSelfRelationalCollapse(where, kind);
+			return emitSelfRelationalCollapse(where, kind, root);
 		case "any-relation": {
 			// Direction-agnostic walk: build presence tests on both
 			// directions independently and OR them together. Each
@@ -489,29 +519,33 @@ function emitExistsOrMissing(
 			// than the equivalent `not(or-of->-0)`; the chosen shape
 			// is shorter and reads more naturally).
 			const ancestorClause = emitCountPresenceTest(
-				buildAncestorJoinNodeset([{ identifier: via.identifier }]),
+				buildAncestorJoinNodeset([{ identifier: via.identifier }], root),
 				where,
 				"exists",
+				root,
 			);
 			const subcaseClause = emitCountPresenceTest(
-				buildSubcaseJoinNodeset(via.identifier),
+				buildSubcaseJoinNodeset(via.identifier, root),
 				where,
 				"exists",
+				root,
 			);
 			const disjunction = `(${ancestorClause} or ${subcaseClause})`;
 			return kind === "exists" ? disjunction : `not(${disjunction})`;
 		}
 		case "ancestor":
 			return emitCountPresenceTest(
-				buildAncestorJoinNodeset(via.via),
+				buildAncestorJoinNodeset(via.via, root),
 				where,
 				kind,
+				root,
 			);
 		case "subcase":
 			return emitCountPresenceTest(
-				buildSubcaseJoinNodeset(via.identifier),
+				buildSubcaseJoinNodeset(via.identifier, root),
 				where,
 				kind,
+				root,
 			);
 		default: {
 			const _exhaustive: never = via;
@@ -530,11 +564,12 @@ function emitExistsOrMissing(
 function emitSelfRelationalCollapse(
 	where: Predicate | undefined,
 	kind: "exists" | "missing",
+	root: InstanceRoot,
 ): string {
 	if (where === undefined) {
 		return kind === "exists" ? "true()" : "false()";
 	}
-	const inner = emitPredicate(where, 0);
+	const inner = emitPredicate(where, 0, root);
 	return kind === "exists" ? inner : `not(${inner})`;
 }
 
@@ -555,8 +590,10 @@ function emitCountPresenceTest(
 	nodeset: string,
 	where: Predicate | undefined,
 	kind: "exists" | "missing",
+	root: InstanceRoot,
 ): string {
-	const filter = where !== undefined ? `[${emitPredicate(where, 0)}]` : "";
+	const filter =
+		where !== undefined ? `[${emitPredicate(where, 0, root)}]` : "";
 	const comparator = kind === "exists" ? "> 0" : "= 0";
 	return `count(${nodeset}${filter}) ${comparator}`;
 }
@@ -579,8 +616,9 @@ function emitCountPresenceTest(
  */
 function emitWhenInputPresent(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
+	root: InstanceRoot,
 ): string {
-	const inputPath = emitTerm(p.input);
-	const inner = emitPredicate(p.clause, 0);
+	const inputPath = emitTerm(p.input, root);
+	const inner = emitPredicate(p.clause, 0, root);
 	return `if(count(${inputPath}), ${inner}, true())`;
 }

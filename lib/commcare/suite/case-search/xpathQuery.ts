@@ -31,7 +31,8 @@
 
 import type { CaseListConfig } from "@/lib/domain";
 import { and } from "@/lib/domain/predicate";
-import type { Predicate } from "@/lib/domain/predicate/types";
+import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { type CsqlEmissionResult, emitCsql } from "../../predicate";
 import { getAdvancedArmPredicates } from "./searchPrompts";
 import {
@@ -69,12 +70,18 @@ export type ComposedXPathQuery = CsqlEmissionResult;
  * routes it to `undefined`.
  *
  * `caseType` is the module's `caseType`; it threads to every
- * derived `prop(...)` reference for simple-arm-with-via inputs.
- * When the module has no `caseType` (orphan validation states), the
- * caller passes `undefined` and the simple-arm derivation skips —
- * a module without a case type can't have meaningful search inputs
- * anyway, and the validator surfaces the structural error
- * separately.
+ * derived `prop(...)` reference for simple-arm inputs that need
+ * `_xpath_query` routing. The validator rule
+ * `caseSearchConfigRequiresCaseType` makes a `caseSearchConfig`
+ * without a case type a structural validation error, so reaching
+ * this helper with `caseType === undefined` is only possible from
+ * call sites that compose without a `caseSearchConfig` (the HQ JSON
+ * `default_properties` projection runs on every module with a
+ * `caseListConfig`, regardless of search-config presence). The
+ * defensive guard keeps the simple-arm derivation skipped in that
+ * arm — the bare prompt slot still emits, and the filter alone (if
+ * authored) still composes — without inventing a fictional case-type
+ * qualifier for the lifted `prop(...)` references.
  */
 export function composeXPathQueryEmission(
 	caseListConfig: CaseListConfig,
@@ -115,5 +122,169 @@ export function composeXPathQueryEmission(
 		return undefined;
 	}
 
+	// Defense in depth — the validator rule
+	// `searchInputRefUsesWhenInputPresent` rejects every bare
+	// `input(...)` ref outside a `when-input-present` envelope at
+	// authoring time. CCHQ's CSQL runtime resolves an unset input
+	// ref to the empty string, so a bare ref would silently match
+	// cases whose property equals "" until the user types. This
+	// walker throws if a bare ref survived to the wire boundary —
+	// the validator should have caught it, and reaching this throw
+	// means the validator was bypassed (an AST built at runtime, an
+	// `as any` cast, or a partial discriminated-union widening).
+	// Same shape as the defensive throw at
+	// `lib/commcare/predicate/csqlEmitter.ts::emitComparisonOperandSegments`
+	// for `count` arms the hoist pass should have lifted.
+	assertNoBareSearchInputRefs(composed);
+
 	return emitCsql(composed);
+}
+
+/**
+ * Walk the composed predicate and throw if a search-input Term
+ * appears outside a `when-input-present` envelope keyed to the same
+ * input name. The walker maintains a set of input names "currently
+ * gated" by an enclosing `when-input-present` and only flags refs
+ * whose name is not in that set. Mirrors the validator rule
+ * `searchInputRefUsesWhenInputPresent`'s walker contract; the throw
+ * shape is a `compilerBugMessage` because reaching it means the
+ * validator was bypassed at authoring time.
+ */
+function assertNoBareSearchInputRefs(predicate: Predicate): void {
+	visitPredicate(predicate, new Set<string>());
+}
+
+function visitPredicate(p: Predicate, gated: Set<string>): void {
+	switch (p.kind) {
+		case "match-all":
+		case "match-none":
+			return;
+		case "eq":
+		case "neq":
+		case "gt":
+		case "gte":
+		case "lt":
+		case "lte":
+			visitExpression(p.left, gated);
+			visitExpression(p.right, gated);
+			return;
+		case "in":
+			visitExpression(p.left, gated);
+			// `in.values` are Literals — they cannot syntactically carry
+			// a search-input ref.
+			return;
+		case "between":
+			visitExpression(p.left, gated);
+			if (p.lower !== undefined) visitExpression(p.lower, gated);
+			if (p.upper !== undefined) visitExpression(p.upper, gated);
+			return;
+		case "is-null":
+		case "is-blank":
+			visitExpression(p.left, gated);
+			return;
+		case "match":
+		case "multi-select-contains":
+		case "within-distance":
+			// `property` is a `PropertyRef`; the value-side slots are
+			// Literal(s). No search-input refs reachable.
+			return;
+		case "and":
+		case "or":
+			for (const clause of p.clauses) {
+				visitPredicate(clause, gated);
+			}
+			return;
+		case "not":
+			visitPredicate(p.clause, gated);
+			return;
+		case "exists":
+		case "missing":
+			// The relation walk's outer context is the casedb root; the
+			// optional inner `where` predicate's input refs gate against
+			// the same enclosing envelope set.
+			if (p.where !== undefined) visitPredicate(p.where, gated);
+			return;
+		case "when-input-present": {
+			// Push the gate, recurse, pop. The envelope's own trigger
+			// term (`p.input`) is the gate itself, so it is NOT flagged
+			// as a bare ref under the gated set.
+			gated.add(p.input.name);
+			visitPredicate(p.clause, gated);
+			gated.delete(p.input.name);
+			return;
+		}
+		default: {
+			const _exhaustive: never = p;
+			throw new Error(
+				`composeXPathQueryEmission.assertNoBareSearchInputRefs: unhandled Predicate kind ${String(_exhaustive)}`,
+			);
+		}
+	}
+}
+
+function visitExpression(expr: ValueExpression, gated: Set<string>): void {
+	switch (expr.kind) {
+		case "term":
+			if (expr.term.kind === "input" && !gated.has(expr.term.name)) {
+				throw new Error(
+					compilerBugMessage({
+						where: "composeXPathQueryEmission",
+						invariant: `the composed _xpath_query predicate carries a bare search-input reference (\`input("${expr.term.name}")\`) outside any when-input-present envelope`,
+						detail:
+							"The validator rule `searchInputRefUsesWhenInputPresent` rejects this shape at authoring time. Reaching this throw means the validator was bypassed — typically through an AST constructed at runtime, an `as any` cast, or a partial discriminated-union widening. Run validation before invoking the compile pipeline; the validator surfaces the offending slot so the author can wrap the subtree in a `when-input-present` envelope or remove the input reference.",
+					}),
+				);
+			}
+			return;
+		case "today":
+		case "now":
+			return;
+		case "date-coerce":
+		case "datetime-coerce":
+		case "double":
+		case "unwrap-list":
+			visitExpression(expr.value, gated);
+			return;
+		case "arith":
+			visitExpression(expr.left, gated);
+			visitExpression(expr.right, gated);
+			return;
+		case "concat":
+			for (const part of expr.parts) visitExpression(part, gated);
+			return;
+		case "coalesce":
+			for (const value of expr.values) visitExpression(value, gated);
+			return;
+		case "if":
+			visitPredicate(expr.cond, gated);
+			visitExpression(expr.then, gated);
+			visitExpression(expr.else, gated);
+			return;
+		case "switch":
+			visitExpression(expr.on, gated);
+			for (const c of expr.cases) {
+				// `c.when` is a `Literal` per `switchCaseSchema` — no
+				// search-input ref can reach this slot. Only the `then`
+				// branch recurses into the value-expression walker.
+				visitExpression(c.then, gated);
+			}
+			visitExpression(expr.fallback, gated);
+			return;
+		case "format-date":
+			visitExpression(expr.date, gated);
+			return;
+		case "count":
+			if (expr.where !== undefined) visitPredicate(expr.where, gated);
+			return;
+		case "date-add":
+			visitExpression(expr.date, gated);
+			visitExpression(expr.quantity, gated);
+			return;
+		default: {
+			const _exhaustive: never = expr;
+			throw new Error(
+				`composeXPathQueryEmission.assertNoBareSearchInputRefs: unhandled ValueExpression kind ${String(_exhaustive)}`,
+			);
+		}
+	}
 }

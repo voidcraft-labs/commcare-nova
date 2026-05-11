@@ -91,7 +91,9 @@ import { quoteLiteral } from "../predicate/stringQuoting";
 import {
 	buildAncestorJoinNodeset,
 	buildSubcaseJoinNodeset,
+	DEFAULT_INSTANCE_ROOT,
 	emitTerm,
+	type InstanceRoot,
 } from "../predicate/termEmitter";
 
 /**
@@ -122,14 +124,24 @@ const ARITH_OPS: Record<
  * `switch.cases[].when` is a literal, `count.where`) routes the
  * condition through the on-device predicate emitter; intra-family
  * recursion (every other operand) routes through this function.
+ *
+ * `root` selects the storage-instance id woven into every relation-
+ * walk anchor — `"casedb"` (the default) for the case-loading
+ * roster, `"results"` for emission inside a search-target detail
+ * block. The parameter threads through every recursive call and
+ * cross-family hop so a single authored AST emits consistently
+ * against one instance root.
  */
-export function emitOnDeviceExpression(expr: ValueExpression): string {
+export function emitOnDeviceExpression(
+	expr: ValueExpression,
+	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+): string {
 	switch (expr.kind) {
 		case "term":
 			// Structural lifter: any `Term` becomes a value via the
 			// shared on-device term emitter. Property refs, search-input
 			// refs, session refs, and literals all flow through here.
-			return emitTerm(expr.term);
+			return emitTerm(expr.term, root);
 		case "today":
 			// CCHQ value function registered on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`
@@ -144,16 +156,16 @@ export function emitOnDeviceExpression(expr: ValueExpression): string {
 			// AST `date-coerce(value)` → wire `date(<value>)`. CCHQ
 			// registration at the `date` entry on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `date(${emitOnDeviceExpression(expr.value)})`;
+			return `date(${emitOnDeviceExpression(expr.value, root)})`;
 		case "datetime-coerce":
 			// AST `datetime-coerce(value)` → wire `datetime(<value>)`.
 			// CCHQ registration at the `datetime` entry on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `datetime(${emitOnDeviceExpression(expr.value)})`;
+			return `datetime(${emitOnDeviceExpression(expr.value, root)})`;
 		case "double":
 			// CCHQ value function at the `double` entry on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `double(${emitOnDeviceExpression(expr.value)})`;
+			return `double(${emitOnDeviceExpression(expr.value, root)})`;
 		case "arith":
 			// Paren-wrapping is unconditional so a recursive composition
 			// stays parse-stable without a precedence walker. The cost
@@ -161,38 +173,38 @@ export function emitOnDeviceExpression(expr: ValueExpression): string {
 			// the expression is the top of a value slot; that's a worth-
 			// while trade-off against tracking arithmetic precedence
 			// across the recursive walk.
-			return `(${emitOnDeviceExpression(expr.left)} ${ARITH_OPS[expr.op]} ${emitOnDeviceExpression(expr.right)})`;
+			return `(${emitOnDeviceExpression(expr.left, root)} ${ARITH_OPS[expr.op]} ${emitOnDeviceExpression(expr.right, root)})`;
 		case "concat":
 			// XPath 1.0 standard `concat(...)` is variadic; the schema
 			// guarantees at least one part.
-			return `concat(${expr.parts.map(emitOnDeviceExpression).join(", ")})`;
+			return `concat(${expr.parts.map((p) => emitOnDeviceExpression(p, root)).join(", ")})`;
 		case "coalesce":
 			// CCHQ `coalesce(...)` returns the first non-empty argument;
 			// the schema guarantees at least one value.
-			return `coalesce(${expr.values.map(emitOnDeviceExpression).join(", ")})`;
+			return `coalesce(${expr.values.map((v) => emitOnDeviceExpression(v, root)).join(", ")})`;
 		case "if":
 			// Cross-family recursion: `cond` is a Predicate emitted via
 			// the on-device predicate emitter; `then` / `else` recurse
 			// through this function. CCHQ wire form for the conditional-
 			// dispatch value function.
-			return `if(${emitCaseListFilter(expr.cond)}, ${emitOnDeviceExpression(expr.then)}, ${emitOnDeviceExpression(expr.else)})`;
+			return `if(${emitCaseListFilter(expr.cond, root)}, ${emitOnDeviceExpression(expr.then, root)}, ${emitOnDeviceExpression(expr.else, root)})`;
 		case "switch":
 			// XPath has no native `switch` value function. The expansion
 			// is a right-nested `if(...)` chain whose innermost branch is
 			// the fallback — a shape CCHQ authors hand-write today.
-			return expandSwitchAsIfChain(expr.on, expr.cases, expr.fallback);
+			return expandSwitchAsIfChain(expr.on, expr.cases, expr.fallback, root);
 		case "format-date":
 			// `format-date(<date>, '<pattern>')`. The pattern routes
 			// through `quoteLiteral` for the per-dialect single-quote
 			// escape (concat-fallback when the pattern contains `'`).
-			return `format-date(${emitOnDeviceExpression(expr.date)}, ${quoteLiteral(expr.pattern, "case-list-filter")})`;
+			return `format-date(${emitOnDeviceExpression(expr.date, root)}, ${quoteLiteral(expr.pattern, "case-list-filter")})`;
 		case "count":
 			// Relational aggregation. The on-device wire form mirrors
 			// the predicate emitter's `exists` join shape — same
-			// `instance('casedb')/...` nodeset construction, without
+			// `instance('<root>')/...` nodeset construction, without
 			// the `> 0` comparator that turns `count` into a presence
 			// test on the predicate side.
-			return emitCount(expr.via, expr.where);
+			return emitCount(expr.via, expr.where, root);
 		case "date-add":
 			// CCHQ wire signature: `date-add(date, interval, quantity)`
 			// — three separate arguments. Source citation:
@@ -203,11 +215,11 @@ export function emitOnDeviceExpression(expr: ValueExpression): string {
 			// `DATE_ADD_INTERVALS` enum already constrains the value
 			// space, but routing through the same lexical helper as
 			// other string literals keeps the escape rule centralised.
-			return `date-add(${emitOnDeviceExpression(expr.date)}, ${quoteLiteral(expr.interval, "case-list-filter")}, ${emitOnDeviceExpression(expr.quantity)})`;
+			return `date-add(${emitOnDeviceExpression(expr.date, root)}, ${quoteLiteral(expr.interval, "case-list-filter")}, ${emitOnDeviceExpression(expr.quantity, root)})`;
 		case "unwrap-list":
 			// CCHQ value function at the `unwrap-list` entry on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `unwrap-list(${emitOnDeviceExpression(expr.value)})`;
+			return `unwrap-list(${emitOnDeviceExpression(expr.value, root)})`;
 		default: {
 			const _exhaustive: never = expr;
 			throw new Error(
@@ -238,15 +250,19 @@ function expandSwitchAsIfChain(
 	on: ValueExpression,
 	cases: ReadonlyArray<SwitchCase>,
 	fallback: ValueExpression,
+	root: InstanceRoot,
 ): string {
-	const onText = emitOnDeviceExpression(on);
+	const onText = emitOnDeviceExpression(on, root);
 	// Recurse from the right: the innermost `if` carries the last case
 	// and the fallback; each outer layer wraps with the next case.
-	let result = emitOnDeviceExpression(fallback);
+	let result = emitOnDeviceExpression(fallback, root);
 	for (let i = cases.length - 1; i >= 0; i -= 1) {
 		const c = cases[i];
-		const whenText = emitOnDeviceExpression({ kind: "term", term: c.when });
-		const thenText = emitOnDeviceExpression(c.then);
+		const whenText = emitOnDeviceExpression(
+			{ kind: "term", term: c.when },
+			root,
+		);
+		const thenText = emitOnDeviceExpression(c.then, root);
 		result = `if(${onText} = ${whenText}, ${thenText}, ${result})`;
 	}
 	return result;
@@ -273,26 +289,40 @@ function expandSwitchAsIfChain(
  * expansion sums the ancestor and subcase counts (`<ancestor> +
  * <subcase>`) to give a single cardinality across both directions.
  */
-function emitCount(via: RelationPath, where: Predicate | undefined): string {
+function emitCount(
+	via: RelationPath,
+	where: Predicate | undefined,
+	root: InstanceRoot,
+): string {
 	switch (via.kind) {
 		case "self":
 			if (where === undefined) return "1";
-			return `if(${emitCaseListFilter(where)}, 1, 0)`;
+			return `if(${emitCaseListFilter(where, root)}, 1, 0)`;
 		case "ancestor":
-			return emitDirectedCount(buildAncestorJoinNodeset(via.via), where);
+			return emitDirectedCount(
+				buildAncestorJoinNodeset(via.via, root),
+				where,
+				root,
+			);
 		case "subcase":
-			return emitDirectedCount(buildSubcaseJoinNodeset(via.identifier), where);
+			return emitDirectedCount(
+				buildSubcaseJoinNodeset(via.identifier, root),
+				where,
+				root,
+			);
 		case "any-relation": {
 			// Direction-agnostic count: sum the ancestor and subcase
 			// cardinalities. Each side computes a directed count
 			// independently; their sum is the total reachable count.
 			const ancestorCount = emitDirectedCount(
-				buildAncestorJoinNodeset([{ identifier: via.identifier }]),
+				buildAncestorJoinNodeset([{ identifier: via.identifier }], root),
 				where,
+				root,
 			);
 			const subcaseCount = emitDirectedCount(
-				buildSubcaseJoinNodeset(via.identifier),
+				buildSubcaseJoinNodeset(via.identifier, root),
 				where,
+				root,
 			);
 			return `(${ancestorCount} + ${subcaseCount})`;
 		}
@@ -316,7 +346,9 @@ function emitCount(via: RelationPath, where: Predicate | undefined): string {
 function emitDirectedCount(
 	nodeset: string,
 	where: Predicate | undefined,
+	root: InstanceRoot,
 ): string {
-	const filter = where !== undefined ? `[${emitCaseListFilter(where)}]` : "";
+	const filter =
+		where !== undefined ? `[${emitCaseListFilter(where, root)}]` : "";
 	return `count(${nodeset}${filter})`;
 }

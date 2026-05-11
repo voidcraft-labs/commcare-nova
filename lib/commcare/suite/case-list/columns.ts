@@ -94,6 +94,7 @@
 import type { Column } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { quoteLiteral } from "../../predicate/stringQuoting";
+import type { InstanceRoot } from "../../predicate/termEmitter";
 import { escapeXml } from "../../xml";
 import { emitSortBlock, type ResolvedSortDirective } from "./sortKeys";
 import type {
@@ -125,65 +126,27 @@ const DETAIL_LOCALE_TYPE: Readonly<
 };
 
 /**
- * Rewrite a calc-column's lowered xpath for emission inside a
- * search-target detail block. CCHQ's `<detail id="m{N}_search_*">`
- * runs against the `results` instance (the live search-result
- * roster) rather than the local `casedb` instance, so any cross-
- * case relational walk in the calc xpath needs the corresponding
- * root rewrite:
+ * Translate a detail target to the storage-instance id the on-device
+ * emitter threads through every relation-walk anchor. CCHQ's
+ * `<detail id="m{N}_search_*">` block runs against the search-result
+ * roster, while the `<detail id="m{N}_case_*">` block runs against
+ * the local casedb. Verified against the canonical fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`:
+ * `detail[@id='m0_case_short']`'s parent-relation field emits
+ * `instance('casedb')/casedb/case[@case_id=current()/index/parent]/whatever`,
+ * while `detail[@id='m0_search_short']`'s same field emits
+ * `instance('results')/results/case[@case_id=current()/index/parent]/whatever`.
  *
- *     instance('casedb')/casedb/case[...]
- *         → instance('results')/results/case[...]
- *
- * Verified against the canonical fixture
- * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_short']`'s
- * parent-relation field, where
- * `instance('casedb')/casedb/case[@case_id=current()/index/parent]/whatever`
- * (on `m0_case_short`) becomes
- * `instance('results')/results/case[@case_id=current()/index/parent]/whatever`
- * (on `m0_search_short`).
- *
- * Property-rooted column kinds (`plain` / `date` / `phone` /
- * `id-mapping` / `interval`) emit bare property references that
- * carry no instance prefix, so the rewrite is a no-op for those
- * kinds. The non-relational `current()/index/parent` segment
- * (which selects the parent index on the surrounding context
- * case) is identical on both targets and untouched here. The
- * `instance('commcaresession')` references on session-user /
- * session-context terms remain unchanged — they don't reference
- * either case roster.
- *
- * Applied as a string transform on the lowered xpath (rather
- * than threading a target axis through the on-device emitter
- * stack) because the rewrite is local to one wire-emission
- * surface; threading the parameter through `termEmitter` /
- * `onDeviceEmitter` would pollute primitives every other consumer
- * (XForm binds, search-filter slots, predicate rendering) shares.
+ * The `current()/index/<rel>` segment is identical on both targets
+ * (it reads the index off the surrounding evaluation case, not the
+ * roster); the only divergence is the outer `instance` reference and
+ * its mirrored path segment. Property-rooted column kinds emit bare
+ * property identifiers with no instance prefix, so the parameter is
+ * a no-op for them — same as the calc-column emission when the
+ * expression contains no relation walk.
  */
-function rewriteCasedbToResults(xpath: string): string {
-	return xpath.replaceAll(
-		"instance('casedb')/casedb/case[",
-		"instance('results')/results/case[",
-	);
-}
-
-/**
- * Apply the calc-xpath instance rewrite to a sort directive when
- * the surrounding emit target is `search`. Returns the directive
- * unchanged for the property-rooted arm (no instance prefix to
- * rewrite) and for the case-target arm. Returns a new directive
- * carrying the rewritten `calcXpath` for the search-target
- * calculated arm.
- */
-function rewriteSortDirectiveForTarget(
-	directive: ResolvedSortDirective,
-	target: DetailTarget,
-): ResolvedSortDirective {
-	if (target === "case" || directive.kind === "property") return directive;
-	return {
-		...directive,
-		calcXpath: rewriteCasedbToResults(directive.calcXpath),
-	};
+function instanceRootFor(target: DetailTarget): InstanceRoot {
+	return target === "search" ? "results" : "casedb";
 }
 
 /**
@@ -610,12 +573,11 @@ function templateFormFor(
  * carries zero `<sort>` blocks alongside the search-short block's
  * directives.
  *
- * Search-target emission rewrites the directive's calc xpath
- * `instance('casedb')` → `instance('results')` before passing to
- * `emitSortBlock`, so the rendered `<sort>` block carries the
- * search-instance root for any cross-case calc references. The
- * property-rooted directive arm has no instance prefix and falls
- * through unchanged.
+ * Search-target emission re-lowers a calc-arm directive's xpath
+ * against the `"results"` instance root so the rendered `<sort>`
+ * block carries the search-instance roster for any cross-case calc
+ * references. The property-rooted directive arm has no instance
+ * prefix and passes through unchanged.
  */
 function resolveSortXml(
 	column: Column,
@@ -624,8 +586,41 @@ function resolveSortXml(
 	if (ctx.detailKind === "long") return undefined;
 	const directive = ctx.sortByUuid.get(column.uuid);
 	if (directive === undefined) return undefined;
-	const targeted = rewriteSortDirectiveForTarget(directive, ctx.target);
+	const targeted = retargetSortDirective(directive, column, ctx.target);
 	return emitSortBlock(targeted);
+}
+
+/**
+ * Re-lower the calc-arm directive's xpath against the target
+ * detail's instance root. The case-target directive's xpath is
+ * already lowered against `instance('casedb')` (the
+ * `buildSortDirectives` default), so the case-target arm returns the
+ * directive unchanged; the search-target arm re-emits the column's
+ * expression against `instance('results')` and returns a fresh
+ * directive carrying the rewritten xpath. The property arm is
+ * instance-root-agnostic and passes through.
+ */
+function retargetSortDirective(
+	directive: ResolvedSortDirective,
+	column: Column,
+	target: DetailTarget,
+): ResolvedSortDirective {
+	if (target === "case" || directive.kind === "property") return directive;
+	if (column.kind !== "calculated") {
+		// Structural invariant: a calc-arm directive always pairs with
+		// a calculated column. The `buildSortDirectives` pipeline
+		// builds the two slots in lockstep keyed off the same column.
+		throw new Error(
+			`retargetSortDirective received a calculated directive paired with a ${column.kind}-kind column. The directive map keys on column uuid; the kinds must agree.`,
+		);
+	}
+	return {
+		...directive,
+		calcXpath: emitOnDeviceExpression(
+			column.expression,
+			instanceRootFor(target),
+		),
+	};
 }
 
 /**
@@ -707,18 +702,18 @@ function emitCalculatedField(args: {
 	readonly ctx: CaseListEmitContext;
 }): CaseListEmission {
 	const { column, position, ctx } = args;
-	// `emitOnDeviceExpression` lowers the AST against the canonical
-	// `instance('casedb')` cross-case root; the search-target detail
-	// block runs against `instance('results')` instead, so the
-	// rewrite swaps the root. Property-rooted refs (no `via` walk)
-	// emit bare property names with no prefix and pass through
-	// unchanged. Cross-case `count(...)` calls and `via`-walked
-	// property refs both rewrite at the call's outer instance root.
-	const rawCalcXpath = emitOnDeviceExpression(column.expression);
-	const calcXpath =
-		ctx.target === "search"
-			? rewriteCasedbToResults(rawCalcXpath)
-			: rawCalcXpath;
+	// `emitOnDeviceExpression` lowers the AST against the surrounding
+	// detail's storage-instance root — `instance('casedb')` for the
+	// case-target detail (default), `instance('results')` for the
+	// search-target detail. Property-rooted refs (no `via` walk) emit
+	// bare property names with no prefix, so the parameter is a no-op
+	// for them; cross-case `count(...)` calls and `via`-walked property
+	// refs both thread the root through to the relation-walk anchor
+	// builders in `lib/commcare/predicate/termEmitter.ts`.
+	const calcXpath = emitOnDeviceExpression(
+		column.expression,
+		instanceRootFor(ctx.target),
+	);
 	const headerLocaleId = detailCalculatedHeaderLocaleId(
 		ctx.target,
 		ctx.detailKind,

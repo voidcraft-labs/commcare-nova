@@ -1,10 +1,14 @@
 /**
- * Tests for `searchInputViaModeCompatibility`. CCHQ's wire layer
- * binds exactly one user-typed value per `<prompt>` element, so the
- * simple-arm `(property, mode, via)` derivation only produces a
- * faithful wire shape when the mode reads a single bound value.
- * The rule rejects `range` and `multi-select-contains` modes for
- * simple-arm inputs whose `via` walks a relation.
+ * Tests for `searchInputViaModeCompatibility`. The rule rejects
+ * simple-arm `(mode, via)` combinations no CCHQ wire shape carries
+ * faithfully:
+ *
+ *   - `multi-select-contains` on every simple-arm input (CCHQ's
+ *     prompt slot defaults to full-string exact match, so token
+ *     containment silently mismatches regardless of via).
+ *   - `range` on simple-arm inputs whose `via` is non-self (CCHQ's
+ *     daterange widget reads two values, but each prompt binds one;
+ *     the two-bound semantic can only ride on the self-walk shape).
  */
 
 import { describe, expect, it } from "vitest";
@@ -103,7 +107,46 @@ describe("searchInputViaModeCompatibility", () => {
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("child_tags");
 		expect(hits[0].message).toContain("multi-select-contains");
-		expect(hits[0].message).toContain("child case");
+		// Error directs to the advanced-arm `selected(...)` shape.
+		expect(hits[0].message).toContain("selected(");
+	});
+
+	it("fires for `multi-select-contains` mode on a self-walk input", () => {
+		// Self-walk `multi-select-contains` mismatches at CCHQ's
+		// runtime: the prompt slot binds a single literal string and
+		// the default `case_property_query` does full-string exact
+		// match — "green" never matches a property storing
+		// "red green blue".
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-self-multi"),
+								"tag_pick",
+								"Tags",
+								"select",
+								"tags",
+								{
+									mode: { kind: "multi-select-contains", quantifier: "any" },
+								},
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].message).toContain("tag_pick");
+		expect(hits[0].message).toContain("multi-select-contains");
 	});
 
 	it("fires for `range` mode on a non-self via (date-range default)", () => {
@@ -211,7 +254,10 @@ describe("searchInputViaModeCompatibility", () => {
 		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
 	});
 
-	it("admits `range` and `multi-select-contains` on self-walk inputs (no via)", () => {
+	it("admits `range` on a self-walk input (no via)", () => {
+		// The daterange widget handles the two-value semantic for the
+		// current case directly; the prompt slot covers it without
+		// needing `_xpath_query` routing.
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -227,16 +273,6 @@ describe("searchInputViaModeCompatibility", () => {
 								"Window",
 								"date-range",
 								"visit_date",
-							),
-							simpleSearchInputDef(
-								asUuid("si-m"),
-								"tag_pick",
-								"Tags",
-								"select",
-								"tags",
-								{
-									mode: { kind: "multi-select-contains", quantifier: "any" },
-								},
 							),
 						],
 					},

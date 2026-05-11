@@ -273,15 +273,26 @@ export function compileCcz(
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
 			// stack from the form's type, its post-submit destination, the
-			// module's case type, any form-level link overrides, and the
-			// module's authored case-list filter.
+			// module's case type, any form-level link overrides, the
+			// module's authored case-list filter, and the search-button
+			// display condition.
+			//
 			// The expander already resolved form-link uuids into indexed
 			// HQ shape, so the compiler forwards `hqForm.form_links`
 			// verbatim — no second resolution pass needed here.
-			// `caseListConfig.filter` flows through verbatim; the wire
-			// layer at `session.ts::deriveSessionDatums` routes it
-			// through `emitNodesetFilter` to compose the bracketed
-			// fragment that appends to the case-loading datum's nodeset.
+			//
+			// Two predicates contribute to the entry's `<instance>`
+			// accumulator:
+			//   - `caseListConfig.filter` flows through verbatim; the wire
+			//     layer at `session.ts::deriveSessionDatums` routes it
+			//     through `emitNodesetFilter` to compose the bracketed
+			//     fragment that appends to the case-loading datum's
+			//     nodeset.
+			//   - `caseSearchConfig.searchButtonDisplayCondition` lowers
+			//     to the `<action relevant>` attribute on the case-list
+			//     detail's search-action element, which evaluates in this
+			//     entry's context — so any instance the predicate
+			//     references needs an `<instance>` declaration here too.
 			const entryDef = deriveEntryDefinition(
 				xmlns,
 				mIdx,
@@ -291,6 +302,7 @@ export function compileCcz(
 				caseType || undefined,
 				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
 				mod.caseListConfig?.filter,
+				mod.caseSearchConfig?.searchButtonDisplayCondition,
 			);
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);

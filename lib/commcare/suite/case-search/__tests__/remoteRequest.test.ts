@@ -27,10 +27,12 @@ import {
 import {
 	ancestorPath,
 	eq,
+	input,
 	literal,
 	prop,
 	relationStep,
 	term,
+	whenInput,
 } from "@/lib/domain/predicate";
 import { emitRemoteRequest } from "../remoteRequest";
 
@@ -175,12 +177,23 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 		// evaluation. The wire layer accumulates the id from the Term
 		// references reachable through `caseListConfig` / `caseSearchConfig`
 		// so every XPath the body emits has its instance declared.
+		// The validator rule `searchInputRefUsesWhenInputPresent`
+		// requires bare `input(...)` refs to be wrapped in a
+		// `when-input-present` envelope; the defense-in-depth walker in
+		// `composeXPathQueryEmission` throws on any predicate that
+		// reaches the wire boundary without the envelope. The advanced-
+		// arm predicate here is the wire-valid shape that still
+		// references `instance('search-input:results')` (the envelope
+		// trigger itself), so the instance accumulator must walk it.
 		const advancedInput = advancedSearchInputDef(
 			asUuid("00000000-0000-4000-8000-00000000aaaa"),
 			"city_q",
 			"City",
 			"text",
-			eq(prop("patient", "city"), term({ kind: "input", name: "city_q" })),
+			whenInput(
+				input("city_q"),
+				eq(prop("patient", "city"), term({ kind: "input", name: "city_q" })),
+			),
 		);
 		const { xml } = emitRemoteRequest({
 			module: makeModule({

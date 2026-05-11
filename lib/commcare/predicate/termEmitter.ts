@@ -80,19 +80,50 @@ export const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
 // one builder would surface across every consumer at once.
 
 /**
- * Build the `instance('casedb')/casedb/case[@case_id=<anchor>]`
+ * Storage-instance root selector for emitted wire shapes. The
+ * default `"casedb"` keeps the canonical
+ * `instance('casedb')/casedb/case[...]` shape every case-loading
+ * slot consumes. The `"results"` arm rewrites the root to
+ * `instance('results')/results/case[...]` for emission inside a
+ * search-target `<detail>` block — CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_short']`
+ * pins the shape; the search-result roster lives at
+ * `instance('results')` instead of `instance('casedb')`.
+ *
+ * The path segment between the instance reference and the
+ * `case[...]` predicate mirrors the instance name (`/casedb/case` vs
+ * `/results/case`) — CCHQ's wire grammar binds both segments to the
+ * surrounding instance id.
+ */
+export type InstanceRoot = "casedb" | "results";
+
+/** Default instance root — every on-device emission outside a
+ *  search-target detail block consumes the casedb roster. */
+export const DEFAULT_INSTANCE_ROOT: InstanceRoot = "casedb";
+
+/**
+ * Build the `instance('<root>')/<root>/case[@case_id=<anchor>]`
  * nodeset for an ancestor walk. The first hop anchors against
  * `current()/index/<rel>`; each subsequent hop nests inside the
  * previous hop's nodeset as `<previous>/index/<next>`. The canonical
  * shape with one hop is
- * `instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]`;
+ * `instance('<root>')/<root>/case[@case_id=current()/index/<rel0>]`;
  * with two hops it composes to
- * `instance('casedb')/casedb/case[@case_id=instance('casedb')/casedb/case[@case_id=current()/index/<rel0>]/index/<rel1>]`.
+ * `instance('<root>')/<root>/case[@case_id=instance('<root>')/<root>/case[@case_id=current()/index/<rel0>]/index/<rel1>]`.
  *
  * Source: CCHQ's hashtag-replacement pattern at
  * `commcare-hq/corehq/apps/app_manager/xpath.py::interpolate_xpath`
  * builds the same wire shape (`#parent` / `#host` expand to
- * `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
+ * `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`); the
+ * search-target detail variant pins `instance('results')` at
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml::detail[@id='m0_search_short']`.
+ *
+ * `root` defaults to the case-loading roster. The search-target
+ * detail emission threads `"results"` for emission inside a
+ * `<detail id="m{N}_search_*">` block — CCHQ's runtime evaluates
+ * relation walks there against the search-result roster, not the
+ * local casedb. Nested hops keep the same `root`; cross-instance
+ * walks are not a CCHQ wire shape.
  *
  * Accepts a non-empty list of relation steps; the
  * `RelationPath`-with-`ancestor` schema's tuple-with-rest shape
@@ -100,28 +131,42 @@ export const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
  */
 export function buildAncestorJoinNodeset(
 	via: ReadonlyArray<{ identifier: string }>,
+	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
 ): string {
 	let anchor = `current()/index/${via[0].identifier}`;
 	for (let i = 1; i < via.length; i++) {
-		anchor = `instance('casedb')/casedb/case[@case_id=${anchor}]/index/${via[i].identifier}`;
+		anchor = `instance('${root}')/${root}/case[@case_id=${anchor}]/index/${via[i].identifier}`;
 	}
-	return `instance('casedb')/casedb/case[@case_id=${anchor}]`;
+	return `instance('${root}')/${root}/case[@case_id=${anchor}]`;
 }
 
 /**
  * Build the
- * `instance('casedb')/casedb/case[index/<rel>=current()/@case_id]`
+ * `instance('<root>')/<root>/case[index/<rel>=current()/@case_id]`
  * nodeset for a subcase walk. Reverse-direction join: the inner case
  * has `index/<rel>` pointing back at the outer case's `@case_id`.
  * `current()/@case_id` reads the outer case's id from the predicate's
  * evaluation context (inside a casedb nodeset filter, `current()` is
  * the case being filtered).
  *
- * The canonical CCHQ example pinning this shape is at
+ * The canonical CCHQ example pinning this shape (against the
+ * casedb root) is at
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`.
+ * No CCHQ fixture exercises a subcase walk against the search-result
+ * roster (`instance('results')`) — the search-result instance carries
+ * only the cases the search query returned, and CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`
+ * fixture pins only ancestor walks against it. A subcase walk under
+ * a search-target detail may therefore be a wire shape CCHQ's
+ * runtime treats as an empty result set; the rewrite here keeps the
+ * structural shape symmetric with the ancestor walk, but the
+ * meaning at runtime is unverified.
  */
-export function buildSubcaseJoinNodeset(identifier: string): string {
-	return `instance('casedb')/casedb/case[index/${identifier}=current()/@case_id]`;
+export function buildSubcaseJoinNodeset(
+	identifier: string,
+	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+): string {
+	return `instance('${root}')/${root}/case[index/${identifier}=current()/@case_id]`;
 }
 
 // ============================================================
@@ -156,11 +201,20 @@ export function buildSubcaseJoinNodeset(identifier: string): string {
  *     populated by `SessionInstanceBuilder.addMetadata` in the same
  *     class.
  *   - `literal` — primitive value via `emitOnDeviceLiteralValue`.
+ *
+ * `root` threads to the property-ref emitter for the case-roster
+ * instance selector — the search-target detail block emits against
+ * `instance('results')` instead of `instance('casedb')`. The other
+ * arms (search-input, session, literal) name fixed instance ids
+ * unrelated to the case roster, so they ignore `root`.
  */
-export function emitTerm(term: Term): string {
+export function emitTerm(
+	term: Term,
+	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+): string {
 	switch (term.kind) {
 		case "prop":
-			return emitOnDevicePropertyRef(term);
+			return emitOnDevicePropertyRef(term, root);
 		case "input":
 			return `instance('search-input:results')/input/field[@name='${term.name}']`;
 		case "session-user":
@@ -188,13 +242,14 @@ export function emitTerm(term: Term): string {
  *
  *   - **No walk** (`via` absent or `via.kind === "self"`): bare
  *     property name (or `@`-prefixed reserved attribute). The
- *     case-type qualifier is dropped; the surrounding casedb nodeset
- *     selects the wire-correct case type at execution time.
+ *     case-type qualifier is dropped; the surrounding casedb /
+ *     results nodeset selects the wire-correct case type at
+ *     execution time.
  *   - **Ancestor walk**: prepend
- *     `instance('casedb')/casedb/case[@case_id=current()/index/<rel>]`
+ *     `instance('<root>')/<root>/case[@case_id=current()/index/<rel>]`
  *     (with multi-hop nesting) and join the property name with `/`.
  *   - **Subcase walk**: prepend
- *     `instance('casedb')/casedb/case[index/<rel>=current()/@case_id]`
+ *     `instance('<root>')/<root>/case[index/<rel>=current()/@case_id]`
  *     and join with `/`. Subcase reads select multiple cases when
  *     more than one subcase points back; authors who need cardinality
  *     control compose via `exists` / `count` instead.
@@ -209,11 +264,19 @@ export function emitTerm(term: Term): string {
  *     `'true'` / `'false'` against the RHS — which is never the
  *     intent.
  *
+ * `root` selects the storage-instance id woven into every relation-
+ * walk anchor — `"casedb"` for the case-loading roster (default),
+ * `"results"` for emission inside a search-target detail block. The
+ * leaf identifier is identical regardless of root.
+ *
  * Reserved CommCare attributes pick up the `@` prefix at the leaf;
  * everything else flows through `quoteIdentifier` for the lexical
  * pass-through.
  */
-export function emitOnDevicePropertyRef(prop: PropertyRef): string {
+export function emitOnDevicePropertyRef(
+	prop: PropertyRef,
+	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+): string {
 	const leaf = RESERVED_CASE_ATTRIBUTES.has(prop.property)
 		? `@${quoteIdentifier(prop.property)}`
 		: quoteIdentifier(prop.property);
@@ -223,16 +286,16 @@ export function emitOnDevicePropertyRef(prop: PropertyRef): string {
 	}
 	switch (via.kind) {
 		case "ancestor":
-			return `${buildAncestorJoinNodeset(via.via)}/${leaf}`;
+			return `${buildAncestorJoinNodeset(via.via, root)}/${leaf}`;
 		case "subcase":
-			return `${buildSubcaseJoinNodeset(via.identifier)}/${leaf}`;
+			return `${buildSubcaseJoinNodeset(via.identifier, root)}/${leaf}`;
 		case "any-relation": {
 			// XPath `|` is the node-set union operator; the result is
 			// one node-set containing every node from either direction,
 			// and `(<set>) = <rhs>` returns true when any member of the
 			// set equals the RHS.
-			const ancestor = `${buildAncestorJoinNodeset([{ identifier: via.identifier }])}/${leaf}`;
-			const subcase = `${buildSubcaseJoinNodeset(via.identifier)}/${leaf}`;
+			const ancestor = `${buildAncestorJoinNodeset([{ identifier: via.identifier }], root)}/${leaf}`;
+			const subcase = `${buildSubcaseJoinNodeset(via.identifier, root)}/${leaf}`;
 			return `(${ancestor} | ${subcase})`;
 		}
 		default: {

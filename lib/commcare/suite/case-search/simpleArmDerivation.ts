@@ -1,38 +1,58 @@
 // lib/commcare/suite/case-search/simpleArmDerivation.ts
 //
 // Shared derivation pipeline that lifts a simple-arm
-// `SearchInputDef` with a non-self relation walk into an
-// advanced-style Predicate AST. Both CCHQ wire surfaces — the
-// suite-XML `_xpath_query` composer at `xpathQuery.ts` and the HQ
-// JSON `default_properties` composer at
-// `lib/commcare/hqJson/caseList.ts` — route those inputs through
-// this helper so the relation walk lands in `_xpath_query` (the
-// authoritative slot for cross-case predicates) rather than being
-// dropped at the `<prompt>` / `CaseSearchProperty` slot.
+// `SearchInputDef` whose mode or `via` walk needs an explicit
+// predicate at the wire boundary into an advanced-style Predicate
+// AST. Both CCHQ wire surfaces — the suite-XML `_xpath_query`
+// composer at `xpathQuery.ts` and the HQ JSON `default_properties`
+// composer at `lib/commcare/hqJson/caseList.ts` — route those inputs
+// through this helper so the runtime matcher landing in
+// `_xpath_query` matches the authored intent, rather than relying on
+// CCHQ-side flags or behaviours the prompt slot does not carry.
 //
-// Why the redirection. Each `<prompt key="X">` element binds
-// exactly one user-typed value at runtime via
-// `instance('search-input:results')/input/field[@name='X']`. The
-// prompt itself carries no relation-walk metadata — CCHQ's runtime
-// has no wire form for "this prompt's value applies to a related
-// case." The relation walk MUST live in the AND-composed
-// `_xpath_query` predicate, where the on-device wire form expresses
-// "the related case along <via> has <property> matching <input>."
-// Without this redirection, the wire layer silently emits a
-// self-walk comparison even though the author configured a
-// cross-walk — the same input gives different result sets in the
-// runtime preview and the CCHQ-uploaded app.
+// Why the redirection has two reasons:
 //
-// Mode coverage. The simple-arm-with-via shape is restricted at the
-// validator layer (`searchInputViaModeCompatibility`) to the modes
-// that derive cleanly to a single-input-ref predicate: `exact`,
-// `fuzzy`, `starts-with`, `phonetic`, `fuzzy-date`. Two-binding
-// modes (`range`, `multi-select-contains`) are rejected before
-// reaching this helper — their multi-value runtime semantics have
-// no equivalent on the single-binding `<prompt>` wire shape.
-// The helper still names the closed mode set explicitly so a future
-// `SearchInputMode` arm that admits via composition surfaces here as
-// a compile-time `never` error rather than silently dropping.
+//   1. CCHQ's `CaseSearchProperty` (the wire shape of one
+//      `<prompt>`) has no per-property matcher-strategy slot. The
+//      runtime defaults to exact full-string equality on every
+//      property unless the domain's `CaseSearchConfig.fuzzy_properties`
+//      table opts the property in (a domain-level admin toggle, not
+//      something the app's wire payload can set). So `fuzzy`,
+//      `phonetic`, `starts-with`, and `fuzzy-date` modes can only
+//      reach the runtime by emitting an explicit XPath function call
+//      (`fuzzy-match` / `phonetic-match` / `starts-with` /
+//      `fuzzy-date`) inside the AND-composed `_xpath_query`. Without
+//      this redirection, picking any non-`exact` mode in the editor
+//      uploads an app that does exact-match at runtime — the user's
+//      intent silently drops.
+//
+//   2. Each `<prompt key="X">` element binds exactly one user-typed
+//      value at runtime via
+//      `instance('search-input:results')/input/field[@name='X']` and
+//      carries no relation-walk metadata. The relation walk a
+//      non-self `via` requires must live in the `_xpath_query`
+//      predicate (the on-device wire form expresses "the related
+//      case along <via> has <property> matching <input>").
+//
+// The `exact` mode with self-walk (or absent `via`) is the only
+// shape that rides on the bare `<prompt>` slot alone — CCHQ's
+// runtime default already does the exact comparison against the
+// current case's property. Every other mode + via combination needs
+// `_xpath_query` routing.
+//
+// Mode coverage. The helper handles `exact` / `fuzzy` /
+// `starts-with` / `phonetic` / `fuzzy-date` / `range`. The
+// validator's `searchInputViaModeCompatibility` rule rejects
+// `range` on non-self vias (the two-value wire shape can't ride on
+// a single prompt binding) and rejects `multi-select-contains` on
+// every simple-arm input (the AST stores the values list as
+// literals, so the simple-arm derivation has no operator that
+// admits `input(name)` as the membership source — authors who need
+// token containment compose `selected(prop, input(name))` on the
+// advanced arm). Both rejections fire before this helper runs; the
+// helper still names the closed mode set explicitly so a future
+// `SearchInputMode` arm surfaces here as a compile-time `never`
+// error rather than silently dropping.
 //
 // `when-input-present` wrap. CCHQ's CSQL runtime resolves an unset
 // input ref to the empty string, not absent. Without the
@@ -50,26 +70,70 @@ import type { Predicate } from "@/lib/domain/predicate";
 import { eq, input, match, prop, whenInput } from "@/lib/domain/predicate";
 
 /**
- * Returns `true` if the simple-arm input has a non-self relation
- * walk on its `via` slot — i.e. the input's contribution must
- * route through `_xpath_query` rather than the bare `<prompt>`
- * binding. `self` and absent `via` both stay at the prompt slot:
- * the runtime evaluates the comparison against the current scope's
- * property directly.
+ * Returns `true` if the simple-arm input's `(mode, via)` shape needs
+ * an explicit predicate in `_xpath_query` at the wire boundary
+ * rather than relying on the bare `<prompt>` slot's runtime
+ * default.
+ *
+ * Three CCHQ-runtime defaults make a wire-shape decision per
+ * `(mode, via)`:
+ *
+ *   - **`exact` (self-walk / absent via)** — bare prompt slot.
+ *     CCHQ's runtime defaults a `case_property_query` to full-string
+ *     exact match, which IS the authored intent. No routing.
+ *
+ *   - **`exact` (non-self via)** — `_xpath_query`. The prompt binds
+ *     one runtime value but carries no relation-walk metadata; the
+ *     relation walk must live in the predicate.
+ *
+ *   - **`range` (self-walk / absent via)** — bare prompt slot.
+ *     CCHQ's `daterange` widget reads two bindings
+ *     (`<name>:from` / `<name>:to`) and handles the two-value
+ *     semantic internally for the current case. No `_xpath_query`
+ *     routing — the AST's `match` operator has no range arm to
+ *     route to, and the validator rule
+ *     `searchInputViaModeCompatibility` rejects `range` on non-self
+ *     vias before this helper runs.
+ *
+ *   - **`fuzzy` / `starts-with` / `phonetic` / `fuzzy-date`
+ *     (regardless of via)** — `_xpath_query`. CCHQ's prompt slot
+ *     has no per-input matcher-strategy field; these modes only
+ *     reach the runtime through an explicit XPath function call
+ *     inside `_xpath_query`.
+ *
+ *   - **`multi-select-contains`** — rejected upstream by the
+ *     validator on every simple-arm input. The helper should never
+ *     see this mode kind; reaching it surfaces as a structural
+ *     failure in `deriveSimpleArmPredicate`'s defensive throw.
+ *
+ * In short: `exact` and `range` ride on the bare prompt when
+ * `via` is self-walk / absent; everything else routes through
+ * `_xpath_query`.
  */
 export function simpleArmNeedsXPathQueryEmission(
-	input: SimpleSearchInputDef,
+	authored: SimpleSearchInputDef,
 ): boolean {
-	const via = input.via;
-	if (via === undefined) return false;
-	return via.kind !== "self";
+	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
+	const via = authored.via;
+	const viaIsSelfOrAbsent = via === undefined || via.kind === "self";
+	if (modeKind === "exact" || modeKind === "range") {
+		return !viaIsSelfOrAbsent;
+	}
+	// `fuzzy` / `starts-with` / `phonetic` / `fuzzy-date` always need
+	// the explicit XPath function call. `multi-select-contains` is
+	// rejected by the validator on every simple-arm input; if it
+	// reaches here, the `deriveSimpleArmPredicate` defensive throw
+	// surfaces the validator-bypass.
+	return true;
 }
 
 /**
  * Derive the `_xpath_query`-bound Predicate for a simple-arm input
- * carrying a non-self `via`. The caller's responsibility is to gate
- * on `simpleArmNeedsXPathQueryEmission` first; calling this helper
- * with a self-walk / absent-via input is a contract violation.
+ * whose `(mode, via)` shape needs explicit-predicate emission at
+ * the wire boundary. The caller's responsibility is to gate on
+ * `simpleArmNeedsXPathQueryEmission` first; calling this helper
+ * with an input that rides on the bare prompt slot is a contract
+ * violation.
  *
  * The current case type is required because Nova's `prop(...)`
  * carries an originating-scope qualifier; the type checker resolves
@@ -80,6 +144,10 @@ export function simpleArmNeedsXPathQueryEmission(
  * other authored `prop` reference keeps the AST shape uniform and
  * downstream consumers (the type checker, the on-device emitter)
  * see the same per-property qualifier on every reference.
+ *
+ * A self-walk / absent `via` collapses to an unqualified `prop(...)`
+ * (no relation walk in the derived predicate) — the leaf emitter
+ * reads the property directly off the current case at runtime.
  */
 export function deriveSimpleArmPredicate(
 	authored: SimpleSearchInputDef,
@@ -87,11 +155,20 @@ export function deriveSimpleArmPredicate(
 ): Predicate {
 	if (!simpleArmNeedsXPathQueryEmission(authored)) {
 		throw new Error(
-			`simpleArmDerivation.deriveSimpleArmPredicate received an input with via='${authored.via?.kind ?? "absent"}' — call simpleArmNeedsXPathQueryEmission first to gate.`,
+			`simpleArmDerivation.deriveSimpleArmPredicate received an input that rides on the bare prompt slot (mode='${authored.mode?.kind ?? "default"}', via='${authored.via?.kind ?? "absent"}'). Call simpleArmNeedsXPathQueryEmission first to gate.`,
 		);
 	}
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
-	const propertyRef = prop(caseType, authored.property, authored.via);
+	// Self-walk / absent `via` produces an unqualified `prop(...)` so
+	// the on-device emitter reads the property directly off the
+	// current case; a non-self `via` threads through as the relation
+	// walk the leaf emitter expands into the `instance('casedb')`
+	// join nodeset.
+	const viaForRef =
+		authored.via === undefined || authored.via.kind === "self"
+			? undefined
+			: authored.via;
+	const propertyRef = prop(caseType, authored.property, viaForRef);
 	const inputRef = input(authored.name);
 
 	// The `when-input-present` envelope routes through the canonical
@@ -112,12 +189,14 @@ export function deriveSimpleArmPredicate(
 			return whenInput(inputRef, match(propertyRef, inputRef, "fuzzy-date"));
 		case "range":
 		case "multi-select-contains":
-			// Rejected at the validator layer
-			// (`searchInputViaModeCompatibility`). Defensive throw so a
-			// validator regression surfaces as a structural failure at
-			// emission time rather than a silently dropped relation walk.
+			// Both modes are rejected at the validator layer
+			// (`searchInputViaModeCompatibility`): `range` on non-self
+			// vias only, `multi-select-contains` on every simple-arm
+			// input. A defensive throw here surfaces a validator regression
+			// as a structural failure at emission time rather than a
+			// silent runtime mismatch.
 			throw new Error(
-				`simpleArmDerivation: simple-arm input '${authored.name}' has mode='${modeKind}' and a non-self via — the validator rule searchInputViaModeCompatibility should have rejected this combination at authoring time.`,
+				`simpleArmDerivation: simple-arm input '${authored.name}' has mode='${modeKind}' which the validator rule searchInputViaModeCompatibility should have rejected at authoring time. Run validation before wire emission and convert the input to the advanced arm (or pick a single-value mode) before re-running the compile pipeline.`,
 			);
 		default: {
 			const _exhaustive: never = modeKind;

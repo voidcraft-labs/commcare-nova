@@ -3526,6 +3526,58 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(properties[2].appearance).toBe("barcode_scan");
 	});
 
+	it("never sets a `fuzzy` or `starts_with_search` boolean on `CaseSearchProperty` (CCHQ has no such field — non-exact modes route through `_xpath_query`)", () => {
+		// Verified against
+		// `commcare-hq/corehq/apps/app_manager/models.py::CaseSearchProperty`:
+		// the field set is name / label / appearance / input_ /
+		// default_value / hint / hidden / allow_blank_value / exclude /
+		// required / validations / receiver_expression / itemset /
+		// is_group / group_key. CCHQ's `DocumentSchema` ingest silently
+		// drops unrecognized keys, so a `fuzzy: true` on the wire JSON
+		// would land on the database as nothing — the runtime defaults
+		// to exact full-string match.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-0000000400f1"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-0000000400f2"),
+					"name_fuzzy",
+					"Name",
+					"text",
+					"case_name",
+					{ mode: { kind: "fuzzy" } },
+				),
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-0000000400f3"),
+					"name_starts",
+					"Starts",
+					"text",
+					"case_name",
+					{ mode: { kind: "starts-with" } },
+				),
+			],
+		});
+		const searchConfig = expandDoc(doc).modules[0].search_config;
+		for (const property of searchConfig.properties) {
+			expect(property).not.toHaveProperty("fuzzy");
+			expect(property).not.toHaveProperty("starts_with_search");
+		}
+		// The matcher strategy rides on `_xpath_query` via the
+		// `simpleArmDerivation` lift.
+		const xpathQueryEntry = searchConfig.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathQueryEntry).toBeDefined();
+		expect(xpathQueryEntry?.defaultValue).toContain("fuzzy-match(case_name,");
+		expect(xpathQueryEntry?.defaultValue).toContain("starts-with(case_name,");
+	});
+
 	it("AND-composes `caseListConfig.filter` and every advanced-arm predicate into a single `_xpath_query` slot on `default_properties`", () => {
 		// CCHQ accepts one `_xpath_query` per search; the AST-level
 		// `and(...)` collapses the unified filter + every advanced-arm

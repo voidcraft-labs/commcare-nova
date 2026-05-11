@@ -143,14 +143,3 @@ export function emitRemoteRequest(args: {
 
 	return { xml, strings, wire };
 }
-
-/**
- * Map an instance id to its `jr://` source URL. Unrecognised ids
- * throw — the orchestrator's accumulator should only surface ids
- * the wire layer knows how to source.
- */
-// `<remote-request>` instance emission. The orchestrator's
-// accumulator surfaces every id the body references; the shared
-// `instanceSourceFor` helper (`lib/commcare/predicate/instances.ts`)
-// is the single source of truth for the `id → jr://` mapping that
-// every suite-XML surface emits.

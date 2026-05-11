@@ -318,6 +318,17 @@ export function deriveFormLinkStack(
  * filter's match set. The filter is meaningful only on case-loading
  * form types — `deriveSessionDatums` ignores it for registration /
  * survey forms because they emit no case-loading datum at all.
+ *
+ * `searchButtonDisplayCondition` is the module's
+ * `caseSearchConfig.searchButtonDisplayCondition` predicate. It
+ * lowers to the `<action relevant>` attribute on the case-list
+ * detail's search-action element, which evaluates in the enclosing
+ * `<entry>` context — so every instance the predicate references
+ * needs an `<instance>` declaration here alongside the filter's
+ * instances. CCHQ's server-side suite generator catches the same
+ * accumulation via `InstancesHelper.add_entry_instances`; Nova's
+ * local emission has no equivalent post-process, so both predicates
+ * walk their term sets at derivation time.
  */
 export function deriveEntryDefinition(
 	formXmlns: string,
@@ -328,6 +339,7 @@ export function deriveEntryDefinition(
 	caseType?: string,
 	formLinks?: HqFormLink[],
 	caseListFilter?: Predicate,
+	searchButtonDisplayCondition?: Predicate,
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -350,18 +362,23 @@ export function deriveEntryDefinition(
 		}
 	}
 
-	// Filter-derived instance accumulation. The case-list filter's
-	// XPath fragment lives inside the case-loading datum's nodeset, so
-	// every instance it references needs an `<instance>` declaration on
-	// the surrounding `<entry>`. CCHQ's server-side suite generator
-	// catches this via `InstancesHelper.add_entry_instances`; Nova's
-	// local suite emission has no equivalent post-process, so the
-	// accumulation runs at derivation time. The Term-kind → instance-id
-	// mapping is fixed in `instanceSourceFor` so emission stays
-	// consistent across surfaces (`<entry>`, `<remote-request>`,
-	// future `<query>` slots).
-	if (caseListFilter !== undefined) {
-		for (const id of collectPredicateInstances(caseListFilter)) {
+	// Predicate-derived instance accumulation. Every predicate whose
+	// XPath fragment lives inside an `<entry>`-scoped slot
+	// contributes its instance set here — the case-list filter (lives
+	// inside the case-loading datum's nodeset) and the search-button
+	// display condition (lives on the case-list detail's
+	// `<action relevant>` attribute, evaluated against the enclosing
+	// entry's instances). The Term-kind → instance-id mapping is
+	// fixed in `instanceSourceFor` so emission stays consistent
+	// across surfaces (`<entry>`, `<remote-request>`, future
+	// `<query>` slots).
+	const predicatesContributing: Predicate[] = [];
+	if (caseListFilter !== undefined) predicatesContributing.push(caseListFilter);
+	if (searchButtonDisplayCondition !== undefined) {
+		predicatesContributing.push(searchButtonDisplayCondition);
+	}
+	for (const predicate of predicatesContributing) {
+		for (const id of collectPredicateInstances(predicate)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });

@@ -23,6 +23,7 @@ import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUs
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
+import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
@@ -197,4 +198,5 @@ export const MODULE_RULES = [
 	excludedOwnerIdsTypeCheck,
 	filterSearchInputConflict,
 	caseSearchConfigRequiresSearchableSurface,
+	caseSearchConfigRequiresCaseType,
 ];

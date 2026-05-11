@@ -353,6 +353,80 @@ describe("deriveEntryDefinition", () => {
 		expect(session?.src).toBe("jr://instance/session");
 	});
 
+	it("accumulates commcaresession when the search-button display condition references a session term", () => {
+		// The search-button display condition lowers to the
+		// `<action relevant>` attribute on the case-list short detail.
+		// That attribute evaluates in the enclosing `<entry>` context,
+		// so every instance the predicate references needs an
+		// `<instance>` declaration on the entry — same accumulation
+		// rule the case-list filter applies.
+		const displayCondition = eq(
+			term({ kind: "session-user", field: "region" }),
+			prop("patient", "region"),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			displayCondition,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("commcaresession");
+	});
+
+	it("accumulates search-input:results when the search-button display condition references a search input", () => {
+		const displayCondition = eq(
+			term({ kind: "input", name: "city_q" }),
+			literal("active"),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			displayCondition,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("search-input:results");
+	});
+
+	it("dedups instances across the case-list filter and the display condition", () => {
+		// Both predicates reference the same `commcaresession`
+		// instance; the accumulator should not double-emit.
+		const filter = eq(
+			prop("patient", "region"),
+			term({ kind: "session-user", field: "region" }),
+		);
+		const displayCondition = eq(
+			term({ kind: "session-user", field: "language" }),
+			literal("en"),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			filter,
+			displayCondition,
+		);
+		const sessionInstances = entry.instances.filter(
+			(i) => i.id === "commcaresession",
+		);
+		expect(sessionInstances).toHaveLength(1);
+	});
+
 	it("omits stack for default destination", () => {
 		const entry = deriveEntryDefinition(
 			"http://openrosa.org/formdesigner/abc",

@@ -699,3 +699,194 @@ describe("emitSearchSession — <prompt> body", () => {
 		expect(xml).toContain(`</query>`);
 	});
 });
+
+// ── Non-exact mode routing on self-walk inputs ───────────────────────
+
+describe("emitSearchSession — non-exact mode routing on self-walk inputs", () => {
+	// CCHQ's `CaseSearchProperty` carries no per-input matcher-strategy
+	// flag, and the runtime default for a bare prompt is exact full-
+	// string match. Every non-exact mode (`fuzzy` / `phonetic` /
+	// `starts-with` / `fuzzy-date`) must therefore route through
+	// `_xpath_query` even when the input's `via` is absent / self.
+
+	it("routes a self-walk `fuzzy` simple input into _xpath_query as fuzzy-match(prop, input)", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"name_fuzzy",
+						"Name",
+						"text",
+						"case_name",
+						{ mode: { kind: "fuzzy" } },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		// The prompt slot still emits — CCHQ binds the user-typed
+		// value into `search-input:results` regardless. The matcher
+		// strategy rides on the `_xpath_query` slot.
+		expect(xml).toContain(`<prompt key="name_fuzzy"`);
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		// The CSQL emission produces `fuzzy-match(case_name, "...")`
+		// inside the `_xpath_query` concat wrapper.
+		expect(xml).toContain("fuzzy-match(case_name,");
+	});
+
+	it("routes a self-walk `starts-with` simple input into _xpath_query as starts-with(prop, input)", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"name_starts",
+						"Name",
+						"text",
+						"case_name",
+						{ mode: { kind: "starts-with" } },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("starts-with(case_name,");
+	});
+
+	it("routes a self-walk `phonetic` simple input into _xpath_query as phonetic-match(prop, input)", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"name_phon",
+						"Name",
+						"text",
+						"case_name",
+						{ mode: { kind: "phonetic" } },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("phonetic-match(case_name,");
+	});
+
+	it("routes a self-walk `fuzzy-date` simple input into _xpath_query as fuzzy-date(prop, input)", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"dob_fdate",
+						"DOB",
+						"date",
+						"dob",
+						{ mode: { kind: "fuzzy-date" } },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("fuzzy-date(dob,");
+	});
+
+	it("does NOT route a self-walk `exact` simple input into _xpath_query (rides on bare prompt)", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"name_exact",
+						"Name",
+						"text",
+						"case_name",
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<prompt key="name_exact"`);
+		// CCHQ's runtime default already does exact match — no
+		// `_xpath_query` predicate needed.
+		expect(xml).not.toContain(`<data key="_xpath_query"`);
+	});
+
+	it("does NOT route a self-walk `range` simple input into _xpath_query (daterange widget handles two-bound)", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"visit_window",
+						"Visit",
+						"date-range",
+						"visit_date",
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<prompt key="visit_window"`);
+		expect(xml).not.toContain(`<data key="_xpath_query"`);
+	});
+});
+
+// ── Defense-in-depth on bare search-input refs ───────────────────────
+
+describe("composeXPathQueryEmission — defense in depth on bare input refs", () => {
+	// The validator rule `searchInputRefUsesWhenInputPresent` is the
+	// authoring-time gate; this defense-in-depth walker at the wire
+	// boundary throws if a bare ref survives to emission (validator
+	// bypassed via runtime AST construction / `as any` / partial union
+	// widening). Reaching the throw is a structural failure shape, not
+	// a user-surfaced error.
+
+	it("throws when an advanced-arm predicate carries a bare input ref outside any when-input-present envelope", () => {
+		const bareRefPredicate = eq(
+			prop("patient", "city"),
+			term({ kind: "input", name: "city_q" }),
+		);
+		expect(() =>
+			emitSearchSession({
+				caseListConfig: makeListConfig({
+					searchInputs: [
+						advancedSearchInputDef(
+							INPUT_UUIDS.a,
+							"city_q",
+							"City",
+							"text",
+							bareRefPredicate,
+						),
+					],
+				}),
+				caseSearchConfig: {},
+				wire: WEB_LIST_FIRST,
+				caseType: "patient",
+				moduleIndex: 0,
+			}),
+		).toThrow(/bare search-input reference/);
+	});
+});

@@ -298,12 +298,16 @@ function projectCaseListFilter(
  * stays consistent regardless of which CCHQ ingest path the JSON
  * flows through.
  *
- * Mode-derived booleans (`fuzzy`, `starts_with_search`) flag the
- * runtime matcher's strategy. The default mode (`undefined`) leaves
- * both at `false` — CCHQ's default exact match. The other modes
- * (`exact`, `range`, `phonetic`, `fuzzy-date`, `multi-select-contains`)
- * have no matching CCHQ flag; the runtime derives the matcher from
- * the property's `data_type` and the prompt's `input_` widget.
+ * The bare `<prompt>` slot carries only the widget kind + label +
+ * optional default value. CCHQ has no per-property matcher-strategy
+ * flag on `CaseSearchProperty` — fuzzy / phonetic / starts-with /
+ * fuzzy-date matching is expressed as explicit XPath function calls
+ * inside `_xpath_query`. Every non-`exact` simple-arm input routes
+ * through `composeXPathQueryEmission` via `simpleArmDerivation.ts`,
+ * which emits the matching XPath function predicate AND-composed
+ * with the rest of the filter set. The validator's
+ * `searchInputViaModeCompatibility` rule rejects the one mode the
+ * single-binding wire shape can't carry (`multi-select-contains`).
  *
  * `default` (an authored seed expression) compiles to on-device
  * XPath via `emitOnDeviceExpression` and lands on CCHQ's
@@ -327,8 +331,6 @@ function projectSimpleSearchInput(
 	if (input.default !== undefined) {
 		property.default_value = emitOnDeviceExpression(input.default);
 	}
-	if (input.mode?.kind === "fuzzy") property.fuzzy = true;
-	if (input.mode?.kind === "starts-with") property.starts_with_search = true;
 	return property;
 }
 

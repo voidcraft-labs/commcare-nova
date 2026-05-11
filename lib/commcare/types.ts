@@ -211,11 +211,22 @@ export interface DetailPair {
  * scanner UI on top of an otherwise-text input). Plain text inputs
  * leave both slots absent and CCHQ renders the default text widget.
  *
- * Verified against `commcare-hq/.../models.py::CaseSearchProperty`.
+ * Verified against `commcare-hq/corehq/apps/app_manager/models.py::CaseSearchProperty`.
  * The optional slots use CCHQ's `exclude_if_none=True` semantics —
  * we omit the key when no override is authored. The boolean slots
  * default to `false` in CCHQ; we emit them only when authoring intent
  * differs from the default.
+ *
+ * Note on per-property matcher strategy. CCHQ's `CaseSearchProperty`
+ * carries NO per-input flag for fuzzy / starts-with / phonetic
+ * matching — those strategies are domain-level decisions on
+ * `CaseSearchConfig.fuzzy_properties` (a many-to-many table per
+ * domain) or are expressed as explicit XPath function calls
+ * (`fuzzy-match` / `phonetic-match` / `starts-with` / `fuzzy-date`)
+ * inside the `_xpath_query` slot. Nova therefore drops every
+ * non-`exact` simple-arm input into the AND-composed `_xpath_query`
+ * predicate via `simpleArmDerivation.ts`; the bare `<prompt>` slot
+ * carries only the user-typed value, never a matcher hint.
  */
 export interface CaseSearchProperty {
 	name: string;
@@ -230,8 +241,6 @@ export interface CaseSearchProperty {
 	hidden?: boolean;
 	allow_blank_value?: boolean;
 	exclude?: boolean;
-	fuzzy?: boolean;
-	starts_with_search?: boolean;
 	is_group?: boolean;
 	group_key?: string;
 }
