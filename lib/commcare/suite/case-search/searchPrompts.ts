@@ -99,10 +99,13 @@ export function emitSearchPrompts(
  * — simple-arm rows route through CCHQ's runtime matcher and don't
  * appear in the explicit XPath query.
  *
- * Returns predicates verbatim (no `whenInputPresent` wrapper). The
- * authoring contract is that advanced-arm predicates either reference
- * no input or wrap input references through `whenInputPresent`
- * themselves; the validator enforces this so the emitter trusts it.
+ * Returns predicates verbatim — the emitter does NOT auto-wrap input
+ * references. The validator rule `searchInputRefUsesWhenInputPresent`
+ * is the structural gate: every authored input ref must already sit
+ * inside an enclosing `when-input-present` envelope at this point,
+ * because the CSQL runtime resolves an unset input to the empty
+ * string and a bare ref would silently match cases whose property
+ * equals "" when the user hasn't typed anything.
  */
 export function getAdvancedArmPredicates(
 	searchInputs: ReadonlyArray<SearchInputDef>,

@@ -14,7 +14,9 @@ import { columnReferences } from "./case-list/columnReferences";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
+import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
+import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
@@ -169,9 +171,11 @@ export const MODULE_RULES = [
 	columnReferences,
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
+	searchInputNameUniqueness,
 	searchInputModeMatchesPropertyType,
 	searchInputDefaultTypeCheck,
 	searchInputPredicateTypeCheck,
+	searchInputRefUsesWhenInputPresent,
 	// Case-search-config rules — fire only when `caseSearchConfig`
 	// is present on the module; otherwise the module emits no
 	// `<remote-request>` and these rules have no authoring concern

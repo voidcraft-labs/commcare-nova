@@ -37,6 +37,7 @@ import {
 	predicateSchema,
 	relationPathSchema,
 	valueExpressionSchema,
+	XML_ELEMENT_NAME_PATTERN,
 } from "./predicate/types";
 import { type Uuid, uuidSchema } from "./uuid";
 
@@ -553,10 +554,25 @@ export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 // propagates through the `searchInputCommon.extend({...})` chains
 // for `simpleSearchInputSchema` and `advancedSearchInputSchema`,
 // so each arm rejects unknown keys at parse time.
+//
+// `name` is constrained to XML element-name vocabulary because the
+// wire layer interpolates it as both an attribute value
+// (`<prompt key="X">`) and an XPath token
+// (`instance('search-input:results')/input/field[@name='X']`). The
+// `Term.input` reference shape already gates on the same pattern;
+// matching the declaration's character class keeps both halves of
+// the binding interchangeable — an authored name can always be
+// referenced from a predicate without being silently rejected by
+// the predicate's stricter character rules.
 const searchInputCommon = z
 	.object({
 		uuid: uuidSchema,
-		name: z.string(),
+		name: z
+			.string()
+			.regex(
+				XML_ELEMENT_NAME_PATTERN,
+				"Search input `name` must start with a letter or underscore and contain only letters, digits, or underscores. The name is interpolated both as an XML attribute value on the wire `<prompt>` and as an XPath token in the CSQL `instance('search-input:results')/input/field[@name='…']` reference; characters outside that class break one or both bindings.",
+			),
 		label: z.string(),
 		type: z.enum(SEARCH_INPUT_TYPES),
 		default: valueExpressionSchema.optional(),
