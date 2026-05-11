@@ -164,9 +164,9 @@ export async function populateSampleCasesAction(
  *
  * The success arm carries `inserted: number` (the count of
  * regenerated rows). The deleted count is intentionally absent from
- * the result shape — the user-facing UX names the action
- * "regenerate", and exposing the two-step composition would leak the
- * atomic contract the case-store was designed to hide.
+ * the result shape — the user-facing UX names the action "Reset
+ * sample data", and exposing the two-step composition would leak
+ * the atomic contract the case-store was designed to hide.
  */
 export async function resetSampleCasesAction(
 	appId: string,
