@@ -579,20 +579,17 @@ describe("date-range two-key emission", () => {
 		// Calendar. The mock fires `onSelect(new Date(2024,0,1))`,
 		// which the form formats through `date-fns`'s
 		// `format(date, "yyyy-MM-dd")` — local time, no UTC
-		// drift.
+		// drift. The picker auto-closes after the pick (see
+		// `DatePopoverField`'s controlled-open contract) so a
+		// single calendar is in the DOM at any given moment.
 		fireEvent.click(screen.getByLabelText("Registered from"));
-		const fromCalendar = within(
-			screen.getAllByTestId("mock-calendar")[0] as HTMLElement,
-		);
-		fireEvent.click(fromCalendar.getByTestId("mock-calendar-pick-jan-1"));
+		fireEvent.click(screen.getByTestId("mock-calendar-pick-jan-1"));
 
-		// Now open the "to" popover and pick Dec 31. Each popover
-		// owns its own Calendar instance; the form's two-key emission
-		// AND-composes the bounds at the runtime-bindings layer.
+		// Now open the "to" popover and pick Dec 31. The "from"
+		// popover already auto-closed; only the "to" calendar is
+		// mounted, so `getByTestId` (single-match) succeeds.
 		fireEvent.click(screen.getByLabelText("Registered to"));
-		const calendars = screen.getAllByTestId("mock-calendar");
-		const toCalendar = within(calendars[calendars.length - 1] as HTMLElement);
-		fireEvent.click(toCalendar.getByTestId("mock-calendar-pick-dec-31"));
+		fireEvent.click(screen.getByTestId("mock-calendar-pick-dec-31"));
 
 		vi.advanceTimersByTime(300);
 		expect(lastEmission(onChange)).toEqual({
@@ -629,6 +626,48 @@ describe("date-range two-key emission", () => {
 		vi.advanceTimersByTime(300);
 
 		expect(lastEmission(onChange)).toEqual({ "reg:to": "2024-12-31" });
+	});
+});
+
+// ── Popover auto-close after pick ──────────────────────────────────
+
+describe("popover auto-close after pick", () => {
+	it("closes the single-date popover when a day is picked", () => {
+		// Base UI's Popover only auto-dismisses on outside-press /
+		// escape / close-press / focus-out — none fire when the
+		// Calendar updates its own state. Without the controlled-
+		// open contract in `DatePopoverField`, the popover would
+		// stay open after the user picks, forcing them to click
+		// outside before the next interaction. The mounted calendar
+		// disappearing from the DOM after a pick is the cleanest
+		// proxy for "popover closed".
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(UUID_DOB, "dob", "Date of birth", "date", "dob"),
+			],
+		});
+		fireEvent.click(screen.getByLabelText("Date of birth"));
+		expect(screen.queryByTestId("mock-calendar")).not.toBeNull();
+		fireEvent.click(screen.getByTestId("mock-calendar-pick-jan-1"));
+		expect(screen.queryByTestId("mock-calendar")).toBeNull();
+	});
+
+	it("closes the popover when the Clear button is pressed", () => {
+		// Same auto-close contract on the Clear path — the popover
+		// footer's clear affordance updates the value through the
+		// same controlled-open seam, so the user doesn't have to
+		// click outside after clearing.
+		const initial: SearchInputValues = new Map([["dob", "1990-05-12"]]);
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(UUID_DOB, "dob", "Date of birth", "date", "dob"),
+			],
+			value: initial,
+		});
+		fireEvent.click(screen.getByLabelText("Date of birth"));
+		expect(screen.queryByTestId("mock-calendar")).not.toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: /clear/i }));
+		expect(screen.queryByTestId("mock-calendar")).toBeNull();
 	});
 });
 
@@ -691,12 +730,14 @@ describe("multi-input composition", () => {
 // ── Layout sanity ──────────────────────────────────────────────────
 
 describe("layout", () => {
-	it("renders an empty form harmlessly when there are zero search inputs", () => {
+	it("renders nothing when there are zero search inputs", () => {
+		// The form contract is self-enforcing: a zero-input mount
+		// returns `null` rather than a labelled-but-empty `<search>`
+		// landmark. A caller that forgets to gate on
+		// `searchInputs.length > 0` doesn't surface an assistive-
+		// tech-visible no-op region.
 		const { container } = renderForm({ searchInputs: [] });
-		// The form node still mounts; assertion is that no input is
-		// rendered and no exception was thrown. The caller is expected
-		// to skip mounting altogether when `searchInputs.length === 0`,
-		// but the form should still degrade gracefully.
+		expect(container.querySelector("search")).toBeNull();
 		expect(container.querySelectorAll("input")).toHaveLength(0);
 	});
 

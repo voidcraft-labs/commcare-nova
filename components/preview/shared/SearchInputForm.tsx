@@ -189,6 +189,14 @@ export function SearchInputForm({
 		});
 	};
 
+	// Zero-input modules render nothing — the caller is the
+	// case-list screen, which already guards on
+	// `caseListConfig.searchInputs.length > 0` before mounting this
+	// component. Returning null here makes the contract self-
+	// enforcing: a caller that forgets the guard doesn't surface a
+	// labelled-but-empty `<search>` landmark to assistive tech.
+	if (searchInputs.length === 0) return null;
+
 	return (
 		<search
 			aria-labelledby={titleId}
@@ -434,12 +442,22 @@ function DatePopoverField({
 	const id = useId();
 	const parsed = ISO_DATE_PATTERN.test(value) ? parseISO(value) : undefined;
 	const selected = parsed !== undefined && isValid(parsed) ? parsed : undefined;
+	// `open` is lifted into local state so a day-pick or Clear can
+	// close the popover programmatically. Base UI's Popover dismisses
+	// on outside-press / escape / close-press / focus-out only —
+	// none fire when a descendant updates its own state, so an
+	// uncontrolled popover stays open after a pick. The expected
+	// pick → close → next-action cadence (most visible in the date-
+	// range where the from popover would otherwise block the user's
+	// reach to the to trigger) routes through `setOpen(false)`
+	// inside the relevant handlers.
+	const [open, setOpen] = useState(false);
 	return (
 		<Field>
 			<FieldLabel htmlFor={id} className={labelClassName}>
 				{label}
 			</FieldLabel>
-			<Popover>
+			<Popover open={open} onOpenChange={setOpen}>
 				<PopoverTrigger
 					id={id}
 					aria-label={ariaLabel}
@@ -469,6 +487,7 @@ function DatePopoverField({
 						selected={selected}
 						onSelect={(next) => {
 							onChange(next === undefined ? "" : format(next, ISO_DATE_FORMAT));
+							setOpen(false);
 						}}
 						autoFocus
 					/>
@@ -478,7 +497,10 @@ function DatePopoverField({
 								type="button"
 								variant="ghost"
 								size="xs"
-								onClick={() => onChange("")}
+								onClick={() => {
+									onChange("");
+									setOpen(false);
+								}}
 							>
 								<Icon icon={tablerX} aria-hidden="true" />
 								Clear
@@ -571,11 +593,13 @@ interface SelectRowProps {
  * value renders the placeholder; selecting an option emits the
  * option's wire-form `value`.
  *
- * Base UI's `Select.onValueChange` is multi-select-aware: the value
- * parameter is `string | string[] | null`. The form's binding
- * layer only consumes single-string values, so the array and null
- * arms are collapsed to the empty string — the binding layer's
- * short-circuit then fires the same way as a cleared text input.
+ * Base UI's `Select.onValueChange` value parameter is typed
+ * `Value | null` in single-mode (and `Value[] | null` in multi-
+ * mode). The shadcn wrapper passes the generic through without
+ * narrowing, so `next` reaches us as `any | null`. The form only
+ * consumes string values, so non-string arrivals (including
+ * `null` when no option is selected) collapse to "" and fall
+ * through the binding layer's empty-input short-circuit.
  */
 function SelectRow({ name, label, options, value, onChange }: SelectRowProps) {
 	const id = useId();
