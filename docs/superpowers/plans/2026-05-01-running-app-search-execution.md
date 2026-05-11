@@ -185,6 +185,10 @@ The case-store's `resetSampleData` runs delete + regenerate in one transaction (
 
 **Tests:** running-app case list with no search inputs reads as before; running-app case list with simple-arm inputs filters correctly; running-app case list with advanced-arm inputs filters correctly; mixed-arm composition AND's clauses; empty-value short-circuit produces unfiltered rows; reset helper deletes existing rows and regenerates a fresh population.
 
+**Internal helper.** A private `composeQueryPredicate(caseListConfig?, inputValues?, caseType)` lives in the helpers module and owns the three-way dispatch: no `caseListConfig` → no predicate; absent `inputValues` OR empty `searchInputs` → pass `caseListConfig.filter` verbatim; both populated → compose `composeRuntimeFilter`, drop `match-all` clauses (the conjunction identity), then `and(...)` the at-most-two contributions. `match-all` is explicitly filtered before the `and(...)` call because `reduceAnd` only collapses 0- and 1-clause inputs.
+
+> **SHIPPED.** Task 2 landed at `lib/preview/engine/caseDataBindingHelpers.ts` (commits `02b1caf2` through `1afa8598`) with 8 new tests. `readCases` accepts `inputValues?: SearchInputValues`; `resetSampleCases` is exported.
+
 ### Task 3: SearchInputForm component
 
 **Files:** `components/preview/shared/SearchInputForm.tsx` (NEW), `components/preview/shared/__tests__/SearchInputForm.test.tsx` (NEW).
