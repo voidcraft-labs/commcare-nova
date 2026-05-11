@@ -323,6 +323,24 @@ End-to-end against the testcontainer harness:
 
 The test verifies Plan 5's surface area against the live Postgres `cases` table — no in-memory store, no mocked case-store. The harness's `setupPerTestDatabase` per `lib/case-store/CLAUDE.md` § testcontainers harness handles the per-test database isolation.
 
+**Shipped scope.** Five integration tests covering the cross-layer round-trips:
+
+1. **CaseListScreen with search inputs — real Postgres narrowing.** Seeds 3 rows, filters out `status="closed"` via the always-on filter, asserts `age desc` sort order, types into `SearchInputForm`, asserts the runtime-bindings predicate AND-composes with the filter, asserts clearing reverts to filter-only. Module-name heading + calc-cell render via `evaluateColumnValue` also pinned.
+2. **FormScreen registration submit — write-through to case list.** Fills registration form, submits, verifies the success-arm navigation, re-mounts `CaseListScreen` against the same store, asserts the new row surfaces.
+3. **CaseListScreen Reset — atomic delete + regenerate round-trip.** Seeds sentinel row, clicks Reset, confirms dialog, asserts sentinel disappears.
+4. **FormScreen followup submit — patch round-trips to the rendered row.** Asserts the case-list re-render reflects the patched plain Age column AND the calc cell re-evaluation.
+5. **FormScreen close submit — `closed_on` stamped through to the case-store.** Asserts the zero-field close form's submission lands `closed_on = now()`. Note: `CaseStore.close()` accepts an optional `status` argument but `applyCloseMutation` doesn't pass one — closing leaves `status` untouched, contrary to an earlier framing of step 8.
+
+**Helper-delegate mock strategy.** `vi.mock("@/lib/preview/engine/caseDataBinding")` stubs each Server Action; the stub captures the per-test `PostgresCaseStore` in closure and delegates to the corresponding `caseDataBindingHelpers` function. The helpers were designed for this test-injection contract — they already accept a `CaseStore` parameter. Bypasses production `getSession()` + `withOwnerContext(userId)` wrappers while exercising every code path below the action layer.
+
+**Direct screen mount.** `<CaseListScreen>` + `<FormScreen>` mounted directly rather than via `<PreviewShell />`. The dispatcher's per-arm routing has its own unit-test coverage; the integration concern is the runtime-bindings + Postgres round-trip.
+
+**`caseSearchConfig` not in the fixture.** Plan 5's "Deferred to follow-up specs" section confirms none of `caseSearchConfig`'s slots affect the running-app preview rendering — they only emit to the wire. Adding the slot would have produced fixture surface that drives no assertion.
+
+**Note on `compileConcat` bind-type inference.** Tried `concat(prop, literal)` as the calc-column expression first; trips Postgres `could not determine data type of parameter $N` because `compileConcat` in `lib/case-store/sql/compileExpression.ts` doesn't emit text casts on parameter operands (the `within-distance` compiler shows the cast-each-fragment pattern is required when concat-ing parameter-bound values). Out of scope for Plan 5; documented in the fixture comment so the next maintainer doesn't re-step the rake. The test uses `arith("+", prop, qualifiedLiteral(1, "int"))` instead.
+
+> **SHIPPED.** Task 8 landed across 3 commits (`77198e06`, `a59d1ef7`, `632c4aa4`) with 5 integration tests, single-run green.
+
 **No platform-flag branching.** The integration test does not branch on `compileForPlatform`'s `WireShape` — the running-app preview is platform-agnostic and renders the inline-search shape regardless of platform context. The wire-emission tests (Plan 4 Task 13) cover `WireShape` permutations; Plan 5 covers the preview rendering.
 
 ---
