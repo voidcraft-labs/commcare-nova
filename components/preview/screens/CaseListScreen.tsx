@@ -168,8 +168,10 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	// Shell wrapper shared by every state arm. Hoisting the wrapper +
 	// heading + form into one render path means each arm only owns its
 	// body content — a future arm can't silently drop the form mount.
-	// `SearchInputForm` itself fails closed on empty `searchInputs`,
-	// so the screen doesn't gate the mount.
+	// The screen gates on `searchInputs.length > 0` so an empty config
+	// doesn't reserve the wrapper's margin; `SearchInputForm`
+	// independently returns null for the same input, so the contract
+	// is self-enforcing even if a future caller forgets the gate.
 	const shell = (body: ReactNode) => (
 		<div className="p-6 max-w-3xl mx-auto">
 			<div className="flex items-center gap-2 mb-1">
