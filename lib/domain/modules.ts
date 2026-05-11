@@ -212,7 +212,22 @@ const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
 	field: z.string(),
 	header: z.string(),
-	mapping: z.array(idMappingEntrySchema),
+	// Mapping values must be unique within a column. The wire emitter
+	// builds the cell text by joining one `if(selected(field, '<value>'),
+	// '<label>', '')` arm per entry — duplicate values match the same
+	// row and the cell concatenates every matching arm's label, which
+	// surfaces nothing the authoring layer predicts. Authors who
+	// genuinely want one value to render as multiple labels concatenate
+	// them inside one `label` slot.
+	mapping: z
+		.array(idMappingEntrySchema)
+		.refine(
+			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
+			{
+				message:
+					"Mapping values are not unique within this column — two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
+			},
+		),
 });
 
 /**
@@ -233,7 +248,13 @@ const intervalColumnSchema = columnBase.extend({
 	kind: z.literal("interval"),
 	field: z.string(),
 	header: z.string(),
-	threshold: z.number(),
+	// Positive integer count of `unit`s. A negative or zero threshold
+	// would flag every non-empty cell in the `flag` arm (the wire
+	// emits `if(today() - date(field) > <threshold>, '*', '')`) and
+	// would show "X days ago" with a negative count in the `always`
+	// arm — both shapes are structurally authoring errors masquerading
+	// as working configuration, not legitimate authorings to admit.
+	threshold: z.number().int().positive(),
 	unit: z.enum(TIME_SINCE_UNITS),
 	display: z.enum(INTERVAL_DISPLAYS),
 	text: z.string(),
@@ -966,9 +987,7 @@ export const caseSearchConfigSchema = z
 		// that should disappear once the form has executed once).
 		searchScreenTitle: z.string().optional(),
 		searchScreenSubtitle: z.string().optional(),
-		emptyListText: z.string().optional(),
 		searchButtonLabel: z.string().optional(),
-		searchAgainButtonLabel: z.string().optional(),
 		searchButtonDisplayCondition: predicateSchema.optional(),
 	})
 	.strict();

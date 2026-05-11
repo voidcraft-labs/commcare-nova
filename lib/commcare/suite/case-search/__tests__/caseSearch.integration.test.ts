@@ -393,9 +393,7 @@ describe("case-search integration — SA tool round-trip", () => {
 				moduleIndex: 0,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: null,
-				emptyListText: null,
 				searchButtonLabel: "Search",
-				searchAgainButtonLabel: null,
 				searchButtonDisplayCondition: matchAll(),
 			},
 			ctx,
@@ -449,9 +447,7 @@ describe("case-search integration — SA tool round-trip", () => {
 				moduleIndex: 99,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
-				emptyListText: null,
 				searchButtonLabel: null,
-				searchAgainButtonLabel: null,
 				searchButtonDisplayCondition: null,
 			},
 			ctx,
@@ -670,6 +666,101 @@ describe("case-search integration — suite XML wire emission", () => {
 		expect(xpathBlock).toContain(" and ");
 		expect(xpathBlock).toContain("region = 'North'");
 		expect(xpathBlock).toContain("status = 'active'");
+	});
+
+	it("emits <description> + the case_search.m{N}.description app-strings entry when searchScreenSubtitle is authored", () => {
+		// CCHQ's `RemoteRequestFactory.build_remote_request_queries`
+		// mounts `<description>` on `<query>` only when
+		// `module.search_config.description != {}`. Nova mirrors that
+		// gate: a non-empty `searchScreenSubtitle` populates the
+		// description locale and emits the element; an absent or
+		// empty-string subtitle elides it entirely. Composition pin —
+		// per-element shape coverage lives in
+		// `searchSession.test.ts`.
+		const doc = buildSearchBlueprint();
+		const subtitled: BlueprintDoc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[MOD_UUID]: {
+					...doc.modules[MOD_UUID],
+					caseSearchConfig: {
+						...doc.modules[MOD_UUID].caseSearchConfig,
+						searchScreenSubtitle: "Search by **name** or village.",
+					},
+				},
+			},
+		};
+
+		const hqJson = expandDoc(subtitled);
+		const ccz = compileCcz(hqJson, subtitled.appName, subtitled);
+		const zip = new AdmZip(ccz);
+		const suiteEntry = zip.getEntry("suite.xml");
+		if (!suiteEntry) {
+			throw new Error(
+				"Compiled .ccz archive is missing the expected suite.xml entry. " +
+					"Check that compileCcz ran to completion and that the input " +
+					"BlueprintDoc was well-formed.",
+			);
+		}
+		const suite = suiteEntry.getData().toString("utf-8");
+
+		// `<description>` references the description locale id, and
+		// sits between `<title>` and the `<data>` slot list per CCHQ's
+		// `RemoteRequestQuery` child order. Scope the ordering check to
+		// the `<query>` element so other suite surfaces (detail blocks,
+		// case-list action chrome) can't false-positive a misplaced
+		// description by carrying their own `<data>` children.
+		expect(suite).toContain('<locale id="case_search.m0.description"/>');
+		const queryOpenIdx = suite.indexOf("<query ");
+		const queryCloseIdx = suite.indexOf("</query>", queryOpenIdx);
+		expect(queryOpenIdx).toBeGreaterThan(-1);
+		expect(queryCloseIdx).toBeGreaterThan(queryOpenIdx);
+		const queryBlock = suite.slice(queryOpenIdx, queryCloseIdx);
+		const titleCloseIdx = queryBlock.indexOf("</title>");
+		const descriptionOpenIdx = queryBlock.indexOf(
+			"<description>",
+			titleCloseIdx,
+		);
+		const firstDataIdx = queryBlock.indexOf("<data ", titleCloseIdx);
+		expect(titleCloseIdx).toBeGreaterThan(-1);
+		expect(descriptionOpenIdx).toBeGreaterThan(titleCloseIdx);
+		expect(firstDataIdx).toBeGreaterThan(descriptionOpenIdx);
+
+		// App-strings entry registers the authored subtitle under the
+		// matching locale id, so the runtime resolves the locale to the
+		// author's copy rather than the raw id.
+		const stringsEntry = zip.getEntry("default/app_strings.txt");
+		if (!stringsEntry) {
+			throw new Error(
+				"Compiled .ccz archive is missing the expected default/app_strings.txt entry. " +
+					"Check that compileCcz threaded the per-language string table through the bundler.",
+			);
+		}
+		const strings = stringsEntry.getData().toString("utf-8");
+		expect(strings).toContain(
+			"case_search.m0.description=Search by **name** or village.",
+		);
+	});
+
+	it("omits <description> entirely when no subtitle is authored", () => {
+		// Mirrors CCHQ's `description != {}` gate — the baseline
+		// fixture authors no subtitle, so neither the element nor its
+		// app-strings entry should appear in the compiled suite. Keeps
+		// the runtime from rendering a blank locale fallback for the
+		// unset slot. Scoped to the `<query>` element so the assertion
+		// stays robust against future suite surfaces that legitimately
+		// emit `<description>` elsewhere (no such surface exists today,
+		// but the scope hardening is free).
+		const doc = buildSearchBlueprint();
+		const suite = compileSuiteXml(doc);
+		const queryOpenIdx = suite.indexOf("<query ");
+		const queryCloseIdx = suite.indexOf("</query>", queryOpenIdx);
+		expect(queryOpenIdx).toBeGreaterThan(-1);
+		expect(queryCloseIdx).toBeGreaterThan(queryOpenIdx);
+		const queryBlock = suite.slice(queryOpenIdx, queryCloseIdx);
+		expect(queryBlock).not.toContain("<description>");
+		expect(suite).not.toContain("case_search.m0.description");
 	});
 });
 

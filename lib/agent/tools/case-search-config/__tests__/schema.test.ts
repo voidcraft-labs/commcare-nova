@@ -103,9 +103,7 @@ describe("case-search-config tool schemas — Anthropic compiler contract", () =
 			moduleIndex: 0,
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: "Type to filter",
-			emptyListText: "No matches",
 			searchButtonLabel: "Search",
-			searchAgainButtonLabel: "Search again",
 			searchButtonDisplayCondition: { kind: "match-all" },
 		});
 		expect(result.success).toBe(true);
@@ -116,11 +114,26 @@ describe("case-search-config tool schemas — Anthropic compiler contract", () =
 			moduleIndex: 0,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
-			emptyListText: null,
 			searchButtonLabel: null,
-			searchAgainButtonLabel: null,
 			searchButtonDisplayCondition: null,
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("setCaseSearchDisplay: rejects unknown slot names (strict input boundary)", () => {
+		// The body shape is `.strict()` — slot names outside the
+		// declared cluster parse-fail rather than land as silent
+		// extras. Pins the regression class for stale or invented slot
+		// names handed by the SA.
+		const result = setCaseSearchDisplayTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchScreenTitle: null,
+			searchScreenSubtitle: null,
+			searchButtonLabel: null,
+			searchButtonDisplayCondition: null,
+			unknownSlotA: "stray",
+			unknownSlotB: "stray",
+		});
+		expect(result.success).toBe(false);
 	});
 });

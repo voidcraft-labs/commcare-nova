@@ -1,7 +1,7 @@
 // components/builder/case-search-config/DisplaySection.tsx
 //
 // Composes the case-search authoring surface's Display section. Owns
-// six independent slots on `caseSearchConfig`'s display cluster — the
+// four independent slots on `caseSearchConfig`'s display cluster — the
 // labels and one optional predicate that together author the chrome
 // the running app shows on the case-search screen:
 //
@@ -12,18 +12,14 @@
 //      author writes free-form markdown; the running app's runtime
 //      renders it through the same markdown formatter the rest of
 //      the product uses for user-authored copy.
-//   3. `emptyListText: string?` — the message shown when the search
-//      returns zero results.
-//   4. `searchButtonLabel: string?` — label on the "Search" button.
-//   5. `searchAgainButtonLabel: string?` — label on the "Search
-//      Again" button shown after results render.
-//   6. `searchButtonDisplayCondition: Predicate?` — when present,
+//   3. `searchButtonLabel: string?` — label on the "Search" button.
+//   4. `searchButtonDisplayCondition: Predicate?` — when present,
 //      gates the search button's visibility (the runtime hides the
 //      button until the predicate evaluates true). Mounted via the
 //      shared `<PredicateSlotCard>` primitive, which owns the chrome
 //      for any optional Predicate slot.
 //
-// The five text slots have no validity beyond empty-vs-set; an
+// The three text slots have no validity beyond empty-vs-set; an
 // empty string clears the slot (the per-key setter writes
 // `undefined` so strict-parse drops the key on the next mount).
 // The single validity-bearing slot is the predicate, and
@@ -33,7 +29,7 @@
 //
 // `caseSearchConfig` itself is OPTIONAL on the Module schema. A
 // module without case-search authored receives an empty config the
-// moment any one of these six slots takes its first value; the
+// moment any one of these four slots takes its first value; the
 // per-slot mutators route through the shared `setOptionalSlot`
 // helper so untouched siblings flow through unchanged AND a clear
 // emits a destructured drop (the slot key is absent on the next
@@ -221,11 +217,11 @@ function OptionalTextRow({
 
 /**
  * Composes the display cluster of the case-search authoring surface.
- * Renders five plain text inputs, one markdown textarea with a live
- * preview, and the optional `searchButtonDisplayCondition` slot via
- * `PredicateSlotCard`. The section's overall validity is the
- * predicate slot's verdict — every other slot is structurally always
- * valid (free-form strings).
+ * Renders two plain text inputs (title + search-button label), one
+ * markdown textarea with a live preview (subtitle), and the optional
+ * `searchButtonDisplayCondition` slot via `PredicateSlotCard`. The
+ * section's overall validity is the predicate slot's verdict — every
+ * other slot is structurally always valid (free-form strings).
  */
 export function DisplaySection({
 	value,
@@ -258,14 +254,8 @@ export function DisplaySection({
 	const setSearchScreenSubtitle = (next: string | undefined) => {
 		onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
 	};
-	const setEmptyListText = (next: string | undefined) => {
-		onChange(setOptionalSlot(value, "emptyListText", next));
-	};
 	const setSearchButtonLabel = (next: string | undefined) => {
 		onChange(setOptionalSlot(value, "searchButtonLabel", next));
-	};
-	const setSearchAgainButtonLabel = (next: string | undefined) => {
-		onChange(setOptionalSlot(value, "searchAgainButtonLabel", next));
 	};
 	const setSearchButtonDisplayCondition = (next: Predicate | undefined) => {
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
@@ -294,35 +284,15 @@ export function DisplaySection({
 				markdown
 			/>
 
-			{/* ── Empty-list text ──
-			    Surfaces only when the search returns zero results;
-			    grouped here with the other labels because it's a
-			    response-side label rather than a button-side label. */}
-			<OptionalTextRow
-				label="Empty results message"
-				hint="Shown when the search returns no matching cases."
-				value={value?.emptyListText}
-				onCommit={setEmptyListText}
-				placeholder="No patients matched. Try widening your search."
-			/>
-
-			{/* ── Button labels pair ──
-			    Two related slots. Defaults vary at the runtime layer;
-			    these are the author's overrides. */}
+			{/* ── Search button label ──
+			    Author override for the search-submit button. Default
+			    lives at the runtime layer; this slot replaces it. */}
 			<OptionalTextRow
 				label="Search button label"
 				hint="Label on the search button before results have rendered."
 				value={value?.searchButtonLabel}
 				onCommit={setSearchButtonLabel}
 				placeholder="Search"
-			/>
-
-			<OptionalTextRow
-				label="Search-again button label"
-				hint="Label on the search-again button shown after results render."
-				value={value?.searchAgainButtonLabel}
-				onCommit={setSearchAgainButtonLabel}
-				placeholder="Search again"
 			/>
 
 			{/* ── Search-button display condition ──

@@ -39,9 +39,7 @@ import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 export const DISPLAY_SLOT_NAMES = [
 	"searchScreenTitle",
 	"searchScreenSubtitle",
-	"emptyListText",
 	"searchButtonLabel",
-	"searchAgainButtonLabel",
 	"searchButtonDisplayCondition",
 ] as const;
 
@@ -186,7 +184,7 @@ export const setCaseSearchAdvancedBodySchema = z
 // ── Input schemas — display cluster ─────────────────────────────────
 
 /**
- * SA boundary shape for `setCaseSearchDisplay`. Six fields cover
+ * SA boundary shape for `setCaseSearchDisplay`. Four fields cover
  * the search-screen labels and the search-button display predicate.
  * Required-and-nullable on every slot means zero optional fields,
  * well under the Anthropic 8-optional ceiling.
@@ -205,23 +203,11 @@ export const setCaseSearchDisplayBodySchema = z
 			.describe(
 				"Subtitle rendered through a markdown formatter, or `null` to clear. Use this for short instructional copy under the title; markdown is supported.",
 			),
-		emptyListText: z
-			.string()
-			.nullable()
-			.describe(
-				"Text shown when the search returns no matches, or `null` to clear. Defaults to a generic empty-state message when absent.",
-			),
 		searchButtonLabel: z
 			.string()
 			.nullable()
 			.describe(
 				"Label on the primary search submit button, or `null` to clear. Defaults to a generic 'Search' label when absent.",
-			),
-		searchAgainButtonLabel: z
-			.string()
-			.nullable()
-			.describe(
-				"Label on the search-again button shown after a search runs, or `null` to clear. Defaults to a generic 'Search again' label when absent.",
 			),
 		searchButtonDisplayCondition: predicateSchema
 			.nullable()

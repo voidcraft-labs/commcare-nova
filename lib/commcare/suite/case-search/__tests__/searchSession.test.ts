@@ -410,6 +410,95 @@ describe("emitSearchSession — <title> + locale strings", () => {
 	});
 });
 
+// ── <description> + locale strings ──────────────────────────────────
+//
+// `<description>` sits as a sibling of `<title>` on `<query>` —
+// between `<title>` and the `<data>` slot list. CCHQ's
+// `RemoteRequestFactory.build_remote_request_queries` emits the
+// element only when `module.search_config.description != {}`. Nova
+// gates emission on `caseSearchConfig.searchScreenSubtitle` being a
+// non-empty string: an absent or empty-string subtitle elides the
+// element entirely and registers no locale entry, matching CCHQ's
+// gate so the runtime never resolves a blank locale fallback.
+
+describe("emitSearchSession — <description> + locale strings", () => {
+	it("emits <description> with the case_search.{moduleId}.description locale id when subtitle is authored", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig(),
+			caseSearchConfig: { searchScreenSubtitle: "Search by **name**." },
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 2,
+		});
+		expect(xml).toContain(`<description>`);
+		expect(xml).toContain(`<locale id="case_search.m2.description"/>`);
+	});
+
+	it("places <description> between </title> and the first <data> slot", () => {
+		// CCHQ's `RemoteRequestQuery` factory orders the query's
+		// children as title → description → data → prompts. The pin
+		// catches a regression that drops the description after the
+		// data slots or before the title.
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig(),
+			caseSearchConfig: { searchScreenSubtitle: "Search by name." },
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		const titleCloseIdx = xml.indexOf("</title>");
+		const descriptionOpenIdx = xml.indexOf("<description>");
+		const firstDataIdx = xml.indexOf("<data ");
+		expect(titleCloseIdx).toBeGreaterThan(-1);
+		expect(descriptionOpenIdx).toBeGreaterThan(titleCloseIdx);
+		expect(firstDataIdx).toBeGreaterThan(descriptionOpenIdx);
+	});
+
+	it("registers the authored subtitle in strings under the description locale id", () => {
+		const { strings } = emitSearchSession({
+			caseListConfig: makeListConfig(),
+			caseSearchConfig: {
+				searchScreenSubtitle: "Search by **name** or village.",
+			},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(strings["case_search.m0.description"]).toBe(
+			"Search by **name** or village.",
+		);
+	});
+
+	it("omits <description> and the description locale entry when subtitle is undefined", () => {
+		const { xml, strings } = emitSearchSession({
+			caseListConfig: makeListConfig(),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).not.toContain(`<description>`);
+		expect(strings["case_search.m0.description"]).toBeUndefined();
+	});
+
+	it("omits <description> and the description locale entry when subtitle is the empty string", () => {
+		// Empty-string-clears is the editor's promise: the authoring
+		// surface persists `""` as "no subtitle." The wire layer must
+		// honor that — emitting `<description>` for an empty string
+		// would render a blank locale fallback at runtime, contradicting
+		// the editor's clear semantic.
+		const { xml, strings } = emitSearchSession({
+			caseListConfig: makeListConfig(),
+			caseSearchConfig: { searchScreenSubtitle: "" },
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).not.toContain(`<description>`);
+		expect(strings["case_search.m0.description"]).toBeUndefined();
+	});
+});
+
 // ── Instance accumulation ───────────────────────────────────────────
 
 describe("emitSearchSession — instance accumulation", () => {

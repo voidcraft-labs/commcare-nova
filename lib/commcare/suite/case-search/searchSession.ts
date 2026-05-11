@@ -140,6 +140,21 @@ export function emitSearchSession(args: {
 			? caseSearchConfig.searchScreenTitle
 			: caseType;
 
+	// Description (subtitle) is conditional — CCHQ's `<query>` carries
+	// `<description>` only when the author supplied copy. The locale id
+	// pattern is CCHQ's `case_search.{m}.description`; an unset or
+	// empty-string subtitle elides the element entirely so the runtime
+	// renders the screen without a subtitle slot rather than printing a
+	// blank locale fallback. Element ordering inside `<query>` is
+	// title → description → data → prompts, matching CCHQ's
+	// `RemoteRequestQuery` factory.
+	const subtitleDisplay =
+		caseSearchConfig.searchScreenSubtitle !== undefined &&
+		caseSearchConfig.searchScreenSubtitle !== ""
+			? caseSearchConfig.searchScreenSubtitle
+			: undefined;
+	const descriptionLocaleId = `case_search.${moduleId}.description`;
+
 	const queryBody: string[] = [
 		`      <query url="${SEARCH_URL_TEMPLATE}"`,
 		`             default_search="${wire.defaultSearch ? "true" : "false"}"`,
@@ -150,8 +165,17 @@ export function emitSearchSession(args: {
 		`            <locale id="${titleLocaleId}"/>`,
 		`          </text>`,
 		`        </title>`,
-		...dataLines,
 	];
+	if (subtitleDisplay !== undefined) {
+		queryBody.push(
+			`        <description>`,
+			`          <text>`,
+			`            <locale id="${descriptionLocaleId}"/>`,
+			`          </text>`,
+			`        </description>`,
+		);
+	}
+	queryBody.push(...dataLines);
 	if (promptEmission.xml !== "") {
 		queryBody.push(promptEmission.xml);
 	}
@@ -179,6 +203,9 @@ export function emitSearchSession(args: {
 
 	const strings: Record<string, string> = {
 		[titleLocaleId]: titleDisplay,
+		...(subtitleDisplay !== undefined
+			? { [descriptionLocaleId]: subtitleDisplay }
+			: {}),
 		...promptEmission.strings,
 	};
 

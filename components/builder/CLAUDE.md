@@ -193,7 +193,7 @@ Editor validity flows through the shared `useValidityPropagator` hook — see th
 
 Two sections own slots on `mod.caseSearchConfig`; the third is cross-bound:
 
-- **Display section** — owns the search-screen labels (`searchScreenTitle`, `searchScreenSubtitle` with markdown affordance, `emptyListText`, `searchButtonLabel`, `searchAgainButtonLabel`) plus the optional `searchButtonDisplayCondition` predicate. Empty-string-clears: when a text input transitions to `""`, the per-slot mutator drops the key so strict-parse round-trips cleanly.
+- **Display section** — owns the search-screen labels (`searchScreenTitle`, `searchScreenSubtitle` with markdown affordance, `searchButtonLabel`) plus the optional `searchButtonDisplayCondition` predicate. Empty-string-clears: when a text input transitions to `""`, the per-slot mutator drops the key so strict-parse round-trips cleanly.
 - **Advanced section** — owns the niche `excludedOwnerIds` slot (the value expression resolving to a space-separated owner-id list excluded from search results). Mounts the shared `OptionalSlotCard<ValueExpression>` with collapse on (default closed) and `expectedType="text"` on the inner `ExpressionCardEditor`.
 - **Search Inputs section** — Plan 3's discriminated `SearchInputsSection`, mounted cross-bound against `mod.caseListConfig.searchInputs`. The same array the case-list workspace edits — search inputs are one source across both screens.
 

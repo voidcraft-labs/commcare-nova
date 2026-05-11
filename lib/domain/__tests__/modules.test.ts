@@ -808,7 +808,7 @@ describe("caseListConfigSchema — populated round-trip", () => {
 describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 	it("round-trips a fully-populated config (every slot set)", () => {
 		// Round-trips every authored slot: `excludedOwnerIds`, the
-		// five display labels, and `searchButtonDisplayCondition`. The
+		// three display labels, and `searchButtonDisplayCondition`. The
 		// `toEqual(config)` assertion pins that the schema preserves
 		// every slot without drift across a strict-mode parse.
 		const config: CaseSearchConfig = {
@@ -822,9 +822,7 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 			},
 			searchScreenTitle: "Search for a patient",
 			searchScreenSubtitle: "Use **fuzzy** match for partial names",
-			emptyListText: "No matching patients",
 			searchButtonLabel: "Search",
-			searchAgainButtonLabel: "Search again",
 			searchButtonDisplayCondition: { kind: "match-all" },
 		};
 		const parsed = caseSearchConfigSchema.safeParse(config);

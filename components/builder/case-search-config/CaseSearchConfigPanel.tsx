@@ -283,9 +283,7 @@ function buildDisplayStatus(value: CaseSearchConfig | undefined): string {
 	const labels = [
 		value?.searchScreenTitle,
 		value?.searchScreenSubtitle,
-		value?.emptyListText,
 		value?.searchButtonLabel,
-		value?.searchAgainButtonLabel,
 	].filter((s): s is string => s !== undefined && s.length > 0).length;
 	const hasDisplayCondition = value?.searchButtonDisplayCondition !== undefined;
 	const parts: string[] = [];

@@ -144,9 +144,7 @@ describe("setCaseSearchAdvanced", () => {
 					caseSearchConfig: {
 						searchScreenTitle: "Find a patient",
 						searchScreenSubtitle: "Type to filter",
-						emptyListText: "No matches",
 						searchButtonLabel: "Search",
-						searchAgainButtonLabel: "Search again",
 						searchButtonDisplayCondition: matchAll(),
 					},
 				},
@@ -165,9 +163,7 @@ describe("setCaseSearchAdvanced", () => {
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config?.searchScreenTitle).toBe("Find a patient");
 		expect(config?.searchScreenSubtitle).toBe("Type to filter");
-		expect(config?.emptyListText).toBe("No matches");
 		expect(config?.searchButtonLabel).toBe("Search");
-		expect(config?.searchAgainButtonLabel).toBe("Search again");
 		expect(config?.searchButtonDisplayCondition).toEqual(matchAll());
 		// Advanced cluster updated.
 		expect(config?.excludedOwnerIds).toBeDefined();

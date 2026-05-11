@@ -46,7 +46,7 @@ export function searchButtonDisplayConditionTypeCheck(
 		return validationError(
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
 			"module",
-			`Module "${mod.name}" case-search button display condition has a type error${suffix}: ${err.message}`,
+			`Module "${mod.name}" case-search button display condition has a type error${suffix}: ${err.message}. The slot must resolve to a boolean (the runtime hides the search button when the predicate evaluates false). Open \`caseSearchConfig.searchButtonDisplayCondition\` and adjust the operand at that path, or clear the condition to render the button unconditionally.`,
 			{ moduleUuid, moduleName: mod.name },
 			{ path: at },
 		);

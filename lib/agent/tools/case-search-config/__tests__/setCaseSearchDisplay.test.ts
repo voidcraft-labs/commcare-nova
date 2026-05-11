@@ -55,9 +55,7 @@ describe("setCaseSearchDisplay", () => {
 				moduleIndex: 0,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: "Type to filter",
-				emptyListText: "No matches",
 				searchButtonLabel: "Search",
-				searchAgainButtonLabel: "Search again",
 				searchButtonDisplayCondition: buttonCondition,
 			},
 			ctx,
@@ -68,9 +66,7 @@ describe("setCaseSearchDisplay", () => {
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config?.searchScreenTitle).toBe("Find a patient");
 		expect(config?.searchScreenSubtitle).toBe("Type to filter");
-		expect(config?.emptyListText).toBe("No matches");
 		expect(config?.searchButtonLabel).toBe("Search");
-		expect(config?.searchAgainButtonLabel).toBe("Search again");
 		expect(config?.searchButtonDisplayCondition).toEqual(buttonCondition);
 		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`,
 		// so the persisted config's key set must be exactly the schema's
@@ -90,9 +86,7 @@ describe("setCaseSearchDisplay", () => {
 				moduleIndex: 0,
 				searchScreenTitle: "Search patients",
 				searchScreenSubtitle: null,
-				emptyListText: null,
 				searchButtonLabel: "Go",
-				searchAgainButtonLabel: null,
 				searchButtonDisplayCondition: null,
 			},
 			ctx,
@@ -123,9 +117,7 @@ describe("setCaseSearchDisplay", () => {
 					caseSearchConfig: {
 						searchScreenTitle: "Old title",
 						searchScreenSubtitle: "Old subtitle",
-						emptyListText: "Old empty",
 						searchButtonLabel: "Old search",
-						searchAgainButtonLabel: "Old again",
 						searchButtonDisplayCondition: matchAll(),
 					},
 				},
@@ -137,9 +129,7 @@ describe("setCaseSearchDisplay", () => {
 				moduleIndex: 0,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
-				emptyListText: null,
 				searchButtonLabel: null,
-				searchAgainButtonLabel: null,
 				searchButtonDisplayCondition: null,
 			},
 			ctx,
@@ -149,9 +139,7 @@ describe("setCaseSearchDisplay", () => {
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config?.searchScreenTitle).toBeUndefined();
 		expect(config?.searchScreenSubtitle).toBeUndefined();
-		expect(config?.emptyListText).toBeUndefined();
 		expect(config?.searchButtonLabel).toBeUndefined();
-		expect(config?.searchAgainButtonLabel).toBeUndefined();
 		expect(config?.searchButtonDisplayCondition).toBeUndefined();
 		// None of the cleared keys remain on the object.
 		if (!config) throw new Error("expected config");
@@ -187,9 +175,7 @@ describe("setCaseSearchDisplay", () => {
 				moduleIndex: 0,
 				searchScreenTitle: "Find patients",
 				searchScreenSubtitle: null,
-				emptyListText: null,
 				searchButtonLabel: null,
-				searchAgainButtonLabel: null,
 				searchButtonDisplayCondition: null,
 			},
 			ctx,
@@ -209,9 +195,7 @@ describe("setCaseSearchDisplay", () => {
 				moduleIndex: 99,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
-				emptyListText: null,
 				searchButtonLabel: null,
-				searchAgainButtonLabel: null,
 				searchButtonDisplayCondition: null,
 			},
 			ctx,
@@ -248,9 +232,7 @@ describe("setCaseSearchDisplay", () => {
 				moduleIndex: 0,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: null,
-				emptyListText: null,
 				searchButtonLabel: null,
-				searchAgainButtonLabel: null,
 				searchButtonDisplayCondition: null,
 			},
 			ctx,
@@ -275,9 +257,7 @@ describe("setCaseSearchDisplay", () => {
 			moduleIndex: 0,
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: null,
-			emptyListText: null,
 			searchButtonLabel: "Go",
-			searchAgainButtonLabel: null,
 			searchButtonDisplayCondition: null,
 		};
 
@@ -285,5 +265,22 @@ describe("setCaseSearchDisplay", () => {
 		const r2 = await setCaseSearchDisplayTool.execute(input, mcpCtx, doc);
 
 		expect(r1.mutations).toEqual(r2.mutations);
+	});
+
+	it("rejects unknown slot names at the SA boundary (strict input schema)", async () => {
+		// The display body is `.strict()` — every slot name outside the
+		// declared cluster parse-fails before the tool body runs. Pins
+		// the regression class: an SA handing a slot name the cluster
+		// doesn't carry hits the boundary, not a silent strip.
+		const parseResult = setCaseSearchDisplayTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchScreenTitle: null,
+			searchScreenSubtitle: null,
+			searchButtonLabel: null,
+			searchButtonDisplayCondition: null,
+			unknownSlotA: "stray",
+			unknownSlotB: "stray",
+		});
+		expect(parseResult.success).toBe(false);
 	});
 });

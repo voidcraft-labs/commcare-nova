@@ -60,9 +60,7 @@ const CASE_TYPES = [PATIENT];
 const POPULATED_CONFIG: CaseSearchConfig = {
 	searchScreenTitle: "Find a patient",
 	searchScreenSubtitle: "Search by **name** or *village*.",
-	emptyListText: "No patients matched.",
 	searchButtonLabel: "Search",
-	searchAgainButtonLabel: "Search again",
 	searchButtonDisplayCondition: matchAll(),
 };
 
@@ -91,16 +89,8 @@ describe("DisplaySection — round-trip", () => {
 			(screen.getByLabelText("Subtitle") as HTMLTextAreaElement).value,
 		).toBe("Search by **name** or *village*.");
 		expect(
-			(screen.getByLabelText("Empty results message") as HTMLInputElement)
-				.value,
-		).toBe("No patients matched.");
-		expect(
 			(screen.getByLabelText("Search button label") as HTMLInputElement).value,
 		).toBe("Search");
-		expect(
-			(screen.getByLabelText("Search-again button label") as HTMLInputElement)
-				.value,
-		).toBe("Search again");
 
 		// PredicateSlotCard renders the Clear affordance when the slot
 		// is defined; the dashed Add affordance disappears.
@@ -119,14 +109,7 @@ describe("DisplaySection — per-slot edits", () => {
 	// authoring copy.
 	it.each([
 		["Title", "searchScreenTitle", "Find a patient", "Find a patient"],
-		[
-			"Empty results message",
-			"emptyListText",
-			"Nothing here.",
-			"Nothing here.",
-		],
 		["Search button label", "searchButtonLabel", "Go", "Go"],
-		["Search-again button label", "searchAgainButtonLabel", "Retry", "Retry"],
 	] as const)("types into the %s slot and emits onChange with the new value", (label, slot, typed, expected) => {
 		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
 		render(
