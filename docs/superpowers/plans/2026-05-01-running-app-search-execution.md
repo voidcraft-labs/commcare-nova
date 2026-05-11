@@ -272,6 +272,12 @@ The pending state UX mirrors the existing Generate button (`tabler/loader-2` spi
 
 **Tests:** Reset action invoked on confirm; canceled confirm leaves data untouched; pending UX disables the Reset button while in flight; toast renders on success/error; empty arm renders Generate (no Reset); populated arm renders Reset (no Generate).
 
+**Dialog primitive.** Used shadcn-Base-UI's `AlertDialog` (`@/components/shadcn/alert-dialog` — installed at commit `5b3edb29`). Controlled `open` state because Base UI's `AlertDialogAction` is a plain Button with no auto-dismiss wiring; controlling `open` closes the dialog the instant Reset is confirmed so the trigger's pending spinner is visible without a frozen modal overlay. `AlertDialogAction variant="destructive"` surfaces the destructive intent through the existing button variant tokens.
+
+**Internal structure.** A shared `describePopulateError(result, verb)` helper at file scope maps `PopulateSampleCasesResult`'s five typed-error arms (`unauthenticated` / `missing-case-type` / `schema-not-synced` / `validation-failure` / `error`) into user-facing messages, parameterized by a `"Generate" | "Reset"` verb. Both `handleGenerate` and `handleResetConfirmed` route through it so the only divergence between the two flows is the verb token. Both inline error renderers use `whitespace-pre-line` so the `validation-failure` arm's `\n`-joined message renders across lines instead of collapsing onto one row.
+
+> **SHIPPED.** Task 6 landed at commits `8d4e868c` and `03d38af8` with 8 new tests (17 total in the CaseListScreen suite). The `AlertDialog` shadcn primitive was installed at `5b3edb29` as part of this task.
+
 ### Task 7: Form running-app write-through wiring
 
 **Files:** `components/preview/screens/FormScreen.tsx` (EDIT), `components/preview/screens/__tests__/FormScreen.test.tsx` (NEW).
