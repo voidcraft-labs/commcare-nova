@@ -45,7 +45,14 @@ const REG_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b01");
 const FOLLOWUP_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b02");
 const CLOSE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b03");
 const SURVEY_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b04");
+/* The validate-fail test mounts this fifth form whose single field
+ *  is required. With no user input the engine's `validateAll()`
+ *  marks the field invalid and returns `false`, exercising the
+ *  short-circuit branch of `handleSubmit` that scrolls to the
+ *  first invalid field WITHOUT firing `submitFormAction`. */
+const REQUIRED_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b05");
 const FIELD_UUID = asUuid("00000000-0000-0000-0000-000000000c01");
+const FIELD_REQUIRED_UUID = asUuid("00000000-0000-0000-0000-000000000c02");
 
 /* The currentLocation is mutated per-test (one shared `Location`
  *  carrier the `useLocation` mock reads from) so each test can pin
@@ -71,6 +78,12 @@ const navigateMock = {
 	up: vi.fn(),
 };
 
+/* Mutable carrier the `useAppId` mock reads from. Most tests run
+ *  against the default `APP_ID`; the `!appId` guard test overrides
+ *  to `undefined` for a single run. `beforeEach` resets to the
+ *  default so test ordering doesn't matter. */
+let currentAppId: string | undefined = APP_ID;
+
 vi.mock("@/lib/routing/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/routing/hooks")>(
 		"@/lib/routing/hooks",
@@ -88,7 +101,7 @@ vi.mock("@/lib/session/hooks", async () => {
 	);
 	return {
 		...actual,
-		useAppId: () => APP_ID,
+		useAppId: () => currentAppId,
 		/* `test` mode mounts the submit row — every test in this file
 		 *  asserts against the row's behavior. Mirroring CaseListScreen's
 		 *  hook mocks so the two screens share a session-mode contract.
@@ -130,12 +143,15 @@ const FOLLOWUP_CASE_ID = "11111111-1111-1111-1111-111111111111";
 
 const onBackMock = vi.fn();
 
-/* Mount FormScreen against a BlueprintDocProvider that carries all
- *  four FormType arms under one module + a single text field per
- *  form. The text field is non-required so `validateAll()` returns
- *  true with empty values — the test asserts the action-call shape,
- *  not the engine's value-walking (which has its own dedicated
- *  formEngine.test.ts coverage). */
+/* Mount FormScreen against a BlueprintDocProvider that carries
+ *  every FormType arm under one module. Each form owns one text
+ *  field — the four FormType forms share a non-required `name`
+ *  field (so `validateAll()` returns true with empty values, letting
+ *  per-FormType tests assert action-call shape without typing in
+ *  values), and `REQUIRED_FORM_UUID` owns a required `name` field
+ *  so the validate-fail test exercises the `valid === false`
+ *  short-circuit. Engine value-walking has dedicated coverage in
+ *  `formEngine.test.ts`. */
 function renderFormScreen(opts: {
 	formUuid: typeof REG_FORM_UUID;
 	caseId?: string;
@@ -145,6 +161,12 @@ function renderFormScreen(opts: {
 		moduleUuid: MODULE_UUID,
 		formUuid: opts.formUuid,
 	};
+	/* The required-form arm registers `FIELD_REQUIRED_UUID`; every
+	 *  other arm registers the non-required `FIELD_UUID`. The active
+	 *  form's `fieldOrder` is the only entry the engine reads on
+	 *  activation, so only the active form's list needs the entry. */
+	const isRequiredForm = opts.formUuid === REQUIRED_FORM_UUID;
+	const activeFieldUuid = isRequiredForm ? FIELD_REQUIRED_UUID : FIELD_UUID;
 	return render(
 		<BlueprintDocProvider
 			appId={APP_ID}
@@ -191,11 +213,21 @@ function renderFormScreen(opts: {
 						name: "Survey",
 						type: "survey",
 					},
+					[REQUIRED_FORM_UUID]: {
+						uuid: REQUIRED_FORM_UUID,
+						id: "required_form",
+						name: "Required form",
+						/* `registration` so the screen renders the standard
+						 *  submit row with no followup-only empty-state
+						 *  guards interfering with the validate-fail
+						 *  assertion. */
+						type: "registration",
+					},
 				},
-				/* One text field per form, all four bound to the same
-				 *  module case type so the engine's `case_property_on` walk
-				 *  routes the value into the primary's `properties` bag
-				 *  on submit. */
+				/* `FIELD_UUID` — non-required text bound to the case type's
+				 *  `name` property. `FIELD_REQUIRED_UUID` — same shape with
+				 *  `required: "true()"` so the engine marks it invalid when
+				 *  the value is empty. */
 				fields: {
 					[FIELD_UUID]: {
 						uuid: FIELD_UUID,
@@ -203,6 +235,14 @@ function renderFormScreen(opts: {
 						kind: "text",
 						label: "Name",
 						case_property_on: CASE_TYPE,
+					},
+					[FIELD_REQUIRED_UUID]: {
+						uuid: FIELD_REQUIRED_UUID,
+						id: "name",
+						kind: "text",
+						label: "Name",
+						case_property_on: CASE_TYPE,
+						required: "true()",
 					},
 				},
 				moduleOrder: [MODULE_UUID],
@@ -212,12 +252,10 @@ function renderFormScreen(opts: {
 						FOLLOWUP_FORM_UUID,
 						CLOSE_FORM_UUID,
 						SURVEY_FORM_UUID,
+						REQUIRED_FORM_UUID,
 					],
 				},
-				/* Same field uuid registered against the active form arm
-				 *  — the doc's `fieldOrder` map keys per-form lists, so
-				 *  only the active form's list needs the entry. */
-				fieldOrder: { [opts.formUuid]: [FIELD_UUID] },
+				fieldOrder: { [opts.formUuid]: [activeFieldUuid] },
 			}}
 		>
 			<BuilderFormEngineProvider>
@@ -239,6 +277,9 @@ beforeEach(() => {
 	onBackMock.mockClear();
 	navigateMock.goHome.mockClear();
 	navigateMock.openModule.mockClear();
+	/* Reset the appId carrier so the `!appId` guard test's per-run
+	 *  override doesn't leak into sibling tests. */
+	currentAppId = APP_ID;
 	/* Default `loadCaseDataAction` to `missing` so followup screens
 	 *  in test mode either short-circuit on the no-case empty state
 	 *  (when no caseId is supplied) or proceed to render the form
@@ -577,5 +618,89 @@ describe("FormScreen — pending UX", () => {
 		 *  reset against the still-running submission. */
 		const clear = screen.getByRole("button", { name: /clear form/i });
 		expect((clear as HTMLButtonElement).disabled).toBe(true);
+	});
+});
+
+// ── Validate-fail short-circuit ─────────────────────────────────
+
+describe("FormScreen — validate-fail short-circuit", () => {
+	it("does NOT fire submitFormAction when the engine reports an invalid form", async () => {
+		/* `REQUIRED_FORM_UUID`'s field is `required: "true()"` and
+		 *  starts empty. The engine's `validateAll()` marks the field
+		 *  invalid and returns `false`; `handleSubmit` short-circuits
+		 *  on the falsy arm, scrolls to the first invalid element, and
+		 *  never reaches `submitFormAction`. The carrier check below
+		 *  pins the load-bearing contract: the user's first attempt
+		 *  with empty required fields stays on the form. */
+		renderFormScreen({ formUuid: REQUIRED_FORM_UUID });
+
+		const submit = await screen.findByRole("button", { name: /^submit$/i });
+		fireEvent.click(submit);
+
+		/* `waitFor` gives any async work a chance to run; the action
+		 *  must remain unfired across the full poll window for the
+		 *  assertion to hold. */
+		await waitFor(() => {
+			expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+		});
+		/* No inline error renders — the validate-fail branch leaves
+		 *  `submitStatus` at `idle`; per-field error UI is owned by
+		 *  the field renderers, not by the submit row's alert. */
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(navigateMock.goHome).not.toHaveBeenCalled();
+		expect(onBackMock).not.toHaveBeenCalled();
+	});
+});
+
+// ── !appId guard ───────────────────────────────────────────────
+
+describe("FormScreen — appId guard", () => {
+	it("surfaces the unavailable-app message and skips the action when appId is undefined", async () => {
+		/* The guard's load-bearing case: the route mounted before the
+		 *  builder session finished resolving the app id. Override the
+		 *  carrier to `undefined`; `beforeEach` resets after this test
+		 *  so siblings keep the default. */
+		currentAppId = undefined;
+
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+
+		const submit = await screen.findByRole("button", { name: /^submit$/i });
+		fireEvent.click(submit);
+
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toMatch(
+			/This app isn't fully loaded yet\. Wait a moment and try again\./,
+		);
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+	});
+});
+
+// ── Engine-invariant + RSC catch suppression ───────────────────
+
+describe("FormScreen — catch arm hides developer-jargon detail", () => {
+	it("collapses thrown errors to the fixed friendly message", async () => {
+		/* `submitFormAction` throwing (rather than returning a typed
+		 *  error arm) stands in for the engine's `compilerBugMessage`
+		 *  invariant throws and any RSC-framework rejection. The
+		 *  thrown message carries developer-jargon detail; the inline
+		 *  alert must NOT surface it. */
+		vi.mocked(submitFormAction).mockRejectedValue(
+			new Error(
+				"Internal bug — `preview.formEngine.computeSubmissionMutation` invariant violated: developer-jargon detail",
+			),
+		);
+
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+
+		const submit = await screen.findByRole("button", { name: /^submit$/i });
+		fireEvent.click(submit);
+
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toMatch(/Could not submit form\. Try again\./);
+		/* The thrown message's developer-jargon body must not leak
+		 *  into the user-facing alert. Asserting against a distinctive
+		 *  substring of the throw's body pins the suppression. */
+		expect(alert.textContent).not.toMatch(/developer-jargon/);
+		expect(alert.textContent).not.toMatch(/Internal bug/);
 	});
 });

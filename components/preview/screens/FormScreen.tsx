@@ -14,7 +14,8 @@ import {
 } from "@/lib/doc/hooks/useEntity";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
-import { defaultPostSubmit } from "@/lib/domain";
+import { defaultPostSubmit, POST_SUBMIT_DESTINATIONS } from "@/lib/domain";
+import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingClient";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
@@ -190,18 +191,33 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			case "module":
 			case "parent_module":
 				if (moduleUuid) navigate.openModule(moduleUuid);
-				break;
+				return;
 			case "root":
 			case "app_home":
 				navigate.goHome();
-				break;
-			default:
-				/* `previous` — return to whatever screen sent the user
-				 * here. `onBack` reads from BuilderLayout, which holds the
-				 * back-stack and falls through to the module home when
-				 * the stack is empty. */
+				return;
+			case "previous":
+				/* Return to whatever screen sent the user here. `onBack`
+				 * reads from BuilderLayout, which holds the back-stack and
+				 * falls through to the module home when the stack is
+				 * empty. */
 				onBack();
-				break;
+				return;
+			default: {
+				/* Exhaustive switch — a future `PostSubmitDestination`
+				 * arm landing without a case here surfaces as the
+				 * standard `unhandledKindMessage` shape rather than
+				 * silently routing to `onBack()`. */
+				const _exhaustive: never = dest;
+				throw new Error(
+					unhandledKindMessage({
+						where: "preview.FormScreen.dispatchPostSubmit",
+						family: "PostSubmitDestination",
+						received: _exhaustive,
+						knownKinds: [...POST_SUBMIT_DESTINATIONS],
+					}),
+				);
+			}
 		}
 	}, [form, moduleUuid, navigate, onBack]);
 
