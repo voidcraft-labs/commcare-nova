@@ -4,6 +4,10 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
 	/* Nova color system */
@@ -27,9 +31,6 @@
 
 	--nova-glow-violet: 0 0 40px rgba(139, 92, 246, 0.15);
 
-	--background: var(--nova-void);
-	--foreground: var(--nova-text);
-
 	/* Z-index layers — single source of truth for stacking order */
 	--z-ground: 10; /* Inline interactive elements: hover zones, sidebar dividers, page backgrounds */
 	--z-raised: 20; /* Slightly elevated UI: insertion points, settings buttons, sidebar overlays */
@@ -48,6 +49,38 @@
 	--pv-input-focus: rgba(139, 92, 246, 0.4);
 	--pv-accent: var(--nova-violet);
 	--pv-accent-bright: var(--nova-violet-bright);
+	--background: oklch(1 0 0);
+	--foreground: oklch(0.145 0 0);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.145 0 0);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.145 0 0);
+	--primary: oklch(0.205 0 0);
+	--primary-foreground: oklch(0.985 0 0);
+	--secondary: oklch(0.97 0 0);
+	--secondary-foreground: oklch(0.205 0 0);
+	--muted: oklch(0.97 0 0);
+	--muted-foreground: oklch(0.556 0 0);
+	--accent: oklch(0.97 0 0);
+	--accent-foreground: oklch(0.205 0 0);
+	--destructive: oklch(0.577 0.245 27.325);
+	--border: oklch(0.922 0 0);
+	--input: oklch(0.922 0 0);
+	--ring: oklch(0.708 0 0);
+	--chart-1: oklch(0.87 0 0);
+	--chart-2: oklch(0.556 0 0);
+	--chart-3: oklch(0.439 0 0);
+	--chart-4: oklch(0.371 0 0);
+	--chart-5: oklch(0.269 0 0);
+	--radius: 0.625rem;
+	--sidebar: oklch(0.985 0 0);
+	--sidebar-foreground: oklch(0.145 0 0);
+	--sidebar-primary: oklch(0.205 0 0);
+	--sidebar-primary-foreground: oklch(0.985 0 0);
+	--sidebar-accent: oklch(0.97 0 0);
+	--sidebar-accent-foreground: oklch(0.205 0 0);
+	--sidebar-border: oklch(0.922 0 0);
+	--sidebar-ring: oklch(0.708 0 0);
 }
 
 @theme inline {
@@ -87,6 +120,43 @@
 	--z-index-modal: var(--z-modal);
 	--z-index-system: var(--z-system);
 	--animate-shimmer: nova-shimmer 1.5s ease-in-out infinite;
+	--font-heading: var(--font-sans);
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar: var(--sidebar);
+	--color-chart-5: var(--chart-5);
+	--color-chart-4: var(--chart-4);
+	--color-chart-3: var(--chart-3);
+	--color-chart-2: var(--chart-2);
+	--color-chart-1: var(--chart-1);
+	--color-ring: var(--ring);
+	--color-input: var(--input);
+	--color-border: var(--border);
+	--color-destructive: var(--destructive);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-accent: var(--accent);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-muted: var(--muted);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-secondary: var(--secondary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary: var(--primary);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-popover: var(--popover);
+	--color-card-foreground: var(--card-foreground);
+	--color-card: var(--card);
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-2xl: calc(var(--radius) * 1.8);
+	--radius-3xl: calc(var(--radius) * 2.2);
+	--radius-4xl: calc(var(--radius) * 2.6);
 }
 
 /* Global styles */
@@ -912,4 +982,69 @@ html.dark {
 		var(--nova-deep)
 	);
 	border-color: var(--nova-border-bright);
+}
+
+/* ─── shadcn token bindings → Nova color system ─────────────────────
+ * shadcn writes neutral oklch defaults during init. Nova runs dark-
+ * only (html.dark is hard-set in the root layout), so the .dark
+ * block is what shadcn components actually consume. The tokens here
+ * re-bind shadcn's surface, text, border, and accent slots to Nova's
+ * existing palette so shadcn surfaces blend with Nova chrome —
+ * violet primary, deep surfaces, Nova text + border.
+ *
+ * The shadcn ":root" light-mode values (the oklch defaults shadcn
+ * writes) are left untouched in the :root block above: nothing in
+ * Nova removes the `dark` class from html, so they never apply. If
+ * a future surface intentionally renders light-mode, those defaults
+ * are the canonical light values shadcn ships.
+ *
+ * Chart tokens stay on shadcn's neutral defaults — no Nova
+ * equivalent exists, and Chart components are unused today. */
+.dark {
+	--background: var(--nova-void);
+	--foreground: var(--nova-text);
+	--card: var(--nova-deep);
+	--card-foreground: var(--nova-text);
+	--popover: var(--nova-deep);
+	--popover-foreground: var(--nova-text);
+	--primary: var(--nova-violet);
+	--primary-foreground: #ffffff;
+	--secondary: var(--nova-surface);
+	--secondary-foreground: var(--nova-text);
+	--muted: var(--nova-surface);
+	--muted-foreground: var(--nova-text-secondary);
+	--accent: var(--nova-elevated);
+	--accent-foreground: var(--nova-text);
+	--destructive: var(--nova-rose);
+	--border: var(--nova-border);
+	--input: var(--nova-border-bright);
+	--ring: var(--nova-violet-bright);
+	--chart-1: oklch(0.87 0 0);
+	--chart-2: oklch(0.556 0 0);
+	--chart-3: oklch(0.439 0 0);
+	--chart-4: oklch(0.371 0 0);
+	--chart-5: oklch(0.269 0 0);
+	--sidebar: var(--nova-deep);
+	--sidebar-foreground: var(--nova-text);
+	--sidebar-primary: var(--nova-violet);
+	--sidebar-primary-foreground: #ffffff;
+	--sidebar-accent: var(--nova-elevated);
+	--sidebar-accent-foreground: var(--nova-text);
+	--sidebar-border: var(--nova-border);
+	--sidebar-ring: var(--nova-violet-bright);
+}
+
+/* shadcn's @layer base injects baseline body/html rules. Nova's own
+ * `body { background: var(--nova-void); ... }` declaration above is
+ * pixel-equivalent to what `@apply bg-background text-foreground`
+ * resolves to once `--background` is bound to nova-void — keep both
+ * so explicit Tailwind utilities (e.g. `bg-background`) still work
+ * on top of Nova's authored body declaration. */
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
 }
