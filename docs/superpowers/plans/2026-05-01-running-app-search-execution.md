@@ -197,17 +197,23 @@ Renders one widget per `SearchInputDef` based on `input.type`:
 
 - `type: "text"` → text input.
 - `type: "select"` → option dropdown sourced from the case property's declared `options` (resolved via the case-type schema map). Property resolution uses the simple-arm `property` slot directly. Advanced-arm inputs of `type: "select"` reference a predicate AST whose option-source property is structurally ambiguous (the AST may compose multiple property terms); the widget falls back to a text input on the advanced arm. Surfacing a select on the advanced arm is a follow-up affordance once a "primary input property" annotation lands on `AdvancedSearchInputDef` — until then, ambiguity means text-input fallback.
-- `type: "date"` → single date picker (HTML `<input type="date">`; the value emits as ISO `YYYY-MM-DD`).
-- `type: "date-range"` → two date pickers; values emit under `<name>:from` and `<name>:to` (matches the runtime-bindings layer's range-mode key shape).
+- `type: "date"` → single date picker composed from shadcn-Base-UI `Popover` + `Calendar` (react-day-picker v10 under the hood, WCAG 2.1 AA compliant). Popover lifts `open` state and auto-closes on `Calendar.onSelect` or Clear-button press. Value emits as ISO `YYYY-MM-DD` through `date-fns::format(date, "yyyy-MM-dd")`. Inbound values are gated through the shared `ISO_DATE_PATTERN` + `date-fns::isValid` — calendar-invalid shapes (e.g. `"2024-13-45"`) render the placeholder rather than crashing `format(invalidDate, ...)`.
+- `type: "date-range"` → two single date pickers (not one `mode="range"` Calendar) so each bound's lifecycle stays independent; clearing one bound never touches the other. Values emit under `<name>:from` and `<name>:to` (matches the runtime-bindings layer's range-mode key shape).
 - `type: "barcode"` → text input. Barcode-scanned values are plain strings on the wire side; the text input mirrors that shape and accepts pasted scanner output. A camera/scanner widget is a follow-up affordance — `getUserMedia` + barcode-decode bundle weight is meaningful, and the typed-string fallback covers every input path the scanner widget would.
 
 The widget shape is the same regardless of `input.kind` — a user filling a search input doesn't see the simple-vs-advanced distinction. The arm distinction is purely about how the value binds to the predicate (Task 1).
 
-`onChange` debounces 300 ms before emitting a fresh `SearchInputValues` map upward. `value` flows from the parent's controlled state.
+`onChange` debounces 300 ms before emitting a fresh `SearchInputValues` map upward. `value` flows from the parent's controlled state. `onChange` is pinned in a ref so a parent passing an inline arrow `(next) => setValues(next)` doesn't reset the debounce timer on every re-render. External `value` updates short-circuit via `lastEmittedRef` (stamped in the sync effect, not only after the form's own emission) so the parent's own push doesn't echo back through `onChange` 300 ms later.
+
+The form fails closed on `searchInputs.length === 0` (returns `null`); callers don't need to gate the mount.
 
 **Mount site:** `components/preview/screens/CaseListScreen.tsx` — top of the list when `caseListConfig.searchInputs.length > 0`, at every state arm (`empty`, `rows`, `loading`).
 
-**Tests:** each `type` renders the right widget; debounced `onChange` fires once per type-burst (300 ms); empty value clears the input; `date-range` emits both `:from` and `:to` keys; `select` options render from the resolved property's declared options.
+**Tests:** each `type` renders the right widget; debounced `onChange` fires once per type-burst (300 ms); empty value clears the input; padded value trims (e.g. `"  alice  "` → `"alice"`); calendar-invalid value renders placeholder without crashing; `date-range` emits both `:from` and `:to` keys; `select` options render from the resolved property's declared options; advanced-arm `type: "select"` falls back to a text input; controlled-prop fresh-reference echo does NOT trigger upward `onChange`; date popover auto-closes on pick + Clear.
+
+> **SHIPPED.** Task 3 landed at `components/preview/shared/SearchInputForm.tsx` (commits `26f81d1a` through `a6b827f5`) with 25 tests. The `ISO_DATE_PATTERN` constant is shared with `lib/preview/engine/runtimeBindings.ts`; `parseDateBound` there also gained the `isValid` gate so calendar-invalid inbound shapes drop the bound instead of producing an opaque Postgres `date`-cast SQL error.
+>
+> Plan 5 onboarded the shadcn-Base-UI library as part of Task 3 (commit `ce9cbc99`): components land at `components/shadcn/` (not `components/ui/`, to avoid case-collision with existing PascalCase hand-written components); shadcn token bindings in `app/globals.css` map onto Nova's `nova-*` palette so shadcn surfaces blend with Nova chrome (violet primary, deep surfaces). All future frontend tasks consume `@/components/shadcn/*` for new UI primitives.
 
 ### Task 4: Mount `SearchInputForm` in CaseListScreen
 
