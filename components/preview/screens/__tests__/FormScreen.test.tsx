@@ -507,7 +507,7 @@ describe("FormScreen — error arms render inline", () => {
 		expect(onBackMock).not.toHaveBeenCalled();
 	});
 
-	it("renders the validation-failure per-field list", async () => {
+	it("renders the validation-failure per-field list with the case-type name", async () => {
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "case-properties-validation",
 			caseType: CASE_TYPE,
@@ -522,17 +522,22 @@ describe("FormScreen — error arms render inline", () => {
 		const submit = await screen.findByRole("button", { name: /^submit$/i });
 		fireEvent.click(submit);
 
-		await waitFor(() => {
-			/* The validation block joins the failures one per line; the
-			 *  `whitespace-pre-line` wrapper collapses to a single text
-			 *  node so the substring match covers both lines. The path's
-			 *  leading `/` is stripped for readability; the empty path
-			 *  becomes `<root>`. */
-			expect(screen.getByText(/age: must be integer/)).toBeDefined();
-			expect(
-				screen.getByText(/<root>: additional property not allowed/),
-			).toBeDefined();
-		});
+		/* The validation block joins the header + per-field failures
+		 *  into one `whitespace-pre-line` text node — reading `alert.textContent`
+		 *  gives the full string in one match, letting one assertion
+		 *  pin every load-bearing fragment: (1) the header names
+		 *  `result.caseType` so multi-case submissions can tell which
+		 *  case type rejected, (2) the per-field rows each render with
+		 *  the path stripped of its leading slash, and (3) the empty
+		 *  path becomes `<root>`. */
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toMatch(
+			new RegExp(`Some fields on case type '${CASE_TYPE}'`),
+		);
+		expect(alert.textContent).toMatch(/age: must be integer/);
+		expect(alert.textContent).toMatch(
+			/<root>: additional property not allowed/,
+		);
 		expect(navigateMock.goHome).not.toHaveBeenCalled();
 	});
 

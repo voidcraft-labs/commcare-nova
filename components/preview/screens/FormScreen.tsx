@@ -60,12 +60,15 @@ function describeSubmitError(result: SubmissionFailure): string {
 			 * document root); strip the leading slash for readability and
 			 * substitute `<root>` for the empty path — same shape
 			 * `describePopulateError` uses so the two surfaces stay
-			 * visually consistent. */
+			 * visually consistent. The header names `result.caseType` so
+			 * registration forms with multi-case fan-out tell the user
+			 * WHICH case type rejected (a child case's properties failing
+			 * is otherwise indistinguishable from the primary's). */
 			const lines = result.failures.map((f) => {
 				const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
 				return `${field}: ${f.message}`;
 			});
-			return `Some fields didn't match the case type's schema:\n${lines.join("\n")}`;
+			return `Some fields on case type '${result.caseType}' didn't match its schema:\n${lines.join("\n")}`;
 		}
 		case "missing-case-type":
 			return `Case type '${result.caseType}' is no longer in the blueprint. Refresh the page and try again.`;
@@ -123,11 +126,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
 
-	/** Doubles as FormRenderer's entity key; FormRenderer subscribes to `fieldOrder[formUuid]`. */
-	const formId = formUuid;
-
-	/** Returns `false` for undefined `formId` so FormScreen can mount while the URL is parsing. */
-	const hasFields = useHasFieldsInForm(formId as Uuid | undefined);
+	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
+	const hasFields = useHasFieldsInForm(formUuid);
 
 	const { state: caseDataState } = useCaseData({
 		appId,
@@ -281,7 +281,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	};
 
-	if (!form || !formId) return null;
+	if (!form || !formUuid) return null;
 
 	/** A caseId-bound followup hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). */
 	if (mode === "test" && form.type === "followup") {
@@ -372,7 +372,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			{/* Unified `pt-4` for flipbook parity: edit-mode `insertion(0)` row + live-mode `pt-6` both land the first field at Y = 40px so toggling modes never shifts reading position. Bottom symmetric via `insertion(N+1)` in edit / last field's `mb-6` in live. */}
 			<div ref={formBodyRef} className="flex-1 pt-4">
 				{hasFields ? (
-					<FormRenderer parentEntityId={formId} />
+					<FormRenderer parentEntityId={formUuid} />
 				) : (
 					<div className="text-center text-nova-text-muted py-8">
 						This form has no fields.
