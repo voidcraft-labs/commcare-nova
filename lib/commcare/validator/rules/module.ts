@@ -13,6 +13,7 @@ import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck
 import { columnReferences } from "./case-list/columnReferences";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { idMappingValueRequired } from "./case-list/idMappingValueRequired";
+import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
@@ -176,6 +177,7 @@ export const MODULE_RULES = [
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
 	idMappingValueRequired,
+	matchModeWhitespaceInValue,
 	sortPriorityUniqueness,
 	searchInputNameUniqueness,
 	searchInputModeMatchesPropertyType,
