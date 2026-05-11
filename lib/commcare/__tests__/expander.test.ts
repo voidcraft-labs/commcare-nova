@@ -3950,7 +3950,12 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		expect(xpathEntry?.defaultValue).toContain("'match-all()'");
 	});
 
-	it("keeps self-walk simple-arm inputs out of `_xpath_query` (only the cross-walk input lands there)", () => {
+	it("keeps the bare-prompt-compatible simple-arm input out of `_xpath_query` (only the cross-walk input lands there)", () => {
+		// The bare-prompt-compatible shape is self-walk + default
+		// exact + `name === property` — CCHQ's runtime auto-match on
+		// the prompt key IS the authored comparison. The cross-walk
+		// input alongside it routes through `_xpath_query` because
+		// the bare prompt has no relation-walk metadata.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
@@ -3962,7 +3967,7 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-000000060021"),
-					"self_name",
+					"case_name",
 					"Self name",
 					"text",
 					"case_name",
@@ -3992,8 +3997,88 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		expect(xpathEntry?.defaultValue).toContain("'ancestor-exists('");
 		expect(xpathEntry?.defaultValue).toContain("'parent'");
 		expect(xpathEntry?.defaultValue).toContain("@name='parent_region'");
-		// The self-walk input's name does NOT appear in the derived
-		// `_xpath_query` predicate.
-		expect(xpathEntry?.defaultValue).not.toContain("@name='self_name'");
+		// The bare-prompt-compatible input's name (`case_name`) does
+		// NOT appear in the derived `_xpath_query` predicate — it
+		// rides on its prompt binding alone, with CCHQ's runtime
+		// auto-match doing the comparison.
+		expect(xpathEntry?.defaultValue).not.toContain("@name='case_name'");
+	});
+
+	// ── exclude="true()" / exclude: true bogus-auto-match suppression ──
+
+	it("sets `exclude: true` on simple-arm CaseSearchProperty when `name !== property` (default exact, self-walk)", () => {
+		// CCHQ's runtime auto-matches the typed value against the
+		// case property NAMED BY the prompt key. When `name !==
+		// property` the auto-match queries a case property that may
+		// not exist (or queries the wrong one); the `exclude: true`
+		// flag suppresses the auto-match. Verified against
+		// `commcare-hq/.../suite_xml/post_process/remote_requests.py::build_query_prompts`
+		// (`'key': prop.name` + `if prop.exclude: kwargs['exclude']
+		// = "true()"`) and
+		// `commcare-core/.../session/RemoteQuerySessionManager.java::RemoteQuerySessionManager.getRawQueryParams`
+		// (the `excludeExpr.eval` check skips the auto-match while
+		// keeping the typed value bound to the search-input
+		// instance for the explicit `_xpath_query` predicate).
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000060030"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060031"),
+					"name_search",
+					"Name",
+					"text",
+					"case_name",
+				),
+			],
+		});
+		const module = expandDoc(doc).modules[0];
+		expect(module.search_config.properties).toHaveLength(1);
+		expect(module.search_config.properties[0].name).toBe("name_search");
+		expect(module.search_config.properties[0].exclude).toBe(true);
+
+		// And the `_xpath_query` slot carries the explicit comparison
+		// the suppressed auto-match would otherwise have done — the
+		// typed value matches against the authored target property
+		// `case_name`, not the prompt key `name_search`.
+		const xpathEntry = module.search_config.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathEntry).toBeDefined();
+		expect(xpathEntry?.defaultValue).toContain("case_name");
+		expect(xpathEntry?.defaultValue).toContain("@name='name_search'");
+	});
+
+	it("omits the `exclude` field on a bare-prompt-compatible simple-arm input (`name === property`, self-walk, default exact)", () => {
+		// The bare-prompt-correct case: CCHQ's auto-match against the
+		// prompt key IS the authored comparison. Emitting `exclude:
+		// true` here would suppress the very behaviour the user
+		// wants. Pin the negative so a regression that over-applies
+		// the field surfaces.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000060040"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060041"),
+					"case_name",
+					"Name",
+					"text",
+					"case_name",
+				),
+			],
+		});
+		const property = expandDoc(doc).modules[0].search_config.properties[0];
+		expect(property.exclude).toBeUndefined();
 	});
 });

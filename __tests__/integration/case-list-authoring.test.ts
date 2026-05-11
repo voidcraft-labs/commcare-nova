@@ -202,15 +202,15 @@ function buildWellFormedCaseListConfig(): CaseListConfig {
 			),
 			// Range mode on a numeric property — admitted by the
 			// `(text-input, int-property, range-mode)` matrix at
-			// `SEARCH_MODE_PROPERTY_TYPES`.
-			simpleSearchInputDef(
-				SI_AGE_UUID,
-				"age_range",
-				"Age range",
-				"text",
-				"age",
-				{ mode: rangeMode() },
-			),
+			// `SEARCH_MODE_PROPERTY_TYPES`. Prompt key matches the
+			// targeted property so CCHQ's runtime auto-match against
+			// the prompt key IS the authored comparison, and the
+			// validator's `searchInputViaModeCompatibility` admits the
+			// shape (the only `range` shape the bare prompt slot
+			// carries faithfully).
+			simpleSearchInputDef(SI_AGE_UUID, "age", "Age range", "text", "age", {
+				mode: rangeMode(),
+			}),
 		],
 	};
 }

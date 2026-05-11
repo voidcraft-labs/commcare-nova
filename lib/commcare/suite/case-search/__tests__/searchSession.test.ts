@@ -379,7 +379,7 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 		expect(xml).not.toContain(`key="_xpath_query"`);
 	});
 
-	it("emits an ancestor-walk simple input as a <prompt> AND contributes its predicate to _xpath_query", () => {
+	it("emits an ancestor-walk simple input as a <prompt exclude='true()'> AND contributes its predicate to _xpath_query", () => {
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({
 				searchInputs: [
@@ -399,8 +399,11 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 			moduleIndex: 0,
 		});
 		// Prompt still emits — CCHQ binds the user's typed value to
-		// the prompt key at runtime.
-		expect(xml).toContain(`<prompt key="parent_name">`);
+		// the prompt key at runtime so the explicit predicate can
+		// reference it. `exclude="true()"` rides alongside the key
+		// so CCHQ's runtime suppresses the bogus auto-match against
+		// the prompt key on the wrong case.
+		expect(xml).toContain(`<prompt key="parent_name" exclude="true()">`);
 		// And the relation-walked predicate lifts into _xpath_query
 		// via the lift-pass + `when-input-present` envelope. The
 		// XPath attribute value is XML-escaped (single quotes inside
@@ -437,20 +440,25 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<prompt key="child_status">`);
+		expect(xml).toContain(`<prompt key="child_status" exclude="true()">`);
 		expect(xml).toContain(`key="_xpath_query"`);
 		expect(xml).toContain(`subcase-exists(`);
 		expect(xml).toContain(`'child'`);
 		expect(xml).toContain(`@name='child_status'`);
 	});
 
-	it("AND-composes self-walk and ancestor-walk simple inputs cleanly — only the cross-walk contributes to _xpath_query", () => {
+	it("AND-composes a bare-prompt-compatible and an ancestor-walk simple input cleanly — only the cross-walk contributes to _xpath_query", () => {
+		// The bare-prompt-compatible shape is self-walk + default
+		// exact + `name === property` — CCHQ's runtime auto-match on
+		// the prompt key IS the authored comparison, so the input
+		// stays off `_xpath_query` and off the exclude route. The
+		// ancestor-walk input alongside it routes through both.
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({
 				searchInputs: [
 					simpleSearchInputDef(
 						INPUT_UUIDS.a,
-						"self_name",
+						"name",
 						"Self name",
 						"text",
 						"name",
@@ -470,16 +478,20 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<prompt key="self_name">`);
-		expect(xml).toContain(`<prompt key="parent_region">`);
+		// Bare-prompt-compatible input: no exclude attribute.
+		expect(xml).toContain(`<prompt key="name">`);
+		// Cross-walk input: exclude stamped.
+		expect(xml).toContain(`<prompt key="parent_region" exclude="true()">`);
 		// Only the ancestor-walked input contributes to _xpath_query;
-		// the self-walk one rides on its prompt binding only.
+		// the bare-prompt-compatible one rides on its prompt binding
+		// only.
 		expect(xml).toContain(`ancestor-exists(`);
 		expect(xml).toContain(`@name='parent_region'`);
-		// The self-walk input's name DOES NOT appear inside any
-		// `_xpath_query` CSQL because no predicate was derived for it.
+		// The bare-prompt-compatible input's name DOES NOT appear
+		// inside any `_xpath_query` CSQL because no predicate was
+		// derived for it.
 		const xpathSlice = xml.split(`key="_xpath_query"`)[1] ?? "";
-		expect(xpathSlice).not.toContain(`@name='self_name'`);
+		expect(xpathSlice).not.toContain(`@name='name'`);
 	});
 });
 
@@ -797,13 +809,18 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain("fuzzy-date(dob,");
 	});
 
-	it("does NOT route a self-walk `exact` simple input into _xpath_query (rides on bare prompt)", () => {
+	it("does NOT route a self-walk `exact` simple input with `name === property` into _xpath_query (rides on bare prompt)", () => {
+		// The bare-prompt-correct shape: self-walk + default exact AND
+		// `name === property` so CCHQ's runtime auto-match against
+		// the prompt key IS the authored comparison. The simple-arm
+		// derivation gate keeps this input off `_xpath_query` and off
+		// the `<prompt exclude="true()">` route.
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({
 				searchInputs: [
 					simpleSearchInputDef(
 						INPUT_UUIDS.a,
-						"name_exact",
+						"case_name",
 						"Name",
 						"text",
 						"case_name",
@@ -815,19 +832,58 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<prompt key="name_exact"`);
+		expect(xml).toContain(`<prompt key="case_name">`);
 		// CCHQ's runtime default already does exact match — no
 		// `_xpath_query` predicate needed.
 		expect(xml).not.toContain(`<data key="_xpath_query"`);
+		// And no `exclude="true()"` — the auto-match is the wanted
+		// runtime behaviour for this shape.
+		expect(xml).not.toContain(`exclude=`);
 	});
 
-	it("does NOT route a self-walk `range` simple input into _xpath_query (daterange widget handles two-bound)", () => {
+	it("routes a self-walk `exact` simple input with `name !== property` into _xpath_query AND emits exclude='true()' on the prompt", () => {
+		// The bogus-auto-match case: `name="name_search"` /
+		// `property="case_name"`. Without the routing + exclude
+		// stamp, CCHQ's runtime would auto-match the typed value
+		// against a case property called `name_search` (which may
+		// not exist) and silently produce zero results. The explicit
+		// `_xpath_query` predicate compares the typed value against
+		// the authored target `case_name`, and `exclude="true()"`
+		// suppresses the bogus auto-match while leaving the typed
+		// value bound to the search-input instance.
 		const { xml } = emitSearchSession({
 			caseListConfig: makeListConfig({
 				searchInputs: [
 					simpleSearchInputDef(
 						INPUT_UUIDS.a,
-						"visit_window",
+						"name_search",
+						"Name",
+						"text",
+						"case_name",
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<prompt key="name_search" exclude="true()">`);
+		expect(xml).toContain(`<data key="_xpath_query"`);
+		expect(xml).toContain("case_name = ");
+		expect(xml).toContain("@name='name_search'");
+	});
+
+	it("does NOT route a self-walk `range` simple input with `name === property` into _xpath_query (daterange widget handles two-bound)", () => {
+		// The bare-prompt-correct range shape: self-walk AND
+		// `name === property` so CCHQ's daterange widget can carry
+		// the two-bound semantic against the authored property.
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"visit_date",
 						"Visit",
 						"date-range",
 						"visit_date",
@@ -839,8 +895,9 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<prompt key="visit_window"`);
+		expect(xml).toContain(`<prompt key="visit_date"`);
 		expect(xml).not.toContain(`<data key="_xpath_query"`);
+		expect(xml).not.toContain(`exclude=`);
 	});
 });
 

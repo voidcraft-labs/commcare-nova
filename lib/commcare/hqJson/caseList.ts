@@ -58,6 +58,7 @@ import {
 } from "../suite/case-list/sortKeys";
 import { compileForPlatform } from "../suite/case-search/compileForPlatform";
 import { PROMPT_ATTRIBUTE_MAPPINGS } from "../suite/case-search/searchPrompts";
+import { simpleArmNeedsXPathQueryEmission } from "../suite/case-search/simpleArmDerivation";
 import { composeXPathQueryEmission } from "../suite/case-search/xpathQuery";
 import type {
 	CaseSearchProperty,
@@ -310,6 +311,17 @@ function projectCaseListFilter(
  * `searchInputViaModeCompatibility` rule rejects the one mode the
  * single-binding wire shape can't carry (`multi-select-contains`).
  *
+ * When the simple-arm derivation gate routes the input through
+ * `_xpath_query` (non-self via, OR `name !== property`, OR a
+ * non-default mode), `exclude` is set to `true` so CCHQ's runtime
+ * skips the auto-match against `name` as a case property — without
+ * it the typed value would AND-compose against the wrong case
+ * property and silently drop results. The suite-XML emitter does
+ * the symmetric stamp on `<prompt exclude="true()">`; the two
+ * surfaces consult the same gate so they can never disagree about
+ * whether a given input rides on the bare prompt or the explicit
+ * predicate.
+ *
  * `default` (an authored seed expression) compiles to on-device
  * XPath via `emitOnDeviceExpression` and lands on CCHQ's
  * `default_value` attribute — same dialect the suite-XML
@@ -331,6 +343,14 @@ function projectSimpleSearchInput(
 		property.appearance = mapping.appearance;
 	if (input.default !== undefined) {
 		property.default_value = emitOnDeviceExpression(input.default);
+	}
+	// Mirrors the suite-XML `<prompt exclude="true()">` decision; one
+	// gate decides both surfaces. CCHQ stores the field with
+	// `exclude_if_none=True` semantics, so a `true` value persists and
+	// a `false` / absent value omits the key entirely (the CCHQ
+	// runtime's `BooleanProperty(default=False)` reads the same).
+	if (simpleArmNeedsXPathQueryEmission(input)) {
+		property.exclude = true;
 	}
 	return property;
 }

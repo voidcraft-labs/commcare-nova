@@ -1,23 +1,30 @@
 /**
- * Rule: when `caseSearchConfig` is present (so the module emits a
- * `<remote-request>` carrying `<data key="_xpath_query">`), no
- * `(destinationCaseType, property)` pair may appear in BOTH:
+ * Rule: Nova rejects an ambiguous double-binding when
+ * `caseSearchConfig` is present (so the module emits a
+ * `<remote-request>` carrying `<data key="_xpath_query">`) and the
+ * SAME `(destinationCaseType, property)` pair appears in BOTH:
  *
  *   - a `prop(...)` reference inside `caseListConfig.filter` (the
  *     unified always-on filter), AND
  *   - a simple-arm `caseListConfig.searchInputs[i]` (a simple
  *     input's targeted property at its destination case type).
  *
- * The two contributions AND-compose into one `<data
- * key="_xpath_query">` at the wire-emission layer. CCHQ's runtime
- * rejects the dual binding when both surfaces resolve to the same
- * runtime path. The dedup key is `(destinationCaseType, property)`
- * — NOT bare property name — because property names with distinct
- * `via` walks resolve to distinct runtime paths and AND-compose
- * fine: a filter `prop("patient", "region", ancestor[parent])`
- * (parent's region) and a simple input `{ property: "region" }`
- * (patient's region) bind to two different cases and the wire
- * layer accepts both.
+ * CCHQ accepts the double-binding without complaint — it
+ * AND-composes both contributions into the same `_xpath_query`
+ * clause. The author's runtime experience is what fails: the
+ * always-on filter ANDs with the typed-value filter and the user
+ * sees an unexpectedly empty result set whenever the two values
+ * disagree. Two filters on the same property is rarely the
+ * intent; one of them is almost certainly meant to replace the
+ * other, and the editor cannot tell which.
+ *
+ * The dedup key is `(destinationCaseType, property)` — NOT bare
+ * property name — because property names with distinct `via` walks
+ * resolve to distinct runtime paths and AND-compose fine: a filter
+ * `prop("patient", "region", ancestor[parent])` (parent's region)
+ * and a simple input `{ property: "region" }` (patient's region)
+ * bind to two different cases and the wire layer carries both
+ * without an authoring ambiguity.
  *
  * Path resolution mirrors `searchInputModeMatchesPropertyType`'s
  * pattern: route every `(property, via, originCaseType)` triple
@@ -38,7 +45,7 @@
  *
  *   - `caseSearchConfig` absent — no `<remote-request>` is
  *     emitted; filter and search inputs may legitimately share
- *     property names without the AND-composition conflict.
+ *     property names without the AND-composition ambiguity.
  *   - `mod.caseType` absent — the originating scope is unknowable,
  *     so destination resolution is impossible. The structural
  *     module rules (`NO_CASE_TYPE`) surface that elsewhere; this
@@ -152,10 +159,10 @@ function resolveDestination(
 /**
  * Render the property-conflict error in the project's Elm-style
  * voice. Names the resolved destination case type so the author
- * sees exactly which runtime path the wire layer would
- * dual-bind, threading the three-component shape: (1) what was
- * tried + went wrong, (2) the expected condition, (3) what to
- * look at to resolve the conflict.
+ * sees exactly which runtime path Nova flagged, threading the
+ * three-component shape: (1) what was tried + ambiguous, (2) why
+ * Nova surfaces this as an authoring choice rather than a runtime
+ * outcome, (3) what to look at to disambiguate.
  */
 function buildConflictError(
 	mod: Module,
@@ -166,7 +173,7 @@ function buildConflictError(
 	return validationError(
 		"CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 		"module",
-		`Module "${mod.name}" binds the property "${propertyName}" on case type "${destinationCaseType}" in both \`caseListConfig.filter\` (the always-on filter) and a simple-arm search input on \`caseListConfig.searchInputs\`. With \`caseSearchConfig\` present, both contributions AND-compose into one wire-layer query and CCHQ's runtime rejects the duplicate binding. Move the binding to one of the two surfaces — either remove the reference from the filter predicate or remove the search input that targets it — so the runtime path "${destinationCaseType}.${propertyName}" binds at exactly one site.`,
+		`Module "${mod.name}" binds the property "${propertyName}" on case type "${destinationCaseType}" in both \`caseListConfig.filter\` (the always-on filter) and a simple-arm search input on \`caseListConfig.searchInputs\`. The two clauses AND-compose into one wire-layer query — at runtime the always-on filter narrows the search results before the typed value is matched, and the two filters rarely agree, so the user sees an unexpectedly empty result set whenever the always-on value and the typed value disagree. One of the two clauses is likely meant to replace the other. Either remove "${propertyName}" from the filter predicate (and let the typed search drive the comparison) or remove the search input that targets "${propertyName}" (and let the always-on filter pin the value) so the runtime path "${destinationCaseType}.${propertyName}" binds at exactly one site.`,
 		{ moduleUuid, moduleName: mod.name },
 		{ destinationCaseType, property: propertyName },
 	);

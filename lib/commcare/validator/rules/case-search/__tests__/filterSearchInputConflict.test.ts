@@ -1,8 +1,9 @@
 /**
  * Tests for the `filterSearchInputConflict` rule. One invariant
- * per `it(...)` block; pins the AND-composition conflict (filter +
- * simple-arm input) the wire layer rejects when `caseSearchConfig`
- * is present, with via-aware dedup so cross-walk paths don't false-
+ * per `it(...)` block; pins the AND-composition authoring
+ * ambiguity (filter + simple-arm input bind the same runtime path
+ * to two distinct values) Nova surfaces when `caseSearchConfig` is
+ * present, with via-aware dedup so cross-walk paths don't false-
  * positive.
  */
 
@@ -29,7 +30,8 @@ describe("filterSearchInputConflict", () => {
 		// Self-walk-vs-self-walk: filter `prop("patient", "region")`
 		// + simple input `{ property: "region" }` both resolve to
 		// `(patient, region)` — same runtime path, AND-composition
-		// conflict at the wire layer.
+		// authoring ambiguity (two filters on the same property,
+		// neither one obviously intended over the other).
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -88,7 +90,7 @@ describe("filterSearchInputConflict", () => {
 		expect(hits.length).toBe(1);
 		// Elm-style three-component message: pin the property +
 		// destination case type (the runtime path) so the author
-		// understands which binding the wire layer would reject.
+		// understands which runtime path Nova flagged as ambiguous.
 		expect(hits[0].message).toContain('"region"');
 		expect(hits[0].message).toContain('"patient"');
 		expect(hits[0].message).toContain("caseListConfig.filter");

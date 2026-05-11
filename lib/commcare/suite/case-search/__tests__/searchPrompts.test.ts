@@ -53,12 +53,14 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
+	ancestorPath,
 	dateCoerce,
 	dateLiteral,
 	eq,
 	input,
 	literal,
 	prop,
+	relationStep,
 	term,
 	today,
 	whenInput,
@@ -138,10 +140,13 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 	});
 
 	it("date-range type emits input='daterange' (CCHQ collapses the token)", () => {
+		// `name === property` (the bare-prompt-correct shape) so the
+		// derivation gate keeps this input off the exclude route; the
+		// test pins the daterange widget mapping in isolation.
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(
 				INPUT_UUIDS.a,
-				"visit_window",
+				"visit_date",
 				"Visit window",
 				"date-range",
 				"visit_date",
@@ -150,7 +155,7 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
-		expect(xml).toContain(`<prompt key="visit_window" input="daterange">`);
+		expect(xml).toContain(`<prompt key="visit_date" input="daterange">`);
 	});
 
 	it("barcode type emits appearance='barcode_scan' (NOT @input)", () => {
@@ -214,13 +219,16 @@ describe("emitSearchPrompts — <display> element + locale registration", () => 
 
 describe("emitSearchPrompts — @default attribute conditional on input.default", () => {
 	it("populates @default with the compiled on-device XPath in the canonical attribute slot", () => {
-		// The full wire string pins `@default` AT THE END of the
-		// attribute list (after `key`, `appearance`, `input`) per
+		// The full wire string pins `@default` BEFORE `@exclude` per
 		// CCHQ's `QueryPrompt` model declaration order. A regression
 		// that flipped attribute order — say, emitting `default`
-		// before `input` — would fail this exact-string check.
+		// before `input`, or `exclude` before `default` — would fail
+		// this exact-string check. The fixture uses `name === property`
+		// (the bare-prompt-correct shape) so the derivation gate
+		// keeps the input off the exclude route; a sibling test
+		// covers the `name !== property` + default combination.
 		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(INPUT_UUIDS.a, "since", "Since", "date", "dob", {
+			simpleSearchInputDef(INPUT_UUIDS.a, "dob", "Since", "date", "dob", {
 				default: today(),
 			}),
 		];
@@ -229,10 +237,10 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 
 		expect(xml).toBe(
 			[
-				`        <prompt key="since" input="date" default="today()">`,
+				`        <prompt key="dob" input="date" default="today()">`,
 				`          <display>`,
 				`            <text>`,
-				`              <locale id="search_property.m0.since"/>`,
+				`              <locale id="search_property.m0.dob"/>`,
 				`            </text>`,
 				`          </display>`,
 				`        </prompt>`,
@@ -296,6 +304,144 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 });
 
 // ============================================================
+// exclude="true()" — bogus-auto-match suppression
+// ============================================================
+
+describe("emitSearchPrompts — exclude attribute (simple-arm bogus-auto-match suppression)", () => {
+	it("emits exclude='true()' on a simple-arm input whose `name !== property` (self-walk, default exact)", () => {
+		// CCHQ's runtime auto-matches the typed value against the case
+		// property NAMED BY the prompt key — verified at
+		// `commcare-hq/.../suite_xml/post_process/remote_requests.py::build_query_prompts`
+		// (`'key': prop.name`) and `commcare-hq/.../case_search/utils.py::_apply_filter`
+		// (the non-special key path routes the prompt key as the case
+		// property name). When `name !== property` the auto-match
+		// queries a case property that may not exist; the `<prompt
+		// exclude="true()">` attribute suppresses the auto-match while
+		// keeping the typed value bound to the search-input instance
+		// for the explicit `_xpath_query` predicate.
+		const inputs: SearchInputDef[] = [
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"name_search",
+				"Search by name",
+				"text",
+				"case_name",
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		expect(xml).toContain(`<prompt key="name_search" exclude="true()">`);
+	});
+
+	it("emits exclude='true()' on a simple-arm input whose mode is fuzzy / starts-with / phonetic / fuzzy-date (every non-default mode)", () => {
+		// Same suppression: every non-default mode routes through
+		// `_xpath_query`, so the bare-prompt auto-match would AND
+		// against the explicit matcher predicate and silently narrow
+		// the result set.
+		const inputs: SearchInputDef[] = [
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"name_fuzzy",
+				"Name (fuzzy)",
+				"text",
+				"name_fuzzy",
+				{ mode: { kind: "fuzzy" } },
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		expect(xml).toContain(`exclude="true()"`);
+	});
+
+	it("emits exclude='true()' on a simple-arm input with a non-self via (cross-walk)", () => {
+		// Cross-walk simple-arm: the bare prompt has no relation-walk
+		// metadata, so the explicit predicate carries the walk and the
+		// prompt rides exclude='true()' to silence the auto-match
+		// against the prompt key on the wrong case.
+		const inputs: SearchInputDef[] = [
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"parent_name",
+				"Parent name",
+				"text",
+				"case_name",
+				{ via: ancestorPath(relationStep("parent")) },
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		expect(xml).toContain(`exclude="true()"`);
+	});
+
+	it("does NOT emit exclude attribute when `name === property` AND self-walk AND default exact mode (the bare-prompt-correct case)", () => {
+		// CCHQ's auto-match against the prompt key IS the authored
+		// comparison here — emitting `exclude="true()"` would suppress
+		// the very behaviour the user wants. Pin the negative so a
+		// regression that over-applies the exclude attribute surfaces.
+		const inputs: SearchInputDef[] = [
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"case_name",
+				"Name",
+				"text",
+				"case_name",
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		expect(xml).not.toContain(`exclude=`);
+	});
+
+	it("does NOT emit exclude attribute on an advanced-arm input", () => {
+		// Advanced-arm inputs author their entire predicate; CCHQ's
+		// runtime auto-match against the prompt key isn't part of
+		// their semantic, so the attribute would be noise. Diverging
+		// from CCHQ's typical advanced-arm wire shape without a
+		// runtime benefit is its own footgun.
+		const inputs: SearchInputDef[] = [
+			advancedSearchInputDef(
+				INPUT_UUIDS.a,
+				"name",
+				"Name",
+				"text",
+				eq(prop("patient", "name"), literal("Alice")),
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		expect(xml).not.toContain(`exclude=`);
+	});
+
+	it("places exclude='true()' AFTER default attribute (CCHQ-canonical declaration order)", () => {
+		// CCHQ's `QueryPrompt` model declares `exclude` after the
+		// default-value slot; pin the full attribute order so a
+		// regression that flipped exclude before default would fail
+		// this exact-string check.
+		const inputs: SearchInputDef[] = [
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"since_search",
+				"Since",
+				"date",
+				"dob",
+				{ default: today() },
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		expect(xml).toContain(
+			`<prompt key="since_search" input="date" default="today()" exclude="true()">`,
+		);
+	});
+});
+
+// ============================================================
 // Per-arm dispatch
 // ============================================================
 
@@ -305,6 +451,8 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 		// wire output should be byte-identical for them. The arms
 		// diverge in their predicate composition (advanced contributes
 		// to `_xpath_query`), not in the prompt-element wire shape.
+		// Uses `name === property` on the simple arm so the simple-arm
+		// derivation gate keeps both arms in the no-exclude branch.
 		const simple: SearchInputDef = simpleSearchInputDef(
 			INPUT_UUIDS.a,
 			"name",

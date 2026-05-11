@@ -1,16 +1,27 @@
 /**
- * Rule: reject simple-arm `(mode, via)` combinations that no CCHQ
- * wire shape can carry faithfully.
+ * Rule: reject simple-arm `(mode, via, name vs property)`
+ * combinations that no CCHQ wire shape can carry faithfully.
  *
- * Two distinct rejections fire here:
+ * Three distinct rejections fire here:
  *
- *   - `range` mode is allowed only when the input's `via` is absent
- *     or `self`. CCHQ's `date` / `daterange` widget reads two
- *     bindings (`<name>:from` and `<name>:to`) and the prompt slot
- *     handles the two-value semantic internally for the current
- *     case. A non-self via has no equivalent two-binding wire
- *     shape — the single `<prompt key="X">` element binds one
- *     value per input.
+ *   - `range` mode requires self-walk AND `name === property`.
+ *     CCHQ's `date` / `daterange` widget reads two bindings
+ *     (`<name>:from` and `<name>:to`) and CCHQ's runtime auto-matches
+ *     the typed range against the case property named by the prompt
+ *     key (the prompt key IS the property name on the wire). Two
+ *     shapes break that:
+ *
+ *       - **Non-self via** — the single `<prompt key="X">` element
+ *         binds one runtime value and carries no relation-walk
+ *         metadata; the daterange's two-bound semantic has no
+ *         equivalent wire form on a related case.
+ *
+ *       - **`name !== property`** — the auto-match queries the case
+ *         property named by `name`, not the authored target
+ *         `property`, and the `_xpath_query` route has no range arm
+ *         (`match` only carries text-mode arms; the `between`
+ *         predicate would need two synthetic per-bound input refs
+ *         the wire layer doesn't synthesize for `range`).
  *
  *   - `multi-select-contains` mode is rejected on every simple-arm
  *     input, including self-walk. The runtime preview comma-splits
@@ -100,29 +111,85 @@ export function searchInputViaModeCompatibility(
 			continue;
 		}
 
-		// `range` only rejects on a non-self / non-absent via — the
-		// two-value wire shape can't ride on a single prompt binding
-		// when the property lives on a related case.
+		// `range` rejects on two shapes: a non-self via (the two-value
+		// wire form can't ride on a single prompt binding when the
+		// property lives on a related case) and `name !== property` on
+		// any via (CCHQ's auto-match keys on the prompt key, not the
+		// authored target; the `_xpath_query` route has no range arm
+		// to fall back to). Self-walk + `name === property` is the
+		// only `range` shape the bare prompt slot carries faithfully.
 		const via = input.via;
-		if (modeKind === "range" && via !== undefined && via.kind !== "self") {
-			const directionLabel = relationDirectionLabel(via.kind);
+		const viaIsCrossWalk = via !== undefined && via.kind !== "self";
+		const nameDiverges = input.name !== input.property;
+		if (modeKind === "range" && (viaIsCrossWalk || nameDiverges)) {
 			errors.push(
 				validationError(
 					"CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE",
 					"module",
-					`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" walks ${directionLabel} but uses the \`range\` mode. CCHQ's \`daterange\` widget reads two separate values per input (a start and an end), but each \`<prompt>\` element binds only one value on the wire — so a range-mode input only works when the property lives on the current case (the widget handles the two-bound semantic internally). Either drop the relation walk back to the current case, pick a single-value mode like \`exact\` or \`fuzzy-date\`, or convert the input to the advanced arm so the predicate is fully authored.`,
+					buildRangeRejectionMessage({
+						mod,
+						input,
+						index: i,
+						viaIsCrossWalk,
+						nameDiverges,
+						via,
+					}),
 					{ moduleUuid, moduleName: mod.name },
 					{
 						inputName: input.name,
 						inputUuid: input.uuid,
 						modeKind,
-						viaKind: via.kind,
+						viaKind: via?.kind ?? "absent",
+						nameDiverges: nameDiverges ? "true" : "false",
 					},
 				),
 			);
 		}
 	}
 	return errors;
+}
+
+/**
+ * Compose the per-rejection message body for `range`-mode rejections.
+ * Two `(viaIsCrossWalk, nameDiverges)` flag combinations produce
+ * three message shapes:
+ *
+ *   - Cross-walk via only — daterange's two-bound semantic has no
+ *     wire form on a related case.
+ *   - `name !== property` only — CCHQ's auto-match keys on the
+ *     prompt key, so the typed range queries the wrong case property.
+ *   - Both — list both reasons.
+ *
+ * Every arm threads the same three-part Elm-voice shape: what was
+ * tried + went wrong, the expected condition, what to look at to
+ * resolve the issue.
+ */
+function buildRangeRejectionMessage(args: {
+	readonly mod: Module;
+	readonly input: SimpleSearchInputDef;
+	readonly index: number;
+	readonly viaIsCrossWalk: boolean;
+	readonly nameDiverges: boolean;
+	readonly via: SimpleSearchInputDef["via"];
+}): string {
+	const { mod, input, index, viaIsCrossWalk, nameDiverges, via } = args;
+	const inputLabel = input.label || input.name;
+	const moduleName = mod.name;
+	const inputDescriptor = `Search input "${inputLabel}" (input #${index + 1}, name "${input.name}") on module "${moduleName}"`;
+	const fixHints = `Either drop the input back to a single \`range\`-compatible shape (current-case property with \`name\` matching \`property\`), pick a single-value mode like \`exact\` or \`fuzzy-date\`, or convert the input to the advanced arm so the predicate is fully authored.`;
+
+	// `viaIsCrossWalk` already guarantees `via.kind !== "self"`. The
+	// guard here narrows the type for `relationDirectionLabel`'s
+	// exhaustive switch over the cross-walk kinds (`ancestor`,
+	// `subcase`, `any-relation`).
+	if (viaIsCrossWalk && via !== undefined && via.kind !== "self") {
+		const directionLabel = relationDirectionLabel(via.kind);
+		if (nameDiverges) {
+			return `${inputDescriptor} uses the \`range\` mode, walks ${directionLabel}, AND names the prompt "${input.name}" against a different case property "${input.property}". CCHQ's \`daterange\` widget reads two runtime values per input and CCHQ's runtime auto-matches the typed range against the case property named by the prompt key; neither half works here — the relation walk has no two-bound wire form, and the prompt key doesn't name the targeted property. ${fixHints}`;
+		}
+		return `${inputDescriptor} walks ${directionLabel} but uses the \`range\` mode. CCHQ's \`daterange\` widget reads two separate values per input (a start and an end), but each \`<prompt>\` element binds only one value on the wire — so a range-mode input only works when the property lives on the current case (the widget handles the two-bound semantic internally). ${fixHints}`;
+	}
+	return `${inputDescriptor} uses the \`range\` mode and names the prompt "${input.name}" against a different case property "${input.property}". CCHQ's runtime auto-matches the typed range against the case property named by the prompt key (the prompt key IS the property name on the wire), and the simple-arm \`_xpath_query\` route has no range arm to fall back to. Rename the prompt to match its targeted property (so the prompt key and the property name agree), pick a single-value mode the explicit-predicate route covers (\`exact\` / \`fuzzy-date\`), or convert the input to the advanced arm so the predicate is fully authored.`;
 }
 
 /**

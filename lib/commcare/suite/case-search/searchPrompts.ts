@@ -13,17 +13,40 @@
 // (orchestrated above; this module exposes `getAdvancedArmPredicates`
 // for that pull).
 //
+// When a simple-arm input rides on the `_xpath_query` route (the
+// gate at `simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`
+// decides), the prompt also emits `exclude="true()"`. CCHQ's runtime
+// otherwise auto-matches the typed value against a case property
+// named by the prompt key (verified against
+// `commcare-hq/.../suite_xml/post_process/remote_requests.py::build_query_prompts`
+// — `'key': prop.name` is the prompt key, and CCHQ's case-search
+// utils.py `_apply_filter` treats the key as the case property
+// name); the auto-match would AND with the explicit predicate and
+// silently drop results when `name !== property` or when the
+// relation walk doesn't resolve. The `exclude="true()"` attribute
+// makes the runtime skip the auto-match (verified at
+// `commcare-core/.../session/RemoteQuerySessionManager.java::RemoteQuerySessionManager.getRawQueryParams`)
+// while leaving the typed value bound to
+// `instance('search-input:results')/input/field[@name='<prompt key>']`
+// so the explicit predicate's `input(<prompt key>)` reference still
+// resolves.
+//
 // Type-mapping decisions are CCHQ-authoritative and pinned in the
 // mapping table below. Two CCHQ-side gotchas worth highlighting:
 // `default_value` is an XML attribute (`@default`), not a child
 // `<default>` element; barcode rides on `@appearance="barcode_scan"`,
 // not `@input`. Both verified against the `QueryPrompt` model.
 
-import type { SearchInputDef, SearchInputType } from "@/lib/domain";
+import type {
+	SearchInputDef,
+	SearchInputType,
+	SimpleSearchInputDef,
+} from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { escapeXml } from "../../xml";
 import type { CaseListEmission } from "../case-list/types";
+import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
 // ── Per-input-type wire-attribute mapping ─────────────────────────
 //
@@ -83,6 +106,15 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
  * the compiler threads into the per-language string tables. An
  * empty input array yields an empty emission; the orchestrator
  * handles the no-prompt branch without a sentinel.
+ *
+ * Simple-arm inputs whose authored shape rides on the `_xpath_query`
+ * route (per `simpleArmNeedsXPathQueryEmission`) emit
+ * `exclude="true()"` so CCHQ's runtime suppresses the bogus
+ * auto-match against the prompt key. The advanced arm never emits
+ * the attribute — advanced-arm predicates author the entire
+ * comparison and rely on the prompt slot binding the typed value at
+ * `instance('search-input:results')/input/field[@name='<prompt key>']`,
+ * not on any runtime auto-match.
  */
 export function emitSearchPrompts(
 	searchInputs: ReadonlyArray<SearchInputDef>,
@@ -102,10 +134,31 @@ export function emitSearchPrompts(
 		const localeId = composeSearchPropertyLocaleId(moduleId, input.name);
 		strings[localeId] = input.label !== "" ? input.label : input.name;
 
-		lines.push(emitPromptElement(input, localeId));
+		lines.push(emitPromptElement(input, localeId, suppressAutoMatch(input)));
 	}
 
 	return { xml: lines.join("\n"), strings };
+}
+
+/**
+ * Returns `true` if the prompt should carry `exclude="true()"` to
+ * suppress CCHQ's runtime auto-match. One source of truth — the
+ * simple-arm derivation gate — picks both the `_xpath_query` route
+ * and the prompt's exclude attribute. The two surfaces must travel
+ * together: a simple-arm input routed through `_xpath_query` without
+ * `exclude="true()"` would AND the explicit predicate with CCHQ's
+ * auto-match against the prompt key, silently dropping results when
+ * `name !== property` or when the relation walk doesn't resolve.
+ *
+ * Advanced-arm inputs never carry the attribute — their predicate
+ * authors the entire comparison; CCHQ's auto-match wouldn't fire
+ * meaningfully against them either way, and emitting
+ * `exclude="true()"` on every advanced-arm prompt would diverge from
+ * CCHQ's typical authoring shape without a runtime benefit.
+ */
+function suppressAutoMatch(input: SearchInputDef): boolean {
+	if (input.kind !== "simple") return false;
+	return simpleArmNeedsXPathQueryEmission(input satisfies SimpleSearchInputDef);
 }
 
 /**
@@ -147,9 +200,16 @@ function composeSearchPropertyLocaleId(moduleId: string, name: string): string {
 /**
  * Emit one `<prompt>` element. CCHQ always emits `<display>` on
  * every `QueryPrompt`, so this function does the same as a child.
+ * `suppressAutoMatch` threads through to stamp `exclude="true()"`
+ * on the prompt when the simple-arm derivation gate routes the
+ * input through `_xpath_query`.
  */
-function emitPromptElement(input: SearchInputDef, localeId: string): string {
-	const attrs = composePromptAttributes(input);
+function emitPromptElement(
+	input: SearchInputDef,
+	localeId: string,
+	suppressAutoMatch: boolean,
+): string {
+	const attrs = composePromptAttributes(input, suppressAutoMatch);
 	const displayBlock = composeDisplayBlock(localeId);
 
 	return [
@@ -162,14 +222,27 @@ function emitPromptElement(input: SearchInputDef, localeId: string): string {
 /**
  * Compose the attribute list for a `<prompt>` element. Order
  * follows `QueryPrompt`'s field declaration order: `key`,
- * `appearance`, `input`, `default`. Absent slots are skipped.
+ * `appearance`, `input`, `default`, `exclude`. Absent slots are
+ * skipped.
+ *
+ * `exclude="true()"` rides at the tail to match CCHQ's declaration
+ * order on `QueryPrompt` (verified against
+ * `commcare-hq/.../suite_xml/post_process/remote_requests.py::build_query_prompts`
+ * — the `if prop.exclude: kwargs['exclude'] = "true()"` block fires
+ * after the matcher / default / itemset slots have populated).
+ * Keeping the attribute order CCHQ-canonical keeps the wire shape
+ * byte-comparable against CCHQ's own emission for round-trip
+ * verification.
  *
  * Every interpolated value routes through `escapeXml` — `default`'s
  * compiled XPath in particular may carry `<` / `>` / `&` in
  * expression bodies. The escape pass on the mapping table's CCHQ-
  * literal values is defensive; costless and forward-compatible.
  */
-function composePromptAttributes(input: SearchInputDef): string {
+function composePromptAttributes(
+	input: SearchInputDef,
+	suppressAutoMatch: boolean,
+): string {
 	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
 
 	const parts: string[] = [];
@@ -187,6 +260,16 @@ function composePromptAttributes(input: SearchInputDef): string {
 	if (input.default !== undefined) {
 		const defaultXPath = compileDefaultExpression(input.default);
 		parts.push(` default="${escapeXml(defaultXPath)}"`);
+	}
+
+	// `exclude="true()"` is the structural mitigation for the
+	// `name !== property` / non-self via simple-arm cases. CCHQ's
+	// runtime skips the auto-match against the prompt key when the
+	// boolean XPath evaluates to true; the typed value remains bound
+	// to the search-input instance for the explicit `_xpath_query`
+	// predicate to reference.
+	if (suppressAutoMatch) {
+		parts.push(` exclude="true()"`);
 	}
 
 	return parts.join("");

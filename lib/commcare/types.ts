@@ -227,6 +227,17 @@ export interface DetailPair {
  * non-`exact` simple-arm input into the AND-composed `_xpath_query`
  * predicate via `simpleArmDerivation.ts`; the bare `<prompt>` slot
  * carries only the user-typed value, never a matcher hint.
+ *
+ * Note on name vs property. CCHQ collapses Nova's separate prompt
+ * key (`SearchInputDef.name`) and targeted case property
+ * (`SearchInputDef.property`) into ONE slot — `name` on the wire
+ * (`build_query_prompts` sets `'key': prop.name`, and the runtime's
+ * `_apply_filter` treats the prompt key as the case property name).
+ * When Nova's authoring carries `name !== property`, the wire
+ * emitter routes the input through `_xpath_query` AND sets
+ * `exclude` so CCHQ's runtime skips the auto-match against the
+ * prompt key (which would query a property by the wrong name) and
+ * defers to the explicit predicate in the `_xpath_query` slot.
  */
 export interface CaseSearchProperty {
 	name: string;
