@@ -3,27 +3,43 @@
  * walk nested inside the filter argument of an ancestor-relation
  * walk.
  *
- * CCHQ's runtime CSQL evaluator rejects exactly this shape. The
- * server-side validator at
+ * CCHQ's runtime CSQL evaluator rejects the immediate-nested form:
+ * the server-side validator at
  * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::_validate_ancestor_exists_filter`
- * walks the filter argument of every `ancestor-exists(...)` call —
- * descending through `and` / `or` / `not` operator children per
- * `OPERATOR_MAPPING` — and raises `CaseFilterError("subcase-exists is
- * not supported with ancestor-exists")` whenever it finds a
- * `FunctionCall(name='subcase-exists')` or
- * `FunctionCall(name='subcase-count')` anywhere inside. The failure
- * surfaces at search-execution time on the CCHQ server as an
+ * walks the filter argument of every `ancestor-exists(...)` call,
+ * descending through the operator children in `OPERATOR_MAPPING` —
+ * which is exactly `{'and': filters.AND, 'or': filters.OR}` per
+ * `commcare-hq/corehq/apps/case_search/const.py::OPERATOR_MAPPING`.
+ * On reaching a `FunctionCall(name='subcase-exists')` or
+ * `FunctionCall(name='subcase-count')`, CCHQ raises
+ * `CaseFilterError("subcase-exists is not supported with ancestor-exists")`.
+ * The failure surfaces at search-execution time as an
  * `XPathFunctionException` — after the app uploads, after the
  * case-search screen opens. The author has no path back to the
  * broken predicate from the surfaced error.
  *
- * Nova's authoring AST is more expressive than CCHQ's CSQL grammar
- * here: the AST cleanly composes cross-direction relation walks
- * inside one another, but CCHQ has no wire form for that composition.
- * The lossiness has to surface to the author at authoring time so
- * they can choose a different predicate shape (sibling top-level
- * walks AND-composed, or moving one walk to a separate
- * `caseListConfig.searchInputs[i].predicate`).
+ * Nova rejects a stricter superset than CCHQ's static validator
+ * does. The walker descends through `not` and `when-input-present`
+ * in addition to `and` / `or`. CCHQ's static validator does not
+ * descend into those — `not` and `when-input-present` lower to
+ * `FunctionCall`s (not `op`-bearing nodes), so CCHQ's
+ * `OPERATOR_MAPPING` check skips them. But the underlying runtime
+ * semantics of a `subcase-exists` nested inside a `not` or a
+ * `when-input-present` inside an `ancestor-exists` filter are
+ * unspecified at the CCHQ wire boundary — even when the static
+ * validator admits the shape, there is no documented runtime
+ * contract for what it returns. Rejecting the stricter superset at
+ * authoring time is the Nova-side defense against silent runtime
+ * lossiness, consistent with the spec's principle of catching CCHQ
+ * lossiness at authoring time, not at search-execution time.
+ *
+ * Nova's authoring AST is also more expressive than CCHQ's CSQL
+ * grammar: the AST cleanly composes cross-direction relation walks
+ * inside one another, but CCHQ has no wire form for that
+ * composition. The lossiness has to surface to the author at
+ * authoring time so they can choose a different predicate shape
+ * (sibling top-level walks AND-composed, or moving one walk to a
+ * separate `caseListConfig.searchInputs[i].predicate`).
  *
  * Walk the post-`liftPropertyVias` AST. `liftPropertyVias` is the
  * first stage of the CSQL hoist pipeline — it rewrites every
@@ -38,8 +54,8 @@
  *     validator.
  *   - `exists(ancestor, eq(prop(via=any-relation), v))` lifts to
  *     `exists(ancestor, or(exists(ancestor), exists(subcase)))` —
- *     the disjunction contains a subcase walk, also rejected per
- *     `OPERATOR_MAPPING`.
+ *     the disjunction's subcase arm trips the same validator
+ *     because CCHQ DOES descend through `or`.
  *
  * Slots in scope (verified by reading the CSQL wire emitters):
  *
@@ -202,17 +218,24 @@ function walkOuter(p: Predicate, findings: NestedWalkFinding[]): void {
 
 /**
  * Inside-ancestor walker — recurses through `and` / `or` / `not` /
- * `when-input-present` operator children (mirroring CCHQ's
- * `OPERATOR_MAPPING` traversal at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::_validate_ancestor_exists_filter`)
- * and records every subcase-direction `exists` / `missing` envelope
- * reached. Also walks operand ValueExpressions on comparison /
- * membership / absence predicates so a `count(via=subcase, ...)`
- * sitting in a comparison-LHS slot surfaces — CCHQ's filter
- * validator rejects `subcase-count` calls inside the ancestor
- * filter the same way it rejects `subcase-exists`. Re-enters
- * `walkOuter` on any nested ancestor envelope's filter so deeper
- * levels still surface their own findings.
+ * `when-input-present` operator children and records every
+ * subcase-direction `exists` / `missing` envelope reached. Also
+ * walks operand ValueExpressions on comparison / membership /
+ * absence predicates so a `count(via=subcase, ...)` sitting in a
+ * comparison-LHS slot surfaces — CCHQ's static filter validator
+ * rejects the bare `subcase-count` call inside the ancestor filter
+ * the same way it rejects `subcase-exists`. Re-enters `walkOuter`
+ * on any nested ancestor envelope's filter so deeper levels still
+ * surface their own findings.
+ *
+ * Nova's traversal descends through `not` and `when-input-present`
+ * in addition to the `and` / `or` operators CCHQ's
+ * `OPERATOR_MAPPING` covers. CCHQ's static validator does not
+ * descend into `not` (it's a `FunctionCall` in CCHQ's AST, not an
+ * `op`-bearing node) or `when-input-present`, but the runtime
+ * semantics of those nestings are unspecified at the CCHQ wire
+ * boundary — see the file-level comment for the Nova-side
+ * rationale.
  */
 function walkInsideAncestor(
 	p: Predicate,

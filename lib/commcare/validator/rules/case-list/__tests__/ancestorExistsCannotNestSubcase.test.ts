@@ -147,10 +147,13 @@ describe("ancestorExistsCannotNestSubcase", () => {
 	});
 
 	it("fires when the subcase walk is nested inside `and` / `or` / `not` operators", () => {
-		// CCHQ's `_validate_ancestor_exists_filter` walks operator
-		// children per `OPERATOR_MAPPING`, so a subcase walk hidden
-		// inside `and(eq(...), exists(subcase, ...))` still trips
-		// the rejection.
+		// CCHQ's `_validate_ancestor_exists_filter` descends through
+		// `and` / `or` (members of `OPERATOR_MAPPING`); Nova's rule
+		// additionally descends through `not` and `when-input-present`
+		// because the runtime semantics of a subcase walk nested inside
+		// those are unspecified at the CCHQ wire boundary. Either way,
+		// hiding the subcase walk inside any of these operators still
+		// trips the Nova-side rejection.
 		const doc = buildDoc({
 			appName: "T",
 			modules: [

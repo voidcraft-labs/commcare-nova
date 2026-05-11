@@ -15,6 +15,10 @@ import {
 } from "../../predicate";
 import { escapeXml } from "../../xml";
 import { emitSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
+import {
+	deriveSimpleArmPredicate,
+	simpleArmNeedsXPathQueryEmission,
+} from "./simpleArmDerivation";
 import type { WireShape } from "./types";
 import { composeXPathQueryEmission } from "./xpathQuery";
 
@@ -227,13 +231,17 @@ export function emitSearchSession(args: {
 	// instance declared on the surrounding `<remote-request>`.
 	// `casedb` and `commcaresession` are always present (above);
 	// `search-input:results` appears whenever a filter / advanced-arm
-	// predicate / excluded-owner expression references an
+	// predicate / excluded-owner expression / simple-arm-with-via
+	// derived predicate / per-prompt default expression references an
 	// `input(...)` Term, which CCHQ resolves through
 	// `instance('search-input:results')/input/field[@name='…']`.
 	// Without the accumulation, the wire would carry an
 	// instance-reference XPath the runtime can't resolve — the same
 	// gap CCHQ's `InstancesHelper.add_entry_instances` plugs on the
-	// server-regenerated suite path.
+	// server-regenerated suite path. Every surface that contributes
+	// XPath to the `<remote-request>` body walks here; missing one
+	// surfaces as a wire that ships valid XML but raises
+	// `XPathException` at search-execution time.
 	if (caseListConfig.filter !== undefined) {
 		for (const id of collectPredicateInstances(caseListConfig.filter)) {
 			instances.add(id);
@@ -242,6 +250,29 @@ export function emitSearchSession(args: {
 	for (const entry of getAdvancedArmPredicates(caseListConfig.searchInputs)) {
 		for (const id of collectPredicateInstances(entry.predicate)) {
 			instances.add(id);
+		}
+	}
+	for (const input of caseListConfig.searchInputs) {
+		// Simple-arm inputs whose `via` walks a relation route through
+		// the `_xpath_query` AND-composition via
+		// `deriveSimpleArmPredicate`. The derived predicate references
+		// `instance('search-input:results')` for the user's typed value;
+		// the instance accumulator must walk it the same way the
+		// advanced-arm predicates above are walked.
+		if (input.kind === "simple" && simpleArmNeedsXPathQueryEmission(input)) {
+			const derived = deriveSimpleArmPredicate(input, caseType);
+			for (const id of collectPredicateInstances(derived)) {
+				instances.add(id);
+			}
+		}
+		// `input.default` lowers via `emitOnDeviceExpression` into the
+		// `<prompt default="…">` attribute. A default that references
+		// another input or a session term needs the matching instance
+		// declared on `<remote-request>`.
+		if (input.default !== undefined) {
+			for (const id of collectExpressionInstances(input.default)) {
+				instances.add(id);
+			}
 		}
 	}
 	if (caseSearchConfig.excludedOwnerIds !== undefined) {

@@ -24,7 +24,14 @@ import {
 	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, prop, term } from "@/lib/domain/predicate";
+import {
+	ancestorPath,
+	eq,
+	literal,
+	prop,
+	relationStep,
+	term,
+} from "@/lib/domain/predicate";
 import { emitRemoteRequest } from "../remoteRequest";
 
 // ── Test helpers ────────────────────────────────────────────────────
@@ -179,6 +186,74 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 			module: makeModule({
 				caseType: "patient",
 				caseListConfig: makeListConfig({ searchInputs: [advancedInput] }),
+				caseSearchConfig: {},
+			}),
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(
+			`<instance id="search-input:results" src="jr://instance/search-input/results"/>`,
+		);
+	});
+
+	it("declares search-input:results when a simple-arm-with-via input is the only trigger", () => {
+		// A simple-arm input whose `via` walks a relation routes through
+		// `deriveSimpleArmPredicate` into the `_xpath_query` AND-composition.
+		// The derived predicate references
+		// `instance('search-input:results')`; the instance accumulator
+		// must walk the derived predicate too — without it, the wire
+		// would carry an `instance('search-input:results')` XPath with
+		// no matching `<instance>` declaration and the runtime would
+		// raise an XPath resolution error at search-execution time.
+		const simpleViaInput = simpleSearchInputDef(
+			asUuid("00000000-0000-4000-8000-00000000bbbb"),
+			"region_q",
+			"Region",
+			"text",
+			"region",
+			{ via: ancestorPath(relationStep("parent", "household")) },
+		);
+		const { xml } = emitRemoteRequest({
+			module: makeModule({
+				caseType: "patient",
+				caseListConfig: makeListConfig({ searchInputs: [simpleViaInput] }),
+				caseSearchConfig: {},
+			}),
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(
+			`<instance id="search-input:results" src="jr://instance/search-input/results"/>`,
+		);
+	});
+
+	it("declares search-input:results when a search input's default references another input", () => {
+		// Per-prompt `default` expressions lower into the `<prompt default="…">`
+		// attribute via `emitOnDeviceExpression`. A default that pulls
+		// from another input's typed value emits an XPath against
+		// `instance('search-input:results')`; the instance accumulator
+		// must walk the default expression too.
+		const primaryInput = simpleSearchInputDef(
+			asUuid("00000000-0000-4000-8000-00000000cccc"),
+			"primary_q",
+			"Primary",
+			"text",
+			"name",
+		);
+		const echoInput = {
+			...simpleSearchInputDef(
+				asUuid("00000000-0000-4000-8000-00000000dddd"),
+				"echo_q",
+				"Echo",
+				"text",
+				"name",
+			),
+			default: term({ kind: "input", name: "primary_q" }),
+		};
+		const { xml } = emitRemoteRequest({
+			module: makeModule({
+				caseType: "patient",
+				caseListConfig: makeListConfig({
+					searchInputs: [primaryInput, echoInput],
+				}),
 				caseSearchConfig: {},
 			}),
 			moduleIndex: 0,
