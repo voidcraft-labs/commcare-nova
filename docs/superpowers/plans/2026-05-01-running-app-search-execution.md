@@ -229,19 +229,23 @@ The split-screen / inline-search distinction is a CCHQ-runtime UX choice driven 
 
 **Tests:** search-input form renders when `searchInputs.length > 0`; typing filters the rendered rows; clearing inputs reverts to filter-only results (the `caseListConfig.filter` always-on filter still applies); zero-search-input config skips the form entirely.
 
+**Internal structure.** A private `shell(body)` helper inside `CaseListScreen` wraps the heading + `<SearchInputForm />` mount above every state arm's body. Each arm passes only its arm-specific body to `shell()` — a future arm cannot silently render without the form. Two-layer gating defense: the screen gates `caseListConfig !== undefined && caseListConfig.searchInputs.length > 0` to skip the wrapper's margin on empty configs, and `SearchInputForm` independently returns `null` for the same input so the contract is self-enforcing even if a future caller forgets the gate.
+
+> **SHIPPED.** Task 4 landed at `components/preview/screens/CaseListScreen.tsx` (commits `6e8ca809` and `d6f311b2`) with 4 new tests. Absorbed the minimal `inputValues?: SearchInputValues` thread through `useCases` + `loadCasesAction` (Task 5 still owns `useResetSampleCases`).
+
 ### Task 5: useCases extension + useResetSampleCases hook
 
 **Files:** `lib/preview/hooks/useCaseDataBinding.ts` (EDIT), `lib/preview/hooks/__tests__/useCaseDataBinding.test.ts` (EDIT).
 
 Two hook-layer changes.
 
-**`useCases` accepts `inputValues?: SearchInputValues`.** Threads through to `loadCasesAction` so the action's `readCases` call composes the runtime predicate. Fresh-reference `inputValues` triggers the effect's reload path (added to the dep list).
+**`useCases` accepts `inputValues?: SearchInputValues`** — SHIPPED in Task 4 (absorbed the minimal thread to make Task 4's mount work). Args type carries `inputValues`; effect dep list includes it so fresh-reference values trigger reload. `loadCasesAction` likewise forwards `inputValues` to `readCases`.
 
-**New `useResetSampleCases` hook.** Mirror of `usePopulateSampleCases` over a new `resetSampleCasesAction` Server Action (Task 6). Same `(appId, caseType, blueprint) → () => Promise<PopulateSampleCasesResult>` shape; same not-wrapped-in-`useCallback` rationale.
+**Remaining for Task 5: `useResetSampleCases` hook.** Mirror of `usePopulateSampleCases` over a new `resetSampleCasesAction` Server Action (Task 6). Same `(appId, caseType, blueprint) → () => Promise<PopulateSampleCasesResult>` shape; same not-wrapped-in-`useCallback` rationale.
 
-`loadCasesAction` extends to accept the new `inputValues` parameter and forward to `readCases`.
+The `resetSampleCasesAction` itself ships in Task 6; Task 5's hook can land first with a placeholder import (the action is the next task) OR Task 5 + Task 6 can land together with Task 6's action coming first. The plan threads both as one round trip since they're tightly coupled. Recommendation: Task 5's implementer should also land the `resetSampleCasesAction` Server Action so the hook compiles. Task 6's remaining scope is then just the UI button + dialog wiring.
 
-**Tests:** `useCases` re-fires on `inputValues` change; `useResetSampleCases` returns a fresh callback per render; `unauthenticated` / `error` arms map cleanly.
+**Tests:** `useResetSampleCases` returns a fresh callback per render; `unauthenticated` / `error` arms map cleanly.
 
 ### Task 6: resetSampleCasesAction Server Action + Reset button on the populated arm
 
