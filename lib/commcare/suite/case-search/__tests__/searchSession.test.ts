@@ -620,22 +620,12 @@ describe("emitSearchSession — <description> + locale strings", () => {
 		expect(strings["case_search.m0.description"]).toBeUndefined();
 	});
 
-	it("omits <description> and the description locale entry when subtitle is the empty string", () => {
-		// Empty-string-clears is the editor's promise: the authoring
-		// surface persists `""` as "no subtitle." The wire layer must
-		// honor that — emitting `<description>` for an empty string
-		// would render a blank locale fallback at runtime, contradicting
-		// the editor's clear semantic.
-		const { xml, strings } = emitSearchSession({
-			caseListConfig: makeListConfig(),
-			caseSearchConfig: { searchScreenSubtitle: "" },
-			wire: WEB_LIST_FIRST,
-			caseType: "patient",
-			moduleIndex: 0,
-		});
-		expect(xml).not.toContain(`<description>`);
-		expect(strings["case_search.m0.description"]).toBeUndefined();
-	});
+	// "Empty-string subtitle omits <description>" is no longer a
+	// distinct case to test — the schema's
+	// `searchScreenSubtitle: z.string().min(1).optional()` rejects
+	// empty strings at parse time, so the only way to express "no
+	// subtitle" is `undefined`. The "no subtitle authored" test
+	// above covers the only reachable no-subtitle shape.
 });
 
 // ── Instance accumulation ───────────────────────────────────────────

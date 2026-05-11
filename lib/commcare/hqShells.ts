@@ -184,8 +184,15 @@ export function caseSearchConfigShell(): CaseSearchConfig {
 		// `CaseSearch.search_button_label = LabelProperty(default={'en': 'Search All Cases'})`.
 		search_button_label: { en: "Search All Cases" },
 		properties: [],
+		// CCHQ defaults — the HQ JSON projection at
+		// `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`
+		// overrides every slot from `compileForPlatform`'s web-context
+		// output. The shell carries the defaults so a module with no
+		// `caseSearchConfig` (no override path) lands as CCHQ would
+		// otherwise materialize it from an empty author state.
 		auto_launch: false,
 		default_search: false,
+		inline_search: false,
 		default_properties: [],
 		title_label: {},
 		description: {},

@@ -253,22 +253,30 @@ compiler's `text` default at the same site.
 
 ## Reduction module
 
-Boolean-algebra simplifications applied at construction time:
+Boolean-algebra simplifications applied at construction time, scoped
+deliberately to empty / single-clause / double-negation cases:
 
 - `reduceAnd(clauses)` — `[]` → `match-all`, `[single]` → single,
-  flattens nested `and` clauses, returns `match-none` if any
-  clause is `match-none`, drops `match-all` clauses.
+  multi-clause → preserved verbatim.
 - `reduceOr(clauses)` — `[]` → `match-none`, `[single]` → single,
-  flattens nested `or` clauses, returns `match-all` if any clause
-  is `match-all`, drops `match-none` clauses.
+  multi-clause → preserved verbatim.
 - `reduceNot(clause)` — `not(match-all)` → `match-none`,
   `not(match-none)` → `match-all`, `not(not(x))` → x.
 
+Multi-clause `and` / `or` lists do NOT collapse identity / absorbing
+sentinels or flatten nested same-kind clauses. The non-coverage is
+intentional: authors compose ASTs progressively through the builder
+and editor surfaces, and a multi-clause `and` whose middle element
+is a `match-all` is a meaningful intermediate editing state, not
+noise to discard. The wire emitters faithfully emit whatever the
+builder constructed; CCHQ's runtime evaluates `true() and X` as `X`
+natively, so the wire passes through the extra sentinel without
+runtime cost.
+
 The builders apply these on every `and(...)` / `or(...)` /
-`not(...)` call so the constructed AST is always in canonical
-reduced form. Manual AST construction (object literals) bypasses
+`not(...)` call. Manual AST construction (object literals) bypasses
 the reduction; consumers that compose ASTs by hand should call the
-reduction helpers themselves to stay in canonical form.
+reduction helpers themselves if they want the canonical form.
 
 ## Wire-emission boundary
 

@@ -271,13 +271,19 @@ export interface DefaultCaseSearchProperty {
  * CCHQ deprecated the authoring affordance (`CASE_SEARCH_DEPRECATED`)
  * and Nova's authoring layer doesn't surface it.
  *
- * `auto_launch` and `default_search` are persistent author-state at
- * this layer. The suite-XML emitter derives the runtime-equivalent
- * flags at wire-emit time from `compileForPlatform`'s output; the
- * HQ JSON layer leaves them at CCHQ's defaults (`false`) — wiring
- * the derived values onto persistent state would couple the platform-
- * decision tree to the doc shape and force authoring-time persistence
- * of a per-platform decision.
+ * `auto_launch`, `default_search`, and `inline_search` are
+ * persistent author-state in CCHQ. The CCHQ runtime regenerates
+ * the suite XML from this document on every sync, reading these
+ * flags from the persisted doc (see
+ * `commcare-hq/.../app_manager/suite_xml/sections/details.py::_get_auto_launch_expression`,
+ * `commcare-hq/.../app_manager/suite_xml/post_process/remote_requests.py`,
+ * and `commcare-hq/.../app_manager/util.py::module_uses_inline_search`).
+ * Nova projects `compileForPlatform`'s web-context output onto
+ * these slots at HQ JSON emission so the CCHQ-regenerated suite
+ * carries the same shape Nova's local suite emitter renders. The
+ * Android runtime ignores all three flags (per `_get_auto_launch_expression`'s
+ * `if not in_search` guard), so persisting the web-correct values
+ * is right for both runtimes.
  */
 export interface CaseSearchConfig {
 	doc_type: "CaseSearch";
@@ -285,6 +291,7 @@ export interface CaseSearchConfig {
 	properties: CaseSearchProperty[];
 	auto_launch: boolean;
 	default_search: boolean;
+	inline_search: boolean;
 	search_button_display_condition?: string;
 	default_properties: DefaultCaseSearchProperty[];
 	blacklisted_owner_ids_expression?: string;

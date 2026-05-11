@@ -143,25 +143,25 @@ export function emitSearchSession(args: {
 	// override is registered, the runtime renders the locale value
 	// rather than the raw locale id.
 	const titleLocaleId = `case_search.${moduleId}.inputs`;
-	const titleDisplay =
-		caseSearchConfig.searchScreenTitle !== undefined &&
-		caseSearchConfig.searchScreenTitle !== ""
-			? caseSearchConfig.searchScreenTitle
-			: caseType;
+	// The schema's `searchScreenTitle: z.string().min(1).optional()`
+	// guarantees the slot is either `undefined` or a non-empty string,
+	// so `undefined` is the sole "no override" sentinel. The case-type
+	// fallback mirrors the HQ-JSON projection's symmetric fallback at
+	// `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument` so
+	// the same authored input lands the same locale string regardless
+	// of which path (local suite XML vs CCHQ-regenerated suite) the
+	// runtime sees.
+	const titleDisplay = caseSearchConfig.searchScreenTitle ?? caseType;
 
 	// Description (subtitle) is conditional — CCHQ's `<query>` carries
 	// `<description>` only when the author supplied copy. The locale id
-	// pattern is CCHQ's `case_search.{m}.description`; an unset or
-	// empty-string subtitle elides the element entirely so the runtime
-	// renders the screen without a subtitle slot rather than printing a
-	// blank locale fallback. Element ordering inside `<query>` is
+	// pattern is CCHQ's `case_search.{m}.description`; an absent
+	// subtitle elides the element entirely so the runtime renders the
+	// screen without a subtitle slot rather than printing a blank
+	// locale fallback. Element ordering inside `<query>` is
 	// title → description → data → prompts, matching CCHQ's
 	// `RemoteRequestQuery` factory.
-	const subtitleDisplay =
-		caseSearchConfig.searchScreenSubtitle !== undefined &&
-		caseSearchConfig.searchScreenSubtitle !== ""
-			? caseSearchConfig.searchScreenSubtitle
-			: undefined;
+	const subtitleDisplay = caseSearchConfig.searchScreenSubtitle;
 	const descriptionLocaleId = `case_search.${moduleId}.description`;
 
 	const queryBody: string[] = [

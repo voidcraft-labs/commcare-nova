@@ -110,14 +110,22 @@ export function composeXPathQueryEmission(
 		return undefined;
 	}
 
-	// `and(...)` is the AND-reducer entry point. One clause returns
-	// itself; two-or-more clauses fold authored `match-all` arms and
-	// return the standard `and` envelope.
+	// `and(...)` runs through `reduceAnd` at construction time —
+	// flattens nested `and` clauses, drops `match-all` identity
+	// clauses, short-circuits to `match-none` on any `match-none`
+	// absorbing clause, and unwraps single-clause / empty results to
+	// the wrapped predicate / sentinel. So `composed` is either a
+	// sentinel (`match-all` / `match-none`), a single non-sentinel
+	// clause, or a normalized `and` envelope with no nested `and` or
+	// `match-all` arms inside it.
 	const composed =
 		clauses.length === 1
 			? clauses[0]
 			: and(clauses[0], clauses[1], ...clauses.slice(2));
 
+	// `match-all` collapses to no `_xpath_query` slot at all — CCHQ's
+	// default behavior matches every case, exactly what the identity
+	// predicate means.
 	if (composed.kind === "match-all") {
 		return undefined;
 	}

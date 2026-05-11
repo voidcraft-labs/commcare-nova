@@ -56,6 +56,7 @@ import {
 	SORT_DIRECTION_WIRE_MAP,
 	SORT_TYPE_WIRE_MAP,
 } from "../suite/case-list/sortKeys";
+import { compileForPlatform } from "../suite/case-search/compileForPlatform";
 import { PROMPT_ATTRIBUTE_MAPPINGS } from "../suite/case-search/searchPrompts";
 import { composeXPathQueryEmission } from "../suite/case-search/xpathQuery";
 import type {
@@ -420,11 +421,24 @@ function projectDefaultProperties(
  *   - `caseListConfig.filter` + advanced-arm predicates →
  *     `default_properties` (AND-composed `_xpath_query` + hoists).
  *
- * `auto_launch` and `default_search` stay at CCHQ's defaults
- * (`false` / `false`). The suite-XML side derives the runtime
- * equivalents from `compileForPlatform`'s decision tree at
- * wire-emit time; persisting a platform-conditional value would
- * tie the doc to one platform.
+ * `auto_launch`, `default_search`, and `inline_search` are
+ * persistent CCHQ state — the CCHQ runtime regenerates the suite
+ * XML from this document, reading these flags directly off the
+ * persisted doc (see `commcare-hq/.../suite_xml/sections/details.py::_get_auto_launch_expression`,
+ * `commcare-hq/.../suite_xml/post_process/remote_requests.py`, and
+ * `commcare-hq/.../app_manager/util.py::module_uses_inline_search`).
+ * The projection threads `compileForPlatform`'s web-context output
+ * onto these slots so the CCHQ-regenerated suite carries the same
+ * shape Nova's local suite-XML emitter renders. The Android
+ * runtime ignores all three flags (per `_get_auto_launch_expression`'s
+ * `if not in_search` guard), so persisting the web-correct values
+ * is right for both runtimes.
+ *
+ * Per the spec's design property #5 (one canonical authoring
+ * surface, no platform toggle), the decision tree is consulted
+ * with a fixed web platform context — the persisted values are
+ * always the web-shape, the Android runtime silently ignores
+ * them.
  */
 function buildSearchConfigDocument(
 	caseSearchConfig: DomainCaseSearchConfig | undefined,
@@ -438,8 +452,18 @@ function buildSearchConfigDocument(
 	const config = caseSearchConfigShell();
 
 	if (caseSearchConfig !== undefined) {
+		// `searchScreenTitle` falls back to the case type when absent —
+		// mirrors the suite-XML emitter's same fallback at
+		// `searchSession.ts::emitSearchSession`. Without the symmetric
+		// projection, CCHQ's `get_search_title_label` would return `''`
+		// from the persisted `{}` and render a blank title on the
+		// regenerated suite while Nova's local emitter renders the case
+		// type — the same authored input would produce different
+		// runtime UX on the two paths.
 		if (caseSearchConfig.searchScreenTitle !== undefined) {
 			config.title_label = { en: caseSearchConfig.searchScreenTitle };
+		} else if (caseType !== undefined) {
+			config.title_label = { en: caseType };
 		}
 		if (
 			caseSearchConfig.searchScreenSubtitle !== undefined &&
@@ -471,6 +495,25 @@ function buildSearchConfigDocument(
 			caseListConfig,
 			caseType,
 		);
+	}
+
+	// `compileForPlatform`'s three-flag `WireShape` projects onto the
+	// persisted CCHQ slots. The Android runtime ignores all three
+	// flags per `_get_auto_launch_expression`'s `if not in_search`
+	// guard, so persisting the web-context value is correct for both
+	// runtimes. Without this projection, `auto_launch` and
+	// `default_search` would stay at the shell defaults and CCHQ's
+	// runtime would never reach skip-to-results — the entire
+	// `compileForPlatform` decision tree would be dead code on the
+	// production upload path. The fixed `web` platform context
+	// matches the spec's design property #5 ("no platform toggle").
+	if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
+		const wire = compileForPlatform(caseListConfig, caseSearchConfig, {
+			platform: "web",
+		});
+		config.auto_launch = wire.autoLaunch;
+		config.default_search = wire.defaultSearch;
+		config.inline_search = wire.inlineSearch;
 	}
 
 	return config;

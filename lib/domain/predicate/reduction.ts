@@ -1,7 +1,10 @@
 // lib/domain/predicate/reduction.ts
 //
-// Construction-time reductions for the predicate AST. The seven
-// reductions mirror the foundational boolean-algebra identities:
+// Construction-time reductions for the predicate AST. The reductions
+// are deliberately scoped to the empty / single-clause / double-
+// negation identities — the cases where the canonical form is the
+// only sensible representation. Multi-clause `and` / `or` lists
+// preserve sentinels and nested same-kind clauses verbatim:
 //
 //   - `and([])` ≡ identity element of conjunction → `match-all`
 //   - `or([])`  ≡ absorbing element of disjunction → `match-none`
@@ -10,6 +13,17 @@
 //   - `not(match-all)`  ≡ `match-none`
 //   - `not(match-none)` ≡ `match-all`
 //   - `not(not(x))` ≡ `x` (double-negation elimination)
+//
+// What the reducers DO NOT do (intentional non-coverage): flatten
+// nested `and` / `or` clauses, drop identity sentinels from multi-
+// clause lists, or short-circuit on absorbing sentinels in multi-
+// clause lists. Authors compose ASTs progressively through the
+// builder layer and editor surfaces — a multi-clause `and` whose
+// middle element is a `match-all` is a meaningful intermediate
+// editing state, not noise to collapse. The wire emitters faithfully
+// emit whatever the builder constructed; CCHQ's runtime evaluates
+// `true() and X` as `X` natively, so the wire passes through the
+// extra sentinel without runtime cost.
 //
 // Why a separate module: the `and` / `or` / `not` builders in
 // `builders.ts` call these reducers before falling through to the
@@ -71,11 +85,15 @@ import type { Predicate } from "./types";
  * or `undefined` for two-or-more clauses to signal "no reduction
  * applies; use the n-ary form."
  *
+ * Multi-clause lists are preserved verbatim — the reducer does NOT
+ * flatten nested `and` clauses, drop `match-all` identity clauses,
+ * or short-circuit on `match-none` absorbing clauses. See the
+ * file-level comment for the editor-state-preservation rationale.
+ *
  * The undefined return convention lets the builder layer dispatch
  * with one branch — `const reduced = reduceAnd(clauses); if
  * (reduced !== undefined) return reduced;` — rather than
- * duplicating the structural match. See the file-level comment for
- * the full rationale.
+ * duplicating the structural match.
  */
 export function reduceAnd(
 	clauses: readonly Predicate[],
@@ -99,7 +117,8 @@ export function reduceAnd(
  * zero clauses evaluates trivially to false), the inner clause for
  * one-element input (single-clause `or` is identity), or
  * `undefined` for two-or-more clauses. Symmetric with `reduceAnd`
- * — same shape, same undefined-on-no-reduction contract.
+ * — same shape, same undefined-on-no-reduction contract, same
+ * multi-clause-list-preservation policy.
  */
 export function reduceOr(clauses: readonly Predicate[]): Predicate | undefined {
 	if (clauses.length === 0) return { kind: "match-none" };

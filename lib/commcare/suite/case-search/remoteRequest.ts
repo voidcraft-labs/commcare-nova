@@ -87,12 +87,11 @@ export function emitRemoteRequest(args: {
 	// `"Search All Cases"` is CCHQ's contract default for an unset
 	// `search_button_label` (see `CaseSearch.search_button_label`). A
 	// fresh Nova-authored search renders the same English text as a
-	// CCHQ-authored one whose label was never customized.
-	const commandLabel =
-		caseSearchConfig.searchButtonLabel !== undefined &&
-		caseSearchConfig.searchButtonLabel !== ""
-			? caseSearchConfig.searchButtonLabel
-			: "Search All Cases";
+	// CCHQ-authored one whose label was never customized. The schema's
+	// `searchButtonLabel: z.string().min(1).optional()` guarantees the
+	// slot is either `undefined` or a non-empty string — no `=== ""`
+	// branch is needed here.
+	const commandLabel = caseSearchConfig.searchButtonLabel ?? "Search All Cases";
 	const commandXml = [
 		`    <command id="search_command.${moduleId}">`,
 		`      <display>`,
