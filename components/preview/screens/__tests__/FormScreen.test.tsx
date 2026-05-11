@@ -709,3 +709,117 @@ describe("FormScreen — catch arm hides developer-jargon detail", () => {
 		expect(alert.textContent).not.toMatch(/Internal bug/);
 	});
 });
+
+// ── Case-loading form empty state ──────────────────────────────
+
+describe("FormScreen — case-loading-form empty state", () => {
+	it("renders the no-cases empty state for a close form without a caseId", async () => {
+		/* Close is a case-loading form (CASE_LOADING_FORM_TYPES.has).
+		 *  Mounting a close form without `caseId` must short-circuit on
+		 *  the empty state — landing in the submit row would let
+		 *  `computeSubmissionMutation` throw its `caseId required`
+		 *  invariant from a normal user action. Pins the guard's
+		 *  coverage of close, not just followup. */
+		renderFormScreen({ formUuid: CLOSE_FORM_UUID });
+
+		expect(
+			await screen.findByRole("heading", { name: /no cases available/i }),
+		).toBeDefined();
+		/* Submit row must NOT render — the empty state is a full
+		 *  short-circuit, not an overlay on top of the form chrome. */
+		expect(screen.queryByRole("button", { name: /^submit$/i })).toBeNull();
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+	});
+});
+
+// ── Stale server-error reset on re-submit ──────────────────────
+
+describe("FormScreen — submit re-entry clears stale server error", () => {
+	it("hides the prior alert when the validate-fail short-circuit fires on re-submit", async () => {
+		/* Sequence — pins the failure the original handler had:
+		 *   1. Render the required-field form, populate the field so
+		 *      the first submit passes validate. The action mock
+		 *      resolves to a server validation failure → alert renders.
+		 *   2. Re-empty the required field, click Submit again. The
+		 *      engine reports invalid; the handler short-circuits
+		 *      BEFORE the action call. The alert must disappear — the
+		 *      surface now reflects the per-field required indicator,
+		 *      not a stale server-side failure that no longer applies.
+		 *
+		 * Without the top-of-handler `setSubmitStatus({ kind: "idle" })`,
+		 * the alert stays visible across step 2 because the
+		 * validate-fail branch returns without touching the status. */
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "case-properties-validation",
+			caseType: CASE_TYPE,
+			failures: [{ path: "/age", message: "must be integer" }],
+		});
+
+		renderFormScreen({ formUuid: REQUIRED_FORM_UUID });
+
+		/* The screen renders two `<input>`s — a readonly title input
+		 *  (the form's `EditableTitle`) and the field's editable text
+		 *  input. The non-readonly one is the field; filter to
+		 *  disambiguate `getByRole("textbox")`. */
+		const allTextboxes = await screen.findAllByRole("textbox");
+		const input = allTextboxes.find(
+			(el) => !(el as HTMLInputElement).readOnly,
+		) as HTMLInputElement;
+		const submit = screen.getByRole("button", { name: /^submit$/i });
+
+		/* Populate the required field → engine validate-pass → action
+		 *  call resolves to the server validation-failure alert. */
+		fireEvent.change(input, { target: { value: "Alice" } });
+		fireEvent.click(submit);
+		const firstAlert = await screen.findByRole("alert");
+		expect(firstAlert.textContent).toMatch(/age: must be integer/);
+
+		/* Empty the required field, click Submit a second time. Engine
+		 *  validate-fail short-circuits; the stale server alert must
+		 *  clear so the user sees the actual problem. */
+		fireEvent.change(input, { target: { value: "" } });
+		const submitCallCountBefore = vi.mocked(submitFormAction).mock.calls.length;
+		fireEvent.click(submit);
+
+		await waitFor(() => {
+			expect(screen.queryByRole("alert")).toBeNull();
+		});
+		/* The action MUST NOT have re-fired — the validate-fail branch
+		 *  short-circuits before reaching the action call. Asserts the
+		 *  test exercised the load-bearing path the CR named. */
+		expect(vi.mocked(submitFormAction).mock.calls.length).toBe(
+			submitCallCountBefore,
+		);
+	});
+});
+
+// ── Clear-form clears stale server error ───────────────────────
+
+describe("FormScreen — Clear form clears stale server error", () => {
+	it("removes the inline alert when the user clicks Clear after a server error", async () => {
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "error",
+			message: "Could not reach the case store.",
+		});
+
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+
+		const submit = await screen.findByRole("button", { name: /^submit$/i });
+		fireEvent.click(submit);
+
+		/* The alert renders first — the user sees the error and decides
+		 *  to start over via Clear. */
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toMatch(/Could not reach the case store\./);
+
+		const clear = screen.getByRole("button", { name: /clear form/i });
+		fireEvent.click(clear);
+
+		/* "Start fresh" means the surface returns to idle — the alert
+		 *  must disappear. Leaving it visible while the form fields
+		 *  reset contradicts the user's mental model. */
+		await waitFor(() => {
+			expect(screen.queryByRole("alert")).toBeNull();
+		});
+	});
+});

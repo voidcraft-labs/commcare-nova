@@ -14,7 +14,12 @@ import {
 } from "@/lib/doc/hooks/useEntity";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
-import { defaultPostSubmit, POST_SUBMIT_DESTINATIONS } from "@/lib/domain";
+import {
+	CASE_LOADING_FORM_TYPES,
+	defaultPostSubmit,
+	type FormType,
+	POST_SUBMIT_DESTINATIONS,
+} from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingClient";
@@ -29,17 +34,16 @@ import { FormRenderer } from "../form/FormRenderer";
 
 /**
  * Failure arms of `SubmissionResult` — the complement of the success
- *  set. Pulling the union as a type so `describeSubmitError`'s switch
- *  stays exhaustive against any future arm added to the result type.
- *  Success arms mirror `SubmissionMutation`'s FormType discriminator
- *  (`registration` / `followup` / `close` / `survey`); the handler
- *  short-circuits on those and routes everything else through this
- *  failure shape.
+ * set. Pulling the union as a type so `describeSubmitError`'s switch
+ * stays exhaustive against any future arm added to the result type.
+ * Success arms mirror `SubmissionMutation`'s `FormType` discriminator
+ * (one per `FormType`); the handler short-circuits on those and routes
+ * everything else through this failure shape. Keying the `Exclude` off
+ * `FormType` itself (rather than the four literals inline) keeps the
+ * partition aligned with the source-of-truth `FormType` union — a new
+ * form type landing in `FORM_TYPES` re-narrows this type automatically.
  */
-type SubmissionFailure = Exclude<
-	SubmissionResult,
-	{ kind: "registration" | "followup" | "close" | "survey" }
->;
+type SubmissionFailure = Exclude<SubmissionResult, { kind: FormType }>;
 
 /**
  * Shape a `SubmissionResult` failure arm into the inline error string
@@ -222,6 +226,20 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	}, [form, moduleUuid, navigate, onBack]);
 
 	const handleSubmit = async (): Promise<void> => {
+		/* Clear any prior error / running state up-front. Three reasons:
+		 *
+		 *   1. A stale server-error header from a previous submit would
+		 *      otherwise stay visible while the user is on a *different*
+		 *      failure path (validate-fail or appId-guard) whose actual
+		 *      remediation surfaces in a different UI element (per-field
+		 *      required indicators).
+		 *   2. A second submit after a server error must replace, not
+		 *      augment — the alert always reflects the latest attempt.
+		 *   3. The disabled spinner state is gated on `running`; resetting
+		 *      to `idle` first means a re-submit can never visually
+		 *      pile up on a previous attempt's pending UI. */
+		setSubmitStatus({ kind: "idle" });
+
 		const valid = controller.validateAll();
 		if (!valid) {
 			const errorEl = formBodyElRef.current?.querySelector(
@@ -268,12 +286,12 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			});
 		} catch {
 			/* Wire-level failures (RSC serialization, transport rejects)
-			 * and engine-invariant throws bypass the typed result arms.
-			 * Collapse to one user-facing line — the engine's invariant
-			 * messages (e.g. `compilerBugMessage` for a close-without-
-			 * caseId) carry developer-jargon detail that doesn't belong
-			 * on the user's screen. Same pattern as
-			 * `CaseListScreen.handleGenerate`'s wire-rejection catch. */
+			 * and any invariant throw the action / engine surfaces collapse
+			 * to one user-facing line. The throw's message body carries
+			 * implementation jargon (compiler-bug invariants, framework
+			 * stack traces) that doesn't belong on the user's screen, so
+			 * we deliberately ignore it and emit the same generic line
+			 * `CaseListScreen.handleGenerate` uses for its sibling case. */
 			setSubmitStatus({
 				kind: "error",
 				message: "Could not submit form. Try again.",
@@ -281,10 +299,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	};
 
+	/* Clear-form button: reset both the engine's per-field state AND the
+	 * submit lifecycle. Leaving `submitStatus` carrying a stale error
+	 * after the user clicks Clear contradicts the "start fresh" mental
+	 * model — the form's reset must be visible across every surface. */
+	const handleClear = useCallback((): void => {
+		controller.reset();
+		setSubmitStatus({ kind: "idle" });
+	}, [controller]);
+
 	if (!form || !formUuid) return null;
 
-	/** A caseId-bound followup hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). */
-	if (mode === "test" && form.type === "followup") {
+	/** A caseId-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically — close was previously absent because the guard hard-coded `"followup"`. */
+	if (mode === "test" && CASE_LOADING_FORM_TYPES.has(form.type)) {
 		if (caseDataState.kind === "unauthenticated") {
 			return (
 				<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
@@ -316,8 +343,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	}
 
-	/** Followup forms in test mode without a bound case — covers both "navigated from an empty list" and "URL had no caseId". */
-	if (mode === "test" && form.type === "followup" && !caseId) {
+	/** Case-loading forms in test mode without a bound case — covers both "navigated from an empty list" and "URL had no caseId". Routing both `followup` and `close` through here keeps the engine's caseId invariant (`computeSubmissionMutation` throws when either runs without a bound id) unreachable from a user action. */
+	if (mode === "test" && CASE_LOADING_FORM_TYPES.has(form.type) && !caseId) {
 		return (
 			<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
 				<div className="text-center space-y-2">
@@ -325,8 +352,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						No cases available
 					</h3>
 					<p className="text-sm text-nova-text-muted max-w-xs">
-						This follow-up form requires an existing case. Submit the
-						registration form first to create one.
+						This form requires an existing case. Submit the registration form
+						first to create one.
 					</p>
 				</div>
 			</div>
@@ -402,7 +429,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						</button>
 						<button
 							type="button"
-							onClick={() => controller.reset()}
+							onClick={handleClear}
 							disabled={submitStatus.kind === "running"}
 							className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-transparent"
 						>
