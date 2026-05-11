@@ -39,10 +39,24 @@ export function compileForPlatform(
 	ctx: PlatformContext,
 ): WireShape {
 	if (ctx.platform === "android") {
+		// Android always shows the case list first regardless of any
+		// search-side flag. CCHQ's `module_uses_inline_search` at
+		// `commcare-hq/.../app_manager/util.py::module_uses_inline_search`
+		// gates inline-search mode on BOTH `auto_launch=True` AND
+		// `inline_search=True` — the `auto_launch=false, inline_search=true`
+		// combination has no canonical CCHQ generator and reaches
+		// undefined wire behavior. The list-first shape (all three
+		// flags false) is structurally identical to CCHQ's standard
+		// `<remote-request>` emission and matches the spec's "always
+		// emits as a normal case-list module with inline list
+		// filtering" rule for Android. The runtime ignores
+		// `auto_launch` / `default_search` on Android anyway per
+		// `_get_auto_launch_expression`'s `if not in_search` guard, so
+		// the persisted value drives only the web-side rendering.
 		return {
 			autoLaunch: false,
 			defaultSearch: false,
-			inlineSearch: true,
+			inlineSearch: false,
 		};
 	}
 

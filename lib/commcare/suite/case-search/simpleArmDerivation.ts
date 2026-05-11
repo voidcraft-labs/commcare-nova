@@ -65,7 +65,11 @@
 // `searchInputRefUsesWhenInputPresent` enforces on advanced-arm
 // authoring.
 
-import type { SimpleSearchInputDef } from "@/lib/domain";
+import {
+	DEFAULT_SEARCH_MODE_KIND,
+	type SearchInputMode,
+	type SimpleSearchInputDef,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { eq, input, match, prop, whenInput } from "@/lib/domain/predicate";
 
@@ -209,34 +213,12 @@ export function deriveSimpleArmPredicate(
 
 /**
  * Default mode kind for a simple-arm input that omits the `mode`
- * slot. Mirrors `DEFAULT_SEARCH_MODE_KIND` in
- * `lib/preview/engine/runtimeBindings.ts` — keeping the two tables
- * in lockstep keeps preview and wire emission honoring the same
- * authoring convention.
+ * slot. Delegates to the canonical `DEFAULT_SEARCH_MODE_KIND`
+ * table at `lib/domain/modules.ts` so this surface, the runtime-
+ * bindings layer, and the validator all consume one source.
  */
 function defaultModeKind(
 	type: SimpleSearchInputDef["type"],
-):
-	| "exact"
-	| "fuzzy"
-	| "starts-with"
-	| "phonetic"
-	| "fuzzy-date"
-	| "range"
-	| "multi-select-contains" {
-	switch (type) {
-		case "text":
-		case "select":
-		case "date":
-		case "barcode":
-			return "exact";
-		case "date-range":
-			return "range";
-		default: {
-			const _exhaustive: never = type;
-			throw new Error(
-				`simpleArmDerivation: unhandled search input type ${String(_exhaustive)}`,
-			);
-		}
-	}
+): SearchInputMode["kind"] {
+	return DEFAULT_SEARCH_MODE_KIND[type];
 }

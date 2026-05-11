@@ -150,6 +150,16 @@ function walkPredicate(
 			return;
 		case "match":
 			visit(predicate.property);
+			// `match.value` is a `ValueExpression` (per `matchSchema`),
+			// not a bare literal — the type checker admits term-arm
+			// shapes including `term(input(...))` / `term(session-*(...))`,
+			// and the simple-arm derivation pipeline at
+			// `lib/commcare/suite/case-search/simpleArmDerivation.ts`
+			// constructs exactly that shape for fuzzy / phonetic /
+			// starts-with / fuzzy-date modes. Walking the value here
+			// surfaces every Term ref a consumer (instance accumulator,
+			// validator, defense-in-depth assertion) needs to see.
+			walkValueExpression(predicate.value, visit);
 			return;
 		case "multi-select-contains":
 			visit(predicate.property);

@@ -794,10 +794,11 @@ describe("case-search integration — platform decision tree", () => {
 		});
 	});
 
-	it("returns the Android shape (inline + every other flag false) on Android regardless of authored content", () => {
-		// Android always picks the inline list-first shape — the
-		// runtime player ignores the `auto_launch` /
-		// `default_search` semantics.
+	it("returns the list-first shape (every flag false) on Android regardless of authored content", () => {
+		// Android always picks the standard list-first shape — CCHQ's
+		// `module_uses_inline_search` requires `auto_launch: true`
+		// alongside `inline_search: true`, so the only structurally
+		// sound Android emission is the all-flags-false default.
 		const doc = buildSearchBlueprint();
 		const mod = doc.modules[MOD_UUID];
 		const config = mod.caseListConfig;
@@ -810,7 +811,7 @@ describe("case-search integration — platform decision tree", () => {
 		expect(wire).toEqual({
 			autoLaunch: false,
 			defaultSearch: false,
-			inlineSearch: true,
+			inlineSearch: false,
 		});
 	});
 

@@ -305,9 +305,21 @@ function visitPredicate(
 			);
 			return;
 		case "match":
+			// `match.value` is a `ValueExpression` (per `matchSchema`),
+			// not a bare literal — the type checker admits term-arm
+			// shapes including `term(input(...))` so the validator must
+			// walk the value to surface every reachable input ref.
+			visitExpression(
+				predicate.value,
+				joinPath(path, "value"),
+				gated,
+				mode,
+				out,
+			);
+			return;
 		case "multi-select-contains":
-			// `property` is a `PropertyRef`; `value`/`values` are
-			// Literal(s). No input refs reachable.
+			// `property` is a `PropertyRef`; `values` is `[Literal, ...]`.
+			// No input refs reachable.
 			return;
 		case "is-null":
 		case "is-blank":

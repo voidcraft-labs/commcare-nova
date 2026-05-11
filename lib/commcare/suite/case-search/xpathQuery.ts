@@ -191,10 +191,23 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 			visitExpression(p.left, gated);
 			return;
 		case "match":
+			// `match.value` is a `ValueExpression` (per `matchSchema`),
+			// not a bare literal — the type checker admits term-arm
+			// shapes including `term(input(...))` / `term(session-*(...))`,
+			// and the simple-arm derivation pipeline at
+			// `simpleArmDerivation.ts` produces exactly that shape for
+			// every non-`exact` mode. Walk the value to catch every
+			// reachable input ref.
+			visitExpression(p.value, gated);
+			return;
 		case "multi-select-contains":
+			// `property` is a `PropertyRef`; `values` is `[Literal, ...]`.
+			// No search-input refs reachable through this arm.
+			return;
 		case "within-distance":
-			// `property` is a `PropertyRef`; the value-side slots are
-			// Literal(s). No search-input refs reachable.
+			// `property` is a `PropertyRef`; `center` is a
+			// `ValueExpression` that can carry a `term(input(...))` ref.
+			visitExpression(p.center, gated);
 			return;
 		case "and":
 		case "or":
@@ -213,12 +226,20 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 			if (p.where !== undefined) visitPredicate(p.where, gated);
 			return;
 		case "when-input-present": {
-			// Push the gate, recurse, pop. The envelope's own trigger
-			// term (`p.input`) is the gate itself, so it is NOT flagged
-			// as a bare ref under the gated set.
-			gated.add(p.input.name);
+			// Push the gate, recurse, pop — but ONLY pop if this
+			// envelope was the one that added it. An outer envelope
+			// that already gated the same input name still expects the
+			// gate after the inner envelope exits; unconditionally
+			// deleting would break a `whenInput("x", and(whenInput("x",
+			// …), eq(other, input("x"))))` shape by removing the
+			// outer's gate when the inner exits. Mirrors the validator
+			// walker's `wasAlreadyGated` preserve at
+			// `searchInputRefUsesWhenInputPresent.ts::visitPredicate`.
+			const triggerName = p.input.name;
+			const wasAlreadyGated = gated.has(triggerName);
+			gated.add(triggerName);
 			visitPredicate(p.clause, gated);
-			gated.delete(p.input.name);
+			if (!wasAlreadyGated) gated.delete(triggerName);
 			return;
 		}
 		default: {

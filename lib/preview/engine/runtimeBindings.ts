@@ -13,10 +13,11 @@
 // Cloud SQL graph through the client bundle.
 
 import { isValid, parseISO } from "date-fns";
-import type {
-	SearchInputDef,
-	SearchInputMode,
-	SearchInputType,
+import {
+	DEFAULT_SEARCH_MODE_KIND,
+	type SearchInputDef,
+	type SearchInputMode,
+	type SearchInputType,
 } from "@/lib/domain";
 import type {
 	Literal,
@@ -214,27 +215,6 @@ function parseDateBound(raw: string | undefined): Literal | undefined {
 	if (!isValid(parseISO(raw))) return undefined;
 	return dateLiteral(raw);
 }
-
-/**
- * `multi-select-contains` is structurally excluded from the
- * default-mode table because its arm requires a `quantifier` slot
- * the table can't supply, and no `APPLICABLE_SEARCH_MODES` row
- * lists it first anyway.
- */
-type DefaultableModeKind = Exclude<
-	SearchInputMode["kind"],
-	"multi-select-contains"
->;
-
-const DEFAULT_SEARCH_MODE_KIND: Readonly<
-	Record<SearchInputType, DefaultableModeKind>
-> = {
-	text: "exact",
-	select: "exact",
-	date: "exact",
-	"date-range": "range",
-	barcode: "exact",
-};
 
 function defaultModeFor(type: SearchInputType): SearchInputMode {
 	return { kind: DEFAULT_SEARCH_MODE_KIND[type] };

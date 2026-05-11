@@ -52,7 +52,13 @@
  * `searchInputs`.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	DEFAULT_SEARCH_MODE_KIND,
+	type Module,
+	type SimpleSearchInputDef,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 
 export function searchInputViaModeCompatibility(
@@ -121,18 +127,13 @@ export function searchInputViaModeCompatibility(
 
 /**
  * Resolve the effective mode kind from a simple-arm input, applying
- * the same default the runtime preview applies. The mirror of
- * `defaultModeFor` in `lib/preview/engine/runtimeBindings.ts`.
+ * the same default the runtime preview and the wire-emission
+ * simple-arm derivation apply. All three surfaces consume the
+ * canonical `DEFAULT_SEARCH_MODE_KIND` table at `lib/domain/modules.ts`.
  */
-function resolveModeKind(input: {
-	type: string;
-	mode?: { kind: string };
-}): string {
+function resolveModeKind(input: SimpleSearchInputDef): string {
 	if (input.mode !== undefined) return input.mode.kind;
-	// Default-mode table mirrors `DEFAULT_SEARCH_MODE_KIND` in
-	// `lib/preview/engine/runtimeBindings.ts`.
-	if (input.type === "date-range") return "range";
-	return "exact";
+	return DEFAULT_SEARCH_MODE_KIND[input.type];
 }
 
 function relationDirectionLabel(

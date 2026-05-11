@@ -112,7 +112,7 @@ const WEB: PlatformContext = { platform: "web" };
 const ANDROID_SHAPE: WireShape = {
 	autoLaunch: false,
 	defaultSearch: false,
-	inlineSearch: true,
+	inlineSearch: false,
 };
 const SKIP_TO_RESULTS_SHAPE: WireShape = {
 	autoLaunch: true,
@@ -130,18 +130,20 @@ const LIST_FIRST_SHAPE: WireShape = {
 // ============================================================
 
 describe("compileForPlatform — Android always list-first", () => {
-	it("emits inline shape for Android with no filter and no inputs", () => {
+	it("emits list-first shape for Android with no filter and no inputs", () => {
 		// Baseline Android case: empty case list. The runtime shows the
 		// case list first regardless of any wire flag, so the compiler
-		// emits `inlineSearch: true` (the inline storage-instance
-		// reference is the Android-compatible wire shape) and every
-		// other flag false.
+		// emits every flag false — CCHQ's standard `<remote-request>`
+		// wire shape. `inline_search: true` without `auto_launch: true`
+		// reaches undefined CCHQ behavior per
+		// `module_uses_inline_search`, so the list-first shape is the
+		// only structurally sound Android emission.
 		expect(
 			compileForPlatform(EMPTY_LIST_CONFIG, SEARCH_CONFIG, ANDROID),
 		).toEqual(ANDROID_SHAPE);
 	});
 
-	it("emits inline shape for Android with filter set and no inputs", () => {
+	it("emits list-first shape for Android with filter set and no inputs", () => {
 		// On web this combination would trip skip-to-results; on
 		// Android it never does. The decision tree's first branch
 		// dominates regardless of authored content.
@@ -150,10 +152,10 @@ describe("compileForPlatform — Android always list-first", () => {
 		).toEqual(ANDROID_SHAPE);
 	});
 
-	it("emits inline shape for Android with inputs present", () => {
+	it("emits list-first shape for Android with inputs present", () => {
 		// Search inputs configured. Android still emits the same
-		// list-first inline shape — the runtime player ignores
-		// auto-launch / default-search semantics regardless.
+		// list-first shape — the runtime ignores auto-launch /
+		// default-search semantics regardless.
 		expect(
 			compileForPlatform(INPUTS_ONLY_CONFIG, SEARCH_CONFIG, ANDROID),
 		).toEqual(ANDROID_SHAPE);

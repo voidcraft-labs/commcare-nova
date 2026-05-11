@@ -357,7 +357,12 @@ describe("emitRemoteRequest — WireShape", () => {
 		expect(wire.inlineSearch).toBe(false);
 	});
 
-	it("computes inlineSearch=true on the Android platform branch", () => {
+	it("emits the list-first wire shape on the Android platform branch", () => {
+		// Android always emits CCHQ's standard `<remote-request>`
+		// shape — all three flags false. `inline_search: true` without
+		// `auto_launch: true` reaches undefined CCHQ behavior per
+		// `module_uses_inline_search`, so the list-first shape is the
+		// only structurally sound Android emission.
 		const { wire } = emitRemoteRequest({
 			module: makeModule({ caseType: "patient", caseSearchConfig: {} }),
 			moduleIndex: 0,
@@ -365,7 +370,7 @@ describe("emitRemoteRequest — WireShape", () => {
 		});
 		expect(wire.autoLaunch).toBe(false);
 		expect(wire.defaultSearch).toBe(false);
-		expect(wire.inlineSearch).toBe(true);
+		expect(wire.inlineSearch).toBe(false);
 	});
 });
 

@@ -969,6 +969,42 @@ export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
 	barcode: "text",
 };
 
+/**
+ * The `SearchInputMode["kind"]` arms that can drive a per-input
+ * default — i.e. the modes the runtime-bindings / wire-emission
+ * pipelines can pick without additional configuration. `"multi-
+ * select-contains"` requires a `quantifier` slot that no default-
+ * mode table can supply (and no widget defaults to it anyway), so
+ * the type excludes it.
+ */
+export type DefaultableModeKind = Exclude<
+	SearchInputMode["kind"],
+	"multi-select-contains"
+>;
+
+/**
+ * Per-`SearchInputType` default search-mode kind. Single source of
+ * truth across three consumers: the runtime-bindings layer
+ * (`lib/preview/engine/runtimeBindings.ts::defaultModeFor`), the
+ * wire-emission simple-arm derivation
+ * (`lib/commcare/suite/case-search/simpleArmDerivation.ts`), and
+ * the validator's mode-resolution helper
+ * (`lib/commcare/validator/rules/case-list/searchInputViaModeCompatibility.ts`).
+ *
+ * A new `SearchInputType` arm fails to compile in this `Record`
+ * before reaching any consumer — adding a widget type without
+ * picking its default mode is a structural error.
+ */
+export const DEFAULT_SEARCH_MODE_KIND: Readonly<
+	Record<SearchInputType, DefaultableModeKind>
+> = {
+	text: "exact",
+	select: "exact",
+	date: "exact",
+	"date-range": "range",
+	barcode: "exact",
+};
+
 // ── CaseListConfig ───────────────────────────────────────────────
 //
 // The structured case-list configuration. Three slots:
