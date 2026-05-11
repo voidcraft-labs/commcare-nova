@@ -63,6 +63,21 @@ export function walkTerms(
 }
 
 /**
+ * Visit every `Term` reached anywhere inside `expression`. Same
+ * visitor contract as `walkTerms`, but rooted at a `ValueExpression`
+ * instead of a `Predicate`. Used by consumers that walk
+ * `ValueExpression`-rooted slots (e.g. the `excludedOwnerIds`
+ * advanced-cluster slot, calculated columns) for the same
+ * cross-family Term enumeration the predicate walker provides.
+ */
+export function walkExpressionTerms(
+	expression: ValueExpression,
+	visit: (term: Term) => void,
+): void {
+	walkValueExpression(expression, visit);
+}
+
+/**
  * Convenience wrapper: visit every `SearchInputRef` (i.e. every
  * `input(...)` Term) reached anywhere inside `predicate`. Filters
  * `walkTerms` to `kind === "input"` so consumers that only care

@@ -291,4 +291,151 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(2);
 	});
+
+	// ── No-input-context slots — forbid input refs outright ──────────
+
+	it("fires when a search input's default value expression references another input", () => {
+		// Default values fire at search-screen-open time, before any
+		// input is bound. The reference resolves to empty string
+		// regardless of envelope; flag every occurrence.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							{
+								...simpleSearchInputDef(
+									asUuid("si-1"),
+									"primary_q",
+									"Primary",
+									"text",
+									"case_name",
+								),
+								default: { kind: "term", term: input("primary_q") },
+							},
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].message).toContain("default");
+		// `forbids-input-ref` mode message body names the wire-eval timing.
+		expect(hits[0].message).toContain("before any search input is bound");
+	});
+
+	it("fires when a calculated column expression references an input", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(asUuid("c-1"), "case_name", "Name"),
+							{
+								kind: "calculated",
+								uuid: asUuid("c-2"),
+								header: "Echo",
+								expression: { kind: "term", term: input("query") },
+							},
+						],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-1"),
+								"query",
+								"Query",
+								"text",
+								"case_name",
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].message).toContain("calculated column");
+	});
+
+	it("fires when the search-button display condition references an input (even wrapped)", () => {
+		// `forbids-input-ref` mode flags the trigger ref too — the
+		// envelope doesn't rescue a no-input-context slot.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-1"),
+								"query",
+								"Query",
+								"text",
+								"case_name",
+							),
+						],
+					},
+					caseSearchConfig: {
+						searchButtonDisplayCondition: whenInput(
+							input("query"),
+							eq(prop("patient", "case_name"), literal("Alice")),
+						),
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits.length).toBeGreaterThanOrEqual(1);
+		expect(hits[0].message).toContain("search-button display condition");
+	});
+
+	// ── excludedOwnerIds — requires envelope (input refs ARE valid wrapped) ──
+
+	it("fires when excludedOwnerIds has a bare input ref", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-1"),
+								"owner_q",
+								"Owner",
+								"text",
+								"case_name",
+							),
+						],
+					},
+					caseSearchConfig: {
+						excludedOwnerIds: { kind: "term", term: input("owner_q") },
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].message).toContain("excluded-owner-ids");
+	});
 });

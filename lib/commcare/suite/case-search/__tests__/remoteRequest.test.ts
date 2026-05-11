@@ -161,6 +161,32 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 			`<instance id="results" src="jr://instance/remote/results"/>`,
 		);
 	});
+
+	it("declares search-input:results when an advanced-arm predicate references a search input", () => {
+		// CCHQ's runtime resolves `instance('search-input:results')` to
+		// the in-flight search input values during `<remote-request>`
+		// evaluation. The wire layer accumulates the id from the Term
+		// references reachable through `caseListConfig` / `caseSearchConfig`
+		// so every XPath the body emits has its instance declared.
+		const advancedInput = advancedSearchInputDef(
+			asUuid("00000000-0000-4000-8000-00000000aaaa"),
+			"city_q",
+			"City",
+			"text",
+			eq(prop("patient", "city"), term({ kind: "input", name: "city_q" })),
+		);
+		const { xml } = emitRemoteRequest({
+			module: makeModule({
+				caseType: "patient",
+				caseListConfig: makeListConfig({ searchInputs: [advancedInput] }),
+				caseSearchConfig: {},
+			}),
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(
+			`<instance id="search-input:results" src="jr://instance/search-input/results"/>`,
+		);
+	});
 });
 
 // ── <post> structural invariants ───────────────────────────────────

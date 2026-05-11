@@ -1035,9 +1035,19 @@ export const caseSearchConfigSchema = z
 		// text. `searchButtonDisplayCondition` hides the search button
 		// when the predicate evaluates false (used for "search" buttons
 		// that should disappear once the form has executed once).
-		searchScreenTitle: z.string().optional(),
-		searchScreenSubtitle: z.string().optional(),
-		searchButtonLabel: z.string().optional(),
+		//
+		// Empty strings are rejected — every text input on the editor
+		// drops the slot to `undefined` when the user clears it, so
+		// "presence with empty body" is a structurally invalid state.
+		// The two wire emitters (local suite-XML, HQ JSON) diverge on
+		// empty: the suite-XML emitter falls back to a case-type /
+		// CCHQ-default; the HQ JSON projection writes `{ en: "" }` and
+		// the runtime renders blank text. Rejecting empty at the
+		// schema collapses both surfaces onto the same shape — present
+		// means non-empty.
+		searchScreenTitle: z.string().min(1).optional(),
+		searchScreenSubtitle: z.string().min(1).optional(),
+		searchButtonLabel: z.string().min(1).optional(),
 		searchButtonDisplayCondition: predicateSchema.optional(),
 	})
 	.strict();

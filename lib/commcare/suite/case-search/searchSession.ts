@@ -9,8 +9,12 @@
 
 import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
+import {
+	collectExpressionInstances,
+	collectPredicateInstances,
+} from "../../predicate";
 import { escapeXml } from "../../xml";
-import { emitSearchPrompts } from "./searchPrompts";
+import { emitSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
 import type { WireShape } from "./types";
 import { composeXPathQueryEmission } from "./xpathQuery";
 
@@ -215,6 +219,35 @@ export function emitSearchSession(args: {
 		"commcaresession",
 		storageInstance,
 	]);
+
+	// Every Term ref reachable from a wire-emitted XPath needs its
+	// instance declared on the surrounding `<remote-request>`.
+	// `casedb` and `commcaresession` are always present (above);
+	// `search-input:results` appears whenever a filter / advanced-arm
+	// predicate / excluded-owner expression references an
+	// `input(...)` Term, which CCHQ resolves through
+	// `instance('search-input:results')/input/field[@name='…']`.
+	// Without the accumulation, the wire would carry an
+	// instance-reference XPath the runtime can't resolve — the same
+	// gap CCHQ's `InstancesHelper.add_entry_instances` plugs on the
+	// server-regenerated suite path.
+	if (caseListConfig.filter !== undefined) {
+		for (const id of collectPredicateInstances(caseListConfig.filter)) {
+			instances.add(id);
+		}
+	}
+	for (const entry of getAdvancedArmPredicates(caseListConfig.searchInputs)) {
+		for (const id of collectPredicateInstances(entry.predicate)) {
+			instances.add(id);
+		}
+	}
+	if (caseSearchConfig.excludedOwnerIds !== undefined) {
+		for (const id of collectExpressionInstances(
+			caseSearchConfig.excludedOwnerIds,
+		)) {
+			instances.add(id);
+		}
+	}
 
 	return { xml, strings, instances };
 }

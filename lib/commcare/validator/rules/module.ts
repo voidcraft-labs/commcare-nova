@@ -12,12 +12,14 @@ import { type ValidationError, validationError } from "../errors";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
 import { columnReferences } from "./case-list/columnReferences";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
+import { idMappingValueRequired } from "./case-list/idMappingValueRequired";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
 import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
+import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
@@ -173,6 +175,8 @@ export const MODULE_RULES = [
 	columnReferences,
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
+	idMappingValueRequired,
+	sortPriorityUniqueness,
 	searchInputNameUniqueness,
 	searchInputModeMatchesPropertyType,
 	searchInputTypeMatchesPropertyType,

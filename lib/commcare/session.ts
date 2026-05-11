@@ -22,6 +22,7 @@ import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate/types";
 import { validateCaseType } from "./identifierValidation";
+import { collectPredicateInstances, instanceSourceFor } from "./predicate";
 import { emitNodesetFilter } from "./suite/case-list/nodesetFilter";
 import type { HqFormLink } from "./types";
 
@@ -338,14 +339,32 @@ export function deriveEntryDefinition(
 		caseListFilter,
 	);
 	const instances: EntryInstance[] = [];
+	const seen = new Set<string>();
 
 	if (datums.length > 0) {
-		const seen = new Set<string>();
 		for (const d of datums) {
 			if (!seen.has(d.instanceId)) {
 				seen.add(d.instanceId);
 				instances.push({ id: d.instanceId, src: d.instanceSrc });
 			}
+		}
+	}
+
+	// Filter-derived instance accumulation. The case-list filter's
+	// XPath fragment lives inside the case-loading datum's nodeset, so
+	// every instance it references needs an `<instance>` declaration on
+	// the surrounding `<entry>`. CCHQ's server-side suite generator
+	// catches this via `InstancesHelper.add_entry_instances`; Nova's
+	// local suite emission has no equivalent post-process, so the
+	// accumulation runs at derivation time. The Term-kind → instance-id
+	// mapping is fixed in `instanceSourceFor` so emission stays
+	// consistent across surfaces (`<entry>`, `<remote-request>`,
+	// future `<query>` slots).
+	if (caseListFilter !== undefined) {
+		for (const id of collectPredicateInstances(caseListFilter)) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id) });
 		}
 	}
 

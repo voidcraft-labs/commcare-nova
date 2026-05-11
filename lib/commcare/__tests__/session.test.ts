@@ -16,6 +16,7 @@ import {
 	matchAll,
 	matchNone,
 	prop,
+	term,
 } from "@/lib/domain/predicate/builders";
 
 // ── deriveSessionDatums ────────────────────────────────────────────
@@ -300,6 +301,56 @@ describe("deriveEntryDefinition", () => {
 		expect(entry.instances).toHaveLength(1);
 		expect(entry.session?.datums).toHaveLength(1);
 		expect(entry.stack?.operations).toHaveLength(1);
+	});
+
+	it("accumulates the search-input:results instance when the case-list filter references an input", () => {
+		// The case-list filter's bracketed XPath fragment lives inside
+		// the case-loading datum's nodeset. Any instance the fragment
+		// references must be declared on the `<entry>` itself; an
+		// undeclared instance breaks `instance('...')` resolution at
+		// runtime.
+		const filter = eq(
+			prop("patient", "city"),
+			term({ kind: "input", name: "city_q" }),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			filter,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("casedb");
+		expect(ids).toContain("search-input:results");
+		const searchInput = entry.instances.find(
+			(i) => i.id === "search-input:results",
+		);
+		expect(searchInput?.src).toBe("jr://instance/search-input/results");
+	});
+
+	it("accumulates the commcaresession instance when the case-list filter references a session term", () => {
+		const filter = eq(
+			prop("patient", "region"),
+			term({ kind: "session-user", field: "region" }),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			filter,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("commcaresession");
+		const session = entry.instances.find((i) => i.id === "commcaresession");
+		expect(session?.src).toBe("jr://instance/session");
 	});
 
 	it("omits stack for default destination", () => {

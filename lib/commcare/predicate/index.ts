@@ -52,5 +52,10 @@ export { emitCaseListFilter } from "./caseListFilterEmitter";
 export type { CsqlEmissionResult } from "./csqlEmitter";
 export { emitCsql } from "./csqlEmitter";
 export type { CsqlHoistResult, HoistedWrapper } from "./csqlHoist";
+export {
+	collectExpressionInstances,
+	collectPredicateInstances,
+	instanceSourceFor,
+} from "./instances";
 export type { WireDialect } from "./stringQuoting";
 export { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";

@@ -9,6 +9,7 @@
 // drives the downstream sub-emitters' attribute choices.
 
 import type { CaseListConfig, CaseSearchConfig, Module } from "@/lib/domain";
+import { instanceSourceFor } from "../../predicate";
 import { emitClaimPost, SEARCH_CASE_ID_REF } from "./claim";
 import { compileForPlatform } from "./compileForPlatform";
 import { emitSearchSession } from "./searchSession";
@@ -115,7 +116,7 @@ export function emitRemoteRequest(args: {
 	// iteration order.
 	const instanceLines = Array.from(sessionEmission.instances)
 		.sort()
-		.map((id) => `    <instance id="${id}" src="${getInstanceSource(id)}"/>`);
+		.map((id) => `    <instance id="${id}" src="${instanceSourceFor(id)}"/>`);
 
 	const stackXml = [
 		`    <stack>`,
@@ -148,21 +149,8 @@ export function emitRemoteRequest(args: {
  * throw — the orchestrator's accumulator should only surface ids
  * the wire layer knows how to source.
  */
-function getInstanceSource(instanceId: string): string {
-	switch (instanceId) {
-		case "casedb":
-			return "jr://instance/casedb";
-		case "commcaresession":
-			return "jr://instance/session";
-		case "results":
-			return "jr://instance/remote/results";
-		case "results:inline":
-			return "jr://instance/remote/results:inline";
-		default:
-			throw new Error(
-				`Unknown instance id '${instanceId}' reached the <remote-request> instance emitter. ` +
-					"The orchestrator's instance accumulator surfaced an id without a known jr:// source. " +
-					"Check lib/commcare/suite/case-search/searchSession.ts's instance accumulation — every accumulated id needs a corresponding case in getInstanceSource.",
-			);
-	}
-}
+// `<remote-request>` instance emission. The orchestrator's
+// accumulator surfaces every id the body references; the shared
+// `instanceSourceFor` helper (`lib/commcare/predicate/instances.ts`)
+// is the single source of truth for the `id → jr://` mapping that
+// every suite-XML surface emits.
