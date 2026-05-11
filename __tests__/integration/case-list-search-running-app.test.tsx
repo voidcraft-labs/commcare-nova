@@ -28,8 +28,8 @@
 //     evaluates against the new value.
 //   - Close write-through: a bound case is closed through
 //     `applyCloseMutation`; the case-store stamps `closed_on` to a
-//     non-null timestamp (status stays unchanged per the case-store's
-//     `close` contract).
+//     non-null timestamp. `applyCloseMutation` passes no `status`
+//     patch, so `status` stays at its pre-close value.
 //   - Reset round-trip: clicking the Reset button + confirming the
 //     dialog routes through `resetSampleCasesAction` which delegates
 //     to `resetSampleCases` over `store.resetSampleData` — the atomic
@@ -55,21 +55,19 @@
 // production code path below the action's session + store
 // construction wrappers.
 //
-// ## Divergence from the plan's 9-step recipe
+// ## Why direct screen mount, not PreviewShell
 //
-// The plan calls for mounting `<PreviewShell />`. The dispatcher's
-// per-arm routing is already covered by `PreviewShell`'s unit
-// tests; the integration concern is the runtime binding + Postgres
-// round-trip, which mounts `<CaseListScreen>` + `<FormScreen>`
-// directly the same way `CaseListScreen.test.tsx` + `FormScreen.test.tsx`
-// do. Mounting the dispatcher adds Activity-ref complexity that
-// fights the test without exercising a different code path.
+// The dispatcher's per-arm routing has unit-test coverage of its own;
+// mounting it here adds Activity-ref complexity without exercising a
+// different code path. Direct screen mount mirrors `CaseListScreen.test`
+// and `FormScreen.test`.
 //
-// The plan also calls for "every `SearchInputType` + every applicable
-// mode" coverage. That is what the 67 unit tests across Tasks 1, 3,
-// 4, 6, 7 already cover; the integration test exercises the
-// composition (one round-trip per concern: filter narrowing, write-
-// through, reset) rather than re-asserting per-arm.
+// ## Why one round-trip per concern, not per-search-input-arm
+//
+// The runtime-bindings unit tests cover every `SearchInputType` × mode
+// combination at the composition layer; the integration test pins the
+// cross-layer round-trip (filter narrowing, write-through, reset) once
+// per concern.
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Kysely } from "kysely";
@@ -272,11 +270,16 @@ function buildFixtureDoc(): BlueprintDoc {
 						plainColumn(COL_AGE_UUID, "age", "Age", {
 							sort: { direction: "desc", priority: 0 },
 						}),
-						// `age + 1` ("age next year") — `arith` + typed `int`
-						// literal so the case-store's expression compiler emits
-						// `((properties->>'age')::int + $N::int)` which Postgres
-						// resolves without a bind-type inference issue. The
-						// screen reads `row.calculated[COL_CALC_UUID]` through
+						// `age + 1` ("age next year"). `concat(prop, '1')`
+						// would also produce a calc cell here, but Postgres
+						// bind-type inference trips "could not determine data
+						// type of parameter $N" because `compileConcat` does
+						// not emit text casts on its parameter operands.
+						// `arith("+", prop, qualifiedLiteral(1, "int"))`
+						// emits `((properties->>'age')::int + $N::int)` —
+						// both operands carry an explicit cast, planner
+						// resolves cleanly. The screen reads
+						// `row.calculated[COL_CALC_UUID]` through
 						// `evaluateColumnValue`; the integration test asserts
 						// the rendered value to pin the SQL projection's
 						// round-trip into the table cell.
@@ -621,10 +624,9 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		});
 		expect(screen.queryByText("Carol")).toBeNull();
 
-		// Heading is the module name — the module IS the case-list
-		// title in v2, NOT the first form's name. Pins the v2 reshape's
-		// heading-source contract end-to-end against a real-Postgres
-		// render.
+		// Heading is the module name — pins the contract that the
+		// case-list title comes from the owning module, not from a
+		// form, end-to-end against a real-Postgres render.
 		expect(screen.getByRole("heading", { name: MODULE_NAME })).toBeDefined();
 
 		// Sort order — `age desc` puts Bob (40) before Alice (25). The
@@ -859,11 +861,11 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 		// load-bearing pin against the race where `fireEvent.change`
 		// would land "41" before the async preload overwrites it
 		// with "40", silently producing an empty submission patch.
-		const ageInput = (await waitFor(() => {
+		const ageInput = await waitFor(() => {
 			const el = screen.getByRole("spinbutton") as HTMLInputElement;
 			expect(el.value).toBe("40");
 			return el;
-		})) as HTMLInputElement;
+		});
 
 		// Patch the age field to a new value. The followup mutation
 		// emits a `properties.age` write only; `case_name` is not
@@ -925,9 +927,8 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 // 5. Close form write-through — `closed_on` stamps to non-null.
 //
 // `applyCloseMutation` writes a `closed_on = now()` timestamp via
-// `CaseStore.close` and leaves `status` untouched (the case-store's
-// `close` contract: status changes on closed rows route through
-// `update`, not `close`). The end-to-end pin: a zero-field close
+// `CaseStore.close` and passes no `status` patch, so `status` stays
+// at its pre-close value. The end-to-end pin: a zero-field close
 // form's submit dispatches `submitFormAction` with a `close`-kind
 // mutation that lands the timestamp on the bound row. No other
 // test covers this round-trip.
@@ -969,11 +970,9 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 			expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
 		});
 
-		// Confirm the close landed at the case-store layer —
-		// `closed_on` flips from null to a non-null timestamp. The
-		// case-store's `close` contract is "stamp `closed_on = now()`,
-		// leave `status` alone"; status transitions on closed rows
-		// route through `update`, not `close`, by design.
+		// `applyCloseMutation` stamps `closed_on = now()` via
+		// `CaseStore.close` and passes no `status` patch, so the test
+		// asserts the timestamp landed while `status` stays untouched.
 		await waitFor(async () => {
 			const rows = await store.query({
 				appId: APP_ID,
