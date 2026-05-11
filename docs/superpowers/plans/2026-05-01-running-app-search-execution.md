@@ -301,6 +301,10 @@ The new flow on validate-pass:
 
 **Tests:** registration form submit writes the primary case to the store; followup form submit updates the bound case; close form transitions the case to `closed` and removes it from default-open queries; survey form submit dispatches navigation without writing; error arms render inline errors and keep the user on the form.
 
+**Internal helpers.** A shared `describeSubmitError(result)` mapper at file scope maps `SubmissionResult`'s typed-error arms into user-facing messages — `SubmissionFailure = Exclude<SubmissionResult, { kind: FormType }>` keys the exclusion off the centralized `FormType` union so a future success arm extends the failure type automatically. A `dispatchPostSubmit` helper extracts the post-submit destination switch with exhaustive `default` over `POST_SUBMIT_DESTINATIONS`. Both case-loading-form guards use `CASE_LOADING_FORM_TYPES.has(form.type)` (not literal `"followup"`) so close forms without `caseId` hit the same empty state as followups instead of falling through to the submit row + a generic engine-throw catch. `handleSubmit` resets `submitStatus` to idle at the top so stale server errors don't persist across validate-fail re-submits; `handleClear` does the same so the Clear button clears any alert alongside the engine reset.
+
+> **SHIPPED.** Task 7 landed across 4 commits (`286de62c`, `479b989c`, `dd5dd7b7`, `84130898`, `fd68a1ab`, `7fa24fb1`) with 17 new tests covering all 4 form-type success arms, 6 typed-error arms, pending UX, validate-fail short-circuit, appId guard, catch-arm jargon suppression, case-loading-form empty state (followup AND close), stale-server-error reset on re-submit, and Clear-clearing-alert.
+
 ### Task 8: Plan 5 integration test
 
 **Files:** `__tests__/integration/case-list-search-running-app.test.ts` (NEW).
