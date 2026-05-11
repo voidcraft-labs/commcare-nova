@@ -406,13 +406,17 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 
 describe("emitCsql — multi-select-contains", () => {
 	// CCHQ wire functions:
-	// - `selected` is registered as an alias for `selected-any` at the
-	//   `selected` entry on
+	// - `selected` is registered alongside `selected_any` /
+	//   `selected_all` at the `selected` entry on
 	//   `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
-	// - Multi-value `selected-any` / `selected-all` use one
-	//   space-joined token string per
-	//   `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`'s
-	//   `case_property_text_query` whitespace-tokenization rule.
+	// - `selected_any` / `selected_all` forward their value argument
+	//   to ElasticSearch's `match` query via `case_property_text_query`
+	//   at `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`,
+	//   whose analyzer tokenizes on whitespace — a single-string
+	//   `selected-any(prop, 'Alice Smith Bob')` matches three tokens,
+	//   not two authored values. The emitter therefore expands every
+	//   multi-value authoring intent to an OR / AND of per-value
+	//   `selected(prop, 'v')` calls so multi-word values stay intact.
 
 	it("emits single-value any quantifier as bare selected(prop, 'v')", () => {
 		const result = emitCsql(
@@ -421,7 +425,7 @@ describe("emitCsql — multi-select-contains", () => {
 		expect(result.wrapper).toBe(`concat("selected(tags, 'vip')")`);
 	});
 
-	it("emits multi-value any quantifier as selected-any(prop, 'token1 token2')", () => {
+	it("emits multi-value any quantifier as an OR of per-value selected calls", () => {
 		const result = emitCsql(
 			multiSelectAny(
 				prop("patient", "tags"),
@@ -429,10 +433,12 @@ describe("emitCsql — multi-select-contains", () => {
 				literal("alumni"),
 			),
 		);
-		expect(result.wrapper).toBe(`concat("selected-any(tags, 'vip alumni')")`);
+		expect(result.wrapper).toBe(
+			`concat("(selected(tags, 'vip') or selected(tags, 'alumni'))")`,
+		);
 	});
 
-	it("emits all-quantifier as selected-all(prop, 'token1 token2')", () => {
+	it("emits all-quantifier with multiple values as an AND of per-value selected calls", () => {
 		const result = emitCsql(
 			multiSelectAll(
 				prop("patient", "tags"),
@@ -440,14 +446,36 @@ describe("emitCsql — multi-select-contains", () => {
 				literal("alumni"),
 			),
 		);
-		expect(result.wrapper).toBe(`concat("selected-all(tags, 'vip alumni')")`);
+		expect(result.wrapper).toBe(
+			`concat("(selected(tags, 'vip') and selected(tags, 'alumni'))")`,
+		);
 	});
 
-	it("emits all-quantifier with a single value as selected-all(prop, 'v')", () => {
+	it("emits all-quantifier with a single value as bare selected(prop, 'v')", () => {
 		const result = emitCsql(
 			multiSelectAll(prop("patient", "tags"), literal("vip")),
 		);
-		expect(result.wrapper).toBe(`concat("selected-all(tags, 'vip')")`);
+		expect(result.wrapper).toBe(`concat("selected(tags, 'vip')")`);
+	});
+
+	it("keeps multi-word values intact inside one selected call per value (no whitespace tokenization)", () => {
+		// Author intent: match cases whose `tags` contains the literal
+		// value "Alice Smith" OR the literal value "Bob". The old
+		// space-joined emission would have produced
+		// `selected-any(tags, 'Alice Smith Bob')`, which ES tokenizes
+		// into three tokens and matches any of `Alice`, `Smith`, `Bob`.
+		// Per-value `selected(tags, 'Alice Smith')` keeps the
+		// multi-word value as a single ES token.
+		const result = emitCsql(
+			multiSelectAny(
+				prop("patient", "tags"),
+				literal("Alice Smith"),
+				literal("Bob"),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("(selected(tags, 'Alice Smith') or selected(tags, 'Bob'))")`,
+		);
 	});
 });
 
@@ -1219,8 +1247,11 @@ describe("emitCsql — property-via lift (direct PropertyRef slots)", () => {
 				literal("b"),
 			),
 		);
+		// Multi-value `selected-all` author intent expands to an AND
+		// of per-value `selected` calls (see emitMultiSelectSegments).
+		// The lift wraps the expansion in the subcase envelope.
 		expect(result.wrapper).toBe(
-			`concat("subcase-exists('child', selected-all(tags, 'a b'))")`,
+			`concat("subcase-exists('child', (selected(tags, 'a') and selected(tags, 'b')))")`,
 		);
 	});
 

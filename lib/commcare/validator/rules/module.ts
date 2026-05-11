@@ -9,6 +9,7 @@
 import { CASE_TYPE_REGEX, MAX_CASE_TYPE_LENGTH } from "@/lib/commcare";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
+import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
 import { columnReferences } from "./case-list/columnReferences";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
@@ -20,6 +21,7 @@ import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
 import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
+import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
@@ -178,6 +180,7 @@ export const MODULE_RULES = [
 	calculatedColumnTypeCheck,
 	idMappingValueRequired,
 	matchModeWhitespaceInValue,
+	ancestorExistsCannotNestSubcase,
 	sortPriorityUniqueness,
 	searchInputNameUniqueness,
 	searchInputModeMatchesPropertyType,
@@ -185,6 +188,7 @@ export const MODULE_RULES = [
 	searchInputDefaultTypeCheck,
 	searchInputPredicateTypeCheck,
 	searchInputRefUsesWhenInputPresent,
+	searchInputViaModeCompatibility,
 	// Case-search-config rules — fire only when `caseSearchConfig`
 	// is present on the module; otherwise the module emits no
 	// `<remote-request>` and these rules have no authoring concern

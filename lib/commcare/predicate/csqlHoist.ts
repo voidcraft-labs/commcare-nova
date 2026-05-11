@@ -277,8 +277,14 @@ export function hoistForCsql(predicate: Predicate): CsqlHoistResult {
  * The function is total: every input predicate produces an output
  * predicate whose operator-direct property references are
  * via-free.
+ *
+ * Exported so the case-list validator can walk the post-lift shape
+ * — the AST that actually reaches the CSQL emitter — when checking
+ * structural CSQL contracts (e.g. CCHQ's
+ * `_validate_ancestor_exists_filter` rejection of subcase-relation
+ * walks nested inside an ancestor-relation walk).
  */
-function liftPropertyVias(predicate: Predicate): Predicate {
+export function liftPropertyVias(predicate: Predicate): Predicate {
 	return liftPredicateVias(predicate);
 }
 

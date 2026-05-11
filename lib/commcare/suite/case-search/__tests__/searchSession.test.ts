@@ -46,7 +46,16 @@ import {
 	type CaseSearchConfig,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { arith, eq, literal, prop, term } from "@/lib/domain/predicate";
+import {
+	ancestorPath,
+	arith,
+	eq,
+	literal,
+	prop,
+	relationStep,
+	subcasePath,
+	term,
+} from "@/lib/domain/predicate";
 import { emitSearchSession } from "../searchSession";
 import type { WireShape } from "../types";
 
@@ -341,6 +350,136 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		expect(xml).toContain(`name = 'Alice'`);
 		expect(xml).toContain(`status = 'active'`);
 		expect(xml).toContain(` and `);
+	});
+});
+
+// ── Simple-arm-with-via routing into _xpath_query ───────────────────
+
+describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () => {
+	// Each `<prompt key="X">` binds one runtime value, but carries no
+	// relation-walk metadata — the bare prompt slot can't encode a
+	// cross-walk simple input. The wire pipeline routes such inputs
+	// through `_xpath_query` so the relation walk survives the
+	// round-trip to CCHQ. Self-walk / absent-via simple inputs stay
+	// at the prompt slot only.
+
+	it("emits a self-walk simple input as a <prompt> with NO _xpath_query contribution", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<prompt key="name">`);
+		expect(xml).not.toContain(`key="_xpath_query"`);
+	});
+
+	it("emits an ancestor-walk simple input as a <prompt> AND contributes its predicate to _xpath_query", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"parent_name",
+						"Parent name",
+						"text",
+						"case_name",
+						{ via: ancestorPath(relationStep("parent")) },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		// Prompt still emits — CCHQ binds the user's typed value to
+		// the prompt key at runtime.
+		expect(xml).toContain(`<prompt key="parent_name">`);
+		// And the relation-walked predicate lifts into _xpath_query
+		// via the lift-pass + `when-input-present` envelope. The
+		// XPath attribute value is XML-escaped (single quotes inside
+		// double-quoted attrs survive; double quotes inside the
+		// nested CSQL string lower to `&quot;`), so the assertions
+		// pin the structural fragments rather than the raw CSQL
+		// string. CSQL runtime-builds to
+		// `ancestor-exists('parent', case_name = "<typed>")`.
+		expect(xml).toContain(`key="_xpath_query"`);
+		expect(xml).toContain(`ancestor-exists(`);
+		expect(xml).toContain(`'parent'`);
+		// `when-input-present` envelope wraps the inner CSQL via the
+		// canonical `if(count(...), <inner>, 'match-all()')` shape.
+		expect(xml).toContain(`if(count(`);
+		expect(xml).toContain(`@name='parent_name'`);
+	});
+
+	it("emits a subcase-walk simple input the same way", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"child_status",
+						"Child status",
+						"text",
+						"status",
+						{ via: subcasePath("child") },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<prompt key="child_status">`);
+		expect(xml).toContain(`key="_xpath_query"`);
+		expect(xml).toContain(`subcase-exists(`);
+		expect(xml).toContain(`'child'`);
+		expect(xml).toContain(`@name='child_status'`);
+	});
+
+	it("AND-composes self-walk and ancestor-walk simple inputs cleanly — only the cross-walk contributes to _xpath_query", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"self_name",
+						"Self name",
+						"text",
+						"name",
+					),
+					simpleSearchInputDef(
+						asUuid("00000000-0000-4000-8000-aaaa00000002"),
+						"parent_region",
+						"Parent region",
+						"text",
+						"region",
+						{ via: ancestorPath(relationStep("parent")) },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(`<prompt key="self_name">`);
+		expect(xml).toContain(`<prompt key="parent_region">`);
+		// Only the ancestor-walked input contributes to _xpath_query;
+		// the self-walk one rides on its prompt binding only.
+		expect(xml).toContain(`ancestor-exists(`);
+		expect(xml).toContain(`@name='parent_region'`);
+		// The self-walk input's name DOES NOT appear inside any
+		// `_xpath_query` CSQL because no predicate was derived for it.
+		const xpathSlice = xml.split(`key="_xpath_query"`)[1] ?? "";
+		expect(xpathSlice).not.toContain(`@name='self_name'`);
 	});
 });
 

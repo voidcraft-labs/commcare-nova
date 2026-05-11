@@ -725,10 +725,10 @@ export function match(
 
 /**
  * Constructs a multi-select containment predicate with `quantifier:
- * "any"` — the property contains any of the supplied values. Maps to
- * CCHQ's `selected-any` (CSQL) or to OR-of-`selected()` (on-device
- * dialect). See `multiSelectContainsSchema` in `types.ts` for the
- * full contract and CCHQ source citations.
+ * "any"` — the property contains any of the supplied values. Both
+ * wire emitters lower it to an OR-of-`selected(prop, 'v')` calls;
+ * see `multiSelectContainsSchema` in `types.ts` for the full
+ * contract and CCHQ source citations.
  *
  * Variadic-with-required-first signature: the schema rejects an empty
  * `values` list, and a compile-time error is louder than a runtime
@@ -752,8 +752,8 @@ export function multiSelectAny(
 
 /**
  * Constructs a multi-select containment predicate with `quantifier:
- * "all"` — the property contains every supplied value. Maps to CCHQ's
- * `selected-all` (CSQL) or to AND-of-`selected()` (on-device dialect).
+ * "all"` — the property contains every supplied value. Both wire
+ * emitters lower it to an AND-of-`selected(prop, 'v')` calls.
  * Symmetric with `multiSelectAny`: same shape, same variadic-with-
  * required-first signature, same parse-rejection on empty values.
  */

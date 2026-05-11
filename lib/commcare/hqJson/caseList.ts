@@ -353,10 +353,17 @@ function projectSearchProperties(
 
 /**
  * Project the `caseListConfig.filter` + every advanced-arm
- * predicate into the CCHQ-side `default_properties` array. Each
- * hoist from the CSQL emitter takes its own slot BEFORE the
- * `_xpath_query` slot so its inputs resolve first at runtime
- * (CCHQ's runtime evaluates default_properties in array order).
+ * predicate + every simple-arm input with a non-self relation walk
+ * into the CCHQ-side `default_properties` array. Each hoist from
+ * the CSQL emitter takes its own slot BEFORE the `_xpath_query`
+ * slot so its inputs resolve first at runtime (CCHQ's runtime
+ * evaluates default_properties in array order).
+ *
+ * `caseType` threads through `composeXPathQueryEmission` so the
+ * simple-arm-with-via derivation builds correctly-qualified
+ * property references. Modules without a case type skip the
+ * simple-arm derivation; the validator surfaces the structural
+ * error separately.
  *
  * Empty-list output when there is nothing to AND-compose — the
  * absent `_xpath_query` slot is how CCHQ encodes "no server-side
@@ -364,8 +371,9 @@ function projectSearchProperties(
  */
 function projectDefaultProperties(
 	caseListConfig: CaseListConfig,
+	caseType: string | undefined,
 ): DefaultCaseSearchProperty[] {
-	const emission = composeXPathQueryEmission(caseListConfig);
+	const emission = composeXPathQueryEmission(caseListConfig, caseType);
 	if (emission === undefined) return [];
 	const out: DefaultCaseSearchProperty[] = [];
 	for (const hoist of emission.hoists) {
@@ -419,6 +427,7 @@ function projectDefaultProperties(
 function buildSearchConfigDocument(
 	caseSearchConfig: DomainCaseSearchConfig | undefined,
 	caseListConfig: CaseListConfig | undefined,
+	caseType: string | undefined,
 ): WireCaseSearchConfig {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
@@ -456,7 +465,10 @@ function buildSearchConfigDocument(
 
 	if (caseListConfig !== undefined) {
 		config.properties = projectSearchProperties(caseListConfig.searchInputs);
-		config.default_properties = projectDefaultProperties(caseListConfig);
+		config.default_properties = projectDefaultProperties(
+			caseListConfig,
+			caseType,
+		);
 	}
 
 	return config;
@@ -520,6 +532,7 @@ export function projectCaseListForHq(
 	const searchConfig = buildSearchConfigDocument(
 		caseSearchConfig,
 		caseListConfig,
+		mod.caseType,
 	);
 
 	return { caseDetails: pair, searchConfig };

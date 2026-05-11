@@ -1189,13 +1189,21 @@ export type MatchMode = (typeof MATCH_MODES)[number];
 /**
  * Closed set of multi-select containment quantifiers. Same
  * top-level-tuple-feeds-schema pattern as `MATCH_MODES` /
- * `COMPARISON_KINDS` / `DISTANCE_UNITS`. `any` maps to CCHQ's
- * `selected-any` (any token matches); `all` maps to `selected-all`
- * (every token matches). Both registered on
+ * `COMPARISON_KINDS` / `DISTANCE_UNITS`. Each quantifier composes a
+ * per-value list into one predicate: `any` joins with OR (the
+ * property contains at least one of the values), `all` joins with
+ * AND (the property contains every value). Both wire emitters
+ * expand the quantifier into per-value `selected(prop, 'v')` calls
+ * — the on-device emitter at
+ * `caseListFilterEmitter.ts::emitMultiSelectContains` and the CSQL
+ * emitter at `csqlEmitter.ts::emitMultiSelectSegments`. CCHQ's
+ * `selected` whitelist entry on
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
- * and dispatched through `_selected_query` →
- * `case_property_query(..., multivalue_mode='or' | 'and')` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`.
+ * dispatches through `case_property_query` at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`
+ * and treats its value argument as one literal token, so multi-word
+ * values stay intact (unlike `selected-any` / `selected-all`, which
+ * tokenize their single value argument on whitespace).
  */
 export const MULTI_SELECT_QUANTIFIERS = ["any", "all"] as const;
 export type MultiSelectQuantifier = (typeof MULTI_SELECT_QUANTIFIERS)[number];
@@ -1262,10 +1270,10 @@ const matchSchema = z
 
 /**
  * Multi-select containment predicate — "the multi_select property
- * contains some / all of these tokens." The `quantifier` discriminator
- * (one of `MULTI_SELECT_QUANTIFIERS`) picks between `selected-any` and
- * `selected-all`; see `MULTI_SELECT_QUANTIFIERS`'s JSDoc for source
- * citations.
+ * contains some / all of these values." The `quantifier`
+ * discriminator (one of `MULTI_SELECT_QUANTIFIERS`) picks between
+ * an OR / AND of per-value `selected(prop, 'v')` calls; see
+ * `MULTI_SELECT_QUANTIFIERS`'s JSDoc for the wire shape.
  *
  * The schema keeps both quantifiers in one operator (rather than two
  * sibling predicates) so a UI surface or reducer toggling "any of" ↔
@@ -1276,10 +1284,10 @@ const matchSchema = z
  * `property` is constrained to a direct property reference — multi-
  * select containment against a literal or input has no useful
  * semantics. `values` is a non-empty list of literals (not arbitrary
- * terms) because both wire forms — `selected-any(prop, 'v1 v2')` /
- * expanded `selected(prop, 'v1') or selected(prop, 'v2')` on-device —
- * demand a static value list. Each literal carries the per-token value
- * a `selected*` call dispatches against the multi_select's stored
+ * terms) because the wire emitters dispatch one `selected(prop, 'v')`
+ * call per value, and each value must be a static string a wire
+ * literal can carry. Each literal carries one value the per-value
+ * `selected` call tests against the multi_select's stored
  * space-separated tokens.
  *
  * Empty-list rejection: the schema's tuple-with-rest shape rejects an
@@ -1306,21 +1314,18 @@ const matchSchema = z
  * to encode the policy. Source citations live next to the
  * `.refine(...)` call below.
  *
- * Wire-side whitespace tokenization on `values`: CCHQ's `selected-any`
- * / `selected-all` tokenize the values argument by whitespace at the
- * wire layer (`case_property_text_query` docstring at
- * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`
- *  — "If the value has multiple words, they will be OR'd together in
- * this query"). A
- * literal like `"foo bar"` emits as `selected-any(prop, 'foo bar')`
- * and is expanded by CCHQ to "contains any of {foo, bar}" rather than
- * "contains the literal token 'foo bar'". Multi-select option values
- * rarely contain whitespace by convention, so this surfaces as a
- * caveat rather than a schema-level rejection — option vocabularies
- * legitimately can contain whitespace, and authors who need
- * space-bearing matches construct an `or`-of-`eq` predicate against
- * the property's `_value` storage rather than routing through
- * `multi-select-contains`.
+ * Multi-word values stay intact on every wire path. CCHQ's
+ * `selected_any` / `selected_all` whitelist entries on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
+ * dispatch through `case_property_text_query` at
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`,
+ * which forwards the value argument to ElasticSearch's `match` query
+ * — `match` tokenizes on whitespace, so a single space-joined call
+ * would silently break a multi-word author intent. Both CSQL and
+ * on-device emitters compose multi-value predicates as
+ * `or` / `and` over per-value `selected(prop, 'v')` calls, where
+ * each `selected` call takes one value literal and CCHQ's matcher
+ * treats it as one token regardless of internal whitespace.
  */
 const multiSelectContainsSchema = z
 	.object({
@@ -1347,20 +1352,16 @@ const multiSelectContainsSchema = z
 	// `is-blank(prop)` (absent-or-empty, the CCHQ-portable form;
 	// emits `prop = ''` on every CCHQ dialect).
 	//
-	// CSQL: `case_property_query(name, '', multivalue_mode=...)`
-	// short-circuits at `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
-	// (the `value == ''` arm) to `case_property_missing(name)` —
-	// "the property is missing" — before reaching the multivalue
-	// tokenization branch. `case_property_missing` is a Python helper
-	// at the same file's `case_property_missing`, not a CSQL function
-	// authors can write; the empty-equality form is the only authorable
-	// shape and CCHQ does the right thing internally. Every null literal
-	// lowers to the wire-form empty string at the term emitter, so an
-	// all-null list never reaches the `selected-any` / `selected-all`
-	// per-token logic; the entire predicate is a single absence check
-	// duplicated by `quantifier`'s OR / AND. The CCHQ wire match-set
-	// covers absent / cleared / empty — the same match set
-	// `is-blank(prop)` expresses cleanly at the AST layer.
+	// CSQL: each emitted `selected(name, '')` call routes to
+	// `case_property_query(name, '', ...)` at
+	// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
+	// whose `value == ''` arm short-circuits to `case_property_missing(name)`
+	// — "the property is missing." Every null literal lowers to the
+	// wire-form empty string at the term emitter, so an all-null list
+	// produces an OR / AND of identical absence checks; the predicate
+	// is a single absence check duplicated by `quantifier`. The CCHQ
+	// wire match-set covers absent / cleared / empty — the same match
+	// set `is-blank(prop)` expresses cleanly at the AST layer.
 	//
 	// On-device: `XPathSelectedFunc.multiSelected` at
 	// `commcare-core/src/main/java/org/javarosa/xpath/expr/XPathSelectedFunc.java::XPathSelectedFunc.multiSelected`

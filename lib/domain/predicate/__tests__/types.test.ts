@@ -581,12 +581,13 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
-	// `multi-select-contains` is the typed structural shape for CCHQ's
-	// `selected-any` / `selected-all` query functions (registered on
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`).
-	// The `quantifier` discriminator distinguishes the two; the schema
-	// keeps them in one operator so a UI surface or reducer toggling
-	// "any of" ↔ "all of" doesn't have to reshape the parent object.
+	// `multi-select-contains` is the typed structural shape lowered to
+	// per-value `selected(prop, 'v')` calls joined by OR (`any`) /
+	// AND (`all`) on every wire path. `selected` is registered at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
+	// The `quantifier` discriminator picks the join; the schema keeps
+	// both quantifiers in one operator so a UI surface or reducer
+	// toggling "any of" ↔ "all of" doesn't have to reshape the parent.
 	it("parses a multi-select-contains predicate with quantifier: any", () => {
 		const result = predicateSchema.parse({
 			kind: "multi-select-contains",

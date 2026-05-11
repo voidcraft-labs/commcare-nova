@@ -770,10 +770,11 @@ describe("checkPredicate — match property-shape requirement", () => {
 });
 
 describe("checkPredicate — multi-select-contains property requirement", () => {
-	// `multi-select-contains` is the typed structural shape for CCHQ's
-	// `selected-any` / `selected-all` query functions. The dispatch at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`
-	// (`_selected_query` calls `case_property_query`) accepts text /
+	// `multi-select-contains` is the typed structural shape lowered to
+	// per-value `selected(prop, 'v')` calls joined by OR / AND on every
+	// wire path. CCHQ's `selected` whitelist entry at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
+	// dispatches through `case_property_query` and accepts text /
 	// single_select / multi_select properties uniformly, but the *Nova*
 	// authoring-time policy is stricter: only a multi_select property
 	// has the structural notion of "contains" (multi-token storage,

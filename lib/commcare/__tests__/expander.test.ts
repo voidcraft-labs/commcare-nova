@@ -3841,4 +3841,107 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		expect(xpathEntry?.defaultValue).toContain("age");
 		expect(xpathEntry?.defaultValue).toContain(" and ");
 	});
+
+	// ── Simple-arm-with-via routing into _xpath_query ──────────────
+
+	it("projects a simple-arm input with non-self `via` as both a CaseSearchProperty AND a `_xpath_query` predicate", () => {
+		// CCHQ's `<prompt>` / `CaseSearchProperty` binds exactly one
+		// runtime value but carries no relation-walk metadata, so a
+		// simple-arm input with `via: ancestor` would silently drop
+		// its relation walk on the wire. The fix routes the derived
+		// predicate through `_xpath_query` while keeping the
+		// `CaseSearchProperty` slot present so CCHQ still binds the
+		// user's typed value to the prompt key.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000060001"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060011"),
+					"parent_region",
+					"Parent region",
+					"text",
+					"region",
+					{
+						via: ancestorPath(relationStep("parent")),
+					},
+				),
+			],
+		});
+		const module = expandDoc(doc).modules[0];
+
+		// CaseSearchProperty stays — CCHQ binds the typed value to
+		// the prompt key at runtime.
+		expect(module.search_config.properties).toHaveLength(1);
+		expect(module.search_config.properties[0].name).toBe("parent_region");
+
+		// The relation-walked predicate lands in `_xpath_query`. The
+		// stored value is an on-device XPath that runtime-builds the
+		// CSQL string via `concat(...)`, so the assertions pin the
+		// XPath-level fragments rather than the runtime-evaluated CSQL.
+		const xpathEntry = module.search_config.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathEntry).toBeDefined();
+		expect(xpathEntry?.defaultValue).toContain("'ancestor-exists('");
+		expect(xpathEntry?.defaultValue).toContain("'parent'");
+		expect(xpathEntry?.defaultValue).toContain("region");
+		// Wrapped in `when-input-present` so an unset input
+		// contributes `match-all()` instead of matching empty-string
+		// related properties.
+		expect(xpathEntry?.defaultValue).toContain("if(count(");
+		expect(xpathEntry?.defaultValue).toContain("'match-all()'");
+	});
+
+	it("keeps self-walk simple-arm inputs out of `_xpath_query` (only the cross-walk input lands there)", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000060002"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060021"),
+					"self_name",
+					"Self name",
+					"text",
+					"case_name",
+				),
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060022"),
+					"parent_region",
+					"Parent region",
+					"text",
+					"region",
+					{ via: ancestorPath(relationStep("parent")) },
+				),
+			],
+		});
+		const module = expandDoc(doc).modules[0];
+
+		// Both inputs surface as CaseSearchProperty entries.
+		expect(module.search_config.properties).toHaveLength(2);
+
+		// Only the cross-walk input contributes a `_xpath_query`
+		// predicate; the self-walk one rides on its prompt binding
+		// alone.
+		const xpathEntry = module.search_config.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathEntry).toBeDefined();
+		expect(xpathEntry?.defaultValue).toContain("'ancestor-exists('");
+		expect(xpathEntry?.defaultValue).toContain("'parent'");
+		expect(xpathEntry?.defaultValue).toContain("@name='parent_region'");
+		// The self-walk input's name does NOT appear in the derived
+		// `_xpath_query` predicate.
+		expect(xpathEntry?.defaultValue).not.toContain("@name='self_name'");
+	});
 });

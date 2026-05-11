@@ -604,47 +604,51 @@ function matchModeToWireFunction(
 }
 
 /**
- * Emit a `multi-select-contains` predicate. The quantifier discriminator
- * picks between `selected` / `selected-any` / `selected-all`; the
- * single-value `any` shape collapses to bare `selected(prop, 'v')`
- * because CCHQ's whitelist registers `selected` as an alias for
- * `selected-any` on
+ * Emit a `multi-select-contains` predicate. Each authored value emits
+ * as its own `selected(prop, 'v')` call; multi-value forms compose
+ * the per-value calls via XPath `or` / `and` per the quantifier.
+ * Single-value collapses to one bare `selected(prop, 'v')`.
+ *
+ * The OR-of-`selected` expansion is the only wire-correct shape on
+ * CSQL for multi-value author intents: CCHQ's `selected_any` /
+ * `selected_all` whitelist entries on
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
- * ("selected and selected_any function identically.").
+ * dispatch through `case_property_query` at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`,
+ * which forwards the value argument to ElasticSearch's `match` query
+ * via `case_property_text_query` at
+ * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`.
+ * `match` tokenizes that argument on whitespace, so a space-joined
+ * shape like `selected-any(prop, 'Alice Smith Bob')` matches three
+ * tokens (`Alice`, `Smith`, `Bob`) instead of the two authored
+ * values (`Alice Smith`, `Bob`). Per-value `selected(prop, 'v')`
+ * preserves multi-word values as single tokens — CCHQ's `selected`
+ * registered alongside `selected_any` at the same XPATH_QUERY_FUNCTIONS
+ * table takes one value literal, no internal tokenization. The
+ * on-device emitter at `caseListFilterEmitter.ts::emitMultiSelectContains`
+ * uses the same expansion shape for the same reason.
  *
- * Multi-value `any` and any-arity `all` share the space-joined-token
- * shape — CCHQ's `case_property_text_query` at
- * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`
- * forwards the value argument to ElasticSearch's `match` query, whose analyzer
- * tokenizes by whitespace and applies the per-quantifier `OR` /
- * `AND` operator.
- *
- * Each value flows through the literal emitter at the segment level;
- * the values join with a single space and the joined string flows
- * through `quoteLiteral` so per-value embedded quotes route through
- * the per-dialect escape. Null values lower to the wire-form empty
- * string (matching the AST schema's all-null rejection at
+ * Each value flows through `quoteLiteral` so embedded quotes route
+ * through the CSQL escape rule. Null values lower to the wire-form
+ * empty string (matching the AST schema's all-null rejection at
  * `multiSelectContainsSchema.refine`).
  */
 function emitMultiSelectSegments(
 	p: Extract<Predicate, { kind: "multi-select-contains" }>,
 ): CsqlSegment[] {
 	const propText = emitCsqlPropertyRefText(p.property);
-	const tokens = p.values.map((v) => stringifyLiteralValue(v.value));
-	const joinedValue = tokens.join(" ");
-	const fnName =
-		p.values.length === 1 && p.quantifier === "any"
-			? "selected"
-			: p.quantifier === "any"
-				? "selected-any"
-				: "selected-all";
-	const valueLiteral = quoteLiteral(joinedValue, "csql");
-	return [
-		{
-			kind: "constant",
-			text: `${fnName}(${propText}, ${valueLiteral})`,
-		},
-	];
+	const calls = p.values.map((v) => {
+		const valueLiteral = quoteLiteral(stringifyLiteralValue(v.value), "csql");
+		return `selected(${propText}, ${valueLiteral})`;
+	});
+	if (calls.length === 1) {
+		return [{ kind: "constant", text: calls[0] as string }];
+	}
+	// Parenthesize the disjunction / conjunction defensively so a
+	// parent `and` / `or` cannot re-associate the chain — same wrap
+	// the `in`-multi-value branch applies.
+	const joiner = p.quantifier === "any" ? " or " : " and ";
+	return [{ kind: "constant", text: `(${calls.join(joiner)})` }];
 }
 
 /**

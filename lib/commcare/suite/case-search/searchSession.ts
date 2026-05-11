@@ -113,7 +113,10 @@ export function emitSearchSession(args: {
 	// `emitCsql`'s hoists lift on-device-only AST shapes the CSQL
 	// grammar can't host inline; each emits as its own `<data>` slot
 	// BEFORE the `_xpath_query` so its inputs resolve first at runtime.
-	const xpathQueryEmission = composeXPathQueryEmission(caseListConfig);
+	const xpathQueryEmission = composeXPathQueryEmission(
+		caseListConfig,
+		caseType,
+	);
 	if (xpathQueryEmission !== undefined) {
 		for (const hoist of xpathQueryEmission.hoists) {
 			const hoistRef = emitOnDeviceExpression(hoist.expression);

@@ -36,6 +36,13 @@
 // then calls `emitCsql` which re-scans — keeping the function package-
 // private constrains callers to the supported single-call shape.
 //
+// `liftPropertyVias` IS re-exported because the case-list validator
+// needs to walk the post-lift AST without emitting — running the
+// full `emitCsql` pipeline to surface a structural-rejection error
+// would mean emitting wire the validator already plans to reject.
+// The lift is idempotent and side-effect-free; running it once for
+// validation and once for emission costs only the second walk.
+//
 // Lexical helpers (`quoteLiteral` / `quoteIdentifier` /
 // `formatNumeric`) flow out of `./stringQuoting` so any consumer that
 // needs to embed a value in a hand-built CommCare wire string (the
@@ -52,6 +59,7 @@ export { emitCaseListFilter } from "./caseListFilterEmitter";
 export type { CsqlEmissionResult } from "./csqlEmitter";
 export { emitCsql } from "./csqlEmitter";
 export type { CsqlHoistResult, HoistedWrapper } from "./csqlHoist";
+export { liftPropertyVias } from "./csqlHoist";
 export {
 	collectExpressionInstances,
 	collectPredicateInstances,

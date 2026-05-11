@@ -806,18 +806,18 @@ function checkMatch(
 /**
  * Multi-select-only property requirement on
  * `multi-select-contains.property`, plus per-value type compatibility
- * across `values`. CCHQ's wire layer dispatches `selected-any` /
- * `selected-all` through `_selected_query` →
- * `case_property_query(..., multivalue_mode='or' | 'and')` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`,
- * and that path accepts text / single_select / multi_select uniformly.
- * The Nova rule is stricter: only a `multi_select` property has the
- * structural notion of "contains" (multi-token storage, per-token
- * containment), so routing single_select or text through this
- * operator is virtually always an authoring bug — the author meant
- * `match` (for substring / fuzzy semantics) or `eq` (for exact match).
- * Reject everything but `multi_select` so the typed AST steers
- * authors to the operator whose semantics actually fit.
+ * across `values`. CCHQ's `selected` whitelist entry on
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
+ * dispatches through `case_property_query` at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`
+ * and accepts text / single_select / multi_select uniformly. The Nova
+ * rule is stricter: only a `multi_select` property has the structural
+ * notion of "contains" (multi-token storage, per-token containment),
+ * so routing single_select or text through this operator is virtually
+ * always an authoring bug — the author meant `match` (for substring /
+ * fuzzy semantics) or `eq` (for exact match). Reject everything but
+ * `multi_select` so the typed AST steers authors to the operator
+ * whose semantics actually fit.
  *
  * Per-value compatibility reuses the same `typesCompatible` table
  * comparisons and `in` use, so the widenings (null-as-universal,
