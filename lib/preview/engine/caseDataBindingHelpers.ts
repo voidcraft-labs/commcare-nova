@@ -83,10 +83,11 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * conversion once at the request edge via `buildCaseTypeMap`.
  *
  * `inputValues` carries the running-app surface's per-search-input
- * typed values. The helper composes them with `caseListConfig.filter`
- * through `composeQueryPredicate` to produce the predicate that
- * flows to `store.query(...)`. See that helper for the per-arm
- * dispatch table.
+ * typed values. `composeQueryPredicate` AND-composes the runtime
+ * contribution with `caseListConfig.filter` into the single predicate
+ * that flows to `store.query(...)`. The per-arm dispatch (simple-arm
+ * modes, advanced-arm substitution, range, multi-select-contains)
+ * lives in `composeRuntimeFilter` in `./runtimeBindings.ts`.
  */
 export async function readCases(
 	store: CaseStore,
