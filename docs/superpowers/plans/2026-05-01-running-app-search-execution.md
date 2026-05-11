@@ -241,11 +241,13 @@ Two hook-layer changes.
 
 **`useCases` accepts `inputValues?: SearchInputValues`** — SHIPPED in Task 4 (absorbed the minimal thread to make Task 4's mount work). Args type carries `inputValues`; effect dep list includes it so fresh-reference values trigger reload. `loadCasesAction` likewise forwards `inputValues` to `readCases`.
 
-**Remaining for Task 5: `useResetSampleCases` hook.** Mirror of `usePopulateSampleCases` over a new `resetSampleCasesAction` Server Action (Task 6). Same `(appId, caseType, blueprint) → () => Promise<PopulateSampleCasesResult>` shape; same not-wrapped-in-`useCallback` rationale.
+**`useResetSampleCases` hook.** Mirror of `usePopulateSampleCases` over the `resetSampleCasesAction` Server Action. Same `(appId, caseType, blueprint) → () => Promise<PopulateSampleCasesResult>` shape; same not-wrapped-in-`useCallback` rationale.
 
-The `resetSampleCasesAction` itself ships in Task 6; Task 5's hook can land first with a placeholder import (the action is the next task) OR Task 5 + Task 6 can land together with Task 6's action coming first. The plan threads both as one round trip since they're tightly coupled. Recommendation: Task 5's implementer should also land the `resetSampleCasesAction` Server Action so the hook compiles. Task 6's remaining scope is then just the UI button + dialog wiring.
+**`resetSampleCasesAction` Server Action.** Scope-absorbed from Task 6 so Task 5's hook compiles standalone. Byte-faithful mirror of `populateSampleCasesAction` (only the delegate call differs: `seedSampleCases` → `resetSampleCases` from Task 2's SHIPPED helper). Session-first ordering preserved.
 
-**Tests:** `useResetSampleCases` returns a fresh callback per render; `unauthenticated` / `error` arms map cleanly.
+**Tests:** action covers all five typed paths (ok / unauthenticated / missing-case-type / validation-failure / schema-not-synced); hook returns a fresh callback per render and passes through unauthenticated / error arms cleanly.
+
+> **SHIPPED.** Task 5 landed at commit `4594a242` with 12 new tests (5 action + 7 hook). Task 6's remaining scope is now the Reset button UI + confirmation dialog in `CaseListScreen`.
 
 ### Task 6: resetSampleCasesAction Server Action + Reset button on the populated arm
 
