@@ -250,17 +250,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				kind: "error",
 				message: describeSubmitError(result),
 			});
-		} catch (err) {
-			/* Wire-level failures (RSC serialization, transport rejects,
-			 * the engine's caseId invariant throw) bypass the typed
-			 * result arms; collapse to one readable line so the button
-			 * never sticks on its pending state. */
+		} catch {
+			/* Wire-level failures (RSC serialization, transport rejects)
+			 * and engine-invariant throws bypass the typed result arms.
+			 * Collapse to one user-facing line — the engine's invariant
+			 * messages (e.g. `compilerBugMessage` for a close-without-
+			 * caseId) carry developer-jargon detail that doesn't belong
+			 * on the user's screen. Same pattern as
+			 * `CaseListScreen.handleGenerate`'s wire-rejection catch. */
 			setSubmitStatus({
 				kind: "error",
-				message:
-					err instanceof Error
-						? err.message
-						: "Could not submit form. Try again.",
+				message: "Could not submit form. Try again.",
 			});
 		}
 	};
