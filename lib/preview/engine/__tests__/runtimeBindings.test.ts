@@ -545,6 +545,36 @@ describe("composeRuntimeFilter — range mode", () => {
 		).toEqual(matchAll());
 	});
 
+	it("treats calendar-invalid bounds as absent (`2024-13-45` is rejected by `isValid`)", () => {
+		const inputs = [
+			simpleSearchInputDef(
+				asUuid("a"),
+				"visit_dates",
+				"Visit Dates",
+				"date-range",
+				"visit_date",
+			),
+		];
+		// `2024-13-45` matches the `YYYY-MM-DD` shape but has month
+		// 13 + day 45 — `parseISO` returns Invalid Date. Without the
+		// calendar-correctness gate the binding layer would hand the
+		// raw string to `dateLiteral` and the Postgres `date` cast
+		// would reject it at execution time, surfacing as an opaque
+		// SQL error instead of a clean no-contribution short-circuit.
+		expect(
+			composeRuntimeFilter(
+				inputs,
+				new Map(
+					Object.entries({
+						"visit_dates:from": "2024-13-45",
+						"visit_dates:to": "2024-02-30",
+					}),
+				),
+				PATIENT,
+			),
+		).toEqual(matchAll());
+	});
+
 	it("treats one malformed bound as absent while the other contributes", () => {
 		const inputs = [
 			simpleSearchInputDef(

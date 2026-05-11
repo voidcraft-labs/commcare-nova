@@ -43,8 +43,8 @@
 import { Icon } from "@iconify/react/offline";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerX from "@iconify-icons/tabler/x";
-import { format, parseISO } from "date-fns";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { format, isValid, parseISO } from "date-fns";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Calendar } from "@/components/shadcn/calendar";
 import { Field, FieldLabel } from "@/components/shadcn/field";
@@ -62,7 +62,10 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import type { CaseProperty, CaseType, SearchInputDef } from "@/lib/domain";
-import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import {
+	ISO_DATE_PATTERN,
+	type SearchInputValues,
+} from "@/lib/preview/engine/runtimeBindings";
 
 // ── Public surface ──────────────────────────────────────────────────
 
@@ -89,20 +92,11 @@ interface SearchInputFormProps {
 
 const DEBOUNCE_MS = 300;
 
-/** Wire-form date shape — what the runtime-bindings layer's
- *  `parseDateBound` accepts. Centralizing the format string keeps
- *  the running-app form and the SQL emitter speaking the same
- *  shape; a drift here would silently drop bounds at the binding
- *  layer. */
+/** Wire-form date shape — the literal `date-fns` format string the
+ *  form emits and `parseDateBound` reads. Matches the `ISO_DATE_PATTERN`
+ *  the binding layer enforces; a drift between the format string
+ *  and the pattern would silently drop bounds at parsing. */
 const ISO_DATE_FORMAT = "yyyy-MM-dd";
-
-/** ISO `YYYY-MM-DD` shape — the runtime-bindings layer's
- *  `parseDateBound` gates on the same pattern. The form re-applies
- *  the gate before handing values to `parseISO` so a malformed
- *  inbound shape (URL-hydration edge case, typo'd value) renders
- *  the placeholder instead of crashing `format(invalidDate, ...)`
- *  with `RangeError: Invalid time value`. */
-const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Running-app search-input form. Mounts at the top of the case-list
@@ -240,13 +234,7 @@ function SearchInputRow({
 	draft,
 	setKey,
 }: SearchInputRowProps) {
-	// Memoize the widget resolution so a parent re-render that
-	// doesn't change `(input, caseType)` doesn't force an option-
-	// list reconstruction on every keystroke.
-	const widget = useMemo(
-		() => resolveWidget(input, caseType),
-		[input, caseType],
-	);
+	const widget = resolveWidget(input, caseType);
 
 	switch (widget.kind) {
 		case "text":
@@ -261,7 +249,6 @@ function SearchInputRow({
 		case "date":
 			return (
 				<DatePopoverField
-					name={input.name}
 					label={input.label}
 					value={draft.get(input.name) ?? ""}
 					onChange={(next) => setKey(input.name, next)}
@@ -270,7 +257,6 @@ function SearchInputRow({
 		case "date-range":
 			return (
 				<DateRangeRow
-					name={input.name}
 					label={input.label}
 					fromValue={draft.get(`${input.name}:from`) ?? ""}
 					toValue={draft.get(`${input.name}:to`) ?? ""}
@@ -388,7 +374,6 @@ function TextRow({ name, label, value, onChange }: TextRowProps) {
 }
 
 interface DatePopoverFieldProps {
-	readonly name: string;
 	readonly label: string;
 	readonly value: string;
 	readonly onChange: (next: string) => void;
@@ -415,18 +400,24 @@ interface DatePopoverFieldProps {
  * midnight — matching the runtime-bindings layer's `parseDateBound`
  * ISO-pattern gate without timezone drift (`new Date("2024-01-01")`
  * would parse as UTC midnight and shift negative offsets back a
- * day). Inbound values that don't match the ISO pattern resolve to
- * `undefined` so a malformed string from URL hydration or a typo'd
- * fixture renders the placeholder instead of crashing
- * `format(invalidDate, ...)`.
+ * day).
+ *
+ * Inbound values flow through two gates before reaching `format`:
+ *
+ *   - The shape gate (`ISO_DATE_PATTERN.test`) accepts only `YYYY-
+ *     MM-DD` strings; everything else resolves to `undefined`.
+ *   - The calendar-validity gate (`isValid(parseISO(...))`) catches
+ *     shape-conforming-but-calendar-invalid values like
+ *     `"2024-13-45"` that `parseISO` returns as Invalid Date. The
+ *     gate exists because `format(invalidDate, ...)` throws
+ *     `RangeError: Invalid time value` and would crash the entire
+ *     `<search>` subtree — the regex alone isn't enough.
  *
  * Used as the single-date row AND as each bound of the date-range
  * row. The two callers differ only in label styling + the explicit
  * trigger `aria-label`; both knobs are optional props on this
  * primitive. Screen-reader accessibility lives on the `FieldLabel
- * htmlFor` association + the optional `aria-label` override —
- * neither path touches the HTML `name` attribute, which is form-
- * submission metadata, not assistive-tech surface.
+ * htmlFor` association + the optional `aria-label` override.
  *
  * The trigger renders inside `PopoverTrigger`'s `render` prop slot —
  * Base UI's composition pattern. The Button component is a
@@ -434,7 +425,6 @@ interface DatePopoverFieldProps {
  * focus + keyboard semantics flow through.
  */
 function DatePopoverField({
-	name,
 	label,
 	value,
 	onChange,
@@ -442,7 +432,8 @@ function DatePopoverField({
 	ariaLabel,
 }: DatePopoverFieldProps) {
 	const id = useId();
-	const selected = ISO_DATE_PATTERN.test(value) ? parseISO(value) : undefined;
+	const parsed = ISO_DATE_PATTERN.test(value) ? parseISO(value) : undefined;
+	const selected = parsed !== undefined && isValid(parsed) ? parsed : undefined;
 	return (
 		<Field>
 			<FieldLabel htmlFor={id} className={labelClassName}>
@@ -451,7 +442,6 @@ function DatePopoverField({
 			<Popover>
 				<PopoverTrigger
 					id={id}
-					name={name}
 					aria-label={ariaLabel}
 					render={
 						<Button
@@ -502,7 +492,6 @@ function DatePopoverField({
 }
 
 interface DateRangeRowProps {
-	readonly name: string;
 	readonly label: string;
 	readonly fromValue: string;
 	readonly toValue: string;
@@ -512,10 +501,11 @@ interface DateRangeRowProps {
 
 /**
  * Date-range row. Two independent single-date pickers — one per
- * bound — labeled `<name> from` / `<name> to`. Bounds emit under
- * `<name>:from` / `<name>:to`; clearing one bound deletes only
- * that key, mirroring the runtime-bindings layer's per-bound
- * short-circuit.
+ * bound — labeled `<label> from` / `<label> to`. The parent
+ * dispatcher owns the `<name>:from` / `<name>:to` key shape on the
+ * value map; this row only sees per-bound values + change handlers
+ * so it can't accidentally drift from the binding layer's key
+ * convention.
  *
  * A `mode="range"` Calendar would visually unify the two pickers
  * but couples them at the UX layer — touching only the upper
@@ -526,7 +516,6 @@ interface DateRangeRowProps {
  * shape rather than a runtime invariant.
  */
 function DateRangeRow({
-	name,
 	label,
 	fromValue,
 	toValue,
@@ -546,7 +535,6 @@ function DateRangeRow({
 			</legend>
 			<div className="grid grid-cols-2 gap-2">
 				<DatePopoverField
-					name={`${name}:from`}
 					label={fromLabel}
 					value={fromValue}
 					onChange={onChangeFrom}
@@ -554,7 +542,6 @@ function DateRangeRow({
 					ariaLabel={fromLabel}
 				/>
 				<DatePopoverField
-					name={`${name}:to`}
 					label={toLabel}
 					value={toValue}
 					onChange={onChangeTo}

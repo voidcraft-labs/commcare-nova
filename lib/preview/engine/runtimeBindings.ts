@@ -12,6 +12,7 @@
 // import one composition site without dragging the case-store's
 // Cloud SQL graph through the client bundle.
 
+import { isValid, parseISO } from "date-fns";
 import type {
 	SearchInputDef,
 	SearchInputMode,
@@ -37,6 +38,16 @@ import {
 	reduceAnd,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate";
+
+/**
+ * Wire-form date shape — the ISO `YYYY-MM-DD` pattern this module
+ * gates against before handing values to date-coercing builders.
+ * Exported so the running-app `SearchInputForm` widget gates date
+ * values through the same pattern before handing them to
+ * `parseISO`, keeping both surfaces honoring one definition rather
+ * than maintaining a parallel regex by comment.
+ */
+export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Search-input value bag. `<name>:from` / `<name>:to` for range
@@ -187,15 +198,20 @@ function buildRangeClause(
 }
 
 /**
- * Calendar validity is enforced at SQL emission via the `date` cast
- * in `compileLiteral`; this gate filters mid-edit shapes that would
- * crash the cast. Returns a bare `Literal` so `between(...)` lifts
- * it via `toValueExpression`.
+ * Calendar validity is enforced here, not at the SQL boundary. The
+ * Postgres `date` cast in `compileLiteral` rejects calendar-invalid
+ * values (`"2024-13-45"`) at query-execution time — surfaced to the
+ * running-app surface as an opaque SQL error rather than the
+ * widget's "no bound contributed" no-op. The regex gate filters
+ * shape ("digits and dashes"); the `isValid(parseISO(raw))` gate
+ * filters calendar correctness (month ≤ 12, day ≤ days-in-month).
+ * Either failure drops the bound entirely so the binding layer
+ * AND-composes only valid clauses.
  */
-const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 function parseDateBound(raw: string | undefined): Literal | undefined {
 	if (raw === undefined || raw === "") return undefined;
 	if (!ISO_DATE_PATTERN.test(raw)) return undefined;
+	if (!isValid(parseISO(raw))) return undefined;
 	return dateLiteral(raw);
 }
 

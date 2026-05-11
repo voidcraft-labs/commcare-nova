@@ -513,6 +513,26 @@ describe("controlled `value` prop flow", () => {
 		expect(trigger.textContent ?? "").toContain("Pick a date");
 	});
 
+	it("renders the placeholder when the inbound value passes the shape gate but is calendar-invalid", () => {
+		// `"2024-13-45"` satisfies the regex (digits + dashes in the
+		// `YYYY-MM-DD` layout) but `parseISO` produces an Invalid
+		// Date — month 13, day 45 are out of range. Without the
+		// `isValid` calendar-correctness gate, `format(invalidDate,
+		// ...)` would throw `RangeError: Invalid time value` and
+		// crash the entire `<search>` subtree. The widget surfaces
+		// the placeholder instead, mirroring the regex-only-gate's
+		// behavior for shape-invalid values.
+		const initial: SearchInputValues = new Map([["dob", "2024-13-45"]]);
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(UUID_DOB, "dob", "Date of birth", "date", "dob"),
+			],
+			value: initial,
+		});
+		const trigger = screen.getByLabelText("Date of birth");
+		expect(trigger.textContent ?? "").toContain("Pick a date");
+	});
+
 	it("renders ISO-formatted bounds on both date-range Popover triggers", () => {
 		const initial: SearchInputValues = new Map([
 			["reg:from", "2024-01-01"],
