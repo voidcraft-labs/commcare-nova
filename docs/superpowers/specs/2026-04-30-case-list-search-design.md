@@ -251,7 +251,7 @@ The Postgres runtime is the authoritative semantic — it executes the AST exact
 
 ```sql
 CREATE TABLE cases (
-  case_id        UUID PRIMARY KEY,
+  case_id        UUID PRIMARY KEY DEFAULT uuidv7(),
   app_id         TEXT NOT NULL,
   case_type      TEXT NOT NULL,
   owner_id       TEXT,
@@ -259,6 +259,7 @@ CREATE TABLE cases (
   opened_on      TIMESTAMPTZ,
   modified_on    TIMESTAMPTZ,
   closed_on      TIMESTAMPTZ,
+  case_name      TEXT NOT NULL CHECK (length(case_name) > 0),
   parent_case_id UUID,                    -- denormalized first parent
   properties     JSONB NOT NULL
 );
@@ -280,7 +281,26 @@ CREATE TABLE case_indices (
 );
 CREATE INDEX ON case_indices (ancestor_id, identifier);
 CREATE INDEX ON case_indices (case_id, identifier);
+
+CREATE TABLE cases_quarantine (
+  case_id          UUID NOT NULL,         -- not defaulted; carries the source row's id
+  app_id           TEXT NOT NULL,
+  case_type        TEXT NOT NULL,
+  owner_id         TEXT,
+  status           TEXT,
+  opened_on        TIMESTAMPTZ,
+  modified_on      TIMESTAMPTZ,
+  closed_on        TIMESTAMPTZ,
+  case_name        TEXT,                  -- nullable on the audit side
+  parent_case_id   UUID,
+  properties       JSONB NOT NULL,        -- pre-migration value, preserved verbatim
+  quarantine_reason TEXT NOT NULL,
+  quarantined_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (case_id, quarantined_at)
+);
 ```
+
+`case_name` is a top-level column (not a JSONB key) because CommCare requires every case to carry a non-empty `case_name` and the structural CHECK gives reads a typed path that doesn't pay JSONB extraction cost. The JSON Schema for `properties` excludes `case_name`; AJV at the API trust boundary is the primary defense, and the column CHECK is the residual structural guarantee on direct writes.
 
 `case_indices` stores `(case → ancestor)` edges. `depth=1` is the direct edge; the table can also store deeper transitive rows when the materialization policy populates them. **This is the architectural answer to CCHQ's `MAX_RELATED_CASES = 500_000` per-hop scan** (verified at `commcare-hq/corehq/apps/case_search/const.py::MAX_RELATED_CASES`). A single indexed lookup on `(case_id, identifier)` traverses any depth the materialization stores — the N+1 ES query pattern at `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::walk_ancestor_hierarchy` collapses to a single Postgres query.
 
@@ -423,7 +443,7 @@ Nova does not expose workflow modes to the author. There is no mode picker, no e
 
 **The principle:** Nova owns the authoring layer; the export layer translates to CCHQ's wire shape. CCHQ's mode picker is a CCHQ authoring-UX problem — solving it correctly there is CCHQ's job. Importing the picker into Nova replicates the underlying confusion. If a Nova-authored app produces a different (sometimes worse) UX on Web Apps than a hand-authored CCHQ app would, that's a CCHQ-side UX cost we accept rather than degrade Nova's authoring experience to match.
 
-**Authoring is web-apps-shaped.** The principle generalizes beyond the workflow-mode picker to every author-facing surface. Nova's primary export target is CCHQ web apps; the live-preview (running-app view) renders the web-apps split-screen experience exclusively. There is no Android-vs-Web toggle, no platform simulator, no "see what this looks like on Android" panel. The wire emitter still produces a complete `<remote-request>` valid for both runtimes — that's the export contract — but the authoring layer doesn't expose CCHQ's runtime fragmentation as an authoring concern. Authors see one canonical rendering; the export adapter compiles to both runtimes silently.
+**Authoring is web-apps-shaped.** The principle generalizes beyond the workflow-mode picker to every author-facing surface. Nova's primary export target is CCHQ web apps; the live-preview (running-app view) renders one canonical inline-search shape (search inputs above the list, debounced filtering as the user types) regardless of whether the module carries `caseSearchConfig`. There is no Android-vs-Web toggle, no platform simulator, no separate split-screen surface, no "see what this looks like on Android" panel. The wire emitter still produces a complete `<remote-request>` valid for both runtimes — that's the export contract — but the authoring layer doesn't expose CCHQ's runtime fragmentation as an authoring concern. Authors see one canonical rendering; the export adapter compiles to both runtimes silently.
 
 **The deeper principle:** every per-platform UI affordance the author would otherwise be asked to think about (markdown-supported-on-web-only annotations, per-runtime preview panels, platform-shape pickers) is a leak from CCHQ's runtime fragmentation into Nova's authoring layer. Nova rejects each leak. Per-platform validation rules (the operator-allowlist gates that exist because Android can't dispatch certain operators in certain slots) are removed too — Nova emits the maximum CCHQ feature subset for web apps; runtime player capability gaps are Dimagi's structural concern.
 
@@ -434,7 +454,7 @@ Nova does not expose workflow modes to the author. There is no mode picker, no e
   - On deploys without split-screen, emits as a normal list-first module (`auto_launch=false, default_search=false`) regardless of whether search inputs are configured. The user sees their local case list first; if they need to search, they hit the search button. This is more user-respectful than search-first because it does not force a user to fill a search form before learning whether they have any local cases at all.
   - Skip-to-results (`auto_launch=true, default_search=true`) is emitted only when the author has configured `caseListConfig.filter` AND zero search inputs (signaling intent: "show filtered results immediately; the user has no inputs to type"). This is content-derived, not author-toggled.
 
-The author never makes a per-platform decision. The compiler picks the closest CCHQ-supported emission from configured content. Per-platform divergence is surfaced visually in the Platform Divergence Panel (Plan 4) — authors see at edit time what their app will look like on each platform.
+The author never makes a per-platform decision. The compiler picks the closest CCHQ-supported emission from configured content. There is no platform-shape preview surface — the running-app view is web-apps-shaped (inline search), and CCHQ-runtime UX choices (Android list-first vs. web split-screen vs. skip-to-results) are silent in Nova's authoring layer; they live only at the wire-emission layer.
 
 ### Case list config UI — three sections, all AST-backed
 
@@ -519,13 +539,28 @@ The SA writes the same AST. Tool calls accept Predicate AST and ValueExpression 
 
 ### Validator coverage
 
-- Column `field` references must resolve to known case properties.
-- Filter / sort / calculated-column ASTs type-check against the case-type schema.
-- Search input case-property references must resolve.
-- Field-kind-vs-property-type mismatch — writers to a typed property must match the declared `data_type`. Multiple writers to the same property must agree on type.
-- "Same property in both `caseListConfig.filter` and a simple-arm `caseListConfig.searchInputs[i].property`" config error — fires only when `caseSearchConfig` is present (i.e., the module emits a `<remote-request>`). Both contributions AND-compose into one `<data key="_xpath_query">`; CCHQ's runtime treats the duplicate-property case as a config error.
-- `caseSearchConfig.excludedOwnerIds` (`ValueExpression`) type-checks against the module's case-type schema and resolves to a `text`-typed result. Authors who need a non-text-typed property as the source coerce explicitly via `concat(...)`.
-- `caseSearchConfig.searchButtonDisplayCondition` (`Predicate`) type-checks against the module's case-type schema, with the same orphan-input-ref coverage every other predicate-slot rule gets through `checkPredicate`.
+The validator's per-module rule set surfaces one structured `ValidationError` per offending node so the editor can locate and the SA agent can correct authoring mistakes before any wire emission runs. The rules fall into two clusters — case-list-config (`caseListConfig.*`) and case-search-config (`caseSearchConfig.*`) — plus the cross-cutting field-kind-vs-property-type rule that gates form-field writers against the case-type's declared `data_type`.
+
+**Case-list rules (`caseListConfig.*`):**
+
+- **Column `field` references resolve to known case properties.** `columnReferences` walks `caseListConfig.columns`, skips the calculated arm (whose property refs live inside its expression and route through the per-operand type checker), and checks every other column's `field` against the augmented admission set (declared schema + CommCare standard set + writer-derived).
+- **Filter type-checks against the case-type schema.** `filterTypeCheck` dispatches `checkPredicate(caseListConfig.filter, ctx)` and emits one error per `CheckError`, with the AST path appended so the editor can highlight the offending node.
+- **Calculated columns type-check against the case-type schema.** `calculatedColumnTypeCheck` dispatches `checkValueExpression(column.expression, ctx)` for each `kind: "calculated"` column.
+- **Simple-arm search input mode matches the targeted property's type.** `searchInputModeMatchesPropertyType` enforces — at the input's destination case type (resolved through `via` when present) — that the input's `mode` is in the property's `SEARCH_MODE_PROPERTY_TYPES` admit-set. `range` against a text property is rejected; `range` against a date property passes. Load-bearing for runtime correctness: the case-store's index-DDL emitter depends on this rule passing.
+- **Advanced-arm search input predicates type-check against the case-type schema.** `searchInputPredicateTypeCheck` dispatches `checkPredicate(input.predicate, ctx)` for each `kind: "advanced"` input. Cross-input refs (`when-input-present(input("other_input"), ...)`) resolve against the module's full search-input list because `ctx.knownInputs` is populated.
+- **Search input defaults type-check against the input's widget kind.** `searchInputDefaultTypeCheck` dispatches `checkValueExpression(input.default, ctx, expectedType)` where the expected type comes from `SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES[input.type]` — a `date` widget rejects a `now()` (datetime) default unless coerced via `dateCoerce(...)`; a `text` widget rejects a numeric / temporal default unless coerced via `concat(...)`.
+
+**Case-search rules (`caseSearchConfig.*`, all short-circuit when `caseSearchConfig` is absent):**
+
+- **`searchButtonDisplayCondition` (`Predicate`) type-checks against the module's case-type schema**, with the same orphan-input-ref coverage every other predicate-slot rule gets through `checkPredicate`.
+- **`excludedOwnerIds` (`ValueExpression`) type-checks against the module's case-type schema and resolves to a `text`-typed result.** Authors who need a non-text-typed property as the source coerce explicitly via `concat(...)`. `typesCompatible` widens `single_select` and `multi_select` into `text`, so select-typed property references resolve cleanly.
+- **Same property in both `caseListConfig.filter` and a simple-arm `caseListConfig.searchInputs[i].property` is a config error.** `filterSearchInputConflict` fires only when `caseSearchConfig` is present (i.e., the module emits a `<remote-request>`). Both contributions AND-compose into one `<data key="_xpath_query">`; CCHQ's runtime treats the duplicate-property case as a config error. The dedup key is `(destinationCaseType, property)` — NOT bare property name — so distinct `via` walks resolving to distinct runtime paths compose fine.
+
+**Cross-cutting rule:**
+
+- **Field-kind-vs-property-type mismatch.** `fieldKindMatchesPropertyType` enforces that writers to a typed property match the declared `data_type` (a `text` field writing to an `int` property is rejected); multiple writers to the same property must agree on type.
+
+Sort directives don't need a separate validator rule — sort lives on each column, the comparator type is derived at wire emission from the column's data type (`applicableSortTypes(propertyDataType)[0]`) or the calculated expression's result type, and "sort references a non-existent column" is structurally impossible because there's no parallel `SortKey[]` array.
 
 ## Migration
 
@@ -566,7 +601,7 @@ Each gate below is a concrete blocking check that must pass before the correspon
 
 ## Risks and mitigations
 
-- **Tenant-isolation leak via missing owner-id filter** — the isolation model is `(app_id, owner_id)` columns + application-layer filtering. A single missed `.where("owner_id", "=", session.user.id)` filter at any read site leaks one tenant's case data to another. Mitigation: tenant scoping is **structural, not by discipline** — the `CaseStore` interface is the only path to case data, and every `CaseStore` method accepts an `appId` and resolves the caller's `owner_id` through a `withOwnerContext(userId)` factory at the request boundary. There is no way to construct a `CaseStore` instance that bypasses the owner-id filter; the factory pattern enforces tenant scoping by construction. RLS policies on the `cases` table land as defense-in-depth in Plan 2 once the application-layer pattern is exercised. For HIPAA / SOC 2 clients requiring stricter isolation (schema-per-tenant or database-per-tenant), the migration path is changing the connection routing in `withOwnerContext` to map `(appId, ownerId) → schema` — bounded by the tooling, no application-code rewrite — at the cost of dump-and-reload per tenant during the cutover.
+- **Tenant-isolation leak via missing owner-id filter** — the isolation model is `(app_id, owner_id)` columns + application-layer filtering. A single missed `.where("owner_id", "=", session.user.id)` filter at any read site leaks one tenant's case data to another. Mitigation: tenant scoping is **structural, not by discipline** — the `CaseStore` interface is the only path to case data, every `CaseStore` method accepts an `appId` and resolves the caller's `owner_id` through a `withOwnerContext(userId)` factory at the request boundary, and the compiler's relation-walk emitter applies the same filter on every JOIN-side `cases` row (`./sql/compileRelationPath.ts`). There is no way to construct a `CaseStore` instance that bypasses the owner-id filter; the factory pattern enforces tenant scoping by construction. Database-side RLS policies are not in scope for V1 (the application-layer factory pattern is the single source of truth); they remain available as a future defense-in-depth surface once the structural pattern has accumulated production wear. For HIPAA / SOC 2 clients requiring stricter isolation (schema-per-tenant or database-per-tenant), the migration path is changing the connection routing in `withOwnerContext` to map `(appId, ownerId) → schema` — bounded by the tooling, no application-code rewrite — at the cost of dump-and-reload per tenant during the cutover.
 - **JSONB write bloat** from frequent updates — full-row replacement on case writes (not partial `jsonb_set`). Monitor `pg_stat_user_tables.n_dead_tup`.
 - **JSONB cast safety after schema migration** — addressed via the migrate-or-quarantine policy; reads are typed-safe because writes are validated against the current schema; quarantined rows are surfaced rather than silently lost.
 - **`case_indices` row-count growth** — start with Option B (direct edges only + chain-of-joins on read) for write predictability; switch to Option A if the per-hop chain cost dominates. Both within the same architectural commitment.
