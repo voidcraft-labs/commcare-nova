@@ -47,6 +47,7 @@ import type {
 	SubmissionMutation,
 	SubmissionResult,
 } from "./caseDataBindingTypes";
+import type { SearchInputValues } from "./runtimeBindings";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -68,12 +69,20 @@ import type {
  * receive rows with an empty `calculated: {}` map per row —
  * `evaluateColumnValue` reads cleanly because any calc-keyed
  * lookup returns `undefined`.
+ *
+ * `inputValues` carries the running-app search form's per-input
+ * value bag — `composeRuntimeFilter` translates it into the
+ * input-driven predicate contribution, which AND-composes with the
+ * unified `caseListConfig.filter` slot inside `readCases`. Callers
+ * not mounting a search form leave it undefined; the helper then
+ * skips the runtime-bindings composition entirely.
  */
 export async function loadCasesAction(args: {
 	appId: string;
 	caseType: string;
 	blueprint?: BlueprintDoc;
 	caseListConfig?: CaseListConfig;
+	inputValues?: SearchInputValues;
 }): Promise<LoadCasesResult> {
 	try {
 		const session = await getSession();
@@ -88,6 +97,7 @@ export async function loadCasesAction(args: {
 			caseType: args.caseType,
 			caseTypeSchemas: buildCaseTypeMap(args.blueprint),
 			caseListConfig: args.caseListConfig,
+			inputValues: args.inputValues,
 		});
 	} catch (err) {
 		return {

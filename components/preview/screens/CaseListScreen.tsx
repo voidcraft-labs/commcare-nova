@@ -3,7 +3,8 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { motion } from "motion/react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
+import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
@@ -12,6 +13,7 @@ import {
 	evaluateColumnValue,
 	pickBlueprintDoc,
 } from "@/lib/preview/engine/caseDataBindingClient";
+import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import {
 	useCases,
@@ -72,11 +74,21 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		[docApi.getState],
 	);
 
+	// The per-input value bag the running-app search form mutates as
+	// the user types. The form is fully controlled — the screen owns
+	// the value reference, the form owns the local-typing buffer +
+	// 300 ms debounce. A fresh-reference update from the form is the
+	// trigger `useCases` keys off to re-fire its load effect.
+	const [inputValues, setInputValues] = useState<SearchInputValues>(
+		() => new Map(),
+	);
+
 	const { state, reload } = useCases({
 		appId,
 		caseType: caseType?.name,
 		blueprint,
 		caseListConfig,
+		inputValues,
 	});
 
 	const populate = usePopulateSampleCases({
@@ -153,8 +165,13 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		navigate.openForm(moduleUuid, firstFormUuid);
 	};
 
-	const heading = (
-		<>
+	// Shell wrapper shared by every state arm. Hoisting the wrapper +
+	// heading + form into one render path means each arm only owns its
+	// body content — a future arm can't silently drop the form mount.
+	// `SearchInputForm` itself fails closed on empty `searchInputs`,
+	// so the screen doesn't gate the mount.
+	const shell = (body: ReactNode) => (
+		<div className="p-6 max-w-3xl mx-auto">
 			<div className="flex items-center gap-2 mb-1">
 				<h2 className="text-lg font-display font-semibold text-nova-text">
 					{mod?.name ?? "Cases"}
@@ -163,132 +180,126 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			<p className="text-sm text-nova-text-muted mb-4">
 				Select a case to continue
 			</p>
-		</>
+			{caseListConfig !== undefined &&
+				caseListConfig.searchInputs.length > 0 && (
+					<div className="mb-4">
+						<SearchInputForm
+							searchInputs={caseListConfig.searchInputs}
+							caseType={caseType}
+							value={inputValues}
+							onChange={setInputValues}
+						/>
+					</div>
+				)}
+			{body}
+		</div>
 	);
 
 	if (state.kind === "idle" || state.kind === "loading") {
-		return (
-			<div className="p-6 max-w-3xl mx-auto">
-				{heading}
-				<div className="flex items-center justify-center py-12 text-nova-text-muted">
-					{state.kind === "loading" ? (
-						<Icon
-							icon={tablerLoader2}
-							width="20"
-							height="20"
-							className="animate-spin"
-						/>
-					) : null}
-				</div>
-			</div>
+		return shell(
+			<div className="flex items-center justify-center py-12 text-nova-text-muted">
+				{state.kind === "loading" ? (
+					<Icon
+						icon={tablerLoader2}
+						width="20"
+						height="20"
+						className="animate-spin"
+					/>
+				) : null}
+			</div>,
 		);
 	}
 
 	if (state.kind === "unauthenticated") {
-		return (
-			<div className="p-6 max-w-3xl mx-auto">
-				{heading}
-				<div className="rounded-lg border border-pv-input-border p-6 text-center text-nova-text-muted">
-					Sign in to view case data.
-				</div>
-			</div>
+		return shell(
+			<div className="rounded-lg border border-pv-input-border p-6 text-center text-nova-text-muted">
+				Sign in to view case data.
+			</div>,
 		);
 	}
 
 	if (state.kind === "error") {
-		return (
-			<div className="p-6 max-w-3xl mx-auto">
-				{heading}
-				<div className="rounded-lg border border-red-700/50 bg-red-950/20 p-6 text-center text-red-300">
-					{state.message}
-				</div>
-			</div>
+		return shell(
+			<div className="rounded-lg border border-red-700/50 bg-red-950/20 p-6 text-center text-red-300">
+				{state.message}
+			</div>,
 		);
 	}
 
 	if (state.kind === "empty") {
-		return (
-			<div className="p-6 max-w-3xl mx-auto">
-				{heading}
-				<div className="rounded-lg border border-pv-input-border p-8 text-center">
-					<p className="text-sm text-nova-text-muted mb-4">
-						No cases yet. Generate sample data to populate this case list.
-					</p>
-					<button
-						type="button"
-						onClick={handleGenerate}
-						disabled={populateStatus.kind === "running"}
-						className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-					>
-						{populateStatus.kind === "running" ? (
-							<Icon
-								icon={tablerLoader2}
-								width="14"
-								height="14"
-								className="animate-spin"
-							/>
-						) : (
-							<Icon icon={tablerSparkles} width="14" height="14" />
-						)}
-						{populateStatus.kind === "running"
-							? "Generating..."
-							: "Generate sample data"}
-					</button>
-					{populateStatus.kind === "error" && (
-						<p className="mt-3 text-sm text-red-300">
-							{populateStatus.message}
-						</p>
+		return shell(
+			<div className="rounded-lg border border-pv-input-border p-8 text-center">
+				<p className="text-sm text-nova-text-muted mb-4">
+					No cases yet. Generate sample data to populate this case list.
+				</p>
+				<button
+					type="button"
+					onClick={handleGenerate}
+					disabled={populateStatus.kind === "running"}
+					className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+				>
+					{populateStatus.kind === "running" ? (
+						<Icon
+							icon={tablerLoader2}
+							width="14"
+							height="14"
+							className="animate-spin"
+						/>
+					) : (
+						<Icon icon={tablerSparkles} width="14" height="14" />
 					)}
-				</div>
-			</div>
+					{populateStatus.kind === "running"
+						? "Generating..."
+						: "Generate sample data"}
+				</button>
+				{populateStatus.kind === "error" && (
+					<p className="mt-3 text-sm text-red-300">{populateStatus.message}</p>
+				)}
+			</div>,
 		);
 	}
 
 	const rows = state.rows;
 
-	return (
-		<div className="p-6 max-w-3xl mx-auto">
-			{heading}
-
-			<div className="rounded-lg border border-pv-input-border overflow-hidden">
-				<table className="w-full text-sm">
-					<thead>
-						<tr className="bg-pv-surface">
-							{columns.map((col) => (
-								<th
-									key={col.uuid}
-									className="text-left px-4 py-2.5 font-medium text-pv-accent-bright border-b border-pv-input-border"
-								>
-									{col.header}
-								</th>
-							))}
-						</tr>
-					</thead>
-					<tbody>
-						{rows.map((row, rIdx) => (
-							<motion.tr
-								key={row.case_id}
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								transition={{ delay: rIdx * 0.04, duration: 0.2 }}
-								onClick={() => handleRowClick()}
-								className={`cursor-pointer hover:bg-pv-elevated ${
-									rIdx % 2 === 0 ? "bg-pv-bg" : "bg-pv-surface/50"
-								} transition-colors`}
+	return shell(
+		<div className="rounded-lg border border-pv-input-border overflow-hidden">
+			<table className="w-full text-sm">
+				<thead>
+					<tr className="bg-pv-surface">
+						{columns.map((col) => (
+							<th
+								key={col.uuid}
+								className="text-left px-4 py-2.5 font-medium text-pv-accent-bright border-b border-pv-input-border"
 							>
-								{columns.map((col) => (
-									<td
-										key={col.uuid}
-										className="px-4 py-2 text-nova-text-secondary border-b border-pv-input-border/50"
-									>
-										{evaluateColumnValue(col, row)}
-									</td>
-								))}
-							</motion.tr>
+								{col.header}
+							</th>
 						))}
-					</tbody>
-				</table>
-			</div>
-		</div>
+					</tr>
+				</thead>
+				<tbody>
+					{rows.map((row, rIdx) => (
+						<motion.tr
+							key={row.case_id}
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							transition={{ delay: rIdx * 0.04, duration: 0.2 }}
+							onClick={() => handleRowClick()}
+							className={`cursor-pointer hover:bg-pv-elevated ${
+								rIdx % 2 === 0 ? "bg-pv-bg" : "bg-pv-surface/50"
+							} transition-colors`}
+						>
+							{columns.map((col) => (
+								<td
+									key={col.uuid}
+									className="px-4 py-2 text-nova-text-secondary border-b border-pv-input-border/50"
+								>
+									{evaluateColumnValue(col, row)}
+								</td>
+							))}
+						</motion.tr>
+					))}
+				</tbody>
+			</table>
+		</div>,
 	);
 }

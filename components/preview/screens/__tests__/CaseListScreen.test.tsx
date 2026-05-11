@@ -17,8 +17,14 @@
 //      projection arg); the screen reads the slot directly via
 //      `evaluateColumnValue` — no AST evaluation in the preview
 //      layer.
+//   4. Search-input form mounts above the rows when the module's
+//      `caseListConfig.searchInputs` is non-empty; typing in the
+//      form re-fires `loadCasesAction` with the new `inputValues`
+//      bag (debounced 300 ms by the form). Clearing reverts the
+//      filter-only result set. Zero search inputs skips the form
+//      entirely so the `<search>` landmark is absent from the DOM.
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
@@ -26,6 +32,7 @@ import {
 	asUuid as asDomainUuid,
 	calculatedColumn,
 	plainColumn,
+	simpleSearchInputDef,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
@@ -140,12 +147,21 @@ function makeRow(
  *  `caseListConfig`. The provider's `initialDoc` shape mirrors the
  *  Firestore `PersistableDoc` — a fresh module carrying our
  *  fixture columns + a single first-form whose name differs from
- *  the module's. */
+ *  the module's. `searchInputs` defaults to the empty array so the
+ *  pre-Task-4 test suite keeps its zero-search-input shape; tests
+ *  exercising the search form pass the array explicitly. */
 function renderCaseListScreen(opts: {
 	columns: NonNullable<
 		Parameters<typeof BlueprintDocProvider>[0]["initialDoc"]
 	>["modules"][string]["caseListConfig"] extends infer C
 		? C extends { columns: infer X }
+			? X
+			: never
+		: never;
+	searchInputs?: NonNullable<
+		Parameters<typeof BlueprintDocProvider>[0]["initialDoc"]
+	>["modules"][string]["caseListConfig"] extends infer C
+		? C extends { searchInputs: infer X }
 			? X
 			: never
 		: never;
@@ -174,7 +190,7 @@ function renderCaseListScreen(opts: {
 						caseType: "patient",
 						caseListConfig: {
 							columns: opts.columns,
-							searchInputs: [],
+							searchInputs: opts.searchInputs ?? [],
 						},
 					},
 				},
@@ -353,5 +369,179 @@ describe("CaseListScreen — calculated columns", () => {
 		// absent or carrying a fallback string).
 		const headers = screen.getAllByRole("columnheader");
 		expect(headers).toHaveLength(2);
+	});
+});
+
+// ── Search-input form mount ──────────────────────────────────────
+
+/** Per-input uuid used by every search-form test. A single uuid
+ *  keeps the fixture readable; the input's `name` slot keys the
+ *  emitted value bag and is what `loadCasesAction`'s mock implementation
+ *  inspects to decide which rows to return. */
+const SEARCH_NAME_UUID = asDomainUuid("00000000-0000-0000-0000-000000000d01");
+
+/** Two-row population used across the typing / clearing tests.
+ *  `loadCasesAction`'s mock implementation reads the inbound
+ *  `inputValues` map and narrows the return set to rows whose
+ *  `name` property matches — the screen's contract is that a
+ *  fresh-reference `inputValues` triggers the action's re-fire,
+ *  and the test asserts the resulting render reflects the new
+ *  row set. The mock stands in for the runtime-bindings predicate
+ *  + Postgres execution path; the wire-side filtering is exercised
+ *  by the runtime-bindings unit tests. */
+const ALICE_ROW = makeRow("11111111-1111-1111-1111-111111111111", {
+	name: "Alice",
+});
+const BOB_ROW = makeRow("22222222-2222-2222-2222-222222222222", {
+	name: "Bob",
+});
+
+/** Mock implementation for `loadCasesAction` that filters the
+ *  two-row population by the `name` input's typed value. Stands
+ *  in for the runtime-bindings + Postgres execution path: the
+ *  CaseListScreen's contract is that a fresh `inputValues` map
+ *  triggers `useCases`'s effect re-fire, and the resulting render
+ *  reflects whatever rows the action returns. The wire-side
+ *  filtering correctness is covered by the runtime-bindings unit
+ *  tests; this mock asserts only the action-call-and-render loop. */
+function filterByNameInputValue(
+	args: Parameters<typeof loadCasesAction>[0],
+): ReturnType<typeof loadCasesAction> {
+	const typed = args.inputValues?.get("name");
+	if (typed === undefined || typed === "") {
+		return Promise.resolve({ kind: "rows", rows: [ALICE_ROW, BOB_ROW] });
+	}
+	const matched = [ALICE_ROW, BOB_ROW].filter(
+		(row) => (row.properties as Record<string, unknown>).name === typed,
+	);
+	if (matched.length === 0) return Promise.resolve({ kind: "empty" });
+	return Promise.resolve({ kind: "rows", rows: matched });
+}
+
+describe("CaseListScreen — search-input form", () => {
+	it("renders the search landmark when searchInputs.length > 0", async () => {
+		// Single text input in the fixture's `searchInputs`. The
+		// representative input surfacing via `getByLabelText("Name")`
+		// is the structural signal that the form mounted. happy-dom
+		// emits the HTML5 `<search>` element verbatim but does not
+		// expose its implicit `role="search"` to ARIA queries
+		// (the tag is treated as an unrecognized element); checking
+		// the labelled input directly is the more portable assertion.
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		const { container } = renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [
+				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
+			],
+		});
+
+		await waitFor(() => {
+			// The HTML5 `<search>` landmark is in the rendered tree —
+			// the rendered tree wraps every input in the form under it.
+			expect(container.querySelector("search")).not.toBeNull();
+		});
+		// The representative text input renders inside the landmark.
+		expect(screen.getByLabelText("Name")).toBeDefined();
+	});
+
+	it("re-fires the action with the typed value bag and renders the filtered rows", async () => {
+		// `mockImplementation` reads the inbound `inputValues` and
+		// narrows the row set — the mock stands in for the actual
+		// runtime-bindings + Postgres filtering path. The initial
+		// load (no inputValues) returns both rows; the post-debounce
+		// load (inputValues = { name: "Alice" }) returns only Alice.
+		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
+
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [
+				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
+			],
+		});
+
+		// Initial load completes — both rows visible.
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+			expect(screen.getByText("Bob")).toBeDefined();
+		});
+
+		// Type "Alice" into the search input. The form debounces
+		// 300 ms before emitting upward; `waitFor` polls until the
+		// re-fired action's result lands in the DOM (Bob narrows
+		// out, only Alice remains). The 1.5 s default timeout
+		// exceeds the 300 ms debounce + action round-trip with
+		// margin.
+		const input = screen.getByLabelText("Name") as HTMLInputElement;
+		fireEvent.change(input, { target: { value: "Alice" } });
+
+		await waitFor(() => {
+			expect(screen.queryByText("Bob")).toBeNull();
+		});
+		expect(screen.getByText("Alice")).toBeDefined();
+	});
+
+	it("reverts to the filter-only result set after the user clears the input", async () => {
+		// Same mock implementation as the typing test — the value bag
+		// drives row narrowing. Clearing the text input emits an
+		// empty value bag, which the implementation maps to the full
+		// row population.
+		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
+
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [
+				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
+			],
+		});
+
+		// Initial load completes — both rows.
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+			expect(screen.getByText("Bob")).toBeDefined();
+		});
+
+		const input = screen.getByLabelText("Name") as HTMLInputElement;
+
+		// Type "Alice" → debounce → only Alice visible.
+		fireEvent.change(input, { target: { value: "Alice" } });
+		await waitFor(() => {
+			expect(screen.queryByText("Bob")).toBeNull();
+		});
+
+		// Clear the input → debounce → both rows visible again.
+		fireEvent.change(input, { target: { value: "" } });
+		await waitFor(() => {
+			expect(screen.getByText("Bob")).toBeDefined();
+		});
+		expect(screen.getByText("Alice")).toBeDefined();
+	});
+
+	it("does not render the search landmark when searchInputs is empty", async () => {
+		// Zero-input config: the form's empty-list short-circuit
+		// returns `null`, AND the screen's mount gate skips the
+		// container entirely. Either failure mode would surface a
+		// labelled-but-empty `<search>` landmark to assistive tech;
+		// the assertion targets the landmark element's absence
+		// directly (see the sibling test for why we query the DOM
+		// element instead of the ARIA role).
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		const { container } = renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [],
+		});
+
+		// Wait for the initial load to settle so the absence
+		// assertion is meaningful (the screen reached the rows arm,
+		// not the pre-mount loading state).
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+		});
+		expect(container.querySelector("search")).toBeNull();
 	});
 });

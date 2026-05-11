@@ -29,6 +29,7 @@ import type {
 	LoadCasesResult,
 	PopulateSampleCasesResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 
 /**
  * Adds `idle` / `loading` arms to a load result. `idle` covers
@@ -55,17 +56,26 @@ type LoadingState<T extends { kind: string }> =
  * list pass both; hooks loading raw rows for non-list-view consumers
  * (case-loading form lookups) leave them undefined and get the
  * unchanged shape.
+ *
+ * Optional `inputValues` carries the per-input runtime-search bag
+ * the running-app `SearchInputForm` builds as the user types. A
+ * fresh-reference `inputValues` re-fires the effect's reload path
+ * so the case-list re-queries against the AND-composed
+ * `(filter, runtime-predicate)` shape. Callers that never mount
+ * the search form leave it undefined and `readCases` short-circuits
+ * to the existing filter-only path.
  */
 export function useCases(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
 	blueprint?: BlueprintDoc;
 	caseListConfig?: CaseListConfig;
+	inputValues?: SearchInputValues;
 }): {
 	state: LoadingState<LoadCasesResult>;
 	reload: () => void;
 } {
-	const { appId, caseType, blueprint, caseListConfig } = args;
+	const { appId, caseType, blueprint, caseListConfig, inputValues } = args;
 	const [state, setState] = useState<LoadingState<LoadCasesResult>>({
 		kind: "idle",
 	});
@@ -86,7 +96,7 @@ export function useCases(args: {
 		 * failure, RSC serialization error at the boundary) to the
 		 * `error` arm — without it, the hook would stick on
 		 * `loading` forever. */
-		loadCasesAction({ appId, caseType, blueprint, caseListConfig })
+		loadCasesAction({ appId, caseType, blueprint, caseListConfig, inputValues })
 			.then((result) => {
 				if (cancelled) return;
 				setState(result);
@@ -101,7 +111,7 @@ export function useCases(args: {
 		return () => {
 			cancelled = true;
 		};
-	}, [appId, caseType, blueprint, caseListConfig, reloadKey]);
+	}, [appId, caseType, blueprint, caseListConfig, inputValues, reloadKey]);
 
 	const reload = useCallback(() => {
 		setReloadKey((n) => n + 1);
