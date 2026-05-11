@@ -17,24 +17,17 @@
 //     both surfaces; the wire-routing layer drops the same string into
 //     whichever slot the consumer needs.
 //   - `emitCsql(predicate)` produces the CSQL dialect evaluated by
-//     ElasticSearch on the CCHQ server. The emitter runs a total
-//     hoist pass first, lifting non-grammar value expressions
-//     (`if` / `switch` / `arith` / `concat` / `coalesce` /
-//     `format-date` / non-comparison-LHS `count`) into on-device
-//     wrapper expressions and replacing each with a synthetic
-//     search-input ref. The result carries both the `concat(...)` XPath
-//     wrapper and the wrapper-expression list the wire layer threads
-//     into the enclosing form's `<data>` section before the CSQL data
-//     element.
-//
-// `hoistForCsql` is intentionally not re-exported here. `emitCsql`
-// already returns the wrapper-expression list in its
-// `CsqlEmissionResult.hoists` field, so consumers that want the
-// hoisted shape read it from the emit result rather than running the
-// hoist pass standalone. Re-exporting `hoistForCsql` would invite a
-// double-walk where a caller scans, discards the hoisted predicate,
-// then calls `emitCsql` which re-scans — keeping the function package-
-// private constrains callers to the supported single-call shape.
+//     ElasticSearch on the CCHQ server. The emitter runs a property-
+//     via lift pre-pass first (`csqlHoist.ts::liftPropertyVias`), then
+//     walks the lifted AST emitting a `concat(...)` wrapper. Non-
+//     grammar value expressions (`if`, `switch`, `arith`, `concat`,
+//     `coalesce`, `format-date`, ancestor / any-relation `count`, and
+//     `count` outside the comparison-LHS subcase position) inline as
+//     runtime on-device XPath fragments inside the concat — the
+//     canonical CCHQ pattern documented at
+//     `commcare-hq/docs/case_search_query_language.rst`. No sibling
+//     `<data>` slots are produced; the result is a single wrapper
+//     string the wire layer drops into `<data key="_xpath_query">`.
 //
 // `liftPropertyVias` IS re-exported because the case-list validator
 // needs to walk the post-lift AST without emitting — running the
@@ -58,7 +51,6 @@
 export { emitCaseListFilter } from "./caseListFilterEmitter";
 export type { CsqlEmissionResult } from "./csqlEmitter";
 export { emitCsql } from "./csqlEmitter";
-export type { CsqlHoistResult, HoistedWrapper } from "./csqlHoist";
 export { liftPropertyVias } from "./csqlHoist";
 export {
 	collectExpressionInstances,

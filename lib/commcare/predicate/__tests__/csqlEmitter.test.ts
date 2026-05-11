@@ -25,10 +25,20 @@
 //      predicates with one input ref lift the ref as a separate
 //      `concat(...)` arg; multiple interpolation points each become
 //      separate args.
-//   4. Hoist consumption: a predicate carrying an `if` /
-//      `arith` / `concat` ValueExpression in operand position lifts
-//      the expression into the `hoists` list and emits a synthetic
-//      input ref interpolated into the wrapper.
+//   4. Inline runtime operands: a predicate carrying an `if` /
+//      `arith` / `concat` / `switch` / `coalesce` / `format-date` /
+//      non-LHS `count` ValueExpression in operand position emits the
+//      expression as an on-device XPath fragment inside the wrapper
+//      concat, double-quote-bracketed as a CSQL string value. This
+//      matches the canonical CCHQ pattern documented at
+//      `commcare-hq/docs/case_search_query_language.rst::"Example
+//      Query + Tips"` where `instance('casedb')/...` evaluates
+//      on-device at concat-time and its string result substitutes
+//      directly into the CSQL fragment. CCHQ's
+//      `RemoteQuerySessionManager.initUserAnswers` only seeds the
+//      `search-input:results` instance from `<prompt>` defaults, so
+//      a sibling `<data>` slot's value never reaches the instance —
+//      the inline shape is the only wire-correct option.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -86,7 +96,6 @@ describe("emitCsql — comparison operators", () => {
 	it("emits eq with a string literal wrapped in concat()", () => {
 		const result = emitCsql(eq(prop("patient", "name"), literal("Alice")));
 		expect(result.wrapper).toBe(`concat("name = 'Alice'")`);
-		expect(result.hoists).toEqual([]);
 	});
 
 	it("emits eq with a numeric literal", () => {
@@ -767,8 +776,9 @@ describe("emitCsql — subcase-count in comparison-LHS (native)", () => {
 	// CCHQ's `_is_subcase_count` recogniser nested inside
 	// `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
 	// matches `subcase-count` literally as the LHS of a binary
-	// comparison. The hoist pass leaves it untouched; the inner
-	// emitter must produce the wire form natively.
+	// comparison. The CSQL emitter recognises the same shape and
+	// produces the native wire form; other `count` shapes inline as
+	// on-device XPath.
 
 	it("emits subcase-count(...) > N", () => {
 		const result = emitCsql(gt(count(subcasePath("child")), literal(2)));
@@ -858,70 +868,100 @@ describe("emitCsql — concat() wrapping shape", () => {
 	});
 });
 
-// ---------- Hoist consumption ----------
+// ---------- Inline runtime operands ----------
+//
+// Non-grammar value expressions (`if`, `switch`, `arith`, `concat`,
+// `coalesce`, `format-date`, non-LHS `count`, ancestor / any-relation
+// `count`) inline as on-device XPath fragments inside the `concat(...)`
+// wrapper. The fragment's runtime value substitutes directly into the
+// CSQL string surrounded by double-quote brackets so it lands as a
+// CSQL string value — CCHQ's server-side `case_property_query`
+// coerces the resulting string to the target property's type.
+//
+// CCHQ's `RemoteQuerySessionManager.initUserAnswers` /
+// `getUserQueryValues` only thread `<prompt>` values into the
+// `search-input:results` instance; sibling `<data>` slots with
+// synthetic keys never reach the instance, so the inline shape is
+// the only wire-correct way to weave a runtime-resolved expression
+// into a CSQL fragment.
 
-describe("emitCsql — hoist consumption", () => {
-	it("lifts an arith expression in a comparison's left operand into the hoists list", () => {
+describe("emitCsql — inline runtime operands", () => {
+	it("inlines an arith expression in a comparison's left operand", () => {
+		// The on-device emitter renders `arith('+', age, 1)` as
+		// `(age + 1)`. The CSQL emitter wraps the runtime fragment in
+		// `"..."` brackets so the resolved string lands as a CSQL
+		// string value the server's `case_property_query` coerces.
 		const lifted = arith("+", term(prop("patient", "age")), term(literal(1)));
 		const result = emitCsql(eq(lifted, term(literal(19))));
-		// One hoist; the wrapper interpolates the synthetic input ref
-		// in place of the arith.
-		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.inputRef).toBe("csql_hoist_0");
-		expect(result.hoists[0]?.expression).toEqual(lifted);
-		expect(result.wrapper).toBe(
-			`concat('"', instance('search-input:results')/input/field[@name='csql_hoist_0'], '" = 19')`,
-		);
+		expect(result.wrapper).toBe(`concat('"', (age + 1), '" = 19')`);
 	});
 
-	it("lifts an if-expression in a comparison's right operand", () => {
+	it("inlines an if-expression in a comparison's right operand", () => {
+		// `ifExpr(matchAll(), 'a', 'b')` lowers to `if(true(), 'a', 'b')`
+		// on the on-device dialect; the result wraps inside the CSQL
+		// double-quote brackets.
 		const lifted = ifExpr(matchAll(), term(literal("a")), term(literal("b")));
 		const result = emitCsql(eq(prop("patient", "label"), lifted));
-		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.expression).toEqual(lifted);
-		// The synthetic input ref interpolates as a runtime value
-		// inside double-quoted CSQL.
 		expect(result.wrapper).toBe(
-			`concat('label = "', instance('search-input:results')/input/field[@name='csql_hoist_0'], '"')`,
+			`concat('label = "', if(true(), 'a', 'b'), '"')`,
 		);
 	});
 
-	it("lifts a count outside a top-level comparison as a wrapper", () => {
-		// `count(...)` in `is-blank`'s operand is not in a
-		// comparison-LHS slot; the hoist pass lifts it into an on-
-		// device wrapper. The wire layer evaluates the count and
-		// injects the resolved numeric literal into the CSQL fragment
-		// via the synthetic search-input ref.
-		const lifted = count(subcasePath("child"));
-		const result = emitCsql(isBlank(lifted));
-		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.expression).toEqual(lifted);
+	it("inlines a count outside a top-level comparison when direction is non-subcase", () => {
+		// `count(...)` in `is-blank`'s operand sits on the LHS of the
+		// emitted `<term> = ''` comparison, so subcase-direction
+		// `count` survives as native `subcase-count(...)` per CCHQ's
+		// `_is_subcase_count` recogniser (which inspects the binary
+		// expression's left operand). Other directions inline as
+		// on-device XPath fragments. The trailing `''` (CSQL empty
+		// literal) renders through the alternating-quote idiom because
+		// the merged constant carries both `'` and `"`.
+		const ancestorCount = count(ancestorPath(relationStep("parent")));
+		const result = emitCsql(isBlank(ancestorCount));
+		expect(result.wrapper).toBe(
+			`concat('"', count(instance('casedb')/casedb/case[@case_id=current()/index/parent]), '" = ', "'", '', "'", '')`,
+		);
 	});
 
-	it("lifts a count with non-subcase direction in comparison-LHS as a wrapper", () => {
+	it("emits subcase-direction count in is-blank's operand as native subcase-count", () => {
+		// `is-blank` lowers to `<left> = ''`; the resulting wire form
+		// is a BinaryExpression whose left is the count, so CCHQ's
+		// `_is_subcase_count` recogniser at
+		// `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
+		// fires. The wire form stays in CSQL's native vocabulary.
+		const lifted = count(subcasePath("child"));
+		const result = emitCsql(isBlank(lifted));
+		expect(result.wrapper).toBe(`concat("subcase-count('child') = ''")`);
+	});
+
+	it("inlines a count with non-subcase direction in comparison-LHS", () => {
 		// CCHQ's `_is_subcase_count` recogniser only matches the
 		// literal `subcase-count` function name; ancestor-direction
 		// counts have no native CSQL form even in the comparison-LHS
-		// slot, so they lift into the on-device wrapper.
+		// slot, so the emitter inlines as on-device XPath.
 		const lifted = count(ancestorPath(relationStep("parent")));
 		const result = emitCsql(gt(lifted, literal(2)));
-		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.expression).toEqual(lifted);
+		expect(result.wrapper).toBe(
+			`concat('"', count(instance('casedb')/casedb/case[@case_id=current()/index/parent]), '" > 2')`,
+		);
 	});
 
-	it("lifts non-grammar shapes inside an exists filter as wrappers", () => {
+	it("inlines non-grammar shapes nested inside an exists filter", () => {
 		// Runtime refs inside an exists filter are valid per CCHQ's
 		// canonical pattern at
 		// `case_search_query_language.rst::"Filtering on related cases" → "Examples"`.
-		// Non-grammar value expressions (like `arith` here) lift into
-		// the on-device wrapper for runtime resolution; grammar shapes
-		// compose into the outer concat via the segment-list IR.
+		// Non-grammar value expressions (`arith` here) inline as
+		// on-device XPath fragments; grammar shapes compose into the
+		// outer concat via the segment-list IR. The constant carrying
+		// both `'` (around `'child'`) and `"` (around the runtime
+		// fragment) splits via the alternating-quote idiom.
 		const lifted = arith("+", term(prop("child", "age")), term(literal(1)));
 		const result = emitCsql(
 			exists(subcasePath("child"), eq(lifted, term(literal(19)))),
 		);
-		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.expression).toEqual(lifted);
+		expect(result.wrapper).toBe(
+			`concat('subcase-exists(', "'", 'child', "'", ', "', (age + 1), '" = 19)')`,
+		);
 	});
 });
 
@@ -1345,9 +1385,8 @@ describe("emitCsql — property-via lift (recursion)", () => {
 
 	it("lifts vias inside a subcase-count's where clause surviving in comparison-LHS position", () => {
 		// `subcase-direction count` in comparison-LHS position
-		// survives the value-expression hoist as native
-		// `subcase-count(...)` per CCHQ's `_is_subcase_count`
-		// recogniser nested inside
+		// emits as native `subcase-count(...)` per CCHQ's
+		// `_is_subcase_count` recogniser nested inside
 		// `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`.
 		// The where argument compiles through the CSQL predicate
 		// emitter, so a property-via inside the where would
@@ -1371,9 +1410,9 @@ describe("emitCsql — property-via lift (recursion)", () => {
 	});
 
 	it("is idempotent — running the rewrite twice produces the same wire output", () => {
-		// The hoist pass is total per `csqlHoist.ts`'s contract: every
-		// input AST produces a CSQL-emission-compatible output. A
-		// second pass over the rewritten AST produces no further
+		// The via-lift pass is total per `csqlHoist.ts`'s contract:
+		// every input AST produces a CSQL-emission-compatible output.
+		// A second pass over the lifted AST produces no further
 		// changes — every operator-direct via has already lifted. The
 		// emission round-trips identically.
 		const p = and(
@@ -1428,41 +1467,47 @@ describe("emitCsql — term-arm unwrap (happy path)", () => {
 	});
 });
 
-describe("emitCsql — non-term ValueExpression arms hoist into wrappers", () => {
-	// Every non-term ValueExpression arm in a hoistable position lifts
-	// into the on-device wrapper list, with the synthetic input ref
-	// taking the lifted node's place inside the inner CSQL fragment.
+describe("emitCsql — non-term ValueExpression arms inline as runtime fragments", () => {
+	// Every non-term ValueExpression arm absent from CSQL's value-
+	// function whitelist inlines as an on-device XPath fragment
+	// inside the wrapper concat, double-quote-bracketed as a CSQL
+	// string value.
 
-	it("lifts a concat expression into the wrapper list", () => {
+	it("inlines a concat expression as the runtime fragment", () => {
 		const lifted = concat(term(literal("Mr ")), term(prop("patient", "name")));
 		const result = emitCsql(eq(prop("patient", "display"), lifted));
-		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.expression).toEqual(lifted);
+		// `concat(...)` is XPath's own concat — the runtime joins
+		// `'Mr '` with the case's `name` value at concat-evaluation
+		// time, and the resulting string substitutes into the CSQL
+		// fragment as a double-quoted value.
+		expect(result.wrapper).toBe(
+			`concat('display = "', concat('Mr ', name), '"')`,
+		);
 	});
 
-	it("lifts a format-date expression into the wrapper list", () => {
+	it("inlines a format-date expression as the runtime fragment", () => {
 		// `format-date` is absent from CSQL's value-function whitelist
 		// on
 		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`,
-		// so the entire expression lifts as a wrapper that runs on-
-		// device (where `format-date` is available via JavaRosa) and
-		// produces the formatted string injected into the CSQL fragment
-		// via the synthetic search-input ref.
+		// so the entire expression inlines as on-device XPath (where
+		// `format-date` is available via JavaRosa). The formatted
+		// string substitutes directly into the CSQL fragment.
 		const lifted = formatDate(term(prop("patient", "dob")), "iso");
 		const result = emitCsql(eq(prop("patient", "dob_text"), lifted));
-		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.expression).toEqual(lifted);
 		expect(result.wrapper).toBe(
-			`concat('dob_text = "', instance('search-input:results')/input/field[@name='csql_hoist_0'], '"')`,
+			`concat('dob_text = "', format-date(dob, 'iso'), '"')`,
 		);
 	});
 });
 
 describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 	// AST kind names diverge from CCHQ's CSQL value-function names.
-	// The hoist pass leaves both arms intact; the emitter renames at
-	// output time per CCHQ's `XPATH_VALUE_FUNCTIONS` registration at
-	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
+	// Both arms emit through the value-expression CSQL emitter (which
+	// renames at output time per CCHQ's `XPATH_VALUE_FUNCTIONS`
+	// registration at
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
+	// They are members of the whitelist, so no inline-runtime path
+	// runs for them — the function-call wire form is the CSQL.
 
 	it("emits date-coerce(literal) as date('<value>') in operand position", () => {
 		// AST `date-coerce(value)` maps to wire `date(value)` (the `date`
@@ -1515,33 +1560,33 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 });
 
 describe("emitCsql — value-function whitelist arms in operand position", () => {
-	// The remaining CSQL value-function whitelist arms (per
+	// The CSQL value-function whitelist (per
 	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`)
-	// — `today`, `now`, `double`, `date-add`, `unwrap-list` — survive
-	// the hoist pass and emit through the value-expression emitter at
-	// `lib/commcare/expression/csqlEmitter.ts`. The predicate emitter
-	// composes the resulting segment list with comparison operators,
-	// CSQL string-quote brackets, and concat-wrap arguments without
-	// special-case dispatch per arm.
+	// — `today`, `now`, `double`, `date-add`, `unwrap-list`,
+	// `date-coerce` (wire name `date`), `datetime-coerce` (wire
+	// name `datetime`) — emits through the value-expression emitter
+	// at `lib/commcare/expression/csqlEmitter.ts`. The predicate
+	// emitter composes the resulting segment list with comparison
+	// operators, CSQL string-quote brackets, and concat-wrap
+	// arguments without special-case dispatch per arm. No inline-
+	// runtime path runs for these arms — the CSQL function-call
+	// wire form is what the server parses natively.
 
-	it("emits today() in a comparison operand without hoisting", () => {
+	it("emits today() in a comparison operand as native CSQL", () => {
 		const result = emitCsql(eq(prop("patient", "dob"), today()));
-		expect(result.hoists).toHaveLength(0);
 		// No `'` in the constant → wrap in single-quoted XPath string.
 		expect(result.wrapper).toBe(`concat('dob = today()')`);
 	});
 
-	it("emits now() in a comparison operand without hoisting", () => {
+	it("emits now() in a comparison operand as native CSQL", () => {
 		const result = emitCsql(eq(prop("patient", "modified_on"), now()));
-		expect(result.hoists).toHaveLength(0);
 		expect(result.wrapper).toBe(`concat('modified_on = now()')`);
 	});
 
-	it("emits double(literal) in a comparison operand without hoisting", () => {
+	it("emits double(literal) in a comparison operand as native CSQL", () => {
 		const result = emitCsql(
 			eq(prop("p", "weight_g"), double(term(literal(1500)))),
 		);
-		expect(result.hoists).toHaveLength(0);
 		expect(result.wrapper).toBe(`concat('weight_g = double(1500)')`);
 	});
 
@@ -1557,7 +1602,6 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 				dateAdd(today(), "days", term(literal(7))),
 			),
 		);
-		expect(result.hoists).toHaveLength(0);
 		expect(result.wrapper).toBe(
 			`concat("due_date = date-add(today(), 'days', 7)")`,
 		);
@@ -1570,62 +1614,18 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 				dateAdd(term(input("base_date")), "days", term(literal(7))),
 			),
 		);
-		expect(result.hoists).toHaveLength(0);
 		expect(result.wrapper).toBe(
 			`concat('due_date = date-add(', instance('search-input:results')/input/field[@name='base_date'], ", 'days', 7)")`,
 		);
 	});
 
 	it("emits unwrap-list in a multi-select-contains shape via the predicate emitter", () => {
-		// `unwrap-list` survives the hoist pass and emits through the
-		// value-expression emitter; the predicate emitter composes the
-		// segments with the comparison's surrounding constants.
+		// `unwrap-list` emits through the value-expression emitter;
+		// the predicate emitter composes the segments with the
+		// comparison's surrounding constants.
 		const result = emitCsql(
 			eq(prop("p", "tags"), unwrapList(term(prop("p", "tags_json")))),
 		);
-		expect(result.hoists).toHaveLength(0);
 		expect(result.wrapper).toBe(`concat('tags = unwrap-list(tags_json)')`);
-	});
-});
-
-describe("emitCsql — synthetic input collision avoidance", () => {
-	// The synthetic-name counter seeds past any author-written input
-	// ref that shares the `csql_hoist_` prefix and a numeric suffix,
-	// so synthetic refs never shadow author refs even when authors
-	// deliberately reuse the prefix.
-
-	it("seeds the synthetic counter past an author-written csql_hoist_<n> ref", () => {
-		const lifted = arith("+", term(prop("patient", "age")), term(literal(1)));
-		// Author writes `csql_hoist_5` themselves (rare but typeable);
-		// the lifted arith should NOT collide with that name. The
-		// synthetic counter starts at 6.
-		const result = emitCsql(
-			and(
-				eq(prop("patient", "x"), input("csql_hoist_5")),
-				eq(lifted, term(literal(19))),
-			),
-		);
-		expect(result.hoists).toHaveLength(1);
-		expect(result.hoists[0]?.inputRef).toBe("csql_hoist_6");
-	});
-
-	it("starts at 0 when no author ref shares the synthetic prefix", () => {
-		const lifted = arith("+", term(prop("patient", "age")), term(literal(1)));
-		const result = emitCsql(eq(lifted, term(literal(19))));
-		expect(result.hoists[0]?.inputRef).toBe("csql_hoist_0");
-	});
-
-	it("ignores author refs sharing the prefix but with non-numeric suffix", () => {
-		// `csql_hoist_foo` shares the prefix but the suffix doesn't
-		// parse as an integer; synthetic refs are always numeric, so
-		// no collision is possible. The counter starts at 0.
-		const lifted = arith("+", term(prop("patient", "age")), term(literal(1)));
-		const result = emitCsql(
-			and(
-				eq(prop("patient", "x"), input("csql_hoist_foo")),
-				eq(lifted, term(literal(19))),
-			),
-		);
-		expect(result.hoists[0]?.inputRef).toBe("csql_hoist_0");
 	});
 });

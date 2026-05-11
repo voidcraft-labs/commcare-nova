@@ -18,10 +18,11 @@ import type { PlatformContext, WireShape } from "./types";
  *
  * Three branches:
  *
- *   1. **Android** — always list-first. The Android runtime ignores
- *      `auto_launch` / `default_search` and shows the case list
- *      first regardless; `inlineSearch: true` is the Android-
- *      compatible wire shape.
+ *   1. **Android** — always list-first. All three flags emit as
+ *      `false`. The list-first shape is structurally identical to
+ *      CCHQ's standard `<remote-request>` emission and matches
+ *      Nova's "always emits as a normal case-list module with
+ *      inline list filtering" rule for Android.
  *   2. **Web, filter set, zero search inputs** — skip-to-results.
  *      The filter narrows the list and there is nothing to type, so
  *      run the search immediately on screen entry.
@@ -45,14 +46,12 @@ export function compileForPlatform(
 		// gates inline-search mode on BOTH `auto_launch=True` AND
 		// `inline_search=True` — the `auto_launch=false, inline_search=true`
 		// combination has no canonical CCHQ generator and reaches
-		// undefined wire behavior. The list-first shape (all three
-		// flags false) is structurally identical to CCHQ's standard
-		// `<remote-request>` emission and matches the spec's "always
-		// emits as a normal case-list module with inline list
-		// filtering" rule for Android. The runtime ignores
-		// `auto_launch` / `default_search` on Android anyway per
-		// `_get_auto_launch_expression`'s `if not in_search` guard, so
-		// the persisted value drives only the web-side rendering.
+		// undefined wire behavior. All-three-`false` is structurally
+		// identical to CCHQ's standard `<remote-request>` emission,
+		// the shape Nova wants for Android list-first UX. Nova does
+		// not expose a platform toggle: the HQ JSON ships one shape
+		// and Nova's own suite-XML emitter drives local rendering on
+		// every platform.
 		return {
 			autoLaunch: false,
 			defaultSearch: false,

@@ -10,17 +10,18 @@
 // CCHQ's CSQL value-function whitelist
 // (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`).
 // The remaining seven arms (`arith`, `concat`, `coalesce`, `if`,
-// `switch`, `count`, `format-date`) lift in the predicate-side hoist
-// pass at `lib/commcare/predicate/csqlHoist.ts` before this emitter
-// ever sees them — by the time a `ValueExpression` reaches this
-// surface, every non-whitelist shape has been replaced with a
-// synthetic `term`-arm input ref and the original expression lives on
-// the wrapper-expression list.
+// `switch`, `count`, `format-date`) inline as on-device XPath
+// fragments at the predicate-side emitter
+// (`lib/commcare/predicate/csqlEmitter.ts::inlineAsRuntimeOperand`)
+// before reaching this surface — by the time a `ValueExpression`
+// arm of those seven kinds would reach here, the predicate emitter
+// has already routed it through `emitOnDeviceExpression` and
+// produced the runtime segment directly.
 //
 // If the bypass path ever surfaced one of the seven non-whitelist
-// arms, the emitter throws with a "should have been hoisted" message
-// rather than emit broken CSQL. The local `_exhaustive: never`
-// default catches new ValueExpression kinds at compile time.
+// arms, the emitter throws a defensive error rather than emit
+// broken CSQL. The local `_exhaustive: never` default catches new
+// ValueExpression kinds at compile time.
 //
 // File ownership: this file owns operator dispatch for the CSQL
 // value-expression surface. Term emission and shared lexical helpers
@@ -157,15 +158,15 @@ export function emitCsqlExpressionSegments(
 		case "count":
 		case "format-date":
 			// These seven arms are absent from CSQL's value-function
-			// whitelist. The predicate-side hoist pass at
-			// `lib/commcare/predicate/csqlHoist.ts` lifts every non-
-			// whitelist arm into an on-device wrapper expression before
-			// the predicate emitter calls into this surface, replacing
-			// the lifted node with a synthetic `term`-arm input ref. If
-			// the bypass path ever surfaced one of these arms here, the
-			// throw defends against emitting broken CSQL.
+			// whitelist. The predicate-side CSQL emitter at
+			// `lib/commcare/predicate/csqlEmitter.ts` inlines every
+			// non-whitelist arm as an on-device XPath fragment before
+			// reaching this surface — the runtime value substitutes
+			// directly into the surrounding `concat(...)` wrapper. If
+			// the bypass path ever surfaced one of these arms here,
+			// the throw defends against emitting broken CSQL.
 			throw new Error(
-				`csqlExpressionEmitter: ValueExpression arm '${expr.kind}' should have been hoisted before this emitter ran. The CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm; the predicate-side hoist pass at lib/commcare/predicate/csqlHoist.ts is the wire-encoding solution.`,
+				`csqlExpressionEmitter: tried to emit a value-expression of kind '${expr.kind}' as native CSQL, but CCHQ's CSQL value-function whitelist (commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS) does not include this arm. The predicate-side emitter at lib/commcare/predicate/csqlEmitter.ts should have inlined it as an on-device XPath fragment via emitOnDeviceExpression. Look at the operand dispatch in emitOperandSegments; a new ValueExpression kind needs to route through inlineAsRuntimeOperand.`,
 			);
 		default: {
 			const _exhaustive: never = expr;

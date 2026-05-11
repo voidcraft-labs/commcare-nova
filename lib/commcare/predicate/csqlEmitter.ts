@@ -12,19 +12,22 @@
 //
 // The emitter runs a three-stage pipeline:
 //
-//   1. Hoist non-grammar value expressions (`if` / `switch` /
-//      `arith` / `concat` / `coalesce` / `format-date` /
-//      non-comparison-LHS `count`) out of the predicate AST via
-//      `csqlHoist.ts`. The lifted expressions become wrapper
-//      expressions that the wire layer threads into the enclosing
-//      form's `<data>` section. The hoist pass is total — every input
-//      AST produces a faithful CSQL emission via grammar shapes plus
-//      on-device wrappers.
-//   2. Walk the hoisted AST emitting a `CsqlSegment[]` IR — each
+//   1. Run the property-via lift pre-pass (`csqlHoist.ts::liftPropertyVias`).
+//      Every operator-direct `prop(via)` reference rewrites into an
+//      enclosing `exists` envelope so the relation walk emits as
+//      CCHQ's direction-specific query function. After the pre-pass
+//      every property reference reaching the segment walker has
+//      `via.kind === "self"` (or no `via` slot).
+//   2. Walk the lifted AST emitting a `CsqlSegment[]` IR — each
 //      segment is either a constant CSQL fragment or a runtime XPath
 //      expression that produces a string interpolated into the CSQL
-//      fragment at runtime. The segment list, not a re-parse of an
-//      emitted string, is the source for the concat-wrapping pass.
+//      fragment at runtime. Non-grammar value expressions (`if`,
+//      `switch`, `arith`, `concat`, `coalesce`, `format-date`,
+//      ancestor / any-relation `count`, and `count` outside the
+//      comparison-LHS subcase position) emit inline as runtime XPath
+//      via `emitOnDeviceExpression`, NOT as separate `<data>` slots —
+//      see the file header for why a sibling `<data>` slot is
+//      structurally wrong on the CCHQ runtime.
 //   3. Map the segment list into a `concat(...)` XPath expression — the
 //      canonical CCHQ pattern documented in
 //      `commcare-hq/docs/case_search_query_language.rst`. Every
@@ -50,22 +53,53 @@
 // wire form must commit to one quote style at emit time and the
 // double-quoted form is the one CCHQ's documented examples use.
 //
+// Inline-runtime contract for non-grammar value expressions:
+//
+// CCHQ's `RemoteQuerySessionManager.initUserAnswers` at
+// `commcare-core/.../session/RemoteQuerySessionManager.java` only
+// threads values into the `search-input:results` instance from
+// `<prompt>` elements' `getDefaultValueExpr()`. Synthetic search-
+// input keys emitted as sibling `<data>` slots never reach the
+// instance — `getUserQueryValues` iterates `queryPrompts` only —
+// so an XPath expression that reads
+// `instance('search-input:results')/input/field[@name='<synthetic>']`
+// resolves to the empty string at evaluation time and the surrounding
+// CSQL position substitutes empty. Worse, the sibling `<data>`'s
+// evaluated value DOES go to URL parameters, and CCHQ's server
+// `case_search/utils.py::_apply_filter` falls through to
+// `_get_case_property_query` for any non-`UNSEARCHABLE_KEYS` key,
+// adding an ES query requiring `case_property("<synthetic>") ==
+// <value>` against case data — which matches zero cases.
+//
+// The canonical CCHQ pattern at
+// `case_search_query_language.rst::"Example Query + Tips"` inlines
+// the on-device expression directly into the `concat(...)` instead.
+// `instance('casedb')/...` evaluates on-device at concat-time and
+// produces a literal string; the result substitutes inline into the
+// CSQL fragment. This is the shape Nova emits — `emitOnDeviceExpression`
+// produces the runtime XPath fragment and it lands as a single
+// `runtime` segment inside the outer concat.
+//
 // Operand-side ValueExpression dispatch:
 //
 //   - `term` arms unwrap to terms via the shared term emitter.
 //   - The eight CSQL value-function whitelist arms (`today`, `now`,
 //     `date-coerce`, `datetime-coerce`, `double`, `date-add`,
-//     `unwrap-list`, plus the `term` lifter) survive the hoist pass
-//     and emit through the value-expression emitter at
-//     `lib/commcare/expression/csqlEmitter.ts`.
-//   - The non-whitelist arms (`arith`, `concat`, `coalesce`, `if`,
-//     `switch`, `format-date`, plus most `count` shapes) lift in the
-//     hoist pass before the predicate emitter walks the AST; the only
-//     `count` shape that survives is the `subcase`-direction `count`
-//     in comparison-LHS position, which CCHQ's `_is_subcase_count`
+//     `unwrap-list`, plus the `term` lifter) emit through the value-
+//     expression emitter at `lib/commcare/expression/csqlEmitter.ts`
+//     so the result is CSQL the server parses natively.
+//   - `count` with `via.kind === "subcase"` in comparison-LHS slot
+//     emits as native `subcase-count(...)` per CCHQ's `_is_subcase_count`
 //     recogniser nested inside
-//     `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`
-//     dispatches as native `subcase-count(...)`.
+//     `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`.
+//   - The non-whitelist arms (`arith`, `concat`, `coalesce`, `if`,
+//     `switch`, `format-date`, plus every other `count` shape) emit
+//     as a single runtime XPath fragment via `emitOnDeviceExpression`,
+//     wrapped in CSQL double-quote brackets at the comparison-operand
+//     site so the resolved runtime string interpolates as a CSQL
+//     string value. CCHQ's server-side `case_property_query` handles
+//     type coercion, so the double-quote wrap is uniform whether the
+//     resolved value parses as a number, string, or date.
 
 import type {
 	ComparisonKind,
@@ -74,7 +108,8 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
 import { emitCsqlExpressionSegments } from "../expression/csqlEmitter";
-import { type HoistedWrapper, hoistForCsql } from "./csqlHoist";
+import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
+import { liftPropertyVias } from "./csqlHoist";
 import {
 	type CsqlSegment,
 	mergeAdjacentConstants,
@@ -91,24 +126,20 @@ import {
 } from "./termEmitter";
 
 /**
- * Output of the CSQL emission pipeline. The wire layer consumes both
- * fields:
+ * Output of the CSQL emission pipeline. `wrapper` is the on-device
+ * XPath expression that builds the CSQL `_xpath_query` string at
+ * runtime. It is always a `concat(...)` call regardless of whether
+ * any segments interpolate a runtime value, so the wire layer can
+ * drop it into a `<data key="_xpath_query" ref="...">` slot
+ * uniformly.
  *
- *   - `wrapper` is the on-device XPath expression that builds the CSQL
- *     `_xpath_query` string at runtime. It is always a `concat(...)`
- *     call regardless of whether any segments interpolate a runtime
- *     value, so the wire layer can drop it into a `<data
- *     key="_xpath_query" ref="...">` slot uniformly.
- *   - `hoists` is the wrapper-expression list returned from the hoist
- *     pass — each entry binds a synthetic search-input name to the
- *     ValueExpression that builds its runtime value. The wire layer
- *     emits one `<data>` element per wrapper before the CSQL data
- *     element so the wrapper inputs resolve before the CSQL fragment
- *     does.
+ * No sibling `<data>` slots are produced — non-grammar value
+ * expressions inline as runtime XPath fragments inside the concat.
+ * See the file header's inline-runtime contract for the CCHQ
+ * runtime reason this is the only correct shape.
  */
 export interface CsqlEmissionResult {
 	readonly wrapper: string;
-	readonly hoists: readonly HoistedWrapper[];
 }
 
 /**
@@ -142,31 +173,39 @@ const PREC_OR = 1;
 const PREC_AND = 2;
 
 /**
- * Top-level entry point. Hoists, emits, wraps in `concat(...)`,
- * returns both the wrapper string and the hoisted-wrapper list. The
- * hoist pass is total — every input AST produces a faithful CSQL
- * emission via grammar shapes plus on-device wrappers.
+ * Position discriminator threaded through the operand walker so the
+ * `count` arm can decide whether to emit as native CSQL or inline as
+ * an on-device XPath fragment.
  *
- * `emitCsql` is the public entry that runs the hoist pass first;
- * internal callers that already hold a hoisted AST (e.g. the
- * `when-input-present` recursive emitter) call `emitHoistedWrapper`
- * directly to skip the redundant scan.
+ *   - `comparison-operand` — directly underneath one of the six
+ *     comparison operators. `count` with `via.kind === "subcase"`
+ *     survives here as native `subcase-count(...)`.
+ *   - `value` — every other ValueExpression slot. All count shapes
+ *     inline as on-device XPath.
+ */
+type OperandPosition = "comparison-operand" | "value";
+
+/**
+ * Top-level entry point. Lifts vias, emits, wraps in `concat(...)`.
+ * The lift pass is total — every input AST reaches the segment
+ * walker with via-free operator-direct property refs.
+ *
+ * `emitCsql` is the public entry; internal callers that already hold
+ * a via-lifted AST (e.g. the `when-input-present` recursive emitter)
+ * call `emitLiftedWrapper` directly to skip the redundant scan.
  */
 export function emitCsql(predicate: Predicate): CsqlEmissionResult {
-	const hoistResult = hoistForCsql(predicate);
-	return {
-		wrapper: emitHoistedWrapper(hoistResult.hoisted),
-		hoists: hoistResult.wrappers,
-	};
+	const lifted = liftPropertyVias(predicate);
+	return { wrapper: emitLiftedWrapper(lifted) };
 }
 
 /**
- * Internal entry that takes a pre-hoisted predicate and produces the
+ * Internal entry that takes a pre-lifted predicate and produces the
  * `concat(...)` wrapper string. Used by the recursive emitter for
- * `when-input-present` (where the inner clause is already hoisted as
- * part of the outer hoist walk).
+ * `when-input-present` (where the inner clause is already lifted as
+ * part of the outer via-lift walk).
  */
-function emitHoistedWrapper(predicate: Predicate): string {
+function emitLiftedWrapper(predicate: Predicate): string {
 	const segments = emitPredicateSegments(predicate, 0);
 	return wrapInConcat(segments);
 }
@@ -284,7 +323,7 @@ function emitPredicateSegments(
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
-				`csqlEmitter: unhandled predicate kind ${String(_exhaustive)}`,
+				`csqlEmitter: hit an unhandled predicate kind '${String(_exhaustive)}' while emitting CSQL segments. Expected one of the kinds listed on the Predicate union in lib/domain/predicate/types.ts. Whoever added the kind needs to extend the emission dispatch.`,
 			);
 		}
 	}
@@ -305,12 +344,9 @@ function emitPredicateSegments(
  * returns the inner clause's CSQL fragment, which the server
  * evaluates against the case data.
  *
- * The inner clause is already hoisted by the outer `hoistForCsql`
+ * The inner clause is already via-lifted by the outer `liftPropertyVias`
  * call (which walked into `p.clause`), so this emitter calls
- * `emitHoistedWrapper` directly rather than re-running
- * `hoistForCsql`. The inner clause's hoists already live on the
- * outer wrapper list; the inner emission produces only the
- * `concat(...)` XPath expression.
+ * `emitLiftedWrapper` directly rather than re-running the lift.
  *
  * The `if(...)` wrapper expression flows out as a single runtime
  * segment in the outer concat, exactly the shape used elsewhere for
@@ -320,24 +356,31 @@ function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 ): CsqlSegment[] {
 	const triggerXPath = emitSearchInputXPath(p.input);
-	const innerWrapper = emitHoistedWrapper(p.clause);
+	const innerWrapper = emitLiftedWrapper(p.clause);
 	const conditionalXPath = `if(count(${triggerXPath}), ${innerWrapper}, 'match-all()')`;
 	return [{ kind: "runtime", xpath: conditionalXPath }];
 }
 
 /**
- * Emit a comparison predicate. Operands flow through
- * `emitComparisonOperandSegments`, which yields a `CsqlSegment[]` for
- * either side — terms produce a single segment, while
- * `subcase-count(...)` operands produce a multi-segment list when
- * the filter argument carries runtime refs (composing into the outer
- * concat the same way the rest of the emission does).
+ * Emit a comparison predicate. The LHS routes through
+ * `emitComparisonOperandSegments` so a `count(subcasePath, ...)`
+ * surface as native `subcase-count(...)` per CCHQ's `_is_subcase_count`
+ * recogniser nested inside
+ * `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`,
+ * which only inspects `node.left`. The RHS routes through the `value`
+ * position so a `count` shape inlines as on-device XPath — CCHQ's
+ * RHS dispatcher (`property_comparison_query` →
+ * `dsl_utils.py::unwrap_value`) only accepts `XPATH_VALUE_FUNCTIONS`
+ * entries; `subcase-count` lives in `XPATH_QUERY_FUNCTIONS` and
+ * would be rejected with `"We don't know what to do with the
+ * function 'subcase-count'"` on the wire. Inlining as on-device
+ * XPath produces a numeric literal that the RHS dispatcher accepts.
  */
 function emitComparisonSegments(
 	p: Extract<Predicate, { kind: ComparisonKind }>,
 ): CsqlSegment[] {
-	const leftSegs = emitComparisonOperandSegments(p.left);
-	const rightSegs = emitComparisonOperandSegments(p.right);
+	const leftSegs = emitOperandSegments(p.left, "comparison-operand");
+	const rightSegs = emitOperandSegments(p.right, "value");
 	const op = COMPARISON_OPS[p.kind];
 	return [...leftSegs, { kind: "constant", text: ` ${op} ` }, ...rightSegs];
 }
@@ -349,59 +392,139 @@ function emitComparisonSegments(
  * documented in `commcare-hq/docs/case_search_query_language.rst`;
  * this emitter is responsible for that wrap layer.
  *
- * Three operand shapes can reach this slot after the hoist pass:
+ * Operand-shape dispatch (in priority order):
  *
- *   - `count(subcasePath, ...)` — CCHQ's recognised `subcase-count`
- *     form per `_is_subcase_count` nested inside
- *     `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`.
- *     The filter argument's segments splice inline so any runtime
- *     refs compose into the outer concat. `count` in this position
- *     survives the hoist pass; everywhere else it lifts.
- *   - `term`-arm ValueExpression — wrap via the shared
- *     `wrapTermAsSegmentList` helper so a runtime-resolved term
- *     interpolates as a CSQL double-quoted value.
- *   - Any other CSQL value-function whitelist arm (`today`, `now`,
- *     `date-coerce`, `datetime-coerce`, `double`, `date-add`,
- *     `unwrap-list`) — delegates to the value-expression emitter at
- *     `lib/commcare/expression/csqlEmitter.ts`. The expression
- *     emitter emits in function-call-argument position (no double-
- *     quote wrap on runtime refs); the wire form for these arms in
- *     comparison-operand position is the function-call result which
- *     CCHQ's grammar accepts as a value directly. Non-whitelist arms
- *     never reach this surface because the hoist pass lifted them.
+ *   1. `count(subcasePath, ...)` — CCHQ's recognised `subcase-count`
+ *      form per `_is_subcase_count` nested inside
+ *      `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`.
+ *      The filter argument's segments splice inline so any runtime
+ *      refs compose into the outer concat. Other `count` shapes
+ *      (ancestor / any-relation direction, or `count` outside the
+ *      comparison-LHS slot) inline as on-device XPath via the
+ *      catch-all branch below.
+ *   2. Non-grammar value expression — `if`, `switch`, `arith`,
+ *      `concat`, `coalesce`, `format-date`, and every other `count`
+ *      shape. Emits as a single runtime segment wrapping
+ *      `emitOnDeviceExpression(expr)`, double-quote-bracketed so the
+ *      resolved string interpolates as a CSQL value.
+ *   3. `term`-arm ValueExpression — wrap via the shared
+ *      `wrapTermAsSegmentList` helper so a runtime-resolved term
+ *      interpolates as a CSQL double-quoted value.
+ *   4. CSQL value-function whitelist arm (`today`, `now`,
+ *      `date-coerce`, `datetime-coerce`, `double`, `date-add`,
+ *      `unwrap-list`) — delegates to the value-expression emitter at
+ *      `lib/commcare/expression/csqlEmitter.ts`. The wire form is
+ *      the function-call result which CCHQ's grammar accepts as a
+ *      value directly.
  */
 function emitComparisonOperandSegments(expr: ValueExpression): CsqlSegment[] {
+	return emitOperandSegments(expr, "comparison-operand");
+}
+
+/**
+ * Per-position operand emitter. `comparison-operand` admits native
+ * `subcase-count`; `value` (any other ValueExpression slot) does
+ * not — those `count` shapes inline as on-device XPath.
+ */
+function emitOperandSegments(
+	expr: ValueExpression,
+	position: OperandPosition,
+): CsqlSegment[] {
 	if (expr.kind === "count") {
-		// `_is_subcase_count` only matches `subcase`-direction count
-		// in the comparison's LHS slot; everywhere else the hoist
-		// pass lifts the `count(...)` into a wrapper expression.
-		if (expr.via.kind !== "subcase") {
-			throw new Error(
-				`csqlEmitter: count with via.kind === '${expr.via.kind}' reached the comparison-LHS emitter; the hoist pass should have lifted it`,
-			);
-		}
-		const identifierLiteral = quoteLiteral(expr.via.identifier, "csql");
-		if (expr.where === undefined) {
+		if (position === "comparison-operand" && expr.via.kind === "subcase") {
+			// CCHQ's `_is_subcase_count` recogniser only matches a
+			// `subcase-count(...)` function call sitting directly on a
+			// comparison's LHS. The filter argument's segments splice
+			// inline so any runtime refs nested inside compose into the
+			// outer concat.
+			const identifierLiteral = quoteLiteral(expr.via.identifier, "csql");
+			if (expr.where === undefined) {
+				return [
+					{ kind: "constant", text: `subcase-count(${identifierLiteral})` },
+				];
+			}
+			const filterSegments = emitFilterArgumentSegments(expr.where);
 			return [
-				{ kind: "constant", text: `subcase-count(${identifierLiteral})` },
+				{ kind: "constant", text: `subcase-count(${identifierLiteral}, ` },
+				...filterSegments,
+				{ kind: "constant", text: ")" },
 			];
 		}
-		const filterSegments = emitFilterArgumentSegments(expr.where);
-		return [
-			{ kind: "constant", text: `subcase-count(${identifierLiteral}, ` },
-			...filterSegments,
-			{ kind: "constant", text: ")" },
-		];
+		// Non-LHS `count`, or comparison-LHS `count` with ancestor /
+		// any-relation direction: no native CSQL form. Inline as
+		// on-device XPath; the runtime resolves the count to a number
+		// and the result substitutes into the CSQL string as a
+		// double-quoted value.
+		return inlineAsRuntimeOperand(expr);
 	}
 	if (expr.kind === "term") {
 		return wrapTermAsSegmentList(emitTermSegment(expr.term));
 	}
-	// Whitelist arms (`today`, `now`, `date-coerce`, `datetime-coerce`,
-	// `double`, `date-add`, `unwrap-list`) delegate to the value-
-	// expression emitter. Non-whitelist arms threw inside the
-	// expression emitter's own defensive switch — the hoist pass
-	// should have lifted them before reaching here.
-	return emitCsqlExpressionSegments(expr);
+	if (isCsqlValueFunctionArm(expr)) {
+		// Whitelist arms (`today`, `now`, `date-coerce`,
+		// `datetime-coerce`, `double`, `date-add`, `unwrap-list`)
+		// delegate to the value-expression emitter for native CSQL.
+		return emitCsqlExpressionSegments(expr);
+	}
+	// Catch-all: `arith`, `concat`, `coalesce`, `if`, `switch`,
+	// `format-date`. These are absent from CSQL's value-function
+	// whitelist on
+	// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`,
+	// so the only wire-correct shape is to evaluate the expression
+	// on-device at concat-time and inline the resolved string into
+	// the CSQL fragment. See the file header for why a sibling
+	// `<data>` slot is structurally wrong on the CCHQ runtime.
+	return inlineAsRuntimeOperand(expr);
+}
+
+/**
+ * Compile a non-grammar value expression into a runtime segment
+ * wrapped in CSQL double-quote brackets. The on-device emitter
+ * produces an XPath expression that resolves to a string at concat-
+ * evaluation time; the surrounding `"..."` makes the resolved value
+ * land as a CSQL string literal in the rendered fragment. CCHQ's
+ * server-side `case_property_query` coerces the resulting string to
+ * the property's type, so the wrap is uniform whether the resolved
+ * value is logically a number, date, or string.
+ *
+ * Matches the canonical CCHQ pattern at
+ * `case_search_query_language.rst::"Example Query + Tips"` where
+ * `subcase-exists("parent", ... selected(clinic_case_id,"', instance(...),
+ * '"))')` interpolates a runtime user clinic id directly into the
+ * CSQL fragment.
+ */
+function inlineAsRuntimeOperand(expr: ValueExpression): CsqlSegment[] {
+	const xpath = emitOnDeviceExpression(expr);
+	return [
+		{ kind: "constant", text: '"' },
+		{ kind: "runtime", xpath },
+		{ kind: "constant", text: '"' },
+	];
+}
+
+/**
+ * Recognise the eight CSQL value-function whitelist arms — the only
+ * `ValueExpression` kinds that emit through the value-expression
+ * CSQL emitter (which produces native CSQL the server parses).
+ *
+ * Every other ValueExpression kind inlines as on-device XPath via
+ * `inlineAsRuntimeOperand`. Centralising the whitelist check here
+ * keeps the per-arm dispatch in `emitOperandSegments` to one
+ * straight-line if/else chain.
+ */
+function isCsqlValueFunctionArm(expr: ValueExpression): boolean {
+	switch (expr.kind) {
+		case "today":
+		case "now":
+		case "date-coerce":
+		case "datetime-coerce":
+		case "double":
+		case "date-add":
+		case "unwrap-list":
+			return true;
+		default:
+			return false;
+	}
 }
 
 /**
@@ -476,6 +599,17 @@ function emitInSegments(p: Extract<Predicate, { kind: "in" }>): CsqlSegment[] {
  * operator (`>=` / `>` for the lower, `<=` / `<` for the upper). When
  * only one bound is present, the predicate degenerates to a single
  * comparison without the conjunction wrap.
+ *
+ * Operand-position discrimination: `left` sits on the LHS of both
+ * lowered comparisons, so `comparison-operand` routing is right
+ * (CCHQ's `_is_subcase_count` recogniser fires on the LHS of a
+ * BinaryExpression, so a subcase-direction `count` survives as
+ * native `subcase-count(...)`). `lower` / `upper` sit on the RHS,
+ * where `_is_subcase_count` doesn't reach — those slots route
+ * through the `value` position so any `count` shape inlines as
+ * on-device XPath rather than emitting `prop >= subcase-count(...)`
+ * which CCHQ's runtime would parse as a literal value-side function
+ * call against ElasticSearch and fail.
  */
 function emitBetweenSegments(
 	p: Extract<Predicate, { kind: "between" }>,
@@ -484,9 +618,9 @@ function emitBetweenSegments(
 	const lowerOp = p.lowerInclusive ? ">=" : ">";
 	const upperOp = p.upperInclusive ? "<=" : "<";
 	const lowerSegs =
-		p.lower !== undefined ? emitComparisonOperandSegments(p.lower) : undefined;
+		p.lower !== undefined ? emitOperandSegments(p.lower, "value") : undefined;
 	const upperSegs =
-		p.upper !== undefined ? emitComparisonOperandSegments(p.upper) : undefined;
+		p.upper !== undefined ? emitOperandSegments(p.upper, "value") : undefined;
 	if (lowerSegs !== undefined && upperSegs !== undefined) {
 		// Wrap the conjunction in parens unconditionally so a parent
 		// `or` cannot re-associate the chain. Wrapping at every
@@ -514,16 +648,18 @@ function emitBetweenSegments(
 	// Schema's `.refine()` rejects the both-bounds-absent shape;
 	// keep the branch defensive in case a pre-validated AST reaches
 	// this emitter with both bounds stripped.
-	throw new Error("csqlEmitter: 'between' has no bounds");
+	throw new Error(
+		"csqlEmitter: tried to emit a 'between' predicate that carries neither a lower nor an upper bound. The between schema rejects this shape at authoring time, so reaching this throw means the AST was constructed at runtime or coerced past validation. Run validation before invoking the compile pipeline.",
+	);
 }
 
 /**
  * Emit `is-blank` / `is-null` as `<term> = ''`. CCHQ's server-side
  * `case_property_query()` at
  * `commcare-hq/corehq/apps/es/case_search.py::case_property_query`
- * short-circuits `value == ''` to `case_property_missing()` semantics, matching
- * absent / cleared / empty alike on every CSQL emission. The two
- * predicate kinds map to the same wire form because CSQL has no
+ * short-circuits `value == ''` to `case_property_missing()` semantics,
+ * matching absent / cleared / empty alike on every CSQL emission. The
+ * two predicate kinds map to the same wire form because CSQL has no
  * mechanism for distinguishing strict-absent from cleared from empty
  * — `is-null`'s strict-absent semantic surfaces only on the Postgres
  * target where JSONB key presence is observable.
@@ -565,7 +701,7 @@ function emitMatchSegments(
 	// type-check time; reaching this throw indicates a bypass.
 	if (p.value.kind !== "term") {
 		throw new Error(
-			`csqlEmitter: 'match' requires a term-arm value (per typeChecker.checkMatch); received '${p.value.kind}'.`,
+			`csqlEmitter: tried to emit a 'match' predicate with a non-term value of kind '${p.value.kind}'. The type checker's checkMatch rule rejects this shape at authoring time, so reaching this throw means an AST was built at runtime or coerced past validation. Wrap the value as a term-arm ValueExpression or run validation before invoking the compile pipeline.`,
 		);
 	}
 	// Term-arm value compiles via the shared `emitTermSegment`. A
@@ -597,7 +733,7 @@ function matchModeToWireFunction(
 		default: {
 			const _exhaustive: never = mode;
 			throw new Error(
-				`csqlEmitter: unhandled match mode ${String(_exhaustive)}`,
+				`csqlEmitter: hit an unhandled match mode '${String(_exhaustive)}' while picking a CSQL wire function. Expected fuzzy, phonetic, fuzzy-date, or starts-with. Whoever added the mode needs to extend the dispatch.`,
 			);
 		}
 	}
@@ -680,14 +816,15 @@ function stringifyLiteralValue(
  *
  * The center coordinate is a ValueExpression slot — usually a
  * `literal("<lat,lon>")` term but possibly a search-input ref for
- * runtime user-typed coordinates. Runtime refs interpolate via the
- * standard segment shape; literal refs flow through `quoteLiteral`.
+ * runtime user-typed coordinates. The standard `value`-position
+ * operand emitter handles literal / search-input refs / non-grammar
+ * inline expressions uniformly via `emitOperandSegments`.
  */
 function emitWithinDistanceSegments(
 	p: Extract<Predicate, { kind: "within-distance" }>,
 ): CsqlSegment[] {
 	const propText = emitCsqlPropertyRefText(p.property);
-	const centerSegments = emitComparisonOperandSegments(p.center);
+	const centerSegments = emitOperandSegments(p.center, "value");
 	const distanceText = formatNumeric(p.distance);
 	const unitText = quoteLiteral(p.unit, "csql");
 	return [
@@ -750,7 +887,7 @@ function emitExistsCallSegments(
 	const via = p.via;
 	if (via.kind === "self") {
 		throw new Error(
-			"csqlEmitter: 'exists' / 'missing' with via.kind === 'self' has no CSQL wire form",
+			"csqlEmitter: tried to emit an 'exists' / 'missing' predicate with a self-walk relation, but CSQL has no wire form for the no-traversal case. Authors expressing 'this case satisfies the filter' compose direct predicates on the current scope instead. Run validation before invoking the compile pipeline; the case-list validator surfaces this shape at authoring time.",
 		);
 	}
 	if (via.kind === "any-relation") {
@@ -844,9 +981,9 @@ function emitSubcaseExistsCall(
  * `ancestor-exists(...)` / `subcase-exists(...)` argument list.
  *
  * The filter executes server-side, but runtime refs (search-input
- * refs, session refs, synthetic hoist refs) compose into the filter
- * argument naturally via the outer `concat(...)` wrapper — see CCHQ's
- * canonical pattern at
+ * refs, session refs, inlined non-grammar value expressions) compose
+ * into the filter argument naturally via the outer `concat(...)`
+ * wrapper — see CCHQ's canonical pattern at
  * `case_search_query_language.rst::"Filtering on related cases" → "Examples"`,
  * where `subcase-exists("parent", ... clinic_case_id = "', instance(...),
  * '")')` interpolates a runtime user clinic id inside the

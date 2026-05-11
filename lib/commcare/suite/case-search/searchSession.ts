@@ -114,20 +114,19 @@ export function emitSearchSession(args: {
 	// most one `_xpath_query` per `<query>`; the AST-level `and(...)`
 	// reduces to one Predicate before the CSQL emitter walks it.
 	//
-	// `emitCsql`'s hoists lift on-device-only AST shapes the CSQL
-	// grammar can't host inline; each emits as its own `<data>` slot
-	// BEFORE the `_xpath_query` so its inputs resolve first at runtime.
+	// Non-grammar value expressions inline as on-device XPath
+	// fragments inside the wrapper concat. CCHQ's
+	// `RemoteQuerySessionManager.initUserAnswers` only seeds the
+	// `search-input:results` instance from `<prompt>` defaults, so a
+	// sibling `<data>` slot's value would resolve to the empty string
+	// when the CSQL evaluator dereferences it AND silently add a
+	// server-side property filter against case data that matches no
+	// cases. The single `_xpath_query` slot carries everything.
 	const xpathQueryEmission = composeXPathQueryEmission(
 		caseListConfig,
 		caseType,
 	);
 	if (xpathQueryEmission !== undefined) {
-		for (const hoist of xpathQueryEmission.hoists) {
-			const hoistRef = emitOnDeviceExpression(hoist.expression);
-			dataLines.push(
-				`        <data key="${escapeXml(hoist.inputRef)}" ref="${escapeXml(hoistRef)}"/>`,
-			);
-		}
 		dataLines.push(
 			`        <data key="${XPATH_QUERY_KEY}" ref="${escapeXml(xpathQueryEmission.wrapper)}"/>`,
 		);

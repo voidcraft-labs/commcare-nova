@@ -209,32 +209,35 @@ describe("emitCsqlExpressionSegments — term arm structural lifter", () => {
 // SHELL 2 — non-whitelist arms throw defensively
 // ============================================================
 //
-// The hoist pass in `lib/commcare/predicate/csqlHoist.ts` lifts every
-// non-whitelist value-expression arm into an on-device wrapper before
-// the emitter runs. If the bypass path ever surfaced one of these
-// arms, the emitter throws with a "should have been hoisted" message
-// rather than emit broken CSQL — the local `_exhaustive: never`
-// default catches new ValueExpression kinds at compile time.
+// The predicate-side emitter at `lib/commcare/predicate/csqlEmitter.ts`
+// inlines every non-whitelist value-expression arm as an on-device
+// XPath fragment before reaching this surface. If the bypass path
+// ever surfaced one of these arms, the emitter throws a defensive
+// error rather than emit broken CSQL — the local
+// `_exhaustive: never` default catches new ValueExpression kinds
+// at compile time. The error message points at the operand dispatch
+// in `emitOperandSegments` because that is where the inline routing
+// lives.
 
 describe("emitCsqlExpressionSegments — non-whitelist arms throw", () => {
 	it("throws on arith", () => {
 		const expr = arith("+", term(prop("p", "age")), term(literal(1)));
-		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/hoisted/i);
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 
 	it("throws on concat", () => {
 		const expr = concat(term(literal("a")), term(literal("b")));
-		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/hoisted/i);
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 
 	it("throws on coalesce", () => {
 		const expr = coalesce(term(prop("p", "x")), term(literal("fallback")));
-		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/hoisted/i);
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 
 	it("throws on if", () => {
 		const expr = ifExpr(matchAll(), term(literal("a")), term(literal("b")));
-		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/hoisted/i);
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 
 	it("throws on switch", () => {
@@ -243,16 +246,16 @@ describe("emitCsqlExpressionSegments — non-whitelist arms throw", () => {
 			[switchCase(literal("y"), term(literal(1)))],
 			term(literal(0)),
 		);
-		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/hoisted/i);
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 
 	it("throws on count", () => {
 		const expr = count(subcasePath("parent"));
-		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/hoisted/i);
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 
 	it("throws on format-date", () => {
 		const expr = formatDate(term(prop("p", "dob")), "iso");
-		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/hoisted/i);
+		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 });

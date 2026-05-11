@@ -377,10 +377,12 @@ function projectSearchProperties(
 /**
  * Project the `caseListConfig.filter` + every advanced-arm
  * predicate + every simple-arm input with a non-self relation walk
- * into the CCHQ-side `default_properties` array. Each hoist from
- * the CSQL emitter takes its own slot BEFORE the `_xpath_query`
- * slot so its inputs resolve first at runtime (CCHQ's runtime
- * evaluates default_properties in array order).
+ * into the CCHQ-side `default_properties` array. The single
+ * `_xpath_query` slot is the only entry produced — non-grammar
+ * value expressions inline as on-device XPath fragments inside the
+ * wrapper concat at the CSQL emitter, matching the canonical CCHQ
+ * pattern documented at
+ * `commcare-hq/docs/case_search_query_language.rst`.
  *
  * `caseType` threads through `composeXPathQueryEmission` so the
  * simple-arm-with-via derivation builds correctly-qualified
@@ -398,24 +400,15 @@ function projectDefaultProperties(
 ): DefaultCaseSearchProperty[] {
 	const emission = composeXPathQueryEmission(caseListConfig, caseType);
 	if (emission === undefined) return [];
-	const out: DefaultCaseSearchProperty[] = [];
-	for (const hoist of emission.hoists) {
-		// Each hoist binds a synthetic search-input name to its
-		// on-device wrapper XPath. CCHQ's `DefaultCaseSearchProperty`
-		// stores the (name, value) pair as a single slot.
-		out.push({
-			property: hoist.inputRef,
-			defaultValue: emitOnDeviceExpression(hoist.expression),
-		});
-	}
 	// CCHQ's special `_xpath_query` key routes the value through the
 	// CSQL parser at runtime; the wrapper string is the on-device
 	// concat expression that builds the CSQL query.
-	out.push({
-		property: "_xpath_query",
-		defaultValue: emission.wrapper,
-	});
-	return out;
+	return [
+		{
+			property: "_xpath_query",
+			defaultValue: emission.wrapper,
+		},
+	];
 }
 
 /**
@@ -439,7 +432,8 @@ function projectDefaultProperties(
  *     expression directly — CCHQ regenerates the suite at runtime).
  *   - `caseListConfig.searchInputs` (simple arm) → `properties`.
  *   - `caseListConfig.filter` + advanced-arm predicates →
- *     `default_properties` (AND-composed `_xpath_query` + hoists).
+ *     `default_properties` (the single AND-composed `_xpath_query`
+ *     slot).
  *
  * `auto_launch`, `default_search`, and `inline_search` are
  * persistent CCHQ state — the CCHQ runtime regenerates the suite
@@ -447,18 +441,11 @@ function projectDefaultProperties(
  * persisted doc (see `commcare-hq/.../suite_xml/sections/details.py::_get_auto_launch_expression`,
  * `commcare-hq/.../suite_xml/post_process/remote_requests.py`, and
  * `commcare-hq/.../app_manager/util.py::module_uses_inline_search`).
- * The projection threads `compileForPlatform`'s web-context output
- * onto these slots so the CCHQ-regenerated suite carries the same
- * shape Nova's local suite-XML emitter renders. The Android
- * runtime ignores all three flags (per `_get_auto_launch_expression`'s
- * `if not in_search` guard), so persisting the web-correct values
- * is right for both runtimes.
- *
- * Per the spec's design property #5 (one canonical authoring
- * surface, no platform toggle), the decision tree is consulted
- * with a fixed web platform context — the persisted values are
- * always the web-shape, the Android runtime silently ignores
- * them.
+ * Nova exposes one canonical authoring surface — no platform toggle
+ * — so the projection threads `compileForPlatform`'s web-context
+ * output onto these slots. Nova's own suite-XML emitter drives
+ * local rendering on every platform; the persisted CCHQ flags
+ * apply when CCHQ regenerates the suite for the web entry point.
  */
 function buildSearchConfigDocument(
 	caseSearchConfig: DomainCaseSearchConfig | undefined,
@@ -518,15 +505,16 @@ function buildSearchConfigDocument(
 	}
 
 	// `compileForPlatform`'s three-flag `WireShape` projects onto the
-	// persisted CCHQ slots. The Android runtime ignores all three
-	// flags per `_get_auto_launch_expression`'s `if not in_search`
-	// guard, so persisting the web-context value is correct for both
-	// runtimes. Without this projection, `auto_launch` and
-	// `default_search` would stay at the shell defaults and CCHQ's
-	// runtime would never reach skip-to-results — the entire
-	// `compileForPlatform` decision tree would be dead code on the
-	// production upload path. The fixed `web` platform context
-	// matches the spec's design property #5 ("no platform toggle").
+	// persisted CCHQ slots. Nova exposes one canonical authoring
+	// surface — no platform toggle — so the persisted values always
+	// take the web-context shape: the HQ JSON ships one form and the
+	// web entry point is where CCHQ regenerates the suite from it.
+	// Without this projection, `auto_launch` and `default_search`
+	// would stay at the shell defaults and CCHQ's runtime would never
+	// reach skip-to-results — the entire `compileForPlatform`
+	// decision tree would be dead code on the production upload path.
+	// Nova's own suite-XML emitter drives local rendering on every
+	// platform.
 	if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
 		const wire = compileForPlatform(caseListConfig, caseSearchConfig, {
 			platform: "web",

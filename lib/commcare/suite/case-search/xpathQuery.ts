@@ -22,12 +22,17 @@
 // relation-walk metadata, so the relation walk must live in
 // `_xpath_query` for the wire to honor the author's intent.
 //
-// The CSQL emitter's `hoists` list captures any non-grammar value
-// expressions lifted out as on-device wrappers — each hoist lands
-// as its own slot (a sibling `<data>` element on `<query>` or its
-// own `DefaultCaseSearchProperty` entry on `default_properties`)
-// BEFORE the `_xpath_query` slot so the hoist inputs resolve first
-// at runtime.
+// Non-grammar value expressions (`if`, `switch`, `arith`, `concat`,
+// `coalesce`, `format-date`, non-LHS `count`) inline as runtime
+// on-device XPath fragments inside the `concat(...)` wrapper at the
+// CSQL emitter — the canonical CCHQ pattern documented in
+// `commcare-hq/docs/case_search_query_language.rst`. Both surfaces
+// therefore carry exactly one slot per module: the `_xpath_query`
+// slot. CCHQ's `RemoteQuerySessionManager` only threads `<prompt>`
+// values into the `search-input:results` instance — sibling
+// `<data>` slots would resolve to the empty string at evaluation
+// time AND silently filter case data on the server, so the inline
+// shape is the only wire-correct option.
 
 import type { CaseListConfig } from "@/lib/domain";
 import { and } from "@/lib/domain/predicate";
@@ -43,11 +48,9 @@ import {
 /**
  * Emission output. `wrapper` is the on-device XPath expression that
  * runtime-evaluates to the CSQL query string interpolated into the
- * `_xpath_query` slot. `hoists` is the wrapper-expression list —
- * each entry binds a synthetic search-input name to an on-device
- * expression the consumer slots in BEFORE the `_xpath_query`. The
- * shape mirrors `CsqlEmissionResult` exactly; the type alias keeps
- * the contract symmetric across both consumers.
+ * `_xpath_query` slot. The shape mirrors `CsqlEmissionResult`
+ * exactly; the type alias keeps the contract symmetric across both
+ * consumers.
  */
 export type ComposedXPathQuery = CsqlEmissionResult;
 

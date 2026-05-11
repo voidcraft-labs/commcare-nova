@@ -288,8 +288,14 @@ emit to wire formats from outside the package:
   `lib/commcare/expression`'s `emitOnDeviceExpression`.
 - **CSQL dialect** (CCHQ ElasticSearch-parsed search filter) via
   the same packages' `emitCsql` / `emitCsqlExpressionSegments`,
-  with a hoist pass at `lib/commcare/predicate/csqlHoist.ts` that
-  lifts non-CSQL-grammar nodes into on-device wrappers.
+  with a property-via lift at `lib/commcare/predicate/csqlHoist.ts`
+  that rewrites operator-direct `prop(via)` references into
+  enclosing `exists` envelopes before emission. Non-grammar value
+  expressions (`if` / `switch` / `arith` / `concat` / `coalesce` /
+  `format-date` / non-LHS `count`) inline as on-device XPath
+  fragments inside the wrapper `concat(...)` at the emitter — the
+  canonical CCHQ pattern documented in
+  `commcare-hq/docs/case_search_query_language.rst`.
 - **Postgres SQL** (Nova's live runtime) via `lib/case-store/sql`'s
   compiler stack (`compilePredicate` / `compileExpression` /
   `compileTerm` / `compileRelationPath`).

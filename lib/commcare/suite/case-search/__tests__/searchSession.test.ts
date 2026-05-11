@@ -19,8 +19,10 @@
 //
 //   3. `<data>` slot order matches CCHQ's `_remote_request_query_datums`:
 //      `case_type` first, then `commcare_blacklisted_owner_ids` (when
-//      set), then any hoist wrappers, then `_xpath_query` (when
-//      present and non-trivial).
+//      set), then `_xpath_query` (when present and non-trivial). The
+//      `_xpath_query` slot carries everything — non-grammar value
+//      expressions inline as on-device XPath fragments inside the
+//      wrapper concat, so no sibling `<data>` slots accompany it.
 //
 //   4. `_xpath_query` AND-composes `caseListConfig.filter` with every
 //      advanced-arm search input's predicate. A `match-all` composed
@@ -55,6 +57,7 @@ import {
 	relationStep,
 	subcasePath,
 	term,
+	whenInput,
 } from "@/lib/domain/predicate";
 import { emitSearchSession } from "../searchSession";
 import type { WireShape } from "../types";
@@ -291,13 +294,19 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		expect(xml).toContain(`key="_xpath_query"`);
 	});
 
-	it("emits one <data> wrapper per CSQL hoist before the _xpath_query slot", () => {
+	it("inlines non-grammar value expressions into the _xpath_query wrapper, never as sibling <data> slots", () => {
 		// CSQL grammar admits a narrow value-expression whitelist;
-		// shapes outside the whitelist (e.g. `arith`) lift into
-		// on-device wrapper expressions during emission. The wrappers
-		// surface as additional `<data>` slots before the
-		// `_xpath_query` element so the runtime resolves the wrapper
-		// inputs before evaluating the CSQL fragment.
+		// shapes outside the whitelist (e.g. `arith`) inline as
+		// on-device XPath fragments inside the wrapper concat. CCHQ's
+		// `RemoteQuerySessionManager.initUserAnswers` only seeds the
+		// `search-input:results` instance from `<prompt>` defaults,
+		// so a sibling `<data>` slot with a synthetic key would
+		// resolve to the empty string when the CSQL evaluator reads
+		// it AND silently add a server-side property filter against
+		// case data that matches no cases. The wire-correct shape is
+		// the inline concat the canonical CCHQ pattern documents at
+		// `commcare-hq/docs/case_search_query_language.rst::"Example
+		// Query + Tips"`.
 		const filter = eq(
 			arith("+", term(prop("patient", "age")), term(literal(1))),
 			term(literal(19)),
@@ -309,15 +318,50 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		// The hoisted wrapper lands as a separate <data> slot keyed
-		// by the synthetic search-input name (`csql_hoist_0` per the
-		// hoister's naming convention).
-		expect(xml).toContain(`<data key="csql_hoist_0"`);
-		// Hoist wrapper precedes the _xpath_query slot.
-		const hoistIdx = xml.indexOf(`key="csql_hoist_0"`);
-		const xpathIdx = xml.indexOf(`key="_xpath_query"`);
-		expect(hoistIdx).toBeGreaterThan(-1);
-		expect(xpathIdx).toBeGreaterThan(hoistIdx);
+		// Only the single `_xpath_query` slot is emitted — never a
+		// `csql_hoist_<n>` sibling slot.
+		expect(xml).not.toContain(`csql_hoist_`);
+		const dataSlotMatches = xml.match(/<data key="/g) ?? [];
+		// `case_type` + `_xpath_query` = 2 slots; no hoist sibling.
+		expect(dataSlotMatches).toHaveLength(2);
+		// The arith's on-device emission `(age + 1)` lands inside
+		// the wrapper concat as a runtime fragment.
+		expect(xml).toContain(`(age + 1)`);
+		expect(xml).toContain(`key="_xpath_query"`);
+	});
+
+	it("accumulates the search-input instance when a non-grammar value expression nests an input ref", () => {
+		// An inlined non-grammar expression carrying `input('base_age')`
+		// at runtime needs the `search-input:results` instance declared
+		// on the surrounding `<remote-request>` — without it CCHQ's
+		// runtime can't resolve `instance('search-input:results')` at
+		// search-execution time and raises an XPathException. The
+		// instance accumulator walks the original AST (not a rewritten
+		// shape), so input refs nested inside `arith` / `concat` /
+		// `coalesce` / etc. surface to the accumulator the same way a
+		// top-level input ref does. The `when-input-present` envelope
+		// satisfies the validator rule
+		// `searchInputRefUsesWhenInputPresent` (every bare input ref
+		// in the composed `_xpath_query` must be gated).
+		const baseAge = { kind: "input" as const, name: "base_age" };
+		const filter = whenInput(
+			baseAge,
+			eq(arith("+", term(baseAge), term(literal(1))), term(literal(19))),
+		);
+		const { instances, xml } = emitSearchSession({
+			caseListConfig: makeListConfig({ filter }),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(instances.has("search-input:results")).toBe(true);
+		// And the inline runtime XPath references the input ref via
+		// CCHQ's canonical search-input path so the runtime knows what
+		// to resolve.
+		expect(xml).toContain(
+			`instance('search-input:results')/input/field[@name='base_age']`,
+		);
 	});
 
 	it("AND-composes a filter and an advanced-arm predicate into a single _xpath_query slot", () => {

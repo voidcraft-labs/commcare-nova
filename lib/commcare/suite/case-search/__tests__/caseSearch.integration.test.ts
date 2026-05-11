@@ -647,9 +647,10 @@ describe("case-search integration — suite XML wire emission", () => {
 		expect(matches.length).toBe(1);
 		// Slice the `_xpath_query` element body so the assertions
 		// below scope to the element's contents, not the full suite.
-		// Other surfaces in the suite (`<post>` regions, hoist data
-		// slots) carry their own ` and ` tokens; checking the suite-
-		// level XML would not pin the AND on this element.
+		// Other surfaces in the suite (`<post>` regions, other
+		// `<query>` data slots) carry their own ` and ` tokens;
+		// checking the suite-level XML would not pin the AND on
+		// this element.
 		const xpathOpenIdx = suite.indexOf('<data key="_xpath_query"');
 		const xpathCloseIdx = suite.indexOf("/>", xpathOpenIdx);
 		if (xpathOpenIdx === -1 || xpathCloseIdx === -1) {

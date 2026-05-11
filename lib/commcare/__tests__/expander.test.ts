@@ -3636,23 +3636,20 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(defaults.find((d) => d.property === "_xpath_query")).toBeUndefined();
 	});
 
-	it("lifts CSQL-non-grammar value expressions into hoist `default_properties` entries placed BEFORE the `_xpath_query` slot", () => {
+	it("inlines CSQL-non-grammar value expressions into the `_xpath_query` slot's concat, with no sibling `default_properties` entries", () => {
 		// CSQL's value-function whitelist excludes `arith(...)`. The
-		// hoist pass lifts each non-grammar value expression into an
-		// on-device wrapper expression that runs at runtime and
-		// produces a string interpolated into the CSQL fragment via a
-		// synthetic `input(...)` ref. Wire shape on `default_properties`:
-		//
-		//   1. One entry per hoist, ordered before the `_xpath_query`
-		//      slot, with `property = <synthetic-input-ref>` and
-		//      `defaultValue = <on-device wrapper XPath>`.
-		//   2. The `_xpath_query` entry sits last, with the CSQL concat
-		//      wrapper expression referencing the synthetic input refs.
-		//
-		// Wrong ordering would silently break the runtime — CCHQ evaluates
-		// `default_properties` in array order, so a hoist appearing AFTER
-		// `_xpath_query` resolves to the empty string when the CSQL is
-		// parsed.
+		// CSQL emitter inlines each non-grammar value expression as
+		// an on-device XPath fragment inside the wrapper concat —
+		// the canonical CCHQ pattern at
+		// `commcare-hq/docs/case_search_query_language.rst::"Example
+		// Query + Tips"`. The wire shape on `default_properties` is
+		// a single `_xpath_query` entry; sibling entries with
+		// synthetic keys would be wire-incorrect because CCHQ's
+		// `RemoteQuerySessionManager.initUserAnswers` only seeds the
+		// `search-input:results` instance from `<prompt>` defaults
+		// and the server-side `_apply_filter` would re-interpret the
+		// sibling slot as a literal case-property filter against
+		// case data.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
@@ -3668,8 +3665,9 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Age",
 					"text",
 					// Right-hand operand is `arith(age, +, 1)` — CSQL
-					// doesn't admit arith inline, so the hoist pass
-					// lifts the whole expression into a wrapper.
+					// doesn't admit arith inline, so the emitter
+					// inlines the whole expression as an on-device
+					// XPath fragment inside the wrapper concat.
 					eq(
 						prop("patient", "age"),
 						toValueExpression(
@@ -3686,30 +3684,17 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			],
 		});
 		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
-		// Expect at least one hoist entry + the `_xpath_query` slot.
-		expect(defaults.length).toBeGreaterThanOrEqual(2);
-		const xpathQueryIdx = defaults.findIndex(
-			(d) => d.property === "_xpath_query",
-		);
-		expect(xpathQueryIdx).toBeGreaterThan(-1);
-		// The hoist entry is at index 0 (BEFORE `_xpath_query`) and
-		// keys on a synthetic ref name. CCHQ's
-		// `DefaultCaseSearchProperty` accepts any non-`_xpath_query`
-		// property key as a literal property filter; the hoist refs
-		// are the "synthetic search input" pattern documented in
-		// CCHQ's case-search-query-language reference.
-		expect(xpathQueryIdx).toBeGreaterThan(0);
-		const hoistEntry = defaults[0];
-		expect(hoistEntry.property).not.toBe("_xpath_query");
-		// The hoist's defaultValue is the on-device wrapper XPath
-		// produced by `emitOnDeviceExpression` — for the arith
-		// shape it parens the operands.
-		expect(hoistEntry.defaultValue).toContain("age + 1");
-		// The CSQL wrapper references the synthetic input ref via the
-		// search-input path (CCHQ's
-		// `instance('search-input:results')/input/field[@name='<ref>']`).
-		const xpathEntry = defaults[xpathQueryIdx];
-		expect(xpathEntry.defaultValue).toContain(hoistEntry.property);
+		// Exactly one entry — the `_xpath_query` slot. No sibling
+		// entries for the inlined on-device fragment.
+		expect(defaults).toHaveLength(1);
+		expect(defaults[0].property).toBe("_xpath_query");
+		// The arith's on-device emission `(age + 1)` lands as a
+		// runtime fragment inside the wrapper concat.
+		expect(defaults[0].defaultValue).toContain("(age + 1)");
+		// The `_xpath_query` value never references a synthetic
+		// search-input ref — that shape would silently zero out at
+		// runtime per the CCHQ-side reasoning above.
+		expect(defaults[0].defaultValue).not.toContain("csql_hoist_");
 	});
 
 	it("lifts an operator-direct prop(via) into an ancestor-exists envelope on the `_xpath_query` slot", () => {
