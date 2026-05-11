@@ -17,6 +17,8 @@ import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeM
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
 import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
+import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
+import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
@@ -173,6 +175,7 @@ export const MODULE_RULES = [
 	calculatedColumnTypeCheck,
 	searchInputNameUniqueness,
 	searchInputModeMatchesPropertyType,
+	searchInputTypeMatchesPropertyType,
 	searchInputDefaultTypeCheck,
 	searchInputPredicateTypeCheck,
 	searchInputRefUsesWhenInputPresent,
@@ -183,4 +186,5 @@ export const MODULE_RULES = [
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
 	filterSearchInputConflict,
+	caseSearchConfigRequiresSearchableSurface,
 ];

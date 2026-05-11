@@ -34,6 +34,7 @@ import type {
 	ValueExpression,
 } from "./predicate/types";
 import {
+	CASE_PROPERTY_PATTERN,
 	predicateSchema,
 	relationPathSchema,
 	valueExpressionSchema,
@@ -205,7 +206,21 @@ const phoneColumnSchema = columnBase.extend({
  */
 const idMappingEntrySchema = z
 	.object({
-		value: z.string(),
+		// Whitespace-free token (or empty during authoring). The wire
+		// emits the entry as `selected(field, '<value>')`; CommCare's
+		// `selected()` is the XPath 1.0 space-tokenized membership
+		// predicate (it splits the property value on whitespace and
+		// checks set membership), so a `value` carrying whitespace
+		// would never match any case row — silent runtime failure.
+		// Reject whitespace at the schema layer where the shape is
+		// constructed; admit empty as the "row added, not yet filled"
+		// state the editor seeds before the user types.
+		value: z
+			.string()
+			.regex(
+				/^\S*$/,
+				"ID-mapping value must be a single whitespace-free token — the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would silently fall through to the raw property value.",
+			),
 		label: z.string(),
 	})
 	.strict();
@@ -590,7 +605,26 @@ const searchInputCommon = z
  */
 const simpleSearchInputSchema = searchInputCommon.extend({
 	kind: z.literal("simple"),
-	property: z.string(),
+	// `property` is constrained to CommCare's case-property identifier
+	// vocabulary — same character class the predicate AST's
+	// `propertyRefSchema.property` enforces. The wire emitter
+	// interpolates this verbatim into XPath fragments (the per-mode
+	// derivations in `buildSimpleArmClause`); a value containing
+	// quotes / parentheses / angle brackets would emit malformed
+	// XPath. Keeping the constraint symmetric with the AST's
+	// reference shape closes the SearchInputDef-vs-Term asymmetry the
+	// predicate validator can't catch (the simple arm derives the
+	// predicate at wire-emit, not at validate-time). Empty string is
+	// the "row added, not yet picked" transient editor state —
+	// `searchInputModeMatchesPropertyType`'s
+	// `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY` surfaces it at
+	// validate-time.
+	property: z
+		.string()
+		.refine((v) => v === "" || CASE_PROPERTY_PATTERN.test(v), {
+			message:
+				"Search input `property` must name a case property — a string starting with a letter and made of letters, digits, underscores, or hyphens. The wire layer interpolates the name verbatim into the XPath fragment built from the input's (property, mode) shape, so characters outside that class would emit malformed XPath.",
+		}),
 	via: relationPathSchema.optional(),
 	mode: searchInputModeSchema.optional(),
 });
