@@ -736,7 +736,7 @@ describe("FormScreen — case-loading-form empty state", () => {
 
 describe("FormScreen — submit re-entry clears stale server error", () => {
 	it("hides the prior alert when the validate-fail short-circuit fires on re-submit", async () => {
-		/* Sequence — pins the failure the original handler had:
+		/* Sequence — pins the invariant the handler enforces:
 		 *   1. Render the required-field form, populate the field so
 		 *      the first submit passes validate. The action mock
 		 *      resolves to a server validation failure → alert renders.
@@ -746,9 +746,9 @@ describe("FormScreen — submit re-entry clears stale server error", () => {
 		 *      surface now reflects the per-field required indicator,
 		 *      not a stale server-side failure that no longer applies.
 		 *
-		 * Without the top-of-handler `setSubmitStatus({ kind: "idle" })`,
-		 * the alert stays visible across step 2 because the
-		 * validate-fail branch returns without touching the status. */
+		 * This test pins that `handleSubmit` clears `submitStatus`
+		 * before validating — the alert from step 1 must disappear
+		 * when step 2's validate-fail short-circuit fires. */
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "case-properties-validation",
 			caseType: CASE_TYPE,
@@ -785,8 +785,9 @@ describe("FormScreen — submit re-entry clears stale server error", () => {
 			expect(screen.queryByRole("alert")).toBeNull();
 		});
 		/* The action MUST NOT have re-fired — the validate-fail branch
-		 *  short-circuits before reaching the action call. Asserts the
-		 *  test exercised the load-bearing path the CR named. */
+		 *  short-circuits before reaching the action call. Confirms the
+		 *  validate-fail short-circuit fired (the action call count is
+		 *  unchanged across the re-submit). */
 		expect(vi.mocked(submitFormAction).mock.calls.length).toBe(
 			submitCallCountBefore,
 		);

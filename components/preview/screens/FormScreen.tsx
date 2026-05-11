@@ -226,7 +226,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	}, [form, moduleUuid, navigate, onBack]);
 
 	const handleSubmit = async (): Promise<void> => {
-		/* Clear any prior error / running state up-front. Three reasons:
+		/* Clear any prior error state up-front. Two reasons:
 		 *
 		 *   1. A stale server-error header from a previous submit would
 		 *      otherwise stay visible while the user is on a *different*
@@ -234,10 +234,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 *      remediation surfaces in a different UI element (per-field
 		 *      required indicators).
 		 *   2. A second submit after a server error must replace, not
-		 *      augment — the alert always reflects the latest attempt.
-		 *   3. The disabled spinner state is gated on `running`; resetting
-		 *      to `idle` first means a re-submit can never visually
-		 *      pile up on a previous attempt's pending UI. */
+		 *      augment — the alert always reflects the latest attempt. */
 		setSubmitStatus({ kind: "idle" });
 
 		const valid = controller.validateAll();
@@ -310,7 +307,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	if (!form || !formUuid) return null;
 
-	/** A caseId-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically — close was previously absent because the guard hard-coded `"followup"`. */
+	/** A caseId-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
 	if (mode === "test" && CASE_LOADING_FORM_TYPES.has(form.type)) {
 		if (caseDataState.kind === "unauthenticated") {
 			return (
