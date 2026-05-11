@@ -593,13 +593,13 @@ interface SelectRowProps {
  * value renders the placeholder; selecting an option emits the
  * option's wire-form `value`.
  *
- * Base UI's `Select.onValueChange` value parameter is typed
- * `Value | null` in single-mode (and `Value[] | null` in multi-
- * mode). The shadcn wrapper passes the generic through without
- * narrowing, so `next` reaches us as `any | null`. The form only
- * consumes string values, so non-string arrivals (including
- * `null` when no option is selected) collapse to "" and fall
- * through the binding layer's empty-input short-circuit.
+ * Base UI's `Select.onValueChange` is
+ * `(value: Value | null, ...) => void` in single-mode — `null`
+ * lands only on programmatic clear paths. With `value: string` on
+ * the trigger, TypeScript infers `Value = string` through shadcn's
+ * value-level alias, so `next` arrives as `string | null`. The
+ * form coalesces `null` to "" so the binding layer's empty-input
+ * short-circuit handles both states uniformly.
  */
 function SelectRow({ name, label, options, value, onChange }: SelectRowProps) {
 	const id = useId();
@@ -609,7 +609,7 @@ function SelectRow({ name, label, options, value, onChange }: SelectRowProps) {
 			<Select
 				name={name}
 				value={value}
-				onValueChange={(next) => onChange(typeof next === "string" ? next : "")}
+				onValueChange={(next) => onChange(next ?? "")}
 			>
 				<SelectTrigger id={id} className="w-full">
 					<SelectValue placeholder="Select…" />
