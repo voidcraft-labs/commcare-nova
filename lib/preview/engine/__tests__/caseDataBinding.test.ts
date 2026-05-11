@@ -2112,6 +2112,194 @@ describe("submitFormAction", () => {
 });
 
 // ---------------------------------------------------------------
+// `resetSampleCasesAction` (Server Action)
+// ---------------------------------------------------------------
+//
+// Mirrors `populateSampleCasesAction` over the case-store's atomic
+// `resetSampleData` path. The block pins the action's wrapper
+// responsibilities — session resolution, blueprint-edge `CaseType`
+// resolution, and the catch-and-map delegation through
+// `mapPopulateSampleCasesError` — without driving Better Auth /
+// Firestore. The `vi.mock` calls at the top of the file stub
+// `getSession` and `withOwnerContext` so each branch is reachable.
+
+describe("resetSampleCasesAction", () => {
+	it("returns the unauthenticated arm when getSession resolves to null", async () => {
+		// Session-first ordering means an unauthenticated request
+		// short-circuits before the blueprint lookup. `withOwnerContext`
+		// must not be invoked.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce(null);
+
+		const { resetSampleCasesAction } = await import("../caseDataBinding");
+		const result = await resetSampleCasesAction(
+			APP_ID,
+			"patient",
+			buildBlueprint([PATIENT_CASE_TYPE]),
+		);
+		expect(result).toEqual({ kind: "unauthenticated" });
+		expect(vi.mocked(withOwnerContext)).not.toHaveBeenCalled();
+	});
+
+	it("returns the ok arm with the regenerated row count on the success path", async () => {
+		// Stub the case-store's atomic `resetSampleData` so the action
+		// resolves without touching real Postgres. The action's job is
+		// to thread the resolved `CaseType` into the helper; the
+		// helper's job is to call `resetSampleData`. Asserting the
+		// final result shape pins the full delegation chain.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn(),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn().mockResolvedValueOnce({
+				deleted: SAMPLE_CASE_DEFAULT_COUNT,
+				inserted: SAMPLE_CASE_DEFAULT_COUNT,
+			}),
+		} satisfies CaseStore;
+		vi.mocked(withOwnerContext).mockResolvedValueOnce(stubStore);
+
+		const { resetSampleCasesAction } = await import("../caseDataBinding");
+		const result = await resetSampleCasesAction(
+			APP_ID,
+			"patient",
+			buildBlueprint([PATIENT_CASE_TYPE]),
+		);
+		expect(result).toEqual({
+			kind: "ok",
+			inserted: SAMPLE_CASE_DEFAULT_COUNT,
+		});
+		expect(stubStore.resetSampleData).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns the missing-case-type arm when the blueprint omits the requested case type", async () => {
+		// The action resolves the `CaseType` out of the blueprint
+		// before constructing the store. A blueprint missing the
+		// requested type throws `CaseTypeNotInBlueprintError` at the
+		// edge; the catch block delegates to
+		// `mapPopulateSampleCasesError` which translates to the
+		// typed `missing-case-type` arm. `withOwnerContext` must not
+		// be invoked along this path.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const { resetSampleCasesAction } = await import("../caseDataBinding");
+		const result = await resetSampleCasesAction(
+			APP_ID,
+			"unknown_case_type",
+			buildBlueprint([PATIENT_CASE_TYPE]),
+		);
+		expect(result).toEqual({
+			kind: "missing-case-type",
+			caseType: "unknown_case_type",
+		});
+		expect(vi.mocked(withOwnerContext)).not.toHaveBeenCalled();
+	});
+
+	it("translates a CasePropertiesValidationError thrown by the store to the validation-failure arm", async () => {
+		// `resetSampleData` runs AJV inside its transaction; a
+		// generator emitting a schema-violating row trips
+		// `CasePropertiesValidationError`. The action's catch path
+		// delegates to `mapPopulateSampleCasesError`; the typed-arm
+		// surfaces the per-field failure list verbatim.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const failures: ReadonlyArray<CasePropertyFailure> = [
+			{ path: "/age", message: "must be integer" },
+		];
+		const stubStore = {
+			query: vi.fn(),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi
+				.fn()
+				.mockRejectedValueOnce(
+					new CasePropertiesValidationError(APP_ID, "patient", failures),
+				),
+		} satisfies CaseStore;
+		vi.mocked(withOwnerContext).mockResolvedValueOnce(stubStore);
+
+		const { resetSampleCasesAction } = await import("../caseDataBinding");
+		const result = await resetSampleCasesAction(
+			APP_ID,
+			"patient",
+			buildBlueprint([PATIENT_CASE_TYPE]),
+		);
+		expect(result).toEqual({
+			kind: "validation-failure",
+			caseType: "patient",
+			failures,
+		});
+	});
+
+	it("translates a SchemaNotSyncedError thrown by the store to the schema-not-synced arm", async () => {
+		// `resetSampleData` reaches `getValidator` which throws
+		// `SchemaNotSyncedError` when the case-type's schema row
+		// hasn't been materialized via `applySchemaChange`. The
+		// action's catch path delegates to
+		// `mapPopulateSampleCasesError` which translates to the
+		// typed arm carrying the case type.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn(),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi
+				.fn()
+				.mockRejectedValueOnce(new SchemaNotSyncedError(APP_ID, "patient")),
+		} satisfies CaseStore;
+		vi.mocked(withOwnerContext).mockResolvedValueOnce(stubStore);
+
+		const { resetSampleCasesAction } = await import("../caseDataBinding");
+		const result = await resetSampleCasesAction(
+			APP_ID,
+			"patient",
+			buildBlueprint([PATIENT_CASE_TYPE]),
+		);
+		expect(result).toEqual({
+			kind: "schema-not-synced",
+			caseType: "patient",
+		});
+	});
+});
+
+// ---------------------------------------------------------------
 // `loadCaseListPreviewAction` (Server Action)
 // ---------------------------------------------------------------
 //

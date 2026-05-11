@@ -23,6 +23,7 @@ import {
 	loadCaseDataAction,
 	loadCasesAction,
 	populateSampleCasesAction,
+	resetSampleCasesAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import type {
 	LoadCaseDataResult,
@@ -190,5 +191,38 @@ export function usePopulateSampleCases(args: {
 			};
 		}
 		return populateSampleCasesAction(appId, caseType, blueprint);
+	};
+}
+
+/**
+ * Curried action callback for the "Reset sample data" affordance.
+ * Mirror of `usePopulateSampleCases` over `resetSampleCasesAction` —
+ * delete the existing rows for the bound `(appId, caseType)` and
+ * regenerate a fresh population in one atomic case-store transaction.
+ * The consuming component owns pressed-state, the confirmation
+ * dialog, and toast UX.
+ *
+ * Not wrapped in `useCallback` for the same reason
+ * `usePopulateSampleCases` isn't: the typical caller passes a
+ * fresh-per-render `blueprint` projection
+ * (`pickBlueprintDoc(docApi.getState())`), so memoizing would
+ * invalidate every render and the memoization would be structurally
+ * empty.
+ */
+export function useResetSampleCases(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+	blueprint: BlueprintDoc | undefined;
+}): () => Promise<PopulateSampleCasesResult> {
+	const { appId, caseType, blueprint } = args;
+
+	return async () => {
+		if (!appId || !caseType || !blueprint) {
+			return {
+				kind: "error",
+				message: "App, case type, or blueprint not yet available.",
+			};
+		}
+		return resetSampleCasesAction(appId, caseType, blueprint);
 	};
 }

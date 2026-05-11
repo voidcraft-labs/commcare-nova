@@ -36,6 +36,7 @@ import {
 	readCaseListPreview,
 	readCases,
 	readFilterPreview,
+	resetSampleCases,
 	seedSampleCases,
 } from "./caseDataBindingHelpers";
 import type {
@@ -147,6 +148,40 @@ export async function populateSampleCasesAction(
 		}
 		const store = await withOwnerContext(session.user.id);
 		return await seedSampleCases(store, { appId, caseType: found });
+	} catch (err) {
+		return mapPopulateSampleCasesError(err);
+	}
+}
+
+/**
+ * Drop every existing case row for `(appId, caseType)` and regenerate
+ * a fresh sample population. Structural mirror of
+ * `populateSampleCasesAction` — same session resolution, same
+ * blueprint-edge `CaseType` lookup, same typed-error mapping through
+ * `mapPopulateSampleCasesError`. Delegates to `resetSampleCases`
+ * which wraps the case-store's atomic `resetSampleData` (delete +
+ * regenerate in one transaction).
+ *
+ * The success arm carries `inserted: number` (the count of
+ * regenerated rows). The deleted count is intentionally absent from
+ * the result shape — the user-facing UX names the action
+ * "regenerate", and exposing the two-step composition would leak the
+ * atomic contract the case-store was designed to hide.
+ */
+export async function resetSampleCasesAction(
+	appId: string,
+	caseType: string,
+	blueprint: BlueprintDoc,
+): Promise<PopulateSampleCasesResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const found = blueprint.caseTypes?.find((c) => c.name === caseType);
+		if (!found) {
+			throw new CaseTypeNotInBlueprintError(appId, caseType);
+		}
+		const store = await withOwnerContext(session.user.id);
+		return await resetSampleCases(store, { appId, caseType: found });
 	} catch (err) {
 		return mapPopulateSampleCasesError(err);
 	}
