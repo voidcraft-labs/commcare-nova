@@ -347,7 +347,9 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 						: "Generate sample data"}
 				</button>
 				{populateStatus.kind === "error" && (
-					<p className="mt-3 text-sm text-red-300">{populateStatus.message}</p>
+					<p className="mt-3 text-sm text-red-300 whitespace-pre-line">
+						{populateStatus.message}
+					</p>
 				)}
 			</div>,
 		);
