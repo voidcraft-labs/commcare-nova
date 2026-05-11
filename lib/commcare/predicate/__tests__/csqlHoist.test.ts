@@ -368,3 +368,95 @@ describe("hoistForCsql — when-input-present pass-through", () => {
 		expect(result.wrappers[0]?.expression).toEqual(lifted);
 	});
 });
+
+describe("hoistForCsql — property-via lift (AST shape)", () => {
+	// CCHQ's CSQL grammar exposes relational reads only through
+	// `ancestor-exists` / `subcase-exists` query functions. The
+	// via-lift rewrites every operator-direct `prop(via)` reference
+	// into an enclosing `exists` envelope before the
+	// value-expression hoist runs. These tests pin the AST shape
+	// the rewrite produces; the wire-form assertions live in
+	// `csqlEmitter.test.ts`.
+
+	it("rewrites eq with ancestor via on LHS into exists envelope", () => {
+		const result = hoistForCsql(
+			eq(
+				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				literal("Alice"),
+			),
+		);
+		// The outer predicate is an `exists` with the via attached;
+		// the inner `where` carries the same comparison shape with
+		// the property's via stripped.
+		expect(result.hoisted).toEqual(
+			exists(
+				ancestorPath(relationStep("parent")),
+				eq(prop("patient", "name"), literal("Alice")),
+			),
+		);
+		expect(result.wrappers).toEqual([]);
+	});
+
+	it("rewrites match.property with subcase via into exists envelope", () => {
+		const result = hoistForCsql(
+			isBlank(prop("patient", "name", subcasePath("child"))),
+		);
+		expect(result.hoisted).toEqual(
+			exists(subcasePath("child"), isBlank(prop("patient", "name"))),
+		);
+	});
+
+	it("rewrites any-relation via into an OR of direction-specific envelopes", () => {
+		const result = hoistForCsql(
+			eq(prop("patient", "name", anyRelationPath("rel")), literal("Alice")),
+		);
+		// `any-relation` has no direct CCHQ wire form; the rewrite
+		// expands to OR-of-direction-specific envelopes, mirroring
+		// the on-device emitter's any-relation expansion at
+		// `caseListFilterEmitter.ts::emitExistsOrMissing`.
+		const inner = eq(prop("patient", "name"), literal("Alice"));
+		expect(result.hoisted).toEqual({
+			kind: "or",
+			clauses: [
+				exists(ancestorPath(relationStep("rel")), inner),
+				exists(subcasePath("rel"), inner),
+			],
+		});
+	});
+
+	it("rewrites nested vias inside an authored exists envelope's where clause", () => {
+		// The authored `exists` envelope walks one relation; the
+		// inner predicate carries a further via on `prop`. The
+		// rewrite nests envelopes so each via emits its own
+		// direction-specific query function call.
+		const result = hoistForCsql(
+			exists(
+				subcasePath("child"),
+				eq(
+					prop("child", "label", ancestorPath(relationStep("parent"))),
+					literal("Alice"),
+				),
+			),
+		);
+		expect(result.hoisted).toEqual(
+			exists(
+				subcasePath("child"),
+				exists(
+					ancestorPath(relationStep("parent")),
+					eq(prop("child", "label"), literal("Alice")),
+				),
+			),
+		);
+	});
+
+	it("is idempotent — second pass produces the same AST", () => {
+		const p = eq(
+			prop("patient", "name", ancestorPath(relationStep("parent"))),
+			literal("Alice"),
+		);
+		const first = hoistForCsql(p);
+		const second = hoistForCsql(first.hoisted);
+		expect(second.hoisted).toEqual(first.hoisted);
+		expect(second.wrappers).toEqual([]);
+	});
+});

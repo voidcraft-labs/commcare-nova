@@ -329,15 +329,19 @@ export function emitTermSegment(t: Term): TermEmission {
  * `commcare-hq/corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`.
  * User-defined properties pass through bare.
  *
- * The `via` slot — relation walks reaching a property on a related
- * case — is dropped at this emission layer because CCHQ's CSQL
- * comparison-form for relational reads uses the slash-path shape on
- * the comparison's left side (`<rel>/<prop> = <value>` parsed via
- * `is_ancestor_comparison` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::is_ancestor_comparison`),
- * which the emitter does not generate. The intended path for
- * relational reads is `exists` / `missing` predicates that carry the
- * relation walk explicitly.
+ * The `via` slot is always `self` (or absent) at this emission
+ * layer: the property-via lift pre-pass in `./csqlHoist.ts`
+ * rewrites every operator-direct `prop(via)` reference into an
+ * enclosing `exists` envelope before the segment emitter runs, so
+ * the relation walk emits via CCHQ's `ancestor-exists` /
+ * `subcase-exists` query functions rather than as an inline read on
+ * a comparison operand. CCHQ's parser also recognises a
+ * `<rel>/<prop> = <value>` slash-path form on the comparison's left
+ * side via `is_ancestor_comparison` at
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::is_ancestor_comparison`,
+ * but Nova never emits it — staying on the single envelope form
+ * keeps the wire surface consistent across operators and avoids
+ * per-operator branching on which slots admit the slash-path shape.
  */
 export function emitCsqlPropertyRefText(t: PropertyRef): string {
 	if (RESERVED_CASE_ATTRIBUTES.has(t.property)) {

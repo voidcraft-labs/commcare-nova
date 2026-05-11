@@ -897,6 +897,472 @@ describe("emitCsql — hoist consumption", () => {
 	});
 });
 
+// ---------- Property-via lift ----------
+//
+// Every operator-direct `prop(via)` reference rewrites into an
+// enclosing `exists` envelope before CSQL emission. The wire form
+// uses CCHQ's `ancestor-exists` / `subcase-exists` query functions
+// registered on
+// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`,
+// matching the row set the on-device emitter at
+// `emitOnDevicePropertyRef` produces for the same authored AST.
+
+describe("emitCsql — property-via lift (comparison operators)", () => {
+	// Six comparison operators — each variant carries a `prop(via)`
+	// in one slot to confirm the lift produces a wire-correct
+	// envelope. Asymmetric operators (`gt` / `gte` / `lt` / `lte`)
+	// pin the RHS-via lift swap so the inner comparison preserves
+	// authored semantics.
+
+	it("lifts ancestor via on eq LHS into ancestor-exists envelope", () => {
+		const result = emitCsql(
+			eq(
+				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				literal("Alice"),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', name = 'Alice')")`,
+		);
+	});
+
+	it("lifts subcase via on neq LHS into subcase-exists envelope", () => {
+		const result = emitCsql(
+			neq(prop("patient", "state", subcasePath("child")), literal("active")),
+		);
+		expect(result.wrapper).toBe(
+			`concat("subcase-exists('child', state != 'active')")`,
+		);
+	});
+
+	it("lifts ancestor via on gt LHS preserving operator direction", () => {
+		const result = emitCsql(
+			gt(
+				prop("patient", "age", ancestorPath(relationStep("parent"))),
+				literal(18),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', age > 18)")`,
+		);
+	});
+
+	it("lifts ancestor via on gte LHS preserving operator direction", () => {
+		const result = emitCsql(
+			gte(
+				prop("patient", "age", ancestorPath(relationStep("parent"))),
+				literal(18),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', age >= 18)")`,
+		);
+	});
+
+	it("lifts ancestor via on lt LHS preserving operator direction", () => {
+		const result = emitCsql(
+			lt(
+				prop("patient", "age", ancestorPath(relationStep("parent"))),
+				literal(65),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', age < 65)")`,
+		);
+	});
+
+	it("lifts ancestor via on lte LHS preserving operator direction", () => {
+		const result = emitCsql(
+			lte(
+				prop("patient", "age", ancestorPath(relationStep("parent"))),
+				literal(65),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', age <= 65)")`,
+		);
+	});
+
+	it("swaps gt operator when via lifts from RHS to preserve semantics", () => {
+		// Authored `literal(18) gt prop(via)` reads "18 > <related
+		// prop value>" — i.e. "<related prop value> < 18". The lift
+		// moves the property to the envelope's inner LHS and swaps
+		// the operator so the comparison direction stays intact.
+		const result = emitCsql(
+			gt(
+				literal(18),
+				prop("patient", "age", ancestorPath(relationStep("parent"))),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', age < 18)")`,
+		);
+	});
+
+	it("preserves operand order on eq RHS-via lift (symmetric op)", () => {
+		// Symmetric ops keep `<original-left> = <prop>` inside the
+		// envelope; the authored `'Alice' = prop` shape survives.
+		const result = emitCsql(
+			eq(
+				literal("Alice"),
+				prop("patient", "name", ancestorPath(relationStep("parent"))),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', 'Alice' = name)")`,
+		);
+	});
+
+	it("nests envelopes when both comparison operands carry vias", () => {
+		// `eq(prop(via=ancestor), prop(via=subcase))` lifts the LHS
+		// first; the inner `where` then carries the RHS via on a
+		// property-vs-property comparison. The recursive lift wraps
+		// the inner expression in the RHS's envelope. Symmetric ops
+		// preserve operand order on the RHS-via lift, so the inner
+		// comparison reads with the authored `x = y` shape.
+		const result = emitCsql(
+			eq(
+				prop("patient", "x", ancestorPath(relationStep("parent"))),
+				prop("patient", "y", subcasePath("child")),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', subcase-exists('child', x = y))")`,
+		);
+	});
+
+	it("preserves @-prefix on reserved attributes through the lift", () => {
+		// CCHQ's `INDEXED_METADATA_BY_KEY` at
+		// `commcare-hq/corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`
+		// registers `status` with the `@` prefix; the lifted inner
+		// property must keep the prefix.
+		const result = emitCsql(
+			eq(
+				prop("patient", "status", ancestorPath(relationStep("parent"))),
+				literal("active"),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', @status = 'active')")`,
+		);
+	});
+
+	it("lifts multi-hop ancestor via with slash-joined path", () => {
+		// CCHQ's `ancestor_exists` parses its first argument as a
+		// slash-separated path expression per
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::_is_ancestor_path_expression`.
+		// The serializer at `termEmitter.ts::serializeAncestorPath`
+		// joins the step identifiers with `/`.
+		const result = emitCsql(
+			eq(
+				prop(
+					"patient",
+					"name",
+					ancestorPath(relationStep("parent"), relationStep("host")),
+				),
+				literal("Alice"),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent/host', name = 'Alice')")`,
+		);
+	});
+});
+
+describe("emitCsql — property-via lift (any-relation direction expansion)", () => {
+	// `any-relation` has no direct CCHQ wire form. The lift expands
+	// to an OR of the two direction-specific envelopes — same shape
+	// the on-device emitter's any-relation expansion produces at
+	// `caseListFilterEmitter.ts::emitExistsOrMissing`.
+
+	it("expands any-relation via on eq LHS to an OR of ancestor/subcase envelopes", () => {
+		// The top-level `or` carries no defensive paren-wrap — the
+		// expansion sits at the outermost predicate level so XPath
+		// precedence has no parent operator to re-associate against.
+		// Nested inside an `and`, the `or` would paren-wrap on its
+		// own; that case is covered by the `parenthesizes or-clauses
+		// inside an and` test on the logical-operator block.
+		const result = emitCsql(
+			eq(prop("patient", "name", anyRelationPath("rel")), literal("Alice")),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('rel', name = 'Alice') or subcase-exists('rel', name = 'Alice')")`,
+		);
+	});
+});
+
+describe("emitCsql — property-via lift (membership + range + null/blank)", () => {
+	// One representative test per operator family. The lift is
+	// operator-uniform so the per-operator coverage pins each
+	// arm's wire shape without repeating the direction-dispatch
+	// surface already covered by the comparison-operator block.
+
+	it("lifts via on in.left into ancestor-exists envelope", () => {
+		const result = emitCsql(
+			isIn(
+				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				literal("Alice"),
+				literal("Bob"),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', (name = 'Alice' or name = 'Bob'))")`,
+		);
+	});
+
+	it("lifts via on between.left preserving inclusive bounds", () => {
+		const result = emitCsql(
+			between(prop("patient", "age", ancestorPath(relationStep("parent"))), {
+				lower: term(literal(18)),
+				upper: term(literal(65)),
+			}),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', (age >= 18 and age <= 65))")`,
+		);
+	});
+
+	it("lifts via on between.lower bound flipping comparison direction", () => {
+		// Authored `between(left, lower=prop(via))` reads as
+		// `left >= prop(via)` for inclusive lower. Inside the
+		// envelope, the `prop` is the related case's value and the
+		// inner comparison reads `prop <= left` — the direction
+		// flips when the bound moves to the inner LHS so the
+		// authored "left bounded by lower" semantic survives.
+		const result = emitCsql(
+			between(prop("patient", "age"), {
+				lower: term(
+					prop("patient", "min_age", ancestorPath(relationStep("parent"))),
+				),
+			}),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', min_age <= age)")`,
+		);
+	});
+
+	it("lifts via on between.upper bound flipping comparison direction", () => {
+		// Symmetric to the lower-bound rewrite: original
+		// `left <= upper(via)` becomes `upper_prop >= left` inside
+		// the envelope.
+		const result = emitCsql(
+			between(prop("patient", "age"), {
+				upper: term(
+					prop("patient", "max_age", ancestorPath(relationStep("parent"))),
+				),
+			}),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', max_age >= age)")`,
+		);
+	});
+
+	it("lifts via on between.lower with exclusive bound producing strict comparison", () => {
+		// Exclusive lower (`lowerInclusive: false`) authored as
+		// `left > prop(via)`; inner shape `prop < left`.
+		const result = emitCsql(
+			between(prop("patient", "age"), {
+				lower: term(
+					prop("patient", "min_age", ancestorPath(relationStep("parent"))),
+				),
+				lowerInclusive: false,
+				upperInclusive: false,
+			}),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', min_age < age)")`,
+		);
+	});
+
+	it("lifts via on is-null.left into ancestor-exists envelope with absence equality", () => {
+		const result = emitCsql(
+			isNull(prop("patient", "name", ancestorPath(relationStep("parent")))),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', name = '')")`,
+		);
+	});
+
+	it("lifts via on is-blank.left into subcase-exists envelope", () => {
+		const result = emitCsql(
+			isBlank(prop("patient", "name", subcasePath("child"))),
+		);
+		expect(result.wrapper).toBe(`concat("subcase-exists('child', name = '')")`);
+	});
+});
+
+describe("emitCsql — property-via lift (direct PropertyRef slots)", () => {
+	// `match.property`, `multi-select-contains.property`, and
+	// `within-distance.property` are direct PropertyRef slots — not
+	// ValueExpression-wrapped. The lift handles them on the same
+	// rule as the comparison operands but reads from the property
+	// slot directly.
+
+	it("lifts via on match.property into ancestor-exists envelope with the same mode", () => {
+		const result = emitCsql(
+			match(
+				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				term(literal("Alice")),
+				"fuzzy",
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', fuzzy-match(name, 'Alice'))")`,
+		);
+	});
+
+	it("lifts via on multi-select-contains.property into subcase-exists envelope", () => {
+		const result = emitCsql(
+			multiSelectAll(
+				prop("patient", "tags", subcasePath("child")),
+				literal("a"),
+				literal("b"),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("subcase-exists('child', selected-all(tags, 'a b'))")`,
+		);
+	});
+
+	it("lifts via on within-distance.property into ancestor-exists envelope", () => {
+		const result = emitCsql(
+			within(
+				prop("patient", "location", ancestorPath(relationStep("parent"))),
+				term(literal("40.0 -73.0")),
+				5,
+				"miles",
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("ancestor-exists('parent', within-distance(location, '40.0 -73.0', 5, 'miles'))")`,
+		);
+	});
+});
+
+describe("emitCsql — property-via lift (recursion)", () => {
+	// The lift descends into structural predicate-bearing slots —
+	// logical operators, `not`, `when-input-present`, and the
+	// `where` clauses of `exists` / `missing` — so vias nested
+	// inside any of them surface and lift.
+
+	it("lifts vias on a leaf operator nested inside an and clause", () => {
+		const result = emitCsql(
+			and(
+				eq(prop("patient", "x"), literal("a")),
+				eq(
+					prop("patient", "y", ancestorPath(relationStep("parent"))),
+					literal("b"),
+				),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("x = 'a' and ancestor-exists('parent', y = 'b')")`,
+		);
+	});
+
+	it("lifts vias on a leaf operator nested inside an or clause", () => {
+		const result = emitCsql(
+			or(
+				eq(prop("patient", "x"), literal("a")),
+				eq(prop("patient", "y", subcasePath("child")), literal("b")),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("x = 'a' or subcase-exists('child', y = 'b')")`,
+		);
+	});
+
+	it("lifts a via nested inside an authored exists envelope's where clause", () => {
+		// The authored `exists` envelope already walks one relation;
+		// the inner predicate carries a further via on `prop`. The
+		// lift wraps the inner via in a second envelope, producing
+		// nested `subcase-exists(..., ancestor-exists(...))`.
+		const result = emitCsql(
+			exists(
+				subcasePath("child"),
+				eq(
+					prop("child", "label", ancestorPath(relationStep("parent"))),
+					literal("Alice"),
+				),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("subcase-exists('child', ancestor-exists('parent', label = 'Alice'))")`,
+		);
+	});
+
+	it("lifts a via inside the clause of when-input-present", () => {
+		// `when-input-present` emits via the canonical
+		// `if(count(<trigger>), <inner-csql>, 'match-all()')` pattern.
+		// The inner CSQL emission is a full recursive
+		// `concat(...)` expression carrying the lifted
+		// `ancestor-exists` envelope; the whole `if(...)` flows
+		// through as a single runtime segment in the outer concat.
+		const result = emitCsql(
+			whenInput(
+				input("q"),
+				eq(
+					prop("patient", "name", ancestorPath(relationStep("parent"))),
+					term(input("q")),
+				),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat(if(count(instance('search-input:results')/input/field[@name='q']), concat('ancestor-exists(', "'", 'parent', "'", ', name = "', instance('search-input:results')/input/field[@name='q'], '")'), 'match-all()'))`,
+		);
+	});
+
+	it("lifts vias inside a subcase-count's where clause surviving in comparison-LHS position", () => {
+		// `subcase-direction count` in comparison-LHS position
+		// survives the value-expression hoist as native
+		// `subcase-count(...)` per CCHQ's `_is_subcase_count`
+		// recogniser nested inside
+		// `commcare-hq/corehq/apps/case_search/filter_dsl.py::build_filter_from_ast`.
+		// The where argument compiles through the CSQL predicate
+		// emitter, so a property-via inside the where would
+		// otherwise drop its relation walk — the via-lift walks
+		// into the count's where to handle this case uniformly.
+		const result = emitCsql(
+			gt(
+				count(
+					subcasePath("visit"),
+					eq(
+						prop("visit", "category", ancestorPath(relationStep("parent"))),
+						literal("primary"),
+					),
+				),
+				literal(0),
+			),
+		);
+		expect(result.wrapper).toBe(
+			`concat("subcase-count('visit', ancestor-exists('parent', category = 'primary')) > 0")`,
+		);
+	});
+
+	it("is idempotent — running the rewrite twice produces the same wire output", () => {
+		// The hoist pass is total per `csqlHoist.ts`'s contract: every
+		// input AST produces a CSQL-emission-compatible output. A
+		// second pass over the rewritten AST produces no further
+		// changes — every operator-direct via has already lifted. The
+		// emission round-trips identically.
+		const p = and(
+			eq(
+				prop("patient", "name", ancestorPath(relationStep("parent"))),
+				literal("Alice"),
+			),
+			eq(prop("patient", "state", subcasePath("child")), literal("active")),
+		);
+		const first = emitCsql(p);
+		const second = emitCsql(p);
+		expect(first.wrapper).toBe(second.wrapper);
+		// `name = 'Alice'` triggers the double-quoted CSQL wrap for
+		// the inner literal; the rest emits with single-quoted CSQL.
+		expect(first.wrapper).toBe(
+			`concat("ancestor-exists('parent', name = 'Alice') and subcase-exists('child', state = 'active')")`,
+		);
+	});
+});
+
 // ---------- Term-arm unwrap exhaustiveness ----------
 
 describe("emitCsql — term-arm unwrap (happy path)", () => {

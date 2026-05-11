@@ -16,9 +16,11 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
+	ancestorPath,
 	eq,
 	literal,
 	prop,
+	relationStep,
 	term,
 	toValueExpression,
 } from "@/lib/domain/predicate";
@@ -3656,6 +3658,97 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		// `instance('search-input:results')/input/field[@name='<ref>']`).
 		const xpathEntry = defaults[xpathQueryIdx];
 		expect(xpathEntry.defaultValue).toContain(hoistEntry.property);
+	});
+
+	it("lifts an operator-direct prop(via) into an ancestor-exists envelope on the `_xpath_query` slot", () => {
+		// CCHQ's CSQL grammar exposes relational reads only through
+		// the `ancestor-exists` / `subcase-exists` query functions on
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
+		// A `caseListConfig.filter` that reads a property on an
+		// ancestor case lifts the via into an enclosing envelope
+		// before the CSQL emitter walks the result; the
+		// `_xpath_query` slot on `default_properties` carries the
+		// envelope wire form. The same filter would emit a bare
+		// property name on the wire without the lift — the same
+		// authored AST would match different rows on the on-device
+		// case list versus the server-side `<remote-request>`.
+		const doc = buildDoc({
+			appName: "Via Lift",
+			modules: [
+				{
+					uuid: HQ_PROJECTION_MODULE_UUID,
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(
+								asUuid("00000000-0000-4000-8000-000000040007"),
+								"case_name",
+								"Name",
+							),
+						],
+						searchInputs: [],
+						// Filter reads `region` on the patient's
+						// `household` ancestor — without the lift
+						// the wire emission would drop the via and
+						// match `region` on the patient case itself.
+						filter: eq(
+							prop(
+								"patient",
+								"region",
+								ancestorPath(relationStep("parent", "household")),
+							),
+							literal("North"),
+						),
+					},
+					forms: [
+						{
+							name: "Follow-up",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "region", label: "Region", data_type: "text" },
+					],
+				},
+				{
+					name: "household",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "region", label: "Region", data_type: "text" },
+					],
+				},
+			],
+		});
+		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
+		const xpathEntry = defaults.find((d) => d.property === "_xpath_query");
+		expect(xpathEntry).toBeDefined();
+		// The envelope shape: `ancestor-exists('<rel>', <inner>)`.
+		// Inner reads the property bare (no relation walk) because
+		// the envelope's destination scope owns the resolution.
+		expect(xpathEntry?.defaultValue).toContain("ancestor-exists('parent'");
+		expect(xpathEntry?.defaultValue).toContain("region = 'North'");
+		// Defensive: the pre-lift bug emitted `region = 'North'`
+		// without the envelope, so absence of `ancestor-exists` would
+		// be the regression signal.
+		expect(xpathEntry?.defaultValue).not.toMatch(
+			/^(?!.*ancestor-exists).*region = 'North'/,
+		);
 	});
 });
 
