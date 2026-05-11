@@ -213,7 +213,7 @@ function rewriteSortDirectiveForTarget(
  * grammar-safe per the XPath grammar's decimal-literal rule
  * (`grammar.lezer.grammar::NumberLiteral`).
  */
-const TIME_AGO_DIVISOR_DAYS = {
+export const TIME_AGO_DIVISOR_DAYS = {
 	days: 1,
 	weeks: 7,
 	months: 365.25 / 12,

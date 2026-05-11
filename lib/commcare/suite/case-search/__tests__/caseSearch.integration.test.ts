@@ -834,3 +834,95 @@ describe("case-search integration — platform decision tree", () => {
 		});
 	});
 });
+
+// ============================================================
+// 6. HQ JSON projection — the production export pathway
+// ============================================================
+//
+// `expandDoc` produces the HQ JSON CCHQ ingests at `/api/import_app/`;
+// the suite.xml regenerates from that JSON on every runtime sync.
+// The suite-XML assertions above only catch wire-form drift on the
+// `.ccz` packaging path. This section pins the HQ JSON projection
+// directly — drift on the production export pathway lights up here
+// without the `.ccz` round-trip in between.
+//
+// One realistic blueprint feeds `expandDoc`; structural assertions on
+// `modules[0].search_config` + `modules[0].case_details` pin every
+// case-search authoring slot lands at its CCHQ wire field.
+
+describe("case-search integration — expandDoc HQ JSON projection", () => {
+	it("projects display chrome to title_label, search_button_label, and search_button_display_condition", () => {
+		const doc = buildSearchBlueprint();
+		const searchConfig = expandDoc(doc).modules[0].search_config;
+		expect(searchConfig.title_label).toEqual({ en: "Find a patient" });
+		expect(searchConfig.search_button_label).toEqual({
+			en: "Search patients",
+		});
+		// `searchButtonDisplayCondition: eq(prop("patient","case_name"), literal("Alice"))`
+		// compiles to the bare on-device equality.
+		expect(searchConfig.search_button_display_condition).toBe(
+			"case_name = 'Alice'",
+		);
+	});
+
+	it("projects excludedOwnerIds to blacklisted_owner_ids_expression", () => {
+		const doc = buildSearchBlueprint();
+		const searchConfig = expandDoc(doc).modules[0].search_config;
+		// `excludedOwnerIds: toValueExpression(literal("excluded-owner-id"))`
+		// lowers to the on-device string literal.
+		expect(searchConfig.blacklisted_owner_ids_expression).toBe(
+			"'excluded-owner-id'",
+		);
+	});
+
+	it("projects simple-arm search inputs to search_config.properties", () => {
+		const doc = buildSearchBlueprint();
+		const properties = expandDoc(doc).modules[0].search_config.properties;
+		// The fixture has one simple-arm input (`name_search`) and one
+		// advanced-arm input (`status_search`). Only the simple one
+		// surfaces as a `CaseSearchProperty`; the advanced one
+		// contributes via `_xpath_query` instead.
+		expect(properties).toHaveLength(1);
+		expect(properties[0].name).toBe("name_search");
+		expect(properties[0].label).toEqual({ en: "Search by name" });
+	});
+
+	it("AND-composes the filter + advanced-arm predicate into _xpath_query on default_properties", () => {
+		const doc = buildSearchBlueprint();
+		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
+		const xpathEntry = defaults.find((d) => d.property === "_xpath_query");
+		expect(xpathEntry).toBeDefined();
+		// Both authored predicate fragments survive the AST-level AND
+		// composition and land in the same `concat(...)` runtime
+		// expression.
+		expect(xpathEntry?.defaultValue).toMatch(/concat\(/);
+		expect(xpathEntry?.defaultValue).toContain("region");
+		expect(xpathEntry?.defaultValue).toContain("status");
+		expect(xpathEntry?.defaultValue).toContain(" and ");
+	});
+
+	it("projects caseListConfig.filter to case_details.short.filter as on-device XPath", () => {
+		// CCHQ's `case_list_filter` getter reads through to
+		// `case_details.short.filter`; the wire form is the bare
+		// on-device XPath (CCHQ wraps it as `[...]` at suite-XML
+		// emission time).
+		const doc = buildSearchBlueprint();
+		const filter = expandDoc(doc).modules[0].case_details.short.filter;
+		expect(filter).toBe("region = 'North'");
+	});
+
+	it("projects authored column kinds to their matching CCHQ format token", () => {
+		// The fixture's `caseListConfig.columns` carries two plain
+		// columns; both should project to `format: "plain"` on the
+		// HQ JSON side. A regression here surfaces the silent-drop
+		// failure mode (a column reaching the wire as `format: "plain"`
+		// when the author picked a different kind) directly.
+		const doc = buildSearchBlueprint();
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(shortCols).toHaveLength(2);
+		expect(shortCols[0].format).toBe("plain");
+		expect(shortCols[0].field).toBe("case_name");
+		expect(shortCols[1].format).toBe("plain");
+		expect(shortCols[1].field).toBe("region");
+	});
+});

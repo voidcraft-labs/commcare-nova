@@ -8,13 +8,11 @@
 // into the `<remote-request>` body.
 
 import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
-import { and } from "@/lib/domain/predicate";
-import type { Predicate } from "@/lib/domain/predicate/types";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
-import { emitCsql } from "../../predicate";
 import { escapeXml } from "../../xml";
-import { emitSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
+import { emitSearchPrompts } from "./searchPrompts";
 import type { WireShape } from "./types";
+import { composeXPathQueryEmission } from "./xpathQuery";
 
 /**
  * The CCHQ `app_aware_remote_search` endpoint URL with `__DOMAIN__`
@@ -235,53 +233,4 @@ function composeDatumNodeset(
 	// instance id — the instance discriminator is the colon suffix
 	// on the instance reference, not the path that follows.
 	return `instance('${storageInstance}')/results/case[@case_type='${escapeXml(caseType)}'][not(commcare_is_related_case=true())]`;
-}
-
-/**
- * Compose the `_xpath_query` data slot's wire form. AND-composes
- * the unified filter with every advanced-arm search input's
- * predicate, runs the result through the CSQL emitter, and returns
- * either the emission (for the orchestrator to splice in) or
- * `undefined` when the composed result is `match-all` (the no-op
- * identity — CCHQ accepts the `_xpath_query` absence cleanly).
- *
- * The single-clause arm short-circuits the reducer and falls
- * through to the explicit `match-all` check below; the multi-clause
- * arm goes through `and(...)`'s reducer, which folds authored
- * `match-all` clauses on the way through.
- */
-function composeXPathQueryEmission(
-	caseListConfig: CaseListConfig,
-):
-	| { wrapper: string; hoists: ReturnType<typeof emitCsql>["hoists"] }
-	| undefined {
-	const clauses: Predicate[] = [];
-	if (caseListConfig.filter !== undefined) {
-		clauses.push(caseListConfig.filter);
-	}
-	const advancedPredicates = getAdvancedArmPredicates(
-		caseListConfig.searchInputs,
-	);
-	for (const entry of advancedPredicates) {
-		clauses.push(entry.predicate);
-	}
-	if (clauses.length === 0) {
-		return undefined;
-	}
-
-	// `and(...)` overload set: zero clauses → match-all (handled
-	// above by the length check), one clause → the clause itself,
-	// 2+ clauses → the standard `and` envelope. The reducer
-	// collapses authored `match-all` clauses on the way through.
-	const composed =
-		clauses.length === 1
-			? clauses[0]
-			: and(clauses[0], clauses[1], ...clauses.slice(2));
-
-	if (composed.kind === "match-all") {
-		return undefined;
-	}
-
-	const emission = emitCsql(composed);
-	return { wrapper: emission.wrapper, hoists: emission.hoists };
 }

@@ -35,14 +35,29 @@ import type { CaseListEmission } from "../case-list/types";
 // `Record<SearchInputType, ...>` keys this exhaustively — a new
 // `SearchInputType` arm is a compile error until its row lands.
 
-interface PromptAttributeMapping {
-	/** Value for the `<prompt input="...">` attribute, when present. */
+/**
+ * Per-`SearchInputType` mapping to the two CCHQ wire-attribute slots
+ * a search prompt routes through:
+ *
+ *   - `input` — the `<prompt input="...">` attribute / CCHQ's
+ *     `CaseSearchProperty.input_` field (`select1` / `date` /
+ *     `daterange`). Drives the widget kind.
+ *   - `appearance` — the `<prompt appearance="...">` attribute /
+ *     CCHQ's `CaseSearchProperty.appearance` field. CCHQ overlays a
+ *     scanner UI on top of a default text input when this carries
+ *     `barcode_scan`.
+ *
+ * The two slots are mutually exclusive — a row populates one slot at
+ * most. The shared shape is exported so both wire surfaces (suite
+ * XML `<prompt>` and HQ JSON `CaseSearchProperty`) consult the same
+ * authoritative table.
+ */
+export interface PromptAttributeMapping {
 	readonly input?: string;
-	/** Value for the `<prompt appearance="...">` attribute, when present. */
 	readonly appearance?: string;
 }
 
-const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
+export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 	Record<SearchInputType, PromptAttributeMapping>
 > = {
 	// CCHQ default — both attributes omitted, plain text input.

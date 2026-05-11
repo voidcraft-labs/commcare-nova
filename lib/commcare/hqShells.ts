@@ -1,6 +1,7 @@
 /** Factory functions for boilerplate HQ JSON structures. */
 
 import type {
+	CaseSearchConfig,
 	DetailBase,
 	DetailColumn,
 	DetailPair,
@@ -122,6 +123,21 @@ function detailBase(): DetailBase {
 	};
 }
 
+/**
+ * Build a baseline plain `DetailColumn`. The `format` defaults
+ * here align with CCHQ's `DetailColumn` schema defaults
+ * (`commcare-hq/.../models.py::DetailColumn`). Callers override
+ * any subset of fields for non-plain kinds (date / phone / enum /
+ * time-ago / late-flag / calculate / invisible) before placing the
+ * column in the wire structure — the expander composes the per-
+ * kind shape from `Column`, holding the defaults stable for slots
+ * the kind doesn't author.
+ *
+ * `late_flag` defaults to 30 days and `time_ago_interval` to
+ * 365.25 days per CCHQ; these are inactive for non-interval kinds
+ * (CCHQ ignores them when `format` is not `"late-flag"` /
+ * `"time-ago"`).
+ */
 export function detailColumn(
 	field: string,
 	header: string | Record<string, string>,
@@ -148,6 +164,31 @@ export function detailColumn(
 		relevant: "",
 		case_tile_field: null,
 		nodeset: "",
+		date_format: "%d/%m/%y",
+	};
+}
+
+/**
+ * Build a baseline `CaseSearchConfig` matching CCHQ's `CaseSearch`
+ * schema defaults (`commcare-hq/.../models.py::CaseSearch`). The
+ * expander mutates this shell with the authored
+ * `caseSearchConfig` + `caseListConfig.searchInputs` slots before
+ * the module reaches the wire JSON; new modules with no search
+ * config land here as the no-search baseline. The shell is the
+ * single seed point — keeps CCHQ default drift to one file.
+ */
+export function caseSearchConfigShell(): CaseSearchConfig {
+	return {
+		doc_type: "CaseSearch",
+		// CCHQ default: `{'en': 'Search All Cases'}` per
+		// `CaseSearch.search_button_label = LabelProperty(default={'en': 'Search All Cases'})`.
+		search_button_label: { en: "Search All Cases" },
+		properties: [],
+		auto_launch: false,
+		default_search: false,
+		default_properties: [],
+		title_label: {},
+		description: {},
 	};
 }
 
@@ -338,12 +379,7 @@ export function moduleShell(
 			custom_icons: [],
 		},
 		case_list_form: { doc_type: "CaseListForm", form_id: null, label: {} },
-		search_config: {
-			doc_type: "CaseSearch",
-			properties: [],
-			default_properties: [],
-			include_closed: false,
-		},
+		search_config: caseSearchConfigShell(),
 		display_style: "list",
 		media_image: {},
 		media_audio: {},
