@@ -83,17 +83,10 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * conversion once at the request edge via `buildCaseTypeMap`.
  *
  * `inputValues` carries the running-app surface's per-search-input
- * typed values. When supplied alongside a `caseListConfig` whose
- * `searchInputs` slot is non-empty, the helper composes
- * `composeRuntimeFilter(...)` over the input bag and AND-joins the
- * result with `caseListConfig.filter` to form the predicate that
- * flows to `store.query(...)`. The unified-filter slot is the single
- * source for both the case-list always-on filter and the search-
- * input contributions — there is no separate "search default filter"
- * parameter. Absent / undefined inputs OR an empty `searchInputs`
- * slot short-circuit to the existing `caseListConfig?.filter`
- * passthrough so the helper's callers (raw-row reads, calc preview
- * surfaces) don't pay for a no-op composition.
+ * typed values. The helper composes them with `caseListConfig.filter`
+ * through `composeQueryPredicate` to produce the predicate that
+ * flows to `store.query(...)`. See that helper for the per-arm
+ * dispatch table.
  */
 export async function readCases(
 	store: CaseStore,
@@ -138,9 +131,9 @@ export async function readCases(
  *   - `caseListConfig.searchInputs.length === 0` OR `inputValues`
  *     absent — no runtime contribution exists. Skip
  *     `composeRuntimeFilter` entirely and pass `caseListConfig.filter`
- *     through verbatim. The current behavior, preserved for every
- *     non-running-app caller (Filters / Display previews, calc
- *     surface).
+ *     through verbatim. The Filters / Display previews and the calc
+ *     surface call `readCases` without `inputValues`, so this is the
+ *     branch they take.
  *   - Both slots populated — compose the at-most-two contributing
  *     predicates through the `and(...)` builder; the `match-all`
  *     conjunction-identity is short-circuited to `undefined` so the
@@ -178,14 +171,10 @@ function composeQueryPredicate(
 
 	if (clauses.length === 0) return undefined;
 	if (clauses.length === 1) return clauses[0];
-	// `and`'s public overloads are `(): match-all`, `<T>(only: T): T`,
-	// and `(first, second, ...rest): and-envelope`. The arity-explicit
-	// spread is the only shape that resolves to the two-or-more
-	// overload — `and(...clauses)` against a `Predicate[]` rest-arg
-	// fails the overload set (TS2556). Matches the canonical
-	// composition shape at
-	// `searchSession.ts::composeXPathQueryEmission`.
-	return and(clauses[0], clauses[1], ...clauses.slice(2));
+	// `clauses` holds at most two entries (`baseFilter` +
+	// `runtimeFilter`); the two-element branch falls straight into
+	// `and`'s `(first, second, ...rest)` overload.
+	return and(clauses[0], clauses[1]);
 }
 
 /**
