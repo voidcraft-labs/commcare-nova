@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// __tests__/integration/case-list-search-running-app.test.ts
+// __tests__/integration/case-list-search-running-app.test.tsx
 //
 // End-to-end coverage for the running-app search-execution surface.
 // Each `describe(...)` block exercises one cross-layer contract a
@@ -9,7 +9,8 @@
 //   - Initial render: `CaseListScreen` mounted against the live
 //     `PostgresCaseStore` renders module-name heading, columns
 //     filtered by `visibleInList`, calc cells materialized at the
-//     SQL layer, and rows ordered by the authored sort directives.
+//     SQL layer via `arith("+", prop, literal)`, and rows ordered
+//     by the authored sort directives.
 //   - Search-input narrowing: typing into `SearchInputForm` produces
 //     a fresh `inputValues` reference, which `composeRuntimeFilter`
 //     lowers into a runtime predicate that AND-composes with the
@@ -17,11 +18,18 @@
 //     compiles to SQL through the case-store's compiler stack and
 //     the rendered table reflects the narrowed result set against
 //     real Postgres rows — no mocked store, no hand-rolled SQL.
-//   - Form write-through: `FormScreen`'s submit dispatches through
-//     `submitFormAction` which routes registration / followup / close
-//     mutations through the case-store's `apply*Mutation` helpers
-//     against real rows. The follow-up re-read confirms the write
-//     landed and is visible to the case-list re-query.
+//   - Registration write-through: `FormScreen`'s submit dispatches
+//     through `submitFormAction` which routes the registration
+//     mutation through `applyRegistrationMutation` against real
+//     rows. The case-list re-render surfaces the new row.
+//   - Followup write-through: a bound case is patched through
+//     `applyFollowupMutation`; the case-list re-render reflects the
+//     patched property value AND the calc cell (`age + 1`) re-
+//     evaluates against the new value.
+//   - Close write-through: a bound case is closed through
+//     `applyCloseMutation`; the case-store stamps `closed_on` to a
+//     non-null timestamp (status stays unchanged per the case-store's
+//     `close` contract).
 //   - Reset round-trip: clicking the Reset button + confirming the
 //     dialog routes through `resetSampleCasesAction` which delegates
 //     to `resetSampleCases` over `store.resetSampleData` — the atomic
@@ -80,10 +88,18 @@ import { asUuid as asDocUuid, type Uuid } from "@/lib/doc/types";
 import {
 	asUuid,
 	type BlueprintDoc,
+	calculatedColumn,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import {
+	arith,
+	eq,
+	literal,
+	prop,
+	qualifiedLiteral,
+	term,
+} from "@/lib/domain/predicate";
 import type {
 	LoadCasesResult,
 	PopulateSampleCasesResult,
@@ -112,13 +128,21 @@ const dbHandle = setupPerTestDatabase({
 // their own through Postgres's `uuidv7()` column default.
 
 const APP_ID = "case-list-search-int";
+const MODULE_NAME = "Patients";
 const OWNER_ID = "owner-int";
 const MODULE_UUID = asDocUuid("00000000-0000-0000-0000-00000000a001");
 const REG_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a002");
 const FOLLOWUP_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a003");
+const CLOSE_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a004");
 
 const COL_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000001");
 const COL_AGE_UUID = asUuid("00000000-0000-4000-8000-000000000002");
+// Calculated column projecting `age + 1` ("age next year"). Mirrors
+// the authoring integration test's calc-column shape — `arith` plus
+// a typed `int` literal compiles cleanly into the case-store's SQL
+// `calculated` projection and surfaces on `row.calculated[uuid]`.
+// The screen reads the slot through `evaluateColumnValue`.
+const COL_CALC_UUID = asUuid("00000000-0000-4000-8000-000000000003");
 const SI_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000010");
 
 // ── Mocks ────────────────────────────────────────────────────────
@@ -240,7 +264,7 @@ function buildFixtureDoc(): BlueprintDoc {
 		modules: [
 			{
 				uuid: MODULE_UUID,
-				name: "Patients",
+				name: MODULE_NAME,
 				caseType: "patient",
 				caseListConfig: {
 					columns: [
@@ -248,6 +272,23 @@ function buildFixtureDoc(): BlueprintDoc {
 						plainColumn(COL_AGE_UUID, "age", "Age", {
 							sort: { direction: "desc", priority: 0 },
 						}),
+						// `age + 1` ("age next year") — `arith` + typed `int`
+						// literal so the case-store's expression compiler emits
+						// `((properties->>'age')::int + $N::int)` which Postgres
+						// resolves without a bind-type inference issue. The
+						// screen reads `row.calculated[COL_CALC_UUID]` through
+						// `evaluateColumnValue`; the integration test asserts
+						// the rendered value to pin the SQL projection's
+						// round-trip into the table cell.
+						calculatedColumn(
+							COL_CALC_UUID,
+							"Age next year",
+							arith(
+								"+",
+								term(prop("patient", "age")),
+								term(qualifiedLiteral(1, "int")),
+							),
+						),
 					],
 					filter: eq(prop("patient", "status"), literal("open")),
 					searchInputs: [
@@ -308,6 +349,21 @@ function buildFixtureDoc(): BlueprintDoc {
 								case_property_on: "patient",
 							}),
 						],
+					},
+					{
+						// Close forms commonly carry no field tree — the
+						// case-store's `applyCloseMutation` writes
+						// `status: "closed"` regardless of the form's
+						// contents, so a zero-field close is the canonical
+						// shape. The form-engine's submit dispatch still
+						// fires `submitFormAction` with a `close`-kind
+						// mutation; the always-on `status = 'open'` filter
+						// then drops the closed row from the next case-list
+						// re-query.
+						uuid: CLOSE_FORM_UUID,
+						name: "Close visit",
+						type: "close",
+						fields: [],
 					},
 				],
 			},
@@ -565,6 +621,12 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		});
 		expect(screen.queryByText("Carol")).toBeNull();
 
+		// Heading is the module name — the module IS the case-list
+		// title in v2, NOT the first form's name. Pins the v2 reshape's
+		// heading-source contract end-to-end against a real-Postgres
+		// render.
+		expect(screen.getByRole("heading", { name: MODULE_NAME })).toBeDefined();
+
 		// Sort order — `age desc` puts Bob (40) before Alice (25). The
 		// rows render in `<tr>` elements; the first body row holds
 		// Bob's case_name, the second holds Alice's. Filtering on
@@ -577,6 +639,17 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		expect(bodyRows).toHaveLength(2);
 		expect(bodyRows[0]?.textContent).toContain("Bob");
 		expect(bodyRows[1]?.textContent).toContain("Alice");
+
+		// Calc cell — `age + 1` evaluates at the SQL layer; the
+		// rendered cell is the materialized string. Pins the
+		// `calculated` SELECT projection through to the screen via
+		// `evaluateColumnValue`. Alice's row carries `age=25` → 26;
+		// Bob's carries `age=40` → 41. Both materialized cell values
+		// must land in the rendered DOM.
+		const calcCells = screen.getAllByRole("cell");
+		const calcCellTexts = calcCells.map((c) => c.textContent ?? "");
+		expect(calcCellTexts).toContain("41");
+		expect(calcCellTexts).toContain("26");
 
 		// Type "Alice" into the search input. `SearchInputForm`
 		// debounces 300 ms before emitting the new value bag;
@@ -738,5 +811,178 @@ describe("CaseListScreen Reset — atomic delete + regenerate round-trip", () =>
 			},
 			{ timeout: 5_000 },
 		);
+	});
+});
+
+// =================================================================
+// 4. Followup form write-through, then case-list re-render.
+//
+// Mount the followup form against a pre-seeded case row, patch the
+// `age` field, submit. `submitFormAction`'s delegate runs
+// `applyFollowupMutation` against the per-test store. Switch back
+// to the cases URL + re-render the case list; the patched value
+// surfaces on the row.
+// =================================================================
+
+describe("FormScreen followup submit — patch round-trip to case list", () => {
+	it("writes the followup patch through the store and the case-list re-render reflects the new value", async () => {
+		const store = buildStore();
+		const doc = buildFixtureDoc();
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+
+		// Seed a single open-status row. The followup form is bound
+		// to this caseId via the URL location's `caseId` slot.
+		const insertResult = await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 40 },
+			},
+		});
+		const caseId = insertResult.caseId;
+
+		// Mount the followup form bound to the seeded case. The
+		// case-data preload runs through `loadCaseDataAction`'s
+		// delegate against the per-test store; the engine hydrates
+		// the form's `age` input with the bound row's value.
+		const formView = renderFormScreen(doc, FOLLOWUP_FORM_UUID, caseId);
+
+		// Wait for the engine to mount AND for the preload to land
+		// the bound row's `age = 40` on the input. Waiting on the
+		// preloaded VALUE (not just the input's existence) is the
+		// load-bearing pin against the race where `fireEvent.change`
+		// would land "41" before the async preload overwrites it
+		// with "40", silently producing an empty submission patch.
+		const ageInput = (await waitFor(() => {
+			const el = screen.getByRole("spinbutton") as HTMLInputElement;
+			expect(el.value).toBe("40");
+			return el;
+		})) as HTMLInputElement;
+
+		// Patch the age field to a new value. The followup mutation
+		// emits a `properties.age` write only; `case_name` is not
+		// touched (the empty-field omission rule at
+		// `computeSubmissionMutation` keeps unwritten fields out of
+		// the mutation entirely).
+		fireEvent.change(ageInput, { target: { value: "41" } });
+
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+
+		// Followup's default post-submit destination is `previous`,
+		// which routes to the `onBack` callback. We pass a no-op
+		// onBack in `renderFormScreen`; observable signal that the
+		// submit landed is the case-store row's new value, asserted
+		// below after the case-list re-render.
+		await waitFor(() => {
+			expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
+		});
+		// Confirm the patch actually landed before mutating to the
+		// case-list URL — a race where `submitFormAction` is observed
+		// before its `applyFollowupMutation` finished would otherwise
+		// surface as a flaky re-read.
+		await waitFor(async () => {
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(doc),
+			});
+			expect(rows[0]?.properties).toEqual({ name: "Alice", age: 41 });
+		});
+
+		formView.unmount();
+		currentLocation = { kind: "cases", moduleUuid: MODULE_UUID };
+		renderCaseListScreen(doc);
+
+		// The case-list re-renders against the patched row. The Age
+		// column reads through the patched property; the calc cell
+		// (`age + 1`) re-evaluates against the new `age`. `case_name`
+		// stays "Alice" — the followup form has no case-name leaf.
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+		});
+		const cells = screen.getAllByRole("cell");
+		const cellTexts = cells.map((c) => c.textContent ?? "");
+		// Plain Age column reads the patched property → "41".
+		expect(cellTexts).toContain("41");
+		// Calc column re-evaluates → 42 (age + 1).
+		expect(cellTexts).toContain("42");
+		// Inversion: pre-patch age value `40` (and its calc 41 from
+		// the pre-patch row) must not survive the re-query. Asserting
+		// 40 is absent is the load-bearing pin — 41 is BOTH the new
+		// plain-Age cell AND the old calc value, so its presence
+		// alone wouldn't tell the two states apart.
+		expect(cellTexts).not.toContain("40");
+	});
+});
+
+// =================================================================
+// 5. Close form write-through — `closed_on` stamps to non-null.
+//
+// `applyCloseMutation` writes a `closed_on = now()` timestamp via
+// `CaseStore.close` and leaves `status` untouched (the case-store's
+// `close` contract: status changes on closed rows route through
+// `update`, not `close`). The end-to-end pin: a zero-field close
+// form's submit dispatches `submitFormAction` with a `close`-kind
+// mutation that lands the timestamp on the bound row. No other
+// test covers this round-trip.
+// =================================================================
+
+describe("FormScreen close submit — closed_on stamps on the bound row", () => {
+	it("dispatches the close mutation and the case-store stamps closed_on", async () => {
+		const store = buildStore();
+		const doc = buildFixtureDoc();
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+
+		// Seed an open-status row. The close form binds to this
+		// caseId via the URL location.
+		const insertResult = await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 25 },
+			},
+		});
+		const caseId = insertResult.caseId;
+
+		// Mount the close form. Zero-field close forms render no
+		// editable fields; the submit row still mounts in test mode.
+		const formView = renderFormScreen(doc, CLOSE_FORM_UUID, caseId);
+
+		const submit = await screen.findByRole("button", {
+			name: /^submit$/i,
+		});
+		fireEvent.click(submit);
+
+		await waitFor(() => {
+			expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
+		});
+
+		// Confirm the close landed at the case-store layer —
+		// `closed_on` flips from null to a non-null timestamp. The
+		// case-store's `close` contract is "stamp `closed_on = now()`,
+		// leave `status` alone"; status transitions on closed rows
+		// route through `update`, not `close`, by design.
+		await waitFor(async () => {
+			const rows = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(doc),
+			});
+			expect(rows[0]?.closed_on).not.toBeNull();
+		});
+
+		formView.unmount();
 	});
 });
