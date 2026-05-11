@@ -40,8 +40,10 @@
 //              source property, so surfacing a select would lie.
 
 "use client";
+import { Icon } from "@iconify/react/offline";
+import tablerCalendar from "@iconify-icons/tabler/calendar";
+import tablerX from "@iconify-icons/tabler/x";
 import { format, parseISO } from "date-fns";
-import { CalendarIcon, XIcon } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Calendar } from "@/components/shadcn/calendar";
@@ -94,6 +96,14 @@ const DEBOUNCE_MS = 300;
  *  layer. */
 const ISO_DATE_FORMAT = "yyyy-MM-dd";
 
+/** ISO `YYYY-MM-DD` shape — the runtime-bindings layer's
+ *  `parseDateBound` gates on the same pattern. The form re-applies
+ *  the gate before handing values to `parseISO` so a malformed
+ *  inbound shape (URL-hydration edge case, typo'd value) renders
+ *  the placeholder instead of crashing `format(invalidDate, ...)`
+ *  with `RangeError: Invalid time value`. */
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Running-app search-input form. Mounts at the top of the case-list
  * screen when the module declares any search inputs; the form is the
@@ -113,19 +123,40 @@ export function SearchInputForm({
 	// responsive; one debounced effect emits upward.
 	const [draft, setDraft] = useState<SearchInputValues>(value);
 
-	// `lastEmittedRef` carries the map reference the form most
-	// recently handed to `onChange`. The parent's controlled-prop
-	// echo lands here too — the sync effect below skips when the
-	// incoming `value` matches this ref, so the controlled echo
-	// doesn't feed the debounced emitter and produce a runaway loop.
+	// `lastEmittedRef` carries the value most recently treated as
+	// "already emitted" by the form. Two writes land here:
+	//   - The sync effect below stamps the parent's incoming `value`
+	//     when an external update lands. Without that stamp the
+	//     debounce effect would re-emit a fresh-reference Map the
+	//     parent just pushed in (the realistic shape: parent calls
+	//     `setValues(new Map(...))`), echoing parent updates back as
+	//     user typing.
+	//   - The debounce effect stamps the draft right before invoking
+	//     `onChangeRef.current(draft)` so the parent's controlled
+	//     echo doesn't trigger a second emission.
 	const lastEmittedRef = useRef<SearchInputValues>(value);
 
-	// Sync external `value` changes into the local draft. Skip when
-	// the incoming `value` is the form's own emission echoed back
-	// through the parent — that's the steady-state the controlled-
-	// component contract creates and is not a real external change.
+	// Pin the callback in a ref so the debounce effect's deps stay
+	// `[draft]` alone. A parent passing an inline arrow
+	// `(next) => setValues(next)` produces a fresh `onChange`
+	// identity every render; if the debounce effect depended on
+	// `onChange`, each parent re-render under 300 ms would clean up
+	// and reschedule the pending timer, and the upward emission
+	// would never actually fire under sustained re-render pressure.
+	const onChangeRef = useRef(onChange);
+	useEffect(() => {
+		onChangeRef.current = onChange;
+	}, [onChange]);
+
+	// Sync external `value` changes into the local draft AND stamp
+	// `lastEmittedRef` so the debounce effect's "draft already
+	// emitted" guard recognizes the new reference and skips
+	// scheduling. Without the stamp the parent's own `setValues(...)`
+	// call would loop back through this form as a synthetic emission
+	// 300 ms later.
 	useEffect(() => {
 		if (value !== lastEmittedRef.current) {
+			lastEmittedRef.current = value;
 			setDraft(value);
 		}
 	}, [value]);
@@ -137,18 +168,15 @@ export function SearchInputForm({
 	// form doesn't emit after teardown.
 	useEffect(() => {
 		// Skip when `draft` is the same reference as the last upward
-		// emission. Two reasons this fires: (a) the controlled echo
-		// path above synced `draft = value` where `value` IS the
-		// echo; (b) the initial mount where `draft === value === the
-		// initial parent map`. Either way, no real user change
-		// occurred — emitting again would loop.
+		// emission OR the most recent external value. Either way, no
+		// real user change occurred — emitting again would loop.
 		if (draft === lastEmittedRef.current) return;
 		const handle = setTimeout(() => {
 			lastEmittedRef.current = draft;
-			onChange(draft);
+			onChangeRef.current(draft);
 		}, DEBOUNCE_MS);
 		return () => clearTimeout(handle);
-	}, [draft, onChange]);
+	}, [draft]);
 
 	// One mutator routed through every per-input change handler.
 	// Empty values delete the key — the runtime-bindings layer
@@ -232,7 +260,7 @@ function SearchInputRow({
 			);
 		case "date":
 			return (
-				<DateRow
+				<DatePopoverField
 					name={input.name}
 					label={input.label}
 					value={draft.get(input.name) ?? ""}
@@ -359,37 +387,72 @@ function TextRow({ name, label, value, onChange }: TextRowProps) {
 	);
 }
 
-interface DateRowProps {
+interface DatePopoverFieldProps {
 	readonly name: string;
 	readonly label: string;
 	readonly value: string;
 	readonly onChange: (next: string) => void;
+	/** Optional override for the `FieldLabel`'s className — date-range
+	 *  bounds shrink their per-bound label so the parent legend reads
+	 *  as the primary heading. Top-level single-date pickers omit the
+	 *  override and inherit the default `FieldLabel` styling. */
+	readonly labelClassName?: string;
+	/** Optional explicit `aria-label` on the trigger button. Date-
+	 *  range bounds set this to disambiguate "from" vs "to" for
+	 *  screen readers — `FieldLabel htmlFor` already wires the
+	 *  accessible name, but the trigger's button role benefits from
+	 *  an explicit label inside a grid where ATs may flatten the
+	 *  visual hierarchy. Top-level pickers omit it and rely on the
+	 *  label association alone. */
+	readonly ariaLabel?: string;
 }
 
 /**
- * Single date-picker row. Trigger reads the ISO-formatted value or
- * a placeholder; the popover hosts a `mode="single"` Calendar that
- * emits the picked `Date`. `date-fns` `format(..., "yyyy-MM-dd")`
- * lands at local-time midnight — matching the runtime-bindings
- * layer's `parseDateBound` ISO-pattern gate without timezone drift
- * (`new Date("2024-01-01")` would parse as UTC midnight and shift
- * negative offsets back a day).
+ * Date picker — Popover trigger + `mode="single"` Calendar. The
+ * trigger button reads the ISO-formatted value or a placeholder;
+ * the popover hosts the Calendar that emits the picked `Date`.
+ * `date-fns` `format(..., "yyyy-MM-dd")` lands at local-time
+ * midnight — matching the runtime-bindings layer's `parseDateBound`
+ * ISO-pattern gate without timezone drift (`new Date("2024-01-01")`
+ * would parse as UTC midnight and shift negative offsets back a
+ * day). Inbound values that don't match the ISO pattern resolve to
+ * `undefined` so a malformed string from URL hydration or a typo'd
+ * fixture renders the placeholder instead of crashing
+ * `format(invalidDate, ...)`.
  *
- * The trigger renders inside `PopoverTrigger`'s `render` prop slot
- * — Base UI's composition pattern. The Button component is a
+ * Used as the single-date row AND as each bound of the date-range
+ * row. The two callers differ only in label styling + the explicit
+ * trigger `aria-label`; both knobs are optional props on this
+ * primitive. Screen-reader accessibility lives on the `FieldLabel
+ * htmlFor` association + the optional `aria-label` override —
+ * neither path touches the HTML `name` attribute, which is form-
+ * submission metadata, not assistive-tech surface.
+ *
+ * The trigger renders inside `PopoverTrigger`'s `render` prop slot —
+ * Base UI's composition pattern. The Button component is a
  * `data-slot=button` shadcn primitive over the Base UI Button so
  * focus + keyboard semantics flow through.
  */
-function DateRow({ name, label, value, onChange }: DateRowProps) {
+function DatePopoverField({
+	name,
+	label,
+	value,
+	onChange,
+	labelClassName,
+	ariaLabel,
+}: DatePopoverFieldProps) {
 	const id = useId();
-	const selected = value === "" ? undefined : parseISO(value);
+	const selected = ISO_DATE_PATTERN.test(value) ? parseISO(value) : undefined;
 	return (
 		<Field>
-			<FieldLabel htmlFor={id}>{label}</FieldLabel>
+			<FieldLabel htmlFor={id} className={labelClassName}>
+				{label}
+			</FieldLabel>
 			<Popover>
 				<PopoverTrigger
 					id={id}
 					name={name}
+					aria-label={ariaLabel}
 					render={
 						<Button
 							variant="outline"
@@ -404,7 +467,11 @@ function DateRow({ name, label, value, onChange }: DateRowProps) {
 							? "Pick a date"
 							: format(selected, ISO_DATE_FORMAT)}
 					</span>
-					<CalendarIcon className="size-3.5 ml-auto" />
+					<Icon
+						icon={tablerCalendar}
+						className="size-3.5 ml-auto"
+						aria-hidden="true"
+					/>
 				</PopoverTrigger>
 				<PopoverContent align="start" className="w-auto p-0">
 					<Calendar
@@ -423,7 +490,7 @@ function DateRow({ name, label, value, onChange }: DateRowProps) {
 								size="xs"
 								onClick={() => onChange("")}
 							>
-								<XIcon />
+								<Icon icon={tablerX} aria-hidden="true" />
 								Clear
 							</Button>
 						</div>
@@ -467,6 +534,8 @@ function DateRangeRow({
 	onChangeTo,
 }: DateRangeRowProps) {
 	const groupId = useId();
+	const fromLabel = `${label} from`;
+	const toLabel = `${label} to`;
 	return (
 		<fieldset
 			aria-labelledby={groupId}
@@ -476,99 +545,24 @@ function DateRangeRow({
 				{label}
 			</legend>
 			<div className="grid grid-cols-2 gap-2">
-				<DateBoundPicker
+				<DatePopoverField
 					name={`${name}:from`}
-					label={`${label} from`}
+					label={fromLabel}
 					value={fromValue}
 					onChange={onChangeFrom}
+					labelClassName="text-xs font-normal text-muted-foreground"
+					ariaLabel={fromLabel}
 				/>
-				<DateBoundPicker
+				<DatePopoverField
 					name={`${name}:to`}
-					label={`${label} to`}
+					label={toLabel}
 					value={toValue}
 					onChange={onChangeTo}
+					labelClassName="text-xs font-normal text-muted-foreground"
+					ariaLabel={toLabel}
 				/>
 			</div>
 		</fieldset>
-	);
-}
-
-interface DateBoundPickerProps {
-	readonly name: string;
-	readonly label: string;
-	readonly value: string;
-	readonly onChange: (next: string) => void;
-}
-
-/**
- * One bound of a date-range pair. Structurally identical to
- * `DateRow` but mounted inside a labelled grid cell with a smaller
- * per-bound label — the parent legend names the range, the per-cell
- * label names the bound role. Identity by `name` so screen readers
- * announce "<input> from"/"to" rather than a generic "Pick a date".
- */
-function DateBoundPicker({
-	name,
-	label,
-	value,
-	onChange,
-}: DateBoundPickerProps) {
-	const id = useId();
-	const selected = value === "" ? undefined : parseISO(value);
-	return (
-		<Field>
-			<FieldLabel
-				htmlFor={id}
-				className="text-xs font-normal text-muted-foreground"
-			>
-				{label}
-			</FieldLabel>
-			<Popover>
-				<PopoverTrigger
-					id={id}
-					name={name}
-					render={
-						<Button
-							variant="outline"
-							size="sm"
-							className="w-full justify-between font-normal data-placeholder:text-muted-foreground"
-							data-placeholder={selected === undefined ? "" : undefined}
-						/>
-					}
-					aria-label={label}
-				>
-					<span className="truncate">
-						{selected === undefined
-							? "Pick a date"
-							: format(selected, ISO_DATE_FORMAT)}
-					</span>
-					<CalendarIcon className="size-3.5 ml-auto" />
-				</PopoverTrigger>
-				<PopoverContent align="start" className="w-auto p-0">
-					<Calendar
-						mode="single"
-						selected={selected}
-						onSelect={(next) => {
-							onChange(next === undefined ? "" : format(next, ISO_DATE_FORMAT));
-						}}
-						autoFocus
-					/>
-					{selected !== undefined && (
-						<div className="flex justify-end border-t border-border p-1.5">
-							<Button
-								type="button"
-								variant="ghost"
-								size="xs"
-								onClick={() => onChange("")}
-							>
-								<XIcon />
-								Clear
-							</Button>
-						</div>
-					)}
-				</PopoverContent>
-			</Popover>
-		</Field>
 	);
 }
 
@@ -590,11 +584,11 @@ interface SelectRowProps {
  * value renders the placeholder; selecting an option emits the
  * option's wire-form `value`.
  *
- * Defensive coercion on the trigger's `onValueChange` — the Base UI
- * type system widens the callback's argument when `value` could be
- * `null` in unusual states; we coerce non-string emissions to the
- * empty-string "no selection" wire form so the binding layer's
- * short-circuit fires the same way as a cleared text input.
+ * Base UI's `Select.onValueChange` is multi-select-aware: the value
+ * parameter is `string | string[] | null`. The form's binding
+ * layer only consumes single-string values, so the array and null
+ * arms are collapsed to the empty string — the binding layer's
+ * short-circuit then fires the same way as a cleared text input.
  */
 function SelectRow({ name, label, options, value, onChange }: SelectRowProps) {
 	const id = useId();

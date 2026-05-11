@@ -417,6 +417,26 @@ describe("debounced onChange emission", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 	});
 
+	it("does not emit when the parent pushes a fresh value reference", () => {
+		// The realistic controlled-prop pattern: parents call
+		// `setValues(new Map([...]))` — a fresh Map instance each
+		// time. The reference-identity echo guard in the previous
+		// test (parent passes the EXACT same Map instance back) is
+		// insufficient; the form must also stamp `lastEmittedRef`
+		// when an external `value` lands so the debounce effect
+		// recognizes the new reference as "already accounted for"
+		// and skips scheduling. Without that stamp every parent
+		// update would echo back as a synthetic 300 ms emission.
+		const { onChange, rerender } = renderForm({
+			searchInputs: [
+				simpleSearchInputDef(UUID_NAME, "name", "Name", "text", "name"),
+			],
+		});
+		rerender(new Map([["name", "Carol"]]));
+		vi.advanceTimersByTime(1000);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
 	it("clears the key from the emitted map when the user empties the input", () => {
 		// Absent keys are semantically identical to empty values at the
 		// runtime-bindings layer (both short-circuit to "no clause") so
@@ -472,6 +492,25 @@ describe("controlled `value` prop flow", () => {
 		});
 		const trigger = screen.getByLabelText("Date of birth");
 		expect(trigger.textContent ?? "").toContain("1990-05-12");
+	});
+
+	it("renders the placeholder when the inbound value is not ISO-shaped", () => {
+		// A malformed inbound shape — URL-hydration edge case, typo'd
+		// fixture, or a non-date value pushed into a date slot — would
+		// pass through `parseISO` as Invalid Date and then crash
+		// `format(invalidDate, ...)` with `RangeError: Invalid time
+		// value`. The form re-applies the runtime-bindings layer's
+		// ISO-pattern gate before handing values to `parseISO` so a
+		// malformed value renders the placeholder cleanly.
+		const initial: SearchInputValues = new Map([["dob", "garbage"]]);
+		renderForm({
+			searchInputs: [
+				simpleSearchInputDef(UUID_DOB, "dob", "Date of birth", "date", "dob"),
+			],
+			value: initial,
+		});
+		const trigger = screen.getByLabelText("Date of birth");
+		expect(trigger.textContent ?? "").toContain("Pick a date");
 	});
 
 	it("renders ISO-formatted bounds on both date-range Popover triggers", () => {
