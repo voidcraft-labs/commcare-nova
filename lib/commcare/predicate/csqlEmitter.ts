@@ -916,33 +916,48 @@ function emitExistsCallSegments(
 }
 
 /**
- * Emit a single `ancestor-exists('<path>', <filter>)` call. CCHQ's
- * `ancestor-exists` requires exactly two arguments per
- * `confirm_args_count(node, 2)` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`.
- * When `where` is absent, inject `match-all()` as the filter — the
- * natural "any case along this ancestor path exists" semantic,
- * expressed in a single grammar-compliant CSQL function. `match-all()`
- * is a CSQL query function registered on
+ * Emit a single `ancestor-exists(<bare-path>, <filter>)` call. CCHQ's
+ * `ancestor-exists` requires exactly two arguments
+ * (`commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::ancestor_exists`)
+ * AND the first argument must parse as a path expression — `Step` or
+ * a chain of `Step / Step / ...` — per
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::_is_ancestor_path_expression`.
+ * The walker `walk_ancestor_hierarchy` treats anything else (in
+ * particular a string Literal) as a non-path: it never enters the
+ * walking loop, serializes the Literal back to a quoted string, and
+ * runs `reverse_index_case_query(case_ids, "'parent'")` against an
+ * index whose `identifier` is literally `'parent'` — a property no
+ * real case carries, so the server silently returns zero matches.
+ *
+ * The bare path is wire-safe because schema constraints on each
+ * `RelationStep.identifier` already restrict the character set to
+ * the CCHQ identifier shape, and `serializeAncestorPath` slash-joins
+ * them into the exact `parent` / `parent/host` form the CCHQ
+ * grammar consumes.
+ *
+ * When `where` is absent, the call inlines `match-all()` as the
+ * filter — the natural "any case along this ancestor path exists"
+ * semantic, expressed in a single grammar-compliant CSQL function.
+ * `match-all()` is registered on
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
  *
- * The path argument routes through `quoteLiteral` so the
- * slash-joined identifier list emits as a properly-quoted CSQL
- * string literal. Schema-layer regex constraints on each step's
- * `identifier` already restrict the character set; `quoteLiteral`
- * mirrors the property emitters' quoting rule for consistency.
+ * Contrast `subcase-exists`: its first argument is a string
+ * identifier (`_extract_subcase_query_parts` enforces
+ * `isinstance(index_identifier, str)`), so that emitter keeps the
+ * `quoteLiteral` wrap. The two CCHQ functions look symmetric on the
+ * surface but have inverted first-arg contracts.
  */
 function emitAncestorExistsCall(
 	steps: readonly RelationStep[],
 	where: Predicate | undefined,
 ): CsqlSegment[] {
-	const pathLiteral = quoteLiteral(serializeAncestorPath(steps), "csql");
+	const barePath = serializeAncestorPath(steps);
 	const filterSegments =
 		where !== undefined
 			? emitFilterArgumentSegments(where)
 			: ([{ kind: "constant", text: "match-all()" }] as const);
 	return [
-		{ kind: "constant", text: `ancestor-exists(${pathLiteral}, ` },
+		{ kind: "constant", text: `ancestor-exists(${barePath}, ` },
 		...filterSegments,
 		{ kind: "constant", text: ")" },
 	];

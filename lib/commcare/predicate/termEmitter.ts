@@ -506,12 +506,18 @@ export function wrapTermAsSegmentList(term: TermEmission): CsqlSegment[] {
 }
 
 /**
- * Slash-join a relation-step chain into the path serialization CCHQ
- * parses at `ancestor_functions.py::_is_ancestor_path_expression`. The
- * walker there reads the argument as a binary expression of `Step /
- * Step / ...` nodes, where each `Step` carries a single identifier;
- * serializing the chain as `parent/host` matches the parser's
- * expected shape.
+ * Slash-join a relation-step chain into the bare path text that
+ * lands as `ancestor-exists`'s first argument on the wire — `parent`
+ * for a single step, `parent/host` for a chain. The CSQL emitter
+ * embeds the return value verbatim into the function call, without
+ * surrounding quotes, because CCHQ's
+ * `commcare-hq/corehq/apps/case_search/xpath_functions/ancestor_functions.py::_is_ancestor_path_expression`
+ * requires the AST node to be a `Step` or `BinaryExpression(op='/')`
+ * — a string Literal silently fails the walker and the search
+ * returns zero rows. Each `RelationStep.identifier` is already
+ * schema-constrained to the CCHQ identifier shape (no embedded
+ * slashes or quotes), so the slash-joined result is grammar-safe
+ * without escaping.
  */
 export function serializeAncestorPath(steps: readonly RelationStep[]): string {
 	return steps.map((s) => s.identifier).join("/");

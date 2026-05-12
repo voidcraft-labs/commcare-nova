@@ -619,7 +619,7 @@ describe("emitCsql — exists / missing", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', region = 'east')")`,
+			`concat("ancestor-exists(parent, region = 'east')")`,
 		);
 	});
 
@@ -631,7 +631,7 @@ describe("emitCsql — exists / missing", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent/host', city = 'SF')")`,
+			`concat("ancestor-exists(parent/host, city = 'SF')")`,
 		);
 	});
 
@@ -646,7 +646,7 @@ describe("emitCsql — exists / missing", () => {
 		// along this ancestor path exists" semantic.
 		const result = emitCsql(exists(ancestorPath(relationStep("parent"))));
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', match-all())")`,
+			`concat('ancestor-exists(parent, match-all())')`,
 		);
 	});
 
@@ -686,7 +686,7 @@ describe("emitCsql — exists / missing", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("not(ancestor-exists('parent', x = 'y'))")`,
+			`concat("not(ancestor-exists(parent, x = 'y'))")`,
 		);
 	});
 
@@ -708,7 +708,7 @@ describe("emitCsql — exists / missing", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("(ancestor-exists('rel', name = 'Alice') or subcase-exists('rel', name = 'Alice'))")`,
+			`concat("(ancestor-exists(rel, name = 'Alice') or subcase-exists('rel', name = 'Alice'))")`,
 		);
 	});
 
@@ -723,7 +723,7 @@ describe("emitCsql — exists / missing", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("not((ancestor-exists('rel', name = 'Alice') or subcase-exists('rel', name = 'Alice')))")`,
+			`concat("not((ancestor-exists(rel, name = 'Alice') or subcase-exists('rel', name = 'Alice')))")`,
 		);
 	});
 
@@ -737,7 +737,7 @@ describe("emitCsql — exists / missing", () => {
 		// emits without a filter argument.
 		const result = emitCsql(exists(anyRelationPath("rel")));
 		expect(result.wrapper).toBe(
-			`concat("(ancestor-exists('rel', match-all()) or subcase-exists('rel'))")`,
+			`concat("(ancestor-exists(rel, match-all()) or subcase-exists('rel'))")`,
 		);
 	});
 });
@@ -998,7 +998,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', name = 'Alice')")`,
+			`concat("ancestor-exists(parent, name = 'Alice')")`,
 		);
 	});
 
@@ -1018,9 +1018,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 				literal(18),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', age > 18)")`,
-		);
+		expect(result.wrapper).toBe(`concat('ancestor-exists(parent, age > 18)')`);
 	});
 
 	it("lifts ancestor via on gte LHS preserving operator direction", () => {
@@ -1030,9 +1028,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 				literal(18),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', age >= 18)")`,
-		);
+		expect(result.wrapper).toBe(`concat('ancestor-exists(parent, age >= 18)')`);
 	});
 
 	it("lifts ancestor via on lt LHS preserving operator direction", () => {
@@ -1042,9 +1038,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 				literal(65),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', age < 65)")`,
-		);
+		expect(result.wrapper).toBe(`concat('ancestor-exists(parent, age < 65)')`);
 	});
 
 	it("lifts ancestor via on lte LHS preserving operator direction", () => {
@@ -1054,9 +1048,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 				literal(65),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', age <= 65)")`,
-		);
+		expect(result.wrapper).toBe(`concat('ancestor-exists(parent, age <= 65)')`);
 	});
 
 	it("swaps gt operator when via lifts from RHS to preserve semantics", () => {
@@ -1070,9 +1062,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 				prop("patient", "age", ancestorPath(relationStep("parent"))),
 			),
 		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', age < 18)")`,
-		);
+		expect(result.wrapper).toBe(`concat('ancestor-exists(parent, age < 18)')`);
 	});
 
 	it("preserves operand order on eq RHS-via lift (symmetric op)", () => {
@@ -1085,7 +1075,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', 'Alice' = name)")`,
+			`concat("ancestor-exists(parent, 'Alice' = name)")`,
 		);
 	});
 
@@ -1103,7 +1093,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', subcase-exists('child', x = y))")`,
+			`concat("ancestor-exists(parent, subcase-exists('child', x = y))")`,
 		);
 	});
 
@@ -1119,7 +1109,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', @status = 'active')")`,
+			`concat("ancestor-exists(parent, @status = 'active')")`,
 		);
 	});
 
@@ -1140,7 +1130,7 @@ describe("emitCsql — property-via lift (comparison operators)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent/host', name = 'Alice')")`,
+			`concat("ancestor-exists(parent/host, name = 'Alice')")`,
 		);
 	});
 });
@@ -1162,7 +1152,7 @@ describe("emitCsql — property-via lift (any-relation direction expansion)", ()
 			eq(prop("patient", "name", anyRelationPath("rel")), literal("Alice")),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('rel', name = 'Alice') or subcase-exists('rel', name = 'Alice')")`,
+			`concat("ancestor-exists(rel, name = 'Alice') or subcase-exists('rel', name = 'Alice')")`,
 		);
 	});
 });
@@ -1182,7 +1172,7 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', (name = 'Alice' or name = 'Bob'))")`,
+			`concat("ancestor-exists(parent, (name = 'Alice' or name = 'Bob'))")`,
 		);
 	});
 
@@ -1194,7 +1184,7 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 			}),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', (age >= 18 and age <= 65))")`,
+			`concat('ancestor-exists(parent, (age >= 18 and age <= 65))')`,
 		);
 	});
 
@@ -1213,7 +1203,7 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 			}),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', min_age <= age)")`,
+			`concat('ancestor-exists(parent, min_age <= age)')`,
 		);
 	});
 
@@ -1229,7 +1219,7 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 			}),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', max_age >= age)")`,
+			`concat('ancestor-exists(parent, max_age >= age)')`,
 		);
 	});
 
@@ -1246,7 +1236,7 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 			}),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', min_age < age)")`,
+			`concat('ancestor-exists(parent, min_age < age)')`,
 		);
 	});
 
@@ -1254,9 +1244,7 @@ describe("emitCsql — property-via lift (membership + range + null/blank)", () 
 		const result = emitCsql(
 			isNull(prop("patient", "name", ancestorPath(relationStep("parent")))),
 		);
-		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', name = '')")`,
-		);
+		expect(result.wrapper).toBe(`concat("ancestor-exists(parent, name = '')")`);
 	});
 
 	it("lifts via on is-blank.left into subcase-exists envelope", () => {
@@ -1283,7 +1271,7 @@ describe("emitCsql — property-via lift (direct PropertyRef slots)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', fuzzy-match(name, 'Alice'))")`,
+			`concat("ancestor-exists(parent, fuzzy-match(name, 'Alice'))")`,
 		);
 	});
 
@@ -1313,7 +1301,7 @@ describe("emitCsql — property-via lift (direct PropertyRef slots)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("ancestor-exists('parent', within-distance(location, '40.0 -73.0', 5, 'miles'))")`,
+			`concat("ancestor-exists(parent, within-distance(location, '40.0 -73.0', 5, 'miles'))")`,
 		);
 	});
 });
@@ -1335,7 +1323,7 @@ describe("emitCsql — property-via lift (recursion)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("x = 'a' and ancestor-exists('parent', y = 'b')")`,
+			`concat("x = 'a' and ancestor-exists(parent, y = 'b')")`,
 		);
 	});
 
@@ -1366,7 +1354,7 @@ describe("emitCsql — property-via lift (recursion)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("subcase-exists('child', ancestor-exists('parent', label = 'Alice'))")`,
+			`concat("subcase-exists('child', ancestor-exists(parent, label = 'Alice'))")`,
 		);
 	});
 
@@ -1387,7 +1375,7 @@ describe("emitCsql — property-via lift (recursion)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat(if(count(instance('search-input:results')/input/field[@name='q']), concat('ancestor-exists(', "'", 'parent', "'", ', name = "', instance('search-input:results')/input/field[@name='q'], '")'), 'match-all()'))`,
+			`concat(if(count(instance('search-input:results')/input/field[@name='q']), concat('ancestor-exists(parent, name = "', instance('search-input:results')/input/field[@name='q'], '")'), 'match-all()'))`,
 		);
 	});
 
@@ -1413,7 +1401,7 @@ describe("emitCsql — property-via lift (recursion)", () => {
 			),
 		);
 		expect(result.wrapper).toBe(
-			`concat("subcase-count('visit', ancestor-exists('parent', category = 'primary')) > 0")`,
+			`concat("subcase-count('visit', ancestor-exists(parent, category = 'primary')) > 0")`,
 		);
 	});
 
@@ -1436,7 +1424,7 @@ describe("emitCsql — property-via lift (recursion)", () => {
 		// `name = 'Alice'` triggers the double-quoted CSQL wrap for
 		// the inner literal; the rest emits with single-quoted CSQL.
 		expect(first.wrapper).toBe(
-			`concat("ancestor-exists('parent', name = 'Alice') and subcase-exists('child', state = 'active')")`,
+			`concat("ancestor-exists(parent, name = 'Alice') and subcase-exists('child', state = 'active')")`,
 		);
 	});
 });

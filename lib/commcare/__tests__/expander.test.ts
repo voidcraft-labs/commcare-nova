@@ -3817,10 +3817,13 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
 		const xpathEntry = defaults.find((d) => d.property === "_xpath_query");
 		expect(xpathEntry).toBeDefined();
-		// The envelope shape: `ancestor-exists('<rel>', <inner>)`.
-		// Inner reads the property bare (no relation walk) because
-		// the envelope's destination scope owns the resolution.
-		expect(xpathEntry?.defaultValue).toContain("ancestor-exists('parent'");
+		// The envelope shape: `ancestor-exists(<rel>, <inner>)` —
+		// bare path on the first argument (CCHQ's
+		// `_is_ancestor_path_expression` requires a path AST node,
+		// not a string Literal). Inner reads the property bare (no
+		// relation walk) because the envelope's destination scope
+		// owns the resolution.
+		expect(xpathEntry?.defaultValue).toContain("ancestor-exists(parent");
 		expect(xpathEntry?.defaultValue).toContain("region = 'North'");
 		// Defensive: the pre-lift bug emitted `region = 'North'`
 		// without the envelope, so absence of `ancestor-exists` would
@@ -3967,8 +3970,11 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			(d) => d.property === "_xpath_query",
 		);
 		expect(xpathEntry).toBeDefined();
-		expect(xpathEntry?.defaultValue).toContain("'ancestor-exists('");
-		expect(xpathEntry?.defaultValue).toContain("'parent'");
+		// CCHQ requires the first arg of `ancestor-exists` to be a
+		// bare path expression (`_is_ancestor_path_expression`
+		// rejects a string Literal). The on-device emitter inlines
+		// `parent` verbatim into the `concat(...)` constant text.
+		expect(xpathEntry?.defaultValue).toContain("ancestor-exists(parent,");
 		expect(xpathEntry?.defaultValue).toContain("region");
 		// Wrapped in `when-input-present` so an unset input
 		// contributes `match-all()` instead of matching empty-string
@@ -4021,8 +4027,10 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			(d) => d.property === "_xpath_query",
 		);
 		expect(xpathEntry).toBeDefined();
-		expect(xpathEntry?.defaultValue).toContain("'ancestor-exists('");
-		expect(xpathEntry?.defaultValue).toContain("'parent'");
+		// `ancestor-exists` first arg is a bare path AST node, not a
+		// string Literal — CCHQ's
+		// `_is_ancestor_path_expression` rejects the literal shape.
+		expect(xpathEntry?.defaultValue).toContain("ancestor-exists(parent,");
 		expect(xpathEntry?.defaultValue).toContain("@name='parent_region'");
 		// The bare-prompt-compatible input's name (`case_name`) does
 		// NOT appear in the derived `_xpath_query` predicate — it

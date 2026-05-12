@@ -1,27 +1,22 @@
 /**
  * Rule: simple-arm `SearchInputDef`s with `type: "select"` are
- * rejected at authoring time until Nova's wire emitters synthesize
- * the `<itemset>` child / `itemset` slot CCHQ needs to render the
- * widget as a select.
+ * rejected because the wire prompt has no itemset slot to render
+ * the runtime widget as a select.
  *
- * CCHQ-core's `QueryPrompt::isSelect` (verified at
- * `~/code/commcare-core/.../suite/model/QueryPrompt.java::isSelect`)
+ * CCHQ-core's `QueryPrompt::isSelect`
+ * (`commcare-core/.../suite/model/QueryPrompt.java::isSelect`)
  * returns `getItemsetBinding() != null`. Without an `<itemset>`
- * child on the wire prompt, the runtime treats `input="select1"` as
- * a text input. The CCHQ-side prompt-emitter at
+ * child on the prompt, the runtime treats `input="select1"` as a
+ * plain text input — the author picked the select widget but the
+ * user gets a free-text field. The CCHQ-side prompt emitter at
  * `commcare-hq/.../suite_xml/post_process/remote_requests.py::build_query_prompts`
- * only writes the itemset when `prop.itemset.nodeset` is non-empty
- * — a slot Nova's `SimpleSearchInputDef` does not carry today.
+ * mirrors the contract: it writes the itemset only when
+ * `prop.itemset.nodeset` is non-empty.
  *
- * The wire-correct fix is structural — Nova's schema needs an
- * itemset slot threaded through the prompt emitters, sourced from
- * the targeted case property's declared `options`. Until that
- * lands, the rule rejects the combination at the validator so the
- * UI option doesn't ship a broken widget.
- *
- * Advanced-arm inputs are not gated by this rule — the advanced
- * arm's predicate composes the membership check explicitly and
- * does not rely on a CCHQ-side select widget.
+ * Authors composing a value-membership check use an advanced-arm
+ * `selected(...)` predicate — the advanced arm composes the
+ * comparison explicitly and does not depend on a CCHQ-side select
+ * widget. This rule is silent on advanced-arm inputs.
  *
  * Short-circuits cleanly when `caseListConfig` is absent or carries
  * no search inputs.
@@ -47,7 +42,7 @@ export function searchInputSelectWidgetNotSupported(
 			validationError(
 				"CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED",
 				"module",
-				`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses the \`select\` widget type. The wire emitter currently has no way to populate the runtime's option list — CCHQ's runtime needs an \`<itemset>\` child on the prompt (\`commcare-core\`'s \`QueryPrompt.isSelect()\` returns false without it, so the widget renders as a plain text input). Change the input's \`type\` to \`text\` for now, or move the membership check to an advanced-arm predicate (the advanced arm composes the value match explicitly and doesn't depend on a CCHQ-side select widget).`,
+				`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses the \`select\` widget type. The wire prompt has no itemset slot to populate, so the runtime would render this as a plain text input instead of a select (CCHQ-core's \`QueryPrompt.isSelect()\` returns false without an \`<itemset>\` child). Change the input's \`type\` to \`text\`, or move the value-membership check to an advanced-arm \`selected(...)\` predicate — the advanced arm composes the comparison explicitly and does not depend on a CCHQ-side select widget.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					inputName: input.name,

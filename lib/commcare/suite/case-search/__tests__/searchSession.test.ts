@@ -456,10 +456,13 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 		// nested CSQL string lower to `&quot;`), so the assertions
 		// pin the structural fragments rather than the raw CSQL
 		// string. CSQL runtime-builds to
-		// `ancestor-exists('parent', case_name = "<typed>")`.
+		// `ancestor-exists(parent, case_name = "<typed>")`.
 		expect(xml).toContain(`key="_xpath_query"`);
-		expect(xml).toContain(`ancestor-exists(`);
-		expect(xml).toContain(`'parent'`);
+		// CCHQ requires `ancestor-exists`'s first arg to be a bare
+		// path AST node (`_is_ancestor_path_expression`), so `parent`
+		// emits without surrounding quotes — Nova's local suite XML
+		// pins the comma to disambiguate from any preceding tokens.
+		expect(xml).toContain(`ancestor-exists(parent,`);
 		// `when-input-present` envelope wraps the inner CSQL via the
 		// canonical `if(count(...), <inner>, 'match-all()')` shape.
 		expect(xml).toContain(`if(count(`);
