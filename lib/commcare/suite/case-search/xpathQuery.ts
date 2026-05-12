@@ -101,7 +101,12 @@ export function composeXPathQueryEmission(
 	// predicate at the wire boundary. Self-walk / absent-via simple
 	// inputs ride on the bare `<prompt>` slot and contribute nothing
 	// here — CCHQ's runtime evaluates their comparison directly
-	// against the current case's property.
+	// against the current case's property. The gate at
+	// `simpleArmNeedsXPathQueryEmission` is the single contract; it
+	// also returns `false` for blank-property inputs (transient editor
+	// state), so the compile path stays clean while the validator's
+	// `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY` surfaces the authoring
+	// error to the user.
 	if (caseType !== undefined) {
 		for (const input of caseListConfig.searchInputs) {
 			if (input.kind !== "simple") continue;

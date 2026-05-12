@@ -144,10 +144,21 @@ import { eq, input, match, prop, whenInput } from "@/lib/domain/predicate";
  * comparison — `exact` (or `range`-as-daterange) AND self-walk /
  * absent `via` AND `name === property`. Anything else routes through
  * `_xpath_query` and the prompt rides `exclude="true()"`.
+ *
+ * Blank-property inputs ride the bare prompt slot as well. The schema
+ * admits `property === ""` as the "row added, not yet picked"
+ * transient editor state (`lib/domain/modules.ts::simpleSearchInputSchema`),
+ * and the validator surfaces the unset property as
+ * `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY`. Deriving a predicate
+ * against a `prop(caseType, "", …)` reference would emit malformed
+ * XPath (`<empty> = instance(...)`) and crash the runtime; the wire
+ * emitter falls back to the bare-prompt shape so the compile path
+ * stays clean while the validator carries the authoring signal.
  */
 export function simpleArmNeedsXPathQueryEmission(
 	authored: SimpleSearchInputDef,
 ): boolean {
+	if (authored.property === "") return false;
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
 	const via = authored.via;
 	const viaIsSelfOrAbsent = via === undefined || via.kind === "self";

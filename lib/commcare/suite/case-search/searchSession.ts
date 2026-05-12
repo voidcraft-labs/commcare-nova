@@ -290,6 +290,20 @@ export function emitSearchSession(args: {
 			instances.add(id);
 		}
 	}
+	// Calc-column expressions land on `m{N}_search_short` /
+	// `m{N}_search_long` (the search-target details). CCHQ resolves
+	// each detail's XPath against the enclosing element's instance
+	// declarations — for the search-target details that's this
+	// `<remote-request>`. Walk every calc-arm column expression so the
+	// local `.ccz` carries the same declarations CCHQ's
+	// server-regenerated suite gets via
+	// `commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`.
+	for (const column of caseListConfig.columns) {
+		if (column.kind !== "calculated") continue;
+		for (const id of collectExpressionInstances(column.expression)) {
+			instances.add(id);
+		}
+	}
 
 	return { xml, strings, instances };
 }

@@ -62,11 +62,13 @@ import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
  * Per-`SearchInputType` mapping to the two CCHQ wire-attribute slots
  * a search prompt routes through:
  *
- *   - `input` — the `<prompt input="...">` attribute / CCHQ's
- *     `CaseSearchProperty.input_` field (`select1` / `date` /
- *     `daterange`). Drives the widget kind.
- *   - `appearance` — the `<prompt appearance="...">` attribute /
- *     CCHQ's `CaseSearchProperty.appearance` field. CCHQ overlays a
+ *   - `input` — the `<prompt input="...">` XML attribute (CCHQ's
+ *     `QueryPrompt.input_` Python field name — the trailing
+ *     underscore avoids the `input` builtin; the wire attribute is
+ *     plain `@input`). Accepts `select1` / `date` / `daterange` and
+ *     drives the widget kind.
+ *   - `appearance` — the `<prompt appearance="...">` XML attribute
+ *     (CCHQ's `QueryPrompt.appearance` field). CCHQ overlays a
  *     scanner UI on top of a default text input when this carries
  *     `barcode_scan`.
  *
@@ -85,7 +87,7 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 > = {
 	// CCHQ default — both attributes omitted, plain text input.
 	text: {},
-	// CCHQ's `input_="select1"`. The runtime widget needs an
+	// Wire attribute `input="select1"`. The runtime widget needs an
 	// `<itemset>` child on the prompt to render as a select —
 	// `commcare-core`'s `QueryPrompt::isSelect` returns false
 	// otherwise and the widget falls back to a text input. Nova's

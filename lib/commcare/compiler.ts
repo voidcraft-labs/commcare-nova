@@ -281,8 +281,8 @@ export function compileCcz(
 			// HQ shape, so the compiler forwards `hqForm.form_links`
 			// verbatim — no second resolution pass needed here.
 			//
-			// Two predicates contribute to the entry's `<instance>`
-			// accumulator:
+			// Three authoring surfaces contribute to the entry's
+			// `<instance>` accumulator:
 			//   - `caseListConfig.filter` flows through verbatim; the wire
 			//     layer at `session.ts::deriveSessionDatums` routes it
 			//     through `emitNodesetFilter` to compose the bracketed
@@ -291,8 +291,18 @@ export function compileCcz(
 			//   - `caseSearchConfig.searchButtonDisplayCondition` lowers
 			//     to the `<action relevant>` attribute on the case-list
 			//     detail's search-action element, which evaluates in this
-			//     entry's context — so any instance the predicate
-			//     references needs an `<instance>` declaration here too.
+			//     entry's context.
+			//   - Calc-column expressions land on the module's
+			//     `m{N}_case_short` / `m{N}_case_long` detail blocks the
+			//     entry's `<datum detail-select / detail-confirm>`
+			//     references. CCHQ resolves the detail's XPath against
+			//     the enclosing entry's declarations, so every instance a
+			//     calc expression reaches needs a matching `<instance>`
+			//     here.
+			const caseListColumnExpressions =
+				mod.caseListConfig?.columns
+					.filter((c) => c.kind === "calculated")
+					.map((c) => c.expression) ?? [];
 			const entryDef = deriveEntryDefinition(
 				xmlns,
 				mIdx,
@@ -303,6 +313,9 @@ export function compileCcz(
 				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
 				mod.caseListConfig?.filter,
 				mod.caseSearchConfig?.searchButtonDisplayCondition,
+				caseListColumnExpressions.length > 0
+					? caseListColumnExpressions
+					: undefined,
 			);
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);

@@ -20,9 +20,13 @@
 
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate/types";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { validateCaseType } from "./identifierValidation";
-import { collectPredicateInstances, instanceSourceFor } from "./predicate";
+import {
+	collectExpressionInstances,
+	collectPredicateInstances,
+	instanceSourceFor,
+} from "./predicate";
 import { emitNodesetFilter } from "./suite/case-list/nodesetFilter";
 import type { HqFormLink } from "./types";
 
@@ -325,10 +329,18 @@ export function deriveFormLinkStack(
  * detail's search-action element, which evaluates in the enclosing
  * `<entry>` context — so every instance the predicate references
  * needs an `<instance>` declaration here alongside the filter's
- * instances. CCHQ's server-side suite generator catches the same
- * accumulation via `InstancesHelper.add_entry_instances`; Nova's
- * local emission has no equivalent post-process, so both predicates
- * walk their term sets at derivation time.
+ * instances.
+ *
+ * `caseListColumnExpressions` carries every calc-column expression
+ * the module's case-list short / long detail emits. CCHQ's runtime
+ * resolves a detail's `instance(...)` references against the
+ * enclosing entry's declarations (the entry's `<datum
+ * detail-select="m{N}_case_short" ... >` ties the two together);
+ * CCHQ's server-side `InstancesHelper.add_entry_instances` walks
+ * `detail.get_all_xpaths()` for every detail the entry references
+ * and adds the missing declarations on the regenerated suite. Nova's
+ * local `.ccz` emission has no equivalent post-process, so the
+ * accumulator walks each calc expression's term set here.
  */
 export function deriveEntryDefinition(
 	formXmlns: string,
@@ -340,6 +352,7 @@ export function deriveEntryDefinition(
 	formLinks?: HqFormLink[],
 	caseListFilter?: Predicate,
 	searchButtonDisplayCondition?: Predicate,
+	caseListColumnExpressions?: readonly ValueExpression[],
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -382,6 +395,21 @@ export function deriveEntryDefinition(
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id) });
+		}
+	}
+	// Calc-column expressions land on `m{N}_case_short` /
+	// `m{N}_case_long`. CCHQ resolves the detail's XPath against the
+	// enclosing entry's instance declarations — accumulate every
+	// instance the expression reaches so the local `.ccz` carries the
+	// same declarations CCHQ's server-side post-process would add on a
+	// regenerated suite.
+	if (caseListColumnExpressions !== undefined) {
+		for (const expression of caseListColumnExpressions) {
+			for (const id of collectExpressionInstances(expression)) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id) });
+			}
 		}
 	}
 

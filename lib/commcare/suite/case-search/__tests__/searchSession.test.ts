@@ -46,11 +46,13 @@ import {
 	asUuid,
 	type CaseListConfig,
 	type CaseSearchConfig,
+	calculatedColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
 	ancestorPath,
 	arith,
+	concat,
 	eq,
 	literal,
 	prop,
@@ -363,6 +365,40 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		expect(xml).toContain(
 			`instance('search-input:results')/input/field[@name='base_age']`,
 		);
+	});
+
+	it("accumulates instances reachable from calc-column expressions for the search-target detail", () => {
+		// The `m{N}_search_short` / `m{N}_search_long` details reuse
+		// `caseListConfig.columns`. CCHQ resolves a detail's XPath
+		// against the enclosing element's declarations — for the
+		// search-target details that's this `<remote-request>`. Calc
+		// columns referencing `session-user` / `input` terms need the
+		// matching instance declared so the local `.ccz` matches the
+		// CCHQ-server-regenerated suite (CCHQ runs
+		// `InstancesHelper.add_entry_instances` over every detail
+		// reachable from the entry).
+		const region = { kind: "session-user" as const, field: "region" };
+		const { instances } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				columns: [
+					calculatedColumn(
+						asUuid("00000000-0000-4000-8000-cccc00000001"),
+						"Region tag",
+						concat(
+							term(region),
+							term(literal(": ")),
+							term(prop("patient", "case_name")),
+						),
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(instances.has("commcaresession")).toBe(true);
+		expect(instances.has("casedb")).toBe(true);
 	});
 
 	it("AND-composes a filter and an advanced-arm predicate into a single _xpath_query slot", () => {
@@ -871,6 +907,37 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain(
 			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='dob_fdate']), concat('fuzzy-date(dob, &quot;', instance('search-input:results')/input/field[@name='dob_fdate'], '&quot;)'), 'match-all()'))"/>`,
 		);
+	});
+
+	it("does NOT route a blank-property simple input into _xpath_query (transient editor state, validator carries the authoring error)", () => {
+		// The schema admits `property === ""` as the "row added, not
+		// yet picked" transient editor state. Deriving a predicate
+		// against `prop(caseType, "", …)` would emit malformed XPath
+		// (`<empty> = instance(...)`); the wire emitter falls back to
+		// the bare-prompt shape so the compile path stays clean while
+		// the validator surfaces the authoring error as
+		// `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY`.
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				searchInputs: [
+					simpleSearchInputDef(INPUT_UUIDS.a, "name_q", "Name", "text", "", {
+						mode: { kind: "fuzzy" },
+					}),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).not.toContain(`<data key="_xpath_query"`);
+		// The prompt still emits — the typed value binds into
+		// `search-input:results` for downstream evaluation once the
+		// property is filled in.
+		expect(xml).toContain(`<prompt key="name_q"`);
+		// And the bare-prompt routing means no `exclude="true()"` —
+		// the prompt is in the transient state, not actively gated.
+		expect(xml).not.toContain(`exclude="true()"`);
 	});
 
 	it("does NOT route a self-walk `exact` simple input with `name === property` into _xpath_query (rides on bare prompt)", () => {

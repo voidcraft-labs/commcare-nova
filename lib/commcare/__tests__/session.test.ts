@@ -11,6 +11,7 @@ import {
 	toHqWorkflow,
 } from "@/lib/commcare/session";
 import {
+	concat as concatExpr,
 	eq,
 	literal,
 	matchAll,
@@ -397,6 +398,67 @@ describe("deriveEntryDefinition", () => {
 		);
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("search-input:results");
+	});
+
+	it("accumulates instances reachable from calc-column expressions", () => {
+		// Calc-column expressions land on `m{N}_case_short` /
+		// `m{N}_case_long`. CCHQ resolves a detail's XPath against
+		// the enclosing entry's declarations; without this
+		// accumulation, the local `.ccz` would emit an
+		// `instance('commcaresession')` reference inside the detail
+		// without a matching declaration on the entry, and the
+		// runtime would raise `XPathException` at case-list render
+		// time.
+		const calcExpressions = [
+			concatExpr(
+				term({ kind: "session-user", field: "region" }),
+				term(literal(": ")),
+				term({ kind: "prop", caseType: "patient", property: "case_name" }),
+			),
+		];
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			calcExpressions,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("commcaresession");
+		expect(ids).toContain("casedb");
+	});
+
+	it("dedups instances across calc-column expressions and the case-list filter", () => {
+		// Both surfaces reference `commcaresession`; the accumulator
+		// must not double-emit the declaration.
+		const filter = eq(
+			prop("patient", "region"),
+			term({ kind: "session-user", field: "region" }),
+		);
+		const calcExpressions = [
+			concatExpr(term({ kind: "session-user", field: "language" })),
+		];
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			filter,
+			undefined,
+			calcExpressions,
+		);
+		const sessionInstances = entry.instances.filter(
+			(i) => i.id === "commcaresession",
+		);
+		expect(sessionInstances).toHaveLength(1);
 	});
 
 	it("dedups instances across the case-list filter and the display condition", () => {
