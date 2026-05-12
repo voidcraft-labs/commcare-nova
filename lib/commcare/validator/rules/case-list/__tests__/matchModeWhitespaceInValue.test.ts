@@ -8,7 +8,13 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, plainColumn } from "@/lib/domain";
-import { match, prop } from "@/lib/domain/predicate";
+import {
+	literal,
+	match,
+	multiSelectAll,
+	multiSelectAny,
+	prop,
+} from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE" as const;
@@ -120,6 +126,91 @@ describe("matchModeWhitespaceInValue", () => {
 							prop("patient", "case_name"),
 							"Alice Smith",
 							"starts-with",
+						),
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(0);
+	});
+
+	// ── multi-select-contains coverage ──────────────────────────────
+	//
+	// CCHQ's `selected` and `selected-any` are the SAME runtime
+	// function (verified at
+	// `commcare-hq/.../case_search/xpath_functions/__init__.py`:
+	// `'selected': selected_any`). Both tokenize their value argument
+	// through ES's `match` query. A `multi-select-contains` value
+	// like "Alice Smith" silently OR-tokenizes downstream.
+
+	it("fires for multi-select-contains any with a multi-word value", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: multiSelectAny(
+							prop("patient", "case_name"),
+							literal("Alice Smith"),
+							literal("Bob"),
+						),
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].message).toContain('"Alice Smith"');
+		expect(hits[0].message).toContain("multi-select-contains");
+	});
+
+	it("fires for multi-select-contains all with a multi-word value", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: multiSelectAll(
+							prop("patient", "case_name"),
+							literal("Big Apple"),
+						),
+						searchInputs: [],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+	});
+
+	it("is silent for multi-select-contains with single-token values", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: multiSelectAny(
+							prop("patient", "case_name"),
+							literal("Alice"),
+							literal("Bob"),
 						),
 						searchInputs: [],
 					},

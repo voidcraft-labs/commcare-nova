@@ -525,21 +525,26 @@ describe("case-search integration — suite XML wire emission", () => {
 		);
 	});
 
-	it("emits <query> data slots in canonical order: case_type → commcare_blacklisted_owner_ids → _xpath_query", () => {
-		// Slot order verified against
-		// `commcare-hq/.../suite_xml/post_process/remote_requests.py::RemoteRequestFactory._remote_request_query_datums`
-		// and the fixtures `remote_request.xml` +
-		// `search_config_blacklisted_owners.xml`.
+	it("emits <query> data slots in canonical order: case_type → _xpath_query → commcare_blacklisted_owner_ids", () => {
+		// Slot order matches
+		// `commcare-hq/.../suite_xml/post_process/remote_requests.py::_remote_request_query_datums`:
+		// `case_type` first, then every `default_properties[]` entry
+		// (where `_xpath_query` lives on CCHQ's side), then
+		// `commcare_blacklisted_owner_ids`. The order is
+		// runtime-irrelevant (data slots key into a `Multimap` by
+		// key), but matching CCHQ's canonical order keeps Nova's
+		// local suite.xml structurally mirroring the suite CCHQ
+		// regenerates from the HQ JSON upload.
 		const doc = buildSearchBlueprint();
 		const suite = compileSuiteXml(doc);
 		const caseTypeIdx = suite.indexOf('<data key="case_type"');
+		const xpathIdx = suite.indexOf('<data key="_xpath_query"');
 		const blacklistedIdx = suite.indexOf(
 			'<data key="commcare_blacklisted_owner_ids"',
 		);
-		const xpathIdx = suite.indexOf('<data key="_xpath_query"');
 		expect(caseTypeIdx).toBeGreaterThan(-1);
-		expect(blacklistedIdx).toBeGreaterThan(caseTypeIdx);
-		expect(xpathIdx).toBeGreaterThan(blacklistedIdx);
+		expect(xpathIdx).toBeGreaterThan(caseTypeIdx);
+		expect(blacklistedIdx).toBeGreaterThan(xpathIdx);
 	});
 
 	it("emits <query> with <title> + <prompt> elements per authored search inputs", () => {

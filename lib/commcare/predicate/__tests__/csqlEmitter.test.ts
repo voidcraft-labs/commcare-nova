@@ -467,14 +467,22 @@ describe("emitCsql — multi-select-contains", () => {
 		expect(result.wrapper).toBe(`concat("selected(tags, 'vip')")`);
 	});
 
-	it("keeps multi-word values intact inside one selected call per value (no whitespace tokenization)", () => {
-		// Author intent: match cases whose `tags` contains the literal
-		// value "Alice Smith" OR the literal value "Bob". The old
-		// space-joined emission would have produced
-		// `selected-any(tags, 'Alice Smith Bob')`, which ES tokenizes
-		// into three tokens and matches any of `Alice`, `Smith`, `Bob`.
-		// Per-value `selected(tags, 'Alice Smith')` keeps the
-		// multi-word value as a single ES token.
+	it("emits one selected call per value rather than space-joining values into one call", () => {
+		// The per-value `selected(prop, 'v')` shape disambiguates each
+		// authored value at the wire layer — a space-joined
+		// `selected-any(prop, 'v1 v2 v3')` would be unrecoverable about
+		// whether `v1 v2` was authored as one multi-word value or as
+		// two separate values. CCHQ's runtime still tokenizes each
+		// individual literal on whitespace through ES's `match` query
+		// (verified at
+		// `~/code/commcare-hq/.../case_search/xpath_functions/__init__.py`:
+		// `'selected': selected_any` — same function), so a literal
+		// like "Alice Smith" silently OR-tokenizes downstream. The
+		// `matchModeWhitespaceInValue` validator rule rejects
+		// whitespace-bearing `multi-select-contains` value literals at
+		// authoring time to prevent the silent broadening; this test
+		// pins the wire emission shape, not the runtime semantic of
+		// each individual literal.
 		const result = emitCsql(
 			multiSelectAny(
 				prop("patient", "tags"),

@@ -219,11 +219,12 @@ describe("emitSearchSession — <data> slot order", () => {
 		expect(caseTypeIdx).toBeLessThan(xpathIdx);
 	});
 
-	it("orders excluded-owners before _xpath_query when both are set", () => {
-		// Slot order verified against CCHQ's `_remote_request_query_datums`:
-		// `case_type` → blacklist → registry → custom-related-case →
-		// include-all-related → sort → _xpath_query. Of those slots,
-		// only blacklist and _xpath_query land on Nova's authoring
+	it("orders _xpath_query before commcare_blacklisted_owner_ids when both are set", () => {
+		// Slot order matches CCHQ's `_remote_request_query_datums`:
+		// `case_type` first, then every `default_properties[]` entry
+		// (where `_xpath_query` lives on CCHQ's side), then
+		// `commcare_blacklisted_owner_ids`. Of those CCHQ slots, only
+		// `_xpath_query` and the blacklist land on Nova's authoring
 		// surface today.
 		const config: CaseSearchConfig = {
 			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
@@ -236,9 +237,9 @@ describe("emitSearchSession — <data> slot order", () => {
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		const excludedIdx = xml.indexOf(`key="commcare_blacklisted_owner_ids"`);
 		const xpathIdx = xml.indexOf(`key="_xpath_query"`);
-		expect(excludedIdx).toBeLessThan(xpathIdx);
+		const excludedIdx = xml.indexOf(`key="commcare_blacklisted_owner_ids"`);
+		expect(xpathIdx).toBeLessThan(excludedIdx);
 	});
 });
 

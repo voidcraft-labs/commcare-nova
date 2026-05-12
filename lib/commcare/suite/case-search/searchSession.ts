@@ -85,15 +85,47 @@ export function emitSearchSession(args: {
 	// roundtrip.
 	const storageInstance = wire.inlineSearch ? "results:inline" : "results";
 
-	// `<data>` slot order is CCHQ-canonical (per
-	// `RemoteRequestFactory._remote_request_query_datums`): `case_type`
-	// first, then any optional CCHQ-specific keys, `_xpath_query` last.
+	// `<data>` slot order matches CCHQ's canonical order at
+	// `commcare-hq/.../suite_xml/post_process/remote_requests.py::_remote_request_query_datums`:
+	// `case_type` first, then every `default_properties[]` entry
+	// (where `_xpath_query` lives on CCHQ's side), then
+	// `commcare_blacklisted_owner_ids`. Order is runtime-irrelevant —
+	// `RemoteQuerySessionManager.getRawQueryParams` keys data into a
+	// `Multimap<String, String>` by key — but the canonical order
+	// keeps Nova's local suite.xml structurally mirroring the suite
+	// CCHQ regenerates from the HQ JSON upload, so the local-
+	// diagnostic `.ccz` reads cleanly against
+	// `~/code/commcare-hq/.../tests/data/suite/search_command_detail.xml`.
 	const dataLines: string[] = [];
 
-	// `case_type` — always present.
+	// `case_type` — always present, always first.
 	dataLines.push(
 		`        <data key="case_type" ref="'${escapeXml(caseType)}'"/>`,
 	);
+
+	// `_xpath_query` — AND-composition of the unified filter with
+	// every advanced-arm search input's predicate plus every
+	// simple-arm input routed through the wire (per the
+	// simple-arm-with-via or `name !== property` shapes). CCHQ
+	// accepts at most one `_xpath_query` per `<query>`; the
+	// AST-level `and(...)` reduces to one Predicate before the CSQL
+	// emitter walks it. Non-grammar value expressions inline as
+	// on-device XPath fragments inside the wrapper concat — CCHQ's
+	// `RemoteQuerySessionManager.initUserAnswers` only seeds the
+	// `search-input:results` instance from `<prompt>` defaults, so a
+	// sibling `<data>` slot's value would resolve to the empty string
+	// at evaluation time AND silently add a server-side property
+	// filter against case data that matches no cases. The single
+	// `_xpath_query` slot carries everything.
+	const xpathQueryEmission = composeXPathQueryEmission(
+		caseListConfig,
+		caseType,
+	);
+	if (xpathQueryEmission !== undefined) {
+		dataLines.push(
+			`        <data key="${XPATH_QUERY_KEY}" ref="${escapeXml(xpathQueryEmission.wrapper)}"/>`,
+		);
+	}
 
 	// Authoring → wire vocabulary translation. Schema slot reads
 	// `excludedOwnerIds`; CCHQ wire slot reads `commcare_blacklisted_owner_ids`.
@@ -106,29 +138,6 @@ export function emitSearchSession(args: {
 		);
 		dataLines.push(
 			`        <data key="${EXCLUDED_OWNER_IDS_WIRE_KEY}" ref="${escapeXml(excludedRef)}"/>`,
-		);
-	}
-
-	// `_xpath_query` — AND-composition of the unified filter with
-	// every advanced-arm search input's predicate. CCHQ accepts at
-	// most one `_xpath_query` per `<query>`; the AST-level `and(...)`
-	// reduces to one Predicate before the CSQL emitter walks it.
-	//
-	// Non-grammar value expressions inline as on-device XPath
-	// fragments inside the wrapper concat. CCHQ's
-	// `RemoteQuerySessionManager.initUserAnswers` only seeds the
-	// `search-input:results` instance from `<prompt>` defaults, so a
-	// sibling `<data>` slot's value would resolve to the empty string
-	// when the CSQL evaluator dereferences it AND silently add a
-	// server-side property filter against case data that matches no
-	// cases. The single `_xpath_query` slot carries everything.
-	const xpathQueryEmission = composeXPathQueryEmission(
-		caseListConfig,
-		caseType,
-	);
-	if (xpathQueryEmission !== undefined) {
-		dataLines.push(
-			`        <data key="${XPATH_QUERY_KEY}" ref="${escapeXml(xpathQueryEmission.wrapper)}"/>`,
 		);
 	}
 
