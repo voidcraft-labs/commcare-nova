@@ -704,16 +704,26 @@ function emitMatchSegments(
 			`csqlEmitter: tried to emit a 'match' predicate with a non-term value of kind '${p.value.kind}'. The type checker's checkMatch rule rejects this shape at authoring time, so reaching this throw means an AST was built at runtime or coerced past validation. Wrap the value as a term-arm ValueExpression or run validation before invoking the compile pipeline.`,
 		);
 	}
-	// Term-arm value compiles via the shared `emitTermSegment`. A
-	// literal value emits as a single constant segment; a non-literal
-	// term (search-input ref, session ref, property ref) emits as a
-	// runtime segment, which the wrapper concat lifts into the CSQL
-	// `_xpath_query` string. Both cases compose with the function-
-	// call constant segments via the standard segment-list shape.
-	const valueSegment = emitTermSegment(p.value.term);
+	// Term-arm value compiles via the shared `emitTermSegment`, then
+	// routes through `wrapTermAsSegmentList` so the wire form holds
+	// the canonical CSQL value-position contract:
+	//
+	//   - Literal terms emit a self-quoted CSQL string (`'alice'`)
+	//     and pass through `wrapTermAsSegmentList` unchanged.
+	//   - Runtime terms (search-input / session refs) emit as a raw
+	//     XPath path expression and wrap in `"..."` so the resolved
+	//     runtime string interpolates as a CSQL string value rather
+	//     than a path.
+	//
+	// CCHQ's `commcare-hq/corehq/apps/case_search/dsl_utils.py::unwrap_value`
+	// rejects a bare `Step` (path) AST node with `CaseFilterError`
+	// (`"You cannot reference a case property on the right side..."`).
+	// Every other operand emission in this file routes runtime terms
+	// through the same wrap — the `match` arm was the lone bypass.
+	const valueSegments = wrapTermAsSegmentList(emitTermSegment(p.value.term));
 	return [
 		{ kind: "constant", text: `${wireFunction}(${propEmission.text}, ` },
-		valueSegment,
+		...valueSegments,
 		{ kind: "constant", text: ")" },
 	];
 }

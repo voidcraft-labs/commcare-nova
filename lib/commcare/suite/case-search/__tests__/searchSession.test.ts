@@ -782,10 +782,19 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		// value into `search-input:results` regardless. The matcher
 		// strategy rides on the `_xpath_query` slot.
 		expect(xml).toContain(`<prompt key="name_fuzzy"`);
-		expect(xml).toContain(`<data key="_xpath_query"`);
-		// The CSQL emission produces `fuzzy-match(case_name, "...")`
-		// inside the `_xpath_query` concat wrapper.
-		expect(xml).toContain("fuzzy-match(case_name,");
+		// Pin the full `_xpath_query` ref. The fragment encodes the
+		// wire contract: (1) the value is wrapped in CSQL
+		// double-quote brackets so CCHQ's `unwrap_value` reads the
+		// runtime-resolved string as a string literal rather than
+		// rejecting it as a path (`commcare-hq/.../case_search/dsl_utils.py::unwrap_value`
+		// raises `CaseFilterError` on a bare `Step`); (2) the
+		// envelope is `when-input-present` so an unset input
+		// contributes `match-all()` instead of matching against
+		// empty-string. The `&quot;` pair is `"` XML-escaped for
+		// attribute context.
+		expect(xml).toContain(
+			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='name_fuzzy']), concat('fuzzy-match(case_name, &quot;', instance('search-input:results')/input/field[@name='name_fuzzy'], '&quot;)'), 'match-all()'))"/>`,
+		);
 	});
 
 	it("routes a self-walk `starts-with` simple input into _xpath_query as starts-with(prop, input)", () => {
@@ -807,8 +816,13 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<data key="_xpath_query"`);
-		expect(xml).toContain("starts-with(case_name,");
+		// `starts-with` is the one mode JavaRosa-on-device also
+		// supports (via `XPathStartsWithFunc`); on the CSQL side the
+		// value still wraps in double-quote brackets so the
+		// runtime-resolved string interpolates as a string literal.
+		expect(xml).toContain(
+			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='name_starts']), concat('starts-with(case_name, &quot;', instance('search-input:results')/input/field[@name='name_starts'], '&quot;)'), 'match-all()'))"/>`,
+		);
 	});
 
 	it("routes a self-walk `phonetic` simple input into _xpath_query as phonetic-match(prop, input)", () => {
@@ -830,8 +844,9 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<data key="_xpath_query"`);
-		expect(xml).toContain("phonetic-match(case_name,");
+		expect(xml).toContain(
+			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='name_phon']), concat('phonetic-match(case_name, &quot;', instance('search-input:results')/input/field[@name='name_phon'], '&quot;)'), 'match-all()'))"/>`,
+		);
 	});
 
 	it("routes a self-walk `fuzzy-date` simple input into _xpath_query as fuzzy-date(prop, input)", () => {
@@ -853,8 +868,9 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<data key="_xpath_query"`);
-		expect(xml).toContain("fuzzy-date(dob,");
+		expect(xml).toContain(
+			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='dob_fdate']), concat('fuzzy-date(dob, &quot;', instance('search-input:results')/input/field[@name='dob_fdate'], '&quot;)'), 'match-all()'))"/>`,
+		);
 	});
 
 	it("does NOT route a self-walk `exact` simple input with `name === property` into _xpath_query (rides on bare prompt)", () => {
