@@ -20,6 +20,7 @@ import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeM
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
 import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
+import { searchInputSelectWidgetNotSupported } from "./case-list/searchInputSelectWidgetNotSupported";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
@@ -186,6 +187,7 @@ export const MODULE_RULES = [
 	searchInputNameUniqueness,
 	searchInputModeMatchesPropertyType,
 	searchInputTypeMatchesPropertyType,
+	searchInputSelectWidgetNotSupported,
 	searchInputDefaultTypeCheck,
 	searchInputPredicateTypeCheck,
 	searchInputRefUsesWhenInputPresent,

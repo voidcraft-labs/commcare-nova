@@ -217,23 +217,40 @@ function projectColumnForDetail(
  * is not stored — the array position IS the order).
  *
  * Property-rooted directives populate `field` with the bare
- * property name; calc directives populate `field` with a stable
- * placeholder string (`"_calculated_property"`) and put the lowered
- * XPath in `sort_calculation`. CCHQ's `SortElement.valid()` requires
- * at least one of `field` / `sort_calculation` to be non-empty;
- * populating both keeps the document round-trippable and matches
- * CCHQ's `detail_screen.py` precedence rule (when `sort_calculation`
- * is set, it wins; `field` becomes a labeling slot).
+ * property name; calc directives populate `field` with CCHQ's
+ * synthetic sort-only key shape `_cc_calculated_{columnIndex}`
+ * (matching `commcare-hq/.../app_manager/const.py::CALCULATED_SORT_FIELD_RX`
+ * = `^_cc_calculated_(\\d+)$`) and put the lowered XPath in
+ * `sort_calculation`. CCHQ's `get_sort_and_sort_only_columns` at
+ * `commcare-hq/.../app_manager/util.py` parses the index out of the
+ * field name and attaches the sort directive to the calc column at
+ * that source-array position, so each calc directive lands on its
+ * own column instead of colliding with sibling calc sorts in the
+ * sort-key dict.
  */
 function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 	const directives = buildSortDirectives(mod, doc);
 	if (directives.size === 0) return [];
 
+	// Build a uuid → column-index map across the full `columns` array
+	// so each calc directive can resolve to its source-array position.
+	// CCHQ's `CALCULATED_SORT_FIELD_RX` uses `int(match.group(1))` as
+	// a positional lookup into `detail_columns[column_index]`; the
+	// index must reference the calc column's position in the full
+	// column list, not a calc-only subsequence.
+	const columns = mod.caseListConfig?.columns ?? [];
+	const columnIndexByUuid = new Map<string, number>();
+	for (let i = 0; i < columns.length; i++) {
+		columnIndexByUuid.set(columns[i].uuid, i);
+	}
+
 	// `buildSortDirectives` keys by uuid; the directive `order` is
 	// already the 1-based priority + tie-break position. Collect
-	// values, sort by `order`, then translate each.
-	const ordered = [...directives.values()].sort((a, b) => a.order - b.order);
-	return ordered.map((directive) => {
+	// `[uuid, directive]` pairs, sort by `order`, then translate.
+	const ordered = [...directives.entries()].sort(
+		([, a], [, b]) => a.order - b.order,
+	);
+	return ordered.map(([uuid, directive]) => {
 		const type = SORT_TYPE_WIRE_MAP[directive.type];
 		const direction = SORT_DIRECTION_WIRE_MAP[directive.direction];
 		if (directive.kind === "property") {
@@ -246,12 +263,17 @@ function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 				sort_calculation: "",
 			};
 		}
+		const columnIndex = columnIndexByUuid.get(uuid);
+		// `buildSortDirectives` only returns directives for columns in
+		// the same `columns` list we walk here, so the lookup never
+		// misses at runtime; the throw is a compiler-bug backstop.
+		if (columnIndex === undefined) {
+			throw new Error(
+				"projectSortElements: calc-arm sort directive references a column UUID that is not in `caseListConfig.columns` — `buildSortDirectives` should only have surfaced directives for columns in this list.",
+			);
+		}
 		return {
-			// Calc-column placeholder — CCHQ's `SortElement.valid()`
-			// requires a non-empty `field`. The runtime reads
-			// `sort_calculation` when it's set; `field` becomes the
-			// display-label slot.
-			field: "_calculated_property",
+			field: `_cc_calculated_${columnIndex}`,
 			type,
 			direction,
 			blanks: "",

@@ -3328,11 +3328,16 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		expect(sortElements[1].type).toBe("string");
 	});
 
-	it("routes calc-column sort through `sort_calculation` and keeps the placeholder `field` populated", () => {
-		// CCHQ's `SortElement.valid()` requires at least one of
-		// `field` / `sort_calculation`; with `sort_calculation` set,
-		// CCHQ's `detail_screen.py` precedence rule reads
-		// `sort_calculation` and `field` becomes a label slot.
+	it("routes calc-column sort through `sort_calculation` with field=`_cc_calculated_<index>`", () => {
+		// Calc-column sort directives write `field` as CCHQ's synthetic
+		// per-column key shape `_cc_calculated_{columnIndex}`, matching
+		// the regex `commcare-hq/.../app_manager/const.py::CALCULATED_SORT_FIELD_RX`.
+		// CCHQ's `case_search.case_search_helpers::get_sort_and_sort_only_columns`
+		// parses the index out of the field name and attaches the sort
+		// to the source-array calc column at that position; without a
+		// per-column key, sibling calc sorts collide in the
+		// `sort_elements_by_field` dict and only the last directive
+		// survives.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				calculatedColumn(
@@ -3348,8 +3353,45 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 			expandDoc(doc).modules[0].case_details.short.sort_elements;
 		expect(sortElements).toHaveLength(1);
 		expect(sortElements[0].sort_calculation).toBe("age");
-		expect(sortElements[0].field).toBe("_calculated_property");
+		expect(sortElements[0].field).toBe("_cc_calculated_0");
 		expect(sortElements[0].direction).toBe("ascending");
+	});
+
+	it("keeps every calc-column sort distinct across multiple calc columns (no dict collision)", () => {
+		// Regression for CCHQ's `sort_elements_by_field` keyed by
+		// `field`: two calc columns both writing the same placeholder
+		// key would overwrite each other on the HQ-uploaded path even
+		// though Nova's local `.ccz` renders both. The synthetic
+		// `_cc_calculated_{index}` field per column is the unique
+		// key that survives the dict.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				calculatedColumn(
+					asUuid("00000000-0000-4000-8000-000000020003"),
+					"Age Next Year",
+					toValueExpression(prop("patient", "age")),
+					{ sort: { direction: "asc", priority: 0 } },
+				),
+				calculatedColumn(
+					asUuid("00000000-0000-4000-8000-000000020004"),
+					"Visits Doubled",
+					toValueExpression(prop("patient", "visit_count")),
+					{ sort: { direction: "desc", priority: 1 } },
+				),
+			],
+			searchInputs: [],
+		});
+		const sortElements =
+			expandDoc(doc).modules[0].case_details.short.sort_elements;
+		expect(sortElements).toHaveLength(2);
+		// Field-key uniqueness — both directives survive CCHQ's
+		// `sort_elements_by_field[field] = element` overwrite.
+		expect(sortElements[0].field).toBe("_cc_calculated_0");
+		expect(sortElements[0].sort_calculation).toBe("age");
+		expect(sortElements[0].direction).toBe("ascending");
+		expect(sortElements[1].field).toBe("_cc_calculated_1");
+		expect(sortElements[1].sort_calculation).toBe("visit_count");
+		expect(sortElements[1].direction).toBe("descending");
 	});
 
 	it("leaves sort_elements empty when no column carries a sort directive", () => {

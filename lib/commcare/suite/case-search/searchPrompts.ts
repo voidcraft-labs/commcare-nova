@@ -85,9 +85,15 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 > = {
 	// CCHQ default — both attributes omitted, plain text input.
 	text: {},
-	// CCHQ's `input_="select1"`. The runtime widget renders the
-	// option list from the property's declared options at search
-	// time; Nova doesn't project an `<itemset>` child into the prompt.
+	// CCHQ's `input_="select1"`. The runtime widget needs an
+	// `<itemset>` child on the prompt to render as a select —
+	// `commcare-core`'s `QueryPrompt::isSelect` returns false
+	// otherwise and the widget falls back to a text input. Nova's
+	// schema does not carry an itemset slot today, so the
+	// `searchInputSelectWidgetNotSupported` validator rule rejects
+	// the combination at authoring time; this mapping stays as the
+	// wire-correct emission for the day the itemset infrastructure
+	// lands.
 	select: { input: "select1" },
 	date: { input: "date" },
 	// CCHQ collapses the token to `daterange` (no hyphen).

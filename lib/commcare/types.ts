@@ -291,10 +291,17 @@ export interface DefaultCaseSearchProperty {
  * and `commcare-hq/.../app_manager/util.py::module_uses_inline_search`).
  * Nova projects `compileForPlatform`'s web-context output onto
  * these slots at HQ JSON emission so the CCHQ-regenerated suite
- * carries the same shape Nova's local suite emitter renders. The
- * Android runtime ignores all three flags (per `_get_auto_launch_expression`'s
- * `if not in_search` guard), so persisting the web-correct values
- * is right for both runtimes.
+ * carries the same shape Nova's local suite emitter renders.
+ *
+ * Android-runtime handling: the `auto_launch` XPath lands on every
+ * regenerated `<action>` element regardless of platform, but
+ * `commcare-android`'s `EntitySelectActivity` never calls
+ * `commcare-core`'s `Action::isAutoLaunchAction` — only formplayer
+ * (the web runtime) does, at `formplayer/.../MenuSession.java::next`.
+ * Android's case list therefore stays list-first regardless of the
+ * persisted flag. The web runtime honors the flag, which is the
+ * shape Nova's `compileForPlatform` decision tree produces for
+ * web. Persisting one shape gives both runtimes the right UX.
  */
 export interface CaseSearchConfig {
 	doc_type: "CaseSearch";
