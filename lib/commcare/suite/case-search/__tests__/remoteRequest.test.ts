@@ -63,7 +63,72 @@ function makeModule(args: {
 
 // ── Top-level shape ─────────────────────────────────────────────────
 
+// Canonical-shape golden for the minimal `<remote-request>` —
+// `caseType: "patient"`, empty `caseSearchConfig`, no inputs, no
+// filter, web list-first wire flags. Full-string assertion catches
+// attribute-order regressions, indentation drift, and silent slot
+// drops that the per-invariant tests below would individually miss
+// when no test reaches the affected line.
+const MINIMAL_REMOTE_REQUEST_XML = `  <remote-request>
+    <post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"
+          relevant="count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0">
+      <data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>
+    </post>
+    <command id="search_command.m0">
+      <display>
+        <text>
+          <locale id="case_search.m0"/>
+        </text>
+      </display>
+    </command>
+    <instance id="casedb" src="jr://instance/casedb"/>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <instance id="results" src="jr://instance/remote/results"/>
+    <session>
+      <query url="https://www.commcarehq.org/a/__DOMAIN__/phone/search/__APP_ID__/"
+             default_search="false"
+             storage-instance="results"
+             template="case">
+        <title>
+          <text>
+            <locale id="case_search.m0.inputs"/>
+          </text>
+        </title>
+        <data key="case_type" ref="'patient'"/>
+      </query>
+      <datum id="search_case_id"
+             nodeset="instance('results')/results/case[@case_type='patient'][not(commcare_is_related_case=true())]"
+             value="./@case_id"
+             detail-confirm="m0_search_long"
+             detail-select="m0_search_short"/>
+    </session>
+    <stack>
+      <push>
+        <rewind value="instance('commcaresession')/session/data/search_case_id"/>
+      </push>
+    </stack>
+  </remote-request>`;
+
 describe("emitRemoteRequest — top-level shape", () => {
+	it("emits the canonical minimal <remote-request> verbatim", () => {
+		// Full-string golden: the only `it` in this file that pins the
+		// entire emission. Every other `it` covers a structural
+		// invariant via substring / ordering assertions; the
+		// individual checks together do not enforce attribute order,
+		// indentation, whitespace, or the absence of unauthored
+		// elements. The golden plugs the "I refactored, nothing
+		// complained, but the wire string is subtly different now"
+		// failure mode for the canonical shape.
+		const { xml } = emitRemoteRequest({
+			module: makeModule({
+				caseType: "patient",
+				caseSearchConfig: {},
+			}),
+			moduleIndex: 0,
+		});
+		expect(xml).toBe(MINIMAL_REMOTE_REQUEST_XML);
+	});
+
 	it("emits a single <remote-request> element wrapping the four child element families", () => {
 		const { xml } = emitRemoteRequest({
 			module: makeModule({

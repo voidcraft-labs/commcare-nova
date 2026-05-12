@@ -755,24 +755,36 @@ function matchModeToWireFunction(
  * the per-value calls via XPath `or` / `and` per the quantifier.
  * Single-value collapses to one bare `selected(prop, 'v')`.
  *
- * The OR-of-`selected` expansion is the only wire-correct shape on
- * CSQL for multi-value author intents: CCHQ's `selected_any` /
- * `selected_all` whitelist entries on
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
- * dispatch through `case_property_query` at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::_selected_query`,
- * which forwards the value argument to ElasticSearch's `match` query
- * via `case_property_text_query` at
- * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`.
- * `match` tokenizes that argument on whitespace, so a space-joined
- * shape like `selected-any(prop, 'Alice Smith Bob')` matches three
- * tokens (`Alice`, `Smith`, `Bob`) instead of the two authored
- * values (`Alice Smith`, `Bob`). Per-value `selected(prop, 'v')`
- * preserves multi-word values as single tokens — CCHQ's `selected`
- * registered alongside `selected_any` at the same XPATH_QUERY_FUNCTIONS
- * table takes one value literal, no internal tokenization. The
- * on-device emitter at `caseListFilterEmitter.ts::emitMultiSelectContains`
- * uses the same expansion shape for the same reason.
+ * The per-value expansion preserves the structure-of-clauses contract
+ * (each authored value contributes one OR/AND clause; a quantifier
+ * flip from `any` to `all` lands as `and` instead of `or` at the
+ * right granularity).
+ *
+ * CCHQ's runtime is fragmented on the matching semantic for
+ * `selected(prop, value)` — accepted Dimagi-side, not a Nova choice:
+ *
+ *   - Server: CCHQ aliases `'selected'` to `selected_any` at
+ *     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
+ *     (`'selected': selected_any,  # selected and selected_any function identically`).
+ *     `selected_any` dispatches through `_selected_query` →
+ *     `case_property_query(..., multivalue_mode='or')` →
+ *     `case_property_text_query` at
+ *     `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`,
+ *     which forwards to ElasticSearch's `match` query. The ES
+ *     `match` query tokenizes the value argument on whitespace and
+ *     OR-matches the tokens (`"If the value has multiple words,
+ *     they will be OR'd together"` per the docstring on
+ *     `case_property_text_query`).
+ *   - On-device: `commcare-core/.../org/javarosa/xpath/expr/XPathSelectedFunc.java::multiSelected`
+ *     does space-delimited substring containment without internal
+ *     tokenization (`(" " + s1 + " ").contains(" " + s2 + " ")`).
+ *
+ * Single-token values match equivalently on both runtimes. Multi-word
+ * values diverge — the server matches any token; on-device requires
+ * the exact space-delimited substring. The validator rule
+ * `matchModeWhitespaceInValue` rejects multi-word values for the
+ * mode/quantifier combinations that exhibit the divergence, so the
+ * authoring layer surfaces the issue before compile.
  *
  * Each value flows through `quoteLiteral` so embedded quotes route
  * through the CSQL escape rule. Null values lower to the wire-form
