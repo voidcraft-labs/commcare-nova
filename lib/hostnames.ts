@@ -119,6 +119,7 @@ export const MCP_RESOURCE_METADATA_URL = `${MCP_RESOURCE_ORIGIN}/.well-known/oau
 export const HOSTNAME_ALLOWLIST = {
 	[HOSTNAMES.main]: [
 		"/",
+		"/api/apps",
 		"/api/auth",
 		"/api/chat",
 		"/api/compile",
