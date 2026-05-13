@@ -60,6 +60,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # URL resolves at startup. `schema.sql` is NOT copied — the prod
 # env reads only `migration.dir`, not `schema.src`.
 COPY --from=atlas-binary /atlas /usr/local/bin/atlas
+# Force exec bit for the non-root `nextjs` user. The classic docker
+# builder Cloud Build uses doesn't honor `COPY --chmod`, and the
+# upstream arigaio/atlas image's binary perms don't reliably grant
+# execute-for-other through the COPY. Without this, the runner exits
+# 126 ("Permission denied") on startup before node ever binds :8080.
+RUN chmod 0755 /usr/local/bin/atlas
 COPY --chown=nextjs:nodejs atlas.hcl ./atlas.hcl
 COPY --chown=nextjs:nodejs lib/case-store/migrations ./lib/case-store/migrations
 
