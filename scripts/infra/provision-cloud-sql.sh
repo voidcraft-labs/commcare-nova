@@ -225,10 +225,26 @@ fi
 #
 #   1. Set a temporary postgres password
 #      (gcloud sql users set-password postgres --prompt-for-password).
-#   2. Sign into Studio as postgres; run
-#      `CREATE EXTENSION pg_trgm`, `CREATE EXTENSION fuzzystrmatch`,
-#      `CREATE EXTENSION postgis` (each `IF NOT EXISTS`); GRANT USAGE ON
-#      SCHEMA public to the runtime SA and developer database users.
+#   2. Sign into Studio as postgres; run, against database `nova_cases`:
+#
+#        CREATE EXTENSION IF NOT EXISTS pg_trgm;
+#        CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
+#        CREATE EXTENSION IF NOT EXISTS postgis;
+#
+#        GRANT USAGE ON SCHEMA public TO "51003905459-compute@developer";
+#        GRANT USAGE ON SCHEMA public TO "bperry@dimagi.com";
+#
+#        -- Atlas's `migrate apply` at Cloud Run startup creates the
+#        -- `atlas_schema_revisions` schema for its migration ledger and
+#        -- creates the case-store tables in `public`. Both require the
+#        -- runtime SA to hold DDL rights at the database + public scopes —
+#        -- without these, startup fails with
+#        -- `permission denied for database nova_cases` and the Cloud Run
+#        -- revision never binds :8080.
+#        GRANT CREATE ON DATABASE nova_cases TO "51003905459-compute@developer";
+#        GRANT CREATE ON SCHEMA public TO "51003905459-compute@developer";
+#        GRANT CREATE ON SCHEMA public TO "bperry@dimagi.com";
+#
 #   3. Sign out, rotate the postgres account back to a fresh-random-unknown
 #      password (no human knows it before, during briefly, or after).
 #   4. Verify each extension is reachable under IAM auth as the developer
@@ -236,9 +252,11 @@ fi
 #
 # The split exists because PostGIS specifically requires `cloudsqlsuperuser`
 # per Cloud SQL's documented extension allowlist, and atlas-applied schema
-# migrations can only assume the runtime SA's privilege set. Once the
-# extensions are installed, every subsequent schema migration runs through
-# atlas under the runtime SA at Cloud Run startup.
+# migrations can only assume the runtime SA's privilege set. The CREATE
+# grants above are the bridge: atlas runs as the runtime SA, but needs DDL
+# rights one layer up (database for its tracking schema, public for the
+# migration target). Once granted, every subsequent schema migration runs
+# through atlas under the runtime SA at Cloud Run startup.
 # ---------------------------------------------------------------------------
 echo "=== Phase 5: SKIPPED (manual — runs interactively in Cloud SQL Studio) ==="
 
