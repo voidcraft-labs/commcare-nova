@@ -1,5 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
@@ -13,52 +14,109 @@ import {
 } from "@/lib/doc/hooks/useEntity";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { Uuid } from "@/lib/doc/types";
-import { defaultPostSubmit } from "@/lib/domain";
-import { getCaseData, getDummyCases } from "@/lib/preview/engine/dummyData";
+import {
+	CASE_LOADING_FORM_TYPES,
+	defaultPostSubmit,
+	type FormType,
+	POST_SUBMIT_DESTINATIONS,
+} from "@/lib/domain";
+import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
+import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingClient";
+import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
+import { useAppId, useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 
+/**
+ * Failure arms of `SubmissionResult` — the complement of the success
+ * set. Pulling the union as a type so `describeSubmitError`'s switch
+ * stays exhaustive against any future arm added to the result type.
+ * Success arms mirror `SubmissionMutation`'s `FormType` discriminator
+ * (one per `FormType`); the handler short-circuits on those and routes
+ * everything else through this failure shape. Keying the `Exclude` off
+ * `FormType` itself (rather than the four literals inline) keeps the
+ * partition aligned with the source-of-truth `FormType` union — a new
+ * form type landing in `FORM_TYPES` re-narrows this type automatically.
+ */
+type SubmissionFailure = Exclude<SubmissionResult, { kind: FormType }>;
+
+/**
+ * Shape a `SubmissionResult` failure arm into the inline error string
+ * rendered below the submit row. Mirrors `CaseListScreen`'s
+ * `describePopulateError` shape — typed errors get readable text that
+ * names the affected entity so the user can amend without parsing the
+ * case-store's vocabulary. `case-properties-validation` renders the
+ * per-field failure list one line per failure.
+ */
+function describeSubmitError(result: SubmissionFailure): string {
+	switch (result.kind) {
+		case "unauthenticated":
+			return "Sign in to submit this form.";
+		case "case-not-found":
+			return "The case you were editing no longer exists. Refresh and try again.";
+		case "case-properties-validation": {
+			/* AJV's `path` is the JSONB pointer (`/age`, or `""` for the
+			 * document root); strip the leading slash for readability and
+			 * substitute `<root>` for the empty path — same shape
+			 * `describePopulateError` uses so the two surfaces stay
+			 * visually consistent. The header names `result.caseType` so
+			 * registration forms with multi-case fan-out tell the user
+			 * WHICH case type rejected (a child case's properties failing
+			 * is otherwise indistinguishable from the primary's). */
+			const lines = result.failures.map((f) => {
+				const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
+				return `${field}: ${f.message}`;
+			});
+			return `Some fields on case type '${result.caseType}' didn't match its schema:\n${lines.join("\n")}`;
+		}
+		case "missing-case-type":
+			return `Case type '${result.caseType}' is no longer in the blueprint. Refresh the page and try again.`;
+		case "schema-not-synced":
+			return `Case type '${result.caseType}' isn't ready yet. Try again in a moment.`;
+		case "error":
+			return result.message;
+	}
+}
+
+/**
+ * Submit lifecycle. Mirrors `CaseListScreen`'s `populateStatus` —
+ * three arms covering idle, in-flight, and per-arm error. The error
+ * arm carries the already-shaped user-facing string so the render
+ * layer doesn't re-walk the failure shape.
+ */
+type SubmitStatus =
+	| { kind: "idle" }
+	| { kind: "running" }
+	| { kind: "error"; message: string };
+
 interface FormScreenProps {
-	/** This screen's identity — which form is being displayed. Passed from
-	 *  PreviewShell rather than read from the global store: Activity can
-	 *  hide this component, at which point the global "current screen" has
-	 *  moved on, but this component's own identity hasn't. Keeping identity
-	 *  as a prop means the subtree stays valid while hidden (no null render,
-	 *  no destroyed tree) and Activity can do its job of preserving state. */
+	/** Passed from PreviewShell so the subtree stays valid while Activity hides it. Only `caseId` is consumed here. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
-	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
-	 *  Also used as the fallback post-submit destination for `previous` forms. */
+	/** BuilderLayout's back handler — also the fallback post-submit destination for `previous` forms. */
 	onBack: () => void;
 }
 
 /**
- * Form screen — renders the form header + body and activates the shared
- * EngineController for the form identified by the URL.
- *
- * Reads the form ENTITY (NForm — no children) for header display.
- * The EngineController manages its own runtime store via selective
- * blueprint store subscriptions that fire outside the React render cycle.
- *
- * Screen identity (moduleIndex, formIndex, caseId) arrives as a prop from
- * PreviewShell so the component remains valid while Activity hides it —
- * but only `caseId` is consumed here. The form's UUID comes from the URL
- * (`useLocation`), and the engine is activated by UUID rather than by the
- * positional screen indices, which are opaque PreviewScreen routing data.
+ * Form screen. Activates the EngineController by URL-derived form
+ * UUID. Case-data preload routes through `useCaseData`;
+ * `caseRowToFormPreload` flattens the JSONB document into the
+ * `Map<string, string>` the form engine consumes.
  */
 export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const caseId = screen.caseId;
-	const caseTypes = useCaseTypes();
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const { updateForm } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
+	const appId = useAppId();
+	const caseTypes = useCaseTypes();
 
-	/** Uuids derived from the URL — used for uuid-first mutations and navigation. */
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 	const moduleUuid = loc.kind === "form" ? loc.moduleUuid : undefined;
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
@@ -72,34 +130,23 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
 
-	/** The form's uuid doubles as the entity key for FormRenderer, which
-	 *  subscribes to `fieldOrder[formUuid]` for the ordered child list.
-	 *  Read from the URL-derived location so this doesn't touch the legacy store. */
-	const formId = formUuid;
+	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
+	const hasFields = useHasFieldsInForm(formUuid);
 
-	/** Whether the form has any fields — drives the empty state. The hook
-	 *  accepts `Uuid | undefined`, returning `false` when `formId` is
-	 *  undefined so the preview shell can mount a FormScreen while the
-	 *  URL is still being parsed. */
-	const hasFields = useHasFieldsInForm(formId as Uuid | undefined);
+	const { state: caseDataState } = useCaseData({
+		appId,
+		caseType: mod?.caseType,
+		caseId,
+	});
 
+	/** Only `row` produces preload — every other arm leaves the form rendering against defaults. */
 	const caseData = useMemo(() => {
-		if (!mod?.caseType) return undefined;
-		if (caseId) return getCaseData(mod.caseType, caseId);
-		if (form?.type === "followup") {
-			const ct = caseTypes.find((c) => c.name === mod.caseType);
-			if (ct) return getDummyCases(ct)[0]?.properties;
-		}
-		return undefined;
-	}, [caseId, mod?.caseType, form?.type, caseTypes]);
+		if (caseDataState.kind !== "row") return undefined;
+		return caseRowToFormPreload(caseDataState.row);
+	}, [caseDataState]);
 
 	const editable = isReady;
 
-	/* Activate the engine controller for this form. The controller manages
-	 * its own runtime store via selective blueprint subscriptions — no
-	 * entity-map subscription here, no "setState during render" issues.
-	 * Identified by UUID so the engine no longer depends on positional
-	 * module/form indices. */
 	const controller = useFormEngine(formUuid, caseData);
 
 	const prevModeRef = useRef(mode);
@@ -129,9 +176,172 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		[mode, selectedUuid],
 	);
 
-	if (!form || !formId) return null;
+	/* Submit lifecycle + post-submit dispatch live above the early-
+	 * return gates so the hooks run on every render — moving them
+	 * below the conditional returns would violate the rules of hooks
+	 * during the transient mount window when `form` resolves from
+	 * undefined to defined. The `form?.` reads tolerate the undefined
+	 * window; `dispatchPostSubmit` is only invoked from `handleSubmit`,
+	 * which itself only fires when the test-mode submit row is mounted,
+	 * which itself requires `form` to be defined. */
+	const [submitStatus, setSubmitStatus] = useState<SubmitStatus>({
+		kind: "idle",
+	});
 
-	if (mode === "test" && form.type === "followup" && !caseData) {
+	const dispatchPostSubmit = useCallback((): void => {
+		if (!form) return;
+		const dest = form.postSubmit ?? defaultPostSubmit(form.type);
+		switch (dest) {
+			case "module":
+			case "parent_module":
+				if (moduleUuid) navigate.openModule(moduleUuid);
+				return;
+			case "root":
+			case "app_home":
+				navigate.goHome();
+				return;
+			case "previous":
+				/* Return to whatever screen sent the user here. `onBack`
+				 * reads from BuilderLayout, which holds the back-stack and
+				 * falls through to the module home when the stack is
+				 * empty. */
+				onBack();
+				return;
+			default: {
+				/* Exhaustive switch — a future `PostSubmitDestination`
+				 * arm landing without a case here surfaces as the
+				 * standard `unhandledKindMessage` shape rather than
+				 * silently routing to `onBack()`. */
+				const _exhaustive: never = dest;
+				throw new Error(
+					unhandledKindMessage({
+						where: "preview.FormScreen.dispatchPostSubmit",
+						family: "PostSubmitDestination",
+						received: _exhaustive,
+						knownKinds: [...POST_SUBMIT_DESTINATIONS],
+					}),
+				);
+			}
+		}
+	}, [form, moduleUuid, navigate, onBack]);
+
+	const handleSubmit = async (): Promise<void> => {
+		/* Clear any prior error state up-front. Two reasons:
+		 *
+		 *   1. A stale server-error header from a previous submit would
+		 *      otherwise stay visible while the user is on a *different*
+		 *      failure path (validate-fail or appId-guard) whose actual
+		 *      remediation surfaces in a different UI element (per-field
+		 *      required indicators).
+		 *   2. A second submit after a server error must replace, not
+		 *      augment — the alert always reflects the latest attempt. */
+		setSubmitStatus({ kind: "idle" });
+
+		const valid = controller.validateAll();
+		if (!valid) {
+			const errorEl = formBodyElRef.current?.querySelector(
+				'[data-invalid="true"]',
+			);
+			errorEl?.scrollIntoView({ behavior: "smooth", block: "center" });
+			return;
+		}
+
+		/* `appId` is provided by the builder route; the test-mode submit
+		 * button only mounts under a builder session, so a missing slot
+		 * is an upstream contract failure. Guard explicitly so a
+		 * stale-mount path surfaces a readable inline message rather
+		 * than reaching the server action with `undefined`. */
+		if (!appId) {
+			setSubmitStatus({
+				kind: "error",
+				message:
+					"This app isn't fully loaded yet. Wait a moment and try again.",
+			});
+			return;
+		}
+
+		setSubmitStatus({ kind: "running" });
+		try {
+			const mutation = controller.computeSubmissionMutation({
+				caseId,
+				caseTypes,
+			});
+			const result = await submitFormAction(mutation, appId);
+			if (
+				result.kind === "registration" ||
+				result.kind === "followup" ||
+				result.kind === "close" ||
+				result.kind === "survey"
+			) {
+				setSubmitStatus({ kind: "idle" });
+				dispatchPostSubmit();
+				return;
+			}
+			setSubmitStatus({
+				kind: "error",
+				message: describeSubmitError(result),
+			});
+		} catch {
+			/* Wire-level failures (RSC serialization, transport rejects)
+			 * and any invariant throw the action / engine surfaces collapse
+			 * to one user-facing line. The throw's message body carries
+			 * implementation jargon (compiler-bug invariants, framework
+			 * stack traces) that doesn't belong on the user's screen, so
+			 * we deliberately ignore it and emit the same generic line
+			 * `CaseListScreen.handleGenerate` uses for its sibling case. */
+			setSubmitStatus({
+				kind: "error",
+				message: "Could not submit form. Try again.",
+			});
+		}
+	};
+
+	/* Clear-form button: reset both the engine's per-field state AND the
+	 * submit lifecycle. Leaving `submitStatus` carrying a stale error
+	 * after the user clicks Clear contradicts the "start fresh" mental
+	 * model — the form's reset must be visible across every surface. */
+	const handleClear = useCallback((): void => {
+		controller.reset();
+		setSubmitStatus({ kind: "idle" });
+	}, [controller]);
+
+	if (!form || !formUuid) return null;
+
+	/** A caseId-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
+	if (mode === "test" && CASE_LOADING_FORM_TYPES.has(form.type)) {
+		if (caseDataState.kind === "unauthenticated") {
+			return (
+				<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
+					<div className="text-center space-y-2">
+						<h3 className="text-sm font-medium text-nova-text">
+							Sign in to load case data
+						</h3>
+						<p className="text-sm text-nova-text-muted max-w-xs">
+							Your session expired while loading this case. Sign in again to
+							continue.
+						</p>
+					</div>
+				</div>
+			);
+		}
+		if (caseDataState.kind === "error") {
+			return (
+				<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
+					<div className="text-center space-y-2">
+						<h3 className="text-sm font-medium text-nova-text">
+							Could not load case data
+						</h3>
+						<p className="text-sm text-red-300 max-w-xs">
+							{caseDataState.message}
+						</p>
+					</div>
+				</div>
+			);
+		}
+	}
+
+	/** Case-loading forms in test mode without a bound case — covers both "navigated from an empty list" and "URL had no caseId". Routing both `followup` and `close` through here keeps the engine's caseId invariant (`computeSubmissionMutation` throws when either runs without a bound id) unreachable from a user action. */
+	if (mode === "test" && CASE_LOADING_FORM_TYPES.has(form.type) && !caseId) {
 		return (
 			<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
 				<div className="text-center space-y-2">
@@ -139,46 +349,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						No cases available
 					</h3>
 					<p className="text-sm text-nova-text-muted max-w-xs">
-						This follow-up form requires an existing case. Submit the
-						registration form first to create one.
+						This form requires an existing case. Submit the registration form
+						first to create one.
 					</p>
 				</div>
 			</div>
 		);
 	}
 
-	const handleSubmit = () => {
-		const valid = controller.validateAll();
-		if (valid) {
-			const dest = form.postSubmit ?? defaultPostSubmit(form.type);
-			switch (dest) {
-				case "module":
-				case "parent_module":
-					if (moduleUuid) navigate.openModule(moduleUuid);
-					break;
-				case "root":
-				case "app_home":
-					navigate.goHome();
-					break;
-				default:
-					onBack();
-					break;
-			}
-		} else {
-			const errorEl = formBodyElRef.current?.querySelector(
-				'[data-invalid="true"]',
-			);
-			errorEl?.scrollIntoView({ behavior: "smooth", block: "center" });
-		}
-	};
-
 	const canEdit = mode === "edit" && editable;
 
 	const formBody = (
 		<>
-			{/* Form header. The `data-form-header` marker is queried by
-			 *  `InlineTextEditor` as the clamp floor for the floating label
-			 *  toolbar — preserve the attribute if this block is refactored. */}
+			{/* `data-form-header` is queried by `InlineTextEditor` as the clamp floor for the floating label toolbar — preserve the attribute if this block is refactored. */}
 			<div
 				data-form-header
 				className="px-6 pt-5 pb-4 border-b border-pv-input-border"
@@ -210,25 +393,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				</div>
 			</div>
 
-			{/* Form body.
-			 *
-			 *  **Unified padding for flipbook parity.** Both edit and live
-			 *  modes use the same `pt-4` top padding here, and every row
-			 *  (edit or live) applies its own horizontal `depthPadding(depth)`
-			 *  gutter inline. The 24px top gap before the first field is
-			 *  supplied by each branch's own "row zero":
-			 *    - edit mode → `insertion(0)` row (24px, built into the row
-			 *      walker)
-			 *    - live mode → `pt-6` on `InteractiveFormRenderer`
-			 *  Both land the first field at Y = 16 + 24 = 40px so a cursor /
-			 *  mode toggle never shifts the user's reading position.
-			 *
-			 *  The bottom 24px is supplied the same way: `insertion(N+1)` in
-			 *  edit mode, the last field's `mb-6` in live mode. No body
-			 *  `pb-*` on either side so the two modes stay symmetric. */}
+			{/* Unified `pt-4` for flipbook parity: edit-mode `insertion(0)` row + live-mode `pt-6` both land the first field at Y = 40px so toggling modes never shifts reading position. Bottom symmetric via `insertion(N+1)` in edit / last field's `mb-6` in live. */}
 			<div ref={formBodyRef} className="flex-1 pt-4">
 				{hasFields ? (
-					<FormRenderer parentEntityId={formId} />
+					<FormRenderer parentEntityId={formUuid} />
 				) : (
 					<div className="text-center text-nova-text-muted py-8">
 						This form has no fields.
@@ -236,24 +404,50 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				)}
 			</div>
 
-			{/* Bottom bar — hidden in design mode where it's non-functional */}
+			{/* Hidden in design mode where it's non-functional. */}
 			{mode === "test" && (
-				<div className="flex items-center justify-between px-6 py-3 border-t border-pv-input-border bg-pv-surface">
-					<button
-						type="button"
-						onClick={handleSubmit}
-						className="px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer"
-					>
-						Submit
-					</button>
-					<button
-						type="button"
-						onClick={() => controller.reset()}
-						className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg"
-					>
-						<Icon icon={tablerRefresh} width="14" height="14" />
-						Clear form
-					</button>
+				<div className="border-t border-pv-input-border bg-pv-surface">
+					<div className="flex items-center justify-between px-6 py-3">
+						<button
+							type="button"
+							onClick={handleSubmit}
+							disabled={submitStatus.kind === "running"}
+							className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+						>
+							{submitStatus.kind === "running" && (
+								<Icon
+									icon={tablerLoader2}
+									width="14"
+									height="14"
+									className="animate-spin"
+								/>
+							)}
+							{submitStatus.kind === "running" ? "Submitting..." : "Submit"}
+						</button>
+						<button
+							type="button"
+							onClick={handleClear}
+							disabled={submitStatus.kind === "running"}
+							className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+						>
+							<Icon icon={tablerRefresh} width="14" height="14" />
+							Clear form
+						</button>
+					</div>
+					{/* Inline error sits BELOW the submit row so the user's
+					 *  amend-then-resubmit loop keeps the action affordance
+					 *  steady in place — the row doesn't reflow when an error
+					 *  appears or clears. `whitespace-pre-line` honors the
+					 *  per-field newline list `describeSubmitError` emits for
+					 *  the validation-failure arm. */}
+					{submitStatus.kind === "error" && (
+						<p
+							role="alert"
+							className="px-6 pb-3 text-sm text-red-300 whitespace-pre-line"
+						>
+							{submitStatus.message}
+						</p>
+					)}
 				</div>
 			)}
 		</>
@@ -262,13 +456,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	return (
 		<div className="h-full">
 			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
-				{/* FormLayoutProvider owns per-form layout state (currently
-				 *  group/repeat collapse). The collapse set is shared across
-				 *  edit and live modes so a group folded in one stays folded
-				 *  when the user flips to the other. Preview descendants read
-				 *  the current edit mode from `useEditMode()` directly rather
-				 *  than a dedicated context — there's no per-form positional
-				 *  identity left to carry here. */}
+				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
 				<FormLayoutProvider>{formBody}</FormLayoutProvider>
 			</div>
 		</div>

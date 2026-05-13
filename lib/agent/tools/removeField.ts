@@ -20,11 +20,13 @@ import { removeFieldMutations, resolveFieldByIndex } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const removeFieldInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	formIndex: z.number().describe("0-based form index"),
-	fieldId: z.string().describe("Field id to remove"),
-});
+export const removeFieldInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		formIndex: z.number().describe("0-based form index"),
+		fieldId: z.string().describe("Field id to remove"),
+	})
+	.strict();
 
 export type RemoveFieldInput = z.infer<typeof removeFieldInputSchema>;
 

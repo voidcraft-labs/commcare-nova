@@ -9,7 +9,7 @@
  *     (`RunSummaryDoc`). Read via `readRunSummary`.
  *
  * Cost analytics live on the per-run summary — the event log intentionally
- * carries no token usage (spec §5: log is supplemental, mutation +
+ * carries no token usage (the log is supplemental and captures mutations +
  * conversation only). Scripts that want cost breakdowns read the summary
  * doc directly.
  *

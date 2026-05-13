@@ -118,6 +118,12 @@ export interface NavigateActions {
 	openModule: (moduleUuid: Uuid) => void;
 	openCaseList: (moduleUuid: Uuid) => void;
 	openCaseDetail: (moduleUuid: Uuid, caseId: string) => void;
+	/**
+	 * Open the case-search authoring workspace for `moduleUuid`. Routes
+	 * to `/build/{appId}/{moduleUuid}/search-config`. Sibling to
+	 * `openCaseList` — same per-module shape, different config slot.
+	 */
+	openSearchConfig: (moduleUuid: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -140,7 +146,10 @@ export type SelectAction = (uuid: Uuid | undefined) => void;
 export function useIsModuleSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return (
-		(loc.kind === "module" || loc.kind === "cases" || loc.kind === "form") &&
+		(loc.kind === "module" ||
+			loc.kind === "cases" ||
+			loc.kind === "search-config" ||
+			loc.kind === "form") &&
 		loc.moduleUuid === uuid
 	);
 }
@@ -182,7 +191,10 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 	const appName = useBlueprintDoc((s) => s.appName);
 
 	const moduleUuid =
-		loc.kind === "module" || loc.kind === "cases" || loc.kind === "form"
+		loc.kind === "module" ||
+		loc.kind === "cases" ||
+		loc.kind === "search-config" ||
+		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
@@ -225,6 +237,13 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 					},
 				});
 			}
+		}
+		if (loc.kind === "search-config") {
+			items.push({
+				key: `search-config:${moduleUuid}`,
+				label: "Search Config",
+				location: { kind: "search-config", moduleUuid: loc.moduleUuid },
+			});
 		}
 		if (loc.kind === "form" && formUuid && moduleUuid) {
 			items.push({
@@ -297,6 +316,8 @@ export function useNavigate(): NavigateActions {
 			openCaseList: (moduleUuid: Uuid) => push({ kind: "cases", moduleUuid }),
 			openCaseDetail: (moduleUuid: Uuid, caseId: string) =>
 				push({ kind: "cases", moduleUuid, caseId }),
+			openSearchConfig: (moduleUuid: Uuid) =>
+				push({ kind: "search-config", moduleUuid }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -328,6 +349,8 @@ export function parentLocation(loc: Location): Location | undefined {
 			return loc.caseId
 				? { kind: "cases", moduleUuid: loc.moduleUuid }
 				: { kind: "module", moduleUuid: loc.moduleUuid };
+		case "search-config":
+			return { kind: "module", moduleUuid: loc.moduleUuid };
 		case "form":
 			return loc.selectedUuid
 				? {

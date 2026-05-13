@@ -4,6 +4,7 @@ import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	fieldSchema,
 	getConvertibleTypes,
+	pickFieldKeysForKind,
 	reconcileFieldForKind,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -66,8 +67,10 @@ export interface MoveFieldResult {
  *     they represented the same case property (same `id` + same
  *     `case_property_on`) in a different form. Those are authoritative peers
  *     of the renamed field, not references to it.
- *   - `columnsRewritten` — number of `caseListColumns` / `caseDetailColumns`
- *     entries on matching modules whose `field` value was updated.
+ *   - `columnsRewritten` — number of `caseListConfig.columns`
+ *     entries on matching modules whose `field` value was
+ *     updated. Calculated columns have no `field` slot and are
+ *     skipped during the rewrite.
  *   - `catalogEntryRenamed` — `true` iff `doc.caseTypes[caseType].properties[]`
  *     had a matching entry renamed. The catalog is the authoritative list
  *     of known case properties for the XPath linter, `#case/` chip
@@ -177,32 +180,49 @@ export function applyFieldMutation(
 		case "updateField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
-			// Validate the merged result against the full `fieldSchema` discriminated
-			// union. `FieldPatch` is a union-wide partial — at the type level it
-			// allows any variant's keys, so e.g. a `{ label: "x" }` patch against a
-			// HiddenField (which has no `label`) would compile fine and `Object.assign`
-			// would silently install the stray key. Parsing here rejects patches
-			// that introduce keys the target variant does not define, and also
-			// rejects invalid values for keys that DO exist (e.g. wrong type).
-			// Zod strips unknown keys by default, so the reducer installs a clean
-			// entity rather than accumulating drift over time.
-			const merged = { ...field, ...mut.patch };
+			// Identity + kind guard. `mut.targetKind` is the kind the caller
+			// constructed the patch against. If the field's actual kind has
+			// drifted (e.g. a `convertField` ran between mutation construction
+			// and dispatch in a parallel batch), the patch's allowed keys no
+			// longer match the field — skip the stale mutation rather than
+			// merging keys that don't apply to the current kind.
+			if (field.kind !== mut.targetKind) {
+				console.warn(
+					`updateField: skipped a stale patch for ${mut.uuid} — the patch was built for a "${mut.targetKind}" field, but the field is now a "${field.kind}". The field probably converted kind between when this update was queued and when it ran. Re-read the field, rebuild the patch, and try again.`,
+				);
+				return;
+			}
+			// Spread-merge the patch onto the current entity, then filter
+			// the result through `pickFieldKeysForKind` before parsing. The
+			// type-level discriminator on `targetKind` catches cross-kind
+			// patches at compile time, but the repeat kind has an inner
+			// `repeat_mode` discriminator the per-kind partial schema can't
+			// guard: a patch that switches `count_bound → user_controlled`
+			// leaves the previous mode's `repeat_count` key in the spread,
+			// and the strict per-variant schema would reject it. The
+			// filter dispatches on the merged result's `repeat_mode` so a
+			// mode-switch picks up the destination variant's key set,
+			// dropping the stale slot. For non-repeat kinds the filter is
+			// a tight no-op (the picked key set covers every key the merge
+			// can carry) — defense-in-depth without a meaningful cost.
+			const spread = { ...field, ...mut.patch };
+			const merged = pickFieldKeysForKind(spread, mut.targetKind);
 			const result = fieldSchema.safeParse(merged);
 			if (!result.success) {
-				// A patch that fails the schema is a programmer error — log with
-				// the exact issues so the offending call site is easy to locate,
-				// then skip the update rather than throwing from inside an Immer
-				// reducer (a throw would propagate up through `store.applyMany()`
-				// and crash the surrounding render or route handler).
+				// A patch that fails the schema is a programmer error — log
+				// with the exact issues so the offending call site is easy
+				// to locate, then skip the update rather than throwing from
+				// inside an Immer reducer (a throw would propagate up through
+				// `store.applyMany()` and crash the surrounding render).
 				console.warn(
-					`updateField: patch rejected for ${mut.uuid} (kind=${field.kind})`,
+					`updateField: a patch for ${mut.uuid} (kind=${field.kind}) didn't fit the field's schema and was skipped. The merged shape failed validation — check that every patch value is the right type for its key.`,
 					{ patch: mut.patch, issues: result.error.issues },
 				);
 				return;
 			}
-			// Install the parsed (and key-stripped) entity — replaces the existing
-			// entry rather than mutating it in place, which is the canonical
-			// Immer-friendly way to write a known-good replacement.
+			// Install the validated entity — replaces the existing entry rather
+			// than mutating it in place, which is the canonical Immer-friendly
+			// way to write a known-good replacement.
 			draft.fields[mut.uuid] = result.data;
 			return;
 		}
@@ -796,19 +816,22 @@ function cascadeCasePropertyRename(
 		const mod = doc.modules[moduleUuid];
 		if (!mod || mod.caseType !== caseType) continue;
 
-		// Columns: both lists are optional + nullable; touch each entry in
-		// place on the draft. The count reflects column cells, not modules,
-		// so a module with two stale column refs contributes two.
-		if (Array.isArray(mod.caseListColumns)) {
-			for (const col of mod.caseListColumns) {
-				if (col.field === oldId) {
-					col.field = newId;
-					columnsRewritten++;
-				}
-			}
-		}
-		if (Array.isArray(mod.caseDetailColumns)) {
-			for (const col of mod.caseDetailColumns) {
+		// Columns: the structured config carries display columns
+		// in a single `columns` array; the rewrite walks every
+		// entry in place on the draft. The count reflects column
+		// cells, not modules, so a module with two stale column
+		// refs contributes two.
+		//
+		// Five of the six column kinds (`plain`, `date`, `phone`,
+		// `id-mapping`, `interval`) carry a `field` slot pointing at
+		// a case-property name; the rename rewrites those in place.
+		// `calculated` columns have no `field` slot — the
+		// expression is the source — and are skipped here; this
+		// loop is the property-name-as-string rewrite only.
+		const config = mod.caseListConfig;
+		if (config) {
+			for (const col of config.columns) {
+				if (col.kind === "calculated") continue;
 				if (col.field === oldId) {
 					col.field = newId;
 					columnsRewritten++;

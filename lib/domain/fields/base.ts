@@ -37,10 +37,12 @@ export type StructuralFieldBase = {
 	id: string;
 };
 
-export const structuralFieldBase = z.object({
-	uuid: uuidSchema,
-	id: z.string(),
-});
+export const structuralFieldBase = z
+	.object({
+		uuid: uuidSchema,
+		id: z.string(),
+	})
+	.strict();
 
 /** Every visible field has identity, a CommCare property id, and a display label. */
 export type FieldBase = StructuralFieldBase & {
@@ -85,7 +87,9 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 /** Select option value + label pair, shared by singleSelect/multiSelect. */
 export type SelectOption = { value: string; label: string };
 
-export const selectOptionSchema = z.object({
-	value: z.string(),
-	label: z.string(),
-});
+export const selectOptionSchema = z
+	.object({
+		value: z.string(),
+		label: z.string(),
+	})
+	.strict();

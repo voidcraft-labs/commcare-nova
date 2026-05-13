@@ -5,4 +5,10 @@ node_modules
 *.md
 .env*
 .playwright-mcp
+# The scripts directory holds Next.js / inspect / dev tooling that
+# the runtime image doesn't need. The Dockerfile COPYs `atlas.hcl`
+# and `lib/case-store/{schema.sql,migrations}` at known paths;
+# nothing under `scripts/` gets baked into the image, so excluding
+# the entire directory keeps the build context small without any
+# allowlist exceptions.
 scripts

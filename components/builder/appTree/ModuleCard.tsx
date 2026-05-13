@@ -116,33 +116,55 @@ export const ModuleCard = memo(function ModuleCard({
 
 			{!isCollapsed && (
 				<>
-					{mod.caseListColumns && mod.caseListColumns.length > 0 && (
-						<div className="mx-4 mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-							<div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-white/[0.04]">
-								<Icon
-									icon={tablerTable}
-									width="12"
-									height="12"
-									className="text-nova-text-muted"
-								/>
-								<span className="text-[10px] font-medium text-nova-text-muted uppercase tracking-widest">
-									Case List
-								</span>
+					{(() => {
+						// Filter to columns visible in the case list — the
+						// schema's `visibleInList ?? true` contract means
+						// absent slots default to visible. The sidebar
+						// preview is a scaled-down mirror of the runtime
+						// case list, so the filter matches what the runtime
+						// renders. Calculated columns surface their header
+						// (the only authored identity); other kinds prefer
+						// the field name when no header is set so the
+						// sidebar communicates the column's source.
+						const visibleColumns = mod.caseListConfig?.columns.filter(
+							(col) => col.visibleInList ?? true,
+						);
+						if (!visibleColumns || visibleColumns.length === 0) return null;
+						return (
+							<div className="mx-4 mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+								<div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-white/[0.04]">
+									<Icon
+										icon={tablerTable}
+										width="12"
+										height="12"
+										className="text-nova-text-muted"
+									/>
+									<span className="text-[10px] font-medium text-nova-text-muted uppercase tracking-widest">
+										Case List
+									</span>
+								</div>
+								<div className="flex">
+									{visibleColumns.map((col, colIdx) => {
+										const labelSource =
+											col.kind === "calculated"
+												? col.header
+												: col.header || col.field;
+										const label = labelSource || "(unnamed)";
+										return (
+											<div
+												key={col.uuid}
+												className={`flex-1 px-3 py-2 text-xs font-medium text-nova-text-secondary ${
+													colIdx > 0 ? "border-l border-white/[0.04]" : ""
+												}`}
+											>
+												{label}
+											</div>
+										);
+									})}
+								</div>
 							</div>
-							<div className="flex">
-								{mod.caseListColumns.map((col, colIdx) => (
-									<div
-										key={`${col.header}-${col.field}`}
-										className={`flex-1 px-3 py-2 text-xs font-medium text-nova-text-secondary ${
-											colIdx > 0 ? "border-l border-white/[0.04]" : ""
-										}`}
-									>
-										{col.header}
-									</div>
-								))}
-							</div>
-						</div>
-					)}
+						);
+					})()}
 
 					<div className="border-t border-nova-border">
 						<AnimatePresence mode="sync">

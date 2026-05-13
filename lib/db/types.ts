@@ -61,8 +61,8 @@ export type UsageDoc = z.infer<typeof usageDocSchema>;
  *
  * Stored at `apps/{appId}/runs/{runId}`. Admin tools (inspect-logs,
  * inspect-compare) source cost breakdowns here — the event log itself
- * intentionally does NOT carry token usage (spec §5: log is supplemental,
- * mutation + conversation only).
+ * intentionally does NOT carry token usage (the log is supplemental
+ * and captures mutations + conversation only).
  */
 export const runSummaryDocSchema = z.object({
 	runId: z.string(),

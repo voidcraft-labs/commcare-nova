@@ -34,7 +34,7 @@ import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
-import type { FieldPatch, Uuid } from "@/lib/domain";
+import type { FieldPatchFor, Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -71,18 +71,21 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const { updateField } = useBlueprintMutations();
 	/* Inline save for the TextEditable header — null outside edit mode so
 	 * the group label stays read-only. Matches FieldRow's inlined pattern
-	 * (empty string → undefined, commit via doc store). */
+	 * (empty string → undefined, commit via doc store). The closure
+	 * captures the field's `kind` so the patch type narrows to the
+	 * specific container variant (group / repeat); both declare the
+	 * `label` slot the header writes to. */
+	const fieldKind = q?.kind;
 	const saveField = useMemo<
 		((field: string, value: string) => void) | null
 	>(() => {
-		if (mode !== "edit") return null;
+		if (mode !== "edit" || fieldKind === undefined) return null;
 		return (property, value) => {
-			const patch = {
+			updateField(uuid, fieldKind, {
 				[property]: value === "" ? undefined : value,
-			} as FieldPatch;
-			updateField(uuid, patch);
+			} as FieldPatchFor<typeof fieldKind>);
 		};
-	}, [mode, uuid, updateField]);
+	}, [mode, uuid, fieldKind, updateField]);
 
 	const isFieldSelected = useIsFieldSelected(uuid);
 	useFulfillPendingScroll(uuid, isFieldSelected);

@@ -23,6 +23,7 @@ import {
 	type Form,
 	type FormLink,
 	type Module,
+	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -82,9 +83,33 @@ export interface ModuleSpec {
 	caseType?: string;
 	caseListOnly?: boolean;
 	purpose?: string;
-	caseListColumns?: Module["caseListColumns"];
-	caseDetailColumns?: Module["caseDetailColumns"];
+	caseListConfig?: Module["caseListConfig"];
+	caseSearchConfig?: Module["caseSearchConfig"];
 	forms?: FormSpec[];
+}
+
+/**
+ * Build a `CaseListConfig` snapshot from a flat `{field, header}[]`
+ * column list. Tests construct columns this way overwhelmingly often
+ * (every fixture builds the simplest case-list shape), so the helper
+ * keeps fixtures concise without forcing each test to spell the
+ * empty `searchInputs` array itself.
+ *
+ * Each entry becomes a `kind: "plain"` column with an auto-assigned
+ * `uuid`. The helper short-circuits the schema's identity slot so
+ * fixtures that don't care about column identity stay compact —
+ * fixtures that DO care (drag-reorder tests, sort-on-column lookups)
+ * pass `plainColumn(uuid, field, header)` directly.
+ */
+export function caseListConfig(
+	columns: ReadonlyArray<{ field: string; header: string }>,
+): NonNullable<Module["caseListConfig"]> {
+	return {
+		columns: columns.map((c) =>
+			plainColumn(nextUuid("col"), c.field, c.header),
+		),
+		searchInputs: [],
+	};
 }
 
 /** Top-level spec. Mirrors the `BlueprintDoc` shape minus ordering/entity maps. */
@@ -129,11 +154,11 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				caseListOnly: modSpec.caseListOnly,
 			}),
 			...(modSpec.purpose !== undefined && { purpose: modSpec.purpose }),
-			...(modSpec.caseListColumns !== undefined && {
-				caseListColumns: modSpec.caseListColumns,
+			...(modSpec.caseListConfig !== undefined && {
+				caseListConfig: modSpec.caseListConfig,
 			}),
-			...(modSpec.caseDetailColumns !== undefined && {
-				caseDetailColumns: modSpec.caseDetailColumns,
+			...(modSpec.caseSearchConfig !== undefined && {
+				caseSearchConfig: modSpec.caseSearchConfig,
 			}),
 		};
 

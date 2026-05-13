@@ -8,6 +8,7 @@
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
+import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 
 function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 	if (doc.appName?.trim()) return [];
@@ -59,7 +60,7 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 				validationError(
 					"MISSING_CHILD_CASE_MODULE",
 					"app",
-					`The child case type "${ct.name}" (child of "${ct.parent_type}") is created by forms but has no module to display it. CommCare requires every case type to have a module — add one with case_type "${ct.name}" and case_list_columns so users can see these cases.`,
+					`The child case type "${ct.name}" (child of "${ct.parent_type}") is created by forms but has no module to display it. CommCare requires every case type to have a module — add one with case_type "${ct.name}" and configure its case list columns so users can see these cases.`,
 					{},
 					{ caseType: ct.name },
 				),
@@ -140,4 +141,8 @@ export const APP_RULES = [
 	duplicateModuleNames,
 	childCaseTypeMissingModule,
 	circularFormLinks,
+	// Cross-form rule — multi-writer disagreement detection requires the
+	// full app's writer set, so the rule is app-scoped rather than
+	// module-scoped.
+	fieldKindMatchesPropertyType,
 ];

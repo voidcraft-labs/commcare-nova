@@ -691,14 +691,15 @@ function buildFieldParts(
 					`<bind nodeset="${nodePath}/@current_index" calculate="count(${nodePath}/item)"/>`,
 				);
 				// Event coercion for nested model-iteration repeats.
-				// Vellum's modeliteration.js (lines 174-178): when a
-				// query-bound repeat lives INSIDE another repeat, the
-				// `@ids` and `@count` setvalues fire on `jr-insert`
-				// instead of `xforms-ready` so each outer iteration re-
-				// seeds its inner ids list. With `xforms-ready`, the
-				// inner repeat's @ids reflects only the FIRST outer
-				// iteration's row context. The `@index` and `@id`
-				// setvalues are always on `jr-insert` regardless.
+				// Mirrors Vellum's modeliteration.js::getSetValues —
+				// when a query-bound repeat lives INSIDE another
+				// repeat, the `@ids` and `@count` setvalues fire on
+				// `jr-insert` instead of `xforms-ready` so each outer
+				// iteration re-seeds its inner ids list. With
+				// `xforms-ready`, the inner repeat's @ids reflects
+				// only the FIRST outer iteration's row context. The
+				// `@index` and `@id` setvalues are always on
+				// `jr-insert` regardless.
 				const seedEvent = insideRepeat ? "jr-insert" : "xforms-ready";
 				setvalues.push(
 					`<setvalue event="${seedEvent}" ref="${nodePath}/@ids" value="${escapeXml(idsValue)}"/>`,

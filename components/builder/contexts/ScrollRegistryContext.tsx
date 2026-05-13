@@ -114,8 +114,10 @@ function useScrollRegistry(): ScrollRegistryApi {
 // ── Public hooks ───────────────────────────────────────────────────────
 
 /** Ref callback for the scroll implementation owner (BuilderLayout).
- *  Registers the callback via useEffect — the cleanup unregisters it,
- *  aligned with the CLAUDE.md ref-callback cleanup convention. */
+ *  Registers the callback via useEffect — the cleanup unregisters
+ *  it. React 19 ref-callback cleanup is the project's convention
+ *  for click-outside, Escape, and observer wire-up; the
+ *  registration shape mirrors that contract. */
 export function useRegisterScrollCallback(callback: ScrollCallback): void {
 	const { registerCallback } = useScrollRegistry();
 	useEffect(() => registerCallback(callback), [registerCallback, callback]);

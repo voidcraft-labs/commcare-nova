@@ -39,7 +39,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
-import { updateAppForRun } from "@/lib/db/apps";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -177,13 +177,27 @@ export class McpContext implements ToolExecutionContext {
 	 * run id. `toPersistableDoc` strips the derived `fieldParent` index;
 	 * see the class-level fail-closed contract for why this is awaited.
 	 *
+	 * Routes through the cross-store saga so a property-surface
+	 * mutation in this MCP tool call (rename / retype / option add)
+	 * syncs the Postgres `case_type_schemas` row before Firestore
+	 * commits. Pure non-case-type edits fast-path through the saga
+	 * without touching the case store. See
+	 * `lib/db/applyBlueprintChange.ts` for the compensation contract.
+	 *
 	 * Writing `run_id` on every mutation is load-bearing for the
 	 * sliding-window derivation in `lib/mcp/runId.ts` — the next MCP
 	 * tool call reads `app.run_id` + `app.updated_at` to decide whether
-	 * to continue this run or start a new one.
+	 * to continue this run or start a new one. The saga's `runId`
+	 * argument routes the Firestore commit through `updateAppForRun`
+	 * so the run id persists alongside the blueprint.
 	 */
 	private async saveBlueprint(doc: BlueprintDoc): Promise<void> {
-		await updateAppForRun(this.appId, toPersistableDoc(doc), this.runId);
+		await applyBlueprintChange({
+			appId: this.appId,
+			userId: this.userId,
+			prospective: toPersistableDoc(doc),
+			runId: this.runId,
+		});
 	}
 }
 

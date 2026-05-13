@@ -22,7 +22,7 @@ import { useFormLintContext } from "@/components/builder/editor/fields/useFormLi
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Field, FieldPatch } from "@/lib/domain";
+import type { Field, FieldPatchFor } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
 	XPathStringKeys,
@@ -92,27 +92,42 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 
 	// `validate_msg` doesn't flow through the generic `onChange` (that
 	// prop is scoped to `keyName`). Dispatch via the doc-mutation API
-	// directly so the message writes to the same field entity.
+	// directly so the message writes to the same field entity. The
+	// editor only mounts when `keyName === "validate"`, which is true
+	// exclusively on kinds whose schema declares `validate_msg`. The
+	// `as` cast widens the literal-key patch back to the kind's partial
+	// shape — TS can't prove `validate_msg` belongs on `F` from inside
+	// this generic body.
 	const { updateField } = useBlueprintMutations();
 	const saveValidateMsg = useCallback(
 		(next: string) => {
-			updateField(field.uuid, {
+			updateField(field.uuid, field.kind, {
 				validate_msg: next === "" ? undefined : next,
-			} as FieldPatch);
+			} as unknown as FieldPatchFor<F["kind"]>);
 			setAddingMsg(false);
 		},
-		[updateField, field.uuid],
+		[updateField, field.uuid, field.kind],
 	);
 
-	// Empty commit clears the message through the same patch path.
-	// Cancelling a brand-new add also drops the pending flag so the
-	// Add pill reappears.
+	// Empty commit on the validation-message editor. Two arms with
+	// different conditionality:
+	//   - Slot clear is gated on `validate_msg !== undefined`. A
+	//     focus-blur-without-typing or Esc-on-empty gesture on a
+	//     never-set message slot has nothing to clear; firing the
+	//     removal patch unconditionally would stamp an undo-history
+	//     entry for a passive interaction the user never asked for.
+	//   - Add-pill state reset (`setAddingMsg(false)`) fires
+	//     unconditionally. The user backing out of "Add Validation
+	//     Message" must always close the editor and bring the pill
+	//     back, regardless of whether the slot had a value to clear.
 	const clearValidateMsg = useCallback(() => {
-		updateField(field.uuid, {
-			validate_msg: undefined,
-		} as FieldPatch);
+		if (validateMsg !== undefined) {
+			updateField(field.uuid, field.kind, {
+				validate_msg: undefined,
+			} as unknown as FieldPatchFor<F["kind"]>);
+		}
 		setAddingMsg(false);
-	}, [updateField, field.uuid]);
+	}, [updateField, field.uuid, field.kind, validateMsg]);
 
 	return (
 		<div>

@@ -1,12 +1,20 @@
 /**
  * SA tool: `updateModule` — patch module-level metadata.
  *
- * Covers the three module-scoped edits the SA exposes: display name,
- * case list columns, and case detail columns. Both the SA chat factory
- * and the MCP adapter call this through the shared
- * `ToolExecutionContext` interface. The `case_detail_columns` key
- * supports `null` as "clear" — matches the store's
- * `updateModuleMutations` convention for nullable columns.
+ * Module-scoped name patches only. Case list authoring lives on the
+ * typed case-list-config tools (`addCaseListColumn` /
+ * `updateCaseListColumn` / `removeCaseListColumn` /
+ * `reorderCaseListColumns`, the matching search-input quartet, and the
+ * wholesale `setCaseListFilter`) — those preserve the typed `Column`
+ * and `SearchInputDef` discriminated unions end-to-end. Case-search
+ * authoring lives on the parallel case-search-config family
+ * (`setCaseSearchDisplay` for the display cluster + `setCaseSearchAdvanced`
+ * for the advanced cluster) — wholesale-replace tools rather than
+ * atomic ops, since `caseSearchConfig` is a settings bag, not an
+ * addressable list.
+ *
+ * Both the SA chat factory and the MCP adapter call this through the
+ * shared `ToolExecutionContext` interface.
  *
  * Three exit branches:
  *
@@ -23,29 +31,12 @@ import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const updateModuleInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	name: z.string().optional().describe("New module name"),
-	case_list_columns: z
-		.array(
-			z.object({
-				field: z.string().describe("Case property name"),
-				header: z.string().describe("Column header text"),
-			}),
-		)
-		.optional()
-		.describe("New case list columns"),
-	case_detail_columns: z
-		.array(
-			z.object({
-				field: z.string().describe("Case property name"),
-				header: z.string().describe("Display label for this detail field"),
-			}),
-		)
-		.nullable()
-		.optional()
-		.describe("Columns for case detail view. null to remove."),
-});
+export const updateModuleInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		name: z.string().describe("New module name"),
+	})
+	.strict();
 
 export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 
@@ -53,15 +44,14 @@ export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 export type UpdateModuleResult = string | { error: string };
 
 export const updateModuleTool = {
-	description:
-		"Update module metadata: name, case list columns, or case detail columns.",
+	description: "Update a module's display name.",
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateModuleResult>> {
-		const { moduleIndex, name, case_list_columns, case_detail_columns } = input;
+		const { moduleIndex, name } = input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid) {
@@ -72,28 +62,29 @@ export const updateModuleTool = {
 					result: { error: `Module ${moduleIndex} not found` },
 				};
 			}
-
-			// Build the helper patch lazily — every omitted key stays
-			// out so the reducer's `undefined`-means-leave-alone semantics
-			// hold. `null` on `case_detail_columns` is a value, not an
-			// absence: it maps to the helper's "clear" signal.
-			const patch: Parameters<typeof updateModuleMutations>[2] = {};
-			if (name !== undefined) patch.name = name;
-			if (case_list_columns !== undefined)
-				patch.caseListColumns = case_list_columns;
-			if (case_detail_columns !== undefined) {
-				patch.caseDetailColumns =
-					case_detail_columns === null ? null : case_detail_columns;
+			// Structural defense: `moduleOrder` and `modules` could in
+			// principle disagree under a partial Immer update, so the
+			// helper trusts a resolved `Module` value and the call site
+			// owns the lookup-and-check.
+			const mod = doc.modules[moduleUuid];
+			if (!mod) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: `Module ${moduleIndex} not found` },
+				};
 			}
 
-			const mutations = updateModuleMutations(doc, moduleUuid, patch);
+			const mutations = updateModuleMutations(mod, { name });
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(mutations, newDoc, `module:${moduleIndex}`);
 
-			// Read back from the post-mutation doc so the summary reflects the
-			// values the SA can expect on a follow-up read.
-			const mod = newDoc.modules[moduleUuid];
-			if (!mod) {
+			// Read back from the post-mutation doc so the summary reflects
+			// the values the SA can expect on a follow-up read — the patch
+			// has already landed so `name` carries the new value.
+			const newMod = newDoc.modules[moduleUuid];
+			if (!newMod) {
 				return {
 					kind: "mutate" as const,
 					mutations,
@@ -101,21 +92,11 @@ export const updateModuleTool = {
 					result: { error: `Module ${moduleIndex} not found after update` },
 				};
 			}
-			const changes: string[] = [];
-			if (name !== undefined) changes.push(`name → "${mod.name}"`);
-			if (case_list_columns !== undefined)
-				changes.push(`case list columns (${mod.caseListColumns?.length ?? 0})`);
-			if (case_detail_columns !== undefined)
-				changes.push(
-					case_detail_columns === null
-						? "case detail columns removed"
-						: `case detail columns (${mod.caseDetailColumns?.length ?? 0})`,
-				);
 			return {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully updated module "${mod.name}" (index ${moduleIndex}). Changed: ${changes.join(", ")}.`,
+				result: `Successfully renamed module to "${newMod.name}" (index ${moduleIndex}).`,
 			};
 		} catch (err) {
 			return {

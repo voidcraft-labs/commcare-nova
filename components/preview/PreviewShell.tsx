@@ -37,6 +37,8 @@
  */
 "use client";
 import { Activity, useDeferredValue, useEffect, useMemo, useRef } from "react";
+import { CaseListWorkspace } from "@/components/builder/case-list-config/CaseListWorkspace";
+import { CaseSearchConfigPanel } from "@/components/builder/case-search-config/CaseSearchConfigPanel";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -45,6 +47,7 @@ import type { Location } from "@/lib/routing/types";
 import { useEditMode } from "@/lib/session/hooks";
 import { PreviewHeader } from "./PreviewHeader";
 import { CaseListScreen } from "./screens/CaseListScreen";
+import { CaseSearchConfigInteractEmptyState } from "./screens/CaseSearchConfigInteractEmptyState";
 import { FormScreen } from "./screens/FormScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { ModuleScreen } from "./screens/ModuleScreen";
@@ -81,6 +84,10 @@ function locationToScreen(
 
 	if (loc.kind === "cases") {
 		return { type: "caseList", moduleIndex, formIndex: 0 };
+	}
+
+	if (loc.kind === "search-config") {
+		return { type: "searchConfig", moduleIndex };
 	}
 
 	/* Form screen — resolve formUuid to index within the module's form list. */
@@ -142,6 +149,28 @@ export function PreviewShell({
 		useRef<Extract<PreviewScreen, { type: "caseList" }>>(undefined);
 	const formScreenRef =
 		useRef<Extract<PreviewScreen, { type: "form" }>>(undefined);
+	/** The most-recent moduleUuid that landed on the case list URL.
+	 *  Tracked separately from `caseListScreenRef` because the
+	 *  workspace mounts on the URL location (uuid-shaped) while the
+	 *  legacy `CaseListScreen` mounts on the integer-indexed
+	 *  `PreviewScreen` shape. The ref stays populated once a case
+	 *  list URL has been visited, so the workspace's Activity
+	 *  boundary survives subsequent navigation away and back. */
+	const caseListWorkspaceRef = useRef<Uuid>(undefined);
+	if (loc.kind === "cases") {
+		caseListWorkspaceRef.current = loc.moduleUuid;
+	}
+	/** The most-recent moduleUuid that landed on the case-search
+	 *  authoring URL. Mirrors `caseListWorkspaceRef`'s shape — the
+	 *  search-config panel is a uuid-shaped builder surface, so the
+	 *  ref tracks the URL location's moduleUuid directly. Once
+	 *  populated, the panel's Activity boundary stays mounted across
+	 *  every subsequent navigation so its scroll + section-collapse
+	 *  state survives the round-trip. */
+	const caseSearchConfigRef = useRef<Uuid>(undefined);
+	if (loc.kind === "search-config") {
+		caseSearchConfigRef.current = loc.moduleUuid;
+	}
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
 	const homeVisitedRef = useRef(false);
@@ -155,6 +184,13 @@ export function PreviewShell({
 			break;
 		case "caseList":
 			caseListScreenRef.current = zustandScreen;
+			break;
+		case "searchConfig":
+			/* The panel mounts off `caseSearchConfigRef` (uuid-shaped),
+			 * not a per-type screen ref — the live-mode arm is a
+			 * stateless empty-state card (no per-screen identity to
+			 * preserve), so no integer-indexed identity is needed
+			 * alongside it. */
 			break;
 		case "form":
 			formScreenRef.current = zustandScreen;
@@ -226,12 +262,98 @@ export function PreviewShell({
 						<ModuleScreen screen={moduleScreenRef.current} />
 					</Activity>
 				)}
+				{/*
+				 * Two parallel Activity boundaries cover the case list URL.
+				 *
+				 *   - Edit mode: the CaseListWorkspace authoring shell —
+				 *     three-section magazine layout (Display / Filter /
+				 *     Search) for configuring the module's
+				 *     `caseListConfig`. The workspace is a builder
+				 *     surface, not a preview-pipeline screen, so it
+				 *     bypasses the legacy `locationToScreen` adapter and
+				 *     reads the moduleUuid directly from the URL.
+				 *
+				 *   - Otherwise: the CaseListScreen running-app preview.
+				 *     Renders the case list as the user would see it at
+				 *     runtime — a row per case, click to open the case-
+				 *     loading form.
+				 *
+				 * Both boundaries stay mounted once visited (the visited
+				 * refs gate the JSX), so toggling between edit and live
+				 * mode preserves each surface's internal state including
+				 * scroll position. Activity hides one and reveals the
+				 * other in a single render pass.
+				 */}
+				{caseListWorkspaceRef.current && (
+					<Activity
+						mode={
+							screen.type === "caseList" && mode === "edit"
+								? "visible"
+								: "hidden"
+						}
+						name="CaseListWorkspace"
+					>
+						<CaseListWorkspace moduleUuid={caseListWorkspaceRef.current} />
+					</Activity>
+				)}
 				{caseListScreenRef.current && (
 					<Activity
-						mode={screen.type === "caseList" ? "visible" : "hidden"}
+						mode={
+							screen.type === "caseList" && mode !== "edit"
+								? "visible"
+								: "hidden"
+						}
 						name="CaseListScreen"
 					>
 						<CaseListScreen screen={caseListScreenRef.current} />
+					</Activity>
+				)}
+				{/*
+				 * Two parallel Activity boundaries cover the case-search
+				 * authoring URL — same dual-arm shape as the case-list
+				 * workspace above.
+				 *
+				 *   - Edit mode: `CaseSearchConfigPanel` — the multi-
+				 *     section magazine layout (Display / Search Inputs
+				 *     / Advanced) that writes the module's
+				 *     `caseSearchConfig` slot plus the cross-bound
+				 *     `caseListConfig.searchInputs` slot.
+				 *
+				 *   - Otherwise (interact mode): the empty-state card
+				 *     surfaces because there's no running-app
+				 *     counterpart — case-search authoring configures
+				 *     HOW the runtime presents search, not data the
+				 *     runtime renders. Without this arm, toggling
+				 *     interact mode while on `/search-config` would
+				 *     render a blank scroll container with no
+				 *     indication of what to do.
+				 *
+				 * Both boundaries share `caseSearchConfigRef` because
+				 * the live-mode arm is stateless — no per-screen
+				 * identity to preserve alongside the panel.
+				 */}
+				{caseSearchConfigRef.current && (
+					<Activity
+						mode={
+							screen.type === "searchConfig" && mode === "edit"
+								? "visible"
+								: "hidden"
+						}
+						name="CaseSearchConfigPanel"
+					>
+						<CaseSearchConfigPanel moduleUuid={caseSearchConfigRef.current} />
+					</Activity>
+				)}
+				{caseSearchConfigRef.current && (
+					<Activity
+						mode={
+							screen.type === "searchConfig" && mode !== "edit"
+								? "visible"
+								: "hidden"
+						}
+						name="CaseSearchConfigInteractEmptyState"
+					>
+						<CaseSearchConfigInteractEmptyState />
 					</Activity>
 				)}
 				{formScreenRef.current && (

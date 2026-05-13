@@ -27,10 +27,12 @@ import { removeFormMutations, resolveFormUuid } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const removeFormInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	formIndex: z.number().describe("0-based form index"),
-});
+export const removeFormInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		formIndex: z.number().describe("0-based form index"),
+	})
+	.strict();
 
 export type RemoveFormInput = z.infer<typeof removeFormInputSchema>;
 

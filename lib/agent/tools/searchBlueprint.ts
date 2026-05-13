@@ -13,13 +13,15 @@ import type { BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
-export const searchBlueprintInputSchema = z.object({
-	query: z
-		.string()
-		.describe(
-			"Search term: case property name, field id, label text, case type, XPath fragment, or module/form name",
-		),
-});
+export const searchBlueprintInputSchema = z
+	.object({
+		query: z
+			.string()
+			.describe(
+				"Search term: case property name, field id, label text, case type, XPath fragment, or module/form name",
+			),
+	})
+	.strict();
 
 export type SearchBlueprintInput = z.infer<typeof searchBlueprintInputSchema>;
 

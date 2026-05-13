@@ -19,6 +19,32 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 - **`reset()` is a full reinitialization** — rebuild instance, re-preload, reapply defaults, re-cascade. Returns to the exact initial state.
 - **`resetValidation()` clears touched state + errors only** — called when leaving test mode so fields start clean on re-entry.
 
+### Two-state JSONB collapse for form completion
+
+`computeSubmissionMutation` reads each leaf field's value via
+`instance.get(fieldPath)` and filters on emptiness only
+(`if (raw === undefined || raw === "") continue`); empty fields
+are excluded from the emitted mutation, hidden fields with non-
+empty values are NOT excluded. Properties whose value is empty
+do not appear as keys in the mutation's `properties` object,
+which means the case-store write omits them from the JSONB
+document.
+
+AJV's strict-mode constraints rule out the alternatives: `null`
+fails `integer` / `number` types; `""` fails `format: date` /
+`format: time` / `format: date-time` / the geopoint pattern.
+Omission is the only shape that passes validation AND aligns
+with Postgres-strict `is-null` semantics ("absent" ≡ "not
+present in the JSONB document").
+
+Form completion produces only 2 of the 3 spec-defined JSONB
+states (absent / null / present-and-empty) — the
+"present-and-empty" state is unreachable via any form completion
+path. Other write paths (sample-data generator, direct API
+writes) can still produce it. Consumers of `is-blank` should
+read `lib/domain/predicate/CLAUDE.md` § "Null vs blank semantics
+— locked invariant".
+
 ## Repeat-count reactivity
 
 In render paths, read repeat instance counts from `state.repeatCount` (via `useEngineState`), not from `controller.getRepeatCount(uuid)`. The latter is a non-reactive method call — the row only re-renders if it subscribes to something whose reference changed. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal; the new `[N]/...` child writes don't reach the runtime store because `pathToUuid` only registers the `[0]` template path. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).

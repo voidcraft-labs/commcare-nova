@@ -19,7 +19,7 @@
  *      own `server.registerTool(...)` call behind a `register*(server, ctx)`
  *      facade — there is nothing meaningful to factor out of them.
  *
- *   2. **Shared SA tools** (`lib/agent/tools/*`) — the 18 blueprint
+ *   2. **Shared SA tools** (`lib/agent/tools/*`) — the blueprint
  *      readers + writers the chat-side Solutions Architect already uses
  *      (search, add_field, edit_field, create_form, validate_app, …).
  *      Those modules share a uniform contract (input schema, `execute`
@@ -46,7 +46,17 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { addFieldTool } from "@/lib/agent/tools/addField";
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
-import { addModuleTool } from "@/lib/agent/tools/addModule";
+import { addCaseListColumnTool } from "@/lib/agent/tools/case-list-config/addCaseListColumn";
+import { addSearchInputTool } from "@/lib/agent/tools/case-list-config/addSearchInput";
+import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
+import { removeSearchInputTool } from "@/lib/agent/tools/case-list-config/removeSearchInput";
+import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
+import { reorderSearchInputsTool } from "@/lib/agent/tools/case-list-config/reorderSearchInputs";
+import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCaseListFilter";
+import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
+import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
+import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
+import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
@@ -86,10 +96,10 @@ import type { ToolContext } from "./types";
  * already in flight.
  *
  * **Wire-name convention**: snake_case is standard across MCP tools
- * (matches the SDK's built-in naming and the design spec's "Tools
- * exposed" section). The TypeScript export name stays camelCase so
- * JavaScript idiom is preserved on both sides of the boundary without
- * either side bleeding into the other.
+ * (matches the MCP SDK's built-in naming convention). The TypeScript
+ * export name stays camelCase so JavaScript idiom is preserved on
+ * both sides of the boundary without either side bleeding into the
+ * other.
  *
  * **`askQuestions` is intentionally absent.** The chat-side SA uses it
  * to emit mid-run clarifying questions through the UI's question panel;
@@ -101,7 +111,6 @@ import type { ToolContext } from "./types";
 const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "add_field", tool: addFieldTool },
 	{ name: "add_fields", tool: addFieldsTool },
-	{ name: "add_module", tool: addModuleTool },
 	{ name: "create_form", tool: createFormTool },
 	{ name: "create_module", tool: createModuleTool },
 	{ name: "edit_field", tool: editFieldTool },
@@ -114,6 +123,26 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "remove_form", tool: removeFormTool },
 	{ name: "remove_module", tool: removeModuleTool },
 	{ name: "search_blueprint", tool: searchBlueprintTool },
+	/* Case-list-config mutations — atomic add / update / remove /
+	 * reorder ops on each of the two arrays (`columns`,
+	 * `searchInputs`), plus the wholesale `filter` setter.
+	 * Snake_case MCP wire names mirror the camelCase TypeScript
+	 * exports per the wire-name convention above. */
+	{ name: "add_case_list_column", tool: addCaseListColumnTool },
+	{ name: "add_search_input", tool: addSearchInputTool },
+	{ name: "remove_case_list_column", tool: removeCaseListColumnTool },
+	{ name: "remove_search_input", tool: removeSearchInputTool },
+	{ name: "reorder_case_list_columns", tool: reorderCaseListColumnsTool },
+	{ name: "reorder_search_inputs", tool: reorderSearchInputsTool },
+	{ name: "set_case_list_filter", tool: setCaseListFilterTool },
+	{ name: "update_case_list_column", tool: updateCaseListColumnTool },
+	{ name: "update_search_input", tool: updateSearchInputTool },
+	/* Case-search-config wholesale mutations — one tool per cluster.
+	 * Cross-binding contract: search inputs are NOT authored through
+	 * these tools (they live on `caseListConfig.searchInputs` and use
+	 * the case-list-config search-input quartet above). */
+	{ name: "set_case_search_advanced", tool: setCaseSearchAdvancedTool },
+	{ name: "set_case_search_display", tool: setCaseSearchDisplayTool },
 	{ name: "update_form", tool: updateFormTool },
 	{ name: "update_module", tool: updateModuleTool },
 	{ name: "validate_app", tool: validateAppTool },

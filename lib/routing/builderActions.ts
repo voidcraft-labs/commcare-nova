@@ -31,7 +31,7 @@ import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
  *     field (or the field card itself when no activeFieldId is set).
  *   - Otherwise no scroll — the user wasn't focused on a specific row.
  *
- * Cross-form undo limitation (see spec Section 4 "undo flash" table):
+ * Cross-form undo limitation:
  *   The URL's `sel=` carries "where the user is looking right now," not
  *   "where the undone mutation happened." When the undone mutation was
  *   in a different form, the restored selected uuid has no DOM element

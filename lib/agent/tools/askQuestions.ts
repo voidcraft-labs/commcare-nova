@@ -16,20 +16,26 @@
 
 import { z } from "zod";
 
-export const askQuestionsInputSchema = z.object({
-	header: z.string().describe("Short header for this group of questions"),
-	questions: z.array(
-		z.object({
-			question: z.string(),
-			options: z.array(
-				z.object({
-					label: z.string(),
-					description: z.string().optional(),
-				}),
-			),
-		}),
-	),
-});
+export const askQuestionsInputSchema = z
+	.object({
+		header: z.string().describe("Short header for this group of questions"),
+		questions: z.array(
+			z
+				.object({
+					question: z.string(),
+					options: z.array(
+						z
+							.object({
+								label: z.string(),
+								description: z.string().optional(),
+							})
+							.strict(),
+					),
+				})
+				.strict(),
+		),
+	})
+	.strict();
 
 export type AskQuestionsInput = z.infer<typeof askQuestionsInputSchema>;
 

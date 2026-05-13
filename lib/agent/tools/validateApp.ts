@@ -43,7 +43,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { validateAndFix } from "../validationLoop";
 
-export const validateAppInputSchema = z.object({});
+export const validateAppInputSchema = z.object({}).strict();
 
 export type ValidateAppInput = z.infer<typeof validateAppInputSchema>;
 

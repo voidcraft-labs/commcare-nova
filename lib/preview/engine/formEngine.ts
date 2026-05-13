@@ -23,10 +23,24 @@
  * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
+import type { JsonObject, JsonValue } from "@/lib/case-store";
+import type {
+	CaseProperty,
+	CasePropertyDataType,
+	CaseType,
+	Field,
+	Form,
+	Uuid,
+} from "@/lib/domain";
+import { casePropertyDataTypes } from "@/lib/domain";
+import {
+	compilerBugMessage,
+	unhandledKindMessage,
+} from "@/lib/domain/predicate/errors";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
+import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import { resolveLabel } from "./labelRefs";
@@ -79,7 +93,6 @@ export class FormEngine {
 
 	constructor(
 		input: FormEngineInput,
-		_caseTypes?: CaseType[] | null,
 		moduleCaseType?: string,
 		caseData?: Map<string, string>,
 	) {
@@ -168,9 +181,10 @@ export class FormEngine {
 
 		// Bump `repeatCount` on the repeat's own state — this is what
 		// `useEngineState` subscribers observe to re-render with the new
-		// cardinality. See `lib/preview/CLAUDE.md` § Repeat-count
-		// reactivity for the path-routing constraint that makes this the
-		// only viable signal.
+		// cardinality. New `[N]/...` child writes don't reach the
+		// runtime store because `pathToUuid` only registers the `[0]`
+		// template path; the parent's `repeatCount` is the only signal
+		// per-field subscribers can observe to drive a re-render.
 		const repeatState = this.store.getState()[repeatPath];
 		if (repeatState) {
 			updates[repeatPath] = { ...repeatState, repeatCount: newIndex + 1 };
@@ -270,6 +284,244 @@ export class FormEngine {
 			this.store.setState(updates);
 		}
 		return valid;
+	}
+
+	/**
+	 * Walk the engine's template tree and emit one submission's worth
+	 * of case-store mutations. The walk is structural — it consults the
+	 * `FieldTreeNode` rose-tree the engine already maintains, plus the
+	 * runtime `DataInstance` for per-instance values inside repeats —
+	 * so the materialized paths follow from the tree shape directly
+	 * without parsing the path string. `caseTypes` is call-time
+	 * injected so the engine stays state-pure across the JSONB-coercion
+	 * dimension.
+	 *
+	 * For each leaf field whose `case_property_on` matches the module's
+	 * case type the value lands in the primary's `properties`; any
+	 * other case-property-bound field buckets into a child case keyed
+	 * by `(destination case type, repeat-instance-key)`. Repeat regions
+	 * fan out one bucket per instance per destination case type.
+	 *
+	 * Empty values (`undefined` from an absent path or `""` from a
+	 * cleared leaf) are excluded from the JSONB document — `state.visible`
+	 * is intentionally NOT consulted, so a hidden field with a non-empty
+	 * value lands in the mutation. This matches the "two-state JSONB
+	 * collapse" rule: absent is the only shape that passes AJV strict-mode
+	 * validation against `format: date` / `time` / `datetime` / geopoint
+	 * patterns and aligns with Postgres-strict null semantics.
+	 *
+	 * Throws when `formType` is `followup` or `close` and no `caseId`
+	 * is supplied — both arms operate on a bound case row.
+	 */
+	computeSubmissionMutation(args: {
+		caseId?: string;
+		caseTypes: ReadonlyArray<CaseType>;
+	}): SubmissionMutation {
+		if (this.formType === "survey") {
+			return { kind: "survey" };
+		}
+
+		if (
+			(this.formType === "followup" || this.formType === "close") &&
+			args.caseId === undefined
+		) {
+			throw new Error(
+				compilerBugMessage({
+					where: "preview.formEngine.computeSubmissionMutation",
+					invariant: `form type \`${this.formType}\` requires a bound \`caseId\`, but none was supplied`,
+					detail:
+						"Followup and close forms operate on a bound case row; the running-app view's nav stack carries the bound case id. Reaching this throw means the consumer invoked the engine method without threading the bound id through the call.",
+				}),
+			);
+		}
+
+		const caseTypeLookup = new Map<string, CaseType>();
+		for (const caseType of args.caseTypes) {
+			caseTypeLookup.set(caseType.name, caseType);
+		}
+
+		const primaryProperties: JsonObject = {};
+		// `case_name` is plucked into a separate slot rather than included
+		// in `properties` because the case-store routes the case display
+		// name to the top-level `cases.case_name` column (see
+		// `lib/case-store/store.ts` — `CaseInsert.case_name` is a top-level
+		// field, not extracted from the JSONB document).
+		let primaryCaseName: string | undefined;
+		// Encounter-ordered child buckets so the emitted mutation is
+		// deterministic per (engine state, caseTypes) pair.
+		const childBuckets: ChildBucket[] = [];
+		// Composite key `<caseType>::<repeatInstanceKey>` so multiple
+		// fields contributing to the same child case coalesce into one
+		// bucket; distinct repeat instances of the same case type produce
+		// distinct buckets.
+		const childBucketIndex = new Map<string, ChildBucket>();
+		const requireBucket = (
+			caseType: string,
+			repeatInstanceKey: string,
+		): ChildBucket => {
+			const key = `${caseType}::${repeatInstanceKey}`;
+			const existing = childBucketIndex.get(key);
+			if (existing !== undefined) return existing;
+			const created: ChildBucket = {
+				caseType,
+				properties: {},
+			};
+			childBucketIndex.set(key, created);
+			childBuckets.push(created);
+			return created;
+		};
+
+		const walk = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			pathPrefix: string,
+			repeatInstanceKey: string,
+		): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				const fieldPath = `${pathPrefix}/${f.id}`;
+
+				if (f.kind === "group") {
+					if (node.children) {
+						walk(node.children, fieldPath, repeatInstanceKey);
+					}
+					continue;
+				}
+				if (f.kind === "repeat") {
+					if (!node.children) continue;
+					const instanceCount = this.instance.getRepeatCount(fieldPath);
+					for (let i = 0; i < instanceCount; i++) {
+						const instancePath = `${fieldPath}[${i}]`;
+						walk(node.children, instancePath, instancePath);
+					}
+					continue;
+				}
+
+				const casePropertyOn = readCasePropertyOn(f);
+				if (casePropertyOn === undefined) continue;
+
+				const raw = this.instance.get(fieldPath);
+				if (raw === undefined || raw === "") continue;
+
+				const isPrimary =
+					this.moduleCaseType !== undefined &&
+					casePropertyOn === this.moduleCaseType;
+
+				// `case_name` routes to the top-level `cases.case_name`
+				// column, not the JSONB document. Field id is the case
+				// property name (project convention), so the discriminator
+				// is `f.id === "case_name"`. The string passes through
+				// verbatim — `text NOT NULL` at the column means the
+				// property's `data_type` is irrelevant for the column write.
+				if (f.id === "case_name") {
+					if (isPrimary) {
+						primaryCaseName = raw;
+					} else {
+						const bucket = requireBucket(casePropertyOn, repeatInstanceKey);
+						bucket.caseName = raw;
+					}
+					continue;
+				}
+
+				const property = caseTypeLookup
+					.get(casePropertyOn)
+					?.properties.find((p) => p.name === f.id);
+				const coerced = coerceValueForProperty(raw, property);
+
+				if (isPrimary) {
+					primaryProperties[f.id] = coerced;
+					continue;
+				}
+
+				const bucket = requireBucket(casePropertyOn, repeatInstanceKey);
+				bucket.properties[f.id] = coerced;
+			}
+		};
+
+		walk(this.tree, "/data", "");
+
+		// A bucket that received only a `caseName` write (no scalar
+		// properties) is still a legitimate child — the child has a
+		// display name and platform defaults for everything else.
+		// Buckets with neither a `caseName` nor any property write are
+		// dropped; the walker only creates buckets when a contributing
+		// field lands in them, so the predicate is defensive against an
+		// upstream change to bucket creation.
+		const isContentfulBucket = (b: ChildBucket): boolean =>
+			b.caseName !== undefined || Object.keys(b.properties).length > 0;
+
+		switch (this.formType) {
+			case "registration": {
+				if (this.moduleCaseType === undefined) {
+					throw new Error(
+						compilerBugMessage({
+							where: "preview.formEngine.computeSubmissionMutation",
+							invariant:
+								"registration form reached the engine method without a `moduleCaseType`",
+							detail:
+								"A registration form creates a case OF the module's case type, so the case-type slot is required to derive the primary insert. The blueprint validator's `NO_CASE_TYPE` rule rejects modules without one upstream.",
+						}),
+					);
+				}
+				const children = childBuckets.filter(isContentfulBucket).map((b) => ({
+					caseType: b.caseType,
+					...(b.caseName !== undefined ? { caseName: b.caseName } : {}),
+					properties: b.properties,
+				}));
+				return {
+					kind: "registration",
+					primary: {
+						caseType: this.moduleCaseType,
+						...(primaryCaseName !== undefined
+							? { caseName: primaryCaseName }
+							: {}),
+						properties: primaryProperties,
+					},
+					children,
+				};
+			}
+			case "followup":
+			case "close": {
+				// Top-of-method guard already rejected `args.caseId === undefined`
+				// for these arms; the assertion here keeps the narrowing honest if
+				// the upstream guard ever regresses.
+				const caseId = args.caseId;
+				if (caseId === undefined) {
+					throw new Error(
+						compilerBugMessage({
+							where: "preview.formEngine.computeSubmissionMutation",
+							invariant:
+								"`caseId` narrowing failed after the followup/close form-type guard",
+						}),
+					);
+				}
+				const children = childBuckets.filter(isContentfulBucket).map((b) => ({
+					caseType: b.caseType,
+					...(b.caseName !== undefined ? { caseName: b.caseName } : {}),
+					properties: b.properties,
+					parentCaseId: caseId,
+				}));
+				const patch = {
+					...(primaryCaseName !== undefined
+						? { caseName: primaryCaseName }
+						: {}),
+					properties: primaryProperties,
+				};
+				if (this.formType === "followup") {
+					return { kind: "followup", caseId, patch, children };
+				}
+				return { kind: "close", caseId, patch, children };
+			}
+			default:
+				// `survey` is handled at the top of the method; the form type
+				// enum carries no other arms today. The exhaustive throw guards
+				// against a future arm landing without a case here.
+				throw new Error(
+					compilerBugMessage({
+						where: "preview.formEngine.computeSubmissionMutation",
+						invariant: `unhandled form type \`${this.formType}\``,
+					}),
+				);
+		}
 	}
 
 	/** Read a path's state directly (non-reactive). For reactive access,
@@ -544,7 +796,6 @@ export class FormEngine {
 	 */
 	updateSchema(
 		input: FormEngineInput,
-		_caseTypes?: CaseType[] | null,
 		moduleCaseType?: string,
 		caseData?: Map<string, string>,
 	): void {
@@ -982,5 +1233,83 @@ export class FormEngine {
 			}
 		}
 		return undefined;
+	}
+}
+
+// ── Submission-mutation helpers ──────────────────────────────────────
+
+/**
+ * Per-destination-bucket of field reads. The walker indexes one
+ * bucket per `(caseType, repeatInstanceKey)` pair so a registration
+ * form whose `child_visit` repeat carries three iterations produces
+ * three separate child-case ops, not one merged op. The empty-string
+ * `repeatInstanceKey` collapses fields outside any repeat into a
+ * single bucket per case type.
+ *
+ * `caseName` is mutable because the walker encounters the
+ * `case_name`-id field at most once per bucket. The slot stays
+ * separate from `properties` because `case_name` routes to the
+ * top-level `cases.case_name` column, not the JSONB document.
+ */
+interface ChildBucket {
+	caseType: string;
+	caseName?: string;
+	properties: JsonObject;
+}
+
+/**
+ * Read `case_property_on` off a domain `Field` generically. The
+ * property lives on `inputFieldBaseSchema` only, but reading through
+ * the discriminated union without per-kind narrowing keeps the
+ * walker free of N×M branching.
+ */
+function readCasePropertyOn(field: Field): string | undefined {
+	const value = (field as unknown as Record<string, unknown>).case_property_on;
+	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Coerce the form engine's string value into the typed JSON value
+ * the case-store JSON Schema validator expects. Mirrors
+ * `caseTypeToJsonSchema`'s per-`data_type` mapping. Properties whose
+ * declaration cannot be resolved (missing case type or missing
+ * property) default to `text` pass-through — preserves the value
+ * verbatim rather than dropping it. Empty raw values never reach
+ * this function — the walker filters them upstream.
+ */
+function coerceValueForProperty(
+	raw: string,
+	property: CaseProperty | undefined,
+): JsonValue {
+	const dataType: CasePropertyDataType = property?.data_type ?? "text";
+	switch (dataType) {
+		case "text":
+		case "single_select":
+		case "geopoint":
+		case "date":
+		case "time":
+		case "datetime":
+			return raw;
+		case "int": {
+			const parsed = Number.parseInt(raw, 10);
+			return Number.isInteger(parsed) && Number.isFinite(parsed) ? parsed : raw;
+		}
+		case "decimal": {
+			const parsed = Number.parseFloat(raw);
+			return Number.isFinite(parsed) ? parsed : raw;
+		}
+		case "multi_select":
+			return raw.split(/\s+/).filter((token) => token.length > 0);
+		default: {
+			const _exhaustive: never = dataType;
+			throw new Error(
+				unhandledKindMessage({
+					where: "preview.formEngine.coerceValueForProperty",
+					family: "CasePropertyDataType",
+					received: _exhaustive,
+					knownKinds: [...casePropertyDataTypes],
+				}),
+			);
+		}
 	}
 }

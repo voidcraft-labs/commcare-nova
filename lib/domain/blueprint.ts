@@ -7,10 +7,28 @@
 // `fieldOrder` on load.
 
 import { z } from "zod";
+import {
+	type CasePropertyDataType,
+	casePropertyDataTypeSchema,
+	casePropertyDataTypes,
+} from "./casePropertyTypes";
 import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { type Uuid, uuidSchema } from "./uuid";
+
+// Re-exports — `casePropertyDataTypes` / `CasePropertyDataType` /
+// `casePropertyDataTypeSchema` live at the leaf
+// `./casePropertyTypes` so the predicate AST + the structured
+// `Module` schema can pull them without a cycle through the rest
+// of the case-type definitions in this file. Surfaced from the
+// blueprint barrel so existing `@/lib/domain` consumers see the
+// same names without an import-path migration.
+export {
+	type CasePropertyDataType,
+	casePropertyDataTypeSchema,
+	casePropertyDataTypes,
+};
 
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
 //
@@ -21,44 +39,38 @@ import { type Uuid, uuidSchema } from "./uuid";
 // property" but model different things; keep the name `case_property`
 // here because the value IS a case property name. The matching field-side
 // pointer carries the `_on` suffix to force the prepositional reading.
-const casePropertyMappingSchema = z.object({
-	case_property: z.string(),
-	question_id: z.string(), // stays "question_id" — CommCare terminology at the boundary
-});
+const casePropertyMappingSchema = z
+	.object({
+		case_property: z.string(),
+		question_id: z.string(), // stays "question_id" — CommCare terminology at the boundary
+	})
+	.strict();
 export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>;
 
-const casePropertySchema = z.object({
-	name: z.string(),
-	label: z.string(),
-	data_type: z
-		.enum([
-			"text",
-			"int",
-			"decimal",
-			"date",
-			"time",
-			"datetime",
-			"single_select",
-			"multi_select",
-			"geopoint",
-		])
-		.optional(),
-	hint: z.string().optional(),
-	required: z.string().optional(),
-	validation: z.string().optional(),
-	validation_msg: z.string().optional(),
-	options: z
-		.array(z.object({ value: z.string(), label: z.string() }))
-		.optional(),
-});
+const casePropertySchema = z
+	.object({
+		name: z.string(),
+		label: z.string(),
+		data_type: casePropertyDataTypeSchema.optional(),
+		hint: z.string().optional(),
+		required: z.string().optional(),
+		validation: z.string().optional(),
+		validation_msg: z.string().optional(),
+		options: z
+			.array(z.object({ value: z.string(), label: z.string() }).strict())
+			.optional(),
+	})
+	.strict();
 export type CaseProperty = z.infer<typeof casePropertySchema>;
 
-export const caseTypeSchema = z.object({
-	name: z.string(),
-	properties: z.array(casePropertySchema),
-	parent_type: z.string().optional(),
-	relationship: z.enum(["child", "extension"]).optional(),
-});
+export const caseTypeSchema = z
+	.object({
+		name: z.string(),
+		properties: z.array(casePropertySchema),
+		parent_type: z.string().optional(),
+		relationship: z.enum(["child", "extension"]).optional(),
+	})
+	.strict();
 export type CaseType = z.infer<typeof caseTypeSchema>;
 
 export const CONNECT_TYPES = ["learn", "deliver"] as const;
@@ -69,22 +81,24 @@ export type ConnectType = (typeof CONNECT_TYPES)[number];
 // ZodEffects (transform), which is not a valid record-key schema. At runtime
 // all keys are UUIDs; the branded Uuid type is enforced via the TypeScript
 // overlay on BlueprintDoc below.
-export const blueprintDocSchema = z.object({
-	appId: z.string(),
-	appName: z.string(),
-	connectType: z.enum(CONNECT_TYPES).nullable(),
-	caseTypes: z.array(caseTypeSchema).nullable(),
+export const blueprintDocSchema = z
+	.object({
+		appId: z.string(),
+		appName: z.string(),
+		connectType: z.enum(CONNECT_TYPES).nullable(),
+		caseTypes: z.array(caseTypeSchema).nullable(),
 
-	modules: z.record(z.string(), moduleSchema),
-	forms: z.record(z.string(), formSchema),
-	fields: z.record(z.string(), fieldSchema),
+		modules: z.record(z.string(), moduleSchema),
+		forms: z.record(z.string(), formSchema),
+		fields: z.record(z.string(), fieldSchema),
 
-	moduleOrder: z.array(uuidSchema),
-	formOrder: z.record(z.string(), z.array(uuidSchema)),
-	fieldOrder: z.record(z.string(), z.array(uuidSchema)),
+		moduleOrder: z.array(uuidSchema),
+		formOrder: z.record(z.string(), z.array(uuidSchema)),
+		fieldOrder: z.record(z.string(), z.array(uuidSchema)),
 
-	// fieldParent is NOT persisted — derived from fieldOrder on load.
-});
+		// fieldParent is NOT persisted — derived from fieldOrder on load.
+	})
+	.strict();
 
 /**
  * The on-disk (Firestore-persisted) shape of the blueprint doc.

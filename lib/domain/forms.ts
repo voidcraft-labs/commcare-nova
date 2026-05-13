@@ -55,94 +55,116 @@ export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
 	return CASE_LOADING_FORM_TYPES.has(formType) ? "previous" : "app_home";
 }
 
-const closeConditionSchema = z.object({
-	field: z.string(),
-	answer: z.string(),
-	operator: z.enum(["=", "selected"]).optional(),
-});
+const closeConditionSchema = z
+	.object({
+		field: z.string(),
+		answer: z.string(),
+		operator: z.enum(["=", "selected"]).optional(),
+	})
+	.strict();
 
-const formLinkDatumSchema = z.object({
-	name: z.string(),
-	xpath: z.string(),
-});
+const formLinkDatumSchema = z
+	.object({
+		name: z.string(),
+		xpath: z.string(),
+	})
+	.strict();
 
 const formLinkTargetSchema = z.discriminatedUnion("type", [
-	z.object({
-		type: z.literal("form"),
-		moduleUuid: uuidSchema,
-		formUuid: uuidSchema,
-	}),
-	z.object({
-		type: z.literal("module"),
-		moduleUuid: uuidSchema,
-	}),
+	z
+		.object({
+			type: z.literal("form"),
+			moduleUuid: uuidSchema,
+			formUuid: uuidSchema,
+		})
+		.strict(),
+	z
+		.object({
+			type: z.literal("module"),
+			moduleUuid: uuidSchema,
+		})
+		.strict(),
 ]);
 
-const formLinkSchema = z.object({
-	// Empty string is semantically meaningless — the session emitter's
-	// truthy check (`if (link.condition)`) treats "" as "unconditional"
-	// while the expander's presence check (`!== undefined`) treats it as
-	// "set" and emits `condition: ""` to HQ. Rejecting "" at the schema
-	// keeps those two views trivially in agreement: the field is either
-	// absent or a non-empty XPath expression.
-	condition: z.string().min(1).optional(),
-	target: formLinkTargetSchema,
-	datums: z.array(formLinkDatumSchema).optional(),
-});
+const formLinkSchema = z
+	.object({
+		// Empty string is semantically meaningless — the session emitter's
+		// truthy check (`if (link.condition)`) treats "" as "unconditional"
+		// while the expander's presence check (`!== undefined`) treats it as
+		// "set" and emits `condition: ""` to HQ. Rejecting "" at the schema
+		// keeps those two views trivially in agreement: the field is either
+		// absent or a non-empty XPath expression.
+		condition: z.string().min(1).optional(),
+		target: formLinkTargetSchema,
+		datums: z.array(formLinkDatumSchema).optional(),
+	})
+	.strict();
 export type FormLink = z.infer<typeof formLinkSchema>;
 
 // Connect config — same shape as current lib/schemas/blueprint.ts.
-const connectLearnModuleSchema = z.object({
-	id: z.string().optional(),
-	name: z.string(),
-	description: z.string(),
-	time_estimate: z.number().int().positive(),
-});
-const connectAssessmentSchema = z.object({
-	id: z.string().optional(),
-	user_score: z.string(),
-});
-const connectDeliverUnitSchema = z.object({
-	id: z.string().optional(),
-	name: z.string(),
-	// `entity_id` / `entity_name` are XPath expressions consumed only by
-	// the XForm bind emitter. Either side may set them (the SA can opt
-	// into custom expressions; a UI panel could let a user override),
-	// but if absent the wire layer in `lib/commcare/xform/builder.ts`
-	// emits the canonical defaults at bind time. Optional here matches
-	// what's true: the doc tracks what was set, the wire layer fills
-	// the rest.
-	entity_id: z.string().optional(),
-	entity_name: z.string().optional(),
-});
-const connectTaskSchema = z.object({
-	id: z.string().optional(),
-	name: z.string(),
-	description: z.string(),
-});
-const connectConfigSchema = z.object({
-	learn_module: connectLearnModuleSchema.optional(),
-	assessment: connectAssessmentSchema.optional(),
-	deliver_unit: connectDeliverUnitSchema.optional(),
-	task: connectTaskSchema.optional(),
-});
+const connectLearnModuleSchema = z
+	.object({
+		id: z.string().optional(),
+		name: z.string(),
+		description: z.string(),
+		time_estimate: z.number().int().positive(),
+	})
+	.strict();
+const connectAssessmentSchema = z
+	.object({
+		id: z.string().optional(),
+		user_score: z.string(),
+	})
+	.strict();
+const connectDeliverUnitSchema = z
+	.object({
+		id: z.string().optional(),
+		name: z.string(),
+		// `entity_id` / `entity_name` are XPath expressions consumed only by
+		// the XForm bind emitter. Either side may set them (the SA can opt
+		// into custom expressions; a UI panel could let a user override),
+		// but if absent the wire layer in `lib/commcare/xform/builder.ts`
+		// emits the canonical defaults at bind time. Optional here matches
+		// what's true: the doc tracks what was set, the wire layer fills
+		// the rest.
+		entity_id: z.string().optional(),
+		entity_name: z.string().optional(),
+	})
+	.strict();
+const connectTaskSchema = z
+	.object({
+		id: z.string().optional(),
+		name: z.string(),
+		description: z.string(),
+	})
+	.strict();
+const connectConfigSchema = z
+	.object({
+		learn_module: connectLearnModuleSchema.optional(),
+		assessment: connectAssessmentSchema.optional(),
+		deliver_unit: connectDeliverUnitSchema.optional(),
+		task: connectTaskSchema.optional(),
+	})
+	.strict();
 export type ConnectConfig = z.infer<typeof connectConfigSchema>;
 export type ConnectLearnModule = z.infer<typeof connectLearnModuleSchema>;
 export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>;
 export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
 export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
-export const formSchema = z.object({
-	uuid: uuidSchema,
-	id: z.string(),
-	name: z.string(),
-	type: z.enum(FORM_TYPES),
-	purpose: z.string().optional(),
-	closeCondition: closeConditionSchema.optional(),
-	connect: connectConfigSchema.nullable().optional(),
-	postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
-	formLinks: z.array(formLinkSchema).optional(),
-});
+export const formSchema = z
+	.object({
+		uuid: uuidSchema,
+		id: z.string(),
+		name: z.string(),
+		type: z.enum(FORM_TYPES),
+		purpose: z.string().optional(),
+		closeCondition: closeConditionSchema.optional(),
+		connect: connectConfigSchema.nullable().optional(),
+		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
+		formLinks: z.array(formLinkSchema).optional(),
+	})
+	.strict();
 export type Form = z.infer<typeof formSchema>;
 
 export type FormKindMetadata = {

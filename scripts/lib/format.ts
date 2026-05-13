@@ -106,7 +106,7 @@ export interface TableColumn {
  * @example
  *   printTable(
  *     [{ header: "Step", align: "right" }, { header: "Tools" }, { header: "Cost", align: "right" }],
- *     [["0", "generateSchema", "$0.0234"], ["1", "addModule", "$0.0567"]]
+ *     [["0", "generateSchema", "$0.0234"], ["1", "generateScaffold", "$0.0567"]]
  *   );
  */
 export function printTable(columns: TableColumn[], rows: string[][]): void {

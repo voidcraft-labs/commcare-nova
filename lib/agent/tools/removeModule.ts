@@ -27,9 +27,11 @@ import { removeModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const removeModuleInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-});
+export const removeModuleInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+	})
+	.strict();
 
 export type RemoveModuleInput = z.infer<typeof removeModuleInputSchema>;
 

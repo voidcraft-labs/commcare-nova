@@ -215,10 +215,8 @@ describe("useUndoRedo", () => {
 				{
 					kind: "updateField",
 					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-					/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
-					 * which is a discriminated union variant — label is shared
-					 * across all members via FieldBase but TS can't prove it. */
-					patch: { label: "Renamed" } as never,
+					targetKind: "text",
+					patch: { label: "Renamed" },
 				},
 			]);
 		});
@@ -250,10 +248,8 @@ describe("useUndoRedo", () => {
 				{
 					kind: "updateField",
 					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-					/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
-					 * which is a discriminated union variant — label is shared
-					 * across all members via FieldBase but TS can't prove it. */
-					patch: { label: "Renamed" } as never,
+					targetKind: "text",
+					patch: { label: "Renamed" },
 				},
 			]);
 		});
@@ -292,10 +288,8 @@ describe("useUndoRedo", () => {
 				{
 					kind: "updateField",
 					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
-					/* Cast needed: patch type is Partial<Omit<Field, "uuid">>
-					 * which is a discriminated union variant — label is shared
-					 * across all members via FieldBase but TS can't prove it. */
-					patch: { label: "Renamed" } as never,
+					targetKind: "text",
+					patch: { label: "Renamed" },
 				},
 			]);
 		});

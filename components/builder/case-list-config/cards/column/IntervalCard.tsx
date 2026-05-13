@@ -1,0 +1,243 @@
+// components/builder/case-list-config/cards/column/IntervalCard.tsx
+//
+// Renders the `interval` Column kind — a relative interval against
+// a date property, with a `display` discriminator that picks between
+// two cell shapes:
+//
+//   - `display: "always"` — always show the relative interval
+//     (e.g. "3 days ago"). The `text` slot is the runtime label
+//     that decorates rows whose interval has crossed the threshold.
+//   - `display: "flag"` — show `text` only when the threshold is
+//     exceeded; otherwise the cell renders empty.
+//
+// One card, two modes — the user picks `display` via a segmented
+// toggle and the `text` slot's label adjusts to match. Threshold +
+// unit + the field reference shape are identical across both modes.
+//
+// Slots:
+//   - `field` — case-property name. Filtered to `date` /
+//     `datetime` typed properties.
+//   - `header` — column display label.
+//   - `threshold` (number) + `unit` (`days` / `weeks` / `months`
+//     / `years`) — the interval at which the row crosses from
+//     "fine" to "flagged."
+//   - `display` — `"always"` (interval) or `"flag"` (flag-text).
+//   - `text` — the runtime label whose role flips by `display`.
+
+"use client";
+import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
+import type { Column, IntervalDisplay, TimeSinceUnit } from "@/lib/domain";
+import { intervalColumn, isDateTyped } from "@/lib/domain";
+import type { ColumnEditContext } from "../../columnEditorSchemas";
+import { ColumnFieldRow } from "./ColumnFieldRow";
+import { IntervalThresholdRow } from "./IntervalThresholdRow";
+
+interface IntervalCardProps {
+	readonly value: Extract<Column, { kind: "interval" }>;
+	readonly onChange: (next: Column) => void;
+	readonly ctx: ColumnEditContext;
+	readonly errors?: readonly string[];
+}
+
+/**
+ * Per-display copy. The `text` slot's affordance changes role with
+ * `display`: in "always" mode it decorates threshold-exceeded rows;
+ * in "flag" mode it IS the flag text. The label / placeholder shift
+ * accordingly so the role at the wire layer stays self-evident in
+ * the editor.
+ */
+const DISPLAY_COPY: Record<
+	IntervalDisplay,
+	{ readonly textLabel: string; readonly textPlaceholder: string }
+> = {
+	always: {
+		textLabel: "Decoration when overdue",
+		textPlaceholder: "Rendered when threshold is exceeded",
+	},
+	flag: {
+		textLabel: "Flag text",
+		textPlaceholder: "Rendered when overdue; empty otherwise",
+	},
+};
+
+const DISPLAY_LABELS: Record<IntervalDisplay, string> = {
+	always: "Show interval",
+	flag: "Flag when overdue",
+};
+
+export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
+	const setField = (next: string) =>
+		onChange(
+			intervalColumn(
+				value.uuid,
+				next,
+				value.header,
+				value.threshold,
+				value.unit,
+				value.display,
+				value.text,
+				slotsFrom(value),
+			),
+		);
+	const setHeader = (next: string) =>
+		onChange(
+			intervalColumn(
+				value.uuid,
+				value.field,
+				next,
+				value.threshold,
+				value.unit,
+				value.display,
+				value.text,
+				slotsFrom(value),
+			),
+		);
+	const setThreshold = (next: number) =>
+		onChange(
+			intervalColumn(
+				value.uuid,
+				value.field,
+				value.header,
+				next,
+				value.unit,
+				value.display,
+				value.text,
+				slotsFrom(value),
+			),
+		);
+	const setUnit = (next: TimeSinceUnit) =>
+		onChange(
+			intervalColumn(
+				value.uuid,
+				value.field,
+				value.header,
+				value.threshold,
+				next,
+				value.display,
+				value.text,
+				slotsFrom(value),
+			),
+		);
+	const setDisplay = (next: IntervalDisplay) =>
+		onChange(
+			intervalColumn(
+				value.uuid,
+				value.field,
+				value.header,
+				value.threshold,
+				value.unit,
+				next,
+				value.text,
+				slotsFrom(value),
+			),
+		);
+	const setText = (next: string) =>
+		onChange(
+			intervalColumn(
+				value.uuid,
+				value.field,
+				value.header,
+				value.threshold,
+				value.unit,
+				value.display,
+				next,
+				slotsFrom(value),
+			),
+		);
+
+	const copy = DISPLAY_COPY[value.display];
+
+	return (
+		<div className="space-y-2">
+			<ColumnFieldRow
+				field={value.field}
+				onFieldChange={setField}
+				header={value.header}
+				onHeaderChange={setHeader}
+				propertyFilter={isDateTyped}
+				errors={errors}
+			/>
+			<IntervalThresholdRow
+				threshold={value.threshold}
+				onThresholdChange={setThreshold}
+				unit={value.unit}
+				onUnitChange={setUnit}
+				thresholdLabel={value.display === "flag" ? "Late after" : "Threshold"}
+			/>
+			<DisplayToggle value={value.display} onChange={setDisplay} />
+			<div>
+				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+					{copy.textLabel}
+				</div>
+				<BlurCommitTextInput
+					value={value.text}
+					onCommit={setText}
+					placeholder={copy.textPlaceholder}
+					ariaLabel={copy.textLabel}
+				/>
+			</div>
+		</div>
+	);
+}
+
+interface DisplayToggleProps {
+	readonly value: IntervalDisplay;
+	readonly onChange: (next: IntervalDisplay) => void;
+}
+
+/**
+ * Two-state segmented toggle picking between the two interval
+ * display modes. Mirrors `QuantifierToggle`'s segmented-control
+ * shape so the editor reads as one consistent surface family.
+ */
+function DisplayToggle({ value, onChange }: DisplayToggleProps) {
+	const segCls = (active: boolean) =>
+		[
+			"px-3 py-1.5 text-xs transition-colors cursor-pointer",
+			active
+				? "bg-nova-violet/15 text-nova-violet-bright"
+				: "text-nova-text-muted hover:text-nova-text",
+		].join(" ");
+	return (
+		<div>
+			<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				Display
+			</div>
+			<fieldset className="inline-flex rounded-md border border-white/[0.06] bg-nova-deep/50 overflow-hidden p-0 m-0 min-w-0">
+				<legend className="sr-only">Interval display mode</legend>
+				<button
+					type="button"
+					onClick={() => onChange("always")}
+					aria-pressed={value === "always"}
+					className={segCls(value === "always")}
+				>
+					{DISPLAY_LABELS.always}
+				</button>
+				<button
+					type="button"
+					onClick={() => onChange("flag")}
+					aria-pressed={value === "flag"}
+					className={segCls(value === "flag")}
+				>
+					{DISPLAY_LABELS.flag}
+				</button>
+			</fieldset>
+		</div>
+	);
+}
+
+/** Re-extract the column's optional common slots so each builder call
+ *  threads through them verbatim. The schema's strip-mode parse omits
+ *  absent keys; the builder's `slots` object preserves whichever slots
+ *  the value already carries (sort, visibleInList, visibleInDetail). */
+function slotsFrom(value: Extract<Column, { kind: "interval" }>): {
+	sort?: typeof value.sort;
+	visibleInList?: typeof value.visibleInList;
+	visibleInDetail?: typeof value.visibleInDetail;
+} {
+	return {
+		sort: value.sort,
+		visibleInList: value.visibleInList,
+		visibleInDetail: value.visibleInDetail,
+	};
+}

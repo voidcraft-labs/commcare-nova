@@ -187,7 +187,7 @@ For a new app, you move through these stages:
 
 1. Set the data model — \`generateSchema\`.
 2. Lay out the modules and forms — \`generateScaffold\`.
-3. Configure each module's case list and detail columns — \`addModule\`.
+3. Configure each case-carrying module's case list — atomic ops over the columns + search inputs arrays (\`addCaseListColumn\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\` and \`addSearchInput\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`) plus \`setCaseListFilter\` for the filter. Each column carries its own sort, visibility, and (for calc columns) expression on itself; the add / update tools return the new column's uuid so subsequent edits target it directly. When the module also needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\` to author the two case-search-config clusters wholesale. Search inputs always live on \`caseListConfig.searchInputs\` (one source of truth across both the case list and search screens) — author them through the case-list-config family, never inside the case-search tools. Survey-only modules have no case list and skip this stage.
 4. Populate every form with its fields — \`addFields\`. Batch each form's fields into a single call where practical; split across calls when the set is large or when later fields need to reference groups added in earlier calls as parents.
 5. Validate — \`validateApp\`.`;
 
@@ -201,7 +201,7 @@ const SHARED_TAIL = `## Architecture Principles
 Every case type in the app **must have its own module** — this is how CommCare registers that a case type exists.
 
 - **Standalone case types** need a module with a registration form.
-- **Child case types** need their own module too, even if there's no follow-up workflow. Create a case-list-only module (no forms, just case_list_columns) with \`case_list_only: true\` so users can view the child cases. The system handles the rest.
+- **Child case types** need their own module too, even if there's no follow-up workflow. Create a case-list-only module (no forms, just a case list configured via \`addCaseListColumn\` / \`updateCaseListColumn\`) with \`case_list_only: true\` so users can view the child cases. The system handles the rest.
 
 Child case creation always happens from forms in the parent module — do **not** place a registration form in a child case module.
 

@@ -57,20 +57,19 @@ describe("fieldSchema", () => {
 		expect(f.kind).toBe("single_select");
 	});
 
-	it("strips options off a group field (group has no options in schema)", () => {
-		// Zod strips unknown keys by default on non-strict schemas — assert
-		// that options is NOT present on the parsed result, NOT that the
-		// parse threw.
-		const f = fieldSchema.parse({
+	it("rejects a group field carrying options (group has no options slot)", () => {
+		// Group fields extend `containerFieldBase` (no options slot).
+		// Every field schema is `.strict()` (inherited from
+		// `structuralFieldBase`), so a payload carrying `options` on a
+		// group field fails to parse rather than stripping silently.
+		const parsed = fieldSchema.safeParse({
 			kind: "group",
 			uuid: asUuid("abc"),
 			id: "g",
 			label: "G",
 			options: [{ value: "a", label: "A" }],
 		});
-		expect(f.kind).toBe("group");
-		// @ts-expect-error — GroupField has no options property
-		expect(f.options).toBeUndefined();
+		expect(parsed.success).toBe(false);
 	});
 
 	it("rejects a hidden field missing calculate (required)", () => {
@@ -136,20 +135,20 @@ describe("fieldSchema", () => {
 		).toThrow();
 	});
 
-	it("strips label off a hidden field (hidden fields have no label)", () => {
-		// Hidden fields extend `structuralFieldBase`, NOT `fieldBaseSchema` —
-		// CommCare hidden fields display nothing and carry no label. Zod's
-		// default `strip` mode drops `label` if it sneaks in, so any wire-
-		// format input that carries one gets cleaned at the parse boundary.
-		const f = fieldSchema.parse({
+	it("rejects a hidden field carrying a label (hidden fields have no label)", () => {
+		// Hidden fields extend `structuralFieldBase`, NOT `fieldBaseSchema`
+		// — CommCare hidden fields display nothing and carry no label.
+		// Every field schema is `.strict()`, so a payload carrying
+		// `label` on a hidden field fails to parse rather than stripping
+		// silently. Callers must omit `label` for hidden fields.
+		const parsed = fieldSchema.safeParse({
 			kind: "hidden",
 			uuid: asUuid("abc"),
 			id: "h",
-			label: "should be stripped",
+			label: "should be rejected",
 			calculate: "today()",
 		});
-		expect(f.kind).toBe("hidden");
-		expect(f).not.toHaveProperty("label");
+		expect(parsed.success).toBe(false);
 	});
 });
 

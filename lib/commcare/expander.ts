@@ -2,9 +2,12 @@
  * BlueprintDoc → HqApplication expansion.
  *
  * Single entry point from the domain shape to CommCare's HQ import JSON.
- * Consumed by the CCZ compiler (for .ccz packaging), the HQ upload proxy
- * (direct import), the JSON-export endpoint (download button), and the
- * agent's validation loop (post-expansion XForm validation).
+ * The HQ JSON is the production export pathway: the upload route at
+ * `app/api/commcare/upload/route.ts` POSTs the result of this function to
+ * CCHQ's `/api/import_app/`, which wraps it as a CouchDB Application
+ * document; the runtime suite.xml regenerates from that document on every
+ * sync. The `.ccz` packaging (`./compiler::compileCcz`) consumes the same
+ * shape but only for local diagnostics — it does not flow to CCHQ.
  *
  * Walks `doc.moduleOrder` → `doc.modules[mUuid]`, then
  * `doc.formOrder[mUuid]` → `doc.forms[fUuid]`. Each form becomes an
@@ -13,12 +16,17 @@
  * `_attachments`. The walk preserves order exactly — module 0 in the
  * doc is module 0 in the output, and HQ's positional form links stay
  * consistent.
+ *
+ * Case-list HQ JSON projection (columns, sort, filter, search config) is
+ * delegated to `./hqJson/caseList::projectCaseListForHq`. Both the suite-
+ * XML emitter and the HQ JSON projection feed CCHQ the same authored
+ * content via the same shared emitters — keeping the two surfaces in
+ * lockstep keeps "Upload to CCHQ" honest against the running app.
  */
 
 import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import {
 	applicationShell,
-	detailColumn,
 	detailPair,
 	formShell,
 	moduleShell,
@@ -33,6 +41,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
+import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXForm } from "./xform/builder";
 
 /**
@@ -169,22 +178,20 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 			);
 		});
 
-		// Case detail columns: short (case list) + long (detail view).
-		// When an explicit long column set is absent AND short columns
-		// exist, the long view mirrors the short view — CommCare requires
-		// at least one long column for modules with cases. Without any
-		// short columns either, produce an empty detail pair.
-		const shortColumns = (mod.caseListColumns ?? []).map((col) =>
-			detailColumn(col.field, col.header),
-		);
-		const longColumns = mod.caseDetailColumns
-			? mod.caseDetailColumns.map((col) => detailColumn(col.field, col.header))
-			: mod.caseListColumns
-				? shortColumns
-				: undefined;
-		const caseDetails = hasCases
-			? detailPair(shortColumns, longColumns)
-			: detailPair([]);
+		// Case-list HQ JSON projection: columns (with per-kind format
+		// dispatch + per-surface visibility), sort directives, the
+		// always-on filter, and the `search_config` document
+		// (search-screen chrome + per-input prompts + AND-composed
+		// `_xpath_query`). The shared projection in `./hqJson/caseList`
+		// keeps drift between the suite-XML and HQ-JSON paths
+		// structurally impossible: both consume the same emitters.
+		//
+		// `hasCases` controls only WHETHER the projected case detail
+		// lands — survey-only modules and modules with no case type
+		// fall back to the empty-detail pair; their `search_config`
+		// stays at the shell defaults regardless of authored content.
+		const projection = projectCaseListForHq(mod, doc);
+		const caseDetails = hasCases ? projection.caseDetails : detailPair([]);
 
 		const shell = moduleShell(
 			moduleUniqueIds[mIdx],
@@ -193,6 +200,17 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 			forms,
 			caseDetails,
 		);
+
+		// Overlay the projected `search_config` onto the shell. The
+		// shell carries CCHQ defaults; the projection brings authored
+		// chrome + inputs + AND-composed `_xpath_query`. Modules
+		// without a case type collapse to the shell defaults
+		// (`hasCases === false` blocks the case-detail projection, but
+		// CCHQ's `CaseSearch` schema accepts the shell's defaults on
+		// any module).
+		if (hasCases) {
+			shell.search_config = projection.searchConfig;
+		}
 
 		// `case_list_only` modules need `case_list.show = true` so HQ
 		// doesn't reject them with "no forms or case list" — CommCare

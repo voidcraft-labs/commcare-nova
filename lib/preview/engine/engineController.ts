@@ -45,7 +45,9 @@ import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
-import type { Field, Form, Uuid } from "@/lib/domain";
+import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
+import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
 import { FormEngine, type FormEngineInput } from "./formEngine";
@@ -294,7 +296,7 @@ export class EngineController {
 		if (!input) return;
 
 		const mod = s.modules[moduleUuid];
-		this.engine = new FormEngine(input, s.caseTypes, mod?.caseType, caseData);
+		this.engine = new FormEngine(input, mod?.caseType, caseData);
 
 		/* Build UUID ↔ path mapping from the engine's walked tree */
 		const tree = this.engine.getFieldTree();
@@ -401,11 +403,15 @@ export class EngineController {
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return 0;
 		const result = this.engine.addRepeat(path);
-		// Targeted sync — only the repeat's own path round-trips to the
-		// runtime store (see `lib/preview/CLAUDE.md` § Repeat-count
-		// reactivity). `syncAllToStore` would replace every UUID's
-		// reference and re-render every leaf row in the form, the exact
-		// fan-out the per-field subscription model is built to avoid.
+		// Targeted sync — only the repeat's own path round-trips to
+		// the runtime store. `addRepeat` / `removeRepeat` bump
+		// `repeatCount` on the repeat's own `FieldState` to give
+		// subscribers the re-render signal; new `[N]/...` child
+		// writes don't reach the store because `pathToUuid` only
+		// registers the `[0]` template path. `syncAllToStore` would
+		// replace every UUID's reference and re-render every leaf
+		// row in the form, the exact fan-out the per-field
+		// subscription model is built to avoid.
 		this.syncPathsToStore([path]);
 		return result;
 	}
@@ -437,6 +443,32 @@ export class EngineController {
 	/** Get the XForm path for a UUID. */
 	getPath(uuid: string): string | undefined {
 		return this.uuidToPath.get(uuid);
+	}
+
+	/**
+	 * Walk the active form's template tree and emit one submission's
+	 * worth of case-store mutations. Pass-through to
+	 * `FormEngine.computeSubmissionMutation`.
+	 *
+	 * Requires an active engine — call `activateForm` first. Throws if
+	 * the controller has no active engine, and if the active form is
+	 * `followup` or `close` and no `caseId` is supplied. Consumers gate
+	 * on `validateAll()` first; the engine assumes a valid form.
+	 */
+	computeSubmissionMutation(args: {
+		caseId?: string;
+		caseTypes: ReadonlyArray<CaseType>;
+	}): SubmissionMutation {
+		if (!this.engine) {
+			throw new Error(
+				compilerBugMessage({
+					where: "preview.engineController.computeSubmissionMutation",
+					invariant:
+						"controller has no active engine; `activateForm` must be called before submission",
+				}),
+			);
+		}
+		return this.engine.computeSubmissionMutation(args);
 	}
 
 	// ── Per-field subscriptions ──────────────────────────────────────

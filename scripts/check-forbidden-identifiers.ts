@@ -64,7 +64,7 @@ const SHARED_EXCLUSIONS = [
 	// regression harnesses that deliberately stress the legacy shapes.
 	"--glob",
 	"!**/__tests__/**",
-	// Markdown is historical record — plans, specs, CLAUDE.md context.
+	// Markdown is historical record — exclude from identifier checks.
 	"--glob",
 	"!**/*.md",
 	// The CommCare wire boundary itself. This is the ONE place where

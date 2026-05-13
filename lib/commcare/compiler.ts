@@ -25,7 +25,6 @@ import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
 import { parseDocument } from "htmlparser2";
 import {
-	type DetailColumn,
 	escapeXml,
 	type FormActions,
 	type HqApplication,
@@ -34,6 +33,9 @@ import {
 	validateXFormPath,
 } from "@/lib/commcare";
 import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
+import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
+import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
+import { emitRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
@@ -68,6 +70,15 @@ export function compileCcz(
 	const suiteMenus: string[] = [];
 	const suiteDetails: string[] = [];
 	const suiteResources: string[] = [];
+	// `<remote-request>` elements accumulate alongside the other
+	// top-level suite-XML element families. CCHQ's wire layout has
+	// no canonical position for `<remote-request>` relative to
+	// `<detail>` / `<entry>` / `<menu>`, so the compiler splices
+	// these elements after the case-detail block and before the
+	// `<entry>` block — placing them adjacent to the detail blocks
+	// they reference (`m{N}_search_short` / `m{N}_search_long`)
+	// keeps the rendered suite.xml structurally local.
+	const suiteRemoteRequests: string[] = [];
 
 	// Walk HQ modules and `doc.moduleOrder` in lockstep. `expandDoc`
 	// produces HQ modules in the same order as `moduleOrder`, so
@@ -78,6 +89,7 @@ export function compileCcz(
 		const moduleUuid = doc.moduleOrder[mIdx];
 		const formUuids = doc.formOrder[moduleUuid] ?? [];
 
+		const mod = doc.modules[moduleUuid];
 		const modName = hqMod.name.en;
 		const caseType = hqMod.case_type;
 		const hqForms = hqMod.forms;
@@ -85,34 +97,125 @@ export function compileCcz(
 		appStrings[`modules.m${mIdx}`] = modName;
 
 		// Case detail definitions — emitted only when the module has a case
-		// type. Short + long details are always paired; headers for every
-		// column (from either detail) land in `appStrings`.
+		// type. Short + long details are always paired.
+		//
+		// Both surfaces emit through typed emitters at
+		// `@/lib/commcare/suite/case-list/{shortDetail,longDetail}.ts`,
+		// which walk `module.caseListConfig.columns` directly (the typed
+		// `Column` discriminated union with per-column sort directives,
+		// calculated arms, and visibility flags) and return both the
+		// suite-XML fragment and the locale-id → header-string map the
+		// runtime renders against. The HQ-JSON projection on
+		// `hqMod.case_details` is no longer consulted here; the typed
+		// emitters own the wire shape end-to-end.
+		//
+		// `doc` threads through to the short-detail emitter so the
+		// per-column sort comparator type can resolve from the case
+		// property's declared `data_type` (or the calculated column's
+		// expression's resolved result type). The long-detail emitter
+		// accepts `doc` for API symmetry but doesn't read it.
+		//
+		// When `mod.caseSearchConfig` is present, the same
+		// `caseListConfig` projects onto a second pair of wire ids —
+		// `m{N}_search_short` + `m{N}_search_long`. Nova's principle:
+		// "from the user's perspective there is only one case list,
+		// regardless of how they get there." The wire emitter
+		// duplicates the rendered content under the search-target
+		// wire ids; the canonical fixture
+		// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`
+		// pins the structural identity. Modules without
+		// `caseSearchConfig` skip the search-target emission;
+		// emission is purely additive.
+		//
+		// Both detail blocks resolve their `<title>` through CCHQ's
+		// built-in `cchq.case` locale (registered with
+		// `default="Case"` at
+		// `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`).
+		// Neither emitter registers a per-module title in app_strings;
+		// the runtime falls back to "Case" until an author overrides
+		// `cchq.case` at the app-strings layer (Nova has no such
+		// authoring surface today).
 		if (caseType) {
-			appStrings.case_list_title = appStrings.case_list_title || `${modName}`;
+			// `<remote-request>` orchestrator. Computes the
+			// `WireShape` for this module via `compileForPlatform`
+			// (default platform context: web) and emits the full
+			// `<remote-request>` element. The orchestrator returns
+			// the `WireShape` so the surrounding short-detail
+			// emission can render the `<action auto_launch>` element
+			// with the matching expression — the action attribute
+			// lives on `m{N}_case_short`, not on `<query>`, per
+			// CCHQ's
+			// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_action_kwargs`.
+			//
+			// Modules without `caseSearchConfig` skip this emission
+			// entirely; their case-list short detail renders without
+			// an `<action>` child. The two paths compose without
+			// branch-doubling at the detail emitter — `searchAction`
+			// is `undefined` when no case-search config is present.
+			const remoteRequestEmission = mod.caseSearchConfig
+				? emitRemoteRequest({
+						module: mod,
+						moduleIndex: mIdx,
+					})
+				: undefined;
+			if (remoteRequestEmission !== undefined) {
+				suiteRemoteRequests.push(remoteRequestEmission.xml);
+				Object.assign(appStrings, remoteRequestEmission.strings);
+			}
 
-			suiteDetails.push(
-				generateDetail(
-					`m${mIdx}_case_short`,
-					"short",
-					hqMod.case_details.short.columns,
-				),
-			);
-			suiteDetails.push(
-				generateDetail(
-					`m${mIdx}_case_long`,
-					"long",
-					hqMod.case_details.long.columns,
-				),
-			);
+			const shortEmission = emitShortDetail({
+				module: mod,
+				moduleIndex: mIdx,
+				doc,
+				...(remoteRequestEmission !== undefined && {
+					searchAction: {
+						autoLaunch: remoteRequestEmission.wire.autoLaunch,
+						...(mod.caseSearchConfig?.searchButtonDisplayCondition !==
+							undefined && {
+							displayCondition:
+								mod.caseSearchConfig.searchButtonDisplayCondition,
+						}),
+					},
+				}),
+			});
+			suiteDetails.push(shortEmission.xml);
+			Object.assign(appStrings, shortEmission.strings);
 
-			for (const detail of [
-				hqMod.case_details.short,
-				hqMod.case_details.long,
-			]) {
-				for (const col of detail.columns) {
-					const headerKey = `m${mIdx}_${col.field}_header`;
-					appStrings[headerKey] = col.header.en || col.field;
-				}
+			const longEmission = emitLongDetail({
+				module: mod,
+				moduleIndex: mIdx,
+				doc,
+			});
+			suiteDetails.push(longEmission.xml);
+			Object.assign(appStrings, longEmission.strings);
+
+			// Search-target dual emission. Same `caseListConfig` walked
+			// against the `"search"` target — produces `m{N}_search_short`
+			// + `m{N}_search_long` blocks. Calc-column cross-case
+			// references rewrite their instance root from `casedb` to
+			// `results` per the canonical fixture
+			// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`.
+			// The search-target short detail does NOT carry an
+			// `<action>` element — the search results screen IS the
+			// action's destination.
+			if (mod.caseSearchConfig) {
+				const searchShort = emitShortDetail({
+					module: mod,
+					moduleIndex: mIdx,
+					doc,
+					target: "search",
+				});
+				suiteDetails.push(searchShort.xml);
+				Object.assign(appStrings, searchShort.strings);
+
+				const searchLong = emitLongDetail({
+					module: mod,
+					moduleIndex: mIdx,
+					doc,
+					target: "search",
+				});
+				suiteDetails.push(searchLong.xml);
+				Object.assign(appStrings, searchLong.strings);
 			}
 		}
 
@@ -170,10 +273,36 @@ export function compileCcz(
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
 			// stack from the form's type, its post-submit destination, the
-			// module's case type, and any form-level link overrides.
+			// module's case type, any form-level link overrides, the
+			// module's authored case-list filter, and the search-button
+			// display condition.
+			//
 			// The expander already resolved form-link uuids into indexed
 			// HQ shape, so the compiler forwards `hqForm.form_links`
 			// verbatim — no second resolution pass needed here.
+			//
+			// Three authoring surfaces contribute to the entry's
+			// `<instance>` accumulator:
+			//   - `caseListConfig.filter` flows through verbatim; the wire
+			//     layer at `session.ts::deriveSessionDatums` routes it
+			//     through `emitNodesetFilter` to compose the bracketed
+			//     fragment that appends to the case-loading datum's
+			//     nodeset.
+			//   - `caseSearchConfig.searchButtonDisplayCondition` lowers
+			//     to the `<action relevant>` attribute on the case-list
+			//     detail's search-action element, which evaluates in this
+			//     entry's context.
+			//   - Calc-column expressions land on the module's
+			//     `m{N}_case_short` / `m{N}_case_long` detail blocks the
+			//     entry's `<datum detail-select / detail-confirm>`
+			//     references. CCHQ resolves the detail's XPath against
+			//     the enclosing entry's declarations, so every instance a
+			//     calc expression reaches needs a matching `<instance>`
+			//     here.
+			const caseListColumnExpressions =
+				mod.caseListConfig?.columns
+					.filter((c) => c.kind === "calculated")
+					.map((c) => c.expression) ?? [];
 			const entryDef = deriveEntryDefinition(
 				xmlns,
 				mIdx,
@@ -182,6 +311,11 @@ export function compileCcz(
 				postSubmit,
 				caseType || undefined,
 				hqForm.form_links.length > 0 ? hqForm.form_links : undefined,
+				mod.caseListConfig?.filter,
+				mod.caseSearchConfig?.searchButtonDisplayCondition,
+				caseListColumnExpressions.length > 0
+					? caseListColumnExpressions
+					: undefined,
 			);
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);
@@ -206,7 +340,16 @@ export function compileCcz(
 			`  <locale language="${dir}">\n    <resource id="app_strings_${lang}" version="1">\n      <location authority="local">./${dir}/app_strings.txt</location>\n    </resource>\n  </locale>`,
 	);
 
-	const suiteXml = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join("\n")}\n${localeResources.join("\n")}\n${suiteDetails.join("\n")}\n${suiteEntries.join("\n")}\n${suiteMenus.join("\n")}\n</suite>`;
+	// `<remote-request>` elements live alongside `<entry>` elements
+	// in CCHQ's wire layout — both are top-level entry points the
+	// runtime dispatches through. The compiler positions
+	// `<remote-request>` before `<entry>` blocks so the rendered
+	// suite reads "details for these cases, then the
+	// remote-request that fetches them, then the form entries that
+	// edit them."
+	const remoteRequestsBlock =
+		suiteRemoteRequests.length > 0 ? `${suiteRemoteRequests.join("\n")}\n` : "";
+	const suiteXml = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join("\n")}\n${localeResources.join("\n")}\n${suiteDetails.join("\n")}\n${remoteRequestsBlock}${suiteEntries.join("\n")}\n${suiteMenus.join("\n")}\n</suite>`;
 
 	// Parse-check the suite XML — HQ's build pipeline also parses it,
 	// and failing here gives a clearer error than an opaque mobile
@@ -264,28 +407,6 @@ function generateProfile(appName: string): string {
     </resource>
   </suite>
 </profile>`;
-}
-
-/**
- * Render a single `<detail>` block for suite.xml. The short detail
- * with zero columns still needs a `<title>`; the long detail with
- * zero columns collapses to a title-only stub.
- */
-function generateDetail(
-	id: string,
-	display: string,
-	columns: DetailColumn[],
-): string {
-	if (columns.length === 0 && display === "long") {
-		return `  <detail id="${id}">\n    <title><text><locale id="case_list_title"/></text></title>\n  </detail>`;
-	}
-
-	const fields = columns.map((col) => {
-		const field = col.field || "name";
-		return `    <field>\n      <header><text><locale id="${id}_${field}_header"/></text></header>\n      <template><text><xpath function="${field}"/></text></template>\n    </field>`;
-	});
-
-	return `  <detail id="${id}">\n    <title><text><locale id="case_list_title"/></text></title>\n${fields.join("\n")}\n  </detail>`;
 }
 
 /**

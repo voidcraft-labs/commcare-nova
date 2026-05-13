@@ -1,8 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { asUuid } from "@/lib/domain";
+import {
+	advancedSearchInputDef,
+	asUuid,
+	calculatedColumn,
+	dateColumn,
+	idMappingColumn,
+	idMappingEntry,
+	intervalColumn,
+	type Module,
+	phoneColumn,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import {
+	ancestorPath,
+	eq,
+	literal,
+	prop,
+	relationStep,
+	term,
+	toValueExpression,
+} from "@/lib/domain/predicate";
 
 // Shared fixtures used across the main expander cases below. Each test
 // outside this block constructs its own fixture inline to keep the
@@ -13,7 +34,7 @@ const followupDoc = buildDoc({
 		{
 			name: "Visits",
 			caseType: "patient",
-			caseListColumns: [{ field: "full_name", header: "Name" }],
+			caseListConfig: caseListConfig([{ field: "full_name", header: "Name" }]),
 			forms: [
 				{
 					name: "Follow-up Visit",
@@ -61,10 +82,10 @@ const registrationDoc = buildDoc({
 		{
 			name: "Registration",
 			caseType: "patient",
-			caseListColumns: [
+			caseListConfig: caseListConfig([
 				{ field: "case_name", header: "Name" },
 				{ field: "age", header: "Age" },
-			],
+			]),
 			forms: [
 				{
 					name: "Register Patient",
@@ -344,10 +365,10 @@ describe("case_name in case list columns", () => {
 			{
 				name: "M",
 				caseType: "patient",
-				caseListColumns: [
+				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Full Name" },
 					{ field: "age", header: "Age" },
-				],
+				]),
 				forms: [
 					{
 						name: "F",
@@ -421,7 +442,9 @@ describe("runValidation", () => {
 				{
 					name: "M",
 					caseType: "c",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -451,7 +474,9 @@ describe("runValidation", () => {
 				{
 					name: "M",
 					caseType: "c",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -1024,8 +1049,11 @@ describe("#form/ hashtag expansion", () => {
 
 	// Regression: validate_msg must round-trip through CommCare HQ.
 	//
-	// HQ's XForm parser (`corehq/apps/app_manager/xform.py:1167`) only reads
-	// `jr:constraintMsg` when it points at an itext id via `jr:itext(...)` —
+	// HQ's XForm parser
+	// (`corehq/apps/app_manager/xform.py::XForm.get_questions` —
+	// inside the inner `_get_select_question_option`, where the
+	// `'{jr}constraintMsg'` lookup lives) only reads `jr:constraintMsg`
+	// when it points at an itext id via `jr:itext(...)` —
 	// inline text values are silently dropped at import time. The expander
 	// must therefore (a) emit the bind attribute as an itext reference and
 	// (b) register a matching `<text>` entry in the form's translation block.
@@ -1565,10 +1593,10 @@ describe("case detail (long) view", () => {
 				{
 					name: "M",
 					caseType: "c",
-					caseListColumns: [
+					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 						{ field: "age", header: "Age" },
-					],
+					]),
 					forms: [
 						{
 							name: "F",
@@ -1595,19 +1623,42 @@ describe("case detail (long) view", () => {
 		expect(longCols[0].field).toBe("case_name");
 	});
 
-	it("uses explicit case_detail_columns for long detail when provided", () => {
+	it("uses visibleInList / visibleInDetail flags to surface a wider long detail", () => {
+		// `case_name` shows in both surfaces (defaults). `age` and
+		// `dob` carry `visibleInList: false` so the short detail
+		// renders them with CCHQ's `invisible` format (the column
+		// stays present for sort + index purposes per CCHQ's
+		// `detail_screen.py::Invisible.HideShortColumn` template); the
+		// long detail still renders all three with their normal
+		// `plain` format because `visibleInDetail` is unset (default
+		// true).
+		const caseNameCol = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000001"),
+			"case_name",
+			"Name",
+		);
+		const ageCol = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000002"),
+			"age",
+			"Age",
+			{ visibleInList: false },
+		);
+		const dobCol = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000003"),
+			"dob",
+			"Date of Birth",
+			{ visibleInList: false },
+		);
 		const doc = buildDoc({
 			appName: "D",
 			modules: [
 				{
 					name: "M",
 					caseType: "c",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
-					caseDetailColumns: [
-						{ field: "case_name", header: "Full Name" },
-						{ field: "age", header: "Age" },
-						{ field: "dob", header: "Date of Birth" },
-					],
+					caseListConfig: {
+						columns: [caseNameCol, ageCol, dobCol],
+						searchInputs: [],
+					},
 					forms: [
 						{
 							name: "F",
@@ -1629,10 +1680,27 @@ describe("case detail (long) view", () => {
 			],
 		});
 		const hq = expandDoc(doc);
+		const shortCols = hq.modules[0].case_details.short.columns;
 		const longCols = hq.modules[0].case_details.long.columns;
+		// Short detail: all three columns appear; the two hidden ones
+		// carry `format: "invisible"`. CCHQ keeps the column rows
+		// present so sort + index keep working.
+		expect(shortCols.length).toBe(3);
+		expect(shortCols[0].field).toBe("case_name");
+		expect(shortCols[0].format).toBe("plain");
+		expect(shortCols[1].field).toBe("age");
+		expect(shortCols[1].format).toBe("invisible");
+		expect(shortCols[2].field).toBe("dob");
+		expect(shortCols[2].format).toBe("invisible");
+		// Long detail: all three columns, in source-array order, with
+		// normal `plain` format because `visibleInDetail` is unset.
 		expect(longCols.length).toBe(3);
-		expect(longCols[0].header.en).toBe("Full Name");
+		expect(longCols[0].field).toBe("case_name");
+		expect(longCols[0].format).toBe("plain");
+		expect(longCols[1].field).toBe("age");
+		expect(longCols[1].format).toBe("plain");
 		expect(longCols[2].field).toBe("dob");
+		expect(longCols[2].format).toBe("plain");
 	});
 });
 
@@ -2022,7 +2090,9 @@ describe("child case type module requirement", () => {
 				{
 					name: "Plans",
 					caseType: "plan",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Create Plan",
@@ -2064,7 +2134,9 @@ describe("child case type module requirement", () => {
 				{
 					name: "Plans",
 					caseType: "plan",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Create Plan",
@@ -2085,7 +2157,9 @@ describe("child case type module requirement", () => {
 					caseType: "service",
 					caseListOnly: true,
 					forms: [],
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			],
 			caseTypes: [
@@ -2125,7 +2199,9 @@ describe("case_list_only validation", () => {
 					name: "Bad",
 					caseType: "thing",
 					caseListOnly: true,
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -2207,7 +2283,9 @@ describe("case_list_only expansion", () => {
 					caseType: "service",
 					caseListOnly: true,
 					forms: [],
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			],
 			caseTypes: [
@@ -2237,7 +2315,9 @@ describe("case_list_only expansion", () => {
 					caseType: "service",
 					caseListOnly: true,
 					forms: [],
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			],
 			caseTypes: [
@@ -2275,7 +2355,9 @@ describe("case_list_only expansion", () => {
 					caseType: "service",
 					caseListOnly: true,
 					forms: [],
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			],
 			caseTypes: [
@@ -2941,5 +3023,1097 @@ describe("Connect mode gate", () => {
 
 		// No Connect role attributes appear anywhere in the XForm.
 		expect(xml).not.toMatch(/vellum:role="Connect/);
+	});
+});
+
+// ── HQ JSON projection: per-column kind, sort, filter, search config ──
+//
+// The HQ JSON layer is what flows to CCHQ via `/api/import_app/` — the
+// production export pathway. Every authored slot must land in the
+// projected JSON, otherwise "Upload to CCHQ" silently drops it.
+//
+// Test sections below pin each surface independently:
+//
+//   1. Per-kind column projection — every Nova column kind maps to the
+//      correct CCHQ `DetailColumn.format` token + per-kind slot.
+//   2. Per-surface visibility — `visibleInList: false` / `visibleInDetail: false`
+//      flip the column to CCHQ's `invisible` format on the matching
+//      surface; both surfaces keep the column present (CCHQ uses
+//      `invisible` for search-only / detail-only semantics).
+//   3. Sort projection — `caseListConfig.columns[*].sort` lands in
+//      `case_details.short.sort_elements` ordered by priority + tie-
+//      breaker; calc columns route through `sort_calculation`.
+//   4. Case-list filter projection — `caseListConfig.filter` lands at
+//      `case_details.short.filter` with `match-all` collapsing to `null`.
+//   5. Search-config projection — `caseSearchConfig` + simple-arm
+//      `searchInputs` map to `module.search_config` slots; advanced-arm
+//      predicates + filter AND-compose into `_xpath_query` on
+//      `default_properties`.
+
+const HQ_PROJECTION_MODULE_UUID = asUuid(
+	"77777777-7777-4777-8777-777777777771",
+);
+
+const HQ_PROJECTION_PATIENT_CASE_TYPE = {
+	name: "patient",
+	properties: [
+		{ name: "case_name", label: "Name", data_type: "text" as const },
+		{ name: "age", label: "Age", data_type: "int" as const },
+		{ name: "phone", label: "Phone", data_type: "text" as const },
+		{ name: "region", label: "Region", data_type: "text" as const },
+		{ name: "last_visit", label: "Last Visit", data_type: "date" as const },
+		{ name: "dob", label: "DOB", data_type: "date" as const },
+		{ name: "status", label: "Status", data_type: "text" as const },
+	],
+};
+
+/**
+ * Build a doc with one followup form sourcing the named fields. The
+ * followup form keeps the module's `case_type` active so the
+ * expander's `hasCases` gate admits the projected search config.
+ */
+function buildHqProjectionDoc(
+	caseListConfig: Module["caseListConfig"],
+	caseSearchConfig?: Module["caseSearchConfig"],
+) {
+	return buildDoc({
+		appName: "HQ Projection",
+		modules: [
+			{
+				uuid: HQ_PROJECTION_MODULE_UUID,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig,
+				caseSearchConfig,
+				forms: [
+					{
+						name: "Follow-up",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "patient",
+							}),
+						],
+					},
+				],
+			},
+		],
+		caseTypes: [HQ_PROJECTION_PATIENT_CASE_TYPE],
+	});
+}
+
+describe("expandDoc HQ JSON projection — column kinds", () => {
+	it("projects plain columns with the bare property reference and `plain` format", () => {
+		// Plain columns are CCHQ's baseline `DetailColumn` shape —
+		// `field` carries the case-property name and `format` stays
+		// `"plain"`. Mirrors `detail_screen.py::Plain`'s no-override
+		// rendering.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000010001"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [],
+		});
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(shortCols).toHaveLength(1);
+		expect(shortCols[0].field).toBe("case_name");
+		expect(shortCols[0].format).toBe("plain");
+		expect(shortCols[0].useXpathExpression).toBe(false);
+	});
+
+	it("projects date columns with `date` format and the authored `date_format` pattern", () => {
+		// Date columns ride CCHQ's `Date` format. The authored
+		// `pattern` lands on `date_format`; the runtime formatter
+		// consumes it. CCHQ's default pattern is `%d/%m/%y`; an
+		// authored pattern overrides cleanly.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				dateColumn(
+					asUuid("00000000-0000-4000-8000-000000010002"),
+					"last_visit",
+					"Last Visit",
+					"%Y-%m-%d",
+				),
+			],
+			searchInputs: [],
+		});
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(shortCols).toHaveLength(1);
+		expect(shortCols[0].format).toBe("date");
+		expect(shortCols[0].date_format).toBe("%Y-%m-%d");
+		expect(shortCols[0].field).toBe("last_visit");
+	});
+
+	it("projects phone columns with `phone` format and the bare property reference", () => {
+		// Phone columns route through CCHQ's `Phone` format; the
+		// runtime overlays a tap-to-call affordance on long detail
+		// (CCHQ's `template_form="phone"` divergence). The HQ JSON
+		// layer carries only the format token; the long-vs-short
+		// template divergence is emitted at suite-XML time.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				phoneColumn(
+					asUuid("00000000-0000-4000-8000-000000010003"),
+					"phone",
+					"Phone",
+				),
+			],
+			searchInputs: [],
+		});
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(shortCols[0].format).toBe("phone");
+		expect(shortCols[0].field).toBe("phone");
+	});
+
+	it("projects id-mapping columns with `enum` format and per-language label entries", () => {
+		// ID-mapping rows lower to CCHQ's `enum` format. Each entry's
+		// label lifts under the `en` lang key per CCHQ's
+		// `MappingItem.value = DictProperty()` shape. The wire field
+		// stays the bare property reference.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				idMappingColumn(
+					asUuid("00000000-0000-4000-8000-000000010004"),
+					"region",
+					"Region",
+					[idMappingEntry("N", "North"), idMappingEntry("S", "South")],
+				),
+			],
+			searchInputs: [],
+		});
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(shortCols[0].format).toBe("enum");
+		expect(shortCols[0].field).toBe("region");
+		expect(shortCols[0].enum).toEqual([
+			{ key: "N", value: { en: "North" } },
+			{ key: "S", value: { en: "South" } },
+		]);
+	});
+
+	it("projects interval columns with `display: always` as `time-ago` and the unit divisor", () => {
+		// `interval` columns split on `display`: `always` → CCHQ's
+		// `time-ago` with `time_ago_interval` set to the unit's
+		// days-equivalent divisor (`TIME_AGO_DIVISOR_DAYS`).
+		const doc = buildHqProjectionDoc({
+			columns: [
+				intervalColumn(
+					asUuid("00000000-0000-4000-8000-000000010005"),
+					"last_visit",
+					"Days since visit",
+					3,
+					"days",
+					"always",
+					"OVERDUE",
+				),
+			],
+			searchInputs: [],
+		});
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(shortCols[0].format).toBe("time-ago");
+		expect(shortCols[0].time_ago_interval).toBe(1);
+		expect(shortCols[0].field).toBe("last_visit");
+	});
+
+	it("projects interval columns with `display: flag` as `late-flag` and the threshold in days", () => {
+		// `flag` arm → CCHQ's `late-flag` with `late_flag` set to
+		// `threshold × divisor` rounded to int. CCHQ's schema is
+		// `IntegerProperty(default=30)`; the suite-XML side carries
+		// the float threshold inline in the XPath, but CCHQ's
+		// persistent doc rounds. `2 weeks` → 14 days.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				intervalColumn(
+					asUuid("00000000-0000-4000-8000-000000010006"),
+					"last_visit",
+					"Overdue",
+					2,
+					"weeks",
+					"flag",
+					"OVERDUE",
+				),
+			],
+			searchInputs: [],
+		});
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(shortCols[0].format).toBe("late-flag");
+		expect(shortCols[0].late_flag).toBe(14);
+		expect(shortCols[0].field).toBe("last_visit");
+	});
+
+	it("projects calculated columns with `useXpathExpression: true` and the lowered XPath as `field`", () => {
+		// Calc columns route through CCHQ's `useXpathExpression`
+		// branch — `format: "calculate"`, `useXpathExpression: true`,
+		// and `field` carries the lowered XPath expression rather
+		// than a property name (per CCHQ's
+		// `detail_screen.py::FormattedDetailColumn.xpath` switch).
+		const doc = buildHqProjectionDoc({
+			columns: [
+				calculatedColumn(
+					asUuid("00000000-0000-4000-8000-000000010007"),
+					"Age Next Year",
+					toValueExpression(prop("patient", "age")),
+				),
+			],
+			searchInputs: [],
+		});
+		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(shortCols[0].format).toBe("calculate");
+		expect(shortCols[0].useXpathExpression).toBe(true);
+		// `field` carries the lowered XPath — for a bare property ref
+		// the on-device emitter renders just the property name.
+		expect(shortCols[0].field).toBe("age");
+	});
+
+	it("surfaces visibleInList: false as `invisible` format on the short detail while keeping the column on long detail", () => {
+		// CCHQ's `invisible` format renders a zero-width column;
+		// the column stays present for sort + index purposes. The
+		// long detail keeps its normal format when `visibleInDetail`
+		// is unset.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000010008"),
+					"phone",
+					"Phone",
+					{ visibleInList: false },
+				),
+			],
+			searchInputs: [],
+		});
+		const details = expandDoc(doc).modules[0].case_details;
+		expect(details.short.columns[0].format).toBe("invisible");
+		expect(details.short.columns[0].field).toBe("phone");
+		expect(details.long.columns[0].format).toBe("plain");
+		expect(details.long.columns[0].field).toBe("phone");
+	});
+});
+
+describe("expandDoc HQ JSON projection — sort_elements", () => {
+	it("emits one sort_element per `column.sort`, ordered by priority ascending", () => {
+		// Two sort directives at priorities 0 and 1; CCHQ stores them
+		// in array order matching priority ascending.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000020001"),
+					"case_name",
+					"Name",
+					{ sort: { direction: "asc", priority: 1 } },
+				),
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000020002"),
+					"age",
+					"Age",
+					{ sort: { direction: "desc", priority: 0 } },
+				),
+			],
+			searchInputs: [],
+		});
+		const sortElements =
+			expandDoc(doc).modules[0].case_details.short.sort_elements;
+		expect(sortElements).toHaveLength(2);
+		// Priority 0 wins → `age desc` is the primary sort.
+		expect(sortElements[0].field).toBe("age");
+		expect(sortElements[0].direction).toBe("descending");
+		expect(sortElements[0].type).toBe("int");
+		expect(sortElements[1].field).toBe("case_name");
+		expect(sortElements[1].direction).toBe("ascending");
+		expect(sortElements[1].type).toBe("string");
+	});
+
+	it("routes calc-column sort through `sort_calculation` with field=`_cc_calculated_<index>`", () => {
+		// Calc-column sort directives write `field` as CCHQ's synthetic
+		// per-column key shape `_cc_calculated_{columnIndex}`, matching
+		// the regex `commcare-hq/.../app_manager/const.py::CALCULATED_SORT_FIELD_RX`.
+		// CCHQ's `case_search.case_search_helpers::get_sort_and_sort_only_columns`
+		// parses the index out of the field name and attaches the sort
+		// to the source-array calc column at that position; without a
+		// per-column key, sibling calc sorts collide in the
+		// `sort_elements_by_field` dict and only the last directive
+		// survives.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				calculatedColumn(
+					asUuid("00000000-0000-4000-8000-000000020003"),
+					"Age Next Year",
+					toValueExpression(prop("patient", "age")),
+					{ sort: { direction: "asc", priority: 0 } },
+				),
+			],
+			searchInputs: [],
+		});
+		const sortElements =
+			expandDoc(doc).modules[0].case_details.short.sort_elements;
+		expect(sortElements).toHaveLength(1);
+		expect(sortElements[0].sort_calculation).toBe("age");
+		expect(sortElements[0].field).toBe("_cc_calculated_0");
+		expect(sortElements[0].direction).toBe("ascending");
+	});
+
+	it("keeps every calc-column sort distinct across multiple calc columns (no dict collision)", () => {
+		// Regression for CCHQ's `sort_elements_by_field` keyed by
+		// `field`: two calc columns both writing the same placeholder
+		// key would overwrite each other on the HQ-uploaded path even
+		// though Nova's local `.ccz` renders both. The synthetic
+		// `_cc_calculated_{index}` field per column is the unique
+		// key that survives the dict.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				calculatedColumn(
+					asUuid("00000000-0000-4000-8000-000000020003"),
+					"Age Next Year",
+					toValueExpression(prop("patient", "age")),
+					{ sort: { direction: "asc", priority: 0 } },
+				),
+				calculatedColumn(
+					asUuid("00000000-0000-4000-8000-000000020004"),
+					"Visits Doubled",
+					toValueExpression(prop("patient", "visit_count")),
+					{ sort: { direction: "desc", priority: 1 } },
+				),
+			],
+			searchInputs: [],
+		});
+		const sortElements =
+			expandDoc(doc).modules[0].case_details.short.sort_elements;
+		expect(sortElements).toHaveLength(2);
+		// Field-key uniqueness — both directives survive CCHQ's
+		// `sort_elements_by_field[field] = element` overwrite.
+		expect(sortElements[0].field).toBe("_cc_calculated_0");
+		expect(sortElements[0].sort_calculation).toBe("age");
+		expect(sortElements[0].direction).toBe("ascending");
+		expect(sortElements[1].field).toBe("_cc_calculated_1");
+		expect(sortElements[1].sort_calculation).toBe("visit_count");
+		expect(sortElements[1].direction).toBe("descending");
+	});
+
+	it("leaves sort_elements empty when no column carries a sort directive", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000020004"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [],
+		});
+		expect(expandDoc(doc).modules[0].case_details.short.sort_elements).toEqual(
+			[],
+		);
+	});
+});
+
+describe("expandDoc HQ JSON projection — case_list_filter", () => {
+	it("compiles `caseListConfig.filter` to bare on-device XPath at `case_details.short.filter`", () => {
+		// CCHQ stores the filter at `case_details.short.filter`; the
+		// `module.case_list_filter` getter reads through to this
+		// slot. The wire form is the bare on-device XPath body —
+		// no `[...]` wrap (CCHQ wraps at runtime via
+		// `EntriesHelper.get_filter_xpath`). `region` is a plain
+		// case property (vs. the reserved case-attribute names like
+		// `status` that prefix `@` per `RESERVED_CASE_ATTRIBUTES`).
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000030001"),
+					"case_name",
+					"Name",
+				),
+			],
+			filter: eq(prop("patient", "region"), literal("North")),
+			searchInputs: [],
+		});
+		const filter = expandDoc(doc).modules[0].case_details.short.filter;
+		expect(filter).toBe("region = 'North'");
+	});
+
+	it("emits `null` when no filter is authored", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000030002"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [],
+		});
+		expect(expandDoc(doc).modules[0].case_details.short.filter).toBeNull();
+	});
+});
+
+describe("expandDoc HQ JSON projection — search_config", () => {
+	it("lands display chrome on `title_label`, `description`, `search_button_label`, and `search_button_display_condition`", () => {
+		// Each authored display slot in `caseSearchConfig` maps to its
+		// matching CCHQ slot in `search_config`. Empty / absent
+		// subtitle elides the description; an authored value lifts to
+		// the `{en: ...}` LabelProperty shape.
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						asUuid("00000000-0000-4000-8000-000000040001"),
+						"case_name",
+						"Name",
+					),
+				],
+				searchInputs: [],
+			},
+			{
+				searchScreenTitle: "Find a patient",
+				searchScreenSubtitle: "Search by **name** or village.",
+				searchButtonLabel: "Search patients",
+				searchButtonDisplayCondition: eq(
+					prop("patient", "case_name"),
+					literal("Alice"),
+				),
+			},
+		);
+		const searchConfig = expandDoc(doc).modules[0].search_config;
+		expect(searchConfig.title_label).toEqual({ en: "Find a patient" });
+		expect(searchConfig.description).toEqual({
+			en: "Search by **name** or village.",
+		});
+		expect(searchConfig.search_button_label).toEqual({
+			en: "Search patients",
+		});
+		expect(searchConfig.search_button_display_condition).toBe(
+			"case_name = 'Alice'",
+		);
+	});
+
+	it("compiles `excludedOwnerIds` to `blacklisted_owner_ids_expression`", () => {
+		// CCHQ stores the excluded-owners filter as a bare on-device
+		// XPath string. The suite-XML side wraps it as a `<data>` slot
+		// at search time; the persistent doc carries the expression
+		// directly because CCHQ regenerates the suite from the doc.
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						asUuid("00000000-0000-4000-8000-000000040002"),
+						"case_name",
+						"Name",
+					),
+				],
+				searchInputs: [],
+			},
+			{
+				excludedOwnerIds: toValueExpression(literal("excluded-owner-id")),
+			},
+		);
+		const searchConfig = expandDoc(doc).modules[0].search_config;
+		expect(searchConfig.blacklisted_owner_ids_expression).toBe(
+			"'excluded-owner-id'",
+		);
+	});
+
+	it("projects simple-arm search inputs to `properties` with the right `input_` / `appearance` slots per input type", () => {
+		// Simple-arm inputs land on `properties` as
+		// `CaseSearchProperty` entries; the wire-attribute mapping
+		// matches `PROMPT_ATTRIBUTE_MAPPINGS`. `text` leaves both
+		// slots absent; `date` carries `input_: "date"`; barcode rides
+		// `appearance: "barcode_scan"`.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000040003"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000040011"),
+					"name_search",
+					"Name",
+					"text",
+					"case_name",
+				),
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000040012"),
+					"dob_search",
+					"DOB",
+					"date",
+					"dob",
+				),
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000040013"),
+					"scan_search",
+					"Scan",
+					"barcode",
+					"case_name",
+				),
+			],
+		});
+		const properties = expandDoc(doc).modules[0].search_config.properties;
+		expect(properties).toHaveLength(3);
+		// Plain text: no `input_` / `appearance`.
+		expect(properties[0].name).toBe("name_search");
+		expect(properties[0].input_).toBeUndefined();
+		expect(properties[0].appearance).toBeUndefined();
+		// Date widget.
+		expect(properties[1].name).toBe("dob_search");
+		expect(properties[1].input_).toBe("date");
+		// Barcode rides `appearance`.
+		expect(properties[2].name).toBe("scan_search");
+		expect(properties[2].appearance).toBe("barcode_scan");
+	});
+
+	it("never sets a `fuzzy` or `starts_with_search` boolean on `CaseSearchProperty` (CCHQ has no such field — non-exact modes route through `_xpath_query`)", () => {
+		// Verified against
+		// `commcare-hq/corehq/apps/app_manager/models.py::CaseSearchProperty`:
+		// the field set is name / label / appearance / input_ /
+		// default_value / hint / hidden / allow_blank_value / exclude /
+		// required / validations / receiver_expression / itemset /
+		// is_group / group_key. CCHQ's `DocumentSchema` ingest silently
+		// drops unrecognized keys, so a `fuzzy: true` on the wire JSON
+		// would land on the database as nothing — the runtime defaults
+		// to exact full-string match.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-0000000400f1"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-0000000400f2"),
+					"name_fuzzy",
+					"Name",
+					"text",
+					"case_name",
+					{ mode: { kind: "fuzzy" } },
+				),
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-0000000400f3"),
+					"name_starts",
+					"Starts",
+					"text",
+					"case_name",
+					{ mode: { kind: "starts-with" } },
+				),
+			],
+		});
+		const searchConfig = expandDoc(doc).modules[0].search_config;
+		for (const property of searchConfig.properties) {
+			expect(property).not.toHaveProperty("fuzzy");
+			expect(property).not.toHaveProperty("starts_with_search");
+		}
+		// The matcher strategy rides on `_xpath_query` via the
+		// `simpleArmDerivation` lift.
+		const xpathQueryEntry = searchConfig.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathQueryEntry).toBeDefined();
+		expect(xpathQueryEntry?.defaultValue).toContain("fuzzy-match(case_name,");
+		expect(xpathQueryEntry?.defaultValue).toContain("starts-with(case_name,");
+	});
+
+	it("AND-composes `caseListConfig.filter` and every advanced-arm predicate into a single `_xpath_query` slot on `default_properties`", () => {
+		// CCHQ accepts one `_xpath_query` per search; the AST-level
+		// `and(...)` collapses the unified filter + every advanced-arm
+		// predicate before the CSQL emitter walks the result. The
+		// suite-XML side does the same — `composeXPathQueryEmission`
+		// is the shared helper.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000040004"),
+					"case_name",
+					"Name",
+				),
+			],
+			// Filter on `region` — distinct from the simple-arm input
+			// target so the filter/simple-input conflict rule admits
+			// the pair.
+			filter: eq(prop("patient", "region"), literal("North")),
+			searchInputs: [
+				advancedSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000040014"),
+					"status_search",
+					"Status",
+					"text",
+					eq(prop("patient", "status"), literal("active")),
+				),
+			],
+		});
+		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
+		const xpathQueryEntry = defaults.find((d) => d.property === "_xpath_query");
+		expect(xpathQueryEntry).toBeDefined();
+		// The CSQL emitter wraps the AND-composed predicate in a
+		// `concat(...)` runtime expression; both authored property
+		// fragments survive the wrap.
+		expect(xpathQueryEntry?.defaultValue).toMatch(/concat\(/);
+		expect(xpathQueryEntry?.defaultValue).toContain("region");
+		expect(xpathQueryEntry?.defaultValue).toContain("status");
+		// Bare `and` survives between the two fragments.
+		expect(xpathQueryEntry?.defaultValue).toContain(" and ");
+	});
+
+	it("omits the `_xpath_query` slot entirely when no filter and no advanced-arm predicates are authored", () => {
+		// CCHQ encodes "no server-side filter" by an absent slot, not
+		// by emitting `_xpath_query = true()`.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000040005"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [],
+		});
+		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
+		expect(defaults.find((d) => d.property === "_xpath_query")).toBeUndefined();
+	});
+
+	it("inlines CSQL-non-grammar value expressions into the `_xpath_query` slot's concat, with no sibling `default_properties` entries", () => {
+		// CSQL's value-function whitelist excludes `arith(...)`. The
+		// CSQL emitter inlines each non-grammar value expression as
+		// an on-device XPath fragment inside the wrapper concat —
+		// the canonical CCHQ pattern at
+		// `commcare-hq/docs/case_search_query_language.rst::"Example
+		// Query + Tips"`. The wire shape on `default_properties` is
+		// a single `_xpath_query` entry; sibling entries with
+		// synthetic keys would be wire-incorrect because CCHQ's
+		// `RemoteQuerySessionManager.initUserAnswers` only seeds the
+		// `search-input:results` instance from `<prompt>` defaults
+		// and the server-side `_apply_filter` would re-interpret the
+		// sibling slot as a literal case-property filter against
+		// case data.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000040006"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				advancedSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000040016"),
+					"age_filter",
+					"Age",
+					"text",
+					// Right-hand operand is `arith(age, +, 1)` — CSQL
+					// doesn't admit arith inline, so the emitter
+					// inlines the whole expression as an on-device
+					// XPath fragment inside the wrapper concat.
+					eq(
+						prop("patient", "age"),
+						toValueExpression(
+							// Lift via the arith helper at builder layer.
+							{
+								kind: "arith",
+								op: "+",
+								left: term(prop("patient", "age")),
+								right: term(literal(1)),
+							},
+						),
+					),
+				),
+			],
+		});
+		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
+		// Exactly one entry — the `_xpath_query` slot. No sibling
+		// entries for the inlined on-device fragment.
+		expect(defaults).toHaveLength(1);
+		expect(defaults[0].property).toBe("_xpath_query");
+		// The arith's on-device emission `(age + 1)` lands as a
+		// runtime fragment inside the wrapper concat.
+		expect(defaults[0].defaultValue).toContain("(age + 1)");
+		// The `_xpath_query` value never references a synthetic
+		// search-input ref — that shape would silently zero out at
+		// runtime per the CCHQ-side reasoning above.
+		expect(defaults[0].defaultValue).not.toContain("csql_hoist_");
+	});
+
+	it("lifts an operator-direct prop(via) into an ancestor-exists envelope on the `_xpath_query` slot", () => {
+		// CCHQ's CSQL grammar exposes relational reads only through
+		// the `ancestor-exists` / `subcase-exists` query functions on
+		// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
+		// A `caseListConfig.filter` that reads a property on an
+		// ancestor case lifts the via into an enclosing envelope
+		// before the CSQL emitter walks the result; the
+		// `_xpath_query` slot on `default_properties` carries the
+		// envelope wire form. The same filter would emit a bare
+		// property name on the wire without the lift — the same
+		// authored AST would match different rows on the on-device
+		// case list versus the server-side `<remote-request>`.
+		const doc = buildDoc({
+			appName: "Via Lift",
+			modules: [
+				{
+					uuid: HQ_PROJECTION_MODULE_UUID,
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(
+								asUuid("00000000-0000-4000-8000-000000040007"),
+								"case_name",
+								"Name",
+							),
+						],
+						searchInputs: [],
+						// Filter reads `region` on the patient's
+						// `household` ancestor — without the lift
+						// the wire emission would drop the via and
+						// match `region` on the patient case itself.
+						filter: eq(
+							prop(
+								"patient",
+								"region",
+								ancestorPath(relationStep("parent", "household")),
+							),
+							literal("North"),
+						),
+					},
+					forms: [
+						{
+							name: "Follow-up",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "region", label: "Region", data_type: "text" },
+					],
+				},
+				{
+					name: "household",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "region", label: "Region", data_type: "text" },
+					],
+				},
+			],
+		});
+		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
+		const xpathEntry = defaults.find((d) => d.property === "_xpath_query");
+		expect(xpathEntry).toBeDefined();
+		// The envelope shape: `ancestor-exists(<rel>, <inner>)` —
+		// bare path on the first argument (CCHQ's
+		// `_is_ancestor_path_expression` requires a path AST node,
+		// not a string Literal). Inner reads the property bare (no
+		// relation walk) because the envelope's destination scope
+		// owns the resolution.
+		expect(xpathEntry?.defaultValue).toContain("ancestor-exists(parent");
+		expect(xpathEntry?.defaultValue).toContain("region = 'North'");
+		// Defensive: the pre-lift bug emitted `region = 'North'`
+		// without the envelope, so absence of `ancestor-exists` would
+		// be the regression signal.
+		expect(xpathEntry?.defaultValue).not.toMatch(
+			/^(?!.*ancestor-exists).*region = 'North'/,
+		);
+	});
+});
+
+describe("expandDoc HQ JSON projection — case-search integration", () => {
+	it("preserves the realistic case-search blueprint round-trip through every wire slot", () => {
+		// One realistic blueprint exercises every authored slot — display
+		// chrome, advanced cluster, simple + advanced search inputs, an
+		// always-on filter, and per-kind columns + sort. The assertion
+		// cluster pins the cross-slot composition: each slot lands on
+		// its CCHQ-targeted wire field without clobbering the others.
+		// `region` is a plain case property; the reserved `status`
+		// case-attribute would prefix `@` in the on-device emission
+		// and obscure the per-slot composition assertion. The advanced
+		// arm gates against a different property (`age`) so the
+		// `filterSearchInputConflict` validator rule admits the pair.
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						asUuid("00000000-0000-4000-8000-000000050001"),
+						"case_name",
+						"Name",
+					),
+					dateColumn(
+						asUuid("00000000-0000-4000-8000-000000050002"),
+						"last_visit",
+						"Last Visit",
+						"%Y-%m-%d",
+						{ sort: { direction: "desc", priority: 0 } },
+					),
+				],
+				filter: eq(prop("patient", "region"), literal("North")),
+				searchInputs: [
+					simpleSearchInputDef(
+						asUuid("00000000-0000-4000-8000-000000050011"),
+						"name_search",
+						"Name",
+						"text",
+						"case_name",
+					),
+					advancedSearchInputDef(
+						asUuid("00000000-0000-4000-8000-000000050012"),
+						"age_filter",
+						"Age",
+						"text",
+						eq(prop("patient", "age"), literal(30)),
+					),
+				],
+			},
+			{
+				searchScreenTitle: "Find a patient",
+				searchButtonLabel: "Search patients",
+				excludedOwnerIds: toValueExpression(term(literal("excluded"))),
+			},
+		);
+		const module = expandDoc(doc).modules[0];
+
+		// Detail columns: per-kind formats survive.
+		expect(module.case_details.short.columns).toHaveLength(2);
+		expect(module.case_details.short.columns[0].format).toBe("plain");
+		expect(module.case_details.short.columns[1].format).toBe("date");
+
+		// Sort directive on the date column lifts to `sort_elements`.
+		expect(module.case_details.short.sort_elements).toHaveLength(1);
+		expect(module.case_details.short.sort_elements[0].field).toBe("last_visit");
+
+		// Always-on filter at `case_details.short.filter`.
+		expect(module.case_details.short.filter).toBe("region = 'North'");
+
+		// Search-config chrome lands on the matching CCHQ slots.
+		expect(module.search_config.title_label).toEqual({ en: "Find a patient" });
+		expect(module.search_config.search_button_label).toEqual({
+			en: "Search patients",
+		});
+		expect(module.search_config.blacklisted_owner_ids_expression).toBe(
+			"'excluded'",
+		);
+
+		// Simple-arm input lands on `properties`.
+		expect(module.search_config.properties).toHaveLength(1);
+		expect(module.search_config.properties[0].name).toBe("name_search");
+
+		// Advanced-arm predicate + filter AND-compose into
+		// `_xpath_query` on `default_properties`.
+		const xpathEntry = module.search_config.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathEntry).toBeDefined();
+		expect(xpathEntry?.defaultValue).toContain("region");
+		expect(xpathEntry?.defaultValue).toContain("age");
+		expect(xpathEntry?.defaultValue).toContain(" and ");
+	});
+
+	// ── Simple-arm-with-via routing into _xpath_query ──────────────
+
+	it("projects a simple-arm input with non-self `via` as both a CaseSearchProperty AND a `_xpath_query` predicate", () => {
+		// CCHQ's `<prompt>` / `CaseSearchProperty` binds exactly one
+		// runtime value but carries no relation-walk metadata, so a
+		// simple-arm input with `via: ancestor` would silently drop
+		// its relation walk on the wire. The fix routes the derived
+		// predicate through `_xpath_query` while keeping the
+		// `CaseSearchProperty` slot present so CCHQ still binds the
+		// user's typed value to the prompt key.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000060001"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060011"),
+					"parent_region",
+					"Parent region",
+					"text",
+					"region",
+					{
+						via: ancestorPath(relationStep("parent")),
+					},
+				),
+			],
+		});
+		const module = expandDoc(doc).modules[0];
+
+		// CaseSearchProperty stays — CCHQ binds the typed value to
+		// the prompt key at runtime.
+		expect(module.search_config.properties).toHaveLength(1);
+		expect(module.search_config.properties[0].name).toBe("parent_region");
+
+		// The relation-walked predicate lands in `_xpath_query`. The
+		// stored value is an on-device XPath that runtime-builds the
+		// CSQL string via `concat(...)`, so the assertions pin the
+		// XPath-level fragments rather than the runtime-evaluated CSQL.
+		const xpathEntry = module.search_config.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathEntry).toBeDefined();
+		// CCHQ requires the first arg of `ancestor-exists` to be a
+		// bare path expression (`_is_ancestor_path_expression`
+		// rejects a string Literal). The on-device emitter inlines
+		// `parent` verbatim into the `concat(...)` constant text.
+		expect(xpathEntry?.defaultValue).toContain("ancestor-exists(parent,");
+		expect(xpathEntry?.defaultValue).toContain("region");
+		// Wrapped in `when-input-present` so an unset input
+		// contributes `match-all()` instead of matching empty-string
+		// related properties.
+		expect(xpathEntry?.defaultValue).toContain("if(count(");
+		expect(xpathEntry?.defaultValue).toContain("'match-all()'");
+	});
+
+	it("keeps the bare-prompt-compatible simple-arm input out of `_xpath_query` (only the cross-walk input lands there)", () => {
+		// The bare-prompt-compatible shape is self-walk + default
+		// exact + `name === property` — CCHQ's runtime auto-match on
+		// the prompt key IS the authored comparison. The cross-walk
+		// input alongside it routes through `_xpath_query` because
+		// the bare prompt has no relation-walk metadata.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000060002"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060021"),
+					"case_name",
+					"Self name",
+					"text",
+					"case_name",
+				),
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060022"),
+					"parent_region",
+					"Parent region",
+					"text",
+					"region",
+					{ via: ancestorPath(relationStep("parent")) },
+				),
+			],
+		});
+		const module = expandDoc(doc).modules[0];
+
+		// Both inputs surface as CaseSearchProperty entries.
+		expect(module.search_config.properties).toHaveLength(2);
+
+		// Only the cross-walk input contributes a `_xpath_query`
+		// predicate; the self-walk one rides on its prompt binding
+		// alone.
+		const xpathEntry = module.search_config.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathEntry).toBeDefined();
+		// `ancestor-exists` first arg is a bare path AST node, not a
+		// string Literal — CCHQ's
+		// `_is_ancestor_path_expression` rejects the literal shape.
+		expect(xpathEntry?.defaultValue).toContain("ancestor-exists(parent,");
+		expect(xpathEntry?.defaultValue).toContain("@name='parent_region'");
+		// The bare-prompt-compatible input's name (`case_name`) does
+		// NOT appear in the derived `_xpath_query` predicate — it
+		// rides on its prompt binding alone, with CCHQ's runtime
+		// auto-match doing the comparison.
+		expect(xpathEntry?.defaultValue).not.toContain("@name='case_name'");
+	});
+
+	// ── exclude="true()" / exclude: true bogus-auto-match suppression ──
+
+	it("sets `exclude: true` on simple-arm CaseSearchProperty when `name !== property` (default exact, self-walk)", () => {
+		// CCHQ's runtime auto-matches the typed value against the
+		// case property NAMED BY the prompt key. When `name !==
+		// property` the auto-match queries a case property that may
+		// not exist (or queries the wrong one); the `exclude: true`
+		// flag suppresses the auto-match. Verified against
+		// `commcare-hq/.../suite_xml/post_process/remote_requests.py::build_query_prompts`
+		// (`'key': prop.name` + `if prop.exclude: kwargs['exclude']
+		// = "true()"`) and
+		// `commcare-core/.../session/RemoteQuerySessionManager.java::RemoteQuerySessionManager.getRawQueryParams`
+		// (the `excludeExpr.eval` check skips the auto-match while
+		// keeping the typed value bound to the search-input
+		// instance for the explicit `_xpath_query` predicate).
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000060030"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060031"),
+					"name_search",
+					"Name",
+					"text",
+					"case_name",
+				),
+			],
+		});
+		const module = expandDoc(doc).modules[0];
+		expect(module.search_config.properties).toHaveLength(1);
+		expect(module.search_config.properties[0].name).toBe("name_search");
+		expect(module.search_config.properties[0].exclude).toBe(true);
+
+		// And the `_xpath_query` slot carries the explicit comparison
+		// the suppressed auto-match would otherwise have done — the
+		// typed value matches against the authored target property
+		// `case_name`, not the prompt key `name_search`.
+		const xpathEntry = module.search_config.default_properties.find(
+			(d) => d.property === "_xpath_query",
+		);
+		expect(xpathEntry).toBeDefined();
+		expect(xpathEntry?.defaultValue).toContain("case_name");
+		expect(xpathEntry?.defaultValue).toContain("@name='name_search'");
+	});
+
+	it("omits the `exclude` field on a bare-prompt-compatible simple-arm input (`name === property`, self-walk, default exact)", () => {
+		// The bare-prompt-correct case: CCHQ's auto-match against the
+		// prompt key IS the authored comparison. Emitting `exclude:
+		// true` here would suppress the very behaviour the user
+		// wants. Pin the negative so a regression that over-applies
+		// the field surfaces.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000060040"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000060041"),
+					"case_name",
+					"Name",
+					"text",
+					"case_name",
+				),
+			],
+		});
+		const property = expandDoc(doc).modules[0].search_config.properties[0];
+		expect(property.exclude).toBeUndefined();
 	});
 });

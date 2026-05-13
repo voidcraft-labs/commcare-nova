@@ -11,6 +11,7 @@
  *   [moduleUuid]                    → module
  *   [moduleUuid, "cases"]           → case list
  *   [moduleUuid, "cases", caseId]   → case detail
+ *   [moduleUuid, "search-config"]   → case-search authoring
  *   [formUuid]                      → form
  *   [formUuid, fieldUuid]        → form + selected field
  *
@@ -55,6 +56,8 @@ export function serializePath(loc: Location): string[] {
 			return loc.caseId !== undefined
 				? [loc.moduleUuid, "cases", loc.caseId]
 				: [loc.moduleUuid, "cases"];
+		case "search-config":
+			return [loc.moduleUuid, "search-config"];
 		case "form":
 			/* A selected field is serialized as a single UUID — the parser
 			 * resolves it to its parent form via findFormForField. This
@@ -195,6 +198,14 @@ export function parsePathToLocation(
 		return { kind: "cases", moduleUuid: first, caseId: segments[2] };
 	}
 
+	if (second === "search-config") {
+		/* /build/{id}/{moduleUuid}/search-config — case-search authoring
+		 * surface. Mirrors the `cases` arm: the module must exist, no
+		 * tail segment, fall back to home when the module is missing. */
+		if (doc.modules[first] === undefined) return { kind: "home" };
+		return { kind: "search-config", moduleUuid: first };
+	}
+
 	/* Two-segment path: /build/{id}/{formUuid}/{fieldUuid} */
 	const secondUuid = second as Uuid;
 
@@ -239,6 +250,10 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 			// `caseId` is free-form from the user — we can't validate it
 			// against the doc. Only the module reference matters here.
 			return doc.modules[loc.moduleUuid] !== undefined;
+		case "search-config":
+			// Case-search authoring opens against the same module
+			// reference shape as `cases`; only that uuid needs to resolve.
+			return doc.modules[loc.moduleUuid] !== undefined;
 		case "form": {
 			if (doc.modules[loc.moduleUuid] === undefined) return false;
 			if (doc.forms[loc.formUuid] === undefined) return false;
@@ -279,6 +294,7 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 
 	if (loc.kind === "module") return loc;
 	if (loc.kind === "cases") return loc;
+	if (loc.kind === "search-config") return loc;
 
 	/* loc.kind === "form" — walk inward: form, then selected field. */
 	if (doc.forms[loc.formUuid] === undefined) {

@@ -1,0 +1,342 @@
+/**
+ * Schema-compilation contract for the case-list-config SA tools.
+ *
+ * The Anthropic structured-output compiler imposes a hard ceiling of 8
+ * `.optional()` fields per per-arm shape — verified hard limit on
+ * opus-4-7. Each tool's `inputSchema` carries a typed AST shape lifted
+ * from `lib/domain/predicate` + `lib/domain/modules`; this test ensures
+ * the compilation survives the Zod 4 → JSON Schema bridge AND stays
+ * inside the per-arm ceiling on the column / search-input discriminated
+ * unions.
+ *
+ * Three checks per tool:
+ *
+ *   1. `z.toJSONSchema(...)` succeeds (the Zod 4 lazy-cycle bridge can
+ *      throw on malformed recursive shapes; this asserts none of the
+ *      schemas regress into that state).
+ *   2. The discriminated-union slot's per-arm shape carries ≤8 optional
+ *      fields. Recursive AST cycles expand under nested keys via
+ *      `$defs` references in JSON Schema output; we count optionals at
+ *      each arm's *immediate* level (the surface the Anthropic compiler
+ *      sees) per `lib/agent/__tests__/toolSchemaGenerator.test.ts`'s
+ *      "8-optional ceiling" precedent.
+ *   3. A representative payload `safeParse`s — round-trip smoke test
+ *      that the schema is structurally usable from the SA's call site.
+ *
+ * The `scripts/test-schema.ts` harness covers the live-API
+ * verification (it drives `generateText` against Anthropic and waits
+ * for the response). This vitest file is the structural defense — it
+ * runs in every CI pipeline without burning API credits.
+ */
+
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { addCaseListColumnTool } from "../addCaseListColumn";
+import { addSearchInputTool } from "../addSearchInput";
+import { removeCaseListColumnTool } from "../removeCaseListColumn";
+import { removeSearchInputTool } from "../removeSearchInput";
+import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
+import { reorderSearchInputsTool } from "../reorderSearchInputs";
+import { setCaseListFilterTool } from "../setCaseListFilter";
+import { updateCaseListColumnTool } from "../updateCaseListColumn";
+import { updateSearchInputTool } from "../updateSearchInput";
+
+/* JSON Schema shape this test introspects. Both `properties` and
+ * `required` are present on object-shaped schemas; the `items` slot
+ * carries the per-item shape on array slots. The `$defs` map carries
+ * shared `$ref` targets emitted for recursive AST cycles (Predicate /
+ * ValueExpression). The cast is explicit so each property access is
+ * typed. */
+interface ObjectJsonSchema {
+	type?: string;
+	properties?: Record<string, ObjectJsonSchema>;
+	required?: readonly string[];
+	items?: ObjectJsonSchema;
+	$ref?: string;
+	$defs?: Record<string, ObjectJsonSchema>;
+	/* Zod 4 lowers `z.discriminatedUnion(...)` to `oneOf`. The
+	 * legacy `z.union(...)` lowers to `anyOf`. Both arms must be
+	 * checked when counting per-item optionals — missing one of
+	 * the two would silently skip half the union shapes. */
+	oneOf?: readonly ObjectJsonSchema[];
+	anyOf?: readonly ObjectJsonSchema[];
+}
+
+const DEFS_REF_PREFIX = "#/$defs/";
+
+/**
+ * Resolve a single arm of a JSON Schema item shape to its concrete
+ * object shape. JSON Schema `$ref` strings encode references as
+ * `#/$defs/<name>` against the document root's `$defs` map; this
+ * helper follows one hop. Arms without `$ref` are returned as-is.
+ */
+function resolveArm(
+	arm: ObjectJsonSchema,
+	root: ObjectJsonSchema,
+): ObjectJsonSchema {
+	if (arm.$ref === undefined) return arm;
+	if (!arm.$ref.startsWith(DEFS_REF_PREFIX)) return arm;
+	const name = arm.$ref.slice(DEFS_REF_PREFIX.length);
+	const target = root.$defs?.[name];
+	return target ?? arm;
+}
+
+/**
+ * Walk every arm of a discriminated-union slot and assert each arm's
+ * per-arm optional count stays ≤8. The arm walker hits both
+ * `oneOf`-shaped (Zod 4 discriminated union) and `anyOf`-shaped
+ * (legacy `z.union`) outputs; missing one of the two would silently
+ * skip half the union arms. Each arm is resolved through `$ref`
+ * before counting so a `lib/domain` reshape that lifts an arm into
+ * `$defs` doesn't bypass the check.
+ */
+function assertArmOptionalCounts(
+	toolName: string,
+	armsContainer: ObjectJsonSchema,
+	root: ObjectJsonSchema,
+): void {
+	const rawArms = armsContainer.oneOf ?? armsContainer.anyOf ?? [armsContainer];
+	let armsChecked = 0;
+	for (const rawArm of rawArms) {
+		const arm = resolveArm(rawArm, root);
+		if (!arm.properties) {
+			throw new Error(
+				`${toolName}: arm has no \`properties\` after \`$ref\` resolution — refusing to silently skip the optional-count check.`,
+			);
+		}
+		const allKeys = Object.keys(arm.properties);
+		const required = new Set(arm.required ?? []);
+		const optionalCount = allKeys.filter((k) => !required.has(k)).length;
+		expect(
+			optionalCount,
+			`${toolName}: arm with required=${[...required].join(",")} has ${optionalCount} optional fields`,
+		).toBeLessThanOrEqual(8);
+		armsChecked++;
+	}
+	/* Pin a positive lower bound on arms checked — a regression that
+	 * wires the test against an `unknown`-typed slot (zero arms) would
+	 * otherwise pass vacuously. */
+	expect(
+		armsChecked,
+		`${toolName}: expected ≥1 arm to be checked`,
+	).toBeGreaterThan(0);
+}
+
+/* Tools whose input schema carries a discriminated-union slot. The
+ * `unionKey` names the property whose item-arms drive the optional
+ * count check. */
+const UNION_TOOLS = [
+	{
+		name: "addCaseListColumn",
+		tool: addCaseListColumnTool,
+		unionKey: "column",
+	},
+	{
+		name: "updateCaseListColumn",
+		tool: updateCaseListColumnTool,
+		unionKey: "column",
+	},
+	{
+		name: "addSearchInput",
+		tool: addSearchInputTool,
+		unionKey: "searchInput",
+	},
+	{
+		name: "updateSearchInput",
+		tool: updateSearchInputTool,
+		unionKey: "searchInput",
+	},
+] as const;
+
+/* Tools whose input schema is flat (no discriminated-union slot
+ * carrying an SA-authored body). Schema-compile success + a
+ * representative-payload smoke parse is the full structural contract
+ * here. */
+const FLAT_TOOLS = [
+	{ name: "removeCaseListColumn", tool: removeCaseListColumnTool },
+	{ name: "reorderCaseListColumns", tool: reorderCaseListColumnsTool },
+	{ name: "removeSearchInput", tool: removeSearchInputTool },
+	{ name: "reorderSearchInputs", tool: reorderSearchInputsTool },
+	{ name: "setCaseListFilter", tool: setCaseListFilterTool },
+] as const;
+
+describe("case-list-config tool schemas — Anthropic compiler contract", () => {
+	for (const { name, tool } of [...UNION_TOOLS, ...FLAT_TOOLS]) {
+		it(`${name}: \`z.toJSONSchema\` succeeds`, () => {
+			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
+			expect(json.type).toBe("object");
+			expect(json.properties).toBeDefined();
+		});
+	}
+
+	for (const { name, tool, unionKey } of UNION_TOOLS) {
+		it(`${name}: per-arm optional count ≤8 (Anthropic compiler ceiling)`, () => {
+			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
+			const slot = json.properties?.[unionKey];
+			if (!slot) {
+				throw new Error(
+					`expected \`${unionKey}\` to be a property on ${name}'s input schema`,
+				);
+			}
+			assertArmOptionalCounts(name, slot, json);
+		});
+	}
+
+	// ── Representative-payload smoke tests ────────────────────────────
+
+	it("addCaseListColumn: parses a representative payload", () => {
+		const result = addCaseListColumnTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			column: { kind: "plain", field: "case_name", header: "Patient" },
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("updateCaseListColumn: parses a representative payload", () => {
+		const result = updateCaseListColumnTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			columnUuid: "11111111-1111-1111-1111-111111111111",
+			column: {
+				kind: "date",
+				field: "dob",
+				header: "DOB",
+				pattern: "%Y-%m-%d",
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("updateCaseListColumn: parses an interval column with full optional-slot coverage", () => {
+		// Exercise every common optional slot (`sort`, `visibleInList`,
+		// `visibleInDetail`) at once on the most slot-heavy arm — the
+		// test pins that the per-arm optional count stays under the
+		// 8-optional ceiling even with every common slot supplied.
+		const result = updateCaseListColumnTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			columnUuid: "11111111-1111-1111-1111-111111111111",
+			column: {
+				kind: "interval",
+				field: "last_visit",
+				header: "Last visit",
+				threshold: 30,
+				unit: "days",
+				display: "flag",
+				text: "Overdue",
+				sort: { direction: "desc", priority: 0 },
+				visibleInList: true,
+				visibleInDetail: false,
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("removeCaseListColumn: parses a representative payload", () => {
+		const result = removeCaseListColumnTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			columnUuid: "11111111-1111-1111-1111-111111111111",
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("reorderCaseListColumns: parses a representative payload", () => {
+		const result = reorderCaseListColumnsTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			columnUuids: [
+				"22222222-2222-2222-2222-222222222222",
+				"11111111-1111-1111-1111-111111111111",
+			],
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("setCaseListFilter: parses a representative payload (predicate set)", () => {
+		const result = setCaseListFilterTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			filter: {
+				kind: "eq",
+				left: {
+					kind: "term",
+					term: { kind: "prop", caseType: "patient", property: "status" },
+				},
+				right: { kind: "term", term: { kind: "literal", value: "active" } },
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("setCaseListFilter: parses null (clear)", () => {
+		const result = setCaseListFilterTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			filter: null,
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("addSearchInput: parses a representative simple payload", () => {
+		const result = addSearchInputTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInput: {
+				kind: "simple",
+				name: "patient_name_input",
+				label: "Patient name",
+				type: "text",
+				property: "name",
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("addSearchInput: parses a representative advanced payload", () => {
+		const result = addSearchInputTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInput: {
+				kind: "advanced",
+				name: "active_only",
+				label: "Active only",
+				type: "select",
+				predicate: { kind: "match-all" },
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("updateSearchInput: parses with full simple-arm optional coverage", () => {
+		const result = updateSearchInputTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+			searchInput: {
+				kind: "simple",
+				name: "household_region",
+				label: "Region",
+				type: "select",
+				property: "region",
+				via: {
+					kind: "ancestor",
+					via: [{ identifier: "parent", throughCaseType: "household" }],
+				},
+				mode: { kind: "exact" },
+				default: { kind: "term", term: { kind: "literal", value: "north" } },
+			},
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("removeSearchInput: parses a representative payload", () => {
+		const result = removeSearchInputTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it("reorderSearchInputs: parses a representative payload", () => {
+		const result = reorderSearchInputsTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInputUuids: [
+				"22222222-2222-2222-2222-222222222222",
+				"11111111-1111-1111-1111-111111111111",
+			],
+		});
+		expect(result.success).toBe(true);
+	});
+});

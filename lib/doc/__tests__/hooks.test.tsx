@@ -211,6 +211,7 @@ describe("useOrderedFields", () => {
 				{
 					kind: "updateField",
 					uuid: asUuid("q-222-0000-0000-0000-000000000000"),
+					targetKind: "text",
 					patch: { label: "Changed" },
 				},
 			]);

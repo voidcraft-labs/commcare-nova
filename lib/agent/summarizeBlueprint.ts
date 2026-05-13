@@ -7,8 +7,18 @@
  */
 
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	Column,
+	Module,
+	SearchInputDef,
+	Uuid,
+} from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
+import {
+	ADVANCED_SLOT_NAMES,
+	DISPLAY_SLOT_NAMES,
+} from "./tools/case-search-config/shared";
 
 /**
  * Render a field and its children as nested bullet lines. Shows `id`,
@@ -72,6 +82,112 @@ function summarizeForm(
 	return [header, ...extras, fieldSummary].join("\n");
 }
 
+/**
+ * Summarize a module's case list — every column and search input
+ * carries its `uuid`, the SA-facing handle for the atomic-op tools
+ * (`updateCaseListColumn`, `removeCaseListColumn`,
+ * `reorderCaseListColumns`, and the search-input parallels). Surfacing
+ * the uuids in the prompt-time summary lets the SA target follow-up
+ * edits without a `getModule` round-trip after a fresh-session edit
+ * resume.
+ *
+ * Returns `undefined` when the module has no case-list config (survey-
+ * only modules; freshly created case-carrying modules). Caller
+ * concatenates only when a section was produced.
+ */
+function summarizeCaseList(mod: Module): string | undefined {
+	const config = mod.caseListConfig;
+	if (config === undefined) return undefined;
+	if (config.columns.length === 0 && config.searchInputs.length === 0) {
+		return undefined;
+	}
+	const lines: string[] = ["    case_list:"];
+	if (config.columns.length > 0) {
+		lines.push("      columns:");
+		for (const col of config.columns) {
+			lines.push(`        - ${formatColumn(col)}`);
+		}
+	}
+	if (config.searchInputs.length > 0) {
+		lines.push("      search_inputs:");
+		for (const input of config.searchInputs) {
+			lines.push(`        - ${formatSearchInput(input)}`);
+		}
+	}
+	if (config.filter !== undefined) {
+		lines.push(`      filter: (predicate kind: ${config.filter.kind})`);
+	}
+	return lines.join("\n");
+}
+
+/** One-line column summary — uuid + kind + header + per-kind hint. */
+function formatColumn(col: Column): string {
+	const visibility =
+		col.visibleInList === false || col.visibleInDetail === false
+			? ` [list:${col.visibleInList ?? true} detail:${col.visibleInDetail ?? true}]`
+			: "";
+	const sort = col.sort
+		? ` [sort:${col.sort.direction} priority:${col.sort.priority}]`
+		: "";
+	const body =
+		col.kind === "calculated"
+			? `(${col.kind}) "${col.header}"`
+			: `(${col.kind}) ${col.field} → "${col.header}"`;
+	return `${col.uuid}: ${body}${sort}${visibility}`;
+}
+
+/** One-line search-input summary — uuid + kind + name + label hint. */
+function formatSearchInput(input: SearchInputDef): string {
+	const body =
+		input.kind === "simple"
+			? `(simple) ${input.name} → ${input.property} (${input.type}, "${input.label}")`
+			: `(advanced) ${input.name} (${input.type}, "${input.label}")`;
+	return `${input.uuid}: ${body}`;
+}
+
+/**
+ * Summarize a module's case-search config in one line so a fresh-
+ * session SA reading the edit-mode prompt can confirm which display
+ * labels are set and whether any advanced filters are authored
+ * without a `getModule` round-trip. Returns `undefined` when the
+ * module has no case-search config — caller concatenates only when a
+ * section was produced.
+ *
+ * Output shape:
+ *
+ *   `case_search: display={titleSet,subtitleSet,…} advanced={excludedOwnerIds|none}`
+ *
+ * Display cluster summary: comma-separated list of the slot names that
+ * are non-undefined; `none` when every slot is cleared. Advanced
+ * cluster summary: names each authored slot (the excluded-owners
+ * filter); `none` when no advanced filter is set. The one-liner stays
+ * at a fixed width to keep the prompt cheap.
+ */
+function summarizeCaseSearch(mod: Module): string | undefined {
+	const config = mod.caseSearchConfig;
+	if (config === undefined) return undefined;
+	// Both summaries iterate the source-of-truth tuples that the SA
+	// tool surface partitions on. A new slot landing on either tuple
+	// flows into the SA-prompt summary here automatically — no
+	// per-slot `config.foo !== undefined` check to drift out of sync
+	// with the schema.
+	const setDisplaySlots = DISPLAY_SLOT_NAMES.filter(
+		(slot) => config[slot] !== undefined,
+	);
+	const displaySummary =
+		setDisplaySlots.length === 0
+			? "display={none}"
+			: `display={${setDisplaySlots.join(", ")}}`;
+	const setAdvancedSlots = ADVANCED_SLOT_NAMES.filter(
+		(slot) => config[slot] !== undefined,
+	);
+	const advancedSummary =
+		setAdvancedSlots.length === 0
+			? "advanced={none}"
+			: `advanced={${setAdvancedSlots.join(", ")}}`;
+	return `    case_search: ${displaySummary} ${advancedSummary}`;
+}
+
 /** Summarize a module: name, case type, forms. */
 function summarizeModule(
 	doc: BlueprintDoc,
@@ -83,11 +199,17 @@ function summarizeModule(
 	const caseInfo = mod.caseType ? ` (case_type: ${mod.caseType})` : "";
 	const listOnly = mod.caseListOnly ? " [case list only]" : "";
 	const header = `- Module ${index}: "${mod.name}"${caseInfo}${listOnly}`;
+	const sections: string[] = [header];
+	const caseList = summarizeCaseList(mod);
+	if (caseList) sections.push(caseList);
+	const caseSearch = summarizeCaseSearch(mod);
+	if (caseSearch) sections.push(caseSearch);
 	const formUuids = doc.formOrder[moduleUuid] ?? [];
 	const forms = formUuids
 		.map((fUuid, fi) => summarizeForm(doc, fUuid, fi))
 		.join("\n");
-	return forms ? `${header}\n${forms}` : header;
+	if (forms) sections.push(forms);
+	return sections.join("\n");
 }
 
 /**

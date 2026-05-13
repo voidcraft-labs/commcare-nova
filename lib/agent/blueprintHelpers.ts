@@ -26,17 +26,26 @@ import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	CaseType,
+	Column,
 	ConnectConfig,
 	Field,
 	FieldKind,
+	FieldPatchFor,
 	Form,
 	FormType,
 	Module,
 	PostSubmitDestination,
+	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
 import type { Scaffold } from "./scaffoldSchemas";
+import {
+	removeByUuid,
+	reorderByUuid,
+	replaceByUuid,
+	snapshotCaseListConfig,
+} from "./tools/case-list-config/shared";
 
 // ── Positional lookup helpers ───────────────────────────────────────────
 
@@ -207,8 +216,7 @@ export interface NewModuleInput {
 	caseType?: string;
 	caseListOnly?: boolean;
 	purpose?: string;
-	caseListColumns?: Module["caseListColumns"];
-	caseDetailColumns?: Module["caseDetailColumns"];
+	caseListConfig?: Module["caseListConfig"];
 }
 
 /** Build an `addModule` mutation. Mints a uuid when the caller doesn't
@@ -237,11 +245,8 @@ export function addModuleMutations(
 			caseListOnly: input.caseListOnly,
 		}),
 		...(input.purpose !== undefined && { purpose: input.purpose }),
-		...(input.caseListColumns !== undefined && {
-			caseListColumns: input.caseListColumns,
-		}),
-		...(input.caseDetailColumns !== undefined && {
-			caseDetailColumns: input.caseDetailColumns,
+		...(input.caseListConfig !== undefined && {
+			caseListConfig: input.caseListConfig,
 		}),
 	};
 	return [
@@ -263,14 +268,247 @@ export function removeModuleMutations(
 	return [{ kind: "removeModule", uuid: moduleUuid }];
 }
 
-/** Patch module fields. Keys mirror the domain Module shape (camelCase). */
+/** Patch module fields. Keys mirror the domain Module shape (camelCase).
+ *
+ *  Takes the resolved `Module` directly — every caller already looks the
+ *  module up out of the doc to derive its uuid + read sibling fields, so
+ *  re-resolving inside the helper would just repeat the same map lookup.
+ *  The "module not found" defense lives at each tool's call boundary. */
 export function updateModuleMutations(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
+	mod: Module,
 	patch: Partial<Omit<Module, "uuid">>,
 ): Mutation[] {
-	if (doc.modules[moduleUuid] === undefined) return [];
-	return [{ kind: "updateModule", uuid: moduleUuid, patch }];
+	return [{ kind: "updateModule", uuid: mod.uuid, patch }];
+}
+
+// ── Mutation builders — case list config ────────────────────────────────
+//
+// One quartet of helpers per case-list slot — `caseListConfig.columns`
+// and `caseListConfig.searchInputs`. Each quartet (`add`, `update`,
+// `remove`, `reorder`) returns a tagged `CaseListMutationResult`: on
+// success, `{ ok: true, mutations }` ready to record; on failure,
+// `{ error }` carrying an Elm-style string the tool forwards verbatim.
+// Failure returns expose the array-level predicates (uuid not found,
+// length mismatch, duplicate, unknown) so the SA can repair its call.
+//
+// Other (non-SA) consumers — UI mutations — destructure the same
+// shape and surface their own error UI.
+//
+// Each builder takes the resolved `Module` directly. Every call site
+// already looks the module up out of the doc to map a `moduleIndex`
+// to a uuid and to read its sibling fields; passing `mod` straight in
+// keeps the helper from re-running the same map lookup and lets the
+// "module not found" defense live at the tool's call boundary
+// (uniformly worded, in one place per tool).
+//
+// The array-walk primitives (`replaceByUuid` / `removeByUuid` /
+// `reorderByUuid`) live in `tools/case-list-config/shared.ts` because
+// they're pure generic utilities over `{ uuid: Uuid }[]` arrays —
+// reusable by anything that walks a case-list-shaped array. The
+// builders in this file produce `Mutation[]` for the saga, which is
+// agent-specific.
+
+/**
+ * Tagged result of a case-list-config mutation builder. The success
+ * arm carries the ready-to-record `Mutation[]`; the failure arm carries
+ * a single human-readable error string.
+ */
+export type CaseListMutationResult =
+	| { ok: true; mutations: Mutation[] }
+	| { error: string };
+
+/**
+ * Append one column to a module's case-list `columns` array.
+ *
+ * Always succeeds — the input is the resolved `Module`, so module
+ * existence is the caller's invariant.
+ */
+export function addColumnMutation(
+	mod: Module,
+	column: Column,
+): CaseListMutationResult {
+	const base = snapshotCaseListConfig(mod);
+	return {
+		ok: true,
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: mod.uuid,
+				patch: {
+					caseListConfig: { ...base, columns: [...base.columns, column] },
+				},
+			},
+		],
+	};
+}
+
+/**
+ * Replace one column on a module's case-list, keyed by `columnUuid`.
+ *
+ * Failure arm: columnUuid not in the module's columns array.
+ */
+export function updateColumnMutation(
+	mod: Module,
+	columnUuid: Uuid,
+	replacement: Column,
+): CaseListMutationResult {
+	const base = snapshotCaseListConfig(mod);
+	const op = replaceByUuid(
+		base.columns,
+		columnUuid,
+		replacement,
+		"case list column",
+	);
+	if ("error" in op) return { error: op.error };
+	return {
+		ok: true,
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: mod.uuid,
+				patch: { caseListConfig: { ...base, columns: op.items } },
+			},
+		],
+	};
+}
+
+/**
+ * Drop one column from a module's case-list, keyed by `columnUuid`.
+ *
+ * Failure arm: columnUuid not in the module's columns array.
+ */
+export function removeColumnMutation(
+	mod: Module,
+	columnUuid: Uuid,
+): CaseListMutationResult {
+	const base = snapshotCaseListConfig(mod);
+	const op = removeByUuid(base.columns, columnUuid, "case list column");
+	if ("error" in op) return { error: op.error };
+	return {
+		ok: true,
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: mod.uuid,
+				patch: { caseListConfig: { ...base, columns: op.items } },
+			},
+		],
+	};
+}
+
+/**
+ * Reorder a module's case-list columns to match the supplied uuid
+ * sequence.
+ *
+ * Failure arms: length mismatch, duplicate uuid, unknown uuid in the
+ * request.
+ */
+export function reorderColumnsMutation(
+	mod: Module,
+	order: readonly Uuid[],
+): CaseListMutationResult {
+	const base = snapshotCaseListConfig(mod);
+	const op = reorderByUuid(base.columns, order, "case list column");
+	if ("error" in op) return { error: op.error };
+	return {
+		ok: true,
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: mod.uuid,
+				patch: { caseListConfig: { ...base, columns: op.items } },
+			},
+		],
+	};
+}
+
+/** Search-input parallel of `addColumnMutation`. */
+export function addSearchInputMutation(
+	mod: Module,
+	searchInput: SearchInputDef,
+): CaseListMutationResult {
+	const base = snapshotCaseListConfig(mod);
+	return {
+		ok: true,
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: mod.uuid,
+				patch: {
+					caseListConfig: {
+						...base,
+						searchInputs: [...base.searchInputs, searchInput],
+					},
+				},
+			},
+		],
+	};
+}
+
+/** Search-input parallel of `updateColumnMutation`. */
+export function updateSearchInputMutation(
+	mod: Module,
+	searchInputUuid: Uuid,
+	replacement: SearchInputDef,
+): CaseListMutationResult {
+	const base = snapshotCaseListConfig(mod);
+	const op = replaceByUuid(
+		base.searchInputs,
+		searchInputUuid,
+		replacement,
+		"search input",
+	);
+	if ("error" in op) return { error: op.error };
+	return {
+		ok: true,
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: mod.uuid,
+				patch: { caseListConfig: { ...base, searchInputs: op.items } },
+			},
+		],
+	};
+}
+
+/** Search-input parallel of `removeColumnMutation`. */
+export function removeSearchInputMutation(
+	mod: Module,
+	searchInputUuid: Uuid,
+): CaseListMutationResult {
+	const base = snapshotCaseListConfig(mod);
+	const op = removeByUuid(base.searchInputs, searchInputUuid, "search input");
+	if ("error" in op) return { error: op.error };
+	return {
+		ok: true,
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: mod.uuid,
+				patch: { caseListConfig: { ...base, searchInputs: op.items } },
+			},
+		],
+	};
+}
+
+/** Search-input parallel of `reorderColumnsMutation`. */
+export function reorderSearchInputsMutation(
+	mod: Module,
+	order: readonly Uuid[],
+): CaseListMutationResult {
+	const base = snapshotCaseListConfig(mod);
+	const op = reorderByUuid(base.searchInputs, order, "search input");
+	if ("error" in op) return { error: op.error };
+	return {
+		ok: true,
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: mod.uuid,
+				patch: { caseListConfig: { ...base, searchInputs: op.items } },
+			},
+		],
+	};
 }
 
 // ── Mutation builders — forms ───────────────────────────────────────────
@@ -442,18 +680,26 @@ export function renameFieldMutations(
 }
 
 /** Patch arbitrary fields on a field entity. The `Field` union is
- *  discriminated by `kind`; the patch must match the specific kind's
- *  shape. Narrowing callers (SA `editField` tool, inspect panel) are
- *  responsible for constructing a valid patch — the reducer parses the
- *  merged shape against `fieldSchema` and rejects patches that don't
- *  satisfy the target kind. */
-export function updateFieldMutations(
+ *  discriminated by `kind`; the helper takes the target kind as an
+ *  explicit generic so the patch type narrows to that variant's
+ *  partial shape. A patch with a key the kind doesn't carry is a
+ *  compile error at the call site. The reducer also parses the
+ *  merged shape against `fieldSchema` to catch bad value types on
+ *  legitimate keys. */
+export function updateFieldMutations<K extends FieldKind>(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
-	patch: Partial<Omit<Field, "uuid">>,
+	targetKind: K,
+	patch: FieldPatchFor<K>,
 ): Mutation[] {
 	if (doc.fields[fieldUuid] === undefined) return [];
-	return [{ kind: "updateField", uuid: fieldUuid, patch }];
+	// The mutation literal's structural shape matches the per-kind
+	// `updateField` arm, but the generic `K` doesn't widen back to a
+	// concrete arm of the discriminated union — cast through `Mutation`
+	// to align the shape with the union at the value level.
+	return [
+		{ kind: "updateField", uuid: fieldUuid, targetKind, patch } as Mutation,
+	];
 }
 
 // ── Mutation builders — scaffold ────────────────────────────────────────

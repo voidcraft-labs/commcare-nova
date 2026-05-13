@@ -38,6 +38,16 @@ describe("serializePath", () => {
 		expect(serializePath(loc)).toEqual([modUuid, "cases", "abc123"]);
 	});
 
+	it("returns [moduleUuid, 'search-config'] for the case-search authoring kind", () => {
+		// Mirrors the cases arm — same uuid-anchored shape, different
+		// segment slug. Pins the discriminator-to-segment mapping.
+		const loc: Location = {
+			kind: "search-config",
+			moduleUuid: modUuid,
+		};
+		expect(serializePath(loc)).toEqual([modUuid, "search-config"]);
+	});
+
 	it("returns [formUuid] for form without selection", () => {
 		const loc: Location = {
 			kind: "form",
@@ -148,6 +158,28 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
+	it("parses case-search authoring screen", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		expect(parsePathToLocation([modUuid, "search-config"], doc)).toEqual({
+			kind: "search-config",
+			moduleUuid: modUuid,
+		});
+	});
+
+	it("falls back to home when search-config module is missing", () => {
+		// Mirrors the cases arm's missing-module recovery: the trailing
+		// `search-config` segment is meaningless without a valid
+		// module reference, so the parser collapses to home rather
+		// than serving an unresolvable URL.
+		expect(
+			parsePathToLocation([modUuid, "search-config"], makeParseDoc()),
+		).toEqual({
+			kind: "home",
+		});
+	});
+
 	it("parses form with selection from two segments", () => {
 		const doc = makeParseDoc({
 			forms: { [formUuid]: { uuid: formUuid } as never },
@@ -253,6 +285,23 @@ describe("isValidLocation", () => {
 				{ kind: "cases", moduleUuid: modUuid, caseId: "anything" },
 				doc,
 			),
+		).toBe(true);
+	});
+
+	it("rejects search-config when module uuid is unknown", () => {
+		expect(
+			isValidLocation({ kind: "search-config", moduleUuid: modUuid }, emptyDoc),
+		).toBe(false);
+	});
+
+	it("accepts search-config when module exists", () => {
+		const doc = docWith({
+			modules: {
+				[modUuid]: { uuid: modUuid, name: "m" } as never,
+			},
+		});
+		expect(
+			isValidLocation({ kind: "search-config", moduleUuid: modUuid }, doc),
 		).toBe(true);
 	});
 

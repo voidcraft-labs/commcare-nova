@@ -1,10 +1,11 @@
 /**
  * Solutions Architect — single ToolLoopAgent for conversation, generation, and editing.
  *
- * Tools are split into two groups: **generation** (schema, scaffold, columns) and
- * **shared** (conversation, read, mutation, validation). In edit mode (existing app),
- * generation tools are excluded — the SA only gets shared tools and an editing prompt
- * with a blueprint summary. In build mode (new app), all tools are available.
+ * Tools are split into two groups: **generation** (schema, scaffold) and
+ * **shared** (conversation, read, mutation, validation, case-list-config).
+ * In edit mode (existing app), generation tools are excluded — the SA only
+ * gets shared tools and an editing prompt with a blueprint summary. In build
+ * mode (new app), all tools are available.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
@@ -20,18 +21,30 @@
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent, tool } from "ai";
-import { completeApp } from "@/lib/db/apps";
+import { completeApp, failApp } from "@/lib/db/apps";
+import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
+import { classifyError } from "./errorClassifier";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import type { ToolExecutionContext } from "./toolExecutionContext";
 import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
-import { addModuleTool } from "./tools/addModule";
 import { askQuestionsTool } from "./tools/askQuestions";
+import { addCaseListColumnTool } from "./tools/case-list-config/addCaseListColumn";
+import { addSearchInputTool } from "./tools/case-list-config/addSearchInput";
+import { removeCaseListColumnTool } from "./tools/case-list-config/removeCaseListColumn";
+import { removeSearchInputTool } from "./tools/case-list-config/removeSearchInput";
+import { reorderCaseListColumnsTool } from "./tools/case-list-config/reorderCaseListColumns";
+import { reorderSearchInputsTool } from "./tools/case-list-config/reorderSearchInputs";
+import { setCaseListFilterTool } from "./tools/case-list-config/setCaseListFilter";
+import { updateCaseListColumnTool } from "./tools/case-list-config/updateCaseListColumn";
+import { updateSearchInputTool } from "./tools/case-list-config/updateSearchInput";
+import { setCaseSearchAdvancedTool } from "./tools/case-search-config/setCaseSearchAdvanced";
+import { setCaseSearchDisplayTool } from "./tools/case-search-config/setCaseSearchDisplay";
 import type { MutatingToolResult, ReadToolResult } from "./tools/common";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
@@ -70,7 +83,6 @@ export { validateAndFix } from "./validationLoop";
 export const BUILD_ONLY_TOOL_NAMES = [
 	"generateSchema",
 	"generateScaffold",
-	"addModule",
 ] as const;
 
 type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
@@ -165,8 +177,7 @@ export function createSolutionsArchitect(
 	 * job is to advance the SA's working-doc closure when the batch was
 	 * non-empty, so the next tool call sees updated index → uuid
 	 * resolution. Empty batches leave `doc` alone — matters for success
-	 * branches that don't change state (e.g. the survey-only module
-	 * branch in `addModule`).
+	 * branches that don't change state.
 	 *
 	 * The generic input type `I` is carried through `FlexibleSchema<I>` so
 	 * the returned `execute` callback hands the exact Zod-output type to
@@ -248,8 +259,11 @@ export function createSolutionsArchitect(
 	}
 
 	// ── Generation tools (build mode only) ────────────────────────────
-	// These drive the initial build sequence: schema → scaffold → columns → fields.
-	// Excluded in edit mode — the SA uses mutation tools instead.
+	// Drive the initial build sequence: schema → scaffold → fields. Case
+	// list authoring (columns + filter + searchInputs) happens through
+	// the typed case-list-config tools in the shared set — same tools
+	// both during initial build and on later edits. Excluded in edit
+	// mode — the SA uses mutation tools instead.
 	//
 	// `satisfies Record<BuildOnlyToolName, unknown>` ties the record's keys
 	// to `BUILD_ONLY_TOOL_NAMES`: adding, removing, or renaming a key
@@ -260,7 +274,6 @@ export function createSolutionsArchitect(
 	const generationTools = {
 		generateSchema: wrapMutating(generateSchemaTool),
 		generateScaffold: wrapMutating(generateScaffoldTool),
-		addModule: wrapMutating(addModuleTool),
 	} satisfies Record<BuildOnlyToolName, unknown>;
 
 	// ── Shared tools (all modes) ─────────────────────────────────────
@@ -300,15 +313,90 @@ export function createSolutionsArchitect(
 		createModule: wrapMutating(createModuleTool),
 		removeModule: wrapMutating(removeModuleTool),
 
+		// ── Case list config mutations ─────────────────────────────────
+		// Two arrays (`columns`, `searchInputs`) decompose into atomic
+		// add / update / remove / reorder ops; the `filter` slot stays
+		// wholesale (one Predicate). Each atomic mutation tool returns
+		// the affected uuid both in the success message and in a
+		// structured `result.uuid` field so the SA can target follow-
+		// up edits without re-reading. Atomic ops route their array-
+		// walk through the case-list mutation builders in
+		// `blueprintHelpers.ts`; SA-boundary input shapes live in
+		// `tools/case-list-config/shared.ts`.
+
+		addCaseListColumn: wrapMutating(addCaseListColumnTool),
+		updateCaseListColumn: wrapMutating(updateCaseListColumnTool),
+		removeCaseListColumn: wrapMutating(removeCaseListColumnTool),
+		reorderCaseListColumns: wrapMutating(reorderCaseListColumnsTool),
+		setCaseListFilter: wrapMutating(setCaseListFilterTool),
+		addSearchInput: wrapMutating(addSearchInputTool),
+		updateSearchInput: wrapMutating(updateSearchInputTool),
+		removeSearchInput: wrapMutating(removeSearchInputTool),
+		reorderSearchInputs: wrapMutating(reorderSearchInputsTool),
+
+		// ── Case-search config mutations ──────────────────────────────
+		// Two wholesale tools — one per cluster of `caseSearchConfig`.
+		// `setCaseSearchDisplay` owns the search-screen labels;
+		// `setCaseSearchAdvanced` owns niche search-side filters (the
+		// `excludedOwnerIds` expression). Search inputs themselves
+		// remain on `caseListConfig.searchInputs` (cross-bound with the
+		// case-list search affordance) and are authored through the
+		// existing case-list-config family — these two tools never touch
+		// them.
+
+		setCaseSearchAdvanced: wrapMutating(setCaseSearchAdvancedTool),
+		setCaseSearchDisplay: wrapMutating(setCaseSearchDisplayTool),
+
 		// ── Validation ────────────────────────────────────────────────
 
-		/* `validateApp` stays bespoke because its wrapper layers two
-		 * chat-only side effects on top of the flat shared result: the
-		 * final `data-done` SSE part carrying the full doc + HQ JSON, and
-		 * the `completeApp` Firestore update that flips the app record to
-		 * its final state. Both side effects depend on `ctx.usage.runId`
-		 * and `ctx.emit`, which only exist on `GenerationContext` — so
-		 * they can't live inside the shared tool module. */
+		/* `validateApp` stays bespoke because its wrapper layers three
+		 * chat-only side effects on top of the flat shared result, in
+		 * this order:
+		 *
+		 *   1. Awaited `materializeCaseStoreSchemas` — UPSERTs the
+		 *      `case_type_schemas` rows + per-property expression
+		 *      indexes for every case type the SA just generated. The
+		 *      chat-side intermediate save (`saveBlueprint`) is
+		 *      fire-and-forget by design (the SA fix-retry loop runs
+		 *      against an in-memory doc), so the case-store schema
+		 *      never materialized during streaming.
+		 *   2. `data-done` SSE emit — UX signal carrying the full doc +
+		 *      HQ JSON; the client's stream dispatcher stamps
+		 *      `runCompletedAt` on this event, which drives the
+		 *      Completed celebration phase.
+		 *   3. `completeApp` Firestore update — flips the app record's
+		 *      lifecycle status to `complete`. Stays fire-and-forget
+		 *      so the SA's stream return doesn't block on Firestore
+		 *      latency; the staleness reaper inside `listApps` is the
+		 *      backstop if this ever fails to land.
+		 *
+		 * Materialization runs FIRST so any user-initiated case-store
+		 * action subsequent to the completion celebration (e.g. a
+		 * "Generate sample data" click sub-second after `data-done`
+		 * fires) sees a synced Postgres schema. Emitting `data-done`
+		 * before the await would leave a window where the celebration
+		 * UI signals "ready" but the schema row is still missing —
+		 * exactly the race this step exists to close.
+		 *
+		 * Materialization failure is unrecoverable from the SA's edit
+		 * perspective (a Postgres outage isn't something the SA can
+		 * fix by mutating the doc). Letting the throw propagate to
+		 * the AI SDK's `tool-error` content part would push the SA
+		 * into a retry loop that burns through the 80-step
+		 * `stopWhen` limit — same throw recurs until the model gives
+		 * up, with `data-done` re-firing on each iteration under any
+		 * ordering that emits before materializing. The catch arm
+		 * routes the failure through the canonical
+		 * `classifyError` + `ctx.emitError` + `failApp` path used by
+		 * `app/api/chat/route.ts`'s `handleRouteError`, so the client
+		 * sees `data-error`, the app status flips to `error`
+		 * immediately, and the SA loop sees a clean `success: false`
+		 * return that doesn't invite another retry.
+		 *
+		 * All three side effects depend on `ctx.usage.runId`,
+		 * `ctx.appId`, `ctx.userId`, or `ctx.emit`, which only exist
+		 * on `GenerationContext` — so they can't live inside the
+		 * shared tool module. */
 		validateApp: tool({
 			description: validateAppTool.description,
 			inputSchema: validateAppTool.inputSchema,
@@ -323,6 +411,37 @@ export function createSolutionsArchitect(
 
 					if (result.success) {
 						const persistable = toPersistableDoc(doc);
+						/* Materialize the case-store schema rows + indexes
+						 * BEFORE the celebration emit. The chat-side
+						 * intermediate save was fire-and-forget, so
+						 * `case_type_schemas` carries no row for the SA's
+						 * freshly-generated case types until this call
+						 * lands. Awaited so any user-initiated case-store
+						 * action that follows the celebration (sample-data
+						 * populate, form submit, live preview) sees a
+						 * synced schema. A Postgres failure here is
+						 * unrecoverable from the SA's perspective — route
+						 * through the same classified-error path the
+						 * chat route uses for stream errors so the SA
+						 * doesn't burn cycles retrying. */
+						try {
+							await materializeCaseStoreSchemas({
+								appId: ctx.appId,
+								userId: ctx.userId,
+								blueprint: persistable,
+							});
+						} catch (err) {
+							const classified = classifyError(err);
+							ctx.emitError(classified, "validateApp:materialize");
+							/* `failApp` is fire-and-forget by design (it
+							 * swallows Firestore errors internally) — match
+							 * the route's `handleRouteError` shape exactly. */
+							failApp(ctx.appId, classified.type);
+							return {
+								success: false as const,
+								errors: [classified.message],
+							};
+						}
 						ctx.emit("data-done", {
 							doc: persistable,
 							hqJson: result.hqJson ?? {},

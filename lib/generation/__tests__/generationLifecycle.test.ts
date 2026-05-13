@@ -215,20 +215,33 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Structure);
 
 		// ── Module-detail mutation → stage = Modules ──
-		const columns = [{ field: "name", header: "Name" }];
+		// `CaseListConfig` literal: per-column `uuid`, no top-level
+		// `sort` / `calculatedColumns` (sort lives on each column;
+		// calculated is a kind in the column union).
+		const config = {
+			columns: [
+				{
+					uuid: asUuid("c0000000-0000-0000-0000-000000000001"),
+					kind: "plain" as const,
+					field: "name",
+					header: "Name",
+				},
+			],
+			searchInputs: [],
+		};
 		emitMutations(
 			[
 				{
 					kind: "updateModule",
 					uuid: MOD_UUID,
-					patch: { caseListColumns: columns },
+					patch: { caseListConfig: config },
 				},
 			],
 			"module:0",
 			docStore,
 			sessionStore,
 		);
-		expect(doc().modules[MOD_UUID].caseListColumns).toEqual(columns);
+		expect(doc().modules[MOD_UUID].caseListConfig).toEqual(config);
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Modules);
 
 		// ── Form-content mutations → stage = Forms ──
@@ -297,6 +310,7 @@ describe("generation lifecycle (end-to-end)", () => {
 				{
 					kind: "updateField",
 					uuid: Q_NAME_UUID,
+					targetKind: "text",
 					patch: { label: "Patient Full Name" },
 				},
 			],

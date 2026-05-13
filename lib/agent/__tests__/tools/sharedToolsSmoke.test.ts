@@ -26,14 +26,22 @@ import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
 import { makeMcpTestContext, makeTestContext } from "../fixtures";
 
-/* Mock the apps module wholesale so `McpContext.recordMutations` — which
- * awaits `updateAppForRun` as part of its fail-closed contract — doesn't
- * try to reach real Firestore. The chat surface's `updateApp` call is
- * fire-and-forget, so the mock also needs to resolve for that path. */
+/* Mock the apps module so chat-side `saveBlueprint`'s fire-and-forget
+ * `updateAppForRun` call resolves cleanly. `completeApp` is mocked the
+ * same way for the SA's success-path persistence. */
 vi.mock("@/lib/db/apps", () => ({
 	updateApp: vi.fn(() => Promise.resolve()),
 	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
+}));
+
+/* Mock the cross-store saga so `McpContext.recordMutations` — which
+ * routes through `applyBlueprintChange` for the awaited blueprint
+ * write — doesn't try to reach Firestore + Postgres. The chat surface
+ * doesn't go through the saga (its intermediate save stays
+ * fire-and-forget), so this mock only matters for the MCP path. */
+vi.mock("@/lib/db/applyBlueprintChange", () => ({
+	applyBlueprintChange: vi.fn(() => Promise.resolve()),
 }));
 
 // ── Uuid constants ──────────────────────────────────────────────────────

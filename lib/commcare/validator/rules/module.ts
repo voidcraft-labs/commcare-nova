@@ -6,14 +6,30 @@
  * every module.
  */
 
-import {
-	CASE_TYPE_REGEX,
-	MAX_CASE_TYPE_LENGTH,
-	STANDARD_CASE_LIST_PROPERTIES,
-} from "@/lib/commcare";
+import { CASE_TYPE_REGEX, MAX_CASE_TYPE_LENGTH } from "@/lib/commcare";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
-import { collectCaseProperties } from "../index";
+import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
+import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
+import { columnReferences } from "./case-list/columnReferences";
+import { filterTypeCheck } from "./case-list/filterTypeCheck";
+import { idMappingValueRequired } from "./case-list/idMappingValueRequired";
+import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
+import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
+import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
+import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
+import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
+import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
+import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
+import { searchInputSelectWidgetNotSupported } from "./case-list/searchInputSelectWidgetNotSupported";
+import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
+import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
+import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
+import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
+import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
+import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
+import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
+import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
 
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
@@ -121,58 +137,35 @@ function caseTypeTooLong(
 	];
 }
 
+/**
+ * Modules with cases but no case-list columns are unusable — the case
+ * list screen has no row content to render. The columns array is the
+ * single display source: every entry in it is a column the runtime
+ * may render (visibility flags gate per-surface display, not the
+ * "is this a column" check), so non-emptiness of the array is the
+ * condition.
+ */
 function missingCaseListColumns(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
 	const forms = formsOf(doc, moduleUuid);
+	const columns = mod.caseListConfig?.columns ?? [];
 	const needsColumns =
 		!!mod.caseType &&
 		!mod.caseListOnly &&
 		forms.length > 0 &&
-		(!mod.caseListColumns || mod.caseListColumns.length === 0);
+		columns.length === 0;
 	if (!needsColumns) return [];
 	return [
 		validationError(
 			"MISSING_CASE_LIST_COLUMNS",
 			"module",
-			`Module "${mod.name}" manages "${mod.caseType}" cases but has no case_list_columns. The case list screen needs at least one column (like "name") so users can identify which case to select. Add case_list_columns with the properties you want displayed.`,
+			`Module "${mod.name}" manages "${mod.caseType}" cases but its case list has no columns. The case list screen needs at least one column so users can tell rows apart and pick which case to open. Add a column to \`caseListConfig.columns\` — usually something identifying like "name" — so the list has something to render.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];
-}
-
-/** Case list column fields must reference known case properties or standard properties. */
-function invalidColumnField(
-	mod: Module,
-	moduleUuid: Uuid,
-	doc: BlueprintDoc,
-): ValidationError[] {
-	if (
-		!mod.caseType ||
-		!mod.caseListColumns ||
-		mod.caseListColumns.length === 0
-	) {
-		return [];
-	}
-	const errors: ValidationError[] = [];
-	const knownProps = collectCaseProperties(doc, mod.caseType) ?? new Set();
-
-	for (const col of mod.caseListColumns) {
-		if (STANDARD_CASE_LIST_PROPERTIES.has(col.field)) continue;
-		if (knownProps.has(col.field)) continue;
-		errors.push(
-			validationError(
-				"INVALID_COLUMN_FIELD",
-				"module",
-				`Module "${mod.name}" has a case list column with field "${col.field}" (header: "${col.header}"), but no field saves to a case property with that name. The case list won't be able to display this column. Either add a field with id "${col.field}" and \`case_property_on\`: "${mod.caseType}", or use a standard property like "case_name" or "date_opened".`,
-				{ moduleUuid, moduleName: mod.name },
-				{ field: col.field },
-			),
-		);
-	}
-	return errors;
 }
 
 export const MODULE_RULES = [
@@ -183,5 +176,31 @@ export const MODULE_RULES = [
 	invalidCaseTypeFormat,
 	caseTypeTooLong,
 	missingCaseListColumns,
-	invalidColumnField,
+	// Case-list-config rules (sit at module scope; the cross-form
+	// kind-vs-property-type rule lives at app scope in `app.ts`).
+	columnReferences,
+	filterTypeCheck,
+	calculatedColumnTypeCheck,
+	idMappingValueRequired,
+	matchModeWhitespaceInValue,
+	matchModeOnDeviceCompatibility,
+	ancestorExistsCannotNestSubcase,
+	sortPriorityUniqueness,
+	searchInputNameUniqueness,
+	searchInputModeMatchesPropertyType,
+	searchInputTypeMatchesPropertyType,
+	searchInputSelectWidgetNotSupported,
+	searchInputDefaultTypeCheck,
+	searchInputPredicateTypeCheck,
+	searchInputRefUsesWhenInputPresent,
+	searchInputViaModeCompatibility,
+	// Case-search-config rules — fire only when `caseSearchConfig`
+	// is present on the module; otherwise the module emits no
+	// `<remote-request>` and these rules have no authoring concern
+	// to gate.
+	searchButtonDisplayConditionTypeCheck,
+	excludedOwnerIdsTypeCheck,
+	filterSearchInputConflict,
+	caseSearchConfigRequiresSearchableSurface,
+	caseSearchConfigRequiresCaseType,
 ];

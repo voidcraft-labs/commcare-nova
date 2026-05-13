@@ -10,6 +10,15 @@ import {
 	type StackOperation,
 	toHqWorkflow,
 } from "@/lib/commcare/session";
+import {
+	concat as concatExpr,
+	eq,
+	literal,
+	matchAll,
+	matchNone,
+	prop,
+	term,
+} from "@/lib/domain/predicate/builders";
 
 // ── deriveSessionDatums ────────────────────────────────────────────
 
@@ -39,6 +48,53 @@ describe("deriveSessionDatums", () => {
 
 	it("returns empty for followup without case type", () => {
 		expect(deriveSessionDatums("followup", 0)).toEqual([]);
+	});
+
+	// ── caseListConfig.filter integration ──
+	//
+	// The optional fourth positional parameter compiles the
+	// module's case-list filter through `emitNodesetFilter` and
+	// appends the bracketed XPath fragment to the nodeset after
+	// the canonical `[@case_type][@status]` predicates. Filter
+	// precedence (case-type / status first, user filter last)
+	// matches CCHQ's
+	// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
+
+	it("appends the filter fragment after the case-type / status predicates", () => {
+		const filter = eq(prop("patient", "is_priority"), literal(true));
+		const datums = deriveSessionDatums("followup", 0, "patient", filter);
+		expect(datums[0].nodeset).toBe(
+			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][is_priority = 'true']",
+		);
+	});
+
+	it("omits the filter fragment when the filter is the match-all sentinel", () => {
+		const datums = deriveSessionDatums("followup", 0, "patient", matchAll());
+		expect(datums[0].nodeset).toBe(
+			"instance('casedb')/casedb/case[@case_type='patient'][@status='open']",
+		);
+	});
+
+	it("emits a [false()] fragment for the match-none sentinel", () => {
+		// `match-none` faithfully restricts the case list to the
+		// empty match set — opposite of match-all's no-op
+		// collapse.
+		const datums = deriveSessionDatums("followup", 0, "patient", matchNone());
+		expect(datums[0].nodeset).toBe(
+			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][false()]",
+		);
+	});
+
+	it("ignores the filter for non-case-loading form types", () => {
+		// Registration / survey forms emit no case-loading datum
+		// at all; the filter is meaningful only against the
+		// case-loading datum's nodeset, so the empty array is
+		// the correct result regardless of filter presence.
+		const filter = eq(prop("patient", "is_priority"), literal(true));
+		expect(deriveSessionDatums("registration", 0, "patient", filter)).toEqual(
+			[],
+		);
+		expect(deriveSessionDatums("survey", 0, undefined, filter)).toEqual([]);
 	});
 });
 
@@ -246,6 +302,191 @@ describe("deriveEntryDefinition", () => {
 		expect(entry.instances).toHaveLength(1);
 		expect(entry.session?.datums).toHaveLength(1);
 		expect(entry.stack?.operations).toHaveLength(1);
+	});
+
+	it("accumulates the search-input:results instance when the case-list filter references an input", () => {
+		// The case-list filter's bracketed XPath fragment lives inside
+		// the case-loading datum's nodeset. Any instance the fragment
+		// references must be declared on the `<entry>` itself; an
+		// undeclared instance breaks `instance('...')` resolution at
+		// runtime.
+		const filter = eq(
+			prop("patient", "city"),
+			term({ kind: "input", name: "city_q" }),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			filter,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("casedb");
+		expect(ids).toContain("search-input:results");
+		const searchInput = entry.instances.find(
+			(i) => i.id === "search-input:results",
+		);
+		expect(searchInput?.src).toBe("jr://instance/search-input/results");
+	});
+
+	it("accumulates the commcaresession instance when the case-list filter references a session term", () => {
+		const filter = eq(
+			prop("patient", "region"),
+			term({ kind: "session-user", field: "region" }),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			filter,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("commcaresession");
+		const session = entry.instances.find((i) => i.id === "commcaresession");
+		expect(session?.src).toBe("jr://instance/session");
+	});
+
+	it("accumulates commcaresession when the search-button display condition references a session term", () => {
+		// The search-button display condition lowers to the
+		// `<action relevant>` attribute on the case-list short detail.
+		// That attribute evaluates in the enclosing `<entry>` context,
+		// so every instance the predicate references needs an
+		// `<instance>` declaration on the entry — same accumulation
+		// rule the case-list filter applies.
+		const displayCondition = eq(
+			term({ kind: "session-user", field: "region" }),
+			prop("patient", "region"),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			displayCondition,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("commcaresession");
+	});
+
+	it("accumulates search-input:results when the search-button display condition references a search input", () => {
+		const displayCondition = eq(
+			term({ kind: "input", name: "city_q" }),
+			literal("active"),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			displayCondition,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("search-input:results");
+	});
+
+	it("accumulates instances reachable from calc-column expressions", () => {
+		// Calc-column expressions land on `m{N}_case_short` /
+		// `m{N}_case_long`. CCHQ resolves a detail's XPath against
+		// the enclosing entry's declarations; without this
+		// accumulation, the local `.ccz` would emit an
+		// `instance('commcaresession')` reference inside the detail
+		// without a matching declaration on the entry, and the
+		// runtime would raise `XPathException` at case-list render
+		// time.
+		const calcExpressions = [
+			concatExpr(
+				term({ kind: "session-user", field: "region" }),
+				term(literal(": ")),
+				term({ kind: "prop", caseType: "patient", property: "case_name" }),
+			),
+		];
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			calcExpressions,
+		);
+		const ids = entry.instances.map((i) => i.id);
+		expect(ids).toContain("commcaresession");
+		expect(ids).toContain("casedb");
+	});
+
+	it("dedups instances across calc-column expressions and the case-list filter", () => {
+		// Both surfaces reference `commcaresession`; the accumulator
+		// must not double-emit the declaration.
+		const filter = eq(
+			prop("patient", "region"),
+			term({ kind: "session-user", field: "region" }),
+		);
+		const calcExpressions = [
+			concatExpr(term({ kind: "session-user", field: "language" })),
+		];
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			filter,
+			undefined,
+			calcExpressions,
+		);
+		const sessionInstances = entry.instances.filter(
+			(i) => i.id === "commcaresession",
+		);
+		expect(sessionInstances).toHaveLength(1);
+	});
+
+	it("dedups instances across the case-list filter and the display condition", () => {
+		// Both predicates reference the same `commcaresession`
+		// instance; the accumulator should not double-emit.
+		const filter = eq(
+			prop("patient", "region"),
+			term({ kind: "session-user", field: "region" }),
+		);
+		const displayCondition = eq(
+			term({ kind: "session-user", field: "language" }),
+			literal("en"),
+		);
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			filter,
+			displayCondition,
+		);
+		const sessionInstances = entry.instances.filter(
+			(i) => i.id === "commcaresession",
+		);
+		expect(sessionInstances).toHaveLength(1);
 	});
 
 	it("omits stack for default destination", () => {

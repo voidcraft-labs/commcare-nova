@@ -10,10 +10,10 @@
  * `lib/domain/forms.ts` for the `FORM_TYPES` tuple and `FormType` union.
  * No consumer outside the domain layer should hardcode its own map.
  *
- * Icons are imported as data objects (not iconify ID strings) per the
- * synchronous-icon convention documented in the root CLAUDE.md — this
- * avoids the empty-span hydration frame the default `@iconify/react`
- * export produces.
+ * Icons are imported as data objects (not iconify ID strings) via the
+ * `@iconify/react/offline` export — the default `@iconify/react` export
+ * hydrates via effects and renders an empty span for 1-3 frames; the
+ * `/offline` export renders synchronously on first paint.
  */
 import type { IconifyIcon } from "@iconify/react/offline";
 import tablerFile from "@iconify-icons/tabler/file";

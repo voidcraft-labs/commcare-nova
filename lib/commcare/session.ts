@@ -20,7 +20,14 @@
 
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { validateCaseType } from "./identifierValidation";
+import {
+	collectExpressionInstances,
+	collectPredicateInstances,
+	instanceSourceFor,
+} from "./predicate";
+import { emitNodesetFilter } from "./suite/case-list/nodesetFilter";
 import type { HqFormLink } from "./types";
 
 // ── Session Datums ─────────────────────────────────────────────────────
@@ -102,23 +109,34 @@ const SESSION_REF = "instance('commcaresession')/session/data";
 /**
  * Derive session datums required by a form entry.
  *
- * Currently emits a single `case_id` datum for case-loading forms
+ * Emits a single `case_id` datum for case-loading forms
  * (followup, close). Advanced-module multi-datum sessions, parent
  * datums, and search datums will extend this when those features ship.
+ *
+ * The optional `caseListFilter` is the module's
+ * `caseListConfig.filter` predicate; when present, the wire layer
+ * appends its bracketed XPath fragment to the nodeset after the
+ * `[@case_type][@status]` predicates, narrowing the case set the
+ * runtime selects from. Filter precedence (case-type / status
+ * first, user filter last) matches CCHQ's canonical builder at
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
  */
 export function deriveSessionDatums(
 	formType: FormType,
 	moduleIndex: number,
 	caseType?: string,
+	caseListFilter?: Predicate,
 ): SessionDatum[] {
 	if (!CASE_LOADING_FORM_TYPES.has(formType) || !caseType) return [];
+
+	const filterFragment = emitNodesetFilter(caseListFilter);
 
 	return [
 		{
 			id: "case_id",
 			instanceId: "casedb",
 			instanceSrc: "jr://instance/casedb",
-			nodeset: `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']`,
+			nodeset: `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}`,
 			value: "./@case_id",
 			detailSelect: `m${moduleIndex}_case_short`,
 		},
@@ -297,6 +315,32 @@ export function deriveFormLinkStack(
  * becomes one conditional `<create>` per link plus a fallback that fires
  * the `postSubmit` destination when no condition matches. An empty (or
  * omitted) `formLinks` falls back to the simple `postSubmit` derivation.
+ *
+ * `caseListFilter` is the module's `caseListConfig.filter` predicate;
+ * the wire layer routes it through `deriveSessionDatums` so the
+ * resulting case-loading datum's nodeset narrows to the authored
+ * filter's match set. The filter is meaningful only on case-loading
+ * form types — `deriveSessionDatums` ignores it for registration /
+ * survey forms because they emit no case-loading datum at all.
+ *
+ * `searchButtonDisplayCondition` is the module's
+ * `caseSearchConfig.searchButtonDisplayCondition` predicate. It
+ * lowers to the `<action relevant>` attribute on the case-list
+ * detail's search-action element, which evaluates in the enclosing
+ * `<entry>` context — so every instance the predicate references
+ * needs an `<instance>` declaration here alongside the filter's
+ * instances.
+ *
+ * `caseListColumnExpressions` carries every calc-column expression
+ * the module's case-list short / long detail emits. CCHQ's runtime
+ * resolves a detail's `instance(...)` references against the
+ * enclosing entry's declarations (the entry's `<datum
+ * detail-select="m{N}_case_short" ... >` ties the two together);
+ * CCHQ's server-side `InstancesHelper.add_entry_instances` walks
+ * `detail.get_all_xpaths()` for every detail the entry references
+ * and adds the missing declarations on the regenerated suite. Nova's
+ * local `.ccz` emission has no equivalent post-process, so the
+ * accumulator walks each calc expression's term set here.
  */
 export function deriveEntryDefinition(
 	formXmlns: string,
@@ -306,19 +350,65 @@ export function deriveEntryDefinition(
 	postSubmit: PostSubmitDestination,
 	caseType?: string,
 	formLinks?: HqFormLink[],
+	caseListFilter?: Predicate,
+	searchButtonDisplayCondition?: Predicate,
+	caseListColumnExpressions?: readonly ValueExpression[],
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
 
-	const datums = deriveSessionDatums(formType, moduleIndex, caseType);
+	const datums = deriveSessionDatums(
+		formType,
+		moduleIndex,
+		caseType,
+		caseListFilter,
+	);
 	const instances: EntryInstance[] = [];
+	const seen = new Set<string>();
 
 	if (datums.length > 0) {
-		const seen = new Set<string>();
 		for (const d of datums) {
 			if (!seen.has(d.instanceId)) {
 				seen.add(d.instanceId);
 				instances.push({ id: d.instanceId, src: d.instanceSrc });
+			}
+		}
+	}
+
+	// Predicate-derived instance accumulation. Every predicate whose
+	// XPath fragment lives inside an `<entry>`-scoped slot
+	// contributes its instance set here — the case-list filter (lives
+	// inside the case-loading datum's nodeset) and the search-button
+	// display condition (lives on the case-list detail's
+	// `<action relevant>` attribute, evaluated against the enclosing
+	// entry's instances). The Term-kind → instance-id mapping is
+	// fixed in `instanceSourceFor` so emission stays consistent
+	// across surfaces (`<entry>`, `<remote-request>`, future
+	// `<query>` slots).
+	const predicatesContributing: Predicate[] = [];
+	if (caseListFilter !== undefined) predicatesContributing.push(caseListFilter);
+	if (searchButtonDisplayCondition !== undefined) {
+		predicatesContributing.push(searchButtonDisplayCondition);
+	}
+	for (const predicate of predicatesContributing) {
+		for (const id of collectPredicateInstances(predicate)) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id) });
+		}
+	}
+	// Calc-column expressions land on `m{N}_case_short` /
+	// `m{N}_case_long`. CCHQ resolves the detail's XPath against the
+	// enclosing entry's instance declarations — accumulate every
+	// instance the expression reaches so the local `.ccz` carries the
+	// same declarations CCHQ's server-side post-process would add on a
+	// regenerated suite.
+	if (caseListColumnExpressions !== undefined) {
+		for (const expression of caseListColumnExpressions) {
+			for (const id of collectExpressionInstances(expression)) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id) });
 			}
 		}
 	}

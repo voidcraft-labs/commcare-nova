@@ -8,8 +8,10 @@
  * the shared `ToolExecutionContext` interface.
  *
  * The LLM-facing return condenses the scaffold input into a structured
- * index-plus-name summary so the SA can call `addModule` immediately
- * afterward with positional indices, without re-reading the doc.
+ * index-plus-name summary so the SA can call the case-list-config tools
+ * (`addCaseListColumn`, `setCaseListFilter`, `addSearchInput`, etc.)
+ * immediately afterward with positional indices, without re-reading
+ * the doc.
  */
 
 import type { z } from "zod";
@@ -26,7 +28,8 @@ export type GenerateScaffoldInput = z.infer<typeof generateScaffoldInputSchema>;
 /**
  * Summary the LLM receives as tool output. Reflects the positional
  * ordering the scaffold mutations produce so the SA can target modules
- * and forms by index in the follow-up `addModule` calls.
+ * and forms by index in the follow-up case-list-config + `addFields`
+ * calls.
  */
 export interface GenerateScaffoldResult {
 	appName: string;

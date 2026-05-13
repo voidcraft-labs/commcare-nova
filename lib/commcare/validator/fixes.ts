@@ -14,7 +14,7 @@
 
 import { XML_ELEMENT_NAME_REGEX } from "@/lib/commcare";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field, FieldPatch, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 
 /** A fix: (error, doc) → zero-or-more mutations that resolve the error. */
@@ -173,11 +173,18 @@ const fixNoCaseNameField: FixFn = (error, doc) => {
 		},
 	];
 	if (moduleCaseType) {
+		// `candidate.kind` narrows the patch type to that variant — the
+		// `case_property_on` slot lives on every input-capable kind, so any
+		// non-structural field reaches this branch with a valid patch
+		// shape. The `as Mutation` cast is needed because TypeScript can't
+		// thread the narrowed kind back into the union of literal-keyed
+		// `updateField` arms; the value-level shape matches.
 		mutations.push({
 			kind: "updateField",
 			uuid: candidate.uuid,
-			patch: { case_property_on: moduleCaseType } as FieldPatch,
-		});
+			targetKind: candidate.kind,
+			patch: { case_property_on: moduleCaseType },
+		} as Mutation);
 	}
 	return mutations;
 };
@@ -228,11 +235,12 @@ const fixMediaCaseProperty: FixFn = (error, doc) => {
 		{
 			kind: "updateField",
 			uuid: field.uuid,
+			targetKind: field.kind,
 			// case_property_on is optional on every input kind; passing the
 			// empty string clears it at the XForm emitter without
 			// triggering a schema rejection on write.
-			patch: { case_property_on: "" } as FieldPatch,
-		},
+			patch: { case_property_on: "" },
+		} as Mutation,
 	];
 };
 
@@ -250,15 +258,18 @@ const fixUnquotedStringLiteral: FixFn = (error, doc) => {
 	const field = doc.fields[fieldUuid];
 	if (!field) return [];
 	const patchValue = `'${bare}'`;
-	// Typed cast: the FieldPatch union accepts any variant's partial so
-	// long as the value shape matches. All XPath keys are `string`, so
-	// this assignment is sound.
+	// `key` is a runtime string from the validator error payload, so the
+	// patch is built dynamically. `targetKind: field.kind` lets the cast
+	// land on the correct per-kind arm; the runtime parse in the reducer
+	// is the authoritative validation that the key actually belongs to
+	// the kind's schema.
 	return [
 		{
 			kind: "updateField",
 			uuid: fieldUuid,
-			patch: { [key]: patchValue } as unknown as FieldPatch,
-		},
+			targetKind: field.kind,
+			patch: { [key]: patchValue },
+		} as Mutation,
 	];
 };
 
@@ -271,16 +282,20 @@ const fixSelectNoOptions: FixFn = (error, doc) => {
 	if (field.kind !== "single_select" && field.kind !== "multi_select") {
 		return [];
 	}
+	// `field.kind` is narrowed to a select kind by the guard above —
+	// the patch's `options` slot lives on both single_select and
+	// multi_select, so the literal lands on the matching arm.
 	return [
 		{
 			kind: "updateField",
 			uuid: fieldUuid,
+			targetKind: field.kind,
 			patch: {
 				options: [
 					{ value: "option_1", label: "Option 1" },
 					{ value: "option_2", label: "Option 2" },
 				],
-			} as FieldPatch,
+			},
 		},
 	];
 };
@@ -401,12 +416,18 @@ function rewriteXPathFields(
 		if (next !== value) patch[key] = next;
 	}
 	if (Object.keys(patch).length === 0) return [];
+	// XPath keys live on different per-kind subsets — the runtime loop only
+	// builds patch entries for keys actually present on `field`, so each
+	// surviving key is valid for `field.kind`. The cast widens `targetKind`
+	// to the union of literal-keyed arms; the parsed shape is checked
+	// authoritatively by the reducer's `fieldSchema.safeParse`.
 	return [
 		{
 			kind: "updateField",
 			uuid: field.uuid,
-			patch: patch as unknown as FieldPatch,
-		},
+			targetKind: field.kind,
+			patch,
+		} as Mutation,
 	];
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
@@ -174,10 +174,10 @@ describe("case list column validation", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [
+					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 						{ field: "nonexistent_prop", header: "Ghost" },
-					],
+					]),
 					forms: [
 						{
 							name: "Reg",
@@ -202,7 +202,7 @@ describe("case list column validation", () => {
 		expect(
 			errors.some(
 				(e) =>
-					e.code === "INVALID_COLUMN_FIELD" &&
+					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
 					e.message.includes("nonexistent_prop"),
 			),
 		).toBe(true);
@@ -215,10 +215,10 @@ describe("case list column validation", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [
+					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 						{ field: "date_opened", header: "Opened" },
-					],
+					]),
 					forms: [
 						{
 							name: "Reg",
@@ -240,7 +240,9 @@ describe("case list column validation", () => {
 			],
 		});
 		const errors = runValidation(doc);
-		expect(errors.some((e) => e.code === "INVALID_COLUMN_FIELD")).toBe(false);
+		expect(
+			errors.some((e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD"),
+		).toBe(false);
 	});
 
 	it("allows custom properties defined by forms", () => {
@@ -250,10 +252,10 @@ describe("case list column validation", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
-					caseListColumns: [
+					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 						{ field: "age", header: "Age" },
-					],
+					]),
 					forms: [
 						{
 							name: "Reg",
@@ -287,7 +289,9 @@ describe("case list column validation", () => {
 			],
 		});
 		const errors = runValidation(doc);
-		expect(errors.some((e) => e.code === "INVALID_COLUMN_FIELD")).toBe(false);
+		expect(
+			errors.some((e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD"),
+		).toBe(false);
 	});
 });
 
@@ -301,7 +305,9 @@ describe("expanded XForm validation", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Register",

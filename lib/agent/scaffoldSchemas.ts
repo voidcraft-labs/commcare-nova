@@ -1,6 +1,6 @@
 /**
  * SA-facing input schemas for the initial-build generation tools
- * (`generateSchema`, `generateScaffold`, `addModule`).
+ * (`generateSchema`, `generateScaffold`).
  *
  * Separate from the field-mutation tool schemas in `toolSchemas.ts`
  * because these describe whole-app structure at the module / case
@@ -186,7 +186,12 @@ export const scaffoldModulesSchema = z.object({
 									// re-parse, so the SA-facing schema is the
 									// only gate against `0` / negatives / floats
 									// landing on the persisted doc.
-									time_estimate: z.number().int().positive(),
+									time_estimate: z
+										.number()
+										.refine(
+											(n) => Number.isInteger(n) && n >= 1,
+											"time_estimate must be a positive integer (minutes).",
+										),
 								})
 								.optional()
 								.describe(
@@ -238,33 +243,6 @@ export const scaffoldModulesSchema = z.object({
 	),
 });
 
-// ── addModule input (case list / detail columns) ────────────────────
-
-/** Input shape for the `addModule` tool (third build step). */
-export const moduleContentSchema = z.object({
-	case_list_columns: z
-		.array(
-			z.object({
-				field: z.string().describe("Case property name to display"),
-				header: z.string().describe("Column header text"),
-			}),
-		)
-		.nullable()
-		.describe("Columns for the case list. null for survey-only modules."),
-	case_detail_columns: z
-		.array(
-			z.object({
-				field: z.string().describe("Case property name"),
-				header: z.string().describe("Display label for this detail field"),
-			}),
-		)
-		.nullable()
-		.describe(
-			"Columns shown in the case detail view (when a user taps on a case). null to auto-mirror case_list_columns.",
-		),
-});
-
 // ── Inferred TS types ───────────────────────────────────────────────
 
 export type Scaffold = z.infer<typeof scaffoldModulesSchema>;
-export type ModuleContent = z.infer<typeof moduleContentSchema>;

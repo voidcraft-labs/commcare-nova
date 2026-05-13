@@ -37,100 +37,113 @@ import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
 
-export const updateFormInputSchema = z.object({
-	moduleIndex: z.number().describe("0-based module index"),
-	formIndex: z.number().describe("0-based form index"),
-	name: z.string().optional().describe("New form name"),
-	close_condition: z
-		.object({
-			field: z.string().describe("Field id to check"),
-			answer: z.string().describe("Value that triggers closure"),
-			operator: z
-				.enum(["=", "selected"])
-				.optional()
-				.describe(
-					'"=" for exact match (default). "selected" for multi-select fields.',
-				),
-		})
-		.nullable()
-		.optional()
-		.describe(
-			'Close forms only. Set conditional close. Use operator "selected" for multi-select fields. null to make unconditional (default). Omit to leave unchanged.',
-		),
-	post_submit: z
-		.enum(USER_FACING_DESTINATIONS)
-		.nullable()
-		.optional()
-		.describe(
-			"Where the user goes after submitting this form. " +
-				'"app_home" = main menu. ' +
-				'"module" = this module\'s form list. ' +
-				'"previous" = back to where the user was (e.g. case list). ' +
-				'Defaults to "previous" for followup, "app_home" for registration/survey. ' +
-				"null to reset to default. Omit to leave unchanged.",
-		),
-	connect: z
-		.object({
-			learn_module: z
-				.object({
-					id: z.string().optional(),
-					name: z.string(),
-					description: z.string(),
-					// Match the domain's `connectLearnModuleSchema`:
-					// positive integer minutes. The reducer doesn't
-					// re-parse patches via Zod, so the SA-facing schema
-					// is the only gate against invalid values.
-					time_estimate: z.number().int().positive(),
-				})
-				.optional()
-				.describe(
-					"Set for forms with educational/training content. Omit for quiz-only forms.",
-				),
-			assessment: z
-				.object({ id: z.string().optional(), user_score: z.string() })
-				.optional()
-				.describe(
-					"Set for forms with a quiz/test. Omit for content-only forms.",
-				),
-			deliver_unit: z
-				.object({
-					id: z.string().optional(),
-					name: z.string(),
-					entity_id: z
-						.string()
-						.optional()
-						.describe(
-							"XPath that resolves to the dedup key Connect uses to group form submissions into one logical delivery (one CompletedWork). Connect deduplicates per `(FLW, entity_id, payment_unit)`: two visits with the same entity_id from the same FLW in the same payment unit collapse into one CompletedWork; a different entity_id (or a different payment unit) produces a separate one. " +
-								"Omit to fall back to `concat(#user/username, '-', today())` — one CompletedWork per FLW per day, the right default when the unit of payment is the FLW's daily aggregate. " +
-								"Override when one paid delivery corresponds to a specific beneficiary, case, or site rather than a daily aggregate. The expression must produce the same value across all forms in the same payment unit for the same delivery target — that's how Connect links a multi-form payment unit (e.g. registration + followup + close) into one CompletedWork. Examples: `#case/case_id` for case-tracking deliveries, `#form/beneficiary_id` for forms that capture the beneficiary identifier directly, `concat(#case/household_id, '-', #form/visit_date)` when one paid delivery is one household visit on one date.",
-						),
-					entity_name: z
-						.string()
-						.optional()
-						.describe(
-							"XPath that resolves to a human-readable label Connect shows in dashboards for this delivery. Display-only; doesn't affect dedup or payment. " +
-								"Omit to fall back to `#user/username` — the FLW's username, fine when no more meaningful identifier is available. " +
-								"Override to surface a more useful label: a beneficiary name (`#case/case_name`), a location label, or any human-readable identifier captured in the form.",
-						),
-				})
-				.optional()
-				.describe(
-					"Set for forms in a Connect deliver app. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
-				),
-			task: z
-				.object({
-					id: z.string().optional(),
-					name: z.string(),
-					description: z.string(),
-				})
-				.optional(),
-		})
-		.nullable()
-		.optional()
-		.describe(
-			"Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
-		),
-});
+export const updateFormInputSchema = z
+	.object({
+		moduleIndex: z.number().describe("0-based module index"),
+		formIndex: z.number().describe("0-based form index"),
+		name: z.string().optional().describe("New form name"),
+		close_condition: z
+			.object({
+				field: z.string().describe("Field id to check"),
+				answer: z.string().describe("Value that triggers closure"),
+				operator: z
+					.enum(["=", "selected"])
+					.optional()
+					.describe(
+						'"=" for exact match (default). "selected" for multi-select fields.',
+					),
+			})
+			.strict()
+			.nullable()
+			.optional()
+			.describe(
+				'Close forms only. Set conditional close. Use operator "selected" for multi-select fields. null to make unconditional (default). Omit to leave unchanged.',
+			),
+		post_submit: z
+			.enum(USER_FACING_DESTINATIONS)
+			.nullable()
+			.optional()
+			.describe(
+				"Where the user goes after submitting this form. " +
+					'"app_home" = main menu. ' +
+					'"module" = this module\'s form list. ' +
+					'"previous" = back to where the user was (e.g. case list). ' +
+					'Defaults to "previous" for followup, "app_home" for registration/survey. ' +
+					"null to reset to default. Omit to leave unchanged.",
+			),
+		connect: z
+			.object({
+				learn_module: z
+					.object({
+						id: z.string().optional(),
+						name: z.string(),
+						description: z.string(),
+						// Match the domain's `connectLearnModuleSchema`:
+						// positive integer minutes. The reducer doesn't
+						// re-parse patches via Zod, so the SA-facing schema
+						// is the only gate against invalid values.
+						time_estimate: z
+							.number()
+							.refine(
+								(n) => Number.isInteger(n) && n >= 1,
+								"time_estimate must be a positive integer (minutes).",
+							),
+					})
+					.strict()
+					.optional()
+					.describe(
+						"Set for forms with educational/training content. Omit for quiz-only forms.",
+					),
+				assessment: z
+					.object({ id: z.string().optional(), user_score: z.string() })
+					.strict()
+					.optional()
+					.describe(
+						"Set for forms with a quiz/test. Omit for content-only forms.",
+					),
+				deliver_unit: z
+					.object({
+						id: z.string().optional(),
+						name: z.string(),
+						entity_id: z
+							.string()
+							.optional()
+							.describe(
+								"XPath that resolves to the dedup key Connect uses to group form submissions into one logical delivery (one CompletedWork). Connect deduplicates per `(FLW, entity_id, payment_unit)`: two visits with the same entity_id from the same FLW in the same payment unit collapse into one CompletedWork; a different entity_id (or a different payment unit) produces a separate one. " +
+									"Omit to fall back to `concat(#user/username, '-', today())` — one CompletedWork per FLW per day, the right default when the unit of payment is the FLW's daily aggregate. " +
+									"Override when one paid delivery corresponds to a specific beneficiary, case, or site rather than a daily aggregate. The expression must produce the same value across all forms in the same payment unit for the same delivery target — that's how Connect links a multi-form payment unit (e.g. registration + followup + close) into one CompletedWork. Examples: `#case/case_id` for case-tracking deliveries, `#form/beneficiary_id` for forms that capture the beneficiary identifier directly, `concat(#case/household_id, '-', #form/visit_date)` when one paid delivery is one household visit on one date.",
+							),
+						entity_name: z
+							.string()
+							.optional()
+							.describe(
+								"XPath that resolves to a human-readable label Connect shows in dashboards for this delivery. Display-only; doesn't affect dedup or payment. " +
+									"Omit to fall back to `#user/username` — the FLW's username, fine when no more meaningful identifier is available. " +
+									"Override to surface a more useful label: a beneficiary name (`#case/case_name`), a location label, or any human-readable identifier captured in the form.",
+							),
+					})
+					.strict()
+					.optional()
+					.describe(
+						"Set for forms in a Connect deliver app. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
+					),
+				task: z
+					.object({
+						id: z.string().optional(),
+						name: z.string(),
+						description: z.string(),
+					})
+					.strict()
+					.optional(),
+			})
+			.strict()
+			.nullable()
+			.optional()
+			.describe(
+				"Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
+			),
+	})
+	.strict();
 
 export type UpdateFormInput = z.infer<typeof updateFormInputSchema>;
 
