@@ -33,7 +33,7 @@ vi.mock("@/lib/db/apps", () => ({
 
 /* --- Helpers --------------------------------------------------------- */
 
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 /* Mock softDeleteApp's return value directly — the ISO format is an
  * implementation detail of the helper, exercised end-to-end in its

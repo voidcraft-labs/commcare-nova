@@ -40,10 +40,29 @@
 #
 # ## Usage
 #
-#   ./scripts/nova-plugin-dev.sh                           # sibling nova-plugin, localhost:3000 Nova
+#   ./scripts/nova-plugin-dev.sh                           # sibling nova-plugin, localhost:3000 Nova, OAuth
 #   ./scripts/nova-plugin-dev.sh --nova-plugin ~/code/nova-plugin
 #   NOVA_MCP_URL=https://staging.example.com/api/mcp ./scripts/nova-plugin-dev.sh
 #   ./scripts/nova-plugin-dev.sh --resume <id>             # extra args forward to `claude`
+#
+#   # Test the API-key override flow (prod docs document this trick):
+#   NOVA_API_KEY=sk-nova-v1-XXX ./scripts/nova-plugin-dev.sh
+#   ./scripts/nova-plugin-dev.sh --api-key sk-nova-v1-XXX
+#
+# ## API-key mode
+#
+# When `--api-key` (or `NOVA_API_KEY`) is set, the script also registers
+# a user-scope MCP entry named `nova` pointing at the same dev URL as
+# the overlay's `.mcp.json`, with `Authorization: Bearer <key>` baked
+# in. Claude Code dedupes MCP entries by URL match — same URL on the
+# overlay (plugin scope, OAuth) and the user-scope entry (API-key, with
+# bearer) means the user-scope wins. That's the same override trick
+# the production docs document at `docs.commcare.app/mcp/api-keys`,
+# now testable end-to-end against localhost.
+#
+# A trap removes the user-scope entry on exit so subsequent OAuth-mode
+# launches start clean. Ctrl-C, normal exit, and signal kills all
+# trigger the cleanup.
 #
 # ## Prerequisites
 #
@@ -51,6 +70,9 @@
 #   (default: http://localhost:3000).
 # - The nova-plugin repo cloned (https://github.com/voidcraft-labs/nova-plugin).
 # - `claude` CLI on PATH.
+# - For API-key mode: a freshly-minted key from
+#   `http://localhost:3000/settings` while signed in to the local dev
+#   server (the key only authenticates against the dev DB, not prod).
 
 set -euo pipefail
 
@@ -67,6 +89,7 @@ default_plugin_dir="$(cd "$nova_app_root/.." && pwd)/nova-plugin"
 # Pre-parse our own flags out of `$@` so the remaining argv can be
 # forwarded to `claude` verbatim. The flag may appear at any position.
 plugin_root=""
+api_key=""
 forward_args=()
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -82,12 +105,28 @@ while [[ $# -gt 0 ]]; do
 			plugin_root="${1#*=}"
 			shift
 			;;
+		--api-key)
+			if [[ -z "${2:-}" ]]; then
+				echo "error: --api-key requires a key argument" >&2
+				exit 1
+			fi
+			api_key="$2"
+			shift 2
+			;;
+		--api-key=*)
+			api_key="${1#*=}"
+			shift
+			;;
 		*)
 			forward_args+=("$1")
 			shift
 			;;
 	esac
 done
+
+# Env-var fallback so `NOVA_API_KEY=… ./script.sh` works the same as
+# `--api-key …`. The flag wins if both are present.
+api_key="${api_key:-${NOVA_API_KEY:-}}"
 
 plugin_root="${plugin_root:-$default_plugin_dir}"
 
@@ -152,9 +191,40 @@ EOF
 echo "Nova plugin: $plugin_root"
 echo "Overlay:     $overlay_root"
 echo "MCP URL:     $dev_url"
+
+# API-key override: register a user-scope MCP entry at the SAME dev URL
+# as the overlay so Claude Code's URL-match dedup picks the user-scope
+# (with bearer) over the overlay's plugin-scope entry (OAuth). Same
+# mechanism the prod docs describe; this just runs it against localhost
+# so we can validate the path without standing up an interactive OAuth
+# flow against dev.
+#
+# Cleanup trap removes the entry whether the script exits normally or
+# gets Ctrl-C'd. Without the trap, an OAuth-mode launch after an
+# API-key launch would still see the user-scope override and silently
+# keep using the stale (possibly revoked) key. `claude mcp remove`
+# swallows "not found" via `|| true` so repeated cleanups are
+# idempotent. Pre-remove first in case a prior run died before its
+# trap fired (disk full, kernel kill -9, power loss).
+if [[ -n "$api_key" ]]; then
+	claude mcp remove nova --scope user >/dev/null 2>&1 || true
+	claude mcp add nova --transport http "$dev_url" \
+		--header "Authorization: Bearer ${api_key}" \
+		--scope user >/dev/null
+	trap 'claude mcp remove nova --scope user >/dev/null 2>&1 || true' EXIT
+	echo "Auth:        API-key override (user-scope nova → ${dev_url})"
+else
+	echo "Auth:        OAuth (plugin-scope nova → ${dev_url})"
+fi
 echo
 
-# Exec so signals (Ctrl-C) propagate to claude directly. The `+`-guarded
-# expansion handles an empty array correctly under `set -u` on bash 3.2
-# (macOS default) — bare `"${arr[@]}"` would unbound-error.
-exec claude --plugin-dir "$overlay_root" ${forward_args[@]+"${forward_args[@]}"}
+# `claude` runs as a child rather than via `exec` — `exec` replaces the
+# shell process, which means the `EXIT` trap above (registered on the
+# shell) never fires. Foreground call lets bash keep ownership of the
+# process so the trap runs on every exit shape: normal claude quit,
+# Ctrl-C, SIGTERM, panic. SIGINT from Ctrl-C goes to the foreground
+# process group on macOS/Linux, so claude receives the signal and
+# exits cleanly; bash then runs the trap on its own way out. The
+# `+`-guarded expansion handles an empty array correctly under `set -u`
+# on bash 3.2 (macOS default) — bare `"${arr[@]}"` would unbound-error.
+claude --plugin-dir "$overlay_root" ${forward_args[@]+"${forward_args[@]}"}

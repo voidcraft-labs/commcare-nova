@@ -127,10 +127,14 @@ export type McpErrorType =
  * otherwise (pre-app-resolution failures).
  *
  * `required_scope` rides through when `error_type === "scope_missing"`
- * so a client can show the user *which* scope was absent (e.g. so the
- * MCP client UI can prompt "re-authorize to grant CommCare HQ access").
- * Absent on every other error type — the field is meaningless outside
- * the scope-gate path.
+ * so a client can show the user which scope was missing — letting it
+ * point the user at whichever surface they fix scopes on (the OAuth
+ * consent screen for browser-mediated grants, the API keys card in
+ * Nova settings for static bearers). The raw scope literal travels
+ * here for programmatic consumers; the human-readable `message`
+ * already names the friendly label and the right remediation surface
+ * for the caller's auth path. Absent on every other error type — the
+ * field is meaningless outside the scope-gate path.
  */
 export interface McpErrorPayload {
 	error_type: McpErrorType;

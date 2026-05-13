@@ -138,7 +138,7 @@ function mockBlueprintWithForm(): {
 }
 
 /** Baseline tool context used by every test. */
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 /**
  * Look up the spy `flush` of the most recently constructed `LogWriter`.

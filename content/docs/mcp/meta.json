@@ -1,4 +1,4 @@
 {
 	"title": "MCP server",
-	"pages": ["connecting", "tools", "access"]
+	"pages": ["connecting", "api-keys", "tools", "access"]
 }

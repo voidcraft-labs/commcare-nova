@@ -75,7 +75,7 @@ export function registerGetHqConnection(
 				 * already passed; this gate adds the HQ-specific layer.
 				 * Throws `McpScopeError` on miss; the surrounding catch
 				 * routes through `toMcpErrorResult`'s scope-missing branch. */
-				assertScope(ctx.scopes, SCOPES.hqRead, "get_hq_connection");
+				assertScope(ctx, SCOPES.hqRead, "get_hq_connection");
 
 				const settings = await getCommCareSettings(ctx.userId);
 				/* `CommCareSettingsPublic` is a discriminated union — the

@@ -150,7 +150,11 @@ const FIXTURE_SETTINGS = {
  * layer before the handler is reached, which we bypass entirely here.
  * Including only the scope the handler actually inspects keeps the
  * fixture honest about what's being asserted. */
-const toolCtx: ToolContext = { userId: "u1", scopes: [SCOPES.hqWrite] };
+const toolCtx: ToolContext = {
+	userId: "u1",
+	scopes: [SCOPES.hqWrite],
+	authKind: "oauth",
+};
 
 beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
@@ -230,6 +234,7 @@ describe("registerUploadAppToHq — pre-gate 0: missing nova.hq.write", () => {
 		registerUploadAppToHq(server, {
 			userId: "u1",
 			scopes: [SCOPES.read, SCOPES.write],
+			authKind: "oauth",
 		});
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {

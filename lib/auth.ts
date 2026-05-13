@@ -19,13 +19,16 @@
  *   BETTER_AUTH_URL      — Base URL (e.g. http://localhost:3000 or production URL).
  *                          Optional in dev — Better Auth auto-detects from requests.
  */
+import { apiKey } from "@better-auth/api-key";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { admin, jwt } from "better-auth/plugins";
 import { firestoreAdapter } from "better-auth-firestore";
 import { Firestore as AdminFirestore } from "firebase-admin/firestore";
+import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
 import { SIGN_IN_ERROR } from "./auth-errors";
+import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
 
@@ -84,6 +87,15 @@ export const NOVA_OAUTH_ALLOWED_CLIENT_SCOPES = [
 ] as const;
 
 /**
+ * Public API-key constants live in `lib/auth-public.ts` so client
+ * components can import them without pulling Better Auth's server-only
+ * graph (firebase-admin, etc.) into the browser bundle. Re-exported
+ * here so server code already importing `@/lib/auth` doesn't have to
+ * change.
+ */
+export { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES };
+
+/**
  * Email-domain allowlist for first-party sign-in.
  *
  * The set of company domains Nova accepts during OAuth user creation.
@@ -128,28 +140,51 @@ function createAuth() {
 		baseURL: process.env.BETTER_AUTH_URL,
 
 		/**
-		 * Disable the jwt plugin's `/token` endpoint.
+		 * Block HTTP routes Better Auth would otherwise auto-mount from
+		 * its plugins. `disabledPaths` checks at the HTTP `onRequest`
+		 * boundary; the `auth.api.*` typed surface bypasses it, so
+		 * server-side calls (the MCP route's `verifyApiKey`, the Server
+		 * Actions' `createApiKey` / `updateApiKey` / `deleteApiKey`)
+		 * keep working unaffected.
 		 *
-		 * The `jwt()` plugin below mounts two endpoints: `/jwks` (public
-		 * key set, which we keep) and `/token`, which mints a JWT scoped
-		 * to the current session cookie. That's a second JWT-issuing
-		 * surface alongside `/oauth2/token` (OAuth 2.1 authorization code
-		 * exchange) — different credential lifecycle, different audience,
-		 * different intended relying parties.
+		 * **`/token`** — the `jwt()` plugin mounts `/jwks` (public key
+		 * set, which Nova needs) and `/token` (mints a JWT from the
+		 * session cookie). The `/token` endpoint duplicates
+		 * `/oauth2/token` with a different credential lifecycle and
+		 * audience; OIDC/MCP discovery advertises a single token
+		 * endpoint, and clients seeing two JWT-minting paths legitimately
+		 * pick the wrong one. Per Better Auth's jwt + oidc-provider
+		 * docs, the pairing (disabled `/token` plus
+		 * `jwt({ disableSettingJwtHeader: true })`) is mandatory for
+		 * OAuth/OIDC/MCP deployments.
 		 *
-		 * Exposing both is non-compliant for OIDC/MCP: discovery documents
-		 * advertise a single token endpoint, and clients seeing two
-		 * JWT-minting paths can legitimately pick the wrong one. Nova
-		 * only issues programmatic tokens through the OAuth code flow, so
-		 * the jwt plugin's `/token` has no role and is stripped. The
-		 * plugin stays enabled for its JWKS endpoint, which is exactly
-		 * what `oauth-provider` needs to publish its signing keys.
+		 * **`/api-key/*`** — the api-key plugin auto-mounts five CRUD
+		 * endpoints (`create`, `delete`, `update`, `list`, `get`) under
+		 * `/api/auth/api-key/*`. The Settings UI Server Actions are the
+		 * only intended authoring surface; they enforce the per-user
+		 * limit, scope vocabulary, floor scopes, and audit logging.
+		 * Leaving the HTTP endpoints live exposes a parallel surface
+		 * that bypasses every one of those — the per-user cap stops
+		 * being a cap, mints go unaudited, and `list` exposes a second
+		 * read path. Disabling them keeps the Server Actions as the
+		 * sole authoring surface; the MCP route's
+		 * `auth.api.verifyApiKey` is a typed call and stays unaffected.
 		 *
-		 * Per Better Auth's own jwt + oidc-provider docs, this pairing
-		 * (disabled `/token` + `jwt({ disableSettingJwtHeader: true })`)
-		 * is the mandatory configuration for OAuth/OIDC/MCP deployments.
+		 * Two of the plugin's other endpoints (`verify`,
+		 * `delete-all-expired-api-keys`) are declared without a path
+		 * string and so aren't HTTP-mounted at all — they exist only
+		 * on the `auth.api.*` typed surface. They don't need to be in
+		 * `disabledPaths`; listing them would be a no-op (better-call's
+		 * router skips entries with no `path`).
 		 */
-		disabledPaths: ["/token"],
+		disabledPaths: [
+			"/token",
+			"/api-key/create",
+			"/api-key/delete",
+			"/api-key/update",
+			"/api-key/list",
+			"/api-key/get",
+		],
 
 		/**
 		 * Extend the auth user model with app-level fields.
@@ -218,6 +253,35 @@ function createAuth() {
 			storage: "database",
 			customRules: {
 				"/api/auth/callback/:path": { window: 60, max: 10 },
+				/* Per-IP cap on the MCP route. The rule key is the path
+				 * after Better Auth strips its `/api/auth` basePath
+				 * (`normalizePathname` in
+				 * `node_modules/@better-auth/core/dist/utils/url.mjs`),
+				 * so `/api/auth/mcp` matches the literal `/mcp`.
+				 *
+				 * Picked to absorb realistic agent-driven traffic without
+				 * letting an unauthenticated attacker hammer the
+				 * Firestore-backed `verifyApiKey` lookup or the JWT
+				 * verifier. 120 req/min ≈ 2 per second, comfortably
+				 * above tool-call cadence even from concurrent worktrees
+				 * (each worktree gets its own per-IP counter).
+				 *
+				 * Important: this is a SUSTAINED-rate cap, not an
+				 * atomic concurrency bound. Better Auth checks the
+				 * counter in `onRequest` and increments it in
+				 * `onResponse`, so a cold/reset IP can fire through
+				 * up to Cloud Run's per-instance request concurrency
+				 * (default 80) before any response-side increment
+				 * lands. Each burst request still hits `verifyApiKey`
+				 * and the Firestore lookup. The rate limiter starts
+				 * blocking on the next sustained window, so over time
+				 * the cap holds — but it does not protect against
+				 * single-burst abuse. Edge-level rate limiting (Cloud
+				 * Armor on the Cloud Run load balancer, or whatever
+				 * fronts the service in your deployment) is the right
+				 * tool for the burst case; the in-app cap is the
+				 * second line. */
+				"/mcp": { window: 60, max: 120 },
 			},
 		},
 
@@ -456,6 +520,146 @@ function createAuth() {
 				 * silenceWarnings.oauthAuthServerConfig"). */
 				silenceWarnings: { oauthAuthServerConfig: true },
 			}),
+
+			/**
+			 * API Key plugin — long-lived bearer credentials for
+			 * non-interactive MCP consumers (ACE-style automation running
+			 * across many concurrent worktrees with one shared service
+			 * identity).
+			 *
+			 * The MCP route dispatcher in `app/api/mcp/auth-plugin.ts`
+			 * (`dispatchMcpAuthRequest`) peeks the `Authorization` header
+			 * for `NOVA_API_KEY_PREFIX` and forks to the api-key verify
+			 * path for matching tokens; everything else goes through the
+			 * JWT (OAuth-issued) path. Browser users on commcare.app sign
+			 * in with Google, and `enableSessionForAPIKeys: false` keeps
+			 * the api-key surface from minting cookie sessions, so the
+			 * two paths can't bleed into each other.
+			 *
+			 * Why API keys are necessary alongside OAuth:
+			 * `@better-auth/oauth-provider` rotates refresh tokens
+			 * unconditionally (`createRefreshToken` writes
+			 * `revoked: <Date>` to the prior row on every refresh), and
+			 * there is no toggle to disable rotation. When two concurrent
+			 * sessions share one credential file, the second session's
+			 * stale refresh token triggers a cascade revocation that wipes
+			 * every row for that `(userId, clientId)` pair — both sessions
+			 * are forced back through interactive OAuth. That security
+			 * posture is correct for human-using-Claude-Code-on-commcare.app
+			 * but fights the service-identity-with-many-workers shape ACE
+			 * has. API keys give that shape a credential model that matches
+			 * its trust relationship.
+			 *
+			 * Configuration choices:
+			 *   - `defaultPrefix` is the single source of truth for the wire
+			 *     prefix. The MCP route's dispatcher reads `NOVA_API_KEY_PREFIX`
+			 *     from this same module so they cannot drift.
+			 *   - `defaultKeyLength: 32` is shorter than the plugin default
+			 *     of 64 only because `sk-nova-v1-` already adds 11 visible
+			 *     characters; the total wire token is 43 chars,
+			 *     comfortably copy-pasteable while still
+			 *     brute-force-infeasible against the 52-char a-zA-Z
+			 *     alphabet the plugin uses.
+			 *   - `startingCharactersConfig.charactersLength: 17` stores the
+			 *     prefix (11 chars) plus 6 key chars in the `start` field. The
+			 *     settings UI uses this for masked display
+			 *     (`sk-nova-v1-aBc12X • • • …`) so users can identify a key
+			 *     without revealing its full value.
+			 *   - `requireName: true` because every key on the settings page
+			 *     needs a human-readable label; an unnamed list is unmanageable.
+			 *   - `enableMetadata: false` — Nova doesn't track metadata on
+			 *     keys; turning it off keeps the create payload tighter and
+			 *     the storage surface smaller.
+			 *   - `keyExpiration.defaultExpiresIn: 1y` matches the
+			 *     1-year-default decision baked into the settings UI's expiry
+			 *     selector. Service identities want long-lived credentials;
+			 *     tighter rotation is opt-in at mint time.
+			 *   - `keyExpiration.maxExpiresIn: 36500` (~100 years) is the
+			 *     escape hatch for the "Never expires" UI option. The plugin's
+			 *     default cap of 365 days would block that path. 100 years is
+			 *     functionally unbounded without leaving the configured ceiling
+			 *     truly infinite — keeps the create endpoint's bounds-check
+			 *     active for any future tightening.
+			 *   - `enableSessionForAPIKeys: false` is the default but pinned
+			 *     explicitly: API keys authenticate the MCP route only, never
+			 *     a browser session on commcare.app.
+			 *   - `references: "user"` is the default but pinned explicitly:
+			 *     Nova's data model is single-user and there is no
+			 *     `organization` table. Switching to `"organization"` would be
+			 *     a schema change, not a config flip.
+			 */
+			apiKey({
+				defaultPrefix: NOVA_API_KEY_PREFIX,
+				defaultKeyLength: 32,
+				startingCharactersConfig: {
+					shouldStore: true,
+					charactersLength: NOVA_API_KEY_PREFIX.length + 6,
+				},
+				requireName: true,
+				enableMetadata: false,
+				enableSessionForAPIKeys: false,
+				storage: "database",
+				/* Per-key rate limiting disabled. The plugin's
+				 * `isRateLimited` is a "fixed window since last request"
+				 * algorithm: the request counter resets to 1 whenever the
+				 * gap between calls exceeds `timeWindow`, rather than a
+				 * true sliding-window or fixed-window-from-mint cap. For a
+				 * service identity making one request every <`timeWindow`>
+				 * seconds, the limit never engages; for one running
+				 * sub-`timeWindow` bursts then idle, each idle period
+				 * resets the counter. Neither matches what "N requests per
+				 * window" usually means.
+				 *
+				 * IP-based rate limiting on the MCP route is what bounds
+				 * abuse. It runs at the Better Auth router layer
+				 * (`onRequestRateLimit` in `node_modules/better-auth/dist/
+				 * api/index.mjs`) for every routed request, including the
+				 * plugin endpoint at `/api/auth/mcp` registered by
+				 * `app/api/mcp/auth-plugin.ts::novaMcpPlugin`. The
+				 * `customRules` rule for `/mcp` configured below sets the
+				 * per-IP cap. Adding a per-key cap with misleading
+				 * fixed-window-since-last-request semantics on top would
+				 * suggest a second bound that doesn't behave like
+				 * "requests per window". */
+				rateLimit: { enabled: false },
+				/* Move the plugin's per-verify `lastRequest` write off
+				 * the auth hot path. Without this, every successful
+				 * `verifyApiKey` awaits a Firestore write to the same
+				 * `apikey/{id}` doc — exactly the document-hotspot shape
+				 * Firestore's scaling guidance flags (sustained writes to
+				 * one doc above ~1/sec cause contention). The risk is
+				 * concentrated for the shared-service-key case the
+				 * feature explicitly targets (one key, many concurrent
+				 * worktrees). With `deferUpdates: true` the write fires
+				 * via `runInBackground` after the verify response is
+				 * built — auth doesn't wait, the "Last used" timestamp
+				 * still updates, and the steady-state write rate to the
+				 * single doc no longer gates request throughput. The
+				 * tradeoff: a Firestore outage that breaks the deferred
+				 * write fails silently to logs without blocking the
+				 * request, which is the right shape — losing an audit
+				 * timestamp is preferable to denying authenticated
+				 * service-account traffic. */
+				deferUpdates: true,
+				keyExpiration: {
+					/* `defaultExpiresIn` is in SECONDS despite the plugin type
+					 * docstring claiming milliseconds — the create endpoint
+					 * runs `getDate(defaultExpiresIn, "sec")`, which the
+					 * `getDate` helper interprets as seconds (multiplies by
+					 * 1000 internally). `minExpiresIn` and `maxExpiresIn` are
+					 * in DAYS (the create endpoint divides incoming
+					 * `expiresIn` by 86400 before comparing). The mixed units
+					 * inside one config block are confusing on a casual read;
+					 * the source of truth is the plugin's `getDate(...)` and
+					 * `expiresIn / (3600 * 24)` calls in
+					 * `node_modules/@better-auth/api-key/dist/index.mjs`. */
+					defaultExpiresIn: 365 * 24 * 60 * 60,
+					minExpiresIn: 1,
+					maxExpiresIn: 36500,
+				},
+				references: "user",
+			}),
+			novaMcpPlugin(),
 		],
 
 		/**
@@ -471,16 +675,29 @@ function createAuth() {
 		},
 
 		/**
-		 * Cloud Run proxy and IP tracking configuration.
+		 * IP tracking configuration.
 		 *
-		 * Cloud Run sits behind a Google load balancer that sets x-forwarded-for.
-		 * Without this, Better Auth sees the LB's IP for every request — rate
-		 * limiting treats all users as a single client, and IP-based security
-		 * auditing is useless.
+		 * Better Auth reads the trusted client IP from the proxy-stamped
+		 * `x-nova-client-ip` header rather than `X-Forwarded-For`
+		 * directly. `proxy.ts` derives it from XFF's trusted suffix
+		 * (rightmost N entries, where N matches the deployment's
+		 * trusted-hops count) and strips any client-supplied value
+		 * first, so the rate limiter and session tracker key on a
+		 * non-spoofable IP. Reading XFF directly would let a client
+		 * rotate the leftmost value (which Google Front End preserves
+		 * through to the container) and evade per-IP enforcement.
+		 *
+		 * The single-header list is deliberate: with only this header,
+		 * a request that bypassed `proxy.ts` (tests, dev paths,
+		 * misconfiguration) yields `null` for the IP — Better Auth
+		 * skips per-IP rate-limit attribution rather than silently
+		 * falling back to a spoofable header. Fail-loud is the right
+		 * posture; "soft fallback to XFF" would re-introduce the
+		 * spoofing surface for any path that doesn't run the proxy.
 		 */
 		advanced: {
 			ipAddress: {
-				ipAddressHeaders: ["x-forwarded-for"],
+				ipAddressHeaders: ["x-nova-client-ip"],
 			},
 		},
 	});

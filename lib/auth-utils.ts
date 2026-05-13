@@ -10,6 +10,7 @@
  * present on valid sessions, no custom session fields needed.
  */
 
+import { isValidIP, normalizeIP } from "@better-auth/core/utils/ip";
 import { FieldValue } from "@google-cloud/firestore";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -20,31 +21,72 @@ import { getAuth, type Session } from "./auth";
 import { getDb } from "./db/firestore";
 import { log } from "./logger";
 
-// ── API Route Auth ──────────────────────────────────────────────────
+// ── Caller IP ───────────────────────────────────────────────────────
 
-/** Successful key resolution — includes the API key and authenticated session. */
-interface ApiKeyResolved {
+/**
+ * Extract the caller's IP from a `Headers` object for audit-log
+ * payloads. Reads the proxy-stamped `x-nova-client-ip` header that
+ * `proxy.ts` populates from `X-Forwarded-For`'s trusted suffix; the
+ * proxy strips any client-supplied value first, so anything reaching
+ * here under that name is guaranteed proxy-derived (the leftmost
+ * spoofable region of XFF cannot reach this code path). `isValidIP`
+ * rejects anything that isn't a parseable IPv4/IPv6 address (defends
+ * against an upstream regression that lets a malformed value through),
+ * and `normalizeIP` collapses equivalent representations so log
+ * queries pivot on one canonical form. Returns `"unknown"` when the
+ * header is absent (proxy didn't run for this request — tests, dev
+ * paths bypassing the middleware) or the value fails validation.
+ *
+ * The Headers parameter lets the same helper serve route handlers
+ * (passing `req.headers`) and Server Components / Server Actions
+ * (passing `await headers()`) — the async vs sync seam stays at the
+ * call site, where it belongs.
+ */
+export function callerIpFromHeaders(reqHeaders: Headers): string {
+	const trusted = reqHeaders.get("x-nova-client-ip");
+	if (!trusted || !isValidIP(trusted)) return "unknown";
+	return normalizeIP(trusted);
+}
+
+// ── Anthropic-key resolution for chat-API routes ────────────────────
+
+/* Naming: `resolveAnthropicKey` (and the `AnthropicKey*` types below)
+ * disambiguate from Nova's user-minted MCP API keys (see
+ * `lib/db/api-keys.ts` and `app/(app)/settings/api-key-actions.ts`).
+ * Both surfaces use "API key" in product copy; the prefix here pins
+ * which one each function operates on so callers don't have to read
+ * the file context to know. */
+
+/** Successful resolution — server-shared Anthropic key + authenticated session. */
+interface AnthropicKeyResolved {
 	ok: true;
 	apiKey: string;
 	session: Session;
 }
 
-/** Failed key resolution — includes an error message and HTTP status code. */
-interface ApiKeyError {
+/** Failed resolution — error message and HTTP status code. */
+interface AnthropicKeyError {
 	ok: false;
 	error: string;
 	status: number;
 }
 
-type ApiKeyResult = ApiKeyResolved | ApiKeyError;
+type AnthropicKeyResult = AnthropicKeyResolved | AnthropicKeyError;
 
 /**
- * Resolve the Anthropic API key for an authenticated request.
+ * Resolve the server-shared Anthropic API key for an authenticated
+ * request hitting the chat surface (`/api/chat`). Requires a valid
+ * session and `ANTHROPIC_API_KEY` in the environment. Returns a
+ * discriminated union so callers can handle errors without try/catch.
  *
- * Requires an authenticated session and a configured ANTHROPIC_API_KEY.
- * Returns a discriminated union so callers can handle errors without try/catch.
+ * Distinct from the user-minted Nova API keys managed via
+ * `auth.api.{create,delete,update,verify}ApiKey` in
+ * `app/(app)/settings/api-key-actions.ts` — those authenticate the MCP
+ * surface; this function authorizes server-to-Anthropic LLM calls.
  */
-export async function resolveApiKey(req: Request): Promise<ApiKeyResult> {
+export async function resolveAnthropicKey(
+	req: Request,
+): Promise<AnthropicKeyResult> {
 	const session = await getSessionSafe(req);
 	if (!session) {
 		return {

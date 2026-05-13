@@ -161,7 +161,7 @@ export function registerUploadAppToHq(
 				 * wire to `not_found`, but still a probe channel that's
 				 * cheaper to cut off entirely). Throws `McpScopeError`;
 				 * the surrounding catch stamps `app_id` from `ctx`. */
-				assertScope(ctx.scopes, SCOPES.hqWrite, "upload_app_to_hq");
+				assertScope(ctx, SCOPES.hqWrite, "upload_app_to_hq");
 
 				/* Pre-gate 1: ownership + blueprint load in one Firestore
 				 * read. `loadAppBlueprint` throws `McpAccessError` on

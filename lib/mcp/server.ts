@@ -1,10 +1,12 @@
 /**
  * MCP server registration entry point.
  *
- * Invoked by the route handler (`app/api/mcp/route.ts`) once per MCP
- * request after the bearer token has been verified against the local
- * JWKS. A fresh `McpServer` is handed in and this module binds every
- * Nova tool onto it.
+ * Invoked by `app/api/mcp/dispatch.ts::dispatchMcpTools` once per MCP
+ * request after the caller has been authenticated — either via OAuth-
+ * issued JWT verified against the AS's JWKS, or via API-key hash
+ * check against the `apikey` collection. Both paths converge with a
+ * `ToolContext` carrying `userId` + `scopes`; this module binds every
+ * Nova tool onto a fresh `McpServer` it is handed.
  *
  * Two categories of tool, two registration paths:
  *

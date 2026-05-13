@@ -31,7 +31,11 @@ vi.mock("@/lib/db/settings", () => ({
  * `nova.write`) is irrelevant in these unit tests because we're calling
  * the handler directly — only the scope the handler itself reads from
  * `ctx.scopes` matters here. */
-const toolCtx: ToolContext = { userId: "u1", scopes: [SCOPES.hqRead] };
+const toolCtx: ToolContext = {
+	userId: "u1",
+	scopes: [SCOPES.hqRead],
+	authKind: "oauth",
+};
 
 beforeEach(() => {
 	vi.mocked(getCommCareSettings).mockReset();
@@ -102,6 +106,7 @@ describe("registerGetHqConnection — missing nova.hq.read", () => {
 		registerGetHqConnection(server, {
 			userId: "u1",
 			scopes: [SCOPES.read, SCOPES.write],
+			authKind: "oauth",
 		});
 
 		const out = (await capture()({})) as {

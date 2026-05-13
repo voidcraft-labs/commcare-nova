@@ -53,7 +53,7 @@ function makeResult(apps: AppSummary[], nextCursor?: string): SearchAppsResult {
 	return nextCursor ? { apps, nextCursor } : { apps };
 }
 
-const toolCtx: ToolContext = { userId: "u1", scopes: [] };
+const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 beforeEach(() => {
 	vi.mocked(searchApps).mockReset();

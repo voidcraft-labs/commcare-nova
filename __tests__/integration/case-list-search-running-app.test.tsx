@@ -659,13 +659,19 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		const input = screen.getByLabelText("Name") as HTMLInputElement;
 		fireEvent.change(input, { target: { value: "Alice" } });
 
+		// Encode the full expected end-state in the predicate, not a
+		// partial signal. Asserting only `Bob is null` is satisfied by
+		// the in-flight loading spinner (no rows rendered at all), so a
+		// sync `getByText("Alice")` after the waitFor races the debounced
+		// query's resolution. Asserting Alice's presence too forces
+		// waitFor to wait until the new row set has materialized.
 		await waitFor(
 			() => {
+				expect(screen.getByText("Alice")).toBeDefined();
 				expect(screen.queryByText("Bob")).toBeNull();
 			},
 			{ timeout: 3_000 },
 		);
-		expect(screen.getByText("Alice")).toBeDefined();
 
 		// Clear the input — debounced 300 ms → both open-status rows
 		// return. The runtime-bindings layer's empty-value
@@ -675,11 +681,11 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		await waitFor(
 			() => {
 				expect(screen.getByText("Bob")).toBeDefined();
+				expect(screen.getByText("Alice")).toBeDefined();
+				expect(screen.queryByText("Carol")).toBeNull();
 			},
 			{ timeout: 3_000 },
 		);
-		expect(screen.getByText("Alice")).toBeDefined();
-		expect(screen.queryByText("Carol")).toBeNull();
 	});
 });
 
