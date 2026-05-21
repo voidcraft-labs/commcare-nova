@@ -533,3 +533,114 @@ describe("Connect validation", () => {
 		expect(errors).toHaveLength(0);
 	});
 });
+
+// ── Derived-id length cap ────────────────────────────────────────────
+//
+// A derived connect id must be valid-length, just as `toSnakeId` already
+// makes it valid-char. Without the cap, a long module name would derive an
+// over-50 id that the `CONNECT_ID_TOO_LONG` validator rule would then
+// falsely reject — an error the user couldn't fix without renaming the
+// module. The cap lives in `deriveConnectDefaults` so the rule fires only
+// on explicitly hand-typed over-length ids, never on a derived one.
+
+describe("Connect derived id length", () => {
+	// LEEP regression: this module name's snake-id is 52 chars, over the
+	// 50-char column limit — must be capped at derivation.
+	const LONG_MODULE_NAME =
+		"Module 3 — Conducting the 15-question seller interview";
+
+	/** Extract the connect wrapper element name (the slug) carrying the
+	 *  given vellum role from an XForm string. */
+	function connectElementName(xml: string, role: string): string | undefined {
+		const m = xml.match(new RegExp(`<([^\\s<>]+) vellum:role="${role}">`));
+		return m?.[1];
+	}
+
+	function longNameLearnDoc(): BlueprintDoc {
+		return buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: LONG_MODULE_NAME,
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							// id-less → derived from the long module name.
+							connect: {
+								learn_module: { name: "L", description: "x", time_estimate: 5 },
+							},
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("caps a derived learn_module id to ≤50 in deriveConnectDefaults", () => {
+		const doc = longNameLearnDoc();
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const next = deriveConnectDefaults({
+			connectType: "learn",
+			doc,
+			formUuid,
+			moduleName: LONG_MODULE_NAME,
+		});
+		const id = next?.learn_module?.id as string;
+		expect(id.length).toBeLessThanOrEqual(50);
+	});
+
+	it("derives an over-50 id from a long module name WITHOUT a length error, and exports a valid ≤50 element", () => {
+		const doc = longNameLearnDoc();
+
+		// No length-rule error — the derived id was capped, and the user
+		// can't shorten a module-name-derived id anyway.
+		const tooLong = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_TOO_LONG",
+		);
+		expect(tooLong).toEqual([]);
+
+		// The cap reaches the wire: the emitted element name is ≤50.
+		const xml = Object.values(expandDoc(doc)._attachments)[0] as string;
+		const elementName = connectElementName(xml, "ConnectLearnModule");
+		expect(elementName).toBeDefined();
+		expect((elementName as string).length).toBeLessThanOrEqual(50);
+	});
+
+	it("exports a non-blank derived element for an id-less block", () => {
+		// A blank/unset id is always valid: the resolver derives a non-empty
+		// name slug. Lock that the emitted element name is not empty.
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: { name: "L", description: "x", time_estimate: 5 },
+							},
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+					],
+				},
+			],
+		});
+
+		// No length error and no char error for an id-less block.
+		const idErrors = runValidation(doc).filter(
+			(e) =>
+				e.code === "CONNECT_ID_TOO_LONG" ||
+				e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(idErrors).toEqual([]);
+
+		const xml = Object.values(expandDoc(doc)._attachments)[0] as string;
+		const elementName = connectElementName(xml, "ConnectLearnModule");
+		expect(elementName).toBeDefined();
+		expect((elementName as string).length).toBeGreaterThan(0);
+	});
+});

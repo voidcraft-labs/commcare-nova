@@ -1417,4 +1417,75 @@ describe("connect rules", () => {
 			),
 		).toHaveLength(2);
 	});
+
+	// ── Connect id must fit Connect's slug column (≤50) ──────────────
+	//
+	// A connect id is written into a Connect DB slug column (varchar(50)
+	// for the tightest of them). An auto-derived id is capped at
+	// derivation time, so this rule fires ONLY on a hand-typed / SA-
+	// supplied id that's too long — we reject it so the user shortens
+	// their own input rather than silently truncating what they chose.
+
+	it("flags a hand-typed connect id longer than 50 chars", () => {
+		const longId = "a".repeat(55); // valid chars, but over the 50 limit
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: longId,
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_TOO_LONG",
+		);
+		expect(errors).toHaveLength(1);
+		// Message cites the id, the owning form, and the limit.
+		expect(errors[0].message).toContain("First Form");
+		expect(errors[0].message).toContain("50");
+	});
+
+	it("does not flag a connect id at exactly 50 chars", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "a".repeat(50),
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_TOO_LONG",
+		);
+		expect(errors).toEqual([]);
+	});
+
+	it("flags over-length ids on assessment, deliver_unit, and task too", () => {
+		const longId = "z".repeat(60);
+		const learnDoc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				assessment: { id: longId, user_score: "100" },
+			},
+		});
+		const deliverDoc = connectDoc({
+			connectType: "deliver",
+			formConnect: {
+				deliver_unit: { id: longId, name: "Visit" },
+				task: { id: `${longId}_task`, name: "T", description: "x" },
+			},
+		});
+		expect(
+			runValidation(learnDoc).filter((e) => e.code === "CONNECT_ID_TOO_LONG"),
+		).toHaveLength(1);
+		expect(
+			runValidation(deliverDoc).filter((e) => e.code === "CONNECT_ID_TOO_LONG"),
+		).toHaveLength(2);
+	});
 });

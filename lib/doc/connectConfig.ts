@@ -15,6 +15,7 @@
  * `lib/commcare/xform/builder.ts`.
  */
 import { toSnakeId } from "@/lib/commcare";
+import { CONNECT_SLUG_MAX_LENGTH } from "@/lib/commcare/connectSlugs";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
@@ -133,6 +134,22 @@ export function deriveConnectDefaults({
 	const modSlug = toSnakeId(moduleName ?? "module");
 	const formSlug = toSnakeId(form.name);
 
+	// A derived id must be valid-length as well as valid-char (`toSnakeId`
+	// already guarantees the latter). A connect id lands in a Connect DB
+	// slug column; the tightest is `varchar(50)`. Cap the two derived shapes
+	// — the bare module slug (learn_module / deliver_unit) and the
+	// `<module>_<form>` pair (assessment / task) — each independently to
+	// `CONNECT_SLUG_MAX_LENGTH`. Capping here (not by slicing `modSlug`,
+	// which is the base for the pair slug) keeps the join intact and ensures
+	// the `CONNECT_ID_TOO_LONG` validator rule never fires on an id the user
+	// can't shorten. A hand-typed id bypasses these defaults (the `??=` only
+	// fills when `id` is unset) and is left for that rule to reject.
+	const cappedModSlug = modSlug.slice(0, CONNECT_SLUG_MAX_LENGTH);
+	const cappedPairSlug = `${modSlug}_${formSlug}`.slice(
+		0,
+		CONNECT_SLUG_MAX_LENGTH,
+	);
+
 	// Clone so we never mutate the input doc's connect struct. Sub-configs
 	// are shallow-cloned below as they're touched — each `??=` / `||=`
 	// operates on the clone.
@@ -141,7 +158,7 @@ export function deriveConnectDefaults({
 	if (connectType === "learn") {
 		if (next.learn_module) {
 			const lm = { ...next.learn_module };
-			lm.id ??= modSlug;
+			lm.id ??= cappedModSlug;
 			lm.name ||= form.name;
 			lm.description ||= form.name;
 			lm.time_estimate ??= Math.max(
@@ -152,7 +169,7 @@ export function deriveConnectDefaults({
 		}
 		if (next.assessment) {
 			const as = { ...next.assessment };
-			as.id ??= `${modSlug}_${formSlug}`;
+			as.id ??= cappedPairSlug;
 			if (!as.user_score) {
 				const scoreField = findScoreField(doc, formUuid);
 				as.user_score = scoreField?.calculate ?? "100";
@@ -164,7 +181,7 @@ export function deriveConnectDefaults({
 	if (connectType === "deliver") {
 		if (next.deliver_unit) {
 			const du = { ...next.deliver_unit };
-			du.id ??= modSlug;
+			du.id ??= cappedModSlug;
 			du.name ||= form.name;
 			// `entity_id` / `entity_name` are wire-emit defaults — see
 			// `lib/commcare/xform/builder.ts`. Layer 2 doesn't fill them
@@ -175,7 +192,7 @@ export function deriveConnectDefaults({
 		}
 		if (next.task) {
 			const t = { ...next.task };
-			t.id ??= `${modSlug}_${formSlug}`;
+			t.id ??= cappedPairSlug;
 			next.task = t;
 		}
 	}

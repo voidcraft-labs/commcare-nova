@@ -139,18 +139,10 @@ export function LearnConfig({
 							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
 								<InlineField
 									label="Module ID"
-									// Show the raw stored id — blank when unset. The wire
-									// fallback (a module-name slug, capped to Connect's slug
-									// width) is owned by the emit-time resolver in
-									// `lib/commcare/connectSlugs.ts`, so the authoring field
-									// must not invent its own displayed default: that would
-									// show the user one id while the wire emitted another.
-									// Not `required` — an empty id is valid here precisely
-									// because the resolver fills it.
-									value={lm.id ?? ""}
+									value={lm.id ?? "connect_learn"}
 									onChange={(v) => updateLearnModule("id", v)}
-									placeholder="Defaults from module name"
 									mono
+									required
 								/>
 								<InlineField
 									label="Name"
@@ -208,16 +200,12 @@ export function LearnConfig({
 							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
 								<InlineField
 									label="Assessment ID"
-									// Raw stored id (blank when unset); the emit-time
-									// resolver owns the wire fallback — same authoring-vs-wire
-									// split as Module ID above. Not `required`: empty is valid
-									// because the resolver fills it.
-									value={assessment.id ?? ""}
+									value={assessment.id ?? "connect_assessment"}
 									onChange={(v) =>
 										save({ ...connect, assessment: { ...assessment, id: v } })
 									}
-									placeholder="Defaults from module + form name"
 									mono
+									required
 								/>
 								<LabeledXPathField
 									label="User Score"
