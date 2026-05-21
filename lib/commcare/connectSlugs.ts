@@ -56,11 +56,12 @@ export const CONNECT_SLUG_MAX_LENGTH = 50;
  * output of {@link buildConnectSlugMap}.
  *
  * On the raw `ConnectConfig`, each sub-config's `id` is optional (the SA
- * may omit it). After resolution every present sub-config carries a
- * non-empty, capped id, so the type makes `id` required. Consumers that
- * read `connect.<kind>.id` off a resolved config get a `string` with no
- * fallback and no non-null assertion — the resolution guarantee lives in
- * the type, not in a comment.
+ * may omit it). After resolution every present sub-config carries an id, so
+ * the type makes `id` required (a `string`) — consumers read `<kind>.id`
+ * with no fallback and no non-null assertion. The type guarantees presence
+ * and string-ness only; non-emptiness (the `|| FALLBACK_ID` substitution)
+ * is enforced at runtime in {@link buildConnectSlugMap}, since `string`
+ * still admits `""`.
  */
 type Resolved<T extends { id?: string }> = Omit<T, "id"> & { id: string };
 export type ResolvedConnectConfig = {
@@ -87,22 +88,39 @@ const FALLBACK_ID = {
 } as const;
 
 /**
- * Claim a unique, capped slug for `rawId` against the ids already taken
- * for this kind, recording the result in `taken`.
+ * Claim a unique, capped slug for `rawId` against every supplied scope,
+ * recording the result in all of them.
  *
- * First the id is truncated to {@link CONNECT_SLUG_MAX_LENGTH}. If that
- * prefix is free, it wins. Otherwise we append `_2`, `_3`, … — re-cutting
- * the base so the suffix stays inside the length budget — until we find a
- * free slug. Determinism comes from the caller walking blocks in a fixed
- * order (`moduleOrder` → `formOrder[mod]`); the first block to claim a
- * prefix keeps it bare, later collisions take the next free suffix.
+ * A connect slug answers to two independent uniqueness constraints, so a
+ * candidate must be free in *all* `scopes` before it's claimed (then it's
+ * recorded in every scope):
+ *  - the app-wide per-kind scope — Connect keys `LearnModule` / `DeliverUnit`
+ *    / `Task` on `(app, slug)`, so two blocks of the same kind anywhere in
+ *    the app can't share a slug; and
+ *  - the per-form cross-kind scope — the slug IS the XForm element name and
+ *    all of a form's blocks emit as siblings in one `<data>`, so two
+ *    co-located blocks (even of different kinds, e.g. learn_module +
+ *    assessment) can't share a slug or the XForm gets duplicate element
+ *    names + duplicate bind nodesets.
+ *
+ * The id is first truncated to {@link CONNECT_SLUG_MAX_LENGTH}. If that
+ * prefix is free everywhere, it wins. Otherwise we append `_2`, `_3`, … —
+ * re-cutting the base so the suffix stays inside the length budget — until a
+ * candidate is free in every scope. Determinism comes from the caller
+ * walking blocks in a fixed order (`moduleOrder` → `formOrder[mod]`, then a
+ * fixed kind order within each form); the first block to claim a prefix
+ * keeps it bare, later collisions take the next free suffix.
  */
-function claimSlug(rawId: string, taken: Set<string>): string {
+function claimSlug(rawId: string, scopes: ReadonlyArray<Set<string>>): string {
+	const isFree = (candidate: string): boolean =>
+		scopes.every((scope) => !scope.has(candidate));
+	const claim = (candidate: string): string => {
+		for (const scope of scopes) scope.add(candidate);
+		return candidate;
+	};
+
 	const base = rawId.slice(0, CONNECT_SLUG_MAX_LENGTH);
-	if (!taken.has(base)) {
-		taken.add(base);
-		return base;
-	}
+	if (isFree(base)) return claim(base);
 
 	// Collision: try `<prefix>_2`, `<prefix>_3`, … The base is re-cut to
 	// leave room for the suffix so the assembled slug never exceeds the
@@ -112,10 +130,7 @@ function claimSlug(rawId: string, taken: Set<string>): string {
 		const suffix = `_${n}`;
 		const candidate =
 			rawId.slice(0, CONNECT_SLUG_MAX_LENGTH - suffix.length) + suffix;
-		if (!taken.has(candidate)) {
-			taken.add(candidate);
-			return candidate;
-		}
+		if (isFree(candidate)) return claim(candidate);
 	}
 }
 
@@ -130,11 +145,12 @@ function claimSlug(rawId: string, taken: Set<string>): string {
  * so callers can treat `map.get(formUuid) === undefined` as "no Connect
  * block to emit" — the same shape they already handle.
  *
- * Deduplication is per-kind: `learn_module` slugs are unique among
- * themselves, `deliver_unit` slugs among themselves, etc. Cross-kind
- * collisions are left intact because each kind lands in its own DB table
- * and its own XForm data wrapper — a `learn_module` and a `deliver_unit`
- * sharing a slug is harmless.
+ * Deduplication enforces two constraints at once (see {@link claimSlug}):
+ * slugs are unique per-kind app-wide (the `(app, slug)` DB key), AND unique
+ * across all kinds within a single form (the XForm sibling-element-name
+ * constraint). So a `learn_module` and an `assessment` on *different* forms
+ * may share a slug, but the same two kinds *co-located on one form* are
+ * forced apart.
  *
  * Pure: never mutates the input doc.
  */
@@ -148,10 +164,10 @@ export function buildConnectSlugMap(
 	// expander, so there are no slugs to resolve.
 	if (!doc.connectType) return result;
 
-	// One claimed-slug set per kind. Shared across all forms so the cap is
-	// app-wide, not per-form — the dedup invariant that keeps two truncated
-	// blocks from colliding onto one `(app, slug)` row.
-	const taken = {
+	// One claimed-slug set per kind, shared across all forms — enforces the
+	// app-wide `(app, slug)` uniqueness Connect's DB tables require. The
+	// per-form cross-kind set is allocated fresh inside the form loop below.
+	const appWide = {
 		learn_module: new Set<string>(),
 		assessment: new Set<string>(),
 		deliver_unit: new Set<string>(),
@@ -160,48 +176,59 @@ export function buildConnectSlugMap(
 
 	// Walk in a fixed order so slug assignment (and thus collision
 	// disambiguation) is deterministic: the same doc always yields the same
-	// slugs, which `update_or_create` requires to avoid orphaning rows.
+	// slugs. Within each form, kinds are claimed in a fixed order
+	// (learn_module → assessment → deliver_unit → task) so the per-form
+	// cross-kind tie-break is stable too.
 	for (const moduleUuid of doc.moduleOrder) {
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const connect = doc.forms[formUuid]?.connect;
 			if (!connect) continue;
 
+			// Fresh per-form scope: every block in THIS form claims against it,
+			// so no two of the form's blocks (regardless of kind) can land the
+			// same slug — which would emit duplicate sibling element names.
+			const inForm = new Set<string>();
+
 			// Resolve each present sub-config: shallow-clone (so the capped id
-			// never writes back into the doc's struct) and replace `id` with
-			// its claimed slug. Absent sub-configs stay absent.
+			// never writes back into the doc's struct) and replace `id` with a
+			// slug claimed against both its app-wide-per-kind scope and this
+			// form's cross-kind scope. Absent sub-configs stay absent.
 			const next: ResolvedConnectConfig = {};
 
 			if (connect.learn_module) {
 				next.learn_module = {
 					...connect.learn_module,
-					id: claimSlug(
-						connect.learn_module.id || FALLBACK_ID.learn_module,
-						taken.learn_module,
-					),
+					id: claimSlug(connect.learn_module.id || FALLBACK_ID.learn_module, [
+						appWide.learn_module,
+						inForm,
+					]),
 				};
 			}
 			if (connect.assessment) {
 				next.assessment = {
 					...connect.assessment,
-					id: claimSlug(
-						connect.assessment.id || FALLBACK_ID.assessment,
-						taken.assessment,
-					),
+					id: claimSlug(connect.assessment.id || FALLBACK_ID.assessment, [
+						appWide.assessment,
+						inForm,
+					]),
 				};
 			}
 			if (connect.deliver_unit) {
 				next.deliver_unit = {
 					...connect.deliver_unit,
-					id: claimSlug(
-						connect.deliver_unit.id || FALLBACK_ID.deliver_unit,
-						taken.deliver_unit,
-					),
+					id: claimSlug(connect.deliver_unit.id || FALLBACK_ID.deliver_unit, [
+						appWide.deliver_unit,
+						inForm,
+					]),
 				};
 			}
 			if (connect.task) {
 				next.task = {
 					...connect.task,
-					id: claimSlug(connect.task.id || FALLBACK_ID.task, taken.task),
+					id: claimSlug(connect.task.id || FALLBACK_ID.task, [
+						appWide.task,
+						inForm,
+					]),
 				};
 			}
 

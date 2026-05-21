@@ -249,10 +249,12 @@ describe("buildConnectSlugMap — app-wide collision disambiguation", () => {
 		}
 	});
 
-	it("dedups per-kind, not across kinds — a learn_module and a deliver_unit may share a slug", () => {
-		// Different Connect kinds land in different DB tables (LearnModule
-		// vs DeliverUnit) and different XForm data wrappers, so cross-kind
-		// slug equality is harmless. Forcing them apart would be needless.
+	it("allows cross-kind slug sharing on DIFFERENT forms — distinct DB tables, distinct XForms", () => {
+		// A `learn_module` on one form and an `assessment` on another form
+		// land in different DB tables (LearnModule vs Assessment) AND
+		// different XForm `<data>` blocks, so an identical slug is harmless.
+		// Per-kind dedup is app-wide; it must not reach across kinds to force
+		// these apart.
 		const doc = buildDoc({
 			connectType: "learn",
 			modules: [
@@ -269,7 +271,52 @@ describe("buildConnectSlugMap — app-wide collision disambiguation", () => {
 									description: "x",
 									time_estimate: 30,
 								},
-								assessment: { id: "shared_slug", user_score: "100" },
+							},
+						},
+						{
+							name: "Quiz",
+							type: "survey",
+							connect: { assessment: { id: "shared_slug", user_score: "100" } },
+						},
+					],
+				},
+			],
+		});
+
+		const slugMap = buildConnectSlugMap(doc);
+		const formUuids = doc.formOrder[doc.moduleOrder[0]];
+		// Different forms → cross-kind equality is preserved.
+		expect(slugMap.get(formUuids[0])?.learn_module?.id).toBe("shared_slug");
+		expect(slugMap.get(formUuids[1])?.assessment?.id).toBe("shared_slug");
+	});
+
+	it("disambiguates two co-located blocks on the SAME form (learn_module + assessment)", () => {
+		// learn_module and assessment ride in the same form's `<data>` block,
+		// and the slug IS the XForm element name. A combined teach+test form
+		// is a first-class pattern, and the cap creates the collision: a
+		// combined module's assessment id starts with its learn_module id, so
+		// both truncate to the same 50-char prefix. Two sibling elements with
+		// the same name + the same `/data/<slug>` bind would be malformed
+		// XForm — so co-located blocks must get distinct slugs even though
+		// they're different kinds.
+		const prefix = "a".repeat(55);
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: `${prefix}_lm`,
+									name: "L",
+									description: "x",
+									time_estimate: 30,
+								},
+								assessment: { id: `${prefix}_as`, user_score: "100" },
 							},
 						},
 					],
@@ -278,19 +325,96 @@ describe("buildConnectSlugMap — app-wide collision disambiguation", () => {
 		});
 
 		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
-		// Neither is over-length, so neither needs truncation; cross-kind
-		// equality is preserved rather than disambiguated.
-		expect(config?.learn_module?.id).toBe("shared_slug");
-		expect(config?.assessment?.id).toBe("shared_slug");
+		const lmId = config?.learn_module?.id as string;
+		const asId = config?.assessment?.id as string;
+		expect(lmId).not.toBe(asId);
+		expect(lmId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+		expect(asId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+	});
+
+	it("disambiguates two co-located blocks on the SAME form (deliver_unit + task)", () => {
+		// Same constraint for the deliver-app pair: deliver_unit + task on one
+		// form is first-class, and the cap can collide their slugs.
+		const prefix = "d".repeat(55);
+		const doc = buildDoc({
+			connectType: "deliver",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							connect: {
+								deliver_unit: { id: `${prefix}_du`, name: "V" },
+								task: { id: `${prefix}_tk`, name: "T", description: "x" },
+							},
+						},
+					],
+				},
+			],
+		});
+
+		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
+		const duId = config?.deliver_unit?.id as string;
+		const taskId = config?.task?.id as string;
+		expect(duId).not.toBe(taskId);
+		expect(duId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+		expect(taskId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+	});
+
+	it("emits distinct sibling element names for co-located blocks in one form's XForm", () => {
+		// End-to-end guard: the disambiguated slugs must surface as distinct
+		// XForm element names + distinct bind nodesets in the same form. Two
+		// `<slug vellum:role=...>` siblings sharing a name would be invalid.
+		const prefix = "e".repeat(55);
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: `${prefix}_lm`,
+									name: "L",
+									description: "x",
+									time_estimate: 30,
+								},
+								assessment: { id: `${prefix}_as`, user_score: "100" },
+							},
+						},
+					],
+				},
+			],
+		});
+
+		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
+		const lmId = config?.learn_module?.id as string;
+		const asId = config?.assessment?.id as string;
+		const xml = firstXForm(doc);
+
+		// Both wrappers present, under their own (distinct) names.
+		expect(xml).toContain(`<${lmId} vellum:role="ConnectLearnModule">`);
+		expect(xml).toContain(`<${asId} vellum:role="ConnectAssessment">`);
+		// The bind nodesets are distinct too.
+		expect(xml).toContain(`nodeset="/data/${lmId}"`);
+		expect(xml).toContain(`/data/${asId}/assessment/user_score`);
 	});
 });
 
-describe("buildConnectSlugMap — determinism", () => {
-	it("produces identical slugs across repeated runs of the same doc", () => {
-		// `update_or_create` keys on the slug, so the same input must always
-		// map to the same slug — otherwise a re-upload would orphan the
-		// prior row and re-create the module. Two colliding ids exercise the
-		// disambiguation path, which is where non-determinism would hide.
+describe("buildConnectSlugMap — purity / idempotence", () => {
+	it("is pure — the same doc yields identical slugs on every call", () => {
+		// The property that matters is purity: one CCZ resolves to one set of
+		// slugs, so an idempotent opp-init retry over the same uploaded app
+		// claims the same `(app, slug)` rows. Cross-edit stability is NOT a
+		// goal — every Nova upload creates a brand-new HQ app (HQ has no
+		// atomic update API), so there's no same-app re-sync of edited content
+		// for slugs to stay stable across. Two colliding ids run the
+		// disambiguation path, where any non-purity would hide.
 		const doc = buildDoc({
 			connectType: "learn",
 			modules: [
@@ -502,7 +626,7 @@ describe("Connect slug cap — end-to-end XForm consistency", () => {
 	});
 });
 
-// ── #5 lock-in — empty <user_score/> + value-in-bind ─────────────────
+// ── Empty <user_score/> + value-in-bind ──────────────────────────────
 //
 // Separate but adjacent to the slug cap: the assessment block deliberately
 // emits an EMPTY `<user_score/>` data node and carries the computed value
