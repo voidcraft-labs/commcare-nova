@@ -33,6 +33,7 @@ import {
 	CONNECT_SLUG_MAX_LENGTH,
 } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 
 // ── Fixture helpers ──────────────────────────────────────────────────
@@ -502,21 +503,95 @@ describe("buildConnectSlugMap — empty / absent handling", () => {
 		expect(buildConnectSlugMap(doc).size).toBe(0);
 	});
 
-	it("substitutes the empty-id fallback for a learn_module with no id", () => {
-		// The wire-final id is never empty: an absent id falls back to the
-		// stable per-kind sentinel before capping.
+	// An id-less block resolves to the SAME name-derived id the validate-time
+	// derivation (`deriveConnectDefaults`) would mint — learn_module /
+	// deliver_unit from the module slug, assessment / task from
+	// `<module>_<form>`. Mirroring keeps the wire fallback consistent with
+	// the doc-layer default and makes the authoring placeholder
+	// ("Defaults from module name") truthful. A bare static sentinel here
+	// would diverge: `deriveConnectDefaults` fills via `??=` (nullish only),
+	// so a cleared-to-empty id reaches the resolver and must still produce a
+	// meaningful name slug.
+	it.each([
+		{
+			kind: "learn_module" as const,
+			connectType: "learn" as const,
+			block: { name: "F", description: "x", time_estimate: 30 },
+			expected: "training", // toSnakeId("Training")
+		},
+		{
+			kind: "assessment" as const,
+			connectType: "learn" as const,
+			block: { user_score: "100" },
+			expected: "training_lesson", // toSnakeId("Training") + "_" + toSnakeId("Lesson")
+		},
+		{
+			kind: "deliver_unit" as const,
+			connectType: "deliver" as const,
+			block: { name: "F" },
+			expected: "training",
+		},
+		{
+			kind: "task" as const,
+			connectType: "deliver" as const,
+			block: { name: "F", description: "x" },
+			expected: "training_lesson",
+		},
+	])("derives an id-less $kind from the module/form name (not a static sentinel)", ({
+		kind,
+		connectType,
+		block,
+		expected,
+	}) => {
+		const doc = buildDoc({
+			connectType,
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{ name: "Lesson", type: "survey", connect: { [kind]: block } },
+					],
+				},
+			],
+		});
+		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
+		expect((config as Record<string, { id: string }>)[kind].id).toBe(expected);
+	});
+
+	it("gives two id-less learn_modules on different forms distinct name-derived slugs", () => {
+		// The realistic "enabled learn on several forms, never named the ids"
+		// shape. Both id-less blocks flow through the name-derived fallback;
+		// when the module names collide (here, identical) the app-wide
+		// per-kind dedup must still split them so two distinct modules don't
+		// collapse onto one `(app, slug)` row.
 		const doc = buildDoc({
 			connectType: "learn",
 			modules: [
 				{
-					name: "M",
+					name: "Training",
 					forms: [
 						{
-							name: "F",
+							name: "Lesson A",
 							type: "survey",
 							connect: {
 								learn_module: {
-									name: "F",
+									name: "Lesson A",
+									description: "x",
+									time_estimate: 30,
+								},
+							},
+						},
+					],
+				},
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson B",
+							type: "survey",
+							connect: {
+								learn_module: {
+									name: "Lesson B",
 									description: "x",
 									time_estimate: 30,
 								},
@@ -526,9 +601,16 @@ describe("buildConnectSlugMap — empty / absent handling", () => {
 				},
 			],
 		});
-		expect(
-			buildConnectSlugMap(doc).get(onlyFormUuid(doc))?.learn_module?.id,
-		).toBe("connect_learn");
+
+		const slugMap = buildConnectSlugMap(doc);
+		const ids = doc.moduleOrder.map(
+			(m) => slugMap.get(doc.formOrder[m][0])?.learn_module?.id as string,
+		);
+		expect(ids[0]).not.toBe(ids[1]);
+		expect(new Set(ids).size).toBe(2);
+		for (const id of ids) {
+			expect(id.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+		}
 	});
 });
 
@@ -669,5 +751,76 @@ describe("Connect assessment — user_score value lives in the bind, not the ele
 		expect(xml).toContain(
 			'<bind nodeset="/data/intro_assessment/assessment/user_score" calculate="42"/>',
 		);
+	});
+});
+
+// ── Validator valid-path set tracks the capped id ────────────────────
+//
+// `validateBlueprintDeep` exposes each Connect block's data path so a
+// user XPath may reference the Connect node. That path must use the SAME
+// capped id the XForm emits, or a field referencing the (real, capped)
+// node would be rejected — and a field referencing the uncapped raw path
+// (the node the wire never produces) must be caught. This locks the
+// validator as one of the wire surfaces kept in lockstep with the cap.
+
+describe("Connect slug cap — validator valid-path set uses the capped id", () => {
+	/** A learn doc with a long-id module + one field whose `relevant`
+	 *  references `refPath`. Survey form so no case wiring is needed. */
+	function docReferencing(refPath: string): BlueprintDoc {
+		return buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: LONG_ID_60,
+									name: "Intro",
+									description: "Intro",
+									time_estimate: 30,
+								},
+							},
+							fields: [
+								f({
+									kind: "text",
+									id: "note",
+									label: "Note",
+									relevant: `${refPath} = 'x'`,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	/** The wire-final capped id for the long-id learn_module in this doc. */
+	function cappedLearnId(doc: BlueprintDoc): string {
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		return buildConnectSlugMap(doc).get(formUuid)?.learn_module?.id as string;
+	}
+
+	it("validates clean when a field references the capped Connect path", () => {
+		const cappedId = cappedLearnId(docReferencing("/data/placeholder"));
+		const doc = docReferencing(`/data/${cappedId}`);
+		const refErrors = runValidation(doc).filter(
+			(e) => e.code === "INVALID_REF",
+		);
+		expect(refErrors).toEqual([]);
+	});
+
+	it("errors when a field references the raw uncapped 60-char path", () => {
+		const doc = docReferencing(`/data/${LONG_ID_60}`);
+		const refErrors = runValidation(doc).filter(
+			(e) => e.code === "INVALID_REF",
+		);
+		// The raw path is not a node the wire emits, so it's an unknown ref.
+		expect(refErrors.length).toBeGreaterThan(0);
+		expect(refErrors.some((e) => e.message.includes(LONG_ID_60))).toBe(true);
 	});
 });

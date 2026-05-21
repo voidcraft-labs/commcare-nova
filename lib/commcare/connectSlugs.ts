@@ -38,6 +38,7 @@ import type {
 	ConnectTask,
 	Uuid,
 } from "@/lib/domain";
+import { toSnakeId } from "./identifierValidation";
 
 /**
  * Maximum Connect slug length on the wire.
@@ -59,9 +60,9 @@ export const CONNECT_SLUG_MAX_LENGTH = 50;
  * may omit it). After resolution every present sub-config carries an id, so
  * the type makes `id` required (a `string`) — consumers read `<kind>.id`
  * with no fallback and no non-null assertion. The type guarantees presence
- * and string-ness only; non-emptiness (the `|| FALLBACK_ID` substitution)
- * is enforced at runtime in {@link buildConnectSlugMap}, since `string`
- * still admits `""`.
+ * and string-ness only; non-emptiness (the `|| fallbackId(...)`
+ * substitution) is enforced at runtime in {@link buildConnectSlugMap},
+ * since `string` still admits `""`.
  */
 type Resolved<T extends { id?: string }> = Omit<T, "id"> & { id: string };
 export type ResolvedConnectConfig = {
@@ -72,20 +73,37 @@ export type ResolvedConnectConfig = {
 };
 
 /**
- * Stable per-kind fallback id used when a block carries no explicit id.
+ * Per-kind, name-derived fallback id for a block that carries no explicit
+ * id (undefined or empty string).
  *
- * The wire-final id is never empty — the XForm element name, `id=` attr,
- * and bind nodesets all need a non-empty token. Centralizing the fallback
- * here (rather than repeating `|| "connect_learn"` at each consumer) keeps
- * the XForm builder, the load map, and the validator agreeing on the same
- * id for an id-less block. All four are well under the cap.
+ * Snake-ifies the module and form names independently, then: `learn_module`
+ * / `deliver_unit` take the module slug; `assessment` / `task` take
+ * `<moduleSlug>_<formSlug>`. This reproduces what the validate-time
+ * derivation in `lib/doc/connectConfig.ts::deriveConnectDefaults` mints for
+ * the same names. Reproducing it is load-bearing: the doc layer fills ids
+ * with `??=` (nullish only), so a user who clears an id to `""` gets no
+ * doc-layer default and the empty value reaches this resolver. A static
+ * sentinel (`connect_learn`) here would diverge from the doc-layer default
+ * and from the authoring UI's "defaults from module name" hint. `toSnakeId`
+ * always returns a non-empty token (`|| "unnamed"` internally), so the
+ * result is never empty even when the names are blank.
  */
-const FALLBACK_ID = {
-	learn_module: "connect_learn",
-	assessment: "connect_assessment",
-	deliver_unit: "connect_deliver",
-	task: "connect_task",
-} as const;
+function fallbackId(
+	kind: keyof ResolvedConnectConfig,
+	moduleName: string,
+	formName: string,
+): string {
+	const modSlug = toSnakeId(moduleName);
+	const formSlug = toSnakeId(formName);
+	switch (kind) {
+		case "learn_module":
+		case "deliver_unit":
+			return modSlug;
+		case "assessment":
+		case "task":
+			return `${modSlug}_${formSlug}`;
+	}
+}
 
 /**
  * Claim a unique, capped slug for `rawId` against every supplied scope,
@@ -180,9 +198,14 @@ export function buildConnectSlugMap(
 	// (learn_module → assessment → deliver_unit → task) so the per-form
 	// cross-kind tie-break is stable too.
 	for (const moduleUuid of doc.moduleOrder) {
+		// Names feed the id-less fallback (mirrors the doc-layer derivation).
+		// Read once per form rather than per kind.
+		const moduleName = doc.modules[moduleUuid]?.name ?? "";
+
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const connect = doc.forms[formUuid]?.connect;
 			if (!connect) continue;
+			const formName = doc.forms[formUuid].name;
 
 			// Fresh per-form scope: every block in THIS form claims against it,
 			// so no two of the form's blocks (regardless of kind) can land the
@@ -192,43 +215,47 @@ export function buildConnectSlugMap(
 			// Resolve each present sub-config: shallow-clone (so the capped id
 			// never writes back into the doc's struct) and replace `id` with a
 			// slug claimed against both its app-wide-per-kind scope and this
-			// form's cross-kind scope. Absent sub-configs stay absent.
+			// form's cross-kind scope. An undefined or empty id falls back to
+			// the name-derived default. Absent sub-configs stay absent.
 			const next: ResolvedConnectConfig = {};
 
 			if (connect.learn_module) {
 				next.learn_module = {
 					...connect.learn_module,
-					id: claimSlug(connect.learn_module.id || FALLBACK_ID.learn_module, [
-						appWide.learn_module,
-						inForm,
-					]),
+					id: claimSlug(
+						connect.learn_module.id ||
+							fallbackId("learn_module", moduleName, formName),
+						[appWide.learn_module, inForm],
+					),
 				};
 			}
 			if (connect.assessment) {
 				next.assessment = {
 					...connect.assessment,
-					id: claimSlug(connect.assessment.id || FALLBACK_ID.assessment, [
-						appWide.assessment,
-						inForm,
-					]),
+					id: claimSlug(
+						connect.assessment.id ||
+							fallbackId("assessment", moduleName, formName),
+						[appWide.assessment, inForm],
+					),
 				};
 			}
 			if (connect.deliver_unit) {
 				next.deliver_unit = {
 					...connect.deliver_unit,
-					id: claimSlug(connect.deliver_unit.id || FALLBACK_ID.deliver_unit, [
-						appWide.deliver_unit,
-						inForm,
-					]),
+					id: claimSlug(
+						connect.deliver_unit.id ||
+							fallbackId("deliver_unit", moduleName, formName),
+						[appWide.deliver_unit, inForm],
+					),
 				};
 			}
 			if (connect.task) {
 				next.task = {
 					...connect.task,
-					id: claimSlug(connect.task.id || FALLBACK_ID.task, [
-						appWide.task,
-						inForm,
-					]),
+					id: claimSlug(
+						connect.task.id || fallbackId("task", moduleName, formName),
+						[appWide.task, inForm],
+					),
 				};
 			}
 

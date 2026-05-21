@@ -327,12 +327,14 @@ describe("Connect XForm export", () => {
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		expect(xml).toContain('<connect_learn vellum:role="ConnectLearnModule">');
+		// id-less learn_module → name-derived slug (module "Main" → "main"),
+		// matching what `deriveConnectDefaults` mints for the same doc.
+		expect(xml).toContain('<main vellum:role="ConnectLearnModule">');
 		expect(xml).toContain('xmlns="http://commcareconnect.com/data/v1/learn"');
 		expect(xml).toContain("<name>ILC Module</name>");
 		expect(xml).toContain("<description>Training for ILC</description>");
 		expect(xml).toContain("<time_estimate>5</time_estimate>");
-		expect(xml).toContain("</connect_learn>");
+		expect(xml).toContain("</main>");
 	});
 
 	it("generates correct assessment block with calculate bind", () => {
@@ -347,12 +349,14 @@ describe("Connect XForm export", () => {
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
+		// id-less assessment → `<module>_<form>` slug
+		// ("Main" + "ILC Training" → "main_ilc_training").
 		expect(xml).toContain(
-			'<connect_assessment vellum:role="ConnectAssessment">',
+			'<main_ilc_training vellum:role="ConnectAssessment">',
 		);
 		expect(xml).toContain("<user_score/>");
 		expect(xml).toContain(
-			'nodeset="/data/connect_assessment/assessment/user_score" calculate="100"',
+			'nodeset="/data/main_ilc_training/assessment/user_score" calculate="100"',
 		);
 	});
 
@@ -371,17 +375,16 @@ describe("Connect XForm export", () => {
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		expect(xml).toContain('<connect_deliver vellum:role="ConnectDeliverUnit">');
+		// id-less deliver_unit → name-derived slug (module "Main" → "main").
+		expect(xml).toContain('<main vellum:role="ConnectDeliverUnit">');
 		expect(xml).toContain(
 			'<deliver xmlns="http://commcareconnect.com/data/v1/learn"',
 		);
 		expect(xml).toContain("<name>Weekly Report</name>");
 		expect(xml).toContain("<entity_id/>");
 		expect(xml).toContain("<entity_name/>");
-		expect(xml).toContain('nodeset="/data/connect_deliver/deliver/entity_id"');
-		expect(xml).toContain(
-			'nodeset="/data/connect_deliver/deliver/entity_name"',
-		);
+		expect(xml).toContain('nodeset="/data/main/deliver/entity_id"');
+		expect(xml).toContain('nodeset="/data/main/deliver/entity_name"');
 	});
 
 	it("generates task block", () => {
@@ -400,7 +403,9 @@ describe("Connect XForm export", () => {
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		expect(xml).toContain('<connect_task vellum:role="ConnectTask">');
+		// id-less task → `<module>_<form>` slug
+		// ("Main" + "Weekly Report" → "main_weekly_report").
+		expect(xml).toContain('<main_weekly_report vellum:role="ConnectTask">');
 		expect(xml).toContain("<name>Delivery Task</name>");
 		expect(xml).toContain("<description>Complete the delivery</description>");
 	});
