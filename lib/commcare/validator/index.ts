@@ -15,7 +15,6 @@ import {
 	type FieldTreeNode,
 } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import { buildConnectSlugMap } from "../connectSlugs";
 import { validateXPath } from "./xpathValidator";
 
 /**
@@ -130,14 +129,6 @@ function collectFromTree(
 export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 	const errors: string[] = [];
 
-	// Wire-final Connect ids per form (capped, deduped). Reading from the
-	// same resolver the expander uses keeps the valid-path set in lockstep
-	// with the ids the XForm builder actually emits — a user XPath that
-	// references a Connect data path resolves against the real node, not an
-	// uncapped one that the wire would never produce. Empty for
-	// non-Connect apps and forms without a Connect block.
-	const connectSlugs = buildConnectSlugMap(doc);
-
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
 		const caseProps = collectCaseProperties(doc, mod.caseType);
@@ -149,29 +140,35 @@ export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 
 			const validPaths = collectValidPaths(doc, formUuid);
 
-			// The resolved Connect config (capped, deduped ids), or
-			// `undefined` when this form has no wire-emitted Connect block —
-			// the map entry exists only when `connectType` is set AND the form
-			// carries connect wiring, so its presence replaces the prior
-			// explicit gate.
-			const connect = connectSlugs.get(formUuid);
+			// The form's connect config, read directly from the doc (only when
+			// the app is in Connect mode). The validator runs on in-progress
+			// docs that may not yet have ids filled, so it must NOT route
+			// through the emit-time `buildConnectSlugMap` (which asserts ids
+			// are present) — it reads `form.connect` and guards each valid-path
+			// arm on the id being set. An id-less block simply contributes no
+			// valid path; the connect-id format/uniqueness rules in
+			// `rules/form.ts` carry the authoring signal for a bad explicit id.
+			const connect = doc.connectType ? form.connect : undefined;
 
 			// Expose Connect data paths so XPath expressions can reference them.
+			// Each arm gates on the id being present (a wire node only exists
+			// once the id is set; an id-less block is filled at the source
+			// before export).
 			if (connect) {
-				if (connect.learn_module) {
+				if (connect.learn_module?.id) {
 					validPaths.add(`/data/${connect.learn_module.id}`);
 				}
-				if (connect.assessment) {
+				if (connect.assessment?.id) {
 					validPaths.add(
 						`/data/${connect.assessment.id}/assessment/user_score`,
 					);
 				}
-				if (connect.deliver_unit) {
+				if (connect.deliver_unit?.id) {
 					const duId = connect.deliver_unit.id;
 					validPaths.add(`/data/${duId}/deliver/entity_id`);
 					validPaths.add(`/data/${duId}/deliver/entity_name`);
 				}
-				if (connect.task) {
+				if (connect.task?.id) {
 					// Wrapper-only bind, like learn_module — the XForm emits
 					// `<bind nodeset="/data/<taskId>"/>` with no child paths.
 					validPaths.add(`/data/${connect.task.id}`);

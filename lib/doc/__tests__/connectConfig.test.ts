@@ -373,6 +373,7 @@ describe("Connect XForm export", () => {
 			"learn",
 			{
 				learn_module: {
+					id: "main",
 					name: "ILC Module",
 					description: "Training for ILC",
 					time_estimate: 5,
@@ -383,8 +384,8 @@ describe("Connect XForm export", () => {
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		// id-less learn_module → name-derived slug (module "Main" → "main"),
-		// matching what `deriveConnectDefaults` mints for the same doc.
+		// The stored id is the wire element name — the resolver passes it
+		// through verbatim (ids are valid by construction at the source).
 		expect(xml).toContain('<main vellum:role="ConnectLearnModule">');
 		expect(xml).toContain('xmlns="http://commcareconnect.com/data/v1/learn"');
 		expect(xml).toContain("<name>ILC Module</name>");
@@ -397,16 +398,19 @@ describe("Connect XForm export", () => {
 		const doc = makeConnectExpandDoc(
 			"learn",
 			{
-				learn_module: { name: "Test", description: "Test", time_estimate: 1 },
-				assessment: { user_score: "100" },
+				learn_module: {
+					id: "main",
+					name: "Test",
+					description: "Test",
+					time_estimate: 1,
+				},
+				assessment: { id: "main_ilc_training", user_score: "100" },
 			},
 			"ILC Training",
 		);
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		// id-less assessment → `<module>_<form>` slug
-		// ("Main" + "ILC Training" → "main_ilc_training").
 		expect(xml).toContain(
 			'<main_ilc_training vellum:role="ConnectAssessment">',
 		);
@@ -421,6 +425,7 @@ describe("Connect XForm export", () => {
 			"deliver",
 			{
 				deliver_unit: {
+					id: "main",
 					name: "Weekly Report",
 					entity_id: "concat('user', '-', today())",
 					entity_name: "'test_user'",
@@ -431,7 +436,6 @@ describe("Connect XForm export", () => {
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		// id-less deliver_unit → name-derived slug (module "Main" → "main").
 		expect(xml).toContain('<main vellum:role="ConnectDeliverUnit">');
 		expect(xml).toContain(
 			'<deliver xmlns="http://commcareconnect.com/data/v1/learn"',
@@ -448,19 +452,22 @@ describe("Connect XForm export", () => {
 			"deliver",
 			{
 				deliver_unit: {
+					id: "main",
 					name: "Unit",
 					entity_id: "'id'",
 					entity_name: "'name'",
 				},
-				task: { name: "Delivery Task", description: "Complete the delivery" },
+				task: {
+					id: "main_weekly_report",
+					name: "Delivery Task",
+					description: "Complete the delivery",
+				},
 			},
 			"Weekly Report",
 		);
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		// id-less task → `<module>_<form>` slug
-		// ("Main" + "Weekly Report" → "main_weekly_report").
 		expect(xml).toContain('<main_weekly_report vellum:role="ConnectTask">');
 		expect(xml).toContain("<name>Delivery Task</name>");
 		expect(xml).toContain("<description>Complete the delivery</description>");
@@ -471,6 +478,7 @@ describe("Connect XForm export", () => {
 			"deliver",
 			{
 				deliver_unit: {
+					id: "main",
 					name: "Unit",
 					entity_id: "concat(#user/username, '-', today())",
 					entity_name: "#user/username",
@@ -605,13 +613,6 @@ describe("Connect derived id length", () => {
 	const LONG_MODULE_NAME =
 		"Module 3 — Conducting the 15-question seller interview";
 
-	/** Extract the connect wrapper element name (the slug) carrying the
-	 *  given vellum role from an XForm string. */
-	function connectElementName(xml: string, role: string): string | undefined {
-		const m = xml.match(new RegExp(`<([^\\s<>]+) vellum:role="${role}">`));
-		return m?.[1];
-	}
-
 	function longNameLearnDoc(): BlueprintDoc {
 		return buildDoc({
 			connectType: "learn",
@@ -635,6 +636,12 @@ describe("Connect derived id length", () => {
 	}
 
 	it("caps a derived learn_module id to ≤50 in deriveConnectDefaults", () => {
+		// LEEP regression: the long module name's snake-id is 52 chars; the
+		// derived id must be capped at derivation, so the `CONNECT_ID_TOO_LONG`
+		// rule never fires on an id the user can't shorten. The cap lives at
+		// the source (deriveConnectDefaults) — the emit-time resolver is a
+		// pass-through and never transforms, so there's nothing to assert at
+		// the wire beyond the consistency tests in connectSlugs.test.ts.
 		const doc = longNameLearnDoc();
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const next = deriveConnectDefaults({
@@ -645,58 +652,5 @@ describe("Connect derived id length", () => {
 		});
 		const id = next?.learn_module?.id as string;
 		expect(id.length).toBeLessThanOrEqual(50);
-	});
-
-	it("derives an over-50 id from a long module name WITHOUT a length error, and exports a valid ≤50 element", () => {
-		const doc = longNameLearnDoc();
-
-		// No length-rule error — the derived id was capped, and the user
-		// can't shorten a module-name-derived id anyway.
-		const tooLong = runValidation(doc).filter(
-			(e) => e.code === "CONNECT_ID_TOO_LONG",
-		);
-		expect(tooLong).toEqual([]);
-
-		// The cap reaches the wire: the emitted element name is ≤50.
-		const xml = Object.values(expandDoc(doc)._attachments)[0] as string;
-		const elementName = connectElementName(xml, "ConnectLearnModule");
-		expect(elementName).toBeDefined();
-		expect((elementName as string).length).toBeLessThanOrEqual(50);
-	});
-
-	it("exports a non-blank derived element for an id-less block", () => {
-		// A blank/unset id is always valid: the resolver derives a non-empty
-		// name slug. Lock that the emitted element name is not empty.
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Training",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							connect: {
-								learn_module: { name: "L", description: "x", time_estimate: 5 },
-							},
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-					],
-				},
-			],
-		});
-
-		// No length error and no char error for an id-less block.
-		const idErrors = runValidation(doc).filter(
-			(e) =>
-				e.code === "CONNECT_ID_TOO_LONG" ||
-				e.code === "CONNECT_ID_INVALID_FORMAT",
-		);
-		expect(idErrors).toEqual([]);
-
-		const xml = Object.values(expandDoc(doc)._attachments)[0] as string;
-		const elementName = connectElementName(xml, "ConnectLearnModule");
-		expect(elementName).toBeDefined();
-		expect((elementName as string).length).toBeGreaterThan(0);
 	});
 });

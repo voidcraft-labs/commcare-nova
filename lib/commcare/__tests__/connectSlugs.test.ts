@@ -1,30 +1,25 @@
 /**
- * Connect slug capping + app-wide deduplication.
+ * Connect-id validity, autofill, and the wire-emit resolver.
  *
- * Every per-form `connect` block carries an id (`learn_module.id`,
- * `assessment.id`, `deliver_unit.id`, `task.id`) that CommCare Connect
- * ingests at opportunity-init and writes into a slug column. The tightest
- * of those columns — `LearnModule.slug` / `Task.slug` — is a Django
- * `SlugField()` with no `max_length`, i.e. Postgres `varchar(50)`
- * (`commcare-connect/.../opportunity/models.py::LearnModule.slug`). The
- * insert (`opportunity/tasks.py::create_learn_modules_and_deliver_units`)
- * goes through `update_or_create(slug=block.id, ...)`, which bypasses
- * Django field validation, so an over-length id reaches Postgres raw and
- * raises `value too long for type character varying(50)` → HTTP 500.
+ * A connect id (`learn_module.id` / `assessment.id` / `deliver_unit.id` /
+ * `task.id`) becomes an XForm element name and a CommCare Connect DB slug
+ * (tightest column `varchar(50)`), so it must be a legal XML element name
+ * AND within 50 chars AND unique across the app. The redesign forces all
+ * three correct at the SOURCE:
+ *  - `connectIdError(id)` — the format/length verdict (shared by the UI
+ *    commit guard and the `validate_app` rules).
+ *  - `connectIdConflictError(id, existingIds)` — the contextual uniqueness
+ *    verdict for an explicit set.
+ *  - `deriveConnectId(name, existingIds)` — the creation-time autofill:
+ *    snake → cap → suffix-uniquify, always producing a valid, unique id.
+ *  - `buildConnectSlugMap(doc)` — the emit-time resolver, now a typed
+ *    pass-through: it asserts each block's id is set (the source-
+ *    correctness invariant) and narrows the type, with NO cap / dedup /
+ *    fallback (those moved to the source helpers above).
  *
- * `buildConnectSlugMap` is the single home for "what id this block puts on
- * the wire": it applies the empty-id fallback, caps to {@link CONNECT_SLUG_MAX_LENGTH},
- * and disambiguates collisions so two distinct blocks never share a slug
- * (the `(app, slug)` unique constraint would otherwise collapse two rows
- * into one). The three wire consumers — XForm builder, case-references
- * load map, and the validator's valid-path set — all read this map so the
- * wrapper element, the `id=` attribute, the bind nodesets, and the load
- * map agree on one capped id.
- *
- * These tests exercise the helper directly (length / dedup / determinism)
- * and end-to-end through `expandDoc` (consistency across every wire
- * surface). The end-to-end path is the production verification surface —
- * it runs the expander integration, not just the unit.
+ * These tests cover each helper directly plus the resolver end-to-end
+ * through `expandDoc` (wire-surface consistency) and `runValidation` (the
+ * valid-path set).
  */
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -40,11 +35,6 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 
 // ── Fixture helpers ──────────────────────────────────────────────────
-//
-// A 60-character snake id (the shape `toSnakeId` mints from a long form
-// name) — comfortably past the 50-char cap so truncation must engage.
-const LONG_ID_60 =
-	"module_three_conducting_the_fifteen_question_seller_intervie";
 
 /** The first (only) attachment XForm XML from an expanded doc. */
 function firstXForm(doc: BlueprintDoc): string {
@@ -58,10 +48,15 @@ function onlyFormUuid(doc: BlueprintDoc): Uuid {
 	return doc.formOrder[moduleUuid][0];
 }
 
-describe("buildConnectSlugMap — per-kind length cap", () => {
-	it("caps a learn_module id derived from a long name to ≤50 chars", () => {
-		// LONG_ID_60 is 60 chars; the live overflow was 52 chars against
-		// varchar(50). The emitted slug must be ≤50.
+describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
+	// The resolver does NOT cap, dedup, or fall back. Connect ids are forced
+	// valid + unique + within-length at the SOURCE (creation autofill via
+	// `deriveConnectId`, the field/tool guards via `connectIdError` +
+	// `connectIdConflictError`, and the validate-time backfill). So the
+	// resolver only narrows `id` from `string | undefined` to `string` and
+	// passes the stored id through verbatim.
+
+	it("passes a valid stored id through unchanged", () => {
 		const doc = buildDoc({
 			connectType: "learn",
 			modules: [
@@ -73,40 +68,40 @@ describe("buildConnectSlugMap — per-kind length cap", () => {
 							type: "survey",
 							connect: {
 								learn_module: {
-									id: LONG_ID_60,
+									id: "intro_module",
 									name: "Intro",
 									description: "Intro",
 									time_estimate: 30,
 								},
+								assessment: { id: "intro_quiz", user_score: "100" },
 							},
 						},
 					],
 				},
 			],
 		});
-
-		const slugMap = buildConnectSlugMap(doc);
-		const config = slugMap.get(onlyFormUuid(doc));
-		const id = config?.learn_module?.id;
-		expect(id).toBeDefined();
-		expect((id as string).length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-		expect(CONNECT_SLUG_MAX_LENGTH).toBe(50);
+		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
+		// Ids are returned exactly as stored — no slicing, no suffixing.
+		expect(config?.learn_module?.id).toBe("intro_module");
+		expect(config?.assessment?.id).toBe("intro_quiz");
 	});
 
-	it("caps an assessment id to ≤50 chars", () => {
-		const doc = buildDoc({
+	it("passes every kind's id through across deliver + learn", () => {
+		const learn = buildDoc({
 			connectType: "learn",
 			modules: [
 				{
-					name: "Training",
+					name: "M",
 					forms: [
 						{
-							name: "Quiz",
+							name: "F",
 							type: "survey",
 							connect: {
-								assessment: {
-									id: `${LONG_ID_60}_assessment_extra_padding_to_exceed_limit`,
-									user_score: "100",
+								learn_module: {
+									id: "lm_id",
+									name: "L",
+									description: "x",
+									time_estimate: 5,
 								},
 							},
 						},
@@ -114,151 +109,36 @@ describe("buildConnectSlugMap — per-kind length cap", () => {
 				},
 			],
 		});
-
-		const id = buildConnectSlugMap(doc).get(onlyFormUuid(doc))?.assessment?.id;
-		expect(id).toBeDefined();
-		expect((id as string).length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-	});
-
-	it("caps a deliver_unit id to ≤50 chars", () => {
-		const doc = buildDoc({
+		const deliver = buildDoc({
 			connectType: "deliver",
 			modules: [
 				{
-					name: "Visits",
+					name: "M",
 					forms: [
 						{
-							name: "Visit",
+							name: "F",
 							type: "survey",
 							connect: {
-								deliver_unit: { id: LONG_ID_60, name: "Visit" },
+								deliver_unit: { id: "du_id", name: "V" },
+								task: { id: "task_id", name: "T", description: "x" },
 							},
 						},
 					],
 				},
 			],
 		});
-
-		const id = buildConnectSlugMap(doc).get(onlyFormUuid(doc))?.deliver_unit
-			?.id;
-		expect(id).toBeDefined();
-		expect((id as string).length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+		expect(
+			buildConnectSlugMap(learn).get(onlyFormUuid(learn))?.learn_module?.id,
+		).toBe("lm_id");
+		const dConfig = buildConnectSlugMap(deliver).get(onlyFormUuid(deliver));
+		expect(dConfig?.deliver_unit?.id).toBe("du_id");
+		expect(dConfig?.task?.id).toBe("task_id");
 	});
 
-	it("caps a task id to ≤50 chars", () => {
-		const doc = buildDoc({
-			connectType: "deliver",
-			modules: [
-				{
-					name: "Visits",
-					forms: [
-						{
-							name: "Visit",
-							type: "survey",
-							connect: {
-								deliver_unit: { id: "du", name: "Visit" },
-								task: {
-									id: `${LONG_ID_60}_task_extra_padding_well_past_fifty`,
-									name: "Task",
-									description: "Task",
-								},
-							},
-						},
-					],
-				},
-			],
-		});
-
-		const id = buildConnectSlugMap(doc).get(onlyFormUuid(doc))?.task?.id;
-		expect(id).toBeDefined();
-		expect((id as string).length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-	});
-});
-
-describe("buildConnectSlugMap — app-wide collision disambiguation", () => {
-	/**
-	 * Build a learn doc with N forms (each its own module), every form's
-	 * `learn_module.id` set to a >50-char id that shares the same 50-char
-	 * prefix. Distinct blocks that truncate to the same prefix must NOT
-	 * collide into one slug — Connect keys `LearnModule` on `(app, slug)`,
-	 * so a collision would `update_or_create` the second block onto the
-	 * first row and silently drop a module.
-	 */
-	function collidingLearnDoc(rawIds: string[]): BlueprintDoc {
-		return buildDoc({
-			connectType: "learn",
-			modules: rawIds.map((rawId, i) => ({
-				name: `Module ${i}`,
-				forms: [
-					{
-						name: `Lesson ${i}`,
-						type: "survey" as const,
-						connect: {
-							learn_module: {
-								id: rawId,
-								name: `Lesson ${i}`,
-								description: "x",
-								time_estimate: 30,
-							},
-						},
-					},
-				],
-			})),
-		});
-	}
-
-	it("gives two blocks that truncate to the same prefix distinct slugs", () => {
-		// Both ids share the first 55 chars, diverging only past the cap —
-		// naive truncation would map both to the identical 50-char prefix.
-		const doc = collidingLearnDoc([
-			`${"a".repeat(55)}_first`,
-			`${"a".repeat(55)}_second`,
-		]);
-		const slugMap = buildConnectSlugMap(doc);
-
-		const ids = doc.moduleOrder.map(
-			(m) => slugMap.get(doc.formOrder[m][0])?.learn_module?.id,
-		);
-		expect(ids[0]).toBeDefined();
-		expect(ids[1]).toBeDefined();
-		expect(ids[0]).not.toBe(ids[1]);
-		for (const id of ids) {
-			expect((id as string).length).toBeLessThanOrEqual(
-				CONNECT_SLUG_MAX_LENGTH,
-			);
-		}
-	});
-
-	it("keeps every slug ≤50 even when three+ blocks collide on one prefix", () => {
-		// Three collisions force the disambiguation counter past single
-		// digits' worth of headroom checks — guards the off-by-one where a
-		// suffix pushes the result back over 50.
-		const prefix = "b".repeat(60);
-		const doc = collidingLearnDoc([
-			`${prefix}_one`,
-			`${prefix}_two`,
-			`${prefix}_three`,
-			`${prefix}_four`,
-		]);
-		const slugMap = buildConnectSlugMap(doc);
-
-		const ids = doc.moduleOrder.map(
-			(m) => slugMap.get(doc.formOrder[m][0])?.learn_module?.id as string,
-		);
-		// All four distinct.
-		expect(new Set(ids).size).toBe(4);
-		// All four within the cap.
-		for (const id of ids) {
-			expect(id.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-		}
-	});
-
-	it("allows cross-kind slug sharing on DIFFERENT forms — distinct DB tables, distinct XForms", () => {
-		// A `learn_module` on one form and an `assessment` on another form
-		// land in different DB tables (LearnModule vs Assessment) AND
-		// different XForm `<data>` blocks, so an identical slug is harmless.
-		// Per-kind dedup is app-wide; it must not reach across kinds to force
-		// these apart.
+	it("throws an invariant violation if a block reaches it with no id", () => {
+		// Source-correctness should make this unreachable. If it ever fires,
+		// an entry point skipped enforcement — the resolver refuses to invent
+		// an id rather than silently paper over the gap.
 		const doc = buildDoc({
 			connectType: "learn",
 			modules: [
@@ -269,144 +149,19 @@ describe("buildConnectSlugMap — app-wide collision disambiguation", () => {
 							name: "Lesson",
 							type: "survey",
 							connect: {
+								// id deliberately omitted to simulate the broken state.
 								learn_module: {
-									id: "shared_slug",
-									name: "L",
+									name: "Intro",
 									description: "x",
-									time_estimate: 30,
+									time_estimate: 5,
 								},
 							},
 						},
-						{
-							name: "Quiz",
-							type: "survey",
-							connect: { assessment: { id: "shared_slug", user_score: "100" } },
-						},
 					],
 				},
 			],
 		});
-
-		const slugMap = buildConnectSlugMap(doc);
-		const formUuids = doc.formOrder[doc.moduleOrder[0]];
-		// Different forms → cross-kind equality is preserved.
-		expect(slugMap.get(formUuids[0])?.learn_module?.id).toBe("shared_slug");
-		expect(slugMap.get(formUuids[1])?.assessment?.id).toBe("shared_slug");
-	});
-
-	it("disambiguates two co-located blocks on the SAME form (learn_module + assessment)", () => {
-		// learn_module and assessment ride in the same form's `<data>` block,
-		// and the slug IS the XForm element name. A combined teach+test form
-		// is a first-class pattern, and the cap creates the collision: a
-		// combined module's assessment id starts with its learn_module id, so
-		// both truncate to the same 50-char prefix. Two sibling elements with
-		// the same name + the same `/data/<slug>` bind would be malformed
-		// XForm — so co-located blocks must get distinct slugs even though
-		// they're different kinds.
-		const prefix = "a".repeat(55);
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Training",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: `${prefix}_lm`,
-									name: "L",
-									description: "x",
-									time_estimate: 30,
-								},
-								assessment: { id: `${prefix}_as`, user_score: "100" },
-							},
-						},
-					],
-				},
-			],
-		});
-
-		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
-		const lmId = config?.learn_module?.id as string;
-		const asId = config?.assessment?.id as string;
-		expect(lmId).not.toBe(asId);
-		expect(lmId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-		expect(asId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-	});
-
-	it("disambiguates two co-located blocks on the SAME form (deliver_unit + task)", () => {
-		// Same constraint for the deliver-app pair: deliver_unit + task on one
-		// form is first-class, and the cap can collide their slugs.
-		const prefix = "d".repeat(55);
-		const doc = buildDoc({
-			connectType: "deliver",
-			modules: [
-				{
-					name: "Visits",
-					forms: [
-						{
-							name: "Visit",
-							type: "survey",
-							connect: {
-								deliver_unit: { id: `${prefix}_du`, name: "V" },
-								task: { id: `${prefix}_tk`, name: "T", description: "x" },
-							},
-						},
-					],
-				},
-			],
-		});
-
-		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
-		const duId = config?.deliver_unit?.id as string;
-		const taskId = config?.task?.id as string;
-		expect(duId).not.toBe(taskId);
-		expect(duId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-		expect(taskId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-	});
-
-	it("emits distinct sibling element names for co-located blocks in one form's XForm", () => {
-		// End-to-end guard: the disambiguated slugs must surface as distinct
-		// XForm element names + distinct bind nodesets in the same form. Two
-		// `<slug vellum:role=...>` siblings sharing a name would be invalid.
-		const prefix = "e".repeat(55);
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Training",
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: `${prefix}_lm`,
-									name: "L",
-									description: "x",
-									time_estimate: 30,
-								},
-								assessment: { id: `${prefix}_as`, user_score: "100" },
-							},
-						},
-					],
-				},
-			],
-		});
-
-		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
-		const lmId = config?.learn_module?.id as string;
-		const asId = config?.assessment?.id as string;
-		const xml = firstXForm(doc);
-
-		// Both wrappers present, under their own (distinct) names.
-		expect(xml).toContain(`<${lmId} vellum:role="ConnectLearnModule">`);
-		expect(xml).toContain(`<${asId} vellum:role="ConnectAssessment">`);
-		// The bind nodesets are distinct too.
-		expect(xml).toContain(`nodeset="/data/${lmId}"`);
-		expect(xml).toContain(`/data/${asId}/assessment/user_score`);
+		expect(() => buildConnectSlugMap(doc)).toThrow(/no id/i);
 	});
 });
 
@@ -506,122 +261,22 @@ describe("buildConnectSlugMap — empty / absent handling", () => {
 		expect(buildConnectSlugMap(doc).size).toBe(0);
 	});
 
-	// An id-less block resolves to the SAME name-derived id the validate-time
-	// derivation (`deriveConnectDefaults`) would mint — learn_module /
-	// deliver_unit from the module slug, assessment / task from
-	// `<module>_<form>`. Mirroring keeps the wire fallback consistent with
-	// the doc-layer default and makes the authoring placeholder
-	// ("Defaults from module name") truthful. A bare static sentinel here
-	// would diverge: `deriveConnectDefaults` fills via `??=` (nullish only),
-	// so a cleared-to-empty id reaches the resolver and must still produce a
-	// meaningful name slug.
-	it.each([
-		{
-			kind: "learn_module" as const,
-			connectType: "learn" as const,
-			block: { name: "F", description: "x", time_estimate: 30 },
-			expected: "training", // toSnakeId("Training")
-		},
-		{
-			kind: "assessment" as const,
-			connectType: "learn" as const,
-			block: { user_score: "100" },
-			expected: "training_lesson", // toSnakeId("Training") + "_" + toSnakeId("Lesson")
-		},
-		{
-			kind: "deliver_unit" as const,
-			connectType: "deliver" as const,
-			block: { name: "F" },
-			expected: "training",
-		},
-		{
-			kind: "task" as const,
-			connectType: "deliver" as const,
-			block: { name: "F", description: "x" },
-			expected: "training_lesson",
-		},
-	])("derives an id-less $kind from the module/form name (not a static sentinel)", ({
-		kind,
-		connectType,
-		block,
-		expected,
-	}) => {
-		const doc = buildDoc({
-			connectType,
-			modules: [
-				{
-					name: "Training",
-					forms: [
-						{ name: "Lesson", type: "survey", connect: { [kind]: block } },
-					],
-				},
-			],
-		});
-		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
-		expect((config as Record<string, { id: string }>)[kind].id).toBe(expected);
-	});
-
-	it("gives two id-less learn_modules on different forms distinct name-derived slugs", () => {
-		// The realistic "enabled learn on several forms, never named the ids"
-		// shape. Both id-less blocks flow through the name-derived fallback;
-		// when the module names collide (here, identical) the app-wide
-		// per-kind dedup must still split them so two distinct modules don't
-		// collapse onto one `(app, slug)` row.
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Training",
-					forms: [
-						{
-							name: "Lesson A",
-							type: "survey",
-							connect: {
-								learn_module: {
-									name: "Lesson A",
-									description: "x",
-									time_estimate: 30,
-								},
-							},
-						},
-					],
-				},
-				{
-					name: "Training",
-					forms: [
-						{
-							name: "Lesson B",
-							type: "survey",
-							connect: {
-								learn_module: {
-									name: "Lesson B",
-									description: "x",
-									time_estimate: 30,
-								},
-							},
-						},
-					],
-				},
-			],
-		});
-
-		const slugMap = buildConnectSlugMap(doc);
-		const ids = doc.moduleOrder.map(
-			(m) => slugMap.get(doc.formOrder[m][0])?.learn_module?.id as string,
-		);
-		expect(ids[0]).not.toBe(ids[1]);
-		expect(new Set(ids).size).toBe(2);
-		for (const id of ids) {
-			expect(id.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-		}
-	});
+	// Note: id-less blocks are filled at the source (`deriveConnectDefaults`
+	// autofill), so they never reach the resolver id-less in normal flow —
+	// the autofill + uniqueness behavior is covered by `deriveConnectId` and
+	// `deriveConnectDefaults` tests, and the resolver's invariant-throw on a
+	// blank id is covered by the pass-through describe above.
 });
 
 // ── End-to-end through expandDoc — wire-surface consistency ──────────
 
-describe("Connect slug cap — end-to-end XForm consistency", () => {
-	const longLearnDoc = buildDoc({
-		appName: "LongLearn",
+describe("Connect id — end-to-end XForm consistency", () => {
+	// The resolver passes the stored id through; the XForm builder must use
+	// that one id at every site (wrapper element, `id=` attr, bind nodeset)
+	// so they all agree. Ids are valid by construction at the source, so
+	// these use a normal stored id — no capping is involved.
+	const learnDoc = buildDoc({
+		appName: "Learn",
 		connectType: "learn",
 		modules: [
 			{
@@ -632,7 +287,7 @@ describe("Connect slug cap — end-to-end XForm consistency", () => {
 						type: "survey",
 						connect: {
 							learn_module: {
-								id: LONG_ID_60,
+								id: "intro_module",
 								name: "Intro",
 								description: "Intro",
 								time_estimate: 30,
@@ -645,35 +300,32 @@ describe("Connect slug cap — end-to-end XForm consistency", () => {
 		],
 	});
 
-	it("emits the capped id identically in the wrapper element, the id= attribute, and the bind nodeset", () => {
-		const xml = firstXForm(longLearnDoc);
-		const cappedId = buildConnectSlugMap(longLearnDoc).get(
-			onlyFormUuid(longLearnDoc),
-		)?.learn_module?.id as string;
+	it("emits the stored id identically in the wrapper element, the id= attribute, and the bind nodeset", () => {
+		const xml = firstXForm(learnDoc);
+		const id = buildConnectSlugMap(learnDoc).get(onlyFormUuid(learnDoc))
+			?.learn_module?.id as string;
+		expect(id).toBe("intro_module");
 
-		expect(cappedId.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
-		// The original 60-char id must NOT appear anywhere on the wire.
-		expect(xml).not.toContain(LONG_ID_60);
-		// Wrapper element opens + closes with the capped id.
-		expect(xml).toContain(`<${cappedId} vellum:role="ConnectLearnModule">`);
-		expect(xml).toContain(`</${cappedId}>`);
-		// The Connect-namespaced inner element carries the capped id= attr.
+		// Wrapper element opens + closes with the id.
+		expect(xml).toContain(`<${id} vellum:role="ConnectLearnModule">`);
+		expect(xml).toContain(`</${id}>`);
+		// The Connect-namespaced inner element carries the id= attr.
 		expect(xml).toContain(
-			`<module xmlns="http://commcareconnect.com/data/v1/learn" id="${cappedId}">`,
+			`<module xmlns="http://commcareconnect.com/data/v1/learn" id="${id}">`,
 		);
-		// The bind nodeset references the capped data path.
+		// The bind nodeset references the same data path.
 		expect(xml).toContain(
-			`<bind vellum:nodeset="#form/${cappedId}" nodeset="/data/${cappedId}"/>`,
+			`<bind vellum:nodeset="#form/${id}" nodeset="/data/${id}"/>`,
 		);
 	});
 
 	it("agrees between the XForm bind and the case-references load map for a deliver_unit", () => {
 		// `entity_id` carries a `#case/` hashtag so it surfaces in the
 		// case-references load map. The load-map key and the XForm bind
-		// nodeset must reference the SAME capped id, or the runtime would
-		// preload into a node the form never declares.
+		// nodeset must reference the SAME id, or the runtime would preload
+		// into a node the form never declares.
 		const doc = buildDoc({
-			appName: "DeliverLong",
+			appName: "Deliver",
 			connectType: "deliver",
 			modules: [
 				{
@@ -685,7 +337,7 @@ describe("Connect slug cap — end-to-end XForm consistency", () => {
 							type: "followup",
 							connect: {
 								deliver_unit: {
-									id: LONG_ID_60,
+									id: "vendor_visit",
 									name: "Visit",
 									entity_id: "#case/beneficiary_id",
 								},
@@ -697,17 +349,15 @@ describe("Connect slug cap — end-to-end XForm consistency", () => {
 			],
 		});
 
-		const cappedId = buildConnectSlugMap(doc).get(onlyFormUuid(doc))
-			?.deliver_unit?.id as string;
+		const id = buildConnectSlugMap(doc).get(onlyFormUuid(doc))?.deliver_unit
+			?.id as string;
 		const expandedForm = expandDoc(doc).modules[0].forms[0];
 		const load = expandedForm.case_references_data.load;
 
-		// The load map keys on the capped id, matching the bind.
-		expect(load[`/data/${cappedId}/deliver/entity_id`]).toEqual([
+		// The load map keys on the same id as the bind.
+		expect(load[`/data/${id}/deliver/entity_id`]).toEqual([
 			"#case/beneficiary_id",
 		]);
-		// No load-map key references the original over-length id.
-		expect(Object.keys(load).some((k) => k.includes(LONG_ID_60))).toBe(false);
 	});
 });
 
@@ -757,19 +407,20 @@ describe("Connect assessment — user_score value lives in the bind, not the ele
 	});
 });
 
-// ── Validator valid-path set tracks the capped id ────────────────────
+// ── Validator valid-path set exposes the stored connect id ───────────
 //
-// `validateBlueprintDeep` exposes each Connect block's data path so a
-// user XPath may reference the Connect node. That path must use the SAME
-// capped id the XForm emits, or a field referencing the (real, capped)
-// node would be rejected — and a field referencing the uncapped raw path
-// (the node the wire never produces) must be caught. This locks the
-// validator as one of the wire surfaces kept in lockstep with the cap.
+// `validateBlueprintDeep` exposes each Connect block's data path so a user
+// XPath may reference the Connect node. The path uses the block's stored id
+// (the resolver passes it through), so a field referencing it validates
+// clean — and a field referencing a path no block declares is caught.
+// `task` is included because it's a wrapper-only bind like `learn_module`
+// (`<bind nodeset="/data/<taskId>"/>`), so its path is a real wire node too.
 
-describe("Connect slug cap — validator valid-path set uses the capped id", () => {
-	/** A learn doc with a long-id module + one field whose `relevant`
-	 *  references `refPath`. Survey form so no case wiring is needed. */
-	function docReferencing(refPath: string): BlueprintDoc {
+describe("Connect id — validator valid-path set exposes the stored id", () => {
+	const BOGUS_PATH = "/data/no_such_connect_node";
+
+	/** A learn doc with one field whose `relevant` references `refPath`. */
+	function learnDocReferencing(refPath: string): BlueprintDoc {
 		return buildDoc({
 			connectType: "learn",
 			modules: [
@@ -781,7 +432,7 @@ describe("Connect slug cap — validator valid-path set uses the capped id", () 
 							type: "survey",
 							connect: {
 								learn_module: {
-									id: LONG_ID_60,
+									id: "intro_module",
 									name: "Intro",
 									description: "Intro",
 									time_estimate: 30,
@@ -802,35 +453,7 @@ describe("Connect slug cap — validator valid-path set uses the capped id", () 
 		});
 	}
 
-	/** The wire-final capped id for the long-id learn_module in this doc. */
-	function cappedLearnId(doc: BlueprintDoc): string {
-		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		return buildConnectSlugMap(doc).get(formUuid)?.learn_module?.id as string;
-	}
-
-	it("validates clean when a field references the capped Connect path", () => {
-		const cappedId = cappedLearnId(docReferencing("/data/placeholder"));
-		const doc = docReferencing(`/data/${cappedId}`);
-		const refErrors = runValidation(doc).filter(
-			(e) => e.code === "INVALID_REF",
-		);
-		expect(refErrors).toEqual([]);
-	});
-
-	it("errors when a field references the raw uncapped 60-char path", () => {
-		const doc = docReferencing(`/data/${LONG_ID_60}`);
-		const refErrors = runValidation(doc).filter(
-			(e) => e.code === "INVALID_REF",
-		);
-		// The raw path is not a node the wire emits, so it's an unknown ref.
-		expect(refErrors.length).toBeGreaterThan(0);
-		expect(refErrors.some((e) => e.message.includes(LONG_ID_60))).toBe(true);
-	});
-
-	// `task` is a wrapper-only bind like `learn_module`: the XForm emits
-	// `<bind nodeset="/data/<taskId>"/>`, so `/data/<taskId>` is a real wire
-	// node a user field may reference. The valid-path set must expose it
-	// under the capped id, same as the other three kinds.
+	/** A deliver doc with a task block + one field referencing `refPath`. */
 	function taskDocReferencing(refPath: string): BlueprintDoc {
 		return buildDoc({
 			connectType: "deliver",
@@ -842,7 +465,7 @@ describe("Connect slug cap — validator valid-path set uses the capped id", () 
 							name: "Visit",
 							type: "survey",
 							connect: {
-								task: { id: LONG_ID_60, name: "Visit", description: "x" },
+								task: { id: "visit_task", name: "Visit", description: "x" },
 							},
 							fields: [
 								f({
@@ -859,28 +482,27 @@ describe("Connect slug cap — validator valid-path set uses the capped id", () 
 		});
 	}
 
-	/** The wire-final capped id for the long-id task in this doc. */
-	function cappedTaskId(doc: BlueprintDoc): string {
-		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		return buildConnectSlugMap(doc).get(formUuid)?.task?.id as string;
-	}
+	const refErrors = (doc: BlueprintDoc) =>
+		runValidation(doc).filter((e) => e.code === "INVALID_REF");
 
-	it("validates clean when a field references the capped task path", () => {
-		const cappedId = cappedTaskId(taskDocReferencing("/data/placeholder"));
-		const doc = taskDocReferencing(`/data/${cappedId}`);
-		const refErrors = runValidation(doc).filter(
-			(e) => e.code === "INVALID_REF",
-		);
-		expect(refErrors).toEqual([]);
+	it("validates clean when a field references the learn_module path", () => {
+		expect(refErrors(learnDocReferencing("/data/intro_module"))).toEqual([]);
 	});
 
-	it("errors when a field references the raw uncapped task path", () => {
-		const doc = taskDocReferencing(`/data/${LONG_ID_60}`);
-		const refErrors = runValidation(doc).filter(
-			(e) => e.code === "INVALID_REF",
+	it("errors when a field references a path no connect block declares", () => {
+		const errs = refErrors(learnDocReferencing(BOGUS_PATH));
+		expect(errs.length).toBeGreaterThan(0);
+		expect(errs.some((e) => e.message.includes("no_such_connect_node"))).toBe(
+			true,
 		);
-		expect(refErrors.length).toBeGreaterThan(0);
-		expect(refErrors.some((e) => e.message.includes(LONG_ID_60))).toBe(true);
+	});
+
+	it("validates clean when a field references the task path", () => {
+		expect(refErrors(taskDocReferencing("/data/visit_task"))).toEqual([]);
+	});
+
+	it("errors when a field references a bogus task path", () => {
+		expect(refErrors(taskDocReferencing(BOGUS_PATH)).length).toBeGreaterThan(0);
 	});
 });
 

@@ -251,7 +251,8 @@ async function applyConnectDefaults(
 	ctx: ToolExecutionContext,
 	doc: BlueprintDoc,
 ): Promise<BlueprintDoc> {
-	if (!doc.connectType) return doc;
+	const connectType = doc.connectType;
+	if (!connectType) return doc;
 
 	const mutations: Mutation[] = [];
 	// Apply each form's defaults to a working draft before deriving the
@@ -260,12 +261,14 @@ async function applyConnectDefaults(
 	// names derive the same slug would both read the pre-pass doc and land
 	// the same id — collapsing two Connect rows into one. The working draft
 	// makes the uniqueness guarantee hold across forms, not just within one.
+	// (`connectType` is captured pre-loop; `produce` preserves it on every
+	// `workingDoc`, so it stays the narrowed non-null value.)
 	let workingDoc = doc;
 	for (const { moduleName, formUuid } of iterForms(workingDoc)) {
 		const form = workingDoc.forms[formUuid];
 		if (!form?.connect) continue;
 		const next = deriveConnectDefaults({
-			connectType: workingDoc.connectType,
+			connectType,
 			doc: workingDoc,
 			formUuid,
 			moduleName,

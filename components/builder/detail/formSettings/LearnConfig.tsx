@@ -2,8 +2,11 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef } from "react";
 import { Toggle } from "@/components/ui/Toggle";
-import { toSnakeId } from "@/lib/commcare";
-import { connectIdError } from "@/lib/commcare/connectSlugs";
+import {
+	connectIdConflictError,
+	connectIdError,
+	deriveConnectId,
+} from "@/lib/commcare/connectSlugs";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
@@ -57,11 +60,31 @@ export function LearnConfig({
 	if (assessment) lastAssessmentRef.current = assessment;
 	const getLintContext = useConnectLintContext(formUuid);
 
+	// Connect ids set by the OTHER kind on this same form — the conflict
+	// scope a single LearnConfig can see and the collision that would break
+	// the XForm (two sibling `<data>` elements with the same name). App-wide
+	// cross-form uniqueness is enforced by the SA tools + `validateApp`.
+	const otherId = useCallback(
+		(kind: "learn_module" | "assessment"): Set<string> => {
+			const ids = new Set<string>();
+			if (kind !== "learn_module" && lm?.id) ids.add(lm.id);
+			if (kind !== "assessment" && assessment?.id) ids.add(assessment.id);
+			return ids;
+		},
+		[lm, assessment],
+	);
+
+	// Name-derived defaults for a freshly enabled sub-config, unique against
+	// the co-located block's id. Same `deriveConnectId` the SA path uses, so
+	// the autofilled id is valid + capped + disambiguated identically.
 	const defaultIds = useCallback(() => {
-		const modSlug = toSnakeId(mod?.name ?? "");
-		const formSlug = toSnakeId(form?.name ?? "");
-		return { learnId: modSlug, assessmentId: `${modSlug}_${formSlug}` };
-	}, [mod, form]);
+		const modName = mod?.name ?? "";
+		const pairName = `${modName} ${form?.name ?? ""}`;
+		return {
+			learnId: deriveConnectId(modName, otherId("learn_module")),
+			assessmentId: deriveConnectId(pairName, otherId("assessment")),
+		};
+	}, [mod, form, otherId]);
 
 	const updateLearnModule = useCallback(
 		(field: string, value: string | number) => {
@@ -140,9 +163,17 @@ export function LearnConfig({
 							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
 								<InlineField
 									label="Module ID"
-									value={lm.id ?? "connect_learn"}
+									// Show the real stored id — autofill stamps a valid one
+									// when the block is enabled, so this is never blank in
+									// practice. The commit guard rejects an invalid OR
+									// duplicate id (against the co-located assessment), so a
+									// bad value can't be saved.
+									value={lm.id ?? ""}
 									onChange={(v) => updateLearnModule("id", v)}
-									validate={connectIdError}
+									validate={(v) =>
+										connectIdError(v) ??
+										connectIdConflictError(v, otherId("learn_module"))
+									}
 									mono
 									required
 								/>
@@ -202,11 +233,17 @@ export function LearnConfig({
 							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
 								<InlineField
 									label="Assessment ID"
-									value={assessment.id ?? "connect_assessment"}
+									// Real stored id (autofilled on enable); guard rejects an
+									// invalid or duplicate id (against the co-located
+									// learn_module).
+									value={assessment.id ?? ""}
 									onChange={(v) =>
 										save({ ...connect, assessment: { ...assessment, id: v } })
 									}
-									validate={connectIdError}
+									validate={(v) =>
+										connectIdError(v) ??
+										connectIdConflictError(v, otherId("assessment"))
+									}
 									mono
 									required
 								/>
