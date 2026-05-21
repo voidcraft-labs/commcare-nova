@@ -20,6 +20,8 @@ Run `/mcp`, pick `nova` from the list, and complete the sign-in in the browser w
 
 If the sign-in window doesn't open, run `/mcp` again. If Claude Code later says you're not signed in anymore, run `/mcp`, pick `nova`, and choose Reauthenticate.
 
+Running Nova unattended — from CI, or from automated agents that can't stop for a browser? Set a `NOVA_API_KEY` in your environment instead and skip the sign-in entirely. See [API keys](../mcp/api-keys.mdx).
+
 ## Build your first app
 
 Run `/nova:build` followed by a description of what you want:

@@ -4,18 +4,28 @@
 #
 # ## Why this script lives here, not in the plugin repo
 #
-# The shipped plugin's committed `.mcp.json` pins the MCP URL to
-# `https://mcp.commcare.app/mcp` by design — no env-var substitution, no
-# interpolation. That makes the published artifact immutable from the
-# user's environment, so an attacker who gains the ability to set env
-# vars on an end user's machine cannot redirect Nova to a man-in-the-
-# middle server and exfiltrate prompts / PHI.
+# The shipped plugin's committed `.mcp.json` pins the MCP *URL* to
+# `https://mcp.commcare.app/mcp` with no substitution — that's what
+# keeps the published artifact immune to env-based redirection: an
+# attacker who can set env vars on an end user's machine still can't
+# point Nova at a man-in-the-middle server. Auth is supplied by a
+# `headersHelper` command that reads `NOVA_API_KEY`: set, it emits an
+# `Authorization: Bearer <key>` header; unset, it emits *nothing*, so
+# Claude Code's OAuth flow runs cleanly. (It must omit the header, not
+# emit an empty `Bearer `: Claude Code applies the entry's headers on
+# top of the OAuth token — observed — so an empty `Bearer ` clobbers
+# the freshly-issued token on reconnect and OAuth never authenticates.)
+# The URL stays pinned regardless — a hijacked env var can only swap
+# which account is used, not redirect traffic.
 #
-# Developers still need a way to run the same plugin code against
-# `localhost`. That's a Nova-server concern (the Nova app + docs + MCP
-# implementation all live in this repo), so the dev launcher belongs
-# here too — the published plugin stays a flat data payload with no
-# executable scripts.
+# Developers still need to run the same plugin code against
+# `localhost` — and that IS a URL change, which the shipped `.mcp.json`
+# deliberately can't express. So the dev launcher belongs here (the
+# Nova app + docs + MCP implementation all live in this repo): it
+# regenerates `.mcp.json` with the dev URL. The published plugin ships
+# no executable script files — the one thing Claude Code runs is that
+# inline `headersHelper`, which reads the env key but can't touch the
+# pinned URL.
 #
 # This script materializes a gitignored `.dev-plugin/` overlay inside
 # the plugin repo that copies every plugin file from the source of
@@ -45,24 +55,19 @@
 #   NOVA_MCP_URL=https://staging.example.com/api/mcp ./scripts/nova-plugin-dev.sh
 #   ./scripts/nova-plugin-dev.sh --resume <id>             # extra args forward to `claude`
 #
-#   # Test the API-key override flow (prod docs document this trick):
+#   # Test the API-key auth path (same env var the shipped plugin reads):
 #   NOVA_API_KEY=sk-nova-v1-XXX ./scripts/nova-plugin-dev.sh
 #   ./scripts/nova-plugin-dev.sh --api-key sk-nova-v1-XXX
 #
 # ## API-key mode
 #
-# When `--api-key` (or `NOVA_API_KEY`) is set, the script also registers
-# a user-scope MCP entry named `nova` pointing at the same dev URL as
-# the overlay's `.mcp.json`, with `Authorization: Bearer <key>` baked
-# in. Claude Code dedupes MCP entries by URL match — same URL on the
-# overlay (plugin scope, OAuth) and the user-scope entry (API-key, with
-# bearer) means the user-scope wins. That's the same override trick
-# the production docs document at `docs.commcare.app/mcp/api-keys`,
-# now testable end-to-end against localhost.
-#
-# A trap removes the user-scope entry on exit so subsequent OAuth-mode
-# launches start clean. Ctrl-C, normal exit, and signal kills all
-# trigger the cleanup.
+# When `--api-key` (or `NOVA_API_KEY`) is set, the script exports
+# `NOVA_API_KEY` into the launched `claude` process. The overlay's
+# `.mcp.json` carries the same `headersHelper` as the shipped plugin,
+# so Claude Code runs it and authenticates the plugin's own MCP entry
+# with the key. No second entry, no `claude mcp add`, no cleanup trap.
+# With the var unset the helper emits no header and Claude Code runs
+# the OAuth flow instead, exactly as in production.
 #
 # ## Prerequisites
 #
@@ -174,57 +179,56 @@ for item in .claude-plugin agents skills README.md LICENSE; do
 	fi
 done
 
-# Write the dev-only `.mcp.json`. Keeping the schema aligned with the
-# committed file (same `type`, same server key) so Claude Code treats
-# the overlay as a drop-in replacement for the shipped plugin.
-cat >"$overlay_root/.mcp.json" <<EOF
+# Write the dev-only `.mcp.json`. Schema matches the shipped plugin's
+# committed file (same `type`, server key, and `headersHelper`) so
+# Claude Code treats the overlay as a drop-in replacement — only the
+# URL differs. Two heredocs: the first is unquoted so `$dev_url`
+# expands; the second is quoted (`<<'EOF'`) so the headersHelper
+# one-liner lands byte-for-byte. That line carries `$NOVA_API_KEY` and
+# escaped quotes Claude Code must receive verbatim — a single unquoted
+# heredoc would force a brittle second layer of `\$` / `\\` escaping
+# over them. The helper drops the key straight into the JSON without
+# escaping — safe only because Nova keys are alphanumeric after the
+# `sk-nova-v1-` prefix; a key with JSON quotes or backslashes would
+# break it.
+{
+	cat <<EOF
 {
   "mcpServers": {
     "nova": {
       "type": "http",
-      "url": "$dev_url"
+      "url": "$dev_url",
+EOF
+	cat <<'EOF'
+      "headersHelper": "if [ -n \"$NOVA_API_KEY\" ]; then printf '{\"Authorization\":\"Bearer %s\"}' \"$NOVA_API_KEY\"; else printf '{}'; fi"
     }
   }
 }
 EOF
+} >"$overlay_root/.mcp.json"
 
 echo "Nova plugin: $plugin_root"
 echo "Overlay:     $overlay_root"
 echo "MCP URL:     $dev_url"
 
-# API-key override: register a user-scope MCP entry at the SAME dev URL
-# as the overlay so Claude Code's URL-match dedup picks the user-scope
-# (with bearer) over the overlay's plugin-scope entry (OAuth). Same
-# mechanism the prod docs describe; this just runs it against localhost
-# so we can validate the path without standing up an interactive OAuth
-# flow against dev.
-#
-# Cleanup trap removes the entry whether the script exits normally or
-# gets Ctrl-C'd. Without the trap, an OAuth-mode launch after an
-# API-key launch would still see the user-scope override and silently
-# keep using the stale (possibly revoked) key. `claude mcp remove`
-# swallows "not found" via `|| true` so repeated cleanups are
-# idempotent. Pre-remove first in case a prior run died before its
-# trap fired (disk full, kernel kill -9, power loss).
+# API-key mode: export NOVA_API_KEY into the launched `claude` so the
+# overlay's `headersHelper` sees it and emits the bearer for the
+# plugin's own MCP entry. Same path as the shipped plugin — no
+# user-scope override entry, no URL-dedup trick, nothing to clean up on
+# exit. With `api_key` empty, NOVA_API_KEY stays unset, the helper
+# emits no header, and Claude Code runs the OAuth flow.
 if [[ -n "$api_key" ]]; then
-	claude mcp remove nova --scope user >/dev/null 2>&1 || true
-	claude mcp add nova --transport http "$dev_url" \
-		--header "Authorization: Bearer ${api_key}" \
-		--scope user >/dev/null
-	trap 'claude mcp remove nova --scope user >/dev/null 2>&1 || true' EXIT
-	echo "Auth:        API-key override (user-scope nova → ${dev_url})"
+	export NOVA_API_KEY="$api_key"
+	echo "Auth:        API-key (NOVA_API_KEY → overlay nova header)"
 else
 	echo "Auth:        OAuth (plugin-scope nova → ${dev_url})"
 fi
 echo
 
-# `claude` runs as a child rather than via `exec` — `exec` replaces the
-# shell process, which means the `EXIT` trap above (registered on the
-# shell) never fires. Foreground call lets bash keep ownership of the
-# process so the trap runs on every exit shape: normal claude quit,
-# Ctrl-C, SIGTERM, panic. SIGINT from Ctrl-C goes to the foreground
-# process group on macOS/Linux, so claude receives the signal and
-# exits cleanly; bash then runs the trap on its own way out. The
+# `exec` replaces this shell with `claude`, so no wrapper process
+# lingers for the session's lifetime. Safe because the overlay carries
+# its auth inline — there's no user-scope MCP entry to clean up on
+# exit, hence no EXIT trap that would need the shell to stay alive. The
 # `+`-guarded expansion handles an empty array correctly under `set -u`
 # on bash 3.2 (macOS default) — bare `"${arr[@]}"` would unbound-error.
-claude --plugin-dir "$overlay_root" ${forward_args[@]+"${forward_args[@]}"}
+exec claude --plugin-dir "$overlay_root" ${forward_args[@]+"${forward_args[@]}"}

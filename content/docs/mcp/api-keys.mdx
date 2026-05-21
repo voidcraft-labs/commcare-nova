@@ -33,27 +33,21 @@ The setup depends on whether you have the [Nova plugin](../claude-code/index.mdx
 
 ### With the plugin
 
-The plugin ships a Nova MCP entry that uses OAuth. To switch to API-key auth, add a user-scope override at the same URL — Claude Code matches by URL and prefers your override over the plugin's entry. Paste the full key value directly into the `--header` argument:
+The plugin reads `NOVA_API_KEY` from your environment. Set it to your key value and the plugin authenticates with it automatically — no extra commands, no second server entry:
 
 ```bash
-claude mcp add nova --transport http https://mcp.commcare.app/mcp \
-  --header "Authorization: Bearer sk-nova-v1-YOUR_KEY_HERE" \
-  --scope user
+export NOVA_API_KEY="sk-nova-v1-YOUR_KEY_HERE"
 ```
 
 <Callout type="warn">
-Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value before running.
+Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value. Put the `export` line in your shell profile (`~/.zshrc`, `~/.bashrc`) so it's set every time Claude Code starts.
 </Callout>
 
-After this, your override is the one Claude Code talks to.
+Leave `NOVA_API_KEY` unset to use browser sign-in instead — the plugin falls back to the OAuth flow on its own.
 
-To go back to OAuth, remove the override:
-
-```bash
-claude mcp remove nova --scope user
-```
-
-The plugin's `nova` entry comes back automatically.
+<Callout type="warn">
+Stuck on *Needs authentication* even with a key set? If an earlier sign-in failed, Claude Code remembers that failed state and keeps skipping the connection — even once the key is valid. Clear it by deleting `~/.claude/mcp-needs-auth-cache.json`, then restart Claude Code. (The `/mcp` → Clear authentication option doesn't clear this one.)
+</Callout>
 
 ### Without the plugin
 
@@ -77,6 +71,8 @@ Add the server directly. Drop a config block in your project's `.mcp.json` or a 
 Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value.
 </Callout>
 
+To keep the key out of a committed file, set it in your environment and reference it as `"Bearer ${NOVA_API_KEY}"` — Claude Code fills it in at startup. The variable has to be set: if it's missing, Claude Code won't start the `nova` server and tells you which variable is unset (a hand-added entry like this has no OAuth fallback to catch you). Want browser sign-in instead? Omit the `Authorization` header entirely and Claude Code runs the OAuth flow.
+
 ## Scopes
 
 Each key can have any combination of these:
@@ -92,7 +88,7 @@ Set scopes when you mint, change them later from the kebab menu → **Edit scope
 
 ## Rotating and revoking
 
-Every key in the list shows when it was last used and when it expires. To rotate, mint a new key, swap it into your tool's config, then revoke the old one — there's no in-place rotation, because Nova only keeps the hash.
+Every key in the list shows when it was last used and when it expires. To rotate, mint a new key, point your tool at the new value, then revoke the old one — there's no in-place rotation, because Nova only keeps the hash.
 
 To revoke, click the kebab on the row → **Revoke** → confirm. The next call from that key fails immediately.
 
