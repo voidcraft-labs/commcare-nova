@@ -1299,4 +1299,122 @@ describe("connect rules", () => {
 		);
 		expect(errors).toEqual([]);
 	});
+
+	// ── Connect id must be a valid XML element name ──────────────────
+	//
+	// A connect id becomes an XML element name in the emitted XForm
+	// (`<lmId vellum:role=...>`) and an `id=` attribute. CommCare reads it
+	// as a slug. An id with a space, a leading digit, or other illegal
+	// characters produces malformed XML. We reject such ids at validate
+	// time so the user fixes them — never silently sanitize. Auto-derived
+	// ids run through `toSnakeId` and are always legal, so the rule only
+	// ever fires on a hand-typed / SA-supplied bad id.
+
+	it("flags a connect id containing a space", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "2024 Intake",
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(errors).toHaveLength(1);
+		// Message cites the offending id and the owning form.
+		expect(errors[0].message).toContain("2024 Intake");
+		expect(errors[0].message).toContain("First Form");
+	});
+
+	it("flags a connect id starting with a digit", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "1st_module",
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(errors).toHaveLength(1);
+		expect(errors[0].message).toContain("1st_module");
+	});
+
+	it("does not flag a valid connect id", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "intake_2024",
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(errors).toEqual([]);
+	});
+
+	it("does not flag an id-less connect block (resolver derives a valid id)", () => {
+		// Empty/unset id means "use the default" — the emit-time resolver
+		// derives a legal name slug. The rule must skip these so a normal
+		// id-less learn_module never trips it.
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(errors).toEqual([]);
+	});
+
+	it("flags bad ids on assessment, deliver_unit, and task too", () => {
+		// All four connect kinds emit their id as an element name, so the
+		// rule covers every kind, not just learn_module.
+		const learnDoc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "ok_module",
+					name: "M",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "bad id", user_score: "100" },
+			},
+		});
+		const deliverDoc = connectDoc({
+			connectType: "deliver",
+			formConnect: {
+				deliver_unit: { id: "9unit", name: "Visit" },
+				task: { id: "task!", name: "T", description: "x" },
+			},
+		});
+		expect(
+			runValidation(learnDoc).filter(
+				(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+			),
+		).toHaveLength(1);
+		expect(
+			runValidation(deliverDoc).filter(
+				(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+			),
+		).toHaveLength(2);
+	});
 });
