@@ -20,6 +20,7 @@ import { setScaffoldMutations } from "../blueprintHelpers";
 import { scaffoldModulesSchema } from "../scaffoldSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import { enforceScaffoldConnectIds } from "./shared/connectIds";
 
 export const generateScaffoldInputSchema = scaffoldModulesSchema;
 
@@ -63,7 +64,21 @@ export const generateScaffoldTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<GenerateScaffoldOutput>> {
 		try {
-			const mutations = setScaffoldMutations(input);
+			// Force connect ids correct at the source before any mutation is
+			// built: autofill omitted ids (unique across the whole scaffold),
+			// reject explicit-invalid ids by failing the call (writes nothing).
+			const enforced = enforceScaffoldConnectIds(input);
+			if (!enforced.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: enforced.error },
+				};
+			}
+			const scaffold = enforced.scaffold;
+
+			const mutations = setScaffoldMutations(scaffold);
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(mutations, newDoc, "scaffold");
 			return {
@@ -71,8 +86,8 @@ export const generateScaffoldTool = {
 				mutations,
 				newDoc,
 				result: {
-					appName: input.app_name,
-					modules: input.modules.map((m, i) => ({
+					appName: scaffold.app_name,
+					modules: scaffold.modules.map((m, i) => ({
 						index: i,
 						name: m.name,
 						case_type: m.case_type,

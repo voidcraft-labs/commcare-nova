@@ -354,6 +354,80 @@ describe("updateFormTool partial connect-config updates", () => {
 	});
 });
 
+// ── updateForm connect-id source enforcement ──────────────────────────
+
+describe("updateFormTool connect-id validity", () => {
+	it("fails the call (no mutations) when an explicit connect id is invalid", async () => {
+		/* Force-correct-at-the-source: an explicit invalid id (space →
+		 * illegal XML element name) must FAIL the tool call and write
+		 * NOTHING — never silently sanitize. The SA gets one diagnostic and
+		 * re-issues. */
+		const doc = makeDocWithFullConnect();
+		const { ctx } = makeTestContext();
+
+		const result = await updateFormTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				connect: {
+					learn_module: {
+						id: "bad id",
+						name: "M",
+						description: "x",
+						time_estimate: 5,
+					},
+				},
+			},
+			ctx,
+			doc,
+		);
+
+		expect(result.mutations).toEqual([]);
+		expect(result.result).toHaveProperty("error");
+		expect((result.result as { error: string }).error).toContain("bad id");
+	});
+
+	it("fails the call when an explicit connect id is over the length limit", async () => {
+		const doc = makeDocWithFullConnect();
+		const { ctx } = makeTestContext();
+		const result = await updateFormTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				connect: {
+					assessment: { id: "a".repeat(60), user_score: "100" },
+				},
+			},
+			ctx,
+			doc,
+		);
+		expect(result.mutations).toEqual([]);
+		expect(result.result).toHaveProperty("error");
+	});
+
+	it("autofills a valid id when a newly-enabled block omits one", async () => {
+		/* A block enabled without an explicit id gets a name-derived,
+		 * valid, unique id STORED on the doc — visible to the SA on the
+		 * next read, not conjured at emit. */
+		const doc = makeDeliverDocWithoutConnect();
+		const { ctx } = makeTestContext();
+		const result = await updateFormTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				connect: { deliver_unit: { name: "Vendor visit" } },
+			},
+			ctx,
+			doc,
+		);
+		const du = result.newDoc.forms[FORM_A]?.connect?.deliver_unit;
+		expect(du?.id).toBeDefined();
+		expect((du as { id: string }).id.length).toBeGreaterThan(0);
+		// The autofilled id is derived from the module name ("Patient").
+		expect(du?.id).toBe("patient");
+	});
+});
+
 // ── updateForm deliver_unit ───────────────────────────────────────────
 
 /**
@@ -371,13 +445,14 @@ function makeDeliverDocWithoutConnect(): BlueprintDoc {
 }
 
 describe("updateFormTool deliver_unit", () => {
-	it("lands deliver_unit with only the SA-supplied fields; no entity_id/entity_name injected", async () => {
-		/* `buildConnectConfig` is a structural merge — it must not
-		 * invent system-derived values. `entity_id` / `entity_name`
-		 * are absent on the input; they remain absent on the doc.
-		 * The XForm builder substitutes the canonical defaults at
-		 * emit time. Writing empties at the agent layer would produce
-		 * `<bind … calculate=""/>` which CCHQ rejects. */
+	it("autofills the id from the module name; no entity_id/entity_name injected", async () => {
+		/* Source-correctness: an id-less deliver_unit gets a valid id
+		 * autofilled from the module name ("Patient" → "patient"), stored on
+		 * the doc. `entity_id` / `entity_name` are NOT injected — those are
+		 * absent on the input and remain absent (the XForm builder
+		 * substitutes the canonical defaults at emit time; writing empties at
+		 * the agent layer would produce `<bind … calculate=""/>` which CCHQ
+		 * rejects). */
 		const doc = makeDeliverDocWithoutConnect();
 		const { ctx } = makeTestContext();
 
@@ -396,6 +471,7 @@ describe("updateFormTool deliver_unit", () => {
 		expect(result.mutations).toHaveLength(1);
 		const finalForm = result.newDoc.forms[FORM_A];
 		expect(finalForm?.connect?.deliver_unit).toEqual({
+			id: "patient",
 			name: "Vendor visit",
 		});
 	});
@@ -477,6 +553,7 @@ describe("updateFormTool deliver_unit", () => {
 
 		const finalForm = result.newDoc.forms[FORM_A];
 		expect(finalForm?.connect?.deliver_unit).toEqual({
+			id: "patient",
 			name: "Beneficiary visit",
 			entity_id: "#case/case_id",
 			entity_name: "#case/case_name",
@@ -508,6 +585,7 @@ describe("updateFormTool deliver_unit", () => {
 
 		const finalForm = result.newDoc.forms[FORM_A];
 		expect(finalForm?.connect?.deliver_unit).toEqual({
+			id: "patient",
 			name: "Site visit",
 			entity_id: "#form/site_id",
 		});

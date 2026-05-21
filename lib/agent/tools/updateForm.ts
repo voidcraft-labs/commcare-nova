@@ -36,6 +36,10 @@ import { USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import {
+	collectConnectIdsExcept,
+	enforceConnectIds,
+} from "./shared/connectIds";
 
 export const updateFormInputSchema = z
 	.object({
@@ -243,10 +247,37 @@ export const updateFormTool = {
 				patch.postSubmit = post_submit as PostSubmitDestination | null;
 			}
 			if (connect !== undefined) {
-				patch.connect = buildConnectConfig(
+				const merged = buildConnectConfig(
 					connect,
 					existing.connect ?? undefined,
 				);
+				if (merged === null) {
+					patch.connect = null;
+				} else {
+					// Force connect ids correct at the source: autofill omitted
+					// ids, reject explicit-invalid ids (fail the call, write
+					// nothing). `existingIds` excludes this form's own ids so a
+					// re-patch of an unchanged id doesn't read as a self-conflict.
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					const moduleName = moduleUuid
+						? (doc.modules[moduleUuid]?.name ?? "module")
+						: "module";
+					const enforced = enforceConnectIds(
+						merged,
+						moduleName,
+						existing.name,
+						collectConnectIdsExcept(doc, formUuid),
+					);
+					if (!enforced.ok) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: { error: enforced.error },
+						};
+					}
+					patch.connect = enforced.config;
+				}
 			}
 
 			// Compute the mutations, apply via Immer, and persist through
