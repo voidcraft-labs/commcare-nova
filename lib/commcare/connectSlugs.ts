@@ -14,20 +14,27 @@
  *
  * So a connect id has three constraints — legal element name, ≤50 chars,
  * unique across the app — and they are all forced correct at the SOURCE,
- * never fixed up at emit:
+ * never fixed up at emit. The same flat app-wide notion of "taken" (every
+ * connect id on every form, regardless of kind) is used on every surface:
  *  - {@link connectIdError} is the format/length verdict, shared by the UI
  *    commit guard (`InlineField` in `LearnConfig`) and the `validate_app`
- *    connect-id rules so they can't disagree.
+ *    format/length rules so they can't disagree.
  *  - {@link connectIdConflictError} is the contextual uniqueness verdict for
- *    an explicit set (rejected, never silently renamed).
+ *    an explicit set (rejected, never silently renamed). The UI guards
+ *    (`LearnConfig`/`DeliverConfig`, via `useAppConnectIds`), the SA tools
+ *    (`enforceConnectIds`), and the `CONNECT_ID_DUPLICATE` `validate_app`
+ *    rule all check it against the app-wide id set.
  *  - {@link deriveConnectId} is the creation-time autofill: an id-less block
  *    gets a valid, unique, name-derived id STORED in the doc.
  *  - {@link buildConnectSlugMap} is the emit-time resolver — a typed
- *    pass-through that asserts each block's id is present (the source
- *    guarantee) and narrows the type. It does NOT cap, dedup, or fall back;
- *    the stored id IS the wire slug. (The validator reads `form.connect`
+ *    pass-through that asserts each block's id is present + valid and that no
+ *    two blocks collide, then narrows the type. It does NOT cap, dedup, or
+ *    fall back; the stored id IS the wire slug. It throws (fail-loud) if a
+ *    missing, invalid, or duplicate id reaches it, and processes only blocks
+ *    matching the doc's `connectType` (so a stray cross-mode block neither
+ *    ships nor trips the invariant). The validator reads `form.connect`
  *    directly rather than through this resolver, because it runs on
- *    in-progress docs that may not yet have ids filled.)
+ *    in-progress docs that may not yet have ids filled.
  */
 import type {
 	BlueprintDoc,
@@ -218,26 +225,54 @@ export function buildConnectSlugMap(
 	// `connectType` is set; off-mode the per-form stash is stripped by the
 	// expander, so there's nothing to resolve.
 	if (!doc.connectType) return result;
+	const isLearn = doc.connectType === "learn";
+
+	// Accumulate every emitted id → its `<form> <kind>` site so the resolver
+	// fails loud on a duplicate. Two distinct blocks sharing an id would
+	// collide on Connect's `(app, slug)` key and produce duplicate XForm
+	// element names; the source guards + validator should catch it first, so
+	// reaching here is an invariant violation.
+	const idToSite = new Map<string, string>();
+	const claim = (id: string, formName: string, kindLabel: string): void => {
+		const site = `"${formName}" ${kindLabel}`;
+		const priorSite = idToSite.get(id);
+		if (priorSite) {
+			throw new Error(
+				`Two Connect blocks share the id "${id}" — ${priorSite} and ${site}. Connect ids must be unique across the app (they key the per-kind DB slug and the XForm element name). This should be rejected at the source (the field / tool guards + the CONNECT_ID_DUPLICATE validator rule); reaching emission with a duplicate means an unhealed or stale doc slipped through.`,
+			);
+		}
+		idToSite.set(id, site);
+	};
 
 	for (const moduleUuid of doc.moduleOrder) {
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const connect = doc.forms[formUuid]?.connect;
+			const form = doc.forms[formUuid];
+			const connect = form?.connect;
 			if (!connect) continue;
 
-			// Narrow each present sub-config's id; absent sub-configs stay
-			// absent. No transform — the stored id is the wire id.
+			// Narrow each sub-config's id; absent sub-configs stay absent. Only
+			// the kinds matching the app's mode are processed — the schema isn't
+			// mode-discriminated, so a learn app can carry a stray `deliver_unit`
+			// block (and vice versa). The defaulter only fills the matching
+			// mode's blocks; the resolver agrees by emitting only those, so a
+			// cross-mode (possibly id-less) block neither ships nor trips the
+			// invariant. No transform — the stored id is the wire id.
 			const next: ResolvedConnectConfig = {};
-			if (connect.learn_module) {
+			if (isLearn && connect.learn_module) {
 				next.learn_module = narrowId(connect.learn_module, "learn-module");
+				claim(next.learn_module.id, form.name, "learn-module");
 			}
-			if (connect.assessment) {
+			if (isLearn && connect.assessment) {
 				next.assessment = narrowId(connect.assessment, "assessment");
+				claim(next.assessment.id, form.name, "assessment");
 			}
-			if (connect.deliver_unit) {
+			if (!isLearn && connect.deliver_unit) {
 				next.deliver_unit = narrowId(connect.deliver_unit, "deliver-unit");
+				claim(next.deliver_unit.id, form.name, "deliver-unit");
 			}
-			if (connect.task) {
+			if (!isLearn && connect.task) {
 				next.task = narrowId(connect.task, "task");
+				claim(next.task.id, form.name, "task");
 			}
 
 			result.set(formUuid, next);

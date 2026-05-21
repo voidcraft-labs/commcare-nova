@@ -136,11 +136,80 @@ function circularFormLinks(doc: BlueprintDoc): ValidationError[] {
 	});
 }
 
+/**
+ * Connect ids must be unique across the whole app.
+ *
+ * A connect id (`learn_module` / `assessment` / `deliver_unit` / `task`)
+ * becomes both a per-kind DB slug key (`(app, slug)`) on the Connect side
+ * and an XForm element name; two blocks sharing one id collide on either.
+ * The scope is flat app-wide (every connect id on every form, regardless of
+ * kind), matching the source guards (`enforceConnectIds` /
+ * `connectIdConflictError`) and the emit tripwire in `buildConnectSlugMap` —
+ * one shared notion of "taken" everywhere.
+ *
+ * Only kinds matching the app's `connectType` are scanned, so the rule
+ * agrees with the resolver/defaulter, which only ever process matching-mode
+ * blocks (a stray cross-mode block is never emitted, so it can't collide on
+ * the wire). App-scope because the collision spans forms; this is the
+ * surface that gives the user a fixable error before export.
+ */
+function duplicateConnectIds(doc: BlueprintDoc): ValidationError[] {
+	if (!doc.connectType) return [];
+	const errors: ValidationError[] = [];
+
+	// The kinds that are real for this mode, paired with a human label.
+	const liveKinds: ReadonlyArray<{
+		kind: "learn_module" | "assessment" | "deliver_unit" | "task";
+		label: string;
+	}> =
+		doc.connectType === "learn"
+			? [
+					{ kind: "learn_module", label: "learn-module" },
+					{ kind: "assessment", label: "assessment" },
+				]
+			: [
+					{ kind: "deliver_unit", label: "deliver-unit" },
+					{ kind: "task", label: "task" },
+				];
+
+	// First occurrence of each id (in document order) wins; every later
+	// occurrence is the duplicate that gets flagged.
+	const firstSite = new Map<string, string>();
+	for (const moduleUuid of doc.moduleOrder) {
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			const connect = form?.connect;
+			if (!connect) continue;
+			for (const { kind, label } of liveKinds) {
+				const id = connect[kind]?.id;
+				if (!id) continue;
+				const site = `"${form.name}" (${label})`;
+				const prior = firstSite.get(id);
+				if (prior) {
+					errors.push(
+						validationError(
+							"CONNECT_ID_DUPLICATE",
+							"app",
+							`Connect id "${id}" is used by two blocks — ${prior} and ${site}. Each Connect id must be unique across the app: it becomes the block's database slug and its XForm element name, so a shared id collapses the two blocks into one. Rename one of them.`,
+							{ moduleUuid, formUuid, formName: form.name },
+							{ connectId: id },
+						),
+					);
+				} else {
+					firstSite.set(id, site);
+				}
+			}
+		}
+	}
+	return errors;
+}
+
 export const APP_RULES = [
 	emptyAppName,
 	duplicateModuleNames,
 	childCaseTypeMissingModule,
 	circularFormLinks,
+	duplicateConnectIds,
 	// Cross-form rule — multi-writer disagreement detection requires the
 	// full app's writer set, so the rule is app-scoped rather than
 	// module-scoped.

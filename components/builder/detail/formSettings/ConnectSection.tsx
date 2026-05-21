@@ -2,7 +2,11 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { Toggle } from "@/components/ui/Toggle";
-import { toSnakeId } from "@/lib/commcare";
+import { deriveConnectId } from "@/lib/commcare/connectSlugs";
+import {
+	connectIdsExcept,
+	useAppConnectIds,
+} from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
@@ -40,6 +44,9 @@ export function ConnectSection({
 	const connectType = useConnectTypeOrUndefined();
 	const connect = form?.connect;
 	const enabled = !!connect;
+	// App-wide connect ids so the seed below derives unique ids by
+	// construction — the toggle is a source, like LearnConfig/DeliverConfig.
+	const appConnectIds = useAppConnectIds();
 
 	/* Session hooks for connect stash — keyed by form uuid so the stash
 	 * remains stable across reorders and renames. */
@@ -67,31 +74,50 @@ export function ConnectSection({
 			if (stashedConfig) {
 				save(stashedConfig);
 			} else {
-				const modSlug = toSnakeId(mod?.name ?? "");
-				const formSlug = toSnakeId(form?.name ?? "");
+				// Seed two co-located blocks. Derive the module-named id first,
+				// add it to the working set, then derive the pair-named id
+				// against the union — so the two seeded ids can't collide with
+				// each other OR with any other connect id in the app. Both
+				// slots on THIS form are empty here (toggle-on path), so the
+				// exclusion is a no-op and `existing` is every other form's ids.
+				const modName = mod?.name ?? "";
+				const pairName = `${modName} ${form?.name ?? ""}`;
 				if (connectType === "learn") {
+					const existing = connectIdsExcept(
+						appConnectIds,
+						formUuid,
+						"learn_module",
+					);
+					const learnId = deriveConnectId(modName, existing);
+					existing.add(learnId);
+					const assessmentId = deriveConnectId(pairName, existing);
 					save({
 						learn_module: {
-							id: modSlug,
+							id: learnId,
 							name: form?.name ?? "",
 							description: form?.name ?? "",
 							time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
 						},
-						assessment: {
-							id: `${modSlug}_${formSlug}`,
-							user_score: "100",
-						},
+						assessment: { id: assessmentId, user_score: "100" },
 					});
 				} else {
+					const existing = connectIdsExcept(
+						appConnectIds,
+						formUuid,
+						"deliver_unit",
+					);
+					const deliverId = deriveConnectId(modName, existing);
+					existing.add(deliverId);
+					const taskId = deriveConnectId(pairName, existing);
 					save({
 						deliver_unit: {
-							id: modSlug,
+							id: deliverId,
 							name: form?.name ?? "",
 							entity_id: "concat(#user/username, '-', today())",
 							entity_name: "#user/username",
 						},
 						task: {
-							id: `${modSlug}_${formSlug}`,
+							id: taskId,
 							name: form?.name ?? "",
 							description: form?.name ?? "",
 						},
@@ -108,6 +134,7 @@ export function ConnectSection({
 		mod,
 		form,
 		formUuid,
+		appConnectIds,
 		save,
 	]);
 

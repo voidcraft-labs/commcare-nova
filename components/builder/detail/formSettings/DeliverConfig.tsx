@@ -3,6 +3,10 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef } from "react";
 import { Toggle } from "@/components/ui/Toggle";
 import { deriveConnectId } from "@/lib/commcare/connectSlugs";
+import {
+	connectIdsExcept,
+	useAppConnectIds,
+} from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
@@ -48,18 +52,22 @@ export function DeliverConfig({
 	const getLintContext = useConnectLintContext(formUuid);
 
 	// Name-derived defaults for a freshly enabled sub-config, unique against
-	// the co-located block's id (deliver_unit ↔ task share one form's
-	// `<data>` scope). Same `deriveConnectId` the SA path uses.
+	// every other connect id in the app (connect ids share one app-wide
+	// namespace). Same `deriveConnectId` + scope the SA path uses.
+	const appConnectIds = useAppConnectIds();
 	const defaultIds = useCallback(() => {
 		const modName = mod?.name ?? "";
 		const pairName = `${modName} ${form?.name ?? ""}`;
 		const deliverId = deriveConnectId(
 			modName,
-			new Set(task?.id ? [task.id] : []),
+			connectIdsExcept(appConnectIds, formUuid, "deliver_unit"),
 		);
-		const taskId = deriveConnectId(pairName, new Set(du?.id ? [du.id] : []));
+		const taskId = deriveConnectId(
+			pairName,
+			connectIdsExcept(appConnectIds, formUuid, "task"),
+		);
 		return { deliverId, taskId };
-	}, [mod, form, du, task]);
+	}, [mod, form, appConnectIds, formUuid]);
 
 	const updateDeliverUnit = useCallback(
 		(field: string, value: string) => {

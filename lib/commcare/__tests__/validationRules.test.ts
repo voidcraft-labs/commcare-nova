@@ -1488,4 +1488,106 @@ describe("connect rules", () => {
 			runValidation(deliverDoc).filter((e) => e.code === "CONNECT_ID_TOO_LONG"),
 		).toHaveLength(2);
 	});
+
+	// ── Connect ids must be unique across the app ────────────────────
+	//
+	// Uniqueness is enforced at the source (field + tool guards) and as the
+	// final gate here: a connect id keys the per-kind DB slug AND the XForm
+	// element name, so two blocks sharing one collide. App-scope rule (spans
+	// forms), the surface that gives the user a fixable error.
+
+	it("flags a connect id duplicated across two forms, citing both sites", () => {
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Module A",
+					forms: [
+						{
+							name: "Lesson A",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "shared_slug",
+									name: "A",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+				{
+					name: "Module B",
+					forms: [
+						{
+							name: "Lesson B",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "shared_slug",
+									name: "B",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		const dups = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_DUPLICATE",
+		);
+		expect(dups).toHaveLength(1);
+		expect(dups[0].message).toContain("shared_slug");
+		// Cites both sites so the user knows which to rename.
+		expect(dups[0].message).toContain("Lesson A");
+		expect(dups[0].message).toContain("Lesson B");
+	});
+
+	it("does not flag distinct connect ids across forms", () => {
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Module A",
+					forms: [
+						{
+							name: "Lesson A",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "lesson_a",
+									name: "A",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+				{
+					name: "Module B",
+					forms: [
+						{
+							name: "Lesson B",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "lesson_b",
+									name: "B",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		expect(
+			runValidation(doc).filter((e) => e.code === "CONNECT_ID_DUPLICATE"),
+		).toEqual([]);
+	});
 });

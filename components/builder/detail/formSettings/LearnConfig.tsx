@@ -7,6 +7,10 @@ import {
 	connectIdError,
 	deriveConnectId,
 } from "@/lib/commcare/connectSlugs";
+import {
+	connectIdsExcept,
+	useAppConnectIds,
+} from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
@@ -60,31 +64,28 @@ export function LearnConfig({
 	if (assessment) lastAssessmentRef.current = assessment;
 	const getLintContext = useConnectLintContext(formUuid);
 
-	// Connect ids set by the OTHER kind on this same form — the conflict
-	// scope a single LearnConfig can see and the collision that would break
-	// the XForm (two sibling `<data>` elements with the same name). App-wide
-	// cross-form uniqueness is enforced by the SA tools + `validateApp`.
-	const otherId = useCallback(
-		(kind: "learn_module" | "assessment"): Set<string> => {
-			const ids = new Set<string>();
-			if (kind !== "learn_module" && lm?.id) ids.add(lm.id);
-			if (kind !== "assessment" && assessment?.id) ids.add(assessment.id);
-			return ids;
-		},
-		[lm, assessment],
+	// Every connect id set anywhere in the app. Connect ids share one
+	// app-wide namespace (each keys a per-kind DB slug + an XForm element
+	// name), so the uniqueness scope is app-wide — not just this form's
+	// co-located block. Same scope the SA tools + `validateApp` enforce.
+	const appConnectIds = useAppConnectIds();
+	const appWideExcept = useCallback(
+		(kind: "learn_module" | "assessment"): Set<string> =>
+			connectIdsExcept(appConnectIds, formUuid, kind),
+		[appConnectIds, formUuid],
 	);
 
 	// Name-derived defaults for a freshly enabled sub-config, unique against
-	// the co-located block's id. Same `deriveConnectId` the SA path uses, so
-	// the autofilled id is valid + capped + disambiguated identically.
+	// every other connect id in the app. Same `deriveConnectId` the SA path
+	// uses, so the autofilled id is valid + capped + disambiguated identically.
 	const defaultIds = useCallback(() => {
 		const modName = mod?.name ?? "";
 		const pairName = `${modName} ${form?.name ?? ""}`;
 		return {
-			learnId: deriveConnectId(modName, otherId("learn_module")),
-			assessmentId: deriveConnectId(pairName, otherId("assessment")),
+			learnId: deriveConnectId(modName, appWideExcept("learn_module")),
+			assessmentId: deriveConnectId(pairName, appWideExcept("assessment")),
 		};
-	}, [mod, form, otherId]);
+	}, [mod, form, appWideExcept]);
 
 	const updateLearnModule = useCallback(
 		(field: string, value: string | number) => {
@@ -166,13 +167,13 @@ export function LearnConfig({
 									// Show the real stored id — autofill stamps a valid one
 									// when the block is enabled, so this is never blank in
 									// practice. The commit guard rejects an invalid OR
-									// duplicate id (against the co-located assessment), so a
-									// bad value can't be saved.
+									// duplicate id (against every other connect id in the
+									// app), so a bad value can't be saved.
 									value={lm.id ?? ""}
 									onChange={(v) => updateLearnModule("id", v)}
 									validate={(v) =>
 										connectIdError(v) ??
-										connectIdConflictError(v, otherId("learn_module"))
+										connectIdConflictError(v, appWideExcept("learn_module"))
 									}
 									mono
 									required
@@ -234,15 +235,15 @@ export function LearnConfig({
 								<InlineField
 									label="Assessment ID"
 									// Real stored id (autofilled on enable); guard rejects an
-									// invalid or duplicate id (against the co-located
-									// learn_module).
+									// invalid or duplicate id (against every other connect id
+									// in the app).
 									value={assessment.id ?? ""}
 									onChange={(v) =>
 										save({ ...connect, assessment: { ...assessment, id: v } })
 									}
 									validate={(v) =>
 										connectIdError(v) ??
-										connectIdConflictError(v, otherId("assessment"))
+										connectIdConflictError(v, appWideExcept("assessment"))
 									}
 									mono
 									required

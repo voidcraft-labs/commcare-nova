@@ -219,6 +219,91 @@ describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
 		});
 		expect(() => buildConnectSlugMap(doc)).toThrow(/bad id/);
 	});
+
+	it("throws on a duplicate id across two forms (citing both sites + the id)", () => {
+		// The emit invariant covers uniqueness, not just per-id validity. Two
+		// distinct blocks sharing an id would collide on Connect's `(app, slug)`
+		// key / produce duplicate XForm element names — so the resolver fails
+		// loud if a duplicate somehow reaches emission (the source guards +
+		// validator should catch it first).
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training A",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "shared_slug",
+									name: "A",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+				{
+					name: "Training B",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "shared_slug",
+									name: "B",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		expect(() => buildConnectSlugMap(doc)).toThrow(/shared_slug/);
+		expect(() => buildConnectSlugMap(doc)).toThrow(/duplicate/i);
+	});
+
+	it("skips a cross-mode block (deliver_unit on a learn app) — no throw", () => {
+		// The connect schema isn't mode-discriminated, so a learn app can carry
+		// a stray deliver_unit block. The defaulter only fills the matching
+		// mode's blocks; the resolver must agree — process only blocks matching
+		// `connectType`, so a cross-mode (and possibly id-less) block neither
+		// emits nor trips the invariant.
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "intro_module",
+									name: "Intro",
+									description: "x",
+									time_estimate: 5,
+								},
+								// Stray cross-mode block, id-less — must be ignored.
+								deliver_unit: { name: "Stray" },
+							},
+						},
+					],
+				},
+			],
+		});
+		const config = buildConnectSlugMap(doc).get(onlyFormUuid(doc));
+		expect(config?.learn_module?.id).toBe("intro_module");
+		// The cross-mode deliver_unit is not emitted.
+		expect(config?.deliver_unit).toBeUndefined();
+	});
 });
 
 describe("buildConnectSlugMap — purity / idempotence", () => {

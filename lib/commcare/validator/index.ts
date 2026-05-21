@@ -146,8 +146,9 @@ export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 			// through the emit-time `buildConnectSlugMap` (which asserts ids
 			// are present) — it reads `form.connect` and guards each valid-path
 			// arm on the id being set. An id-less block simply contributes no
-			// valid path; the connect-id format/uniqueness rules in
-			// `rules/form.ts` carry the authoring signal for a bad explicit id.
+			// valid path; the connect-id format/length rules in `rules/form.ts`
+			// and the app-wide `CONNECT_ID_DUPLICATE` rule in `rules/app.ts`
+			// carry the authoring signal for a bad or colliding explicit id.
 			const connect = doc.connectType ? form.connect : undefined;
 
 			// Expose Connect data paths so XPath expressions can reference them.
