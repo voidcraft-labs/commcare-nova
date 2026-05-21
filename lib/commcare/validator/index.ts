@@ -171,6 +171,11 @@ export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 					validPaths.add(`/data/${duId}/deliver/entity_id`);
 					validPaths.add(`/data/${duId}/deliver/entity_name`);
 				}
+				if (connect.task) {
+					// Wrapper-only bind, like learn_module — the XForm emits
+					// `<bind nodeset="/data/<taskId>"/>` with no child paths.
+					validPaths.add(`/data/${connect.task.id}`);
+				}
 			}
 
 			// Per-field XPath validation — recursive walk over the tree.

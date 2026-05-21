@@ -823,4 +823,60 @@ describe("Connect slug cap — validator valid-path set uses the capped id", () 
 		expect(refErrors.length).toBeGreaterThan(0);
 		expect(refErrors.some((e) => e.message.includes(LONG_ID_60))).toBe(true);
 	});
+
+	// `task` is a wrapper-only bind like `learn_module`: the XForm emits
+	// `<bind nodeset="/data/<taskId>"/>`, so `/data/<taskId>` is a real wire
+	// node a user field may reference. The valid-path set must expose it
+	// under the capped id, same as the other three kinds.
+	function taskDocReferencing(refPath: string): BlueprintDoc {
+		return buildDoc({
+			connectType: "deliver",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							connect: {
+								task: { id: LONG_ID_60, name: "Visit", description: "x" },
+							},
+							fields: [
+								f({
+									kind: "text",
+									id: "note",
+									label: "Note",
+									relevant: `${refPath} = 'x'`,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	/** The wire-final capped id for the long-id task in this doc. */
+	function cappedTaskId(doc: BlueprintDoc): string {
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		return buildConnectSlugMap(doc).get(formUuid)?.task?.id as string;
+	}
+
+	it("validates clean when a field references the capped task path", () => {
+		const cappedId = cappedTaskId(taskDocReferencing("/data/placeholder"));
+		const doc = taskDocReferencing(`/data/${cappedId}`);
+		const refErrors = runValidation(doc).filter(
+			(e) => e.code === "INVALID_REF",
+		);
+		expect(refErrors).toEqual([]);
+	});
+
+	it("errors when a field references the raw uncapped task path", () => {
+		const doc = taskDocReferencing(`/data/${LONG_ID_60}`);
+		const refErrors = runValidation(doc).filter(
+			(e) => e.code === "INVALID_REF",
+		);
+		expect(refErrors.length).toBeGreaterThan(0);
+		expect(refErrors.some((e) => e.message.includes(LONG_ID_60))).toBe(true);
+	});
 });
