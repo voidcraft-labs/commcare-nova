@@ -178,20 +178,18 @@ export function healConnectIds(doc: BlueprintDoc): HealResult {
 		return { ...b, reason };
 	});
 
-	// Pass 2: derive ids for the needs-derive blocks, in document order,
-	// accumulating each minted id so derived ids stay mutually unique. Each
-	// entry pairs the target block (form + kind) with its new id for the
-	// apply step below.
+	// Pass 2: derive ids for the needs-derive blocks, in document order, and
+	// apply them onto a shallow-cloned `forms` map in the same walk —
+	// accumulating each minted id into `existingIds` so derived ids stay
+	// mutually unique, and reading each form back from the clone so a form
+	// with two healed kinds accumulates both writes. The per-kind switch
+	// keeps each discriminated arm precisely typed (no dynamic-index cast).
 	const changes: ConnectIdChange[] = [];
-	const newIdByBlock = new Map<
-		{ formUuid: string; kind: ConnectKind },
-		string
-	>();
+	const forms: BlueprintDoc["forms"] = { ...doc.forms };
 	for (const b of classified) {
 		if (b.reason === null) continue;
 		const newId = deriveConnectId(b.name, existingIds);
 		existingIds.add(newId);
-		newIdByBlock.set({ formUuid: b.formUuid, kind: b.kind }, newId);
 		changes.push({
 			formId: b.formId,
 			kind: b.kind,
@@ -199,20 +197,11 @@ export function healConnectIds(doc: BlueprintDoc): HealResult {
 			newId,
 			reason: b.reason,
 		});
-	}
 
-	if (changes.length === 0) return { doc, changes: [] };
-
-	// Apply the derived ids onto a shallow-cloned doc (forms + the touched
-	// connect sub-configs cloned; everything else shared by reference). The
-	// per-kind switch keeps each discriminated arm precisely typed — no
-	// dynamic-index write that would need a cast.
-	const forms: BlueprintDoc["forms"] = { ...doc.forms };
-	for (const [block, newId] of newIdByBlock) {
-		const form = forms[block.formUuid];
+		const form = forms[b.formUuid];
 		if (!form?.connect) continue;
 		const connect: ConnectConfig = { ...form.connect };
-		switch (block.kind) {
+		switch (b.kind) {
 			case "learn_module":
 				if (connect.learn_module)
 					connect.learn_module = { ...connect.learn_module, id: newId };
@@ -229,8 +218,10 @@ export function healConnectIds(doc: BlueprintDoc): HealResult {
 				if (connect.task) connect.task = { ...connect.task, id: newId };
 				break;
 		}
-		forms[block.formUuid] = { ...form, connect };
+		forms[b.formUuid] = { ...form, connect };
 	}
+
+	if (changes.length === 0) return { doc, changes: [] };
 
 	return { doc: { ...doc, forms }, changes };
 }
