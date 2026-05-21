@@ -128,12 +128,13 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 	// always consistent with the module we're currently emitting.
 	const moduleUniqueIds = doc.moduleOrder.map(() => genHexId());
 
-	// Resolve the wire-final Connect ids for every form up front. The slug
-	// map caps each block's id to Connect's column width and disambiguates
-	// app-wide collisions; computing it once (rather than per form) is what
-	// gives the dedup visibility across all forms. Both the XForm builder
-	// and the case-references load map below read the same per-form config
-	// so their data paths agree. Empty for non-Connect apps.
+	// Resolve the per-form Connect configs for emission. `buildConnectSlugMap`
+	// is a typed pass-through — connect ids are already valid + unique + ≤50
+	// by construction (creation autofill + the UI/tool guards; legacy data is
+	// healed by `scripts/migrate-connect-ids.ts`), so it asserts each id is
+	// present and narrows the type without transforming. Both the XForm
+	// builder and the case-references load map below read the same per-form
+	// config so their data paths agree. Empty for non-Connect apps.
 	const connectSlugs = buildConnectSlugMap(doc);
 
 	const modules = doc.moduleOrder.map((moduleUuid, mIdx) => {
@@ -155,12 +156,11 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 			const formUniqueId = genHexId();
 			const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`;
 
-			// The slug map carries the wire-final (capped, deduped) Connect
-			// config for this form, or `undefined` when there's nothing to
-			// emit. It already encodes the "only when `connectType` is set"
-			// rule — off-mode the map is empty — so this lookup also enforces
-			// the connect-mode stash: per-form configs stashed across mode
-			// toggles never leak into a mode-off export.
+			// The resolved Connect config for this form, or `undefined` when
+			// there's nothing to emit. The map already encodes the "only when
+			// `connectType` is set" rule — off-mode the map is empty — so this
+			// lookup also enforces the connect-mode stash: per-form configs
+			// stashed across mode toggles never leak into a mode-off export.
 			const effectiveConnect = connectSlugs.get(formUuid);
 
 			attachments[`${formUniqueId}.xml`] = buildXForm(doc, formUuid, {

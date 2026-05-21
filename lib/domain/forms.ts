@@ -101,7 +101,16 @@ const formLinkSchema = z
 	.strict();
 export type FormLink = z.infer<typeof formLinkSchema>;
 
-// Connect config — same shape as current lib/schemas/blueprint.ts.
+// Connect config. Each sub-config's `id` stays `z.string().optional()` on
+// purpose: it's a transient in-progress state (a block can exist briefly
+// before its id is filled) and the doc-store type tolerates that. The real
+// invariant — every connect id is present, a legal XML element name, ≤50
+// chars, and unique across the app by the time it's emitted — is enforced at
+// RUNTIME, not by this type: `deriveConnectId` autofills at creation, the
+// UI/tool guards reject bad explicit input, the legacy-data migration heals
+// existing apps, and `buildConnectSlugMap`'s `narrowId` is the emit-time
+// tripwire that throws if a block somehow reaches the wire id-less. Don't
+// tighten this to required.
 const connectLearnModuleSchema = z
 	.object({
 		id: z.string().optional(),

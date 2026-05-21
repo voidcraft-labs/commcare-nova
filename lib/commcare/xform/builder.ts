@@ -178,10 +178,11 @@ function buildConnectBlocks(
 
 	if (connect.learn_module) {
 		const lm = connect.learn_module;
-		// `lm.id` is the wire-final slug — capped + app-deduped by
-		// `buildConnectSlugMap`. It threads identically into the wrapper
-		// element name, the `id=` attribute, and the bind nodeset below, so
-		// all three references to this block always agree.
+		// `lm.id` is the connect block's id — already a valid, unique, ≤50
+		// slug (forced correct at the source; the resolver only passed it
+		// through). It threads identically into the wrapper element name, the
+		// `id=` attribute, and the bind nodeset below, so all three references
+		// to this block always agree.
 		const lmId = lm.id;
 		dataElements.push(
 			`<${lmId} vellum:role="ConnectLearnModule">` +
@@ -262,9 +263,10 @@ function buildConnectBlocks(
 /**
  * Options threaded into `buildXForm`. `xmlns` is the random instance
  * namespace HQ expects on every form (generated once per form by the
- * expander); `connect` is the wire-final Connect config to embed (capped,
- * deduped ids from `buildConnectSlugMap`) — omitted when the app-level
- * `connectType` is unset or the form carries no Connect block.
+ * expander); `connect` is the resolved Connect config to embed (the
+ * pass-through output of `buildConnectSlugMap`, whose ids are valid by
+ * construction at the source) — omitted when the app-level `connectType` is
+ * unset or the form carries no Connect block.
  */
 export interface BuildXFormOptions {
 	xmlns: string;

@@ -253,11 +253,10 @@ export function buildFormActions(
  * XPath fields and emits their own entries keyed by the Connect
  * wrapper paths.
  *
- * `connect` must be the wire-final config — the capped, deduped ids from
- * `buildConnectSlugMap`, not the raw doc value. The XForm builder emits
- * its binds against those same ids, so the load-map keys here line up with
- * the bind nodesets; a raw (uncapped) config would key the load map at a
- * path the form never declares.
+ * `connect` is the resolved config from `buildConnectSlugMap` (a typed
+ * pass-through; ids are valid by construction at the source). The XForm
+ * builder emits its binds against those same ids, so the load-map keys here
+ * line up with the bind nodesets.
  */
 export function buildCaseReferencesLoad(
 	doc: BlueprintDoc,
