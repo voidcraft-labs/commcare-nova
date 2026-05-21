@@ -182,9 +182,11 @@ export type ResolvedConnectConfig = {
  * invariant violation — an entry point skipped that enforcement, or an
  * unhealed/stale doc slipped through. We throw loud rather than papering
  * over it: silently capping or sanitizing here would corrupt the wire (a
- * different id than the doc records). The throw converts any such gap from
- * silent wire corruption into a caught error the compile/upload routes
- * surface cleanly. In practice it should never fire.
+ * different id than the doc records). The throw converts any such gap into a
+ * caught error rather than a corrupt wire — the compile/upload routes catch
+ * it (the compile route collapses it to a generic 500 with the real reason
+ * logged server-side, not shown to the user). In practice it should never
+ * fire.
  */
 function narrowId<T extends { id?: string }>(
 	sub: T,
@@ -221,9 +223,9 @@ export function buildConnectSlugMap(
 ): ReadonlyMap<Uuid, ResolvedConnectConfig> {
 	const result = new Map<Uuid, ResolvedConnectConfig>();
 
-	// Connect blocks are only embedded in the export when the app-level
-	// `connectType` is set; off-mode the per-form stash is stripped by the
-	// expander, so there's nothing to resolve.
+	// Connect blocks are only resolved when the app-level `connectType` is
+	// set — this early return is the gate. Off-mode there's no live connect
+	// config to emit, so callers get an empty map.
 	if (!doc.connectType) return result;
 	const isLearn = doc.connectType === "learn";
 

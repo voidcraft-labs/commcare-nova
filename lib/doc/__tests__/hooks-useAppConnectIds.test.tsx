@@ -94,6 +94,54 @@ describe("useAppConnectIds", () => {
 		]);
 	});
 
+	it("excludes a cross-mode stray block (only mode-matching kinds count)", () => {
+		// A learn app may carry a stray `deliver_unit` (e.g. left on a form
+		// after a mode switch). The uniqueness scope must match emit/validator,
+		// which only consider mode-matching kinds — so the stray is NOT in the
+		// "taken" set (otherwise the UI would reject a duplicate invisible to
+		// the rest of the system).
+		const store = createBlueprintDocStore();
+		store.getState().load({
+			appId: "a",
+			appName: "n",
+			connectType: "learn",
+			caseTypes: null,
+			modules: { [MOD_A]: { uuid: MOD_A, id: "a", name: "A" } },
+			forms: {
+				[FORM_A]: {
+					uuid: FORM_A,
+					id: "form_a",
+					name: "Form A",
+					type: "survey",
+					connect: {
+						learn_module: {
+							id: "intro",
+							name: "Intro",
+							description: "x",
+							time_estimate: 5,
+						},
+						// Stray cross-mode block — must be ignored.
+						deliver_unit: { id: "stray_deliver", name: "Stray" },
+					},
+				},
+			},
+			fields: {},
+			moduleOrder: [MOD_A],
+			formOrder: { [MOD_A]: [FORM_A] },
+			fieldOrder: {},
+		});
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BlueprintDocContext.Provider value={store}>
+				{children}
+			</BlueprintDocContext.Provider>
+		);
+		const { result } = renderHook(() => useAppConnectIds(), { wrapper });
+		expect(result.current).toEqual([
+			{ formUuid: FORM_A, kind: "learn_module", id: "intro" },
+		]);
+		expect(result.current.some((e) => e.id === "stray_deliver")).toBe(false);
+	});
+
 	it("returns an empty list for a doc with no connect blocks", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load({

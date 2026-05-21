@@ -25,12 +25,21 @@ export type ConnectIdKind =
 	| "deliver_unit"
 	| "task";
 
-const CONNECT_ID_KINDS: readonly ConnectIdKind[] = [
-	"learn_module",
-	"assessment",
-	"deliver_unit",
-	"task",
-];
+/**
+ * The connect kinds that are "live" for an app mode. Only these count toward
+ * the uniqueness scope — matching the emit resolver (`buildConnectSlugMap`)
+ * and the `CONNECT_ID_DUPLICATE` validator rule, which both process only
+ * mode-matching kinds. A stray cross-mode block (e.g. a `deliver_unit` left
+ * on a form after switching to learn) is therefore not "taken", so all four
+ * uniqueness scopes agree. `null` (not in Connect mode) → no live kinds.
+ */
+function liveKindsFor(
+	connectType: "learn" | "deliver" | null,
+): readonly ConnectIdKind[] {
+	if (connectType === "learn") return ["learn_module", "assessment"];
+	if (connectType === "deliver") return ["deliver_unit", "task"];
+	return [];
+}
 
 /** One set connect id, located by the form + kind that owns it. */
 export interface AppConnectId {
@@ -62,12 +71,13 @@ function sameIds(
  */
 export function useAppConnectIds(): readonly AppConnectId[] {
 	return useBlueprintDocEq((s) => {
+		const liveKinds = liveKindsFor(s.connectType);
 		const out: AppConnectId[] = [];
 		for (const moduleUuid of s.moduleOrder) {
 			for (const formUuid of s.formOrder[moduleUuid] ?? []) {
 				const connect = s.forms[formUuid]?.connect;
 				if (!connect) continue;
-				for (const kind of CONNECT_ID_KINDS) {
+				for (const kind of liveKinds) {
 					const id = connect[kind]?.id;
 					if (id) out.push({ formUuid, kind, id });
 				}

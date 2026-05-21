@@ -34,25 +34,38 @@ const KIND_LABEL = {
 type ConnectKind = keyof typeof KIND_LABEL;
 
 /**
+ * The connect kinds that are "live" for the doc's mode. Only these count
+ * toward the uniqueness scope — matching the emit resolver
+ * (`buildConnectSlugMap`), the `CONNECT_ID_DUPLICATE` validator rule, and the
+ * UI guard (`useAppConnectIds`), which all process only mode-matching kinds.
+ * A stray cross-mode block is not "taken", so all four uniqueness scopes
+ * agree.
+ */
+function liveKinds(doc: BlueprintDoc): readonly ConnectKind[] {
+	if (doc.connectType === "learn") return ["learn_module", "assessment"];
+	if (doc.connectType === "deliver") return ["deliver_unit", "task"];
+	return [];
+}
+
+/**
  * Every connect id currently set anywhere in the doc EXCEPT the form being
- * edited (its own ids must not read as conflicts with themselves). Feeds
- * both autofill uniqueness and the explicit-duplicate rejection.
+ * edited (its own ids must not read as conflicts with themselves). Only the
+ * doc's live (mode-matching) kinds count, so the SA scope matches the UI /
+ * emit / validator scopes. Feeds both autofill uniqueness and the
+ * explicit-duplicate rejection.
  */
 export function collectConnectIdsExcept(
 	doc: BlueprintDoc,
 	exceptFormUuid: Uuid,
 ): Set<string> {
 	const ids = new Set<string>();
+	const kinds = liveKinds(doc);
 	for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
 		if (formUuid === exceptFormUuid) continue;
 		const c = doc.forms[formUuid]?.connect;
 		if (!c) continue;
-		for (const id of [
-			c.learn_module?.id,
-			c.assessment?.id,
-			c.deliver_unit?.id,
-			c.task?.id,
-		]) {
+		for (const kind of kinds) {
+			const id = c[kind]?.id;
 			if (id) ids.add(id);
 		}
 	}

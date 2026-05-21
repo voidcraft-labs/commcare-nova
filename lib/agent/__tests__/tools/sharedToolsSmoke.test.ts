@@ -405,6 +405,30 @@ describe("updateFormTool connect-id validity", () => {
 		expect(result.result).toHaveProperty("error");
 	});
 
+	it("fails the call when an explicit id duplicates the co-located block's id", async () => {
+		/* Same-form cross-kind duplicate via the tool: set assessment.id to
+		 * the existing learn_module.id. The merge + `enforceConnectIds`
+		 * reject it (learn_module accumulated before assessment is checked) →
+		 * `{ error }`, zero mutations, nothing written. */
+		const doc = makeDocWithFullConnect();
+		const { ctx } = makeTestContext();
+		const result = await updateFormTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				// learn_module already has id "patient_module" on this form.
+				connect: { assessment: { id: "patient_module", user_score: "100" } },
+			},
+			ctx,
+			doc,
+		);
+		expect(result.mutations).toEqual([]);
+		expect(result.result).toHaveProperty("error");
+		expect((result.result as { error: string }).error).toContain(
+			"patient_module",
+		);
+	});
+
 	it("autofills a valid id when a newly-enabled block omits one", async () => {
 		/* A block enabled without an explicit id gets a name-derived,
 		 * valid, unique id STORED on the doc — visible to the SA on the
