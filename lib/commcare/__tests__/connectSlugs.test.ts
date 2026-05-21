@@ -163,17 +163,70 @@ describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
 		});
 		expect(() => buildConnectSlugMap(doc)).toThrow(/no id/i);
 	});
+
+	it("throws on a present-but-over-length id (it does NOT cap)", () => {
+		// The resolver is the emit invariant: a valid id or a loud throw. An
+		// over-length id is NOT silently capped here — that would corrupt the
+		// wire. Source-enforcement + the migration keep ids ≤50; this catches
+		// any gap (stale session, unhealed app) before it reaches CommCare.
+		const overLength = "a".repeat(CONNECT_SLUG_MAX_LENGTH + 10);
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: overLength,
+									name: "Intro",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		// The thrown message cites the offending id and the length reason.
+		expect(() => buildConnectSlugMap(doc)).toThrow(overLength);
+		expect(() => buildConnectSlugMap(doc)).toThrow(
+			String(CONNECT_SLUG_MAX_LENGTH),
+		);
+	});
+
+	it("throws on a present-but-bad-character id (it does NOT sanitize)", () => {
+		const doc = buildDoc({
+			connectType: "deliver",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							connect: {
+								deliver_unit: { id: "bad id", name: "V" },
+							},
+						},
+					],
+				},
+			],
+		});
+		expect(() => buildConnectSlugMap(doc)).toThrow(/bad id/);
+	});
 });
 
 describe("buildConnectSlugMap — purity / idempotence", () => {
-	it("is pure — the same doc yields identical slugs on every call", () => {
-		// The property that matters is purity: one CCZ resolves to one set of
-		// slugs, so an idempotent opp-init retry over the same uploaded app
-		// claims the same `(app, slug)` rows. Cross-edit stability is NOT a
-		// goal — every Nova upload creates a brand-new HQ app (HQ has no
-		// atomic update API), so there's no same-app re-sync of edited content
-		// for slugs to stay stable across. Two colliding ids run the
-		// disambiguation path, where any non-purity would hide.
+	it("is pure — the same doc yields identical resolved ids on every call", () => {
+		// The resolver is a pure pass-through over already-valid ids, so two
+		// calls on the same doc return identical results. (Ids are forced
+		// valid at the source; the resolver never transforms — it just
+		// narrows the type.)
 		const doc = buildDoc({
 			connectType: "learn",
 			modules: [
@@ -185,7 +238,7 @@ describe("buildConnectSlugMap — purity / idempotence", () => {
 							type: "survey",
 							connect: {
 								learn_module: {
-									id: `${"c".repeat(55)}_x`,
+									id: "module_one",
 									name: "F1",
 									description: "x",
 									time_estimate: 30,
@@ -202,7 +255,7 @@ describe("buildConnectSlugMap — purity / idempotence", () => {
 							type: "survey",
 							connect: {
 								learn_module: {
-									id: `${"c".repeat(55)}_y`,
+									id: "module_two",
 									name: "F2",
 									description: "x",
 									time_estimate: 30,
@@ -358,6 +411,37 @@ describe("Connect id — end-to-end XForm consistency", () => {
 		expect(load[`/data/${id}/deliver/entity_id`]).toEqual([
 			"#case/beneficiary_id",
 		]);
+	});
+
+	it("throws (not silently corrupts) when an unhealed over-length id reaches expandDoc", () => {
+		// The emit boundary: an unhealed doc (over-length connect id) makes
+		// `expandDoc` throw via `narrowId`, so the compile/upload routes catch
+		// it and return a clean error instead of shipping a corrupt wire.
+		const doc = buildDoc({
+			appName: "Unhealed",
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "a".repeat(CONNECT_SLUG_MAX_LENGTH + 10),
+									name: "Intro",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+					],
+				},
+			],
+		});
+		expect(() => expandDoc(doc)).toThrow(/invalid id/i);
 	});
 });
 

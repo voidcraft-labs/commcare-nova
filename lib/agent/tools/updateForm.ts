@@ -11,18 +11,24 @@
  * `null` → clear, a value → set. Connect-config patches go through
  * `buildConnectConfig`, a structural partial-update merge: each
  * sub-config the SA explicitly supplied is merged with the matching
- * existing sub-config; the others pass through unchanged. No defaults
- * are invented at this layer — the domain schema accepts the partial
- * shapes (e.g. `deliver_unit` without `entity_id`/`entity_name`) and
- * the wire-emit layer (`lib/commcare/xform/builder.ts`) supplies the
- * canonical XPath fallbacks at bind time.
+ * existing sub-config; the others pass through unchanged.
  *
- * Three exit branches:
+ * The merged connect config then runs through `enforceConnectIds` (the
+ * agent-path source guard): an omitted connect id is autofilled with a
+ * valid, unique, name-derived id (the doc carries it from then on), and an
+ * explicitly-supplied invalid or duplicate id fails the call. Other
+ * defaults are NOT invented here — `deliver_unit` may still land without
+ * `entity_id`/`entity_name`, and the wire-emit layer supplies those XPath
+ * fallbacks at bind time.
+ *
+ * Four exit branches:
  *
  *   1. Form index out of range → `{ error }`, no mutations.
- *   2. Form disappeared after the patch (reducer-level rejection) →
+ *   2. An explicit connect id is invalid/duplicate → `{ error }`, no
+ *      mutations (nothing written).
+ *   3. Form disappeared after the patch (reducer-level rejection) →
  *      `{ error }`, mutations may have already been persisted.
- *   3. Success → human-readable summary listing the changed keys,
+ *   4. Success → human-readable summary listing the changed keys,
  *      tagged `form:M-F`.
  */
 

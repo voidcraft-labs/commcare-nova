@@ -21,6 +21,7 @@ import {
 	CONNECT_SLUG_MAX_LENGTH,
 	connectIdError,
 } from "@/lib/commcare/connectSlugs";
+import { expandDoc } from "@/lib/commcare/expander";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
 import { healConnectIds } from "../migrate-connect-ids";
 
@@ -247,5 +248,61 @@ describe("healConnectIds", () => {
 		});
 		const { changes } = healConnectIds(doc);
 		expect(changes).toEqual([]);
+	});
+});
+
+// ── End-to-end: heal → expand emits valid wire ───────────────────────
+//
+// The load-bearing claim: after the heal runs, the doc compiles to valid
+// CommCare. A doc carrying a 60-char id + a bad-char id is healed, expanded,
+// and every emitted Connect element name is a legal XML element name and
+// ≤50 chars — so `narrowId` never throws and the upload won't 500.
+
+describe("healConnectIds → expandDoc", () => {
+	/** Connect wrapper element names (the ids) carrying any `vellum:role`. */
+	function connectElementNames(xml: string): string[] {
+		return [...xml.matchAll(/<([^\s<>]+) vellum:role="Connect[^"]*">/g)].map(
+			(m) => m[1],
+		);
+	}
+
+	it("a 60-char and a bad-char id heal to a valid, ≤50, compilable wire", () => {
+		const doc = buildDoc({
+			appName: "Legacy",
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "a".repeat(60), // over-length
+									name: "Intro",
+									description: "x",
+									time_estimate: 5,
+								},
+								assessment: { id: "bad id!", user_score: "100" }, // bad chars
+							},
+						},
+					],
+				},
+			],
+		});
+
+		const { doc: healed } = healConnectIds(doc);
+
+		// expandDoc must not throw (narrowId's invariant holds post-heal).
+		const hq = expandDoc(healed);
+		const xml = Object.values(hq._attachments)[0] as string;
+
+		const names = connectElementNames(xml);
+		expect(names.length).toBe(2); // learn_module + assessment
+		for (const name of names) {
+			expect(name.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+			expect(connectIdError(name)).toBeNull();
+		}
 	});
 });

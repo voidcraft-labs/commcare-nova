@@ -26,9 +26,11 @@
  *     slug identity to preserve across re-sync.
  *   - id present, valid, but already taken by an earlier block → re-derive
  *     the later occurrence (first in document order wins).
- * The derive name mirrors `deriveConnectDefaults` exactly: learn_module /
- * deliver_unit from the module name, assessment / task from
- * `<module> <form>`.
+ * The derive name mirrors `deriveConnectDefaults` for the normal
+ * non-empty-name case: learn_module / deliver_unit from the module name,
+ * assessment / task from `<module> <form>`. (`deriveConnectDefaults`
+ * coalesces an empty module name to "module"; this passes the raw name —
+ * either way `toSnakeId` yields a legal, non-empty slug.)
  *
  * Two passes make it correct: pass 1 classifies each id as keep-verbatim
  * (valid + first occurrence) or needs-derive, building `existingIds` from
@@ -95,7 +97,8 @@ export interface HealResult {
 	changes: ConnectIdChange[];
 }
 
-/** The derive name for a kind, mirroring `deriveConnectDefaults`. */
+/** The derive name for a kind, mirroring `deriveConnectDefaults` for the
+ *  normal non-empty-name case. */
 function deriveName(
 	kind: ConnectKind,
 	moduleName: string,
@@ -231,7 +234,7 @@ export function healConnectIds(doc: BlueprintDoc): HealResult {
 interface MigrateOptions {
 	/** Default true — writes happen only with `--apply`. */
 	readonly dryRun: boolean;
-	/** Narrow to one app id; otherwise bulk-scan complete apps. */
+	/** Narrow to one app id; otherwise scan the whole `apps` collection. */
 	readonly appId: string | undefined;
 	readonly help: boolean;
 }
@@ -318,35 +321,26 @@ export async function run(options: MigrateOptions): Promise<void> {
 	const { dryRun, appId } = options;
 	const db = getDb() as unknown as {
 		collection(name: string): {
-			where(
-				field: string,
-				op: string,
-				value: unknown,
-			): {
-				where(
-					field: string,
-					op: string,
-					value: unknown,
-				): { get(): Promise<{ docs: AppDocSnapshot[] }> };
-			};
+			get(): Promise<{ docs: AppDocSnapshot[] }>;
 			doc(id: string): { get(): Promise<AppDocSnapshot> };
 		};
 	};
 
 	const docs: AppDocSnapshot[] = [];
 	if (appId !== undefined) {
-		// Surgical path — read one app by id even if status/soft-delete would
-		// exclude it from the bulk scan.
+		// Surgical path — read one app by id.
 		const snap = await db.collection("apps").doc(appId).get();
 		if (snap.exists) docs.push(snap);
 	} else {
-		// Bulk path — same server-side filter the other migrations use:
-		// skip soft-deletes; only complete apps have a settled blueprint.
-		const result = await db
-			.collection("apps")
-			.where("deleted_at", "==", null)
-			.where("status", "==", "complete")
-			.get();
+		// Bulk path — scan the WHOLE `apps` collection, NO status/soft-delete
+		// filter. `migrate-event-source.ts` likewise scans unfiltered. A
+		// `deleted_at == null` filter would exclude the OLDEST apps (the field
+		// is absent on them, and `== null` doesn't match a missing field), and
+		// a `status == "complete"` filter would skip recoverable `error` apps
+		// — exactly the apps most likely to carry the bad ids this heals.
+		// Over-scanning is cheap + safe: `healConnectIds` no-ops on non-Connect
+		// and already-valid docs, so unchanged apps are never written.
+		const result = await db.collection("apps").get();
 		for (const snap of result.docs) docs.push(snap);
 	}
 

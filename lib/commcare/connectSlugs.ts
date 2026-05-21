@@ -162,17 +162,22 @@ export type ResolvedConnectConfig = {
 };
 
 /**
- * Narrow one sub-config's id from `string | undefined` to `string`.
+ * Narrow one sub-config's id from `string | undefined` to a valid `string`
+ * — the emit invariant: emit a valid id or throw.
  *
- * The resolver does NOT transform ids — no cap, no dedup, no fallback. Every
- * connect id is forced valid + unique + within-length at the SOURCE
- * (`deriveConnectId` autofills, `connectIdError` + `connectIdConflictError`
- * reject bad input at the UI commit guard and the SA tools, and the
- * validate-time pass backfills any block that somehow reached the doc
- * id-less). So by the time a block is emitted its id is already a valid
- * wire slug. A missing/empty id here is an invariant violation, not
- * something to paper over — it means an entry point failed to enforce
- * source-correctness — so we throw rather than silently invent one.
+ * The resolver does NOT transform ids — no cap, no dedup, no sanitize, no
+ * fallback. Every connect id is forced valid (legal element name + ≤50 +
+ * unique) at the SOURCE: `deriveConnectId` autofills, `connectIdError` +
+ * `connectIdConflictError` reject bad input at the UI commit guard and the
+ * SA tools, the validate-time pass backfills an id-less block, and
+ * `scripts/migrate-connect-ids.ts` heals legacy apps. So a block reaching
+ * emission with a missing OR invalid id (over-length / bad characters) is an
+ * invariant violation — an entry point skipped that enforcement, or an
+ * unhealed/stale doc slipped through. We throw loud rather than papering
+ * over it: silently capping or sanitizing here would corrupt the wire (a
+ * different id than the doc records). The throw converts any such gap from
+ * silent wire corruption into a caught error the compile/upload routes
+ * surface cleanly. In practice it should never fire.
  */
 function narrowId<T extends { id?: string }>(
 	sub: T,
@@ -180,7 +185,13 @@ function narrowId<T extends { id?: string }>(
 ): Resolved<T> {
 	if (!sub.id) {
 		throw new Error(
-			`A Connect ${kind} block reached emission with no id. Every connect id is supposed to be filled and validated at the source (creation autofill + the field / tool guards). Reaching here with a blank id means an entry point skipped that enforcement — look at where this block was created or last edited.`,
+			`A Connect ${kind} block reached emission with no id. Every connect id is supposed to be filled and validated at the source (creation autofill + the field / tool guards + the legacy-data migration). Reaching here with a blank id means an entry point skipped that enforcement — look at where this block was created or last edited.`,
+		);
+	}
+	const reason = connectIdError(sub.id);
+	if (reason) {
+		throw new Error(
+			`A Connect ${kind} block reached emission with an invalid id: ${reason} The resolver does not fix ids — they're enforced valid at the source (creation autofill + the field / tool guards + the legacy-data migration). An invalid id here means an unhealed or stale doc slipped through; heal it before export.`,
 		);
 	}
 	return { ...sub, id: sub.id };
