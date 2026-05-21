@@ -111,6 +111,62 @@ describe("deriveConnectDefaults", () => {
 		).toBeUndefined();
 	});
 
+	it("disambiguates a derived id against an id already used elsewhere in the app", () => {
+		// Autofill is unique by construction: when the name-derived slug
+		// ("main") is already taken by another block in the doc, the fill
+		// gets a numeric suffix rather than colliding. Build a two-module
+		// doc whose first module's form already carries an explicit
+		// learn_module id "main"; the second (same-named) module's id-less
+		// learn_module must derive something other than "main".
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "First",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "main",
+									name: "First",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "Second",
+							type: "survey",
+							connect: {
+								learn_module: {
+									name: "Second",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		const secondForm = doc.formOrder[doc.moduleOrder[1]][0];
+		const next = deriveConnectDefaults({
+			connectType: "learn",
+			doc,
+			formUuid: secondForm,
+			moduleName: "Main",
+		});
+		expect(next?.learn_module?.id).not.toBe("main");
+		expect(next?.learn_module?.id).toBeDefined();
+	});
+
 	it("fills learn_module defaults when learn_module is present", () => {
 		const { doc, formUuid } = buildConnectDoc({
 			connectType: "learn",

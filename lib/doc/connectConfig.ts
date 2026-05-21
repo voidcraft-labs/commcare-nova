@@ -14,8 +14,7 @@
  * `deliver_unit.entity_name` live alongside the bind emitter in
  * `lib/commcare/xform/builder.ts`.
  */
-import { toSnakeId } from "@/lib/commcare";
-import { CONNECT_SLUG_MAX_LENGTH } from "@/lib/commcare/connectSlugs";
+import { deriveConnectId } from "@/lib/commcare/connectSlugs";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
@@ -100,6 +99,30 @@ export function normalizeConnectConfig(
 	return out;
 }
 
+/**
+ * Collect every connect id currently set across the whole doc, all four
+ * kinds. Feeds `deriveConnectId`'s uniqueness disambiguation so an
+ * autofilled id never collides with an id already in use elsewhere — the
+ * "unique by construction" guarantee. Only set (non-empty) ids count; an
+ * id-less block contributes nothing (it has no id to clash with yet).
+ */
+function collectConnectIds(doc: BlueprintDoc): Set<string> {
+	const ids = new Set<string>();
+	for (const formUuid of Object.keys(doc.forms)) {
+		const c = doc.forms[formUuid as Uuid]?.connect;
+		if (!c) continue;
+		for (const id of [
+			c.learn_module?.id,
+			c.assessment?.id,
+			c.deliver_unit?.id,
+			c.task?.id,
+		]) {
+			if (id) ids.add(id);
+		}
+	}
+	return ids;
+}
+
 /** Inputs for `deriveConnectDefaults`. Options-object signature so the
  *  call site reads as named arguments — every field is non-positional
  *  and `moduleName` stays clearly optional. */
@@ -131,34 +154,29 @@ export function deriveConnectDefaults({
 	const form = doc.forms[formUuid];
 	if (!form?.connect) return form?.connect ?? undefined;
 
-	const modSlug = toSnakeId(moduleName ?? "module");
-	const formSlug = toSnakeId(form.name);
+	// Names feed `deriveConnectId`: learn_module / deliver_unit derive from
+	// the module name; assessment / task from `<module> <form>` (snake-ified
+	// inside the helper). Passing raw names — the helper owns the slugging.
+	const moduleNameRaw = moduleName ?? "module";
+	const pairNameRaw = `${moduleNameRaw} ${form.name}`;
 
-	// A derived id must be valid-length as well as valid-char (`toSnakeId`
-	// already guarantees the latter). A connect id lands in a Connect DB
-	// slug column; the tightest is `varchar(50)`. Cap the two derived shapes
-	// — the bare module slug (learn_module / deliver_unit) and the
-	// `<module>_<form>` pair (assessment / task) — each independently to
-	// `CONNECT_SLUG_MAX_LENGTH`. Capping here (not by slicing `modSlug`,
-	// which is the base for the pair slug) keeps the join intact and ensures
-	// the `CONNECT_ID_TOO_LONG` validator rule never fires on an id the user
-	// can't shorten. A hand-typed id bypasses these defaults (the `??=` only
-	// fills when `id` is unset) and is left for that rule to reject.
-	const cappedModSlug = modSlug.slice(0, CONNECT_SLUG_MAX_LENGTH);
-	const cappedPairSlug = `${modSlug}_${formSlug}`.slice(
-		0,
-		CONNECT_SLUG_MAX_LENGTH,
-	);
+	// Every connect id already set anywhere in the app. `deriveConnectId`
+	// disambiguates against this so an autofilled id is unique by
+	// construction. We add each id we mint as we go, so two id-less blocks
+	// on this same form (cross-kind) can't derive the same slug either.
+	const existingIds = collectConnectIds(doc);
 
 	// Clone so we never mutate the input doc's connect struct. Sub-configs
-	// are shallow-cloned below as they're touched — each `??=` / `||=`
-	// operates on the clone.
+	// are shallow-cloned below as they're touched.
 	const next: ConnectConfig = { ...form.connect };
 
 	if (connectType === "learn") {
 		if (next.learn_module) {
 			const lm = { ...next.learn_module };
-			lm.id ??= cappedModSlug;
+			if (lm.id === undefined) {
+				lm.id = deriveConnectId(moduleNameRaw, existingIds);
+				existingIds.add(lm.id);
+			}
 			lm.name ||= form.name;
 			lm.description ||= form.name;
 			lm.time_estimate ??= Math.max(
@@ -169,7 +187,10 @@ export function deriveConnectDefaults({
 		}
 		if (next.assessment) {
 			const as = { ...next.assessment };
-			as.id ??= cappedPairSlug;
+			if (as.id === undefined) {
+				as.id = deriveConnectId(pairNameRaw, existingIds);
+				existingIds.add(as.id);
+			}
 			if (!as.user_score) {
 				const scoreField = findScoreField(doc, formUuid);
 				as.user_score = scoreField?.calculate ?? "100";
@@ -181,7 +202,10 @@ export function deriveConnectDefaults({
 	if (connectType === "deliver") {
 		if (next.deliver_unit) {
 			const du = { ...next.deliver_unit };
-			du.id ??= cappedModSlug;
+			if (du.id === undefined) {
+				du.id = deriveConnectId(moduleNameRaw, existingIds);
+				existingIds.add(du.id);
+			}
 			du.name ||= form.name;
 			// `entity_id` / `entity_name` are wire-emit defaults — see
 			// `lib/commcare/xform/builder.ts`. Layer 2 doesn't fill them
@@ -192,7 +216,10 @@ export function deriveConnectDefaults({
 		}
 		if (next.task) {
 			const t = { ...next.task };
-			t.id ??= cappedPairSlug;
+			if (t.id === undefined) {
+				t.id = deriveConnectId(pairNameRaw, existingIds);
+				existingIds.add(t.id);
+			}
 			next.task = t;
 		}
 	}

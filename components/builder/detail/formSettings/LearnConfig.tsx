@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef } from "react";
 import { Toggle } from "@/components/ui/Toggle";
 import { toSnakeId } from "@/lib/commcare";
+import { connectIdError } from "@/lib/commcare/connectSlugs";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
@@ -141,6 +142,7 @@ export function LearnConfig({
 									label="Module ID"
 									value={lm.id ?? "connect_learn"}
 									onChange={(v) => updateLearnModule("id", v)}
+									validate={connectIdError}
 									mono
 									required
 								/>
@@ -204,6 +206,7 @@ export function LearnConfig({
 									onChange={(v) =>
 										save({ ...connect, assessment: { ...assessment, id: v } })
 									}
+									validate={connectIdError}
 									mono
 									required
 								/>

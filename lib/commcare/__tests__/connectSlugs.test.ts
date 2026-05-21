@@ -31,6 +31,9 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	buildConnectSlugMap,
 	CONNECT_SLUG_MAX_LENGTH,
+	connectIdConflictError,
+	connectIdError,
+	deriveConnectId,
 } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -878,5 +881,112 @@ describe("Connect slug cap — validator valid-path set uses the capped id", () 
 		);
 		expect(refErrors.length).toBeGreaterThan(0);
 		expect(refErrors.some((e) => e.message.includes(LONG_ID_60))).toBe(true);
+	});
+});
+
+// ── connectIdError — single source of connect-id validity ──────────
+//
+// Returns a human-readable reason when an id is not a valid XML element
+// name (`XML_ELEMENT_NAME_REGEX`) OR is over `CONNECT_SLUG_MAX_LENGTH`,
+// else `null`. Shared by the field-level commit guard (`InlineField` via
+// `LearnConfig`) and the `validate_app` connect-id rules, so the two can
+// never disagree about what counts as a valid id.
+
+describe("connectIdError", () => {
+	it("returns a reason for an id with illegal characters", () => {
+		expect(connectIdError("2024 Intake")).not.toBeNull();
+		expect(connectIdError("has space")).not.toBeNull();
+		expect(connectIdError("1st_module")).not.toBeNull(); // leading digit
+		expect(connectIdError("bad-dash")).not.toBeNull(); // hyphen illegal
+	});
+
+	it("returns a reason for an id over the length limit", () => {
+		const tooLong = "a".repeat(CONNECT_SLUG_MAX_LENGTH + 1);
+		const reason = connectIdError(tooLong);
+		expect(reason).not.toBeNull();
+		// Length reason names the limit so callers (and the validator) can
+		// surface it.
+		expect(reason).toContain(String(CONNECT_SLUG_MAX_LENGTH));
+	});
+
+	it("returns null for a valid id (legal chars, within length)", () => {
+		expect(connectIdError("intake_2024")).toBeNull();
+		expect(connectIdError("_leading_underscore")).toBeNull();
+		expect(connectIdError("a".repeat(CONNECT_SLUG_MAX_LENGTH))).toBeNull();
+	});
+});
+
+// ── deriveConnectId — autofill a valid, unique id from a name ──────────
+//
+// The "force correct at the source" autofill: the instant a connect block
+// is created/enabled without an explicit id, it gets a valid, unique id
+// derived from its name — STORED in the doc, not conjured at emit. Always
+// a legal XML element name (`toSnakeId`), within the length limit (cap),
+// and unique against the supplied existing ids (suffix-disambiguated).
+
+describe("deriveConnectId", () => {
+	it("snake-cases the name into a legal element name", () => {
+		expect(deriveConnectId("Module 3 Intro", new Set())).toBe("module_3_intro");
+		// Result is always a valid connect id (no error from the validity helper).
+		expect(
+			connectIdError(deriveConnectId("2024 Intake!", new Set())),
+		).toBeNull();
+	});
+
+	it("caps the derived id at the length limit", () => {
+		const longName = "Conducting the fifteen question seller interview module";
+		const id = deriveConnectId(longName, new Set());
+		expect(id.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+		expect(connectIdError(id)).toBeNull();
+	});
+
+	it("uniquifies against existing ids with a numeric suffix", () => {
+		const existing = new Set(["intro"]);
+		const id = deriveConnectId("Intro", existing);
+		expect(id).not.toBe("intro");
+		expect(existing.has(id)).toBe(false);
+	});
+
+	it("cascades the suffix when multiple collisions exist", () => {
+		const existing = new Set(["intro", "intro_2", "intro_3"]);
+		const id = deriveConnectId("Intro", existing);
+		expect(existing.has(id)).toBe(false);
+		expect(id.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+	});
+
+	it("keeps a suffixed id within the length cap by re-cutting the base", () => {
+		// A name at the cap that collides must still produce a ≤50 id once a
+		// suffix is appended — the base is re-cut to make room.
+		const base = "a".repeat(CONNECT_SLUG_MAX_LENGTH);
+		const existing = new Set([base]);
+		const id = deriveConnectId("a".repeat(60), existing);
+		expect(id.length).toBeLessThanOrEqual(CONNECT_SLUG_MAX_LENGTH);
+		expect(id).not.toBe(base);
+	});
+
+	it("is deterministic — same name + same existing set yields the same id", () => {
+		const existing = new Set(["intro"]);
+		expect(deriveConnectId("Intro", new Set(existing))).toBe(
+			deriveConnectId("Intro", new Set(existing)),
+		);
+	});
+});
+
+// ── connectIdConflictError — contextual uniqueness check ───────────────
+//
+// Connect ids must be unique across the whole app (every block's id lands
+// in a per-table `(app, slug)` key, and co-located blocks share one
+// `<data>` element scope). An EXPLICIT set (UI commit or tool) that
+// duplicates an existing id is rejected — not silently renamed. The check
+// is contextual, so it's separate from the format/length `connectIdError`.
+
+describe("connectIdConflictError", () => {
+	it("returns a reason when the id already exists in the set", () => {
+		expect(connectIdConflictError("intro", new Set(["intro"]))).not.toBeNull();
+	});
+
+	it("returns null when the id is unique", () => {
+		expect(connectIdConflictError("intro", new Set(["other"]))).toBeNull();
+		expect(connectIdConflictError("intro", new Set())).toBeNull();
 	});
 });

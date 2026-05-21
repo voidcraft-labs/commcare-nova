@@ -19,6 +19,7 @@ export function InlineField({
 	label,
 	value,
 	onChange,
+	validate,
 	mono,
 	multiline,
 	placeholder,
@@ -29,6 +30,15 @@ export function InlineField({
 	label: string;
 	value: string;
 	onChange: (value: string) => void;
+	/**
+	 * Optional field-level validity check. Return a human-readable reason
+	 * to reject the value, or `null` when it's valid. A non-null result
+	 * blocks the commit (the value reverts, `onChange` never fires) AND
+	 * renders the reason inline while the field is focused — a visible
+	 * "can't save, here's why" rather than a silent revert. Mirrors how the
+	 * builder blocks invalid XPath at the field. Absent → unchanged.
+	 */
+	validate?: (value: string) => string | null;
 	mono?: boolean;
 	multiline?: boolean;
 	placeholder?: string;
@@ -49,9 +59,21 @@ export function InlineField({
 	} = useCommitField({
 		value,
 		onSave: onChange,
+		// `useCommitField` aborts the commit when `validate` returns false, so
+		// adapt the reason-returning predicate to a boolean: valid ⇔ no reason.
+		validate: validate ? (v) => validate(v) === null : undefined,
 		required,
 		multiline,
 	});
+
+	// Compute the reason against the in-progress draft so the message
+	// tracks what the user is typing. Only surfaced while focused — at rest
+	// the field shows the persisted (valid) value, so no error chrome lingers.
+	const reason = validate && focused ? validate(draft) : null;
+
+	// `aria-describedby` ties the message to the input for assistive tech;
+	// only set when a reason is actually showing.
+	const reasonId = `${fieldId}-error`;
 
 	const Tag = multiline ? "textarea" : "input";
 
@@ -84,12 +106,16 @@ export function InlineField({
 					data-1p-ignore
 					rows={multiline ? 2 : undefined}
 					min={type === "number" ? 1 : undefined}
+					aria-invalid={reason ? true : undefined}
+					aria-describedby={reason ? reasonId : undefined}
 					className={`w-full text-xs px-2 py-1.5 rounded-md border transition-colors outline-none resize-none ${
 						mono ? "font-mono text-nova-violet-bright" : "text-nova-text"
 					} ${
-						focused
-							? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
-							: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
+						reason
+							? "bg-nova-surface border-nova-rose/60 shadow-[0_0_0_1px_rgba(244,63,94,0.15)]"
+							: focused
+								? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+								: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 					} ${suffix ? "pr-8" : ""}`}
 				/>
 				{suffix && (
@@ -98,6 +124,11 @@ export function InlineField({
 					</span>
 				)}
 			</div>
+			{reason && (
+				<p id={reasonId} className="mt-0.5 text-[10px] text-nova-rose">
+					{reason}
+				</p>
+			)}
 		</div>
 	);
 }

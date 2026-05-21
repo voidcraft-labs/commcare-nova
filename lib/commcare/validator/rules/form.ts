@@ -15,7 +15,7 @@ import {
 	RESERVED_CASE_PROPERTIES,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
-import { CONNECT_SLUG_MAX_LENGTH } from "@/lib/commcare/connectSlugs";
+import { connectIdError } from "@/lib/commcare/connectSlugs";
 import {
 	type DerivedCaseConfig,
 	deriveCaseConfig,
@@ -607,14 +607,19 @@ function connectValidation(
 	// A Connect id becomes an XML element name in the emitted form (the
 	// wrapper `<id vellum:role=...>` and the Connect-namespaced `id=`
 	// attribute) and lands in a Connect DB slug column (tightest is
-	// `varchar(50)`). So a present, non-empty id must be both a legal element
-	// name AND within the length limit. We reject a bad id here rather than
-	// silently fixing it — the user keeps control of what their modules are
-	// called. Only non-empty ids are checked: an absent/empty id means "use
-	// the default", which `deriveConnectDefaults` mints via `toSnakeId`
-	// (legal chars) capped to `CONNECT_SLUG_MAX_LENGTH` (legal length), so a
-	// derived id never trips either rule — these fire only on hand-typed /
-	// SA-supplied ids.
+	// `varchar(50)`). `connectIdError` is the single authority on what makes
+	// an id valid (legal element name AND within length) — the same helper
+	// the field-level commit guard uses, so the field and the server never
+	// disagree. We reject a bad id here rather than silently fixing it. Only
+	// non-empty ids are checked: an absent/empty id means "use the default",
+	// which `deriveConnectDefaults` mints (legal chars, capped length), so a
+	// derived id never trips this — it fires only on hand-typed / SA-supplied
+	// ids (the agent path sets ids as a bare string, bypassing the field).
+	//
+	// The helper returns one reason; we pick the structured code from the
+	// cheap element-name check (a char failure → INVALID_FORMAT, otherwise
+	// the only remaining failure is length → TOO_LONG) and wrap the reason
+	// with the form/kind context the message needs.
 	const connectIds: ReadonlyArray<{ label: string; id: string | undefined }> = [
 		{ label: "learn-module", id: form.connect.learn_module?.id },
 		{ label: "assessment", id: form.connect.assessment?.id },
@@ -623,28 +628,20 @@ function connectValidation(
 	];
 	for (const { label, id } of connectIds) {
 		if (!id) continue; // unset/empty → resolver supplies a valid default
-		if (!XML_ELEMENT_NAME_REGEX.test(id)) {
-			errors.push(
-				validationError(
-					"CONNECT_ID_INVALID_FORMAT",
-					"form",
-					`Connect ${label} id "${id}" in "${ctx.formName}" can't be used — Connect ids become XML element names in the form, so they can't contain spaces or start with a digit. Use letters, numbers, and underscores, starting with a letter or underscore.`,
-					loc,
-					{ connectId: id },
-				),
-			);
-		}
-		if (id.length > CONNECT_SLUG_MAX_LENGTH) {
-			errors.push(
-				validationError(
-					"CONNECT_ID_TOO_LONG",
-					"form",
-					`Connect ${label} id "${id}" in "${ctx.formName}" is ${id.length} characters — Connect stores ids in a column limited to ${CONNECT_SLUG_MAX_LENGTH}. Shorten it to ${CONNECT_SLUG_MAX_LENGTH} characters or fewer.`,
-					loc,
-					{ connectId: id },
-				),
-			);
-		}
+		const reason = connectIdError(id);
+		if (!reason) continue;
+		const code = XML_ELEMENT_NAME_REGEX.test(id)
+			? "CONNECT_ID_TOO_LONG"
+			: "CONNECT_ID_INVALID_FORMAT";
+		errors.push(
+			validationError(
+				code,
+				"form",
+				`Connect ${label} id in "${ctx.formName}" — ${reason}`,
+				loc,
+				{ connectId: id },
+			),
+		);
 	}
 
 	if (

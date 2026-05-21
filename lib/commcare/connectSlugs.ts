@@ -38,6 +38,7 @@ import type {
 	ConnectTask,
 	Uuid,
 } from "@/lib/domain";
+import { XML_ELEMENT_NAME_REGEX } from "./constants";
 import { toSnakeId } from "./identifierValidation";
 
 /**
@@ -51,6 +52,97 @@ import { toSnakeId } from "./identifierValidation";
  * Connect adding one.)
  */
 export const CONNECT_SLUG_MAX_LENGTH = 50;
+
+/**
+ * The single definition of what makes a connect id valid.
+ *
+ * A connect id becomes an XML element name in the emitted form (the wrapper
+ * `<id vellum:role=...>` and the Connect-namespaced `id=` attribute) and is
+ * written into a Connect DB slug column (the tightest is `varchar(50)`). So
+ * a valid id must be a legal XML element name AND within
+ * {@link CONNECT_SLUG_MAX_LENGTH}. Returns a human-readable reason when the
+ * id is invalid, or `null` when it's fine.
+ *
+ * Shared by both enforcement surfaces so they can never disagree: the
+ * field-level commit guard (`InlineField`, wired up in `LearnConfig`) blocks
+ * the save and shows the reason inline, and the `validate_app` connect-id
+ * rules wrap the same reason in a form-scoped error for the agent path
+ * (`update_form`, which sets ids as a bare string and bypasses the field).
+ * Callers that need to render the message themselves get the reason; the
+ * server rules add the form/kind context around it.
+ */
+export function connectIdError(id: string): string | null {
+	if (!XML_ELEMENT_NAME_REGEX.test(id)) {
+		return `"${id}" can't be used as a Connect id — it becomes an XML element name in the form, so it can't contain spaces or start with a digit. Use letters, numbers, and underscores, starting with a letter or underscore.`;
+	}
+	if (id.length > CONNECT_SLUG_MAX_LENGTH) {
+		return `"${id}" is ${id.length} characters — Connect stores ids in a column limited to ${CONNECT_SLUG_MAX_LENGTH}. Shorten it to ${CONNECT_SLUG_MAX_LENGTH} characters or fewer.`;
+	}
+	return null;
+}
+
+/**
+ * Contextual uniqueness check for a connect id, complementing the
+ * format/length {@link connectIdError}.
+ *
+ * Every connect id lands in a per-table `(app, slug)` key in Connect, and
+ * co-located blocks emit as siblings under one `<data>` element, so connect
+ * ids must be globally unique across the app. Returns a reason when `id` is
+ * already taken by another block, or `null` when it's free. Kept separate
+ * from `connectIdError` because uniqueness is contextual (depends on the
+ * other blocks) — the field-level guard and the tools compose both checks,
+ * each surfacing the right remediation ("rename" vs "fix the characters").
+ *
+ * `existingIds` must EXCLUDE the id of the block being edited, so a block's
+ * own current value doesn't read as a conflict with itself.
+ */
+export function connectIdConflictError(
+	id: string,
+	existingIds: ReadonlySet<string>,
+): string | null {
+	if (existingIds.has(id)) {
+		return `"${id}" is already used by another Connect block in this app. Connect ids must be unique — choose a different id.`;
+	}
+	return null;
+}
+
+/**
+ * Derive a valid, unique connect id from a display `name`, disambiguating
+ * against `existingIds`.
+ *
+ * This is the "force correct at the source" autofill: the instant a connect
+ * block is created or enabled without an explicit id, it gets a value from
+ * here that is STORED in the doc (visible via `get_form` and in the
+ * authoring field), not conjured at emit. The result is always a legal XML
+ * element name (`toSnakeId`), within {@link CONNECT_SLUG_MAX_LENGTH} (the
+ * base is truncated), and unique against `existingIds` (a numeric suffix is
+ * appended on collision, re-cutting the base so the suffixed id still fits).
+ *
+ * Suffix disambiguation lives here — at the source — because it resolves an
+ * *implicit* collision between auto-derived defaults (two blocks whose names
+ * snake to the same slug). An *explicit* duplicate the user or SA typed is a
+ * different case: that's rejected outright by {@link connectIdConflictError},
+ * never silently renamed.
+ */
+export function deriveConnectId(
+	name: string,
+	existingIds: ReadonlySet<string>,
+): string {
+	// `toSnakeId` already guarantees legal chars + non-empty (`|| "unnamed"`).
+	const base = toSnakeId(name).slice(0, CONNECT_SLUG_MAX_LENGTH);
+	if (!existingIds.has(base)) return base;
+
+	// Collision with an existing id: append `_2`, `_3`, … re-cutting the
+	// base so the assembled id never exceeds the cap (guards the off-by-one
+	// where a longer suffix — `_10`, `_100` — would push it back over).
+	for (let n = 2; ; n++) {
+		const suffix = `_${n}`;
+		const candidate =
+			toSnakeId(name).slice(0, CONNECT_SLUG_MAX_LENGTH - suffix.length) +
+			suffix;
+		if (!existingIds.has(candidate)) return candidate;
+	}
+}
 
 /**
  * A Connect config whose sub-config ids are resolved — the wire-final
