@@ -277,7 +277,13 @@ export function buildConnectSlugMap(
 				claim(next.task.id, form.name, "task");
 			}
 
-			result.set(formUuid, next);
+			// Only record an entry when there's actually something to emit. A
+			// form whose `connect` holds only a cross-mode stray matches no
+			// live-kind arm above, leaving `next` empty — recording `{}` would
+			// break the contract that `map.get(formUuid) === undefined` means
+			// "nothing to emit" (a truthy `{}` would mislead a consumer that
+			// branches on the entry's presence).
+			if (Object.keys(next).length > 0) result.set(formUuid, next);
 		}
 	}
 

@@ -304,6 +304,31 @@ describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
 		// The cross-mode deliver_unit is not emitted.
 		expect(config?.deliver_unit).toBeUndefined();
 	});
+
+	it("produces NO map entry for a form whose connect holds only a cross-mode stray", () => {
+		// A learn form carrying ONLY a stray deliver_unit has nothing to emit.
+		// The contract is `map.get(formUuid) === undefined` means "nothing to
+		// emit" — so a present-but-empty `{}` entry would be a contract
+		// violation (a future consumer doing `if (map.get(f)) emitWrapper()`
+		// would emit a spurious empty wrapper).
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Training",
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							// No live (learn) kind — only a cross-mode stray.
+							connect: { deliver_unit: { id: "stray", name: "Stray" } },
+						},
+					],
+				},
+			],
+		});
+		expect(buildConnectSlugMap(doc).get(onlyFormUuid(doc))).toBeUndefined();
+	});
 });
 
 describe("buildConnectSlugMap — purity / idempotence", () => {

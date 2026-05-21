@@ -431,6 +431,40 @@ describe("BuilderSession connect stash", () => {
 		expect(restored?.learn_module?.id).toBe("mod");
 		expect(restored?.learn_module?.name).toBe("Form A");
 	});
+
+	it("8. learn->null->learn round-trip restores the original learn config (disable/re-enable, no work lost)", () => {
+		const { session, doc, formA } = createConnectTestStores();
+
+		session.getState().switchConnectMode("learn");
+		doc.getState().applyMany([
+			{
+				kind: "updateForm",
+				uuid: formA,
+				patch: {
+					connect: {
+						learn_module: {
+							id: "mod",
+							name: "Form A",
+							description: "desc",
+							time_estimate: 5,
+						},
+					},
+				},
+			},
+		]);
+
+		/* Disable connect entirely (clears every form.connect), then re-enable
+		 * the SAME mode. Re-enabling from `null` restores from the stash —
+		 * `currentType` is undefined while disabled, so the re-enable doesn't
+		 * overwrite the stash with the (now-cleared) live configs. */
+		session.getState().switchConnectMode(null);
+		expect(doc.getState().forms[formA]?.connect).toBeUndefined();
+
+		session.getState().switchConnectMode("learn");
+		const restored = doc.getState().forms[formA]?.connect;
+		expect(restored?.learn_module?.id).toBe("mod");
+		expect(restored?.learn_module?.name).toBe("Form A");
+	});
 });
 
 // ── Generation lifecycle ────────────────────────────────────────────────
