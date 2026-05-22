@@ -800,11 +800,13 @@ describe("CaseListScreen Reset — atomic delete + regenerate round-trip", () =>
 			expect(screen.getByText("ZZZ-HAND-CRAFTED")).toBeDefined();
 		});
 
-		// Click the Reset trigger → confirmation dialog → click
-		// Reset to confirm. The dialog's content surfaced via the
-		// shadcn `AlertDialog` primitive's `role="alertdialog"`.
+		// Click the Reset trigger → confirmation dialog → click Reset to
+		// confirm. The wide open timeout absorbs worker-scheduling
+		// starvation under the async-leak gate's instrumented parallel run
+		// (CLAUDE.md "Testing — async-resource leaks"); a normal run opens
+		// the dialog in milliseconds.
 		fireEvent.click(screen.getByRole("button", { name: /reset sample data/i }));
-		await screen.findByRole("alertdialog");
+		await screen.findByRole("alertdialog", {}, { timeout: 5_000 });
 		fireEvent.click(screen.getByRole("button", { name: /^reset$/i }));
 
 		// Wait for the hand-crafted row to disappear — that's the
