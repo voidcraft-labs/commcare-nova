@@ -140,47 +140,66 @@ export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 
 			const validPaths = collectValidPaths(doc, formUuid);
 
-			// Expose Connect data paths so XPath expressions can reference them
-			// (only when app-level connect_type is set and the form has connect wiring).
-			if (doc.connectType && form.connect) {
-				const c = form.connect;
-				if (c.learn_module) {
-					validPaths.add(`/data/${c.learn_module.id || "connect_learn"}`);
+			// The form's connect config, read directly from the doc (only when
+			// the app is in Connect mode). The validator runs on in-progress
+			// docs that may not yet have ids filled, so it must NOT route
+			// through the emit-time `buildConnectSlugMap` (which asserts ids
+			// are present) — it reads `form.connect` and guards each valid-path
+			// arm on the id being set. An id-less block simply contributes no
+			// valid path; the connect-id format/length rules in `rules/form.ts`
+			// and the app-wide `CONNECT_ID_DUPLICATE` rule in `rules/app.ts`
+			// carry the authoring signal for a bad or colliding explicit id.
+			const connect = doc.connectType ? form.connect : undefined;
+
+			// Expose Connect data paths so XPath expressions can reference them.
+			// Each arm gates on the id being present (a wire node only exists
+			// once the id is set; an id-less block is filled at the source
+			// before export).
+			if (connect) {
+				if (connect.learn_module?.id) {
+					validPaths.add(`/data/${connect.learn_module.id}`);
 				}
-				if (c.assessment) {
+				if (connect.assessment?.id) {
 					validPaths.add(
-						`/data/${c.assessment.id || "connect_assessment"}/assessment/user_score`,
+						`/data/${connect.assessment.id}/assessment/user_score`,
 					);
 				}
-				if (c.deliver_unit) {
-					const duId = c.deliver_unit.id || "connect_deliver";
+				if (connect.deliver_unit?.id) {
+					const duId = connect.deliver_unit.id;
 					validPaths.add(`/data/${duId}/deliver/entity_id`);
 					validPaths.add(`/data/${duId}/deliver/entity_name`);
+				}
+				if (connect.task?.id) {
+					// Wrapper-only bind, like learn_module — the XForm emits
+					// `<bind nodeset="/data/<taskId>"/>` with no child paths.
+					validPaths.add(`/data/${connect.task.id}`);
 				}
 			}
 
 			// Per-field XPath validation — recursive walk over the tree.
 			validateTreeXPath(tree, validPaths, caseProps, form.name, errors);
 
-			// Connect-block XPath expressions (only when app-level connect_type is set).
-			if (doc.connectType && form.connect) {
+			// Connect-block XPath expressions. The expressions themselves
+			// (`user_score`, `entity_id`, `entity_name`) are id-independent, so
+			// reading them off the resolved config matches the raw doc value.
+			if (connect) {
 				const connectXPaths: Array<[string, string]> = [];
-				if (form.connect.assessment?.user_score) {
+				if (connect.assessment?.user_score) {
 					connectXPaths.push([
 						"Connect assessment user_score",
-						form.connect.assessment.user_score,
+						connect.assessment.user_score,
 					]);
 				}
-				if (form.connect.deliver_unit?.entity_id) {
+				if (connect.deliver_unit?.entity_id) {
 					connectXPaths.push([
 						"Connect deliver entity_id",
-						form.connect.deliver_unit.entity_id,
+						connect.deliver_unit.entity_id,
 					]);
 				}
-				if (form.connect.deliver_unit?.entity_name) {
+				if (connect.deliver_unit?.entity_name) {
 					connectXPaths.push([
 						"Connect deliver entity_name",
-						form.connect.deliver_unit.entity_name,
+						connect.deliver_unit.entity_name,
 					]);
 				}
 				for (const [label, expr] of connectXPaths) {

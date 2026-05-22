@@ -5,8 +5,11 @@ import {
 	type FormSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { connectIdError } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
+import { asUuid } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
@@ -14,7 +17,11 @@ import type {
 	ConnectType,
 	Uuid,
 } from "@/lib/domain";
-import { deriveConnectDefaults } from "../connectConfig";
+import {
+	dedupeRestoredConnectIds,
+	deriveConnectDefaults,
+	type RestoredConnectIdContext,
+} from "../connectConfig";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 //
@@ -109,6 +116,62 @@ describe("deriveConnectDefaults", () => {
 		expect(
 			deriveConnectDefaults({ connectType: "learn", doc, formUuid }),
 		).toBeUndefined();
+	});
+
+	it("disambiguates a derived id against an id already used elsewhere in the app", () => {
+		// Autofill is unique by construction: when the name-derived slug
+		// ("main") is already taken by another block in the doc, the fill
+		// gets a numeric suffix rather than colliding. Build a two-module
+		// doc whose first module's form already carries an explicit
+		// learn_module id "main"; the second (same-named) module's id-less
+		// learn_module must derive something other than "main".
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "First",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "main",
+									name: "First",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "Second",
+							type: "survey",
+							connect: {
+								learn_module: {
+									name: "Second",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		const secondForm = doc.formOrder[doc.moduleOrder[1]][0];
+		const next = deriveConnectDefaults({
+			connectType: "learn",
+			doc,
+			formUuid: secondForm,
+			moduleName: "Main",
+		});
+		expect(next?.learn_module?.id).not.toBe("main");
+		expect(next?.learn_module?.id).toBeDefined();
 	});
 
 	it("fills learn_module defaults when learn_module is present", () => {
@@ -278,6 +341,177 @@ describe("deriveConnectDefaults", () => {
 	});
 });
 
+// ── dedupeRestoredConnectIds ─────────────────────────────────────────
+//
+// The UI restore/seed twin of the agent path's `enforceConnectIds`. A
+// Connect toggle writes a whole config at once (re-enable from a stash,
+// restore a sub-block from its ref, or seed a fresh pair), and this helper
+// forces every id unique at the source before the write. Format/length were
+// valid when stashed (or absent on a fresh seed) and can't drift, so only
+// uniqueness is re-checked: a still-unique id is kept, a colliding one is
+// suffixed from itself, an absent one is autofilled from the entity name.
+
+const FORM_A = asUuid("form-a");
+const FORM_B = asUuid("form-b");
+
+describe("dedupeRestoredConnectIds", () => {
+	// Module/form names feed the absent-id autofill: "Module A" snakes to
+	// "module_a", the pair "Module A Form A" to "module_a_form_a".
+	const ctx = (overrides: {
+		formUuid?: Uuid;
+		appConnectIds?: AppConnectId[];
+	}): RestoredConnectIdContext => ({
+		formUuid: overrides.formUuid ?? FORM_A,
+		appConnectIds: overrides.appConnectIds ?? [],
+		moduleName: "Module A",
+		formName: "Form A",
+	});
+
+	it("suffixes a restored id that now collides with another form's id", () => {
+		// The reachable bug: FORM_B took "intro" while FORM_A's learn_module
+		// was toggled off. Restoring FORM_A must not write the duplicate — it
+		// suffixes from the user's own slug ("intro" → "intro_2") rather than
+		// replacing it wholesale.
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "intro",
+					name: "Intro",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+			ctx({
+				appConnectIds: [
+					{ formUuid: FORM_B, kind: "learn_module", id: "intro" },
+				],
+			}),
+		);
+		expect(result.learn_module?.id).toBe("intro_2");
+		expect(connectIdError(result.learn_module?.id as string)).toBeNull();
+	});
+
+	it("keeps a restored id that is still unique (no work lost)", () => {
+		// FORM_A's own "intro" must not read as a self-conflict — this form's
+		// ids are excluded from the scope, so the restore keeps it verbatim
+		// along with the block's other fields.
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "intro",
+					name: "Intro",
+					description: "keep me",
+					time_estimate: 7,
+				},
+			},
+			ctx({
+				appConnectIds: [
+					{ formUuid: FORM_A, kind: "learn_module", id: "intro" },
+					{ formUuid: FORM_B, kind: "learn_module", id: "other" },
+				],
+			}),
+		);
+		expect(result.learn_module?.id).toBe("intro");
+		expect(result.learn_module?.description).toBe("keep me");
+		expect(result.learn_module?.time_estimate).toBe(7);
+	});
+
+	it("autofills an absent id from the entity name (the seed path)", () => {
+		// The seed / fresh-enable path passes blocks with no id; the helper
+		// fills them from the entity name exactly as creation-time autofill
+		// does — module name for learn_module, "<module> <form>" for assessment.
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: { name: "L", description: "x", time_estimate: 5 },
+				assessment: { user_score: "100" },
+			},
+			ctx({}),
+		);
+		expect(result.learn_module?.id).toBe("module_a");
+		expect(result.assessment?.id).toBe("module_a_form_a");
+	});
+
+	it("autofills absent deliver_unit / task ids from module and pair names", () => {
+		// Same autofill, the deliver-mode kinds: deliver_unit derives from the
+		// module name, task from "<module> <form>".
+		const result = dedupeRestoredConnectIds(
+			{
+				deliver_unit: { name: "Unit" },
+				task: { name: "Task", description: "x" },
+			},
+			ctx({}),
+		);
+		expect(result.deliver_unit?.id).toBe("module_a");
+		expect(result.task?.id).toBe("module_a_form_a");
+	});
+
+	it("heals a pre-existing cross-form duplicate on an untouched sibling block", () => {
+		// Heal-on-touch: the base scope excludes ALL of this form's ids, so the
+		// write re-checks every block in the config, not just the one being
+		// restored. If a sibling carried an id that duplicated ANOTHER form's,
+		// it's re-derived too — even though only one sub-toggle was nominally
+		// touched. That state shouldn't reach a user (every writer forces ids
+		// unique at the source), but if it ever did, the restore must heal it
+		// rather than propagate the duplicate. Here FORM_A's still-enabled
+		// assessment "other" duplicates FORM_B's learn_module "other".
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "intro",
+					name: "Intro",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "other", user_score: "100" },
+			},
+			ctx({
+				appConnectIds: [
+					{ formUuid: FORM_B, kind: "learn_module", id: "other" },
+				],
+			}),
+		);
+		expect(result.learn_module?.id).toBe("intro"); // unique → kept
+		expect(result.assessment?.id).toBe("other_2"); // healed off FORM_B's "other"
+	});
+
+	it("disambiguates a duplicate shared across two blocks in one config", () => {
+		// Two blocks in the same restored config share an id (shouldn't happen,
+		// but the per-config accumulation must catch it): the first kind in
+		// fixed order (learn_module) keeps it, the second (assessment) suffixes.
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "dup",
+					name: "L",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "dup", user_score: "100" },
+			},
+			ctx({}),
+		);
+		expect(result.learn_module?.id).toBe("dup");
+		expect(result.assessment?.id).toBe("dup_2");
+	});
+
+	it("leaves a fully-unique multi-kind config untouched", () => {
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "lm",
+					name: "L",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "as", user_score: "100" },
+			},
+			ctx({}),
+		);
+		expect(result.learn_module?.id).toBe("lm");
+		expect(result.assessment?.id).toBe("as");
+	});
+});
+
 // ── XForm Export ─────────────────────────────────────────────────────
 
 /**
@@ -317,6 +551,7 @@ describe("Connect XForm export", () => {
 			"learn",
 			{
 				learn_module: {
+					id: "main",
 					name: "ILC Module",
 					description: "Training for ILC",
 					time_estimate: 5,
@@ -327,20 +562,27 @@ describe("Connect XForm export", () => {
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		expect(xml).toContain('<connect_learn vellum:role="ConnectLearnModule">');
+		// The stored id is the wire element name — the resolver passes it
+		// through verbatim (ids are valid by construction at the source).
+		expect(xml).toContain('<main vellum:role="ConnectLearnModule">');
 		expect(xml).toContain('xmlns="http://commcareconnect.com/data/v1/learn"');
 		expect(xml).toContain("<name>ILC Module</name>");
 		expect(xml).toContain("<description>Training for ILC</description>");
 		expect(xml).toContain("<time_estimate>5</time_estimate>");
-		expect(xml).toContain("</connect_learn>");
+		expect(xml).toContain("</main>");
 	});
 
 	it("generates correct assessment block with calculate bind", () => {
 		const doc = makeConnectExpandDoc(
 			"learn",
 			{
-				learn_module: { name: "Test", description: "Test", time_estimate: 1 },
-				assessment: { user_score: "100" },
+				learn_module: {
+					id: "main",
+					name: "Test",
+					description: "Test",
+					time_estimate: 1,
+				},
+				assessment: { id: "main_ilc_training", user_score: "100" },
 			},
 			"ILC Training",
 		);
@@ -348,11 +590,11 @@ describe("Connect XForm export", () => {
 		const xml = Object.values(hq._attachments)[0] as string;
 
 		expect(xml).toContain(
-			'<connect_assessment vellum:role="ConnectAssessment">',
+			'<main_ilc_training vellum:role="ConnectAssessment">',
 		);
 		expect(xml).toContain("<user_score/>");
 		expect(xml).toContain(
-			'nodeset="/data/connect_assessment/assessment/user_score" calculate="100"',
+			'nodeset="/data/main_ilc_training/assessment/user_score" calculate="100"',
 		);
 	});
 
@@ -361,6 +603,7 @@ describe("Connect XForm export", () => {
 			"deliver",
 			{
 				deliver_unit: {
+					id: "main",
 					name: "Weekly Report",
 					entity_id: "concat('user', '-', today())",
 					entity_name: "'test_user'",
@@ -371,17 +614,15 @@ describe("Connect XForm export", () => {
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		expect(xml).toContain('<connect_deliver vellum:role="ConnectDeliverUnit">');
+		expect(xml).toContain('<main vellum:role="ConnectDeliverUnit">');
 		expect(xml).toContain(
 			'<deliver xmlns="http://commcareconnect.com/data/v1/learn"',
 		);
 		expect(xml).toContain("<name>Weekly Report</name>");
 		expect(xml).toContain("<entity_id/>");
 		expect(xml).toContain("<entity_name/>");
-		expect(xml).toContain('nodeset="/data/connect_deliver/deliver/entity_id"');
-		expect(xml).toContain(
-			'nodeset="/data/connect_deliver/deliver/entity_name"',
-		);
+		expect(xml).toContain('nodeset="/data/main/deliver/entity_id"');
+		expect(xml).toContain('nodeset="/data/main/deliver/entity_name"');
 	});
 
 	it("generates task block", () => {
@@ -389,18 +630,23 @@ describe("Connect XForm export", () => {
 			"deliver",
 			{
 				deliver_unit: {
+					id: "main",
 					name: "Unit",
 					entity_id: "'id'",
 					entity_name: "'name'",
 				},
-				task: { name: "Delivery Task", description: "Complete the delivery" },
+				task: {
+					id: "main_weekly_report",
+					name: "Delivery Task",
+					description: "Complete the delivery",
+				},
 			},
 			"Weekly Report",
 		);
 		const hq = expandDoc(doc);
 		const xml = Object.values(hq._attachments)[0] as string;
 
-		expect(xml).toContain('<connect_task vellum:role="ConnectTask">');
+		expect(xml).toContain('<main_weekly_report vellum:role="ConnectTask">');
 		expect(xml).toContain("<name>Delivery Task</name>");
 		expect(xml).toContain("<description>Complete the delivery</description>");
 	});
@@ -410,6 +656,7 @@ describe("Connect XForm export", () => {
 			"deliver",
 			{
 				deliver_unit: {
+					id: "main",
 					name: "Unit",
 					entity_id: "concat(#user/username, '-', today())",
 					entity_name: "#user/username",
@@ -526,5 +773,62 @@ describe("Connect validation", () => {
 		);
 		const errors = runValidation(doc);
 		expect(errors).toHaveLength(0);
+	});
+});
+
+// ── Derived-id length cap ────────────────────────────────────────────
+//
+// A derived connect id must be valid-length, just as `toSnakeId` already
+// makes it valid-char. Without the cap, a long module name would derive an
+// over-50 id that the `CONNECT_ID_TOO_LONG` validator rule would then
+// falsely reject — an error the user couldn't fix without renaming the
+// module. The cap lives in `deriveConnectDefaults` so the rule fires only
+// on explicitly hand-typed over-length ids, never on a derived one.
+
+describe("Connect derived id length", () => {
+	// LEEP regression: this module name's snake-id is 52 chars, over the
+	// 50-char column limit — must be capped at derivation.
+	const LONG_MODULE_NAME =
+		"Module 3 — Conducting the 15-question seller interview";
+
+	function longNameLearnDoc(): BlueprintDoc {
+		return buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: LONG_MODULE_NAME,
+					forms: [
+						{
+							name: "Lesson",
+							type: "survey",
+							// id-less → derived from the long module name.
+							connect: {
+								learn_module: { name: "L", description: "x", time_estimate: 5 },
+							},
+							fields: [f({ kind: "text", id: "q", label: "Q" })],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("caps a derived learn_module id to ≤50 in deriveConnectDefaults", () => {
+		// LEEP regression: the long module name's snake-id is 52 chars; the
+		// derived id must be capped at derivation, so the `CONNECT_ID_TOO_LONG`
+		// rule never fires on an id the user can't shorten. The cap lives at
+		// the source (deriveConnectDefaults) — the emit-time resolver is a
+		// pass-through and never transforms, so there's nothing to assert at
+		// the wire beyond the consistency tests in connectSlugs.test.ts.
+		const doc = longNameLearnDoc();
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const next = deriveConnectDefaults({
+			connectType: "learn",
+			doc,
+			formUuid,
+			moduleName: LONG_MODULE_NAME,
+		});
+		const id = next?.learn_module?.id as string;
+		expect(id.length).toBeLessThanOrEqual(50);
 	});
 });

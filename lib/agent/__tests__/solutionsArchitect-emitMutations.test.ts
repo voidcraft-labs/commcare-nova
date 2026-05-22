@@ -327,7 +327,11 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			| Extract<Mutation, { kind: "addForm" }>
 			| undefined;
 		expect(addFormMut).toBeDefined();
+		// Source-correctness: the id-less deliver_unit is autofilled from
+		// the module name ("Visits" → "visits") before the scaffold
+		// mutations are built, so it lands on the doc with a valid id.
 		expect(addFormMut?.form.connect?.deliver_unit).toEqual({
+			id: "visits",
 			name: "Vendor visit",
 		});
 	});

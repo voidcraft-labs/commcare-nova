@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import { FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 
 // ── Reserved case properties (CommCare platform list) ───────────────
@@ -176,7 +177,10 @@ export const scaffoldModulesSchema = z.object({
 						.object({
 							learn_module: z
 								.object({
-									id: z.string().optional(),
+									id: z
+										.string()
+										.optional()
+										.describe(CONNECT_ID_FIELD_DESCRIPTION),
 									name: z.string(),
 									description: z.string(),
 									// Match the domain's `connectLearnModuleSchema`:
@@ -199,7 +203,10 @@ export const scaffoldModulesSchema = z.object({
 								),
 							assessment: z
 								.object({
-									id: z.string().optional(),
+									id: z
+										.string()
+										.optional()
+										.describe(CONNECT_ID_FIELD_DESCRIPTION),
 									user_score: z.string(),
 								})
 								.optional()
@@ -208,7 +215,10 @@ export const scaffoldModulesSchema = z.object({
 								),
 							deliver_unit: z
 								.object({
-									id: z.string().optional(),
+									id: z
+										.string()
+										.optional()
+										.describe(CONNECT_ID_FIELD_DESCRIPTION),
 									name: z.string(),
 								})
 								.optional()
@@ -217,7 +227,10 @@ export const scaffoldModulesSchema = z.object({
 								),
 							task: z
 								.object({
-									id: z.string().optional(),
+									id: z
+										.string()
+										.optional()
+										.describe(CONNECT_ID_FIELD_DESCRIPTION),
 									name: z.string(),
 									description: z.string(),
 								})

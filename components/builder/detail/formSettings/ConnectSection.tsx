@@ -2,7 +2,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { Toggle } from "@/components/ui/Toggle";
-import { toSnakeId } from "@/lib/commcare";
+import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
+import { useAppConnectIds } from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
@@ -40,6 +41,9 @@ export function ConnectSection({
 	const connectType = useConnectTypeOrUndefined();
 	const connect = form?.connect;
 	const enabled = !!connect;
+	// App-wide connect ids so the seed below derives unique ids by
+	// construction — the toggle is a source, like LearnConfig/DeliverConfig.
+	const appConnectIds = useAppConnectIds();
 
 	/* Session hooks for connect stash — keyed by form uuid so the stash
 	 * remains stable across reorders and renames. */
@@ -63,42 +67,45 @@ export function ConnectSection({
 				stashFormConnect(connectType, formUuid, connect);
 			}
 			save(null);
-		} else if (connectType) {
-			if (stashedConfig) {
-				save(stashedConfig);
-			} else {
-				const modSlug = toSnakeId(mod?.name ?? "");
-				const formSlug = toSnakeId(form?.name ?? "");
-				if (connectType === "learn") {
-					save({
+			return;
+		}
+		if (!connectType) return;
+
+		// Toggle-on. Either restore the stashed config or seed a fresh pair of
+		// id-less blocks — both flow through `dedupeRestoredConnectIds`, the
+		// single source-enforcement path. It fills the seed's absent ids from
+		// the entity names (exactly as creation-time autofill would) and
+		// re-derives any stashed id that drifted into a collision while Connect
+		// was off, so a restore can never write a duplicate. Routing seed and
+		// restore through one path keeps them from drifting apart.
+		const name = form?.name ?? "";
+		const config: ConnectConfig =
+			stashedConfig ??
+			(connectType === "learn"
+				? {
 						learn_module: {
-							id: modSlug,
-							name: form?.name ?? "",
-							description: form?.name ?? "",
+							name,
+							description: name,
 							time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
 						},
-						assessment: {
-							id: `${modSlug}_${formSlug}`,
-							user_score: "100",
-						},
-					});
-				} else {
-					save({
+						assessment: { user_score: "100" },
+					}
+				: {
 						deliver_unit: {
-							id: modSlug,
-							name: form?.name ?? "",
+							name,
 							entity_id: "concat(#user/username, '-', today())",
 							entity_name: "#user/username",
 						},
-						task: {
-							id: `${modSlug}_${formSlug}`,
-							name: form?.name ?? "",
-							description: form?.name ?? "",
-						},
+						task: { name, description: name },
 					});
-				}
-			}
-		}
+		save(
+			dedupeRestoredConnectIds(config, {
+				formUuid,
+				appConnectIds,
+				moduleName: mod?.name ?? "",
+				formName: name,
+			}),
+		);
 	}, [
 		enabled,
 		connect,
@@ -108,6 +115,7 @@ export function ConnectSection({
 		mod,
 		form,
 		formUuid,
+		appConnectIds,
 		save,
 	]);
 

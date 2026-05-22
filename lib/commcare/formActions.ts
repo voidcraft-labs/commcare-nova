@@ -27,11 +27,11 @@ import {
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
-	type ConnectConfig,
 	type Field,
 	type Uuid,
 } from "@/lib/domain";
 import { effectiveDeliverEntities } from "./connectDefaults";
+import type { ResolvedConnectConfig } from "./connectSlugs";
 import { deriveCaseConfig } from "./deriveCaseConfig";
 import { readFieldString } from "./fieldProps";
 
@@ -252,11 +252,16 @@ export function buildFormActions(
  * it references. Also scans the Connect assessment / deliver-unit
  * XPath fields and emits their own entries keyed by the Connect
  * wrapper paths.
+ *
+ * `connect` is the resolved config from `buildConnectSlugMap` (a typed
+ * pass-through; ids are valid by construction at the source). The XForm
+ * builder emits its binds against those same ids, so the load-map keys here
+ * line up with the bind nodesets.
  */
 export function buildCaseReferencesLoad(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	connect?: ConnectConfig,
+	connect?: ResolvedConnectConfig,
 ): Record<string, string[]> {
 	const load: Record<string, string[]> = {};
 
@@ -291,12 +296,12 @@ export function buildCaseReferencesLoad(
 	// Connect assessment + deliver unit carry their own XPath fields
 	// keyed by the Connect wrapper ids.
 	if (connect?.assessment?.user_score) {
-		const assessId = connect.assessment.id || "connect_assessment";
+		const assessId = connect.assessment.id;
 		const h = extractHashtags([connect.assessment.user_score]);
 		if (h.length > 0) load[`/data/${assessId}/assessment/user_score`] = h;
 	}
 	if (connect?.deliver_unit) {
-		const duId = connect.deliver_unit.id || "connect_deliver";
+		const duId = connect.deliver_unit.id;
 		// `effectiveDeliverEntities` is the single source of truth for
 		// the wire-fallback policy. The bind emitter calls the same
 		// helper, so the load map's hashtag set always matches what the

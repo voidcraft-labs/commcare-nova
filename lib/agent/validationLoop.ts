@@ -251,15 +251,25 @@ async function applyConnectDefaults(
 	ctx: ToolExecutionContext,
 	doc: BlueprintDoc,
 ): Promise<BlueprintDoc> {
-	if (!doc.connectType) return doc;
+	const connectType = doc.connectType;
+	if (!connectType) return doc;
 
 	const mutations: Mutation[] = [];
-	for (const { moduleName, formUuid } of iterForms(doc)) {
-		const form = doc.forms[formUuid];
+	// Apply each form's defaults to a working draft before deriving the
+	// next form's, so `deriveConnectDefaults` sees ids minted earlier in
+	// this pass. Without the incremental apply, two id-less blocks whose
+	// names derive the same slug would both read the pre-pass doc and land
+	// the same id — collapsing two Connect rows into one. The working draft
+	// makes the uniqueness guarantee hold across forms, not just within one.
+	// (`connectType` is captured pre-loop; `produce` preserves it on every
+	// `workingDoc`, so it stays the narrowed non-null value.)
+	let workingDoc = doc;
+	for (const { moduleName, formUuid } of iterForms(workingDoc)) {
+		const form = workingDoc.forms[formUuid];
 		if (!form?.connect) continue;
 		const next = deriveConnectDefaults({
-			connectType: doc.connectType,
-			doc,
+			connectType,
+			doc: workingDoc,
 			formUuid,
 			moduleName,
 		});
@@ -274,19 +284,21 @@ async function applyConnectDefaults(
 		// patch. `JSON.stringify` is fine here because `ConnectConfig` is
 		// a small plain-data shape (no functions, no Date, no Map/Set).
 		if (JSON.stringify(next) === JSON.stringify(form.connect)) continue;
-		mutations.push({
+		const mutation: Mutation = {
 			kind: "updateForm",
 			uuid: formUuid,
 			patch: { connect: next },
+		};
+		mutations.push(mutation);
+		workingDoc = produce(workingDoc, (draft) => {
+			applyMutations(draft, [mutation]);
 		});
 	}
 
 	if (mutations.length === 0) return doc;
-	const nextDoc = produce(doc, (draft) => {
-		applyMutations(draft, mutations);
-	});
-	// Pass `nextDoc` so the intermediate save persists the post-defaults
-	// snapshot the rest of the validation loop reads.
-	await ctx.recordMutations(mutations, nextDoc, "connect-defaults");
-	return nextDoc;
+	// `workingDoc` already has every accumulated mutation applied — pass it
+	// so the intermediate save persists the post-defaults snapshot the rest
+	// of the validation loop reads.
+	await ctx.recordMutations(mutations, workingDoc, "connect-defaults");
+	return workingDoc;
 }

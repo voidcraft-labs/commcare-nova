@@ -1299,4 +1299,295 @@ describe("connect rules", () => {
 		);
 		expect(errors).toEqual([]);
 	});
+
+	// ── Connect id must be a valid XML element name ──────────────────
+	//
+	// A connect id becomes an XML element name in the emitted XForm
+	// (`<lmId vellum:role=...>`) and an `id=` attribute. CommCare reads it
+	// as a slug. An id with a space, a leading digit, or other illegal
+	// characters produces malformed XML. We reject such ids at validate
+	// time so the user fixes them — never silently sanitize. Auto-derived
+	// ids run through `toSnakeId` and are always legal, so the rule only
+	// ever fires on a hand-typed / SA-supplied bad id.
+
+	it("flags a connect id containing a space", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "2024 Intake",
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(errors).toHaveLength(1);
+		// Message cites the offending id and the owning form.
+		expect(errors[0].message).toContain("2024 Intake");
+		expect(errors[0].message).toContain("First Form");
+	});
+
+	it("flags a connect id starting with a digit", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "1st_module",
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(errors).toHaveLength(1);
+		expect(errors[0].message).toContain("1st_module");
+	});
+
+	it("does not flag a valid connect id", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "intake_2024",
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(errors).toEqual([]);
+	});
+
+	it("does not flag an id-less connect block (resolver derives a valid id)", () => {
+		// Empty/unset id means "use the default" — the emit-time resolver
+		// derives a legal name slug. The rule must skip these so a normal
+		// id-less learn_module never trips it.
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		);
+		expect(errors).toEqual([]);
+	});
+
+	it("flags bad ids on assessment, deliver_unit, and task too", () => {
+		// All four connect kinds emit their id as an element name, so the
+		// rule covers every kind, not just learn_module.
+		const learnDoc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "ok_module",
+					name: "M",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "bad id", user_score: "100" },
+			},
+		});
+		const deliverDoc = connectDoc({
+			connectType: "deliver",
+			formConnect: {
+				deliver_unit: { id: "9unit", name: "Visit" },
+				task: { id: "task!", name: "T", description: "x" },
+			},
+		});
+		expect(
+			runValidation(learnDoc).filter(
+				(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+			),
+		).toHaveLength(1);
+		expect(
+			runValidation(deliverDoc).filter(
+				(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+			),
+		).toHaveLength(2);
+	});
+
+	// ── Connect id must fit Connect's slug column (≤50) ──────────────
+	//
+	// A connect id is written into a Connect DB slug column (varchar(50)
+	// for the tightest of them). An auto-derived id is capped at
+	// derivation time, so this rule fires ONLY on a hand-typed / SA-
+	// supplied id that's too long — we reject it so the user shortens
+	// their own input rather than silently truncating what they chose.
+
+	it("flags a hand-typed connect id longer than 50 chars", () => {
+		const longId = "a".repeat(55); // valid chars, but over the 50 limit
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: longId,
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_TOO_LONG",
+		);
+		expect(errors).toHaveLength(1);
+		// Message cites the id, the owning form, and the limit.
+		expect(errors[0].message).toContain("First Form");
+		expect(errors[0].message).toContain("50");
+	});
+
+	it("does not flag a connect id at exactly 50 chars", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "a".repeat(50),
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+		});
+		const errors = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_TOO_LONG",
+		);
+		expect(errors).toEqual([]);
+	});
+
+	it("flags over-length ids on assessment, deliver_unit, and task too", () => {
+		const longId = "z".repeat(60);
+		const learnDoc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				assessment: { id: longId, user_score: "100" },
+			},
+		});
+		const deliverDoc = connectDoc({
+			connectType: "deliver",
+			formConnect: {
+				deliver_unit: { id: longId, name: "Visit" },
+				task: { id: `${longId}_task`, name: "T", description: "x" },
+			},
+		});
+		expect(
+			runValidation(learnDoc).filter((e) => e.code === "CONNECT_ID_TOO_LONG"),
+		).toHaveLength(1);
+		expect(
+			runValidation(deliverDoc).filter((e) => e.code === "CONNECT_ID_TOO_LONG"),
+		).toHaveLength(2);
+	});
+
+	// ── Connect ids must be unique across the app ────────────────────
+	//
+	// Uniqueness is enforced at the source (field + tool guards) and as the
+	// final gate here: a connect id keys the per-kind DB slug AND the XForm
+	// element name, so two blocks sharing one collide. App-scope rule (spans
+	// forms), the surface that gives the user a fixable error.
+
+	it("flags a connect id duplicated across two forms, citing both sites", () => {
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Module A",
+					forms: [
+						{
+							name: "Lesson A",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "shared_slug",
+									name: "A",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+				{
+					name: "Module B",
+					forms: [
+						{
+							name: "Lesson B",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "shared_slug",
+									name: "B",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		const dups = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_DUPLICATE",
+		);
+		expect(dups).toHaveLength(1);
+		expect(dups[0].message).toContain("shared_slug");
+		// Cites both sites so the user knows which to rename.
+		expect(dups[0].message).toContain("Lesson A");
+		expect(dups[0].message).toContain("Lesson B");
+	});
+
+	it("does not flag distinct connect ids across forms", () => {
+		const doc = buildDoc({
+			connectType: "learn",
+			modules: [
+				{
+					name: "Module A",
+					forms: [
+						{
+							name: "Lesson A",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "lesson_a",
+									name: "A",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+				{
+					name: "Module B",
+					forms: [
+						{
+							name: "Lesson B",
+							type: "survey",
+							connect: {
+								learn_module: {
+									id: "lesson_b",
+									name: "B",
+									description: "x",
+									time_estimate: 5,
+								},
+							},
+						},
+					],
+				},
+			],
+		});
+		expect(
+			runValidation(doc).filter((e) => e.code === "CONNECT_ID_DUPLICATE"),
+		).toEqual([]);
+	});
 });

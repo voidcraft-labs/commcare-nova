@@ -11,22 +11,29 @@
  * `null` → clear, a value → set. Connect-config patches go through
  * `buildConnectConfig`, a structural partial-update merge: each
  * sub-config the SA explicitly supplied is merged with the matching
- * existing sub-config; the others pass through unchanged. No defaults
- * are invented at this layer — the domain schema accepts the partial
- * shapes (e.g. `deliver_unit` without `entity_id`/`entity_name`) and
- * the wire-emit layer (`lib/commcare/xform/builder.ts`) supplies the
- * canonical XPath fallbacks at bind time.
+ * existing sub-config; the others pass through unchanged.
  *
- * Three exit branches:
+ * The merged connect config then runs through `enforceConnectIds` (the
+ * agent-path source guard): an omitted connect id is autofilled with a
+ * valid, unique, name-derived id (the doc carries it from then on), and an
+ * explicitly-supplied invalid or duplicate id fails the call. Other
+ * defaults are NOT invented here — `deliver_unit` may still land without
+ * `entity_id`/`entity_name`, and the wire-emit layer supplies those XPath
+ * fallbacks at bind time.
+ *
+ * Four exit branches:
  *
  *   1. Form index out of range → `{ error }`, no mutations.
- *   2. Form disappeared after the patch (reducer-level rejection) →
+ *   2. An explicit connect id is invalid/duplicate → `{ error }`, no
+ *      mutations (nothing written).
+ *   3. Form disappeared after the patch (reducer-level rejection) →
  *      `{ error }`, mutations may have already been persisted.
- *   3. Success → human-readable summary listing the changed keys,
+ *   4. Success → human-readable summary listing the changed keys,
  *      tagged `form:M-F`.
  */
 
 import { z } from "zod";
+import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
@@ -36,6 +43,10 @@ import { USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import {
+	collectConnectIdsExcept,
+	enforceConnectIds,
+} from "./shared/connectIds";
 
 export const updateFormInputSchema = z
 	.object({
@@ -75,7 +86,7 @@ export const updateFormInputSchema = z
 			.object({
 				learn_module: z
 					.object({
-						id: z.string().optional(),
+						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
 						name: z.string(),
 						description: z.string(),
 						// Match the domain's `connectLearnModuleSchema`:
@@ -95,7 +106,10 @@ export const updateFormInputSchema = z
 						"Set for forms with educational/training content. Omit for quiz-only forms.",
 					),
 				assessment: z
-					.object({ id: z.string().optional(), user_score: z.string() })
+					.object({
+						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+						user_score: z.string(),
+					})
 					.strict()
 					.optional()
 					.describe(
@@ -103,7 +117,7 @@ export const updateFormInputSchema = z
 					),
 				deliver_unit: z
 					.object({
-						id: z.string().optional(),
+						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
 						name: z.string(),
 						entity_id: z
 							.string()
@@ -129,7 +143,7 @@ export const updateFormInputSchema = z
 					),
 				task: z
 					.object({
-						id: z.string().optional(),
+						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
 						name: z.string(),
 						description: z.string(),
 					})
@@ -243,10 +257,37 @@ export const updateFormTool = {
 				patch.postSubmit = post_submit as PostSubmitDestination | null;
 			}
 			if (connect !== undefined) {
-				patch.connect = buildConnectConfig(
+				const merged = buildConnectConfig(
 					connect,
 					existing.connect ?? undefined,
 				);
+				if (merged === null) {
+					patch.connect = null;
+				} else {
+					// Force connect ids correct at the source: autofill omitted
+					// ids, reject explicit-invalid ids (fail the call, write
+					// nothing). `existingIds` excludes this form's own ids so a
+					// re-patch of an unchanged id doesn't read as a self-conflict.
+					const moduleUuid = doc.moduleOrder[moduleIndex];
+					const moduleName = moduleUuid
+						? (doc.modules[moduleUuid]?.name ?? "module")
+						: "module";
+					const enforced = enforceConnectIds(
+						merged,
+						moduleName,
+						existing.name,
+						collectConnectIdsExcept(doc, formUuid),
+					);
+					if (!enforced.ok) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: { error: enforced.error },
+						};
+					}
+					patch.connect = enforced.config;
+				}
 			}
 
 			// Compute the mutations, apply via Immer, and persist through

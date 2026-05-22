@@ -36,14 +36,9 @@ import {
 	VELLUM_HASHTAG_TRANSFORMS,
 } from "@/lib/commcare";
 import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
+import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { readFieldString } from "@/lib/commcare/fieldProps";
-import type {
-	BlueprintDoc,
-	ConnectConfig,
-	Field,
-	FieldKind,
-	Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 
 const PARSE_OPTS = { xmlMode: true } as const;
 const RENDER_OPTS = {
@@ -173,7 +168,7 @@ const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
  * a bind per declared sub-node so CommCare has paths to write to.
  */
 function buildConnectBlocks(
-	connect: ConnectConfig | undefined,
+	connect: ResolvedConnectConfig | undefined,
 	instances: InstanceTracker,
 ): { dataElements: string[]; binds: string[] } {
 	const dataElements: string[] = [];
@@ -183,7 +178,12 @@ function buildConnectBlocks(
 
 	if (connect.learn_module) {
 		const lm = connect.learn_module;
-		const lmId = lm.id || "connect_learn";
+		// `lm.id` is the connect block's id — already a valid, unique, ≤50
+		// slug (forced correct at the source; the resolver only passed it
+		// through). It threads identically into the wrapper element name, the
+		// `id=` attribute, and the bind nodeset below, so all three references
+		// to this block always agree.
+		const lmId = lm.id;
 		dataElements.push(
 			`<${lmId} vellum:role="ConnectLearnModule">` +
 				`<module xmlns="${CONNECT_XMLNS}" id="${lmId}">` +
@@ -199,7 +199,7 @@ function buildConnectBlocks(
 	}
 
 	if (connect.assessment) {
-		const assessId = connect.assessment.id || "connect_assessment";
+		const assessId = connect.assessment.id;
 		instances.scanXPath(connect.assessment.user_score);
 		dataElements.push(
 			`<${assessId} vellum:role="ConnectAssessment">` +
@@ -216,7 +216,7 @@ function buildConnectBlocks(
 
 	if (connect.deliver_unit) {
 		const du = connect.deliver_unit;
-		const duId = du.id || "connect_deliver";
+		const duId = du.id;
 		// `entity_id` / `entity_name` are optional in the domain.
 		// `effectiveDeliverEntities` resolves them against the canonical
 		// defaults — same helper the session-preload builder calls, so
@@ -243,7 +243,7 @@ function buildConnectBlocks(
 
 	if (connect.task) {
 		const t = connect.task;
-		const taskId = t.id || "connect_task";
+		const taskId = t.id;
 		dataElements.push(
 			`<${taskId} vellum:role="ConnectTask">` +
 				`<task xmlns="${CONNECT_XMLNS}" id="${taskId}">` +
@@ -263,12 +263,14 @@ function buildConnectBlocks(
 /**
  * Options threaded into `buildXForm`. `xmlns` is the random instance
  * namespace HQ expects on every form (generated once per form by the
- * expander); `connect` is the effective Connect config to embed —
- * omitted when the app-level `connectType` is unset.
+ * expander); `connect` is the resolved Connect config to embed (the
+ * pass-through output of `buildConnectSlugMap`, whose ids are valid by
+ * construction at the source) — omitted when the app-level `connectType` is
+ * unset or the form carries no Connect block.
  */
 export interface BuildXFormOptions {
 	xmlns: string;
-	connect?: ConnectConfig;
+	connect?: ResolvedConnectConfig;
 }
 
 /**

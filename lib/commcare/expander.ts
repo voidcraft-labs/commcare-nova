@@ -40,6 +40,7 @@ import {
 	type FormLink,
 	type Uuid,
 } from "@/lib/domain";
+import { buildConnectSlugMap } from "./connectSlugs";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
 import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXForm } from "./xform/builder";
@@ -127,6 +128,15 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 	// always consistent with the module we're currently emitting.
 	const moduleUniqueIds = doc.moduleOrder.map(() => genHexId());
 
+	// Resolve the per-form Connect configs for emission. `buildConnectSlugMap`
+	// is a typed pass-through — connect ids are already valid + unique + ≤50
+	// by construction (creation autofill + the UI/tool guards; legacy data is
+	// healed by `scripts/migrate-connect-ids.ts`), so it asserts each id is
+	// present and narrows the type without transforming. Both the XForm
+	// builder and the case-references load map below read the same per-form
+	// config so their data paths agree. Empty for non-Connect apps.
+	const connectSlugs = buildConnectSlugMap(doc);
+
 	const modules = doc.moduleOrder.map((moduleUuid, mIdx) => {
 		const mod = doc.modules[moduleUuid];
 		const formUuids = doc.formOrder[moduleUuid] ?? [];
@@ -146,12 +156,12 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 			const formUniqueId = genHexId();
 			const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`;
 
-			// Only include Connect config in export when the app-level
-			// `connectType` is set. The builder UI stashes per-form connect
-			// configs across mode toggles; stripping them at emit time is
-			// what preserves that stash without leaking into a mode-off
-			// export.
-			const effectiveConnect = doc.connectType ? form.connect : undefined;
+			// The resolved Connect config for this form, or `undefined` when
+			// there's nothing to emit. The map already encodes the "only when
+			// `connectType` is set" rule — off-mode the map is empty — so this
+			// lookup also enforces the connect-mode stash: per-form configs
+			// stashed across mode toggles never leak into a mode-off export.
+			const effectiveConnect = connectSlugs.get(formUuid);
 
 			attachments[`${formUniqueId}.xml`] = buildXForm(doc, formUuid, {
 				xmlns,
@@ -172,7 +182,7 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 				xmlns,
 				CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
 				buildFormActions(doc, formUuid, caseType),
-				buildCaseReferencesLoad(doc, formUuid, effectiveConnect ?? undefined),
+				buildCaseReferencesLoad(doc, formUuid, effectiveConnect),
 				toHqWorkflow(form.postSubmit ?? defaultPostSubmit(form.type)),
 				hqFormLinks,
 			);

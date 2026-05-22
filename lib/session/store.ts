@@ -526,15 +526,38 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					];
 
 					if (resolved) {
-						/* Restore stashed configs onto forms by uuid. */
+						/* Restore the incoming mode's stash AND clear any
+						 * outgoing-mode block that has no incoming stash entry.
+						 * Walk every form once with three cases:
+						 *   - in the incoming stash → restore that config;
+						 *   - not in the stash but currently has `connect` → clear
+						 *     it (a stray from the outgoing mode; the outgoing
+						 *     config was already stashed above, so switch-back
+						 *     recovers it — no work lost);
+						 *   - otherwise → no mutation.
+						 * Without the clear, the outgoing-mode block would linger
+						 * as a cross-mode stray: `form.connect` is supposed to hold
+						 * only the active-mode config, and a stray makes the
+						 * uniqueness scopes (UI/SA see it; emit/validator skip
+						 * non-mode kinds) disagree. */
 						const stashed = nextStash[resolved] ?? {};
-						for (const [fUuid, config] of Object.entries(stashed)) {
-							if (docState.forms[fUuid as Uuid]) {
-								mutations.push({
-									kind: "updateForm",
-									uuid: fUuid as Uuid,
-									patch: { connect: structuredClone(config) },
-								});
+						for (const moduleUuid of docState.moduleOrder) {
+							const formUuids = docState.formOrder[moduleUuid] ?? [];
+							for (const formUuid of formUuids) {
+								const stashedConfig = stashed[formUuid];
+								if (stashedConfig) {
+									mutations.push({
+										kind: "updateForm",
+										uuid: formUuid,
+										patch: { connect: structuredClone(stashedConfig) },
+									});
+								} else if (docState.forms[formUuid]?.connect !== undefined) {
+									mutations.push({
+										kind: "updateForm",
+										uuid: formUuid,
+										patch: { connect: undefined },
+									});
+								}
 							}
 						}
 					} else {

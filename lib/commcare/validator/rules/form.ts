@@ -13,7 +13,9 @@ import {
 	MAX_CASE_PROPERTY_LENGTH,
 	MEDIA_FIELD_KINDS,
 	RESERVED_CASE_PROPERTIES,
+	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
+import { connectIdError } from "@/lib/commcare/connectSlugs";
 import {
 	type DerivedCaseConfig,
 	deriveCaseConfig,
@@ -600,6 +602,46 @@ function connectValidation(
 		// `form.connect`, and we'd just produce a redundant cascade of
 		// errors that all resolve once the missing block lands.
 		return errors;
+	}
+
+	// A Connect id becomes an XML element name in the emitted form (the
+	// wrapper `<id vellum:role=...>` and the Connect-namespaced `id=`
+	// attribute) and lands in a Connect DB slug column (tightest is
+	// `varchar(50)`). `connectIdError` is the single authority on what makes
+	// an id valid (legal element name AND within length) — the same helper
+	// the field-level commit guard uses, so the field and the server never
+	// disagree. We reject a bad id here rather than silently fixing it. Only
+	// non-empty ids are checked: an absent/empty id means "use the default",
+	// which `deriveConnectDefaults` mints (legal chars, capped length), so a
+	// derived id never trips this — it fires only on hand-typed / SA-supplied
+	// ids (the agent path sets ids as a bare string, bypassing the field).
+	//
+	// The helper returns one reason; we pick the structured code from the
+	// cheap element-name check (a char failure → INVALID_FORMAT, otherwise
+	// the only remaining failure is length → TOO_LONG) and wrap the reason
+	// with the form/kind context the message needs.
+	const connectIds: ReadonlyArray<{ label: string; id: string | undefined }> = [
+		{ label: "learn-module", id: form.connect.learn_module?.id },
+		{ label: "assessment", id: form.connect.assessment?.id },
+		{ label: "deliver-unit", id: form.connect.deliver_unit?.id },
+		{ label: "task", id: form.connect.task?.id },
+	];
+	for (const { label, id } of connectIds) {
+		if (!id) continue; // unset/empty → resolver supplies a valid default
+		const reason = connectIdError(id);
+		if (!reason) continue;
+		const code = XML_ELEMENT_NAME_REGEX.test(id)
+			? "CONNECT_ID_TOO_LONG"
+			: "CONNECT_ID_INVALID_FORMAT";
+		errors.push(
+			validationError(
+				code,
+				"form",
+				`Connect ${label} id in "${ctx.formName}" — ${reason}`,
+				loc,
+				{ connectId: id },
+			),
+		);
 	}
 
 	if (
