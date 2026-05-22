@@ -218,9 +218,11 @@ describe("compileCcz", () => {
 		const suite = zip.readAsText("suite.xml");
 		expect(suite).toContain('<menu id="m0">');
 		expect(suite).toContain('<command id="m0-f0"/>');
-		// The form XML is present and structurally empty.
+		// The form XML is present and structurally empty. With no fields the
+		// body has no children, so the serializer renders it self-closing
+		// (`<h:body/>` ≡ `<h:body></h:body>`).
 		const xform = zip.readAsText("modules-0/forms-0.xml");
-		expect(xform).toContain("<h:body>");
+		expect(xform).toMatch(/<h:body\s*\/>/);
 		expect(xform).not.toMatch(/<bind[^/]*\/>/);
 	});
 });

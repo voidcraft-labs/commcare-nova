@@ -343,8 +343,10 @@ describe("repeat modes — XForm emission", () => {
 		// fix: the ancestry-threaded key, not just the absence of the error.
 		expect(xml).toContain('<text id="outer_a-items-label">');
 		expect(xml).toContain('<text id="outer_b-items-label">');
-		expect(xml).toContain("jr:itext('outer_a-items-label')");
-		expect(xml).toContain("jr:itext('outer_b-items-label')");
+		// The serializer encodes `'` as `&apos;` (XML-spec-equivalent), so itext
+		// references read `jr:itext(&apos;...&apos;)` on the wire.
+		expect(xml).toContain("jr:itext(&apos;outer_a-items-label&apos;)");
+		expect(xml).toContain("jr:itext(&apos;outer_b-items-label&apos;)");
 		// Neither cousin emits the bare, colliding `items-label` id anymore.
 		expect(xml).not.toContain('<text id="items-label">');
 		// Well-formed and valid — no duplicate node path, no duplicate itext id.
@@ -426,18 +428,21 @@ describe("repeat modes — XForm emission", () => {
 		const xml = firstFormXml(doc);
 
 		// Body: repeat targets /item, jr:count on the parent's @count
-		// attribute, jr:noAddRemove suppresses Add/Remove.
+		// attribute, jr:noAddRemove suppresses Add/Remove. The repeat
+		// serializes self-closing (`/>`) here because its only child is a
+		// `hidden` field, which contributes no body element.
 		expect(xml).toContain(
-			'<repeat nodeset="/data/service_cases/item" jr:count="/data/service_cases/@count" jr:noAddRemove="true()">',
+			'<repeat nodeset="/data/service_cases/item" jr:count="/data/service_cases/@count" jr:noAddRemove="true()"/>',
 		);
 
 		// Setvalue setup — four elements per Vellum's modeliteration
-		// pattern. Single quotes inside the value attributes are NOT
-		// XML-escaped (escapeXml only escapes the wrapping quote — `"` —
-		// plus `<`, `>`, `&`); they appear literal in the output.
+		// pattern. The serializer encodes single quotes inside the value
+		// attributes as `&apos;` (XML-spec-equivalent — a conforming parser
+		// decodes them back to `'`), so `join(' ', ...)` reads
+		// `join(&apos; &apos;, ...)` on the wire.
 		// xforms-ready: seed @ids and @count.
 		expect(xml).toContain(
-			`<setvalue event="xforms-ready" ref="/data/service_cases/@ids" value="join(' ', /data/service_case_ids)"/>`,
+			`<setvalue event="xforms-ready" ref="/data/service_cases/@ids" value="join(&apos; &apos;, /data/service_case_ids)"/>`,
 		);
 		expect(xml).toContain(
 			`<setvalue event="xforms-ready" ref="/data/service_cases/@count" value="count-selected(/data/service_cases/@ids)"/>`,

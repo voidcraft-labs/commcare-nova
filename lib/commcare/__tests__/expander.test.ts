@@ -194,7 +194,7 @@ describe("expandDoc", () => {
 
 		// Real calculate should have the expanded instance() XPath
 		expect(xform).toContain(
-			"calculate=\"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/total_visits + 1\"",
+			'calculate="instance(&apos;casedb&apos;)/casedb/case[@case_id = instance(&apos;commcaresession&apos;)/session/data/case_id]/total_visits + 1"',
 		);
 		// Vellum calculate preserves the shorthand for the editor
 		expect(xform).toContain('vellum:calculate="#case/total_visits + 1"');
@@ -256,7 +256,7 @@ describe("expandDoc", () => {
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('vellum:ref="#form/status" ref="/data/status"');
-		expect(xform).toContain("value=\"'pending'\"");
+		expect(xform).toContain('value="&apos;pending&apos;"');
 		// No vellum:value when there are no hashtags in the value expression
 		expect(xform).not.toContain("vellum:value=");
 	});
@@ -292,7 +292,7 @@ describe("expandDoc", () => {
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		// Real value attribute should have expanded XPath (XML-escaped)
-		expect(xform).toContain("instance('casedb')");
+		expect(xform).toContain("instance(&apos;casedb&apos;)");
 		expect(xform).toContain('/full_name"');
 		// Vellum value preserves shorthand
 		expect(xform).toContain('vellum:value="#case/full_name"');
@@ -942,10 +942,10 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 		// Each <item>'s label ref points at its per-index id; both <value>s
 		// emit the verbatim "3".
 		expect(xml).toContain(
-			`<item><label ref="jr:itext('rating-opt0-label')"/><value>3</value></item>`,
+			`<item><label ref="jr:itext(&apos;rating-opt0-label&apos;)"/><value>3</value></item>`,
 		);
 		expect(xml).toContain(
-			`<item><label ref="jr:itext('rating-opt1-label')"/><value>3</value></item>`,
+			`<item><label ref="jr:itext(&apos;rating-opt1-label&apos;)"/><value>3</value></item>`,
 		);
 		// The labels round-trip into the respective itext entries.
 		expect(xml).toContain(
@@ -989,10 +989,10 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 		expect(xml).toContain('<text id="tags-opt0-label">');
 		expect(xml).toContain('<text id="tags-opt1-label">');
 		expect(xml).toContain(
-			`<item><label ref="jr:itext('tags-opt0-label')"/><value>x</value></item>`,
+			`<item><label ref="jr:itext(&apos;tags-opt0-label&apos;)"/><value>x</value></item>`,
 		);
 		expect(xml).toContain(
-			`<item><label ref="jr:itext('tags-opt1-label')"/><value>x</value></item>`,
+			`<item><label ref="jr:itext(&apos;tags-opt1-label&apos;)"/><value>x</value></item>`,
 		);
 		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
@@ -1026,10 +1026,10 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 		const xml = firstFormXml(doc);
 		// Index-keyed ids, one per option, refs and values aligned.
 		expect(xml).toContain(
-			`<item><label ref="jr:itext('confirm-opt0-label')"/><value>yes</value></item>`,
+			`<item><label ref="jr:itext(&apos;confirm-opt0-label&apos;)"/><value>yes</value></item>`,
 		);
 		expect(xml).toContain(
-			`<item><label ref="jr:itext('confirm-opt1-label')"/><value>no</value></item>`,
+			`<item><label ref="jr:itext(&apos;confirm-opt1-label&apos;)"/><value>no</value></item>`,
 		);
 		expect(xml).toContain('<text id="confirm-opt0-label"><value>Yes</value>');
 		expect(xml).toContain('<text id="confirm-opt1-label"><value>No</value>');
@@ -1289,10 +1289,10 @@ describe("#form/ hashtag expansion", () => {
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain(
-			"calculate=\"concat(/data/first_name, ' ', /data/last_name)\"",
+			'calculate="concat(/data/first_name, &apos; &apos;, /data/last_name)"',
 		);
 		expect(xform).toContain(
-			"vellum:calculate=\"concat(#form/first_name, ' ', #form/last_name)\"",
+			'vellum:calculate="concat(#form/first_name, &apos; &apos;, #form/last_name)"',
 		);
 	});
 
@@ -1330,8 +1330,10 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain("relevant=\"/data/consent = 'yes'\"");
-		expect(xform).toContain("vellum:relevant=\"#form/consent = 'yes'\"");
+		expect(xform).toContain('relevant="/data/consent = &apos;yes&apos;"');
+		expect(xform).toContain(
+			'vellum:relevant="#form/consent = &apos;yes&apos;"',
+		);
 	});
 
 	it("expands #form/ in validation constraint", () => {
@@ -1405,7 +1407,9 @@ describe("#form/ hashtag expansion", () => {
 		)[0] as string;
 
 		// Bind references the itext id, not the raw message string.
-		expect(xform).toContain(`jr:constraintMsg="jr:itext('age-constraintMsg')"`);
+		expect(xform).toContain(
+			`jr:constraintMsg="jr:itext(&apos;age-constraintMsg&apos;)"`,
+		);
 		// Raw message must NOT appear inside the bind attribute (it would be
 		// ignored by HQ and Vellum would lose it on save).
 		expect(xform).not.toContain(
@@ -1542,8 +1546,10 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain("required=\"/data/has_issue = 'yes'\"");
-		expect(xform).toContain("vellum:required=\"#form/has_issue = 'yes'\"");
+		expect(xform).toContain('required="/data/has_issue = &apos;yes&apos;"');
+		expect(xform).toContain(
+			'vellum:required="#form/has_issue = &apos;yes&apos;"',
+		);
 	});
 
 	it("expands #form/ in <output> tags with vellum:value", () => {
@@ -1730,8 +1736,8 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain("relevant=\"/data/show = 'yes'\"");
-		expect(xform).toContain("vellum:relevant=\"#form/show = 'yes'\"");
+		expect(xform).toContain('relevant="/data/show = &apos;yes&apos;"');
+		expect(xform).toContain('vellum:relevant="#form/show = &apos;yes&apos;"');
 		expect(xform).toContain('vellum:nodeset="#form/details"');
 	});
 
@@ -1858,7 +1864,7 @@ describe("conditional required", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain("required=\"/data/consent = 'yes'\"");
+		expect(xform).toContain('required="/data/consent = &apos;yes&apos;"');
 		expect(xform).not.toContain('required="true()"');
 	});
 
@@ -1895,8 +1901,8 @@ describe("conditional required", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain("vellum:required=\"#case/risk = 'high'\"");
-		expect(xform).toContain("instance('casedb')");
+		expect(xform).toContain('vellum:required="#case/risk = &apos;high&apos;"');
+		expect(xform).toContain("instance(&apos;casedb&apos;)");
 	});
 });
 
@@ -2718,11 +2724,14 @@ describe("empty form expansion", () => {
 		const hq = expandDoc(doc);
 		const xml: string = Object.values(hq._attachments)[0] as string;
 
-		// Shell present but inner data/body are empty.
+		// Shell present but inner data/body are empty. With no fields the body
+		// has no children, so the serializer renders it self-closing
+		// (`<h:body/>` ≡ `<h:body></h:body>`).
 		expect(xml).toContain("<h:head>");
-		expect(xml).toContain("<h:body>");
-		// The `<data>` element exists but has no children.
-		expect(xml).toMatch(/<data[^>]*>\s*<\/data>/);
+		expect(xml).toMatch(/<h:body\s*\/>/);
+		// The `<data>` element exists but has no children — the serializer
+		// renders an empty element self-closing (`<data .../>` ≡ `<data></data>`).
+		expect(xml).toMatch(/<data[^>]*\/>/);
 		// No binds emitted because there are no fields.
 		expect(xml).not.toMatch(/<bind[^/]*\/>/);
 	});
@@ -2759,12 +2768,14 @@ describe("empty container expansion", () => {
 		const hq = expandDoc(doc);
 		const xml: string = Object.values(hq._attachments)[0] as string;
 
-		// Body wraps the group — no children inside the `<group>` body.
+		// Body wraps the group — no children inside the `<group>` body. The
+		// serializer encodes `'` as `&apos;` inside the itext ref.
 		expect(xml).toMatch(
-			/<group ref="\/data\/demographics" appearance="field-list">[\s\S]*?<label ref="jr:itext\('demographics-label'\)"\/>[\s\S]*?<\/group>/,
+			/<group ref="\/data\/demographics" appearance="field-list">[\s\S]*?<label ref="jr:itext\(&apos;demographics-label&apos;\)"\/>[\s\S]*?<\/group>/,
 		);
-		// Data element is the empty container `<demographics></demographics>`.
-		expect(xml).toMatch(/<demographics>\s*<\/demographics>/);
+		// Data element is the empty container — rendered self-closing
+		// (`<demographics/>` ≡ `<demographics></demographics>`).
+		expect(xml).toMatch(/<demographics\/>/);
 		// The group's itext entry still emits because the label is set.
 		expect(xml).toContain(`id="demographics-label"`);
 	});
@@ -3004,7 +3015,7 @@ describe("Connect deliver_unit entity defaults", () => {
 			'<bind nodeset="/data/vendor_visit/deliver/entity_id" calculate="uuid()"/>',
 		);
 		expect(xml).toContain(
-			'<bind nodeset="/data/vendor_visit/deliver/entity_name" calculate="\'manual override\'"/>',
+			'<bind nodeset="/data/vendor_visit/deliver/entity_name" calculate="&apos;manual override&apos;"/>',
 		);
 	});
 });
@@ -3053,7 +3064,7 @@ describe("case-property rename cascade — pipeline regression", () => {
 
 		// Renamed field's path appears wherever the old reference stood.
 		expect(xml).toContain(
-			"calculate=\"if(/data/patient_age &gt; 65, 'high', 'low')\"",
+			'calculate="if(/data/patient_age &gt; 65, &apos;high&apos;, &apos;low&apos;)"',
 		);
 		// The structural XPath targets exist as binds.
 		expect(xml).toContain('nodeset="/data/patient_age"');

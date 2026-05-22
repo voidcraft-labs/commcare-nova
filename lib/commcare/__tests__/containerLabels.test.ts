@@ -74,7 +74,9 @@ describe("empty-label containers — XForm emission", () => {
 		const xml = firstFormXml(doc);
 		// The dangling itext reference would be exactly this string.
 		// Asserting its absence is the load-bearing check.
-		expect(xml).not.toContain("jr:itext('structural_only-label')");
+		// The serializer encodes `'` as `&apos;` (XML-spec-equivalent), so itext
+		// references read `jr:itext(&apos;...&apos;)` on the wire.
+		expect(xml).not.toContain("jr:itext(&apos;structural_only-label&apos;)");
 		// `appearance="field-list"` is suppressed for transparent groups —
 		// dropping it matches the "no visual impact" runtime semantic.
 		expect(xml).toContain('<group ref="/data/structural_only">');
@@ -88,7 +90,7 @@ describe("empty-label containers — XForm emission", () => {
 		// full field-id ancestry so cousins sharing an id can't collide; the
 		// data path (`/data/structural_only/answer`) is unaffected.
 		expect(xml).toContain('<input ref="/data/structural_only/answer">');
-		expect(xml).toContain("jr:itext('structural_only-answer-label')");
+		expect(xml).toContain("jr:itext(&apos;structural_only-answer-label&apos;)");
 		// And the XForm passes Nova's own structural validator (which is
 		// what `XFORM_MISSING_ITEXT` would have surfaced under).
 		expect(validateXForm(xml, "F", "M")).toEqual([]);
@@ -118,7 +120,7 @@ describe("empty-label containers — XForm emission", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		expect(xml).not.toContain("jr:itext('iterations-label')");
+		expect(xml).not.toContain("jr:itext(&apos;iterations-label&apos;)");
 		// The `<repeat nodeset="...">` wrapper itself must still emit —
 		// only its outer `<label>` is conditionally skipped.
 		expect(xml).toContain('<repeat nodeset="/data/iterations">');
@@ -155,7 +157,7 @@ describe("empty-label containers — XForm emission", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		expect(xml).toContain("jr:itext('section-label')");
+		expect(xml).toContain("jr:itext(&apos;section-label&apos;)");
 		expect(xml).toContain("<value>Visible Section</value>");
 		expect(xml).toContain(
 			'<group ref="/data/section" appearance="field-list">',
