@@ -41,7 +41,7 @@ import {
  * UUIDs must be globally unique regardless of the semantic-id strategy below;
  * the doc model keys every map on uuid.
  */
-class IdMinter {
+export class IdMinter {
 	private n = 0;
 	uuid(prefix: string): Uuid {
 		this.n += 1;
@@ -71,7 +71,7 @@ class IdMinter {
  */
 const SIBLING_ID_POOL = ["a", "b", "c", "d", "e", "f", "g"] as const;
 
-function pickSiblingId(index: number): string {
+export function pickSiblingId(index: number): string {
 	// The child-count bounds in the arbitrary (≤3 random children, +2 injected
 	// case fields at the form root → ≤5 siblings) stay under the pool size, so a
 	// modulo is never reached in practice; it's a defensive belt so a future
@@ -189,7 +189,7 @@ const SPICY_LABELS = [
  * The accumulator a single form-tree build threads: the flat `fields` map and
  * `fieldOrder` adjacency the normalized doc needs, plus the minter.
  */
-interface FieldBuildCtx {
+export interface FieldBuildCtx {
 	readonly minter: IdMinter;
 	readonly fields: Record<Uuid, Field>;
 	readonly fieldOrder: Record<Uuid, Uuid[]>;
@@ -207,7 +207,7 @@ interface FieldBuildCtx {
  * `SIBLING_ID_POOL`. A container recursively assigns its own children's ids the
  * same way, so cousin collisions occur at every nesting level.
  */
-function buildField(
+export function buildField(
 	ctx: FieldBuildCtx,
 	parentUuid: Uuid,
 	id: string,
@@ -328,7 +328,7 @@ function buildField(
  * id minting + normalized-map insertion happen in one deterministic pass,
  * which is where sibling-id uniqueness is enforced.
  */
-type FieldGenSpec =
+export type FieldGenSpec =
 	| {
 			kind: (typeof LEAF_KINDS)[number];
 			label: string;
@@ -432,19 +432,25 @@ function containerSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
 	const children = fc.array(childArb, { minLength: 1, maxLength: 3 });
 	const groupArb: fc.Arbitrary<FieldGenSpec> = fc
 		.record({ label: labelArb, children })
-		.map((r) => ({ kind: "group", ...r }));
+		.map((r) => ({ kind: "group" as const, ...r }));
 
 	const repeatArb: fc.Arbitrary<FieldGenSpec> = fc.oneof(
-		fc
-			.record({ label: labelArb, children })
-			.map((r) => ({ kind: "repeat", mode: "user_controlled" as const, ...r })),
+		fc.record({ label: labelArb, children }).map((r) => ({
+			kind: "repeat" as const,
+			mode: "user_controlled" as const,
+			...r,
+		})),
 		fc
 			.record({
 				label: labelArb,
 				count: fc.constantFrom(...SAFE_COUNT_XPATH),
 				children,
 			})
-			.map((r) => ({ kind: "repeat", mode: "count_bound" as const, ...r })),
+			.map((r) => ({
+				kind: "repeat" as const,
+				mode: "count_bound" as const,
+				...r,
+			})),
 		fc
 			.record({
 				label: labelArb,
@@ -454,14 +460,18 @@ function containerSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
 				),
 				children,
 			})
-			.map((r) => ({ kind: "repeat", mode: "query_bound" as const, ...r })),
+			.map((r) => ({
+				kind: "repeat" as const,
+				mode: "query_bound" as const,
+				...r,
+			})),
 	);
 
 	return fc.oneof(groupArb, repeatArb);
 }
 
 /** Any field spec, leaf-biased; containers only when `depth > 0`. */
-function fieldSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
+export function fieldSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
 	const leaves = fc.oneof(leafSpecArb, selectSpecArb, hiddenSpecArb);
 	if (depth <= 0) return leaves;
 	// Bias toward leaves so trees stay shallow and the run is fast, but reach
@@ -474,7 +484,12 @@ function fieldSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
 
 // ── Form + module + doc assembly ───────────────────────────────────
 
-const FORM_TYPES = ["registration", "followup", "close", "survey"] as const;
+export const FORM_TYPES = [
+	"registration",
+	"followup",
+	"close",
+	"survey",
+] as const;
 
 /**
  * The arbitrary's top-level shape: a list of modules, each with a case type, a

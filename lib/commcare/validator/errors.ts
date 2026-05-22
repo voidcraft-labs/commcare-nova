@@ -122,6 +122,48 @@ export type ValidationErrorCode =
 	| "XFORM_TRANSLATION_NO_LANG"
 	| "XFORM_TRANSLATION_DUPLICATE_LANG"
 	| "XFORM_TRANSLATION_MULTIPLE_DEFAULT"
+	// suite.xml output (post-emit) — the suite-parse + session-runtime oracle.
+	// Category 1 (fatal at suite parse) and Category 2 (parse-clean,
+	// runtime-fatal cross-references) the device's SuiteParser / session
+	// resolver enforce. A suite that trips one is a generator bug, never a
+	// fixable authoring state.
+	| "SUITE_PARSE_ERROR"
+	| "SUITE_NO_SUITE_ELEMENT"
+	// Category 1 — fatal at parse.
+	| "SUITE_DATUM_NO_VALUE"
+	| "SUITE_DATUM_NO_NODESET"
+	| "SUITE_DATUM_NON_PATH_VALUE"
+	| "SUITE_DATUM_NON_PATH_NODESET"
+	| "SUITE_DATA_NO_REF"
+	| "SUITE_DATA_NON_PATH_REF"
+	| "SUITE_DETAIL_NO_TITLE"
+	| "SUITE_FIELD_NO_HEADER"
+	| "SUITE_FIELD_NO_TEMPLATE"
+	| "SUITE_ENTRY_NO_DISPLAY"
+	| "SUITE_INVALID_XPATH"
+	| "SUITE_NON_PATH_XPATH"
+	| "SUITE_QUERY_NO_URL"
+	| "SUITE_QUERY_NO_STORAGE_INSTANCE"
+	| "SUITE_REMOTE_REQUEST_NO_POST"
+	| "SUITE_POST_NO_URL"
+	| "SUITE_PROMPT_NO_KEY"
+	| "SUITE_PROMPT_DUPLICATE_KEY"
+	| "SUITE_STACK_BAD_OP"
+	| "SUITE_VERSION_NOT_INTEGER"
+	// Category 2 — parse-clean, runtime-fatal cross-references.
+	| "SUITE_MENU_COMMAND_UNRESOLVED"
+	| "SUITE_DETAIL_SELECT_UNRESOLVED"
+	| "SUITE_DETAIL_CONFIRM_UNRESOLVED"
+	| "SUITE_MISSING_INSTANCE"
+	| "SUITE_DUPLICATE_INSTANCE"
+	| "SUITE_MISSING_LOCALE"
+	| "SUITE_DUPLICATE_COMMAND"
+	| "SUITE_DUPLICATE_DETAIL"
+	// Sort — silently tolerated by the device (behaves-wrong, never throws).
+	| "SUITE_SORT_BAD_ORDER"
+	| "SUITE_SORT_BAD_DIRECTION"
+	| "SUITE_SORT_BAD_TYPE"
+	| "SUITE_SORT_BAD_BLANKS"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"

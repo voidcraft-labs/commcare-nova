@@ -23,7 +23,6 @@
 
 import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
-import { parseDocument } from "htmlparser2";
 import {
 	escapeXml,
 	type FormActions,
@@ -37,6 +36,7 @@ import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { emitRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
 
@@ -351,14 +351,27 @@ export function compileCcz(
 		suiteRemoteRequests.length > 0 ? `${suiteRemoteRequests.join("\n")}\n` : "";
 	const suiteXml = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join("\n")}\n${localeResources.join("\n")}\n${suiteDetails.join("\n")}\n${remoteRequestsBlock}${suiteEntries.join("\n")}\n${suiteMenus.join("\n")}\n</suite>`;
 
-	// Parse-check the suite XML — HQ's build pipeline also parses it,
-	// and failing here gives a clearer error than an opaque mobile
-	// deployment failure. `parseDocument` throws on malformed XML.
-	try {
-		parseDocument(suiteXml, { xmlMode: true });
-	} catch (e) {
+	// Suite-XML oracle gate. The oracle mirrors CommCare's suite-parse +
+	// session-runtime contract — both the fatal-at-parse checks (malformed
+	// XML, missing required attributes) AND the parse-clean / runtime-fatal
+	// cross-reference checks (a menu command naming no entry, a datum
+	// detail-select naming no detail, an `instance('foo')` reference with no
+	// declaration). The device's load gate never catches that second class —
+	// `Suite::getDetail` / `getEntry` are bare hashtable lookups returning null
+	// on a miss — so they detonate later at session runtime. Asserting them here
+	// turns a runtime crash on-device into a clear build-time error. The oracle
+	// is a generator-totality oracle, not a user gate: a failing suite is a bug
+	// in this compiler, never a fixable authoring state, so a non-empty result
+	// throws. `appStrings` is fully populated by the module loop above, so its
+	// key set is the complete locale registry the oracle resolves `<locale id>`
+	// references against. (The oracle's own strict `XMLValidator.validate`
+	// subsumes the well-formedness parse-check this replaced.)
+	const suiteErrors = validateSuite(suiteXml, new Set(Object.keys(appStrings)));
+	if (suiteErrors.length > 0) {
 		throw new Error(
-			`Generated suite.xml is malformed: ${e instanceof Error ? e.message : String(e)}`,
+			`Generated suite.xml failed the suite oracle:\n${suiteErrors
+				.map((e) => `  - ${errorToString(e)}`)
+				.join("\n")}`,
 		);
 	}
 
