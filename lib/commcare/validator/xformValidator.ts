@@ -17,7 +17,11 @@ import type { Document, Element } from "domhandler";
 import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
 import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
-import { type ValidationError, validationError } from "./errors";
+import {
+	type ValidationError,
+	type ValidationLocation,
+	validationError,
+} from "./errors";
 
 const XML_OPTS = { xmlMode: true } as const;
 
@@ -61,6 +65,15 @@ function collectItextIds(doc: Document): Set<string> {
 
 // ── itext duplicate-definition detection ──────────────────────────
 
+/** Direct element children of `el` with the given tag name. Used where the
+ *  check must mirror Core's direct-child iteration rather than a subtree
+ *  search (`findAll` recurses; Core's itext parser does not). */
+function directChildElementsNamed(el: Element, name: string): Element[] {
+	return getChildren(el).filter(
+		(c): c is Element => isTag(c) && c.name === name,
+	);
+}
+
 /**
  * Detect duplicate itext (id, form) definitions within each translation.
  *
@@ -74,11 +87,26 @@ function collectItextIds(doc: Document): Set<string> {
  * in every locale's <translation> block. Nova emits both <value> (default)
  * and <value form="markdown"> under each <text id="...">; those are distinct
  * keys and must not be flagged.
+ *
+ * Each <translation> gets its own key set, which assumes one <translation>
+ * per language — the shape Nova emits (a single `<translation lang="en">`).
+ * Core additionally rejects two <translation> blocks for the same language
+ * (XFormParser.java::parseTranslations); Nova never emits that, so this
+ * oracle doesn't separately guard it. If multi-locale emission ever lands,
+ * collapse the key set per language rather than per <translation> element.
+ *
+ * The <text>/<value> walks use DIRECT children (not a subtree search) to
+ * mirror Core's `text.getElement(k)` direct-child iteration exactly: a
+ * <value> nested deeper than a direct child is not a text-handle definition
+ * to Core and must not be counted here. Non-<value> direct children of <text>
+ * (which Core's parseTextHandle rejects outright) are simply skipped — this
+ * check is scoped to duplicate definitions, and the emitter never emits any
+ * other child kind, so guarding it here would be dead defense.
  */
 function findDuplicateItextDefinitions(
 	doc: Document,
 	formName: string,
-	loc: Parameters<typeof validationError>[3],
+	loc: ValidationLocation,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const translationEls = findAll(
@@ -90,13 +118,13 @@ function findDuplicateItextDefinitions(
 		const lang = getAttributeValue(translation, "lang") ?? "unknown";
 		const seenKeys = new Set<string>();
 
-		const textEls = findAll((el) => el.name === "text", translation.children);
+		const textEls = directChildElementsNamed(translation, "text");
 		for (const textEl of textEls) {
 			const id = getAttributeValue(textEl, "id");
 			if (!id) continue;
 
-			// Walk each <value> child and check the (id, form) dedup key.
-			const valueEls = findAll((el) => el.name === "value", textEl.children);
+			// Walk each direct <value> child and check the (id, form) dedup key.
+			const valueEls = directChildElementsNamed(textEl, "value");
 			for (const valueEl of valueEls) {
 				const rawForm = getAttributeValue(valueEl, "form") ?? "";
 				// Normalize empty form="" to the default key shape, matching Core.
@@ -136,14 +164,14 @@ export function validateXFormXml(
 	const errors: ValidationError[] = [];
 	const loc = { formName, moduleName };
 
-	// 1a. Strict well-formedness gate — must run before htmlparser2 parsing.
+	// 1a. Strict well-formedness gate — the only parse-failure path.
 	//
-	// htmlparser2 is an HTML-recovery parser and silently heals malformed XML
-	// (e.g. unescaped `<` in label text, bare `&`, unclosed tags). That means
-	// the catch block below can never trigger in practice. fast-xml-parser's
-	// XMLValidator is a strict XML 1.0 validator that returns an error object
-	// for any well-formedness violation, matching how JavaRosa's XFormParser
-	// rejects the form at parse time.
+	// htmlparser2 (used for the DOM walk below) is an HTML-recovery parser: it
+	// silently heals malformed XML (unescaped `<` in label text, bare `&`,
+	// unclosed tags) instead of throwing, so it can't be relied on to reject a
+	// malformed form. fast-xml-parser's XMLValidator is a strict XML 1.0
+	// validator that returns an error object for any well-formedness violation,
+	// matching how JavaRosa's XFormParser rejects the form at parse time.
 	const xmlValidation = XMLValidator.validate(xml);
 	if (xmlValidation !== true) {
 		errors.push(
@@ -157,22 +185,10 @@ export function validateXFormXml(
 		return errors;
 	}
 
-	// 1b. Parse with htmlparser2 for the DOM walk — at this point the XML is
-	// known well-formed, so htmlparser2's recovery behavior is irrelevant.
-	let doc: Document;
-	try {
-		doc = parseDocument(xml, XML_OPTS);
-	} catch (e) {
-		errors.push(
-			validationError(
-				"XFORM_PARSE_ERROR",
-				"form",
-				`"${formName}" generated malformed XML that can't be parsed: ${e instanceof Error ? e.message : String(e)}. This is a bug in the form generator.`,
-				loc,
-			),
-		);
-		return errors;
-	}
+	// 1b. Parse with htmlparser2 for the DOM walk. The strict gate above already
+	// proved the input well-formed, and htmlparser2 recovers rather than throws
+	// regardless, so no parse-failure handling is needed here.
+	const doc = parseDocument(xml, XML_OPTS);
 
 	// 2. Find the instance data root
 	const instances = findAll(
