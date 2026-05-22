@@ -11,6 +11,7 @@
 export type ValidationErrorCode =
 	// App-level
 	| "EMPTY_APP_NAME"
+	| "NO_MODULES"
 	| "DUPLICATE_MODULE_NAME"
 	| "MISSING_CHILD_CASE_MODULE"
 	// Module-level

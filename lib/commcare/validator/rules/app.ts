@@ -10,6 +10,24 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 
+function noModules(doc: BlueprintDoc): ValidationError[] {
+	// CommCare HQ rejects an application with no modules at build time
+	// (commcare-hq app_manager/helpers/validators.py::ApplicationValidator
+	// `_check_modules`) — a module is what produces a navigation menu entry,
+	// so a moduleless app has nothing to open. Nova's builder UI never lands
+	// here, but the validator is the totality oracle: an empty `moduleOrder`
+	// must be caught at authoring time, not discovered as an HQ build failure.
+	if (doc.moduleOrder.length > 0) return [];
+	return [
+		validationError(
+			"NO_MODULES",
+			"app",
+			`Your app has no modules yet. CommCare needs at least one module — it's the menu entry users tap to reach a form or case list — so add a module before exporting.`,
+			{},
+		),
+	];
+}
+
 function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 	if (doc.appName?.trim()) return [];
 	return [
@@ -205,6 +223,7 @@ function duplicateConnectIds(doc: BlueprintDoc): ValidationError[] {
 }
 
 export const APP_RULES = [
+	noModules,
 	emptyAppName,
 	duplicateModuleNames,
 	childCaseTypeMissingModule,
