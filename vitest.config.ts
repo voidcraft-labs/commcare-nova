@@ -28,21 +28,22 @@ export default defineConfig({
 		clearMocks: true,
 		// Vitest's `exclude` REPLACES the defaults rather than extending
 		// them, so spread + append: node_modules / .git stay excluded,
-		// plus we drop `.worktrees/**` to stop the main checkout's
-		// `npm test` from globbing into git worktrees mounted under
-		// `.worktrees/`.
+		// plus we drop `.claude/worktrees/**` to stop the main checkout's
+		// `npm test` from globbing into git worktrees, which the agent
+		// harness mounts under `.claude/worktrees/`. Without this the main
+		// run discovers every test twice (once per checkout), doubling the
+		// run and stalling worker teardown.
 		//
 		// Why this stays safe inside future worktrees that inherit this
 		// config: per the vitest docs, exclude patterns are matched
 		// against paths *relative to* `root` (cwd-relative, not
 		// absolute) via tinyglobby. From the main repo's vantage point,
 		// a worktree test's root-relative path is
-		// `.worktrees/foo/lib/...` and matches the pattern. From inside
-		// a worktree (root = `.worktrees/foo/`) the same test's root-
-		// relative path is `lib/...` — no `.worktrees` segment, no
-		// match, no surprise filtering. Verified via picomatch against
-		// both relative shapes.
-		exclude: [...vitestConfigDefaults.exclude, "**/.worktrees/**"],
+		// `.claude/worktrees/foo/lib/...` and matches the pattern. From
+		// inside a worktree (root = `.claude/worktrees/foo/`) the same
+		// test's root-relative path is `lib/...` — no `.claude/worktrees`
+		// segment, no match, no surprise filtering.
+		exclude: [...vitestConfigDefaults.exclude, "**/.claude/worktrees/**"],
 	},
 	resolve: {
 		alias: {
