@@ -15,6 +15,7 @@
 
 import type { Document, Element } from "domhandler";
 import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
+import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
 import { type ValidationError, validationError } from "./errors";
 
@@ -58,6 +59,69 @@ function collectItextIds(doc: Document): Set<string> {
 	return ids;
 }
 
+// ── itext duplicate-definition detection ──────────────────────────
+
+/**
+ * Detect duplicate itext (id, form) definitions within each translation.
+ *
+ * JavaRosa (XFormParser.java::parseTextHandle) rejects any form where the
+ * same (id, form) key appears twice in a single <translation> block. The
+ * dedup key mirrors Core's textID formula: `id` for the default form (when
+ * `form` is absent or empty), `id + ";" + form` for named forms. Empty
+ * `form=""` normalizes to the default, exactly as Core does.
+ *
+ * Uniqueness is scoped per-translation — the same id legitimately appears
+ * in every locale's <translation> block. Nova emits both <value> (default)
+ * and <value form="markdown"> under each <text id="...">; those are distinct
+ * keys and must not be flagged.
+ */
+function findDuplicateItextDefinitions(
+	doc: Document,
+	formName: string,
+	loc: Parameters<typeof validationError>[3],
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const translationEls = findAll(
+		(el) => el.name === "translation",
+		doc.children,
+	);
+
+	for (const translation of translationEls) {
+		const lang = getAttributeValue(translation, "lang") ?? "unknown";
+		const seenKeys = new Set<string>();
+
+		const textEls = findAll((el) => el.name === "text", translation.children);
+		for (const textEl of textEls) {
+			const id = getAttributeValue(textEl, "id");
+			if (!id) continue;
+
+			// Walk each <value> child and check the (id, form) dedup key.
+			const valueEls = findAll((el) => el.name === "value", textEl.children);
+			for (const valueEl of valueEls) {
+				const rawForm = getAttributeValue(valueEl, "form") ?? "";
+				// Normalize empty form="" to the default key shape, matching Core.
+				const dedupKey = rawForm === "" ? id : `${id};${rawForm}`;
+
+				if (seenKeys.has(dedupKey)) {
+					const formDesc = rawForm === "" ? "" : ` (form="${rawForm}")`;
+					errors.push(
+						validationError(
+							"XFORM_DUPLICATE_ITEXT",
+							"form",
+							`"${formName}" defines itext id "${id}"${formDesc} more than once in the "${lang}" translation. FormPlayer will reject this form. This is a bug in the form generator.`,
+							loc,
+						),
+					);
+				} else {
+					seenKeys.add(dedupKey);
+				}
+			}
+		}
+	}
+
+	return errors;
+}
+
 // ── Public API ─────────────────────────────────────────────────────
 
 /**
@@ -72,7 +136,29 @@ export function validateXFormXml(
 	const errors: ValidationError[] = [];
 	const loc = { formName, moduleName };
 
-	// 1. Parse — catches malformed XML
+	// 1a. Strict well-formedness gate — must run before htmlparser2 parsing.
+	//
+	// htmlparser2 is an HTML-recovery parser and silently heals malformed XML
+	// (e.g. unescaped `<` in label text, bare `&`, unclosed tags). That means
+	// the catch block below can never trigger in practice. fast-xml-parser's
+	// XMLValidator is a strict XML 1.0 validator that returns an error object
+	// for any well-formedness violation, matching how JavaRosa's XFormParser
+	// rejects the form at parse time.
+	const xmlValidation = XMLValidator.validate(xml);
+	if (xmlValidation !== true) {
+		errors.push(
+			validationError(
+				"XFORM_PARSE_ERROR",
+				"form",
+				`"${formName}" generated malformed XML that FormPlayer will reject: ${xmlValidation.err.msg}. This is a bug in the form generator.`,
+				loc,
+			),
+		);
+		return errors;
+	}
+
+	// 1b. Parse with htmlparser2 for the DOM walk — at this point the XML is
+	// known well-formed, so htmlparser2's recovery behavior is irrelevant.
 	let doc: Document;
 	try {
 		doc = parseDocument(xml, XML_OPTS);
@@ -238,6 +324,9 @@ export function validateXFormXml(
 			}
 		}
 	}
+
+	// 7. Check for duplicate itext (id, form) definitions within each translation.
+	errors.push(...findDuplicateItextDefinitions(doc, formName, loc));
 
 	return errors;
 }

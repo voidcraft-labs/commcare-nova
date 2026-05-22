@@ -101,6 +101,7 @@ export type ValidationErrorCode =
 	| "XFORM_DANGLING_REF"
 	| "XFORM_SETVALUE_NO_TARGET"
 	| "XFORM_MISSING_ITEXT"
+	| "XFORM_DUPLICATE_ITEXT"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"
