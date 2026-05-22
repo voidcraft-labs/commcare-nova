@@ -9,7 +9,7 @@
  *      gates on truthy text).
  *   2. No `<label ref="jr:itext('${id}-label')"/>` element in the body
  *      output — emitting one with no matching itext would produce a
- *      dangling reference that `validateXFormXml` flags as
+ *      dangling reference the XForm oracle flags as
  *      `XFORM_MISSING_ITEXT`.
  *   3. No `appearance="field-list"` on transparent (empty-label) groups
  *      — that attribute drives single-page layout chrome, which
@@ -28,7 +28,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
-import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 
 /**
  * Pull the first form's XForm XML out of an expanded HQ application's
@@ -74,7 +74,9 @@ describe("empty-label containers — XForm emission", () => {
 		const xml = firstFormXml(doc);
 		// The dangling itext reference would be exactly this string.
 		// Asserting its absence is the load-bearing check.
-		expect(xml).not.toContain("jr:itext('structural_only-label')");
+		// The serializer encodes `'` as `&apos;` (XML-spec-equivalent), so itext
+		// references read `jr:itext(&apos;...&apos;)` on the wire.
+		expect(xml).not.toContain("jr:itext(&apos;structural_only-label&apos;)");
 		// `appearance="field-list"` is suppressed for transparent groups —
 		// dropping it matches the "no visual impact" runtime semantic.
 		expect(xml).toContain('<group ref="/data/structural_only">');
@@ -82,12 +84,16 @@ describe("empty-label containers — XForm emission", () => {
 			/<group ref="\/data\/structural_only" appearance="field-list">/,
 		);
 		// Sanity: the child's input + label still render. Confirms we
-		// stripped only the container's chrome, not the whole subtree.
+		// stripped only the container's chrome, not the whole subtree. The
+		// child's itext id carries its parent group's id as an ancestry prefix
+		// (`structural_only-answer-label`) — nested-field itext ids are keyed by
+		// full field-id ancestry so cousins sharing an id can't collide; the
+		// data path (`/data/structural_only/answer`) is unaffected.
 		expect(xml).toContain('<input ref="/data/structural_only/answer">');
-		expect(xml).toContain("jr:itext('answer-label')");
+		expect(xml).toContain("jr:itext(&apos;structural_only-answer-label&apos;)");
 		// And the XForm passes Nova's own structural validator (which is
 		// what `XFORM_MISSING_ITEXT` would have surfaced under).
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("emits no <label> element for an empty-label repeat", () => {
@@ -114,11 +120,11 @@ describe("empty-label containers — XForm emission", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		expect(xml).not.toContain("jr:itext('iterations-label')");
+		expect(xml).not.toContain("jr:itext(&apos;iterations-label&apos;)");
 		// The `<repeat nodeset="...">` wrapper itself must still emit —
 		// only its outer `<label>` is conditionally skipped.
 		expect(xml).toContain('<repeat nodeset="/data/iterations">');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("still emits the <label> element and appearance attribute for a labelled group (regression)", () => {
@@ -151,11 +157,11 @@ describe("empty-label containers — XForm emission", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		expect(xml).toContain("jr:itext('section-label')");
+		expect(xml).toContain("jr:itext(&apos;section-label&apos;)");
 		expect(xml).toContain("<value>Visible Section</value>");
 		expect(xml).toContain(
 			'<group ref="/data/section" appearance="field-list">',
 		);
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 });

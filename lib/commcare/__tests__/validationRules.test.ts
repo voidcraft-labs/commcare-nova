@@ -78,6 +78,20 @@ describe("app rules", () => {
 		expect(errors.some((e) => e.code === "EMPTY_APP_NAME")).toBe(true);
 	});
 
+	it("catches an app with no modules", () => {
+		// CommCare HQ rejects a moduleless app at build time; the validator must
+		// catch it at authoring time rather than let it surface as an HQ failure.
+		const doc = buildDoc({ appName: "Test", modules: [] });
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "NO_MODULES")).toBe(true);
+	});
+
+	it("does not flag NO_MODULES when a module exists", () => {
+		expect(runValidation(minDoc()).some((e) => e.code === "NO_MODULES")).toBe(
+			false,
+		);
+	});
+
 	it("catches duplicate module names", () => {
 		const doc = buildDoc({
 			appName: "Test",

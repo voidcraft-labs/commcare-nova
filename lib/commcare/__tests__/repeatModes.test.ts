@@ -24,7 +24,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
-import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 
 function firstFormXml(doc: ReturnType<typeof buildDoc>): string {
 	const attachments = expandDoc(doc)._attachments;
@@ -68,7 +68,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).not.toContain("xforms-ready");
 		// Children sit under the repeat's nodeset directly (no /item).
 		expect(xml).toContain('<bind vellum:nodeset="#form/members/name"');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound emits jr:count + jr:noAddRemove with hashtag expansion", () => {
@@ -111,7 +111,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain('<repeat nodeset="/data/iterations"');
 		// Children sit at /data/iterations/<id>.
 		expect(xml).toContain('<bind vellum:nodeset="#form/iterations/value"');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound hoists a literal count into a hidden node (issue #14)", () => {
@@ -162,7 +162,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).not.toContain('jr:count="3"');
 		// The author's original count is preserved as round-trip metadata.
 		expect(xml).toContain('vellum:count="3"');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound hoists an expression count into a hidden node (issue #14)", () => {
@@ -202,7 +202,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain('jr:count="/data/__nova_count_slots"');
 		// Original shorthand preserved verbatim.
 		expect(xml).toContain('vellum:count="#form/base + 2"');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound nested in a group hoists the count node to FORM ROOT", () => {
@@ -256,7 +256,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toMatch(
 			/<__nova_count_inner\/>\s*<outer>|<outer>[\s\S]*?<\/outer>[\s\S]*?<__nova_count_inner\/>|<__nova_count_inner\/>[\s\S]*?<outer>/,
 		);
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("two cousin count_bound repeats sharing an id hoist to distinct nodes", () => {
@@ -335,8 +335,22 @@ describe("repeat modes — XForm emission", () => {
 		// Each repeat's jr:count points at its OWN node — no shared target.
 		expect(xml).toContain('jr:count="/data/__nova_count_items"');
 		expect(xml).toContain('jr:count="/data/__nova_count_items_1"');
-		// Well-formed and valid — no duplicate node path.
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		// The cousins' itext LABEL ids are also disambiguated — by ancestry
+		// prefix, not the count-node auto-suffix. Each repeat's label-itext id
+		// carries its parent group's id, so the two `items` cousins land on
+		// distinct `<text>` ids instead of both emitting `items-label` (which
+		// JavaRosa rejects as a duplicate itext id at parse). This pins the
+		// fix: the ancestry-threaded key, not just the absence of the error.
+		expect(xml).toContain('<text id="outer_a-items-label">');
+		expect(xml).toContain('<text id="outer_b-items-label">');
+		// The serializer encodes `'` as `&apos;` (XML-spec-equivalent), so itext
+		// references read `jr:itext(&apos;...&apos;)` on the wire.
+		expect(xml).toContain("jr:itext(&apos;outer_a-items-label&apos;)");
+		expect(xml).toContain("jr:itext(&apos;outer_b-items-label&apos;)");
+		// Neither cousin emits the bare, colliding `items-label` id anymore.
+		expect(xml).not.toContain('<text id="items-label">');
+		// Well-formed and valid — no duplicate node path, no duplicate itext id.
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound with a path count still emits jr:count directly (regression)", () => {
@@ -371,7 +385,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain('jr:count="/data/desired_count"');
 		// No hidden node hoisted for a path count.
 		expect(xml).not.toContain("__nova_count_iterations");
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("query_bound emits the model-iteration setvalue setup + /item nesting", () => {
@@ -414,18 +428,21 @@ describe("repeat modes — XForm emission", () => {
 		const xml = firstFormXml(doc);
 
 		// Body: repeat targets /item, jr:count on the parent's @count
-		// attribute, jr:noAddRemove suppresses Add/Remove.
+		// attribute, jr:noAddRemove suppresses Add/Remove. The repeat
+		// serializes self-closing (`/>`) here because its only child is a
+		// `hidden` field, which contributes no body element.
 		expect(xml).toContain(
-			'<repeat nodeset="/data/service_cases/item" jr:count="/data/service_cases/@count" jr:noAddRemove="true()">',
+			'<repeat nodeset="/data/service_cases/item" jr:count="/data/service_cases/@count" jr:noAddRemove="true()"/>',
 		);
 
 		// Setvalue setup — four elements per Vellum's modeliteration
-		// pattern. Single quotes inside the value attributes are NOT
-		// XML-escaped (escapeXml only escapes the wrapping quote — `"` —
-		// plus `<`, `>`, `&`); they appear literal in the output.
+		// pattern. The serializer encodes single quotes inside the value
+		// attributes as `&apos;` (XML-spec-equivalent — a conforming parser
+		// decodes them back to `'`), so `join(' ', ...)` reads
+		// `join(&apos; &apos;, ...)` on the wire.
 		// xforms-ready: seed @ids and @count.
 		expect(xml).toContain(
-			`<setvalue event="xforms-ready" ref="/data/service_cases/@ids" value="join(' ', /data/service_case_ids)"/>`,
+			`<setvalue event="xforms-ready" ref="/data/service_cases/@ids" value="join(&apos; &apos;, /data/service_case_ids)"/>`,
 		);
 		expect(xml).toContain(
 			`<setvalue event="xforms-ready" ref="/data/service_cases/@count" value="count-selected(/data/service_cases/@ids)"/>`,
@@ -460,7 +477,7 @@ describe("repeat modes — XForm emission", () => {
 			'<bind vellum:nodeset="#form/service_cases/item/case_id"',
 		);
 
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("query_bound nested inside another repeat coerces @ids/@count setvalues to jr-insert", () => {
@@ -545,6 +562,6 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain(
 			'<setvalue event="jr-insert" ref="/data/clients/item/services/item/@id"',
 		);
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 });

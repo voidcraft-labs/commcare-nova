@@ -794,8 +794,8 @@ vi.mock("@/lib/commcare/expander", () => ({
 	})),
 }));
 
-vi.mock("@/lib/commcare/validator/xformValidator", () => ({
-	validateXFormXml: vi.fn(() => []),
+vi.mock("@/lib/commcare/validator/xformOracle", () => ({
+	validateXForm: vi.fn(() => []),
 }));
 
 describe("validationLoop — fix pass emission", () => {

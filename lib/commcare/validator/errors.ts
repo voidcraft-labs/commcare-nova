@@ -11,6 +11,7 @@
 export type ValidationErrorCode =
 	// App-level
 	| "EMPTY_APP_NAME"
+	| "NO_MODULES"
 	| "DUPLICATE_MODULE_NAME"
 	| "MISSING_CHILD_CASE_MODULE"
 	// Module-level
@@ -93,14 +94,92 @@ export type ValidationErrorCode =
 	| "VALIDATION_ON_NON_INPUT_KIND"
 	| "EMPTY_REPEAT_COUNT"
 	| "EMPTY_IDS_QUERY"
-	// XForm output (post-expansion)
+	// XForm output (post-expansion) — the parse-time oracle's FATAL contract.
 	| "XFORM_PARSE_ERROR"
 	| "XFORM_NO_INSTANCE"
 	| "XFORM_BIND_NO_NODESET"
+	| "XFORM_NON_PATH_NODESET"
 	| "XFORM_DANGLING_BIND"
 	| "XFORM_DANGLING_REF"
+	| "XFORM_INVALID_BIND_EXPRESSION"
+	| "XFORM_CONTROL_NO_REF"
+	| "XFORM_NON_PATH_CONTROL_REF"
+	| "XFORM_SELECT_NO_ITEMS"
+	| "XFORM_SELECT_ITEMS_AND_ITEMSET"
+	| "XFORM_ITEM_INCOMPLETE"
 	| "XFORM_SETVALUE_NO_TARGET"
+	| "XFORM_INVALID_SETVALUE"
+	| "XFORM_INVALID_ACTION_EVENT"
+	| "XFORM_INVALID_OUTPUT"
+	| "XFORM_REPEAT_BINDS_ROOT"
+	| "XFORM_REPEAT_MEMBER_SCOPE"
+	| "XFORM_DUPLICATE_TEMPLATE"
 	| "XFORM_MISSING_ITEXT"
+	| "XFORM_DUPLICATE_ITEXT"
+	| "XFORM_TEXT_NO_ID"
+	| "XFORM_TEXT_BAD_CHILD"
+	| "XFORM_TRANSLATION_NONE"
+	| "XFORM_TRANSLATION_NO_LANG"
+	| "XFORM_TRANSLATION_DUPLICATE_LANG"
+	| "XFORM_TRANSLATION_MULTIPLE_DEFAULT"
+	// suite.xml output (post-emit) — the suite-parse + session-runtime oracle.
+	// Category 1 (fatal at suite parse) and Category 2 (parse-clean,
+	// runtime-fatal cross-references) the device's SuiteParser / session
+	// resolver enforce. A suite that trips one is a generator bug, never a
+	// fixable authoring state.
+	| "SUITE_PARSE_ERROR"
+	| "SUITE_NO_SUITE_ELEMENT"
+	// Category 1 — fatal at parse.
+	| "SUITE_DATUM_NO_VALUE"
+	| "SUITE_DATUM_NO_NODESET"
+	| "SUITE_DATUM_NON_PATH_VALUE"
+	| "SUITE_DATUM_NON_PATH_NODESET"
+	| "SUITE_DATA_NO_REF"
+	| "SUITE_DATA_NON_PATH_REF"
+	| "SUITE_DETAIL_NO_TITLE"
+	| "SUITE_FIELD_NO_HEADER"
+	| "SUITE_FIELD_NO_TEMPLATE"
+	| "SUITE_ENTRY_NO_DISPLAY"
+	| "SUITE_INVALID_XPATH"
+	| "SUITE_NON_PATH_XPATH"
+	| "SUITE_QUERY_NO_URL"
+	| "SUITE_QUERY_NO_STORAGE_INSTANCE"
+	| "SUITE_REMOTE_REQUEST_NO_POST"
+	| "SUITE_POST_NO_URL"
+	| "SUITE_PROMPT_NO_KEY"
+	| "SUITE_PROMPT_DUPLICATE_KEY"
+	| "SUITE_STACK_BAD_OP"
+	| "SUITE_VERSION_NOT_INTEGER"
+	// Category 2 — parse-clean, runtime-fatal cross-references.
+	| "SUITE_MENU_COMMAND_UNRESOLVED"
+	| "SUITE_DETAIL_SELECT_UNRESOLVED"
+	| "SUITE_DETAIL_CONFIRM_UNRESOLVED"
+	| "SUITE_MISSING_INSTANCE"
+	| "SUITE_DUPLICATE_INSTANCE"
+	| "SUITE_MISSING_LOCALE"
+	| "SUITE_DUPLICATE_COMMAND"
+	| "SUITE_DUPLICATE_DETAIL"
+	// Sort — silently tolerated by the device (behaves-wrong, never throws).
+	| "SUITE_SORT_BAD_ORDER"
+	| "SUITE_SORT_BAD_DIRECTION"
+	| "SUITE_SORT_BAD_TYPE"
+	| "SUITE_SORT_BAD_BLANKS"
+	// HQ import JSON (post-expansion) — the deserialization (`Application.wrap`)
+	// contract. A violation here makes CCHQ's CouchDB `DocumentSchema` wrap raise
+	// `BadValueError` / `ValueError` and rejects the whole app at import. A
+	// generator that trips one is an `expandDoc` bug, never a fixable authoring
+	// state.
+	| "HQJSON_BAD_DOC_TYPE"
+	| "HQJSON_BAD_MODULE_DOC_TYPE"
+	| "HQJSON_BAD_FORM_DOC_TYPE"
+	| "HQJSON_BAD_CONDITION_TYPE"
+	| "HQJSON_BAD_CONDITION_OPERATOR"
+	| "HQJSON_BAD_FORM_REQUIRES"
+	| "HQJSON_BAD_POST_FORM_WORKFLOW"
+	| "HQJSON_BAD_UPDATE_MODE"
+	| "HQJSON_BAD_SUBCASE_RELATIONSHIP"
+	| "HQJSON_BAD_DETAIL_DISPLAY"
+	| "HQJSON_BAD_TYPE"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"
