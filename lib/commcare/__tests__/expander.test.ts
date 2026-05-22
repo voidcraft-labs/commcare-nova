@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -956,7 +956,7 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 		);
 		// The old value-keyed id must be gone.
 		expect(xml).not.toContain("rating-3-label");
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("multi_select with duplicate option values emits distinct itext ids", () => {
@@ -994,7 +994,7 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 		expect(xml).toContain(
 			`<item><label ref="jr:itext('tags-opt1-label')"/><value>x</value></item>`,
 		);
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("distinct-value single_select still emits one item + ref per option (regression)", () => {
@@ -1033,7 +1033,7 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 		);
 		expect(xml).toContain('<text id="confirm-opt0-label"><value>Yes</value>');
 		expect(xml).toContain('<text id="confirm-opt1-label"><value>No</value>');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 });
 

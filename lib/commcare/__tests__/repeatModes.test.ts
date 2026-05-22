@@ -24,7 +24,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
-import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 
 function firstFormXml(doc: ReturnType<typeof buildDoc>): string {
 	const attachments = expandDoc(doc)._attachments;
@@ -68,7 +68,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).not.toContain("xforms-ready");
 		// Children sit under the repeat's nodeset directly (no /item).
 		expect(xml).toContain('<bind vellum:nodeset="#form/members/name"');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound emits jr:count + jr:noAddRemove with hashtag expansion", () => {
@@ -111,7 +111,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain('<repeat nodeset="/data/iterations"');
 		// Children sit at /data/iterations/<id>.
 		expect(xml).toContain('<bind vellum:nodeset="#form/iterations/value"');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound hoists a literal count into a hidden node (issue #14)", () => {
@@ -162,7 +162,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).not.toContain('jr:count="3"');
 		// The author's original count is preserved as round-trip metadata.
 		expect(xml).toContain('vellum:count="3"');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound hoists an expression count into a hidden node (issue #14)", () => {
@@ -202,7 +202,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain('jr:count="/data/__nova_count_slots"');
 		// Original shorthand preserved verbatim.
 		expect(xml).toContain('vellum:count="#form/base + 2"');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound nested in a group hoists the count node to FORM ROOT", () => {
@@ -256,7 +256,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toMatch(
 			/<__nova_count_inner\/>\s*<outer>|<outer>[\s\S]*?<\/outer>[\s\S]*?<__nova_count_inner\/>|<__nova_count_inner\/>[\s\S]*?<outer>/,
 		);
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("two cousin count_bound repeats sharing an id hoist to distinct nodes", () => {
@@ -348,7 +348,7 @@ describe("repeat modes — XForm emission", () => {
 		// Neither cousin emits the bare, colliding `items-label` id anymore.
 		expect(xml).not.toContain('<text id="items-label">');
 		// Well-formed and valid — no duplicate node path, no duplicate itext id.
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("count_bound with a path count still emits jr:count directly (regression)", () => {
@@ -383,7 +383,7 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain('jr:count="/data/desired_count"');
 		// No hidden node hoisted for a path count.
 		expect(xml).not.toContain("__nova_count_iterations");
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("query_bound emits the model-iteration setvalue setup + /item nesting", () => {
@@ -472,7 +472,7 @@ describe("repeat modes — XForm emission", () => {
 			'<bind vellum:nodeset="#form/service_cases/item/case_id"',
 		);
 
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("query_bound nested inside another repeat coerces @ids/@count setvalues to jr-insert", () => {
@@ -557,6 +557,6 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain(
 			'<setvalue event="jr-insert" ref="/data/clients/item/services/item/@id"',
 		);
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 });

@@ -9,7 +9,7 @@
  *      gates on truthy text).
  *   2. No `<label ref="jr:itext('${id}-label')"/>` element in the body
  *      output — emitting one with no matching itext would produce a
- *      dangling reference that `validateXFormXml` flags as
+ *      dangling reference the XForm oracle flags as
  *      `XFORM_MISSING_ITEXT`.
  *   3. No `appearance="field-list"` on transparent (empty-label) groups
  *      — that attribute drives single-page layout chrome, which
@@ -28,7 +28,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
-import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 
 /**
  * Pull the first form's XForm XML out of an expanded HQ application's
@@ -91,7 +91,7 @@ describe("empty-label containers — XForm emission", () => {
 		expect(xml).toContain("jr:itext('structural_only-answer-label')");
 		// And the XForm passes Nova's own structural validator (which is
 		// what `XFORM_MISSING_ITEXT` would have surfaced under).
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("emits no <label> element for an empty-label repeat", () => {
@@ -122,7 +122,7 @@ describe("empty-label containers — XForm emission", () => {
 		// The `<repeat nodeset="...">` wrapper itself must still emit —
 		// only its outer `<label>` is conditionally skipped.
 		expect(xml).toContain('<repeat nodeset="/data/iterations">');
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
 	it("still emits the <label> element and appearance attribute for a labelled group (regression)", () => {
@@ -160,6 +160,6 @@ describe("empty-label containers — XForm emission", () => {
 		expect(xml).toContain(
 			'<group ref="/data/section" appearance="field-list">',
 		);
-		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 });

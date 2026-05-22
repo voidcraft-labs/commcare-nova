@@ -35,7 +35,7 @@ import {
 } from "@/lib/commcare/validator/errors";
 import { FIX_REGISTRY } from "@/lib/commcare/validator/fixes";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { deriveConnectDefaults } from "@/lib/doc/connectConfig";
 import { iterForms } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -74,7 +74,7 @@ function validateExpansion(
 			const xml = hqJson._attachments[attachmentKey];
 			if (typeof xml !== "string") continue;
 
-			errors.push(...validateXFormXml(xml, formName, moduleName));
+			errors.push(...validateXForm(xml, formName, moduleName));
 		}
 	}
 

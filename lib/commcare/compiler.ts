@@ -37,7 +37,7 @@ import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { emitRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
-import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
+import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
 
 /**
@@ -255,7 +255,7 @@ export function compileCcz(
 			// Re-validate after injection — catches orphaned binds or
 			// malformed structure introduced by the splice.
 			if (xform) {
-				const xformErrors = validateXFormXml(xform, formName, modName);
+				const xformErrors = validateXForm(xform, formName, modName);
 				if (xformErrors.length > 0) {
 					throw new Error(
 						`XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +

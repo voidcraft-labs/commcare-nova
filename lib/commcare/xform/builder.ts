@@ -727,10 +727,10 @@ function buildFieldParts(
 		//
 		// `<label>` is gated on a truthy `label`. Container kinds
 		// (`group`, `repeat`) extend `containerFieldBase` (label
-		// optional); when label is empty/absent, the itext entry isn't
-		// registered (line ~506), so emitting an unconditional
+		// optional); when label is empty/absent, no itext entry is
+		// registered for it, so emitting an unconditional
 		// `<label ref="jr:itext('${id}-label')"/>` would produce a
-		// dangling reference that `validateXFormXml` flags as
+		// dangling reference the XForm oracle flags as
 		// `XFORM_MISSING_ITEXT`. Skipping the element entirely is also
 		// what CommCare expects for transparent structural containers —
 		// the runtime renders nothing for an unlabeled group/repeat
