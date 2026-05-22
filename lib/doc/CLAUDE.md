@@ -22,5 +22,5 @@ Pure functions that read or produce a `BlueprintDoc` (or a subtree of one) live 
 - `fieldParent.ts` / `fieldWalk.ts` / `searchBlueprint.ts` / `predicates.ts` — reducer-shaped utilities the store and UI share.
 - `navigation.ts` — doc-aware `Location` resolution for the routing hooks.
 - `resetBuilder.ts` — tear-down of doc + session state for new-app scaffolding.
-- `connectConfig.ts` — Layer-2 (validate-time) defaults via `deriveConnectDefaults` plus the `normalizeConnectConfig` empty-sub-config stripper. Consumed by the agent's mutation builders (`lib/agent/blueprintHelpers.ts`) and the validation loop. Wire-emit defaults for `deliver_unit.entity_id` / `entity_name` live separately at `lib/commcare/connectDefaults.ts`.
+- `connectConfig.ts` — connect-config doc helpers: `deriveConnectDefaults` (Layer-2 validate-time defaults), `normalizeConnectConfig` (empty-sub-config stripper), and `dedupeRestoredConnectIds` (forces ids unique at the source when the form-settings UI restores or seeds a connect block). Consumed by the agent's mutation builders (`lib/agent/blueprintHelpers.ts`), the validation loop, and the form-settings Connect toggles. Wire-emit defaults for `deliver_unit.entity_id` / `entity_name` live separately at `lib/commcare/connectDefaults.ts`.
 - `types.ts` — the `PersistableDoc` serialized shape.

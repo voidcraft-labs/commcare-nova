@@ -7,6 +7,7 @@ import {
 	connectIdError,
 	deriveConnectId,
 } from "@/lib/commcare/connectSlugs";
+import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import {
 	connectIdsExcept,
 	useAppConnectIds,
@@ -87,6 +88,21 @@ export function LearnConfig({
 		};
 	}, [mod, form, appWideExcept]);
 
+	// A ref holds each sub-block's last-seen value with its ORIGINAL id;
+	// while the block was toggled off, another form may have claimed that
+	// id. Route restores through the shared dedup path so a now-stale id
+	// can't be re-written as a duplicate.
+	const restoreConfig = useCallback(
+		(config: ConnectConfig): ConnectConfig =>
+			dedupeRestoredConnectIds(config, {
+				formUuid,
+				appConnectIds,
+				moduleName: mod?.name ?? "",
+				formName: form?.name ?? "",
+			}),
+		[formUuid, appConnectIds, mod, form],
+	);
+
 	const updateLearnModule = useCallback(
 		(field: string, value: string | number) => {
 			const { learnId } = defaultIds();
@@ -108,7 +124,7 @@ export function LearnConfig({
 		} else {
 			const restored = lastLearnRef.current;
 			if (restored?.name.trim()) {
-				save({ ...connect, learn_module: restored });
+				save(restoreConfig({ ...connect, learn_module: restored }));
 			} else {
 				const { learnId } = defaultIds();
 				save({
@@ -122,7 +138,7 @@ export function LearnConfig({
 				});
 			}
 		}
-	}, [learnEnabled, connect, save, form, defaultIds]);
+	}, [learnEnabled, connect, save, form, defaultIds, restoreConfig]);
 
 	const toggleAssessment = useCallback(() => {
 		if (assessmentEnabled) {
@@ -131,7 +147,7 @@ export function LearnConfig({
 		} else {
 			const restored = lastAssessmentRef.current;
 			if (restored?.user_score.trim()) {
-				save({ ...connect, assessment: restored });
+				save(restoreConfig({ ...connect, assessment: restored }));
 			} else {
 				const { assessmentId } = defaultIds();
 				save({
@@ -140,7 +156,7 @@ export function LearnConfig({
 				});
 			}
 		}
-	}, [assessmentEnabled, connect, save, defaultIds]);
+	}, [assessmentEnabled, connect, save, defaultIds, restoreConfig]);
 
 	return (
 		<div className="space-y-2">

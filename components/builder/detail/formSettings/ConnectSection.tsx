@@ -2,11 +2,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { Toggle } from "@/components/ui/Toggle";
-import { deriveConnectId } from "@/lib/commcare/connectSlugs";
-import {
-	connectIdsExcept,
-	useAppConnectIds,
-} from "@/lib/doc/hooks/useAppConnectIds";
+import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
+import { useAppConnectIds } from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
@@ -70,61 +67,45 @@ export function ConnectSection({
 				stashFormConnect(connectType, formUuid, connect);
 			}
 			save(null);
-		} else if (connectType) {
-			if (stashedConfig) {
-				save(stashedConfig);
-			} else {
-				// Seed two co-located blocks. Derive the module-named id first,
-				// add it to the working set, then derive the pair-named id
-				// against the union — so the two seeded ids can't collide with
-				// each other OR with any other connect id in the app. Both
-				// slots on THIS form are empty here (toggle-on path), so the
-				// exclusion is a no-op and `existing` is every other form's ids.
-				const modName = mod?.name ?? "";
-				const pairName = `${modName} ${form?.name ?? ""}`;
-				if (connectType === "learn") {
-					const existing = connectIdsExcept(
-						appConnectIds,
-						formUuid,
-						"learn_module",
-					);
-					const learnId = deriveConnectId(modName, existing);
-					existing.add(learnId);
-					const assessmentId = deriveConnectId(pairName, existing);
-					save({
+			return;
+		}
+		if (!connectType) return;
+
+		// Toggle-on. Either restore the stashed config or seed a fresh pair of
+		// id-less blocks — both flow through `dedupeRestoredConnectIds`, the
+		// single source-enforcement path. It fills the seed's absent ids from
+		// the entity names (exactly as creation-time autofill would) and
+		// re-derives any stashed id that drifted into a collision while Connect
+		// was off, so a restore can never write a duplicate. Routing seed and
+		// restore through one path keeps them from drifting apart.
+		const name = form?.name ?? "";
+		const config: ConnectConfig =
+			stashedConfig ??
+			(connectType === "learn"
+				? {
 						learn_module: {
-							id: learnId,
-							name: form?.name ?? "",
-							description: form?.name ?? "",
+							name,
+							description: name,
 							time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
 						},
-						assessment: { id: assessmentId, user_score: "100" },
-					});
-				} else {
-					const existing = connectIdsExcept(
-						appConnectIds,
-						formUuid,
-						"deliver_unit",
-					);
-					const deliverId = deriveConnectId(modName, existing);
-					existing.add(deliverId);
-					const taskId = deriveConnectId(pairName, existing);
-					save({
+						assessment: { user_score: "100" },
+					}
+				: {
 						deliver_unit: {
-							id: deliverId,
-							name: form?.name ?? "",
+							name,
 							entity_id: "concat(#user/username, '-', today())",
 							entity_name: "#user/username",
 						},
-						task: {
-							id: taskId,
-							name: form?.name ?? "",
-							description: form?.name ?? "",
-						},
+						task: { name, description: name },
 					});
-				}
-			}
-		}
+		save(
+			dedupeRestoredConnectIds(config, {
+				formUuid,
+				appConnectIds,
+				moduleName: mod?.name ?? "",
+				formName: name,
+			}),
+		);
 	}, [
 		enabled,
 		connect,

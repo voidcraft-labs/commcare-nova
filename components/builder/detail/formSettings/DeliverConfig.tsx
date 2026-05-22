@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef } from "react";
 import { Toggle } from "@/components/ui/Toggle";
 import { deriveConnectId } from "@/lib/commcare/connectSlugs";
+import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import {
 	connectIdsExcept,
 	useAppConnectIds,
@@ -69,6 +70,21 @@ export function DeliverConfig({
 		return { deliverId, taskId };
 	}, [mod, form, appConnectIds, formUuid]);
 
+	// A ref holds each sub-block's last-seen value with its ORIGINAL id;
+	// while the block was toggled off, another form may have claimed that
+	// id. Route restores through the shared dedup path so a now-stale id
+	// can't be re-written as a duplicate.
+	const restoreConfig = useCallback(
+		(config: ConnectConfig): ConnectConfig =>
+			dedupeRestoredConnectIds(config, {
+				formUuid,
+				appConnectIds,
+				moduleName: mod?.name ?? "",
+				formName: form?.name ?? "",
+			}),
+		[formUuid, appConnectIds, mod, form],
+	);
+
 	const updateDeliverUnit = useCallback(
 		(field: string, value: string) => {
 			/* Defensive fallback for the rare case the deliver_unit was
@@ -116,7 +132,7 @@ export function DeliverConfig({
 		} else {
 			const restored = lastDeliverRef.current;
 			if (restored?.name.trim()) {
-				save({ ...connect, deliver_unit: restored });
+				save(restoreConfig({ ...connect, deliver_unit: restored }));
 			} else {
 				const { deliverId } = defaultIds();
 				/* Seed only the user-semantic fields. `entity_id` and
@@ -135,7 +151,7 @@ export function DeliverConfig({
 				});
 			}
 		}
-	}, [deliverEnabled, connect, save, form, defaultIds]);
+	}, [deliverEnabled, connect, save, form, defaultIds, restoreConfig]);
 
 	const toggleTask = useCallback(() => {
 		if (taskEnabled) {
@@ -144,7 +160,7 @@ export function DeliverConfig({
 		} else {
 			const restored = lastTaskRef.current;
 			if (restored && (restored.name.trim() || restored.description.trim())) {
-				save({ ...connect, task: restored });
+				save(restoreConfig({ ...connect, task: restored }));
 			} else {
 				const { taskId } = defaultIds();
 				save({
@@ -157,7 +173,7 @@ export function DeliverConfig({
 				});
 			}
 		}
-	}, [taskEnabled, connect, save, form, defaultIds]);
+	}, [taskEnabled, connect, save, form, defaultIds, restoreConfig]);
 
 	return (
 		<div className="space-y-2">

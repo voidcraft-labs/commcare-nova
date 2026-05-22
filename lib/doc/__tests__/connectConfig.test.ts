@@ -5,8 +5,11 @@ import {
 	type FormSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { connectIdError } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
+import { asUuid } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
@@ -14,7 +17,11 @@ import type {
 	ConnectType,
 	Uuid,
 } from "@/lib/domain";
-import { deriveConnectDefaults } from "../connectConfig";
+import {
+	dedupeRestoredConnectIds,
+	deriveConnectDefaults,
+	type RestoredConnectIdContext,
+} from "../connectConfig";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 //
@@ -331,6 +338,177 @@ describe("deriveConnectDefaults", () => {
 			id: "training_simple_learn",
 			user_score: "100",
 		});
+	});
+});
+
+// ── dedupeRestoredConnectIds ─────────────────────────────────────────
+//
+// The UI restore/seed twin of the agent path's `enforceConnectIds`. A
+// Connect toggle writes a whole config at once (re-enable from a stash,
+// restore a sub-block from its ref, or seed a fresh pair), and this helper
+// forces every id unique at the source before the write. Format/length were
+// valid when stashed (or absent on a fresh seed) and can't drift, so only
+// uniqueness is re-checked: a still-unique id is kept, a colliding one is
+// suffixed from itself, an absent one is autofilled from the entity name.
+
+const FORM_A = asUuid("form-a");
+const FORM_B = asUuid("form-b");
+
+describe("dedupeRestoredConnectIds", () => {
+	// Module/form names feed the absent-id autofill: "Module A" snakes to
+	// "module_a", the pair "Module A Form A" to "module_a_form_a".
+	const ctx = (overrides: {
+		formUuid?: Uuid;
+		appConnectIds?: AppConnectId[];
+	}): RestoredConnectIdContext => ({
+		formUuid: overrides.formUuid ?? FORM_A,
+		appConnectIds: overrides.appConnectIds ?? [],
+		moduleName: "Module A",
+		formName: "Form A",
+	});
+
+	it("suffixes a restored id that now collides with another form's id", () => {
+		// The reachable bug: FORM_B took "intro" while FORM_A's learn_module
+		// was toggled off. Restoring FORM_A must not write the duplicate — it
+		// suffixes from the user's own slug ("intro" → "intro_2") rather than
+		// replacing it wholesale.
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "intro",
+					name: "Intro",
+					description: "x",
+					time_estimate: 5,
+				},
+			},
+			ctx({
+				appConnectIds: [
+					{ formUuid: FORM_B, kind: "learn_module", id: "intro" },
+				],
+			}),
+		);
+		expect(result.learn_module?.id).toBe("intro_2");
+		expect(connectIdError(result.learn_module?.id as string)).toBeNull();
+	});
+
+	it("keeps a restored id that is still unique (no work lost)", () => {
+		// FORM_A's own "intro" must not read as a self-conflict — this form's
+		// ids are excluded from the scope, so the restore keeps it verbatim
+		// along with the block's other fields.
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "intro",
+					name: "Intro",
+					description: "keep me",
+					time_estimate: 7,
+				},
+			},
+			ctx({
+				appConnectIds: [
+					{ formUuid: FORM_A, kind: "learn_module", id: "intro" },
+					{ formUuid: FORM_B, kind: "learn_module", id: "other" },
+				],
+			}),
+		);
+		expect(result.learn_module?.id).toBe("intro");
+		expect(result.learn_module?.description).toBe("keep me");
+		expect(result.learn_module?.time_estimate).toBe(7);
+	});
+
+	it("autofills an absent id from the entity name (the seed path)", () => {
+		// The seed / fresh-enable path passes blocks with no id; the helper
+		// fills them from the entity name exactly as creation-time autofill
+		// does — module name for learn_module, "<module> <form>" for assessment.
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: { name: "L", description: "x", time_estimate: 5 },
+				assessment: { user_score: "100" },
+			},
+			ctx({}),
+		);
+		expect(result.learn_module?.id).toBe("module_a");
+		expect(result.assessment?.id).toBe("module_a_form_a");
+	});
+
+	it("autofills absent deliver_unit / task ids from module and pair names", () => {
+		// Same autofill, the deliver-mode kinds: deliver_unit derives from the
+		// module name, task from "<module> <form>".
+		const result = dedupeRestoredConnectIds(
+			{
+				deliver_unit: { name: "Unit" },
+				task: { name: "Task", description: "x" },
+			},
+			ctx({}),
+		);
+		expect(result.deliver_unit?.id).toBe("module_a");
+		expect(result.task?.id).toBe("module_a_form_a");
+	});
+
+	it("heals a pre-existing cross-form duplicate on an untouched sibling block", () => {
+		// Heal-on-touch: the base scope excludes ALL of this form's ids, so the
+		// write re-checks every block in the config, not just the one being
+		// restored. If a sibling carried an id that duplicated ANOTHER form's,
+		// it's re-derived too — even though only one sub-toggle was nominally
+		// touched. That state shouldn't reach a user (every writer forces ids
+		// unique at the source), but if it ever did, the restore must heal it
+		// rather than propagate the duplicate. Here FORM_A's still-enabled
+		// assessment "other" duplicates FORM_B's learn_module "other".
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "intro",
+					name: "Intro",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "other", user_score: "100" },
+			},
+			ctx({
+				appConnectIds: [
+					{ formUuid: FORM_B, kind: "learn_module", id: "other" },
+				],
+			}),
+		);
+		expect(result.learn_module?.id).toBe("intro"); // unique → kept
+		expect(result.assessment?.id).toBe("other_2"); // healed off FORM_B's "other"
+	});
+
+	it("disambiguates a duplicate shared across two blocks in one config", () => {
+		// Two blocks in the same restored config share an id (shouldn't happen,
+		// but the per-config accumulation must catch it): the first kind in
+		// fixed order (learn_module) keeps it, the second (assessment) suffixes.
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "dup",
+					name: "L",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "dup", user_score: "100" },
+			},
+			ctx({}),
+		);
+		expect(result.learn_module?.id).toBe("dup");
+		expect(result.assessment?.id).toBe("dup_2");
+	});
+
+	it("leaves a fully-unique multi-kind config untouched", () => {
+		const result = dedupeRestoredConnectIds(
+			{
+				learn_module: {
+					id: "lm",
+					name: "L",
+					description: "x",
+					time_estimate: 5,
+				},
+				assessment: { id: "as", user_score: "100" },
+			},
+			ctx({}),
+		);
+		expect(result.learn_module?.id).toBe("lm");
+		expect(result.assessment?.id).toBe("as");
 	});
 });
 

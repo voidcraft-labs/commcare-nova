@@ -60,6 +60,25 @@ import { toSnakeId } from "./identifierValidation";
 export const CONNECT_SLUG_MAX_LENGTH = 50;
 
 /**
+ * SA-facing schema description for every connect `id` field.
+ *
+ * The id is `.optional()` on every connect sub-config across the agent's
+ * tool schemas (`updateForm`, `generateScaffold`). Without telling the SA
+ * *why* it's optional, the model would either set an id on every block (and
+ * risk a fail-the-call on a bad value) or omit it and wonder if the call
+ * will fail. This text closes that gap: omitting is the normal, safe path
+ * (the tool autofills a valid unique id via `deriveConnectId`), and the
+ * exact constraints are stated for the rare case the SA pins a specific id —
+ * which then runs through `connectIdError` + `connectIdConflictError` and
+ * fails the call if it's malformed or duplicate. Shared across both schema
+ * files so the agent-facing contract can't drift between them.
+ */
+export const CONNECT_ID_FIELD_DESCRIPTION =
+	"Optional — leave this unset and Nova fills in a valid, unique id derived from the name (the normal case). " +
+	"Set it only to pin a specific id; it must be a legal XML element name (letters, numbers, and underscores, " +
+	`starting with a letter or underscore), ${CONNECT_SLUG_MAX_LENGTH} characters or fewer, and unique across the app, or the call fails.`;
+
+/**
  * The single definition of what makes a connect id valid.
  *
  * A connect id becomes an XML element name in the emitted form (the wrapper

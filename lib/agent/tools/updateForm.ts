@@ -33,6 +33,7 @@
  */
 
 import { z } from "zod";
+import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
@@ -85,7 +86,7 @@ export const updateFormInputSchema = z
 			.object({
 				learn_module: z
 					.object({
-						id: z.string().optional(),
+						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
 						name: z.string(),
 						description: z.string(),
 						// Match the domain's `connectLearnModuleSchema`:
@@ -105,7 +106,10 @@ export const updateFormInputSchema = z
 						"Set for forms with educational/training content. Omit for quiz-only forms.",
 					),
 				assessment: z
-					.object({ id: z.string().optional(), user_score: z.string() })
+					.object({
+						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+						user_score: z.string(),
+					})
 					.strict()
 					.optional()
 					.describe(
@@ -113,7 +117,7 @@ export const updateFormInputSchema = z
 					),
 				deliver_unit: z
 					.object({
-						id: z.string().optional(),
+						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
 						name: z.string(),
 						entity_id: z
 							.string()
@@ -139,7 +143,7 @@ export const updateFormInputSchema = z
 					),
 				task: z
 					.object({
-						id: z.string().optional(),
+						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
 						name: z.string(),
 						description: z.string(),
 					})

@@ -32,14 +32,20 @@ describe("generateScaffold connect-id validity", () => {
 		const result = await generateScaffoldTool.execute(
 			{
 				app_name: "Training App",
+				description: "Training app for new staff onboarding.",
 				connect_type: "learn",
 				modules: [
 					{
 						name: "Onboarding",
+						case_type: null,
+						case_list_only: false,
+						purpose: "Training onboarding module",
 						forms: [
 							{
 								name: "Intro Lesson",
 								type: "survey",
+								purpose: "Introductory training content",
+								formDesign: "A short read-through lesson with no questions.",
 								// id-less learn_module → autofilled from module name.
 								connect: {
 									learn_module: {
@@ -70,14 +76,20 @@ describe("generateScaffold connect-id validity", () => {
 		const result = await generateScaffoldTool.execute(
 			{
 				app_name: "Training App",
+				description: "Training app for new staff onboarding.",
 				connect_type: "learn",
 				modules: [
 					{
 						name: "Onboarding",
+						case_type: null,
+						case_list_only: false,
+						purpose: "Training onboarding module",
 						forms: [
 							{
 								name: "Intro Lesson",
 								type: "survey",
+								purpose: "Introductory training content",
+								formDesign: "A short read-through lesson with no questions.",
 								connect: {
 									learn_module: {
 										id: "bad id", // illegal element name
