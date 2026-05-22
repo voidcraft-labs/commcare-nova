@@ -114,6 +114,266 @@ describe("repeat modes — XForm emission", () => {
 		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
 	});
 
+	it("count_bound hoists a literal count into a hidden node (issue #14)", () => {
+		// JavaRosa parses `jr:count` through `new XPathReference(countRef)`,
+		// which throws `XPathTypeMismatchException("Expected XPath path, got
+		// XPath expression: [...]")` when the value isn't a location path
+		// (commcare-core XPathReference.java::getPathExpr). A literal `3`
+		// would be rejected, so the emitter materializes a hidden node, seeds
+		// it via setvalue on xforms-ready, and points jr:count at the node —
+		// the canonical shape of group_relevancy_in_repeat.xml.
+		const doc = buildDoc({
+			appName: "Literal count",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "rounds",
+									label: "Rounds",
+									repeat_mode: "count_bound",
+									repeat_count: "3",
+									children: [f({ kind: "text", id: "note", label: "Note" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(doc);
+		// The hidden count node sits at form root, seeded on xforms-ready.
+		expect(xml).toContain("<__nova_count_rounds/>");
+		expect(xml).toContain(
+			'<bind nodeset="/data/__nova_count_rounds" type="xsd:int"/>',
+		);
+		expect(xml).toContain(
+			'<setvalue event="xforms-ready" ref="/data/__nova_count_rounds" value="3"/>',
+		);
+		// jr:count points at the node, not the literal.
+		expect(xml).toContain(
+			'jr:count="/data/__nova_count_rounds" jr:noAddRemove="true()"',
+		);
+		expect(xml).not.toContain('jr:count="3"');
+		// The author's original count is preserved as round-trip metadata.
+		expect(xml).toContain('vellum:count="3"');
+		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+	});
+
+	it("count_bound hoists an expression count into a hidden node (issue #14)", () => {
+		const doc = buildDoc({
+			appName: "Expression count",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({ kind: "int", id: "base", label: "Base" }),
+								f({
+									kind: "repeat",
+									id: "slots",
+									label: "Slots",
+									repeat_mode: "count_bound",
+									// Arithmetic over a form field — a non-path expression
+									// JavaRosa would reject on `jr:count` directly.
+									repeat_count: "#form/base + 2",
+									children: [f({ kind: "text", id: "v", label: "V" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(doc);
+		expect(xml).toContain("<__nova_count_slots/>");
+		// The expanded expression lands on the setvalue, not jr:count.
+		expect(xml).toContain(
+			'<setvalue event="xforms-ready" ref="/data/__nova_count_slots" value="/data/base + 2"/>',
+		);
+		expect(xml).toContain('jr:count="/data/__nova_count_slots"');
+		// Original shorthand preserved verbatim.
+		expect(xml).toContain('vellum:count="#form/base + 2"');
+		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+	});
+
+	it("count_bound nested in a group hoists the count node to FORM ROOT", () => {
+		// The synthetic count node must be a form-root sibling, never nested
+		// inside the group — the `xforms-ready` setvalue fires at form load
+		// and must have a node to write to outside any container scope.
+		const doc = buildDoc({
+			appName: "Nested count",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									id: "outer",
+									label: "Outer",
+									children: [
+										f({
+											kind: "repeat",
+											id: "inner",
+											label: "Inner",
+											repeat_mode: "count_bound",
+											repeat_count: "4",
+											children: [f({ kind: "text", id: "x", label: "X" })],
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(doc);
+		// Node + bind + setvalue all address /data/__nova_count_inner (root),
+		// NOT /data/outer/__nova_count_inner.
+		expect(xml).toContain(
+			'<bind nodeset="/data/__nova_count_inner" type="xsd:int"/>',
+		);
+		expect(xml).toContain(
+			'<setvalue event="xforms-ready" ref="/data/__nova_count_inner" value="4"/>',
+		);
+		expect(xml).toContain('jr:count="/data/__nova_count_inner"');
+		expect(xml).not.toContain("/data/outer/__nova_count_inner");
+		// The hidden node lives at the form-root data section, as a sibling
+		// of the group — confirm it is NOT inside <outer>...</outer>.
+		expect(xml).toMatch(
+			/<__nova_count_inner\/>\s*<outer>|<outer>[\s\S]*?<\/outer>[\s\S]*?<__nova_count_inner\/>|<__nova_count_inner\/>[\s\S]*?<outer>/,
+		);
+		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+	});
+
+	it("two cousin count_bound repeats sharing an id hoist to distinct nodes", () => {
+		// Field ids are unique only among SIBLINGS — cousins may share an id
+		// (validator `duplicateFieldIds` scopes uniqueness to one level). The
+		// hidden count node lives in the flat /data namespace, so naming it by
+		// id alone would collide for two cousin count_bound repeats both named
+		// `items`: duplicate data nodes/binds/setvalues and two repeats whose
+		// `jr:count` point at the same node (one steals the other's
+		// cardinality) — malformed XForm. The emitter must give each hoisted
+		// node a form-wide-unique name.
+		const doc = buildDoc({
+			appName: "Cousin counts",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									id: "outer_a",
+									label: "Outer A",
+									children: [
+										f({
+											kind: "repeat",
+											id: "items",
+											label: "Items A",
+											repeat_mode: "count_bound",
+											repeat_count: "3",
+											children: [f({ kind: "text", id: "a", label: "A" })],
+										}),
+									],
+								}),
+								f({
+									kind: "group",
+									id: "outer_b",
+									label: "Outer B",
+									children: [
+										f({
+											kind: "repeat",
+											id: "items",
+											label: "Items B",
+											repeat_mode: "count_bound",
+											repeat_count: "5",
+											children: [f({ kind: "text", id: "b", label: "B" })],
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(doc);
+		// Two distinct hidden nodes — the first cousin (document order) keeps
+		// the bare name, the second is auto-suffixed.
+		expect(xml).toContain("<__nova_count_items/>");
+		expect(xml).toContain("<__nova_count_items_1/>");
+		// Each carries its own count value and its own bind.
+		expect(xml).toContain(
+			'<setvalue event="xforms-ready" ref="/data/__nova_count_items" value="3"/>',
+		);
+		expect(xml).toContain(
+			'<setvalue event="xforms-ready" ref="/data/__nova_count_items_1" value="5"/>',
+		);
+		expect(xml).toContain(
+			'<bind nodeset="/data/__nova_count_items" type="xsd:int"/>',
+		);
+		expect(xml).toContain(
+			'<bind nodeset="/data/__nova_count_items_1" type="xsd:int"/>',
+		);
+		// Each repeat's jr:count points at its OWN node — no shared target.
+		expect(xml).toContain('jr:count="/data/__nova_count_items"');
+		expect(xml).toContain('jr:count="/data/__nova_count_items_1"');
+		// Well-formed and valid — no duplicate node path.
+		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+	});
+
+	it("count_bound with a path count still emits jr:count directly (regression)", () => {
+		// Path counts (the existing `#form/...` shape) keep today's
+		// behavior: jr:count points straight at the expanded path, no hoist.
+		const doc = buildDoc({
+			appName: "Path count",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({ kind: "int", id: "desired_count", label: "How many?" }),
+								f({
+									kind: "repeat",
+									id: "iterations",
+									label: "Iterations",
+									repeat_mode: "count_bound",
+									repeat_count: "#form/desired_count",
+									children: [f({ kind: "text", id: "value", label: "Value" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(doc);
+		expect(xml).toContain('jr:count="/data/desired_count"');
+		// No hidden node hoisted for a path count.
+		expect(xml).not.toContain("__nova_count_iterations");
+		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+	});
+
 	it("query_bound emits the model-iteration setvalue setup + /item nesting", () => {
 		const doc = buildDoc({
 			appName: "Query-bound repeat",

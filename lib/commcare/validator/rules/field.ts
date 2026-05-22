@@ -12,7 +12,11 @@
  * match CommCare's field-kind taxonomy and stay stable.
  */
 
-import { XML_ELEMENT_NAME_REGEX } from "@/lib/commcare";
+import {
+	isReservedXFormNodeName,
+	RESERVED_XFORM_NODE_PREFIX,
+	XML_ELEMENT_NAME_REGEX,
+} from "@/lib/commcare";
 import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
@@ -282,11 +286,49 @@ function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 	];
 }
 
+/**
+ * The XForm emitter SYNTHESIZES some data nodes under a reserved
+ * `__nova_` prefix — currently the hidden node a hoisted `count_bound`
+ * repeat's `jr:count` points at (the count is a literal/expression JavaRosa
+ * won't accept directly; see `lib/commcare/xform/builder.ts` count_bound arm
+ * + `lib/commcare/xform/countReference.ts`). The synthetic node lives at
+ * `/data/__nova_count_<fieldId>`. If an author created a field whose id
+ * fell under that prefix, the two `<...>` data nodes would collide and the
+ * authored field could silently overwrite a sibling repeat's cardinality
+ * source. `__nova_` is a legal XML element name, so `invalidFieldId` can't
+ * catch this — the reservation is Nova-domain, enforced here. We prefix-
+ * match (not equality) because the synthesized name embeds the field id, so
+ * the whole namespace must be off-limits.
+ */
+function reservedFieldIdPrefix(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (!isReservedXFormNodeName(field.id)) return [];
+	return [
+		validationError(
+			"RESERVED_FIELD_ID_PREFIX",
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes CommCare-Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}" — anything else, like dropping the leading "${RESERVED_XFORM_NODE_PREFIX}", works.`,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+			},
+			{ fieldUuid: field.uuid },
+		),
+	];
+}
+
 const FIELD_RULES = [
 	selectNoOptions,
 	hiddenNoValue,
 	unquotedStringLiteral,
 	invalidFieldId,
+	reservedFieldIdPrefix,
 	validationOnNonInputType,
 	emptyRepeatXPath,
 ];

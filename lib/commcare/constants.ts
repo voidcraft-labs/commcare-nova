@@ -113,6 +113,23 @@ export const CASE_TYPE_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 /** Valid XML element name for XForm property elements (no hyphens — XML spec). */
 export const XML_ELEMENT_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+/**
+ * Reserved prefix for XForm data nodes the emitter SYNTHESIZES rather than
+ * the author declares. Currently the hidden node a hoisted `count_bound`
+ * repeat needs: a literal/expression `jr:count` is illegal on the wire
+ * (JavaRosa requires a node path — see `lib/commcare/xform/countReference.ts`),
+ * so the emitter materializes `__nova_count_<fieldId>` at form root and
+ * points `jr:count` at it.
+ *
+ * `__nova_` is a perfectly legal XML element name, so the XML-name regex
+ * can't keep authors out of it — the constraint is a Nova-domain
+ * reservation, enforced by the field-validation rule that rejects an
+ * authored field id under this prefix. Without that guard, an author field
+ * named `__nova_count_x` could shadow a synthesized node and silently
+ * corrupt a sibling repeat's cardinality.
+ */
+export const RESERVED_XFORM_NODE_PREFIX = "__nova_";
+
 /** Valid XForm data path (e.g. /data/name, /data/group/age). */
 export const XFORM_PATH_REGEX = /^\/data\/[a-zA-Z0-9_/]+$/;
 

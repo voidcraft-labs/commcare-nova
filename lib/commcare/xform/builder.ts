@@ -8,9 +8,13 @@
  * instance declarations required by any XPath or label that references
  * `#case/`, `#user/`, or the commcare session.
  *
- * The emitter operates entirely on strings + primitives read off the doc;
- * it never constructs an intermediate tree. Walkers consume
- * `doc.fieldOrder[parentUuid]` and `doc.fields[fieldUuid]`, using
+ * The emitter assembles the XForm by string concatenation off the doc's
+ * primitives; the body / bind / data walk never builds an intermediate
+ * tree. The one localized exception is itext value construction
+ * (`processLabelText`), which builds a small domhandler node list per label
+ * so the serializer — not hand-rolled escaping — owns entity escaping.
+ * Walkers consume `doc.fieldOrder[parentUuid]` and `doc.fields[fieldUuid]`,
+ * using
  * `doc.fieldOrder[fieldUuid]` being defined as the "this field is a
  * container" marker. The caller supplies the random xmlns and optional
  * Connect config / case-type metadata via `BuildXFormOptions`.
@@ -24,23 +28,23 @@
  */
 
 import render from "dom-serializer";
-import type { Element } from "domhandler";
-import { findAll } from "domutils";
-import { parseDocument } from "htmlparser2";
+import { type AnyNode, Element, Text } from "domhandler";
+import { decodeXML } from "entities";
 import {
 	escapeXml,
 	expandHashtags,
 	extractHashtags,
 	hasHashtags,
+	RESERVED_XFORM_NODE_PREFIX,
 	supportsValidation,
 	VELLUM_HASHTAG_TRANSFORMS,
 } from "@/lib/commcare";
 import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { readFieldString } from "@/lib/commcare/fieldProps";
+import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 
-const PARSE_OPTS = { xmlMode: true } as const;
 const RENDER_OPTS = {
 	xmlMode: true,
 	selfClosingTags: true,
@@ -58,51 +62,76 @@ const RENDER_OPTS = {
 const BARE_HASHTAG_RE = /#(case|form|user)(\/[a-zA-Z_][a-zA-Z0-9_-]*)+/g;
 
 /**
- * Wrap bare hashtag references (e.g. `#case/name`) in `<output value="..."/>`
- * tags, leaving existing `<output>` tags untouched. Split-and-rejoin on
- * the output-tag regex ensures we never double-wrap a hashtag that's
- * already inside an `<output>` attribute.
- */
-function wrapBareHashtags(text: string): string {
-	const parts = text.split(/(<output\b[^>]*\/>)/g);
-	let changed = false;
-	for (let i = 0; i < parts.length; i += 2) {
-		const replaced = parts[i].replace(BARE_HASHTAG_RE, '<output value="$&"/>');
-		if (replaced !== parts[i]) {
-			parts[i] = replaced;
-			changed = true;
-		}
-	}
-	return changed ? parts.join("") : text;
-}
-
-/**
- * Process label / hint text: wrap any bare hashtag references, then
- * expand the hashtags inside every `<output value="...">` attribute
- * while preserving the original shorthand in a parallel `vellum:value`
- * attribute. Returns an XML-escaped, serialized string ready to drop
- * into an itext `<value>` element.
+ * Build the ordered itext-value node list for one label / hint string and
+ * serialize it once, letting `dom-serializer` own ALL escaping.
+ *
+ * A label is natural-language PROSE that may embed Nova hashtag references
+ * (`#case/name`, `#form/x`, `#user/y`). It is NOT markup. The earlier
+ * approach parsed the whole label as XML to find the markup Nova itself had
+ * just stitched in — and that whole-label parse is exactly what read an
+ * author run like `(<2kg` as a bogus tag (leaking an invalid bare `<` that
+ * CommCare HQ hard-rejects) and `<country><number>` as nested elements
+ * (silent itext corruption). Issues #3 and #15.
+ *
+ * Instead we CONSTRUCT a DOM directly and never parse the label as markup:
+ *
+ *   - Prose runs (everything between hashtag matches) become a domhandler
+ *     `Text` node whose data is `decodeXML(run)`. Decoding normalizes any
+ *     pre-escaped entity the author may have typed (the historical `&lt;`
+ *     workaround → `<`) so the serializer re-escapes it exactly once —
+ *     `&lt;`, never the double-escaped `&amp;lt;` that would show a literal
+ *     `&lt;` on device. `dom-serializer` escapes `<` / `>` / `&` in text
+ *     data automatically.
+ *   - Each hashtag match becomes a constructed self-closing `<output>`
+ *     `Element`: `value` holds the expanded instance XPath, and the parallel
+ *     `vellum:value` holds the original shorthand — but only when expansion
+ *     changed the string (a non-expanding ref needs no round-trip shadow).
+ *     This is the ONLY source of `<output>` elements: hashtags in prose are
+ *     an SA-authoring concept Nova lowers to `<output>` here.
+ *
+ * Author-written `<output ...>` markup is deliberately NOT recognized — it
+ * is not a supported authoring input (the SA and field editor emit
+ * hashtags, never raw markup). A label that literally contains `<output>`
+ * text is just prose, so it serializes as escaped literal text like any
+ * other `<`.
+ *
+ * The `BARE_HASHTAG_RE` regex (not the Lezer XPath parser) locates hashtag
+ * spans because labels are prose: markdown syntax like `**` around a `#`
+ * ref parses as XPath operators under the grammar (see
+ * lib/commcare/xpath/CLAUDE.md).
  */
 function processLabelText(text: string): string {
-	const preprocessed = wrapBareHashtags(text);
-	const doc = parseDocument(preprocessed, PARSE_OPTS);
-
-	const outputs = findAll(
-		(node): node is Element => node.type === "tag" && node.name === "output",
-		doc.children,
-	);
-	for (const el of outputs) {
-		if (el.attribs.value) {
-			const original = el.attribs.value;
-			const expanded = expandHashtags(original);
-			if (original !== expanded) {
-				el.attribs["vellum:value"] = original;
-			}
-			el.attribs.value = expanded;
+	const nodes: AnyNode[] = [];
+	// `BARE_HASHTAG_RE` is a module-level /g regex; reset `lastIndex` so a
+	// prior call's state never leaks into this walk.
+	BARE_HASHTAG_RE.lastIndex = 0;
+	let cursor = 0;
+	let match: RegExpExecArray | null = BARE_HASHTAG_RE.exec(text);
+	while (match !== null) {
+		// Prose before this hashtag → a Text node (decoded so the
+		// serializer escapes exactly once).
+		if (match.index > cursor) {
+			nodes.push(new Text(decodeXML(text.slice(cursor, match.index))));
 		}
+		// The hashtag → a constructed <output> element. `value` is the
+		// expanded XPath; `vellum:value` shadows the original shorthand
+		// only when expansion actually changed it (Vellum round-trip).
+		const original = match[0];
+		const expanded = expandHashtags(original);
+		const attribs: Record<string, string> = { value: expanded };
+		if (original !== expanded) attribs["vellum:value"] = original;
+		nodes.push(new Element("output", attribs));
+		cursor = match.index + original.length;
+		match = BARE_HASHTAG_RE.exec(text);
 	}
-
-	return render(doc, RENDER_OPTS);
+	// Trailing prose after the last hashtag (or the whole string when there
+	// were no hashtags at all).
+	if (cursor < text.length) {
+		nodes.push(new Text(decodeXML(text.slice(cursor))));
+	}
+	// `dom-serializer` escapes text-node data and attribute values; no byte
+	// is ever hand-escaped on this path.
+	return render(nodes, RENDER_OPTS);
 }
 
 // ── Secondary-instance tracker ───────────────────────────────────────
@@ -316,6 +345,13 @@ export function buildXForm(
 			false,
 			addItext,
 			instances,
+			// At the top level the form-root arrays ARE the "top" arrays.
+			// Inside containers these stay pointed at the root arrays (passed
+			// through unchanged) so a hoisted count node always lands at
+			// /data, never inside a group/repeat scope. See `dataElements`
+			// vs `topDataElements` in `buildFieldParts`.
+			dataElements,
+			binds,
 		);
 	}
 
@@ -391,6 +427,14 @@ function readOptions(
  * Group / repeat containers recurse through `doc.fieldOrder[fieldUuid]`
  * to emit nested parts, rewriting their parent data element + bind to
  * the container shape once their children are built.
+ *
+ * `topDataElements` / `topBinds` always reference the FORM-ROOT data and
+ * bind arrays, threaded through every recursion unchanged. They are the
+ * landing site for synthetic nodes that must live at `/data` regardless of
+ * how deeply the emitting field is nested — currently the hidden count node
+ * a hoisted `count_bound` repeat needs (its `xforms-ready` setvalue fires at
+ * form load, before any container template exists). The `setvalues` array is
+ * already form-root-scoped for the same reason, so it needs no parallel.
  */
 function buildFieldParts(
 	doc: BlueprintDoc,
@@ -403,6 +447,8 @@ function buildFieldParts(
 	insideRepeat: boolean,
 	addItext: (id: string, text: string | undefined) => void,
 	instances: InstanceTracker,
+	topDataElements: string[],
+	topBinds: string[],
 ): void {
 	const field = doc.fields[fieldUuid];
 	const nodePath = `${parentPath}/${field.id}`;
@@ -426,8 +472,13 @@ function buildFieldParts(
 		if (text) instances.scanLabel(text);
 	}
 
-	// One `<instance>` data node per field. Replaced for containers once
-	// children have been emitted below.
+	// One `<instance>` data node per field. Replaced IN PLACE for containers
+	// once children have been emitted below. We record the slot index now
+	// rather than `pop()`-ing after recursion, because a descendant repeat
+	// can append a hoisted synthetic count node to this same array (the
+	// `topDataElements` thread aliases `dataElements` at form root) — a blind
+	// `pop()` would remove that synthetic node instead of this placeholder.
+	const dataSlot = dataElements.length;
 	dataElements.push(`<${field.id}/>`);
 
 	// Bind: real attributes get expanded XPath; `vellum:*` attrs preserve
@@ -509,6 +560,11 @@ function buildFieldParts(
 			`vellum:hashtagTransforms="${escapeXml(JSON.stringify(VELLUM_HASHTAG_TRANSFORMS))}"`,
 		);
 	}
+	// Record this leaf bind's slot so a container can rewrite it IN PLACE
+	// after recursion — same reasoning as `dataSlot`: a descendant repeat
+	// may append a hoisted count node's bind to this same array, so a blind
+	// `pop()` would remove the wrong entry.
+	const bindSlot = binds.length;
 	binds.push(`<bind ${bindParts.join(" ")}/>`);
 
 	// itext. Hidden kinds have no body element, so no label to reference.
@@ -525,11 +581,24 @@ function buildFieldParts(
 	}
 
 	// Options (select kinds).
+	//
+	// itext ids are keyed by the option's stable array INDEX, not its
+	// `value` — `${field.id}-opt${index}-label`. Two options may legally
+	// share a `value` (the domain's `selectOptionSchema` is `{ value, label }`
+	// with no uniqueness constraint), but a value-keyed itext id would then
+	// collapse both onto one id. CommCare's XForm parser hard-rejects a
+	// duplicate itext id (`commcare-core/.../xform/parse/XFormParser.java::
+	// verifyTextMappings`, reached from `parseItem`'s label-ref check),
+	// while it accepts two `<item>`s sharing a `<value>` with no objection
+	// (`XFormParser.java::parseItem` adds each `SelectChoice` with no
+	// value-uniqueness check). So the collision lived purely in the itext
+	// layer; an index key makes the id unique by construction. The `<item>`
+	// emission below uses the identical scheme so no `<label ref>` dangles.
 	const options = readOptions(field);
 	if (options && options.length > 0) {
-		for (const opt of options) {
-			addItext(`${field.id}-${opt.value}-label`, opt.label);
-		}
+		options.forEach((opt, index) => {
+			addItext(`${field.id}-opt${index}-label`, opt.label);
+		});
 	}
 
 	// Body element (varies by kind).
@@ -570,6 +639,11 @@ function buildFieldParts(
 				childInsideRepeat,
 				addItext,
 				instances,
+				// Pass the form-root arrays through unchanged — synthetic
+				// nodes always land at /data, never in this container's
+				// childData/childBinds scope.
+				topDataElements,
+				topBinds,
 			);
 		}
 
@@ -592,30 +666,29 @@ function buildFieldParts(
 		//     pattern collapses (every iteration reads position 0).
 		//   - `vellum:role="Repeat"` is the round-trip metadata Vellum
 		//     uses to recognize a model-iteration container on import.
-		dataElements.pop();
-		if (isQueryBoundRepeat) {
-			dataElements.push(
-				`<${field.id} ids="" count="" current_index="" vellum:role="Repeat"><item id="" index="" jr:template="">${childData.join("")}</item></${field.id}>`,
-			);
-		} else {
-			const templateAttr = field.kind === "repeat" ? ' jr:template=""' : "";
-			dataElements.push(
-				`<${field.id}${templateAttr}>${childData.join("")}</${field.id}>`,
-			);
-		}
+		// Replace the placeholder at its recorded slot (NOT `pop()` — a
+		// descendant repeat may have appended a hoisted count node after it).
+		const containerData = isQueryBoundRepeat
+			? `<${field.id} ids="" count="" current_index="" vellum:role="Repeat"><item id="" index="" jr:template="">${childData.join("")}</item></${field.id}>`
+			: `<${field.id}${field.kind === "repeat" ? ' jr:template=""' : ""}>${childData.join("")}</${field.id}>`;
+		dataElements[dataSlot] = containerData;
 
-		// Rewrite the leaf bind as a relevant-only container bind when
-		// `relevant` is set; otherwise drop it (containers don't carry
-		// validation / calculate / required on their own node).
-		binds.pop();
+		// Rewrite the leaf bind at its recorded slot. Containers don't carry
+		// validation / calculate / required on their own node, so the leaf
+		// bind becomes either a relevant-only container bind (when `relevant`
+		// is set) or is dropped entirely. Child binds always append at the
+		// end (order is irrelevant to JavaRosa).
 		if (relevant) {
 			const expandedGroupRelevant = expandHashtags(relevant);
 			const vellumRelevantAttr = hasHashtags(relevant)
 				? ` vellum:relevant="${escapeXml(relevant)}"`
 				: "";
-			binds.push(
-				`<bind vellum:nodeset="${vellumPath}" nodeset="${nodePath}"${vellumRelevantAttr} relevant="${escapeXml(expandedGroupRelevant)}"/>`,
-			);
+			binds[bindSlot] =
+				`<bind vellum:nodeset="${vellumPath}" nodeset="${nodePath}"${vellumRelevantAttr} relevant="${escapeXml(expandedGroupRelevant)}"/>`;
+		} else {
+			// Drop the leaf bind in place. `splice` (not `pop`) so any
+			// synthetic bind a descendant appended after this slot is kept.
+			binds.splice(bindSlot, 1);
 		}
 		binds.push(...childBinds);
 
@@ -667,12 +740,88 @@ function buildFieldParts(
 			let repeatExtraAttrs = "";
 			if (field.repeat_mode === "count_bound") {
 				const expandedCount = expandHashtags(field.repeat_count);
-				const vellumCountAttr = hasHashtags(field.repeat_count)
-					? ` vellum:count="${escapeXml(field.repeat_count)}"`
-					: "";
-				repeatExtraAttrs = `${vellumCountAttr} jr:count="${escapeXml(expandedCount)}" jr:noAddRemove="true()"`;
 				// Hashtags inside repeat_count may reference casedb/session.
 				instances.scanXPath(field.repeat_count);
+
+				// JavaRosa parses the `jr:count` attribute through
+				// `new XPathReference(countRef)`, which throws
+				// `XPathTypeMismatchException("Expected XPath path, got XPath
+				// expression: [...]")` for anything that isn't a location
+				// path (commcare-core
+				// org/javarosa/model/xform/XPathReference.java::getPathExpr,
+				// reached from XFormParser.java's `jr:count` handling). So
+				// `jr:count` must point at a node — never a literal,
+				// arithmetic, or function call.
+				//
+				// When the author's count already IS a path
+				// (`#form/desired_count` → `/data/desired_count`), point
+				// `jr:count` straight at it (the test_trigger_caching.xml
+				// shape). Otherwise hoist the value into a hidden form-root
+				// node seeded by `<setvalue event="xforms-ready">` and point
+				// `jr:count` at it — the group_relevancy_in_repeat.xml shape.
+				if (isCountReferencePath(expandedCount)) {
+					// Path → emit directly. `vellum:count` mirrors the prior
+					// behavior: stamped only when the author wrote a hashtag
+					// shorthand worth round-tripping back into the editor.
+					const vellumCountAttr = hasHashtags(field.repeat_count)
+						? ` vellum:count="${escapeXml(field.repeat_count)}"`
+						: "";
+					repeatExtraAttrs = `${vellumCountAttr} jr:count="${escapeXml(expandedCount)}" jr:noAddRemove="true()"`;
+				} else {
+					// Non-path → hoist. The hidden node lives at `/data`
+					// (form root, via the `top*` arrays) so its
+					// `xforms-ready` setvalue has a target at form load, even
+					// when this repeat is nested inside a group or another
+					// repeat.
+					//
+					// The node lives in the flat `/data` namespace, so its
+					// name must be unique across the WHOLE form — but `field.id`
+					// is unique only among SIBLINGS (cousins may share an id;
+					// the validator's `duplicateFieldIds` scopes uniqueness to
+					// one level). Two cousin count_bound repeats both named
+					// `items` would otherwise hoist to the same
+					// `/data/__nova_count_items` and collide: duplicate data
+					// node + bind + setvalue, and two repeats whose `jr:count`
+					// point at the same node, so one silently steals the
+					// other's cardinality. Keep the readable bare name when it
+					// is free and auto-suffix `_N` on collision — the same
+					// disambiguation shape Nova uses for sibling-id clashes. The
+					// loop probes live membership of `topDataElements`, so it
+					// disambiguates against ANY node already there and can never
+					// emit a duplicate. In practice the only `__nova_count_*`
+					// nodes present are our own prior hoists — the reserved
+					// `__nova_` prefix keeps the namespace off-limits to authored
+					// ids (validator `reservedFieldIdPrefix`) — but correctness
+					// does not lean on that: the probe stands on its own.
+					const countNodeBase = `${RESERVED_XFORM_NODE_PREFIX}count_${field.id}`;
+					let countNodeName = countNodeBase;
+					for (
+						let n = 1;
+						topDataElements.includes(`<${countNodeName}/>`);
+						n++
+					) {
+						countNodeName = `${countNodeBase}_${n}`;
+					}
+					const countNodePath = `/data/${countNodeName}`;
+					topDataElements.push(`<${countNodeName}/>`);
+					// `xsd:int` matches the count's domain (a cardinality)
+					// and the canonical fixture's `<bind ... type="xsd:int"/>`.
+					topBinds.push(`<bind nodeset="${countNodePath}" type="xsd:int"/>`);
+					// Frozen-at-form-load is count_bound's documented
+					// contract (JavaRosa evaluates `jr:count` once and never
+					// recalculates), so the seed always fires on
+					// `xforms-ready` — there is no per-iteration re-seed
+					// semantic to coerce for, even when nested.
+					setvalues.push(
+						`<setvalue event="xforms-ready" ref="${countNodePath}" value="${escapeXml(expandedCount)}"/>`,
+					);
+					// The author's original count (literal or expression) is
+					// the only place the un-hoisted intent survives, so
+					// preserve it unconditionally as `vellum:count`
+					// round-trip metadata. Vellum reads `vellum:*` attrs
+					// opportunistically and tolerates a non-path value here.
+					repeatExtraAttrs = ` vellum:count="${escapeXml(field.repeat_count)}" jr:count="${countNodePath}" jr:noAddRemove="true()"`;
+				}
 			} else if (field.repeat_mode === "query_bound") {
 				repeatNodeset = `${nodePath}/item`;
 				repeatExtraAttrs = ` jr:count="${nodePath}/@count" jr:noAddRemove="true()"`;
@@ -754,10 +903,14 @@ function buildFieldParts(
 
 	if (field.kind === "single_select" || field.kind === "multi_select") {
 		const tag = field.kind === "single_select" ? "select1" : "select";
+		// Each `<item>`'s `<label ref>` references the same per-INDEX itext id
+		// registered above (`-opt${index}-label`), so duplicate option values
+		// never collide. The `<value>` still emits `opt.value` verbatim
+		// (escaped) — JavaRosa permits duplicate `<value>`s across items.
 		const items = (options ?? [])
 			.map(
-				(opt) =>
-					`  <item><label ref="jr:itext('${field.id}-${opt.value}-label')"/><value>${escapeXml(opt.value)}</value></item>`,
+				(opt, index) =>
+					`  <item><label ref="jr:itext('${field.id}-opt${index}-label')"/><value>${escapeXml(opt.value)}</value></item>`,
 			)
 			.join("\n    ");
 		let el = `<${tag} ref="${nodePath}">\n      <label ref="jr:itext('${field.id}-label')"/>`;

@@ -432,6 +432,28 @@ describe("field rules", () => {
 		expect(errors.some((e) => e.code === "INVALID_FIELD_ID")).toBe(false);
 	});
 
+	// `__nova_` is reserved for nodes the XForm emitter synthesizes (the
+	// hidden node a hoisted count_bound repeat's `jr:count` points at). An
+	// authored field under that prefix could shadow a synthesized node and
+	// corrupt a sibling repeat's cardinality, so the validator rejects it.
+	it("rejects a field ID under the reserved __nova_ prefix", () => {
+		const errors = runValidation(
+			surveyDoc([f({ kind: "text", id: "__nova_count_x", label: "Q" })]),
+		);
+		expect(errors.some((e) => e.code === "RESERVED_FIELD_ID_PREFIX")).toBe(
+			true,
+		);
+	});
+
+	it("allows a single leading underscore (not the reserved prefix)", () => {
+		const errors = runValidation(
+			surveyDoc([f({ kind: "text", id: "_my_field", label: "Q" })]),
+		);
+		expect(errors.some((e) => e.code === "RESERVED_FIELD_ID_PREFIX")).toBe(
+			false,
+		);
+	});
+
 	// Validation (constraint + message) is a user-facing concept: the user
 	// enters a value, the constraint fails, the message explains why.
 	// Hidden/computed/structural fields have no such interaction — so
