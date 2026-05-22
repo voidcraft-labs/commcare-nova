@@ -338,6 +338,10 @@ export function buildXForm(
 			doc,
 			fieldUuid,
 			"/data",
+			// Top-level fields get an empty itext-key prefix, so their key is
+			// just `field.id` — the common flat-form case is byte-identical to
+			// before this scheme existed.
+			"",
 			dataElements,
 			binds,
 			setvalues,
@@ -435,11 +439,28 @@ function readOptions(
  * a hoisted `count_bound` repeat needs (its `xforms-ready` setvalue fires at
  * form load, before any container template exists). The `setvalues` array is
  * already form-root-scoped for the same reason, so it needs no parallel.
+ *
+ * `itextKeyPrefix` is the ancestry prefix every itext id this field emits is
+ * built from: `itextKey = itextKeyPrefix + field.id`, and children recurse
+ * with `itextKey + "-"`. itext ids share a single flat namespace per form
+ * (`<text id="...">`), and JavaRosa hard-rejects a duplicate id at parse
+ * (`commcare-core .../xform/parse/XFormParser.java::parseTextHandle`). But a
+ * `field.id` is unique only among SIBLINGS — cousins in different containers
+ * may legally share one (the validator's `duplicateFieldIds` scopes
+ * uniqueness to one level). Keying itext by `field.id` alone therefore
+ * collides for two cousins sharing an id, producing an invalid form from a
+ * valid authoring state. Threading the key forward from the field-id ancestry
+ * (NOT recovered from the assembled node path — synthetic path segments like
+ * the query_bound `/item` level must not leak into the key) makes every id
+ * form-unique: cousins differ because their prefixes differ, siblings can't
+ * collide because their ids are unique. itext ids are regenerated every emit
+ * and never persisted, so the scheme carries no migration concern.
  */
 function buildFieldParts(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
 	parentPath: string,
+	itextKeyPrefix: string,
 	dataElements: string[],
 	binds: string[],
 	setvalues: string[],
@@ -452,6 +473,10 @@ function buildFieldParts(
 ): void {
 	const field = doc.fields[fieldUuid];
 	const nodePath = `${parentPath}/${field.id}`;
+	// Form-unique itext key, built forward from the field-id ancestry (see the
+	// `itextKeyPrefix` paragraph above). Every `<text id>` definition and every
+	// `jr:itext('...')` reference this field emits derives from this one value.
+	const itextKey = itextKeyPrefix + field.id;
 
 	const relevant = readFieldString(field, "relevant");
 	const validate = readFieldString(field, "validate");
@@ -511,7 +536,7 @@ function buildFieldParts(
 	// `jr:itext(...)`, so inline text would vanish on upload. The matching
 	// `<text>` entry is registered below when `canValidate` holds.
 	if (canValidate && validateMsg) {
-		bindParts.push(`jr:constraintMsg="jr:itext('${field.id}-constraintMsg')"`);
+		bindParts.push(`jr:constraintMsg="jr:itext('${itextKey}-constraintMsg')"`);
 	}
 
 	if (relevant) {
@@ -569,21 +594,21 @@ function buildFieldParts(
 
 	// itext. Hidden kinds have no body element, so no label to reference.
 	if (field.kind !== "hidden" && label) {
-		addItext(`${field.id}-label`, label);
-		addItext(`${field.id}-hint`, hint);
+		addItext(`${itextKey}-label`, label);
+		addItext(`${itextKey}-hint`, hint);
 	}
 
 	// Validate message itext — paired with the `jr:constraintMsg`
 	// attribute above; never emit the entry without the reference, or
 	// vice versa.
 	if (canValidate) {
-		addItext(`${field.id}-constraintMsg`, validateMsg);
+		addItext(`${itextKey}-constraintMsg`, validateMsg);
 	}
 
 	// Options (select kinds).
 	//
 	// itext ids are keyed by the option's stable array INDEX, not its
-	// `value` — `${field.id}-opt${index}-label`. Two options may legally
+	// `value` — `${itextKey}-opt${index}-label`. Two options may legally
 	// share a `value` (the domain's `selectOptionSchema` is `{ value, label }`
 	// with no uniqueness constraint), but a value-keyed itext id would then
 	// collapse both onto one id. CommCare's XForm parser hard-rejects a
@@ -597,7 +622,7 @@ function buildFieldParts(
 	const options = readOptions(field);
 	if (options && options.length > 0) {
 		options.forEach((opt, index) => {
-			addItext(`${field.id}-opt${index}-label`, opt.label);
+			addItext(`${itextKey}-opt${index}-label`, opt.label);
 		});
 	}
 
@@ -632,6 +657,10 @@ function buildFieldParts(
 				doc,
 				childUuid,
 				childParentPath,
+				// Children's itext keys hang off this field's key — the ancestry
+				// prefix grows by one segment per nesting level, keeping cousins
+				// in distinct subtrees from ever colliding.
+				`${itextKey}-`,
 				childData,
 				childBinds,
 				setvalues,
@@ -707,7 +736,7 @@ function buildFieldParts(
 		// the runtime renders nothing for an unlabeled group/repeat
 		// header.
 		const labelLine = label
-			? `\n      <label ref="jr:itext('${field.id}-label')"/>`
+			? `\n      <label ref="jr:itext('${itextKey}-label')"/>`
 			: "";
 		if (field.kind === "repeat") {
 			// Per-mode wire shape. The body's `<repeat>` and any top-level
@@ -910,27 +939,27 @@ function buildFieldParts(
 		const items = (options ?? [])
 			.map(
 				(opt, index) =>
-					`  <item><label ref="jr:itext('${field.id}-opt${index}-label')"/><value>${escapeXml(opt.value)}</value></item>`,
+					`  <item><label ref="jr:itext('${itextKey}-opt${index}-label')"/><value>${escapeXml(opt.value)}</value></item>`,
 			)
 			.join("\n    ");
-		let el = `<${tag} ref="${nodePath}">\n      <label ref="jr:itext('${field.id}-label')"/>`;
-		if (hint) el += `\n      <hint ref="jr:itext('${field.id}-hint')"/>`;
+		let el = `<${tag} ref="${nodePath}">\n      <label ref="jr:itext('${itextKey}-label')"/>`;
+		if (hint) el += `\n      <hint ref="jr:itext('${itextKey}-hint')"/>`;
 		el += `\n    ${items}\n    </${tag}>`;
 		bodyElements.push(el);
 		return;
 	}
 
 	if (field.kind === "label") {
-		let el = `<trigger ref="${nodePath}" appearance="minimal">\n      <label ref="jr:itext('${field.id}-label')"/>`;
-		if (hint) el += `\n      <hint ref="jr:itext('${field.id}-hint')"/>`;
+		let el = `<trigger ref="${nodePath}" appearance="minimal">\n      <label ref="jr:itext('${itextKey}-label')"/>`;
+		if (hint) el += `\n      <hint ref="jr:itext('${itextKey}-hint')"/>`;
 		el += `\n    </trigger>`;
 		bodyElements.push(el);
 		return;
 	}
 
 	if (field.kind === "secret") {
-		let el = `<secret ref="${nodePath}">\n      <label ref="jr:itext('${field.id}-label')"/>`;
-		if (hint) el += `\n      <hint ref="jr:itext('${field.id}-hint')"/>`;
+		let el = `<secret ref="${nodePath}">\n      <label ref="jr:itext('${itextKey}-label')"/>`;
+		if (hint) el += `\n      <hint ref="jr:itext('${itextKey}-hint')"/>`;
 		el += `\n    </secret>`;
 		bodyElements.push(el);
 		return;
@@ -950,8 +979,8 @@ function buildFieldParts(
 					: "image/*";
 		const appearance =
 			field.kind === "signature" ? ' appearance="signature"' : "";
-		let el = `<upload ref="${nodePath}" mediatype="${mediatype}"${appearance}>\n      <label ref="jr:itext('${field.id}-label')"/>`;
-		if (hint) el += `\n      <hint ref="jr:itext('${field.id}-hint')"/>`;
+		let el = `<upload ref="${nodePath}" mediatype="${mediatype}"${appearance}>\n      <label ref="jr:itext('${itextKey}-label')"/>`;
+		if (hint) el += `\n      <hint ref="jr:itext('${itextKey}-hint')"/>`;
 		el += `\n    </upload>`;
 		bodyElements.push(el);
 		return;
@@ -960,8 +989,8 @@ function buildFieldParts(
 	// Remaining input kinds: text, int, decimal, date, time, datetime,
 	// geopoint, barcode. They all render as `<input>` with the XSD type
 	// on the bind.
-	let el = `<input ref="${nodePath}">\n      <label ref="jr:itext('${field.id}-label')"/>`;
-	if (hint) el += `\n      <hint ref="jr:itext('${field.id}-hint')"/>`;
+	let el = `<input ref="${nodePath}">\n      <label ref="jr:itext('${itextKey}-label')"/>`;
+	if (hint) el += `\n      <hint ref="jr:itext('${itextKey}-hint')"/>`;
 	el += `\n    </input>`;
 	bodyElements.push(el);
 }

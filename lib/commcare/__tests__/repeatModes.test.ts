@@ -335,7 +335,19 @@ describe("repeat modes — XForm emission", () => {
 		// Each repeat's jr:count points at its OWN node — no shared target.
 		expect(xml).toContain('jr:count="/data/__nova_count_items"');
 		expect(xml).toContain('jr:count="/data/__nova_count_items_1"');
-		// Well-formed and valid — no duplicate node path.
+		// The cousins' itext LABEL ids are also disambiguated — by ancestry
+		// prefix, not the count-node auto-suffix. Each repeat's label-itext id
+		// carries its parent group's id, so the two `items` cousins land on
+		// distinct `<text>` ids instead of both emitting `items-label` (which
+		// JavaRosa rejects as a duplicate itext id at parse). This pins the
+		// fix: the ancestry-threaded key, not just the absence of the error.
+		expect(xml).toContain('<text id="outer_a-items-label">');
+		expect(xml).toContain('<text id="outer_b-items-label">');
+		expect(xml).toContain("jr:itext('outer_a-items-label')");
+		expect(xml).toContain("jr:itext('outer_b-items-label')");
+		// Neither cousin emits the bare, colliding `items-label` id anymore.
+		expect(xml).not.toContain('<text id="items-label">');
+		// Well-formed and valid — no duplicate node path, no duplicate itext id.
 		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
 	});
 

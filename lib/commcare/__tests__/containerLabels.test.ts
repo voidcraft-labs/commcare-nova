@@ -82,9 +82,13 @@ describe("empty-label containers — XForm emission", () => {
 			/<group ref="\/data\/structural_only" appearance="field-list">/,
 		);
 		// Sanity: the child's input + label still render. Confirms we
-		// stripped only the container's chrome, not the whole subtree.
+		// stripped only the container's chrome, not the whole subtree. The
+		// child's itext id carries its parent group's id as an ancestry prefix
+		// (`structural_only-answer-label`) — nested-field itext ids are keyed by
+		// full field-id ancestry so cousins sharing an id can't collide; the
+		// data path (`/data/structural_only/answer`) is unaffected.
 		expect(xml).toContain('<input ref="/data/structural_only/answer">');
-		expect(xml).toContain("jr:itext('answer-label')");
+		expect(xml).toContain("jr:itext('structural_only-answer-label')");
 		// And the XForm passes Nova's own structural validator (which is
 		// what `XFORM_MISSING_ITEXT` would have surfaced under).
 		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
