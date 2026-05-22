@@ -1,27 +1,39 @@
-// @vitest-environment happy-dom
-//
 // components/builder/shared/__tests__/preservedOperandSwap.test.tsx
 //
-// Operand-preserving kind-replace tests. The outer "Change" menu
-// in `ChildPredicateEditor` flips a card's kind via two
-// strategies:
+// Unit tests for `preservedOperandSwap` — the pure kind-replace
+// transformation in `ChildPredicateEditor`. Given a current
+// Predicate and a target kind, the function returns either:
 //
 //   1. **Operand-preserving swap** — when the source and target
 //      kinds share an identical operand shape (one of the four
-//      structural-twin pairs), the AST's operands carry over
-//      verbatim. The same result the in-card `KindMenu` produces
-//      for `exists` ↔ `missing`.
-//   2. **Default-value reset** — for non-twin transitions
-//      (`eq` → `between`, etc.), the target schema's
-//      `defaultValue(...)` factory builds a fresh predicate.
+//      structural-twin pairs: `and ↔ or`, `is-null ↔ is-blank`,
+//      comparison ↔ comparison, `exists ↔ missing`), it rebuilds
+//      the predicate under the target kind with the operands
+//      carried over verbatim.
+//   2. **`null`** — for every non-twin transition (`eq → between`,
+//      etc.). The caller (`KindReplaceMenu.replaceWith`) then falls
+//      through to the target schema's `defaultValue(ctx)` factory,
+//      so a non-twin swap always rebuilds from scratch with no
+//      operand carry-over.
 //
-// These tests interact with the real "Change" menu in the
-// rendered UI: open the menu, click the target kind, capture the
-// resulting onChange call, and assert the AST shape. Compares
-// against AST shape, not rendered output.
+// Why test the function directly instead of driving the rendered
+// "Change" menu: the contract is the emitted AST shape, not the
+// menu chrome. The menu is just one of two interchangeable callers
+// of this transformation — `ExistsCard`'s in-card `KindMenu`
+// produces the identical result for `exists ↔ missing`. Asserting
+// on the pure transformation pins the contract both callers share
+// without mounting a Base UI floating tree (which schedules
+// microtask / rAF work that leaks under `--detect-async-leaks`).
+//
+// For the non-twin reset cases we replicate the component's real
+// fall-through — `preservedOperandSwap(...) ?? schema.defaultValue(
+// editCtx)` — by asserting `null` from the swap AND calling the same
+// `predicateCardSchemas[target].defaultValue` factory the menu calls,
+// with the `PredicateEditContext` the menu builds. This proves both
+// halves of the contract: no twin carry-over, and the fresh shape
+// the user actually sees after the reset.
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -34,7 +46,11 @@ import {
 	relationStep,
 	term,
 } from "@/lib/domain/predicate";
-import { PredicateCardEditor } from "../PredicateCardEditor";
+import { preservedOperandSwap } from "../cards/ChildPredicateEditor";
+import {
+	type PredicateEditContext,
+	predicateCardSchemas,
+} from "../editorSchemas";
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
@@ -48,65 +64,30 @@ const PATIENT: CaseType = {
 		{ name: "name", label: "Name", data_type: "text" },
 	],
 };
-const CASE_TYPES = [HOUSEHOLD, PATIENT];
+const CASE_TYPES: readonly CaseType[] = [HOUSEHOLD, PATIENT];
 
-/** Escape regex metacharacters so the caller can pass plain
- *  registry-description strings without thinking about regex syntax. */
-function escapeRegex(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Open the outer "Change" menu and click the option whose
- *  description matches `targetDescription`. Targets the registry
- *  entry's `description` field (the second line in each menu
- *  item's body) rather than the `label` because labels share
- *  prefixes — `Less than` is a prefix of `Less than or equal`,
- *  `Any of` is a prefix of `Any of (OR)` chiclets in the addClause
- *  menu, etc. Descriptions are unique per registry entry by
- *  construction.
- *
- *  Returns the next AST emitted via `onChange`. */
-function openChangeMenuAndPick(
-	onChange: ReturnType<typeof vi.fn>,
-	targetDescription: string,
-): unknown {
-	// Each card carries one Change trigger ("Change") and possibly
-	// one inner kind menu (e.g. ExistsCard's "Has"/"No"). Pick the
-	// first; ChildPredicateEditor mounts the outer menu first.
-	const changeTriggers = screen.getAllByRole("button", {
-		name: /change card type/i,
-	});
-	fireEvent.click(changeTriggers[0]);
-	// The menu item's accessible name is the concatenation of its
-	// label and description (CardShell renders both as inline text
-	// nodes inside the Menu.Item). Matching on the description
-	// substring picks the right item even when labels collide on
-	// shared prefixes.
-	const pattern = new RegExp(escapeRegex(targetDescription), "i");
-	const targetItem = screen.getByRole("menuitem", { name: pattern });
-	fireEvent.click(targetItem);
-	expect(onChange).toHaveBeenCalledTimes(1);
-	return onChange.mock.calls[0][0];
-}
+// The exact `PredicateEditContext` `KindReplaceMenu` assembles from
+// the surrounding `PredicateEditProvider`: case-type schema, the
+// current scope, and the available search inputs (`knownInputs`,
+// defaulted to `[]` by `PredicateCardEditor` when none are passed). We
+// replicate the whole shape so the direct calls match what the menu
+// passes its reset factories — `betweenDefault` and friends require a
+// full `PredicateEditContext` even though they happen not to read
+// `knownInputs`.
+const EDIT_CTX: PredicateEditContext = {
+	caseTypes: CASE_TYPES,
+	currentCaseType: "patient",
+	knownInputs: [],
+};
 
 describe("preservedOperandSwap — comparison ↔ comparison", () => {
 	it("eq → lt preserves left and right operands verbatim", () => {
 		const left = term(prop("patient", "age"));
 		const right = term(literal(18));
-		const value = eq(left, right);
-		const onChange = vi.fn();
-		render(
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-		const next = openChangeMenuAndPick(
-			onChange,
-			"Property is less than a value",
-		);
+		// Comparison twins share `{ left, right }` — switching the
+		// discriminator routes through the target's comparison builder
+		// and carries both operands across untouched.
+		const next = preservedOperandSwap(eq(left, right), "lt");
 		expect(next).toEqual({ kind: "lt", left, right });
 	});
 });
@@ -115,44 +96,23 @@ describe("preservedOperandSwap — exists ↔ missing", () => {
 	it("exists(via, where) → missing preserves both via and where", () => {
 		const via = ancestorPath(relationStep("parent"));
 		const where = eq(prop("household", "region"), literal("north"));
-		const value = exists(via, where);
-		const onChange = vi.fn();
-		render(
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-		const next = openChangeMenuAndPick(
-			onChange,
-			"No related case satisfies a condition",
-		);
+		// Relational-quantifier twins share `{ via, where? }` — both
+		// operands carry over verbatim to the target kind.
+		const next = preservedOperandSwap(exists(via, where), "missing");
 		expect(next).toEqual({ kind: "missing", via, where });
 	});
 
 	it("exists(via) without where → missing preserves via and omits the where key", () => {
 		const via = ancestorPath(relationStep("parent"));
-		const value = exists(via);
-		const onChange = vi.fn();
-		render(
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-		const next = openChangeMenuAndPick(
-			onChange,
-			"No related case satisfies a condition",
-		);
-		// Absent-not-undefined: the result has no `where` key at all,
-		// matching the schema's `.optional()` strip behavior on
-		// parse. Using `toEqual` plus the `in` check — `toEqual`
-		// alone treats absent and undefined identically.
+		// Absent-not-undefined contract: when the source has no `where`,
+		// the swap calls `missing(via)` (not `missing(via, undefined)`),
+		// producing a result with NO `where` key — matching the schema's
+		// `.optional()` strip behavior on parse. `toEqual` alone treats
+		// absent and `undefined` identically, so the explicit `in` check
+		// is load-bearing here.
+		const next = preservedOperandSwap(exists(via), "missing");
 		expect(next).toEqual({ kind: "missing", via });
+		expect(next).not.toBeNull();
 		expect("where" in (next as object)).toBe(false);
 	});
 });
@@ -162,20 +122,10 @@ describe("preservedOperandSwap — and ↔ or", () => {
 		const p1 = eq(prop("patient", "age"), literal(18));
 		const p2 = eq(prop("patient", "name"), literal("Alice"));
 		const p3 = eq(prop("patient", "name"), literal("Bob"));
-		const value = and(p1, p2, p3);
-		const onChange = vi.fn();
-		render(
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-		const next = openChangeMenuAndPick(
-			onChange,
-			"At least one nested clause must match",
-		);
+		// Logical-group twins share `{ clauses }` — switching the
+		// discriminator routes through the target's variadic builder and
+		// preserves the author's clause list verbatim.
+		const next = preservedOperandSwap(and(p1, p2, p3), "or");
 		expect(next).toEqual({ kind: "or", clauses: [p1, p2, p3] });
 	});
 });
@@ -183,46 +133,35 @@ describe("preservedOperandSwap — and ↔ or", () => {
 describe("preservedOperandSwap — is-null ↔ is-blank", () => {
 	it("is-blank(prop) → is-null preserves left", () => {
 		const left = term(prop("patient", "name"));
-		const value = isBlank(left);
-		const onChange = vi.fn();
-		render(
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
-		);
-		const next = openChangeMenuAndPick(onChange, "Property is absent (strict");
+		// Null/blank twins share `{ left }` — only the strict-vs-portable
+		// absence semantic differs, so the operand carries over verbatim.
+		const next = preservedOperandSwap(isBlank(left), "is-null");
 		expect(next).toEqual({ kind: "is-null", left });
 	});
 });
 
 describe("preservedOperandSwap — non-twin transitions reset to default", () => {
-	it("eq → between resets to a fresh `between` (no operand carry-over)", () => {
-		const value = eq(prop("patient", "age"), literal(18));
-		const onChange = vi.fn();
-		render(
-			<PredicateCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={CASE_TYPES}
-				currentCaseType="patient"
-			/>,
+	it("eq → between yields null (no twin) and resets to a fresh `between`", () => {
+		// `eq`'s `{ left, right }` doesn't map onto `between`'s
+		// `{ left, lower?, upper?, lowerInclusive, upperInclusive }`, so
+		// the swap returns `null` — proving no operand carry-over.
+		const swap = preservedOperandSwap(
+			eq(prop("patient", "age"), literal(18)),
+			"between",
 		);
-		const next = openChangeMenuAndPick(
-			onChange,
-			"Property falls within a range",
-		);
-		// `eq → between` falls through to `betweenDefault(ctx)` —
-		// the result's `kind` is `between` and the operand shape is
-		// the default factory's, NOT the source's `{ left, right }`
-		// carried over. We only assert on `kind` and the presence of
-		// `lower` / `upper`; the precise default content lives at
-		// the `betweenDefault` factory and changes there should not
-		// flake this test.
-		expect((next as { kind: string }).kind).toBe("between");
-		expect((next as { lower?: unknown }).lower).toBeDefined();
-		expect((next as { upper?: unknown }).upper).toBeDefined();
+		expect(swap).toBeNull();
+
+		// Replicate the component's real fall-through:
+		// `preservedOperandSwap(...) ?? schema.defaultValue(editCtx)`.
+		// The user lands on a fresh `between` built by the target
+		// schema's factory — `kind` is `between` and the operand shape
+		// is the factory's, not the source's `{ left, right }`. We assert
+		// `kind` and the presence of `lower` / `upper` only; the precise
+		// default content lives in `betweenDefault` and may evolve there
+		// without invalidating this contract.
+		const reset = predicateCardSchemas.between.defaultValue(EDIT_CTX);
+		expect(reset.kind).toBe("between");
+		expect(reset.lower).toBeDefined();
+		expect(reset.upper).toBeDefined();
 	});
 });

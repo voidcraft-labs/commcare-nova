@@ -31,7 +31,13 @@
 //      Error arms surface inline below the table; success refreshes
 //      the rows via the screen's reload key.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
@@ -697,12 +703,18 @@ describe("CaseListScreen — Reset sample data", () => {
 			kind: "rows",
 			rows: [RESET_ONE_ROW],
 		});
-		// Stall the action so the screen sits in the `running` state
-		// long enough for the assertion to observe the pending UX. The
-		// promise never resolves; Testing Library's automatic cleanup
-		// unmounts the screen at test end, dropping the pending await.
+		// Stall the action via a controllable deferred so the screen sits
+		// in the `running` state long enough to assert the pending UX, then
+		// resolve it after the assertion. A never-resolving `new Promise`
+		// would never be destroyed — async_hooks reports it as a permanent
+		// leak under `--detectAsyncLeaks` — so the deferred is resolved
+		// before teardown to drain the in-flight action + its awaiters.
+		let resolveReset!: (value: { kind: "ok"; inserted: number }) => void;
 		vi.mocked(resetSampleCasesAction).mockImplementation(
-			() => new Promise(() => {}),
+			() =>
+				new Promise<{ kind: "ok"; inserted: number }>((resolve) => {
+					resolveReset = resolve;
+				}),
 		);
 		renderCaseListScreen({
 			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
@@ -717,6 +729,17 @@ describe("CaseListScreen — Reset sample data", () => {
 			name: /resetting/i,
 		});
 		expect((pendingTrigger as HTMLButtonElement).disabled).toBe(true);
+		// Settle the action with its success arm so the screen leaves the
+		// `running` state and re-fires its case-list reload (already mocked
+		// to resolve), draining every pending promise inside `act`.
+		await act(async () => {
+			resolveReset({ kind: "ok", inserted: 30 });
+		});
+		// The trigger returns to its idle label once the reload settles —
+		// the observable signal that all follow-on async has flushed.
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: TRIGGER_RE })).toBeDefined();
+		});
 	});
 
 	it("re-fires the case-list load on the success arm", async () => {

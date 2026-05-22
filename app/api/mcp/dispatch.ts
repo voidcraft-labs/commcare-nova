@@ -46,8 +46,12 @@ export const MCP_MAX_DURATION_SECONDS = 300;
  * `auth.handler`; `mcp-handler` matches against `${basePath}/mcp` so
  * basePath is `/api/auth`. If the route shim ever changes the
  * synthesized prefix, this literal must move with it.
+ *
+ * Exported so a test can assert it agrees with the path `route.ts`
+ * synthesizes (`AUTH_BASE_PATH` + `MCP_ENDPOINT_PATH`); drift on either
+ * side 404s the production wire path past auth.
  */
-const SYNTHESIZED_AUTH_BASE_PATH = "/api/auth";
+export const SYNTHESIZED_AUTH_BASE_PATH = "/api/auth";
 
 export async function dispatchMcpTools(
 	req: Request,

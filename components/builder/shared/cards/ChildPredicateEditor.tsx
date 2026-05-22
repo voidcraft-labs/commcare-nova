@@ -148,8 +148,12 @@ const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
  *
  * Returns `null` when no twin shape applies; the caller falls
  * through to `defaultValue(ctx)`.
+ *
+ * Exported as part of the module's tested surface — the
+ * transformation is the contract (the emitted AST shape), so the
+ * unit tests call it directly rather than driving the menu chrome.
  */
-function preservedOperandSwap(
+export function preservedOperandSwap(
 	currentValue: Predicate,
 	targetKind: Predicate["kind"],
 ): Predicate | null {

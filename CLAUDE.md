@@ -18,11 +18,61 @@ Next.js web app that generates CommCare apps from natural language conversation.
 ```bash
 npm run dev                             # Turbopack
 npm run build / lint / format / test
+npm run test:leaks                      # full suite under the async-leak detector (slow; see Testing)
 npx tsx scripts/test-schema.ts          # test structured output schemas
 npx tsx scripts/build-xpath-parser.ts   # rebuild Lezer parser from lib/commcare/xpath/grammar.lezer.grammar
 ```
 
 `scripts/` also has read-only Firestore inspection tools and a `recover-app` writer (⚠️). Run any with `--help` for flags. Excluded from Docker.
+
+## Testing — async-resource leaks
+
+A test "leaks" when it leaves an async resource alive after it finishes:
+an uncleared `setInterval`/`setTimeout`, an open handle, or a promise that
+never settles. A live timer or handle keeps Node's event loop open, so the
+Vitest worker that ran the test can't exit on its own. Vitest force-kills
+the worker after a timeout — and when that races, the **whole run hangs**
+(the "the test suite hangs and I have to kill it by hand" problem). A
+perpetual leak (an animation frame loop, an uncleared `setInterval`) never
+goes idle at all, so it can hang the run outright.
+
+**The gate.** A `pre-push` lefthook command runs `scripts/check-async-leaks.ts`,
+which runs the full suite under `vitest run --detect-async-leaks` and
+**fails the push** if any leak is reported. It is on `pre-push` (not
+`pre-commit`) because the detector instruments every async resource via
+`node:async_hooks` and is much slower than a normal run — too slow to gate
+every commit, right where "don't ship a leaking test" belongs. If the gate
+blocks you, it is a **real failure to fix, not a flake**: re-run
+`npm run test:leaks` to see the source-located report (file, line, stack of
+each leaked resource) and which file, if any, hangs.
+
+**Fix at the source — never paper over.** Do NOT bump `teardownTimeout`,
+switch pools, add retries, or suppress the report; those hide the hang
+instead of fixing it. Fix it where the resource is created:
+
+- **Timer** — clear it (`clearTimeout`/`clearInterval`) in `afterEach`/
+  `afterAll`. A test that legitimately needs a timer owns clearing it.
+- **Promise** — `await` it or cancel it before the test ends. For a
+  pending-UX assertion (a spinner / disabled button while an action is in
+  flight), do NOT mock the action with a never-resolving `new Promise(() => {})`
+  — that is a permanent leak by construction. Use a controllable deferred:
+  capture its `resolve`, assert the in-flight UX, then resolve it and let
+  the follow-on settle inside `act`.
+- **React tree** — let RTL's auto-cleanup unmount it, and await any pending
+  state update with `await screen.findBy*` / `await waitFor(...)` so it
+  flushes inside `act` rather than dangling past the test.
+- **A library that starts a module-level timer or animation loop** — mock it
+  at the import boundary so the timer never starts in tests. `mcp-handler`
+  starts a session-GC `setInterval`; tests mock `createMcpHandler`.
+  `motion/react`'s frame loop reschedules `requestAnimationFrame` forever
+  under happy-dom; `vitest.setup.ts` mocks `motion/react` to a passthrough
+  that renders the plain element and emits no frames. Animation is never the
+  contract under test, so killing the engine changes no assertion.
+
+The deeper principle: if a test reaches for fake timers or asserts on UI
+state that's just a reflection of internal state, it's usually testing the
+wrong thing — test the internal state or pure transformation directly and
+mount nothing.
 
 ## Deployment
 

@@ -33,3 +33,13 @@ pre-push:
     # test files — without it, those directives are advisory only.
     typecheck:
       run: npm run typecheck
+    # Async-leak gate. Runs the full suite under Vitest's
+    # `--detect-async-leaks` and fails the push if any test left a timer,
+    # handle, or unsettled promise open. Leaked resources strand Vitest
+    # workers and cause the intermittent suite hang, so this blocks a
+    # leaking test from ever being shared. It lives at pre-push (not
+    # pre-commit) because the async_hooks instrumentation is slow. The
+    # script prints a source-located report + how to fix on failure; see
+    # the "Testing — async-resource leaks" section in CLAUDE.md.
+    no-async-leaks:
+      run: npx tsx scripts/check-async-leaks.ts

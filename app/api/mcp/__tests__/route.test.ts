@@ -11,14 +11,46 @@
  * the synthesizing shim itself is a 5-line URL rewrite that doesn't
  * carry the kind of branching logic worth unit-testing.
  *
- * **JWT-path regression** — guards against the `mcp-handler` basePath
- * bug. `mcp-handler` does its own pathname check
- * (`new URL(req.url).pathname === ${basePath}/mcp`). With the
- * synthesized URL `/api/auth/mcp` and `dispatch.ts`'s hardcoded
- * basePath `/api/auth`, the equality must hold. A regression that
- * drifts either side trips the 9-byte `Not found` body
- * (`node_modules/mcp-handler/dist/index.js` — `res.statusCode = 404;
- * res.end("Not found")`) — past auth, hidden from proxy.test.ts.
+ * **Why `mcp-handler` is mocked at the boundary.** The real
+ * `createMcpHandler` from `mcp-handler` starts a module-singleton
+ * cleanup `setInterval` that is never `.unref()`'d or cleared, and its
+ * streamable-HTTP transport keeps an internal response promise pending
+ * while it drains the Request/Response body streams. In a unit test
+ * neither ever settles, so the live interval pins the Vitest worker's
+ * event loop open and the worker can't exit — an intermittent teardown
+ * hang plus a fistful of leaked async resources under
+ * `--detect-async-leaks`. We mock `createMcpHandler` to a sentinel
+ * handler (mirroring `lib/db/__tests__/mcp-revocation.integration.test.ts`)
+ * that returns a body-less Response, which removes the interval and the
+ * response-stream promise; the request-body stream is drained in the
+ * `dispatch` test wrapper. Together they take this file to zero leaked
+ * async resources with no per-test teardown. The mock still invokes the
+ * `initializeServer` callback so `registerNovaTools` runs and the
+ * `ToolContext` propagation assertions stay meaningful.
+ *
+ * **basePath invariant** — `mcp-handler` matches its endpoint with
+ * `new URL(req.url).pathname === ${basePath}/mcp`. Two
+ * independently-maintained literals feed that equality: the request URL
+ * synthesized by `app/api/mcp/route.ts` (`AUTH_BASE_PATH` +
+ * `MCP_ENDPOINT_PATH` = `/api/auth/mcp`) and the `basePath` passed to
+ * `createMcpHandler` by `app/api/mcp/dispatch.ts`
+ * (`SYNTHESIZED_AUTH_BASE_PATH` = `/api/auth`). If either drifts, the
+ * production wire path 404s past auth, invisibly to proxy.test.ts. Two
+ * tests guard distinct halves of that equality, neither of which starts
+ * the real handler's interval:
+ *
+ *   - A pure constant-equality assertion imports all three literals and
+ *     checks `\`${AUTH_BASE_PATH}${MCP_ENDPOINT_PATH}\``
+ *     === `\`${SYNTHESIZED_AUTH_BASE_PATH}/mcp\``. This is the only test
+ *     that pins `route.ts`'s literals — the dispatch-driven tests feed
+ *     `dispatchMcpAuthRequest` a hardcoded URL and never execute
+ *     `route.ts` (its synthesis ends in a `getAuth().handler` call into
+ *     the production Better Auth singleton, which would bypass these
+ *     mocks — same reason `mcp-revocation.integration.test.ts` drives
+ *     the dispatcher directly).
+ *   - A dispatch-driven test captures `dispatch.ts`'s `basePath` at
+ *     handler construction and confirms nothing between the dispatcher
+ *     and `createMcpHandler` rewrites the request pathname.
  *
  * **API-key-path coverage** — the dispatcher forks on the bearer
  * prefix. Tests below assert the fork picks the right path
@@ -29,15 +61,77 @@
  *
  * The OAuth verify layer + plugin verify endpoint + tool registration
  * + consent lookup are mocked so the tests don't reach into Firestore
- * or KMS. The real `mcp-handler` is left unmocked precisely so its
- * pathname check actually runs in the JWT regression test.
+ * or KMS.
  */
 
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { createMcpHandler } from "mcp-handler";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const verifyApiKeyMock = vi.fn();
 const registerNovaToolsMock = vi.fn();
 const isUserActiveMock = vi.fn(async (_userId: string) => true);
+
+/**
+ * Captures the two literals that feed `mcp-handler`'s pathname-equality
+ * check, recorded at the layer each is established:
+ *
+ * - `basePath` is read off the `config` argument when
+ *   `app/api/mcp/dispatch.ts::dispatchMcpTools` constructs the handler.
+ * - `requestUrl` is read off the Request when the constructed handler
+ *   is invoked with the (post-shim) wire request.
+ *
+ * The basePath-invariant regression test asserts these reproduce the
+ * equality `mcp-handler` enforces in production — see the file
+ * docblock for why we capture rather than run the real library.
+ */
+const capturedHandlerWiring: {
+	basePath: string | undefined;
+	requestUrl: string | undefined;
+} = {
+	basePath: undefined,
+	requestUrl: undefined,
+};
+
+/**
+ * Mock `createMcpHandler` at the `mcp-handler` boundary. Typed against
+ * the real export so the mock's construction args (`initializeServer`,
+ * `serverOptions`, `config`) and its returned handler signature stay
+ * in lockstep with the library — a signature drift surfaces as a type
+ * error here rather than a silent runtime mismatch.
+ *
+ * The mock:
+ *  1. records `config.basePath` for the invariant test,
+ *  2. invokes `initializeServer` so the real `registerNovaTools` call
+ *     in `dispatchMcpTools` runs and the `ToolContext` assertions hold
+ *     (the server arg is unused — `registerNovaTools` is itself a
+ *     `vi.fn()` that never touches it), and
+ *  3. returns a handler that records the request URL and yields a
+ *     body-less success Response so the "reached transport / not 401 /
+ *     not 404" assertions pass.
+ *
+ * **Why the success Response carries no body.** A Response built from a
+ * string body is itself an undrained `ReadableStream`, and none of the
+ * assertions read the response body (they check only status +
+ * `WWW-Authenticate`). A `null`-body Response is both sufficient and
+ * leak-free. The *request* body is drained one layer up, in the
+ * `dispatch` test wrapper — see its docblock for why draining lives
+ * there (single owner) rather than here.
+ */
+vi.mock("mcp-handler", () => ({
+	createMcpHandler: ((initializeServer, _serverOptions, config) => {
+		capturedHandlerWiring.basePath = config?.basePath;
+		/* `registerNovaTools` is mocked, so the server it receives is
+		 * never inspected — a bare cast is sufficient and avoids pulling
+		 * the real `McpServer` constructor (and its transport machinery)
+		 * into the unit suite. */
+		void initializeServer({} as McpServer);
+		return (req: Request): Promise<Response> => {
+			capturedHandlerWiring.requestUrl = req.url;
+			return Promise.resolve(new Response(null, { status: 200 }));
+		};
+	}) satisfies typeof createMcpHandler,
+}));
 
 /** Bypass JWT verification — invoke the inner handler with synthetic claims. */
 vi.mock("@better-auth/oauth-provider", () => ({
@@ -97,6 +191,10 @@ beforeEach(() => {
 	registerNovaToolsMock.mockReset();
 	isUserActiveMock.mockReset();
 	isUserActiveMock.mockResolvedValue(true);
+	/* Clear the captured wiring so the basePath-invariant test reads
+	 * values from its own dispatch, not a prior test's leftover. */
+	capturedHandlerWiring.basePath = undefined;
+	capturedHandlerWiring.requestUrl = undefined;
 });
 
 /* ── Helpers ────────────────────────────────────────────────────── */
@@ -106,11 +204,9 @@ beforeEach(() => {
  * receives in production. The route shim in `app/api/mcp/route.ts`
  * synthesizes a Request with URL `/api/auth/mcp` before handing off
  * to `auth.handler`; `mcp-handler` then matches `req.url.pathname`
- * against `${basePath}/mcp` where basePath is `/api/auth`. Tests
- * feed `dispatchMcpAuthRequest` the post-shim URL because that is
- * the shape the dispatcher always sees in production — anything else
- * 404s inside `mcp-handler` for reasons that are an artifact of the
- * test setup rather than a real bug.
+ * against `${basePath}/mcp` where basePath is `/api/auth`. Tests feed
+ * `dispatchMcpAuthRequest` the post-shim URL because that is the shape
+ * the dispatcher always sees in production.
  */
 function buildRequest(authHeader?: string): Request {
 	const headers: Record<string, string> = {
@@ -134,26 +230,96 @@ function buildRequest(authHeader?: string): Request {
 	});
 }
 
-/* ── JWT path regression ────────────────────────────────────────── */
+/**
+ * Drive a request through the plugin dispatcher and drain its body
+ * stream afterward. Every test goes through this one entry point so the
+ * leak fix lives in a single place.
+ *
+ * The dispatcher is imported lazily here rather than at module top.
+ * Vitest hoists the `vi.mock` factories above the imports, but the
+ * `*Mock` consts those factories close over are ordinary declarations
+ * that are NOT hoisted — eagerly importing `../auth-plugin` pulls in
+ * `api-key-auth.ts`, whose `vi.mock("@/lib/db/api-keys", …)` factory
+ * runs before `isUserActiveMock` is initialized and throws
+ * "Cannot access 'isUserActiveMock' before initialization". Deferring
+ * the import to call time lets the consts initialize first.
+ *
+ * The runtime wraps each request's JSON body as a `ReadableStream`.
+ * Because `mcp-handler` is mocked away, nobody reads that stream: the
+ * success paths reach the mock handler (which returns without touching
+ * the body) and the auth-rejection paths return before the body is ever
+ * looked at. Either way the stream's internal pull promise stays
+ * pending, which `--detect-async-leaks` reports as a leaked PROMISE.
+ *
+ * We settle it by fully consuming the body here, after the dispatch
+ * resolves and we already hold the Response we need. `arrayBuffer()`
+ * reads the buffered string to completion and resolves the pull
+ * promise; `cancel()` was tried first but undici's wrapper around a
+ * synchronously-buffered string body does not reliably settle on
+ * `cancel()` — it wedged the test. `bodyUsed` guards the rare path
+ * where something downstream already read the body, so we never call
+ * `arrayBuffer()` on a disturbed stream (which would throw).
+ */
+async function dispatch(req: Request): Promise<Response> {
+	const { dispatchMcpAuthRequest } = await import("../auth-plugin");
+	const res = await dispatchMcpAuthRequest(req);
+	if (!req.bodyUsed) await req.arrayBuffer();
+	return res;
+}
+
+/* ── basePath invariant + JWT path regression ───────────────────── */
 
 describe("POST /api/mcp basePath (JWT path)", () => {
-	it("does not 404 when reached via the production wire path /mcp", async () => {
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(buildRequest());
+	it("agrees on the wire path across route.ts and dispatch.ts — the literals that feed mcp-handler's pathname check", async () => {
+		/* The production invariant `mcp-handler` enforces is
+		 * `new URL(req.url).pathname === ${basePath}/mcp`. The request
+		 * URL `route.ts` synthesizes is `AUTH_BASE_PATH` +
+		 * `MCP_ENDPOINT_PATH`; the `basePath` `dispatch.ts` hands
+		 * `createMcpHandler` is `SYNTHESIZED_AUTH_BASE_PATH`. These live
+		 * in separate files and are maintained by hand, so a drift on
+		 * either side 404s the production wire path after auth already
+		 * passed — invisible to proxy.test.ts.
+		 *
+		 * This is a pure constant-equality check against all three real
+		 * literals, so it is the test that pins `route.ts`'s side of the
+		 * invariant. We assert on imported constants rather than driving
+		 * a request through `route.ts` because `route.ts`'s synthesis
+		 * ends in `getAuth().handler(...)` — the production Better Auth
+		 * singleton, which bypasses this file's mocks (the same reason
+		 * `mcp-revocation.integration.test.ts` drives the dispatcher
+		 * directly). A pure equality needs no request at all. */
+		const { AUTH_BASE_PATH, MCP_ENDPOINT_PATH } = await import("../route");
+		const { SYNTHESIZED_AUTH_BASE_PATH } = await import("../dispatch");
 
-		/* The exact failure signature: mcp-handler's else branch returns
-		 * 404 with a 9-byte literal `Not found` body
-		 * (node_modules/mcp-handler/dist/index.js — `res.statusCode = 404;
-		 * res.end("Not found")`). Anything else means the pathname check
-		 * matched and the request reached transport handling. */
-		expect(res.status).not.toBe(404);
-		const body = await res.text();
-		expect(body).not.toBe("Not found");
+		expect(`${AUTH_BASE_PATH}${MCP_ENDPOINT_PATH}`).toBe(
+			`${SYNTHESIZED_AUTH_BASE_PATH}/mcp`,
+		);
+	});
+
+	it("passes the request pathname through to createMcpHandler unchanged — nothing between dispatch and mcp-handler rewrites it", async () => {
+		/* Complements the constant-equality test above. That one pins the
+		 * two literals agree; this one pins the runtime half — that the
+		 * `basePath` `dispatch.ts` configures reaches `createMcpHandler`
+		 * intact and that the request pathname survives the
+		 * dispatcher → JWT-path → `dispatchMcpTools` hops without being
+		 * rewritten. The mock records `basePath` at handler construction
+		 * and `req.url` at invocation; the pathname-equality below is the
+		 * exact comparison `mcp-handler` would make.
+		 *
+		 * Note: `buildRequest` hardcodes the `/api/auth/mcp` URL, so this
+		 * test does NOT execute `route.ts`'s synthesis — it asserts only
+		 * that the dispatch path leaves the pathname alone. `route.ts`'s
+		 * literals are guarded by the constant-equality test above. */
+		await dispatch(buildRequest());
+
+		expect(capturedHandlerWiring.basePath).toBe("/api/auth");
+		expect(capturedHandlerWiring.requestUrl).toBeDefined();
+		const pathname = new URL(capturedHandlerWiring.requestUrl ?? "").pathname;
+		expect(pathname).toBe(`${capturedHandlerWiring.basePath}/mcp`);
 	});
 
 	it("falls through to the JWT path when the bearer doesn't carry the Nova prefix", async () => {
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		await dispatchMcpAuthRequest(buildRequest("Bearer some.opaque.jwt.token"));
+		await dispatch(buildRequest("Bearer some.opaque.jwt.token"));
 
 		/* If the prefix peek wrongly routed this bearer to the API-key
 		 * handler, `verifyApiKeyMock` would have been called instead. */
@@ -196,8 +362,7 @@ describe("MCP plugin host gate", () => {
 				id: 1,
 			}),
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(req);
+		const res = await dispatch(req);
 
 		expect(res.status).toBe(404);
 		expect(res.headers.get("WWW-Authenticate")).toBeNull();
@@ -234,8 +399,7 @@ describe("MCP plugin host gate", () => {
 				id: 1,
 			}),
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(req);
+		const res = await dispatch(req);
 
 		expect(res.status).not.toBe(404);
 		expect(verifyApiKeyMock).toHaveBeenCalledTimes(1);
@@ -255,10 +419,7 @@ describe("POST /api/mcp (API-key path)", () => {
 				permissions: { scope: ["nova.read", "nova.write"] },
 			},
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-aBcDeFg12345"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-aBcDeFg12345"));
 
 		expect(verifyApiKeyMock).toHaveBeenCalledTimes(1);
 		const callArg = verifyApiKeyMock.mock.calls[0]?.[0];
@@ -292,10 +453,7 @@ describe("POST /api/mcp (API-key path)", () => {
 			},
 		});
 		isUserActiveMock.mockResolvedValue(false);
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-bannedUser"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-bannedUser"));
 
 		expect(res.status).toBe(401);
 		expect(res.headers.get("WWW-Authenticate")).toContain(
@@ -326,10 +484,7 @@ describe("POST /api/mcp (API-key path)", () => {
 			},
 		});
 		isUserActiveMock.mockRejectedValue(new Error("firestore unavailable"));
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-fsdown"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-fsdown"));
 
 		expect(res.status).toBe(401);
 		expect(res.headers.get("WWW-Authenticate")).toContain(
@@ -351,10 +506,7 @@ describe("POST /api/mcp (API-key path)", () => {
 			error: { code: "INVALID_API_KEY", message: "Invalid API key." },
 			key: null,
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-doesnotexist"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-doesnotexist"));
 
 		expect(res.status).toBe(401);
 		const wwwAuth = res.headers.get("WWW-Authenticate") ?? "";
@@ -380,10 +532,7 @@ describe("POST /api/mcp (API-key path)", () => {
 			error: { code: "KEY_NOT_FOUND", message: "API Key not found" },
 			key: null,
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-noperms"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-noperms"));
 
 		expect(res.status).toBe(401);
 		expect(res.headers.get("WWW-Authenticate")).toContain(
@@ -397,10 +546,7 @@ describe("POST /api/mcp (API-key path)", () => {
 			error: { code: "KEY_EXPIRED", message: "API Key has expired" },
 			key: null,
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-expired"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-expired"));
 
 		expect(res.status).toBe(401);
 		expect(res.headers.get("WWW-Authenticate")).toContain(
@@ -414,10 +560,7 @@ describe("POST /api/mcp (API-key path)", () => {
 			error: { code: "KEY_DISABLED", message: "API Key is disabled" },
 			key: null,
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-disabled"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-disabled"));
 
 		expect(res.status).toBe(401);
 		expect(res.headers.get("WWW-Authenticate")).toContain(
@@ -445,10 +588,7 @@ describe("POST /api/mcp (API-key path)", () => {
 				permissions: { scope: ["nova.read"] },
 			},
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-readonly"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-readonly"));
 
 		expect(res.status).toBe(403);
 		const wwwAuth = res.headers.get("WWW-Authenticate") ?? "";
@@ -466,10 +606,7 @@ describe("POST /api/mcp (API-key path)", () => {
 				permissions: { scope: ["nova.read", "nova.write"] },
 			},
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-aBcDeFg12345"),
-		);
+		await dispatch(buildRequest("Bearer sk-nova-v1-aBcDeFg12345"));
 
 		const callArg = verifyApiKeyMock.mock.calls[0]?.[0];
 		expect(callArg.body).toEqual({ key: "sk-nova-v1-aBcDeFg12345" });
@@ -478,10 +615,7 @@ describe("POST /api/mcp (API-key path)", () => {
 
 	it("returns 401 'api key verify failed' when the plugin verify throws", async () => {
 		verifyApiKeyMock.mockRejectedValue(new Error("downstream blew up"));
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-broken"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-broken"));
 
 		expect(res.status).toBe(401);
 		expect(res.headers.get("WWW-Authenticate")).toContain(
@@ -504,17 +638,13 @@ describe("POST /api/mcp (API-key path)", () => {
 				permissions: { scope: ["nova.read", "nova.write"] },
 			},
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		const res = await dispatchMcpAuthRequest(
-			buildRequest("Bearer sk-nova-v1-noref"),
-		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-noref"));
 
 		expect(res.status).toBe(401);
 	});
 
 	it("does not call the api-key verifier when no Authorization header is sent", async () => {
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
-		await dispatchMcpAuthRequest(buildRequest());
+		await dispatch(buildRequest());
 		expect(verifyApiKeyMock).not.toHaveBeenCalled();
 	});
 
@@ -528,22 +658,17 @@ describe("POST /api/mcp (API-key path)", () => {
 				permissions: { scope: ["nova.read", "nova.write"] },
 			},
 		});
-		const { dispatchMcpAuthRequest } = await import("../auth-plugin");
 
 		/* Lowercase scheme is RFC-compliant; route must route this to
 		 * the API-key path. A regression that drops the regex's `i`
 		 * flag (or replaces with `.startsWith("Bearer ")`) breaks
 		 * less-common-but-compliant clients silently — this test
 		 * catches that. */
-		await dispatchMcpAuthRequest(
-			buildRequest("bearer sk-nova-v1-aBcDeFg12345"),
-		);
+		await dispatch(buildRequest("bearer sk-nova-v1-aBcDeFg12345"));
 		expect(verifyApiKeyMock).toHaveBeenCalledTimes(1);
 
 		verifyApiKeyMock.mockClear();
-		await dispatchMcpAuthRequest(
-			buildRequest("BEARER sk-nova-v1-aBcDeFg12345"),
-		);
+		await dispatch(buildRequest("BEARER sk-nova-v1-aBcDeFg12345"));
 		expect(verifyApiKeyMock).toHaveBeenCalledTimes(1);
 	});
 });
