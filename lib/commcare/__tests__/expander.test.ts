@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { validateXFormXml } from "@/lib/commcare/validator/xformValidator";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -496,7 +497,11 @@ describe("runValidation", () => {
 // ── Feature 1: Output References in Labels ──────────────────────────────
 
 describe("output references in labels", () => {
-	it('preserves <output value="..."/> in label itext, escaping surrounding text', () => {
+	// Authors reference fields in prose with hashtags (`#form/name`,
+	// `#case/prop`); the emitter lowers those into `<output>` elements.
+	// Raw `<output ...>` markup is NOT a supported authoring input — a label
+	// that literally contains it is prose and serializes as escaped text.
+	it("escapes author-written <output> markup as literal label text", () => {
 		const doc = buildDoc({
 			appName: "Output",
 			modules: [
@@ -521,12 +526,15 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
+		// The literal `<output ...>` text is escaped, not honored as markup.
 		expect(xform).toContain(
-			'<text id="greeting-label"><value>Hello <output value="/data/name"/>, welcome!</value><value form="markdown">Hello <output value="/data/name"/>, welcome!</value></text>',
+			'<text id="greeting-label"><value>Hello &lt;output value=&quot;/data/name&quot;/&gt;, welcome!</value>',
 		);
+		// No real <output> element leaked from the author text.
+		expect(xform).not.toContain('<output value="/data/name"');
 	});
 
-	it('expands #case/ hashtags inside <output value="..."/> tags', () => {
+	it("expands a #case/ hashtag ref in label prose into an <output>", () => {
 		const doc = buildDoc({
 			appName: "Output",
 			modules: [
@@ -547,7 +555,7 @@ describe("output references in labels", () => {
 								f({
 									kind: "label",
 									id: "msg",
-									label: 'Patient: <output value="#case/full_name"/>',
+									label: "Patient: #case/full_name",
 								}),
 							],
 						},
@@ -560,7 +568,7 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// The output value= should have expanded XPath, vellum:value preserves shorthand
+		// The output value= has the expanded XPath; vellum:value the shorthand.
 		expect(xform).toContain('<output value="instance(');
 		expect(xform).toContain('vellum:value="#case/full_name"');
 	});
@@ -721,6 +729,314 @@ describe("output references in labels", () => {
 	});
 });
 
+// ── Label/hint prose is XML-entity-escaped (issues #3 + #15) ─────────────
+//
+// Author prose is natural language, not markup. A bare `<` / `>` / `&` in a
+// label must reach the wire as `&lt;` / `&gt;` / `&amp;` so JavaRosa's XForm
+// parser accepts the itext `<value>` and so the literal characters render on
+// device — never consumed as a bogus tag. The emitter builds the itext value
+// by DOM construction (Text nodes for prose + constructed `<output>`
+// elements for hashtag refs) and serializes once, so dom-serializer owns all
+// escaping. `<output>` elements come ONLY from hashtag refs Nova lowers; a
+// label that literally contains `<output ...>` text is prose and escapes.
+
+describe("label/hint prose entity escaping", () => {
+	/** Pull the first form's XForm XML out of an expanded HQ application. */
+	function firstFormXml(doc: ReturnType<typeof buildDoc>): string {
+		const first = Object.values(expandDoc(doc)._attachments)[0];
+		if (typeof first !== "string") {
+			throw new Error("expected the first attachment to be the XForm XML");
+		}
+		return first;
+	}
+
+	/** Build a single-survey doc whose only field is a label carrying `text`. */
+	function labelDoc(text: string): ReturnType<typeof buildDoc> {
+		return buildDoc({
+			appName: "Prose",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [f({ kind: "label", id: "note", label: text })],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("escapes a tag-like `<` / `>` run that htmlparser2 would otherwise eat", () => {
+		// Issue #3: `(<2kg, …, >10kg)` previously parsed as a bogus tag, leaking
+		// a bare `<` to the wire that CommCare HQ hard-rejects.
+		const xml = firstFormXml(labelDoc("(<2kg, 2-10kg, >10kg)"));
+		expect(xml).toContain("<value>(&lt;2kg, 2-10kg, &gt;10kg)</value>");
+		// No bare `<`/`>` survived inside the itext value text.
+		expect(xml).not.toContain("(<2kg");
+		expect(xml).not.toContain(">10kg)");
+	});
+
+	it("escapes a bare ampersand to `&amp;`", () => {
+		const xml = firstFormXml(labelDoc("Tom & Jerry"));
+		expect(xml).toContain("<value>Tom &amp; Jerry</value>");
+	});
+
+	it("escapes both comparison operators in prose", () => {
+		const xml = firstFormXml(labelDoc("Rating < 100 and > 50"));
+		expect(xml).toContain("<value>Rating &lt; 100 and &gt; 50</value>");
+	});
+
+	it("expands a hashtag ref in mixed prose while escaping surrounding `<`", () => {
+		// Issue #15: a label combining prose with a `<` AND a hashtag ref must
+		// escape the prose `<` (no bogus tag / no itext corruption) while
+		// lowering the hashtag into a real <output> element with the expanded
+		// XPath + `vellum:value` shorthand.
+		const doc = buildDoc({
+			appName: "Mixed prose",
+			modules: [
+				{
+					name: "M",
+					caseType: "c",
+					forms: [
+						{
+							name: "F",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "full_name",
+									label: "Name",
+									case_property_on: "c",
+								}),
+								f({
+									kind: "label",
+									id: "msg",
+									label: "Weight < 5kg for #case/full_name",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
+			],
+		});
+		const xml = firstFormXml(doc);
+		// Prose `<` escaped …
+		expect(xml).toContain("Weight &lt; 5kg for");
+		// … while the hashtag lowered into a real <output> ref + shorthand.
+		expect(xml).toContain('<output value="instance(');
+		expect(xml).toContain('vellum:value="#case/full_name"');
+	});
+
+	it("escapes author-written `<output>` markup as literal text (new contract)", () => {
+		// `<output>` is NOT a supported authoring input — only hashtag refs
+		// are. A label that literally contains `<output ...>` text is prose,
+		// so it must serialize as escaped literal text (well-formed), NOT be
+		// honored as a real element. This documents the post-fix contract.
+		const xml = firstFormXml(labelDoc('See <output value="x"/> here'));
+		expect(xml).toContain(
+			"<value>See &lt;output value=&quot;x&quot;/&gt; here</value>",
+		);
+		// No real <output> element leaked from the author text.
+		expect(xml).not.toContain('<output value="x"');
+	});
+
+	it("still expands a bare hashtag in prose (regression)", () => {
+		const doc = buildDoc({
+			appName: "Bare in prose",
+			modules: [
+				{
+					name: "M",
+					caseType: "c",
+					forms: [
+						{
+							name: "F",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									label: "Name",
+									case_property_on: "c",
+								}),
+								f({ kind: "label", id: "hi", label: "Hello #case/name" }),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "c", properties: [{ name: "name", label: "Name" }] }],
+		});
+		const xml = firstFormXml(doc);
+		expect(xml).not.toContain("Hello #case/name<");
+		expect(xml).toContain('vellum:value="#case/name"');
+		expect(xml).toContain('<output value="instance(');
+	});
+
+	it("round-trips a pre-escaped `&lt;` without double-escaping (regression)", () => {
+		// The historical workaround: authors pre-escaped `<` as `&lt;`. After
+		// the fix, decode-then-escape keeps the on-wire byte at exactly `&lt;`
+		// (not `&amp;lt;`), so the display still shows `<`.
+		const xml = firstFormXml(labelDoc("Less than &lt; threshold"));
+		expect(xml).toContain("<value>Less than &lt; threshold</value>");
+		expect(xml).not.toContain("&amp;lt;");
+	});
+});
+
+// ── Select option itext ids keyed by index, not value (issue #10) ────────
+//
+// Two options sharing the same `value` previously collapsed onto one itext
+// id (`${field.id}-${opt.value}-label`), making CommCare's XForm parser
+// throw `duplicate definition for text ID` (verified against
+// commcare-core XFormParser.java::parseTranslation). Keying the id by the
+// option's stable array index makes the ids unique regardless of value.
+// JavaRosa accepts two `<item>`s sharing a `<value>`
+// (XFormParser.java::parseItem adds each SelectChoice with no value-
+// uniqueness check) — the collision was purely in the itext layer.
+
+describe("select option itext ids — index-keyed (issue #10)", () => {
+	function firstFormXml(doc: ReturnType<typeof buildDoc>): string {
+		const first = Object.values(expandDoc(doc)._attachments)[0];
+		if (typeof first !== "string") {
+			throw new Error("expected the first attachment to be the XForm XML");
+		}
+		return first;
+	}
+
+	it("single_select with duplicate option values emits distinct itext ids", () => {
+		const doc = buildDoc({
+			appName: "Dup single",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "rating",
+									label: "Rating",
+									// Both options carry value "3" — the bug trigger.
+									options: [
+										{ value: "3", label: "Three (low scale)" },
+										{ value: "3", label: "Three (high scale)" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(doc);
+		// Two distinct, index-keyed itext ids — no collision.
+		expect(xml).toContain('<text id="rating-opt0-label">');
+		expect(xml).toContain('<text id="rating-opt1-label">');
+		// Each <item>'s label ref points at its per-index id; both <value>s
+		// emit the verbatim "3".
+		expect(xml).toContain(
+			`<item><label ref="jr:itext('rating-opt0-label')"/><value>3</value></item>`,
+		);
+		expect(xml).toContain(
+			`<item><label ref="jr:itext('rating-opt1-label')"/><value>3</value></item>`,
+		);
+		// The labels round-trip into the respective itext entries.
+		expect(xml).toContain(
+			'<text id="rating-opt0-label"><value>Three (low scale)</value>',
+		);
+		expect(xml).toContain(
+			'<text id="rating-opt1-label"><value>Three (high scale)</value>',
+		);
+		// The old value-keyed id must be gone.
+		expect(xml).not.toContain("rating-3-label");
+		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+	});
+
+	it("multi_select with duplicate option values emits distinct itext ids", () => {
+		const doc = buildDoc({
+			appName: "Dup multi",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "multi_select",
+									id: "tags",
+									label: "Tags",
+									options: [
+										{ value: "x", label: "First X" },
+										{ value: "x", label: "Second X" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(doc);
+		expect(xml).toContain('<text id="tags-opt0-label">');
+		expect(xml).toContain('<text id="tags-opt1-label">');
+		expect(xml).toContain(
+			`<item><label ref="jr:itext('tags-opt0-label')"/><value>x</value></item>`,
+		);
+		expect(xml).toContain(
+			`<item><label ref="jr:itext('tags-opt1-label')"/><value>x</value></item>`,
+		);
+		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+	});
+
+	it("distinct-value single_select still emits one item + ref per option (regression)", () => {
+		const doc = buildDoc({
+			appName: "Distinct",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "confirm",
+									label: "Confirm?",
+									options: [
+										{ value: "yes", label: "Yes" },
+										{ value: "no", label: "No" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(doc);
+		// Index-keyed ids, one per option, refs and values aligned.
+		expect(xml).toContain(
+			`<item><label ref="jr:itext('confirm-opt0-label')"/><value>yes</value></item>`,
+		);
+		expect(xml).toContain(
+			`<item><label ref="jr:itext('confirm-opt1-label')"/><value>no</value></item>`,
+		);
+		expect(xml).toContain('<text id="confirm-opt0-label"><value>Yes</value>');
+		expect(xml).toContain('<text id="confirm-opt1-label"><value>No</value>');
+		expect(validateXFormXml(xml, "F", "M")).toEqual([]);
+	});
+});
+
 // ── Markdown itext for all field kinds ───────────────────────────────────
 
 describe("markdown itext for all field kinds", () => {
@@ -797,12 +1113,13 @@ describe("markdown itext for all field kinds", () => {
 		expect(label).toContain(
 			'<value form="markdown">Current **status**</value>',
 		);
-		// Option labels
-		const activeOpt = extractItext(xform, "status-active-label");
+		// Option labels — itext ids are keyed by array index (issue #10 fix),
+		// not by option value, so the first option is `-opt0-label`.
+		const activeOpt = extractItext(xform, "status-opt0-label");
 		expect(activeOpt).toContain(
 			'<value form="markdown">**Active** &#x2014; currently enrolled</value>',
 		);
-		const inactiveOpt = extractItext(xform, "status-inactive-label");
+		const inactiveOpt = extractItext(xform, "status-opt1-label");
 		expect(inactiveOpt).toContain('<value form="markdown">_Inactive_</value>');
 	});
 
