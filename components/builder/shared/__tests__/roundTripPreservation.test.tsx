@@ -21,7 +21,7 @@
 // slots would silently lose its content the moment a user opens
 // the editor.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -580,7 +580,7 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 
 	const SELF_VIA = selfPath();
 
-	it("LEFT-slot mode renders the editing surface for prop with via=self", () => {
+	it("LEFT-slot mode renders the editing surface for prop with via=self", async () => {
 		// IsBlankCard exercises the LEFT-slot mode. The selfPath value
 		// must NOT trigger the badge — it's canonical per the picker's
 		// guard contract.
@@ -604,9 +604,20 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 			name: /^Property:/i,
 		});
 		fireEvent.click(propertyTrigger);
-		const ageOption = screen.getByRole("menuitem", { name: /^age/i });
+		// `findBy` (not `getBy`) so the menu's open transition settles
+		// inside `act` before we read the option: Base UI's
+		// `FloatingFocusManager` schedules an initial-focus `queueMicrotask`
+		// on open, and a synchronous `getBy` would leave that microtask
+		// undrained at test end (flagged under `--detectAsyncLeaks`).
+		const ageOption = await screen.findByRole("menuitem", { name: /^age/i });
 		fireEvent.click(ageOption);
-		expect(onChange).toHaveBeenCalledTimes(1);
+		// `waitFor` so the menu's close transition settles inside `act`:
+		// selecting an option closes the menu, and Base UI's focus manager
+		// schedules a focus-restore `setTimeout` on close that a synchronous
+		// assertion would leave undrained (flagged under `--detectAsyncLeaks`).
+		await waitFor(() => {
+			expect(onChange).toHaveBeenCalledTimes(1);
+		});
 		const next = onChange.mock.calls[0][0] as {
 			left: {
 				term: { kind: string; property: string; via?: { kind: string } };
@@ -617,7 +628,7 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 		expect(next.left.term.via?.kind).toBe("self");
 	});
 
-	it("property-only mode renders the editing surface for prop with via=self", () => {
+	it("property-only mode renders the editing surface for prop with via=self", async () => {
 		// MatchCard exercises the property-only mode. Same canonical
 		// contract: via=self is editable in place, and the via slot
 		// survives a property name change.
@@ -645,9 +656,16 @@ describe('PropertyRefPicker — `via.kind === "self"` is canonical', () => {
 			name: /^Property:/i,
 		});
 		fireEvent.click(propertyTrigger);
-		const tagsOption = screen.getByRole("menuitem", { name: /^tags/i });
+		// `findBy` settles the menu-open `queueMicrotask` Base UI's
+		// `FloatingFocusManager` schedules for initial focus (see the
+		// LEFT-slot test above for the leak rationale).
+		const tagsOption = await screen.findByRole("menuitem", { name: /^tags/i });
 		fireEvent.click(tagsOption);
-		expect(onChange).toHaveBeenCalledTimes(1);
+		// `waitFor` settles the menu-close focus-restore `setTimeout` (see
+		// the LEFT-slot test above for the leak rationale).
+		await waitFor(() => {
+			expect(onChange).toHaveBeenCalledTimes(1);
+		});
 		const next = onChange.mock.calls[0][0] as {
 			property: { kind: string; property: string; via?: { kind: string } };
 		};

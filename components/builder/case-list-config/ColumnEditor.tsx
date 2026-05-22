@@ -237,8 +237,12 @@ interface KindReplaceMenuProps {
  * column's `uuid` and optional common slots (`sort`,
  * `visibleInList`, `visibleInDetail`) thread through verbatim —
  * they're identity / surface-visibility shape, not kind-specific.
+ *
+ * Exported as part of the module's tested surface — the
+ * transformation is the contract (the emitted Column shape), so the
+ * unit tests call it directly rather than driving the menu chrome.
  */
-function preservedColumnSwap(
+export function preservedColumnSwap(
 	currentValue: Column,
 	targetKind: ColumnKind,
 	ctx: ColumnEditContext,

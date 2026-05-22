@@ -57,15 +57,20 @@ export const maxDuration = 300;
  * because the value is also baked into the synthesized URL below;
  * if the project ever sets `basePath: ...` in `lib/auth.ts`, this
  * literal must move with it.
+ *
+ * Exported so a test can pin the cross-module invariant that this
+ * synthesized path agrees with the `basePath` `dispatch.ts` hands
+ * `mcp-handler` — drift on either side reintroduces a production 404.
  */
-const AUTH_BASE_PATH = "/api/auth";
+export const AUTH_BASE_PATH = "/api/auth";
 
 /**
  * Wire-path suffix the plugin endpoint registers under. Concatenated
  * with `AUTH_BASE_PATH` to form the synthesized URL the request gets
- * rewritten to before reaching `auth.handler`.
+ * rewritten to before reaching `auth.handler`. Exported alongside
+ * `AUTH_BASE_PATH` for the same cross-module invariant test.
  */
-const MCP_ENDPOINT_PATH = "/mcp";
+export const MCP_ENDPOINT_PATH = "/mcp";
 
 const dispatch = async (req: Request): Promise<Response> => {
 	let authReq: Request;

@@ -11,6 +11,7 @@
 		"typecheck": "fumadocs-mdx && tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
+		"test:leaks": "vitest run --detect-async-leaks",
 		"test:integration": "node_modules/.bin/firebase emulators:exec --only firestore --project demo-test 'GOOGLE_CLOUD_PROJECT=demo-test ./node_modules/.bin/vitest run --no-file-parallelism integration.test.ts'",
 		"db:diff": "atlas migrate diff --env local",
 		"db:lint": "atlas migrate lint --env local --latest 1"

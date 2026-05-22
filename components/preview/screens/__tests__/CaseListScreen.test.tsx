@@ -31,7 +31,13 @@
 //      Error arms surface inline below the table; success refreshes
 //      the rows via the screen's reload key.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
@@ -588,6 +594,33 @@ const RESET_ONE_ROW = makeRow("11111111-1111-1111-1111-111111111111", {
 const TRIGGER_RE = /reset sample data/i;
 const CONFIRM_RE = /^reset$/i;
 
+/**
+ * Generous wait for the Reset confirmation dialog to open. The dialog
+ * opens in milliseconds under a normal `npm test`, but the pre-push
+ * async-leak gate runs the whole suite under `--detect-async-leaks` —
+ * `node:async_hooks` instrumentation plus full file-parallelism can
+ * starve a worker of CPU long enough that the default 1s `findBy` window
+ * lapses before the click's open commits. This wider window absorbs that
+ * scheduling jitter; it never lengthens a normal run because the dialog
+ * is already present well before the timeout. See the "Testing —
+ * async-resource leaks" section in CLAUDE.md.
+ */
+const DIALOG_OPEN_TIMEOUT_MS = 5_000;
+
+/**
+ * Click the Reset trigger and wait for the confirmation dialog to mount,
+ * returning the dialog element. Centralized so every reset test opens the
+ * dialog the same way and inherits the contention-tolerant wait above.
+ */
+async function openResetDialog(): Promise<HTMLElement> {
+	fireEvent.click(await screen.findByRole("button", { name: TRIGGER_RE }));
+	return screen.findByRole(
+		"alertdialog",
+		{},
+		{ timeout: DIALOG_OPEN_TIMEOUT_MS },
+	);
+}
+
 describe("CaseListScreen — Reset sample data", () => {
 	it("surfaces the Reset trigger on the populated arm only", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
@@ -632,12 +665,10 @@ describe("CaseListScreen — Reset sample data", () => {
 		renderCaseListScreen({
 			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
 		});
-		const trigger = await screen.findByRole("button", { name: TRIGGER_RE });
-		fireEvent.click(trigger);
 		// Base UI's `AlertDialog.Root` stamps `role="alertdialog"` on
 		// the popup; the title + description landmarks confirm the
 		// content rendered, not just the role marker.
-		const dialog = await screen.findByRole("alertdialog");
+		const dialog = await openResetDialog();
 		expect(dialog).toBeDefined();
 		expect(screen.getByText("Reset sample data?")).toBeDefined();
 		expect(
@@ -655,10 +686,7 @@ describe("CaseListScreen — Reset sample data", () => {
 		renderCaseListScreen({
 			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
 		});
-		fireEvent.click(await screen.findByRole("button", { name: TRIGGER_RE }));
-		// Wait for the dialog to mount before reaching for the confirm
-		// button — Base UI's portal lands the popup asynchronously.
-		await screen.findByRole("alertdialog");
+		await openResetDialog();
 		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
 		await waitFor(() => {
 			expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledTimes(1);
@@ -681,8 +709,7 @@ describe("CaseListScreen — Reset sample data", () => {
 		renderCaseListScreen({
 			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
 		});
-		fireEvent.click(await screen.findByRole("button", { name: TRIGGER_RE }));
-		await screen.findByRole("alertdialog");
+		await openResetDialog();
 		// Cancel button wraps `AlertDialog.Close`, which dismisses the
 		// dialog without invoking the action.
 		fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
@@ -697,18 +724,23 @@ describe("CaseListScreen — Reset sample data", () => {
 			kind: "rows",
 			rows: [RESET_ONE_ROW],
 		});
-		// Stall the action so the screen sits in the `running` state
-		// long enough for the assertion to observe the pending UX. The
-		// promise never resolves; Testing Library's automatic cleanup
-		// unmounts the screen at test end, dropping the pending await.
+		// Stall the action via a controllable deferred so the screen sits
+		// in the `running` state long enough to assert the pending UX, then
+		// resolve it after the assertion. A never-resolving `new Promise`
+		// would never be destroyed — async_hooks reports it as a permanent
+		// leak under `--detectAsyncLeaks` — so the deferred is resolved
+		// before teardown to drain the in-flight action + its awaiters.
+		let resolveReset!: (value: { kind: "ok"; inserted: number }) => void;
 		vi.mocked(resetSampleCasesAction).mockImplementation(
-			() => new Promise(() => {}),
+			() =>
+				new Promise<{ kind: "ok"; inserted: number }>((resolve) => {
+					resolveReset = resolve;
+				}),
 		);
 		renderCaseListScreen({
 			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
 		});
-		fireEvent.click(await screen.findByRole("button", { name: TRIGGER_RE }));
-		await screen.findByRole("alertdialog");
+		await openResetDialog();
 		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
 		// `Resetting...` text replaces `Reset sample data` while the
 		// action is in flight; the trigger button is also disabled so
@@ -717,6 +749,17 @@ describe("CaseListScreen — Reset sample data", () => {
 			name: /resetting/i,
 		});
 		expect((pendingTrigger as HTMLButtonElement).disabled).toBe(true);
+		// Settle the action with its success arm so the screen leaves the
+		// `running` state and re-fires its case-list reload (already mocked
+		// to resolve), draining every pending promise inside `act`.
+		await act(async () => {
+			resolveReset({ kind: "ok", inserted: 30 });
+		});
+		// The trigger returns to its idle label once the reload settles —
+		// the observable signal that all follow-on async has flushed.
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: TRIGGER_RE })).toBeDefined();
+		});
 	});
 
 	it("re-fires the case-list load on the success arm", async () => {
@@ -734,8 +777,7 @@ describe("CaseListScreen — Reset sample data", () => {
 		});
 		await screen.findByText("Alice");
 		const initialLoadCalls = vi.mocked(loadCasesAction).mock.calls.length;
-		fireEvent.click(screen.getByRole("button", { name: TRIGGER_RE }));
-		await screen.findByRole("alertdialog");
+		await openResetDialog();
 		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
 		await waitFor(() => {
 			expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledTimes(1);
@@ -763,8 +805,7 @@ describe("CaseListScreen — Reset sample data", () => {
 		renderCaseListScreen({
 			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
 		});
-		fireEvent.click(await screen.findByRole("button", { name: TRIGGER_RE }));
-		await screen.findByRole("alertdialog");
+		await openResetDialog();
 		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
 		// The screen surfaces the action's `message` slot verbatim
 		// for the `error` arm — the user-facing string maps 1:1 to

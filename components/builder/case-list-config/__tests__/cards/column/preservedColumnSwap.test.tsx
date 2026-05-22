@@ -1,35 +1,41 @@
-// @vitest-environment happy-dom
-//
 // components/builder/case-list-config/__tests__/cards/column/preservedColumnSwap.test.tsx
 //
-// Round-trip tests for the column kind-replace logic. Drives the
-// real "Change" menu in the rendered editor — open menu, click
-// the target kind, capture the emitted Column. Pins the
-// kind-replace UX's contract end-to-end.
+// Unit tests for `preservedColumnSwap` — the pure column
+// kind-replace transformation in `ColumnEditor`. Given a current
+// Column, a target kind, and the editor context, it returns the
+// rebuilt Column under the target kind. The transformation is total
+// (no `null` arm) and enforces three preservation tiers:
 //
-// Three preservation tiers:
+//   - **Universal header + uuid + common slots** — every kind
+//     transition threads `header`, `uuid`, and the optional common
+//     slots (`sort`, `visibleInList`, `visibleInDetail`) through
+//     verbatim. They're identity / surface-visibility shape, not
+//     kind-specific.
+//   - **Field preservation** — the five non-calc kinds all carry
+//     `field: string`, so a swap among them preserves `field`
+//     verbatim. Calc has no field: swapping TO calc drops it;
+//     swapping FROM calc seeds the new field from the target
+//     schema's default factory (the case type's first applicable
+//     property).
+//   - **Kind-specific extras** — date pattern, mapping table,
+//     interval threshold/unit/display/text, and calc expression
+//     carry over across structural-twin (same-kind) transitions and
+//     reset to the target schema's `defaultValue(ctx)` otherwise.
 //
-//   - **Universal header + uuid + slots** — every kind transition
-//     preserves the header, uuid, and optional common slots
-//     (`sort`, `visibleInList`, `visibleInDetail`).
-//   - **Field preservation** — non-calc-to-non-calc transitions
-//     preserve `field`. Calc has no field, so transitions involving
-//     calc seed the field from the target schema (when leaving
-//     calc) or drop it (when entering calc).
-//   - **Twin transitions** — `interval(always)` ↔ `interval(flag)`
-//     would be a same-kind transition (disabled by the menu); twin
-//     transitions for kind-specific extras occur within the
-//     interval card's display toggle, not via kind swap.
-//   - **Non-twin transitions** — kind-specific extras (date
-//     pattern, mapping table, threshold, expression) reset to the
-//     target schema's defaults.
+// Why test the function directly instead of driving the rendered
+// "Change" menu: the contract is the emitted Column shape, not the
+// menu chrome. Asserting on the pure transformation pins the
+// contract without mounting a Base UI floating tree (which schedules
+// microtask / rAF work that leaks under `--detect-async-leaks`). The
+// non-twin reset values (threshold 7, unit "days", display "always",
+// empty mapping, the seeded `name` field) all originate in
+// `columnCardSchemas[target].defaultValue(ctx)`, so calling the pure
+// function with the same `ctx` reproduces them exactly.
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { asUuid } from "@/lib/doc/types";
 import {
 	type CaseType,
-	type Column,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
@@ -37,7 +43,8 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
-import { ColumnEditor } from "../../../ColumnEditor";
+import { preservedColumnSwap } from "../../../ColumnEditor";
+import type { ColumnEditContext } from "../../../columnEditorSchemas";
 
 const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
 
@@ -49,43 +56,21 @@ const PATIENT: CaseType = {
 	],
 };
 
-/** Escape regex metacharacters so callers can pass plain
- *  registry-description strings without thinking about regex
- *  syntax. */
-function escapeRegex(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Render the editor, open the "Change" menu, click the option
- *  whose description substring matches `targetDescription`, and
- *  return the emitted Column. Matches against `description` to
- *  disambiguate label collisions. */
-function swapTo(value: Column, targetDescription: string): Column {
-	const onChange = vi.fn();
-	render(
-		<ColumnEditor
-			value={value}
-			onChange={onChange}
-			caseTypes={[PATIENT]}
-			currentCaseType="patient"
-			sortedColumnCount={0}
-			sortPriorityPosition={undefined}
-		/>,
-	);
-	const trigger = screen.getByRole("button", { name: /change column type/i });
-	fireEvent.click(trigger);
-	const pattern = new RegExp(escapeRegex(targetDescription), "i");
-	const targetItem = screen.getByRole("menuitem", { name: pattern });
-	fireEvent.click(targetItem);
-	expect(onChange).toHaveBeenCalledTimes(1);
-	return onChange.mock.calls[0][0] as Column;
-}
+// The exact `ColumnEditContext` `ColumnEditor` assembles from its
+// props and hands to `preservedColumnSwap` — the case-type schema
+// plus the current scope. The default-value factories the swap
+// invokes for non-twin extras / field seeding read these.
+const CTX: ColumnEditContext = {
+	caseTypes: [PATIENT],
+	currentCaseType: "patient",
+};
 
 describe("preservedColumnSwap — universal field + header preservation", () => {
-	it("Plain → Interval preserves field + header", () => {
-		const next = swapTo(
+	it("Plain → Interval preserves field + header + uuid", () => {
+		const next = preservedColumnSwap(
 			plainColumn(TEST_UUID, "dob", "Birthday"),
-			"Show a relative interval against a date property",
+			"interval",
+			CTX,
 		);
 		expect(next.kind).toBe("interval");
 		if (next.kind !== "interval") throw new Error("expected interval");
@@ -94,10 +79,11 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 		expect(next.uuid).toBe(TEST_UUID);
 	});
 
-	it("Plain → Date preserves field + header", () => {
-		const next = swapTo(
+	it("Plain → Date preserves field + header + uuid", () => {
+		const next = preservedColumnSwap(
 			plainColumn(TEST_UUID, "dob", "Birthday"),
-			"Format a date / datetime property",
+			"date",
+			CTX,
 		);
 		expect(next.kind).toBe("date");
 		if (next.kind !== "date") throw new Error("expected date");
@@ -106,10 +92,11 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 		expect(next.uuid).toBe(TEST_UUID);
 	});
 
-	it("Interval → Plain preserves field + header", () => {
-		const next = swapTo(
+	it("Interval → Plain preserves field + header + uuid", () => {
+		const next = preservedColumnSwap(
 			intervalColumn(TEST_UUID, "dob", "Birthday", 30, "days", "flag", "Old"),
-			"Render the property value as plain text",
+			"plain",
+			CTX,
 		);
 		expect(next.kind).toBe("plain");
 		if (next.kind !== "plain") throw new Error("expected plain");
@@ -119,9 +106,10 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 	});
 
 	it("ID Mapping → Plain preserves field + header (mapping table dropped)", () => {
-		const next = swapTo(
+		const next = preservedColumnSwap(
 			idMappingColumn(TEST_UUID, "name", "Name", [{ value: "x", label: "X" }]),
-			"Render the property value as plain text",
+			"plain",
+			CTX,
 		);
 		expect(next.kind).toBe("plain");
 		if (next.kind !== "plain") throw new Error("expected plain");
@@ -132,9 +120,10 @@ describe("preservedColumnSwap — universal field + header preservation", () => 
 
 describe("preservedColumnSwap — calc transitions", () => {
 	it("Plain → Calculated drops the field; preserves header + uuid", () => {
-		const next = swapTo(
+		const next = preservedColumnSwap(
 			plainColumn(TEST_UUID, "name", "Name column"),
-			"Project a derived per-row value from an expression",
+			"calculated",
+			CTX,
 		);
 		expect(next.kind).toBe("calculated");
 		if (next.kind !== "calculated") throw new Error("expected calculated");
@@ -143,9 +132,10 @@ describe("preservedColumnSwap — calc transitions", () => {
 	});
 
 	it("Calculated → Plain seeds the field from the target schema", () => {
-		const next = swapTo(
+		const next = preservedColumnSwap(
 			calculatedColumn(TEST_UUID, "Computed", term(literal("hi"))),
-			"Render the property value as plain text",
+			"plain",
+			CTX,
 		);
 		expect(next.kind).toBe("plain");
 		if (next.kind !== "plain") throw new Error("expected plain");
@@ -157,31 +147,36 @@ describe("preservedColumnSwap — calc transitions", () => {
 });
 
 describe("preservedColumnSwap — non-twin transitions reset extras", () => {
-	it("Plain → Interval reseeds threshold + unit + display + text from defaults", () => {
-		const next = swapTo(
+	it("Plain → Interval reseeds threshold + unit + display from defaults", () => {
+		const next = preservedColumnSwap(
 			plainColumn(TEST_UUID, "dob", "Birthday"),
-			"Show a relative interval against a date property",
+			"interval",
+			CTX,
 		);
 		expect(next.kind).toBe("interval");
 		if (next.kind !== "interval") throw new Error("expected interval");
 		expect(next.field).toBe("dob");
 		expect(next.header).toBe("Birthday");
-		// Defaults from the registry — see the `interval` entry in
-		// `columnEditorSchemas.ts`.
+		// Extras come from the `interval` schema's `defaultValue(ctx)` —
+		// a non-twin (plain) source seeds them fresh rather than carrying
+		// over. Calling the pure swap with the same `ctx` reproduces the
+		// exact factory output.
 		expect(next.threshold).toBe(7);
 		expect(next.unit).toBe("days");
 		expect(next.display).toBe("always");
 	});
 
-	it("Date → ID Mapping resets pattern but preserves field + header", () => {
-		const next = swapTo(
+	it("Date → ID Mapping resets the mapping table but preserves field + header", () => {
+		const next = preservedColumnSwap(
 			dateColumn(TEST_UUID, "dob", "Birthday", "%d-%b-%Y"),
-			"Look up a label for each property value",
+			"id-mapping",
+			CTX,
 		);
 		expect(next.kind).toBe("id-mapping");
 		if (next.kind !== "id-mapping") throw new Error("expected id-mapping");
 		expect(next.field).toBe("dob");
 		expect(next.header).toBe("Birthday");
+		// Non-twin (date) source → empty mapping table from the schema.
 		expect(next.mapping).toEqual([]);
 	});
 });

@@ -24,13 +24,21 @@
 //      reads "Submitting...", carries the spinner icon, and is
 //      disabled. The Clear button is also disabled so a re-click
 //      can't queue a second submission against a still-running one.
-//      Wire-level rejections (`new Promise(() => {})` never resolving)
-//      keep the pending state until the screen unmounts.
+//      A controllable deferred holds the action in flight for the
+//      assertion, then resolves with the success arm so the pending
+//      promise drains before teardown.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
+import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { Location } from "@/lib/routing/types";
 
 // ── Mocks ────────────────────────────────────────────────────────
@@ -602,10 +610,19 @@ describe("FormScreen — error arms render inline", () => {
 
 describe("FormScreen — pending UX", () => {
 	it("disables Submit + Clear and swaps the label to Submitting while the action is in flight", async () => {
-		/* `new Promise(() => {})` never resolves — the screen sits in
-		 *  the `running` arm long enough for the assertion. Testing
-		 *  Library unmounts on test end, dropping the dangling await. */
-		vi.mocked(submitFormAction).mockImplementation(() => new Promise(() => {}));
+		/* Stall the action via a controllable deferred so the screen sits
+		 *  in the `running` arm long enough to assert the pending UX, then
+		 *  resolve it after the assertion. A never-resolving `new Promise`
+		 *  is never destroyed — async_hooks reports it as a permanent leak
+		 *  under `--detectAsyncLeaks` — so the deferred is resolved before
+		 *  teardown to drain the in-flight submission + its awaiters. */
+		let resolveSubmit!: (value: SubmissionResult) => void;
+		vi.mocked(submitFormAction).mockImplementation(
+			() =>
+				new Promise<SubmissionResult>((resolve) => {
+					resolveSubmit = resolve;
+				}),
+		);
 
 		renderFormScreen({ formUuid: REG_FORM_UUID });
 
@@ -623,6 +640,22 @@ describe("FormScreen — pending UX", () => {
 		 *  reset against the still-running submission. */
 		const clear = screen.getByRole("button", { name: /clear form/i });
 		expect((clear as HTMLButtonElement).disabled).toBe(true);
+
+		/* Settle the action with the registration success arm so the screen
+		 *  leaves the `running` state and dispatches its post-submit
+		 *  navigation, draining the pending promise inside `act`. */
+		await act(async () => {
+			resolveSubmit({
+				kind: "registration",
+				caseId: "new-case-id",
+				childCaseIds: [],
+			});
+		});
+		/* Registration's success arm fires `navigate.goHome` — waiting on
+		 *  it confirms every follow-on async has flushed. */
+		await waitFor(() => {
+			expect(navigateMock.goHome).toHaveBeenCalledTimes(1);
+		});
 	});
 });
 
