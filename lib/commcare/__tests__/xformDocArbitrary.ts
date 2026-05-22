@@ -18,8 +18,15 @@
  * nested groups + repeats (all three repeat modes, incl. query_bound's
  * model-iteration markup), selects with duplicate option values (legal —
  * CommCare only requires the value be present), labels/hints with XML special
- * chars (`<`, `&`, markdown), relevant/constraint/calculate XPath, and the
- * four form types (registration / followup / close / survey).
+ * chars (`<`, `&`, markdown), relevant/constraint/calculate XPath, the
+ * four form types (registration / followup / close / survey), AND CommCare
+ * Connect emission — a fraction of generated docs are Connect apps
+ * (`connectType` "learn" / "deliver"), each form carrying a valid `connect`
+ * block so the emitter's `buildConnectBlocks` path is exercised. The Connect
+ * sub-config ids are minted globally-unique inline (the `runValidation`
+ * guardrail does NOT run the validate-time autofill, so an id-less block would
+ * trip the connect-id rules); the deliver `entity_id` / `entity_name` slots
+ * are left unset on purpose so the wire-emit defaults in `builder.ts` run.
  */
 
 import * as fc from "fast-check";
@@ -27,6 +34,8 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type CaseType,
+	type ConnectConfig,
+	type ConnectType,
 	type Field,
 	type Form,
 	type Module,
@@ -482,6 +491,122 @@ export function fieldSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
 	);
 }
 
+// ── Connect config generation ──────────────────────────────────────
+
+/**
+ * Per-form Connect sub-config selection, mode-discriminated.
+ *
+ * A Connect app's `connectType` ("learn" / "deliver") picks which sub-config
+ * kinds are LIVE — the emitter (`buildConnectSlugMap`) only ships blocks
+ * matching the mode, and the validator's `CONNECT_MISSING_LEARN` /
+ * `CONNECT_MISSING_DELIVER` rules require ≥1 live sub-config per form. So each
+ * form on a Connect doc carries one of the legal shapes for its mode:
+ *   - learn  → learn_module, assessment, or both;
+ *   - deliver→ deliver_unit, task, or both.
+ * Both kinds are independent (the "sub-configs are independent" contract), so
+ * the "both" shape exercises two co-located blocks emitting as `<data>`
+ * siblings — the case `buildConnectBlocks` lays out under one `<data>` parent.
+ *
+ * Scalar slots (name / description / time_estimate / user_score) are filled
+ * here because the schema requires them and nothing auto-fills them on the
+ * `runValidation` path. The deliver `entity_id` / `entity_name` are
+ * deliberately omitted so the wire-emit defaults in `builder.ts` run.
+ */
+type ConnectFormSpec =
+	| { connectType: "learn"; learnModule: boolean; assessment: boolean }
+	| { connectType: "deliver"; deliverUnit: boolean; task: boolean };
+
+/**
+ * A "≥1 sub-config" boolean pair: at least one of the two flags is true, so
+ * the form always satisfies the per-form Connect requirement. Drawn as one of
+ * the three legal combinations (first-only, second-only, both).
+ */
+const subConfigPairArb = fc.constantFrom<[boolean, boolean]>(
+	[true, false],
+	[false, true],
+	[true, true],
+);
+
+/** A learn-form sub-config selection (learn_module / assessment, ≥1). */
+const learnFormArb: fc.Arbitrary<ConnectFormSpec> = subConfigPairArb.map(
+	([learnModule, assessment]) => ({
+		connectType: "learn",
+		learnModule,
+		assessment,
+	}),
+);
+
+/** A deliver-form sub-config selection (deliver_unit / task, ≥1). */
+const deliverFormArb: fc.Arbitrary<ConnectFormSpec> = subConfigPairArb.map(
+	([deliverUnit, task]) => ({
+		connectType: "deliver",
+		deliverUnit,
+		task,
+	}),
+);
+
+/**
+ * Build a per-form `ConnectConfig` from a selection, minting each present
+ * sub-config a globally-unique id via the shared minter. The minter emits
+ * `<prefix>-<base36>`; a hyphen is NOT a legal XML element-name char
+ * (`XML_ELEMENT_NAME_REGEX`), and Connect ids become element names, so the
+ * raw uuid is unusable here — we re-shape it with an underscore separator
+ * (`cm_<n>`) which is legal and stays globally unique (the counter is shared
+ * with the field/form/module minting, so no two ids ever collide app-wide).
+ *
+ * `entity_id` / `entity_name` are left unset on the deliver_unit on purpose:
+ * that's the state the wire-emit default path in `builder.ts` fills, so
+ * omitting them is what exercises it.
+ */
+function buildConnectConfig(
+	minter: IdMinter,
+	spec: ConnectFormSpec,
+): ConnectConfig {
+	// Re-shape a minted uuid into a legal XML element name: the minter joins
+	// prefix + counter with a hyphen, but a Connect id must match
+	// `XML_ELEMENT_NAME_REGEX` (no hyphens). Swap to an underscore; the counter
+	// keeps it globally unique.
+	const connectId = (prefix: string): string =>
+		minter.uuid(prefix).replace("-", "_");
+
+	const config: ConnectConfig = {};
+	if (spec.connectType === "learn") {
+		if (spec.learnModule) {
+			config.learn_module = {
+				id: connectId("cm"),
+				name: "Learn module",
+				description: "Learn module description",
+				time_estimate: 30,
+			};
+		}
+		if (spec.assessment) {
+			config.assessment = {
+				id: connectId("ca"),
+				// A quoted literal: a valid XPath the bind emitter renders as
+				// `calculate="'100'"` (a bare `100` would also parse, but a quoted
+				// value mirrors how the SA pins a fixed score).
+				user_score: "'100'",
+			};
+		}
+		return config;
+	}
+	if (spec.deliverUnit) {
+		config.deliver_unit = {
+			id: connectId("cd"),
+			name: "Deliver unit",
+			// entity_id / entity_name omitted → wire-emit defaults run.
+		};
+	}
+	if (spec.task) {
+		config.task = {
+			id: connectId("ct"),
+			name: "Delivery task",
+			description: "Delivery task description",
+		};
+	}
+	return config;
+}
+
 // ── Form + module + doc assembly ───────────────────────────────────
 
 export const FORM_TYPES = [
@@ -492,37 +617,81 @@ export const FORM_TYPES = [
 ] as const;
 
 /**
- * The arbitrary's top-level shape: a list of modules, each with a case type, a
- * list of forms, and the field-tree specs for each form. The doc is assembled
- * deterministically from this spec so id minting + normalization happen once.
+ * The arbitrary's top-level shape: an app-level `connectType` plus a list of
+ * modules, each with a case type and a list of forms (field-tree specs + an
+ * optional per-form Connect selection). The doc is assembled deterministically
+ * from this spec so id minting + normalization happen once.
+ *
+ * `connectType` is `null` for a plain app or "learn" / "deliver" for a Connect
+ * app. When it's set, EVERY form carries a `connect` selection (`CONNECT_FORM`
+ * requires a block on every form of a Connect app); when it's `null`, no form
+ * carries one.
  */
 interface DocGenSpec {
+	connectType: ConnectType | null;
 	modules: Array<{
 		caseType: string;
-		caseListColumns: string[];
+		caseListColumns: readonly string[];
 		forms: Array<{
 			type: (typeof FORM_TYPES)[number];
 			fields: FieldGenSpec[];
+			/** Present iff the app is Connect-typed; the sub-config selection
+			 *  for this form, always mode-matched to `connectType`. */
+			connect?: ConnectFormSpec;
 		}>;
 	}>;
 }
 
-const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc.record({
-	modules: fc.array(
-		fc.record({
-			caseType: fc.constantFrom("patient", "household", "visit", "service"),
-			caseListColumns: fc.constant(["case_name"]),
-			forms: fc.array(
-				fc.record({
-					type: fc.constantFrom(...FORM_TYPES),
-					fields: fc.array(fieldSpecArb(2), { minLength: 1, maxLength: 4 }),
-				}),
-				{ minLength: 1, maxLength: 2 },
-			),
-		}),
-		{ minLength: 1, maxLength: 2 },
-	),
+/**
+ * The form spec WITHOUT its Connect selection — the connect block is layered
+ * on per-app-mode below, because its mode must match the app-level
+ * `connectType` (a learn app's forms can't carry a deliver selection).
+ */
+const formCoreArb = fc.record({
+	type: fc.constantFrom(...FORM_TYPES),
+	fields: fc.array(fieldSpecArb(2), { minLength: 1, maxLength: 4 }),
 });
+
+const moduleCoreArb = fc.record({
+	caseType: fc.constantFrom("patient", "household", "visit", "service"),
+	caseListColumns: fc.constant(["case_name"]),
+	forms: fc.array(formCoreArb, { minLength: 1, maxLength: 2 }),
+});
+
+/**
+ * Roll the app-level Connect mode (one of null / learn / deliver), then layer a
+ * mode-matched Connect selection onto every form when the app is Connect-typed.
+ * Roughly two-thirds of generated docs end up Connect (learn or deliver), split
+ * across both modes — enough to exercise `buildConnectBlocks` heavily while the
+ * remaining third keeps the non-Connect structural coverage intact.
+ */
+const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc
+	.record({
+		connectType: fc.constantFrom<ConnectType | null>(null, "learn", "deliver"),
+		modules: fc.array(moduleCoreArb, { minLength: 1, maxLength: 2 }),
+	})
+	.chain(({ connectType, modules }) => {
+		// Non-Connect app: no form carries a connect block.
+		if (connectType === null) {
+			return fc.constant<DocGenSpec>({ connectType: null, modules });
+		}
+		// Connect app: draw one mode-matched selection per form. Collect every
+		// form's selection arbitrary in document order, sample them as one
+		// tuple, then redistribute back onto the module/form tree.
+		const formArb = connectType === "learn" ? learnFormArb : deliverFormArb;
+		const perFormArbs = modules.flatMap((m) => m.forms.map(() => formArb));
+		return fc.tuple(...perFormArbs).map((selections) => {
+			let cursor = 0;
+			const withConnect = modules.map((m) => ({
+				...m,
+				forms: m.forms.map((form) => ({
+					...form,
+					connect: selections[cursor++],
+				})),
+			}));
+			return { connectType, modules: withConnect };
+		});
+	});
 
 /**
  * Lower a `DocGenSpec` into a fully normalized, SCHEMA-VALID `BlueprintDoc`.
@@ -573,6 +742,13 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				id: `f${mIdx}_${fIdx}`,
 				name: `Form ${mIdx}-${fIdx}`,
 				type: formSpec.type,
+				// Connect apps carry a per-form `connect` block (every form, per
+				// `CONNECT_FORM_MISSING_BLOCK`); ids are minted globally-unique
+				// here so the `runValidation` guardrail — which does NOT run the
+				// validate-time autofill — sees a complete, valid config.
+				...(formSpec.connect
+					? { connect: buildConnectConfig(minter, formSpec.connect) }
+					: {}),
 			};
 
 			const ctx: FieldBuildCtx = { minter, fields, fieldOrder };
@@ -639,7 +815,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	return {
 		appId: "fuzz-app",
 		appName: "Fuzz App",
-		connectType: null,
+		connectType: spec.connectType,
 		caseTypes,
 		modules,
 		forms,

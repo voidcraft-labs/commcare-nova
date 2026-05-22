@@ -23,10 +23,12 @@
  * arithmetic must disambiguate), selects with duplicate option values, the
  * relevant/required/constraint/calculate/default_value/hint XPath surfaces, and
  * case-bearing forms (so case-block injection runs in the compileCcz pass). It
- * does NOT yet generate module-level `caseSearchConfig`, `form_links`, Connect
- * configs, or multi-language itext — those are suite-emission / app-shape
- * surfaces outside the XForm parse-time oracle's scope, and out of scope for
- * this fuzzer until those oracles exist.
+ * also generates CommCare Connect apps (learn + deliver, every sub-config
+ * shape), so `buildConnectBlocks`'s data + bind emission is exercised here too.
+ * It does NOT yet generate module-level `caseSearchConfig`, `form_links`, or
+ * multi-language itext — those are suite-emission / app-shape surfaces outside
+ * the XForm parse-time oracle's scope, and out of scope for this fuzzer until
+ * those oracles exist.
  *
  * Seeded for reproducibility; 500 runs to be meaningful without ballooning CI.
  */
