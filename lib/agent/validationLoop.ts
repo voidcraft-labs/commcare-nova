@@ -5,8 +5,10 @@
  *   1. Domain validation — structural/semantic rules + XPath deep
  *      validation run directly on `BlueprintDoc`.
  *   2. Post-expansion validation — `expandDoc` produces the HQ import
- *      JSON + XForm attachments; the XForm XML is parsed and its
- *      internal references verified.
+ *      JSON + XForm attachments; the HQ-JSON oracle checks the import
+ *      shape and each form's XForm oracle checks the parse-time contract.
+ *      These oracles prove the emitter total; a failure is a generator
+ *      bug, not a fixable authoring state, so no auto-fix runs on them.
  *
  * Auto-fixes from the fix registry produce domain `Mutation`s, which are
  * applied to the working doc between validation attempts via the same
