@@ -164,6 +164,22 @@ export type ValidationErrorCode =
 	| "SUITE_SORT_BAD_DIRECTION"
 	| "SUITE_SORT_BAD_TYPE"
 	| "SUITE_SORT_BAD_BLANKS"
+	// HQ import JSON (post-expansion) — the deserialization (`Application.wrap`)
+	// contract. A violation here makes CCHQ's CouchDB `DocumentSchema` wrap raise
+	// `BadValueError` / `ValueError` and rejects the whole app at import. A
+	// generator that trips one is an `expandDoc` bug, never a fixable authoring
+	// state.
+	| "HQJSON_BAD_DOC_TYPE"
+	| "HQJSON_BAD_MODULE_DOC_TYPE"
+	| "HQJSON_BAD_FORM_DOC_TYPE"
+	| "HQJSON_BAD_CONDITION_TYPE"
+	| "HQJSON_BAD_CONDITION_OPERATOR"
+	| "HQJSON_BAD_FORM_REQUIRES"
+	| "HQJSON_BAD_POST_FORM_WORKFLOW"
+	| "HQJSON_BAD_UPDATE_MODE"
+	| "HQJSON_BAD_SUBCASE_RELATIONSHIP"
+	| "HQJSON_BAD_DETAIL_DISPLAY"
+	| "HQJSON_BAD_TYPE"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"

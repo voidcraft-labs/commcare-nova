@@ -34,6 +34,7 @@ import {
 	type ValidationError,
 } from "@/lib/commcare/validator/errors";
 import { FIX_REGISTRY } from "@/lib/commcare/validator/fixes";
+import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { deriveConnectDefaults } from "@/lib/doc/connectConfig";
@@ -46,15 +47,21 @@ import type { ToolExecutionContext } from "./toolExecutionContext";
 // ── Post-expansion validation ────────────────────────────────────────
 
 /**
- * Validate all XForm attachments in the expanded HQ JSON. The XML attachment
- * keys match the form's CommCare `unique_id` — we walk them positionally
- * against the doc so every error carries the right form/module name.
+ * Validate the expanded HQ JSON on two surfaces: the import-deserialization
+ * contract (`validateHqJson` mirrors `Application.wrap`'s FATAL shape), and the
+ * XForm parse-time contract on every attachment (`validateXForm` mirrors
+ * JavaRosa's `XFormParser`). The XML attachment keys match the form's CommCare
+ * `unique_id` — we walk them positionally against the doc so every form-scoped
+ * error carries the right form/module name.
  */
 function validateExpansion(
 	hqJson: HqApplication,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	const errors: ValidationError[] = [];
+	// The HQ-JSON oracle reads the typed application structure directly — it's
+	// app-scoped, so it runs once over the whole expansion before the per-form
+	// XForm walk.
+	const errors: ValidationError[] = validateHqJson(hqJson);
 
 	for (let mIdx = 0; mIdx < hqJson.modules.length; mIdx++) {
 		const hqMod = hqJson.modules[mIdx];
