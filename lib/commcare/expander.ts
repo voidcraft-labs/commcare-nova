@@ -130,9 +130,8 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 
 	// Resolve the per-form Connect configs for emission. `buildConnectSlugMap`
 	// is a typed pass-through — connect ids are already valid + unique + ≤50
-	// by construction (creation autofill + the UI/tool guards; legacy data is
-	// healed by `scripts/migrate-connect-ids.ts`), so it asserts each id is
-	// present and narrows the type without transforming. Both the XForm
+	// by construction (creation autofill + the UI/tool guards), so it asserts
+	// each id is present and narrows the type without transforming. Both the XForm
 	// builder and the case-references load map below read the same per-form
 	// config so their data paths agree. Empty for non-Connect apps.
 	const connectSlugs = buildConnectSlugMap(doc);

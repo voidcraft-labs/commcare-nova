@@ -195,11 +195,10 @@ export type ResolvedConnectConfig = {
  * fallback. Every connect id is forced valid (legal element name + ≤50 +
  * unique) at the SOURCE: `deriveConnectId` autofills, `connectIdError` +
  * `connectIdConflictError` reject bad input at the UI commit guard and the
- * SA tools, the validate-time pass backfills an id-less block, and
- * `scripts/migrate-connect-ids.ts` heals legacy apps. So a block reaching
- * emission with a missing OR invalid id (over-length / bad characters) is an
- * invariant violation — an entry point skipped that enforcement, or an
- * unhealed/stale doc slipped through. We throw loud rather than papering
+ * SA tools, and the validate-time pass backfills an id-less block. So a block
+ * reaching emission with a missing OR invalid id (over-length / bad
+ * characters) is an invariant violation — an entry point skipped that
+ * enforcement. We throw loud rather than papering
  * over it: silently capping or sanitizing here would corrupt the wire (a
  * different id than the doc records). The throw converts any such gap into a
  * caught error rather than a corrupt wire — the compile/upload routes catch
@@ -213,13 +212,13 @@ function narrowId<T extends { id?: string }>(
 ): Resolved<T> {
 	if (!sub.id) {
 		throw new Error(
-			`A Connect ${kind} block reached emission with no id. Every connect id is supposed to be filled and validated at the source (creation autofill + the field / tool guards + the legacy-data migration). Reaching here with a blank id means an entry point skipped that enforcement — look at where this block was created or last edited.`,
+			`A Connect ${kind} block reached emission with no id. Every connect id is supposed to be filled and validated at the source (creation autofill + the field / tool guards). Reaching here with a blank id means an entry point skipped that enforcement — look at where this block was created or last edited.`,
 		);
 	}
 	const reason = connectIdError(sub.id);
 	if (reason) {
 		throw new Error(
-			`A Connect ${kind} block reached emission with an invalid id: ${reason} The resolver does not fix ids — they're enforced valid at the source (creation autofill + the field / tool guards + the legacy-data migration). An invalid id here means an unhealed or stale doc slipped through; heal it before export.`,
+			`A Connect ${kind} block reached emission with an invalid id: ${reason} The resolver does not fix ids — they're enforced valid at the source (creation autofill + the field / tool guards). An invalid id here means a doc skipped that enforcement; find the entry point that wrote it.`,
 		);
 	}
 	return { ...sub, id: sub.id };
@@ -259,7 +258,7 @@ export function buildConnectSlugMap(
 		const priorSite = idToSite.get(id);
 		if (priorSite) {
 			throw new Error(
-				`Two Connect blocks share the id "${id}" — ${priorSite} and ${site}. Connect ids must be unique across the app (they key the per-kind DB slug and the XForm element name). This should be rejected at the source (the field / tool guards + the CONNECT_ID_DUPLICATE validator rule); reaching emission with a duplicate means an unhealed or stale doc slipped through.`,
+				`Two Connect blocks share the id "${id}" — ${priorSite} and ${site}. Connect ids must be unique across the app (they key the per-kind DB slug and the XForm element name). This should be rejected at the source (the field / tool guards + the CONNECT_ID_DUPLICATE validator rule); reaching emission with a duplicate means a doc skipped that enforcement.`,
 			);
 		}
 		idToSite.set(id, site);
