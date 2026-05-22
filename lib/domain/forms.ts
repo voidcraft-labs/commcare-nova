@@ -107,10 +107,9 @@ export type FormLink = z.infer<typeof formLinkSchema>;
 // invariant — every connect id is present, a legal XML element name, ≤50
 // chars, and unique across the app by the time it's emitted — is enforced at
 // RUNTIME, not by this type: `deriveConnectId` autofills at creation, the
-// UI/tool guards reject bad explicit input, the legacy-data migration heals
-// existing apps, and `buildConnectSlugMap`'s `narrowId` is the emit-time
-// tripwire that throws if a block somehow reaches the wire id-less. Don't
-// tighten this to required.
+// UI/tool guards reject bad explicit input, and `buildConnectSlugMap`'s
+// `narrowId` is the emit-time tripwire that throws if a block somehow reaches
+// the wire id-less. Don't tighten this to required.
 const connectLearnModuleSchema = z
 	.object({
 		id: z.string().optional(),

@@ -167,8 +167,8 @@ describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
 	it("throws on a present-but-over-length id (it does NOT cap)", () => {
 		// The resolver is the emit invariant: a valid id or a loud throw. An
 		// over-length id is NOT silently capped here — that would corrupt the
-		// wire. Source-enforcement + the migration keep ids ≤50; this catches
-		// any gap (stale session, unhealed app) before it reaches CommCare.
+		// wire. Source-enforcement keeps ids ≤50; this is the tripwire that
+		// catches any gap before it reaches CommCare.
 		const overLength = "a".repeat(CONNECT_SLUG_MAX_LENGTH + 10);
 		const doc = buildDoc({
 			connectType: "learn",
@@ -523,12 +523,12 @@ describe("Connect id — end-to-end XForm consistency", () => {
 		]);
 	});
 
-	it("throws (not silently corrupts) when an unhealed over-length id reaches expandDoc", () => {
-		// The emit boundary: an unhealed doc (over-length connect id) makes
+	it("throws (not silently corrupts) when an over-length id reaches expandDoc", () => {
+		// The emit boundary: a doc carrying an over-length connect id makes
 		// `expandDoc` throw via `narrowId`, so the compile/upload routes catch
 		// it and return a clean error instead of shipping a corrupt wire.
 		const doc = buildDoc({
-			appName: "Unhealed",
+			appName: "Over-length id",
 			connectType: "learn",
 			modules: [
 				{
