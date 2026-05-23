@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
-import { act, render, renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	DragStateProvider,
 	useIsDragActive,
@@ -12,6 +12,14 @@ import {
 const wrapper = ({ children }: { children: ReactNode }) => (
 	<DragStateProvider>{children}</DragStateProvider>
 );
+
+const controlledWrapper =
+	(isActive: boolean, setActive: (next: boolean) => void) =>
+	({ children }: { children: ReactNode }) => (
+		<DragStateProvider isActive={isActive} setActive={setActive}>
+			{children}
+		</DragStateProvider>
+	);
 
 describe("DragStateContext", () => {
 	it("returns false by default inside the provider", () => {
@@ -44,25 +52,18 @@ describe("DragStateContext", () => {
 	});
 
 	it("reflects controlled props when isActive and setActive are passed", () => {
-		const setActive = vi.fn();
+		// Controlled-mode contract: when `isActive` and `setActive` are passed to
+		// the provider, `useIsDragActive` reads from the prop (no internal state).
+		// Hook-only assertion — no DOM rendering or text matching needed.
+		const noop = (_: boolean) => undefined;
+		const active = renderHook(() => useIsDragActive(), {
+			wrapper: controlledWrapper(true, noop),
+		});
+		expect(active.result.current).toBe(true);
 
-		/** Probe component that renders the drag-active state as text. */
-		function ControlledProbe() {
-			return <>{useIsDragActive() ? "active" : "inactive"}</>;
-		}
-
-		const { container, rerender } = render(
-			<DragStateProvider isActive={true} setActive={setActive}>
-				<ControlledProbe />
-			</DragStateProvider>,
-		);
-		expect(container.textContent).toBe("active");
-
-		rerender(
-			<DragStateProvider isActive={false} setActive={setActive}>
-				<ControlledProbe />
-			</DragStateProvider>,
-		);
-		expect(container.textContent).toBe("inactive");
+		const inactive = renderHook(() => useIsDragActive(), {
+			wrapper: controlledWrapper(false, noop),
+		});
+		expect(inactive.result.current).toBe(false);
 	});
 });

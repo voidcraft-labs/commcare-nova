@@ -18,13 +18,6 @@
 //     this primitive surfaces the rejection inline so users see it
 //     before save, not as a deferred parse failure at the
 //     persistence boundary.
-//
-// Why one primitive: the two cards' previous near-duplicates were
-// drifting structurally. A polish-pass added the empty-pattern
-// signal to one and not the other, leaving column-side authors
-// able to commit a silently-empty pattern that rendered the raw
-// ISO string at the wire boundary. Sharing the surface makes that
-// drift impossible.
 
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -75,6 +68,38 @@ interface CustomDatePatternInputProps {
 }
 
 /**
+ * True when `value` exactly matches one of the supplied preset
+ * patterns. Drives the preset-vs-custom mode toggle: a matching value
+ * renders the preset row, a non-matching value renders the free-text
+ * input.
+ */
+export function isPresetPattern(
+	value: string,
+	presets: readonly DatePatternPreset[],
+): boolean {
+	for (const preset of presets) {
+		if (preset.pattern === value) return true;
+	}
+	return false;
+}
+
+/**
+ * Validate a custom pattern draft at commit time. The schema declares
+ * `z.string().min(1)`, so a draft that's empty (or trims to empty) is
+ * rejected before reaching the schema — surfaced inline as a "cannot
+ * be empty" error rather than as a save-time parse failure.
+ *
+ * Returns the verdict shape so callers can render the inline error
+ * message and refuse the commit in one branch.
+ */
+export type DatePatternVerdict = { kind: "ok" } | { kind: "empty" };
+
+export function validateCustomDatePattern(draft: string): DatePatternVerdict {
+	if (draft.trim() === "") return { kind: "empty" };
+	return { kind: "ok" };
+}
+
+/**
  * Preset-row + custom-input pair driving a CCHQ format-date
  * pattern slot. Owns the full UX for the slot — both consumers
  * mount it and forward the user's commit through their own
@@ -86,8 +111,7 @@ export function CustomDatePatternInput({
 	presets,
 	customSeed = "%d-%b-%Y",
 }: CustomDatePatternInputProps) {
-	const presetPatterns = new Set(presets.map((p) => p.pattern));
-	const isPreset = presetPatterns.has(value);
+	const isPreset = isPresetPattern(value, presets);
 	return (
 		<div className="space-y-1.5">
 			<PresetRow
@@ -205,11 +229,8 @@ function CustomInput({ value, onChange }: CustomInputProps) {
 		}
 	}, [initial, draft]);
 	const commit = useCallback(() => {
-		if (draft.trim() === "") {
-			// Empty draft — surface the schema's `min(1)` rejection
-			// inline and refuse the emit. The user sees the message +
-			// red border; the next keystroke clears the error per the
-			// onChange handler below.
+		const verdict = validateCustomDatePattern(draft);
+		if (verdict.kind === "empty") {
 			setShowEmptyError(true);
 			return;
 		}

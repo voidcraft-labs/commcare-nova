@@ -40,21 +40,24 @@ import tablerColumns from "@iconify-icons/tabler/columns";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useCallback, useState } from "react";
+import {
+	appendPlainColumnSeed,
+	appendSearchInputSeed,
+	buildDisplayStatus,
+	buildFilterStatus,
+	buildSearchStatus,
+	countConditions,
+	type FilterPreviewStats,
+	seedMatchAllFilter,
+} from "@/lib/doc/caseListWorkspaceStatus";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseListWorkspaceState } from "@/lib/doc/hooks/useCaseListSummary";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import type { Uuid } from "@/lib/doc/types";
-import {
-	type CaseListConfig,
-	type Column,
-	plainColumn,
-	simpleSearchInputDef,
-} from "@/lib/domain";
-import { matchAll, type Predicate } from "@/lib/domain/predicate";
+import type { CaseListConfig } from "@/lib/domain";
 import { useAppId } from "@/lib/session/hooks";
 import { CaseListSectionHeader } from "./CaseListSectionHeader";
 import { DisplaySection } from "./DisplaySection";
-import type { FilterPreviewStats } from "./FiltersPreview";
 import { FiltersSection } from "./FiltersSection";
 import { SearchInputsSection } from "./SearchInputsSection";
 import { newUuid } from "./uuid";
@@ -136,26 +139,13 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 	const ct = caseTypes.find((c) => c.name === caseType);
 	const firstProperty = ct?.properties[0]?.name ?? "";
 	const handleAddFirstColumn = useCallback(() => {
-		handleConfigChange({
-			...config,
-			columns: [...config.columns, plainColumn(newUuid(), firstProperty, "")],
-		});
+		handleConfigChange(appendPlainColumnSeed(config, firstProperty, newUuid()));
 	}, [handleConfigChange, config, firstProperty]);
 	const handleAddFirstFilter = useCallback(() => {
-		handleConfigChange({ ...config, filter: matchAll() });
+		handleConfigChange(seedMatchAllFilter(config));
 	}, [handleConfigChange, config]);
 	const handleAddFirstSearchInput = useCallback(() => {
-		const seed = simpleSearchInputDef(
-			newUuid(),
-			"input_1",
-			"",
-			"text",
-			firstProperty,
-		);
-		handleConfigChange({
-			...config,
-			searchInputs: [...config.searchInputs, seed],
-		});
+		handleConfigChange(appendSearchInputSeed(config, firstProperty, newUuid()));
 	}, [handleConfigChange, config, firstProperty]);
 
 	// Status-line text. Direct calls — no `useMemo` on simple counts.
@@ -369,130 +359,4 @@ function EmptyStateCard({
 			</button>
 		</div>
 	);
-}
-
-// ── Status-line builders ──────────────────────────────────────────
-//
-// Pure helpers that turn doc-store-shallow primitives into the
-// status text each section header displays. Defined outside the
-// component so reordering / adding a section doesn't require
-// editing the render body twice. The builders return strings, so
-// prop-comparison handles re-render avoidance — no memoization
-// per the workspace's status-line precision rule.
-
-interface DisplayStatusInput {
-	readonly columnCount: number;
-	readonly sortedColumnCount: number;
-	readonly firstSortedColumn: Column | undefined;
-}
-
-/**
- * Display section status line. Empty case is verbose-guidance
- * shape so the user immediately knows the section's purpose
- * without needing the empty-state card to appear in the section
- * header itself. Populated case mirrors
- * "{N} columns · sorted by {summary}".
- */
-function buildDisplayStatus(input: DisplayStatusInput): string {
-	if (input.columnCount === 0) {
-		return "No columns yet — add columns to define what users see in the case list.";
-	}
-	const columnText = `${input.columnCount} ${input.columnCount === 1 ? "column" : "columns"}`;
-	if (input.sortedColumnCount === 0 || !input.firstSortedColumn) {
-		return `${columnText} · no sort`;
-	}
-	const sortLabel = describeSortedColumn(input.firstSortedColumn);
-	const tieBreakers =
-		input.sortedColumnCount > 1
-			? ` (+${input.sortedColumnCount - 1} tiebreaker${input.sortedColumnCount > 2 ? "s" : ""})`
-			: "";
-	return `${columnText} · sorted by ${sortLabel}${tieBreakers}`;
-}
-
-/** Compact one-line description for the primary-sort column. The
- *  arrow glyph mirrors the convention used elsewhere in the editor.
- *  Calculated columns surface their header (the only authored
- *  identity); other kinds prefer their field name (the wire-form
- *  property the sort comparator binds to). */
-function describeSortedColumn(column: Column): string {
-	const sourceLabel =
-		column.kind === "calculated" ? column.header || "calculated" : column.field;
-	const direction = column.sort?.direction ?? "asc";
-	const directionGlyph = direction === "asc" ? "↑" : "↓";
-	return `${sourceLabel} ${directionGlyph}`;
-}
-
-/**
- * Count user-meaningful conditions in a filter predicate. The
- * derivation policy:
- *
- *   - `undefined` (no filter slot) → 0
- *   - `match-all` / `match-none` → 0 (sentinels carry no
- *     user-meaningful condition; they're identity / absorbing
- *     elements of the boolean algebra)
- *   - `and` / `or` → the clause count (each clause is one
- *     condition the user authored)
- *   - every other operator (eq / between / exists / match / …) → 1
- *
- * The status line's count is an at-a-glance summary, not a deep
- * AST walk — a nested `and(eq, or(eq, eq))` reads as "two
- * conditions" because the outer `and` carries two clauses, even
- * though one of them is itself a compound expression. That's the
- * same shape the inner predicate editor surfaces in its top-level
- * card list.
- */
-function countConditions(filter: Predicate | undefined): number {
-	if (!filter) return 0;
-	if (filter.kind === "match-all" || filter.kind === "match-none") return 0;
-	if (filter.kind === "and" || filter.kind === "or") {
-		return filter.clauses.length;
-	}
-	return 1;
-}
-
-interface FilterStatusInput {
-	readonly hasFilter: boolean;
-	readonly conditionCount: number;
-	readonly filterStats: FilterPreviewStats | null;
-}
-
-/**
- * Filter section status line. Three states:
- *
- *   - No filter slot configured → "No filter — all cases shown."
- *   - Filter present, preview load not yet resolved →
- *     "{N} condition(s) · …" (em-dash placeholder so the line
- *     doesn't flicker on every load tick).
- *   - Filter present, preview load resolved →
- *     "{N} condition(s) · {totalCount} cases match".
- */
-function buildFilterStatus(input: FilterStatusInput): string {
-	if (!input.hasFilter) return "No filter — all cases shown.";
-	const conditionWord = input.conditionCount === 1 ? "condition" : "conditions";
-	const conditionText = `${input.conditionCount} ${conditionWord}`;
-	if (input.filterStats === null) return `${conditionText} · …`;
-	const { totalCount } = input.filterStats;
-	const caseWord = totalCount === 1 ? "case" : "cases";
-	return `${conditionText} · ${totalCount} ${caseWord} match`;
-}
-
-interface SearchStatusInput {
-	readonly searchInputCount: number;
-	readonly searchInputDefaultCount: number;
-}
-
-/**
- * Search section status line. When inputs are present, append a
- * tally of those carrying a default-value expression — defaults
- * are visible in the runtime widget on first render and so are
- * worth surfacing in the section's at-a-glance summary.
- */
-function buildSearchStatus(input: SearchStatusInput): string {
-	if (input.searchInputCount === 0) {
-		return "No search inputs — list-only view (no inline search bar).";
-	}
-	const inputText = `${input.searchInputCount} ${input.searchInputCount === 1 ? "input" : "inputs"}`;
-	if (input.searchInputDefaultCount === 0) return inputText;
-	const valueWord = input.searchInputDefaultCount === 1 ? "value" : "values";
-	return `${inputText} · ${input.searchInputDefaultCount} with default ${valueWord}`;
 }

@@ -251,14 +251,26 @@ function OptionsEditorWidget({
 }
 
 /**
+ * Adapter-boundary clamp for the options array. The single-select /
+ * multi-select schemas declare `.min(2)` on `options`; any sub-minimum
+ * draft would fail re-validation on the next write. The clamp collapses
+ * such drafts to `undefined`, which the reducer treats as a removal
+ * patch (the only round-trip-safe shape for "not set yet").
+ */
+export function clampOptionsBelowMin(
+	next: readonly SelectOption[],
+): readonly SelectOption[] | undefined {
+	return next.length >= 2 ? next : undefined;
+}
+
+/**
  * Declarative FieldEditorComponent adapter.
  *
- * Empties and single-option drafts collapse to `undefined`; the
- * single-select / multi-select schemas declare `.min(2)` on
- * `options`, so any smaller list would fail re-validation on the
- * next write. Treating `undefined` as "not set yet" is the only
- * round-trip-safe value for a sub-minimum draft — the reducer
- * interprets it as a removal patch.
+ * Empties and single-option drafts collapse to `undefined` via
+ * `clampOptionsBelowMin`; the single-select / multi-select schemas
+ * declare `.min(2)` on `options`, and treating `undefined` as "not
+ * set yet" is the only round-trip-safe shape for a sub-minimum draft
+ * — the reducer interprets it as a removal patch.
  *
  * The `as F["options" & keyof F]` cast is needed because the generic
  * `onChange(next: F[K])` is an indexed-access write; every kind that
@@ -275,13 +287,9 @@ export function OptionsEditor<F extends Field>(
 			<OptionsEditorWidget
 				options={current}
 				autoFocus={autoFocus}
-				onSave={(next) => {
-					// Enforce the schema's `min(2)` at the adapter boundary —
-					// any sub-minimum draft becomes `undefined` (removal patch).
-					const persisted =
-						next.length >= 2 ? next : (undefined as SelectOption[] | undefined);
-					onChange(persisted as F["options" & keyof F]);
-				}}
+				onSave={(next) =>
+					onChange(clampOptionsBelowMin(next) as F["options" & keyof F])
+				}
 			/>
 		</div>
 	);

@@ -193,7 +193,7 @@ type NameState =
 	 *  silently overwrite. */
 	| { kind: "duplicate"; firstIndex: number };
 
-interface ResolvedRow {
+export interface ResolvedRow {
 	readonly nameState: NameState;
 	readonly labelEmpty: boolean;
 	/** Type-coupling diagnostics — empty when the picked
@@ -208,7 +208,7 @@ interface ResolvedRow {
  * `caseTypes` + `currentCaseType` context. Builds the
  * `firstIndexByName` map up-front so the per-row pass stays O(n).
  */
-function resolveRows(
+export function resolveRows(
 	value: readonly SearchInputDef[],
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
@@ -308,7 +308,7 @@ function resolveDestinationCaseType(
  * mode vs property data-type, mode vs widget-kind (covers persisted
  * docs that drifted past the editor's own picker filtering).
  */
-function computeTypeCouplingErrors(
+export function computeTypeCouplingErrors(
 	row: SimpleSearchInputDef,
 	property: CaseProperty | undefined,
 ): readonly string[] {
@@ -351,7 +351,7 @@ function computeTypeCouplingErrors(
 	return errors;
 }
 
-function rowHasStructuralError(resolved: ResolvedRow): boolean {
+export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 	if (resolved.nameState.kind !== "ok") return true;
 	if (resolved.labelEmpty) return true;
 	if (resolved.typeCouplingErrors.length > 0) return true;
@@ -1084,7 +1084,7 @@ function AdvancedArmBody({
  * predicate seed. The constructed shape parses through the
  * predicate schema's `eq`-arm `comparisonSchema`.
  */
-function seedAdvancedPredicate(
+export function seedAdvancedPredicate(
 	row: SimpleSearchInputDef,
 	currentCaseType: string,
 ): Predicate {
@@ -1103,7 +1103,7 @@ function seedAdvancedPredicate(
 // the row's existing arm and threads the patch through the matching
 // builder so the output shape stays in lockstep with the schema.
 
-interface RowPatch {
+export interface RowPatch {
 	readonly name?: string;
 	readonly label?: string;
 	readonly type?: SearchInputType;
@@ -1113,7 +1113,10 @@ interface RowPatch {
 	readonly default?: ValueExpression | undefined;
 }
 
-function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
+export function rebuildRow(
+	value: SearchInputDef,
+	patch: RowPatch,
+): SearchInputDef {
 	if (value.kind === "simple") {
 		const property = "property" in patch ? patch.property : value.property;
 		const via = "via" in patch ? patch.via : value.via;

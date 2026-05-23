@@ -8,6 +8,18 @@ import type {
 } from "@/lib/domain/kinds";
 
 /**
+ * Tiny dispatch-gate for "clear an optional key" handlers. When the
+ * current value is already `undefined` the key is already absent; a
+ * fresh `undefined` dispatch would be a redundant write and stamp an
+ * undo-history entry for a passive interaction (focus-blur-without-
+ * typing). The gate returns `true` only when there's actually something
+ * to clear.
+ */
+export function shouldDispatchClear(currentValue: unknown): boolean {
+	return currentValue !== undefined;
+}
+
+/**
  * TextEditor — declarative editor for plain-string field keys.
  *
  * Adapts the shared EditableText commit/blur UX to the
@@ -55,9 +67,7 @@ export function TextEditor<F extends Field, K extends OptionalStringKeys<F>>(
 	);
 
 	const handleEmpty = useCallback(() => {
-		// Skip the dispatch when the key is already absent — there is
-		// nothing to clear. See the file header for the full rationale.
-		if (value === undefined) return;
+		if (!shouldDispatchClear(value)) return;
 		onChange(undefined as F[K]);
 	}, [onChange, value]);
 

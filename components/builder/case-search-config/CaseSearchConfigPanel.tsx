@@ -82,7 +82,7 @@ export interface CaseSearchConfigPanelProps {
  * The helper exists for the case-search panel's cross-binding write
  * so the surfaces don't duplicate the seed logic.
  */
-function nextCaseListConfigFromSearchInputs(
+export function nextCaseListConfigFromSearchInputs(
 	current: CaseListConfig | undefined,
 	nextInputs: readonly SearchInputDef[],
 ): CaseListConfig {

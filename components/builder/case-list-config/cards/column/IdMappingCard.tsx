@@ -33,10 +33,15 @@ import {
 	type Column,
 	type IdMappingEntry,
 	idMappingColumn,
-	idMappingEntry,
 } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
+import {
+	appendMappingEntry,
+	moveMappingEntry,
+	patchMappingEntry,
+	removeMappingEntry,
+} from "./idMappingMutations";
 
 interface IdMappingCardProps {
 	readonly value: Extract<Column, { kind: "id-mapping" }>;
@@ -64,31 +69,16 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 			idMappingColumn(value.uuid, value.field, value.header, next, slots),
 		);
 
-	const updateEntry = (index: number, patch: Partial<IdMappingEntry>) => {
-		const next = value.mapping.map((entry, i) =>
-			i === index ? { ...entry, ...patch } : entry,
-		);
-		setMapping(next);
-	};
+	const updateEntry = (index: number, patch: Partial<IdMappingEntry>) =>
+		setMapping(patchMappingEntry(value.mapping, index, patch));
 
-	const removeEntry = (index: number) => {
-		setMapping(value.mapping.filter((_, i) => i !== index));
-	};
+	const removeEntry = (index: number) =>
+		setMapping(removeMappingEntry(value.mapping, index));
 
-	const moveEntry = (from: number, to: number) => {
-		// Bounds check — the buttons disable at the boundaries, but
-		// the guard catches any caller that bypasses the disabled
-		// state (programmatic test invocations, keyboard sequencing).
-		if (to < 0 || to >= value.mapping.length || from === to) return;
-		const next = [...value.mapping];
-		const [moved] = next.splice(from, 1);
-		next.splice(to, 0, moved);
-		setMapping(next);
-	};
+	const moveEntry = (from: number, to: number) =>
+		setMapping(moveMappingEntry(value.mapping, from, to));
 
-	const appendEntry = () => {
-		setMapping([...value.mapping, idMappingEntry("", "")]);
-	};
+	const appendEntry = () => setMapping(appendMappingEntry(value.mapping));
 
 	return (
 		<div className="space-y-2">
