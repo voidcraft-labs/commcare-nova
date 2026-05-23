@@ -371,28 +371,41 @@ export async function createApp(
 	return ref.id;
 }
 
+// ── Blueprint snapshot writers ─────────────────────────────────────
+//
+// `completeApp`, `updateApp`, and `updateAppForRun` all overwrite the
+// blueprint + denormalized summary fields on an existing app row. They
+// use Firestore `update()` so the top-level `blueprint` map is replaced
+// wholesale — the Firestore client's `ignoreUndefinedProperties: true`
+// strips cleared nested keys from the payload, and `update()` (unlike
+// `set + merge: true`) does not deep-merge nested maps, so a caller-
+// cleared form/module/field property is gone after the write. Top-level
+// fields the payload does not carry are untouched, which is why each
+// writer below lists exactly the keys it writes — that list IS the
+// scope of the write.
+//
+// Every call site is fronted by a `createApp` write that materializes
+// the row, so `update()`'s "doc must exist" precondition holds.
+
 /**
- * Update an app with the final validated doc on generation success.
+ * Finalize an app on generation success.
  *
- * Called by validateApp after the build pipeline completes. Updates the
- * blueprint, denormalized fields, status, and run_id — preserves
- * created_at and owner.
+ * Writes blueprint, denormalized summary fields, `status: "complete"`,
+ * `run_id`, and `updated_at`. Called by `validateApp` after the build
+ * pipeline completes.
  */
 export async function completeApp(
 	appId: string,
 	doc: PersistableDoc,
 	runId: string,
 ): Promise<void> {
-	await docs.app(appId).set(
-		{
-			...denormalize(doc),
-			blueprint: doc,
-			status: "complete",
-			run_id: runId,
-			updated_at: FieldValue.serverTimestamp(),
-		},
-		{ merge: true },
-	);
+	await docs.app(appId).update({
+		...denormalize(doc),
+		blueprint: doc,
+		status: "complete",
+		run_id: runId,
+		updated_at: FieldValue.serverTimestamp(),
+	});
 }
 
 /**
@@ -416,64 +429,52 @@ export function failApp(appId: string, errorType: ErrorType): void {
 }
 
 /**
- * Merge-update an existing app with a new normalized doc snapshot.
+ * Replace the blueprint + summary on an existing app row.
  *
- * Called by both the client-side auto-save route (`PUT /api/apps/{id}`)
- * after user edits and by `GenerationContext.saveBlueprint` for
- * intermediate saves during generation. Accepts `PersistableDoc` (the
- * Zod-validated on-disk shape without `fieldParent`) so the route can
- * pass `blueprintDocSchema.safeParse` results directly. `BlueprintDoc`
+ * Writes blueprint, denormalized summary fields, and `updated_at`.
+ * Called by the auto-save route (`PUT /api/apps/{id}`) after user edits
+ * and by `GenerationContext.saveBlueprint` for intermediate saves
+ * during generation. Accepts `PersistableDoc` (the Zod-validated
+ * on-disk shape without `fieldParent`) so the route can pass
+ * `blueprintDocSchema.safeParse` results directly. `BlueprintDoc`
  * (in-memory with `fieldParent`) is also assignable since it extends
  * `PersistableDoc`.
- *
- * Only touches the blueprint, denormalized fields, and updated_at —
- * preserves created_at, owner, run_id, and status from the original
- * save.
  */
 export async function updateApp(
 	appId: string,
 	doc: PersistableDoc,
 ): Promise<void> {
-	await docs.app(appId).set(
-		{
-			...denormalize(doc),
-			blueprint: doc,
-			updated_at: FieldValue.serverTimestamp(),
-		},
-		{ merge: true },
-	);
+	await docs.app(appId).update({
+		...denormalize(doc),
+		blueprint: doc,
+		updated_at: FieldValue.serverTimestamp(),
+	});
 }
 
 /**
- * Merge-update an app during an MCP tool call, overwriting the
- * server-derived `run_id` along with the blueprint snapshot.
+ * Replace the blueprint + summary during an MCP tool call, also
+ * overwriting the server-derived `run_id`.
  *
- * The MCP surface groups event-log rows by a `run_id` that the server
- * derives from the app's own state (see `lib/mcp/runId.ts`) — clients
- * never supply one. Every event-writing MCP tool call persists the
- * current run's id back onto the app doc so (a) the next tool call
- * within the sliding window sees the same id and reuses it, and (b) the
- * app doc carries an always-current pointer to the latest run for
- * admin-surface display.
- *
- * Otherwise identical to `updateApp` — merges the blueprint,
- * denormalized fields, and `updated_at`. Run-id persistence is the only
- * addition.
+ * Writes blueprint, denormalized summary fields, `run_id`, and
+ * `updated_at`. The MCP surface groups event-log rows by a `run_id`
+ * that the server derives from the app's own state (see
+ * `lib/mcp/runId.ts`) — clients never supply one. Every event-writing
+ * MCP tool call persists the current run's id back onto the app doc so
+ * (a) the next tool call within the sliding window sees the same id
+ * and reuses it, and (b) the app doc carries an always-current pointer
+ * to the latest run for admin-surface display.
  */
 export async function updateAppForRun(
 	appId: string,
 	doc: PersistableDoc,
 	runId: string,
 ): Promise<void> {
-	await docs.app(appId).set(
-		{
-			...denormalize(doc),
-			blueprint: doc,
-			run_id: runId,
-			updated_at: FieldValue.serverTimestamp(),
-		},
-		{ merge: true },
-	);
+	await docs.app(appId).update({
+		...denormalize(doc),
+		blueprint: doc,
+		run_id: runId,
+		updated_at: FieldValue.serverTimestamp(),
+	});
 }
 
 /**
