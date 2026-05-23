@@ -152,17 +152,18 @@ function latestFlushSpy(): ReturnType<typeof vi.fn> {
 	return instance.flush;
 }
 
-beforeEach(() => {
-	vi.mocked(loadApp).mockReset();
-	LogWriterMock.instances = [];
-	/* Default: app loads owned by the caller with an empty blueprint —
-	 * `loadAppBlueprint` ownership-gates internally on `app.owner ===
-	 * userId`. Tests override `loadApp` to drive the failure paths.
-	 * `AppDoc` carries Firestore `Timestamp` fields that tests don't
-	 * care about — cast through `unknown` to keep the shape narrow
-	 * without pulling in the Firestore Admin SDK just to fabricate a
-	 * Timestamp. */
-	vi.mocked(loadApp).mockResolvedValue({
+/**
+ * Build the full `AppDoc` the `loadApp` mock resolves to. Owned by the
+ * caller with an empty blueprint by default; `overrides` lets a single
+ * test vary one field (e.g. a distinct `app_name`) without restating the
+ * whole shape.
+ *
+ * `AppDoc` carries Firestore `Timestamp` fields that tests don't care
+ * about — cast through `unknown` to keep the shape narrow without pulling
+ * in the Firestore Admin SDK just to fabricate a Timestamp.
+ */
+function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
+	return {
 		owner: "u1",
 		app_name: "Test",
 		blueprint: mockBlueprint() as unknown as BlueprintDoc,
@@ -179,7 +180,17 @@ beforeEach(() => {
 		run_id: null,
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],
-	});
+		...overrides,
+	};
+}
+
+beforeEach(() => {
+	vi.mocked(loadApp).mockReset();
+	LogWriterMock.instances = [];
+	/* Default: app loads owned by the caller with an empty blueprint —
+	 * `loadAppBlueprint` ownership-gates internally on `app.owner ===
+	 * userId`. Tests override `loadApp` to drive the failure paths. */
+	vi.mocked(loadApp).mockResolvedValue(buildLoadedApp());
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -308,7 +319,7 @@ describe("registerSharedTool — validateApp projection", () => {
 		);
 	});
 
-	it("emits only success=true on a successful validation", async () => {
+	it("surfaces app_id + app_name on a successful validation", async () => {
 		const validateLike: SharedToolModule = {
 			description: "validate",
 			inputSchema: z.object({}),
@@ -317,13 +328,30 @@ describe("registerSharedTool — validateApp projection", () => {
 			},
 		};
 
+		/* Resolve a DISTINCT `app_name` for this call so the assertion proves
+		 * the value flows from the loaded `AppDoc` — not from coincidental
+		 * equality with the fixture default. */
+		vi.mocked(loadApp).mockResolvedValueOnce(
+			buildLoadedApp({ app_name: "Malaria ITN FGD" }),
+		);
+
 		const { server, capture } = makeFakeServer();
 		registerSharedTool(server, "validate_app", validateLike, toolCtx);
 
+		/* `app_id` is the requested target ("a1"); `app_name` is read off the
+		 * loaded `AppDoc`. Together they let the autobuild architect emit its
+		 * canonical completion line from its LAST tool result rather than a
+		 * stale create_app return. */
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
-		expect(out.content[0]?.text).toBe(JSON.stringify({ success: true }));
+		expect(out.content[0]?.text).toBe(
+			JSON.stringify({
+				success: true,
+				app_id: "a1",
+				app_name: "Malaria ITN FGD",
+			}),
+		);
 	});
 });
 
@@ -420,9 +448,14 @@ describe("registerSharedTool — app_id stripping", () => {
 });
 
 describe("projectResult — direct", () => {
+	/* App identity the adapter always threads in from the loaded `AppDoc`.
+	 * Only the validate-success branch consumes it; the read/mutate branches
+	 * ignore it, so passing a constant here is safe across every case. */
+	const APP = { id: "a1", name: "Test" } as const;
+
 	it("unwraps a `read` result to its `data` field", () => {
 		const data = { query: "x", results: [1, 2, 3] };
-		expect(projectResult({ kind: "read", data })).toBe(data);
+		expect(projectResult({ kind: "read", data }, APP)).toBe(data);
 	});
 
 	it("unwraps a `mutate` result to its `result` field", () => {
@@ -433,10 +466,10 @@ describe("projectResult — direct", () => {
 			newDoc,
 			result: { ok: true },
 		};
-		expect(projectResult(raw)).toEqual({ ok: true });
+		expect(projectResult(raw, APP)).toEqual({ ok: true });
 	});
 
-	it("projects a failed `validate` result to { success, errors }", () => {
+	it("projects a failed `validate` result to { success, errors } without app identity", () => {
 		const raw: ValidateAppResult = {
 			kind: "validate",
 			success: false,
@@ -444,17 +477,27 @@ describe("projectResult — direct", () => {
 			hqJson: { huge: "payload" } as never,
 			errors: ["e"],
 		};
-		expect(projectResult(raw)).toEqual({ success: false, errors: ["e"] });
+		/* Failure means "not done yet" — the architect keeps fixing, so the
+		 * completion identifier is intentionally absent until success. */
+		expect(projectResult(raw, APP)).toEqual({ success: false, errors: ["e"] });
 	});
 
-	it("projects a successful `validate` result to just { success }", () => {
+	it("projects a successful `validate` result with the app identity attached", () => {
 		const raw: ValidateAppResult = {
 			kind: "validate",
 			success: true,
 			doc: mockBlueprint() as unknown as BlueprintDoc,
 			hqJson: { huge: "payload" } as never,
 		};
-		expect(projectResult(raw)).toEqual({ success: true });
+		/* Success carries `app_id` + `app_name` so an autonomous MCP caller
+		 * (the autobuild architect) can lift the canonical identifier into
+		 * its completion message — its create_app result is far back in
+		 * context by the time the build finishes. */
+		expect(projectResult(raw, APP)).toEqual({
+			success: true,
+			app_id: "a1",
+			app_name: "Test",
+		});
 	});
 });
 
