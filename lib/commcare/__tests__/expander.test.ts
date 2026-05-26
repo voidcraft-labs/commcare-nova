@@ -2745,10 +2745,17 @@ describe("empty form expansion", () => {
 		expect(xml).toContain("<meta>");
 		expect(xml).toContain("<deviceID/>");
 		expect(xml).toContain("<instanceID/>");
-		// No field binds emitted because there are no authored fields. The
-		// meta block produces no <bind> elements — only <setvalue>s — so the
-		// model's bind-list is empty for an empty form.
-		expect(xml).not.toMatch(/<bind[^/]*\/>/);
+		// The meta block emits two <bind type="xsd:dateTime"> elements (one
+		// each for timeStart and timeEnd) — the dateTime type lives on a
+		// parallel bind because <setvalue> doesn't carry a `type` attribute
+		// in XForms 1.x. Asserting both explicitly so a refactor can't drop
+		// the typing silently.
+		expect(xml).toMatch(
+			/<bind nodeset="\/data\/meta\/timeStart" type="xsd:dateTime"\/>/,
+		);
+		expect(xml).toMatch(
+			/<bind nodeset="\/data\/meta\/timeEnd" type="xsd:dateTime"\/>/,
+		);
 	});
 });
 

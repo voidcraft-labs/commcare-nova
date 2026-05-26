@@ -1,27 +1,36 @@
 /**
- * The OpenRosa form metadata block — `<meta>` data element + the eight
- * setvalues that populate it at form load.
+ * The OpenRosa form metadata block — `<meta>` data element, the eight
+ * setvalues that populate it at form load, and the two `<bind>` elements
+ * that type its dateTime children.
  *
- * Every submitted XForm carries a `<meta>` block recording submission
- * provenance: the device that ran the form, when the user opened and
- * closed it, the user's id and name, a uuid for this submission instance,
- * the CommCare app version, and any clock drift between device and server.
- * Receiving systems (CCHQ, FormPlayer reports, mobile sync) all read these
- * for audit and integrity. Without the block, submissions are accepted on
- * the wire but downstream tooling that filters/joins on `instanceID`,
- * `timeStart`, or `userID` falls over.
+ * Every Nova-emitted form must carry this block: receiving systems (CCHQ,
+ * FormPlayer reports, mobile sync) read `instanceID`, `timeStart`,
+ * `timeEnd`, `userID`, etc. for audit and per-submission correlation.
+ * Without the block, submissions are accepted on the wire but downstream
+ * tooling that filters or joins on these fields falls over.
  *
- * Faithful (semantically) to CCHQ's `commcare-hq/.../app_manager/xform.py::
- * XForm._add_meta_2`. Nova emits unprefixed element names (`<meta>`,
- * `<deviceID>`, etc.) matching the setvalue ref shape (`/data/meta/deviceID`)
- * — Vellum stamps the elements with an `orx:` namespace prefix, but
- * JavaRosa strips namespaces during XPath resolution so the two shapes
- * resolve to the same TreeElement at form-fill. The unprefixed shape keeps
- * the data tree consistent with how Nova names every other field.
+ * Shape mirrors `commcare-hq/.../app_manager/xform.py::XForm._add_meta_2`.
+ * Nova emits unprefixed element names (`<meta>`, `<deviceID>`, …)
+ * matching the setvalue ref shape (`/data/meta/...`). Vellum stamps the
+ * elements with an `orx:` prefix; JavaRosa's `TreeElement` keys child
+ * lookup by local name (`TreeElement::getChild`) and CCHQ's form
+ * processor strips namespaces via `xml2json`, so the unprefixed shape
+ * resolves to the same TreeElement and JSON key at submission time. The
+ * unprefixed shape keeps the data tree consistent with how Nova names
+ * every other field.
  *
- * Always-on by design — every form gets the block, no action gating. Same
- * posture as CCHQ; the OpenRosa contract treats `<meta>` as structural
- * rather than optional.
+ * `<setvalue>` does not carry a `type` attribute in XForms 1.0/1.1 —
+ * JavaRosa silently ignores unknown attributes there. Datatype hints
+ * live on a parallel `<bind type="xsd:dateTime">`, which is what CCHQ's
+ * `add_setvalue` actually emits internally (verified against the
+ * `tests/data/form_preparation_v2/open_case.xml` Vellum fixture).
+ *
+ * Known gaps vs. `_add_meta_2`: Nova does not yet model
+ * `form.get_auto_gps_capture()` (which would add a `<location>` element
+ * and an `xforms-ready` pollsensor action) or `app.enable_auto_gps`
+ * (which would emit a pollsensor for any geopoint bind). When auto-GPS
+ * lands in Nova's authoring layer, these conditional emissions follow
+ * the same shape pattern as the meta block itself.
  */
 
 import { Element, type Text } from "domhandler";
@@ -36,22 +45,24 @@ function el(
 }
 
 /**
- * The shape returned to `buildXForm`. The `dataElement` slots into the
- * primary instance's data tree alongside the form's fields; the
- * `setvalues` slot into the model alongside the form's other setvalues.
+ * What `buildMetaBlock` produces for the consumer to splice in.
  *
- * The two arrays are returned separately because the consumer assembles
- * the model and data sections independently — keeping them together in
- * one container would force the caller to re-split.
+ *   - `dataElement` — the `<meta>` element under the primary `<data>` instance.
+ *   - `setvalues` — the eight `<setvalue>` actions that populate its children
+ *     at form load / save (`xforms-ready` and `xforms-revalidate` events).
+ *   - `binds` — the two `<bind type="xsd:dateTime">` elements that type
+ *     `timeStart` and `timeEnd`. Setvalues carry no type attribute in
+ *     XForms; the dateTime type lives on a parallel bind.
  */
 export interface MetaBlockEmission {
 	readonly dataElement: Element;
 	readonly setvalues: Element[];
+	readonly binds: Element[];
 }
 
 /**
- * Build the meta block + its eight setvalues. Always returns the full
- * shape; emission is unconditional per the CommCare submission contract.
+ * Build the meta block. Always returns the full shape; emission is
+ * unconditional per the CommCare submission contract.
  *
  * Each setvalue references `instance('commcaresession')/session/context/...`
  * (the closed CommCare-populated session context — `deviceid`, `username`,
@@ -62,8 +73,10 @@ export interface MetaBlockEmission {
  * the form-open moment.
  */
 export function buildMetaBlock(): MetaBlockEmission {
-	// Children of <meta> — eight empty elements that the setvalues fill.
-	// Element ordering matches CCHQ's `_add_meta_2` output for parity.
+	// Children of <meta>. Element list mirrors CCHQ's `_add_meta_2` tag
+	// tuple; order has no semantic effect on JavaRosa parsing (the tree
+	// is built by element name) but keeps emitted bytes diffable against
+	// the canonical Vellum fixture during review.
 	const dataElement = el("meta", {}, [
 		el("deviceID", {}),
 		el("timeStart", {}),
@@ -88,13 +101,11 @@ export function buildMetaBlock(): MetaBlockEmission {
 		}),
 		el("setvalue", {
 			ref: "/data/meta/timeStart",
-			type: "xsd:dateTime",
 			value: "now()",
 			event: "xforms-ready",
 		}),
 		el("setvalue", {
 			ref: "/data/meta/timeEnd",
-			type: "xsd:dateTime",
 			value: "now()",
 			event: "xforms-revalidate",
 		}),
@@ -126,5 +137,22 @@ export function buildMetaBlock(): MetaBlockEmission {
 		}),
 	];
 
-	return { dataElement, setvalues };
+	// Datatype hints for the two dateTime nodes. JavaRosa's setvalue
+	// processor doesn't honor `type` on `<setvalue>`; the bind is the
+	// canonical place. Downstream consumers (FormPlayer report queries,
+	// mobile sync, CCHQ form-processor metadata extraction) read the bind's
+	// declared type to know the field is a timestamp, not a free-form
+	// string.
+	const binds = [
+		el("bind", {
+			nodeset: "/data/meta/timeStart",
+			type: "xsd:dateTime",
+		}),
+		el("bind", {
+			nodeset: "/data/meta/timeEnd",
+			type: "xsd:dateTime",
+		}),
+	];
+
+	return { dataElement, setvalues, binds };
 }
