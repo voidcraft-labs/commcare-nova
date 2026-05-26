@@ -320,13 +320,17 @@ export function compileCcz(
 
 				// Install-time XPath resolution gate. The XForm parse-time
 				// oracle above proves expressions PARSE; this oracle proves
-				// they RESOLVE — every `instance('commcaresession')/session/
-				// data/<X>` ref matches a declared session datum, every
+				// install-time-fatal references RESOLVE — every
+				// `instance('commcaresession')/session/data/<X>` ref matches
+				// a declared session datum, every
+				// `instance('commcaresession')/session/context/<X>` matches
+				// the closed CommCare-populated set, and every
 				// `instance('<id>')` matches a declared instance on the
-				// form's <model>, every absolute /data/... path resolves to
-				// a node or attribute in the data tree. Closes the gap
-				// where the XForm parses fine but crashes JavaRosa at
-				// form-init with `XPathTypeMismatchException`.
+				// form's <model>. Form-path refs inside expression bodies
+				// (`<output value>`, bind `calculate`, etc.) are NOT checked
+				// — JavaRosa resolves missing paths to empty node-sets, not
+				// crashes; dangling bind NODESETS, the install-time-fatal
+				// case, are caught upstream by `XFORM_DANGLING_BIND`.
 				const sessionDatumIds = new Set(
 					entryDef.session?.datums.map((d) => d.id) ?? [],
 				);
@@ -677,17 +681,20 @@ function addCaseBlocks(
 			);
 		}
 
-		// Index edge back to the parent case — relationship is "child" or
-		// "extension" depending on the subcase configuration. The bind
-		// below reads the parent's case_id off the form's own `<case>`
-		// element rather than the session datum directly, so the same
-		// shape works whether the parent was opened by this form
-		// (registration-with-subcase) or loaded by it (followup-with-
-		// subcase) — `/data/case/@case_id` is itself bound to the right
-		// session var earlier in this function. Mirrors CCHQ's
-		// `add_index_ref` call site at `xform.py::_create_casexml` which
-		// passes `self.resolve_path("case/@case_id")` as the case_id_xpath.
-		scChildren += `\n            <index>\n              <parent case_type="${validatedCaseType}" relationship="${sc.relationship || "child"}"/>\n            </index>`;
+		// Index edge back to the parent case. CCHQ's canonical emission
+		// (`xform.py::add_index_ref`, fixture `subcase-parent-ref.xml`)
+		// omits the `relationship` attribute when the relationship is the
+		// default `child`; it only emits the attribute for `extension` and
+		// `question`. The bind below reads the parent's case_id off the
+		// form's own `<case>` element rather than the session datum
+		// directly, so the same shape works whether the parent was opened
+		// by this form (registration-with-subcase) or loaded by it
+		// (followup-with-subcase) — `/data/case/@case_id` is itself bound
+		// to the right session var earlier in this function.
+		const subcaseRel = sc.relationship || "child";
+		const relAttr =
+			subcaseRel === "child" ? "" : ` relationship="${subcaseRel}"`;
+		scChildren += `\n            <index>\n              <parent case_type="${validatedCaseType}"${relAttr}/>\n            </index>`;
 		binds.push(
 			`      <bind nodeset="${basePath}/case/index/parent" calculate="/data/case/@case_id"/>`,
 		);
@@ -717,8 +724,14 @@ function addCaseBlocks(
 			for (const [prop, mapping] of props) {
 				const validProp = validatePropertyName(prop);
 				const qPath = mapping.question_path || `/data/${prop}`;
+				// Subcase update binds nest the property under `<case>` — the
+				// path is `<subcase_n>/case/update/<prop>`, NOT
+				// `<subcase_n>/update/<prop>`. The case element is what wraps
+				// the entire case-transaction shape (create / index / update
+				// / close); the bind nodeset must match the actual element
+				// path or `XFORM_DANGLING_BIND` fires post-injection.
 				binds.push(
-					`      <bind nodeset="${basePath}/update/${validProp}" calculate="${validateXFormPath(qPath)}"/>`,
+					`      <bind nodeset="${basePath}/case/update/${validProp}" calculate="${validateXFormPath(qPath)}"/>`,
 				);
 			}
 		}
@@ -765,17 +778,12 @@ function addCaseBlocks(
 		xform = xform.replace(/(<itext>|<\/model>)/, `${setvalueStr}\n      $1`);
 	}
 
-	// owner_id binds reference `instance('commcaresession')` — declare
-	// that instance if the emitter didn't already. The meta block also
-	// requires commcaresession, so this branch is now defensive (the
-	// instance is always present); leaving in place so removing the meta
-	// block doesn't silently strip the declaration.
-	if (!xform.includes('id="commcaresession"')) {
-		xform = xform.replace(
-			/(<\/instance>)/,
-			`$1\n      <instance id="commcaresession" src="jr://instance/session"/>`,
-		);
-	}
+	// commcaresession is unconditionally declared by `buildXForm`'s
+	// always-on meta block (`builder.ts::buildXForm` calls
+	// `instances.require("commcaresession")` before any case-block
+	// injection happens), so this function assumes the declaration is
+	// already present. The owner_id / case_id binds reference the session
+	// without further bookkeeping here.
 
 	return xform;
 }

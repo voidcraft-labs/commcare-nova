@@ -26,11 +26,17 @@
  * the setvalue chain `compiler.ts::addCaseBlocks` emits from the
  * `case_id_new_<casetype>_0` session datum). Every other `#case/<X>` on a
  * case-create form is semantically wrong — those properties are being
- * SET by the form right now, not read from a pre-existing case — and the
- * validator rejects them at validation time, pointing the author at
- * `#form/<question_id>` or `/data/<question_id>` instead. This expander
- * leaves the rejected references un-rewritten so the validator's error
- * message can show the original authored text.
+ * SET by the form right now, not read from a pre-existing case — and
+ * this expander leaves them un-rewritten. The downstream binding-
+ * resolution oracle (`validator/bindingResolutionOracle.ts`) catches
+ * the broken reference at compile time: the un-rewritten `#case/<X>`
+ * flows through the context-free expander into the case-loading XPath
+ * shape (`instance('commcaresession')/session/data/case_id`), and the
+ * oracle rejects that registration entries don't declare a `case_id`
+ * datum. The build-time throw is a generator-bug signal; a future
+ * doc-layer validator rule would lift the rejection to the authoring
+ * layer with a targeted error pointing the author at
+ * `#form/<question_id>` or `/data/<question_id>`.
  *
  * On every other form type (followup / close / survey) the expansion is
  * identical to the context-free version.

@@ -33,10 +33,11 @@ describe("expandHashtagsInContext", () => {
 			).toBe("concat(/data/case/@case_id, '-suffix')");
 		});
 
-		it("leaves #case/<other> un-rewritten so the validator can flag it", () => {
-			// The validator emits a targeted error pointing at /data/<question_id>
-			// or #form/<question_id>. The expander surfaces the original
-			// authored reference so the error message can quote it.
+		it("leaves #case/<other> un-rewritten so it surfaces as a build error downstream", () => {
+			// The un-rewritten ref flows through the context-free expander
+			// into a case-loading XPath shape; the binding-resolution
+			// oracle then catches that registration entries declare no
+			// `case_id` datum and throws at compile time.
 			const result = expandHashtagsInContext("#case/some_other_prop", ctx);
 			// Either it stays unrewritten OR it expands to the case-loading
 			// shape — but the case-loading shape is NOT what should be emitted

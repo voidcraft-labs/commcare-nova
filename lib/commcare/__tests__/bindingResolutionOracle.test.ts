@@ -18,6 +18,10 @@
  * crash. Dangling bind NODESETS (the install-time-fatal case) live in
  * the XForm parse-time oracle via `XFORM_DANGLING_BIND`.
  *
+ * Emitter totality across schema-valid blueprints is proved by the fuzz
+ * test in `bindingResolutionOracle.fuzz.test.ts`: every doc the
+ * `blueprintDocArbitrary` generator produces compiles to a clean CCZ.
+ *
  * The fuzz test in `bindingResolutionOracle.fuzz.test.ts` proves emitter
  * totality across schema-valid blueprints; this file proves each rule's
  * positive AND negative cases stay stable as the oracle evolves.

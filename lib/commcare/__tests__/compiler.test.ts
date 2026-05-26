@@ -220,6 +220,78 @@ describe("compileCcz", () => {
 		);
 	});
 
+	it("emits subcase update binds under <subcase_n>/case/update/<prop>", () => {
+		// Two non-name properties so `case_properties` is non-empty on the
+		// derived subcase — `deriveChildCases` consumes the first as
+		// `case_name_field`, the rest land in `case_properties` and produce
+		// the `<update>` element + per-prop binds. The bind nodeset must
+		// match the actual element path `<subcase_n>/case/update/<prop>`
+		// (NOT `<subcase_n>/update/<prop>` — that path doesn't exist and
+		// the post-injection XForm oracle would flag XFORM_DANGLING_BIND).
+		const subDoc = buildDoc({
+			appName: "Subcase Update",
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Household name",
+									case_property_on: "household",
+								}),
+								f({
+									kind: "text",
+									id: "child_name",
+									label: "Child name",
+									case_property_on: "child",
+								}),
+								f({
+									kind: "int",
+									id: "child_age",
+									label: "Child age",
+									case_property_on: "child",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+				{
+					name: "child",
+					properties: [
+						{ name: "child_name", label: "Name" },
+						{ name: "child_age", label: "Age" },
+					],
+				},
+			],
+		});
+		const hq = expandDoc(subDoc);
+		const buf = compileCcz(hq, "Subcase Update", subDoc);
+		const zip = new AdmZip(buf);
+		const regXform = zip.readAsText("modules-0/forms-0.xml");
+
+		// `<update>` block under the subcase's `<case>` carries the
+		// derived child property.
+		expect(regXform).toMatch(
+			/<subcase_0>[\s\S]*<update>[\s\S]*<child_age\/>[\s\S]*<\/update>/,
+		);
+		// The bind nodeset includes `/case/`, matching the element path.
+		expect(regXform).toContain(
+			'<bind nodeset="/data/subcase_0/case/update/child_age"',
+		);
+	});
+
 	it("post-injection validation catches orphaned binds", () => {
 		const hq = expandDoc(doc);
 
