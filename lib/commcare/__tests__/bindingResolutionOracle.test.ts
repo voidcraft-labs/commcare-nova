@@ -79,6 +79,22 @@ describe("validateBindingResolution", () => {
 			expect(errors[0].message).toContain("missing_datum");
 		});
 
+		it("walks bind readonly expressions alongside the other ANY-expression slots", () => {
+			// `readonly` is one of the five ANY-expression bind attributes
+			// JavaRosa evaluates at form-init (parsed via buildCondition);
+			// references inside it resolve like calculate / relevant.
+			const xml = makeForm(
+				`<bind nodeset="/data/x" readonly="instance('commcaresession')/session/data/ghost_datum"/>`,
+				`<x/>`,
+			);
+			const errors = validateBindingResolution(xml, "f", "m", new Set());
+			expect(errors).toHaveLength(1);
+			expect(errors[0].code).toBe(
+				"BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED",
+			);
+			expect(errors[0].message).toContain("ghost_datum");
+		});
+
 		it("walks output value in body alongside model expressions", () => {
 			const xml = `<?xml version="1.0"?>
 <h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
@@ -166,6 +182,23 @@ describe("validateBindingResolution", () => {
 			expect(errors[0].message).toContain('instance("casedb")');
 		});
 
+		it("only counts <instance> declarations under <model>, not nodes named 'instance' deeper in the data tree", () => {
+			// A data-tree node named `<instance>` (with an id attribute) is
+			// a data node, not a declaration — the spec scopes <instance>
+			// declarations to <model>. The oracle must not be fooled into
+			// treating it as a declared external instance.
+			const xml = `<?xml version="1.0"?>
+<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
+<h:head><h:title>t</h:title><model>
+<instance><data xmlns="" id="t"><x/><instance id="not_a_real_instance"/></data></instance>
+<instance src="jr://instance/session" id="commcaresession"/>
+<bind nodeset="/data/x" calculate="instance('not_a_real_instance')/items"/>
+</model></h:head><h:body/></h:html>`;
+			const errors = validateBindingResolution(xml, "f", "m", new Set());
+			const codes = errors.map((e) => e.code);
+			expect(codes).toContain("BINDING_RESOLUTION_INSTANCE_UNDECLARED");
+		});
+
 		it("ignores instance('commcaresession') — that's the session and always available", () => {
 			const xml = makeForm(
 				`<bind nodeset="/data/x" calculate="instance('commcaresession')/session/data/case_id"/>`,
@@ -220,6 +253,35 @@ describe("validateBindingResolution", () => {
 			expect(errors).toHaveLength(1);
 			expect(errors[0].code).toBe("BINDING_RESOLUTION_FORM_PATH_MISSING");
 			expect(errors[0].message).toContain("/data/case/@nonexistent_attr");
+		});
+
+		it("does not raise for the descendant axis (//) — the oracle can't pin a single resolvable path", () => {
+			// `/data//foo` matches any descendant named foo at any depth.
+			// Collapsing `//` to `/` would false-positive or false-reject;
+			// the oracle bails on this shape and lets the path through
+			// silently. JavaRosa resolves it at runtime against the data
+			// tree; we don't second-guess that here.
+			const xml = makeForm(
+				`<bind nodeset="/data/x" calculate="/data//foo"/>`,
+				`<x/>`,
+			);
+			const errors = validateBindingResolution(xml, "f", "m", new Set());
+			expect(errors).toEqual([]);
+		});
+
+		it("resolves a path that terminates in a predicate (no trailing step)", () => {
+			// `/data/items[count(.) > 0]` — the path ends at the predicate.
+			// The outermost AST node is Filtered, not Child. The oracle
+			// still resolves the path to `/data/items` and checks the
+			// data tree.
+			const xml = makeForm(
+				`<bind nodeset="/data/x" calculate="/data/nonexistent_items[count(.) > 0]"/>`,
+				`<x/>`,
+			);
+			const errors = validateBindingResolution(xml, "f", "m", new Set());
+			expect(errors).toHaveLength(1);
+			expect(errors[0].code).toBe("BINDING_RESOLUTION_FORM_PATH_MISSING");
+			expect(errors[0].message).toContain("/data/nonexistent_items");
 		});
 
 		it("resolves segments past a predicate (path continues through Filtered)", () => {

@@ -90,13 +90,6 @@ const SESSION_CONTEXT_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The set of root paths a `/data/...` reference might target. The main
- * instance's root path varies per form (it's the data element's tag name,
- * e.g. `/data` for `<data>`, `/household_visit` if the emitter named the
- * root differently). Resolved against `XFormDataModel.rootPath`.
- */
-
-/**
  * The XPath surfaces JavaRosa evaluates at install / form-init time. Each
  * lives on the form's `<model>` block (binds + setvalues) or in the body
  * (`<output>`). The XForm oracle's PATH/ANY classifiers gate which attrs
@@ -149,7 +142,7 @@ export function validateBindingResolution(
 				validationError(
 					"BINDING_RESOLUTION_INSTANCE_UNDECLARED",
 					"form",
-					`"${formName}" references instance("${id}") in ${surface.origin} but no <instance id="${id}"> is declared on the form. JavaRosa throws XPathMissingInstanceException when an instance reference can't be resolved at evaluation — CommCare surfaces this as "A part of your application is invalid." Check that the XPath surface is scanned for instance accumulation (the InstanceTracker in xform/builder.ts owns this). This is a bug in the form generator.`,
+					`"${formName}" references instance("${id}") in ${surface.origin}, but the form's <model> has no <instance id="${id}"> declaration. JavaRosa throws XPathMissingInstanceException at form-init when an instance ref isn't in scope — CommCare surfaces this as "A part of your application is invalid." Check that the XForm emitter declared the secondary instance for whatever the form needs. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -194,7 +187,7 @@ export function validateBindingResolution(
 				validationError(
 					"BINDING_RESOLUTION_FORM_PATH_MISSING",
 					"form",
-					`"${formName}" references "${path}" in ${surface.origin}, but no such node or attribute exists in the form's data instance tree. JavaRosa resolves the reference to an empty node-set at runtime. Check that the data tree is emitted before the bind. This is a bug in the form generator.`,
+					`"${formName}" references "${path}" in ${surface.origin}, but no such node or attribute exists in the form's data instance tree. JavaRosa resolves the reference to an empty node-set at runtime. Check that the XForm emitter declares this node in the main <instance> data tree. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -215,7 +208,10 @@ function collectXPathSurfaces(model: XFormDataModel): XPathSurface[] {
 
 	// Every `<bind>` element under `<model>`. The XForm oracle has already
 	// proven the bind has a nodeset and the ANY-expression attrs parse; we
-	// only need to walk the four expression slots.
+	// only need to walk the expression slots. Mirrors the surface list in
+	// `xformOracle.ts::checkBinds` — JavaRosa evaluates all five attributes
+	// via `buildCondition` / `buildCalculate` at parse, and references
+	// inside any of them resolve at form-init.
 	for (const bind of findAll((el) => el.name === "bind", model.doc.children)) {
 		const nodeset = getAttributeValue(bind, "nodeset") ?? "<bind>";
 		for (const attr of [
@@ -223,6 +219,7 @@ function collectXPathSurfaces(model: XFormDataModel): XPathSurface[] {
 			"relevant",
 			"constraint",
 			"required",
+			"readonly",
 		] as const) {
 			const expr = getAttributeValue(bind, attr);
 			if (expr) {
@@ -343,13 +340,14 @@ function analyzeXPath(expr: string, rootPath: string): XPathRefs {
 			}
 		}
 
-		// Absolute paths rooted at the main instance. We only pick up the
-		// top-level `Child` / `Descendant` chains — those whose parent isn't
-		// another path-continuation node (`Child` / `Descendant` / `Filtered`,
-		// the three productions a longer path threads through) — so the
+		// Absolute paths rooted at the main instance. We pick up the
+		// top-level path-shape node — `Child`, `Descendant`, or `Filtered`
+		// (a path terminating in a predicate, like `/data/items[pred]`) —
+		// only when its parent isn't another path-continuation node, so the
 		// inner steps of a longer path aren't double-counted as their own
 		// chains.
-		if (cursor.type.name === "Child" || cursor.type.name === "Descendant") {
+		const cName = cursor.type.name;
+		if (cName === "Child" || cName === "Descendant" || cName === "Filtered") {
 			const node = cursor.node;
 			const parent = node.parent;
 			const parentName = parent?.type.name;
@@ -488,20 +486,30 @@ function readAbsolutePath(source: string, chain: SyntaxNode): string | null {
  * isn't an absolute-path shape this oracle can statically resolve.
  *
  * Three productions matter:
- *   - `Child` / `Descendant` — anchored on `/` (the absolute case) when
- *     `firstChild` is the `/` token; otherwise it's a continuation, and
- *     the prefix lives in `firstChild`.
+ *   - `Child` — anchored on `/` (the absolute case) when `firstChild` is
+ *     the `/` token; otherwise it's a continuation, and the prefix lives
+ *     in `firstChild`.
  *   - `Filtered` — the path passes through `firstChild`; the predicate
  *     body lives at later siblings and is walked separately.
  *   - anything else (an `Invoke` like `instance('x')/...`, a relative
  *     `NameTest`-rooted chain, etc.) — not an absolute path.
+ *
+ * `Descendant` (`//`) shapes are intentionally REJECTED here: the
+ * descendant axis matches any depth, so a `//foo` chain resolves to a
+ * set of paths the oracle can't pin to a single string. Collapsing
+ * `//` to `/` would false-positive on a path that exists at depth and
+ * false-reject on one that doesn't — both worse than no check.
  */
 function collectAbsolutePathSegments(
 	source: string,
 	node: SyntaxNode,
 	segments: string[],
 ): boolean {
-	if (node.type.name === "Child" || node.type.name === "Descendant") {
+	if (node.type.name === "Descendant") {
+		return false;
+	}
+
+	if (node.type.name === "Child") {
 		const first = node.firstChild;
 		if (first === null) return false;
 

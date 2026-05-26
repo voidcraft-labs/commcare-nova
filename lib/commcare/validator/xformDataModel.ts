@@ -25,6 +25,28 @@ import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
 import { type ValidationError, validationError } from "./errors";
 
+/**
+ * Direct `<instance>` element children of `<model>`. The XForm spec scopes
+ * `<instance>` declarations to the model block; an element named `instance`
+ * appearing deeper in the document is a data-tree node, not a declaration,
+ * and reading its `id` attribute as a declared instance would suppress
+ * legitimate "undeclared instance" errors. Searching descendant `<model>`
+ * elements covers both the typical `h:head > model` layout and any future
+ * deviation. JavaRosa's `XFormParser` is structurally equivalent — its
+ * `parseInstance` call sites all root from the model element.
+ */
+function findInstanceDeclarations(doc: Document): Element[] {
+	const out: Element[] = [];
+	for (const model of findAll((e) => e.name === "model", doc.children)) {
+		for (const child of getChildren(model)) {
+			if (isTag(child) && child.name === "instance") {
+				out.push(child);
+			}
+		}
+	}
+	return out;
+}
+
 const XML_OPTS = { xmlMode: true } as const;
 
 /**
@@ -112,7 +134,7 @@ function collectItextIds(doc: Document): Set<string> {
  */
 function collectDeclaredInstanceIds(doc: Document): Set<string> {
 	const ids = new Set<string>();
-	for (const el of findAll((e) => e.name === "instance", doc.children)) {
+	for (const el of findInstanceDeclarations(doc)) {
 		const id = getAttributeValue(el, "id");
 		if (id) ids.add(id);
 	}
@@ -146,9 +168,8 @@ export function buildXFormDataModel(
 
 	const doc = parseDocument(xml, XML_OPTS);
 
-	const instances = findAll(
-		(el) => el.name === "instance" && !getAttributeValue(el, "src"),
-		doc.children,
+	const instances = findInstanceDeclarations(doc).filter(
+		(el) => !getAttributeValue(el, "src"),
 	);
 	if (instances.length === 0) {
 		return {

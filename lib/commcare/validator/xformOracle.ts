@@ -350,10 +350,16 @@ function checkBinds(
 			);
 		}
 
-		// ANY-expression binds: relevant / required / constraint / calculate must
-		// parse as valid XPath (buildCondition / buildCalculate). An unparseable
-		// expression here is a JavaRosa parse error.
-		for (const attr of ["relevant", "required", "constraint", "calculate"]) {
+		// ANY-expression binds: relevant / required / constraint / calculate /
+		// readonly must parse as valid XPath (buildCondition / buildCalculate).
+		// An unparseable expression here is a JavaRosa parse error.
+		for (const attr of [
+			"relevant",
+			"required",
+			"constraint",
+			"calculate",
+			"readonly",
+		]) {
 			const expr = getAttributeValue(bind, attr);
 			if (expr !== undefined && expr !== "" && !isParseableXPath(expr)) {
 				errors.push(
