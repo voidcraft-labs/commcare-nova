@@ -17,7 +17,7 @@ import {
 	RESERVED_XFORM_NODE_PREFIX,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
-import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
+import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
@@ -323,6 +323,135 @@ function reservedFieldIdPrefix(
 	];
 }
 
+/**
+ * The closed set of `instance('<id>')` ids Nova's wire layer emits
+ * `<instance>` declarations for. Anything outside this set is a feature
+ * Nova doesn't model — the wire compiler doesn't add an `<instance>`
+ * declaration for it, and the runtime can't resolve the reference at
+ * form-init.
+ *
+ * Sources:
+ *   - `casedb`, `commcaresession` — the XForm-level instances Nova's
+ *     `InstanceTracker` declares
+ *     (`lib/commcare/xform/builder.ts::InstanceTracker`).
+ *   - `results`, `results:inline`, `search-input:results` — the
+ *     remote-request-side instances Nova's predicate AST and suite
+ *     accumulator know about (`lib/commcare/predicate/instances.ts::instanceSourceFor`).
+ *     These do not appear inside a field's XPath surface in practice —
+ *     they're suite-XML side — but the rule lists them to keep the
+ *     allowlist canonical with the wire layer's vocabulary.
+ *
+ * If Nova adds support for a new fixture (lookup tables, saved
+ * reports, etc.), this set + the wire-layer mappers move in lockstep.
+ */
+const MODELED_INSTANCE_IDS: ReadonlySet<string> = new Set([
+	"casedb",
+	"commcaresession",
+	"results",
+	"results:inline",
+	"search-input:results",
+]);
+
+/** Pre-resolved Lezer node types for the `instance(...)` scan. */
+const INSTANCE_NODE_TYPES = (() => {
+	const all = parser.nodeSet.types;
+	const one = (name: string) => {
+		const found = all.find((t) => t.name === name);
+		if (!found) throw new Error(`Missing parser node type: ${name}`);
+		return found;
+	};
+	return {
+		Invoke: one("Invoke"),
+		FunctionName: one("FunctionName"),
+		ArgumentList: one("ArgumentList"),
+		StringLiteral: one("StringLiteral"),
+	};
+})();
+
+/**
+ * Strip surrounding quotes from an XPath string literal and collapse
+ * the doubled-quote escape (XPath 1.0 has no backslash escape; the only
+ * way to embed the same quote is to double it).
+ */
+function unquoteXPathStringLiteral(literal: string): string {
+	if (literal.length < 2) return literal;
+	const quote = literal[0];
+	const inner = literal.slice(1, -1);
+	return inner.split(`${quote}${quote}`).join(quote);
+}
+
+/**
+ * Walk `expr` (an XPath expression) and return every `instance('<id>')`
+ * id whose `<id>` is NOT in `MODELED_INSTANCE_IDS`. Each return value
+ * is the raw quoted id text the user authored, suitable for quoting
+ * back to them in an error message.
+ */
+function findUnmodeledInstanceIds(expr: string): string[] {
+	if (!expr) return [];
+	const out: string[] = [];
+	const tree = parser.parse(expr);
+	tree.iterate({
+		enter(node) {
+			if (node.type !== INSTANCE_NODE_TYPES.Invoke) return;
+			const fnName = node.node.firstChild;
+			if (!fnName) return;
+			if (fnName.type !== INSTANCE_NODE_TYPES.FunctionName) return;
+			if (expr.slice(fnName.from, fnName.to) !== "instance") return;
+			const argList = fnName.nextSibling;
+			if (!argList || argList.type !== INSTANCE_NODE_TYPES.ArgumentList) return;
+			for (
+				let child = argList.firstChild;
+				child !== null;
+				child = child.nextSibling
+			) {
+				if (child.type !== INSTANCE_NODE_TYPES.StringLiteral) continue;
+				const id = unquoteXPathStringLiteral(expr.slice(child.from, child.to));
+				if (!MODELED_INSTANCE_IDS.has(id)) {
+					out.push(id);
+				}
+				break;
+			}
+		},
+	});
+	return out;
+}
+
+/**
+ * Reject fields whose XPath surfaces reference an `instance('<id>')`
+ * that Nova doesn't model. The wire layer only declares `<instance>`
+ * elements for the closed set in `MODELED_INSTANCE_IDS` — a reference
+ * to anything else (`item-list:foo`, `commcare:reports`,
+ * `commcare-reports:bar`, custom fixtures) compiles to a form whose
+ * `instance('...')` call resolves to nothing at form-init, surfaced on
+ * device as "A part of your application is invalid."
+ *
+ * The fix tells the user the canonical alternative for each common
+ * fixture: lookup tables → reshape into a select-question option list;
+ * saved reports / UCR reports → not supported at all.
+ */
+function fixtureReferenceNotModeled(
+	field: Field,
+	_ctx: FieldContext,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const key of XPATH_FIELDS) {
+		const expr = readXPath(field, key);
+		if (!expr) continue;
+		for (const id of findUnmodeledInstanceIds(expr)) {
+			errors.push(
+				validationError(
+					"FIXTURE_REFERENCE_NOT_MODELED",
+					"field",
+					`Field "${field.id}" references the fixture instance "${id}" in its ${FIELD_DESCRIPTIONS[key]}. Nova doesn't model that fixture — the emitted form would have no <instance> declaration for "${id}" and would fail at form-init with "A part of your application is invalid." Today Nova supports casedb (case data via "#case/...") and commcaresession (user/session data via "#user/..." or direct refs). For lookup-table data, reshape the data into the form as select options. Saved reports and UCR reports aren't supported.`,
+					{ fieldUuid: field.uuid },
+					{ fixtureId: id },
+				),
+			);
+		}
+	}
+	return errors;
+}
+
 const FIELD_RULES = [
 	selectNoOptions,
 	hiddenNoValue,
@@ -331,6 +460,7 @@ const FIELD_RULES = [
 	reservedFieldIdPrefix,
 	validationOnNonInputType,
 	emptyRepeatXPath,
+	fixtureReferenceNotModeled,
 ];
 
 /**

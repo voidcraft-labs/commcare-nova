@@ -95,6 +95,7 @@ export type ValidationErrorCode =
 	| "VALIDATION_ON_NON_INPUT_KIND"
 	| "EMPTY_REPEAT_COUNT"
 	| "EMPTY_IDS_QUERY"
+	| "FIXTURE_REFERENCE_NOT_MODELED"
 	// XForm output (post-expansion) — the parse-time oracle's FATAL contract.
 	| "XFORM_PARSE_ERROR"
 	| "XFORM_NO_INSTANCE"
