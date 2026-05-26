@@ -180,6 +180,16 @@ export type ValidationErrorCode =
 	| "HQJSON_BAD_SUBCASE_RELATIONSHIP"
 	| "HQJSON_BAD_DETAIL_DISPLAY"
 	| "HQJSON_BAD_TYPE"
+	// Binding-resolution oracle (post-expansion) — JavaRosa's install-time XPath
+	// resolution contract. A reference an expression makes that can't be
+	// resolved against the form's symbol space crashes JavaRosa at form-init,
+	// surfaced on device as "A part of your application is invalid". The
+	// parse-time oracle (XFORM_* above) only proves the XPath PARSES; this
+	// oracle proves it RESOLVES.
+	| "BINDING_RESOLUTION_INSTANCE_UNDECLARED"
+	| "BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED"
+	| "BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN"
+	| "BINDING_RESOLUTION_FORM_PATH_MISSING"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"
