@@ -95,7 +95,9 @@ describe("compileCcz", () => {
 		// The <case> element carries three attributes per CCHQ's
 		// XFormCaseBlock.elem: case_id (the session-allocated id),
 		// date_modified (close-out timestamp), user_id (who did the work).
-		expect(regXform).toContain('<case case_id="" date_modified="" user_id="">');
+		expect(regXform).toContain(
+			'<case case_id="" date_modified="" user_id="" xmlns="http://commcarehq.org/case/transaction/v2">',
+		);
 		// The form-side `@case_id` setvalue chains from the suite's
 		// case-create session datum. xforms-ready fires once at form
 		// load.
@@ -139,7 +141,82 @@ describe("compileCcz", () => {
 			`<bind nodeset="/data/case/@case_id" calculate="instance('commcaresession')/session/data/case_id"/>`,
 		);
 		expect(followupXform).toContain(
-			'<case case_id="" date_modified="" user_id="">',
+			'<case case_id="" date_modified="" user_id="" xmlns="http://commcarehq.org/case/transaction/v2">',
+		);
+	});
+
+	it("emits subcase scaffolding with proper case-transaction wiring", () => {
+		const subDoc = buildDoc({
+			appName: "Subcase",
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Household name",
+									case_property_on: "household",
+								}),
+								f({
+									kind: "text",
+									id: "child_name",
+									label: "Child name",
+									// Case type differs from module type → auto-derived
+									// child case creation per Nova's data model rules.
+									case_property_on: "child",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+				{
+					name: "child",
+					properties: [{ name: "child_name", label: "Child" }],
+				},
+			],
+		});
+		const hq = expandDoc(subDoc);
+		const buf = compileCcz(hq, "Subcase", subDoc);
+		const zip = new AdmZip(buf);
+		const regXform = zip.readAsText("modules-0/forms-0.xml");
+		const suite = zip.readAsText("suite.xml");
+
+		// Subcase wrapper element exists with the case-transaction
+		// namespaced <case> inside.
+		expect(regXform).toContain("<subcase_0>");
+		expect(regXform).toMatch(
+			/<subcase_0>[\s\S]*<case case_id="" date_modified="" user_id="" xmlns="http:\/\/commcarehq\.org\/case\/transaction\/v2">/,
+		);
+		// Subcase case_id reads from the per-subcase session datum
+		// (index 1 because the primary case is _0).
+		expect(regXform).toContain(
+			`<setvalue ref="/data/subcase_0/case/@case_id" event="xforms-ready" value="instance('commcaresession')/session/data/case_id_new_child_1"/>`,
+		);
+		// Parent index reads from /data/case/@case_id — the same shape
+		// works for both registration-with-subcase and followup-with-
+		// subcase (the latter's /data/case/@case_id binds to the case-
+		// loading datum).
+		expect(regXform).toContain(
+			'<bind nodeset="/data/subcase_0/case/index/parent" calculate="/data/case/@case_id"/>',
+		);
+		// Both per-case-create session datums in suite.xml.
+		expect(suite).toContain(
+			'<datum id="case_id_new_household_0" function="uuid()"/>',
+		);
+		expect(suite).toContain(
+			'<datum id="case_id_new_child_1" function="uuid()"/>',
 		);
 	});
 

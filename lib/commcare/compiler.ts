@@ -425,6 +425,18 @@ function generateProfile(appName: string): string {
 }
 
 /**
+ * CommCare case-transaction XML namespace. Every `<case>` element on the
+ * wire lives in this namespace — the submission processor finds case
+ * blocks by namespace-qualified match, so a `<case>` outside this xmlns
+ * is treated as an inert data node, not a case transaction. The xmlns
+ * declaration on `<case>` propagates to its descendants by default-
+ * namespace inheritance, so `<create>`, `<update>`, `<close>`, `<index>`,
+ * and the per-property children all resolve into the case-transaction
+ * namespace without restatement.
+ */
+const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
+
+/**
  * Splice case-management XML into an XForm based on the form's
  * `FormActions`. Inserts:
  *   - A `<case>` element (with `<create>`, `<update>`, `<close>` as
@@ -433,6 +445,18 @@ function generateProfile(appName: string): string {
  *   - `<bind>` rules wiring each case field to its XForm data path.
  *   - A `commcaresession` instance declaration (owner_id binds read
  *     from it) if one isn't already present.
+ *
+ * String-template splicing rather than DOM construction is a tradeoff
+ * against `lib/commcare/xform/builder.ts`'s structural guarantee. The
+ * field-value paths threaded into these templates all flow through the
+ * `validateCaseType` / `validatePropertyName` / `validateXFormPath`
+ * gates above, which reject any character that could break the template
+ * (no `<`, `>`, `&`, `"`, or whitespace in identifiers), and the post-
+ * splice `validateXForm` gate parses the result back as XML and
+ * structurally checks every bind nodeset. The shape this function emits
+ * is small enough (case-transaction scaffolding) that constructing a
+ * DOM here would inflate the line count without changing the
+ * correctness story; the validation gates close the gap.
  */
 function addCaseBlocks(
 	xform: string,
@@ -471,8 +495,12 @@ function addCaseBlocks(
 	const validatedCaseType = validateCaseType(caseType);
 
 	if (isCreate) {
+		// `<create>` children mirror CCHQ's fixture order (case_name,
+		// owner_id, case_type) — semantically the case-transaction
+		// processor reads by element name, but matching the canonical
+		// shape keeps diffs against the Vellum fixtures clean.
 		caseChildren +=
-			"\n            <create>\n              <case_type/>\n              <case_name/>\n              <owner_id/>\n            </create>";
+			"\n            <create>\n              <case_name/>\n              <owner_id/>\n              <case_type/>\n            </create>";
 		binds.push(
 			`      <bind nodeset="/data/case/create/case_type" calculate="'${validatedCaseType}'"/>`,
 		);
@@ -480,8 +508,13 @@ function addCaseBlocks(
 		binds.push(
 			`      <bind nodeset="/data/case/create/case_name" calculate="${validateXFormPath(namePath)}"/>`,
 		);
+		// owner_id reads from the always-on meta block (which is itself
+		// seeded from session/context at form load). Matching CCHQ's
+		// canonical shape — `instance('commcaresession')/session/context/userid`
+		// resolves equivalently but the fixture-shape calculate is what
+		// CCHQ Vellum emits and what the Vellum round-trip preserves.
 		binds.push(
-			`      <bind nodeset="/data/case/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`,
+			`      <bind nodeset="/data/case/create/owner_id" calculate="/data/meta/userID"/>`,
 		);
 		// Wire the form's `/data/case/@case_id` to the session datum
 		// `deriveSessionDatums` emits for this same `open_case` action.
@@ -541,8 +574,13 @@ function addCaseBlocks(
 		// `date_modified` (the close-out timestamp), and `user_id` (who
 		// did the work). The binds above (case_id) and below (date_modified,
 		// user_id) populate them from the session and the form's meta block.
-		// Mirrors `commcare-hq/.../app_manager/xform.py::XFormCaseBlock.elem`.
-		const caseBlock = `          <case case_id="" date_modified="" user_id="">${caseChildren}\n          </case>`;
+		// The `xmlns` attribute places the element in CommCare's case-
+		// transaction namespace — the submission processor finds case
+		// blocks by namespace-qualified match, so a `<case>` outside the
+		// cx2 namespace is treated as an inert data node, not a case
+		// transaction. Mirrors `commcare-hq/.../app_manager/xform.py::
+		// XFormCaseBlock.elem`'s `{cx2}case` namespaced construction.
+		const caseBlock = `          <case case_id="" date_modified="" user_id="" xmlns="${CASE_TRANSACTION_XMLNS}">${caseChildren}\n          </case>`;
 		// Emitter guarantees a single top-level `<data>` per form — this
 		// `replace` targets that unique occurrence's closing tag.
 		xform = xform.replace(/(<\/data>)/, `\n${caseBlock}\n        $1`);
@@ -574,27 +612,32 @@ function addCaseBlocks(
 		const subcaseDatumId = `case_id_new_${validatedSubcaseType}_${sIdx + subcaseIndexOffset}`;
 
 		let scChildren = "";
+		// Subcase `<create>` mirrors the primary case's child order
+		// (case_name, owner_id, case_type) for fixture parity.
 		scChildren +=
-			"\n            <create>\n              <case_type/>\n              <case_name/>\n              <owner_id/>\n            </create>";
+			"\n            <create>\n              <case_name/>\n              <owner_id/>\n              <case_type/>\n            </create>";
 		binds.push(
-			`      <bind nodeset="${basePath}/create/case_type" calculate="'${validatedSubcaseType}'"/>`,
+			`      <bind nodeset="${basePath}/case/create/case_type" calculate="'${validatedSubcaseType}'"/>`,
 		);
 		const namePath = sc.name_update?.question_path || `${basePath}/name`;
 		binds.push(
-			`      <bind nodeset="${basePath}/create/case_name" calculate="${validateXFormPath(namePath)}"/>`,
+			`      <bind nodeset="${basePath}/case/create/case_name" calculate="${validateXFormPath(namePath)}"/>`,
 		);
 		binds.push(
-			`      <bind nodeset="${basePath}/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`,
+			`      <bind nodeset="${basePath}/case/create/owner_id" calculate="/data/meta/userID"/>`,
 		);
 
 		// Wire the subcase's `@case_id`. When the subcase lives in a
-		// repeat, setvalues won't fire per-iteration — use a `<bind
-		// calculate>` instead so JavaRosa stamps each new iteration with
-		// the same session-allocated id. Mirrors CCHQ's `delay_case_id=True`
-		// branch in `XFormCaseBlock.add_create_block`.
+		// repeat, setvalues won't fire per-iteration AND the session
+		// datum isn't emitted for repeat-context subcases (CCHQ skips
+		// them in `EntriesHelper.get_new_case_id_datums_meta`); each
+		// iteration mints its own id via a bare `uuid()` calculate.
+		// Mirrors CCHQ's `delay_case_id=True` branch in
+		// `XFormCaseBlock.add_create_block`, which routes `case_id='uuid()'`
+		// through `add_setvalue_or_bind` to emit a calculate bind.
 		if (repeatCtx) {
 			binds.push(
-				`      <bind nodeset="${basePath}/case/@case_id" calculate="instance('commcaresession')/session/data/${subcaseDatumId}"/>`,
+				`      <bind nodeset="${basePath}/case/@case_id" calculate="uuid()"/>`,
 			);
 		} else {
 			setvalues.push(
@@ -604,11 +647,17 @@ function addCaseBlocks(
 
 		// Index edge back to the parent case — relationship is "child" or
 		// "extension" depending on the subcase configuration. The bind
-		// below calculates the parent's case_id from the session
-		// (`case_id` is the case-loading datum the parent form created).
+		// below reads the parent's case_id off the form's own `<case>`
+		// element rather than the session datum directly, so the same
+		// shape works whether the parent was opened by this form
+		// (registration-with-subcase) or loaded by it (followup-with-
+		// subcase) — `/data/case/@case_id` is itself bound to the right
+		// session var earlier in this function. Mirrors CCHQ's
+		// `add_index_ref` call site at `xform.py::_create_casexml` which
+		// passes `self.resolve_path("case/@case_id")` as the case_id_xpath.
 		scChildren += `\n            <index>\n              <parent case_type="${validatedCaseType}" relationship="${sc.relationship || "child"}"/>\n            </index>`;
 		binds.push(
-			`      <bind nodeset="${basePath}/case/index/parent" calculate="instance('commcaresession')/session/data/case_id_new_${validatedCaseType}_0"/>`,
+			`      <bind nodeset="${basePath}/case/index/parent" calculate="/data/case/@case_id"/>`,
 		);
 
 		// Subcase case-attribute binds — same shape as the primary case.
@@ -643,10 +692,11 @@ function addCaseBlocks(
 		}
 
 		// The subcase's `<case>` carries the same three attributes as the
-		// primary case (case_id, date_modified, user_id). Wrapping element
-		// (`<subcase_n>`) holds the case element; the case element holds
-		// the create/index/update children.
-		const wrappedCase = `<case case_id="" date_modified="" user_id="">${scChildren}\n          </case>`;
+		// primary case (case_id, date_modified, user_id) plus the case-
+		// transaction xmlns. Wrapping element (`<subcase_n>`) holds the
+		// case element; the case element holds the create/index/update
+		// children.
+		const wrappedCase = `<case case_id="" date_modified="" user_id="" xmlns="${CASE_TRANSACTION_XMLNS}">${scChildren}\n          </case>`;
 		const scBlock = `          <${elName}>\n          ${wrappedCase}\n          </${elName}>`;
 		// Same single-top-level-`<data>` invariant as the primary case splice.
 		xform = xform.replace(/(<\/data>)/, `\n${scBlock}\n        $1`);
