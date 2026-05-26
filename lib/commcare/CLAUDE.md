@@ -23,7 +23,9 @@ compiler.ts expander.ts formActions.ts deriveCaseConfig.ts session.ts
 hashtags.ts ids.ts xml.ts constants.ts identifierValidation.ts hqShells.ts
 types.ts client.ts encryption.ts fieldProps.ts
 xform/{index,builder,countReference,pathExpression,instanceRefs}.ts
-validator/{index,runner,errors,fixes,typeChecker,functionRegistry,xformOracle,suiteOracle,hqJsonOracle,xpathValidator}.ts
+validator/{index,runner,errors,fixes,typeChecker,functionRegistry,xformOracle,xformDataModel,bindingResolutionOracle,suiteOracle,hqJsonOracle,xpathValidator}.ts
+hashtags/formContext.ts
+xform/{metaBlock,...}.ts
 validator/rules/{app,module,form,field}.ts
 xpath/{grammar.lezer.grammar,parser,parser.terms,transpiler,typeInfer,detectUnquotedStringLiteral,index}.ts
 xpath/passes/dateArithmetic.ts
@@ -81,6 +83,22 @@ Two more wire oracles follow the XForm oracle's shape — a faithful mirror of t
 
 - `validator/suiteOracle.ts::validateSuite` mirrors the device's `suite.xml` contract (`commcare-core .../suite/model/*` + `org/commcare/xml/*Parser`). Two layers: **Category 1** (fatal at `SuiteParser` parse — required attrs, enums, PATH-only `<datum nodeset>` / `<data>` per `SessionDatumParser`/`QueryDataParser`) and **Category 2** (parse-clean but session-runtime-fatal — the device does NO cross-reference validation, so the oracle owns menu→command, datum `detail-select`/`-confirm`→detail, `instance('id')` resolution with per-entry intersection, locale-id resolution against app_strings, command/detail/instance id uniqueness). `xform/instanceRefs.ts` extracts `instance()` refs via the Lezer parser. Wired into `compiler.ts` as a post-emit throw.
 - `validator/hqJsonOracle.ts::validateHqJson` mirrors CommCare HQ's import contract (`Application.wrap`, a recursive jsonobject `DocumentSchema`). Import is FATAL only on enum (`choices=`) violations, type mismatches, `doc_type` dispatch failures, and custom property validators (none on Nova-emitted types) — the TS `HqApplication` type already guarantees the structural slots, so the oracle checks the emitter-derived enum/`doc_type`/finite-number slots that TS types only as `string`. It is a **regression guard** over those constants (their values come from shell factories / the `toHqWorkflow` table, not user input). Wired into `validationLoop.ts::validateExpansion` alongside the XForm oracle.
+- `validator/bindingResolutionOracle.ts::validateBindingResolution` mirrors JavaRosa's install-time XPath-resolution contract — the layer between parse-time validity (which `xformOracle` proves) and form-init runtime evaluation. Three rules: every `instance('commcaresession')/session/data/<X>` references a declared session datum on the form's entry; every `instance('commcaresession')/session/context/<X>` is in the closed CommCare-populated set (`SessionInstanceBuilder.addMetadata`); every `instance('<id>')` matches a `<model><instance id="...">` declaration. Form-path refs inside expression bodies are intentionally NOT checked — JavaRosa resolves a missing path to an empty node-set at runtime (degraded UX, not install-time-fatal); dangling bind NODESETS are caught upstream by `XFORM_DANGLING_BIND`. Co-developed with `__tests__/bindingResolutionOracle.fuzz.test.ts`. Wired into `compiler.ts` as a post-emit throw alongside the XForm parse-time oracle.
+
+### Case-management scaffolding emission
+
+`compiler.ts::addCaseBlocks` mirrors CCHQ's server-side post-process (`commcare-hq/.../app_manager/xform.py::XFormCaseBlock`) so local-CCZ emission produces forms JavaRosa can install. Every `<case>` element carries the cx2 namespace (`http://commcarehq.org/case/transaction/v2`) — without it CommCare's submission processor treats the element as inert data, not a case transaction. The three `<case>` attributes (`case_id` / `date_modified` / `user_id`) wire to:
+- **case-create**: `case_id` setvalues at `xforms-ready` from the per-entry session datum `case_id_new_<casetype>_0` (a `function="uuid()"` datum `session.ts::deriveSessionDatums` emits). `date_modified` / `user_id` calculate off the always-on meta block at `/data/meta/timeEnd` / `/data/meta/userID`.
+- **case-update**: `case_id` calculates from the case-loading session datum `case_id`. Same meta-block bindings for the two timestamp attributes.
+- **subcases**: per-subcase session datum `case_id_new_<subcasetype>_<idx>` (index mirrors CCHQ's `Form.session_var_for_action` — starts at 1 when the form also opens a primary case). Repeat-context subcases use literal `uuid()` calculate instead (no session datum is emitted for them, matching CCHQ's `delay_case_id` branch).
+
+### Form `<meta>` block
+
+Every Nova-emitted XForm carries the OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`/`<userID>`/`<instanceID>`/`<appVersion>`/`<drift>`) plus the eight setvalues that populate them at form load/save and two `<bind type="xsd:dateTime">` elements typing the timestamp nodes. Unconditional emission via `xform/metaBlock.ts::buildMetaBlock`. Without the block, submissions are accepted on the wire but downstream tooling that filters or joins on `instanceID` / `timeStart` / `userID` falls over.
+
+### Hashtag form-context
+
+`hashtags/formContext.ts::expandHashtagsInContext` is the form-context-aware variant of the context-free `hashtags.ts::expandHashtags`. On registration forms, rewrites `#case/case_id` to `/data/case/@case_id` (the form's own new case, populated by the case-create scaffolding's setvalue chain). Every other `#case/<X>` on a registration form falls through to the context-free expander, which produces the case-loading shape; the binding-resolution oracle catches the unresolved `session/data/case_id` reference at compile time. `xform/builder.ts` threads a captured `expand` closure through every helper that touches hashtag-bearing XPath surfaces so every emitted bind / setvalue / output respects the form's context.
 
 ### Case-list emission
 
