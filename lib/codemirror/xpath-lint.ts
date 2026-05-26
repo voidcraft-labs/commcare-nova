@@ -59,9 +59,22 @@ export function xpathLinter(getContext: () => XPathLintContext | undefined) {
 		if (!expr.trim()) return [];
 
 		const ctx = getContext();
-		const caseProperties = ctx?.caseProperties
-			? new Set(ctx.caseProperties.keys())
-			: undefined;
+		// Narrow the case-property accept set to mirror the
+		// CASE_HASHTAG_ON_CREATE_FORM rule + the autocomplete filter:
+		// on a registration form the case being created doesn't exist
+		// at form-init, so `#case/case_id` is the only resolvable
+		// reference. Hand-typed `#case/<other>` shows the same inline
+		// rejection the doc-layer rule and the autocomplete already
+		// agree on — three predicates, one accept set.
+		const caseProperties = (() => {
+			if (!ctx?.caseProperties) return undefined;
+			if (ctx.formType !== "registration") {
+				return new Set(ctx.caseProperties.keys());
+			}
+			return ctx.caseProperties.has("case_id")
+				? new Set(["case_id"])
+				: new Set<string>();
+		})();
 
 		const errors = validateXPath(expr, ctx?.validPaths, caseProperties);
 		const diagnostics: Diagnostic[] = [];

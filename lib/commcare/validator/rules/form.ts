@@ -975,6 +975,24 @@ function caseHashtagOnCreateForm(
 			for (const surface of PROSE_FIELD_SURFACES) {
 				flag("prose", surface, fieldRef, readFieldString(field, surface));
 			}
+			// Repeat-cardinality surfaces — XPath the wire emitter threads
+			// through the hashtag expander on both count-bound and
+			// query-bound repeats. Skipping these would let `#case/<X>` on
+			// a registration form's `repeat_count` or `data_source.ids_query`
+			// slip past authoring validation and surface as a compile-time
+			// throw, the failure mode this rule exists to close.
+			if (field.kind === "repeat") {
+				if (field.repeat_mode === "count_bound") {
+					flag("xpath", "repeat_count", fieldRef, field.repeat_count);
+				} else if (field.repeat_mode === "query_bound") {
+					flag(
+						"xpath",
+						"data_source.ids_query",
+						fieldRef,
+						field.data_source.ids_query,
+					);
+				}
+			}
 			if (doc.fieldOrder[uuid] !== undefined) walkFields(uuid);
 		}
 	};

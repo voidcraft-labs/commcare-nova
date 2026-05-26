@@ -293,52 +293,99 @@ function rewriteBlueprintInPlace(
 			collectIds(formUuid);
 			const fieldExists = (id: string) => fieldIds.has(id);
 
-			// Field-tree walker — XPath + prose surfaces per field.
+			/**
+			 * Rewrite one XPath/prose surface on a field. `assign` writes
+			 * the new value back into the doc (the migration mutates in
+			 * place). Returns nothing — emits into the closed-over
+			 * `rewrites` / `unmatched` arrays.
+			 */
+			const rewriteFieldSurface = (
+				field: Record<string, unknown> & { id: string },
+				surface: string,
+				value: unknown,
+				kind: "xpath" | "prose",
+				assign: (next: string) => void,
+			): void => {
+				if (typeof value !== "string" || !value) return;
+				const rewritten =
+					kind === "xpath"
+						? rewriteXPath(value, fieldExists)
+						: rewriteProse(value, fieldExists);
+				if (
+					rewritten.rewrites.length === 0 &&
+					rewritten.unmatched.length === 0
+				) {
+					return;
+				}
+				const location = `module="${mod.name}" form="${form.name}" field="${field.id}" surface=${surface}`;
+				for (const r of rewritten.rewrites) {
+					rewrites.push({ location, from: r.from, to: r.to });
+				}
+				for (const u of rewritten.unmatched) {
+					unmatched.push({ location, hashtag: u });
+				}
+				if (rewritten.result !== value) {
+					assign(rewritten.result);
+				}
+			};
+
+			// Field-tree walker — XPath, prose, and repeat-cardinality
+			// surfaces per field. Mirrors the doc-layer rule
+			// `caseHashtagOnCreateForm`'s surface set so the migration
+			// rewrites everything the rule would reject on re-validation.
 			const walkFields = (parent: string): void => {
 				for (const uuid of doc.fieldOrder[parent] ?? []) {
 					const field = doc.fields[uuid];
 					if (!field) continue;
-					const fieldId = field.id;
 					for (const surface of XPATH_FIELD_SURFACES) {
-						const expr = field[surface];
-						if (typeof expr !== "string" || !expr) continue;
-						const rewritten = rewriteXPath(expr, fieldExists);
-						if (
-							rewritten.rewrites.length === 0 &&
-							rewritten.unmatched.length === 0
-						) {
-							continue;
-						}
-						const location = `module="${mod.name}" form="${form.name}" field="${fieldId}" surface=${surface}`;
-						for (const r of rewritten.rewrites) {
-							rewrites.push({ location, from: r.from, to: r.to });
-						}
-						for (const u of rewritten.unmatched) {
-							unmatched.push({ location, hashtag: u });
-						}
-						if (rewritten.result !== expr) {
-							field[surface] = rewritten.result;
-						}
+						rewriteFieldSurface(
+							field,
+							surface,
+							field[surface],
+							"xpath",
+							(next) => {
+								field[surface] = next;
+							},
+						);
 					}
 					for (const surface of PROSE_FIELD_SURFACES) {
-						const text = field[surface];
-						if (typeof text !== "string" || !text) continue;
-						const rewritten = rewriteProse(text, fieldExists);
-						if (
-							rewritten.rewrites.length === 0 &&
-							rewritten.unmatched.length === 0
-						) {
-							continue;
-						}
-						const location = `module="${mod.name}" form="${form.name}" field="${fieldId}" surface=${surface}`;
-						for (const r of rewritten.rewrites) {
-							rewrites.push({ location, from: r.from, to: r.to });
-						}
-						for (const u of rewritten.unmatched) {
-							unmatched.push({ location, hashtag: u });
-						}
-						if (rewritten.result !== text) {
-							field[surface] = rewritten.result;
+						rewriteFieldSurface(
+							field,
+							surface,
+							field[surface],
+							"prose",
+							(next) => {
+								field[surface] = next;
+							},
+						);
+					}
+					// Repeat-cardinality surfaces. `kind`/`repeat_mode` shape
+					// follows `lib/domain/fields/repeat.ts`; the discriminator
+					// values gate which slot carries the XPath.
+					if (field.kind === "repeat") {
+						if (field.repeat_mode === "count_bound") {
+							rewriteFieldSurface(
+								field,
+								"repeat_count",
+								field.repeat_count,
+								"xpath",
+								(next) => {
+									field.repeat_count = next;
+								},
+							);
+						} else if (field.repeat_mode === "query_bound") {
+							const dataSource = field.data_source as
+								| { ids_query?: unknown }
+								| undefined;
+							rewriteFieldSurface(
+								field,
+								"data_source.ids_query",
+								dataSource?.ids_query,
+								"xpath",
+								(next) => {
+									if (dataSource) dataSource.ids_query = next;
+								},
+							);
 						}
 					}
 					if (doc.fieldOrder[uuid] !== undefined) walkFields(uuid);

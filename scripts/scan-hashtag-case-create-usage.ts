@@ -173,48 +173,70 @@ function scanApp(appId: string, owner: string, doc: BlueprintDoc): ScanRow[] {
 			const form = doc.forms[formUuid] as Form | undefined;
 			if (!form || form.type !== "registration") continue;
 
-			// Field-tree walker — both XPath + prose surfaces per field.
+			/** Push one row per offending hashtag in a single surface value. */
+			const pushFieldRows = (
+				field: Field,
+				surface: string,
+				value: string | undefined,
+				kind: "xpath" | "prose",
+			): void => {
+				if (!value) return;
+				const hashtags =
+					kind === "xpath"
+						? findInvalidCaseHashtagsInXPath(value)
+						: findInvalidCaseHashtagsInProse(value);
+				for (const hashtag of hashtags) {
+					rows.push({
+						app_id: appId,
+						owner,
+						module_uuid: moduleUuid,
+						module_name: mod.name,
+						form_uuid: formUuid,
+						form_name: form.name,
+						field_uuid: field.uuid,
+						field_id: field.id,
+						surface,
+						authored_expression: value,
+						hashtag,
+					});
+				}
+			};
+
+			// Field-tree walker — XPath, prose, and repeat-cardinality
+			// surfaces per field. Mirrors the surfaces the doc-layer rule
+			// `caseHashtagOnCreateForm` walks; keeping the scan + the rule
+			// in lockstep means the report names exactly what the rule
+			// would reject on re-validation.
 			const walkFields = (parentUuid: Uuid): void => {
 				for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
 					const field = doc.fields[uuid] as Field | undefined;
 					if (!field) continue;
-
 					for (const surface of XPATH_FIELD_SURFACES) {
-						const expr = readFieldString(field, surface);
-						if (!expr) continue;
-						for (const hashtag of findInvalidCaseHashtagsInXPath(expr)) {
-							rows.push({
-								app_id: appId,
-								owner,
-								module_uuid: moduleUuid,
-								module_name: mod.name,
-								form_uuid: formUuid,
-								form_name: form.name,
-								field_uuid: field.uuid,
-								field_id: field.id,
-								surface,
-								authored_expression: expr,
-								hashtag,
-							});
-						}
+						pushFieldRows(
+							field,
+							surface,
+							readFieldString(field, surface),
+							"xpath",
+						);
 					}
 					for (const surface of PROSE_FIELD_SURFACES) {
-						const text = readFieldString(field, surface);
-						if (!text) continue;
-						for (const hashtag of findInvalidCaseHashtagsInProse(text)) {
-							rows.push({
-								app_id: appId,
-								owner,
-								module_uuid: moduleUuid,
-								module_name: mod.name,
-								form_uuid: formUuid,
-								form_name: form.name,
-								field_uuid: field.uuid,
-								field_id: field.id,
-								surface,
-								authored_expression: text,
-								hashtag,
-							});
+						pushFieldRows(
+							field,
+							surface,
+							readFieldString(field, surface),
+							"prose",
+						);
+					}
+					if (field.kind === "repeat") {
+						if (field.repeat_mode === "count_bound") {
+							pushFieldRows(field, "repeat_count", field.repeat_count, "xpath");
+						} else if (field.repeat_mode === "query_bound") {
+							pushFieldRows(
+								field,
+								"data_source.ids_query",
+								field.data_source.ids_query,
+								"xpath",
+							);
 						}
 					}
 					if (doc.fieldOrder[uuid] !== undefined) walkFields(uuid);

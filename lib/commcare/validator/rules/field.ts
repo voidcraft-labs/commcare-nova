@@ -432,21 +432,43 @@ function fixtureReferenceNotModeled(
 	_ctx: FieldContext,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	for (const key of XPATH_FIELDS) {
-		const expr = readXPath(field, key);
-		if (!expr) continue;
+
+	/** Emit one error per offending instance id on a single XPath surface. */
+	const flag = (surfaceDescription: string, expr: string | undefined) => {
+		if (!expr) return;
 		for (const id of findUnmodeledInstanceIds(expr)) {
 			errors.push(
 				validationError(
 					"FIXTURE_REFERENCE_NOT_MODELED",
 					"field",
-					`Field "${field.id}" references the fixture instance "${id}" in its ${FIELD_DESCRIPTIONS[key]}. Nova doesn't model that fixture — the emitted form would have no <instance> declaration for "${id}" and would fail at form-init with "A part of your application is invalid." Today Nova supports casedb (case data via "#case/...") and commcaresession (user/session data via "#user/..." or direct refs). For lookup-table data, reshape the data into the form as select options. Saved reports and UCR reports aren't supported.`,
+					`Field "${field.id}" references the fixture instance "${id}" in its ${surfaceDescription}. Nova doesn't model that fixture — the emitted form would have no <instance> declaration for "${id}" and would fail at form-init with "A part of your application is invalid." Today Nova supports casedb (case data via "#case/...") and commcaresession (user/session data via "#user/..." or direct refs). For lookup-table data, reshape the data into the form as select options. Saved reports and UCR reports aren't supported.`,
 					{ fieldUuid: field.uuid },
 					{ fixtureId: id },
 				),
 			);
 		}
+	};
+
+	for (const key of XPATH_FIELDS) {
+		flag(FIELD_DESCRIPTIONS[key], readXPath(field, key));
 	}
+
+	// Repeat-cardinality XPath surfaces — both flow through the wire-emit
+	// hashtag expander and accumulate instance refs the same way the
+	// expression surfaces above do. Without screening them here, an
+	// `instance('item-list:foo')` in `repeat_count` or
+	// `data_source.ids_query` would slip past the authoring gate and
+	// produce a form whose `<instance>` block lacks the matching
+	// declaration, surfaced on device as "A part of your application is
+	// invalid."
+	if (field.kind === "repeat") {
+		if (field.repeat_mode === "count_bound") {
+			flag("repeat count expression", field.repeat_count);
+		} else if (field.repeat_mode === "query_bound") {
+			flag("repeat ids-query expression", field.data_source.ids_query);
+		}
+	}
+
 	return errors;
 }
 
