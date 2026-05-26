@@ -912,25 +912,36 @@ describe("CCHQ fixture parity", () => {
 		);
 
 		// @date_modified / @user_id meta-block binds — same shape as the
-		// primary case but scoped to the subcase path.
-		expect(
-			nova.binds.get("/data/subcase_0/case/@date_modified")?.calculate,
-		).toBe(cchq.binds.get("/data/subcase_0/case/@date_modified")?.calculate);
-		expect(nova.binds.get("/data/subcase_0/case/@user_id")?.calculate).toBe(
-			cchq.binds.get("/data/subcase_0/case/@user_id")?.calculate,
-		);
-		expect(nova.binds.get("/data/subcase_0/case/@user_id")?.calculate).toBe(
-			"/data/meta/userID",
-		);
+		// primary case but scoped to the subcase path. Existence checks
+		// on both emitters' binds guard against an `undefined ===
+		// undefined` false-pass: a missing bind on either side is a
+		// real divergence to surface, not silent agreement.
+		const novaSubDm = nova.binds.get("/data/subcase_0/case/@date_modified");
+		const cchqSubDm = cchq.binds.get("/data/subcase_0/case/@date_modified");
+		expect(novaSubDm).toBeDefined();
+		expect(cchqSubDm).toBeDefined();
+		expect(novaSubDm?.calculate).toBe(cchqSubDm?.calculate);
+
+		const novaSubUid = nova.binds.get("/data/subcase_0/case/@user_id");
+		const cchqSubUid = cchq.binds.get("/data/subcase_0/case/@user_id");
+		expect(novaSubUid).toBeDefined();
+		expect(cchqSubUid).toBeDefined();
+		expect(novaSubUid?.calculate).toBe(cchqSubUid?.calculate);
+		expect(novaSubUid?.calculate).toBe("/data/meta/userID");
 
 		// Parent-index bind: Nova always names the index element
 		// `parent`, while CCHQ's fixture customized it to `mother_id`.
 		// The CALCULATE is invariant on both — the parent's case_id is
 		// read off `/data/case/@case_id` (the primary case-create
 		// setvalue populates this). Assert the CALCULATE matches via the
-		// per-emitter index-element name.
+		// per-emitter index-element name. The explicit existence checks
+		// on both binds guard against an `undefined === undefined`
+		// false-pass — a missing index bind on either side is a real
+		// divergence to surface, not silent agreement.
 		const novaIdxBind = nova.binds.get("/data/subcase_0/case/index/parent");
 		const cchqIdxBind = cchq.binds.get("/data/subcase_0/case/index/mother_id");
+		expect(novaIdxBind).toBeDefined();
+		expect(cchqIdxBind).toBeDefined();
 		expect(novaIdxBind?.calculate).toBe(cchqIdxBind?.calculate);
 		expect(novaIdxBind?.calculate).toBe("/data/case/@case_id");
 	});
