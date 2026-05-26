@@ -9,7 +9,7 @@
 
 import { type Diagnostic, linter } from "@codemirror/lint";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
-import type { FieldKind } from "@/lib/domain";
+import type { FieldKind, FormType } from "@/lib/domain";
 
 /**
  * Context snapshot used by the XPath linter and autocomplete sources.
@@ -40,6 +40,16 @@ export interface XPathLintContext {
 		label: string;
 		kind: FieldKind;
 	}>;
+	/**
+	 * The owning form's type. Drives surfaces that change behavior with
+	 * form-creates-case semantics — most notably `#case/` autocomplete on
+	 * registration forms, which surfaces only `#case/case_id` because no
+	 * other case property is resolvable at form-init (the case doesn't
+	 * exist in casedb yet). Mirrors the `CASE_HASHTAG_ON_CREATE_FORM`
+	 * validator rule so the editor's affordances agree with the rule's
+	 * rejection set.
+	 */
+	formType: FormType;
 }
 
 /** Create a CodeMirror lint extension that validates against the live context. */

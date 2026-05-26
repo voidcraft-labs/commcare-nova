@@ -120,8 +120,13 @@ function functionSource(ctx: CompletionContext): CompletionResult | null {
 	return ctx.explicit ? { from: ctx.pos, options: functionCompletions } : null;
 }
 
-/** Hashtag reference completions — uses HashtagRef and Child tree nodes. */
-function hashtagSource(
+/**
+ * Hashtag reference completions — uses HashtagRef and Child tree nodes.
+ *
+ * Exported for unit testing; production callers consume it through the
+ * `xpathAutocomplete` extension below.
+ */
+export function hashtagSource(
 	getContext: () => XPathLintContext | undefined,
 ): (ctx: CompletionContext) => CompletionResult | null {
 	return (ctx) => {
@@ -186,11 +191,31 @@ function hashtagSource(
 		let options: Completion[] = [];
 
 		if (namespace === "case" && lintCtx?.caseProperties) {
-			options = [...lintCtx.caseProperties.entries()].map(([name, meta]) => ({
-				label: `#case/${name}`,
-				detail: meta.label,
-				type: "property",
-			}));
+			// On a registration form the case being created doesn't exist
+			// in casedb yet — only `#case/case_id` resolves at form-init
+			// (it points at the newly-allocated case id populated by the
+			// case-management scaffolding). Filter to that single
+			// completion so the editor mirrors the
+			// `CASE_HASHTAG_ON_CREATE_FORM` validator rule's accept set
+			// and the SA / user never sees a suggestion that would be
+			// rejected. On followup / close / survey forms the full
+			// property list remains available.
+			if (lintCtx.formType === "registration") {
+				const caseIdMeta = lintCtx.caseProperties.get("case_id");
+				options = [
+					{
+						label: "#case/case_id",
+						detail: caseIdMeta?.label ?? "case id (newly allocated)",
+						type: "property",
+					},
+				];
+			} else {
+				options = [...lintCtx.caseProperties.entries()].map(([name, meta]) => ({
+					label: `#case/${name}`,
+					detail: meta.label,
+					type: "property",
+				}));
+			}
 		} else if (namespace === "form" && lintCtx) {
 			options = lintCtx.formEntries.map(({ path, label }) => ({
 				label: `#form/${path}`,
