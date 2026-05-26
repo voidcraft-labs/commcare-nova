@@ -28,17 +28,44 @@ import {
 	instanceSourceFor,
 } from "./predicate";
 import { emitNodesetFilter } from "./suite/case-list/nodesetFilter";
-import type { HqFormLink } from "./types";
+import type { FormActions, HqFormLink } from "./types";
 
 // ── Session Datums ─────────────────────────────────────────────────────
 
-/** A datum required by a form entry's `<session>` block. */
+/**
+ * A datum required by a form entry's `<session>` block.
+ *
+ * Two shapes share this struct because CCHQ emits both as
+ * `<datum>` elements in the same `<session>` block:
+ *
+ *   - **Nodeset datum** — case-loading forms (followup / close). Carries
+ *     `nodeset` + `value` (the user picks a case from a list rendered
+ *     against `nodeset`; `value="./@case_id"` extracts the chosen id).
+ *     `instanceId` + `instanceSrc` declare which jr:// instance the
+ *     nodeset reads from (typically `casedb`).
+ *   - **Function datum** — case-creating forms (registration / subcase).
+ *     Carries `function` (typically `uuid()`), which CommCare evaluates
+ *     once at entry to mint a fresh id for the case the form will
+ *     create. No nodeset, no value, no instance dependency.
+ *
+ * Mutually exclusive on the wire: a datum is one shape or the other.
+ * The renderer (`renderEntryXml`) branches on whether `function` is set.
+ */
 export interface SessionDatum {
 	id: string;
-	instanceId: string;
-	instanceSrc: string;
-	nodeset: string;
-	value: string;
+	/** Instance the nodeset reads from. Required for nodeset datums; omitted for function datums. */
+	instanceId?: string;
+	instanceSrc?: string;
+	/** Required for nodeset datums; omitted for function datums. */
+	nodeset?: string;
+	/** Required for nodeset datums; omitted for function datums. */
+	value?: string;
+	/**
+	 * The XPath function CommCare evaluates once at entry. Set for
+	 * function datums (case-create's `uuid()`); omitted for nodeset
+	 * datums. Sourced from CCHQ's `EntriesHelper.get_new_case_id_datums_meta`.
+	 */
+	function?: string;
 	detailSelect?: string;
 	detailConfirm?: string;
 	autoselect?: boolean;
@@ -109,9 +136,24 @@ const SESSION_REF = "instance('commcaresession')/session/data";
 /**
  * Derive session datums required by a form entry.
  *
- * Emits a single `case_id` datum for case-loading forms
- * (followup, close). Advanced-module multi-datum sessions, parent
- * datums, and search datums will extend this when those features ship.
+ * Emits up to one of each kind, in this order:
+ *
+ *   1. The `case_id` nodeset datum for case-loading forms (followup,
+ *      close). Lets the user pick a case from the case list; `value`
+ *      extracts the chosen id.
+ *   2. A `case_id_new_<casetype>_0` function datum for case-create
+ *      forms (registration). CommCare evaluates `uuid()` once at entry
+ *      to mint a fresh id for the case the form will create.
+ *   3. One `case_id_new_<subcasetype>_<idx>` function datum per active
+ *      subcase action with no `repeat_context` (subcases in a repeat
+ *      get their id minted per-iteration via a calculate bind rather
+ *      than a session datum — handled by the XForm emitter).
+ *
+ * Index rule for subcases mirrors CCHQ's
+ * `commcare-hq/corehq/apps/app_manager/models.py::Form.session_var_for_action`:
+ * the index is the subcase's position in `actions.subcases`, plus 1
+ * when the form also has an active `open_case` (so the primary
+ * case-create is always `_0`).
  *
  * The optional `caseListFilter` is the module's
  * `caseListConfig.filter` predicate; when present, the wire layer
@@ -120,27 +162,71 @@ const SESSION_REF = "instance('commcaresession')/session/data";
  * runtime selects from. Filter precedence (case-type / status
  * first, user filter last) matches CCHQ's canonical builder at
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
+ *
+ * `actions` is the form's `FormActions` (post-expansion). The function
+ * inspects `actions.open_case.condition` and `actions.subcases` to
+ * decide which case-create datums to emit. When omitted (transitional
+ * callers haven't been migrated yet), only the case-loading datum is
+ * emitted — the pre-existing behavior.
  */
 export function deriveSessionDatums(
 	formType: FormType,
 	moduleIndex: number,
 	caseType?: string,
 	caseListFilter?: Predicate,
+	actions?: FormActions,
 ): SessionDatum[] {
-	if (!CASE_LOADING_FORM_TYPES.has(formType) || !caseType) return [];
+	const datums: SessionDatum[] = [];
 
-	const filterFragment = emitNodesetFilter(caseListFilter);
-
-	return [
-		{
+	// (1) Case-loading datum for followup / close.
+	if (CASE_LOADING_FORM_TYPES.has(formType) && caseType) {
+		const filterFragment = emitNodesetFilter(caseListFilter);
+		datums.push({
 			id: "case_id",
 			instanceId: "casedb",
 			instanceSrc: "jr://instance/casedb",
 			nodeset: `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}`,
 			value: "./@case_id",
 			detailSelect: `m${moduleIndex}_case_short`,
-		},
-	];
+		});
+	}
+
+	if (!actions) return datums;
+
+	// (2) Case-create datum for an active `open_case` action. CCHQ
+	// emits this whenever `'open_case' in form.active_actions()`, which
+	// in Nova's FormActions shape is condition.type in {always, if}.
+	const opensCase =
+		actions.open_case.condition.type === "always" ||
+		actions.open_case.condition.type === "if";
+	const opensSubcaseIndexOffset = opensCase ? 1 : 0;
+	if (opensCase && caseType) {
+		datums.push({
+			id: `case_id_new_${validateCaseType(caseType)}_0`,
+			function: "uuid()",
+		});
+	}
+
+	// (3) Per-subcase datums. Skip subcases whose action is inactive or
+	// that live in a repeat — CCHQ also skips repeat-context subcases
+	// for session emission and uses a per-iteration calculate bind on
+	// the form side. The wire-layer datum index counts ALL active
+	// subcases (including any repeat-context ones), then this function
+	// only EMITS for the non-repeat-context ones — matching the
+	// `Form.session_var_for_action` numbering at the CCHQ side.
+	for (let i = 0; i < actions.subcases.length; i++) {
+		const sc = actions.subcases[i];
+		if (sc.condition.type !== "always" && sc.condition.type !== "if") {
+			continue;
+		}
+		if (sc.repeat_context) continue;
+		datums.push({
+			id: `case_id_new_${validateCaseType(sc.case_type)}_${i + opensSubcaseIndexOffset}`,
+			function: "uuid()",
+		});
+	}
+
+	return datums;
 }
 
 /**
@@ -353,6 +439,7 @@ export function deriveEntryDefinition(
 	caseListFilter?: Predicate,
 	searchButtonDisplayCondition?: Predicate,
 	caseListColumnExpressions?: readonly ValueExpression[],
+	actions?: FormActions,
 ): EntryDefinition {
 	const commandId = `m${moduleIndex}-f${formIndex}`;
 	const localeId = `forms.m${moduleIndex}f${formIndex}`;
@@ -362,15 +449,19 @@ export function deriveEntryDefinition(
 		moduleIndex,
 		caseType,
 		caseListFilter,
+		actions,
 	);
 	const instances: EntryInstance[] = [];
 	const seen = new Set<string>();
 
 	if (datums.length > 0) {
 		for (const d of datums) {
+			// Function datums (case-create's uuid()) don't read any instance;
+			// only nodeset datums declare an instance dependency.
+			if (!d.instanceId) continue;
 			if (!seen.has(d.instanceId)) {
 				seen.add(d.instanceId);
-				instances.push({ id: d.instanceId, src: d.instanceSrc });
+				instances.push({ id: d.instanceId, src: d.instanceSrc ?? "" });
 			}
 		}
 	}
@@ -469,6 +560,14 @@ export function renderEntryXml(entry: EntryDefinition): string {
 	if (entry.session) {
 		parts.push(`    <session>`);
 		for (const d of entry.session.datums) {
+			if (d.function !== undefined) {
+				// Function datum — `<datum id="..." function="uuid()"/>`.
+				// CommCare evaluates the function once at entry; there is no
+				// nodeset, value, or detail to wire up.
+				parts.push(`      <datum id="${d.id}" function="${d.function}"/>`);
+				continue;
+			}
+			// Nodeset datum — case-loading shape.
 			const detailAttr = d.detailSelect
 				? ` detail-select="${d.detailSelect}"`
 				: "";

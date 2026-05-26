@@ -92,6 +92,35 @@ describe("compileCcz", () => {
 		expect(regXform).toContain("<case_type/>");
 		expect(regXform).toContain("<case_name/>");
 		expect(regXform).toContain("calculate=\"'patient'\""); // case type bind
+		// The <case> element carries three attributes per CCHQ's
+		// XFormCaseBlock.elem: case_id (the session-allocated id),
+		// date_modified (close-out timestamp), user_id (who did the work).
+		expect(regXform).toContain('<case case_id="" date_modified="" user_id="">');
+		// The form-side `@case_id` setvalue chains from the suite's
+		// case-create session datum. xforms-ready fires once at form
+		// load.
+		expect(regXform).toContain(
+			`<setvalue ref="/data/case/@case_id" event="xforms-ready" value="instance('commcaresession')/session/data/case_id_new_patient_0"/>`,
+		);
+		// date_modified and user_id read from the always-on meta block;
+		// the meta block's own setvalues + binds were emitted upstream.
+		expect(regXform).toContain(
+			'<bind nodeset="/data/case/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>',
+		);
+		expect(regXform).toContain(
+			'<bind nodeset="/data/case/@user_id" calculate="/data/meta/userID"/>',
+		);
+	});
+
+	it("emits a case-create session datum for registration entries", () => {
+		const hq = expandDoc(doc);
+		const buf = compileCcz(hq, "CHW App", doc);
+		const zip = new AdmZip(buf);
+		const suite = zip.readAsText("suite.xml");
+		// CCHQ shape — function="uuid()" mints a fresh id at entry.
+		expect(suite).toContain(
+			'<datum id="case_id_new_patient_0" function="uuid()"/>',
+		);
 	});
 
 	it("injects case update block into followup XForms", () => {
@@ -103,6 +132,15 @@ describe("compileCcz", () => {
 		expect(followupXform).toContain("<update>");
 		expect(followupXform).toContain("<total_visits/>");
 		expect(followupXform).not.toContain("<create>"); // followup should not create
+		// Case-update forms wire `case/@case_id` from the case-loading
+		// session datum (`case_id`), not from a uuid() — the case
+		// already exists when this form opens.
+		expect(followupXform).toContain(
+			`<bind nodeset="/data/case/@case_id" calculate="instance('commcaresession')/session/data/case_id"/>`,
+		);
+		expect(followupXform).toContain(
+			'<case case_id="" date_modified="" user_id="">',
+		);
 	});
 
 	it("post-injection validation catches orphaned binds", () => {

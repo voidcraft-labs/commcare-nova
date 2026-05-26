@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
 import {
 	escapeXml,
+	type FormActionCondition,
 	type FormActions,
 	type HqApplication,
 	validateCaseType,
@@ -316,6 +317,7 @@ export function compileCcz(
 				caseListColumnExpressions.length > 0
 					? caseListColumnExpressions
 					: undefined,
+				hqForm.actions,
 			);
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);
@@ -441,7 +443,13 @@ function addCaseBlocks(
 	const updateCase = actions.update_case;
 	const closeCase = actions.close_case;
 	const subcases = actions.subcases;
-	const isCreate = openCase.condition.type === "always";
+	const openMode = openCase.condition.type;
+	// `isCreate` covers both the always-create (registration) and the
+	// conditional-create patterns. CCHQ treats both as active opens — the
+	// `if`-typed condition lowers to a `<bind relevant>` on the <case>
+	// element so JavaRosa only stamps the case-create on the wire when
+	// the condition evaluates true.
+	const isCreate = openMode === "always" || openMode === "if";
 	const isUpdate = updateCase.condition.type === "always";
 	// Single read of the close condition's discriminator — reused below
 	// when deciding whether to emit a `relevant` bind.
@@ -454,12 +462,19 @@ function addCaseBlocks(
 	// Primary case element children + accumulating binds.
 	let caseChildren = "";
 	const binds: string[] = [];
+	const setvalues: string[] = [];
+
+	// Index rule mirrors `commcare-hq/.../app_manager/models.py::Form
+	// .session_var_for_action`: subcase indices start at 1 when an
+	// `open_case` is active (so the primary is always `_0`), else 0.
+	const subcaseIndexOffset = isCreate ? 1 : 0;
+	const validatedCaseType = validateCaseType(caseType);
 
 	if (isCreate) {
 		caseChildren +=
 			"\n            <create>\n              <case_type/>\n              <case_name/>\n              <owner_id/>\n            </create>";
 		binds.push(
-			`      <bind nodeset="/data/case/create/case_type" calculate="'${validateCaseType(caseType)}'"/>`,
+			`      <bind nodeset="/data/case/create/case_type" calculate="'${validatedCaseType}'"/>`,
 		);
 		const namePath = openCase.name_update?.question_path || "/data/name";
 		binds.push(
@@ -467,6 +482,27 @@ function addCaseBlocks(
 		);
 		binds.push(
 			`      <bind nodeset="/data/case/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`,
+		);
+		// Wire the form's `/data/case/@case_id` to the session datum
+		// `deriveSessionDatums` emits for this same `open_case` action.
+		// xforms-ready fires once at form load — the form-side and the
+		// session-side both pull their value from the same uuid().
+		setvalues.push(
+			`      <setvalue ref="/data/case/@case_id" event="xforms-ready" value="instance('commcaresession')/session/data/case_id_new_${validatedCaseType}_0"/>`,
+		);
+		// Conditional-open forms get a `<bind relevant>` on the case
+		// element. Same operator dispatch as the close condition below.
+		if (openMode === "if" && openCase.condition.question) {
+			binds.push(
+				`      <bind nodeset="/data/case" relevant="${conditionToRelevantXPath(openCase.condition)}"/>`,
+			);
+		}
+	} else if (isUpdate || isClose) {
+		// Case-update / case-close: no `<create>` block, but the case_id
+		// still wires to the case-loading session datum so the case-update
+		// block on the wire knows which case it's editing.
+		binds.push(
+			`      <bind nodeset="/data/case/@case_id" calculate="instance('commcaresession')/session/data/case_id"/>`,
 		);
 	}
 
@@ -493,41 +529,55 @@ function addCaseBlocks(
 		// <close/> bind; "selected" operators produce `selected(path, answer)`
 		// while the default equality operator produces `path = 'answer'`.
 		if (closeMode === "if" && closeCase.condition.question) {
-			const qPath = validateXFormPath(closeCase.condition.question);
-			const answer = closeCase.condition.answer || "";
-			const op = closeCase.condition.operator ?? "=";
-			const relevantExpr =
-				op === "selected"
-					? `selected(${qPath}, '${answer}')`
-					: `${qPath} = '${answer}'`;
 			binds.push(
-				`      <bind nodeset="/data/case/close" relevant="${relevantExpr}"/>`,
+				`      <bind nodeset="/data/case/close" relevant="${conditionToRelevantXPath(closeCase.condition)}"/>`,
 			);
 		}
 	}
 
 	if (isCreate || isUpdate || isClose) {
-		const caseBlock = `          <case>${caseChildren}\n          </case>`;
+		// `<case>` carries three attributes JavaRosa needs at submission
+		// time: `case_id` (which case this form's outputs target),
+		// `date_modified` (the close-out timestamp), and `user_id` (who
+		// did the work). The binds above (case_id) and below (date_modified,
+		// user_id) populate them from the session and the form's meta block.
+		// Mirrors `commcare-hq/.../app_manager/xform.py::XFormCaseBlock.elem`.
+		const caseBlock = `          <case case_id="" date_modified="" user_id="">${caseChildren}\n          </case>`;
 		// Emitter guarantees a single top-level `<data>` per form — this
 		// `replace` targets that unique occurrence's closing tag.
 		xform = xform.replace(/(<\/data>)/, `\n${caseBlock}\n        $1`);
+
+		// `<case>` attribute binds read out of the always-on /data/meta
+		// block (populated by setvalues from session/context at form load
+		// + on every revalidate for timeEnd). The meta block ships with
+		// every Nova-emitted form, so these references resolve.
+		binds.push(
+			`      <bind nodeset="/data/case/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>`,
+		);
+		binds.push(
+			`      <bind nodeset="/data/case/@user_id" calculate="/data/meta/userID"/>`,
+		);
 	}
 
 	// Subcases — each child-case creation gets a dedicated element
 	// named `subcase_{n}` (or nested under its repeat context).
 	for (let sIdx = 0; sIdx < subcases.length; sIdx++) {
 		const sc = subcases[sIdx];
-		if (sc.condition.type !== "always") continue;
+		if (sc.condition.type !== "always" && sc.condition.type !== "if") {
+			continue;
+		}
 
 		const elName = `subcase_${sIdx}`;
 		const repeatCtx = sc.repeat_context || "";
 		const basePath = repeatCtx ? `${repeatCtx}/${elName}` : `/data/${elName}`;
+		const validatedSubcaseType = validateCaseType(sc.case_type);
+		const subcaseDatumId = `case_id_new_${validatedSubcaseType}_${sIdx + subcaseIndexOffset}`;
 
 		let scChildren = "";
 		scChildren +=
 			"\n            <create>\n              <case_type/>\n              <case_name/>\n              <owner_id/>\n            </create>";
 		binds.push(
-			`      <bind nodeset="${basePath}/create/case_type" calculate="'${validateCaseType(sc.case_type)}'"/>`,
+			`      <bind nodeset="${basePath}/create/case_type" calculate="'${validatedSubcaseType}'"/>`,
 		);
 		const namePath = sc.name_update?.question_path || `${basePath}/name`;
 		binds.push(
@@ -537,9 +587,45 @@ function addCaseBlocks(
 			`      <bind nodeset="${basePath}/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`,
 		);
 
+		// Wire the subcase's `@case_id`. When the subcase lives in a
+		// repeat, setvalues won't fire per-iteration — use a `<bind
+		// calculate>` instead so JavaRosa stamps each new iteration with
+		// the same session-allocated id. Mirrors CCHQ's `delay_case_id=True`
+		// branch in `XFormCaseBlock.add_create_block`.
+		if (repeatCtx) {
+			binds.push(
+				`      <bind nodeset="${basePath}/case/@case_id" calculate="instance('commcaresession')/session/data/${subcaseDatumId}"/>`,
+			);
+		} else {
+			setvalues.push(
+				`      <setvalue ref="${basePath}/case/@case_id" event="xforms-ready" value="instance('commcaresession')/session/data/${subcaseDatumId}"/>`,
+			);
+		}
+
 		// Index edge back to the parent case — relationship is "child" or
-		// "extension" depending on the subcase configuration.
-		scChildren += `\n            <index>\n              <parent case_type="${validateCaseType(caseType)}" relationship="${sc.relationship || "child"}"/>\n            </index>`;
+		// "extension" depending on the subcase configuration. The bind
+		// below calculates the parent's case_id from the session
+		// (`case_id` is the case-loading datum the parent form created).
+		scChildren += `\n            <index>\n              <parent case_type="${validatedCaseType}" relationship="${sc.relationship || "child"}"/>\n            </index>`;
+		binds.push(
+			`      <bind nodeset="${basePath}/case/index/parent" calculate="instance('commcaresession')/session/data/case_id_new_${validatedCaseType}_0"/>`,
+		);
+
+		// Subcase case-attribute binds — same shape as the primary case.
+		binds.push(
+			`      <bind nodeset="${basePath}/case/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>`,
+		);
+		binds.push(
+			`      <bind nodeset="${basePath}/case/@user_id" calculate="/data/meta/userID"/>`,
+		);
+
+		// Conditional subcase create — `<bind relevant>` on the subcase
+		// case element.
+		if (sc.condition.type === "if" && sc.condition.question) {
+			binds.push(
+				`      <bind nodeset="${basePath}/case" relevant="${conditionToRelevantXPath(sc.condition)}"/>`,
+			);
+		}
 
 		if (Object.keys(sc.case_properties).length > 0) {
 			const props = Object.entries(sc.case_properties);
@@ -556,7 +642,12 @@ function addCaseBlocks(
 			}
 		}
 
-		const scBlock = `          <${elName}>${scChildren}\n          </${elName}>`;
+		// The subcase's `<case>` carries the same three attributes as the
+		// primary case (case_id, date_modified, user_id). Wrapping element
+		// (`<subcase_n>`) holds the case element; the case element holds
+		// the create/index/update children.
+		const wrappedCase = `<case case_id="" date_modified="" user_id="">${scChildren}\n          </case>`;
+		const scBlock = `          <${elName}>\n          ${wrappedCase}\n          </${elName}>`;
 		// Same single-top-level-`<data>` invariant as the primary case splice.
 		xform = xform.replace(/(<\/data>)/, `\n${scBlock}\n        $1`);
 	}
@@ -581,10 +672,22 @@ function addCaseBlocks(
 		}
 	}
 
+	// Splice the case-id setvalues into the model just before `<itext>` or
+	// `</model>`. The meta block's setvalues are emitted by `buildXForm`
+	// upstream of `addCaseBlocks`, so they land before this splice in
+	// document order. Both groups fire on their declared events; XForms
+	// runs same-event setvalues in document order, and neither group's
+	// values depend on the other so the order is correctness-neutral.
+	if (setvalues.length > 0) {
+		const setvalueStr = setvalues.join("\n");
+		xform = xform.replace(/(<itext>|<\/model>)/, `${setvalueStr}\n      $1`);
+	}
+
 	// owner_id binds reference `instance('commcaresession')` — declare
-	// that instance if the emitter didn't already. Emitter always
-	// produces at least one `<instance>`, so `</instance>` exists and
-	// this `replace` targets its first occurrence.
+	// that instance if the emitter didn't already. The meta block also
+	// requires commcaresession, so this branch is now defensive (the
+	// instance is always present); leaving in place so removing the meta
+	// block doesn't silently strip the declaration.
 	if (!xform.includes('id="commcaresession"')) {
 		xform = xform.replace(
 			/(<\/instance>)/,
@@ -593,6 +696,26 @@ function addCaseBlocks(
 	}
 
 	return xform;
+}
+
+/**
+ * Build a JavaRosa `relevant` XPath fragment from a `FormActionCondition`.
+ * Used for conditional case opens (`<bind nodeset="/data/case" relevant>`),
+ * conditional case closes (`<bind nodeset="/data/case/close" relevant>`),
+ * and conditional subcase opens.
+ *
+ * Two shapes per the question's operator:
+ *   - `selected`  → `selected(<qPath>, '<answer>')`  — for multi-select
+ *     items where the answer is a token within the value list.
+ *   - everything else → `<qPath> = '<answer>'`     — equality compare.
+ */
+function conditionToRelevantXPath(condition: FormActionCondition): string {
+	const qPath = validateXFormPath(condition.question ?? "");
+	const answer = condition.answer ?? "";
+	const op = condition.operator ?? "=";
+	return op === "selected"
+		? `selected(${qPath}, '${answer}')`
+		: `${qPath} = '${answer}'`;
 }
 
 /**
