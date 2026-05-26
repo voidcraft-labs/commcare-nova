@@ -37,16 +37,22 @@
  *
  * Test-oracle posture: same as the XForm + suite oracles per
  * `validator/xformOracle.ts`. A failure here is a generator bug, not a
- * fixable authoring state. Co-developed with a fuzzer that emits from
- * schema-valid blueprints; a failing case is either oracle-too-strict or
- * emitter bug, never a new reject rule.
+ * fixable authoring state.
  *
  * Out of scope (covered elsewhere):
- *   - XPath syntactic validity: `xformOracle.ts` (#3 — non-path nodeset,
- *     #4 — unparseable expressions).
+ *   - XPath syntactic validity: `xformOracle.ts` (non-path nodeset,
+ *     unparseable expressions).
  *   - XPath type compatibility: `validator/typeChecker.ts`.
  *   - Function arity / signature: `validator/functionRegistry.ts`.
  *   - Dependency cycles: doc-layer `validateBlueprintDeep` via `TriggerDag`.
+ *
+ * Known intentional gap: `SessionInstanceBuilder.addUserQueryData` writes
+ * `stringquery` / `fingerprintquery` into `session/data/*` at runtime after
+ * the user performs a case-search. Those names aren't declared as `<datum>`
+ * entries in `suite.xml`, so a reference to either would false-positive
+ * here. No Nova-emitted XPath references them today; if a future emission
+ * surface needs them, add a runtime-injected-datums set parallel to
+ * `SESSION_CONTEXT_FIELDS`.
  */
 
 import type { SyntaxNode } from "@lezer/common";
@@ -338,15 +344,20 @@ function analyzeXPath(expr: string, rootPath: string): XPathRefs {
 		}
 
 		// Absolute paths rooted at the main instance. We only pick up the
-		// top-level `Child` / `Descendant` chains (those whose parent isn't
-		// itself a `Child`/`Descendant`) so the inner steps of a longer
-		// path aren't double-counted as their own chains.
+		// top-level `Child` / `Descendant` chains — those whose parent isn't
+		// another path-continuation node (`Child` / `Descendant` / `Filtered`,
+		// the three productions a longer path threads through) — so the
+		// inner steps of a longer path aren't double-counted as their own
+		// chains.
 		if (cursor.type.name === "Child" || cursor.type.name === "Descendant") {
 			const node = cursor.node;
 			const parent = node.parent;
+			const parentName = parent?.type.name;
 			if (
 				parent === null ||
-				(parent.type.name !== "Child" && parent.type.name !== "Descendant")
+				(parentName !== "Child" &&
+					parentName !== "Descendant" &&
+					parentName !== "Filtered")
 			) {
 				const path = readAbsolutePath(trimmed, node);
 				if (path === rootPath || path?.startsWith(`${rootPath}/`)) {
@@ -445,7 +456,7 @@ function collectTrailingPathSegments(
 /**
  * Serialize a `Child` / `Descendant` chain into its absolute-path string
  * — `/data/foo/@bar`-shaped. Returns `null` for chains that don't anchor
- * at a leading `/` (relative paths or chains anchored on an `Invoke`),
+ * at a leading `/` (relative paths, or chains anchored on an `Invoke`),
  * or for chains whose segments aren't all plain `NameTest` / `@<NameTest>`
  * — the oracle resolves only the shapes it can statically pin to a data
  * tree path; a false positive on a more complex chain is worse than no
@@ -454,58 +465,77 @@ function collectTrailingPathSegments(
  * The leading `/` appears as an anonymous terminal in the parsed tree
  * (Lezer doesn't emit a `RootPath` node when the `/` opens a longer
  * chain — it only emits `RootPath` for the bare `/` literal expression).
- * So the "this is absolute" signal is: the leftmost `Child` in the chain
- * has its `firstChild` as the `/` terminal token rather than another
- * `Child` / `Invoke` / `NameTest`.
+ * So the "this is absolute" signal is: when the chain is fully descended,
+ * the innermost `Child` has its `firstChild` as the `/` terminal token.
+ *
+ * Predicates parse as `Filtered { expr "[" pred "]" }`, with the path
+ * continuing through `expr` (the `firstChild`). Walking through `Filtered`
+ * during both descent and ascent is what lets `/data/items[pred]/x`
+ * resolve to `/data/items/x`. The predicate body is independently walked
+ * by the outer cursor loop in `analyzeXPath`.
  */
 function readAbsolutePath(source: string, chain: SyntaxNode): string | null {
-	// Descend to the leftmost `Child` / `Descendant` — the one that holds
-	// the path's anchor.
-	let leftmost: SyntaxNode = chain;
-	while (leftmost.firstChild !== null) {
-		const fc = leftmost.firstChild;
-		if (fc.type.name !== "Child" && fc.type.name !== "Descendant") break;
-		leftmost = fc;
-	}
-
-	// An absolute path starts the leftmost Child with the `/` terminal
-	// token (anonymous, named `"/"` in `cursor.type.name`). Anything else
-	// in that slot — `Invoke` for `instance('x')/...`, `NameTest` for a
-	// relative path — means this chain isn't absolute and the oracle has
-	// no business resolving it as one.
-	const anchor = leftmost.firstChild;
-	if (anchor === null) return null;
-	if (anchor.type.name !== "/") return null;
-
-	// First step is the leftmost Child's `lastChild` (the step the `/`
-	// targets).
-	const firstStep = leftmost.lastChild;
-	if (firstStep === null) return null;
-	const firstSeg = readPathSegment(source, firstStep);
-	if (firstSeg === null) return null;
-	const segments: string[] = [firstSeg];
-
-	// Walk back up the chain, picking up each enclosing `Child`'s step.
-	// Identity comparisons use `.from` since Lezer fabricates fresh
-	// SyntaxNode wrappers per accessor call.
-	let node: SyntaxNode = leftmost;
-	while (true) {
-		const parent: SyntaxNode | null = node.parent;
-		if (parent === null) break;
-		if (parent.type.name !== "Child" && parent.type.name !== "Descendant") {
-			break;
-		}
-		if (parent.firstChild === null) break;
-		if (parent.firstChild.from !== node.from) break;
-		const step = parent.lastChild;
-		if (step === null) return null;
-		const segment = readPathSegment(source, step);
-		if (segment === null) return null;
-		segments.push(segment);
-		node = parent;
-	}
-
+	const segments: string[] = [];
+	if (!collectAbsolutePathSegments(source, chain, segments)) return null;
+	if (segments.length === 0) return null;
 	return `/${segments.join("/")}`;
+}
+
+/**
+ * Recursive descent that accumulates the segments of an absolute path.
+ * Returns `true` when the subtree contributes a valid absolute-path
+ * prefix (and segments have been appended); `false` when the subtree
+ * isn't an absolute-path shape this oracle can statically resolve.
+ *
+ * Three productions matter:
+ *   - `Child` / `Descendant` — anchored on `/` (the absolute case) when
+ *     `firstChild` is the `/` token; otherwise it's a continuation, and
+ *     the prefix lives in `firstChild`.
+ *   - `Filtered` — the path passes through `firstChild`; the predicate
+ *     body lives at later siblings and is walked separately.
+ *   - anything else (an `Invoke` like `instance('x')/...`, a relative
+ *     `NameTest`-rooted chain, etc.) — not an absolute path.
+ */
+function collectAbsolutePathSegments(
+	source: string,
+	node: SyntaxNode,
+	segments: string[],
+): boolean {
+	if (node.type.name === "Child" || node.type.name === "Descendant") {
+		const first = node.firstChild;
+		if (first === null) return false;
+
+		if (first.type.name === "/") {
+			// Leftmost step of an absolute path. The step lives at lastChild
+			// (the `/` token is first, the step is last).
+			const step = node.lastChild;
+			if (step === null) return false;
+			const seg = readPathSegment(source, step);
+			if (seg === null) return false;
+			segments.push(seg);
+			return true;
+		}
+
+		// Continuation: recurse into the prefix (firstChild), then append
+		// this Child's step.
+		if (!collectAbsolutePathSegments(source, first, segments)) return false;
+		const step = node.lastChild;
+		if (step === null) return false;
+		const seg = readPathSegment(source, step);
+		if (seg === null) return false;
+		segments.push(seg);
+		return true;
+	}
+
+	if (node.type.name === "Filtered") {
+		// The path continues through `firstChild`; the predicate body
+		// (later siblings) is walked independently by the outer cursor.
+		const first = node.firstChild;
+		if (first === null) return false;
+		return collectAbsolutePathSegments(source, first, segments);
+	}
+
+	return false;
 }
 
 /**
@@ -513,14 +543,20 @@ function readAbsolutePath(source: string, chain: SyntaxNode): string | null {
  * `null` for steps that aren't a plain NameTest or an `@<NameTest>`
  * — anything else (axes, predicates, function calls) means this chain
  * isn't a simple absolute path the oracle can statically resolve.
+ *
+ * `AttrSpecified` parses as `[ "@" token, NameTest ]` — the `@` is a
+ * visible terminal node, so the actual name lives at `firstChild.nextSibling`,
+ * NOT `firstChild`. (Mirrors how `Child` parses with the `/` token visible
+ * between its expr and step children.)
  */
 function readPathSegment(source: string, step: SyntaxNode): string | null {
 	if (step.type.name === "NameTest") {
 		return source.slice(step.from, step.to);
 	}
 	if (step.type.name === "AttrSpecified") {
-		// AttrSpecified { "@" generalStep } — generalStep inlines as the child.
-		const inner = step.firstChild;
+		const at = step.firstChild;
+		if (at === null || at.type.name !== "@") return null;
+		const inner = at.nextSibling;
 		if (inner === null || inner.type.name !== "NameTest") return null;
 		return `@${source.slice(inner.from, inner.to)}`;
 	}

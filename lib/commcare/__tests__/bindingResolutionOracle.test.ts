@@ -210,6 +210,34 @@ describe("validateBindingResolution", () => {
 			const errors = validateBindingResolution(xml, "f", "m", new Set());
 			expect(errors).toEqual([]);
 		});
+
+		it("rejects an @attr ref when the attribute doesn't exist on the target element", () => {
+			const xml = makeForm(
+				`<bind nodeset="/data/result" calculate="/data/case/@nonexistent_attr"/>`,
+				`<case case_id=""/><result/>`,
+			);
+			const errors = validateBindingResolution(xml, "f", "m", new Set());
+			expect(errors).toHaveLength(1);
+			expect(errors[0].code).toBe("BINDING_RESOLUTION_FORM_PATH_MISSING");
+			expect(errors[0].message).toContain("/data/case/@nonexistent_attr");
+		});
+
+		it("resolves segments past a predicate (path continues through Filtered)", () => {
+			// `/data/items[count(.) > 0]/x` — the predicate is walked
+			// independently; the path the oracle resolves is `/data/items/x`.
+			// Without Filtered descent, only `/data/items` would resolve and
+			// the typo on the post-predicate segment would slip through.
+			const xml = makeForm(
+				`<bind nodeset="/data/result" calculate="/data/items[count(.) > 0]/nonexistent_step"/>`,
+				`<items><x/></items><result/>`,
+			);
+			const errors = validateBindingResolution(xml, "f", "m", new Set());
+			const codes = errors.map((e) => e.code);
+			expect(codes).toContain("BINDING_RESOLUTION_FORM_PATH_MISSING");
+			expect(
+				errors.some((e) => e.message.includes("/data/items/nonexistent_step")),
+			).toBe(true);
+		});
 	});
 
 	describe("integration — multiple rules in one expression", () => {
