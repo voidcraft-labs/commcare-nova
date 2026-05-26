@@ -33,16 +33,8 @@
  * the same shape pattern as the meta block itself.
  */
 
-import { Element, type Text } from "domhandler";
-
-/** Construct an XForm element. Mirrors the local `el()` helper in `builder.ts`. */
-function el(
-	name: string,
-	attribs: Record<string, string>,
-	children: Element[] = [],
-): Element {
-	return new Element(name, attribs, children as unknown as Text[]);
-}
+import type { Element } from "domhandler";
+import { el } from "@/lib/commcare/xform/elementBuilders";
 
 /**
  * What `buildMetaBlock` produces for the consumer to splice in.

@@ -34,7 +34,7 @@
  */
 
 import render from "dom-serializer";
-import { type ChildNode, Element, Text } from "domhandler";
+import type { ChildNode, Element } from "domhandler";
 import { decodeXML } from "entities";
 import {
 	extractHashtags,
@@ -51,48 +51,9 @@ import {
 	type FormHashtagContext,
 } from "@/lib/commcare/hashtags/formContext";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
+import { el, RENDER_OPTS, text } from "@/lib/commcare/xform/elementBuilders";
 import { buildMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
-
-/**
- * Serializer options. `xmlMode` so element names / namespaces / self-closing
- * follow XML rules; `selfClosingTags` so empty elements render `<x/>`;
- * `encodeEntities: "utf8"` so the serializer escapes `<` / `>` / `&` / `"` /
- * `'` in text and attribute values exactly once. The `'` → `&apos;` and `"` →
- * `&quot;` encodings are XML-spec-equivalent to the literal characters (a
- * conforming parser decodes them back identically), so emitting them rather
- * than the bare characters is a no-op for CommCare and Vellum.
- */
-const RENDER_OPTS = {
-	xmlMode: true,
-	selfClosingTags: true,
-	encodeEntities: "utf8" as const,
-} as const;
-
-// ── Element construction helpers ─────────────────────────────────────
-//
-// One-line constructors so the field walk reads as a tree literal rather than
-// a wall of `new Element(...)`. `el` builds an element with attributes +
-// element children; `text` builds a Text node. Attribute values are passed
-// RAW (un-escaped) — the serializer escapes them, and any pre-escaping here
-// would double-encode. Children's parent pointers stay unset until final
-// assembly under `<h:html>`; the slot-array accumulators below rely on
-// elements being orphaned during the walk so a placeholder can be swapped out
-// by array index without disturbing a tree structure.
-
-/** Build an element with raw attribute values and optional element children. */
-function el(
-	name: string,
-	attribs: Record<string, string>,
-	children: ChildNode[] = [],
-): Element {
-	return new Element(name, attribs, children);
-}
-
-/** Build a Text node carrying raw character data (serializer escapes it). */
-function text(data: string): Text {
-	return new Text(data);
-}
 
 /**
  * Bare-hashtag pattern for label / hint prose.
