@@ -269,6 +269,26 @@ describe("validateBindingResolution", () => {
 			expect(errors).toEqual([]);
 		});
 
+		it("resolves absolute paths inside a predicate body (predicate is itself a path)", () => {
+			// `/data/items[/data/missing_index]/x` — predicate IS a path,
+			// not an expression containing one. The predicate path's parent
+			// is `Filtered` directly. Without distinguishing "is this the
+			// base of Filtered or is it the predicate", the predicate path
+			// would silently slip past resolution.
+			const xml = makeForm(
+				`<bind nodeset="/data/x" calculate="/data/items[/data/missing_index]/x"/>`,
+				`<items><x/></items><x/>`,
+			);
+			const errors = validateBindingResolution(xml, "f", "m", new Set());
+			expect(
+				errors.some(
+					(e) =>
+						e.code === "BINDING_RESOLUTION_FORM_PATH_MISSING" &&
+						e.message.includes("/data/missing_index"),
+				),
+			).toBe(true);
+		});
+
 		it("resolves a path that terminates in a predicate (no trailing step)", () => {
 			// `/data/items[count(.) > 0]` — the path ends at the predicate.
 			// The outermost AST node is Filtered, not Child. The oracle

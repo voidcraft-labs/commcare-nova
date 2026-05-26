@@ -11,9 +11,9 @@
  * which CommCare surfaces as "A part of your application is invalid.").
  *
  * This oracle walks every install-time-evaluable XPath surface on a form
- * (bind `calculate`/`relevant`/`constraint`/`required`, `<setvalue value>`,
- * body `<output value>`) and resolves each reference against the symbols
- * available at the form's evaluation context:
+ * (bind `calculate`/`relevant`/`constraint`/`required`/`readonly`,
+ * `<setvalue value>`, body `<output value>`) and resolves each reference
+ * against the symbols available at the form's evaluation context:
  *
  *   1. `instance('commcaresession')/session/data/<X>` — `<X>` must be the
  *      `id` of a session datum declared on the form's `<entry>` in
@@ -50,9 +50,7 @@
  * `stringquery` / `fingerprintquery` into `session/data/*` at runtime after
  * the user performs a case-search. Those names aren't declared as `<datum>`
  * entries in `suite.xml`, so a reference to either would false-positive
- * here. No Nova-emitted XPath references them today; if a future emission
- * surface needs them, add a runtime-injected-datums set parallel to
- * `SESSION_CONTEXT_FIELDS`.
+ * here. No Nova-emitted XPath references them today.
  */
 
 import type { SyntaxNode } from "@lezer/common";
@@ -343,20 +341,31 @@ function analyzeXPath(expr: string, rootPath: string): XPathRefs {
 		// Absolute paths rooted at the main instance. We pick up the
 		// top-level path-shape node — `Child`, `Descendant`, or `Filtered`
 		// (a path terminating in a predicate, like `/data/items[pred]`) —
-		// only when its parent isn't another path-continuation node, so the
-		// inner steps of a longer path aren't double-counted as their own
-		// chains.
+		// only when its parent isn't another path-continuation that already
+		// owns it. The skip rules are different per parent:
+		//   - `Child` / `Descendant` parent: skip unconditionally; the
+		//     outer chain's descent in `readAbsolutePath` will collect this
+		//     node's segments.
+		//   - `Filtered` parent: skip ONLY when this node is the base
+		//     (firstChild). If it's elsewhere in the Filtered — i.e. the
+		//     predicate body is itself a path — it's a separate path the
+		//     outer descent doesn't visit, so process it as a top-level
+		//     chain.
+		// Identity comparisons use `.from` because Lezer fabricates fresh
+		// SyntaxNode wrappers per accessor call.
 		const cName = cursor.type.name;
 		if (cName === "Child" || cName === "Descendant" || cName === "Filtered") {
 			const node = cursor.node;
 			const parent = node.parent;
 			const parentName = parent?.type.name;
-			if (
-				parent === null ||
-				(parentName !== "Child" &&
-					parentName !== "Descendant" &&
-					parentName !== "Filtered")
-			) {
+			const ownedByChain =
+				parentName === "Child" ||
+				parentName === "Descendant" ||
+				(parentName === "Filtered" &&
+					parent !== null &&
+					parent.firstChild !== null &&
+					parent.firstChild.from === node.from);
+			if (!ownedByChain) {
 				const path = readAbsolutePath(trimmed, node);
 				if (path === rootPath || path?.startsWith(`${rootPath}/`)) {
 					mainInstancePaths.add(path);

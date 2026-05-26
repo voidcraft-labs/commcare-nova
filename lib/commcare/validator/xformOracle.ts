@@ -18,9 +18,9 @@
  *     ref>`. Core routes these through `XPathReference.getPathExpr`, which
  *     throws on a non-path (`XPathTypeMismatchException`). `isPathExpression`
  *     mirrors that gate.
- *   - ANY-expression — bind `relevant`/`required`/`constraint`/`calculate`,
- *     `<output value>`, `<setvalue value>`. Core only requires these parse as
- *     XPath (`buildCondition`/`buildCalculate`/`parseOutput`/
+ *   - ANY-expression — bind `relevant`/`required`/`constraint`/`calculate`/
+ *     `readonly`, `<output value>`, `<setvalue value>`. Core only requires
+ *     these parse as XPath (`buildCondition`/`buildCalculate`/`parseOutput`/
  *     `parseSetValueAction`). `isParseableXPath` mirrors that.
  *
  * ## Structural model

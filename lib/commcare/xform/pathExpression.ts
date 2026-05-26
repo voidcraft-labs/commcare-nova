@@ -19,7 +19,7 @@
  *     expression of any kind. JavaRosa builds it through `XPathParseTool`
  *     and surfaces a parse error if it can't (`buildCondition`,
  *     `buildCalculate`, `parseOutput`, `parseSetValueAction`'s `value`).
- *     Surfaces: bind `relevant`/`required`/`constraint`/`calculate`,
+ *     Surfaces: bind `relevant`/`required`/`constraint`/`calculate`/`readonly`,
  *     `<output value>`, `<setvalue value>`.
  *
  * Both gates are *structural* properties of the parsed AST, not textual ones —
