@@ -36,6 +36,7 @@ import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
 import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { emitRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
+import { validateBindingResolution } from "@/lib/commcare/validator/bindingResolutionOracle";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
@@ -253,25 +254,6 @@ export function compileCcz(
 				xform = addCaseBlocks(xform, hqForm.actions, caseType);
 			}
 
-			// Re-validate after injection — catches orphaned binds or
-			// malformed structure introduced by the splice.
-			if (xform) {
-				const xformErrors = validateXForm(xform, formName, modName);
-				if (xformErrors.length > 0) {
-					throw new Error(
-						`XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +
-							xformErrors.map((e) => `  - ${errorToString(e)}`).join("\n"),
-					);
-				}
-			}
-
-			files[filePath] = xform;
-
-			// XForm resource declaration in suite.xml.
-			suiteResources.push(
-				`  <xform>\n    <resource id="${filePath}" version="1">\n      <location authority="local">./${filePath}</location>\n    </resource>\n  </xform>`,
-			);
-
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
 			// stack from the form's type, its post-submit destination, the
 			// module's case type, any form-level link overrides, the
@@ -300,6 +282,11 @@ export function compileCcz(
 			//     the enclosing entry's declarations, so every instance a
 			//     calc expression reaches needs a matching `<instance>`
 			//     here.
+			//
+			// Built BEFORE the validation gates so the binding-resolution
+			// oracle has the entry's session datums to cross-check the
+			// XForm's `instance('commcaresession')/session/data/<X>`
+			// references against.
 			const caseListColumnExpressions =
 				mod.caseListConfig?.columns
 					.filter((c) => c.kind === "calculated")
@@ -319,6 +306,51 @@ export function compileCcz(
 					: undefined,
 				hqForm.actions,
 			);
+
+			// Re-validate after injection — catches orphaned binds or
+			// malformed structure introduced by the splice.
+			if (xform) {
+				const xformErrors = validateXForm(xform, formName, modName);
+				if (xformErrors.length > 0) {
+					throw new Error(
+						`XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +
+							xformErrors.map((e) => `  - ${errorToString(e)}`).join("\n"),
+					);
+				}
+
+				// Install-time XPath resolution gate. The XForm parse-time
+				// oracle above proves expressions PARSE; this oracle proves
+				// they RESOLVE — every `instance('commcaresession')/session/
+				// data/<X>` ref matches a declared session datum, every
+				// `instance('<id>')` matches a declared instance on the
+				// form's <model>, every absolute /data/... path resolves to
+				// a node or attribute in the data tree. Closes the gap
+				// where the XForm parses fine but crashes JavaRosa at
+				// form-init with `XPathTypeMismatchException`.
+				const sessionDatumIds = new Set(
+					entryDef.session?.datums.map((d) => d.id) ?? [],
+				);
+				const resolutionErrors = validateBindingResolution(
+					xform,
+					formName,
+					modName,
+					sessionDatumIds,
+				);
+				if (resolutionErrors.length > 0) {
+					throw new Error(
+						`Binding resolution failed for "${formName}" in "${modName}":\n` +
+							resolutionErrors.map((e) => `  - ${errorToString(e)}`).join("\n"),
+					);
+				}
+			}
+
+			files[filePath] = xform;
+
+			// XForm resource declaration in suite.xml.
+			suiteResources.push(
+				`  <xform>\n    <resource id="${filePath}" version="1">\n      <location authority="local">./${filePath}</location>\n    </resource>\n  </xform>`,
+			);
+
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);
 		}

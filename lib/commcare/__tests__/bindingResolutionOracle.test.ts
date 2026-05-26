@@ -11,7 +11,12 @@
  *   - BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED (rule 1)
  *   - BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN  (rule 2)
  *   - BINDING_RESOLUTION_INSTANCE_UNDECLARED      (rule 3)
- *   - BINDING_RESOLUTION_FORM_PATH_MISSING        (rule 4)
+ *
+ * Form-path references inside expression bodies are intentionally NOT
+ * flagged — JavaRosa resolves a missing `/data/...` ref to an empty
+ * node-set at runtime, which is degraded UX rather than an install-time
+ * crash. Dangling bind NODESETS (the install-time-fatal case) live in
+ * the XForm parse-time oracle via `XFORM_DANGLING_BIND`.
  *
  * The fuzz test in `bindingResolutionOracle.fuzz.test.ts` proves emitter
  * totality across schema-valid blueprints; this file proves each rule's
@@ -214,124 +219,15 @@ describe("validateBindingResolution", () => {
 		});
 	});
 
-	describe("rule 4 — absolute /<root>/... refs must resolve to a data-tree node or attribute", () => {
-		it("accepts a ref that resolves to an existing path", () => {
-			const xml = makeForm(
-				`<bind nodeset="/data/result" calculate="/data/source"/>`,
-				`<source/><result/>`,
-			);
-			const errors = validateBindingResolution(xml, "f", "m", new Set());
-			expect(errors).toEqual([]);
-		});
-
-		it("rejects a ref to a path that doesn't exist", () => {
-			const xml = makeForm(
-				`<bind nodeset="/data/result" calculate="/data/no_such_field"/>`,
-				`<result/>`,
-			);
-			const errors = validateBindingResolution(xml, "f", "m", new Set());
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("BINDING_RESOLUTION_FORM_PATH_MISSING");
-			expect(errors[0].message).toContain("/data/no_such_field");
-		});
-
-		it("accepts an attribute ref when the @attr exists on the target element", () => {
-			const xml = makeForm(
-				`<bind nodeset="/data/result" calculate="/data/case/@case_id"/>`,
-				`<case case_id=""/><result/>`,
-			);
-			const errors = validateBindingResolution(xml, "f", "m", new Set());
-			expect(errors).toEqual([]);
-		});
-
-		it("rejects an @attr ref when the attribute doesn't exist on the target element", () => {
-			const xml = makeForm(
-				`<bind nodeset="/data/result" calculate="/data/case/@nonexistent_attr"/>`,
-				`<case case_id=""/><result/>`,
-			);
-			const errors = validateBindingResolution(xml, "f", "m", new Set());
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("BINDING_RESOLUTION_FORM_PATH_MISSING");
-			expect(errors[0].message).toContain("/data/case/@nonexistent_attr");
-		});
-
-		it("does not raise for the descendant axis (//) — the oracle can't pin a single resolvable path", () => {
-			// `/data//foo` matches any descendant named foo at any depth.
-			// Collapsing `//` to `/` would false-positive or false-reject;
-			// the oracle bails on this shape and lets the path through
-			// silently. JavaRosa resolves it at runtime against the data
-			// tree; we don't second-guess that here.
-			const xml = makeForm(
-				`<bind nodeset="/data/x" calculate="/data//foo"/>`,
-				`<x/>`,
-			);
-			const errors = validateBindingResolution(xml, "f", "m", new Set());
-			expect(errors).toEqual([]);
-		});
-
-		it("resolves absolute paths inside a predicate body (predicate is itself a path)", () => {
-			// `/data/items[/data/missing_index]/x` — predicate IS a path,
-			// not an expression containing one. The predicate path's parent
-			// is `Filtered` directly. Without distinguishing "is this the
-			// base of Filtered or is it the predicate", the predicate path
-			// would silently slip past resolution.
-			const xml = makeForm(
-				`<bind nodeset="/data/x" calculate="/data/items[/data/missing_index]/x"/>`,
-				`<items><x/></items><x/>`,
-			);
-			const errors = validateBindingResolution(xml, "f", "m", new Set());
-			expect(
-				errors.some(
-					(e) =>
-						e.code === "BINDING_RESOLUTION_FORM_PATH_MISSING" &&
-						e.message.includes("/data/missing_index"),
-				),
-			).toBe(true);
-		});
-
-		it("resolves a path that terminates in a predicate (no trailing step)", () => {
-			// `/data/items[count(.) > 0]` — the path ends at the predicate.
-			// The outermost AST node is Filtered, not Child. The oracle
-			// still resolves the path to `/data/items` and checks the
-			// data tree.
-			const xml = makeForm(
-				`<bind nodeset="/data/x" calculate="/data/nonexistent_items[count(.) > 0]"/>`,
-				`<x/>`,
-			);
-			const errors = validateBindingResolution(xml, "f", "m", new Set());
-			expect(errors).toHaveLength(1);
-			expect(errors[0].code).toBe("BINDING_RESOLUTION_FORM_PATH_MISSING");
-			expect(errors[0].message).toContain("/data/nonexistent_items");
-		});
-
-		it("resolves segments past a predicate (path continues through Filtered)", () => {
-			// `/data/items[count(.) > 0]/x` — the predicate is walked
-			// independently; the path the oracle resolves is `/data/items/x`.
-			// Without Filtered descent, only `/data/items` would resolve and
-			// the typo on the post-predicate segment would slip through.
-			const xml = makeForm(
-				`<bind nodeset="/data/result" calculate="/data/items[count(.) > 0]/nonexistent_step"/>`,
-				`<items><x/></items><result/>`,
-			);
-			const errors = validateBindingResolution(xml, "f", "m", new Set());
-			const codes = errors.map((e) => e.code);
-			expect(codes).toContain("BINDING_RESOLUTION_FORM_PATH_MISSING");
-			expect(
-				errors.some((e) => e.message.includes("/data/items/nonexistent_step")),
-			).toBe(true);
-		});
-	});
-
 	describe("integration — multiple rules in one expression", () => {
 		it("flags each independent failure separately", () => {
 			const xml = makeForm(
-				`<bind nodeset="/data/x" calculate="instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/missing_datum]/foo + /data/no_such_field"/>`,
+				`<bind nodeset="/data/x" calculate="instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/missing_datum]/foo"/>`,
 				`<x/>`,
 			);
 			const errors = validateBindingResolution(xml, "f", "m", new Set());
 			const codes = errors.map((e) => e.code).sort();
 			expect(codes).toEqual([
-				"BINDING_RESOLUTION_FORM_PATH_MISSING",
 				"BINDING_RESOLUTION_INSTANCE_UNDECLARED",
 				"BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED",
 			]);

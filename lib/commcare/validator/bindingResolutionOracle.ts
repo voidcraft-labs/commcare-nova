@@ -28,12 +28,13 @@
  *      JavaRosa's `EvaluationContext.resolveReference` throws
  *      `XPathMissingInstanceException` at evaluation when the instance
  *      isn't in scope; the parse-time check leaves the gap.
- *   4. Absolute `/data/...` references in ANY-expression slots — the path
- *      must resolve to a node or attribute in the form's data instance
- *      tree. The XForm parse-time oracle already catches dangling
- *      `<bind nodeset>` and `<control ref>` paths; this check extends the
- *      same constraint to refs that live inside expression bodies, where
- *      JavaRosa evaluates them at install/runtime rather than parse.
+ *
+ * Form-path references inside expression bodies are intentionally NOT
+ * checked: a missing `/data/...` reference resolves to an empty node-set
+ * at runtime — degraded UX (an empty `<output>` value, a `false` branch
+ * on a relevant) rather than an install-time crash. Dangling bind
+ * NODESETS — the install-time-fatal case — are caught by the XForm
+ * parse-time oracle's `XFORM_DANGLING_BIND` check.
  *
  * Test-oracle posture: same as the XForm + suite oracles per
  * `validator/xformOracle.ts`. A failure here is a generator bug, not a
@@ -129,7 +130,7 @@ export function validateBindingResolution(
 	const errors: ValidationError[] = [];
 
 	for (const surface of collectXPathSurfaces(model)) {
-		const refs = analyzeXPath(surface.expr, model.rootPath);
+		const refs = analyzeXPath(surface.expr);
 
 		// Rule 3: every `instance('<id>')` ref where id is not commcaresession
 		// must appear in the XForm's `<model><instance id=...>` declarations.
@@ -174,22 +175,16 @@ export function validateBindingResolution(
 			);
 		}
 
-		// Rule 4: every absolute /data/... reference (or whatever the root
-		// path is named) must resolve to a node or attribute in the form's
-		// data instance tree. Bind nodesets are already checked by
-		// xformOracle's dangling-bind invariant; this extends the same
-		// check to references that live inside expression bodies.
-		for (const path of refs.mainInstancePaths) {
-			if (model.instancePaths.has(path)) continue;
-			errors.push(
-				validationError(
-					"BINDING_RESOLUTION_FORM_PATH_MISSING",
-					"form",
-					`"${formName}" references "${path}" in ${surface.origin}, but no such node or attribute exists in the form's data instance tree. The reference resolves to an empty node-set at runtime. Check that the XForm emitter declares this node in the main <instance> data tree. This is a bug in the form generator.`,
-					loc,
-				),
-			);
-		}
+		// Form-path references inside expression bodies (`<output value>`,
+		// bind `calculate`/`relevant`/etc.) intentionally do NOT enforce
+		// path existence: JavaRosa resolves a missing path to an empty
+		// node-set at runtime, which is degraded UX (an empty label
+		// output, an `if(...)` branch that evaluates false) rather than
+		// an install-time crash. Dangling bind NODESETS, by contrast,
+		// ARE install-time-fatal — `xformOracle.ts::checkBinds` already
+		// flags them via `XFORM_DANGLING_BIND`. The instance + session
+		// rules above carry this oracle's full install-time-fatal
+		// coverage.
 	}
 
 	return errors;
@@ -286,12 +281,6 @@ interface XPathRefs {
 	readonly sessionDataRefs: ReadonlySet<string>;
 	/** Every `instance('commcaresession')/session/context/<X>` — `X` segment. */
 	readonly sessionContextRefs: ReadonlySet<string>;
-	/**
-	 * Every absolute reference rooted at the form's main instance —
-	 * normalized to a full path like `/data/foo/@bar`. The oracle checks
-	 * each against the form's `instancePaths` set.
-	 */
-	readonly mainInstancePaths: ReadonlySet<string>;
 }
 
 /**
@@ -299,87 +288,36 @@ interface XPathRefs {
  * reference. Unparseable expressions contribute nothing — their parse
  * failure is the XForm oracle's concern.
  */
-function analyzeXPath(expr: string, rootPath: string): XPathRefs {
+function analyzeXPath(expr: string): XPathRefs {
 	const instanceIds = new Set<string>();
 	const sessionDataRefs = new Set<string>();
 	const sessionContextRefs = new Set<string>();
-	const mainInstancePaths = new Set<string>();
 
 	const trimmed = expr.trim();
 	if (!trimmed) {
-		return {
-			instanceIds,
-			sessionDataRefs,
-			sessionContextRefs,
-			mainInstancePaths,
-		};
+		return { instanceIds, sessionDataRefs, sessionContextRefs };
 	}
 
 	const tree = parser.parse(trimmed);
 	const cursor = tree.cursor();
 
 	do {
-		// `instance('X')` calls.
-		if (cursor.type.name === "Invoke") {
-			const invoke = cursor.node;
-			const id = readInstanceCallArgument(trimmed, invoke);
-			if (id !== null) {
-				instanceIds.add(id);
-				if (id === "commcaresession") {
-					const trailing = collectTrailingPathSegments(trimmed, invoke);
-					if (trailing[0] === "session") {
-						if (trailing[1] === "data" && trailing.length >= 3) {
-							sessionDataRefs.add(trailing[2]);
-						} else if (trailing[1] === "context" && trailing.length >= 3) {
-							sessionContextRefs.add(trailing[2]);
-						}
-					}
-				}
-			}
-		}
-
-		// Absolute paths rooted at the main instance. We pick up the
-		// top-level path-shape node — `Child`, `Descendant`, or `Filtered`
-		// (a path terminating in a predicate, like `/data/items[pred]`) —
-		// only when its parent isn't another path-continuation that already
-		// owns it. The skip rules are different per parent:
-		//   - `Child` / `Descendant` parent: skip unconditionally; the
-		//     outer chain's descent in `readAbsolutePath` will collect this
-		//     node's segments.
-		//   - `Filtered` parent: skip ONLY when this node is the base
-		//     (firstChild). If it's elsewhere in the Filtered — i.e. the
-		//     predicate body is itself a path — it's a separate path the
-		//     outer descent doesn't visit, so process it as a top-level
-		//     chain.
-		// Identity comparisons use `.from` because Lezer fabricates fresh
-		// SyntaxNode wrappers per accessor call.
-		const cName = cursor.type.name;
-		if (cName === "Child" || cName === "Descendant" || cName === "Filtered") {
-			const node = cursor.node;
-			const parent = node.parent;
-			const parentName = parent?.type.name;
-			const ownedByChain =
-				parentName === "Child" ||
-				parentName === "Descendant" ||
-				(parentName === "Filtered" &&
-					parent !== null &&
-					parent.firstChild !== null &&
-					parent.firstChild.from === node.from);
-			if (!ownedByChain) {
-				const path = readAbsolutePath(trimmed, node);
-				if (path === rootPath || path?.startsWith(`${rootPath}/`)) {
-					mainInstancePaths.add(path);
-				}
-			}
+		if (cursor.type.name !== "Invoke") continue;
+		const invoke = cursor.node;
+		const id = readInstanceCallArgument(trimmed, invoke);
+		if (id === null) continue;
+		instanceIds.add(id);
+		if (id !== "commcaresession") continue;
+		const trailing = collectTrailingPathSegments(trimmed, invoke);
+		if (trailing[0] !== "session") continue;
+		if (trailing[1] === "data" && trailing.length >= 3) {
+			sessionDataRefs.add(trailing[2]);
+		} else if (trailing[1] === "context" && trailing.length >= 3) {
+			sessionContextRefs.add(trailing[2]);
 		}
 	} while (cursor.next());
 
-	return {
-		instanceIds,
-		sessionDataRefs,
-		sessionContextRefs,
-		mainInstancePaths,
-	};
+	return { instanceIds, sessionDataRefs, sessionContextRefs };
 }
 
 /**
@@ -458,124 +396,4 @@ function collectTrailingPathSegments(
 		current = parent;
 	}
 	return segments;
-}
-
-/**
- * Serialize a `Child` / `Descendant` chain into its absolute-path string
- * — `/data/foo/@bar`-shaped. Returns `null` for chains that don't anchor
- * at a leading `/` (relative paths, or chains anchored on an `Invoke`),
- * or for chains whose segments aren't all plain `NameTest` / `@<NameTest>`
- * — the oracle resolves only the shapes it can statically pin to a data
- * tree path; a false positive on a more complex chain is worse than no
- * check.
- *
- * The leading `/` appears as an anonymous terminal in the parsed tree
- * (Lezer doesn't emit a `RootPath` node when the `/` opens a longer
- * chain — it only emits `RootPath` for the bare `/` literal expression).
- * So the "this is absolute" signal is: when the chain is fully descended,
- * the innermost `Child` has its `firstChild` as the `/` terminal token.
- *
- * Predicates parse as `Filtered { expr "[" pred "]" }`, with the path
- * continuing through `expr` (the `firstChild`). Walking through `Filtered`
- * during both descent and ascent is what lets `/data/items[pred]/x`
- * resolve to `/data/items/x`. The predicate body is independently walked
- * by the outer cursor loop in `analyzeXPath`.
- */
-function readAbsolutePath(source: string, chain: SyntaxNode): string | null {
-	const segments: string[] = [];
-	if (!collectAbsolutePathSegments(source, chain, segments)) return null;
-	if (segments.length === 0) return null;
-	return `/${segments.join("/")}`;
-}
-
-/**
- * Recursive descent that accumulates the segments of an absolute path.
- * Returns `true` when the subtree contributes a valid absolute-path
- * prefix (and segments have been appended); `false` when the subtree
- * isn't an absolute-path shape this oracle can statically resolve.
- *
- * Three productions matter:
- *   - `Child` — anchored on `/` (the absolute case) when `firstChild` is
- *     the `/` token; otherwise it's a continuation, and the prefix lives
- *     in `firstChild`.
- *   - `Filtered` — the path passes through `firstChild`; the predicate
- *     body lives at later siblings and is walked separately.
- *   - anything else (an `Invoke` like `instance('x')/...`, a relative
- *     `NameTest`-rooted chain, etc.) — not an absolute path.
- *
- * `Descendant` (`//`) shapes are intentionally REJECTED here: the
- * descendant axis matches any depth, so a `//foo` chain resolves to a
- * set of paths the oracle can't pin to a single string. Collapsing
- * `//` to `/` would false-positive on a path that exists at depth and
- * false-reject on one that doesn't — both worse than no check.
- */
-function collectAbsolutePathSegments(
-	source: string,
-	node: SyntaxNode,
-	segments: string[],
-): boolean {
-	if (node.type.name === "Descendant") {
-		return false;
-	}
-
-	if (node.type.name === "Child") {
-		const first = node.firstChild;
-		if (first === null) return false;
-
-		if (first.type.name === "/") {
-			// Leftmost step of an absolute path. The step lives at lastChild
-			// (the `/` token is first, the step is last).
-			const step = node.lastChild;
-			if (step === null) return false;
-			const seg = readPathSegment(source, step);
-			if (seg === null) return false;
-			segments.push(seg);
-			return true;
-		}
-
-		// Continuation: recurse into the prefix (firstChild), then append
-		// this Child's step.
-		if (!collectAbsolutePathSegments(source, first, segments)) return false;
-		const step = node.lastChild;
-		if (step === null) return false;
-		const seg = readPathSegment(source, step);
-		if (seg === null) return false;
-		segments.push(seg);
-		return true;
-	}
-
-	if (node.type.name === "Filtered") {
-		// The path continues through `firstChild`; the predicate body
-		// (later siblings) is walked independently by the outer cursor.
-		const first = node.firstChild;
-		if (first === null) return false;
-		return collectAbsolutePathSegments(source, first, segments);
-	}
-
-	return false;
-}
-
-/**
- * Read the local-name + optional `@` prefix of a single step. Returns
- * `null` for steps that aren't a plain NameTest or an `@<NameTest>`
- * — anything else (axes, predicates, function calls) means this chain
- * isn't a simple absolute path the oracle can statically resolve.
- *
- * `AttrSpecified` parses as `[ "@" token, NameTest ]` — the `@` is a
- * visible terminal node, so the actual name lives at `firstChild.nextSibling`,
- * NOT `firstChild`. (Mirrors how `Child` parses with the `/` token visible
- * between its expr and step children.)
- */
-function readPathSegment(source: string, step: SyntaxNode): string | null {
-	if (step.type.name === "NameTest") {
-		return source.slice(step.from, step.to);
-	}
-	if (step.type.name === "AttrSpecified") {
-		const at = step.firstChild;
-		if (at === null || at.type.name !== "@") return null;
-		const inner = at.nextSibling;
-		if (inner === null || inner.type.name !== "NameTest") return null;
-		return `@${source.slice(inner.from, inner.to)}`;
-	}
-	return null;
 }
