@@ -66,14 +66,19 @@ export function xpathLinter(getContext: () => XPathLintContext | undefined) {
 		// reference. Hand-typed `#case/<other>` shows the same inline
 		// rejection the doc-layer rule and the autocomplete already
 		// agree on — three predicates, one accept set.
+		//
+		// `case_id` is unconditionally accepted (NOT gated on
+		// `caseProperties.has("case_id")`) because it is the form-
+		// allocated case id, not a user-authored case property — the
+		// case-type record on the doc rarely lists it, and the
+		// autocomplete surfaces it regardless of map membership. The
+		// three predicates must agree across that map shape too.
 		const caseProperties = (() => {
 			if (!ctx?.caseProperties) return undefined;
 			if (ctx.formType !== "registration") {
 				return new Set(ctx.caseProperties.keys());
 			}
-			return ctx.caseProperties.has("case_id")
-				? new Set(["case_id"])
-				: new Set<string>();
+			return new Set(["case_id"]);
 		})();
 
 		const errors = validateXPath(expr, ctx?.validPaths, caseProperties);
