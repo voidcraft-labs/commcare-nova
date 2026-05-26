@@ -1174,6 +1174,182 @@ describe("form_links validation", () => {
 	});
 });
 
+// ── Case-hashtag on case-create form ────────────────────────────────
+
+describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
+	/**
+	 * On a registration form, the case being created doesn't exist in
+	 * `casedb` yet, so `#case/<X>` references can't resolve at form-init.
+	 * The validator rejects them at authoring time so the user gets the
+	 * error in the editor instead of at compile-time after they hit
+	 * "Generate App". `#case/case_id` is the one exception — the
+	 * form-context-aware expander rewrites it to `/data/case/@case_id`
+	 * (populated by the case-management scaffolding's setvalue chain).
+	 */
+
+	/** Reusable registration-form fixture with one stringified XPath surface. */
+	function registrationWithSurface(spec: {
+		kind?: "calculate" | "relevant" | "validate" | "default_value" | "required";
+		expr: string;
+	}): BlueprintDoc {
+		const fieldSpec: Parameters<typeof f>[0] = {
+			kind: "text",
+			id: "case_name",
+			label: "Name",
+			case_property_on: "patient",
+		};
+		// Map the surface to its field property so we can drive every
+		// scanned surface in one fixture builder.
+		const surface = spec.kind ?? "calculate";
+		(fieldSpec as Record<string, unknown>)[surface] = spec.expr;
+		return buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "M",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [fieldSpec],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+	}
+
+	it("rejects #case/<other> on a registration form's calculate", () => {
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: "#case/age + 1",
+		});
+		const errors = runValidation(doc);
+		const offender = errors.find(
+			(e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM",
+		);
+		expect(offender).toBeDefined();
+		expect(offender?.message).toContain("#case/age");
+		expect(offender?.message).toContain("#form/<question_id>");
+	});
+
+	for (const surface of [
+		"relevant",
+		"validate",
+		"default_value",
+		"required",
+	] as const) {
+		it(`rejects #case/<other> in field.${surface}`, () => {
+			const doc = registrationWithSurface({
+				kind: surface,
+				expr: "#case/total_visits",
+			});
+			const errors = runValidation(doc);
+			expect(errors.some((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM")).toBe(
+				true,
+			);
+		});
+	}
+
+	it("allows #case/case_id on a registration form (rewritten to /data/case/@case_id)", () => {
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: "#case/case_id",
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.filter((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM"),
+		).toEqual([]);
+	});
+
+	it("treats #case/case_id_x as an invalid reference (not a prefix match for case_id)", () => {
+		// The Lezer parser matches on segment boundary — a segment named
+		// `case_id_x` is NOT the same as `case_id`, so it must be flagged.
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: "#case/case_id_x",
+		});
+		const errors = runValidation(doc);
+		const offender = errors.find(
+			(e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM",
+		);
+		expect(offender?.message).toContain("#case/case_id_x");
+	});
+
+	it("does not flag #case/<X> on a followup form (case is loaded there)", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "M",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+						{
+							name: "Followup",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "next_age",
+									label: "Next age",
+									calculate: "#case/age + 1",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.filter((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM"),
+		).toEqual([]);
+	});
+
+	it("rejects #case/<other> inside a label's inline hashtag", () => {
+		// Labels lower to `<output value=...>` at emit; the inline
+		// hashtag is XPath-evaluated the same way an expression surface is.
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: "1 + 1",
+		});
+		// Add a label with a `#case/` reference on the same field.
+		const docWithLabel = update(doc, (d) => {
+			const field = Object.values(d.fields)[0] as Record<string, unknown>;
+			field.label = "Age: #case/age";
+		});
+		const errors = runValidation(docWithLabel);
+		expect(errors.some((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM")).toBe(
+			true,
+		);
+	});
+});
+
 // ── Connect rules ──────────────────────────────────────────────────
 
 describe("connect rules", () => {

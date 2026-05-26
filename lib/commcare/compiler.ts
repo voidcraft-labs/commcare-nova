@@ -36,7 +36,6 @@ import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
 import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { emitRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
-import { validateBindingResolution } from "@/lib/commcare/validator/bindingResolutionOracle";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
@@ -308,42 +307,25 @@ export function compileCcz(
 			);
 
 			// Re-validate after injection — catches orphaned binds or
-			// malformed structure introduced by the splice.
+			// malformed structure introduced by the splice. The oracle
+			// is a generator-totality check, not a user gate: a failing
+			// XForm here is a compiler bug (the case-block splice
+			// produced malformed structure), never a fixable authoring
+			// state. Authoring rejection lives in the doc-layer rules
+			// (`validator/rules/`); install-time-resolution rejection
+			// (`#case/<X>` on a registration form, the original failure
+			// shape of this gap) lives in `caseHashtagOnCreateForm`
+			// (`validator/rules/form.ts`). The binding-resolution oracle
+			// (`validator/bindingResolutionOracle.ts`) stays a fuzz-time
+			// totality proof — it asserts that every doc the authoring
+			// validator accepts compiles to a CCZ whose XPath references
+			// all resolve — and is not invoked here.
 			if (xform) {
 				const xformErrors = validateXForm(xform, formName, modName);
 				if (xformErrors.length > 0) {
 					throw new Error(
 						`XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +
 							xformErrors.map((e) => `  - ${errorToString(e)}`).join("\n"),
-					);
-				}
-
-				// Install-time XPath resolution gate. The XForm parse-time
-				// oracle above proves expressions PARSE; this oracle proves
-				// install-time-fatal references RESOLVE — every
-				// `instance('commcaresession')/session/data/<X>` ref matches
-				// a declared session datum, every
-				// `instance('commcaresession')/session/context/<X>` matches
-				// the closed CommCare-populated set, and every
-				// `instance('<id>')` matches a declared instance on the
-				// form's <model>. Form-path refs inside expression bodies
-				// (`<output value>`, bind `calculate`, etc.) are NOT checked
-				// — JavaRosa resolves missing paths to empty node-sets, not
-				// crashes; dangling bind NODESETS, the install-time-fatal
-				// case, are caught upstream by `XFORM_DANGLING_BIND`.
-				const sessionDatumIds = new Set(
-					entryDef.session?.datums.map((d) => d.id) ?? [],
-				);
-				const resolutionErrors = validateBindingResolution(
-					xform,
-					formName,
-					modName,
-					sessionDatumIds,
-				);
-				if (resolutionErrors.length > 0) {
-					throw new Error(
-						`Binding resolution failed for "${formName}" in "${modName}":\n` +
-							resolutionErrors.map((e) => `  - ${errorToString(e)}`).join("\n"),
 					);
 				}
 			}

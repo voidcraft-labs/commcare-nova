@@ -1,16 +1,20 @@
 /**
  * Property-based fuzzer for the binding-resolution oracle.
  *
- * Same shape as `xformOracle.fuzz.test.ts`: for every schema-valid
- * `BlueprintDoc` the `blueprintDocArbitrary` generator produces, the
- * full compile chain (expandDoc → compileCcz → addCaseBlocks →
- * validateXForm + validateBindingResolution) succeeds without throwing.
+ * The oracle (`validator/bindingResolutionOracle.ts`) is a wire-time
+ * TEST oracle, not a user gate — `compileCcz` does not call it. Its
+ * job here is to PROVE the emitter is total: every schema-valid
+ * `BlueprintDoc` the generator produces must compile to a CCZ whose
+ * form-XML XPath references all resolve against the suite's session
+ * datums + the form's declared instances.
  *
- * This proves the oracle/emitter pair TOTAL across the generator's
- * coverage — every doc shape produces a CCZ whose XForm references
- * (every `instance('commcaresession')/session/data/<X>`, every
- * `instance('<id>')`) resolve against the entry's session and the
- * form's declared instances.
+ * Two-layer check per generated doc:
+ *   1. `compileCcz` runs to completion without throwing — proves the
+ *      emitter handled every schema-admissible shape.
+ *   2. For each form, the binding-resolution oracle is invoked
+ *      directly on the emitted XForm + the corresponding entry's
+ *      session datums. A failing resolution makes the property fail
+ *      with a shrunken counterexample.
  *
  * Co-development discipline (same as the other oracle fuzzers): a
  * failing case is one of two things, never a new reject rule:
@@ -18,17 +22,16 @@
  *       JavaRosa would resolve it) → fix the ORACLE;
  *   (B) the emitter produced an unresolvable reference → fix the
  *       EMITTER at source.
- *
- * `compileCcz` already runs the binding-resolution oracle internally
- * via the post-injection validation gate, so a failing resolution
- * throws — `fc.assert` translates the throw into a property failure
- * with a shrunken counterexample.
  */
 
+import AdmZip from "adm-zip";
 import * as fc from "fast-check";
+import { Parser } from "htmlparser2";
 import { describe, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { validateBindingResolution } from "@/lib/commcare/validator/bindingResolutionOracle";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -56,19 +59,119 @@ function prepareAndGuard(doc: BlueprintDoc): void {
 	}
 }
 
+/**
+ * Parse suite.xml and return:
+ *   - `resources`: the `modules-N/forms-M.xml` path for each `<xform>`
+ *     resource block, in emit order.
+ *   - `entries`: the set of `<datum id="...">` ids declared inside each
+ *     `<entry>` block's `<session>` block, in emit order. Both function
+ *     datums (case-create / subcase) and nodeset datums (case-load)
+ *     contribute their ids.
+ *
+ * The compiler emits resources + entries in module/form lockstep, so the
+ * Nth resource and the Nth entry describe the same form — the caller
+ * zips by index.
+ *
+ * Parser is htmlparser2 in XML mode (already used elsewhere in the
+ * validator family).
+ */
+function parseSuite(suiteXml: string): {
+	resources: string[];
+	entries: Array<{ datumIds: Set<string> }>;
+} {
+	const resources: string[] = [];
+	const entries: Array<{ datumIds: Set<string> }> = [];
+	let currentEntry: { datumIds: Set<string> } | null = null;
+
+	const parser = new Parser(
+		{
+			onopentag(name, attribs) {
+				// `<xform><resource id="modules-N/forms-M.xml">` — capture
+				// the resource id only when the parent is `<xform>`.
+				if (name === "resource" && attribs.id?.startsWith("modules-")) {
+					resources.push(attribs.id);
+					return;
+				}
+				if (name === "entry") {
+					currentEntry = { datumIds: new Set() };
+					return;
+				}
+				if (currentEntry && name === "datum" && attribs.id) {
+					currentEntry.datumIds.add(attribs.id);
+				}
+			},
+			onclosetag(name) {
+				if (name === "entry" && currentEntry) {
+					entries.push(currentEntry);
+					currentEntry = null;
+				}
+			},
+		},
+		{ xmlMode: true },
+	);
+	parser.write(suiteXml);
+	parser.end();
+	return { resources, entries };
+}
+
 describe("binding-resolution emitter totality (property-based fuzz)", () => {
 	it("every schema-valid doc compiles to a CCZ whose XPath references all resolve", () => {
 		fc.assert(
 			fc.property(blueprintDocArbitrary, (doc) => {
 				prepareAndGuard(doc);
-				// `compileCcz` invokes `validateBindingResolution` after the
-				// case-block splice; a failing resolution throws and fails
-				// this property. The expandDoc + compileCcz pair is the
-				// same end-to-end shape `xformOracle.fuzz.test.ts` exercises;
-				// the binding-resolution oracle is the second post-injection
-				// gate the compiler now runs.
+
+				// Step 1: compileCcz must be total. A throw here is a
+				// compiler bug (either an `expandDoc` shape the emitter
+				// doesn't handle, or a parse-time / suite-oracle
+				// regression). `fc.assert` turns the throw into a
+				// shrunken counterexample.
 				const hq = expandDoc(doc);
-				compileCcz(hq, doc.appName, doc);
+				const ccz = compileCcz(hq, doc.appName, doc);
+
+				// Step 2: for each form, run the binding-resolution
+				// oracle directly. `compileCcz` no longer invokes it
+				// (authoring rejection in `validator/rules/` is the
+				// user-visible gate); this fuzz proves the emitter is
+				// total — every accepted doc compiles to references the
+				// oracle is happy with.
+				const zip = new AdmZip(ccz);
+				const suiteEntry = zip.getEntry("suite.xml");
+				if (!suiteEntry) {
+					throw new Error("CCZ is missing suite.xml");
+				}
+				const suiteXml = suiteEntry.getData().toString("utf-8");
+				const { resources, entries } = parseSuite(suiteXml);
+				if (resources.length !== entries.length) {
+					throw new Error(
+						`suite.xml has ${resources.length} xform resources but ${entries.length} entries — expected lockstep`,
+					);
+				}
+
+				for (let i = 0; i < resources.length; i++) {
+					const formPath = resources[i];
+					const xformEntry = zip.getEntry(formPath);
+					if (!xformEntry) {
+						throw new Error(
+							`CCZ references form "${formPath}" but the file is missing`,
+						);
+					}
+					const xform = xformEntry.getData().toString("utf-8");
+					// Form / module names aren't structurally important for
+					// the oracle — they only appear in error messages that
+					// the throw below stringifies.
+					const errors = validateBindingResolution(
+						xform,
+						formPath,
+						doc.appName,
+						entries[i].datumIds,
+					);
+					if (errors.length > 0) {
+						throw new Error(
+							`Binding resolution failed for "${formPath}":\n` +
+								errors.map((e) => `  - ${errorToString(e)}`).join("\n"),
+						);
+					}
+				}
 				return true;
 			}),
 			{ seed: SEED, numRuns: NUM_RUNS, endOnFailure: true },
