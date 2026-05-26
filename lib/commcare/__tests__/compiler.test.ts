@@ -976,13 +976,19 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 
 	/**
 	 * CCHQ wraps every case-update bind in `relevant="count(<qPath>) > 0"`
-	 * so the case property only updates when the question is answered.
-	 * Nova's `addCaseBlocks` does not emit this guard — case updates fire
-	 * unconditionally on whatever `/data/<id>` evaluates to. This is a
-	 * known parity gap; when Nova adds the guard, swap the assertion
-	 * direction.
+	 * so the case property only updates when the question is answered
+	 * — the JavaRosa semantic when the question's data node is absent
+	 * at submission time (e.g. a `relevant`-gated question whose
+	 * condition evaluates false). Without the guard, the case-update
+	 * fires unconditionally with whatever `/data/<id>` evaluates to,
+	 * overwriting the existing case property with empty for any
+	 * conditionally-hidden field — destroying preserved case data.
+	 *
+	 * Nova's emission matches CCHQ here. This test pins the parity so
+	 * a future refactor that drops the guard regresses on data
+	 * preservation across conditional-question flows.
 	 */
-	it("divergence: Nova case-update binds omit CCHQ's relevant=count() guard", () => {
+	it("update_case.xml — case-update binds carry CCHQ's relevant=count() guard", () => {
 		const novaDoc = buildDoc({
 			appName: "Parity",
 			modules: [
@@ -1023,35 +1029,33 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 		const nova = parseFormXml(novaForm);
 		const cchq = parseFormXml(cchqForm);
 
-		// CCHQ emits a `relevant` attribute on the update bind.
+		// Both emitters carry the relevant guard on the case-update
+		// bind. The exact qPath inside `count(...)` may differ
+		// (Nova: `/data/question1`; CCHQ: the same after path-resolve)
+		// — assert by shape, not literal byte-equality.
 		expect(cchq.binds.get("/data/case/update/question1")?.relevant).toMatch(
 			/count\(.+\)\s*>\s*0/,
 		);
-		// Nova does not — when this assertion flips to `.toMatch(...)`
-		// the case-update guard has landed and this divergence-pin can
-		// be promoted to a positive parity check in the test above.
-		expect(
-			nova.binds.get("/data/case/update/question1")?.relevant,
-		).toBeUndefined();
+		expect(nova.binds.get("/data/case/update/question1")?.relevant).toMatch(
+			/count\(.+\)\s*>\s*0/,
+		);
 	});
 
 	/**
 	 * CCHQ emits a bare `<update/>` element on every subcase even when
-	 * the subcase has zero case properties (see `multiple_subcase_repeat
-	 * .xml` lines 17 + 30 — `<update/>` under both `subcase_0` and
-	 * `subcase_1`). Nova's `xform/caseBlocks.ts::buildCaseBlocks` skips
-	 * the `<update>` element entirely when `case_properties` is empty
-	 * (the `Object.keys(sc.case_properties).length > 0` gate inside the
-	 * subcase loop). Functionally inert in both shapes (no properties
-	 * either way), but a structural drift to pin.
+	 * the subcase has zero case properties (see CCHQ's
+	 * `multiple_subcase_repeat.xml` — `<update/>` under both subcase
+	 * wrappers, source `XFormCaseBlock.update_block`'s memoized
+	 * side-effect: the element is appended on first access regardless
+	 * of whether properties were ever added). The element is
+	 * functionally inert (a receiver iterating `<update>`'s children
+	 * does nothing when there are none), but byte-level parity
+	 * matters: any future CCHQ-side check that reads "is `<update>`
+	 * present?" agrees on every Nova-emitted form.
 	 *
-	 * Asserted via the CCHQ fixture text directly because `parseFormXml`
-	 * only indexes `<case>` element attributes, not its children. The
-	 * Nova-side check uses a non-repeat-scope subcase doc (root-level
-	 * subcase emits cleanly today; the repeat-scope variant is a
-	 * separate divergence pinned below).
+	 * Nova's emission matches CCHQ here.
 	 */
-	it("divergence: Nova subcase omits bare <update/> when no properties", () => {
+	it("multiple_subcase_repeat.xml — subcase carries bare <update/> when no properties", () => {
 		// CCHQ shows the bare-update pattern under subcase_1's `<case>`
 		// element — both subcases in this fixture have `case_properties:
 		// {}` in the source JSON yet still emit `<update/>` on the wire.
@@ -1111,9 +1115,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 		const novaForm = new AdmZip(
 			compileCcz(expandDoc(novaDoc), "Parity", novaDoc),
 		).readAsText("modules-0/forms-0.xml");
-		// Nova's subcase block has no `<update/>` element.
-		expect(novaForm).not.toMatch(
-			/<subcase_0>[\s\S]*<update\s*\/>[\s\S]*<\/subcase_0>/,
+		// Nova matches CCHQ — the bare `<update/>` appears inside the
+		// subcase's `<case>` element even when no properties were
+		// authored on the subcase.
+		expect(novaForm).toMatch(
+			/<subcase_0>[\s\S]*<case[^>]*>[\s\S]*<update\s*\/>[\s\S]*<\/case>[\s\S]*<\/subcase_0>/,
 		);
 	});
 

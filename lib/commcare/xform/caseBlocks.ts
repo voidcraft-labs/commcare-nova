@@ -217,25 +217,39 @@ function buildCaseBlocks(
 	}
 
 	if (isUpdate && updateCase.update) {
+		// Always emit `<update/>` on the wire — CCHQ does the same via
+		// `XFormCaseBlock.update_block`'s memoized side-effect, and we
+		// match for byte-level parity so any future CCHQ-side check on
+		// the element's presence agrees on every Nova-emitted form.
 		const props = Object.keys(updateCase.update);
-		if (props.length > 0) {
-			caseChildren.push(
-				el(
-					"update",
-					{},
-					props.map((p) => el(validatePropertyName(p), {})),
-				),
+		caseChildren.push(
+			el(
+				"update",
+				{},
+				props.map((p) => el(validatePropertyName(p), {})),
+			),
+		);
+		for (const [prop, mapping] of Object.entries(updateCase.update)) {
+			const validProp = validatePropertyName(prop);
+			const qPath = mapping.question_path || `/data/${prop}`;
+			const resolvedQPath = validateXFormPath(qPath);
+			// `relevant="count(<qPath>) > 0"` skips the case-update bind
+			// when the source question's data node is absent at submission
+			// time — the JavaRosa semantic when a `<bind relevant="...">`
+			// is false. Without this guard, a conditionally-hidden field
+			// (`relevant="age > 60"` on a `weight` question, say) would
+			// still fire its case-update with an empty calculate result
+			// at submission, overwriting the case's existing property
+			// value. CCHQ's `XFormCaseBlock.add_case_updates` carries the
+			// same guard; matching here preserves case data through
+			// conditional-question flows.
+			binds.push(
+				el("bind", {
+					nodeset: `/data/case/update/${validProp}`,
+					calculate: resolvedQPath,
+					relevant: `count(${resolvedQPath}) > 0`,
+				}),
 			);
-			for (const [prop, mapping] of Object.entries(updateCase.update)) {
-				const validProp = validatePropertyName(prop);
-				const qPath = mapping.question_path || `/data/${prop}`;
-				binds.push(
-					el("bind", {
-						nodeset: `/data/case/update/${validProp}`,
-						calculate: validateXFormPath(qPath),
-					}),
-				);
-			}
 		}
 	}
 
@@ -397,31 +411,39 @@ function buildCaseBlocks(
 			);
 		}
 
-		if (Object.keys(sc.case_properties).length > 0) {
-			const props = Object.entries(sc.case_properties);
-			scChildren.push(
-				el(
-					"update",
-					{},
-					props.map(([p]) => el(validatePropertyName(p), {})),
-				),
+		// Always emit `<update/>` on the subcase wrapper — CCHQ does the
+		// same on every subcase regardless of case_properties count (via
+		// `XFormCaseBlock.update_block`'s memoized side-effect). Matching
+		// preserves byte-level parity with `multiple_subcase_repeat.xml`
+		// + future CCHQ-side checks.
+		const props = Object.entries(sc.case_properties);
+		scChildren.push(
+			el(
+				"update",
+				{},
+				props.map(([p]) => el(validatePropertyName(p), {})),
+			),
+		);
+		for (const [prop, mapping] of props) {
+			const validProp = validatePropertyName(prop);
+			const qPath = mapping.question_path || `/data/${prop}`;
+			const resolvedQPath = validateXFormPath(qPath);
+			// Subcase update binds nest the property under `<case>` — the
+			// path is `<subcase_n>/case/update/<prop>`, NOT
+			// `<subcase_n>/update/<prop>`. The case element is what wraps
+			// the entire case-transaction shape (create / index / update /
+			// close); the bind nodeset must match the actual element path
+			// or `XFORM_DANGLING_BIND` fires post-injection. The
+			// `relevant="count(<qPath>) > 0"` guard is the same
+			// preserves-existing-property-on-hidden-question guard the
+			// primary case-update path carries.
+			binds.push(
+				el("bind", {
+					nodeset: `${basePath}/case/update/${validProp}`,
+					calculate: resolvedQPath,
+					relevant: `count(${resolvedQPath}) > 0`,
+				}),
 			);
-			for (const [prop, mapping] of props) {
-				const validProp = validatePropertyName(prop);
-				const qPath = mapping.question_path || `/data/${prop}`;
-				// Subcase update binds nest the property under `<case>` — the
-				// path is `<subcase_n>/case/update/<prop>`, NOT
-				// `<subcase_n>/update/<prop>`. The case element is what wraps
-				// the entire case-transaction shape (create / index / update /
-				// close); the bind nodeset must match the actual element path
-				// or `XFORM_DANGLING_BIND` fires post-injection.
-				binds.push(
-					el("bind", {
-						nodeset: `${basePath}/case/update/${validProp}`,
-						calculate: validateXFormPath(qPath),
-					}),
-				);
-			}
 		}
 
 		// The subcase's `<case>` carries the same three attributes as the
