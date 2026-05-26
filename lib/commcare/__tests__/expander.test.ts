@@ -1774,7 +1774,11 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).toContain('calculate="/data/a * 2"');
 	});
 
-	it("does not require secondary instances for #form/-only expressions", () => {
+	it("does not require the casedb instance for #form/-only expressions", () => {
+		// The always-on <meta> block references `instance('commcaresession')`,
+		// so every form pulls in commcaresession. The casedb instance is the
+		// one we expect to stay out for a #form/-only expression — no case
+		// references means no casedb declaration.
 		const doc = buildDoc({
 			appName: "FormRef",
 			modules: [
@@ -1800,7 +1804,6 @@ describe("#form/ hashtag expansion", () => {
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).not.toContain('id="casedb"');
-		expect(xform).not.toContain('id="commcaresession"');
 	});
 });
 
@@ -2090,7 +2093,15 @@ describe("jr-insert for repeat defaults", () => {
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('event="jr-insert"');
-		expect(xform).not.toContain('event="xforms-ready"');
+		// The repeat-default setvalue specifically must be jr-insert, not
+		// xforms-ready. We can't blanket-reject xforms-ready on the whole
+		// document — the always-on <meta> block sets six of its eight
+		// timestamps with xforms-ready. Assert structurally instead.
+		const statusSetvalue = xform.match(
+			/<setvalue\b[^>]*ref="\/data\/items\/status"[^/]*\/>/,
+		);
+		expect(statusSetvalue).not.toBeNull();
+		expect(statusSetvalue?.[0]).toContain('event="jr-insert"');
 	});
 
 	it("uses xforms-ready event for default_value outside repeat groups", () => {
@@ -2714,7 +2725,7 @@ describe("empty form expansion", () => {
 	// XForm shell that downstream validation accepts — no fields means no
 	// binds and no body children, but the `<data>` and `<h:body>` wrappers
 	// still need to be present for CommCare Mobile to load the form.
-	it("emits a valid empty XForm when a survey form has zero fields", () => {
+	it("emits a valid XForm shell when a survey form has zero fields", () => {
 		const doc = buildDoc({
 			appName: "Empty",
 			modules: [
@@ -2724,15 +2735,19 @@ describe("empty form expansion", () => {
 		const hq = expandDoc(doc);
 		const xml: string = Object.values(hq._attachments)[0] as string;
 
-		// Shell present but inner data/body are empty. With no fields the body
-		// has no children, so the serializer renders it self-closing
-		// (`<h:body/>` ≡ `<h:body></h:body>`).
+		// Shell present. With no fields the body has no children, so the
+		// serializer renders it self-closing (`<h:body/>` ≡ `<h:body></h:body>`).
 		expect(xml).toContain("<h:head>");
 		expect(xml).toMatch(/<h:body\s*\/>/);
-		// The `<data>` element exists but has no children — the serializer
-		// renders an empty element self-closing (`<data .../>` ≡ `<data></data>`).
-		expect(xml).toMatch(/<data[^>]*\/>/);
-		// No binds emitted because there are no fields.
+		// The data tree still carries the always-on <meta> block (deviceID,
+		// timeStart, etc.) even when the form has no authored fields — every
+		// submission needs the OpenRosa metadata. The block lives under <data>.
+		expect(xml).toContain("<meta>");
+		expect(xml).toContain("<deviceID/>");
+		expect(xml).toContain("<instanceID/>");
+		// No field binds emitted because there are no authored fields. The
+		// meta block produces no <bind> elements — only <setvalue>s — so the
+		// model's bind-list is empty for an empty form.
 		expect(xml).not.toMatch(/<bind[^/]*\/>/);
 	});
 });

@@ -64,8 +64,14 @@ describe("repeat modes — XForm emission", () => {
 		expect(xml).toContain('<repeat nodeset="/data/members">');
 		expect(xml).not.toContain("jr:count");
 		expect(xml).not.toContain("jr:noAddRemove");
-		// Setvalue setup is query-bound only.
-		expect(xml).not.toContain("xforms-ready");
+		// User-controlled repeats need NO repeat-bookkeeping setvalues
+		// (those are query-bound's `<id>/@ids`/@count/@index/@id chain).
+		// The always-on <meta> block contributes its own xforms-ready
+		// setvalues, so we can't blanket-reject the event — assert
+		// structurally on the repeat-bookkeeping refs instead.
+		expect(xml).not.toMatch(
+			/<setvalue[^>]*ref="\/data\/members[^"]*@(?:ids|count|index|id)"/,
+		);
 		// Children sit under the repeat's nodeset directly (no /item).
 		expect(xml).toContain('<bind vellum:nodeset="#form/members/name"');
 		expect(validateXForm(xml, "F", "M")).toEqual([]);

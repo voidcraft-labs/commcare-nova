@@ -48,6 +48,7 @@ import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { readFieldString } from "@/lib/commcare/fieldProps";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
+import { buildMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 
 /**
@@ -381,6 +382,18 @@ export function buildXForm(
 	const setvalues: Element[] = [];
 	const bodyElements: Element[] = [];
 	const itextEntries: Element[] = [];
+
+	// OpenRosa <meta> block — `<deviceID>`, `<timeStart>`, `<timeEnd>`,
+	// `<username>`, `<userID>`, `<instanceID>`, `<appVersion>`, `<drift>`
+	// plus the eight setvalues that populate them at form load. Always
+	// emitted; the receiving systems (CCHQ, FormPlayer reports, mobile
+	// sync) rely on it for audit + integrity. The setvalues reference
+	// `instance('commcaresession')/session/context/...` so the form
+	// inherently requires the session instance.
+	const meta = buildMetaBlock();
+	dataElements.push(meta.dataElement);
+	setvalues.push(...meta.setvalues);
+	instances.require("commcaresession");
 
 	// Register an itext `<text>` entry. Every entry emits both the plain value
 	// AND a `<value form="markdown">` duplicate — CommCare only renders
