@@ -10,9 +10,9 @@
  * form-init when the calculate tries to evaluate (`XPathTypeMismatchException`,
  * which CommCare surfaces as "A part of your application is invalid.").
  *
- * This oracle walks every install-time-evaluable XPath surface on a form
- * (bind `calculate`/`relevant`/`constraint`/`required`/`readonly`,
- * `<setvalue value>`, body `<output value>`) and resolves each reference
+ * This oracle walks the ANY-expression XPath surfaces on a form — bind
+ * `calculate`/`relevant`/`constraint`/`required`/`readonly`, `<setvalue
+ * value>`, and body `<output value>` — and resolves each reference
  * against the symbols available at the form's evaluation context:
  *
  *   1. `instance('commcaresession')/session/data/<X>` — `<X>` must be the
@@ -140,7 +140,7 @@ export function validateBindingResolution(
 				validationError(
 					"BINDING_RESOLUTION_INSTANCE_UNDECLARED",
 					"form",
-					`"${formName}" references instance("${id}") in ${surface.origin}, but the form's <model> has no <instance id="${id}"> declaration. JavaRosa throws XPathMissingInstanceException at form-init when an instance ref isn't in scope — CommCare surfaces this as "A part of your application is invalid." Check that the XForm emitter declared the secondary instance for whatever the form needs. This is a bug in the form generator.`,
+					`"${formName}" references instance("${id}") in ${surface.origin}, but the form's <model> has no <instance id="${id}"> declaration. CommCare will reject this form at form-init with "A part of your application is invalid." Check that the XForm emitter declared the secondary instance for whatever the form needs. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -154,7 +154,7 @@ export function validateBindingResolution(
 				validationError(
 					"BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED",
 					"form",
-					`"${formName}" references session datum "${datumId}" in ${surface.origin} (via instance('commcaresession')/session/data/${datumId}), but no <datum id="${datumId}"> is declared on this form's <entry> in suite.xml. JavaRosa accepts the reference at parse but crashes when it tries to resolve the value — CommCare surfaces this as "A part of your application is invalid." Check that session.ts::deriveSessionDatums emits a datum for whatever the form needs. This is a bug in the form generator.`,
+					`"${formName}" references session datum "${datumId}" in ${surface.origin} (via instance('commcaresession')/session/data/${datumId}), but no <datum id="${datumId}"> is declared on this form's <entry> in suite.xml. CommCare will reject this form at form-init with "A part of your application is invalid." Check that the entry emits a datum for whatever the form needs. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -168,7 +168,7 @@ export function validateBindingResolution(
 				validationError(
 					"BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN",
 					"form",
-					`"${formName}" references session/context/${ctxName} in ${surface.origin}, but CommCare's SessionInstanceBuilder only populates these context fields: ${[...SESSION_CONTEXT_FIELDS].sort().join(", ")}. An unknown context name will resolve to an empty node-set at runtime. This is a bug in the form generator.`,
+					`"${formName}" references session/context/${ctxName} in ${surface.origin}, but CommCare only populates these context fields: ${[...SESSION_CONTEXT_FIELDS].sort().join(", ")}. An unknown context name resolves to an empty node-set at runtime. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -185,7 +185,7 @@ export function validateBindingResolution(
 				validationError(
 					"BINDING_RESOLUTION_FORM_PATH_MISSING",
 					"form",
-					`"${formName}" references "${path}" in ${surface.origin}, but no such node or attribute exists in the form's data instance tree. JavaRosa resolves the reference to an empty node-set at runtime. Check that the XForm emitter declares this node in the main <instance> data tree. This is a bug in the form generator.`,
+					`"${formName}" references "${path}" in ${surface.origin}, but no such node or attribute exists in the form's data instance tree. The reference resolves to an empty node-set at runtime. Check that the XForm emitter declares this node in the main <instance> data tree. This is a bug in the form generator.`,
 					loc,
 				),
 			);
