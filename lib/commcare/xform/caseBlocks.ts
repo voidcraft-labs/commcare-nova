@@ -362,29 +362,6 @@ function buildCaseBlocks(
 			);
 		}
 
-		// Index edge back to the parent case. CCHQ's canonical emission
-		// (`xform.py::add_index_ref`, fixture `subcase-parent-ref.xml`) omits
-		// the `relationship` attribute when the relationship is the default
-		// `child`; it only emits the attribute for `extension` and `question`.
-		// The bind below reads the parent's case_id off the form's own `<case>`
-		// element rather than the session datum directly, so the same shape
-		// works whether the parent was opened by this form
-		// (registration-with-subcase) or loaded by it (followup-with-subcase) —
-		// `/data/case/@case_id` is itself bound to the right session var
-		// earlier in this function.
-		const subcaseRel = sc.relationship || "child";
-		const parentAttribs: Record<string, string> = {
-			case_type: validatedCaseType,
-		};
-		if (subcaseRel !== "child") parentAttribs.relationship = subcaseRel;
-		scChildren.push(el("index", {}, [el("parent", parentAttribs)]));
-		binds.push(
-			el("bind", {
-				nodeset: `${basePath}/case/index/parent`,
-				calculate: "/data/case/@case_id",
-			}),
-		);
-
 		// Subcase case-attribute binds — same shape as the primary case.
 		binds.push(
 			el("bind", {
@@ -410,6 +387,14 @@ function buildCaseBlocks(
 				}),
 			);
 		}
+
+		// Subcase child-element order on the wire is `create / update / index`
+		// (canonical: `subcase-parent-ref.xml` and `multiple_subcase_repeat.xml`).
+		// `<create>` was pushed at the top of this iteration; `<update>` is
+		// pushed here unconditionally (CCHQ's memoized-update side-effect);
+		// `<index>` follows. The receiver iterates children order-agnostic but
+		// matching the wire order keeps byte-level parity with the canonical
+		// fixtures and forecloses any future order-sensitive CCHQ-side check.
 
 		// Always emit `<update/>` on the subcase wrapper — CCHQ does the
 		// same on every subcase regardless of case_properties count (via
@@ -446,10 +431,34 @@ function buildCaseBlocks(
 			);
 		}
 
+		// Index edge back to the parent case — last child per CCHQ's wire
+		// order (create / update / index). `xform.py::add_index_ref` and the
+		// fixtures `subcase-parent-ref.xml` + `multiple_subcase_repeat.xml`
+		// omit the `relationship` attribute when the relationship is the
+		// default `child`; only `extension` and `question` carry the
+		// attribute. The bind below reads the parent's case_id off the form's
+		// own `<case>` element rather than the session datum directly, so the
+		// same shape works whether the parent was opened by this form
+		// (registration-with-subcase) or loaded by it
+		// (followup-with-subcase) — `/data/case/@case_id` is itself bound to
+		// the right session var earlier in this function.
+		const subcaseRel = sc.relationship || "child";
+		const parentAttribs: Record<string, string> = {
+			case_type: validatedCaseType,
+		};
+		if (subcaseRel !== "child") parentAttribs.relationship = subcaseRel;
+		scChildren.push(el("index", {}, [el("parent", parentAttribs)]));
+		binds.push(
+			el("bind", {
+				nodeset: `${basePath}/case/index/parent`,
+				calculate: "/data/case/@case_id",
+			}),
+		);
+
 		// The subcase's `<case>` carries the same three attributes as the
 		// primary case (case_id, date_modified, user_id) plus the
 		// case-transaction xmlns. Wrapping element (`<subcase_n>`) holds the
-		// case element; the case element holds the create / index / update
+		// case element; the case element holds the create / update / index
 		// children.
 		dataChildren.push(el(elName, {}, [buildCaseElement(scChildren)]));
 	}
