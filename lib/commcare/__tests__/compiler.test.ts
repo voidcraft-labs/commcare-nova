@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import { asUuid } from "@/lib/domain";
 
 // The compiler consumes the domain doc directly — we build the fixture
@@ -1100,38 +1101,40 @@ describe("CCHQ fixture parity", () => {
 	});
 
 	/**
-	 * Repeat-context subcase emission is broken today.
+	 * Repeat-context subcase emission is a CCHQ feature Nova doesn't
+	 * yet model. The wire emitter
+	 * (`xform/caseBlocks.ts::buildCaseBlocks`) builds bind nodesets
+	 * with the repeat-scoped prefix but `addCaseBlocks` always
+	 * splices the wrapper element under the form's top-level
+	 * `<data>` — the two disagree on the wire path and the post-
+	 * injection XForm oracle catches the mismatch as a generator-bug
+	 * backstop.
 	 *
-	 * CCHQ's `multiple_subcase_repeat.xml` nests the `<subcase_n>`
-	 * wrapper element INSIDE the repeat's data instance subtree
-	 * (`<data><children jr:template=""><subcase_0><case>...`); the bind
-	 * nodesets target `/data/children/subcase_0/case/...` and the wire
-	 * paths resolve.
+	 * The user-visible gate is now at the doc layer:
+	 * `SUBCASE_IN_REPEAT_NOT_MODELED` in
+	 * `validator/rules/form.ts::subcaseInRepeatNotModeled` rejects
+	 * the authoring shape before compile. The author sees an
+	 * actionable message in the editor with the supported
+	 * alternative (move child creation to a followup form, or hoist
+	 * the child field out of the repeat for a single subcase per
+	 * parent). The compile-time throw is the totality backstop a
+	 * future emitter fix will close.
 	 *
-	 * Nova's `xform/caseBlocks.ts::buildCaseBlocks` builds bind nodesets
-	 * with the `${repeat_context}/${elName}` prefix (so binds point at
-	 * `/data/children/subcase_0/case/...`) but `addCaseBlocks` appends
-	 * the wrapper element to the form's top-level `<data>` regardless
-	 * — placing it at `/data/subcase_0` on the wire. The post-injection
-	 * XForm oracle catches the mismatch and `compileCcz` throws with
-	 * `XFORM_DANGLING_BIND`. The form is unrepresentable until both the
-	 * splice site and the wrapper's parent-element nesting move under
-	 * the repeat (CCHQ's emitter walks the repeat-context path to find
-	 * the splice parent — `commcare-hq/.../app_manager/xform.py::XForm
-	 * .add_create_block` calls `XFormCaseBlock` with `path` derived from
-	 * `action.repeat_context`).
-	 *
-	 * This test pins the failure mode so a future emission fix flips
-	 * the assertion direction (from `toThrow` to a positive structural
-	 * parity assertion against `multiple_subcase_repeat.xml`).
+	 * When the emitter does land — splicing under the repeat-context
+	 * parent so CCHQ's `multiple_subcase_repeat.xml` parity is
+	 * structural — the validator rule retires and this test gets
+	 * flipped to a positive parity assertion.
 	 */
-	it("divergence: repeat-context subcase emission fails XForm validation", () => {
+	it("repeat-context subcase shape is rejected at the doc layer", () => {
 		const novaDoc = buildDoc({
 			appName: "Parity",
 			modules: [
 				{
 					name: "Parents",
 					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Register",
@@ -1174,14 +1177,13 @@ describe("CCHQ fixture parity", () => {
 			],
 		});
 
-		// XForm post-injection validation surfaces every bind whose
-		// nodeset points at a nonexistent data-instance node — when this
-		// emission is fixed and the wrapper lands inside the repeat, the
-		// throw goes away. The XPath fragments in the message name the
-		// missing nodes a future implementer needs to wire.
-		expect(() => compileCcz(expandDoc(novaDoc), "Parity", novaDoc)).toThrow(
-			/\/data\/children\/subcase_0\/case\/@case_id/,
+		const errors = runValidation(novaDoc);
+		const rejection = errors.find(
+			(e) => e.code === "SUBCASE_IN_REPEAT_NOT_MODELED",
 		);
+		expect(rejection).toBeDefined();
+		expect(rejection?.message).toContain("children");
+		expect(rejection?.message).toContain("child1");
 	});
 
 	/**

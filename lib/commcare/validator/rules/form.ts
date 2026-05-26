@@ -1009,6 +1009,88 @@ function caseHashtagOnCreateForm(
 	return errors;
 }
 
+/**
+ * A `case_property_on` value names a case type other than the module's
+ * own case type — Nova's expander treats this as a child-case
+ * reference and auto-derives a subcase. The shape is fine outside a
+ * repeat; the wire emitter (`xform/caseBlocks.ts::buildCaseBlocks` +
+ * `xform/caseBlocks.ts::addCaseBlocks`) handles the non-repeat
+ * subcase by splicing the wrapper element under the form's top-level
+ * `<data>`. But when the field sits INSIDE a repeat, the wire
+ * emitter builds bind nodesets with the repeat-scoped prefix
+ * (`/data/<repeat_id>/subcase_<n>/case/...`) while the splice site
+ * still appends the wrapper under top-level `<data>`. The two
+ * disagree on the wire path, the post-injection XForm oracle
+ * catches the dangling bind, and `compileCcz` throws — exactly the
+ * emit-time-error UX the total-function-emitter principle forbids.
+ *
+ * CCHQ's emitter handles this shape (`commcare-hq/.../app_manager/
+ * xform.py::XForm.add_create_block` walks the repeat-context path
+ * to find the splice parent) and the canonical fixture
+ * `multiple_subcase_repeat.xml` exercises it. Nova's emitter does
+ * not — until it does, reject the authoring shape so the user gets
+ * an actionable error in the editor instead of an opaque compile-
+ * time throw.
+ *
+ * Alternative authoring shapes the user can reach for:
+ *   - Move the child-creation off the registration form into a
+ *     followup form that does one subcase per submission (the
+ *     standard "one parent registration + many child followups"
+ *     pattern Nova fully supports today).
+ *   - Hoist the child field out of the repeat and create exactly
+ *     one subcase per parent — Nova's non-repeat subcase emission
+ *     is supported.
+ */
+function subcaseInRepeatNotModeled(
+	doc: BlueprintDoc,
+	ctx: FormContext,
+	mod: Module,
+): ValidationError[] {
+	if (!mod.caseType) return [];
+	const knownCaseTypes = new Set((doc.caseTypes ?? []).map((ct) => ct.name));
+	if (knownCaseTypes.size === 0) return [];
+	const errors: ValidationError[] = [];
+
+	const walk = (parentUuid: Uuid, repeatAncestor: string | undefined): void => {
+		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+			const field = doc.fields[uuid];
+			if (!field) continue;
+			const fieldCaseType =
+				typeof (field as Record<string, unknown>).case_property_on === "string"
+					? ((field as Record<string, unknown>).case_property_on as string)
+					: undefined;
+			if (
+				repeatAncestor &&
+				fieldCaseType &&
+				fieldCaseType !== mod.caseType &&
+				knownCaseTypes.has(fieldCaseType)
+			) {
+				errors.push(
+					validationError(
+						"SUBCASE_IN_REPEAT_NOT_MODELED",
+						"form",
+						`"${ctx.formName}" has field "${field.id}" inside repeat "${repeatAncestor}" with case_property_on "${fieldCaseType}" (different from the module's case type "${mod.caseType}"). Nova doesn't yet support creating subcases inside a repeat (one parent + many children created in one submission). Move the child-creation to a separate followup form that creates one subcase per submission, or hoist this field out of the repeat to create exactly one subcase per parent.`,
+						baseLocation(ctx),
+						{
+							fieldId: field.id,
+							repeatId: repeatAncestor,
+							childCaseType: fieldCaseType,
+						},
+					),
+				);
+			}
+			if (doc.fieldOrder[uuid] !== undefined) {
+				const nextRepeatAncestor =
+					field.kind === "repeat" ? field.id : repeatAncestor;
+				walk(uuid, nextRepeatAncestor);
+			}
+		}
+	};
+	walk(ctx.formUuid, undefined);
+
+	return errors;
+}
+
 function casePropertyTooLong(
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -1068,6 +1150,7 @@ export function runFormRules(
 	errors.push(...formLinkValidation(doc, form, ctx));
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
+	errors.push(...subcaseInRepeatNotModeled(doc, ctx, mod));
 
 	return errors;
 }

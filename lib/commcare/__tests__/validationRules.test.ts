@@ -1274,6 +1274,182 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 	});
 });
 
+describe("SUBCASE_IN_REPEAT_NOT_MODELED", () => {
+	/**
+	 * Nova's wire emitter does not yet support creating subcases inside
+	 * a repeat (one parent + many children in one submission). The bind
+	 * nodesets in `xform/caseBlocks.ts::buildCaseBlocks` prefix with the
+	 * repeat-context path but the wrapper element is always spliced at
+	 * the form's top-level `<data>` — the post-injection XForm oracle
+	 * catches the dangling bind and `compileCcz` throws. The doc-layer
+	 * rule rejects the shape at authoring time so the user gets the
+	 * error in the editor instead of an opaque compile-time throw.
+	 */
+
+	function repeatWithChildSubcaseDoc(): BlueprintDoc {
+		return buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "repeat",
+									id: "children",
+									label: "Children",
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											kind: "text",
+											id: "child_name",
+											label: "Child name",
+											case_property_on: "child1",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "child1",
+					properties: [{ name: "child_name", label: "Name" }],
+				},
+			],
+		});
+	}
+
+	it("rejects a field with cross-case-type `case_property_on` inside a repeat", () => {
+		const doc = repeatWithChildSubcaseDoc();
+		const errors = runValidation(doc);
+		const offender = errors.find(
+			(e) => e.code === "SUBCASE_IN_REPEAT_NOT_MODELED",
+		);
+		expect(offender).toBeDefined();
+		expect(offender?.message).toContain("child1");
+		expect(offender?.message).toContain("children");
+		expect(offender?.message).toContain("followup");
+	});
+
+	it("does not flag a non-repeat subcase (root-level cross-case-type field)", () => {
+		// Hoist the child field out of the repeat — Nova's non-repeat
+		// subcase emission is supported, so this shape must pass.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "text",
+									id: "child_name",
+									label: "Child name",
+									case_property_on: "child1",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "child1",
+					properties: [{ name: "child_name", label: "Name" }],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "SUBCASE_IN_REPEAT_NOT_MODELED")).toBe(
+			false,
+		);
+	});
+
+	it("does not flag a same-case-type field inside a repeat", () => {
+		// A repeat whose descendants all save to the module's own case
+		// type isn't a subcase pattern — it's the standard "multi-value
+		// case property" pattern Nova handles via the form-question
+		// model. The rule must not flag it.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											kind: "text",
+											id: "note",
+											label: "Note",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "SUBCASE_IN_REPEAT_NOT_MODELED")).toBe(
+			false,
+		);
+	});
+});
+
 describe("CCHQ-only features stay unauthorable via the strict schema", () => {
 	/**
 	 * The plan called for explicit NOT_MODELED rules for usercase,
