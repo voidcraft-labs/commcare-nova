@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import AdmZip from "adm-zip";
@@ -595,18 +595,35 @@ function parseFormXml(xml: string): ParsedFormXml {
 	return { binds, setvalues, cases };
 }
 
-/** Path to CCHQ's `form_preparation_v2` fixture directory on the local clone. */
+/**
+ * Path to CCHQ's `form_preparation_v2` fixture directory on the local
+ * clone. The parity tests + divergence pins below read these fixtures
+ * directly so the contract is "Nova matches CCHQ AS IT EXISTS TODAY"
+ * — when CCHQ's upstream evolves, the parity tests evolve with it on
+ * the next pull rather than against a frozen snapshot.
+ *
+ * Skip-guard rationale: the local-clone path is contributor-machine
+ * convention, not a build artifact. CI runners + fresh contributor
+ * clones don't have the directory. Without a skip guard the
+ * `readFileSync` in `readCchqFixture` throws ENOENT during test
+ * discovery and fails the entire suite — including the `pre-push`
+ * async-leak gate that runs the full suite under `--detect-async-leaks`.
+ * `describe.skipIf(!HAS_CCHQ_FIXTURES)` keeps the contract local to
+ * developers who maintain the parity tests; everyone else gets a
+ * green run.
+ */
 const CCHQ_FIXTURES = join(
 	homedir(),
 	"code/commcare-hq/corehq/apps/app_manager/tests/data/form_preparation_v2",
 );
+const HAS_CCHQ_FIXTURES = existsSync(CCHQ_FIXTURES);
 
 /** Read a CCHQ form-preparation fixture as a string. */
 function readCchqFixture(name: string): string {
 	return readFileSync(join(CCHQ_FIXTURES, name), "utf-8");
 }
 
-describe("CCHQ fixture parity", () => {
+describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 	/**
 	 * Reference fixture: `open_case.xml` — the canonical CCHQ shape for
 	 * a registration form opening a case. Holds Nova's case-create

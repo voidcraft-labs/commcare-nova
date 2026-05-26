@@ -324,32 +324,30 @@ function reservedFieldIdPrefix(
 }
 
 /**
- * The closed set of `instance('<id>')` ids Nova's wire layer emits
- * `<instance>` declarations for. Anything outside this set is a feature
- * Nova doesn't model — the wire compiler doesn't add an `<instance>`
- * declaration for it, and the runtime can't resolve the reference at
- * form-init.
+ * The closed set of `instance('<id>')` ids Nova's XForm-level emitter
+ * declares as `<model><instance>` elements. A field's XPath surface
+ * (`relevant` / `validate` / `calculate` / `default_value` /
+ * `required`) is evaluated by JavaRosa against the FORM's instance
+ * declarations only — any reference outside this set has no matching
+ * `<instance>` on the wire and resolves to nothing at form-init,
+ * surfaced on device as "A part of your application is invalid."
  *
- * Sources:
- *   - `casedb`, `commcaresession` — the XForm-level instances Nova's
- *     `InstanceTracker` declares
- *     (`lib/commcare/xform/builder.ts::InstanceTracker`).
- *   - `results`, `results:inline`, `search-input:results` — the
- *     remote-request-side instances Nova's predicate AST and suite
- *     accumulator know about (`lib/commcare/predicate/instances.ts::instanceSourceFor`).
- *     These do not appear inside a field's XPath surface in practice —
- *     they're suite-XML side — but the rule lists them to keep the
- *     allowlist canonical with the wire layer's vocabulary.
+ * Source: `lib/commcare/xform/builder.ts::InstanceTracker::toElements`
+ * is the single emitter of `<model><instance>` for XForms; it emits
+ * `casedb` and/or `commcaresession` and nothing else. Suite-XML-side
+ * instances (`results`, `results:inline`, `search-input:results` —
+ * declared per-`<remote-request>` block on the suite) are
+ * deliberately EXCLUDED from this allowlist: they are not visible to
+ * a form's XPath, so referencing them from a field surface is exactly
+ * the false-negative this rule must catch.
  *
  * If Nova adds support for a new fixture (lookup tables, saved
- * reports, etc.), this set + the wire-layer mappers move in lockstep.
+ * reports, etc.), the `InstanceTracker` gains a corresponding
+ * `<instance>` emission and this set extends in lockstep.
  */
 const MODELED_INSTANCE_IDS: ReadonlySet<string> = new Set([
 	"casedb",
 	"commcaresession",
-	"results",
-	"results:inline",
-	"search-input:results",
 ]);
 
 /** Pre-resolved Lezer node types for the `instance(...)` scan. */
