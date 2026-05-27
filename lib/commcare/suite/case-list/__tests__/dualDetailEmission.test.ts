@@ -708,9 +708,12 @@ describe("dual-detail emission — calc-xpath instance rewrite", () => {
 		});
 
 		expect(searchShort.xml).toContain('<xpath function="name"/>');
-		// No instance reference should leak in either flavor.
-		expect(searchShort.xml).not.toContain("instance('casedb')");
-		expect(searchShort.xml).not.toContain("instance('results')");
+		// No instance reference should leak in either flavor. XPath
+		// single-quote literals round-trip through the serializer as
+		// `&apos;`, so the negative assertions check the entity-encoded
+		// form the rendered XML actually carries.
+		expect(searchShort.xml).not.toContain("instance(&apos;casedb&apos;)");
+		expect(searchShort.xml).not.toContain("instance(&apos;results&apos;)");
 	});
 });
 

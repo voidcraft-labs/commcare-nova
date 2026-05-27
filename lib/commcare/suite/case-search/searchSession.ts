@@ -50,9 +50,11 @@ const EXCLUDED_OWNER_IDS_WIRE_KEY = "commcare_blacklisted_owner_ids";
 const XPATH_QUERY_KEY = "_xpath_query";
 
 /**
- * Composed `<session>` emission.
+ * The Element-returning shape `buildSearchSession` produces for the
+ * `<remote-request>` orchestrator (`remoteRequest.ts::buildRemoteRequest`).
  *
- *   - `xml` — the indented `<session>` block at 4-space outer indent.
+ *   - `element` — the `<session>` Element ready to splice into the
+ *     surrounding `<remote-request>` parent.
  *   - `strings` — locale entries for the `<title>` and per-prompt
  *     labels, threaded into the per-language string tables.
  *   - `instances` — the instance ids the body references (`casedb` +

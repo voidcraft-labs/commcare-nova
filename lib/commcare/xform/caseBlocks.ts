@@ -101,14 +101,15 @@ interface CaseBlocksEmission {
  * close / subcase) is active, so the caller knows to skip the splice
  * entirely.
  *
- * Element / attribute insertion order matches the prior string-template
- * emitter so the byte-level wire output stays stable: `<case>` carries
- * `case_id`, `date_modified`, `user_id`, `xmlns` in that exact order; `<bind>`
- * elements list `nodeset` first, then the kind-specific attributes (`type`
- * before `calculate` on the date_modified bind, `calculate` alone on user_id /
- * case_id, `relevant` alone on conditional binds). The serializer preserves
- * attribute insertion order, so the literal substrings the test suite asserts
- * (`<case case_id="" date_modified="" user_id="" xmlns="...">`) survive.
+ * Element / attribute insertion order matches CCHQ's canonical wire
+ * shape: `<case>` carries `case_id`, `date_modified`, `user_id`,
+ * `xmlns` in that exact order; `<bind>` elements list `nodeset` first,
+ * then the kind-specific attributes (`type` before `calculate` on the
+ * date_modified bind, `calculate` alone on user_id / case_id,
+ * `relevant` alone on conditional binds). The serializer preserves
+ * attribute insertion order, so the literal substrings the test suite
+ * asserts (`<case case_id="" date_modified="" user_id="" xmlns="...">`)
+ * survive.
  */
 function buildCaseBlocks(
 	actions: FormActions,

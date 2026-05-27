@@ -107,12 +107,12 @@ import type {
 } from "./types";
 
 /**
- * Element-returning twin of `CaseListEmission`. The case-list detail
- * emitters (`shortDetail.ts`, `longDetail.ts`) consume the Element
- * directly so the per-field tree slots into a `<detail>` parent without
- * a parse-then-reserialize round-trip; `emitColumnField` serializes the
- * Element to a string for callers that assert against the rendered XML
- * (the test surface).
+ * The Element-returning shape `buildColumnField` produces for the
+ * case-list detail emitters (`shortDetail.ts`, `longDetail.ts`). The
+ * per-field tree slots into a `<detail>` parent without a parse-then-
+ * reserialize round-trip. `emitColumnField` serializes the Element to
+ * a string for callers that assert against the rendered XML (the
+ * test surface).
  */
 export interface CaseListFieldEmission {
 	readonly element: Element;

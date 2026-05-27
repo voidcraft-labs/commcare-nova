@@ -25,18 +25,17 @@ import type { PlatformContext, WireShape } from "./types";
 export const DEFAULT_PLATFORM_CONTEXT: PlatformContext = { platform: "web" };
 
 /**
- * Composed result of the orchestrator.
+ * The string-returning shape `emitRemoteRequest` produces for callers
+ * that assert against the rendered XML (the test surface). The
+ * compiler (`compileCcz`) consumes `RemoteRequestBuild` instead.
  *
- *   - `xml` — the `<remote-request>` serialized XML; produced by the
- *     boundary shim for callers that still consume the string-returning
- *     shape (the existing test surface).
+ *   - `xml` — the serialized `<remote-request>` element.
  *   - `strings` — locale entries (`case_search.{m}` command label,
  *     `case_search.{m}.inputs` title, per-prompt entries) the
  *     compiler threads into per-language string tables.
- *   - `wire` — the computed `WireShape`. Returned so the case-list
- *     short-detail emitter can consume `wire.autoLaunch` for the
- *     `<action auto_launch>` element on `m{N}_case_short` without
- *     recomputing.
+ *   - `wire` — the computed `WireShape`. The case-list short-detail
+ *     emitter consumes `wire.autoLaunch` for the `<action
+ *     auto_launch>` element on `m{N}_case_short` without recomputing.
  */
 export interface RemoteRequestEmission {
 	readonly xml: string;
@@ -45,10 +44,10 @@ export interface RemoteRequestEmission {
 }
 
 /**
- * Element-returning twin of `RemoteRequestEmission`. The orchestrator
- * (`compiler.ts`) consumes the Element directly so the rendered tree
- * slots into the surrounding `<suite>` parent without a
- * parse-then-reserialize round-trip.
+ * The Element-returning shape `buildRemoteRequest` produces for the
+ * compiler (`compileCcz`). The rendered tree slots into the
+ * surrounding `<suite>` parent without a parse-then-reserialize
+ * round-trip.
  */
 export interface RemoteRequestBuild {
 	readonly element: Element;

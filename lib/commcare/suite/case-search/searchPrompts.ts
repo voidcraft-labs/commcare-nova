@@ -51,13 +51,13 @@ import type { CaseListEmission } from "../case-list/types";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
 /**
- * Element-returning twin of `CaseListEmission`. The `<remote-request>`
- * orchestrator (`remoteRequest.ts::buildRemoteRequest` via
- * `searchSession.ts::buildSearchSession`) consumes the Elements directly
- * so the per-prompt subtrees slot into the surrounding `<query>` parent
- * without a parse-then-reserialize round-trip; `emitSearchPrompts`
- * serializes the Elements for callers that assert against the rendered
- * XML string (the test surface).
+ * The Element-returning shape `buildSearchPrompts` produces for the
+ * `<remote-request>` orchestrator (`remoteRequest.ts::buildRemoteRequest`
+ * via `searchSession.ts::buildSearchSession`). The per-prompt subtrees
+ * slot into the surrounding `<query>` parent without a parse-then-
+ * reserialize round-trip. `emitSearchPrompts` serializes the Elements
+ * for callers that assert against the rendered XML string (the test
+ * surface).
  */
 export interface SearchPromptsEmission {
 	readonly elements: readonly Element[];

@@ -182,9 +182,10 @@ const SESSION_REF = "instance('commcaresession')/session/data";
  *
  * `actions` is the form's `FormActions` (post-expansion). The function
  * inspects `actions.open_case.condition` and `actions.subcases` to
- * decide which case-create datums to emit. When omitted (transitional
- * callers haven't been migrated yet), only the case-loading datum is
- * emitted — the pre-existing behavior.
+ * decide which case-create datums to emit. When `actions` is
+ * undefined, only the case-loading datum is emitted — callers that
+ * don't carry an expanded `FormActions` get the case-loading-only
+ * shape.
  */
 export function deriveSessionDatums(
 	formType: FormType,
@@ -561,15 +562,14 @@ export function deriveEntryDefinition(
 // ── DOM Construction ────────────────────────────────────────────────────
 
 /**
- * Build the `<datum>` element for one session datum. Two shapes — function
- * vs nodeset — dispatched on whether `d.function` is set. CCHQ emits both
- * inside the same `<session>` block, so the dispatch lives at this single
- * element-building site.
+ * Build the `<datum>` element for one session datum. Two shapes —
+ * function vs nodeset — dispatched on whether `d.function` is set.
+ * CCHQ emits both inside the same `<session>` block, so the dispatch
+ * lives at this single element-building site.
  *
- * Attribute insertion order matches the prior string-template emitter so
- * the byte-level wire output stays diffable against CCHQ canonical
- * fixtures: function datum is `id, function`; nodeset datum is `id,
- * nodeset, value, detail-select?, detail-confirm?`.
+ * Attribute insertion order matches CCHQ's canonical wire shape:
+ * function datum is `id, function`; nodeset datum is `id, nodeset,
+ * value, detail-select?, detail-confirm?`.
  */
 function buildDatumElement(d: SessionDatum): Element {
 	if (d.function !== undefined) {
@@ -578,9 +578,9 @@ function buildDatumElement(d: SessionDatum): Element {
 		return el("datum", { id: d.id, function: d.function });
 	}
 	// Nodeset datum — case-loading shape. Optional `detail-select` /
-	// `detail-confirm` attributes are appended only when defined so the
-	// emitted bytes match the original string-template shape (which omitted
-	// the attribute entirely rather than emitting `detail-select=""`).
+	// `detail-confirm` attributes are appended only when defined so an
+	// unset detail does not emit `detail-select=""` (CCHQ's canonical
+	// shape: omit the attribute when no detail is wired).
 	const attribs: Record<string, string> = {
 		id: d.id,
 		nodeset: d.nodeset ?? "",

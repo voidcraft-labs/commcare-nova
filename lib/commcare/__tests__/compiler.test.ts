@@ -1552,10 +1552,12 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 		expect(cchqPostData?.attribs.ref).toBeDefined();
 		expect(novaPostData?.attribs.ref).toBe(cchqPostData?.attribs.ref);
 
-		// (2) Five-family child element ordering: post → command →
-		// instance(s) → session → stack. The `<instance>` group is
-		// position-stable (always between command and session); the
-		// rest pin individual positions.
+		// (2) Five-family child element ordering on BOTH emitters:
+		// post → command → instance(s) → session → stack. Asserting
+		// the same ordering relations on both Nova and CCHQ makes
+		// this a real bidirectional parity check — a future CCHQ
+		// reorder would surface here (failing the parity gate) rather
+		// than silently diverging.
 		const novaChildNames = (novaRemoteReq as SuiteElement).children.map(
 			(c) => c.name,
 		);
@@ -1566,19 +1568,16 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 			expect(novaChildNames).toContain(name);
 			expect(cchqChildNames).toContain(name);
 		}
-		// Order: post → command → instance(s) → session → stack.
-		expect(novaChildNames.indexOf("post")).toBeLessThan(
-			novaChildNames.indexOf("command"),
-		);
-		expect(novaChildNames.indexOf("command")).toBeLessThan(
-			novaChildNames.indexOf("instance"),
-		);
-		expect(novaChildNames.lastIndexOf("instance")).toBeLessThan(
-			novaChildNames.indexOf("session"),
-		);
-		expect(novaChildNames.indexOf("session")).toBeLessThan(
-			novaChildNames.indexOf("stack"),
-		);
+		// Apply the same ordering assertions to both sides — any
+		// future CCHQ reorder makes the parity gate fail.
+		for (const names of [novaChildNames, cchqChildNames]) {
+			expect(names.indexOf("post")).toBeLessThan(names.indexOf("command"));
+			expect(names.indexOf("command")).toBeLessThan(names.indexOf("instance"));
+			expect(names.lastIndexOf("instance")).toBeLessThan(
+				names.indexOf("session"),
+			);
+			expect(names.indexOf("session")).toBeLessThan(names.indexOf("stack"));
+		}
 
 		// (3) `<datum>` inside `<session>` references the search-target
 		// detail ids on both emitters. CCHQ's fixture uses a literal

@@ -24,6 +24,7 @@
  */
 
 import render from "dom-serializer";
+import { decodeXML } from "entities";
 import {
 	CASE_TYPE_REGEX,
 	escapeRegex,
@@ -375,9 +376,12 @@ export class AutoFixer {
 		itextId: string,
 	): string {
 		// Replace <item><label>Text</label><value>val</value></item>.
-		// The replacement `<item>` carries the constructed `<label ref=...>`
-		// + a `<value>` wrapping the raw value as a Text node; the
-		// serializer XML-escapes both attributes and text exactly once.
+		// The pattern uses `labelText` / `value` in their captured-
+		// from-input form (still entity-encoded) so the regex matches
+		// the original substring in the host body; the constructed
+		// `<value>` Text node decodes `value` first so the serializer's
+		// re-encoding doesn't double-escape (a captured `&amp;` round-
+		// trips through `decodeXML` → `&` → serializer → `&amp;`).
 		const escapedText = escapeRegex(labelText);
 		const escapedValue = escapeRegex(value);
 		const pattern = new RegExp(
@@ -386,7 +390,7 @@ export class AutoFixer {
 		const itemMarkup = render(
 			el("item", {}, [
 				el("label", { ref: `jr:itext('${itextId}')` }),
-				el("value", {}, [text(value)]),
+				el("value", {}, [text(decodeXML(value))]),
 			]),
 			RENDER_OPTS,
 		);
@@ -604,14 +608,24 @@ export class AutoFixer {
 
 	/**
 	 * Build a single `<text id=…>` element wrapping a `<value>` Text
-	 * node. The serializer XML-escapes the value text exactly once at
-	 * render time (`&` / `<` / `>` / `"` / `'`).
+	 * node. The value text is decoded before construction so a string
+	 * the autoFixer captured from the host XForm (still carrying its
+	 * source XML entities like `&amp;` / `&lt;`) survives the
+	 * round-trip through the serializer without double-encoding. The
+	 * serializer XML-escapes the decoded text exactly once at render
+	 * time (`&` / `<` / `>` / `"` / `'`); a captured `Foo &amp; Bar`
+	 * decodes to `Foo & Bar`, the serializer encodes back to
+	 * `Foo &amp; Bar`, and the device renders the literal `Foo & Bar`
+	 * — mirrors the canonical fix at
+	 * `lib/commcare/xform/builder.ts::buildLabelNodes`.
 	 */
 	private buildTextElement(entry: {
 		readonly id: string;
 		readonly value: string;
 	}): import("domhandler").Element {
-		return el("text", { id: entry.id }, [el("value", {}, [text(entry.value)])]);
+		return el("text", { id: entry.id }, [
+			el("value", {}, [text(decodeXML(entry.value))]),
+		]);
 	}
 
 	/**
@@ -634,9 +648,9 @@ export class AutoFixer {
 	/**
 	 * Build a `<bind>` element with the supplied attributes, then
 	 * serialize to a string the caller can splice into the host XForm.
-	 * The leading newline + 6-space indent matches the existing
-	 * `insertBindBefore` formatting convention so existing test
-	 * assertions on whitespace around the splice point stay stable.
+	 * The leading newline + 6-space indent visually separates the
+	 * spliced bind from its surrounding model-block neighbors in the
+	 * host XForm (which is hand-formatted by the LLM and by Vellum).
 	 */
 	private buildBindMarkup(attribs: Record<string, string>): string {
 		return `\n      ${render(el("bind", attribs), RENDER_OPTS)}`;
