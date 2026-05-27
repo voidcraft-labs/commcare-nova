@@ -251,11 +251,11 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 	it("compiles a date-coerce default through the on-device emitter", () => {
 		// `dateCoerce(literal)` lowers to wire `date(<literal>)` —
 		// the XPath idiom for a typed date value that the runtime
-		// parses before comparison. The `escapeXml` helper covers
-		// `&` / `<` / `>` / `"` — defense for compiled XPath bodies
-		// that may contain these characters; this particular body
-		// uses single quotes around the date string, so nothing in
-		// it needs escaping.
+		// parses before comparison. The serializer handles XML
+		// escaping of any `<` / `>` / `&` / `"` / `'` characters in
+		// the compiled body at render time; this particular body
+		// uses single quotes around the date string, which round-trip
+		// as `&apos;` inside the double-quoted attribute value.
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(INPUT_UUIDS.a, "since", "Since", "date", "dob", {
 				default: dateCoerce(term(dateLiteral("2024-01-01"))),
