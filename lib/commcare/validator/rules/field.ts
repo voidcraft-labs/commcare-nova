@@ -429,7 +429,7 @@ function findUnmodeledInstanceIds(expr: string): string[] {
  */
 function fixtureReferenceNotModeled(
 	field: Field,
-	_ctx: FieldContext,
+	ctx: FieldContext,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 
@@ -441,8 +441,15 @@ function fixtureReferenceNotModeled(
 				validationError(
 					"FIXTURE_REFERENCE_NOT_MODELED",
 					"field",
-					`Field "${field.id}" references the fixture instance "${id}" in its ${surfaceDescription}. Nova doesn't model that fixture — the emitted form would have no <instance> declaration for "${id}" and would fail at form-init with "A part of your application is invalid." Today Nova supports casedb (case data via "#case/...") and commcaresession (user/session data via "#user/..." or direct refs). For lookup-table data, reshape the data into the form as select options. Saved reports and UCR reports aren't supported.`,
-					{ fieldUuid: field.uuid },
+					`Field "${field.id}" in "${ctx.formName}" references the fixture instance "${id}" in its ${surfaceDescription}. Nova doesn't model that fixture — the emitted form would have no <instance> declaration for "${id}" and would fail at form-init with "A part of your application is invalid." Today Nova supports casedb (case data via "#case/...") and commcaresession (user/session data via "#user/..." or direct refs). For lookup-table data, reshape the data into the form as select options. Saved reports and UCR reports aren't supported.`,
+					{
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						formUuid: ctx.formUuid,
+						formName: ctx.formName,
+						fieldUuid: field.uuid,
+						fieldId: field.id,
+					},
 					{ fixtureId: id },
 				),
 			);
