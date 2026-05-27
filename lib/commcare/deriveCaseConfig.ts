@@ -75,12 +75,24 @@ export function deriveCaseConfig(
 	const primaryPreload: CasePropertyMapping[] = [];
 	let case_name_field: string | undefined;
 
-	// Child buckets: case_type → list of contributing fields (by id +
-	// nearest repeat ancestor id).
+	// Child buckets: keyed by `(case_type, repeat_ancestor)` so two repeats
+	// each authoring fields for the same child case type produce TWO distinct
+	// subcase actions rather than collapsing into one ambiguous bucket. This
+	// mirrors CCHQ's wire model — `Form.actions.subcases: SchemaListProperty(
+	// OpenSubCaseAction)` — where each subcase action is independently scoped
+	// to its own `repeat_context`. The empty-string sentinel for "no repeat
+	// ancestor" pairs the root-level case-type fields into one bucket per
+	// type, preserving today's non-repeat-subcase semantic.
 	const childGroups = new Map<
 		string,
-		Array<{ id: string; repeatAncestor?: string }>
+		{
+			caseType: string;
+			repeatAncestor: string | undefined;
+			fields: Array<{ id: string }>;
+		}
 	>();
+	const bucketKey = (caseType: string, repeatAncestor: string | undefined) =>
+		`${caseType}::${repeatAncestor ?? "__root__"}`;
 
 	const walk = (parentUuid: Uuid, repeatAncestor?: string): void => {
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
@@ -108,12 +120,18 @@ export function deriveCaseConfig(
 						});
 					}
 				} else {
-					// Child case property
-					if (!childGroups.has(casePropertyOn))
-						childGroups.set(casePropertyOn, []);
-					childGroups
-						.get(casePropertyOn)
-						?.push({ id: field.id, repeatAncestor: currentRepeat });
+					// Child case property — bucket by (case_type, repeat_ancestor).
+					const key = bucketKey(casePropertyOn, currentRepeat);
+					let bucket = childGroups.get(key);
+					if (!bucket) {
+						bucket = {
+							caseType: casePropertyOn,
+							repeatAncestor: currentRepeat,
+							fields: [],
+						};
+						childGroups.set(key, bucket);
+					}
+					bucket.fields.push({ id: field.id });
 				}
 			}
 
@@ -144,49 +162,47 @@ export function deriveCaseConfig(
  *
  * Relationship comes from the matching entry in the doc's `caseTypes`
  * array (defaulting to `"child"` when the case type isn't declared).
- * `case_name_field` is the field with id `"case_name"` when present,
- * otherwise the first field in the bucket. Every other field becomes a
- * `case_properties` entry. `repeat_context` is emitted only when every
- * field in the bucket shares the same nearest repeat ancestor.
+ * `case_name_field` is the field with id `"case_name"` in the bucket; when
+ * absent it stays empty, which the validator rule `childCaseNoNameField`
+ * surfaces against the user (it points at the offending bucket directly).
+ * Every other field becomes a `case_properties` entry.
  */
 function deriveChildCases(
-	childGroups: Map<string, Array<{ id: string; repeatAncestor?: string }>>,
+	childGroups: Map<
+		string,
+		{
+			caseType: string;
+			repeatAncestor: string | undefined;
+			fields: Array<{ id: string }>;
+		}
+	>,
 	caseTypes: CaseType[],
 ): DerivedChildCase[] {
 	const derived: DerivedChildCase[] = [];
 
-	for (const [childType, entries] of childGroups) {
-		const ctDef = caseTypes.find((ct) => ct.name === childType);
+	for (const bucket of childGroups.values()) {
+		const ctDef = caseTypes.find((ct) => ct.name === bucket.caseType);
 		const relationship = ctDef?.relationship ?? "child";
 
-		// Child case name defaults to the field with id `case_name` when
-		// present. If absent, fall back to the first field in the bucket
-		// (document order). The primary case has a matching
-		// `NO_CASE_NAME_FIELD` validator rule that rejects a registration
-		// form without `case_name`; child cases don't yet have an analogous
-		// rule, so the fallback is what keeps the expander producing a
-		// plausible `OpenSubCaseAction` when the SA emits child-case fields
-		// without the canonical name id. See form-rules TODO: add
-		// `CHILD_CASE_NO_NAME_FIELD` and drop this branch.
-		const nameEntry = entries.find((e) => e.id === "case_name");
-		const childCaseName = nameEntry?.id ?? entries[0].id;
+		// Child case name is the field id'd `case_name` in this bucket. When
+		// absent we emit the empty string as a sentinel — the validator rule
+		// `childCaseNoNameField` reports against this bucket directly. The old
+		// silent fallback (use the first field in the bucket as the name source)
+		// is gone; a missing `case_name` is now a real authoring error the user
+		// sees rather than a silent re-purpose of an unrelated field.
+		const nameEntry = bucket.fields.find((e) => e.id === "case_name");
+		const childCaseName = nameEntry?.id ?? "";
 
-		const childProps: CasePropertyMapping[] = entries
+		const childProps: CasePropertyMapping[] = bucket.fields
 			.filter((e) => e.id !== childCaseName)
 			.map((e) => ({ case_property: e.id, question_id: e.id }));
 
-		const repeatAncestors = new Set(
-			entries.map((e) => e.repeatAncestor).filter(Boolean),
-		);
-		const repeat_context =
-			repeatAncestors.size === 1 ? [...repeatAncestors][0] : undefined;
-
 		derived.push({
-			case_type: childType,
+			case_type: bucket.caseType,
 			case_name_field: childCaseName,
 			case_properties: childProps,
 			relationship,
-			...(repeat_context && { repeat_context }),
+			...(bucket.repeatAncestor && { repeat_context: bucket.repeatAncestor }),
 		});
 	}
 

@@ -178,13 +178,24 @@ describe("compileCcz", () => {
 									label: "Household name",
 									case_property_on: "household",
 								}),
+								// Child case fields live under a group so the child's
+								// `case_name`-id'd field (required per the
+								// `CHILD_CASE_NO_NAME_FIELD` validator) doesn't collide
+								// with the household's `case_name` field at the form
+								// root. Sibling field ids must be unique; cousins in
+								// different containers may share an id.
 								f({
-									kind: "text",
-									id: "child_name",
-									label: "Child name",
-									// Case type differs from module type → auto-derived
-									// child case creation per Nova's data model rules.
-									case_property_on: "child",
+									kind: "group",
+									id: "child_section",
+									label: "Child",
+									children: [
+										f({
+											kind: "text",
+											id: "case_name",
+											label: "Child name",
+											case_property_on: "child",
+										}),
+									],
 								}),
 							],
 						},
@@ -198,7 +209,7 @@ describe("compileCcz", () => {
 				},
 				{
 					name: "child",
-					properties: [{ name: "child_name", label: "Child" }],
+					properties: [{ name: "case_name", label: "Child" }],
 				},
 			],
 		});
@@ -238,13 +249,22 @@ describe("compileCcz", () => {
 	});
 
 	it("emits subcase update binds under <subcase_n>/case/update/<prop>", () => {
-		// Two non-name properties so `case_properties` is non-empty on the
-		// derived subcase — `deriveChildCases` consumes the first as
-		// `case_name_field`, the rest land in `case_properties` and produce
-		// the `<update>` element + per-prop binds. The bind nodeset must
-		// match the actual element path `<subcase_n>/case/update/<prop>`
-		// (NOT `<subcase_n>/update/<prop>` — that path doesn't exist and
-		// the post-injection XForm oracle would flag XFORM_DANGLING_BIND).
+		// The bucket for child case keyed by (case_type, repeat_ancestor)
+		// must include a `case_name`-id'd field — the
+		// `CHILD_CASE_NO_NAME_FIELD` validator rejects child case buckets
+		// without one. Other fields in the bucket become `case_properties`
+		// entries producing the `<update>` element + per-prop binds. The
+		// bind nodeset must match the actual element path
+		// `<subcase_n>/case/update/<prop>` (NOT `<subcase_n>/update/<prop>`
+		// — that path doesn't exist and the post-injection XForm oracle
+		// would flag XFORM_DANGLING_BIND).
+		//
+		// The child case uses a top-level `case_name` field as its name
+		// source. Two top-level fields named `case_name` would collide on
+		// XML element name, so this test puts the household name on
+		// `household_name` and dedicates `case_name` to the child case —
+		// the household case_name source comes from the primary's
+		// derived `case_property_on: "household"` on `household_name`.
 		const subDoc = buildDoc({
 			appName: "Subcase Update",
 			modules: [
@@ -263,16 +283,23 @@ describe("compileCcz", () => {
 									case_property_on: "household",
 								}),
 								f({
-									kind: "text",
-									id: "child_name",
-									label: "Child name",
-									case_property_on: "child",
-								}),
-								f({
-									kind: "int",
-									id: "child_age",
-									label: "Child age",
-									case_property_on: "child",
+									kind: "group",
+									id: "child_section",
+									label: "Child",
+									children: [
+										f({
+											kind: "text",
+											id: "case_name",
+											label: "Child name",
+											case_property_on: "child",
+										}),
+										f({
+											kind: "int",
+											id: "child_age",
+											label: "Child age",
+											case_property_on: "child",
+										}),
+									],
 								}),
 							],
 						},
@@ -287,7 +314,7 @@ describe("compileCcz", () => {
 				{
 					name: "child",
 					properties: [
-						{ name: "child_name", label: "Name" },
+						{ name: "case_name", label: "Name" },
 						{ name: "child_age", label: "Age" },
 					],
 				},
@@ -867,12 +894,23 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								}),
 								// Field on a different case type at the data
 								// root (no enclosing repeat) — derives a
-								// root-level subcase.
+								// root-level subcase. The child bucket needs its
+								// own `case_name` field (per the
+								// `CHILD_CASE_NO_NAME_FIELD` validator), placed
+								// under a group so the id doesn't collide with
+								// the household's `case_name` at the form root.
 								f({
-									kind: "text",
-									id: "child_name",
-									label: "Child name",
-									case_property_on: "child",
+									kind: "group",
+									id: "child_section",
+									label: "Child",
+									children: [
+										f({
+											kind: "text",
+											id: "case_name",
+											label: "Child name",
+											case_property_on: "child",
+										}),
+									],
 								}),
 							],
 						},
@@ -886,7 +924,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 				},
 				{
 					name: "child",
-					properties: [{ name: "child_name", label: "Name" }],
+					properties: [{ name: "case_name", label: "Name" }],
 				},
 			],
 		});
@@ -1069,14 +1107,13 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			/<subcase_1>[\s\S]*<case[^>]*>[\s\S]*<update\s*\/>[\s\S]*<\/case>/,
 		);
 
-		// Build a Nova doc with a root-level subcase whose only field
-		// becomes the case-name field. `deriveChildCases` picks the
-		// first (and only) field in the child bucket as
-		// `case_name_field`, leaving `case_properties` empty — exactly
-		// the empty-properties shape this divergence test needs.
-		// Sibling ids must be unique (CommCare invariant; Nova
-		// validates), so the child's field id is `child_name`, not
-		// `case_name`.
+		// Build a Nova doc with a root-level subcase whose only field is
+		// `case_name` (required per the `CHILD_CASE_NO_NAME_FIELD`
+		// validator), leaving `case_properties` empty — exactly the
+		// empty-properties shape this divergence test needs. The child's
+		// `case_name` field lives under a group so it doesn't collide
+		// with the household's `case_name` at the form root (sibling
+		// field ids must be unique; cousins can share).
 		const novaDoc = buildDoc({
 			appName: "Parity",
 			modules: [
@@ -1095,10 +1132,17 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 									case_property_on: "household",
 								}),
 								f({
-									kind: "text",
-									id: "child_name",
-									label: "Child name",
-									case_property_on: "child",
+									kind: "group",
+									id: "child_section",
+									label: "Child",
+									children: [
+										f({
+											kind: "text",
+											id: "case_name",
+											label: "Child name",
+											case_property_on: "child",
+										}),
+									],
 								}),
 							],
 						},
@@ -1112,7 +1156,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 				},
 				{
 					name: "child",
-					properties: [{ name: "child_name", label: "Name" }],
+					properties: [{ name: "case_name", label: "Name" }],
 				},
 			],
 		});
