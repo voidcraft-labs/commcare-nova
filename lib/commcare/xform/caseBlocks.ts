@@ -52,6 +52,7 @@ import {
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
+import { FormPath } from "@/lib/commcare/xform/formPath";
 
 /**
  * CommCare case-transaction XML namespace. Every `<case>` element on the wire
@@ -142,6 +143,16 @@ function buildCaseBlocks(
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
 
+	// Typed reference to the primary `<case>` element under `<data>`. Every
+	// `/data/case/...` path the primary-case branches emit is built off this
+	// one anchor, so a typo in the segment chain is a compile error rather
+	// than a silent string-template divergence.
+	const primaryCasePath = FormPath.root().child("case");
+	// Meta-block paths the case-attribute calculates read out of. The values
+	// reference the always-on meta block populated by `xform/metaBlock.ts`.
+	const metaTimeEnd = FormPath.root().child("meta").child("timeEnd").toXPath();
+	const metaUserID = FormPath.root().child("meta").child("userID").toXPath();
+
 	// Index rule mirrors `commcare-hq/.../app_manager/models.py::Form
 	// .session_var_for_action`: subcase indices start at 1 when an `open_case`
 	// is active (so the primary is always `_0`), else 0.
@@ -160,16 +171,19 @@ function buildCaseBlocks(
 				el("case_type", {}),
 			]),
 		);
+		const primaryCreatePath = primaryCasePath.child("create");
 		binds.push(
 			el("bind", {
-				nodeset: "/data/case/create/case_type",
+				nodeset: primaryCreatePath.child("case_type").toXPath(),
 				calculate: `'${validatedCaseType}'`,
 			}),
 		);
-		const namePath = openCase.name_update?.question_path || "/data/name";
+		const namePath =
+			openCase.name_update?.question_path ||
+			FormPath.root().child("name").toXPath();
 		binds.push(
 			el("bind", {
-				nodeset: "/data/case/create/case_name",
+				nodeset: primaryCreatePath.child("case_name").toXPath(),
 				calculate: validateXFormPath(namePath),
 			}),
 		);
@@ -180,8 +194,8 @@ function buildCaseBlocks(
 		// and what the Vellum round-trip preserves.
 		binds.push(
 			el("bind", {
-				nodeset: "/data/case/create/owner_id",
-				calculate: "/data/meta/userID",
+				nodeset: primaryCreatePath.child("owner_id").toXPath(),
+				calculate: metaUserID,
 			}),
 		);
 		// Wire the form's `/data/case/@case_id` to the session datum
@@ -190,7 +204,7 @@ function buildCaseBlocks(
 		// session-side both pull their value from the same `uuid()`.
 		setvalues.push(
 			el("setvalue", {
-				ref: "/data/case/@case_id",
+				ref: primaryCasePath.attr("case_id").toXPath(),
 				event: "xforms-ready",
 				value: `instance('commcaresession')/session/data/case_id_new_${validatedCaseType}_0`,
 			}),
@@ -200,7 +214,7 @@ function buildCaseBlocks(
 		if (openMode === "if" && openCase.condition.question) {
 			binds.push(
 				el("bind", {
-					nodeset: "/data/case",
+					nodeset: primaryCasePath.toXPath(),
 					relevant: conditionToRelevantXPath(openCase.condition),
 				}),
 			);
@@ -211,7 +225,7 @@ function buildCaseBlocks(
 		// the wire knows which case it's editing.
 		binds.push(
 			el("bind", {
-				nodeset: "/data/case/@case_id",
+				nodeset: primaryCasePath.attr("case_id").toXPath(),
 				calculate: "instance('commcaresession')/session/data/case_id",
 			}),
 		);
@@ -230,9 +244,12 @@ function buildCaseBlocks(
 				props.map((p) => el(validatePropertyName(p), {})),
 			),
 		);
+		const primaryUpdatePath = primaryCasePath.child("update");
 		for (const [prop, mapping] of Object.entries(updateCase.update)) {
 			const validProp = validatePropertyName(prop);
-			const qPath = mapping.question_path || `/data/${prop}`;
+			const qPath =
+				mapping.question_path ||
+				FormPath.root().child(prop).toXPath();
 			const resolvedQPath = validateXFormPath(qPath);
 			// `relevant="count(<qPath>) > 0"` skips the case-update bind
 			// when the source question's data node is absent at submission
@@ -246,7 +263,7 @@ function buildCaseBlocks(
 			// conditional-question flows.
 			binds.push(
 				el("bind", {
-					nodeset: `/data/case/update/${validProp}`,
+					nodeset: primaryUpdatePath.child(validProp).toXPath(),
 					calculate: resolvedQPath,
 					relevant: `count(${resolvedQPath}) > 0`,
 				}),
@@ -262,7 +279,7 @@ function buildCaseBlocks(
 		if (closeMode === "if" && closeCase.condition.question) {
 			binds.push(
 				el("bind", {
-					nodeset: "/data/case/close",
+					nodeset: primaryCasePath.child("close").toXPath(),
 					relevant: conditionToRelevantXPath(closeCase.condition),
 				}),
 			);
@@ -281,15 +298,15 @@ function buildCaseBlocks(
 		// form, so these references resolve.
 		binds.push(
 			el("bind", {
-				nodeset: "/data/case/@date_modified",
+				nodeset: primaryCasePath.attr("date_modified").toXPath(),
 				type: "xsd:dateTime",
-				calculate: "/data/meta/timeEnd",
+				calculate: metaTimeEnd,
 			}),
 		);
 		binds.push(
 			el("bind", {
-				nodeset: "/data/case/@user_id",
-				calculate: "/data/meta/userID",
+				nodeset: primaryCasePath.attr("user_id").toXPath(),
+				calculate: metaUserID,
 			}),
 		);
 	}
@@ -303,8 +320,16 @@ function buildCaseBlocks(
 		}
 
 		const elName = `subcase_${sIdx}`;
-		const repeatCtx = sc.repeat_context || "";
-		const basePath = repeatCtx ? `${repeatCtx}/${elName}` : `/data/${elName}`;
+		// `repeat_context` arrives as the wire-format XPath string emitted by
+		// `formActions.ts::buildFormActions` (e.g. `/data/children`). Empty
+		// string means "no repeat scope" — splice the wrapper under <data>.
+		const repeatCtxPath = sc.repeat_context
+			? FormPath.parse(sc.repeat_context)
+			: null;
+		const subcaseWrapperPath = repeatCtxPath
+			? repeatCtxPath.child(elName)
+			: FormPath.root().child(elName);
+		const subcaseCasePath = subcaseWrapperPath.child("case");
 		const validatedSubcaseType = validateCaseType(sc.case_type);
 		const subcaseDatumId = `case_id_new_${validatedSubcaseType}_${sIdx + subcaseIndexOffset}`;
 
@@ -318,23 +343,26 @@ function buildCaseBlocks(
 				el("case_type", {}),
 			]),
 		);
+		const subcaseCreatePath = subcaseCasePath.child("create");
 		binds.push(
 			el("bind", {
-				nodeset: `${basePath}/case/create/case_type`,
+				nodeset: subcaseCreatePath.child("case_type").toXPath(),
 				calculate: `'${validatedSubcaseType}'`,
 			}),
 		);
-		const namePath = sc.name_update?.question_path || `${basePath}/name`;
+		const namePath =
+			sc.name_update?.question_path ||
+			subcaseWrapperPath.child("name").toXPath();
 		binds.push(
 			el("bind", {
-				nodeset: `${basePath}/case/create/case_name`,
+				nodeset: subcaseCreatePath.child("case_name").toXPath(),
 				calculate: validateXFormPath(namePath),
 			}),
 		);
 		binds.push(
 			el("bind", {
-				nodeset: `${basePath}/case/create/owner_id`,
-				calculate: "/data/meta/userID",
+				nodeset: subcaseCreatePath.child("owner_id").toXPath(),
+				calculate: metaUserID,
 			}),
 		);
 
@@ -346,17 +374,18 @@ function buildCaseBlocks(
 		// `delay_case_id=True` branch in `XFormCaseBlock.add_create_block`,
 		// which routes `case_id='uuid()'` through `add_setvalue_or_bind` to emit
 		// a calculate bind.
-		if (repeatCtx) {
+		const subcaseCaseIdAttr = subcaseCasePath.attr("case_id").toXPath();
+		if (repeatCtxPath) {
 			binds.push(
 				el("bind", {
-					nodeset: `${basePath}/case/@case_id`,
+					nodeset: subcaseCaseIdAttr,
 					calculate: "uuid()",
 				}),
 			);
 		} else {
 			setvalues.push(
 				el("setvalue", {
-					ref: `${basePath}/case/@case_id`,
+					ref: subcaseCaseIdAttr,
 					event: "xforms-ready",
 					value: `instance('commcaresession')/session/data/${subcaseDatumId}`,
 				}),
@@ -366,15 +395,15 @@ function buildCaseBlocks(
 		// Subcase case-attribute binds — same shape as the primary case.
 		binds.push(
 			el("bind", {
-				nodeset: `${basePath}/case/@date_modified`,
+				nodeset: subcaseCasePath.attr("date_modified").toXPath(),
 				type: "xsd:dateTime",
-				calculate: "/data/meta/timeEnd",
+				calculate: metaTimeEnd,
 			}),
 		);
 		binds.push(
 			el("bind", {
-				nodeset: `${basePath}/case/@user_id`,
-				calculate: "/data/meta/userID",
+				nodeset: subcaseCasePath.attr("user_id").toXPath(),
+				calculate: metaUserID,
 			}),
 		);
 
@@ -383,7 +412,7 @@ function buildCaseBlocks(
 		if (sc.condition.type === "if" && sc.condition.question) {
 			binds.push(
 				el("bind", {
-					nodeset: `${basePath}/case`,
+					nodeset: subcaseCasePath.toXPath(),
 					relevant: conditionToRelevantXPath(sc.condition),
 				}),
 			);
@@ -410,9 +439,12 @@ function buildCaseBlocks(
 				props.map(([p]) => el(validatePropertyName(p), {})),
 			),
 		);
+		const subcaseUpdatePath = subcaseCasePath.child("update");
 		for (const [prop, mapping] of props) {
 			const validProp = validatePropertyName(prop);
-			const qPath = mapping.question_path || `/data/${prop}`;
+			const qPath =
+				mapping.question_path ||
+				FormPath.root().child(prop).toXPath();
 			const resolvedQPath = validateXFormPath(qPath);
 			// Subcase update binds nest the property under `<case>` — the
 			// path is `<subcase_n>/case/update/<prop>`, NOT
@@ -425,7 +457,7 @@ function buildCaseBlocks(
 			// primary case-update path carries.
 			binds.push(
 				el("bind", {
-					nodeset: `${basePath}/case/update/${validProp}`,
+					nodeset: subcaseUpdatePath.child(validProp).toXPath(),
 					calculate: resolvedQPath,
 					relevant: `count(${resolvedQPath}) > 0`,
 				}),
@@ -451,8 +483,8 @@ function buildCaseBlocks(
 		scChildren.push(el("index", {}, [el("parent", parentAttribs)]));
 		binds.push(
 			el("bind", {
-				nodeset: `${basePath}/case/index/parent`,
-				calculate: "/data/case/@case_id",
+				nodeset: subcaseCasePath.child("index").child("parent").toXPath(),
+				calculate: primaryCasePath.attr("case_id").toXPath(),
 			}),
 		);
 
