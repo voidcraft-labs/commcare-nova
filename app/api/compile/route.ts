@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import { AutoFixer } from "@/lib/agent";
 import { requireSession } from "@/lib/auth-utils";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -13,10 +12,10 @@ import { saveCcz } from "@/lib/store";
  * CCZ compile endpoint.
  *
  * Accepts the normalized `BlueprintDoc` in the body, expands it to HQ
- * JSON via `expandDoc`, runs the auto-fixer over the XForm attachments,
- * and hands the result to `compileCcz` for packaging. Both the
- * expansion and the compile walk consume the normalized doc directly —
- * no legacy wire-shape conversion survives on this path.
+ * JSON via `expandDoc`, and hands the result to `compileCcz` for
+ * packaging. Both the expansion and the compile walk consume the
+ * normalized doc directly — no legacy wire-shape conversion survives
+ * on this path.
  */
 export async function POST(req: NextRequest) {
 	try {
@@ -49,13 +48,6 @@ export async function POST(req: NextRequest) {
 
 		// Expand domain doc to HQ JSON.
 		const hqJson = expandDoc(docWithParent);
-
-		// Auto-fix the emitted XForm XML attachments in place.
-		const autoFixer = new AutoFixer();
-		const { files: fixedFiles } = autoFixer.fix(hqJson._attachments);
-		for (const [key, value] of Object.entries(fixedFiles)) {
-			hqJson._attachments[key] = value;
-		}
 
 		const buffer = compileCcz(hqJson, doc.appName, docWithParent);
 

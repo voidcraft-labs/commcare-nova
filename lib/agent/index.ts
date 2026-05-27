@@ -3,8 +3,6 @@
 // Public barrel for the lib/agent layer. Server-only: every symbol here
 // transitively imports Anthropic and firebase-admin.
 
-// autoFixer — used by `app/api/compile/route.ts` for the standalone fix pass.
-export { AutoFixer } from "./autoFixer";
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
