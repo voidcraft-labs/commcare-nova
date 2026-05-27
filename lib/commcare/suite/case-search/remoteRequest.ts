@@ -27,8 +27,9 @@ export const DEFAULT_PLATFORM_CONTEXT: PlatformContext = { platform: "web" };
 /**
  * Composed result of the orchestrator.
  *
- *   - `xml` — the `<remote-request>` element ready to splice into
- *     the surrounding `<suite>` at `<detail>` / `<entry>` indent depth.
+ *   - `xml` — the `<remote-request>` serialized XML; produced by the
+ *     boundary shim for callers that still consume the string-returning
+ *     shape (the existing test surface).
  *   - `strings` — locale entries (`case_search.{m}` command label,
  *     `case_search.{m}.inputs` title, per-prompt entries) the
  *     compiler threads into per-language string tables.
@@ -44,6 +45,18 @@ export interface RemoteRequestEmission {
 }
 
 /**
+ * Element-returning twin of `RemoteRequestEmission`. The orchestrator
+ * (`compiler.ts`) consumes the Element directly so the rendered tree
+ * slots into the surrounding `<suite>` parent without a
+ * parse-then-reserialize round-trip.
+ */
+export interface RemoteRequestBuild {
+	readonly element: Element;
+	readonly strings: Record<string, string>;
+	readonly wire: WireShape;
+}
+
+/**
  * Compose the `<remote-request>` element. Pre-conditions:
  * `module.caseSearchConfig` and `module.caseType` are both set.
  * `lib/commcare/compiler.ts` is the upstream gate.
@@ -52,11 +65,11 @@ export interface RemoteRequestEmission {
  * `<remote-request>` still emits cleanly, with no filter, no
  * advanced inputs, no prompts.
  */
-export function emitRemoteRequest(args: {
+export function buildRemoteRequest(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
-}): RemoteRequestEmission {
+}): RemoteRequestBuild {
 	const { module: mod, moduleIndex } = args;
 	const platformContext = args.platformContext ?? DEFAULT_PLATFORM_CONTEXT;
 
@@ -141,5 +154,20 @@ export function emitRemoteRequest(args: {
 		...sessionEmission.strings,
 	};
 
-	return { xml: render(remoteRequestEl, RENDER_OPTS), strings, wire };
+	return { element: remoteRequestEl, strings, wire };
+}
+
+/**
+ * Boundary shim — serializes `buildRemoteRequest`'s Element so the test
+ * surface and any other string-consuming callers stay unaffected. The
+ * compiler (`compiler.ts`) calls `buildRemoteRequest` directly and
+ * splices the Element into the suite tree.
+ */
+export function emitRemoteRequest(args: {
+	readonly module: Module;
+	readonly moduleIndex: number;
+	readonly platformContext?: PlatformContext;
+}): RemoteRequestEmission {
+	const { element, strings, wire } = buildRemoteRequest(args);
+	return { xml: render(element, RENDER_OPTS), strings, wire };
 }
