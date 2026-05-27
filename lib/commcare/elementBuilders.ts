@@ -43,13 +43,25 @@ export function text(data: string): Text {
 }
 
 /**
- * Shared `dom-serializer` options. `xmlMode` so element names / namespaces /
- * self-closing follow XML rules; `selfClosingTags` so empty elements render
- * `<x/>`; `encodeEntities: "utf8"` so the serializer escapes `<` / `>` / `&` /
- * `"` / `'` in text and attribute values exactly once. The `'` → `&apos;` and
- * `"` → `&quot;` encodings are XML-spec-equivalent to the literal characters
- * (a conforming parser decodes them back identically), so emitting them rather
- * than the bare characters is a no-op for CommCare and Vellum.
+ * Shared `dom-serializer` options.
+ *
+ * `xmlMode: true` is the load-bearing flag — it routes element names /
+ * namespaces / self-closing through XML rules AND switches the
+ * attribute-value + text encoder to `encodeXML` (the named-entity table
+ * keyed by `/["&'<>$\x80-￿]/`). `encodeXML` rewrites `<` / `>` /
+ * `&` / `"` / `'` to their named entities (`&lt;` / `&gt;` / `&amp;` /
+ * `&quot;` / `&apos;`), `$` to the numeric reference `&#x24;`, and
+ * every non-ASCII code point (`\x80-￿`) to a numeric character
+ * reference (`&#xNNNN;`). All output forms are XML-spec-equivalent —
+ * a conforming parser (CCHQ uses Java's standard `DocumentBuilder`)
+ * decodes them back identically before the XPath / suite-parse layers
+ * see the value.
+ *
+ * `selfClosingTags: true` is the xmlMode default but is stated
+ * explicitly for clarity. `encodeEntities: "utf8"` is set defensively
+ * — in xmlMode the option is inert (encodeXML wins) but it documents
+ * the intent and would constrain HTML-mode behavior if a future caller
+ * flipped xmlMode off.
  */
 export const RENDER_OPTS = {
 	xmlMode: true,

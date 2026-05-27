@@ -107,13 +107,12 @@ import type {
 } from "./types";
 
 /**
- * Internal Element-returning twin of `CaseListEmission`. The case-list
- * detail emitters (`shortDetail.ts`, `longDetail.ts`) consume the Element
- * directly so the per-field tree slots into a `<detail>` parent without a
- * parse-then-reserialize round-trip; the public `emitColumnField`
- * serializes the Element to a string at the boundary so callers that still
- * consume the string accumulator shape stay unaffected during the
- * suite-XML DOM migration.
+ * Element-returning twin of `CaseListEmission`. The case-list detail
+ * emitters (`shortDetail.ts`, `longDetail.ts`) consume the Element
+ * directly so the per-field tree slots into a `<detail>` parent without
+ * a parse-then-reserialize round-trip; `emitColumnField` serializes the
+ * Element to a string for callers that assert against the rendered XML
+ * (the test surface).
  */
 export interface CaseListFieldEmission {
 	readonly element: Element;
@@ -732,13 +731,10 @@ function buildCalculatedField(args: {
 }
 
 /**
- * Boundary shim — serializes `buildColumnField`'s Element so callers
- * that still consume the `CaseListEmission` string shape stay unaffected
- * during the suite-XML DOM migration. The detail emitters
- * (`shortDetail.ts`, `longDetail.ts`) call `buildColumnField` directly so
- * the per-field tree slots into a `<detail>` parent without a
- * parse-then-reserialize round-trip; only external callers and the test
- * surface still consume this string-returning shape.
+ * String adapter — serializes `buildColumnField`'s Element for callers
+ * that assert against the rendered XML string (the test surface). The
+ * detail emitters (`shortDetail.ts`, `longDetail.ts`) call
+ * `buildColumnField` directly.
  */
 export function emitColumnField(args: {
 	readonly column: Column;

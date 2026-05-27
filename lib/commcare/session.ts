@@ -22,18 +22,14 @@
  * caller. There is NO template-literal XML in this module: every
  * attribute value flows through `setAttribute` (the `attribs` object
  * literal); the serializer is the single, exclusive escaping authority.
- * Hand-escaping (`escapeXml`) is intentionally absent — double-encoding
- * (`&` → `&amp;` → `&amp;amp;`) is the failure mode it would introduce.
- * The earlier string-template emitter interpolated XPath bodies and ids
- * into attribute values with no escaping at all, so a condition like
- * `age > 18` reached the wire with an unescaped `>` in `<create if=...>`;
- * the constructed tree makes that unrepresentable by construction.
+ * Hand-escaping is intentionally absent — double-encoding (`&` →
+ * `&amp;` → `&amp;amp;`) is the failure mode it would introduce.
  *
- * `renderEntryXml` / `renderStackXml` remain as boundary shims so the
- * orchestrator (`compiler.ts`) keeps its current `string[]` accumulator
- * shape during the suite.xml DOM migration; both flip to direct
- * `Element`-returning callers once the orchestrator switches to
- * end-to-end DOM construction.
+ * `renderEntryXml` / `renderStackXml` exist alongside the Element
+ * builders as one-line serialization adapters for callers that consume
+ * the rendered string (the surrounding test surface; `compileCcz`
+ * itself calls `buildEntryElement` directly and splices the Element
+ * into the suite tree).
  */
 
 import render from "dom-serializer";
@@ -684,16 +680,13 @@ export function buildEntryElement(entry: EntryDefinition): Element {
 	return el("entry", {}, children);
 }
 
-// ── Boundary Shims ──────────────────────────────────────────────────────
+// ── String Adapters ─────────────────────────────────────────────────────
 //
 // `renderEntryXml` / `renderStackXml` serialize the constructed Element
-// trees to strings so the orchestrator (`compiler.ts`) keeps its current
-// `string[]` accumulator shape during the suite.xml DOM migration. Each
-// shim performs one `render(...)` call per emitter (single serializer
-// pass per file), which is what the "single serializer pass per file"
-// constraint actually forbids — parse-then-reserialize loops, not
-// intermediate serialization. Both shims drop when `compiler.ts` switches
-// to direct `Element`-returning calls.
+// trees so callers that consume the rendered XML as a string (the test
+// surface) see the same bytes `compileCcz` splices into the assembled
+// suite tree. The compiler itself calls `buildEntryElement` /
+// `buildStackElement` directly.
 
 /** Render an EntryDefinition to a suite.xml `<entry>` string. */
 export function renderEntryXml(entry: EntryDefinition): string {

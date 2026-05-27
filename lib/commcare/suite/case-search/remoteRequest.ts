@@ -76,10 +76,16 @@ export function buildRemoteRequest(args: {
 	// Defensive narrowing — the upstream compiler gates on both slots,
 	// but the type narrows locally here.
 	if (mod.caseType === undefined || mod.caseSearchConfig === undefined) {
+		const missing =
+			mod.caseType === undefined && mod.caseSearchConfig === undefined
+				? "neither a case type nor a caseSearchConfig"
+				: mod.caseType === undefined
+					? "no case type"
+					: "no caseSearchConfig";
 		throw new Error(
-			"emitRemoteRequest was called on a module without both a case type and a case-search config. " +
-				"Check the surrounding compiler — the case-search emission path should only fire when both are present. " +
-				"Look at the call site in lib/commcare/compiler.ts for the gating condition.",
+			`Tried to build a <remote-request> element for module index ${moduleIndex} ("${mod.name}"), but the module has ${missing}. ` +
+				"A <remote-request> needs both slots set — the case type names the cases the search returns; the caseSearchConfig configures how the search runs. " +
+				"`compileCcz` gates on both being present before calling this builder, so reaching here means a caller bypassed the gate. Check the call site against `compiler.ts::compileCcz`.",
 		);
 	}
 
@@ -158,10 +164,9 @@ export function buildRemoteRequest(args: {
 }
 
 /**
- * Boundary shim — serializes `buildRemoteRequest`'s Element so the test
- * surface and any other string-consuming callers stay unaffected. The
- * compiler (`compiler.ts`) calls `buildRemoteRequest` directly and
- * splices the Element into the suite tree.
+ * String adapter — serializes `buildRemoteRequest`'s Element for
+ * callers that assert against the rendered XML string (the test
+ * surface). `compileCcz` itself calls `buildRemoteRequest` directly.
  */
 export function emitRemoteRequest(args: {
 	readonly module: Module;

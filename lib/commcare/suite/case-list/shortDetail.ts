@@ -224,10 +224,9 @@ export function buildShortDetail(args: {
 }
 
 /**
- * Boundary shim — serializes `buildShortDetail`'s Element to a string so
- * the orchestrator (`compiler.ts`) keeps its current `string[]`
- * accumulator shape during the suite-XML DOM migration. Drops when
- * `compiler.ts` switches to direct Element consumption.
+ * String adapter — serializes `buildShortDetail`'s Element for callers
+ * that assert against the rendered XML string (the test surface).
+ * `compileCcz` itself calls `buildShortDetail` directly.
  */
 export function emitShortDetail(args: {
 	readonly module: Module;

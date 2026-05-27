@@ -160,10 +160,9 @@ export function buildLongDetail(args: {
 }
 
 /**
- * Boundary shim — serializes `buildLongDetail`'s Element to a string so
- * the orchestrator (`compiler.ts`) keeps its current `string[]`
- * accumulator shape during the suite-XML DOM migration. Drops when
- * `compiler.ts` switches to direct Element consumption.
+ * String adapter — serializes `buildLongDetail`'s Element for callers
+ * that assert against the rendered XML string (the test surface).
+ * `compileCcz` itself calls `buildLongDetail` directly.
  */
 export function emitLongDetail(args: {
 	readonly module: Module;

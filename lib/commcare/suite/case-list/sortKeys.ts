@@ -535,10 +535,9 @@ export function buildSortBlock(directive: ResolvedSortDirective): Element {
 }
 
 /**
- * Boundary shim — serializes `buildSortBlock`'s Element to a string for
- * callers that still consume the string-array accumulator shape. Drops
- * when those callers (`columns.ts`) switch to direct Element consumption
- * in the case-list DOM migration.
+ * String adapter — serializes `buildSortBlock`'s Element for callers
+ * that assert against the rendered XML string (the test surface).
+ * `columns.ts` itself calls `buildSortBlock` directly.
  */
 export function emitSortBlock(directive: ResolvedSortDirective): string {
 	return render(buildSortBlock(directive), RENDER_OPTS);

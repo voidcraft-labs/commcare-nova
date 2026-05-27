@@ -70,10 +70,10 @@ export function buildClaimPost(): Element {
 }
 
 /**
- * Boundary shim — serializes `buildClaimPost`'s Element to a string for
- * callers that still consume the string-returning shape (the
- * `claim.test.ts` test surface). The orchestrator (`remoteRequest.ts`)
- * calls `buildClaimPost` directly.
+ * String adapter — serializes `buildClaimPost`'s Element for callers
+ * that assert against the rendered XML string (the `claim.test.ts`
+ * test surface). The orchestrator (`remoteRequest.ts`) calls
+ * `buildClaimPost` directly.
  */
 export function emitClaimPost(): string {
 	return render(buildClaimPost(), RENDER_OPTS);

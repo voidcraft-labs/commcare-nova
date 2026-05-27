@@ -51,13 +51,13 @@ import type { CaseListEmission } from "../case-list/types";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
 /**
- * Internal Element-returning twin of `CaseListEmission`. The
- * `<remote-request>` orchestrator (`remoteRequest.ts`) consumes the
- * Elements directly so the per-prompt subtrees slot into the surrounding
- * `<query>` parent without a parse-then-reserialize round-trip; the
- * public `emitSearchPrompts` serializes once at the boundary so callers
- * that still consume the `CaseListEmission` string shape stay
- * unaffected.
+ * Element-returning twin of `CaseListEmission`. The `<remote-request>`
+ * orchestrator (`remoteRequest.ts::buildRemoteRequest` via
+ * `searchSession.ts::buildSearchSession`) consumes the Elements directly
+ * so the per-prompt subtrees slot into the surrounding `<query>` parent
+ * without a parse-then-reserialize round-trip; `emitSearchPrompts`
+ * serializes the Elements for callers that assert against the rendered
+ * XML string (the test surface).
  */
 export interface SearchPromptsEmission {
 	readonly elements: readonly Element[];
@@ -163,11 +163,10 @@ export function buildSearchPrompts(
 }
 
 /**
- * Boundary shim — serializes `buildSearchPrompts`'s Elements to a
- * newline-joined string for callers that still consume the
- * `CaseListEmission` shape (the existing `searchPrompts.test.ts` test
- * surface). The orchestrator (`remoteRequest.ts` via `searchSession.ts`)
- * calls `buildSearchPrompts` directly.
+ * String adapter — serializes `buildSearchPrompts`'s Elements to a
+ * newline-joined string for callers that assert against the rendered
+ * XML (the test surface). The orchestrator (`remoteRequest.ts` via
+ * `searchSession.ts`) calls `buildSearchPrompts` directly.
  */
 export function emitSearchPrompts(
 	searchInputs: ReadonlyArray<SearchInputDef>,

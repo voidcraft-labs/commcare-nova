@@ -77,10 +77,11 @@ export function compileCcz(
 	const appStrings: Record<string, string> = { "app.name": appName };
 	// Top-level `<suite>` children accumulate as typed `Element[]`. The
 	// orchestrator splices everything into one `<suite>` Element at the
-	// end and serializes via `dom-serializer` exactly once. Each
-	// accumulator maps directly to the per-family string array shape
-	// that existed before the DOM migration; the ordering of the spread
-	// into `<suite>.children` below preserves the canonical wire layout.
+	// end and serializes via `dom-serializer` exactly once. The spread
+	// order into `<suite>.children` below pins the canonical wire layout
+	// (resources → locales → details → remote-requests → entries →
+	// menus) — the serializer preserves child insertion order, so the
+	// rendered bytes match CCHQ's reference suite shape.
 	const suiteEntries: Element[] = [];
 	const suiteMenus: Element[] = [];
 	const suiteDetails: Element[] = [];

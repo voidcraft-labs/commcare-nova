@@ -1541,11 +1541,15 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 		// `&apos;` once for the wire, decoded back at parse time).
 		const novaPost = findFirstByName(novaRemoteReq as SuiteElement, "post");
 		const cchqPost = findFirstByName(cchqRemoteReq as SuiteElement, "post");
+		expect(novaPost?.attribs.relevant).toBeDefined();
+		expect(cchqPost?.attribs.relevant).toBeDefined();
 		expect(novaPost?.attribs.relevant).toBe(cchqPost?.attribs.relevant);
 		const novaPostData = findFirstByName(novaPost as SuiteElement, "data");
 		const cchqPostData = findFirstByName(cchqPost as SuiteElement, "data");
 		expect(novaPostData?.attribs.key).toBe(cchqPostData?.attribs.key);
 		expect(novaPostData?.attribs.key).toBe("case_id");
+		expect(novaPostData?.attribs.ref).toBeDefined();
+		expect(cchqPostData?.attribs.ref).toBeDefined();
 		expect(novaPostData?.attribs.ref).toBe(cchqPostData?.attribs.ref);
 
 		// (2) Five-family child element ordering: post → command →
@@ -1607,6 +1611,8 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 		const cchqStack = findFirstByName(cchqRemoteReq as SuiteElement, "stack");
 		const novaRewind = findFirstByName(novaStack as SuiteElement, "rewind");
 		const cchqRewind = findFirstByName(cchqStack as SuiteElement, "rewind");
+		expect(novaRewind?.attribs.value).toBeDefined();
+		expect(cchqRewind?.attribs.value).toBeDefined();
 		expect(novaRewind?.attribs.value).toBe(cchqRewind?.attribs.value);
 	});
 });

@@ -12,6 +12,7 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
+import { validateCaseType } from "../../identifierValidation";
 import {
 	collectExpressionInstances,
 	collectPredicateInstances,
@@ -78,8 +79,17 @@ export function buildSearchSession(args: {
 	readonly caseType: string;
 	readonly moduleIndex: number;
 }): SearchSessionEmission {
-	const { caseListConfig, caseSearchConfig, wire, caseType, moduleIndex } =
-		args;
+	const { caseListConfig, caseSearchConfig, wire, moduleIndex } = args;
+	// Route `caseType` through the identifier-validation gate before
+	// interpolating into the XPath body — the sibling derivation at
+	// `session.ts::deriveSessionDatums` makes the same call, so both
+	// suite-XML surfaces (case-loading datum + case-search datum)
+	// stay symmetric on the wire-emitter's "total function over its
+	// inputs" contract. The upstream validator gates non-conforming
+	// case-type strings, but the wire emitter doesn't trust callers
+	// — a future surface bypassing the validator would otherwise
+	// interpolate an unchecked string into an attribute value.
+	const caseType = validateCaseType(args.caseType);
 	const moduleId = `m${moduleIndex}`;
 
 	// `results:inline` signals embedded results (Android, inline-with-
@@ -313,9 +323,11 @@ export function buildSearchSession(args: {
 }
 
 /**
- * Boundary shim — serializes `buildSearchSession`'s Element to a string
- * so callers that still consume the string-returning shape stay
- * unaffected during the suite-XML DOM migration.
+ * String adapter — serializes `buildSearchSession`'s Element for
+ * callers that assert against the rendered XML string (the test
+ * surface). The `<remote-request>` orchestrator
+ * (`remoteRequest.ts::buildRemoteRequest`) consumes the Element
+ * directly.
  */
 export function emitSearchSession(args: {
 	readonly caseListConfig: CaseListConfig;
