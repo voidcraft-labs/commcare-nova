@@ -568,9 +568,16 @@ describe("renderStackXml", () => {
 			children: [{ type: "command", value: "'m1-f0'" }],
 		};
 		const xml = renderStackXml([op]);
-		expect(xml).toContain('<create if="age > 18">');
+		// `>` in the `if` attribute round-trips through the XML
+		// entity `&gt;` — same XML-spec-equivalent encoding the
+		// XForm emitter produces. A conforming parser decodes both
+		// forms identically; CCHQ and JavaRosa see `age > 18`.
+		expect(xml).toContain('<create if="age &gt; 18">');
 		expect(xml).toContain("</create>");
-		expect(xml).toContain("<command value=\"'m1-f0'\"/>");
+		// XPath single-quote string literals round-trip as `&apos;`
+		// inside double-quoted attribute values. Same encoding the
+		// XForm path uses on every `<setvalue value="instance(...)`.
+		expect(xml).toContain('<command value="&apos;m1-f0&apos;"/>');
 	});
 
 	it("renders multiple operations", () => {
@@ -584,8 +591,8 @@ describe("renderStackXml", () => {
 		];
 		const xml = renderStackXml(ops);
 		expect(xml).toContain('if="x = 1"');
-		expect(xml).toContain("<command value=\"'m0-f0'\"/>");
-		expect(xml).toContain("<command value=\"'m0'\"/>");
+		expect(xml).toContain('<command value="&apos;m0-f0&apos;"/>');
+		expect(xml).toContain('<command value="&apos;m0&apos;"/>');
 	});
 });
 
@@ -620,7 +627,9 @@ describe("renderEntryXml", () => {
 		expect(xml).toContain("<session>");
 		expect(xml).toContain('id="case_id"');
 		expect(xml).toContain("<stack>");
-		expect(xml).toContain("<command value=\"'m1'\"/>");
+		// XPath single-quote literals round-trip as `&apos;` inside
+		// double-quoted attribute values.
+		expect(xml).toContain('<command value="&apos;m1&apos;"/>');
 	});
 });
 

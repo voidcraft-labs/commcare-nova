@@ -335,7 +335,10 @@ describe("compileCcz", () => {
 		expect(suite).toContain('<command id="m0-f0"/>');
 		expect(suite).toContain('<command id="m0-f1"/>');
 		expect(suite).toContain('<detail id="m0_case_short">');
-		expect(suite).toContain("@case_type='patient'");
+		// Session-datum nodeset interpolates the case-type literal via an
+		// XPath single-quoted string; the serializer round-trips that
+		// quote as `&apos;` inside the double-quoted `nodeset` attribute.
+		expect(suite).toContain("@case_type=&apos;patient&apos;");
 	});
 
 	// When a form declares formLinks, the expander emits them into
@@ -390,13 +393,15 @@ describe("compileCcz", () => {
 		const suite = zip.readAsText("suite.xml");
 
 		// The intake form's <entry> has a <stack> with the conditional
-		// form-link frame targeting module 0, form 1 (followup).
-		expect(suite).toContain(`if="/data/refer = 'yes'"`);
-		expect(suite).toContain("<command value=\"'m0'\"/>");
-		expect(suite).toContain("<command value=\"'m0-f1'\"/>");
+		// form-link frame targeting module 0, form 1 (followup). XPath
+		// single-quote literals round-trip as `&apos;` inside the
+		// double-quoted attribute value the serializer emits.
+		expect(suite).toContain(`if="/data/refer = &apos;yes&apos;"`);
+		expect(suite).toContain('<command value="&apos;m0&apos;"/>');
+		expect(suite).toContain('<command value="&apos;m0-f1&apos;"/>');
 		// And a fallback frame firing the 'module' destination when the
 		// condition is false.
-		expect(suite).toContain(`if="not(/data/refer = 'yes')"`);
+		expect(suite).toContain(`if="not(/data/refer = &apos;yes&apos;)"`);
 	});
 
 	// The compiler must still package a valid archive when a form carries
