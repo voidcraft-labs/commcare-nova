@@ -1450,6 +1450,369 @@ describe("SUBCASE_IN_REPEAT_NOT_MODELED", () => {
 	});
 });
 
+describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
+	/**
+	 * A primary case field (one whose `case_property_on` equals the
+	 * module's case type) placed inside a repeat is structurally
+	 * invalid. Vellum + CCHQ enforce the same invariant upstream; Nova
+	 * mirrors at edit time so the error lands in the editor, not at
+	 * compile time.
+	 */
+
+	function withPrimaryFieldInRepeat(repeat_mode: "user_controlled" | "count_bound" | "query_bound") {
+		// One primary-case field inside a repeat. Per-mode variants pin the
+		// rule firing across every repeat shape.
+		const repeatChildren = [
+			f({
+				kind: "text",
+				id: "extra_property",
+				label: "Extra primary property",
+				case_property_on: "parent",
+			}),
+		];
+		const repeatField =
+			repeat_mode === "count_bound"
+				? f({
+						kind: "repeat",
+						id: "items",
+						label: "Items",
+						repeat_mode,
+						repeat_count: "3",
+						children: repeatChildren,
+					})
+				: repeat_mode === "query_bound"
+					? f({
+							kind: "repeat",
+							id: "items",
+							label: "Items",
+							repeat_mode,
+							data_source: {
+								ids_query:
+									"instance('casedb')/casedb/case[@case_type='other']/@case_id",
+							},
+							children: repeatChildren,
+						})
+					: f({
+							kind: "repeat",
+							id: "items",
+							label: "Items",
+							repeat_mode,
+							children: repeatChildren,
+						});
+		return buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								repeatField,
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "parent",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+		});
+	}
+
+	for (const mode of ["user_controlled", "count_bound", "query_bound"] as const) {
+		it(`fires on a primary case field inside a ${mode} repeat`, () => {
+			const doc = withPrimaryFieldInRepeat(mode);
+			const errors = runValidation(doc);
+			const offender = errors.find(
+				(e) => e.code === "PRIMARY_CASE_FIELD_IN_REPEAT",
+			);
+			expect(offender).toBeDefined();
+			expect(offender?.message).toContain("extra_property");
+			expect(offender?.message).toContain("items");
+			expect(offender?.message).toContain("parent");
+		});
+	}
+
+	it("does not fire on a primary case field at the form root", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "text",
+									id: "extra_property",
+									label: "Extra primary property",
+									case_property_on: "parent",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "parent",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "extra_property", label: "Extra" },
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "PRIMARY_CASE_FIELD_IN_REPEAT")).toBe(
+			false,
+		);
+	});
+
+	it("does not fire on a cross-case-type field inside a repeat (subcase shape)", () => {
+		// `case_property_on != mod.caseType` is the subcase shape — out of
+		// scope for this rule (covered by SUBCASE_IN_REPEAT_NOT_MODELED
+		// until the splice algorithm lands).
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "repeat",
+									id: "children",
+									label: "Children",
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											kind: "text",
+											id: "child_name",
+											label: "Child name",
+											case_property_on: "child",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "parent",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+				{
+					name: "child",
+					properties: [{ name: "child_name", label: "Name" }],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "PRIMARY_CASE_FIELD_IN_REPEAT")).toBe(
+			false,
+		);
+	});
+});
+
+describe("CHILD_CASE_NO_NAME_FIELD", () => {
+	/**
+	 * Every derived child-case bucket needs a field id'd `case_name` so
+	 * the new case has a display name. The bucket key is
+	 * `(case_type, repeat_ancestor)`, so a primary form authoring two
+	 * repeats targeting the same child case type produces two buckets,
+	 * each independently required to have its own `case_name` field.
+	 */
+	it("fires when a non-repeat child bucket has no `case_name` field", () => {
+		// One root-level subcase whose only field is NOT `case_name` — the
+		// bucket has no name source. The new derivation emits
+		// `case_name_field: ""` and this rule reports against it.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "text",
+									id: "child_label",
+									label: "Child label",
+									case_property_on: "child",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "parent",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+				{
+					name: "child",
+					properties: [{ name: "child_label", label: "Label" }],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		const offender = errors.find((e) => e.code === "CHILD_CASE_NO_NAME_FIELD");
+		expect(offender).toBeDefined();
+		expect(offender?.message).toContain("child");
+	});
+
+	it("does not fire when the child bucket includes a `case_name` field", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "group",
+									id: "child_section",
+									label: "Child",
+									children: [
+										f({
+											kind: "text",
+											id: "case_name",
+											label: "Child name",
+											case_property_on: "child",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "parent",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+				{
+					name: "child",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "CHILD_CASE_NO_NAME_FIELD")).toBe(
+			false,
+		);
+	});
+
+	it("does not fire on forms with no subcases", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "parent",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "CHILD_CASE_NO_NAME_FIELD")).toBe(
+			false,
+		);
+	});
+});
+
 describe("CCHQ-only features stay unauthorable via the strict schema", () => {
 	/**
 	 * The plan called for explicit NOT_MODELED rules for usercase,
