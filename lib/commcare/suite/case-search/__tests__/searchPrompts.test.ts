@@ -92,17 +92,12 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 
 		const { xml, strings } = emitSearchPrompts(inputs, MODULE_ID);
 
-		// No `input` attr, no `appearance` attr — bare `key`.
+		// No `input` attr, no `appearance` attr — bare `key`. Compact
+		// serializer output, no per-element whitespace.
 		expect(xml).toBe(
-			[
-				`        <prompt key="name">`,
-				`          <display>`,
-				`            <text>`,
-				`              <locale id="search_property.m0.name"/>`,
-				`            </text>`,
-				`          </display>`,
-				`        </prompt>`,
-			].join("\n"),
+			`<prompt key="name">` +
+				`<display><text><locale id="search_property.m0.name"/></text></display>` +
+				`</prompt>`,
 		);
 		expect(strings).toEqual({ "search_property.m0.name": "Name" });
 	});
@@ -235,16 +230,11 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
+		// Compact serializer output.
 		expect(xml).toBe(
-			[
-				`        <prompt key="dob" input="date" default="today()">`,
-				`          <display>`,
-				`            <text>`,
-				`              <locale id="search_property.m0.dob"/>`,
-				`            </text>`,
-				`          </display>`,
-				`        </prompt>`,
-			].join("\n"),
+			`<prompt key="dob" input="date" default="today()">` +
+				`<display><text><locale id="search_property.m0.dob"/></text></display>` +
+				`</prompt>`,
 		);
 	});
 
@@ -274,7 +264,10 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
-		expect(xml).toContain(`default="date('2024-01-01')"`);
+		// XPath single-quote literals (`'2024-01-01'`) round-trip
+		// through the serializer as `&apos;` inside the double-quoted
+		// `default` attribute value.
+		expect(xml).toContain(`default="date(&apos;2024-01-01&apos;)"`);
 	});
 
 	it("orders attributes key, appearance, input, default for a barcode + default combination", () => {
@@ -606,31 +599,20 @@ describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
 		const { xml, strings } = emitSearchPrompts(inputs, MODULE_ID);
 
 		// Pin the exact wire string so any structural drift surfaces.
-		// Indent depth (8 spaces for `<prompt>`, 10 for `<display>`,
-		// 12 for `<text>`, 14 for `<locale>`) matches the fixture's
-		// `<query>` body indent.
+		// Compact serializer output — element order and attribute
+		// insertion order are the load-bearing properties; the
+		// surrounding orchestrator joins the three `<prompt>` elements
+		// with a newline as it composes the `<query>` body.
 		const expected = [
-			`        <prompt key="name">`,
-			`          <display>`,
-			`            <text>`,
-			`              <locale id="search_property.m0.name"/>`,
-			`            </text>`,
-			`          </display>`,
-			`        </prompt>`,
-			`        <prompt key="dob" input="date">`,
-			`          <display>`,
-			`            <text>`,
-			`              <locale id="search_property.m0.dob"/>`,
-			`            </text>`,
-			`          </display>`,
-			`        </prompt>`,
-			`        <prompt key="consent" input="select1">`,
-			`          <display>`,
-			`            <text>`,
-			`              <locale id="search_property.m0.consent"/>`,
-			`            </text>`,
-			`          </display>`,
-			`        </prompt>`,
+			`<prompt key="name">` +
+				`<display><text><locale id="search_property.m0.name"/></text></display>` +
+				`</prompt>`,
+			`<prompt key="dob" input="date">` +
+				`<display><text><locale id="search_property.m0.dob"/></text></display>` +
+				`</prompt>`,
+			`<prompt key="consent" input="select1">` +
+				`<display><text><locale id="search_property.m0.consent"/></text></display>` +
+				`</prompt>`,
 		].join("\n");
 
 		expect(xml).toBe(expected);

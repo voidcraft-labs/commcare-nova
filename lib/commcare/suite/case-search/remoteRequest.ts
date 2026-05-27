@@ -8,11 +8,14 @@
 // `WireShape` flag set comes from `compileForPlatform.ts` and
 // drives the downstream sub-emitters' attribute choices.
 
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { CaseListConfig, CaseSearchConfig, Module } from "@/lib/domain";
 import { instanceSourceFor } from "../../predicate";
-import { emitClaimPost, SEARCH_CASE_ID_REF } from "./claim";
+import { buildClaimPost, SEARCH_CASE_ID_REF } from "./claim";
 import { compileForPlatform } from "./compileForPlatform";
-import { emitSearchSession } from "./searchSession";
+import { buildSearchSession } from "./searchSession";
 import type { PlatformContext, WireShape } from "./types";
 
 /**
@@ -80,8 +83,6 @@ export function emitRemoteRequest(args: {
 		platformContext,
 	);
 
-	const postXml = emitClaimPost();
-
 	const moduleId = `m${moduleIndex}`;
 	const commandLocaleId = `case_search.${moduleId}`;
 	// `"Search All Cases"` is CCHQ's contract default for an unset
@@ -92,17 +93,13 @@ export function emitRemoteRequest(args: {
 	// slot is either `undefined` or a non-empty string — no `=== ""`
 	// branch is needed here.
 	const commandLabel = caseSearchConfig.searchButtonLabel ?? "Search All Cases";
-	const commandXml = [
-		`    <command id="search_command.${moduleId}">`,
-		`      <display>`,
-		`        <text>`,
-		`          <locale id="${commandLocaleId}"/>`,
-		`        </text>`,
-		`      </display>`,
-		`    </command>`,
-	].join("\n");
+	const commandEl = el("command", { id: `search_command.${moduleId}` }, [
+		el("display", {}, [
+			el("text", {}, [el("locale", { id: commandLocaleId })]),
+		]),
+	]);
 
-	const sessionEmission = emitSearchSession({
+	const sessionEmission = buildSearchSession({
 		caseListConfig,
 		caseSearchConfig,
 		wire,
@@ -113,32 +110,36 @@ export function emitRemoteRequest(args: {
 	// Instance declarations — sort the accumulated id set so the wire
 	// form is deterministic across invocations regardless of Set
 	// iteration order.
-	const instanceLines = Array.from(sessionEmission.instances)
+	const instanceElements: Element[] = Array.from(sessionEmission.instances)
 		.sort()
-		.map((id) => `    <instance id="${id}" src="${instanceSourceFor(id)}"/>`);
+		.map((id) => el("instance", { id, src: instanceSourceFor(id) }));
 
-	const stackXml = [
-		`    <stack>`,
-		`      <push>`,
-		`        <rewind value="${SEARCH_CASE_ID_REF}"/>`,
-		`      </push>`,
-		`    </stack>`,
-	].join("\n");
+	// `<stack>` rewind frame — CCHQ's contract on every
+	// `<remote-request>`. The frame pops the search-result selection
+	// back onto the session stack so the surrounding entry's case-id
+	// datum picks up the chosen case id without a second user
+	// interaction.
+	const stackEl = el("stack", {}, [
+		el("push", {}, [el("rewind", { value: SEARCH_CASE_ID_REF })]),
+	]);
 
-	const xml = [
-		`  <remote-request>`,
-		postXml,
-		commandXml,
-		instanceLines.join("\n"),
-		sessionEmission.xml,
-		stackXml,
-		`  </remote-request>`,
-	].join("\n");
+	// `<remote-request>` children in canonical order: post → command →
+	// instances → session → stack. The serializer preserves child
+	// insertion order, so the rendered bytes match the canonical CCHQ
+	// fixture
+	// `~/code/commcare-hq/.../tests/data/suite/search_command_detail.xml`.
+	const remoteRequestEl = el("remote-request", {}, [
+		buildClaimPost(),
+		commandEl,
+		...instanceElements,
+		sessionEmission.element,
+		stackEl,
+	]);
 
 	const strings: Record<string, string> = {
 		[commandLocaleId]: commandLabel,
 		...sessionEmission.strings,
 	};
 
-	return { xml, strings, wire };
+	return { xml: render(remoteRequestEl, RENDER_OPTS), strings, wire };
 }

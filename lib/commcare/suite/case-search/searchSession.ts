@@ -7,14 +7,16 @@
 // ids). The orchestrator at `remoteRequest.ts` splices the result
 // into the `<remote-request>` body.
 
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import {
 	collectExpressionInstances,
 	collectPredicateInstances,
 } from "../../predicate";
-import { escapeXml } from "../../xml";
-import { emitSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
+import { buildSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
 import {
 	deriveSimpleArmPredicate,
 	simpleArmNeedsXPathQueryEmission,
@@ -57,19 +59,19 @@ const XPATH_QUERY_KEY = "_xpath_query";
  *     The orchestrator turns this set into `<instance>` declarations.
  */
 export interface SearchSessionEmission {
-	readonly xml: string;
+	readonly element: Element;
 	readonly strings: Record<string, string>;
 	readonly instances: ReadonlySet<string>;
 }
 
 /**
- * Compose the `<session>` block. `wire` flows from `compileForPlatform`:
+ * Build the `<session>` Element. `wire` flows from `compileForPlatform`:
  * `inlineSearch` picks the storage-instance id (`results:inline` vs
  * `results`); `defaultSearch` lands on `<query default_search>`.
  * `autoLaunch` flows past — the case-list short-detail emitter
  * consumes it for `<action auto_launch>` on `m{N}_case_short`.
  */
-export function emitSearchSession(args: {
+export function buildSearchSession(args: {
 	readonly caseListConfig: CaseListConfig;
 	readonly caseSearchConfig: CaseSearchConfig;
 	readonly wire: WireShape;
@@ -96,12 +98,13 @@ export function emitSearchSession(args: {
 	// CCHQ regenerates from the HQ JSON upload, so the local-
 	// diagnostic `.ccz` reads cleanly against
 	// `~/code/commcare-hq/.../tests/data/suite/search_command_detail.xml`.
-	const dataLines: string[] = [];
+	const dataElements: Element[] = [];
 
-	// `case_type` — always present, always first.
-	dataLines.push(
-		`        <data key="case_type" ref="'${escapeXml(caseType)}'"/>`,
-	);
+	// `case_type` — always present, always first. The XPath single-
+	// quoted literal flows raw into the `ref` attribute; the
+	// serializer escapes the surrounding `'` characters once at render
+	// time (`&apos;`).
+	dataElements.push(el("data", { key: "case_type", ref: `'${caseType}'` }));
 
 	// `_xpath_query` — AND-composition of the unified filter with
 	// every advanced-arm search input's predicate plus every
@@ -122,8 +125,11 @@ export function emitSearchSession(args: {
 		caseType,
 	);
 	if (xpathQueryEmission !== undefined) {
-		dataLines.push(
-			`        <data key="${XPATH_QUERY_KEY}" ref="${escapeXml(xpathQueryEmission.wrapper)}"/>`,
+		dataElements.push(
+			el("data", {
+				key: XPATH_QUERY_KEY,
+				ref: xpathQueryEmission.wrapper,
+			}),
 		);
 	}
 
@@ -133,15 +139,15 @@ export function emitSearchSession(args: {
 	// after case selection, by which point the filter has already
 	// gated the visible result set.
 	if (caseSearchConfig.excludedOwnerIds !== undefined) {
-		const excludedRef = emitOnDeviceExpression(
-			caseSearchConfig.excludedOwnerIds,
-		);
-		dataLines.push(
-			`        <data key="${EXCLUDED_OWNER_IDS_WIRE_KEY}" ref="${escapeXml(excludedRef)}"/>`,
+		dataElements.push(
+			el("data", {
+				key: EXCLUDED_OWNER_IDS_WIRE_KEY,
+				ref: emitOnDeviceExpression(caseSearchConfig.excludedOwnerIds),
+			}),
 		);
 	}
 
-	const promptEmission = emitSearchPrompts(
+	const promptEmission = buildSearchPrompts(
 		caseListConfig.searchInputs,
 		moduleId,
 	);
@@ -172,51 +178,49 @@ export function emitSearchSession(args: {
 	const subtitleDisplay = caseSearchConfig.searchScreenSubtitle;
 	const descriptionLocaleId = `case_search.${moduleId}.description`;
 
-	const queryBody: string[] = [
-		`      <query url="${SEARCH_URL_TEMPLATE}"`,
-		`             default_search="${wire.defaultSearch ? "true" : "false"}"`,
-		`             storage-instance="${storageInstance}"`,
-		`             template="case">`,
-		`        <title>`,
-		`          <text>`,
-		`            <locale id="${titleLocaleId}"/>`,
-		`          </text>`,
-		`        </title>`,
+	// `<query>` children in canonical order: title → description? →
+	// data → prompts. The serializer preserves child insertion order.
+	const queryChildren: Element[] = [
+		el("title", {}, [el("text", {}, [el("locale", { id: titleLocaleId })])]),
 	];
 	if (subtitleDisplay !== undefined) {
-		queryBody.push(
-			`        <description>`,
-			`          <text>`,
-			`            <locale id="${descriptionLocaleId}"/>`,
-			`          </text>`,
-			`        </description>`,
+		queryChildren.push(
+			el("description", {}, [
+				el("text", {}, [el("locale", { id: descriptionLocaleId })]),
+			]),
 		);
 	}
-	queryBody.push(...dataLines);
-	if (promptEmission.xml !== "") {
-		queryBody.push(promptEmission.xml);
-	}
-	queryBody.push(`      </query>`);
+	queryChildren.push(...dataElements, ...promptEmission.elements);
+
+	// `<query>` attribute insertion order — `url, default_search,
+	// storage-instance, template` — matches CCHQ's canonical order
+	// on `RemoteRequestQuery` so the rendered bytes stay diffable
+	// against the CCHQ-regenerated suite.
+	const queryEl = el(
+		"query",
+		{
+			url: SEARCH_URL_TEMPLATE,
+			default_search: wire.defaultSearch ? "true" : "false",
+			"storage-instance": storageInstance,
+			template: "case",
+		},
+		queryChildren,
+	);
 
 	// `<datum>` references the search-side detail ids
 	// (`m{N}_search_short` / `m{N}_search_long`) — distinct from the
 	// `m{N}_case_short` / `m{N}_case_long` ids the local case-list
 	// entry uses.
 	const datumNodeset = composeDatumNodeset(storageInstance, caseType);
-	const datumLine = [
-		`      <datum id="search_case_id"`,
-		`             nodeset="${datumNodeset}"`,
-		`             value="./@case_id"`,
-		`             detail-confirm="${moduleId}_search_long"`,
-		`             detail-select="${moduleId}_search_short"/>`,
-	].join("\n");
+	const datumEl = el("datum", {
+		id: "search_case_id",
+		nodeset: datumNodeset,
+		value: "./@case_id",
+		"detail-confirm": `${moduleId}_search_long`,
+		"detail-select": `${moduleId}_search_short`,
+	});
 
-	const xml = [
-		`    <session>`,
-		queryBody.join("\n"),
-		datumLine,
-		`    </session>`,
-	].join("\n");
+	const sessionEl = el("session", {}, [queryEl, datumEl]);
 
 	const strings: Record<string, string> = {
 		[titleLocaleId]: titleDisplay,
@@ -305,7 +309,27 @@ export function emitSearchSession(args: {
 		}
 	}
 
-	return { xml, strings, instances };
+	return { element: sessionEl, strings, instances };
+}
+
+/**
+ * Boundary shim — serializes `buildSearchSession`'s Element to a string
+ * so callers that still consume the string-returning shape stay
+ * unaffected during the suite-XML DOM migration.
+ */
+export function emitSearchSession(args: {
+	readonly caseListConfig: CaseListConfig;
+	readonly caseSearchConfig: CaseSearchConfig;
+	readonly wire: WireShape;
+	readonly caseType: string;
+	readonly moduleIndex: number;
+}): {
+	readonly xml: string;
+	readonly strings: Record<string, string>;
+	readonly instances: ReadonlySet<string>;
+} {
+	const { element, strings, instances } = buildSearchSession(args);
+	return { xml: render(element, RENDER_OPTS), strings, instances };
 }
 
 /**
@@ -313,6 +337,10 @@ export function emitSearchSession(args: {
  * `[not(commcare_is_related_case=true())]` filter is CCHQ's
  * `EXCLUDE_RELATED_CASES_FILTER` (excludes cases indexed as related-
  * only artifacts of an existing search), lifted verbatim.
+ *
+ * The XPath single-quote literals (`'casedb'`, `'patient'`) flow raw
+ * into the surrounding attribute value; the serializer escapes them
+ * once at render time so the wire reads `instance(&apos;…&apos;)`.
  */
 function composeDatumNodeset(
 	storageInstance: string,
@@ -321,5 +349,5 @@ function composeDatumNodeset(
 	// CCHQ pins the path segment to `/results/case` regardless of
 	// instance id — the instance discriminator is the colon suffix
 	// on the instance reference, not the path that follows.
-	return `instance('${storageInstance}')/results/case[@case_type='${escapeXml(caseType)}'][not(commcare_is_related_case=true())]`;
+	return `instance('${storageInstance}')/results/case[@case_type='${caseType}'][not(commcare_is_related_case=true())]`;
 }
