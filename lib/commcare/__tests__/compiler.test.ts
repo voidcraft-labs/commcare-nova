@@ -1173,31 +1173,23 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 	});
 
 	/**
-	 * Repeat-context subcase emission is a CCHQ feature Nova doesn't
-	 * yet model. The wire emitter
-	 * (`xform/caseBlocks.ts::buildCaseBlocks`) builds bind nodesets
-	 * with the repeat-scoped prefix but `addCaseBlocks` always
-	 * splices the wrapper element under the form's top-level
-	 * `<data>` — the two disagree on the wire path and the post-
-	 * injection XForm oracle catches the mismatch as a generator-bug
-	 * backstop.
+	 * Positive parity: a registration form with a `user_controlled`
+	 * repeat whose children include a cross-case-type field now compiles
+	 * cleanly. The splice algorithm in `addCaseBlocks` routes the
+	 * subcase wrapper to its repeat-context parent (the `<children>`
+	 * data element) so the bind nodesets resolve against the actual DOM
+	 * path. The validator rule that previously rejected this shape
+	 * (`SUBCASE_IN_REPEAT_NOT_MODELED`) has been deleted; the new rules
+	 * `PRIMARY_CASE_FIELD_IN_REPEAT` + `CHILD_CASE_NO_NAME_FIELD` cover
+	 * the still-invalid neighbors.
 	 *
-	 * The user-visible gate is now at the doc layer:
-	 * `SUBCASE_IN_REPEAT_NOT_MODELED` in
-	 * `validator/rules/form.ts::subcaseInRepeatNotModeled` rejects
-	 * the authoring shape before compile. The author sees an
-	 * actionable message in the editor with the supported
-	 * alternative (move child creation to a followup form, or hoist
-	 * the child field out of the repeat for a single subcase per
-	 * parent). The compile-time throw is the totality backstop a
-	 * future emitter fix will close.
-	 *
-	 * When the emitter does land — splicing under the repeat-context
-	 * parent so CCHQ's `multiple_subcase_repeat.xml` parity is
-	 * structural — the validator rule retires and this test gets
-	 * flipped to a positive parity assertion.
+	 * Per-mode + per-nest coverage lives in
+	 * `__tests__/repeatContextSubcase.test.ts` (Step 11). This test
+	 * pins the smallest viable user-controlled single-subcase-in-repeat
+	 * shape — the nest=False branch — so a regression here surfaces
+	 * before the per-mode matrix runs.
 	 */
-	it("repeat-context subcase shape is rejected at the doc layer", () => {
+	it("repeat-context subcase compiles into the repeat element (nest=false)", () => {
 		const novaDoc = buildDoc({
 			appName: "Parity",
 			modules: [
@@ -1226,7 +1218,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 									children: [
 										f({
 											kind: "text",
-											id: "child_name",
+											id: "case_name",
 											label: "Child name",
 											case_property_on: "child1",
 										}),
@@ -1244,18 +1236,38 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 				},
 				{
 					name: "child1",
-					properties: [{ name: "child_name", label: "Name" }],
+					properties: [{ name: "case_name", label: "Name" }],
 				},
 			],
 		});
 
 		const errors = runValidation(novaDoc);
-		const rejection = errors.find(
-			(e) => e.code === "SUBCASE_IN_REPEAT_NOT_MODELED",
+		expect(
+			errors.find(
+				(e) =>
+					e.code === "PRIMARY_CASE_FIELD_IN_REPEAT" ||
+					e.code === "CHILD_CASE_NO_NAME_FIELD",
+			),
+		).toBeUndefined();
+
+		const novaForm = new AdmZip(
+			compileCcz(expandDoc(novaDoc), "Parity", novaDoc),
+		).readAsText("modules-0/forms-0.xml");
+		// nest=False: the `<case>` element splices DIRECTLY into the
+		// `<children>` repeat element with no `<subcase_N>` wrapper.
+		// Bind nodesets anchor at `/data/children/case/...`.
+		expect(novaForm).toMatch(
+			/<children jr:template="">[\s\S]*<case case_id=""[\s\S]*xmlns="http:\/\/commcarehq\.org\/case\/transaction\/v2">/,
 		);
-		expect(rejection).toBeDefined();
-		expect(rejection?.message).toContain("children");
-		expect(rejection?.message).toContain("child1");
+		// `case_id` mints per-iteration via uuid() — no setvalue, no
+		// session datum (CCHQ's `delay_case_id=True` branch).
+		expect(novaForm).toContain(
+			'<bind nodeset="/data/children/case/@case_id" calculate="uuid()"/>',
+		);
+		// Parent-index pointer reads from the form's primary case_id.
+		expect(novaForm).toContain(
+			'<bind nodeset="/data/children/case/index/parent" calculate="/data/case/@case_id"/>',
+		);
 	});
 
 	/**
