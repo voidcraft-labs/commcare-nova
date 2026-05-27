@@ -182,29 +182,16 @@ describe("emitLongDetail — per-kind goldens", () => {
 			doc: buildDoc({ module: mod }),
 		});
 		// Golden: full <detail> block. Locale id substring is
-		// `case_long` per CCHQ's `id_strings.py::detail`.
+		// `case_long` per CCHQ's `id_strings.py::detail`. The serializer
+		// emits compact output with no per-element whitespace.
 		expect(out.xml).toBe(
-			[
-				`  <detail id="m0_case_long">`,
-				`    <title>`,
-				`      <text>`,
-				`        <locale id="cchq.case"/>`,
-				`      </text>`,
-				`    </title>`,
-				`    <field>`,
-				`      <header>`,
-				`        <text>`,
-				`          <locale id="m0.case_long.case_name_1.header"/>`,
-				`        </text>`,
-				`      </header>`,
-				`      <template>`,
-				`        <text>`,
-				`          <xpath function="name"/>`,
-				`        </text>`,
-				`      </template>`,
-				`    </field>`,
-				`  </detail>`,
-			].join("\n"),
+			`<detail id="m0_case_long">` +
+				`<title><text><locale id="cchq.case"/></text></title>` +
+				`<field>` +
+				`<header><text><locale id="m0.case_long.case_name_1.header"/></text></header>` +
+				`<template><text><xpath function="name"/></text></template>` +
+				`</field>` +
+				`</detail>`,
 		);
 		expect(out.strings).toEqual({
 			"m0.case_long.case_name_1.header": "Name",
@@ -253,7 +240,10 @@ describe("emitLongDetail — per-kind goldens", () => {
 		expect(out.xml).toContain(
 			'locale id="m0.case_long.case_calculated_property_1.header"',
 		);
-		expect(out.xml).toContain('<xpath function="$calculated_property">');
+		// `$calculated_property` round-trips through the serializer as
+		// `&#x24;calculated_property` — XML-spec-equivalent, decoded
+		// identically by every conforming XML parser.
+		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 		expect(out.xml).toContain('<xpath function="phone"/>');
 		expect(out.strings).toEqual({
@@ -469,27 +459,29 @@ describe("emitLongDetail — multi-kind integration", () => {
 
 		// Plain field.
 		expect(out.xml).toContain('<xpath function="name"/>');
-		// Date field.
+		// Date field. XPath single-quote literals round-trip as
+		// `&apos;` inside the double-quoted attribute value.
 		expect(out.xml).toContain(
-			"if(birthdate = '', '', format-date(date(birthdate), '%d/%m/%y'))",
+			"if(birthdate = &apos;&apos;, &apos;&apos;, format-date(date(birthdate), &apos;%d/%m/%y&apos;))",
 		);
 		// Interval-always.
 		expect(out.xml).toContain("(today() - date(last_visit)) div 7");
 		expect(out.xml).toContain("today() - date(last_visit) &gt; 14");
-		expect(out.xml).toContain("'Overdue'");
+		expect(out.xml).toContain("&apos;Overdue&apos;");
 		// Phone — template form='phone' on long detail.
 		expect(out.xml).toContain(`<template form="phone">`);
 		expect(out.xml).toContain('<xpath function="phone"/>');
 		// ID-mapping.
 		expect(out.xml).toContain(
-			"replace(join(' ', if(selected(region, 'N'), 'North', ''), if(selected(region, 'S'), 'South', '')), '\\s+', ' ')",
+			"replace(join(&apos; &apos;, if(selected(region, &apos;N&apos;), &apos;North&apos;, &apos;&apos;), if(selected(region, &apos;S&apos;), &apos;South&apos;, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
 		);
 		// Interval-flag — threshold 4 weeks = 28 days.
 		expect(out.xml).toContain(
-			"if(last_visit = '', '!', if(today() - date(last_visit) &gt; 28, '!', ''))",
+			"if(last_visit = &apos;&apos;, &apos;!&apos;, if(today() - date(last_visit) &gt; 28, &apos;!&apos;, &apos;&apos;))",
 		);
 		// Calculated column — inline-variable template shape.
-		expect(out.xml).toContain('<xpath function="$calculated_property">');
+		// `$calculated_property` round-trips as `&#x24;calculated_property`.
+		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 
 		// No <sort> blocks — long detail suppresses them per CCHQ's

@@ -53,8 +53,11 @@
 // blocks display a consistent runtime title without app-strings
 // entries.
 
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
-import { emitColumnField } from "./columns";
+import { buildColumnField } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
 import type {
 	CaseListEmission,
@@ -101,12 +104,12 @@ const EMPTY_SORT_DIRECTIVES: ReadonlyMap<Uuid, ResolvedSortDirective> =
  * populated config without a case type would fail validation
  * upstream — the absence-arm here is the structural fallback.
  */
-export function emitLongDetail(args: {
+export function buildLongDetail(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
-}): CaseListEmission {
+}): { readonly element: Element; readonly strings: Record<string, string> } {
 	const { module: mod, moduleIndex } = args;
 	const target: DetailTarget = args.target ?? "case";
 	const detailId = `m${moduleIndex}_${target}_long`;
@@ -117,10 +120,7 @@ export function emitLongDetail(args: {
 	// model declares `title` as a non-optional `NodeField`, so a
 	// zero-field detail still emits the `<title>` element.
 	if (!mod.caseType || !mod.caseListConfig) {
-		return {
-			xml: emitDetailShell(detailId, []),
-			strings: {},
-		};
+		return { element: buildDetailShell(detailId, []), strings: {} };
 	}
 
 	const config = mod.caseListConfig;
@@ -131,7 +131,7 @@ export function emitLongDetail(args: {
 		target,
 	};
 
-	const fields: string[] = [];
+	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
 
 	// Walk every column in source-array order. Position is 1-based
@@ -147,48 +147,45 @@ export function emitLongDetail(args: {
 		// preserves the slot's presence so the editor can distinguish
 		// "user explicitly toggled off" from "user never toggled".
 		if (column.visibleInDetail === false) continue;
-		const emission = emitColumnField({
+		const emission = buildColumnField({
 			column,
 			position: i + 1,
 			ctx,
 		});
-		fields.push(emission.xml);
+		fields.push(emission.element);
 		Object.assign(strings, emission.strings);
 	}
 
-	return {
-		xml: emitDetailShell(detailId, fields),
-		strings,
-	};
+	return { element: buildDetailShell(detailId, fields), strings };
 }
 
 /**
- * Build the surrounding `<detail>` element. The title routes
- * through the built-in `cchq.case` locale; field lines slot in
- * between the title and the closing tag.
- *
- * The two-line indent style mirrors the surrounding compiler's
- * suite-XML layout — `<detail>` and its children indent by two
- * spaces from the `<suite>` root; nested `<field>` content adds
- * two more.
+ * Boundary shim — serializes `buildLongDetail`'s Element to a string so
+ * the orchestrator (`compiler.ts`) keeps its current `string[]`
+ * accumulator shape during the suite-XML DOM migration. Drops when
+ * `compiler.ts` switches to direct Element consumption.
  */
-function emitDetailShell(detailId: string, fields: readonly string[]): string {
-	const titleBlock = [
-		`    <title>`,
-		`      <text>`,
-		`        <locale id="cchq.case"/>`,
-		`      </text>`,
-		`    </title>`,
-	].join("\n");
+export function emitLongDetail(args: {
+	readonly module: Module;
+	readonly moduleIndex: number;
+	readonly doc: BlueprintDoc;
+	readonly target?: DetailTarget;
+}): CaseListEmission {
+	const { element, strings } = buildLongDetail(args);
+	return { xml: render(element, RENDER_OPTS), strings };
+}
 
-	if (fields.length === 0) {
-		return `  <detail id="${detailId}">\n${titleBlock}\n  </detail>`;
-	}
-
-	return [
-		`  <detail id="${detailId}">`,
-		titleBlock,
-		fields.join("\n"),
-		`  </detail>`,
-	].join("\n");
+/**
+ * Build the surrounding `<detail>` Element. The title routes through
+ * the built-in `cchq.case` locale; the field Elements slot in between
+ * the title and the closing tag.
+ */
+function buildDetailShell(
+	detailId: string,
+	fields: readonly Element[],
+): Element {
+	const titleEl = el("title", {}, [
+		el("text", {}, [el("locale", { id: "cchq.case" })]),
+	]);
+	return el("detail", { id: detailId }, [titleEl, ...fields]);
 }

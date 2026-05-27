@@ -542,17 +542,19 @@ describe("wire emission", () => {
 		expect(result.xml).toContain('<locale id="cchq.case"/>');
 		// Plain — bare property reference.
 		expect(result.xml).toContain('<xpath function="case_name"/>');
-		// Date — empty-string-guard wrapped in format-date.
+		// Date — empty-string-guard wrapped in format-date. XPath
+		// single-quote literals round-trip through the serializer as
+		// `&apos;` inside the double-quoted attribute value.
 		expect(result.xml).toContain(
-			"if(date_opened = '', '', format-date(date(date_opened), '%Y-%m-%d'))",
+			"if(date_opened = &apos;&apos;, &apos;&apos;, format-date(date(date_opened), &apos;%Y-%m-%d&apos;))",
 		);
 		// Interval (display: always) — divisor 7 (weeks) + threshold
 		// 14 days ("Overdue" branch).
 		expect(result.xml).toContain("(today() - date(last_visit)) div 7");
-		expect(result.xml).toContain("'Overdue'");
+		expect(result.xml).toContain("&apos;Overdue&apos;");
 		// Id-mapping — selected() chain wrapped in replace(join(...)).
 		expect(result.xml).toContain(
-			"replace(join(' ', if(selected(region, 'N'), 'North', ''), if(selected(region, 'S'), 'South', '')), '\\s+', ' ')",
+			"replace(join(&apos; &apos;, if(selected(region, &apos;N&apos;), &apos;North&apos;, &apos;&apos;), if(selected(region, &apos;S&apos;), &apos;South&apos;, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
 		);
 		// Calculated column emits the inline-variable template per
 		// CCHQ's `detail_screen.py::FormattedDetailColumn.template`'s

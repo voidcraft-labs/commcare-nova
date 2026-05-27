@@ -103,8 +103,10 @@ describe("emitColumnField — date", () => {
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		// CCHQ's date-format wire shape: per
 		// `detail_screen.py::Date`, `if({xpath} = '', '', format-date(date({xpath}), 'pattern'))`.
+		// XPath single-quote literals round-trip through the serializer
+		// as `&apos;` inside the double-quoted attribute value.
 		expect(out.xml).toContain(
-			"if(opened_on = '', '', format-date(date(opened_on), '%d/%m/%Y'))",
+			"if(opened_on = &apos;&apos;, &apos;&apos;, format-date(date(opened_on), &apos;%d/%m/%Y&apos;))",
 		);
 	});
 
@@ -115,7 +117,10 @@ describe("emitColumnField — date", () => {
 		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "'em%dpattern");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain("concat(");
-		expect(out.xml).toContain(`&quot;'&quot;`);
+		// The concat-fallback's literal-quote separator is `"'"` which
+		// the serializer renders as `&quot;&apos;&quot;` inside the
+		// attribute value.
+		expect(out.xml).toContain(`&quot;&apos;&quot;`);
 	});
 });
 
@@ -137,11 +142,12 @@ describe("emitColumnField — interval (display: always)", () => {
 			"string(int((today() - date(last_visit)) div 7))",
 		);
 		// Overdue branch: `if(today() - date(last_visit) > 28, 'Overdue', ...)`.
+		// XPath single-quote literals round-trip as `&apos;`.
 		expect(out.xml).toContain(
-			"if(today() - date(last_visit) &gt; 28, 'Overdue',",
+			"if(today() - date(last_visit) &gt; 28, &apos;Overdue&apos;,",
 		);
 		// Outer empty-string short-circuit.
-		expect(out.xml).toContain("if(last_visit = '', '',");
+		expect(out.xml).toContain("if(last_visit = &apos;&apos;, &apos;&apos;,");
 	});
 
 	it("uses 365.25 as the divisor for years-unit columns", () => {
@@ -206,8 +212,9 @@ describe("emitColumnField — interval (display: flag)", () => {
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		// CCHQ's wire shape per `detail_screen.py::LateFlag.XPATH_FUNCTION`:
 		// `if({xpath} = '', '<flag>', if(today() - date({xpath}) > <threshold>, '<flag>', ''))`.
+		// XPath single-quote literals round-trip as `&apos;`.
 		expect(out.xml).toContain(
-			"if(last_visit = '', '!', if(today() - date(last_visit) &gt; 30, '!', ''))",
+			"if(last_visit = &apos;&apos;, &apos;!&apos;, if(today() - date(last_visit) &gt; 30, &apos;!&apos;, &apos;&apos;))",
 		);
 	});
 
@@ -266,16 +273,18 @@ describe("emitColumnField — id-mapping", () => {
 		// CCHQ's `xml_models.py::XPathEnum.build` shape (the
 		// `enum`-display arm wraps the per-key `if(selected(...))`
 		// chain in `replace(join(' ', ..., ''), '\s+', ' ')`).
+		// XPath single-quote literals round-trip as `&apos;`.
 		expect(out.xml).toContain(
-			"replace(join(' ', if(selected(region_code, 'N'), 'North', ''), if(selected(region_code, 'S'), 'South', '')), '\\s+', ' ')",
+			"replace(join(&apos; &apos;, if(selected(region_code, &apos;N&apos;), &apos;North&apos;, &apos;&apos;), if(selected(region_code, &apos;S&apos;), &apos;South&apos;, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
 		);
 	});
 
 	it("emits the empty-string XPath for a zero-entry mapping", () => {
 		const col = idMappingColumn(COL_UUIDS.a, "region_code", "Region", []);
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
-		// Empty mapping => `''` literal.
-		expect(out.xml).toContain("<xpath function=\"''\"/>");
+		// Empty mapping => `''` literal — round-trips as `&apos;&apos;`
+		// inside the attribute value.
+		expect(out.xml).toContain('<xpath function="&apos;&apos;"/>');
 	});
 
 	it("escapes embedded quotes in mapping values + labels through quoteLiteral", () => {
@@ -286,10 +295,10 @@ describe("emitColumnField — id-mapping", () => {
 		// Each side flips to a concat-fallback shape because the
 		// embedded `'` can't fit a single-quoted XPath string literal.
 		expect(out.xml).toContain("concat(");
-		// `&quot;` is the XML-attribute escape for `"`. The
-		// concat-fallback's literal-quote separator is `"'"` which
-		// renders as `&quot;'&quot;` inside the attribute.
-		expect(out.xml).toContain(`&quot;'&quot;`);
+		// `&quot;` / `&apos;` are the XML attribute-value escapes for
+		// `"` and `'`. The concat-fallback's literal-quote separator
+		// `"'"` renders as `&quot;&apos;&quot;` inside the attribute.
+		expect(out.xml).toContain(`&quot;&apos;&quot;`);
 	});
 });
 
@@ -318,8 +327,11 @@ describe("emitColumnField — calculated", () => {
 			'locale id="m0.case_short.case_calculated_property_1.header"',
 		);
 		// Template references `$calculated_property` and embeds the
-		// lowered XPath as a `<variable>` block.
-		expect(out.xml).toContain('<xpath function="$calculated_property">');
+		// lowered XPath as a `<variable>` block. The serializer encodes
+		// `$` as the XML numeric character reference `&#x24;` —
+		// XML-spec-equivalent to the literal `$`, decoded identically
+		// by every conforming XML parser before the XPath layer sees it.
+		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 		expect(out.xml).toContain('<xpath function="name"/>');
 		// The strings map carries the calc's authored header text.
@@ -356,8 +368,10 @@ describe("emitColumnField — calculated", () => {
 		const sortMatches = out.xml.match(/<sort[\s\S]*?<\/sort>/);
 		expect(sortMatches).not.toBeNull();
 		const sortBlock = sortMatches?.[0] ?? "";
-		expect(sortBlock).toContain('<xpath function="$calculated_property">');
-		expect(sortBlock).toContain("'constant'");
+		// `$calculated_property` encodes as `&#x24;calculated_property`;
+		// XPath `'constant'` literal encodes as `&apos;constant&apos;`.
+		expect(sortBlock).toContain('<xpath function="&#x24;calculated_property">');
+		expect(sortBlock).toContain("&apos;constant&apos;");
 	});
 
 	it("emits no sort block when no directive targets the calc's uuid", () => {
@@ -475,8 +489,10 @@ describe("emitColumnField — Column union coverage", () => {
 				position: i + 1,
 				ctx: emptyCtx,
 			});
-			expect(out.xml.startsWith("    <field>")).toBe(true);
-			expect(out.xml.endsWith("    </field>")).toBe(true);
+			// Compact serializer output — `<field>` opens the emission,
+			// `</field>` closes it, with no per-element whitespace.
+			expect(out.xml.startsWith("<field>")).toBe(true);
+			expect(out.xml.endsWith("</field>")).toBe(true);
 		}
 	});
 });
