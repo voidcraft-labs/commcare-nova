@@ -243,6 +243,8 @@ Bound modes (\`count_bound\`, \`query_bound\`) freeze cardinality at form load �
 
 **Pick the simplest mode that fits.** Most repeats are \`user_controlled\`. Reach for \`count_bound\` or \`query_bound\` only when cardinality is genuinely fixed by a query or count field — not as a default. Both \`count_bound\` and \`query_bound\` are heavy logic patterns: their children are usually hidden fields with computed values, not user input.
 
+**Repeats and child cases.** A repeat can model a list of child cases created in one form submission — set \`case_property_on\` on fields inside the repeat to the CHILD case type, and each iteration becomes one new child case linked to the parent. The parent case (whose \`case_property_on\` matches the module's case type) lives OUTSIDE the repeat; primary-case fields inside a repeat are rejected (a form creates ONE primary case, but a repeat captures zero-or-more per-iteration values — they can't coexist). Every child case bucket needs its own field with id \`case_name\` at the same scope as the rest of that bucket's fields (the form root, or the repeat the bucket's other fields are in) so the new case has a display name. Two different repeats in one form can each create child cases of the same type — they emit as independent subcase actions with their own iteration scope. Works across all three repeat modes; the canonical pattern is one registration form opening the parent + a \`user_controlled\` repeat with the child fields underneath.
+
 ---
 
 ## CommCare Connect
