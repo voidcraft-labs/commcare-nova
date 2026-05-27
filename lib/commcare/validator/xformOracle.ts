@@ -18,9 +18,9 @@
  *     ref>`. Core routes these through `XPathReference.getPathExpr`, which
  *     throws on a non-path (`XPathTypeMismatchException`). `isPathExpression`
  *     mirrors that gate.
- *   - ANY-expression — bind `relevant`/`required`/`constraint`/`calculate`,
- *     `<output value>`, `<setvalue value>`. Core only requires these parse as
- *     XPath (`buildCondition`/`buildCalculate`/`parseOutput`/
+ *   - ANY-expression — bind `relevant`/`required`/`constraint`/`calculate`/
+ *     `readonly`, `<output value>`, `<setvalue value>`. Core only requires
+ *     these parse as XPath (`buildCondition`/`buildCalculate`/`parseOutput`/
  *     `parseSetValueAction`). `isParseableXPath` mirrors that.
  *
  * ## Structural model
@@ -63,8 +63,6 @@
 
 import type { Document, Element } from "domhandler";
 import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
-import { parseDocument } from "htmlparser2";
 import {
 	isParseableXPath,
 	isPathExpression,
@@ -74,8 +72,7 @@ import {
 	type ValidationLocation,
 	validationError,
 } from "./errors";
-
-const XML_OPTS = { xmlMode: true } as const;
+import { buildXFormDataModel, type XFormDataModel } from "./xformDataModel";
 
 /**
  * The valid events an `<action>`/`<setvalue>` may declare. Mirrors
@@ -90,79 +87,12 @@ const VALID_ACTION_EVENTS = new Set([
 	"xforms-revalidate",
 ]);
 
-// ── Shared structural model ────────────────────────────────────────
-
 /**
- * The model every invariant reads off, built once per form by a single DOM
- * walk so the oracle never re-traverses the tree per check.
+ * Local alias — every invariant below reads off the shared model. The
+ * `validator/xformDataModel.ts` module owns the actual walk so the
+ * binding-resolution oracle can reuse it without re-traversing the DOM.
  */
-interface XFormModel {
-	/** Parsed document (well-formedness already proven by the strict gate). */
-	readonly doc: Document;
-	/** The main `<instance>`'s data root element (`<data>`). */
-	readonly dataEl: Element;
-	/** Root path of the main instance (`/data`, or whatever the root is named). */
-	readonly rootPath: string;
-	/**
-	 * Every reachable instance path — element paths AND the `@attribute` paths
-	 * attached to each element. Setvalue / bind refs may target any attribute
-	 * slot (query-bound repeats write `@ids`/`@count`/`@current_index` on the
-	 * outer node, `@index`/`@id` on the per-iteration `<item>`); excluding any
-	 * subset would false-positive on legitimate refs.
-	 */
-	readonly instancePaths: ReadonlySet<string>;
-	/**
-	 * Instance paths whose element carries `jr:template` — i.e. the template
-	 * node of a repeatable set. This is the wire-space equivalent of Core's
-	 * `TreeElement.isRepeatable()` (Core marks a node repeatable when it sees
-	 * the `jr:template` multiplicity at `XFormParser.java::saveInstanceNode`).
-	 * Drives the repeat-member-scope invariant (#22).
-	 */
-	readonly repeatablePaths: ReadonlySet<string>;
-	/** Every `<text id>` defined in any `<translation>`. */
-	readonly itextIds: ReadonlySet<string>;
-}
-
-/**
- * Recursively collect element paths, `@attr` paths, and repeatable-node paths
- * from the instance data tree. Namespace prefixes (`jr:template`,
- * `vellum:role`, etc.) are kept verbatim on attribute paths because the prefix
- * is part of the attribute name in the parsed DOM.
- *
- * A node is repeatable when it carries the `jr:template` attribute — that is
- * how the wire encodes Core's repeatable-set template node.
- */
-function walkInstance(
-	el: Element,
-	prefix: string,
-	paths: Set<string>,
-	repeatable: Set<string>,
-): void {
-	for (const child of getChildren(el)) {
-		if (!isTag(child)) continue;
-		const path = `${prefix}/${child.name}`;
-		paths.add(path);
-		for (const attrName of Object.keys(child.attribs)) {
-			paths.add(`${path}/@${attrName}`);
-		}
-		// `jr:template` (any value, including the empty string Nova emits)
-		// marks a repeatable-set template node.
-		if (getAttributeValue(child, "jr:template") !== undefined) {
-			repeatable.add(path);
-		}
-		walkInstance(child, path, paths, repeatable);
-	}
-}
-
-/** Collect every `<text id>` defined under any `<translation>`. */
-function collectItextIds(doc: Document): Set<string> {
-	const ids = new Set<string>();
-	for (const el of findAll((e) => e.name === "text", doc.children)) {
-		const id = getAttributeValue(el, "id");
-		if (id) ids.add(id);
-	}
-	return ids;
-}
+type XFormModel = XFormDataModel;
 
 // ── Path classification helpers ────────────────────────────────────
 
@@ -420,10 +350,16 @@ function checkBinds(
 			);
 		}
 
-		// ANY-expression binds: relevant / required / constraint / calculate must
-		// parse as valid XPath (buildCondition / buildCalculate). An unparseable
-		// expression here is a JavaRosa parse error.
-		for (const attr of ["relevant", "required", "constraint", "calculate"]) {
+		// ANY-expression binds: relevant / required / constraint / calculate /
+		// readonly must parse as valid XPath (buildCondition / buildCalculate).
+		// An unparseable expression here is a JavaRosa parse error.
+		for (const attr of [
+			"relevant",
+			"required",
+			"constraint",
+			"calculate",
+			"readonly",
+		]) {
 			const expr = getAttributeValue(bind, attr);
 			if (expr !== undefined && expr !== "" && !isParseableXPath(expr)) {
 				errors.push(
@@ -1035,70 +971,14 @@ export function validateXForm(
 ): ValidationError[] {
 	const loc = { formName, moduleName };
 
-	// #1: strict well-formedness gate — the only parse-failure path. htmlparser2
-	// (used for the DOM walk below) is an HTML-recovery parser: it silently
-	// heals malformed XML instead of throwing, so it can't be the gate.
-	// fast-xml-parser's XMLValidator is a strict XML 1.0 validator that matches
-	// how JavaRosa's XFormParser rejects a malformed form at parse time.
-	const xmlValidation = XMLValidator.validate(xml);
-	if (xmlValidation !== true) {
-		return [
-			validationError(
-				"XFORM_PARSE_ERROR",
-				"form",
-				`"${formName}" generated malformed XML that FormPlayer will reject: ${xmlValidation.err.msg}. This is a bug in the form generator.`,
-				loc,
-			),
-		];
-	}
-
-	const doc = parseDocument(xml, XML_OPTS);
-
-	// Locate the main instance (the one without a `src` — secondary instances
-	// declare `src` and reference external data).
-	const instances = findAll(
-		(el) => el.name === "instance" && !getAttributeValue(el, "src"),
-		doc.children,
-	);
-	if (instances.length === 0) {
-		return [
-			validationError(
-				"XFORM_NO_INSTANCE",
-				"form",
-				`"${formName}" is missing the main <instance> element. This is a bug in the form generator.`,
-				loc,
-			),
-		];
-	}
-
-	const dataEl = getChildren(instances[0]).find((c) => isTag(c)) as
-		| Element
-		| undefined;
-	if (!dataEl) {
-		return [
-			validationError(
-				"XFORM_NO_INSTANCE",
-				"form",
-				`"${formName}" has an empty <instance> with no data element. This is a bug in the form generator.`,
-				loc,
-			),
-		];
-	}
-
-	// Build the shared structural model once.
-	const rootPath = `/${dataEl.name}`;
-	const instancePaths = new Set<string>([rootPath]);
-	const repeatablePaths = new Set<string>();
-	walkInstance(dataEl, rootPath, instancePaths, repeatablePaths);
-
-	const model: XFormModel = {
-		doc,
-		dataEl,
-		rootPath,
-		instancePaths,
-		repeatablePaths,
-		itextIds: collectItextIds(doc),
-	};
+	// The shared model is parse-gate + DOM walk in one. A `fatal` return is the
+	// only parse-failure path — XForm malformedness or a missing main
+	// `<instance>` element. The binding-resolution oracle reads off the same
+	// model in the same `compileCcz` pass.
+	const built = buildXFormDataModel(xml, formName, moduleName);
+	if ("fatal" in built) return [built.fatal];
+	const model = built.model;
+	const doc = model.doc;
 
 	// Run every invariant against the shared model. Order is cosmetic — errors
 	// accumulate into one flat array the caller renders.

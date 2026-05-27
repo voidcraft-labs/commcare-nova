@@ -95,5 +95,6 @@ export function buildLintContext(
 		validPaths,
 		caseProperties: moduleCaseType ? caseProperties : undefined,
 		formEntries: formEntries.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind)),
+		formType: form.type,
 	};
 }

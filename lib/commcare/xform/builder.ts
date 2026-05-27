@@ -34,10 +34,9 @@
  */
 
 import render from "dom-serializer";
-import { type ChildNode, Element, Text } from "domhandler";
+import type { ChildNode, Element } from "domhandler";
 import { decodeXML } from "entities";
 import {
-	expandHashtags,
 	extractHashtags,
 	hasHashtags,
 	RESERVED_XFORM_NODE_PREFIX,
@@ -47,48 +46,14 @@ import {
 import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { readFieldString } from "@/lib/commcare/fieldProps";
+import {
+	expandHashtagsInContext,
+	type FormHashtagContext,
+} from "@/lib/commcare/hashtags/formContext";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
+import { el, RENDER_OPTS, text } from "@/lib/commcare/xform/elementBuilders";
+import { buildMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
-
-/**
- * Serializer options. `xmlMode` so element names / namespaces / self-closing
- * follow XML rules; `selfClosingTags` so empty elements render `<x/>`;
- * `encodeEntities: "utf8"` so the serializer escapes `<` / `>` / `&` / `"` /
- * `'` in text and attribute values exactly once. The `'` → `&apos;` and `"` →
- * `&quot;` encodings are XML-spec-equivalent to the literal characters (a
- * conforming parser decodes them back identically), so emitting them rather
- * than the bare characters is a no-op for CommCare and Vellum.
- */
-const RENDER_OPTS = {
-	xmlMode: true,
-	selfClosingTags: true,
-	encodeEntities: "utf8" as const,
-} as const;
-
-// ── Element construction helpers ─────────────────────────────────────
-//
-// One-line constructors so the field walk reads as a tree literal rather than
-// a wall of `new Element(...)`. `el` builds an element with attributes +
-// element children; `text` builds a Text node. Attribute values are passed
-// RAW (un-escaped) — the serializer escapes them, and any pre-escaping here
-// would double-encode. Children's parent pointers stay unset until final
-// assembly under `<h:html>`; the slot-array accumulators below rely on
-// elements being orphaned during the walk so a placeholder can be swapped out
-// by array index without disturbing a tree structure.
-
-/** Build an element with raw attribute values and optional element children. */
-function el(
-	name: string,
-	attribs: Record<string, string>,
-	children: ChildNode[] = [],
-): Element {
-	return new Element(name, attribs, children);
-}
-
-/** Build a Text node carrying raw character data (serializer escapes it). */
-function text(data: string): Text {
-	return new Text(data);
-}
 
 /**
  * Bare-hashtag pattern for label / hint prose.
@@ -143,7 +108,10 @@ const BARE_HASHTAG_RE = /#(case|form|user)(\/[a-zA-Z_][a-zA-Z0-9_-]*)+/g;
  * a `#` ref parses as XPath operators under the grammar and would swallow the
  * `#`, so the structural XPath parser is the wrong tool for prose scanning here.
  */
-function buildLabelNodes(label: string): ChildNode[] {
+function buildLabelNodes(
+	label: string,
+	expand: (expr: string) => string,
+): ChildNode[] {
 	const nodes: ChildNode[] = [];
 	// `BARE_HASHTAG_RE` is a module-level /g regex; reset `lastIndex` so a
 	// prior call's state never leaks into this walk.
@@ -160,7 +128,7 @@ function buildLabelNodes(label: string): ChildNode[] {
 		// XPath; `vellum:value` shadows the original shorthand only when
 		// expansion actually changed it (Vellum round-trip).
 		const original = match[0];
-		const expanded = expandHashtags(original);
+		const expanded = expand(original);
 		const attribs: Record<string, string> = { value: expanded };
 		if (original !== expanded) attribs["vellum:value"] = original;
 		nodes.push(el("output", attribs));
@@ -239,6 +207,7 @@ const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
 function buildConnectBlocks(
 	connect: ResolvedConnectConfig | undefined,
 	instances: InstanceTracker,
+	expand: (expr: string) => string,
 ): { dataElements: Element[]; binds: Element[] } {
 	const dataElements: Element[] = [];
 	const binds: Element[] = [];
@@ -287,7 +256,7 @@ function buildConnectBlocks(
 			}),
 			el("bind", {
 				nodeset: `/data/${assessId}/assessment/user_score`,
-				calculate: expandHashtags(connect.assessment.user_score),
+				calculate: expand(connect.assessment.user_score),
 			}),
 		);
 	}
@@ -319,11 +288,11 @@ function buildConnectBlocks(
 			}),
 			el("bind", {
 				nodeset: `/data/${duId}/deliver/entity_id`,
-				calculate: expandHashtags(entityId),
+				calculate: expand(entityId),
 			}),
 			el("bind", {
 				nodeset: `/data/${duId}/deliver/entity_name`,
-				calculate: expandHashtags(entityName),
+				calculate: expand(entityName),
 			}),
 		);
 	}
@@ -382,6 +351,31 @@ export function buildXForm(
 	const bodyElements: Element[] = [];
 	const itextEntries: Element[] = [];
 
+	// OpenRosa <meta> block — `<deviceID>`, `<timeStart>`, `<timeEnd>`,
+	// `<username>`, `<userID>`, `<instanceID>`, `<appVersion>`, `<drift>`
+	// plus the eight setvalues that populate them at form load and the
+	// two `<bind type="xsd:dateTime">` elements that type `timeStart` and
+	// `timeEnd`. Always emitted; receiving systems (CCHQ, FormPlayer
+	// reports, mobile sync) rely on it for audit + integrity. The
+	// setvalues reference `instance('commcaresession')/session/context/...`
+	// so the form inherently requires the session instance.
+	const meta = buildMetaBlock();
+	dataElements.push(meta.dataElement);
+	setvalues.push(...meta.setvalues);
+	binds.push(...meta.binds);
+	instances.require("commcaresession");
+
+	// Form-context-aware hashtag expander, captured once and threaded
+	// through every helper. On case-create (registration) forms,
+	// `#case/case_id` rewrites to `/data/case/@case_id` — populated by
+	// the case-create scaffolding's setvalue chain — and the
+	// case-loading lookup shape is reserved for forms that load an
+	// existing case. Every other form type expands identically to the
+	// context-free `expandHashtags`.
+	const formCtx: FormHashtagContext = { formType: form.type };
+	const expand = (expr: string): string =>
+		expandHashtagsInContext(expr, formCtx);
+
 	// Register an itext `<text>` entry. Every entry emits both the plain value
 	// AND a `<value form="markdown">` duplicate — CommCare only renders
 	// markdown when the markdown form is present, and it's a no-op for plain
@@ -392,8 +386,8 @@ export function buildXForm(
 		if (!label) return;
 		itextEntries.push(
 			el("text", { id }, [
-				el("value", {}, buildLabelNodes(label)),
-				el("value", { form: "markdown" }, buildLabelNodes(label)),
+				el("value", {}, buildLabelNodes(label, expand)),
+				el("value", { form: "markdown" }, buildLabelNodes(label, expand)),
 			]),
 		);
 	};
@@ -420,11 +414,12 @@ export function buildXForm(
 			// vs `topDataElements` in `buildFieldParts`.
 			dataElements,
 			binds,
+			expand,
 		);
 	}
 
 	// Connect data + binds are data-only (no body elements).
-	const connectParts = buildConnectBlocks(opts.connect, instances);
+	const connectParts = buildConnectBlocks(opts.connect, instances, expand);
 	dataElements.push(...connectParts.dataElements);
 	binds.push(...connectParts.binds);
 
@@ -557,6 +552,7 @@ function buildFieldParts(
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
+	expand: (expr: string) => string,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const nodePath = `${parentPath}/${field.id}`;
@@ -606,7 +602,7 @@ function buildFieldParts(
 	if (xsdType) bindAttribs.type = xsdType;
 	if (required) {
 		if (hasHashtags(required)) bindAttribs["vellum:required"] = required;
-		bindAttribs.required = expandHashtags(required);
+		bindAttribs.required = expand(required);
 	}
 
 	// Validation (constraint + constraintMsg) is meaningful only on input
@@ -617,7 +613,7 @@ function buildFieldParts(
 	const canValidate = supportsValidation(field.kind);
 	if (canValidate && validate) {
 		if (hasHashtags(validate)) bindAttribs["vellum:constraint"] = validate;
-		bindAttribs.constraint = expandHashtags(validate);
+		bindAttribs.constraint = expand(validate);
 	}
 
 	// `jr:constraintMsg` MUST be an itext reference — HQ's XForm parser only
@@ -630,11 +626,11 @@ function buildFieldParts(
 
 	if (relevant) {
 		if (hasHashtags(relevant)) bindAttribs["vellum:relevant"] = relevant;
-		bindAttribs.relevant = expandHashtags(relevant);
+		bindAttribs.relevant = expand(relevant);
 	}
 	if (calculate) {
 		if (hasHashtags(calculate)) bindAttribs["vellum:calculate"] = calculate;
-		bindAttribs.calculate = expandHashtags(calculate);
+		bindAttribs.calculate = expand(calculate);
 	}
 
 	// Setvalue for `default_value`. Inside a repeat group we fire on `jr-insert`
@@ -648,7 +644,7 @@ function buildFieldParts(
 		};
 		if (hasHashtags(defaultValue))
 			setvalueAttribs["vellum:value"] = defaultValue;
-		setvalueAttribs.value = expandHashtags(defaultValue);
+		setvalueAttribs.value = expand(defaultValue);
 		setvalues.push(el("setvalue", setvalueAttribs));
 	}
 
@@ -737,6 +733,7 @@ function buildFieldParts(
 			instances,
 			topDataElements,
 			topBinds,
+			expand,
 		);
 		return;
 	}
@@ -853,6 +850,7 @@ function buildContainer(
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
+	expand: (expr: string) => string,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -894,6 +892,7 @@ function buildContainer(
 			// scope.
 			topDataElements,
 			topBinds,
+			expand,
 		);
 	}
 
@@ -945,7 +944,7 @@ function buildContainer(
 			nodeset: nodePath,
 		};
 		if (hasHashtags(relevant)) groupBindAttribs["vellum:relevant"] = relevant;
-		groupBindAttribs.relevant = expandHashtags(relevant);
+		groupBindAttribs.relevant = expand(relevant);
 		binds[bindSlot] = el("bind", groupBindAttribs);
 	} else {
 		// Drop the leaf bind in place. `splice` (not `pop`) so any synthetic
@@ -979,6 +978,7 @@ function buildContainer(
 				topDataElements,
 				topBinds,
 				instances,
+				expand,
 			),
 		);
 		return;
@@ -1035,12 +1035,13 @@ function buildRepeatBody(
 	topDataElements: Element[],
 	topBinds: Element[],
 	instances: InstanceTracker,
+	expand: (expr: string) => string,
 ): Element {
 	let repeatNodeset = nodePath;
 	const repeatAttribs: Record<string, string> = {};
 
 	if (field.repeat_mode === "count_bound") {
-		const expandedCount = expandHashtags(field.repeat_count);
+		const expandedCount = expand(field.repeat_count);
 		// Hashtags inside repeat_count may reference casedb/session.
 		instances.scanXPath(field.repeat_count);
 
@@ -1131,7 +1132,7 @@ function buildRepeatBody(
 		repeatNodeset = `${nodePath}/item`;
 		repeatAttribs["jr:count"] = `${nodePath}/@count`;
 		repeatAttribs["jr:noAddRemove"] = "true()";
-		const expandedIdsQuery = expandHashtags(field.data_source.ids_query);
+		const expandedIdsQuery = expand(field.data_source.ids_query);
 		const idsValue = `join(' ', ${expandedIdsQuery})`;
 		const countValue = `count-selected(${nodePath}/@ids)`;
 		const indexValue = `int(${nodePath}/@current_index)`;

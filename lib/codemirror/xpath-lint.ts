@@ -9,7 +9,7 @@
 
 import { type Diagnostic, linter } from "@codemirror/lint";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
-import type { FieldKind } from "@/lib/domain";
+import type { FieldKind, FormType } from "@/lib/domain";
 
 /**
  * Context snapshot used by the XPath linter and autocomplete sources.
@@ -40,6 +40,16 @@ export interface XPathLintContext {
 		label: string;
 		kind: FieldKind;
 	}>;
+	/**
+	 * The owning form's type. Drives surfaces that change behavior with
+	 * form-creates-case semantics — most notably `#case/` autocomplete on
+	 * registration forms, which surfaces only `#case/case_id` because no
+	 * other case property is resolvable at form-init (the case doesn't
+	 * exist in casedb yet). Mirrors the `CASE_HASHTAG_ON_CREATE_FORM`
+	 * validator rule so the editor's affordances agree with the rule's
+	 * rejection set.
+	 */
+	formType: FormType;
 }
 
 /** Create a CodeMirror lint extension that validates against the live context. */
@@ -49,9 +59,27 @@ export function xpathLinter(getContext: () => XPathLintContext | undefined) {
 		if (!expr.trim()) return [];
 
 		const ctx = getContext();
-		const caseProperties = ctx?.caseProperties
-			? new Set(ctx.caseProperties.keys())
-			: undefined;
+		// Narrow the case-property accept set to mirror the
+		// CASE_HASHTAG_ON_CREATE_FORM rule + the autocomplete filter:
+		// on a registration form the case being created doesn't exist
+		// at form-init, so `#case/case_id` is the only resolvable
+		// reference. Hand-typed `#case/<other>` shows the same inline
+		// rejection the doc-layer rule and the autocomplete already
+		// agree on — three predicates, one accept set.
+		//
+		// `case_id` is unconditionally accepted (NOT gated on
+		// `caseProperties.has("case_id")`) because it is the form-
+		// allocated case id, not a user-authored case property — the
+		// case-type record on the doc rarely lists it, and the
+		// autocomplete surfaces it regardless of map membership. The
+		// three predicates must agree across that map shape too.
+		const caseProperties = (() => {
+			if (!ctx?.caseProperties) return undefined;
+			if (ctx.formType !== "registration") {
+				return new Set(ctx.caseProperties.keys());
+			}
+			return new Set(["case_id"]);
+		})();
 
 		const errors = validateXPath(expr, ctx?.validPaths, caseProperties);
 		const diagnostics: Diagnostic[] = [];

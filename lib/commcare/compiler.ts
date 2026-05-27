@@ -23,14 +23,7 @@
 
 import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
-import {
-	escapeXml,
-	type FormActions,
-	type HqApplication,
-	validateCaseType,
-	validatePropertyName,
-	validateXFormPath,
-} from "@/lib/commcare";
+import { escapeXml, type HqApplication } from "@/lib/commcare";
 import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
 import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
@@ -38,6 +31,7 @@ import { emitRemoteRequest } from "@/lib/commcare/suite/case-search/remoteReques
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
 
 /**
@@ -252,25 +246,6 @@ export function compileCcz(
 				xform = addCaseBlocks(xform, hqForm.actions, caseType);
 			}
 
-			// Re-validate after injection — catches orphaned binds or
-			// malformed structure introduced by the splice.
-			if (xform) {
-				const xformErrors = validateXForm(xform, formName, modName);
-				if (xformErrors.length > 0) {
-					throw new Error(
-						`XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +
-							xformErrors.map((e) => `  - ${errorToString(e)}`).join("\n"),
-					);
-				}
-			}
-
-			files[filePath] = xform;
-
-			// XForm resource declaration in suite.xml.
-			suiteResources.push(
-				`  <xform>\n    <resource id="${filePath}" version="1">\n      <location authority="local">./${filePath}</location>\n    </resource>\n  </xform>`,
-			);
-
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
 			// stack from the form's type, its post-submit destination, the
 			// module's case type, any form-level link overrides, the
@@ -299,6 +274,11 @@ export function compileCcz(
 			//     the enclosing entry's declarations, so every instance a
 			//     calc expression reaches needs a matching `<instance>`
 			//     here.
+			//
+			// Built BEFORE the validation gates so the binding-resolution
+			// oracle has the entry's session datums to cross-check the
+			// XForm's `instance('commcaresession')/session/data/<X>`
+			// references against.
 			const caseListColumnExpressions =
 				mod.caseListConfig?.columns
 					.filter((c) => c.kind === "calculated")
@@ -316,7 +296,40 @@ export function compileCcz(
 				caseListColumnExpressions.length > 0
 					? caseListColumnExpressions
 					: undefined,
+				hqForm.actions,
 			);
+
+			// Re-validate after injection — catches orphaned binds or
+			// malformed structure introduced by the splice. The oracle
+			// is a generator-totality check, not a user gate: a failing
+			// XForm here is a compiler bug (the case-block splice
+			// produced malformed structure), never a fixable authoring
+			// state. Authoring rejection lives in the doc-layer rules
+			// (`validator/rules/`); install-time-resolution rejection
+			// (`#case/<X>` on a registration form, the original failure
+			// shape of this gap) lives in `caseHashtagOnCreateForm`
+			// (`validator/rules/form.ts`). The binding-resolution oracle
+			// (`validator/bindingResolutionOracle.ts`) stays a fuzz-time
+			// totality proof — it asserts that every doc the authoring
+			// validator accepts compiles to a CCZ whose XPath references
+			// all resolve — and is not invoked here.
+			if (xform) {
+				const xformErrors = validateXForm(xform, formName, modName);
+				if (xformErrors.length > 0) {
+					throw new Error(
+						`XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +
+							xformErrors.map((e) => `  - ${errorToString(e)}`).join("\n"),
+					);
+				}
+			}
+
+			files[filePath] = xform;
+
+			// XForm resource declaration in suite.xml.
+			suiteResources.push(
+				`  <xform>\n    <resource id="${filePath}" version="1">\n      <location authority="local">./${filePath}</location>\n    </resource>\n  </xform>`,
+			);
+
 			suiteEntries.push(renderEntryXml(entryDef));
 			menuCommands.push(`    <command id="${cmdId}"/>`);
 		}
@@ -420,179 +433,6 @@ function generateProfile(appName: string): string {
     </resource>
   </suite>
 </profile>`;
-}
-
-/**
- * Splice case-management XML into an XForm based on the form's
- * `FormActions`. Inserts:
- *   - A `<case>` element (with `<create>`, `<update>`, `<close>` as
- *     applicable) just before `</data>`.
- *   - One `<subcase_{n}>` element per child-case subcase.
- *   - `<bind>` rules wiring each case field to its XForm data path.
- *   - A `commcaresession` instance declaration (owner_id binds read
- *     from it) if one isn't already present.
- */
-function addCaseBlocks(
-	xform: string,
-	actions: FormActions,
-	caseType: string,
-): string {
-	const openCase = actions.open_case;
-	const updateCase = actions.update_case;
-	const closeCase = actions.close_case;
-	const subcases = actions.subcases;
-	const isCreate = openCase.condition.type === "always";
-	const isUpdate = updateCase.condition.type === "always";
-	// Single read of the close condition's discriminator — reused below
-	// when deciding whether to emit a `relevant` bind.
-	const closeMode = closeCase.condition.type;
-	const isClose = closeMode === "always" || closeMode === "if";
-	const hasSubcases = subcases.length > 0;
-
-	if (!isCreate && !isUpdate && !isClose && !hasSubcases) return xform;
-
-	// Primary case element children + accumulating binds.
-	let caseChildren = "";
-	const binds: string[] = [];
-
-	if (isCreate) {
-		caseChildren +=
-			"\n            <create>\n              <case_type/>\n              <case_name/>\n              <owner_id/>\n            </create>";
-		binds.push(
-			`      <bind nodeset="/data/case/create/case_type" calculate="'${validateCaseType(caseType)}'"/>`,
-		);
-		const namePath = openCase.name_update?.question_path || "/data/name";
-		binds.push(
-			`      <bind nodeset="/data/case/create/case_name" calculate="${validateXFormPath(namePath)}"/>`,
-		);
-		binds.push(
-			`      <bind nodeset="/data/case/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`,
-		);
-	}
-
-	if (isUpdate && updateCase.update) {
-		const props = Object.keys(updateCase.update);
-		if (props.length > 0) {
-			const propElements = props
-				.map((p) => `              <${validatePropertyName(p)}/>`)
-				.join("\n");
-			caseChildren += `\n            <update>\n${propElements}\n            </update>`;
-			for (const [prop, mapping] of Object.entries(updateCase.update)) {
-				const validProp = validatePropertyName(prop);
-				const qPath = mapping.question_path || `/data/${prop}`;
-				binds.push(
-					`      <bind nodeset="/data/case/update/${validProp}" calculate="${validateXFormPath(qPath)}"/>`,
-				);
-			}
-		}
-	}
-
-	if (isClose) {
-		caseChildren += "\n            <close/>";
-		// Conditional close requires a `relevant` expression on the
-		// <close/> bind; "selected" operators produce `selected(path, answer)`
-		// while the default equality operator produces `path = 'answer'`.
-		if (closeMode === "if" && closeCase.condition.question) {
-			const qPath = validateXFormPath(closeCase.condition.question);
-			const answer = closeCase.condition.answer || "";
-			const op = closeCase.condition.operator ?? "=";
-			const relevantExpr =
-				op === "selected"
-					? `selected(${qPath}, '${answer}')`
-					: `${qPath} = '${answer}'`;
-			binds.push(
-				`      <bind nodeset="/data/case/close" relevant="${relevantExpr}"/>`,
-			);
-		}
-	}
-
-	if (isCreate || isUpdate || isClose) {
-		const caseBlock = `          <case>${caseChildren}\n          </case>`;
-		// Emitter guarantees a single top-level `<data>` per form — this
-		// `replace` targets that unique occurrence's closing tag.
-		xform = xform.replace(/(<\/data>)/, `\n${caseBlock}\n        $1`);
-	}
-
-	// Subcases — each child-case creation gets a dedicated element
-	// named `subcase_{n}` (or nested under its repeat context).
-	for (let sIdx = 0; sIdx < subcases.length; sIdx++) {
-		const sc = subcases[sIdx];
-		if (sc.condition.type !== "always") continue;
-
-		const elName = `subcase_${sIdx}`;
-		const repeatCtx = sc.repeat_context || "";
-		const basePath = repeatCtx ? `${repeatCtx}/${elName}` : `/data/${elName}`;
-
-		let scChildren = "";
-		scChildren +=
-			"\n            <create>\n              <case_type/>\n              <case_name/>\n              <owner_id/>\n            </create>";
-		binds.push(
-			`      <bind nodeset="${basePath}/create/case_type" calculate="'${validateCaseType(sc.case_type)}'"/>`,
-		);
-		const namePath = sc.name_update?.question_path || `${basePath}/name`;
-		binds.push(
-			`      <bind nodeset="${basePath}/create/case_name" calculate="${validateXFormPath(namePath)}"/>`,
-		);
-		binds.push(
-			`      <bind nodeset="${basePath}/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`,
-		);
-
-		// Index edge back to the parent case — relationship is "child" or
-		// "extension" depending on the subcase configuration.
-		scChildren += `\n            <index>\n              <parent case_type="${validateCaseType(caseType)}" relationship="${sc.relationship || "child"}"/>\n            </index>`;
-
-		if (Object.keys(sc.case_properties).length > 0) {
-			const props = Object.entries(sc.case_properties);
-			const propElements = props
-				.map(([p]) => `              <${validatePropertyName(p)}/>`)
-				.join("\n");
-			scChildren += `\n            <update>\n${propElements}\n            </update>`;
-			for (const [prop, mapping] of props) {
-				const validProp = validatePropertyName(prop);
-				const qPath = mapping.question_path || `/data/${prop}`;
-				binds.push(
-					`      <bind nodeset="${basePath}/update/${validProp}" calculate="${validateXFormPath(qPath)}"/>`,
-				);
-			}
-		}
-
-		const scBlock = `          <${elName}>${scChildren}\n          </${elName}>`;
-		// Same single-top-level-`<data>` invariant as the primary case splice.
-		xform = xform.replace(/(<\/data>)/, `\n${scBlock}\n        $1`);
-	}
-
-	// Insert the new binds after the last existing <bind> (the emitter
-	// always produces at least one bind per form). If there are no
-	// binds yet — e.g. a no-field registration — splice just before
-	// <itext> or </model>. Emitter guarantees a single top-level
-	// `<model>` so the fallback `replace` targets that specific `</model>`.
-	const bindStr = binds.join("\n");
-	const lastBindIdx = xform.lastIndexOf("</bind>");
-	if (lastBindIdx === -1) {
-		xform = xform.replace(/(<itext>|<\/model>)/, `${bindStr}\n      $1`);
-	} else {
-		const afterLastBind = xform.indexOf("\n", lastBindIdx);
-		if (afterLastBind !== -1) {
-			xform =
-				xform.substring(0, afterLastBind + 1) +
-				bindStr +
-				"\n" +
-				xform.substring(afterLastBind + 1);
-		}
-	}
-
-	// owner_id binds reference `instance('commcaresession')` — declare
-	// that instance if the emitter didn't already. Emitter always
-	// produces at least one `<instance>`, so `</instance>` exists and
-	// this `replace` targets its first occurrence.
-	if (!xform.includes('id="commcaresession"')) {
-		xform = xform.replace(
-			/(<\/instance>)/,
-			`$1\n      <instance id="commcaresession" src="jr://instance/session"/>`,
-		);
-	}
-
-	return xform;
 }
 
 /**

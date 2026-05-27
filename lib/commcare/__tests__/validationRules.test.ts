@@ -1174,6 +1174,528 @@ describe("form_links validation", () => {
 	});
 });
 
+// ── Not-yet-modeled feature rejection ───────────────────────────────
+
+describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
+	/**
+	 * Nova's wire layer only declares `<instance>` elements for the
+	 * closed set the InstanceTracker / suite accumulator know about
+	 * (casedb, commcaresession, and a few remote-request-side ids).
+	 * Any `instance('<id>')` reference outside that set in a field's
+	 * XPath surface would compile to a form whose `<instance>` block is
+	 * missing the matching declaration, surfaced on device as "A part
+	 * of your application is invalid." The validator rejects this at
+	 * authoring time so the user sees the error in the editor.
+	 */
+
+	function surveyWithFieldCalculate(expr: string): BlueprintDoc {
+		return surveyDoc([
+			f({ kind: "text", id: "q1", label: "Q", calculate: expr }),
+		]);
+	}
+
+	it("rejects instance('item-list:lookup') in a calculate", () => {
+		const errors = runValidation(
+			surveyWithFieldCalculate("instance('item-list:countries')/list/item/id"),
+		);
+		const fixture = errors.find(
+			(e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED",
+		);
+		expect(fixture).toBeDefined();
+		expect(fixture?.message).toContain("item-list:countries");
+		expect(fixture?.message).toContain("lookup-table");
+	});
+
+	it("rejects instance('commcare:reports') in a calculate", () => {
+		const errors = runValidation(
+			surveyWithFieldCalculate("instance('commcare:reports')/foo"),
+		);
+		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+			true,
+		);
+	});
+
+	it("rejects instance('commcare-reports:abc') in a calculate", () => {
+		const errors = runValidation(
+			surveyWithFieldCalculate("instance('commcare-reports:abc')/x"),
+		);
+		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+			true,
+		);
+	});
+
+	for (const surface of ["relevant", "validate", "default_value", "required"]) {
+		it(`rejects an unmodeled fixture in a field's ${surface}`, () => {
+			const doc = surveyDoc([
+				f({
+					kind: "text",
+					id: "q1",
+					label: "Q",
+					[surface]: "instance('item-list:colors')/list/item/id",
+				} as Parameters<typeof f>[0]),
+			]);
+			expect(
+				runValidation(doc).some(
+					(e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED",
+				),
+			).toBe(true);
+		});
+	}
+
+	it("allows instance('casedb') — Nova models case data", () => {
+		const errors = runValidation(
+			surveyWithFieldCalculate(
+				"instance('casedb')/casedb/case[@case_type='x']/foo",
+			),
+		);
+		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+			false,
+		);
+	});
+
+	it("allows instance('commcaresession') — Nova models session data", () => {
+		const errors = runValidation(
+			surveyWithFieldCalculate(
+				"instance('commcaresession')/session/context/userid",
+			),
+		);
+		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+			false,
+		);
+	});
+
+	it("allows fields with no XPath surface containing an instance ref", () => {
+		const errors = runValidation(
+			surveyDoc([f({ kind: "text", id: "q1", label: "Q" })]),
+		);
+		expect(errors.some((e) => e.code === "FIXTURE_REFERENCE_NOT_MODELED")).toBe(
+			false,
+		);
+	});
+});
+
+describe("SUBCASE_IN_REPEAT_NOT_MODELED", () => {
+	/**
+	 * Nova's wire emitter does not yet support creating subcases inside
+	 * a repeat (one parent + many children in one submission). The bind
+	 * nodesets in `xform/caseBlocks.ts::buildCaseBlocks` prefix with the
+	 * repeat-context path but the wrapper element is always spliced at
+	 * the form's top-level `<data>` — the post-injection XForm oracle
+	 * catches the dangling bind and `compileCcz` throws. The doc-layer
+	 * rule rejects the shape at authoring time so the user gets the
+	 * error in the editor instead of an opaque compile-time throw.
+	 */
+
+	function repeatWithChildSubcaseDoc(): BlueprintDoc {
+		return buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "repeat",
+									id: "children",
+									label: "Children",
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											kind: "text",
+											id: "child_name",
+											label: "Child name",
+											case_property_on: "child1",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "child1",
+					properties: [{ name: "child_name", label: "Name" }],
+				},
+			],
+		});
+	}
+
+	it("rejects a field with cross-case-type `case_property_on` inside a repeat", () => {
+		const doc = repeatWithChildSubcaseDoc();
+		const errors = runValidation(doc);
+		const offender = errors.find(
+			(e) => e.code === "SUBCASE_IN_REPEAT_NOT_MODELED",
+		);
+		expect(offender).toBeDefined();
+		expect(offender?.message).toContain("child1");
+		expect(offender?.message).toContain("children");
+		expect(offender?.message).toContain("followup");
+	});
+
+	it("does not flag a non-repeat subcase (root-level cross-case-type field)", () => {
+		// Hoist the child field out of the repeat — Nova's non-repeat
+		// subcase emission is supported, so this shape must pass.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "text",
+									id: "child_name",
+									label: "Child name",
+									case_property_on: "child1",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "child1",
+					properties: [{ name: "child_name", label: "Name" }],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "SUBCASE_IN_REPEAT_NOT_MODELED")).toBe(
+			false,
+		);
+	});
+
+	it("does not flag a same-case-type field inside a repeat", () => {
+		// A repeat whose descendants all save to the module's own case
+		// type isn't a subcase pattern — it's the standard "multi-value
+		// case property" pattern Nova handles via the form-question
+		// model. The rule must not flag it.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Parent name",
+									case_property_on: "parent",
+								}),
+								f({
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											kind: "text",
+											id: "note",
+											label: "Note",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "SUBCASE_IN_REPEAT_NOT_MODELED")).toBe(
+			false,
+		);
+	});
+});
+
+describe("CCHQ-only features stay unauthorable via the strict schema", () => {
+	/**
+	 * The plan called for explicit NOT_MODELED rules for usercase,
+	 * parent_select (authoring), put_in_root, case_list_form, schedule.
+	 * Each of those fields is not present on Nova's `formSchema` /
+	 * `moduleSchema` — both schemas are declared `.strict()`, so Zod
+	 * rejects unknown keys at the document-parse boundary, which runs
+	 * before the validator. The tests below lock the contract: if any
+	 * of those keys silently lands on a doc, the parser throws — no
+	 * separate validator rule needed.
+	 *
+	 * If a future schema change exposes these fields to authoring,
+	 * THESE TESTS START PASSING (the strict schema no longer rejects),
+	 * which is the cue to add the matching authoring-layer rule. Do
+	 * not weaken the strict schema without adding the matching
+	 * rejection rule alongside.
+	 */
+
+	const expectStrictReject = async (
+		schemaName: "moduleSchema" | "formSchema",
+		extra: Record<string, unknown>,
+	) => {
+		const { moduleSchema, formSchema } = await import("@/lib/domain");
+		const schema = schemaName === "moduleSchema" ? moduleSchema : formSchema;
+		const base =
+			schemaName === "moduleSchema"
+				? {
+						uuid: asUuid("00000000000000000000000000000001"),
+						id: "m",
+						name: "M",
+					}
+				: {
+						uuid: asUuid("00000000000000000000000000000002"),
+						id: "f",
+						name: "F",
+						type: "survey",
+					};
+		const result = schema.safeParse({ ...base, ...extra });
+		expect(result.success).toBe(false);
+	};
+
+	it("module schema rejects put_in_root: true", async () => {
+		await expectStrictReject("moduleSchema", { put_in_root: true });
+	});
+	it("module schema rejects case_list_form", async () => {
+		await expectStrictReject("moduleSchema", {
+			case_list_form: { form_id: "x" },
+		});
+	});
+	it("module schema rejects schedule config", async () => {
+		await expectStrictReject("moduleSchema", { schedule: { phases: [] } });
+	});
+	it("module schema rejects authored parent_select", async () => {
+		// Nova DERIVES parent_select via case-type parent_type in the
+		// expander; users cannot author it directly. The strict schema
+		// enforces this — parent_select is not a Module field.
+		await expectStrictReject("moduleSchema", {
+			parent_select: { active: true },
+		});
+	});
+	it("form schema rejects usercase actions", async () => {
+		await expectStrictReject("formSchema", {
+			usercase_update: { update: { x: "y" } },
+		});
+		await expectStrictReject("formSchema", {
+			usercase_preload: { preload: { y: "z" } },
+		});
+	});
+});
+
+// ── Case-hashtag on case-create form ────────────────────────────────
+
+describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
+	/**
+	 * On a registration form, the case being created doesn't exist in
+	 * `casedb` yet, so `#case/<X>` references can't resolve at form-init.
+	 * The validator rejects them at authoring time so the user gets the
+	 * error in the editor instead of at compile-time after they hit
+	 * "Generate App". `#case/case_id` is the one exception — the
+	 * form-context-aware expander rewrites it to `/data/case/@case_id`
+	 * (populated by the case-management scaffolding's setvalue chain).
+	 */
+
+	/** Reusable registration-form fixture with one stringified XPath surface. */
+	function registrationWithSurface(spec: {
+		kind?: "calculate" | "relevant" | "validate" | "default_value" | "required";
+		expr: string;
+	}): BlueprintDoc {
+		const fieldSpec: Parameters<typeof f>[0] = {
+			kind: "text",
+			id: "case_name",
+			label: "Name",
+			case_property_on: "patient",
+		};
+		// Map the surface to its field property so we can drive every
+		// scanned surface in one fixture builder.
+		const surface = spec.kind ?? "calculate";
+		(fieldSpec as Record<string, unknown>)[surface] = spec.expr;
+		return buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "M",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [fieldSpec],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+	}
+
+	it("rejects #case/<other> on a registration form's calculate", () => {
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: "#case/age + 1",
+		});
+		const errors = runValidation(doc);
+		const offender = errors.find(
+			(e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM",
+		);
+		expect(offender).toBeDefined();
+		expect(offender?.message).toContain("#case/age");
+		expect(offender?.message).toContain("#form/<question_id>");
+	});
+
+	for (const surface of [
+		"relevant",
+		"validate",
+		"default_value",
+		"required",
+	] as const) {
+		it(`rejects #case/<other> in field.${surface}`, () => {
+			const doc = registrationWithSurface({
+				kind: surface,
+				expr: "#case/total_visits",
+			});
+			const errors = runValidation(doc);
+			expect(errors.some((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM")).toBe(
+				true,
+			);
+		});
+	}
+
+	it("allows #case/case_id on a registration form (rewritten to /data/case/@case_id)", () => {
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: "#case/case_id",
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.filter((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM"),
+		).toEqual([]);
+	});
+
+	it("treats #case/case_id_x as an invalid reference (not a prefix match for case_id)", () => {
+		// The Lezer parser matches on segment boundary — a segment named
+		// `case_id_x` is NOT the same as `case_id`, so it must be flagged.
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: "#case/case_id_x",
+		});
+		const errors = runValidation(doc);
+		const offender = errors.find(
+			(e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM",
+		);
+		expect(offender?.message).toContain("#case/case_id_x");
+	});
+
+	it("does not flag #case/<X> on a followup form (case is loaded there)", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "M",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+						{
+							name: "Followup",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "next_age",
+									label: "Next age",
+									calculate: "#case/age + 1",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.filter((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM"),
+		).toEqual([]);
+	});
+
+	it("rejects #case/<other> inside a label's inline hashtag", () => {
+		// Labels lower to `<output value=...>` at emit; the inline
+		// hashtag is XPath-evaluated the same way an expression surface is.
+		const doc = registrationWithSurface({
+			kind: "calculate",
+			expr: "1 + 1",
+		});
+		// Add a label with a `#case/` reference on the same field.
+		const docWithLabel = update(doc, (d) => {
+			const field = Object.values(d.fields)[0] as Record<string, unknown>;
+			field.label = "Age: #case/age";
+		});
+		const errors = runValidation(docWithLabel);
+		expect(errors.some((e) => e.code === "CASE_HASHTAG_ON_CREATE_FORM")).toBe(
+			true,
+		);
+	});
+});
+
 // ── Connect rules ──────────────────────────────────────────────────
 
 describe("connect rules", () => {

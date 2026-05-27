@@ -20,7 +20,8 @@ import {
 	type DerivedCaseConfig,
 	deriveCaseConfig,
 } from "@/lib/commcare/deriveCaseConfig";
-import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
+import { readFieldString } from "@/lib/commcare/fieldProps";
+import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -799,6 +800,315 @@ function casePropertyBadFormat(
 	return errors;
 }
 
+/**
+ * Lezer node-type handles for the case-hashtag scan. Resolved at module
+ * load (one lookup, zero string comparisons in the hot path).
+ */
+const HASHTAG_NODE_TYPES = (() => {
+	const all = parser.nodeSet.types;
+	const one = (name: string) => {
+		const found = all.find((t) => t.name === name);
+		if (!found) throw new Error(`Missing parser node type: ${name}`);
+		return found;
+	};
+	return {
+		HashtagRef: one("HashtagRef"),
+		HashtagType: one("HashtagType"),
+		HashtagSegment: one("HashtagSegment"),
+	};
+})();
+
+/**
+ * Find every `#case/<X>` hashtag in an XPath EXPRESSION whose segment
+ * list is NOT exactly `["case_id"]`. Walks the Lezer parse tree so the
+ * match is segment-boundary aware (`#case/case_id_extension` is NOT
+ * mistaken for `#case/case_id` by prefix). Use this for true XPath
+ * surfaces: `relevant` / `validate` / `calculate` / `default_value` /
+ * `required` and Connect bindings.
+ *
+ * Returns the authored span (e.g. `"#case/total_visits"`) so the error
+ * message can quote the user's exact text.
+ */
+function findInvalidCaseHashtagsInXPath(expr: string): string[] {
+	if (!expr) return [];
+	const out: string[] = [];
+	const tree = parser.parse(expr);
+	tree.iterate({
+		enter(node) {
+			if (node.type !== HASHTAG_NODE_TYPES.HashtagRef) return;
+			const ref = node.node;
+			const type = ref.getChild(HASHTAG_NODE_TYPES.HashtagType.id);
+			if (!type) return false;
+			if (expr.slice(type.from, type.to) !== "case") return false;
+			const segments = ref.getChildren(HASHTAG_NODE_TYPES.HashtagSegment.id);
+			if (segments.length === 1) {
+				const seg = expr.slice(segments[0].from, segments[0].to);
+				if (seg === "case_id") return false;
+			}
+			out.push(expr.slice(node.from, node.to));
+			return false;
+		},
+	});
+	return out;
+}
+
+/**
+ * Match the same bare-hashtag pattern the XForm builder uses to lower
+ * inline label / hint / validate_msg prose to `<output value>` elements
+ * (`lib/commcare/xform/builder.ts::BARE_HASHTAG_RE`). Label text is
+ * natural-language prose, NOT XPath, so the Lezer XPath grammar would
+ * parse a label like `"Age: #case/age"` as something other than the
+ * intended hashtag reference. Use this for prose surfaces — `label` /
+ * `hint` / `validate_msg` — to mirror exactly which prose hashtags the
+ * emitter would lower (and therefore which ones JavaRosa would try to
+ * resolve at install time).
+ *
+ * Filters to `#case/<X>` references where the path is not the single
+ * segment `case_id`; same exception rule as the XPath scanner above.
+ */
+const PROSE_HASHTAG_RE = /#case((?:\/[a-zA-Z_][a-zA-Z0-9_-]*)+)/g;
+function findInvalidCaseHashtagsInProse(textContent: string): string[] {
+	if (!textContent) return [];
+	const out: string[] = [];
+	for (const match of textContent.matchAll(PROSE_HASHTAG_RE)) {
+		const segments = match[1].split("/").filter((s) => s.length > 0);
+		if (segments.length === 1 && segments[0] === "case_id") continue;
+		out.push(match[0]);
+	}
+	return out;
+}
+
+/**
+ * On a registration form, the case the form creates does not exist in
+ * `casedb` at form-init — `casedb` only sees it after the
+ * post-submission case transaction lands. The context-free hashtag
+ * expander rewrites `#case/<X>` to the case-loading XPath
+ * (`instance('casedb')/casedb/case[@case_id = instance('commcaresession')/
+ *  session/data/case_id]/<X>`), but a case-create entry declares no
+ * `case_id` session datum (only `case_id_new_<casetype>_0`), so JavaRosa
+ * rejects the calculate at form-init with `XPathTypeMismatchException`,
+ * surfaced on device as "A part of your application is invalid."
+ *
+ * One exception: `#case/case_id` refers to the form's own newly-
+ * allocated case_id, populated at `xforms-ready` into
+ * `/data/case/@case_id` by the case-management scaffolding the compiler
+ * emits. The form-context-aware expander
+ * (`lib/commcare/hashtags/formContext.ts`) rewrites that ref to the
+ * form-local path.
+ *
+ * Every other `#case/<X>` on a registration form is semantically
+ * invalid — the property is being SET by the form right now, not read
+ * from a pre-existing case — and Nova rejects it at authoring time so
+ * the SA / user sees the error in the editor (not at compile-time
+ * after they hit "Generate App"). The fix is to reference the form
+ * question directly: `#form/<question_id>` or `/data/<question_id>`.
+ *
+ * Scope of surfaces walked: every field's expression slots
+ * (`relevant` / `validate` / `calculate` / `default_value` / `required`)
+ * plus its text slots (`label` / `hint` / `validate_msg`, which can
+ * carry inline hashtags that lower to `<output value>` at emit), plus
+ * the form's Connect XPath bindings
+ * (`deliver_unit.entity_id` / `entity_name`, `assessment.user_score`).
+ */
+function caseHashtagOnCreateForm(
+	doc: BlueprintDoc,
+	form: Form,
+	ctx: FormContext,
+): ValidationError[] {
+	if (form.type !== "registration") return [];
+	const errors: ValidationError[] = [];
+	const loc = baseLocation(ctx);
+
+	/**
+	 * Emit one error per offending hashtag occurrence. Quotes the
+	 * authored text exactly so the user can find it in the editor by
+	 * search. `kind` picks the scanner that matches the wire emitter's
+	 * own pattern for that surface (Lezer for XPath, prose-regex for
+	 * label / hint / validate_msg).
+	 */
+	const flag = (
+		kind: "xpath" | "prose",
+		surface: string,
+		where: string,
+		value: string | undefined,
+	) => {
+		if (!value) return;
+		const hashtags =
+			kind === "xpath"
+				? findInvalidCaseHashtagsInXPath(value)
+				: findInvalidCaseHashtagsInProse(value);
+		for (const hashtag of hashtags) {
+			errors.push(
+				validationError(
+					"CASE_HASHTAG_ON_CREATE_FORM",
+					"form",
+					`"${ctx.formName}" references "${hashtag}" in ${surface}${where ? ` of ${where}` : ""}. On a registration form the case being created doesn't exist yet, so case-property references can't resolve. Use "#form/<question_id>" to reference a form question by id, or "/data/<path>" for a fully-qualified XPath. The only valid case reference on a registration form is "#case/case_id" — it points to the newly-allocated case_id.`,
+					loc,
+					{ hashtag, surface },
+				),
+			);
+		}
+	};
+
+	// Walk every field's XPath + prose surfaces. Containers count too —
+	// `readFieldString` returns the configured value or undefined.
+	// Expression surfaces (relevant/validate/calculate/default_value/
+	// required) flow through the hashtag expander as XPath; prose
+	// surfaces (label/hint/validate_msg) lower their inline hashtags to
+	// `<output value="...">` at emit. Both must be screened here.
+	const XPATH_FIELD_SURFACES = [
+		"relevant",
+		"validate",
+		"calculate",
+		"default_value",
+		"required",
+	] as const;
+	const PROSE_FIELD_SURFACES = ["label", "hint", "validate_msg"] as const;
+	const walkFields = (parentUuid: Uuid): void => {
+		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+			const field = doc.fields[uuid];
+			if (!field) continue;
+			const fieldRef = `field "${field.id}"`;
+			for (const surface of XPATH_FIELD_SURFACES) {
+				flag("xpath", surface, fieldRef, readFieldString(field, surface));
+			}
+			for (const surface of PROSE_FIELD_SURFACES) {
+				flag("prose", surface, fieldRef, readFieldString(field, surface));
+			}
+			// Repeat-cardinality surfaces — XPath the wire emitter threads
+			// through the hashtag expander on both count-bound and
+			// query-bound repeats. Skipping these would let `#case/<X>` on
+			// a registration form's `repeat_count` or `data_source.ids_query`
+			// slip past authoring validation and surface as a compile-time
+			// throw, the failure mode this rule exists to close.
+			if (field.kind === "repeat") {
+				if (field.repeat_mode === "count_bound") {
+					flag("xpath", "repeat_count", fieldRef, field.repeat_count);
+				} else if (field.repeat_mode === "query_bound") {
+					flag(
+						"xpath",
+						"data_source.ids_query",
+						fieldRef,
+						field.data_source.ids_query,
+					);
+				}
+			}
+			if (doc.fieldOrder[uuid] !== undefined) walkFields(uuid);
+		}
+	};
+	walkFields(ctx.formUuid);
+
+	// Connect XPath surfaces — the bind emitter lowers them to
+	// `calculate="..."` on the per-form Connect element; treat them as
+	// raw XPath expressions.
+	if (form.connect?.deliver_unit) {
+		flag(
+			"xpath",
+			"connect deliver_unit.entity_id",
+			"",
+			form.connect.deliver_unit.entity_id,
+		);
+		flag(
+			"xpath",
+			"connect deliver_unit.entity_name",
+			"",
+			form.connect.deliver_unit.entity_name,
+		);
+	}
+	if (form.connect?.assessment) {
+		flag(
+			"xpath",
+			"connect assessment.user_score",
+			"",
+			form.connect.assessment.user_score,
+		);
+	}
+
+	return errors;
+}
+
+/**
+ * A `case_property_on` value names a case type other than the module's
+ * own case type — Nova's expander treats this as a child-case
+ * reference and auto-derives a subcase. The shape is fine outside a
+ * repeat; the wire emitter (`xform/caseBlocks.ts::buildCaseBlocks` +
+ * `xform/caseBlocks.ts::addCaseBlocks`) handles the non-repeat
+ * subcase by splicing the wrapper element under the form's top-level
+ * `<data>`. But when the field sits INSIDE a repeat, the wire
+ * emitter builds bind nodesets with the repeat-scoped prefix
+ * (`/data/<repeat_id>/subcase_<n>/case/...`) while the splice site
+ * still appends the wrapper under top-level `<data>`. The two
+ * disagree on the wire path, the post-injection XForm oracle
+ * catches the dangling bind, and `compileCcz` throws — exactly the
+ * emit-time-error UX the total-function-emitter principle forbids.
+ *
+ * CCHQ's emitter handles this shape (`commcare-hq/.../app_manager/
+ * xform.py::XForm.add_create_block` walks the repeat-context path
+ * to find the splice parent) and the canonical fixture
+ * `multiple_subcase_repeat.xml` exercises it. Nova's emitter does
+ * not — until it does, reject the authoring shape so the user gets
+ * an actionable error in the editor instead of an opaque compile-
+ * time throw.
+ *
+ * Alternative authoring shapes the user can reach for:
+ *   - Move the child-creation off the registration form into a
+ *     followup form that does one subcase per submission (the
+ *     standard "one parent registration + many child followups"
+ *     pattern Nova fully supports today).
+ *   - Hoist the child field out of the repeat and create exactly
+ *     one subcase per parent — Nova's non-repeat subcase emission
+ *     is supported.
+ */
+function subcaseInRepeatNotModeled(
+	doc: BlueprintDoc,
+	ctx: FormContext,
+	mod: Module,
+): ValidationError[] {
+	if (!mod.caseType) return [];
+	const knownCaseTypes = new Set((doc.caseTypes ?? []).map((ct) => ct.name));
+	if (knownCaseTypes.size === 0) return [];
+	const errors: ValidationError[] = [];
+
+	const walk = (parentUuid: Uuid, repeatAncestor: string | undefined): void => {
+		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+			const field = doc.fields[uuid];
+			if (!field) continue;
+			const fieldCaseType =
+				typeof (field as Record<string, unknown>).case_property_on === "string"
+					? ((field as Record<string, unknown>).case_property_on as string)
+					: undefined;
+			if (
+				repeatAncestor &&
+				fieldCaseType &&
+				fieldCaseType !== mod.caseType &&
+				knownCaseTypes.has(fieldCaseType)
+			) {
+				errors.push(
+					validationError(
+						"SUBCASE_IN_REPEAT_NOT_MODELED",
+						"form",
+						`"${ctx.formName}" has field "${field.id}" inside repeat "${repeatAncestor}" with case_property_on "${fieldCaseType}" (different from the module's case type "${mod.caseType}"). Nova doesn't yet support creating subcases inside a repeat (one parent + many children created in one submission). Move the child-creation to a separate followup form that creates one subcase per submission, or hoist this field out of the repeat to create exactly one subcase per parent.`,
+						baseLocation(ctx),
+						{
+							fieldId: field.id,
+							repeatId: repeatAncestor,
+							childCaseType: fieldCaseType,
+						},
+					),
+				);
+			}
+			if (doc.fieldOrder[uuid] !== undefined) {
+				const nextRepeatAncestor =
+					field.kind === "repeat" ? field.id : repeatAncestor;
+				walk(uuid, nextRepeatAncestor);
+			}
+		}
+	};
+	walk(ctx.formUuid, undefined);
+
+	return errors;
+}
+
 function casePropertyTooLong(
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
@@ -857,6 +1167,8 @@ export function runFormRules(
 	errors.push(...postSubmitValidation(form, ctx, mod));
 	errors.push(...formLinkValidation(doc, form, ctx));
 	errors.push(...connectValidation(doc, form, ctx));
+	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
+	errors.push(...subcaseInRepeatNotModeled(doc, ctx, mod));
 
 	return errors;
 }

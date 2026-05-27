@@ -82,6 +82,8 @@ export type ValidationErrorCode =
 	| "CONNECT_ID_INVALID_FORMAT"
 	| "CONNECT_ID_TOO_LONG"
 	| "CONNECT_ID_DUPLICATE"
+	| "CASE_HASHTAG_ON_CREATE_FORM"
+	| "SUBCASE_IN_REPEAT_NOT_MODELED"
 	| "DUPLICATE_FIELD_ID"
 	| "CASE_PROPERTY_BAD_FORMAT"
 	| "CASE_PROPERTY_TOO_LONG"
@@ -94,6 +96,7 @@ export type ValidationErrorCode =
 	| "VALIDATION_ON_NON_INPUT_KIND"
 	| "EMPTY_REPEAT_COUNT"
 	| "EMPTY_IDS_QUERY"
+	| "FIXTURE_REFERENCE_NOT_MODELED"
 	// XForm output (post-expansion) — the parse-time oracle's FATAL contract.
 	| "XFORM_PARSE_ERROR"
 	| "XFORM_NO_INSTANCE"
@@ -180,6 +183,15 @@ export type ValidationErrorCode =
 	| "HQJSON_BAD_SUBCASE_RELATIONSHIP"
 	| "HQJSON_BAD_DETAIL_DISPLAY"
 	| "HQJSON_BAD_TYPE"
+	// Binding-resolution oracle (post-expansion) — JavaRosa's install-time XPath
+	// resolution contract. A reference an expression makes that can't be
+	// resolved against the form's symbol space crashes JavaRosa at form-init,
+	// surfaced on device as "A part of your application is invalid". The
+	// parse-time oracle (XFORM_* above) only proves the XPath PARSES; this
+	// oracle proves it RESOLVES.
+	| "BINDING_RESOLUTION_INSTANCE_UNDECLARED"
+	| "BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED"
+	| "BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"
