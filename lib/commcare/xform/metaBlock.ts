@@ -35,6 +35,7 @@
 
 import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
+import { FormPath } from "@/lib/commcare/xform/formPath";
 
 /**
  * What `buildMetaBlock` produces for the consumer to splice in.
@@ -80,6 +81,19 @@ export function buildMetaBlock(): MetaBlockEmission {
 		el("drift", {}),
 	]);
 
+	// One meta-child path per setvalue / bind, constructed via FormPath so the
+	// `/data/meta/...` shape is structural rather than string-templated. Every
+	// downstream attribute reads the same typed value through `.toXPath()`.
+	const meta = FormPath.root().child("meta");
+	const deviceIDPath = meta.child("deviceID").toXPath();
+	const timeStartPath = meta.child("timeStart").toXPath();
+	const timeEndPath = meta.child("timeEnd").toXPath();
+	const usernamePath = meta.child("username").toXPath();
+	const userIDPath = meta.child("userID").toXPath();
+	const instanceIDPath = meta.child("instanceID").toXPath();
+	const appVersionPath = meta.child("appVersion").toXPath();
+	const driftPath = meta.child("drift").toXPath();
+
 	// One-shot capture at form load (xforms-ready) for everything except
 	// timeEnd and drift, which refresh on every revalidate so the closing
 	// values reflect the actual submission moment. instanceID uses uuid()
@@ -87,42 +101,42 @@ export function buildMetaBlock(): MetaBlockEmission {
 	// pull from session context; timeStart is now() at load.
 	const setvalues = [
 		el("setvalue", {
-			ref: "/data/meta/deviceID",
+			ref: deviceIDPath,
 			value: "instance('commcaresession')/session/context/deviceid",
 			event: "xforms-ready",
 		}),
 		el("setvalue", {
-			ref: "/data/meta/timeStart",
+			ref: timeStartPath,
 			value: "now()",
 			event: "xforms-ready",
 		}),
 		el("setvalue", {
-			ref: "/data/meta/timeEnd",
+			ref: timeEndPath,
 			value: "now()",
 			event: "xforms-revalidate",
 		}),
 		el("setvalue", {
-			ref: "/data/meta/username",
+			ref: usernamePath,
 			value: "instance('commcaresession')/session/context/username",
 			event: "xforms-ready",
 		}),
 		el("setvalue", {
-			ref: "/data/meta/userID",
+			ref: userIDPath,
 			value: "instance('commcaresession')/session/context/userid",
 			event: "xforms-ready",
 		}),
 		el("setvalue", {
-			ref: "/data/meta/instanceID",
+			ref: instanceIDPath,
 			value: "uuid()",
 			event: "xforms-ready",
 		}),
 		el("setvalue", {
-			ref: "/data/meta/appVersion",
+			ref: appVersionPath,
 			value: "instance('commcaresession')/session/context/appversion",
 			event: "xforms-ready",
 		}),
 		el("setvalue", {
-			ref: "/data/meta/drift",
+			ref: driftPath,
 			value:
 				"if(count(instance('commcaresession')/session/context/drift) = 1, instance('commcaresession')/session/context/drift, '')",
 			event: "xforms-revalidate",
@@ -137,11 +151,11 @@ export function buildMetaBlock(): MetaBlockEmission {
 	// string.
 	const binds = [
 		el("bind", {
-			nodeset: "/data/meta/timeStart",
+			nodeset: timeStartPath,
 			type: "xsd:dateTime",
 		}),
 		el("bind", {
-			nodeset: "/data/meta/timeEnd",
+			nodeset: timeEndPath,
 			type: "xsd:dateTime",
 		}),
 	];
