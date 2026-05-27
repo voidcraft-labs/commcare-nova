@@ -45,13 +45,13 @@ import {
 } from "@/lib/commcare";
 import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
+import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import { readFieldString } from "@/lib/commcare/fieldProps";
 import {
 	expandHashtagsInContext,
 	type FormHashtagContext,
 } from "@/lib/commcare/hashtags/formContext";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
-import { el, RENDER_OPTS, text } from "@/lib/commcare/xform/elementBuilders";
 import { buildMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 

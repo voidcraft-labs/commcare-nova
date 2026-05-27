@@ -46,12 +46,12 @@ import { type ChildNode, Element } from "domhandler";
 import { findOne, getChildren } from "domutils";
 import { parseDocument } from "htmlparser2";
 import type { FormActionCondition, FormActions } from "@/lib/commcare";
+import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import {
 	validateCaseType,
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
-import { el, RENDER_OPTS } from "@/lib/commcare/xform/elementBuilders";
 
 /**
  * CommCare case-transaction XML namespace. Every `<case>` element on the wire
