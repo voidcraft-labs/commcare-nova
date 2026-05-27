@@ -7,42 +7,25 @@
  * session/data/case_id]/<X>`). That shape is correct for forms that load
  * an existing case (followup / close) — `session/data/case_id` is bound
  * to the chosen case, and the lookup resolves to the case's properties
- * in the case database.
+ * in casedb.
  *
- * On a case-create form (registration) it isn't correct on either side:
+ * On a case-create form (registration) the case-loading shape can't
+ * resolve: the form's session has no `case_id` datum (case-create entries
+ * declare `case_id_new_<casetype>_0` instead), and the case being created
+ * isn't in casedb until after submission. Resolution policy on a
+ * registration form: `#case/case_id` is the one `#case/` reference with a
+ * defined meaning — it points at the form's own new case, populated at
+ * `/data/case/@case_id` by the setvalue chain
+ * `xform/caseBlocks.ts::addCaseBlocks` emits. Every other `#case/<X>`
+ * stays un-rewritten so the doc-layer rule
+ * `validator/rules/form.ts::caseHashtagOnCreateForm` can quote the
+ * authored text verbatim when rejecting it at authoring time.
  *
- *   - The form's session has no `case_id` datum. The case-creating
- *     entry's session datum is `case_id_new_<casetype>_0` (a `uuid()`
- *     function datum). `session/data/case_id` resolves to an empty
- *     node-set; JavaRosa rejects the calculate at form-init with
- *     `XPathTypeMismatchException`.
- *   - Even if the session var were correct, the case the form is
- *     creating isn't IN `casedb` yet — `casedb` only sees the case
- *     after submission.
+ * On followup / close / survey forms the expansion is identical to the
+ * context-free version.
  *
- * Resolution policy: on a registration form, `#case/case_id` is the one
- * `#case/` reference that has a defined meaning — it refers to the form's
- * own new case, whose id lives at `/data/case/@case_id` (populated by
- * the setvalue chain `compiler.ts::addCaseBlocks` emits from the
- * `case_id_new_<casetype>_0` session datum). Every other `#case/<X>` on a
- * case-create form is semantically wrong — those properties are being
- * SET by the form right now, not read from a pre-existing case — and
- * this expander leaves them un-rewritten. The downstream binding-
- * resolution oracle (`validator/bindingResolutionOracle.ts`) catches
- * the broken reference at compile time: the un-rewritten `#case/<X>`
- * flows through the context-free expander into the case-loading XPath
- * shape (`instance('commcaresession')/session/data/case_id`), and the
- * oracle rejects that registration entries don't declare a `case_id`
- * datum. The build-time throw is a generator-bug signal; a future
- * doc-layer validator rule would lift the rejection to the authoring
- * layer with a targeted error pointing the author at
- * `#form/<question_id>` or `/data/<question_id>`.
- *
- * On every other form type (followup / close / survey) the expansion is
- * identical to the context-free version.
- *
- * Future direction: the same resolver is the right home for case-type-
- * namespaced hashtags (`#patient/case_id`-style) — once that authoring
+ * Future direction: this resolver is the right home for case-type-
+ * namespaced hashtags (`#patient/case_id`-style). When that authoring
  * surface lands, the in-scope-case-types resolution joins the form
  * context here without a structural change to call sites.
  */

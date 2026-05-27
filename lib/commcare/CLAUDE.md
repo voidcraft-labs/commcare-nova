@@ -16,24 +16,11 @@ One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, 
 
 The set of allowed consumers is enforced by `biome.json`'s `noRestrictedImports` rule on `@/lib/commcare`. Read it there — keeping a hand-maintained copy here drifts.
 
-## Subpackage layout
-
-```
-compiler.ts expander.ts formActions.ts deriveCaseConfig.ts session.ts
-hashtags.ts ids.ts xml.ts constants.ts identifierValidation.ts hqShells.ts
-types.ts client.ts encryption.ts fieldProps.ts
-xform/{index,builder,countReference,pathExpression,instanceRefs}.ts
-validator/{index,runner,errors,fixes,typeChecker,functionRegistry,xformOracle,xformDataModel,bindingResolutionOracle,suiteOracle,hqJsonOracle,xpathValidator}.ts
-hashtags/formContext.ts
-xform/{metaBlock,...}.ts
-validator/rules/{app,module,form,field}.ts
-xpath/{grammar.lezer.grammar,parser,parser.terms,transpiler,typeInfer,detectUnquotedStringLiteral,index}.ts
-xpath/passes/dateArithmetic.ts
-```
-
-`fieldProps.ts` is the one reading-helper the wire emitters share: a single untyped lookup over `Field`'s discriminated union for the optional string properties (`relevant`, `validate`, `calculate`, `default_value`, `required`, `hint`, `label`, `case_property_on`, `validate_msg`) — narrowing per kind at every call site would cascade N×M branches.
-
 ## Key design decisions
+
+### Shared field-string accessor
+
+`fieldProps.ts::readFieldString` is the one reading-helper the wire emitters share: a single untyped lookup over `Field`'s discriminated union for the optional string properties (`relevant`, `validate`, `calculate`, `default_value`, `required`, `hint`, `label`, `case_property_on`, `validate_msg`). Narrowing per kind at every call site would cascade N×M branches.
 
 ### Vellum dual-attribute pattern
 
@@ -89,7 +76,7 @@ Two more wire oracles follow the XForm oracle's shape — a faithful mirror of t
 
 `xform/caseBlocks.ts::addCaseBlocks` mirrors CCHQ's server-side post-process (`commcare-hq/.../app_manager/xform.py::XFormCaseBlock`) so local-CCZ emission produces forms JavaRosa can install. Every `<case>` element carries the cx2 namespace (`http://commcarehq.org/case/transaction/v2`) — without it CommCare's submission processor treats the element as inert data, not a case transaction. The three `<case>` attributes (`case_id` / `date_modified` / `user_id`) wire to:
 - **case-create**: `case_id` setvalues at `xforms-ready` from the per-entry session datum `case_id_new_<casetype>_0` (a `function="uuid()"` datum `session.ts::deriveSessionDatums` emits). `date_modified` / `user_id` calculate off the always-on meta block at `/data/meta/timeEnd` / `/data/meta/userID`.
-- **case-update**: `case_id` calculates from the case-loading session datum `case_id`. Same meta-block bindings for the two timestamp attributes.
+- **case-update**: `case_id` calculates from the case-loading session datum `case_id`. Same meta-block bindings for the two timestamp attributes. Every per-property update bind also carries `relevant="count(<qPath>) > 0"` — the JavaRosa semantic when a field's `relevant` evaluates false is that the data node is absent, and an unguarded update would overwrite the existing case property with empty. The guard mirrors CCHQ's `XFormCaseBlock.add_case_updates`. Removing it silently destroys preserved case data on every conditionally-hidden field.
 - **subcases**: per-subcase session datum `case_id_new_<subcasetype>_<idx>` (index mirrors CCHQ's `Form.session_var_for_action` — starts at 1 when the form also opens a primary case). Repeat-context subcases use literal `uuid()` calculate instead (no session datum is emitted for them, matching CCHQ's `delay_case_id` branch).
 
 ### Form `<meta>` block

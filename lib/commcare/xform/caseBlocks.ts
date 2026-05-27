@@ -553,22 +553,12 @@ function xpathStringLiteral(value: string): string {
  * `<bind>` rules wiring each case field to its XForm data path, and
  * `<setvalue>` elements seeding the case_id at form load.
  *
- * Implementation:
- *
- *   1. Build the case-block emission via `buildCaseBlocks` — pure DOM
- *      construction, returns `null` when no actions need to fire.
- *   2. Parse the input XForm as XML via `htmlparser2`. This is the same parse
- *      contract `validator/xformDataModel.ts::buildXFormDataModel` uses (the
- *      post-injection oracle re-parses what we emit here).
- *   3. Splice the case + subcase elements under the primary `<data>` element
- *      and the binds + setvalues under `<model>` (before `<itext>` when
- *      present, so the model preserves the canonical sequence: instance /
- *      secondary instances / binds / setvalues / itext).
- *   4. Re-serialize the tree once via `dom-serializer`. The serializer is the
- *      single XML-escaping authority — every interpolated XPath body,
- *      case-type name, and field path becomes an attribute value through
- *      `setAttribute` (via the `attribs` object literal), so the escape is
- *      applied exactly once at render and never by hand.
+ * Round-trip parse + serialize via `htmlparser2` + `dom-serializer` —
+ * `dom-serializer` is the single XML-escaping authority, so every interpolated
+ * XPath body / case-type / field path goes through one structural pass with no
+ * hand-escaping. The post-injection XForm oracle reparses what this returns
+ * (`validator/xformDataModel.ts::buildXFormDataModel`) under the same parse
+ * options, so the byte-level round-trip is the contract on both sides.
  *
  * Early-returns the input string untouched when no case-block work is needed,
  * skipping the parse / serialize round-trip.

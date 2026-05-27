@@ -36,9 +36,13 @@
  * NODESETS — the install-time-fatal case — are caught by the XForm
  * parse-time oracle's `XFORM_DANGLING_BIND` check.
  *
- * Test-oracle posture: same as the XForm + suite oracles per
- * `validator/xformOracle.ts`. A failure here is a generator bug, not a
- * fixable authoring state.
+ * Test-oracle posture: a failure here is a generator bug, not a fixable
+ * authoring state. Unlike the XForm + suite oracles (which compileCcz throws
+ * on as a defense-in-depth backstop), THIS oracle is fuzz-only — invoked
+ * from `__tests__/bindingResolutionOracle.fuzz.test.ts` to prove emitter
+ * totality. The user-visible gate for the only authoring shape that would
+ * reach an unresolved reference today is the doc-layer rule
+ * `validator/rules/form.ts::caseHashtagOnCreateForm`.
  *
  * Out of scope (covered elsewhere):
  *   - XPath syntactic validity: `xformOracle.ts` (non-path nodeset,
