@@ -34,7 +34,7 @@
  */
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/xform/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 
 /**
  * What `buildMetaBlock` produces for the consumer to splice in.

@@ -37,6 +37,9 @@
 // `<default>` element; barcode rides on `@appearance="barcode_scan"`,
 // not `@input`. Both verified against the `QueryPrompt` model.
 
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type {
 	SearchInputDef,
 	SearchInputType,
@@ -44,9 +47,22 @@ import type {
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
-import { escapeXml } from "../../xml";
 import type { CaseListEmission } from "../case-list/types";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
+
+/**
+ * The Element-returning shape `buildSearchPrompts` produces for the
+ * `<remote-request>` orchestrator (`remoteRequest.ts::buildRemoteRequest`
+ * via `searchSession.ts::buildSearchSession`). The per-prompt subtrees
+ * slot into the surrounding `<query>` parent without a parse-then-
+ * reserialize round-trip. `emitSearchPrompts` serializes the Elements
+ * for callers that assert against the rendered XML string (the test
+ * surface).
+ */
+export interface SearchPromptsEmission {
+	readonly elements: readonly Element[];
+	readonly strings: Record<string, string>;
+}
 
 // ── Per-input-type wire-attribute mapping ─────────────────────────
 //
@@ -124,15 +140,11 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
  * `instance('search-input:results')/input/field[@name='<prompt key>']`,
  * not on any runtime auto-match.
  */
-export function emitSearchPrompts(
+export function buildSearchPrompts(
 	searchInputs: ReadonlyArray<SearchInputDef>,
 	moduleId: string,
-): CaseListEmission {
-	if (searchInputs.length === 0) {
-		return { xml: "", strings: {} };
-	}
-
-	const lines: string[] = [];
+): SearchPromptsEmission {
+	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
 
 	for (const input of searchInputs) {
@@ -142,10 +154,30 @@ export function emitSearchPrompts(
 		const localeId = composeSearchPropertyLocaleId(moduleId, input.name);
 		strings[localeId] = input.label !== "" ? input.label : input.name;
 
-		lines.push(emitPromptElement(input, localeId, suppressAutoMatch(input)));
+		elements.push(
+			buildPromptElement(input, localeId, suppressAutoMatch(input)),
+		);
 	}
 
-	return { xml: lines.join("\n"), strings };
+	return { elements, strings };
+}
+
+/**
+ * String adapter — serializes `buildSearchPrompts`'s Elements to a
+ * newline-joined string for callers that assert against the rendered
+ * XML (the test surface). The orchestrator (`remoteRequest.ts` via
+ * `searchSession.ts`) calls `buildSearchPrompts` directly.
+ */
+export function emitSearchPrompts(
+	searchInputs: ReadonlyArray<SearchInputDef>,
+	moduleId: string,
+): CaseListEmission {
+	const { elements, strings } = buildSearchPrompts(searchInputs, moduleId);
+	if (elements.length === 0) return { xml: "", strings };
+	return {
+		xml: elements.map((promptEl) => render(promptEl, RENDER_OPTS)).join("\n"),
+		strings,
+	};
 }
 
 /**
@@ -206,68 +238,61 @@ function composeSearchPropertyLocaleId(moduleId: string, name: string): string {
 }
 
 /**
- * Emit one `<prompt>` element. CCHQ always emits `<display>` on
- * every `QueryPrompt`, so this function does the same as a child.
- * `suppressAutoMatch` threads through to stamp `exclude="true()"`
- * on the prompt when the simple-arm derivation gate routes the
- * input through `_xpath_query`.
+ * Build one `<prompt>` Element. CCHQ always emits `<display>` on every
+ * `QueryPrompt`, so this function does the same as a child.
+ * `suppressAutoMatch` threads through to stamp `exclude="true()"` on
+ * the prompt when the simple-arm derivation gate routes the input
+ * through `_xpath_query`.
  */
-function emitPromptElement(
+function buildPromptElement(
 	input: SearchInputDef,
 	localeId: string,
 	suppressAutoMatch: boolean,
-): string {
-	const attrs = composePromptAttributes(input, suppressAutoMatch);
-	const displayBlock = composeDisplayBlock(localeId);
-
-	return [
-		`        <prompt${attrs}>`,
-		...displayBlock,
-		`        </prompt>`,
-	].join("\n");
+): Element {
+	return el("prompt", composePromptAttributes(input, suppressAutoMatch), [
+		el("display", {}, [el("text", {}, [el("locale", { id: localeId })])]),
+	]);
 }
 
 /**
- * Compose the attribute list for a `<prompt>` element. Order
- * follows `QueryPrompt`'s field declaration order: `key`,
- * `appearance`, `input`, `default`, `exclude`. Absent slots are
- * skipped.
+ * Compose the attribute map for a `<prompt>` element. Insertion order
+ * follows `QueryPrompt`'s field declaration order: `key`, `appearance`,
+ * `input`, `default`, `exclude`. Absent slots are skipped.
  *
  * `exclude="true()"` rides at the tail to match CCHQ's declaration
  * order on `QueryPrompt` (verified against
  * `commcare-hq/.../suite_xml/post_process/remote_requests.py::build_query_prompts`
  * — the `if prop.exclude: kwargs['exclude'] = "true()"` block fires
- * after the matcher / default / itemset slots have populated).
- * Keeping the attribute order CCHQ-canonical keeps the wire shape
+ * after the matcher / default / itemset slots have populated). Keeping
+ * the attribute order CCHQ-canonical keeps the wire shape
  * byte-comparable against CCHQ's own emission for round-trip
  * verification.
  *
- * Every interpolated value routes through `escapeXml` — `default`'s
- * compiled XPath in particular may carry `<` / `>` / `&` in
- * expression bodies. The escape pass on the mapping table's CCHQ-
- * literal values is defensive; costless and forward-compatible.
+ * Every value flows raw into the attribs object; the serializer
+ * XML-escapes `<` / `>` / `&` / `"` / `'` exactly once at render time
+ * — `default`'s compiled XPath in particular may carry comparison
+ * operators or string literals that the serializer handles by
+ * construction.
  */
 function composePromptAttributes(
 	input: SearchInputDef,
 	suppressAutoMatch: boolean,
-): string {
+): Record<string, string> {
 	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
 
-	const parts: string[] = [];
-	parts.push(` key="${escapeXml(input.name)}"`);
+	const attribs: Record<string, string> = { key: input.name };
 
 	if (mapping.appearance !== undefined) {
-		parts.push(` appearance="${escapeXml(mapping.appearance)}"`);
+		attribs.appearance = mapping.appearance;
 	}
 	if (mapping.input !== undefined) {
-		parts.push(` input="${escapeXml(mapping.input)}"`);
+		attribs.input = mapping.input;
 	}
 
 	// `default` is the attribute form, not a child `<default>` element
 	// — see `QueryPrompt::default_value = StringField('@default', ...)`.
 	if (input.default !== undefined) {
-		const defaultXPath = compileDefaultExpression(input.default);
-		parts.push(` default="${escapeXml(defaultXPath)}"`);
+		attribs.default = compileDefaultExpression(input.default);
 	}
 
 	// `exclude="true()"` is the structural mitigation for the
@@ -277,26 +302,10 @@ function composePromptAttributes(
 	// to the search-input instance for the explicit `_xpath_query`
 	// predicate to reference.
 	if (suppressAutoMatch) {
-		parts.push(` exclude="true()"`);
+		attribs.exclude = "true()";
 	}
 
-	return parts.join("");
-}
-
-/**
- * Compose the `<display>` child block. The schema declares
- * `input.name` as bare `z.string()`; `escapeXml` on the
- * interpolated locale id defends against an XML-unsafe `name`
- * slipping past the validator's identifier-rule coverage.
- */
-function composeDisplayBlock(localeId: string): readonly string[] {
-	return [
-		`          <display>`,
-		`            <text>`,
-		`              <locale id="${escapeXml(localeId)}"/>`,
-		`            </text>`,
-		`          </display>`,
-	];
+	return attribs;
 }
 
 /**

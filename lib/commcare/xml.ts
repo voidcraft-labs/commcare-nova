@@ -1,15 +1,13 @@
-/** Escape special XML characters for attribute values and text content.
- *  All our attributes are double-quoted, so single quotes are left as-is —
- *  HQ/CommCare expects literal ' in XPath expressions (e.g. instance('casedb')). */
-export function escapeXml(s: string): string {
-	return s
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
-}
-
-/** Escape special regex characters in a string for use in `new RegExp()`. */
+/**
+ * Escape special regex characters in a string for use in `new RegExp()`.
+ *
+ * NOTE: There is intentionally no `escapeXml` helper here. Every XML
+ * emitter in this package CONSTRUCTS via `domhandler` element trees
+ * and serializes through `dom-serializer` (see `elementBuilders.ts`);
+ * the serializer is the single, exclusive escaping authority. Hand-
+ * escaping a value and then handing it to the serializer would
+ * double-encode it (`&` → `&amp;` → `&amp;amp;`).
+ */
 export function escapeRegex(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

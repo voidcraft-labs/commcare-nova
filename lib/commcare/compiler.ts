@@ -20,14 +20,29 @@
 // Every XForm is re-validated after case-block injection; structural
 // problems (orphaned binds, dangling refs) surface as a thrown Error
 // before packaging.
+//
+// `suite.xml` and `profile.ccpr` are CONSTRUCTED as `domhandler` element
+// trees and serialized once via `dom-serializer`. There is NO
+// template-literal XML in this file: every attribute value flows through
+// `setAttribute` (the `attribs` object literal); every text value flows
+// through a `Text` node; the serializer is the single, exclusive
+// escaping authority. The `<?xml version="1.0"?>` declaration is the
+// only literal — `dom-serializer` does not emit XML declarations, so
+// the compiler prepends one before each rendered tree.
 
 import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
-import { escapeXml, type HqApplication } from "@/lib/commcare";
-import { deriveEntryDefinition, renderEntryXml } from "@/lib/commcare/session";
-import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
-import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
-import { emitRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import type { HqApplication } from "@/lib/commcare";
+import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import {
+	buildEntryElement,
+	deriveEntryDefinition,
+} from "@/lib/commcare/session";
+import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
+import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
+import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
@@ -60,10 +75,17 @@ export function compileCcz(
 	// `appStrings` is populated as we walk modules/forms; flushed once
 	// per language at the end.
 	const appStrings: Record<string, string> = { "app.name": appName };
-	const suiteEntries: string[] = [];
-	const suiteMenus: string[] = [];
-	const suiteDetails: string[] = [];
-	const suiteResources: string[] = [];
+	// Top-level `<suite>` children accumulate as typed `Element[]`. The
+	// orchestrator splices everything into one `<suite>` Element at the
+	// end and serializes via `dom-serializer` exactly once. The spread
+	// order into `<suite>.children` below pins the canonical wire layout
+	// (resources → locales → details → remote-requests → entries →
+	// menus) — the serializer preserves child insertion order, so the
+	// rendered bytes match CCHQ's reference suite shape.
+	const suiteEntries: Element[] = [];
+	const suiteMenus: Element[] = [];
+	const suiteDetails: Element[] = [];
+	const suiteResources: Element[] = [];
 	// `<remote-request>` elements accumulate alongside the other
 	// top-level suite-XML element families. CCHQ's wire layout has
 	// no canonical position for `<remote-request>` relative to
@@ -72,7 +94,7 @@ export function compileCcz(
 	// `<entry>` block — placing them adjacent to the detail blocks
 	// they reference (`m{N}_search_short` / `m{N}_search_long`)
 	// keeps the rendered suite.xml structurally local.
-	const suiteRemoteRequests: string[] = [];
+	const suiteRemoteRequests: Element[] = [];
 
 	// Walk HQ modules and `doc.moduleOrder` in lockstep. `expandDoc`
 	// produces HQ modules in the same order as `moduleOrder`, so
@@ -147,17 +169,17 @@ export function compileCcz(
 			// branch-doubling at the detail emitter — `searchAction`
 			// is `undefined` when no case-search config is present.
 			const remoteRequestEmission = mod.caseSearchConfig
-				? emitRemoteRequest({
+				? buildRemoteRequest({
 						module: mod,
 						moduleIndex: mIdx,
 					})
 				: undefined;
 			if (remoteRequestEmission !== undefined) {
-				suiteRemoteRequests.push(remoteRequestEmission.xml);
+				suiteRemoteRequests.push(remoteRequestEmission.element);
 				Object.assign(appStrings, remoteRequestEmission.strings);
 			}
 
-			const shortEmission = emitShortDetail({
+			const shortEmission = buildShortDetail({
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
@@ -172,15 +194,15 @@ export function compileCcz(
 					},
 				}),
 			});
-			suiteDetails.push(shortEmission.xml);
+			suiteDetails.push(shortEmission.element);
 			Object.assign(appStrings, shortEmission.strings);
 
-			const longEmission = emitLongDetail({
+			const longEmission = buildLongDetail({
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
 			});
-			suiteDetails.push(longEmission.xml);
+			suiteDetails.push(longEmission.element);
 			Object.assign(appStrings, longEmission.strings);
 
 			// Search-target dual emission. Same `caseListConfig` walked
@@ -193,27 +215,27 @@ export function compileCcz(
 			// `<action>` element — the search results screen IS the
 			// action's destination.
 			if (mod.caseSearchConfig) {
-				const searchShort = emitShortDetail({
+				const searchShort = buildShortDetail({
 					module: mod,
 					moduleIndex: mIdx,
 					doc,
 					target: "search",
 				});
-				suiteDetails.push(searchShort.xml);
+				suiteDetails.push(searchShort.element);
 				Object.assign(appStrings, searchShort.strings);
 
-				const searchLong = emitLongDetail({
+				const searchLong = buildLongDetail({
 					module: mod,
 					moduleIndex: mIdx,
 					doc,
 					target: "search",
 				});
-				suiteDetails.push(searchLong.xml);
+				suiteDetails.push(searchLong.element);
 				Object.assign(appStrings, searchLong.strings);
 			}
 		}
 
-		const menuCommands: string[] = [];
+		const menuCommands: Element[] = [];
 
 		for (let fIdx = 0; fIdx < hqForms.length; fIdx++) {
 			const hqForm = hqForms[fIdx];
@@ -325,17 +347,26 @@ export function compileCcz(
 
 			files[filePath] = xform;
 
-			// XForm resource declaration in suite.xml.
+			// XForm resource declaration in suite.xml. Constructed via
+			// nested `el(...)` calls — the serializer escapes the file
+			// path and version once at render time.
 			suiteResources.push(
-				`  <xform>\n    <resource id="${filePath}" version="1">\n      <location authority="local">./${filePath}</location>\n    </resource>\n  </xform>`,
+				el("xform", {}, [
+					el("resource", { id: filePath, version: "1" }, [
+						el("location", { authority: "local" }, [text(`./${filePath}`)]),
+					]),
+				]),
 			);
 
-			suiteEntries.push(renderEntryXml(entryDef));
-			menuCommands.push(`    <command id="${cmdId}"/>`);
+			suiteEntries.push(buildEntryElement(entryDef));
+			menuCommands.push(el("command", { id: cmdId }));
 		}
 
 		suiteMenus.push(
-			`  <menu id="m${mIdx}">\n    <text><locale id="modules.m${mIdx}"/></text>\n${menuCommands.join("\n")}\n  </menu>`,
+			el("menu", { id: `m${mIdx}` }, [
+				el("text", {}, [el("locale", { id: `modules.m${mIdx}` })]),
+				...menuCommands,
+			]),
 		);
 	}
 
@@ -348,9 +379,14 @@ export function compileCcz(
 		i === 0 ? "default" : lang,
 	]);
 
-	const localeResources = langDirs.map(
-		([lang, dir]) =>
-			`  <locale language="${dir}">\n    <resource id="app_strings_${lang}" version="1">\n      <location authority="local">./${dir}/app_strings.txt</location>\n    </resource>\n  </locale>`,
+	const localeResources: Element[] = langDirs.map(([lang, dir]) =>
+		el("locale", { language: dir }, [
+			el("resource", { id: `app_strings_${lang}`, version: "1" }, [
+				el("location", { authority: "local" }, [
+					text(`./${dir}/app_strings.txt`),
+				]),
+			]),
+		]),
 	);
 
 	// `<remote-request>` elements live alongside `<entry>` elements
@@ -359,10 +395,22 @@ export function compileCcz(
 	// `<remote-request>` before `<entry>` blocks so the rendered
 	// suite reads "details for these cases, then the
 	// remote-request that fetches them, then the form entries that
-	// edit them."
-	const remoteRequestsBlock =
-		suiteRemoteRequests.length > 0 ? `${suiteRemoteRequests.join("\n")}\n` : "";
-	const suiteXml = `<?xml version="1.0"?>\n<suite version="1">\n${suiteResources.join("\n")}\n${localeResources.join("\n")}\n${suiteDetails.join("\n")}\n${remoteRequestsBlock}${suiteEntries.join("\n")}\n${suiteMenus.join("\n")}\n</suite>`;
+	// edit them." The conditional remote-requests block collapses to
+	// an empty spread when no module carries `caseSearchConfig`.
+	const suiteRoot = el("suite", { version: "1" }, [
+		...suiteResources,
+		...localeResources,
+		...suiteDetails,
+		...suiteRemoteRequests,
+		...suiteEntries,
+		...suiteMenus,
+	]);
+	// `dom-serializer` does not emit XML declarations — the leading
+	// `<?xml version="1.0"?>` literal is the only template string in the
+	// suite-XML emission path. CCHQ's `Application.create_suite` adds
+	// the same declaration on the regenerated suite, so the literal
+	// stays byte-equivalent across both paths.
+	const suiteXml = `<?xml version="1.0"?>\n${render(suiteRoot, RENDER_OPTS)}`;
 
 	// Suite-XML oracle gate. The oracle mirrors CommCare's suite-parse +
 	// session-runtime contract — both the fatal-at-parse checks (malformed
@@ -408,31 +456,51 @@ export function compileCcz(
  * UUID every compile — HQ treats each .ccz as a new app version, so
  * stable identity across compiles isn't required (and would defeat
  * HQ's version deduplication).
+ *
+ * Constructed via `domhandler` element tree + single `dom-serializer`
+ * pass. The `<?xml version="1.0"?>` declaration is prepended as a
+ * literal (the serializer doesn't emit declarations).
+ *
+ * The `appName` flows raw through the `name` attribute and the
+ * `CommCare App Name` property value; the serializer XML-escapes both
+ * once at render time (`&` / `<` / `>` / `"` / `'`).
  */
 function generateProfile(appName: string): string {
-	return `<?xml version="1.0"?>
-<profile xmlns="http://cihi.commcarehq.org/jad"
-         version="1"
-         uniqueid="${randomUUID()}"
-         name="${escapeXml(appName)}"
-         update="http://localhost/update">
-  <property key="CommCare App Name" value="${escapeXml(appName)}"/>
-  <property key="cc-content-version" value="1"/>
-  <property key="cc-app-version" value="1"/>
-  <features>
-    <users active="true"/>
-  </features>
-  <suite>
-    <resource id="suite" version="1" descriptor="Suite Definition">
-      <location authority="local">./suite.xml</location>
-    </resource>
-  </suite>
-  <suite>
-    <resource id="media-suite" version="1" descriptor="Media Suite Definition">
-      <location authority="local">./media_suite.xml</location>
-    </resource>
-  </suite>
-</profile>`;
+	const profileEl = el(
+		"profile",
+		{
+			xmlns: "http://cihi.commcarehq.org/jad",
+			version: "1",
+			uniqueid: randomUUID(),
+			name: appName,
+			update: "http://localhost/update",
+		},
+		[
+			el("property", { key: "CommCare App Name", value: appName }),
+			el("property", { key: "cc-content-version", value: "1" }),
+			el("property", { key: "cc-app-version", value: "1" }),
+			el("features", {}, [el("users", { active: "true" })]),
+			el("suite", {}, [
+				el(
+					"resource",
+					{ id: "suite", version: "1", descriptor: "Suite Definition" },
+					[el("location", { authority: "local" }, [text("./suite.xml")])],
+				),
+			]),
+			el("suite", {}, [
+				el(
+					"resource",
+					{
+						id: "media-suite",
+						version: "1",
+						descriptor: "Media Suite Definition",
+					},
+					[el("location", { authority: "local" }, [text("./media_suite.xml")])],
+				),
+			]),
+		],
+	);
+	return `<?xml version="1.0"?>\n${render(profileEl, RENDER_OPTS)}`;
 }
 
 /**

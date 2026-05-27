@@ -604,19 +604,21 @@ describe("dual-detail emission — calc-xpath instance rewrite", () => {
 			target: "search",
 		});
 
-		// Case target carries the casedb root.
+		// Case target carries the casedb root. XPath single-quote
+		// literals round-trip through the serializer as `&apos;`
+		// inside the double-quoted attribute value.
 		expect(caseShort.xml).toContain(
-			"instance('casedb')/casedb/case[@case_id=current()/index/parent]/whatever",
+			"instance(&apos;casedb&apos;)/casedb/case[@case_id=current()/index/parent]/whatever",
 		);
 		expect(caseShort.xml).not.toContain(
-			"instance('results')/results/case[@case_id=current()/index/parent]/whatever",
+			"instance(&apos;results&apos;)/results/case[@case_id=current()/index/parent]/whatever",
 		);
 		// Search target rewrites the root.
 		expect(searchShort.xml).toContain(
-			"instance('results')/results/case[@case_id=current()/index/parent]/whatever",
+			"instance(&apos;results&apos;)/results/case[@case_id=current()/index/parent]/whatever",
 		);
 		expect(searchShort.xml).not.toContain(
-			"instance('casedb')/casedb/case[@case_id=current()/index/parent]/whatever",
+			"instance(&apos;casedb&apos;)/casedb/case[@case_id=current()/index/parent]/whatever",
 		);
 	});
 
@@ -667,8 +669,14 @@ describe("dual-detail emission — calc-xpath instance rewrite", () => {
 
 		const sortBlocks = extractSortBlocks(searchShort.xml);
 		expect(sortBlocks.length).toBe(1);
-		expect(sortBlocks[0]).toContain("instance('results')/results/case[");
-		expect(sortBlocks[0]).not.toContain("instance('casedb')/casedb/case[");
+		// XPath single-quote literals round-trip as `&apos;` inside
+		// the double-quoted attribute value.
+		expect(sortBlocks[0]).toContain(
+			"instance(&apos;results&apos;)/results/case[",
+		);
+		expect(sortBlocks[0]).not.toContain(
+			"instance(&apos;casedb&apos;)/casedb/case[",
+		);
 	});
 
 	it("leaves property-rooted column xpath untouched on search target — no instance prefix to rewrite", () => {
@@ -700,9 +708,12 @@ describe("dual-detail emission — calc-xpath instance rewrite", () => {
 		});
 
 		expect(searchShort.xml).toContain('<xpath function="name"/>');
-		// No instance reference should leak in either flavor.
-		expect(searchShort.xml).not.toContain("instance('casedb')");
-		expect(searchShort.xml).not.toContain("instance('results')");
+		// No instance reference should leak in either flavor. XPath
+		// single-quote literals round-trip through the serializer as
+		// `&apos;`, so the negative assertions check the entity-encoded
+		// form the rendered XML actually carries.
+		expect(searchShort.xml).not.toContain("instance(&apos;casedb&apos;)");
+		expect(searchShort.xml).not.toContain("instance(&apos;results&apos;)");
 	});
 });
 

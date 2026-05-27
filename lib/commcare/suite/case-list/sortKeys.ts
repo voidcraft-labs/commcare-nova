@@ -50,6 +50,9 @@
 //     `ResolvedType` with no mapping (e.g. `SEQUENCE_TYPE`) —
 //     route to `"plain"`.
 
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
@@ -70,7 +73,6 @@ import {
 	moduleTypeContext,
 	resolvePropertyDataType,
 } from "../../validator/rules/case-list/shared";
-import { escapeXml } from "../../xml";
 
 // ============================================================
 // Wire-vocab translation
@@ -464,7 +466,7 @@ export function buildSortDirectives(
 // ============================================================
 
 /**
- * Produce a `<sort>` block from a resolved directive. Dispatches
+ * Build a `<sort>` Element from a resolved directive. Dispatches
  * on the directive's `kind`:
  *
  *   - `property` arm — bare-XPath shape:
@@ -489,42 +491,54 @@ export function buildSortDirectives(
  *           </text>
  *         </sort>
  *
- * Attribute order — `type, order, direction` — matches CCHQ's
+ * Attribute insertion order — `type, order, direction` — matches CCHQ's
  * `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py::Sort`
  * field declaration order. XML attribute order is wire-irrelevant
  * (CCHQ's own fixtures use mixed orderings; the parser accepts
  * both); anchoring on the model declaration gives one stable
  * order.
  *
- * XPath payloads are XML-escaped — `&`, `<`, `>`, `"` are special
- * inside a double-quoted attribute value. Single quotes survive
- * verbatim because every wire-form XPath emitted by
- * `lib/commcare/expression/onDeviceEmitter.ts` quotes string
- * literals with single quotes.
+ * The XPath payload flows raw into the `function` attribute; the
+ * serializer XML-escapes `<` / `>` / `&` / `"` / `'` exactly once at
+ * render time, so every wire-form XPath emitted by
+ * `lib/commcare/expression/onDeviceEmitter.ts` (single-quoted string
+ * literals, ` >` comparison operators) round-trips correctly without
+ * hand-escaping.
  */
-export function emitSortBlock(directive: ResolvedSortDirective): string {
+export function buildSortBlock(directive: ResolvedSortDirective): Element {
 	const wireType = SORT_TYPE_TO_WIRE[directive.type];
 	const wireDirection = SORT_DIRECTION_TO_WIRE[directive.direction];
+	const sortAttribs: Record<string, string> = {
+		type: wireType,
+		order: String(directive.order),
+		direction: wireDirection,
+	};
 	if (directive.kind === "property") {
-		const escaped = escapeXml(directive.xpath);
-		return [
-			`      <sort type="${wireType}" order="${directive.order}" direction="${wireDirection}">`,
-			`        <text>`,
-			`          <xpath function="${escaped}"/>`,
-			`        </text>`,
-			`      </sort>`,
-		].join("\n");
+		return el("sort", sortAttribs, [
+			el("text", {}, [el("xpath", { function: directive.xpath })]),
+		]);
 	}
-	const escapedCalc = escapeXml(directive.calcXpath);
-	return [
-		`      <sort type="${wireType}" order="${directive.order}" direction="${wireDirection}">`,
-		`        <text>`,
-		`          <xpath function="$calculated_property">`,
-		`            <variable name="calculated_property">`,
-		`              <xpath function="${escapedCalc}"/>`,
-		`            </variable>`,
-		`          </xpath>`,
-		`        </text>`,
-		`      </sort>`,
-	].join("\n");
+	// Calculated arm — CCHQ's `useXpathExpression` shape wraps the
+	// raw expression inside a `<variable>` definition referenced by a
+	// `$calculated_property` placeholder in the outer `<xpath>`. The
+	// nested structure is what CCHQ's runtime resolves the calc
+	// expression against during sort.
+	return el("sort", sortAttribs, [
+		el("text", {}, [
+			el("xpath", { function: "$calculated_property" }, [
+				el("variable", { name: "calculated_property" }, [
+					el("xpath", { function: directive.calcXpath }),
+				]),
+			]),
+		]),
+	]);
+}
+
+/**
+ * String adapter — serializes `buildSortBlock`'s Element for callers
+ * that assert against the rendered XML string (the test surface).
+ * `columns.ts` itself calls `buildSortBlock` directly.
+ */
+export function emitSortBlock(directive: ResolvedSortDirective): string {
+	return render(buildSortBlock(directive), RENDER_OPTS);
 }

@@ -16,8 +16,25 @@
  * `<create if="...">` per link plus a fallback `<create if="not(c1) and
  * not(c2)...">` that runs the `postSubmit` destination when no link
  * condition matches.
+ *
+ * `<entry>` and `<stack>` are CONSTRUCTED as `domhandler` element trees
+ * (`buildEntryElement`, `buildStackElement`) and serialized once by the
+ * caller. There is NO template-literal XML in this module: every
+ * attribute value flows through `setAttribute` (the `attribs` object
+ * literal); the serializer is the single, exclusive escaping authority.
+ * Hand-escaping is intentionally absent — double-encoding (`&` →
+ * `&amp;` → `&amp;amp;`) is the failure mode it would introduce.
+ *
+ * `renderEntryXml` / `renderStackXml` exist alongside the Element
+ * builders as one-line serialization adapters for callers that consume
+ * the rendered string (the surrounding test surface; `compileCcz`
+ * itself calls `buildEntryElement` directly and splices the Element
+ * into the suite tree).
  */
 
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
@@ -165,9 +182,10 @@ const SESSION_REF = "instance('commcaresession')/session/data";
  *
  * `actions` is the form's `FormActions` (post-expansion). The function
  * inspects `actions.open_case.condition` and `actions.subcases` to
- * decide which case-create datums to emit. When omitted (transitional
- * callers haven't been migrated yet), only the case-loading datum is
- * emitted — the pre-existing behavior.
+ * decide which case-create datums to emit. When `actions` is
+ * undefined, only the case-loading datum is emitted — callers that
+ * don't carry an expanded `FormActions` get the case-loading-only
+ * shape.
  */
 export function deriveSessionDatums(
 	formType: FormType,
@@ -541,82 +559,144 @@ export function deriveEntryDefinition(
 	};
 }
 
-// ── XML Serialization ──────────────────────────────────────────────────
+// ── DOM Construction ────────────────────────────────────────────────────
 
-/** Render an EntryDefinition to a suite.xml `<entry>` string. */
-export function renderEntryXml(entry: EntryDefinition): string {
-	const parts: string[] = [];
+/**
+ * Build the `<datum>` element for one session datum. Two shapes —
+ * function vs nodeset — dispatched on whether `d.function` is set.
+ * CCHQ emits both inside the same `<session>` block, so the dispatch
+ * lives at this single element-building site.
+ *
+ * Attribute insertion order matches CCHQ's canonical wire shape:
+ * function datum is `id, function`; nodeset datum is `id, nodeset,
+ * value, detail-select?, detail-confirm?`.
+ */
+function buildDatumElement(d: SessionDatum): Element {
+	if (d.function !== undefined) {
+		// Function datum — CommCare evaluates the function once at entry;
+		// there is no nodeset, value, or detail to wire up.
+		return el("datum", { id: d.id, function: d.function });
+	}
+	// Nodeset datum — case-loading shape. Optional `detail-select` /
+	// `detail-confirm` attributes are appended only when defined so an
+	// unset detail does not emit `detail-select=""` (CCHQ's canonical
+	// shape: omit the attribute when no detail is wired).
+	const attribs: Record<string, string> = {
+		id: d.id,
+		nodeset: d.nodeset ?? "",
+		value: d.value ?? "",
+	};
+	if (d.detailSelect !== undefined) attribs["detail-select"] = d.detailSelect;
+	if (d.detailConfirm !== undefined)
+		attribs["detail-confirm"] = d.detailConfirm;
+	return el("datum", attribs);
+}
 
-	parts.push(`  <entry>`);
-	parts.push(`    <form>${entry.formXmlns}</form>`);
-	parts.push(`    <command id="${entry.commandId}">`);
-	parts.push(`      <text><locale id="${entry.localeId}"/></text>`);
-	parts.push(`    </command>`);
+/**
+ * Build one stack operation Element. Three shapes per `op.op`:
+ *
+ *   - `clear` — `<clear if="..."?/>`. Empty children by validator contract.
+ *   - `create` / `push` with empty children — `<create if="..."?/>` (self-
+ *     closing, semantically equivalent to a frame push with no work).
+ *   - `create` / `push` with children — wraps `<command value="..."/>` /
+ *     `<datum id="..." value="..."/>` grandchildren.
+ *
+ * `if` attribute is added only when `ifClause` is set so an unconditional
+ * operation serializes without an `if=""` placeholder.
+ */
+function buildStackOperationElement(op: StackOperation): Element {
+	const attribs: Record<string, string> = {};
+	if (op.ifClause) attribs.if = op.ifClause;
+
+	if (op.op === "clear" || op.children.length === 0) {
+		return el(op.op, attribs);
+	}
+
+	const children: Element[] = op.children.map((child) =>
+		child.type === "command"
+			? el("command", { value: child.value })
+			: el("datum", { id: child.id, value: child.value }),
+	);
+	return el(op.op, attribs, children);
+}
+
+/**
+ * Build a `<stack>` Element from an operation list, or return `null` for
+ * an empty list so the caller can omit the element entirely. The caller
+ * matters: CommCare's default-no-stack-ops navigation pops the form frame
+ * (returning the user to the previous level), which is exactly what
+ * `derivePostSubmitStack` already short-circuits to for the `app_home`
+ * destination — so `null` lets the empty-ops case round-trip to "no
+ * `<stack>` on the wire" rather than "empty `<stack>` on the wire."
+ */
+export function buildStackElement(
+	operations: StackOperation[],
+): Element | null {
+	if (operations.length === 0) return null;
+	return el("stack", {}, operations.map(buildStackOperationElement));
+}
+
+/**
+ * Build an `<entry>` Element from a derived entry definition. The orchestrator
+ * (`compiler.ts`) splices the returned Element into the suite.xml tree and
+ * serializes the entire suite once via `dom-serializer`.
+ *
+ * Element order inside `<entry>` matches CCHQ's canonical fixture order:
+ * `<form>`, `<command>` (with nested `<text><locale/></text>`), zero or
+ * more `<instance>` elements, optional `<session>`, optional `<stack>`.
+ * The serializer preserves child insertion order, so the constructed tree's
+ * shape is the on-wire shape.
+ */
+export function buildEntryElement(entry: EntryDefinition): Element {
+	const children: Element[] = [];
+
+	// `<form>` carries the form's xmlns as text content. The serializer
+	// XML-escapes the text once at render time, so a future xmlns
+	// containing `&` (etc.) round-trips correctly without any local
+	// escaping.
+	children.push(el("form", {}, [text(entry.formXmlns)]));
+
+	children.push(
+		el("command", { id: entry.commandId }, [
+			el("text", {}, [el("locale", { id: entry.localeId })]),
+		]),
+	);
 
 	for (const inst of entry.instances) {
-		parts.push(`    <instance id="${inst.id}" src="${inst.src}"/>`);
+		children.push(el("instance", { id: inst.id, src: inst.src }));
 	}
 
 	if (entry.session) {
-		parts.push(`    <session>`);
-		for (const d of entry.session.datums) {
-			if (d.function !== undefined) {
-				// Function datum — `<datum id="..." function="uuid()"/>`.
-				// CommCare evaluates the function once at entry; there is no
-				// nodeset, value, or detail to wire up.
-				parts.push(`      <datum id="${d.id}" function="${d.function}"/>`);
-				continue;
-			}
-			// Nodeset datum — case-loading shape.
-			const detailAttr = d.detailSelect
-				? ` detail-select="${d.detailSelect}"`
-				: "";
-			const confirmAttr = d.detailConfirm
-				? ` detail-confirm="${d.detailConfirm}"`
-				: "";
-			parts.push(
-				`      <datum id="${d.id}" nodeset="${d.nodeset}" value="${d.value}"${detailAttr}${confirmAttr}/>`,
-			);
-		}
-		parts.push(`    </session>`);
+		children.push(
+			el("session", {}, entry.session.datums.map(buildDatumElement)),
+		);
 	}
 
 	if (entry.stack) {
-		parts.push(renderStackXml(entry.stack.operations));
+		const stackEl = buildStackElement(entry.stack.operations);
+		if (stackEl !== null) children.push(stackEl);
 	}
 
-	parts.push(`  </entry>`);
-	return parts.join("\n");
+	return el("entry", {}, children);
+}
+
+// ── String Adapters ─────────────────────────────────────────────────────
+//
+// `renderEntryXml` / `renderStackXml` serialize the constructed Element
+// trees so callers that consume the rendered XML as a string (the test
+// surface) see the same bytes `compileCcz` splices into the assembled
+// suite tree. The compiler itself calls `buildEntryElement` /
+// `buildStackElement` directly.
+
+/** Render an EntryDefinition to a suite.xml `<entry>` string. */
+export function renderEntryXml(entry: EntryDefinition): string {
+	return render(buildEntryElement(entry), RENDER_OPTS);
 }
 
 /** Render stack operations to a suite.xml `<stack>` string. */
 export function renderStackXml(operations: StackOperation[]): string {
-	if (operations.length === 0) return "";
-
-	const elements = operations.map((op) => {
-		const ifAttr = op.ifClause ? ` if="${op.ifClause}"` : "";
-
-		if (op.op === "clear") {
-			return `      <clear${ifAttr}/>`;
-		}
-
-		const tag = op.op; // 'create' or 'push'
-
-		if (op.children.length === 0) {
-			return `      <${tag}${ifAttr}/>`;
-		}
-
-		const children = op.children.map((child) => {
-			if (child.type === "command") {
-				return `        <command value="${child.value}"/>`;
-			}
-			return `        <datum id="${child.id}" value="${child.value}"/>`;
-		});
-
-		return `      <${tag}${ifAttr}>\n${children.join("\n")}\n      </${tag}>`;
-	});
-
-	return `    <stack>\n${elements.join("\n")}\n    </stack>`;
+	const stackEl = buildStackElement(operations);
+	return stackEl === null ? "" : render(stackEl, RENDER_OPTS);
 }
 
 // ── HQ Workflow Mapping ────────────────────────────────────────────────

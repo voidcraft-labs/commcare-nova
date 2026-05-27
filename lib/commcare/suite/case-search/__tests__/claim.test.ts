@@ -32,15 +32,16 @@ import {
 } from "../claim";
 
 describe("emitClaimPost — structural shape", () => {
-	it("emits the five-line canonical template", () => {
+	it("emits the canonical compact <post> template", () => {
 		const xml = emitClaimPost();
+		// Compact serializer output; XPath single-quote literals
+		// (`'casedb'`, `'commcaresession'`) round-trip as `&apos;`
+		// inside the double-quoted `relevant` / `ref` attributes.
 		expect(xml).toBe(
-			[
-				`    <post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"`,
-				`          relevant="count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0">`,
-				`      <data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>`,
-				`    </post>`,
-			].join("\n"),
+			`<post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"` +
+				` relevant="count(instance(&apos;casedb&apos;)/casedb/case[@case_id=instance(&apos;commcaresession&apos;)/session/data/search_case_id]) = 0">` +
+				`<data key="case_id" ref="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>` +
+				`</post>`,
 		);
 	});
 
@@ -67,9 +68,13 @@ describe("emitClaimPost — structural shape", () => {
 		// `commcare-hq/corehq/apps/app_manager/models.py::CaseSearch.get_relevant`'s
 		// no-additional-relevant branch. Nova exposes no author
 		// composition affordance; every emission carries the bare
-		// default guard string.
+		// default guard string. The constant stays untouched (XPath
+		// single-quote literals); the wire form encodes them as
+		// `&apos;` inside the `relevant` attribute value.
 		const xml = emitClaimPost();
-		expect(xml).toContain(`relevant="${CLAIM_DEFAULT_RELEVANT}"`);
+		expect(xml).toContain(
+			`relevant="count(instance(&apos;casedb&apos;)/casedb/case[@case_id=instance(&apos;commcaresession&apos;)/session/data/search_case_id]) = 0"`,
+		);
 		expect(CLAIM_DEFAULT_RELEVANT).toBe(
 			"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0",
 		);
@@ -81,8 +86,10 @@ describe("emitClaimPost — structural shape", () => {
 		// datum.
 		const dataMatches = xml.match(/<data\s/g) ?? [];
 		expect(dataMatches.length).toBe(1);
+		// XPath single-quote literal (`'commcaresession'`) round-trips
+		// as `&apos;` inside the double-quoted `ref` attribute value.
 		expect(xml).toContain(
-			`<data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>`,
+			`<data key="case_id" ref="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>`,
 		);
 	});
 
@@ -92,11 +99,15 @@ describe("emitClaimPost — structural shape", () => {
 		// `search_case_id` session datum. Centralising the literal
 		// in `claim.ts::SEARCH_CASE_ID_REF` keeps the rewind frame's
 		// `value` attribute and the post body's `ref` attribute
-		// pointing at one source.
+		// pointing at one source. The Nova constant stays in its
+		// raw XPath form; both surfaces XML-encode the embedded `'`
+		// at serialization time.
 		expect(SEARCH_CASE_ID_REF).toBe(
 			"instance('commcaresession')/session/data/search_case_id",
 		);
 		const xml = emitClaimPost();
-		expect(xml).toContain(SEARCH_CASE_ID_REF);
+		expect(xml).toContain(
+			"instance(&apos;commcaresession&apos;)/session/data/search_case_id",
+		);
 	});
 });

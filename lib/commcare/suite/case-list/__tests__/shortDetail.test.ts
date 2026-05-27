@@ -203,29 +203,17 @@ describe("emitShortDetail — single-kind goldens", () => {
 			moduleIndex: 0,
 			doc: buildDoc({ module: mod }),
 		});
-		// Golden: full <detail> block.
+		// Golden: full <detail> block. The serializer emits compact
+		// output with no per-element whitespace — element order and
+		// attribute insertion order are the load-bearing properties.
 		expect(out.xml).toBe(
-			[
-				`  <detail id="m0_case_short">`,
-				`    <title>`,
-				`      <text>`,
-				`        <locale id="cchq.case"/>`,
-				`      </text>`,
-				`    </title>`,
-				`    <field>`,
-				`      <header>`,
-				`        <text>`,
-				`          <locale id="m0.case_short.case_name_1.header"/>`,
-				`        </text>`,
-				`      </header>`,
-				`      <template>`,
-				`        <text>`,
-				`          <xpath function="name"/>`,
-				`        </text>`,
-				`      </template>`,
-				`    </field>`,
-				`  </detail>`,
-			].join("\n"),
+			`<detail id="m0_case_short">` +
+				`<title><text><locale id="cchq.case"/></text></title>` +
+				`<field>` +
+				`<header><text><locale id="m0.case_short.case_name_1.header"/></text></header>` +
+				`<template><text><xpath function="name"/></text></template>` +
+				`</field>` +
+				`</detail>`,
 		);
 		expect(out.strings).toEqual({
 			"m0.case_short.case_name_1.header": "Name",
@@ -271,7 +259,11 @@ describe("emitShortDetail — single-kind goldens", () => {
 		// Calc lives at source index 1 → position 2.
 		expect(out.xml).toContain("case_name_1");
 		expect(out.xml).toContain("case_calculated_property_2");
-		expect(out.xml).toContain('<xpath function="$calculated_property">');
+		// `$calculated_property` round-trips through the serializer as
+		// the XML numeric character reference `&#x24;calculated_property`
+		// — XML-spec-equivalent, decoded identically by every conforming
+		// XML parser.
+		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 		expect(out.xml).toContain('<xpath function="phone"/>');
 	});
@@ -408,9 +400,10 @@ describe("emitShortDetail — sort emission", () => {
 		});
 		const out = emitShortDetail({ module: mod, moduleIndex: 0, doc });
 		// The sort block uses the inline-variable shape — the calc's
-		// xpath rides inside `$calculated_property`.
+		// xpath rides inside `$calculated_property` (round-tripped
+		// through the serializer as `&#x24;calculated_property`).
 		expect(out.xml).toMatch(
-			/<sort type="string" order="1" direction="descending">[\s\S]*?<xpath function="\$calculated_property">[\s\S]*?<variable name="calculated_property">[\s\S]*?<xpath function="phone"\/>/,
+			/<sort type="string" order="1" direction="descending">[\s\S]*?<xpath function="&#x24;calculated_property">[\s\S]*?<variable name="calculated_property">[\s\S]*?<xpath function="phone"\/>/,
 		);
 	});
 });
@@ -540,26 +533,29 @@ describe("emitShortDetail — multi-kind integration", () => {
 
 		// Plain field.
 		expect(out.xml).toContain('<xpath function="name"/>');
-		// Date field.
+		// Date field. XPath single-quote literals round-trip as
+		// `&apos;` inside the double-quoted attribute value.
 		expect(out.xml).toContain(
-			"if(birthdate = '', '', format-date(date(birthdate), '%d/%m/%y'))",
+			"if(birthdate = &apos;&apos;, &apos;&apos;, format-date(date(birthdate), &apos;%d/%m/%y&apos;))",
 		);
 		// Interval-always — divisor 7, threshold 14, label.
 		expect(out.xml).toContain("(today() - date(last_visit)) div 7");
 		expect(out.xml).toContain("today() - date(last_visit) &gt; 14");
-		expect(out.xml).toContain("'Overdue'");
+		expect(out.xml).toContain("&apos;Overdue&apos;");
 		// Phone — same XPath as plain on short detail.
 		expect(out.xml).toContain('<xpath function="phone"/>');
 		// ID-mapping — selected() chain wrapped in replace(join(...)).
 		expect(out.xml).toContain(
-			"replace(join(' ', if(selected(region, 'N'), 'North', ''), if(selected(region, 'S'), 'South', '')), '\\s+', ' ')",
+			"replace(join(&apos; &apos;, if(selected(region, &apos;N&apos;), &apos;North&apos;, &apos;&apos;), if(selected(region, &apos;S&apos;), &apos;South&apos;, &apos;&apos;)), &apos;\\s+&apos;, &apos; &apos;)",
 		);
 		// Interval-flag — threshold 4 weeks = 28 days.
 		expect(out.xml).toContain(
-			"if(last_visit = '', '!', if(today() - date(last_visit) &gt; 28, '!', ''))",
+			"if(last_visit = &apos;&apos;, &apos;!&apos;, if(today() - date(last_visit) &gt; 28, &apos;!&apos;, &apos;&apos;))",
 		);
 		// Calculated column — inline-variable template shape.
-		expect(out.xml).toContain('<xpath function="$calculated_property">');
+		// `$calculated_property` → `&#x24;calculated_property` (XML
+		// numeric reference, decoded identically).
+		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 
 		// Sort attached to the name column at order=1.
@@ -645,7 +641,11 @@ describe("emitShortDetail — search-action emission", () => {
 		expect(out.xml).toContain(
 			`<action auto_launch="false()" redo_last="false">`,
 		);
-		expect(out.xml).toContain(`<command value="'search_command.m0'"/>`);
+		// XPath single-quote literals (`'search_command.m0'`) round-trip
+		// as `&apos;` inside double-quoted attribute values.
+		expect(out.xml).toContain(
+			`<command value="&apos;search_command.m0&apos;"/>`,
+		);
 	});
 
 	it("emits the canonical AUTO_LAUNCH_EXPRESSIONS['single-select'] expression when searchAction.autoLaunch is true", () => {
@@ -660,8 +660,12 @@ describe("emitShortDetail — search-action emission", () => {
 			doc: buildDoc({ module: mod }),
 			searchAction: { autoLaunch: true },
 		});
+		// `$next_input` round-trips as the XML numeric reference
+		// `&#x24;next_input`; XPath single-quote literals round-trip as
+		// `&apos;`. Both XML-spec-equivalent encodings decode identically
+		// in CCHQ's runtime.
 		expect(out.xml).toContain(
-			`auto_launch="$next_input = '' or count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0"`,
+			`auto_launch="&#x24;next_input = &apos;&apos; or count(instance(&apos;casedb&apos;)/casedb/case[@case_id=&#x24;next_input]) = 0"`,
 		);
 	});
 
@@ -704,11 +708,10 @@ describe("emitShortDetail — search-action emission", () => {
 				},
 			},
 		});
-		// `escapeXml` leaves single quotes literal — HQ accepts the
-		// literal `'` inside double-quoted XPath attributes (e.g.
-		// `instance('casedb')`). The on-device emitter produces
-		// `active = 'yes'`; the attribute carries the bare form.
-		expect(out.xml).toContain(`relevant="active = 'yes'"`);
+		// The on-device emitter produces `active = 'yes'`; the
+		// serializer round-trips XPath single-quote literals as
+		// `&apos;` inside the double-quoted `relevant` attribute.
+		expect(out.xml).toContain(`relevant="active = &apos;yes&apos;"`);
 	});
 
 	it("omits the relevant attribute when searchAction.displayCondition is absent", () => {

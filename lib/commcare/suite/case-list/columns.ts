@@ -91,18 +91,33 @@
 // `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
 // short-circuit on `self.detail.display != 'short'`.
 
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { Column } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { quoteLiteral } from "../../predicate/stringQuoting";
 import type { InstanceRoot } from "../../predicate/termEmitter";
-import { escapeXml } from "../../xml";
-import { emitSortBlock, type ResolvedSortDirective } from "./sortKeys";
+import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
 	DetailKind,
 	DetailTarget,
 } from "./types";
+
+/**
+ * The Element-returning shape `buildColumnField` produces for the
+ * case-list detail emitters (`shortDetail.ts`, `longDetail.ts`). The
+ * per-field tree slots into a `<detail>` parent without a parse-then-
+ * reserialize round-trip. `emitColumnField` serializes the Element to
+ * a string for callers that assert against the rendered XML (the
+ * test surface).
+ */
+export interface CaseListFieldEmission {
+	readonly element: Element;
+	readonly strings: Record<string, string>;
+}
 
 /**
  * The CCHQ `detail_type` substring carried in column header
@@ -255,29 +270,21 @@ function detailCalculatedHeaderLocaleId(
 /**
  * Build a `<header>` block that resolves through a locale id.
  * The locale id is XML-attribute-safe (alphanumerics + `.` + `_`
- * + `-`) by construction at the composer site, so no escape pass
- * is needed here.
+ * + `-`) by construction at the composer site, so the serializer's
+ * one-pass escape is a no-op here.
  */
-function emitHeaderBlock(localeId: string): string {
-	return [
-		`      <header>`,
-		`        <text>`,
-		`          <locale id="${localeId}"/>`,
-		`        </text>`,
-		`      </header>`,
-	].join("\n");
+function buildHeaderBlock(localeId: string): Element {
+	return el("header", {}, [el("text", {}, [el("locale", { id: localeId })])]);
 }
 
 /**
- * Build a `<template>` block whose `<xpath function="...">` is
- * the literal display XPath for a column. The `xpathFunction`
- * is escaped for XML-attribute-value rules (the same set
- * `escapeXml` covers — `&` / `<` / `>` / `"`).
- *
- * Single quotes are NOT escaped: every wire-form XPath emitted
- * by `lib/commcare/expression/onDeviceEmitter.ts` and the per-
- * format helpers below quotes string literals with single
- * quotes, so the attribute's enclosing double quotes stay safe.
+ * Build a `<template>` Element whose `<xpath function="...">` is
+ * the literal display XPath for a column. The serializer XML-escapes
+ * `&` / `<` / `>` / `"` / `'` in the attribute value exactly once at
+ * render time, so any wire-form XPath emitted by
+ * `lib/commcare/expression/onDeviceEmitter.ts` (single-quoted string
+ * literals, `>` comparison operators) round-trips correctly without
+ * any local escaping pass.
  *
  * `form` is the optional CCHQ `<template form="...">` attribute.
  * Carries `'phone'` for long-detail phone columns per
@@ -288,22 +295,19 @@ function emitHeaderBlock(localeId: string): string {
  * `commcare-hq/corehq/apps/app_manager/detail_screen.py`) — Nova's
  * authoring vocabulary covers `phone` only at this surface.
  */
-function emitTemplateBlock(
+function buildTemplateBlock(
 	xpathFunction: string,
 	form: string | undefined = undefined,
-): string {
-	const formAttr = form !== undefined ? ` form="${form}"` : "";
-	return [
-		`      <template${formAttr}>`,
-		`        <text>`,
-		`          <xpath function="${escapeXml(xpathFunction)}"/>`,
-		`        </text>`,
-		`      </template>`,
-	].join("\n");
+): Element {
+	const templateAttribs: Record<string, string> = {};
+	if (form !== undefined) templateAttribs.form = form;
+	return el("template", templateAttribs, [
+		el("text", {}, [el("xpath", { function: xpathFunction })]),
+	]);
 }
 
 /**
- * Build a `<template>` block carrying an inline calc reference.
+ * Build a `<template>` Element carrying an inline calc reference.
  * The wire shape is CCHQ's `useXpathExpression` form per the
  * `useXpathExpression` branch in
  * `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.template`:
@@ -318,23 +322,21 @@ function emitTemplateBlock(
  *       </text>
  *     </template>
  *
- * `calcXpath` is XML-attribute-escaped before interpolation. The
- * outer `$calculated_property` stays a fixed string — XPath's
- * variable-reference syntax doesn't admit any character that
- * would need escaping.
+ * The outer `$calculated_property` is a fixed string — XPath's
+ * variable-reference syntax doesn't admit any character that would
+ * need escaping. `calcXpath` flows raw into the inner attribute;
+ * the serializer escapes the attribute value once at render time.
  */
-function emitCalculatedTemplateBlock(calcXpath: string): string {
-	return [
-		`      <template>`,
-		`        <text>`,
-		`          <xpath function="$calculated_property">`,
-		`            <variable name="calculated_property">`,
-		`              <xpath function="${escapeXml(calcXpath)}"/>`,
-		`            </variable>`,
-		`          </xpath>`,
-		`        </text>`,
-		`      </template>`,
-	].join("\n");
+function buildCalculatedTemplateBlock(calcXpath: string): Element {
+	return el("template", {}, [
+		el("text", {}, [
+			el("xpath", { function: "$calculated_property" }, [
+				el("variable", { name: "calculated_property" }, [
+					el("xpath", { function: calcXpath }),
+				]),
+			]),
+		]),
+	]);
 }
 
 // ============================================================
@@ -579,15 +581,15 @@ function templateFormFor(
  * references. The property-rooted directive arm has no instance
  * prefix and passes through unchanged.
  */
-function resolveSortXml(
+function resolveSortElement(
 	column: Column,
 	ctx: CaseListEmitContext,
-): string | undefined {
+): Element | undefined {
 	if (ctx.detailKind === "long") return undefined;
 	const directive = ctx.sortByUuid.get(column.uuid);
 	if (directive === undefined) return undefined;
 	const targeted = retargetSortDirective(directive, column, ctx.target);
-	return emitSortBlock(targeted);
+	return buildSortBlock(targeted);
 }
 
 /**
@@ -624,31 +626,31 @@ function retargetSortDirective(
 }
 
 /**
- * Emit one `<field>` block for a column. The `position` is 1-based
+ * Build one `<field>` Element for a column. The `position` is 1-based
  * — the surrounding orchestrator passes the column's source-array
  * index plus 1 so the locale-id suffix matches CCHQ's
- * `detail_column_header_locale` convention. Position is keyed off
- * the source-array index (config-time), NOT a render-time visible-
- * column counter — toggling `visibleInList` / `visibleInDetail`
- * doesn't churn locale ids.
+ * `detail_column_header_locale` convention. Position is keyed off the
+ * source-array index (config-time), NOT a render-time visible-column
+ * counter — toggling `visibleInList` / `visibleInDetail` doesn't churn
+ * locale ids.
  *
- * The dispatch routes calculated columns through the inline-
- * variable template path (CCHQ's `useXpathExpression` branch); every
- * other kind goes through the standard `<header>` / `<template>`
- * pair. May carry a `<template>` `form` attribute (long-detail
- * phone columns) and may carry a `<sort>` block on short detail
- * when the column's uuid keys into `ctx.sortByUuid`. Long detail
- * emits no `<sort>` blocks regardless of `ctx.sortByUuid` content.
+ * The dispatch routes calculated columns through the inline-variable
+ * template path (CCHQ's `useXpathExpression` branch); every other kind
+ * goes through the standard `<header>` / `<template>` pair. May carry a
+ * `<template>` `form` attribute (long-detail phone columns) and may
+ * carry a `<sort>` block on short detail when the column's uuid keys
+ * into `ctx.sortByUuid`. Long detail emits no `<sort>` blocks
+ * regardless of `ctx.sortByUuid` content.
  */
-export function emitColumnField(args: {
+export function buildColumnField(args: {
 	readonly column: Column;
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
-}): CaseListEmission {
+}): CaseListFieldEmission {
 	const { column, position, ctx } = args;
 
 	if (column.kind === "calculated") {
-		return emitCalculatedField({ column, position, ctx });
+		return buildCalculatedField({ column, position, ctx });
 	}
 
 	const displayXpath = propertyDisplayXpath(column);
@@ -659,48 +661,43 @@ export function emitColumnField(args: {
 		column.field,
 		position,
 	);
-	const headerXml = emitHeaderBlock(headerLocaleId);
-	const templateXml = emitTemplateBlock(
-		displayXpath,
-		templateFormFor(column, ctx.detailKind),
-	);
-	const sortXml = resolveSortXml(column, ctx);
-	const parts = [`    <field>`, headerXml, templateXml];
-	if (sortXml !== undefined) parts.push(sortXml);
-	parts.push(`    </field>`);
+	const fieldChildren: Element[] = [
+		buildHeaderBlock(headerLocaleId),
+		buildTemplateBlock(displayXpath, templateFormFor(column, ctx.detailKind)),
+	];
+	const sortEl = resolveSortElement(column, ctx);
+	if (sortEl !== undefined) fieldChildren.push(sortEl);
 
 	return {
-		xml: parts.join("\n"),
-		strings: {
-			[headerLocaleId]: column.header,
-		},
+		element: el("field", {}, fieldChildren),
+		strings: { [headerLocaleId]: column.header },
 	};
 }
 
 /**
- * Emit one `<field>` block for a calculated column. The
+ * Build one `<field>` Element for a calculated column. The
  * `<template>` carries an inline `<variable name="calculated_property">`
  * holding the lowered ValueExpression XPath, and the `<header>`
- * resolves through the `case_calculated_property_<position>`
- * locale convention.
+ * resolves through the `case_calculated_property_<position>` locale
+ * convention.
  *
- * The strings map carries the calc's `header` text under its
- * computed locale id so `app_strings.txt` carries the rendered
- * header at runtime. CCHQ's stock convention has the same shape
- * (per `id_strings.py::detail_column_header_locale`, with the
+ * The strings map carries the calc's `header` text under its computed
+ * locale id so `app_strings.txt` carries the rendered header at
+ * runtime. CCHQ's stock convention has the same shape (per
+ * `id_strings.py::detail_column_header_locale`, with the
  * `column.useXpathExpression` branch substituting the literal
  * `calculated_property` for the property name).
  *
- * Sort routing is identical to property-rooted columns: short
- * detail looks up the column's uuid in `ctx.sortByUuid` and the
- * directive carries the inline-variable shape; long detail emits
- * no `<sort>` block.
+ * Sort routing is identical to property-rooted columns: short detail
+ * looks up the column's uuid in `ctx.sortByUuid` and the directive
+ * carries the inline-variable shape; long detail emits no `<sort>`
+ * block.
  */
-function emitCalculatedField(args: {
+function buildCalculatedField(args: {
 	readonly column: Extract<Column, { kind: "calculated" }>;
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
-}): CaseListEmission {
+}): CaseListFieldEmission {
 	const { column, position, ctx } = args;
 	// `emitOnDeviceExpression` lowers the AST against the surrounding
 	// detail's storage-instance root — `instance('casedb')` for the
@@ -720,18 +717,30 @@ function emitCalculatedField(args: {
 		ctx.moduleIndex,
 		position,
 	);
-	const headerXml = emitHeaderBlock(headerLocaleId);
-	const templateXml = emitCalculatedTemplateBlock(calcXpath);
-	const sortXml = resolveSortXml(column, ctx);
-
-	const parts = [`    <field>`, headerXml, templateXml];
-	if (sortXml !== undefined) parts.push(sortXml);
-	parts.push(`    </field>`);
+	const fieldChildren: Element[] = [
+		buildHeaderBlock(headerLocaleId),
+		buildCalculatedTemplateBlock(calcXpath),
+	];
+	const sortEl = resolveSortElement(column, ctx);
+	if (sortEl !== undefined) fieldChildren.push(sortEl);
 
 	return {
-		xml: parts.join("\n"),
-		strings: {
-			[headerLocaleId]: column.header,
-		},
+		element: el("field", {}, fieldChildren),
+		strings: { [headerLocaleId]: column.header },
 	};
+}
+
+/**
+ * String adapter — serializes `buildColumnField`'s Element for callers
+ * that assert against the rendered XML string (the test surface). The
+ * detail emitters (`shortDetail.ts`, `longDetail.ts`) call
+ * `buildColumnField` directly.
+ */
+export function emitColumnField(args: {
+	readonly column: Column;
+	readonly position: number;
+	readonly ctx: CaseListEmitContext;
+}): CaseListEmission {
+	const { element, strings } = buildColumnField(args);
+	return { xml: render(element, RENDER_OPTS), strings };
 }

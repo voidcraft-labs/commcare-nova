@@ -8,7 +8,6 @@ import {
 	detailPair,
 	emptyFormActions,
 	escapeRegex,
-	escapeXml,
 	expandHashtags,
 	extractHashtags,
 	formShell,
@@ -51,18 +50,6 @@ describe("RESERVED_CASE_PROPERTIES", () => {
 	it("does not contain common user property names", () => {
 		expect(RESERVED_CASE_PROPERTIES.has("age")).toBe(false);
 		expect(RESERVED_CASE_PROPERTIES.has("full_name")).toBe(false);
-	});
-});
-
-describe("escapeXml", () => {
-	it("escapes XML special characters (single quotes left as-is for double-quoted attrs)", () => {
-		expect(escapeXml("a & b < c > d \" e ' f")).toBe(
-			"a &amp; b &lt; c &gt; d &quot; e ' f",
-		);
-	});
-
-	it("handles empty string", () => {
-		expect(escapeXml("")).toBe("");
 	});
 });
 

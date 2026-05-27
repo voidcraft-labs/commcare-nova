@@ -143,8 +143,10 @@ describe("emitSearchSession — inlineSearch flag", () => {
 			moduleIndex: 0,
 		});
 		expect(xml).toContain(`storage-instance="results"`);
+		// XPath single-quote literals round-trip through the serializer
+		// as `&apos;` inside the double-quoted `nodeset` attribute.
 		expect(xml).toContain(
-			`nodeset="instance('results')/results/case[@case_type='patient'][not(commcare_is_related_case=true())]"`,
+			`nodeset="instance(&apos;results&apos;)/results/case[@case_type=&apos;patient&apos;][not(commcare_is_related_case=true())]"`,
 		);
 	});
 
@@ -158,7 +160,7 @@ describe("emitSearchSession — inlineSearch flag", () => {
 		});
 		expect(xml).toContain(`storage-instance="results:inline"`);
 		expect(xml).toContain(
-			`nodeset="instance('results:inline')/results/case[@case_type='patient'][not(commcare_is_related_case=true())]"`,
+			`nodeset="instance(&apos;results:inline&apos;)/results/case[@case_type=&apos;patient&apos;][not(commcare_is_related_case=true())]"`,
 		);
 	});
 });
@@ -174,7 +176,9 @@ describe("emitSearchSession — <data> slot order", () => {
 			caseType: "patient",
 			moduleIndex: 0,
 		});
-		expect(xml).toContain(`<data key="case_type" ref="'patient'"/>`);
+		// XPath single-quote literal round-trips as `&apos;` inside
+		// the double-quoted `ref` attribute.
+		expect(xml).toContain(`<data key="case_type" ref="&apos;patient&apos;"/>`);
 	});
 
 	it("emits commcare_blacklisted_owner_ids second when excludedOwnerIds is set (CCHQ wire token)", () => {
@@ -195,7 +199,7 @@ describe("emitSearchSession — <data> slot order", () => {
 			moduleIndex: 0,
 		});
 		expect(xml).toContain(
-			`<data key="commcare_blacklisted_owner_ids" ref="'owner-a owner-b'"/>`,
+			`<data key="commcare_blacklisted_owner_ids" ref="&apos;owner-a owner-b&apos;"/>`,
 		);
 		// Order: case_type first, then commcare_blacklisted_owner_ids.
 		const caseTypeIdx = xml.indexOf(`key="case_type"`);
@@ -362,8 +366,10 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		// And the inline runtime XPath references the input ref via
 		// CCHQ's canonical search-input path so the runtime knows what
 		// to resolve.
+		// XPath single-quote literals round-trip as `&apos;` inside
+		// the double-quoted attribute value the serializer renders.
 		expect(xml).toContain(
-			`instance('search-input:results')/input/field[@name='base_age']`,
+			`instance(&apos;search-input:results&apos;)/input/field[@name=&apos;base_age&apos;]`,
 		);
 	});
 
@@ -427,9 +433,10 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		const matches = xml.match(/key="_xpath_query"/g) ?? [];
 		expect(matches.length).toBe(1);
 		// Both predicate fragments compose into the same wire string
-		// via CSQL's `and` operator.
-		expect(xml).toContain(`name = 'Alice'`);
-		expect(xml).toContain(`status = 'active'`);
+		// via CSQL's `and` operator. XPath single-quote literals
+		// round-trip as `&apos;`.
+		expect(xml).toContain(`name = &apos;Alice&apos;`);
+		expect(xml).toContain(`status = &apos;active&apos;`);
 		expect(xml).toContain(` and `);
 	});
 });
@@ -502,7 +509,8 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 		// `when-input-present` envelope wraps the inner CSQL via the
 		// canonical `if(count(...), <inner>, 'match-all()')` shape.
 		expect(xml).toContain(`if(count(`);
-		expect(xml).toContain(`@name='parent_name'`);
+		// XPath single-quote literals round-trip as `&apos;`.
+		expect(xml).toContain(`@name=&apos;parent_name&apos;`);
 	});
 
 	it("emits a subcase-walk simple input the same way", () => {
@@ -527,8 +535,9 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 		expect(xml).toContain(`<prompt key="child_status" exclude="true()">`);
 		expect(xml).toContain(`key="_xpath_query"`);
 		expect(xml).toContain(`subcase-exists(`);
-		expect(xml).toContain(`'child'`);
-		expect(xml).toContain(`@name='child_status'`);
+		// XPath single-quote literals round-trip as `&apos;`.
+		expect(xml).toContain(`&apos;child&apos;`);
+		expect(xml).toContain(`@name=&apos;child_status&apos;`);
 	});
 
 	it("AND-composes a bare-prompt-compatible and an ancestor-walk simple input cleanly — only the cross-walk contributes to _xpath_query", () => {
@@ -570,12 +579,13 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 		// the bare-prompt-compatible one rides on its prompt binding
 		// only.
 		expect(xml).toContain(`ancestor-exists(`);
-		expect(xml).toContain(`@name='parent_region'`);
+		// XPath single-quote literals round-trip as `&apos;`.
+		expect(xml).toContain(`@name=&apos;parent_region&apos;`);
 		// The bare-prompt-compatible input's name DOES NOT appear
 		// inside any `_xpath_query` CSQL because no predicate was
 		// derived for it.
 		const xpathSlice = xml.split(`key="_xpath_query"`)[1] ?? "";
-		expect(xpathSlice).not.toContain(`@name='name'`);
+		expect(xpathSlice).not.toContain(`@name=&apos;name&apos;`);
 	});
 });
 
@@ -828,8 +838,17 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		// contributes `match-all()` instead of matching against
 		// empty-string. The `&quot;` pair is `"` XML-escaped for
 		// attribute context.
+		// Pin the full `_xpath_query` ref. The fragment encodes the
+		// wire contract: (1) the value wraps in CSQL double-quote
+		// brackets so CCHQ's `unwrap_value` reads the runtime-resolved
+		// string as a string literal rather than rejecting it as a
+		// path; (2) the envelope is `when-input-present` so an unset
+		// input contributes `match-all()` instead of matching against
+		// empty-string. XPath single-quote literals (`'…'`) round-trip
+		// through the serializer as `&apos;` inside the double-quoted
+		// `ref` attribute value.
 		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='name_fuzzy']), concat('fuzzy-match(case_name, &quot;', instance('search-input:results')/input/field[@name='name_fuzzy'], '&quot;)'), 'match-all()'))"/>`,
+			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_fuzzy&apos;]), concat(&apos;fuzzy-match(case_name, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_fuzzy&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
 		);
 	});
 
@@ -857,7 +876,7 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		// value still wraps in double-quote brackets so the
 		// runtime-resolved string interpolates as a string literal.
 		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='name_starts']), concat('starts-with(case_name, &quot;', instance('search-input:results')/input/field[@name='name_starts'], '&quot;)'), 'match-all()'))"/>`,
+			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_starts&apos;]), concat(&apos;starts-with(case_name, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_starts&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
 		);
 	});
 
@@ -881,7 +900,7 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			moduleIndex: 0,
 		});
 		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='name_phon']), concat('phonetic-match(case_name, &quot;', instance('search-input:results')/input/field[@name='name_phon'], '&quot;)'), 'match-all()'))"/>`,
+			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_phon&apos;]), concat(&apos;phonetic-match(case_name, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_phon&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
 		);
 	});
 
@@ -905,7 +924,7 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 			moduleIndex: 0,
 		});
 		expect(xml).toContain(
-			`<data key="_xpath_query" ref="concat(if(count(instance('search-input:results')/input/field[@name='dob_fdate']), concat('fuzzy-date(dob, &quot;', instance('search-input:results')/input/field[@name='dob_fdate'], '&quot;)'), 'match-all()'))"/>`,
+			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;dob_fdate&apos;]), concat(&apos;fuzzy-date(dob, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;dob_fdate&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
 		);
 	});
 
@@ -1002,7 +1021,8 @@ describe("emitSearchSession — non-exact mode routing on self-walk inputs", () 
 		expect(xml).toContain(`<prompt key="name_search" exclude="true()">`);
 		expect(xml).toContain(`<data key="_xpath_query"`);
 		expect(xml).toContain("case_name = ");
-		expect(xml).toContain("@name='name_search'");
+		// XPath single-quote literal round-trips as `&apos;`.
+		expect(xml).toContain("@name=&apos;name_search&apos;");
 	});
 
 	it("does NOT route a self-walk `range` simple input with `name === property` into _xpath_query (daterange widget handles two-bound)", () => {

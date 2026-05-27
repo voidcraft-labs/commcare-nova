@@ -517,11 +517,14 @@ describe("case-search integration — suite XML wire emission", () => {
 		// body carries only the `case_id` data child.
 		const doc = buildSearchBlueprint();
 		const suite = compileSuiteXml(doc);
+		// XPath single-quote literals round-trip through the
+		// serializer as `&apos;` inside the double-quoted attribute
+		// values.
 		expect(suite).toContain(
-			"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0",
+			"count(instance(&apos;casedb&apos;)/casedb/case[@case_id=instance(&apos;commcaresession&apos;)/session/data/search_case_id]) = 0",
 		);
 		expect(suite).toContain(
-			'<data key="case_id" ref="instance(\'commcaresession\')/session/data/search_case_id"/>',
+			'<data key="case_id" ref="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>',
 		);
 	});
 
@@ -581,7 +584,7 @@ describe("case-search integration — suite XML wire emission", () => {
 		const doc = buildSearchBlueprint();
 		const suite = compileSuiteXml(doc);
 		expect(suite).toContain(
-			"<rewind value=\"instance('commcaresession')/session/data/search_case_id\"/>",
+			'<rewind value="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>',
 		);
 	});
 
@@ -669,9 +672,11 @@ describe("case-search integration — suite XML wire emission", () => {
 		// The two predicate fragments AND-compose via CSQL's ` and `
 		// operator (space-padded) per
 		// `lib/commcare/predicate/csqlEmitter.ts::emitLogicalSegments`.
+		// XPath single-quote literals round-trip as `&apos;` inside
+		// the double-quoted `ref` attribute value.
 		expect(xpathBlock).toContain(" and ");
-		expect(xpathBlock).toContain("region = 'North'");
-		expect(xpathBlock).toContain("status = 'active'");
+		expect(xpathBlock).toContain("region = &apos;North&apos;");
+		expect(xpathBlock).toContain("status = &apos;active&apos;");
 	});
 
 	it("emits <description> + the case_search.m{N}.description app-strings entry when searchScreenSubtitle is authored", () => {

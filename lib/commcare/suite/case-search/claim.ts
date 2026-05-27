@@ -5,6 +5,15 @@
 // claiming ownership so subsequent restores carry the case down to
 // the device's casedb. Every case-search-enabled module emits the
 // same shape — there is no author-controlled composition.
+//
+// The element is CONSTRUCTED via `domhandler` + the shared
+// `elementBuilders` helpers; the serializer is the single, exclusive
+// escaping authority on the attribute values it carries (the CCHQ XPath
+// guard, the search-case-id ref, the claim URL).
+
+import render from "dom-serializer";
+import type { Element } from "domhandler";
+import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 
 /**
  * The CCHQ claim endpoint URL with `__DOMAIN__` placeholder. CCHQ's
@@ -35,9 +44,9 @@ export const SEARCH_CASE_ID_REF =
 	"instance('commcaresession')/session/data/search_case_id";
 
 /**
- * Compose the `<post>` element. The orchestrator splices the
- * returned multi-line chunk directly into the `<remote-request>`
- * body at 4-space indent.
+ * Compose the `<post>` Element. The orchestrator splices the returned
+ * Element directly into the `<remote-request>` body; the surrounding
+ * serializer handles attribute-value escaping at render time.
  *
  * `<post>` carries only the `case_id` data child — the excluded-
  * owners filter and other CCHQ extensions live on the sibling
@@ -45,12 +54,27 @@ export const SEARCH_CASE_ID_REF =
  * would carry no runtime effect because the post fires after case
  * selection, by which point those filters have already gated the
  * visible result set.
+ *
+ * Attribute insertion order — `url, relevant` on `<post>`; `key, ref`
+ * on `<data>` — matches the canonical CCHQ fixture
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/case_search.xml`'s
+ * `<post>` element, so the rendered bytes stay diffable against the
+ * CCHQ-regenerated suite.
+ */
+export function buildClaimPost(): Element {
+	return el(
+		"post",
+		{ url: CLAIM_URL_TEMPLATE, relevant: CLAIM_DEFAULT_RELEVANT },
+		[el("data", { key: "case_id", ref: SEARCH_CASE_ID_REF })],
+	);
+}
+
+/**
+ * String adapter — serializes `buildClaimPost`'s Element for callers
+ * that assert against the rendered XML string (the `claim.test.ts`
+ * test surface). The orchestrator (`remoteRequest.ts`) calls
+ * `buildClaimPost` directly.
  */
 export function emitClaimPost(): string {
-	return [
-		`    <post url="${CLAIM_URL_TEMPLATE}"`,
-		`          relevant="${CLAIM_DEFAULT_RELEVANT}">`,
-		`      <data key="case_id" ref="${SEARCH_CASE_ID_REF}"/>`,
-		`    </post>`,
-	].join("\n");
+	return render(buildClaimPost(), RENDER_OPTS);
 }

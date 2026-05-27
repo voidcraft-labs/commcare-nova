@@ -2,16 +2,37 @@
  * AutoFixer — programmatic fixes for common CommCare app issues.
  * Runs instantly (no API calls) before validation, fixing everything it can
  * so the validator ideally passes on the first attempt.
+ *
+ * Every XML emission site CONSTRUCTS its replacement markup as a
+ * `domhandler` element tree and serializes via `dom-serializer` —
+ * `<bind>` / `<text>` / `<value>` / `<itext>` / `<translation>` /
+ * `<label>` elements all flow through `el(...)` + `render(...)`. There
+ * is NO template-literal XML in this file: attribute values flow
+ * through `setAttribute` (the `attribs` object literal); text values
+ * flow through `Text` nodes; the serializer is the single, exclusive
+ * XML-escaping authority. Hand-escaping (`escapeXml`) is intentionally
+ * absent — double-encoding (`&` → `&amp;` → `&amp;amp;`) is the
+ * failure mode it would introduce.
+ *
+ * The autoFixer still operates on its input as a string — regex matches
+ * locate target tag positions, and `xml.replace(...)` splices the
+ * serialized replacement back in. Parsing the whole LLM-generated XForm
+ * via `htmlparser2` would shift the contract (a malformed XForm would
+ * fail to parse before any fix could run), so the string boundary
+ * stays. The fix is on EMISSION — what we put back in — not on how we
+ * find the splice point.
  */
 
+import render from "dom-serializer";
+import { decodeXML } from "entities";
 import {
 	CASE_TYPE_REGEX,
 	escapeRegex,
-	escapeXml,
 	RESERVED_CASE_PROPERTIES,
 	RESERVED_RENAME_MAP,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
+import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 
 export class AutoFixer {
 	/**
@@ -142,13 +163,12 @@ export class AutoFixer {
 				if (refs.length > 0) {
 					// Has refs but no itext block — need to create one from the labels
 					// We can't know the text without context, so use the ID as placeholder
-					const textEntries = refs
-						.map(
-							(id) =>
-								`          <text id="${id}">\n            <value>${this.idToLabel(id)}</value>\n          </text>`,
-						)
-						.join("\n");
-					const itextBlock = `      <itext>\n        <translation lang="en" default="">\n${textEntries}\n        </translation>\n      </itext>`;
+					const itextBlock = render(
+						this.buildItextBlock(
+							refs.map((id) => ({ id, value: this.idToLabel(id) })),
+						),
+						RENDER_OPTS,
+					);
 					xml = xml.replace("</model>", `${itextBlock}\n    </model>`);
 					applied.push(
 						`${path}: Generated itext block for ${refs.length} existing jr:itext() references`,
@@ -178,9 +198,13 @@ export class AutoFixer {
 			} else if (entry.type === "field-hint") {
 				const id = `${entry.fieldId}-hint`;
 				itextEntries.set(id, entry.text);
+				const hintRefMarkup = render(
+					el("hint", { ref: `jr:itext('${id}')` }),
+					RENDER_OPTS,
+				);
 				fixedBody = fixedBody.replace(
-					new RegExp(`(<hint>)${escapeRegex(entry.text)}(</hint>)`),
-					`<hint ref="jr:itext('${id}')"/>`,
+					new RegExp(`<hint>${escapeRegex(entry.text)}</hint>`),
+					hintRefMarkup,
 				);
 			} else if (entry.type === "item-label") {
 				const id = `${entry.fieldId}-${entry.itemValue}-label`;
@@ -210,22 +234,22 @@ export class AutoFixer {
 
 		// Build or augment the itext block
 		if (itextEntries.size > 0) {
-			const textElements = [...itextEntries.entries()]
-				.map(
-					([id, text]) =>
-						`          <text id="${id}">\n            <value>${escapeXml(text)}</value>\n          </text>`,
-				)
-				.join("\n");
+			const entries = [...itextEntries.entries()].map(([id, value]) => ({
+				id,
+				value,
+			}));
 
 			if (existingItextMatch) {
-				// Augment existing itext — add new entries before </translation>
-				xml = xml.replace(
-					"</translation>",
-					`${textElements}\n        </translation>`,
-				);
+				// Augment existing itext — add new entries before </translation>.
+				// Serialize each `<text>` element independently and join so the
+				// splice doesn't include the wrapping `<itext>` / `<translation>`.
+				const textElements = entries
+					.map((entry) => render(this.buildTextElement(entry), RENDER_OPTS))
+					.join("");
+				xml = xml.replace("</translation>", `${textElements}</translation>`);
 			} else {
-				// Create new itext block — insert before </model>
-				const itextBlock = `      <itext>\n        <translation lang="en" default="">\n${textElements}\n        </translation>\n      </itext>`;
+				// Create new itext block — insert before </model>.
+				const itextBlock = render(this.buildItextBlock(entries), RENDER_OPTS);
 				xml = xml.replace("</model>", `${itextBlock}\n    </model>`);
 			}
 		}
@@ -324,45 +348,53 @@ export class AutoFixer {
 	private replaceQuestionLabel(
 		body: string,
 		fieldId: string,
-		text: string,
+		labelText: string,
 		itextId: string,
 	): string {
 		// Replace <label>Text</label> that directly follows ref="/data/fieldId"
 		// We need to be careful not to replace item labels
-		const escapedText = escapeRegex(text);
+		const escapedText = escapeRegex(labelText);
+		const labelRefMarkup = render(
+			el("label", { ref: `jr:itext('${itextId}')` }),
+			RENDER_OPTS,
+		);
 		// Match the question opening tag and its label
 		const pattern = new RegExp(
 			`((?:input|select1?|trigger|upload)\\s+ref="/data/${escapeRegex(fieldId)}"[^>]*>[\\s\\S]*?)<label>${escapedText}</label>`,
 		);
-		const replaced = body.replace(
-			pattern,
-			`$1<label ref="jr:itext('${itextId}')"/>`,
-		);
+		const replaced = body.replace(pattern, `$1${labelRefMarkup}`);
 		if (replaced !== body) return replaced;
 
 		// Fallback: simple replacement of the first occurrence in question context
-		return body.replace(
-			`<label>${text}</label>`,
-			`<label ref="jr:itext('${itextId}')"/>`,
-		);
+		return body.replace(`<label>${labelText}</label>`, labelRefMarkup);
 	}
 
 	private replaceItemLabel(
 		body: string,
-		text: string,
+		labelText: string,
 		value: string,
 		itextId: string,
 	): string {
-		// Replace <item><label>Text</label><value>val</value></item>
-		const escapedText = escapeRegex(text);
+		// Replace <item><label>Text</label><value>val</value></item>.
+		// The pattern uses `labelText` / `value` in their captured-
+		// from-input form (still entity-encoded) so the regex matches
+		// the original substring in the host body; the constructed
+		// `<value>` Text node decodes `value` first so the serializer's
+		// re-encoding doesn't double-escape (a captured `&amp;` round-
+		// trips through `decodeXML` → `&` → serializer → `&amp;`).
+		const escapedText = escapeRegex(labelText);
 		const escapedValue = escapeRegex(value);
 		const pattern = new RegExp(
 			`<item>\\s*<label>${escapedText}</label>\\s*<value>${escapedValue}</value>\\s*</item>`,
 		);
-		return body.replace(
-			pattern,
-			`<item>\n        <label ref="jr:itext('${itextId}')"/>\n        <value>${value}</value>\n      </item>`,
+		const itemMarkup = render(
+			el("item", {}, [
+				el("label", { ref: `jr:itext('${itextId}')` }),
+				el("value", {}, [text(decodeXML(value))]),
+			]),
+			RENDER_OPTS,
 		);
+		return body.replace(pattern, itemMarkup);
 	}
 
 	// -------------------------------------------------------------------
@@ -434,8 +466,13 @@ export class AutoFixer {
 			// Try to infer case type from context
 			const caseType = this.inferCaseType(xml) || "case";
 			if (CASE_TYPE_REGEX.test(caseType)) {
-				const bind = `\n      <bind nodeset="/data/case/create/case_type" calculate="'${caseType}'"/>`;
-				result = this.insertBindBefore(result, bind);
+				result = this.insertBindBefore(
+					result,
+					this.buildBindMarkup({
+						nodeset: "/data/case/create/case_type",
+						calculate: `'${caseType}'`,
+					}),
+				);
 				applied.push(`${path}: Added missing case_type calculate bind`);
 				changed = true;
 			}
@@ -446,8 +483,13 @@ export class AutoFixer {
 			// Use the first question as case name
 			const firstQuestion = this.findFirstQuestion(xml);
 			if (firstQuestion && XML_ELEMENT_NAME_REGEX.test(firstQuestion)) {
-				const bind = `\n      <bind nodeset="/data/case/create/case_name" calculate="/data/${firstQuestion}"/>`;
-				result = this.insertBindBefore(result, bind);
+				result = this.insertBindBefore(
+					result,
+					this.buildBindMarkup({
+						nodeset: "/data/case/create/case_name",
+						calculate: `/data/${firstQuestion}`,
+					}),
+				);
 				applied.push(
 					`${path}: Added missing case_name calculate bind (using /data/${firstQuestion})`,
 				);
@@ -457,8 +499,13 @@ export class AutoFixer {
 
 		// Check for missing owner_id bind
 		if (!/nodeset="\/data\/case\/create\/owner_id"\s+calculate=/.test(xml)) {
-			const bind = `\n      <bind nodeset="/data/case/create/owner_id" calculate="instance('commcaresession')/session/context/userid"/>`;
-			result = this.insertBindBefore(result, bind);
+			result = this.insertBindBefore(
+				result,
+				this.buildBindMarkup({
+					nodeset: "/data/case/create/owner_id",
+					calculate: "instance('commcaresession')/session/context/userid",
+				}),
+			);
 			applied.push(`${path}: Added missing owner_id calculate bind`);
 			changed = true;
 		}
@@ -496,8 +543,13 @@ export class AutoFixer {
 					const questionExists =
 						result.includes(`<${prop}/>`) || result.includes(`<${prop}>`);
 					const calcValue = questionExists ? `/data/${prop}` : `''`;
-					const bind = `\n      <bind nodeset="/data/case/update/${prop}" calculate="${calcValue}"/>`;
-					result = this.insertBindBefore(result, bind);
+					result = this.insertBindBefore(
+						result,
+						this.buildBindMarkup({
+							nodeset: `/data/case/update/${prop}`,
+							calculate: calcValue,
+						}),
+					);
 					applied.push(
 						`${path}: Added missing calculate bind for case update property "${prop}"`,
 					);
@@ -553,6 +605,56 @@ export class AutoFixer {
 	// -------------------------------------------------------------------
 	// Helpers
 	// -------------------------------------------------------------------
+
+	/**
+	 * Build a single `<text id=…>` element wrapping a `<value>` Text
+	 * node. The value text is decoded before construction so a string
+	 * the autoFixer captured from the host XForm (still carrying its
+	 * source XML entities like `&amp;` / `&lt;`) survives the
+	 * round-trip through the serializer without double-encoding. The
+	 * serializer XML-escapes the decoded text exactly once at render
+	 * time (`&` / `<` / `>` / `"` / `'`); a captured `Foo &amp; Bar`
+	 * decodes to `Foo & Bar`, the serializer encodes back to
+	 * `Foo &amp; Bar`, and the device renders the literal `Foo & Bar`
+	 * — mirrors the canonical fix at
+	 * `lib/commcare/xform/builder.ts::buildLabelNodes`.
+	 */
+	private buildTextElement(entry: {
+		readonly id: string;
+		readonly value: string;
+	}): import("domhandler").Element {
+		return el("text", { id: entry.id }, [
+			el("value", {}, [text(decodeXML(entry.value))]),
+		]);
+	}
+
+	/**
+	 * Build the `<itext><translation lang="en" default="">…</translation></itext>`
+	 * wrapper carrying the supplied `<text>` entries. CCHQ-canonical
+	 * attribute order on `<translation>` — `lang` first, then `default`.
+	 */
+	private buildItextBlock(
+		entries: ReadonlyArray<{ readonly id: string; readonly value: string }>,
+	): import("domhandler").Element {
+		return el("itext", {}, [
+			el(
+				"translation",
+				{ lang: "en", default: "" },
+				entries.map((entry) => this.buildTextElement(entry)),
+			),
+		]);
+	}
+
+	/**
+	 * Build a `<bind>` element with the supplied attributes, then
+	 * serialize to a string the caller can splice into the host XForm.
+	 * The leading newline + 6-space indent visually separates the
+	 * spliced bind from its surrounding model-block neighbors in the
+	 * host XForm (which is hand-formatted by the LLM and by Vellum).
+	 */
+	private buildBindMarkup(attribs: Record<string, string>): string {
+		return `\n      ${render(el("bind", attribs), RENDER_OPTS)}`;
+	}
 
 	/** Convert an itext ID to a human-readable label. e.g. "patient_name-label" -> "Patient Name" */
 	private idToLabel(id: string): string {

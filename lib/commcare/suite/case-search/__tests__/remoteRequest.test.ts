@@ -66,48 +66,42 @@ function makeModule(args: {
 // Canonical-shape golden for the minimal `<remote-request>` —
 // `caseType: "patient"`, empty `caseSearchConfig`, no inputs, no
 // filter, web list-first wire flags. Full-string assertion catches
-// attribute-order regressions, indentation drift, and silent slot
-// drops that the per-invariant tests below would individually miss
-// when no test reaches the affected line.
-const MINIMAL_REMOTE_REQUEST_XML = `  <remote-request>
-    <post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"
-          relevant="count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0">
-      <data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>
-    </post>
-    <command id="search_command.m0">
-      <display>
-        <text>
-          <locale id="case_search.m0"/>
-        </text>
-      </display>
-    </command>
-    <instance id="casedb" src="jr://instance/casedb"/>
-    <instance id="commcaresession" src="jr://instance/session"/>
-    <instance id="results" src="jr://instance/remote/results"/>
-    <session>
-      <query url="https://www.commcarehq.org/a/__DOMAIN__/phone/search/__APP_ID__/"
-             default_search="false"
-             storage-instance="results"
-             template="case">
-        <title>
-          <text>
-            <locale id="case_search.m0.inputs"/>
-          </text>
-        </title>
-        <data key="case_type" ref="'patient'"/>
-      </query>
-      <datum id="search_case_id"
-             nodeset="instance('results')/results/case[@case_type='patient'][not(commcare_is_related_case=true())]"
-             value="./@case_id"
-             detail-confirm="m0_search_long"
-             detail-select="m0_search_short"/>
-    </session>
-    <stack>
-      <push>
-        <rewind value="instance('commcaresession')/session/data/search_case_id"/>
-      </push>
-    </stack>
-  </remote-request>`;
+// attribute-order regressions and silent slot drops that the
+// per-invariant tests below would individually miss when no test
+// reaches the affected line.
+//
+// Compact serializer output — no per-element whitespace. Element
+// order, attribute insertion order, and the XML-spec-equivalent
+// entity encodings (`'` → `&apos;`, `$` → `&#x24;` etc.) are the
+// load-bearing properties. CCHQ's XML parser decodes the entities
+// identically before the suite-parse and XPath layers see the
+// attribute values.
+const MINIMAL_REMOTE_REQUEST_XML =
+	`<remote-request>` +
+	`<post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"` +
+	` relevant="count(instance(&apos;casedb&apos;)/casedb/case[@case_id=instance(&apos;commcaresession&apos;)/session/data/search_case_id]) = 0">` +
+	`<data key="case_id" ref="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>` +
+	`</post>` +
+	`<command id="search_command.m0">` +
+	`<display><text><locale id="case_search.m0"/></text></display>` +
+	`</command>` +
+	`<instance id="casedb" src="jr://instance/casedb"/>` +
+	`<instance id="commcaresession" src="jr://instance/session"/>` +
+	`<instance id="results" src="jr://instance/remote/results"/>` +
+	`<session>` +
+	`<query url="https://www.commcarehq.org/a/__DOMAIN__/phone/search/__APP_ID__/"` +
+	` default_search="false" storage-instance="results" template="case">` +
+	`<title><text><locale id="case_search.m0.inputs"/></text></title>` +
+	`<data key="case_type" ref="&apos;patient&apos;"/>` +
+	`</query>` +
+	`<datum id="search_case_id"` +
+	` nodeset="instance(&apos;results&apos;)/results/case[@case_type=&apos;patient&apos;][not(commcare_is_related_case=true())]"` +
+	` value="./@case_id" detail-confirm="m0_search_long" detail-select="m0_search_short"/>` +
+	`</session>` +
+	`<stack>` +
+	`<push><rewind value="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/></push>` +
+	`</stack>` +
+	`</remote-request>`;
 
 describe("emitRemoteRequest — top-level shape", () => {
 	it("emits the canonical minimal <remote-request> verbatim", () => {
@@ -350,11 +344,13 @@ describe("emitRemoteRequest — <post>", () => {
 			module: makeModule({ caseType: "patient", caseSearchConfig: {} }),
 			moduleIndex: 0,
 		});
+		// XPath single-quote literals round-trip through the serializer
+		// as `&apos;` inside the double-quoted attribute values.
 		expect(xml).toContain(
-			`relevant="count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0"`,
+			`relevant="count(instance(&apos;casedb&apos;)/casedb/case[@case_id=instance(&apos;commcaresession&apos;)/session/data/search_case_id]) = 0"`,
 		);
 		expect(xml).toContain(
-			`<data key="case_id" ref="instance('commcaresession')/session/data/search_case_id"/>`,
+			`<data key="case_id" ref="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>`,
 		);
 	});
 
@@ -378,9 +374,11 @@ describe("emitRemoteRequest — <stack>", () => {
 			moduleIndex: 0,
 		});
 		// CCHQ's `RemoteRequestFactory.build_stack` no-smart-link
-		// branch emits one frame with one rewind value.
+		// branch emits one frame with one rewind value. XPath
+		// single-quote literals round-trip as `&apos;` inside the
+		// double-quoted `value` attribute.
 		expect(xml).toContain(
-			`<rewind value="instance('commcaresession')/session/data/search_case_id"/>`,
+			`<rewind value="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>`,
 		);
 		const pushMatches = xml.match(/<push>/g) ?? [];
 		expect(pushMatches.length).toBe(1);
@@ -489,10 +487,12 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 		expect(xml).toContain("<session>");
 		expect(xml).toContain("<stack>");
 
-		// Data slots in canonical order.
-		expect(xml).toContain(`<data key="case_type" ref="'patient'"/>`);
+		// Data slots in canonical order. XPath single-quote literals
+		// round-trip as `&apos;` inside the double-quoted `ref`
+		// attribute values.
+		expect(xml).toContain(`<data key="case_type" ref="&apos;patient&apos;"/>`);
 		expect(xml).toContain(
-			`<data key="commcare_blacklisted_owner_ids" ref="'owner-x'"/>`,
+			`<data key="commcare_blacklisted_owner_ids" ref="&apos;owner-x&apos;"/>`,
 		);
 		expect(xml).toContain(`<data key="_xpath_query"`);
 

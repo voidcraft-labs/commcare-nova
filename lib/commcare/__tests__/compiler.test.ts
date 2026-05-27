@@ -335,7 +335,10 @@ describe("compileCcz", () => {
 		expect(suite).toContain('<command id="m0-f0"/>');
 		expect(suite).toContain('<command id="m0-f1"/>');
 		expect(suite).toContain('<detail id="m0_case_short">');
-		expect(suite).toContain("@case_type='patient'");
+		// Session-datum nodeset interpolates the case-type literal via an
+		// XPath single-quoted string; the serializer round-trips that
+		// quote as `&apos;` inside the double-quoted `nodeset` attribute.
+		expect(suite).toContain("@case_type=&apos;patient&apos;");
 	});
 
 	// When a form declares formLinks, the expander emits them into
@@ -390,13 +393,15 @@ describe("compileCcz", () => {
 		const suite = zip.readAsText("suite.xml");
 
 		// The intake form's <entry> has a <stack> with the conditional
-		// form-link frame targeting module 0, form 1 (followup).
-		expect(suite).toContain(`if="/data/refer = 'yes'"`);
-		expect(suite).toContain("<command value=\"'m0'\"/>");
-		expect(suite).toContain("<command value=\"'m0-f1'\"/>");
+		// form-link frame targeting module 0, form 1 (followup). XPath
+		// single-quote literals round-trip as `&apos;` inside the
+		// double-quoted attribute value the serializer emits.
+		expect(suite).toContain(`if="/data/refer = &apos;yes&apos;"`);
+		expect(suite).toContain('<command value="&apos;m0&apos;"/>');
+		expect(suite).toContain('<command value="&apos;m0-f1&apos;"/>');
 		// And a fallback frame firing the 'module' destination when the
 		// condition is false.
-		expect(suite).toContain(`if="not(/data/refer = 'yes')"`);
+		expect(suite).toContain(`if="not(/data/refer = &apos;yes&apos;)"`);
 	});
 
 	// The compiler must still package a valid archive when a form carries
@@ -1241,5 +1246,372 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 		expect(readCchqFixture("update_preload_case.xml")).toMatch(
 			/setvalue[^>]*event="xforms-ready"[^>]*value="instance\('casedb'\)/,
 		);
+	});
+});
+
+/**
+ * Path to CCHQ's `suite` fixture directory on the local clone. Holds
+ * canonical wire-shape references for suite.xml elements Nova emits —
+ * detail blocks, remote-request, action, sort, datum. The parity tests
+ * below parse Nova's output AND the matching CCHQ fixture via
+ * `htmlparser2` so byte-level differences in escaping (the serializer
+ * encodes `'` as `&apos;`, CCHQ's fixtures use the literal `'`) don't
+ * trigger false positives — structural equivalence is the contract.
+ *
+ * Same skip-guard rationale as `CCHQ_FIXTURES` above: contributor-machine
+ * convention, not a build artifact.
+ */
+const CCHQ_SUITE_FIXTURES = join(
+	homedir(),
+	"code/commcare-hq/corehq/apps/app_manager/tests/data/suite",
+);
+const HAS_CCHQ_SUITE_FIXTURES = existsSync(CCHQ_SUITE_FIXTURES);
+
+/** Read a CCHQ suite fixture as a string. */
+function readCchqSuiteFixture(name: string): string {
+	return readFileSync(join(CCHQ_SUITE_FIXTURES, name), "utf-8");
+}
+
+/**
+ * Structural shape of an element parsed out of a suite-XML document.
+ * `name` is the element tag; `attribs` is the raw attribute map; `path`
+ * is the slash-joined ancestor chain (excluding the root); `children`
+ * holds nested elements in document order so the parity assertions can
+ * walk down without a re-parse.
+ */
+interface SuiteElement {
+	readonly name: string;
+	readonly attribs: Readonly<Record<string, string>>;
+	readonly path: string;
+	readonly children: readonly SuiteElement[];
+}
+
+/**
+ * Parse a suite.xml string into a structural tree. The parser uses
+ * `htmlparser2` in `xmlMode` so attribute order and CCHQ's literal
+ * markup round-trip into the same shape Nova's emission resolves to
+ * after the dom-serializer escapes `'` to `&apos;`.
+ */
+function parseSuiteXml(xml: string): SuiteElement {
+	const stack: {
+		name: string;
+		attribs: Record<string, string>;
+		path: string;
+		children: SuiteElement[];
+	}[] = [];
+	let root: SuiteElement | null = null;
+	const parser = new Parser(
+		{
+			onopentag(name, attribs) {
+				const parentPath =
+					stack.length === 0 ? "" : stack[stack.length - 1].path;
+				const path = parentPath === "" ? name : `${parentPath}/${name}`;
+				stack.push({ name, attribs: { ...attribs }, path, children: [] });
+			},
+			onclosetag() {
+				const frame = stack.pop();
+				if (frame === undefined) return;
+				const node: SuiteElement = {
+					name: frame.name,
+					attribs: frame.attribs,
+					path: frame.path,
+					children: frame.children,
+				};
+				if (stack.length === 0) {
+					root = node;
+				} else {
+					stack[stack.length - 1].children.push(node);
+				}
+			},
+		},
+		{ xmlMode: true },
+	);
+	parser.write(xml);
+	parser.end();
+	if (root === null) {
+		throw new Error(
+			"parseSuiteXml: input contained no top-level element. " +
+				"Check that the suite-XML string the test fed in is a complete document with a root element.",
+		);
+	}
+	return root;
+}
+
+/** Find every descendant element whose `name` matches. Depth-first. */
+function findAllByName(
+	root: SuiteElement,
+	name: string,
+): readonly SuiteElement[] {
+	const out: SuiteElement[] = [];
+	function walk(node: SuiteElement): void {
+		if (node.name === name) out.push(node);
+		for (const child of node.children) walk(child);
+	}
+	walk(root);
+	return out;
+}
+
+/** Find the first descendant element whose `name` matches. */
+function findFirstByName(
+	root: SuiteElement,
+	name: string,
+): SuiteElement | undefined {
+	function walk(node: SuiteElement): SuiteElement | undefined {
+		if (node.name === name) return node;
+		for (const child of node.children) {
+			const hit = walk(child);
+			if (hit !== undefined) return hit;
+		}
+		return undefined;
+	}
+	return walk(root);
+}
+
+describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
+	/**
+	 * Reference fixture: `search_command_detail.xml` — CCHQ's canonical
+	 * wire shape for a case-search-enabled module. Pins three load-bearing
+	 * suite-XML element families together:
+	 *
+	 *   1. `<detail id="m0_case_short">` with a case-list short detail
+	 *      carrying a `<sort>` block AND an `<action auto_launch>` element
+	 *      for the search button.
+	 *   2. `<remote-request>` with `<post>`, `<command>`, `<instance>`
+	 *      declarations, `<session>`, and `<stack>` rewind frame.
+	 *   3. `<detail id="m0_search_short">` — the search-target detail
+	 *      block, structurally identical to `m0_case_short` minus the
+	 *      `<action>` element.
+	 *
+	 * The fixture covers CCHQ-specific features Nova doesn't emit (the
+	 * inline `instance('reports')` and `instance('item-list:moons')`
+	 * calc-column lookups, the parent-relation column). The parity test
+	 * asserts what Nova emits matches CCHQ in structure on the slots
+	 * Nova ALSO emits — element presence, attribute presence + value,
+	 * child element ordering. Byte-level escaping differences
+	 * (Nova: `&apos;` via serializer; CCHQ fixture: literal `'`) wash
+	 * out at the parse boundary.
+	 */
+	// Shared Nova authoring fixture — a case-search-enabled module
+	// that lights up the same suite-XML surfaces both CCHQ reference
+	// fixtures pin. Used by every parity test in this `describe` block.
+	function buildSearchParityDoc(): ReturnType<typeof buildDoc> {
+		return buildDoc({
+			appName: "SearchParity",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					caseSearchConfig: { searchScreenTitle: "Find patient" },
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+		});
+	}
+
+	/**
+	 * Reference fixture: `search_command_detail.xml` — CCHQ's wire
+	 * shape for the two case-list detail blocks a case-search-enabled
+	 * module emits. Pins the dual-detail emission contract:
+	 *
+	 *   1. `<detail id="m0_case_short">` — the case-list short detail
+	 *      with an `<action>` element for the search button.
+	 *   2. `<detail id="m0_search_short">` — the search-target short
+	 *      detail (no `<action>` child; the search results screen IS
+	 *      the action's destination).
+	 *
+	 * Both detail blocks carry the same `<title>` referencing CCHQ's
+	 * `cchq.case` built-in locale. The fixture's CCHQ-specific calc
+	 * columns (`instance('reports')`, `instance('item-list:moons')`)
+	 * sit outside Nova's authoring surface; the parity assertions hold
+	 * the structural slots both emitters carry.
+	 */
+	it("search_command_detail.xml — case-list + search-target detail blocks structurally match", () => {
+		const cchqDoc = buildSearchParityDoc();
+		const novaCcz = compileCcz(expandDoc(cchqDoc), "SearchParity", cchqDoc);
+		const novaSuite = new AdmZip(novaCcz).readAsText("suite.xml");
+		const cchqFragment = readCchqSuiteFixture("search_command_detail.xml");
+
+		const novaRoot = parseSuiteXml(novaSuite);
+		// CCHQ's fixture is a fragment (no `<suite>` wrapper); wrap so
+		// the parser yields a single root for parallel traversal.
+		const cchqRoot = parseSuiteXml(
+			`<suite version="1">${cchqFragment}</suite>`,
+		);
+
+		// (1) Case-list short detail — both emitters carry the same id +
+		// the same `<title>` referencing CCHQ's `cchq.case` locale.
+		const novaCaseShort = findAllByName(novaRoot, "detail").find(
+			(d) => d.attribs.id === "m0_case_short",
+		);
+		const cchqCaseShort = findAllByName(cchqRoot, "detail").find(
+			(d) => d.attribs.id === "m0_case_short",
+		);
+		expect(novaCaseShort).toBeDefined();
+		expect(cchqCaseShort).toBeDefined();
+		const novaTitleLocale = findFirstByName(
+			novaCaseShort as SuiteElement,
+			"locale",
+		);
+		const cchqTitleLocale = findFirstByName(
+			cchqCaseShort as SuiteElement,
+			"locale",
+		);
+		expect(novaTitleLocale?.attribs.id).toBe(cchqTitleLocale?.attribs.id);
+		expect(novaTitleLocale?.attribs.id).toBe("cchq.case");
+
+		// (2) The case-search-enabled short detail carries an `<action>`
+		// element with the canonical `auto_launch="false()"` +
+		// `redo_last="false"` attribute pair (Nova's `compileForPlatform`
+		// picks the list-first / no-auto-launch shape for this fixture's
+		// no-filter no-input shape; CCHQ's fixture pins the same).
+		const novaAction = findFirstByName(novaCaseShort as SuiteElement, "action");
+		const cchqAction = findFirstByName(cchqCaseShort as SuiteElement, "action");
+		expect(novaAction).toBeDefined();
+		expect(cchqAction).toBeDefined();
+		expect(novaAction?.attribs.auto_launch).toBe(
+			cchqAction?.attribs.auto_launch,
+		);
+		expect(novaAction?.attribs.redo_last).toBe(cchqAction?.attribs.redo_last);
+		expect(novaAction?.attribs.auto_launch).toBe("false()");
+		expect(novaAction?.attribs.redo_last).toBe("false");
+
+		// (3) Search-target detail block — same id pattern, same
+		// `cchq.case` title locale, NO `<action>` child (the search
+		// results screen IS the action's destination).
+		const novaSearchShort = findAllByName(novaRoot, "detail").find(
+			(d) => d.attribs.id === "m0_search_short",
+		);
+		const cchqSearchShort = findAllByName(cchqRoot, "detail").find(
+			(d) => d.attribs.id === "m0_search_short",
+		);
+		expect(novaSearchShort).toBeDefined();
+		expect(cchqSearchShort).toBeDefined();
+		expect(
+			findFirstByName(novaSearchShort as SuiteElement, "action"),
+		).toBeUndefined();
+		expect(
+			findFirstByName(cchqSearchShort as SuiteElement, "action"),
+		).toBeUndefined();
+	});
+
+	/**
+	 * Reference fixture: `remote_request.xml` — CCHQ's wire shape for
+	 * the full `<remote-request>` block a case-search-enabled module
+	 * emits. Pins the five-family child element order
+	 * (`<post>` → `<command>` → `<instance>+` → `<session>` → `<stack>`)
+	 * plus the canonical `<post>` / `<datum>` / `<stack>` attribute
+	 * shapes Nova matches.
+	 */
+	it("remote_request.xml — full <remote-request> block structurally matches", () => {
+		const cchqDoc = buildSearchParityDoc();
+		const novaCcz = compileCcz(expandDoc(cchqDoc), "SearchParity", cchqDoc);
+		const novaSuite = new AdmZip(novaCcz).readAsText("suite.xml");
+		const cchqFragment = readCchqSuiteFixture("remote_request.xml");
+
+		const novaRoot = parseSuiteXml(novaSuite);
+		const cchqRoot = parseSuiteXml(
+			`<suite version="1">${cchqFragment}</suite>`,
+		);
+
+		// `<remote-request>` element presence on both emitters.
+		const novaRemoteReq = findFirstByName(novaRoot, "remote-request");
+		const cchqRemoteReq = findFirstByName(cchqRoot, "remote-request");
+		expect(novaRemoteReq).toBeDefined();
+		expect(cchqRemoteReq).toBeDefined();
+
+		// (1) `<post>` element with the canonical relevant-guard and
+		// `case_id` data child. The guard is the
+		// `CaseClaimXpath.default_relevant` formula CCHQ lifts verbatim
+		// into the fixture; Nova carries the same string (encoded as
+		// `&apos;` once for the wire, decoded back at parse time).
+		const novaPost = findFirstByName(novaRemoteReq as SuiteElement, "post");
+		const cchqPost = findFirstByName(cchqRemoteReq as SuiteElement, "post");
+		expect(novaPost?.attribs.relevant).toBeDefined();
+		expect(cchqPost?.attribs.relevant).toBeDefined();
+		expect(novaPost?.attribs.relevant).toBe(cchqPost?.attribs.relevant);
+		const novaPostData = findFirstByName(novaPost as SuiteElement, "data");
+		const cchqPostData = findFirstByName(cchqPost as SuiteElement, "data");
+		expect(novaPostData?.attribs.key).toBe(cchqPostData?.attribs.key);
+		expect(novaPostData?.attribs.key).toBe("case_id");
+		expect(novaPostData?.attribs.ref).toBeDefined();
+		expect(cchqPostData?.attribs.ref).toBeDefined();
+		expect(novaPostData?.attribs.ref).toBe(cchqPostData?.attribs.ref);
+
+		// (2) Five-family child element ordering on BOTH emitters:
+		// post → command → instance(s) → session → stack. Asserting
+		// the same ordering relations on both Nova and CCHQ makes
+		// this a real bidirectional parity check — a future CCHQ
+		// reorder would surface here (failing the parity gate) rather
+		// than silently diverging.
+		const novaChildNames = (novaRemoteReq as SuiteElement).children.map(
+			(c) => c.name,
+		);
+		const cchqChildNames = (cchqRemoteReq as SuiteElement).children.map(
+			(c) => c.name,
+		);
+		for (const name of ["post", "command", "session", "stack"]) {
+			expect(novaChildNames).toContain(name);
+			expect(cchqChildNames).toContain(name);
+		}
+		// Apply the same ordering assertions to both sides — any
+		// future CCHQ reorder makes the parity gate fail.
+		for (const names of [novaChildNames, cchqChildNames]) {
+			expect(names.indexOf("post")).toBeLessThan(names.indexOf("command"));
+			expect(names.indexOf("command")).toBeLessThan(names.indexOf("instance"));
+			expect(names.lastIndexOf("instance")).toBeLessThan(
+				names.indexOf("session"),
+			);
+			expect(names.indexOf("session")).toBeLessThan(names.indexOf("stack"));
+		}
+
+		// (3) `<datum>` inside `<session>` references the search-target
+		// detail ids on both emitters. CCHQ's fixture uses a literal
+		// `{module_id}` placeholder that the runtime substitutes at
+		// app-build time; Nova emits the substituted form directly
+		// (`m0_search_short`). The parity check holds the structural
+		// shape — both have a `<datum>` with the same `detail-select`
+		// / `detail-confirm` attribute SUFFIX after stripping the
+		// CCHQ placeholder.
+		const novaSession = findFirstByName(
+			novaRemoteReq as SuiteElement,
+			"session",
+		);
+		const cchqSession = findFirstByName(
+			cchqRemoteReq as SuiteElement,
+			"session",
+		);
+		const novaDatum = findFirstByName(novaSession as SuiteElement, "datum");
+		const cchqDatum = findFirstByName(cchqSession as SuiteElement, "datum");
+		expect(novaDatum?.attribs["detail-select"]).toBe("m0_search_short");
+		expect(novaDatum?.attribs["detail-confirm"]).toBe("m0_search_long");
+		// CCHQ's value is `{module_id}_search_short`; the suffix matches.
+		expect(cchqDatum?.attribs["detail-select"]).toMatch(/_search_short$/);
+		expect(cchqDatum?.attribs["detail-confirm"]).toMatch(/_search_long$/);
+
+		// (4) `<stack>` rewind frame — single `<push>` containing a
+		// `<rewind>` referencing the same `search_case_id` session
+		// datum on both emitters.
+		const novaStack = findFirstByName(novaRemoteReq as SuiteElement, "stack");
+		const cchqStack = findFirstByName(cchqRemoteReq as SuiteElement, "stack");
+		const novaRewind = findFirstByName(novaStack as SuiteElement, "rewind");
+		const cchqRewind = findFirstByName(cchqStack as SuiteElement, "rewind");
+		expect(novaRewind?.attribs.value).toBeDefined();
+		expect(cchqRewind?.attribs.value).toBeDefined();
+		expect(novaRewind?.attribs.value).toBe(cchqRewind?.attribs.value);
 	});
 });
