@@ -89,8 +89,30 @@ const PARSE_OPTS = { xmlMode: true } as const;
  * `null` is returned when the form has no case-management actions to emit —
  * the caller short-circuits without touching the DOM.
  */
+/**
+ * One data-instance child the splice site needs to inject. `parentPath`
+ * is the typed XPath of the element this child must be appended UNDER —
+ * `/data` for the primary case and for non-repeat-context subcases; the
+ * repeat element's path (e.g. `/data/children`) for repeat-context
+ * subcases; or `/data/<X>/item` for `query_bound` repeats (the model-
+ * iteration `<item>` template root). The walker in `addCaseBlocks`
+ * resolves `parentPath` to a live DOM element and appends `element`
+ * there.
+ *
+ * The pre-Step-9 emission collapsed both fields into a single
+ * `Element[]` and the splice always appended under top-level `<data>`,
+ * which is exactly the bug the typed-path foundation forecloses: when
+ * the wrapper says one thing and the binds say another, the post-
+ * injection XForm oracle catches it as `XFORM_DANGLING_BIND` and
+ * `compileCcz` throws.
+ */
+interface CaseBlockChild {
+	readonly parentPath: FormPath;
+	readonly element: Element;
+}
+
 interface CaseBlocksEmission {
-	readonly dataChildren: Element[];
+	readonly dataChildren: ReadonlyArray<CaseBlockChild>;
 	readonly binds: Element[];
 	readonly setvalues: Element[];
 }
@@ -289,9 +311,12 @@ function buildCaseBlocks(
 	// Whether the primary case element appears at all. When the form has only
 	// subcases (no open/update/close on the parent), no `<case>` is appended
 	// under `<data>` and no attribute binds (date_modified, user_id) emit.
-	const dataChildren: Element[] = [];
+	const dataChildren: CaseBlockChild[] = [];
 	if (isCreate || isUpdate || isClose) {
-		dataChildren.push(buildCaseElement(caseChildren));
+		dataChildren.push({
+			parentPath: FormPath.root(),
+			element: buildCaseElement(caseChildren),
+		});
 		// `<case>` attribute binds read out of the always-on /data/meta block
 		// (populated by setvalues from session/context at form load + on every
 		// revalidate for timeEnd). The meta block ships with every Nova-emitted
@@ -311,25 +336,63 @@ function buildCaseBlocks(
 		);
 	}
 
+	// Pre-pass: count active subcases per repeat_context. Mirrors CCHQ's
+	// `Form.actions.count_subcases_per_repeat_context` Counter. Used below
+	// to pick the `nest` branch — when multiple subcases share one repeat,
+	// each gets its own `<subcase_N>` wrapper; when a single subcase lives
+	// inside a repeat, the `<case>` element splices DIRECTLY into the
+	// repeat (the `subcase-repeat.xml` shape) with no wrapper.
+	//
+	// Counts only ACTIVE subcases (condition is always/if) — inactive ones
+	// don't emit anyway, so they don't tip the nest decision.
+	const subcasesPerRepeatCtx = new Map<string, number>();
+	for (const sc of subcases) {
+		if (sc.condition.type !== "always" && sc.condition.type !== "if") continue;
+		const ctx = sc.repeat_context ?? "";
+		if (!ctx) continue;
+		subcasesPerRepeatCtx.set(ctx, (subcasesPerRepeatCtx.get(ctx) ?? 0) + 1);
+	}
+
 	// Subcases — each child-case creation gets a dedicated element named
-	// `subcase_{n}` (or nested under its repeat context).
+	// `subcase_{n}` (or, when it's the sole subcase in a repeat, the
+	// `<case>` element directly inside the repeat with no wrapper).
 	for (let sIdx = 0; sIdx < subcases.length; sIdx++) {
 		const sc = subcases[sIdx];
 		if (sc.condition.type !== "always" && sc.condition.type !== "if") {
 			continue;
 		}
 
-		const elName = `subcase_${sIdx}`;
 		// `repeat_context` arrives as the wire-format XPath string emitted by
-		// `formActions.ts::buildFormActions` (e.g. `/data/children`). Empty
-		// string means "no repeat scope" — splice the wrapper under <data>.
+		// `formActions.ts::buildFormActions` (e.g. `/data/children` for
+		// user_controlled / count_bound, `/data/children/item` for
+		// query_bound). Empty string means "no repeat scope" — splice the
+		// wrapper under <data>.
 		const repeatCtxPath = sc.repeat_context
 			? FormPath.parse(sc.repeat_context)
 			: null;
-		const subcaseWrapperPath = repeatCtxPath
-			? repeatCtxPath.child(elName)
-			: FormPath.root().child(elName);
-		const subcaseCasePath = subcaseWrapperPath.child("case");
+		// `nest` decision: mirrors CCHQ's
+		// `nest = repeat_context_count[subcase.repeat_context] > 1` in
+		// `xform.py::_create_casexml`. Non-repeat-context subcases always
+		// nest under `<subcase_N>` (existing shape). For repeat-context
+		// subcases, a single subcase per repeat splices `<case>` directly
+		// into the repeat element; multiple subcases per repeat each get
+		// their own `<subcase_N>` wrapper inside the repeat.
+		const nest =
+			!repeatCtxPath ||
+			(subcasesPerRepeatCtx.get(sc.repeat_context ?? "") ?? 0) > 1;
+		const elName = `subcase_${sIdx}`;
+		// `basePath` is where bind nodesets anchor. With a `<subcase_N>`
+		// wrapper, binds anchor at `<repeatCtx>/<subcase_N>` (or
+		// `/data/<subcase_N>` for non-repeat-context). Without a wrapper
+		// (nest=false), binds anchor at the repeat element itself
+		// (`<repeatCtx>`).
+		const basePath = nest
+			? (repeatCtxPath ?? FormPath.root()).child(elName)
+			: // nest=false implies repeatCtxPath is non-null (the only way
+				// nest comes out false is when subcasesPerRepeatCtx counts a
+				// single subcase under a real repeat_context).
+				(repeatCtxPath as FormPath);
+		const subcaseCasePath = basePath.child("case");
 		const validatedSubcaseType = validateCaseType(sc.case_type);
 		const subcaseDatumId = `case_id_new_${validatedSubcaseType}_${sIdx + subcaseIndexOffset}`;
 
@@ -490,10 +553,35 @@ function buildCaseBlocks(
 
 		// The subcase's `<case>` carries the same three attributes as the
 		// primary case (case_id, date_modified, user_id) plus the
-		// case-transaction xmlns. Wrapping element (`<subcase_n>`) holds the
-		// case element; the case element holds the create / update / index
-		// children.
-		dataChildren.push(el(elName, {}, [buildCaseElement(scChildren)]));
+		// case-transaction xmlns. Two emission shapes per the `nest`
+		// decision above:
+		//
+		//   - nest=true: `<subcase_N>` wrapper holds the case element.
+		//     parentPath is the repeat element (or `<data>` for
+		//     non-repeat-context subcases). Mirrors CCHQ's
+		//     `multiple_subcase_repeat.xml` and the existing
+		//     non-repeat-context wire shape.
+		//
+		//   - nest=false: the case element splices DIRECTLY into the
+		//     repeat element with no wrapper. parentPath IS the repeat
+		//     element. Mirrors CCHQ's `subcase-repeat.xml` for the
+		//     single-subcase-per-repeat case.
+		const caseElement = buildCaseElement(scChildren);
+		if (nest) {
+			const parentPath = repeatCtxPath ?? FormPath.root();
+			dataChildren.push({
+				parentPath,
+				element: el(elName, {}, [caseElement]),
+			});
+		} else {
+			// `nest=false` only happens when `repeatCtxPath` is set (the
+			// single-subcase-per-real-repeat branch). The case splices
+			// directly into the repeat element.
+			dataChildren.push({
+				parentPath: repeatCtxPath as FormPath,
+				element: caseElement,
+			});
+		}
 	}
 
 	return { dataChildren, binds, setvalues };
@@ -606,12 +694,12 @@ export function addCaseBlocks(
 
 	const doc = parseDocument(xform, PARSE_OPTS);
 
-	// Splice the `<case>` + `<subcase_n>` elements as children of the form's
-	// primary `<data>` instance node. The emitter (`xform/builder.ts`) emits
-	// exactly one `<data>` element under the only `<instance>` with no `id`
-	// attribute, so `findOne` against the document tree resolves it
-	// unambiguously. A missing `<data>` is a compiler-bug invariant (the
-	// emitter would have failed first), not a fixable authoring state.
+	// Resolve the form's primary `<data>` instance node. The emitter
+	// (`xform/builder.ts`) emits exactly one `<data>` element under the only
+	// `<instance>` with no `id` attribute, so `findOne` against the document
+	// tree resolves it unambiguously. A missing `<data>` is a compiler-bug
+	// invariant (the emitter would have failed first), not a fixable
+	// authoring state.
 	const dataEl = findOne((elem) => elem.name === "data", doc.children, true);
 	if (dataEl === null) {
 		throw new Error(
@@ -621,7 +709,27 @@ export function addCaseBlocks(
 				"Re-run the compile from a clean expandDoc.",
 		);
 	}
-	appendChildren(dataEl, emission.dataChildren);
+
+	// Group dataChildren by their splice parent's serialized XPath and walk
+	// each parent once. Per-parent batching keeps `appendChildren`'s
+	// `relinkSiblings` invariant clean (the linked-list `prev`/`next`
+	// pointers DOM-serializer walks in parallel with the children array stay
+	// consistent because each parent's children array is re-linked once after
+	// all its appends).
+	const spliceGroups = new Map<string, { parent: Element; children: Element[] }>();
+	for (const child of emission.dataChildren) {
+		const parent = resolveSpliceParent(dataEl, child.parentPath);
+		const key = child.parentPath.toXPath();
+		let group = spliceGroups.get(key);
+		if (!group) {
+			group = { parent, children: [] };
+			spliceGroups.set(key, group);
+		}
+		group.children.push(child.element);
+	}
+	for (const { parent, children } of spliceGroups.values()) {
+		appendChildren(parent, children);
+	}
 
 	// Splice binds + setvalues into `<model>`. The model's canonical child
 	// order is instance / secondary instances / binds / setvalues / itext, so
@@ -648,6 +756,57 @@ export function addCaseBlocks(
 	// would produce two and trip the post-injection XML well-formedness gate
 	// ("XML declaration allowed only at the start of the document").
 	return render(doc, RENDER_OPTS);
+}
+
+/**
+ * Walk the parsed XForm DOM from `<data>` along a `FormPath` to find the
+ * element that becomes the splice parent for a case-block wrapper.
+ *
+ * Mirrors CCHQ's `self.instance_node.find('/{x}'.join(repeat_context.split('/'))[1:])`
+ * at `commcare-hq/.../app_manager/xform.py::XForm._create_casexml`. Walks
+ * one element step at a time using `findOne` against the children of the
+ * previous step, so the result is the exact DOM node `appendChildren`
+ * must receive.
+ *
+ * Throws on a missing intermediate — a malformed input that the upstream
+ * emitter guarantees never produces (every `repeat_context` resolves to a
+ * field id that `xform/builder.ts::buildContainer` emitted as a data
+ * element before this runs, and `query_bound` repeats nest the children
+ * under `<item>` which the builder also emits). A throw here is a compiler
+ * bug, not a fixable authoring state — the error message points at the
+ * upstream emit site to look at.
+ */
+function resolveSpliceParent(dataEl: Element, path: FormPath): Element {
+	const segments = path.segments();
+	// First segment is always `{ kind: "element", name: "data" }` — the
+	// parsed DOM's `<data>` element IS that segment, so skip it. Walking
+	// `segments.slice(1)` gives us the descent steps from `<data>` onwards.
+	let cursor: Element = dataEl;
+	for (let i = 1; i < segments.length; i++) {
+		const segment = segments[i];
+		if (segment.kind !== "element") {
+			throw new Error(
+				`addCaseBlocks splice path "${path.toXPath()}" includes an attribute step (@${segment.name}). ` +
+					`Splice targets name an element to append the case wrapper UNDER; ` +
+					`confirm buildFormActions emitted an element-only FormPath for this repeat_context.`,
+			);
+		}
+		const next = findOne(
+			(e) => e.name === segment.name,
+			cursor.children,
+			false,
+		);
+		if (next === null) {
+			throw new Error(
+				`addCaseBlocks could not resolve splice path "${path.toXPath()}" — ` +
+					`the step "${segment.name}" doesn't exist as a child of <${cursor.name}>. ` +
+					`Splice paths come from repeat_context values that xform/builder.ts::buildContainer ` +
+					`emits as data-instance elements; check the repeat field's emit site for the missing element.`,
+			);
+		}
+		cursor = next;
+	}
+	return cursor;
 }
 
 /**
