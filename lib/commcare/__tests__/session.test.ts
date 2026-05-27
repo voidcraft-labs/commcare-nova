@@ -96,6 +96,70 @@ describe("deriveSessionDatums", () => {
 		);
 		expect(deriveSessionDatums("survey", 0, undefined, filter)).toEqual([]);
 	});
+
+	// ── multi-bucket subcase shape (post Step 6 bucketing change) ──
+	//
+	// The deriveCaseConfig bucketing change in Step 6 allows two repeats
+	// in one form to each produce a subcase of the same case type — they
+	// land as two distinct OpenSubCaseAction entries with different
+	// repeat_context values. The session-datum derivation must skip BOTH
+	// from emit (repeat-context subcases mint their case_id via a
+	// calculate bind, not a session datum) while still counting them in
+	// the index — matching CCHQ's Form.session_var_for_action numbering.
+	it("skips emit for every repeat-context subcase but still counts the index", () => {
+		const actions = {
+			open_case: {
+				condition: { type: "always" as const },
+				name_update: { question_path: "/data/case_name", update_mode: "always" },
+			},
+			update_case: { condition: { type: "never" as const }, update: {} },
+			case_preload: { condition: { type: "never" as const }, preload: {} },
+			close_case: { condition: { type: "never" as const } },
+			subcases: [
+				{
+					doc_type: "OpenSubCaseAction",
+					case_type: "child",
+					name_update: {
+						question_path: "/data/family/case_name",
+						update_mode: "always",
+					},
+					reference_id: "",
+					case_properties: {},
+					repeat_context: "/data/family",
+					relationship: "child" as const,
+					close_condition: { type: "never" as const },
+					condition: { type: "always" as const },
+				},
+				{
+					doc_type: "OpenSubCaseAction",
+					case_type: "child",
+					name_update: {
+						question_path: "/data/pets/case_name",
+						update_mode: "always",
+					},
+					reference_id: "",
+					case_properties: {},
+					repeat_context: "/data/pets",
+					relationship: "child" as const,
+					close_condition: { type: "never" as const },
+					condition: { type: "always" as const },
+				},
+			],
+		};
+		const datums = deriveSessionDatums(
+			"registration",
+			0,
+			"household",
+			undefined,
+			actions as never,
+		);
+		// Only the primary case datum emits — both subcases are
+		// repeat-context and skip emit. Without the bucketing fix the
+		// derivation would either drop one or duplicate the other (since
+		// pre-Step-6 the two subcases collapsed into one).
+		expect(datums).toHaveLength(1);
+		expect(datums[0].id).toBe("case_id_new_household_0");
+	});
 });
 
 // ── derivePostSubmitStack ──────────────────────────────────────────
