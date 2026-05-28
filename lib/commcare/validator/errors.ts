@@ -126,6 +126,7 @@ export type ValidationErrorCode =
 	| "XFORM_TRANSLATION_NO_LANG"
 	| "XFORM_TRANSLATION_DUPLICATE_LANG"
 	| "XFORM_TRANSLATION_MULTIPLE_DEFAULT"
+	| "XFORM_DANGLING_MEDIA_REF"
 	// suite.xml output (post-emit) — the suite-parse + session-runtime oracle.
 	// Category 1 (fatal at suite parse) and Category 2 (parse-clean,
 	// runtime-fatal cross-references) the device's SuiteParser / session

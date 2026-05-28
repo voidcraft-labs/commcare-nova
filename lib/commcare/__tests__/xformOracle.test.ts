@@ -1036,4 +1036,103 @@ describe("oracle defensive branches — every guarded code fires on its shape", 
 			true,
 		);
 	});
+
+	// ── #21 (extended) — `jr:constraintMsg` itext reference resolution ──
+	//
+	// The body-element scan (`<label ref="jr:itext(...)">`, `<hint ref>`,
+	// `<help ref>`) caught every ref-borne itext lookup, but JavaRosa also
+	// resolves the bind-borne `jr:constraintMsg="jr:itext('X')"` attribute
+	// against the same itext table (`commcare-core .../xform/parse/
+	// XFormParser.java::parseBindAttributes`). A dangling ref there parses
+	// clean here while detonating at form-init — exactly the gap that
+	// caused a media-only `validate_msg_media` whose registration gate
+	// drifted from the bind-attribute gate to escape oracle detection.
+	it("flags a <bind jr:constraintMsg> pointing at a missing itext id (XFORM_MISSING_ITEXT)", () => {
+		const xml = wrapXForm(
+			`<instance><data><q/></data></instance>` +
+				`<bind nodeset="/data/q" constraint=". != ''" jr:constraintMsg="jr:itext('q-constraintMsg')"/>` +
+				`<itext><translation lang="en" default=""><text id="q-label"><value>Q</value></text></translation></itext>`,
+			`<input ref="/data/q"><label ref="jr:itext('q-label')"/></input>`,
+		);
+		const errors = validateXForm(xml, "F", "M");
+		expect(
+			errors.some(
+				(e) =>
+					e.code === "XFORM_MISSING_ITEXT" &&
+					e.message.includes("q-constraintMsg"),
+			),
+		).toBe(true);
+	});
+
+	it("passes when <bind jr:constraintMsg> points at a registered itext id", () => {
+		const xml = wrapXForm(
+			`<instance><data><q/></data></instance>` +
+				`<bind nodeset="/data/q" constraint=". != ''" jr:constraintMsg="jr:itext('q-constraintMsg')"/>` +
+				`<itext><translation lang="en" default="">` +
+				`<text id="q-label"><value>Q</value></text>` +
+				`<text id="q-constraintMsg"><value>Required</value></text>` +
+				`</translation></itext>`,
+			`<input ref="/data/q"><label ref="jr:itext('q-label')"/></input>`,
+		);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
+	});
+
+	// ── Media-value resolution against the manifest ──────────────────
+	//
+	// With a manifest supplied, every `<value form="image|audio|video">jr://...`
+	// itext sibling must resolve into the manifest's wire-path set, or
+	// CommCare's runtime would resolve the reference to a missing bundled
+	// resource and render a broken icon. Mirrors the same install-time
+	// totality the manifest-aware fuzz tests assert.
+	it("flags a <value form=image> jr:// path with no manifest entry (XFORM_DANGLING_MEDIA_REF)", () => {
+		const xml = wrapXForm(
+			`<instance><data><q/></data></instance>` +
+				`<bind nodeset="/data/q"/>` +
+				`<itext><translation lang="en" default=""><text id="q-label">` +
+				`<value>Q</value>` +
+				`<value form="image">jr://file/commcare/missing.png</value>` +
+				`</text></translation></itext>`,
+			`<input ref="/data/q"><label ref="jr:itext('q-label')"/></input>`,
+		);
+		// Empty manifest — the reference can't resolve.
+		const errors = validateXForm(xml, "F", "M", new Set<string>());
+		expect(
+			errors.some(
+				(e) =>
+					e.code === "XFORM_DANGLING_MEDIA_REF" &&
+					e.message.includes("missing.png"),
+			),
+		).toBe(true);
+	});
+
+	it("passes when every media <value> jr:// path resolves to a manifest entry", () => {
+		const xml = wrapXForm(
+			`<instance><data><q/></data></instance>` +
+				`<bind nodeset="/data/q"/>` +
+				`<itext><translation lang="en" default=""><text id="q-label">` +
+				`<value>Q</value>` +
+				`<value form="image">jr://file/commcare/abc.png</value>` +
+				`<value form="audio">jr://file/commcare/def.mp3</value>` +
+				`</text></translation></itext>`,
+			`<input ref="/data/q"><label ref="jr:itext('q-label')"/></input>`,
+		);
+		const manifest = new Set(["commcare/abc.png", "commcare/def.mp3"]);
+		expect(validateXForm(xml, "F", "M", manifest)).toEqual([]);
+	});
+
+	it("skips media-value resolution entirely when no manifest is supplied (media OFF)", () => {
+		// A bare expanded form that carries no media-form `<value>` siblings
+		// still produces no media findings — the media-OFF gate short-circuits.
+		const xml = wrapXForm(
+			`<instance><data><q/></data></instance>` +
+				`<bind nodeset="/data/q"/>` +
+				`<itext><translation lang="en" default=""><text id="q-label">` +
+				`<value>Q</value>` +
+				// A jr:// in a plain (non-media) `<value>` is text content, not
+				// a media reference — the form attribute is what marks media.
+				`</text></translation></itext>`,
+			`<input ref="/data/q"><label ref="jr:itext('q-label')"/></input>`,
+		);
+		expect(validateXForm(xml, "F", "M")).toEqual([]);
+	});
 });
