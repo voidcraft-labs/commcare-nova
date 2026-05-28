@@ -110,7 +110,10 @@ describe("deriveSessionDatums", () => {
 		const actions = {
 			open_case: {
 				condition: { type: "always" as const },
-				name_update: { question_path: "/data/case_name", update_mode: "always" },
+				name_update: {
+					question_path: "/data/case_name",
+					update_mode: "always",
+				},
 			},
 			update_case: { condition: { type: "never" as const }, update: {} },
 			case_preload: { condition: { type: "never" as const }, preload: {} },

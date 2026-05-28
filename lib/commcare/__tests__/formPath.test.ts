@@ -35,15 +35,15 @@ describe("FormPath.root + toXPath", () => {
 	});
 
 	it("serializes nested element steps", () => {
-		expect(
-			FormPath.root().child("children").child("subcase_0").toXPath(),
-		).toBe("/data/children/subcase_0");
+		expect(FormPath.root().child("children").child("subcase_0").toXPath()).toBe(
+			"/data/children/subcase_0",
+		);
 	});
 
 	it("serializes a terminating attribute step", () => {
-		expect(
-			FormPath.root().child("case").attr("case_id").toXPath(),
-		).toBe("/data/case/@case_id");
+		expect(FormPath.root().child("case").attr("case_id").toXPath()).toBe(
+			"/data/case/@case_id",
+		);
 	});
 
 	it("serializes a deep path with a terminating attribute", () => {
@@ -64,9 +64,9 @@ describe("FormPath.toVellum", () => {
 	});
 
 	it("preserves element + attribute steps verbatim", () => {
-		expect(
-			FormPath.root().child("case").attr("case_id").toVellum(),
-		).toBe("#form/case/@case_id");
+		expect(FormPath.root().child("case").attr("case_id").toVellum()).toBe(
+			"#form/case/@case_id",
+		);
 	});
 });
 

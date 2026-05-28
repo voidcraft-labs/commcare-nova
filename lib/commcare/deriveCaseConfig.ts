@@ -28,7 +28,15 @@ import { readFieldString } from "./fieldProps";
 /** One derived child-case config (one-to-one with an HQ `OpenSubCaseAction`). */
 export interface DerivedChildCase {
 	case_type: string;
-	case_name_field: string;
+	/**
+	 * The field id whose value names the child case (`case_name`). `undefined`
+	 * when the bucket has no such field — an authoring error the validator rule
+	 * `childCaseNoNameField` rejects, so by the time a valid doc reaches the
+	 * expander this is always set. Optional (not an empty-string sentinel) so the
+	 * absence is unambiguous at the type level and matches `DerivedCaseConfig
+	 * .case_name_field`'s shape.
+	 */
+	case_name_field?: string;
 	case_properties: CasePropertyMapping[];
 	relationship: "child" | "extension";
 	repeat_context?: string;
@@ -185,13 +193,12 @@ function deriveChildCases(
 		const relationship = ctDef?.relationship ?? "child";
 
 		// Child case name is the field id'd `case_name` in this bucket. When
-		// absent we emit the empty string as a sentinel — the validator rule
-		// `childCaseNoNameField` reports against this bucket directly. The old
-		// silent fallback (use the first field in the bucket as the name source)
-		// is gone; a missing `case_name` is now a real authoring error the user
-		// sees rather than a silent re-purpose of an unrelated field.
-		const nameEntry = bucket.fields.find((e) => e.id === "case_name");
-		const childCaseName = nameEntry?.id ?? "";
+		// absent it stays `undefined` — the validator rule `childCaseNoNameField`
+		// reports against this bucket directly. The old silent fallback (use the
+		// first field in the bucket as the name source) is gone; a missing
+		// `case_name` is now a real authoring error the user sees rather than a
+		// silent re-purpose of an unrelated field.
+		const childCaseName = bucket.fields.find((e) => e.id === "case_name")?.id;
 
 		const childProps: CasePropertyMapping[] = bucket.fields
 			.filter((e) => e.id !== childCaseName)
@@ -199,7 +206,7 @@ function deriveChildCases(
 
 		derived.push({
 			case_type: bucket.caseType,
-			case_name_field: childCaseName,
+			...(childCaseName && { case_name_field: childCaseName }),
 			case_properties: childProps,
 			relationship,
 			...(bucket.repeatAncestor && { repeat_context: bucket.repeatAncestor }),

@@ -232,6 +232,18 @@ export function buildFormActions(
 	// different case type).
 	if (child_cases && child_cases.length > 0) {
 		base.subcases = child_cases.map((child): OpenSubCaseAction => {
+			// The child-case bucket must carry a `case_name`-id'd field — the
+			// validator rule `childCaseNoNameField` rejects a bucket without one,
+			// so reaching the expander with an unset `case_name_field` means an
+			// upstream invariant broke. Throw loudly (mirroring the primary case's
+			// guard above) rather than letting `resolvePath("")` fall through to
+			// `FormPath.root().child("")` and surface an opaque XML-name error.
+			if (!child.case_name_field) {
+				throw new Error(
+					`Form '${form.id}' derives a child case of type '${child.case_type}' with no case-name field — validator should have caught this.`,
+				);
+			}
+
 			const childProps: Record<
 				string,
 				{ question_path: string; update_mode: string }

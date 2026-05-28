@@ -88,7 +88,10 @@ function withRepeat(
 	childCount: 1 | 2,
 ): ReturnType<typeof buildDoc> {
 	const repeatChildren: ReturnType<typeof f>[] = [];
-	const caseTypes: { name: string; properties: { name: string; label: string }[] }[] = [
+	const caseTypes: {
+		name: string;
+		properties: { name: string; label: string }[];
+	}[] = [
 		{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
 	];
 	for (let i = 0; i < childCount; i++) {
@@ -205,7 +208,9 @@ describe("repeat-context subcase emission — per-mode + per-nest matrix", () =>
 		expect(form).toContain(
 			'<bind nodeset="/data/children/case/@case_id" calculate="uuid()"/>',
 		);
-		expect(form).not.toMatch(/<setvalue ref="\/data\/children\/case\/@case_id"/);
+		expect(form).not.toMatch(
+			/<setvalue ref="\/data\/children\/case\/@case_id"/,
+		);
 		// Parent-index pointer reads from the primary case_id.
 		expect(form).toContain(
 			'<bind nodeset="/data/children/case/index/parent" calculate="/data/case/@case_id"/>',

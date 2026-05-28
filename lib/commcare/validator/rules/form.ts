@@ -1061,10 +1061,7 @@ function primaryCaseFieldInRepeat(
 		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[uuid];
 			if (!field) continue;
-			const casePropertyOn =
-				typeof (field as Record<string, unknown>).case_property_on === "string"
-					? ((field as Record<string, unknown>).case_property_on as string)
-					: undefined;
+			const casePropertyOn = readFieldString(field, "case_property_on");
 			if (repeatAncestor && casePropertyOn === mod.caseType) {
 				errors.push(
 					validationError(
@@ -1104,8 +1101,7 @@ function childCaseNoNameField(
 	ctx: FormContext,
 	caseConfig: DerivedCaseConfig,
 ): ValidationError[] {
-	if (!caseConfig.child_cases || caseConfig.child_cases.length === 0)
-		return [];
+	if (!caseConfig.child_cases || caseConfig.child_cases.length === 0) return [];
 	const errors: ValidationError[] = [];
 	for (const child of caseConfig.child_cases) {
 		if (child.case_name_field) continue;
@@ -1120,9 +1116,7 @@ function childCaseNoNameField(
 				baseLocation(ctx),
 				{
 					caseType: child.case_type,
-					...(child.repeat_context
-						? { repeatId: child.repeat_context }
-						: {}),
+					...(child.repeat_context ? { repeatId: child.repeat_context } : {}),
 				},
 			),
 		);

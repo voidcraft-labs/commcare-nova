@@ -1283,7 +1283,9 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	 * compile time.
 	 */
 
-	function withPrimaryFieldInRepeat(repeat_mode: "user_controlled" | "count_bound" | "query_bound") {
+	function withPrimaryFieldInRepeat(
+		repeat_mode: "user_controlled" | "count_bound" | "query_bound",
+	) {
 		// One primary-case field inside a repeat. Per-mode variants pin the
 		// rule firing across every repeat shape.
 		const repeatChildren = [
@@ -1358,7 +1360,11 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 		});
 	}
 
-	for (const mode of ["user_controlled", "count_bound", "query_bound"] as const) {
+	for (const mode of [
+		"user_controlled",
+		"count_bound",
+		"query_bound",
+	] as const) {
 		it(`fires on a primary case field inside a ${mode} repeat`, () => {
 			const doc = withPrimaryFieldInRepeat(mode);
 			const errors = runValidation(doc);

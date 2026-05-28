@@ -37,8 +37,8 @@
 
 import "dotenv/config";
 import { Command } from "commander";
-import { runValidation } from "../lib/commcare/validator/runner";
 import { readFieldString } from "../lib/commcare/fieldProps";
+import { runValidation } from "../lib/commcare/validator/runner";
 import type { BlueprintDoc, Uuid } from "../lib/domain";
 import { db, hydrateBlueprint } from "./lib/firestore";
 import { runMain } from "./lib/main";
@@ -109,9 +109,10 @@ function findUnblockedSubcaseFields(
  * rules fire here) AND the read-only `findUnblockedSubcaseFields` pass
  * (counts the now-supported shapes). Returns one row per offense.
  *
- * Validation errors carry a `location` block with `formId` / `moduleId`
- * the validator populates. The scan rehydrates the human-readable
- * module/form names for the output rows.
+ * Validation errors carry a `location` block the validator populates with
+ * `moduleName` / `formName` (via `baseLocation`), so the human-readable
+ * names come straight off the error — no rehydration needed. Per-rule
+ * context (the offending field id / case type) lives in `error.details`.
  */
 function scanApp(
 	appId: string,
@@ -119,16 +120,6 @@ function scanApp(
 	doc: BlueprintDoc,
 ): ScanRow[] {
 	const rows: ScanRow[] = [];
-	const moduleByName = new Map<string, string>();
-	const formByName = new Map<string, string>();
-	for (const moduleUuid of doc.moduleOrder) {
-		const mod = doc.modules[moduleUuid];
-		moduleByName.set(mod.id, mod.name);
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const form = doc.forms[formUuid];
-			formByName.set(form.id, form.name);
-		}
-	}
 
 	// Two new rejection rules — surface via the validator runner so the
 	// scan's verdict matches what authors will see in the editor.
@@ -140,25 +131,17 @@ function scanApp(
 		) {
 			continue;
 		}
-		const meta = (error.meta ?? {}) as Record<string, unknown>;
+		const details = error.details ?? {};
+		// PRIMARY_CASE_FIELD_IN_REPEAT carries `fieldId`; CHILD_CASE_NO_NAME_FIELD
+		// carries `caseType` (the bucket has no single offending field).
 		const fieldId =
-			typeof meta.fieldId === "string"
-				? meta.fieldId
-				: typeof meta.caseType === "string"
-					? `<bucket:${meta.caseType}>`
-					: "<unknown>";
-		const loc = error.location ?? {};
-		const moduleName =
-			(typeof loc.moduleId === "string" && moduleByName.get(loc.moduleId)) ||
-			"<unknown>";
-		const formName =
-			(typeof loc.formId === "string" && formByName.get(loc.formId)) ||
-			"<unknown>";
+			details.fieldId ??
+			(details.caseType ? `<bucket:${details.caseType}>` : "<unknown>");
 		rows.push({
 			appId,
 			ownerEmail,
-			moduleName,
-			formName,
+			moduleName: error.location.moduleName ?? "<unknown>",
+			formName: error.location.formName ?? "<unknown>",
 			ruleCode: error.code,
 			fieldId,
 			details: error.message,
@@ -279,9 +262,7 @@ async function main(): Promise<void> {
 		scanned += 1;
 	}
 
-	console.error(
-		`# scanned ${scanned} apps, emitted ${rowCount} offense rows`,
-	);
+	console.error(`# scanned ${scanned} apps, emitted ${rowCount} offense rows`);
 }
 
 runMain(main);

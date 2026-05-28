@@ -120,10 +120,7 @@ export class FormPath {
 					`underscore, then letters / digits / underscores).`,
 			);
 		}
-		return new FormPath([
-			...this._segments,
-			{ kind: "element", name },
-		]);
+		return new FormPath([...this._segments, { kind: "element", name }]);
 	}
 
 	/**
@@ -140,10 +137,7 @@ export class FormPath {
 					`underscore, then letters / digits / underscores).`,
 			);
 		}
-		return new FormPath([
-			...this._segments,
-			{ kind: "attribute", name },
-		]);
+		return new FormPath([...this._segments, { kind: "attribute", name }]);
 	}
 
 	/**

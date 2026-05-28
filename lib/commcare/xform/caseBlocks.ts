@@ -270,8 +270,7 @@ function buildCaseBlocks(
 		for (const [prop, mapping] of Object.entries(updateCase.update)) {
 			const validProp = validatePropertyName(prop);
 			const qPath =
-				mapping.question_path ||
-				FormPath.root().child(prop).toXPath();
+				mapping.question_path || FormPath.root().child(prop).toXPath();
 			const resolvedQPath = validateXFormPath(qPath);
 			// `relevant="count(<qPath>) > 0"` skips the case-update bind
 			// when the source question's data node is absent at submission
@@ -414,8 +413,7 @@ function buildCaseBlocks(
 			}),
 		);
 		const namePath =
-			sc.name_update?.question_path ||
-			subcaseWrapperPath.child("name").toXPath();
+			sc.name_update?.question_path || basePath.child("name").toXPath();
 		binds.push(
 			el("bind", {
 				nodeset: subcaseCreatePath.child("case_name").toXPath(),
@@ -506,8 +504,7 @@ function buildCaseBlocks(
 		for (const [prop, mapping] of props) {
 			const validProp = validatePropertyName(prop);
 			const qPath =
-				mapping.question_path ||
-				FormPath.root().child(prop).toXPath();
+				mapping.question_path || FormPath.root().child(prop).toXPath();
 			const resolvedQPath = validateXFormPath(qPath);
 			// Subcase update binds nest the property under `<case>` — the
 			// path is `<subcase_n>/case/update/<prop>`, NOT
@@ -716,7 +713,10 @@ export function addCaseBlocks(
 	// pointers DOM-serializer walks in parallel with the children array stay
 	// consistent because each parent's children array is re-linked once after
 	// all its appends).
-	const spliceGroups = new Map<string, { parent: Element; children: Element[] }>();
+	const spliceGroups = new Map<
+		string,
+		{ parent: Element; children: Element[] }
+	>();
 	for (const child of emission.dataChildren) {
 		const parent = resolveSpliceParent(dataEl, child.parentPath);
 		const key = child.parentPath.toXPath();
