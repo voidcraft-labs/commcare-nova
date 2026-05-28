@@ -60,10 +60,13 @@ export interface MediaCczEntry {
 	readonly bytes: Buffer;
 }
 
-/** The compiler-facing media bundle. */
+/** The compiler-facing media bundle. The HQ-JSON `multimedia_map` is
+ *  produced separately by `buildMultimediaMap` and stamped onto the
+ *  application by the expander, so it doesn't appear here — the
+ *  compiler reads `mediaSuiteXml` for the descriptor and `cczEntries`
+ *  for the bundled file bytes. */
 export interface MediaBundle {
 	readonly mediaSuiteXml: string;
-	readonly multimediaMap: Record<string, MultimediaMapItem>;
 	readonly cczEntries: readonly MediaCczEntry[];
 }
 
@@ -103,25 +106,23 @@ export function buildMediaBundle(
 	manifest: AssetManifest,
 	where: string,
 ): MediaBundle {
-	// Dedupe by `wirePath` BEFORE producing the bundle's three outputs.
-	// Two distinct `AssetId`s can share the same `(contentHash, extension)`
+	// Dedupe by `wirePath` before producing the bundle's outputs. Two
+	// distinct `AssetId`s can share the same `(contentHash, extension)`
 	// — and therefore the same wire path — when the storage-layer dedup
-	// probe races (a concurrent upload of the same bytes lands two `ready`
-	// rows because the probe ignores `pending` rows, documented in
+	// probe races (a concurrent upload of the same bytes lands two
+	// `ready` rows because the probe ignores `pending` rows;
 	// `lib/db/mediaAssets.ts::findReadyAssetByOwnerAndHash`). Without
-	// dedup, the bundle would emit two `<media>` blocks with identical
-	// `<resource id>` siblings + two cczEntries collisions (silent
-	// `AdmZip.addFile` overwrite) + a `multimediaMap` key overwrite. The
-	// payload is byte-identical so picking either entry is correct; we
-	// pick the last-iterated to keep `Map.set`'s natural semantics.
+	// dedup the bundle would emit two `<media>` blocks with identical
+	// `<resource id>` siblings + collide on the zip entry path (silent
+	// `AdmZip.addFile` overwrite). Same wire path = same content hash =
+	// same bytes, so picking either entry is byte-equivalent.
 	const deduped = new Map<string, ResolvedMediaAsset>();
 	for (const asset of manifest.values()) {
 		deduped.set(asset.wirePath, asset);
 	}
-	// Sort by wire path so the bundle's three outputs (mediaSuiteXml,
-	// multimediaMap, cczEntries) carry the same deterministic order —
-	// same inputs always yield same bytes. `buildMediaSuiteXml` sorts
-	// internally; the other two consume the pre-sorted list.
+	// Sort by wire path so both outputs carry the same deterministic
+	// order — same inputs always yield same bytes. `buildMediaSuiteXml`
+	// sorts internally as a defensive double-bind.
 	const assets = [...deduped.values()].sort((a, b) =>
 		a.wirePath < b.wirePath ? -1 : a.wirePath > b.wirePath ? 1 : 0,
 	);
@@ -141,7 +142,6 @@ export function buildMediaBundle(
 
 	return {
 		mediaSuiteXml: buildMediaSuiteXml(assets),
-		multimediaMap: buildMultimediaMap(assets),
 		cczEntries,
 	};
 }

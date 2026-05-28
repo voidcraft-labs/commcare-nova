@@ -223,10 +223,9 @@ export function registerUploadAppToHq(
 					 * lives inside `importApp` via the hardcoded
 					 * `COMMCARE_HQ_URL`. `expandDoc` materializes the
 					 * `HqApplication` JSON HQ's `/api/import_app/`
-					 * endpoint expects. Media-free until the multimedia
-					 * bytes upload lands: shipping media references without
-					 * the matching files on the HQ side renders broken
-					 * images. */
+					 * endpoint expects. Media-free: emitting media
+					 * references without the matching files on the HQ
+					 * side would render broken images. */
 					const hqJson = expandDoc(doc);
 					/* App name defaulting: `?.trim() || app.app_name` maps
 					 * both omitted and whitespace-only inputs to the

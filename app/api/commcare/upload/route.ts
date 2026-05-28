@@ -72,9 +72,9 @@ export async function POST(req: NextRequest) {
 		const { creds } = settings;
 
 		/* ── Expand domain doc to HQ JSON ────────────────────────────── */
-		// HQ-bound JSON emits media-free until the multimedia bytes upload
-		// lands: shipping media references without their files on the HQ
-		// side renders to broken images, which is worse than no images.
+		// HQ-bound JSON ships media-free: emitting media references
+		// without the matching files on the HQ side would render to
+		// broken images, which is worse than no images.
 		const hqJson = expandDoc(docWithParent);
 
 		/* ── Upload to CommCare HQ ──────────────────────────────────── */

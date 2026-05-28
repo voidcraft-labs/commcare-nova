@@ -54,16 +54,13 @@ describe("buildMultimediaMap", () => {
 });
 
 describe("buildMediaBundle", () => {
-	it("produces media_suite, multimedia_map, and one CCZ entry per asset", () => {
+	it("produces media_suite + one CCZ entry per asset", () => {
 		const bundle = buildMediaBundle(
 			manifestOf([asset("img", HASH_IMG, ".png", "image", true)]),
 			"t",
 		);
 		expect(bundle.mediaSuiteXml).toContain('descriptor="Media Suite File"');
 		expect(bundle.mediaSuiteXml).toContain(`./commcare/${HASH_IMG}.png`);
-		expect(
-			bundle.multimediaMap[`jr://file/commcare/${HASH_IMG}.png`]?.media_type,
-		).toBe("CommCareImage");
 		expect(bundle.cczEntries).toEqual([
 			{ path: `commcare/${HASH_IMG}.png`, bytes: Buffer.from("img-bytes") },
 		]);
@@ -78,12 +75,11 @@ describe("buildMediaBundle", () => {
 		).toThrow(/Internal bug.*without loaded bytes/s);
 	});
 
-	it("yields an empty placeholder suite + empty map for a media-free app", () => {
+	it("yields an empty placeholder suite + no CCZ entries for a media-free app", () => {
 		const bundle = buildMediaBundle(manifestOf([]), "t");
 		expect(bundle.mediaSuiteXml).toBe(
 			'<?xml version="1.0"?>\n<suite version="1"/>',
 		);
-		expect(bundle.multimediaMap).toEqual({});
 		expect(bundle.cczEntries).toEqual([]);
 	});
 });

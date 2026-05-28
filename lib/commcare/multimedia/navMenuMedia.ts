@@ -37,8 +37,7 @@ import { type AssetManifest, requireAssetRef } from "./assetWirePath";
  * Nova's single authoring language. CommCare's media dicts are keyed by
  * language code; Nova is single-language throughout (the XForm builder
  * hardcodes `lang="en"`, field text is a plain string not a lang-map),
- * so every stamped dict uses this one key. Per-language media rides
- * whatever plan migrates Nova's labels to a lang-map model.
+ * so every stamped dict uses this one key.
  */
 const NOVA_LANG = "en";
 

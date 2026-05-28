@@ -111,10 +111,9 @@ export function jrFileRef(wirePath: string): string {
  * manifest known to contain it. The caller built the manifest by
  * walking the doc + loading the matching rows; a miss means the doc
  * references an asset the loader couldn't return — a stale ref (deleted
- * row, foreign owner, still `pending`). The throw here is the floor:
- * the doc-layer gate that would catch the stale ref before compile is
- * not yet wired (no validator rule today rejects a reference to a
- * missing asset).
+ * row, foreign owner, still `pending`). `requireAssetRef` is the floor:
+ * no other layer rejects a stale reference, so the throw surfaces as a
+ * compile-time failure.
  *
  * Callers that legitimately have no manifest (media OFF) must guard on
  * `manifest === undefined` BEFORE reaching here — this helper is only

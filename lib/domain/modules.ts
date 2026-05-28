@@ -1100,21 +1100,16 @@ export const caseListConfigSchema = z
 		/**
 		 * Image intended for the "Open case list" affordance — the menu
 		 * link from the module's home screen that opens the case list.
-		 * **Reserved**: the slot is in the schema but no wire path emits
-		 * it today. Nova's compiler emits no standalone case-list-link
-		 * command in suite.xml, and the HQ-bound JSON path doesn't stamp
-		 * `case_list.media_image` from this slot. The bytes are also not
-		 * collected by `collectAssetRefs`. Setting this slot is therefore
-		 * a no-op end-to-end; mounting authoring UI for it should wait
-		 * until both the local case-list-link command emission and the
-		 * HQ multimedia bytes upload are wired.
+		 * **Reserved**: schema slot kept on the type, but no wire path
+		 * emits it and no walk collects its bytes — setting it is a
+		 * no-op end-to-end.
 		 */
 		icon: assetIdSchema.optional(),
 		/**
-		 * Audio prompt intended for the case-list link. **Reserved**, same
-		 * no-op shape as `icon` above. Menu affordances carry image +
-		 * audio only — there is no video slot (unlike a question message,
-		 * which can carry all three).
+		 * Audio prompt intended for the case-list link. **Reserved**,
+		 * same no-op shape as `icon` above. Menu affordances carry image
+		 * + audio only — there is no video slot (unlike a question
+		 * message, which can carry all three).
 		 */
 		audioLabel: assetIdSchema.optional(),
 	})

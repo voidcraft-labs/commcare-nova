@@ -1122,13 +1122,16 @@ function buildContainer(
 
 	// Group body: `<group ref>` wrapping the children. `appearance="field-list"`
 	// is a CommCare semantic that drives single-page rendering of the group's
-	// children. For a labelled group it's Nova's default; for an empty-label
-	// (transparent) group, dropping the attribute matches the "no visual
-	// impact" runtime semantic — there's no group chrome to anchor a field-list
-	// layout against, so leaving it on would assert a layout posture the author
-	// didn't ask for.
+	// children. A LABELLED group (text OR media) gets it as Nova's default; a
+	// transparent (no-label) group drops the attribute — there's no group
+	// chrome to anchor a field-list layout against, so leaving it on would
+	// assert a layout posture the author didn't ask for. Gated on the SAME
+	// predicate `labelEl` is computed from so a media-only group label still
+	// counts as labelled (the body emits `<label>` and the group renders as
+	// real chrome, not a transparent wrapper).
 	const groupAttribs: Record<string, string> = { ref: nodePath };
-	if (label) groupAttribs.appearance = "field-list";
+	if (hasItextContent(label, labelMedia, assets))
+		groupAttribs.appearance = "field-list";
 	const groupChildren: Element[] = labelEl
 		? [labelEl, ...childBody]
 		: childBody;

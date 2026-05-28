@@ -38,11 +38,11 @@ export async function POST(req: NextRequest) {
 		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
 		rebuildFieldParent(docWithParent);
 
-		// HQ-bound JSON export emits media-free until the multimedia bytes
-		// upload lands: shipping `multimedia_map` + `logo_refs` + media
-		// references without the matching files on the HQ side renders to
-		// broken images, which is worse than no images. The `.ccz` compile
-		// path keeps media-on (its files ship in the archive).
+		// HQ-bound JSON exports media-free: shipping `multimedia_map` +
+		// `logo_refs` + media references without the matching files on
+		// the HQ side would render to broken images, which is worse than
+		// no images. The `.ccz` compile path keeps media-on because its
+		// files ship in the archive.
 		const hqJson = expandDoc(docWithParent);
 		const jsonStr = JSON.stringify(hqJson, null, 2);
 

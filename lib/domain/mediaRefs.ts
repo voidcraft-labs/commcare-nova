@@ -50,12 +50,12 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
 		if (mod.icon) ids.add(mod.icon);
 		if (mod.audioLabel) ids.add(mod.audioLabel);
 		// `caseListConfig.icon` / `audioLabel` are deliberately NOT
-		// collected: no wire path emits them today (Nova's compiler emits
-		// no standalone case-list-link command in suite.xml, and HQ-bound
-		// JSON is media-OFF until the multimedia bytes upload lands). The
-		// schema slot is reserved; see `modules.ts::caseListConfigSchema`
-		// for the honest JSDoc. Collecting them here would bundle orphan
-		// bytes into the `.ccz` archive.
+		// collected: no wire path emits them. Nova's compiler emits no
+		// standalone case-list-link command in suite.xml, and the
+		// HQ-bound JSON path emits media-free. The schema slot is
+		// reserved; see `modules.ts::caseListConfigSchema` for the
+		// matching JSDoc. Collecting them here would bundle orphan bytes
+		// into the `.ccz` archive.
 		const caseList = mod.caseListConfig;
 		for (const column of caseList?.columns ?? []) {
 			if (column.kind === "image-map") {
