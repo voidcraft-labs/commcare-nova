@@ -27,7 +27,10 @@ export const APP_OWNER = "owner-fixture";
 /**
  * Build a `MediaAssetRecord` literal. Only `id` is positional because
  * every test threads a stable id between the doc reference and the
- * manifest entry; the rest are tagged overrides.
+ * manifest entry; the rest are tagged overrides. The authoritative
+ * `id` sits after `...overrides` so an override either supplies its
+ * own id or falls through to the positional default — no post-spread
+ * re-apply needed.
  */
 export function makeAssetRecord(
 	id: string,
@@ -35,8 +38,7 @@ export function makeAssetRecord(
 ): MediaAssetRecord {
 	const mimeType: AssetMimeType = overrides.mimeType ?? "image/png";
 	const status: MediaAssetStatus = overrides.status ?? "ready";
-	const record: MediaAssetRecord = {
-		id: asAssetId(id),
+	return {
 		owner: APP_OWNER,
 		contentHash: "a".repeat(64),
 		mimeType,
@@ -51,10 +53,8 @@ export function makeAssetRecord(
 		// don't care about the value, only that the field is present.
 		created_at: Timestamp.fromMillis(0),
 		...overrides,
-		// Keep `id` authoritative — overrides can override; default uses
-		// the positional arg.
+		id: asAssetId(overrides.id ?? id),
 	};
-	return { ...record, id: asAssetId(overrides.id ?? id) };
 }
 
 /** Build a manifest map from a list of records, keyed by record.id. */
