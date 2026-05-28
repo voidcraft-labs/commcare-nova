@@ -233,7 +233,7 @@ export function expandDoc(
 		// lands — survey-only modules and modules with no case type
 		// fall back to the empty-detail pair; their `search_config`
 		// stays at the shell defaults regardless of authored content.
-		const projection = projectCaseListForHq(mod, doc);
+		const projection = projectCaseListForHq(mod, doc, assets);
 		const caseDetails = hasCases ? projection.caseDetails : detailPair([]);
 
 		const shell = moduleShell(

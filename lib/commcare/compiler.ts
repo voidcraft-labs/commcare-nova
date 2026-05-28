@@ -215,6 +215,7 @@ export function compileCcz(
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
+				...(assets && { assets }),
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
@@ -233,6 +234,7 @@ export function compileCcz(
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
+				...(assets && { assets }),
 			});
 			suiteDetails.push(longEmission.element);
 			Object.assign(appStrings, longEmission.strings);
@@ -252,6 +254,7 @@ export function compileCcz(
 					moduleIndex: mIdx,
 					doc,
 					target: "search",
+					...(assets && { assets }),
 				});
 				suiteDetails.push(searchShort.element);
 				Object.assign(appStrings, searchShort.strings);
@@ -261,6 +264,7 @@ export function compileCcz(
 					moduleIndex: mIdx,
 					doc,
 					target: "search",
+					...(assets && { assets }),
 				});
 				suiteDetails.push(searchLong.element);
 				Object.assign(appStrings, searchLong.strings);

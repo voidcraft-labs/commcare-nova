@@ -95,6 +95,7 @@ export type DetailColumnFormat =
 	| "date"
 	| "phone"
 	| "enum"
+	| "enum-image"
 	| "time-ago"
 	| "late-flag"
 	| "calculate"

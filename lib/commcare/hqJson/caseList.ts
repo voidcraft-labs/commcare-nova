@@ -49,6 +49,10 @@ import type {
 } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
+import {
+	type AssetManifest,
+	requireAssetRef,
+} from "../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../predicate";
 import { TIME_AGO_DIVISOR_DAYS } from "../suite/case-list/columns";
 import {
@@ -101,7 +105,10 @@ import type {
  * boundary; the suite-XML emitter retains the float in the inline
  * XPath because the runtime evaluator coerces.
  */
-function projectColumnToDetail(column: Column): WireDetailColumn {
+function projectColumnToDetail(
+	column: Column,
+	assets?: AssetManifest,
+): WireDetailColumn {
 	const headerRecord = { en: column.header };
 
 	if (column.kind === "calculated") {
@@ -142,6 +149,30 @@ function projectColumnToDetail(column: Column): WireDetailColumn {
 			return {
 				...base,
 				format: "enum",
+				enum: enumEntries,
+			};
+		}
+		case "image-map": {
+			// `enum-image` shares the id-mapping `enum` shape, but each
+			// entry's value is the IMAGE path (`{lang: jr://...}`), not a
+			// text label — verified against
+			// `commcare-hq/.../detail_screen.py::EnumImage` (`template_form
+			// = 'image'`). Media-off (no manifest) has no paths to emit, so
+			// the column degrades to the plain `base` (raw property value).
+			if (!assets) return base;
+			const enumEntries = column.mapping.map((entry) => ({
+				key: entry.value,
+				value: {
+					en: requireAssetRef(
+						entry.assetId,
+						assets,
+						"projectColumnToDetail image-map",
+					),
+				},
+			}));
+			return {
+				...base,
+				format: "enum-image",
 				enum: enumEntries,
 			};
 		}
@@ -186,8 +217,9 @@ function projectColumnToDetail(column: Column): WireDetailColumn {
 function projectColumnForDetail(
 	column: Column,
 	surface: "short" | "long",
+	assets?: AssetManifest,
 ): WireDetailColumn {
-	const projected = projectColumnToDetail(column);
+	const projected = projectColumnToDetail(column, assets);
 	const visible =
 		surface === "short"
 			? (column.visibleInList ?? true)
@@ -582,15 +614,18 @@ export interface CaseListHqProjection {
 export function projectCaseListForHq(
 	mod: Module,
 	doc: BlueprintDoc,
+	assets?: AssetManifest,
 ): CaseListHqProjection {
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = mod.caseSearchConfig;
 	const allColumns = caseListConfig?.columns ?? [];
 
 	const shortColumns = allColumns.map((c) =>
-		projectColumnForDetail(c, "short"),
+		projectColumnForDetail(c, "short", assets),
 	);
-	const longColumns = allColumns.map((c) => projectColumnForDetail(c, "long"));
+	const longColumns = allColumns.map((c) =>
+		projectColumnForDetail(c, "long", assets),
+	);
 	const sortElements = projectSortElements(mod, doc);
 	const filter = projectCaseListFilter(caseListConfig?.filter);
 

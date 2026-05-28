@@ -45,6 +45,7 @@ import {
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
+	imageMapColumn,
 	intervalColumn,
 	phoneColumn,
 	plainColumn,
@@ -294,6 +295,21 @@ export function preservedColumnSwap(
 			return idMappingColumn(
 				uuid,
 				sourceField || pickFieldFromTarget(ctx, "id-mapping"),
+				header,
+				mapping,
+				slots,
+			);
+		}
+		case "image-map": {
+			// Twin: source is already image-map → preserve the value→image
+			// table. id-mapping's table has incompatible entry shape
+			// ({value,label} vs {value,assetId}), so a cross-kind swap
+			// starts empty rather than mis-mapping labels onto images.
+			const mapping =
+				currentValue.kind === "image-map" ? currentValue.mapping : [];
+			return imageMapColumn(
+				uuid,
+				sourceField || pickFieldFromTarget(ctx, "image-map"),
 				header,
 				mapping,
 				slots,

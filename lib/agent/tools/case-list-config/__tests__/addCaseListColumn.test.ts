@@ -190,6 +190,15 @@ describe("addCaseListColumn", () => {
 				header: "Today",
 				expression: today(),
 			},
+			{
+				kind: "image-map" as const,
+				field: "status",
+				header: "Status",
+				mapping: [
+					{ value: "active", assetId: "asset-active" },
+					{ value: "closed", assetId: "asset-closed" },
+				],
+			},
 		];
 
 		let runningDoc = doc;

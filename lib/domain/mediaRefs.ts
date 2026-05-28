@@ -38,8 +38,7 @@ function addMedia(media: Media | undefined, sink: Set<string>): void {
  * Collect the de-duplicated set of every media `AssetId` referenced
  * anywhere in the blueprint: the app logo; module / case-list-link /
  * form icons + audio labels; per-question label/hint/help/validation
- * media; and per-select-option media. (Image-map column mappings join
- * this walk when that column kind lands.)
+ * media; per-select-option media; and image-map column mappings.
  *
  * Returns plain asset-id strings (the doc carries `AssetId` as a plain
  * string — the brand is compile-time only). The caller re-brands when
@@ -56,6 +55,11 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
 		const caseList = mod.caseListConfig;
 		if (caseList?.icon) ids.add(caseList.icon);
 		if (caseList?.audioLabel) ids.add(caseList.audioLabel);
+		for (const column of caseList?.columns ?? []) {
+			if (column.kind === "image-map") {
+				for (const row of column.mapping) ids.add(row.assetId);
+			}
+		}
 	}
 
 	for (const form of Object.values(doc.forms)) {
