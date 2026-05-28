@@ -6,12 +6,13 @@
 import tablerClock from "@iconify-icons/tabler/clock";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { inputFieldBaseSchema } from "./base";
+import { inputFieldBaseSchema, mediaSchema } from "./base";
 
 export const datetimeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("datetime"),
 	validate: z.string().optional(),
 	validate_msg: z.string().optional(),
+	validate_msg_media: mediaSchema.optional(),
 	calculate: z.string().optional(),
 	default_value: z.string().optional(),
 });

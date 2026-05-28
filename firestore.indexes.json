@@ -369,6 +369,40 @@
 				}
 			],
 			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "mediaAssets",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{ "fieldPath": "owner", "order": "ASCENDING" },
+				{ "fieldPath": "contentHash", "order": "ASCENDING" },
+				{ "fieldPath": "status", "order": "ASCENDING" },
+				{ "fieldPath": "__name__", "order": "ASCENDING" }
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "mediaAssets",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{ "fieldPath": "owner", "order": "ASCENDING" },
+				{ "fieldPath": "status", "order": "ASCENDING" },
+				{ "fieldPath": "created_at", "order": "DESCENDING" },
+				{ "fieldPath": "__name__", "order": "DESCENDING" }
+			],
+			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "mediaAssets",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{ "fieldPath": "owner", "order": "ASCENDING" },
+				{ "fieldPath": "status", "order": "ASCENDING" },
+				{ "fieldPath": "kind", "order": "ASCENDING" },
+				{ "fieldPath": "created_at", "order": "DESCENDING" },
+				{ "fieldPath": "__name__", "order": "DESCENDING" }
+			],
+			"density": "SPARSE_ALL"
 		}
 	],
 	"fieldOverrides": [

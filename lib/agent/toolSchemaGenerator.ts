@@ -192,8 +192,17 @@ const calculateField = () =>
 	z.string().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
 	z.string().optional().describe(FIELD_DOCS.default_value);
+// The SA's option shape omits the `media` slot. `selectOptionSchema`
+// carries an optional per-option `media` reference, but the
+// field-mutation tools expose neither the asset library nor an upload
+// affordance, so the agent can't mint or validate an asset id here —
+// exposing the slot would only let the model write a dangling
+// reference into the doc. Option media is set through the dedicated
+// media tools, not the generic field-mutation tools.
+const saOptionSchema = selectOptionSchema.omit({ media: true });
+
 const optionsField = () =>
-	z.array(selectOptionSchema).optional().describe(FIELD_DOCS.options);
+	z.array(saOptionSchema).optional().describe(FIELD_DOCS.options);
 
 // Nested-object factories — return the bare object so callers wrap it
 // with `.optional()` (add tools) or `.nullable().optional()` (edit
@@ -238,11 +247,7 @@ const casePropertyOnField = () =>
 const nullableString = (doc: string) =>
 	z.string().nullable().optional().describe(doc);
 const nullableOptions = () =>
-	z
-		.array(selectOptionSchema)
-		.nullable()
-		.optional()
-		.describe(FIELD_DOCS.options);
+	z.array(saOptionSchema).nullable().optional().describe(FIELD_DOCS.options);
 
 /**
  * Batch-add item shape. Lives inside `z.array(...)` as the per-item

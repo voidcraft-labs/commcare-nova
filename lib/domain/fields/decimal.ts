@@ -7,12 +7,13 @@
 import tablerDecimal from "@iconify-icons/tabler/decimal";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { inputFieldBaseSchema } from "./base";
+import { inputFieldBaseSchema, mediaSchema } from "./base";
 
 export const decimalFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("decimal"),
 	validate: z.string().optional(),
 	validate_msg: z.string().optional(),
+	validate_msg_media: mediaSchema.optional(),
 	calculate: z.string().optional(),
 	default_value: z.string().optional(),
 });

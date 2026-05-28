@@ -28,6 +28,7 @@
 
 import { z } from "zod";
 import type { CasePropertyDataType } from "./casePropertyTypes";
+import { assetIdSchema } from "./multimedia";
 import type {
 	Predicate,
 	RelationPath,
@@ -1022,6 +1023,19 @@ export const caseListConfigSchema = z
 		columns: z.array(columnSchema),
 		filter: predicateSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
+		/**
+		 * Image shown on the "Open case list" affordance — the menu
+		 * link from the module's home screen that opens the case
+		 * list.
+		 */
+		icon: assetIdSchema.optional(),
+		/**
+		 * Audio prompt paired with the case-list link, for
+		 * audio-prompt playback. Menu affordances carry image + audio
+		 * only — there is no video slot here (unlike a question
+		 * message, which can carry all three).
+		 */
+		audioLabel: assetIdSchema.optional(),
 	})
 	.strict();
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
@@ -1101,6 +1115,15 @@ export const moduleSchema = z
 		purpose: z.string().optional(),
 		caseListConfig: caseListConfigSchema.optional(),
 		caseSearchConfig: caseSearchConfigSchema.optional(),
+		/** Image shown on the module's home-screen tile. */
+		icon: assetIdSchema.optional(),
+		/**
+		 * Audio version of the module's home-screen label, played by
+		 * audio-prompt mode — an accessibility affordance for
+		 * low-literacy field workers. Menu affordances carry image +
+		 * audio only; there is no video slot here.
+		 */
+		audioLabel: assetIdSchema.optional(),
 	})
 	.strict();
 export type Module = z.infer<typeof moduleSchema>;

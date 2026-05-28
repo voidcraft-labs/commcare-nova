@@ -7,12 +7,13 @@
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { inputFieldBaseSchema } from "./base";
+import { inputFieldBaseSchema, mediaSchema } from "./base";
 
 export const barcodeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("barcode"),
 	validate: z.string().optional(),
 	validate_msg: z.string().optional(),
+	validate_msg_media: mediaSchema.optional(),
 	calculate: z.string().optional(),
 });
 

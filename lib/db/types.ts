@@ -21,6 +21,11 @@
 import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
 import { blueprintDocSchema } from "../domain/blueprint";
+import {
+	ALL_MIME_TYPES,
+	MEDIA_ASSET_STATUSES,
+	MEDIA_KINDS,
+} from "../domain/multimedia";
 
 // ── Shared ──────────────────────────────────────────────────────────
 
@@ -266,3 +271,98 @@ export const threadDocSchema = z.object({
 	messages: z.array(storedThreadMessageSchema),
 });
 export type ThreadDoc = z.infer<typeof threadDocSchema>;
+
+// ── Media Assets ───────────────────────────────────────────────────
+
+/**
+ * Per-owner content-hash-deduped media. Lives at root collection
+ * `mediaAssets/{assetId}` (the doc id is the asset's UUID; not
+ * mirrored in the body). `owner` gates every read site.
+ *
+ * Two reasons this is a root collection rather than a per-app
+ * subcollection:
+ *
+ *  1. Dedup follows the owner, not the app — a logo reused across
+ *     three apps is one row, not three. A subcollection scope
+ *     would force per-app copies.
+ *  2. The library picker shows all of a user's assets at once;
+ *     querying across apps from a subcollection requires a
+ *     collection-group query, which costs an additional index per
+ *     filter clause.
+ *
+ * Composite indexes (see `firestore.indexes.json`):
+ *
+ *   (owner ASC, contentHash ASC) — dedup probe at upload-initiate
+ *   (owner ASC, createdAt DESC)  — library pagination, newest first
+ */
+export const mediaAssetDocSchema = z.object({
+	/**
+	 * User id of the asset's owner. Every read site enforces
+	 * `asset.owner === session.user.id` before returning bytes
+	 * or metadata.
+	 */
+	owner: z.string().min(1),
+	/**
+	 * SHA-256 of the validated bytes, lowercase hex. Computed at
+	 * the validation gate from the actual stored bytes, NOT
+	 * trusted from the client. Dedup key paired with `owner`.
+	 */
+	contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+	/**
+	 * Sniffed MIME from `file-type`'s magic-bytes scan — NOT the
+	 * client's claim. Constrained to the shared accepted-types set.
+	 */
+	mimeType: z.enum(ALL_MIME_TYPES),
+	/**
+	 * Canonical extension derived from the sniffed MIME, leading
+	 * dot included. Forms the suffix of the GCS object key.
+	 */
+	extension: z.string().regex(/^\.[a-z0-9]+$/),
+	sizeBytes: z.number().int().positive(),
+	/** Image-only — width × height in pixels. Read by sharp at confirm time. */
+	dimensions: z
+		.object({
+			width: z.number().int().positive(),
+			height: z.number().int().positive(),
+		})
+		.optional(),
+	/** Audio/video-only — duration in milliseconds, derived by ffprobe at confirm time. */
+	durationMs: z.number().int().positive().optional(),
+	/**
+	 * Coarse media kind, denormalized so the library list can filter
+	 * "images only" with a server-side equality query instead of an
+	 * in-memory scan over a page (which returns lopsided page sizes
+	 * when one kind is sparse). Derived from the sniffed MIME at
+	 * upload and frozen — the confirm step never changes the kind
+	 * because a sniffed MIME that disagrees with the claim is
+	 * rejected, not stored.
+	 */
+	kind: z.enum(MEDIA_KINDS),
+	/**
+	 * GCS object key (without the `gs://<bucket>/` prefix) the
+	 * bytes live at — `users/<owner>/<contentHash>.<ext>`. The
+	 * key is reconstructible from `(owner, contentHash, extension)`;
+	 * storing it explicitly anchors the bucket layout against schema
+	 * drift if the layout ever changes.
+	 */
+	gcsObjectKey: z.string().min(1),
+	/** Filename as supplied by the client at upload. Display only. */
+	originalFilename: z.string().min(1),
+	/**
+	 * User-editable display name, set to `originalFilename` at
+	 * upload. The library UI lets the user rename without affecting
+	 * the underlying bytes.
+	 */
+	displayName: z.string().min(1).optional(),
+	/**
+	 * Lifecycle status. `pending` rows are dropped by the
+	 * library-list endpoint; the validator gate rejects shipping
+	 * any blueprint that still references a `pending` asset. The
+	 * confirm step flips this to `ready` once the validator
+	 * approves the bytes; on failure the row is deleted, so there
+	 * is no `failed` state to track.
+	 */
+	status: z.enum(MEDIA_ASSET_STATUSES),
+	created_at: timestamp,
+});
+export type MediaAssetDoc = z.infer<typeof mediaAssetDocSchema>;
