@@ -192,20 +192,32 @@ export function applyFieldMutation(
 				);
 				return;
 			}
-			// Spread-merge the patch onto the current entity, then filter
-			// the result through `pickFieldKeysForKind` before parsing. The
-			// type-level discriminator on `targetKind` catches cross-kind
-			// patches at compile time, but the repeat kind has an inner
-			// `repeat_mode` discriminator the per-kind partial schema can't
-			// guard: a patch that switches `count_bound → user_controlled`
-			// leaves the previous mode's `repeat_count` key in the spread,
-			// and the strict per-variant schema would reject it. The
+			// Apply the patch onto the current entity key-by-key. A patch
+			// value of `null` (the wire representation of a blank — see
+			// `partialOf`) or `undefined` (a client in-memory clear) means
+			// "delete this key"; any other value sets it. Deleting rather
+			// than assigning the null/undefined keeps the resulting object
+			// free of the unrepresentable/invalid value before the parse.
+			const spread: Record<string, unknown> = { ...field };
+			for (const [key, value] of Object.entries(mut.patch)) {
+				if (value === null || value === undefined) {
+					delete spread[key];
+				} else {
+					spread[key] = value;
+				}
+			}
+			// Filter the result through `pickFieldKeysForKind` before
+			// parsing. The type-level discriminator on `targetKind` catches
+			// cross-kind patches at compile time, but the repeat kind has an
+			// inner `repeat_mode` discriminator the per-kind partial schema
+			// can't guard: a patch that switches `count_bound →
+			// user_controlled` leaves the previous mode's `repeat_count` key
+			// behind, and the strict per-variant schema would reject it. The
 			// filter dispatches on the merged result's `repeat_mode` so a
 			// mode-switch picks up the destination variant's key set,
 			// dropping the stale slot. For non-repeat kinds the filter is
 			// a tight no-op (the picked key set covers every key the merge
 			// can carry) — defense-in-depth without a meaningful cost.
-			const spread = { ...field, ...mut.patch };
 			const merged = pickFieldKeysForKind(spread, mut.targetKind);
 			const result = fieldSchema.safeParse(merged);
 			if (!result.success) {
