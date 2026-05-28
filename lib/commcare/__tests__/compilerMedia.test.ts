@@ -3,7 +3,8 @@
  * writes the media files into the archive, emits the media_suite.xml
  * descriptor, stamps the app-logo profile property, and renders the
  * module home-tile icon in suite.xml + app_strings. The media-OFF path
- * produces a media-free archive byte-identical to the pre-media shape.
+ * produces a media-free archive (empty media_suite, no logo property,
+ * no bundled media bytes).
  */
 
 import AdmZip from "adm-zip";

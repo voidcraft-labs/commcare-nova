@@ -56,8 +56,10 @@ import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
  *  present the archive bundles the referenced files + media_suite.xml +
- *  logo property + menu/command media. Absent = media-free archive,
- *  byte-identical to the pre-media output. */
+ *  logo property + menu/command media. Absent = media-free archive
+ *  (empty `media_suite.xml`, no logo property, no bundled media bytes,
+ *  bare `<text>` nav nodes — the same archive shape with no media
+ *  artifacts). */
 export interface CompileOptions {
 	assets?: AssetManifest;
 }
@@ -410,8 +412,9 @@ export function compileCcz(
 		}
 
 		// Module home-tile media: the `<menu>`'s display gains the icon /
-		// audio-label media locales when the module carries them; otherwise
-		// the bare `<text><locale/></text>` Nova has always emitted.
+		// audio-label media locales when the module carries them; an
+		// un-mediafied menu emits the bare `<text><locale id="modules.m{N}"/></text>`
+		// child.
 		const moduleNav = buildNavMenuNode(
 			`modules.m${mIdx}`,
 			mod.icon,

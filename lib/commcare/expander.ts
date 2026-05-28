@@ -110,8 +110,9 @@ function translateFormLinks(
  * shells gain `media_image` / `media_audio` dicts, and the application
  * gains its `multimedia_map` + `logo_refs` — everything CCHQ needs to
  * regenerate a media-bearing suite on import. When absent, media
- * emission is off (validation loop, asset-free preview) and the output
- * is media-free but structurally identical to the pre-media shape.
+ * emission is off (validation loop, asset-free preview): the output
+ * is structurally identical to the with-manifest shape but carries
+ * empty `media_image` / `media_audio` / `multimedia_map` / `logo_refs`.
  */
 export interface ExpandOptions {
 	assets?: AssetManifest;

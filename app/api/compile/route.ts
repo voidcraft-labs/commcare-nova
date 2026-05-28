@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 		// expand + compile with it so the XForms, suite, and profile carry
 		// the media references and the archive bundles the files. A
 		// media-free doc resolves to an empty manifest (no I/O) and the
-		// output is byte-identical to the pre-media path.
+		// archive carries no media artifacts.
 		const assets = await resolveMediaManifest(docWithParent, session.user.id, {
 			withBytes: true,
 		});

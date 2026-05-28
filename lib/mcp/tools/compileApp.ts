@@ -72,8 +72,8 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * `json` format is HQ-bound and ships media-free: emitting
 				 * references without the matching files on the HQ side
 				 * would render to broken images. `undefined` here flows
-				 * through `expandDoc`/`compileCcz` as media-off (output
-				 * byte-identical to pre-media for the json path). */
+				 * through `expandDoc`/`compileCcz` as media-off (the json
+				 * output carries no media artifacts). */
 				const assets =
 					args.format === "ccz"
 						? await resolveMediaManifest(doc, ctx.userId, { withBytes: true })

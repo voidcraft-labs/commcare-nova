@@ -34,14 +34,11 @@ import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import type { ResolvedMediaAsset } from "./assetWirePath";
 
 /**
- * The exact bytes CommCare's empty-media-suite descriptor has always
- * been in Nova's compiler. Emitted verbatim when an app references no
- * media, so the golden compiler corpus (which asserts this literal)
- * stays green and a media-free app's archive is unchanged. The
- * descriptor attribute is added only once there's media to describe —
- * an empty suite has nothing to label, and the two forms are wire-
- * equivalent (the descriptor is a human-readable label commcare-core's
- * parser reads as optional).
+ * Empty-suite placeholder for a media-free app. The `descriptor`
+ * attribute carries no semantics for an empty suite, so it is
+ * dropped — both the descriptor-present and descriptor-absent forms
+ * parse identically through commcare-core's `ResourceParser` (the
+ * descriptor is a human-readable label the parser reads as optional).
  */
 const EMPTY_MEDIA_SUITE = '<?xml version="1.0"?>\n<suite version="1"/>';
 

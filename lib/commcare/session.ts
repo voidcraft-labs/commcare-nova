@@ -651,8 +651,8 @@ export function buildStackElement(
  * form's nav node — a bare `<text><locale/></text>` when the form has no
  * menu media, or a `<display>` wrapping the text + `<text form="image|audio">`
  * media locales when it does. When omitted (the string-render test surface),
- * the command falls back to the bare `<text><locale/></text>` from
- * `entry.localeId`, the pre-media shape.
+ * the command falls back to a bare `<text><locale/></text>` synthesized
+ * from `entry.localeId`.
  */
 export function buildEntryElement(
 	entry: EntryDefinition,
