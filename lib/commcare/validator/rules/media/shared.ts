@@ -27,7 +27,6 @@
 import type {
 	FieldMediaBundleKey,
 	MediaRefLocation,
-	MediaSlotKind,
 } from "@/lib/domain/mediaRefs";
 import type { ValidationError, ValidationLocation } from "../../errors";
 
@@ -41,16 +40,6 @@ const FIELD_BUNDLE_LABELS: Record<FieldMediaBundleKey, string> = {
 	help_media: "help text",
 	validate_msg_media: "validation message",
 };
-
-/**
- * Human label for the slot kind ("image" / "audio" / "video"). The
- * walker emits the slot kind as one of those three lowercase words
- * already; this re-export exists so call sites read "image slot",
- * "audio slot", "video slot" without each rule restating the cast.
- */
-export function slotKindLabel(slotKind: MediaSlotKind): string {
-	return slotKind;
-}
 
 /**
  * Map a `field_media_bundle` ref's bundle key to its user-facing label.
