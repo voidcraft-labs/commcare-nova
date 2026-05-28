@@ -30,12 +30,21 @@ import { Parser } from "htmlparser2";
 import { describe, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import type {
+	AssetManifest,
+	ResolvedMediaAsset,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { validateBindingResolution } from "@/lib/commcare/validator/bindingResolutionOracle";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import { blueprintDocArbitrary } from "./xformDocArbitrary";
+import type { AssetId } from "@/lib/domain/multimedia";
+import {
+	blueprintDocArbitrary,
+	type FuzzMediaAsset,
+	fuzzManifestFromDoc,
+} from "./xformDocArbitrary";
 
 /** Fixed seed + run count for reproducibility across runs + CI. */
 const SEED = 20260522;
@@ -114,6 +123,37 @@ function parseSuite(suiteXml: string): {
 	return { resources, entries };
 }
 
+/**
+ * Lift the fuzz manifest to the shape `expandDoc` / `compileCcz` consume,
+ * attaching placeholder bytes so the CCZ bundler's byte-contract check
+ * passes (the fuzz doesn't validate archive bytes — empty buffers suffice).
+ */
+function toAssetManifest(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): AssetManifest {
+	const placeholderBytes = Buffer.alloc(0);
+	const m = new Map<AssetId, ResolvedMediaAsset>();
+	for (const [id, fuzz] of fuzzManifest) {
+		m.set(id, {
+			assetId: fuzz.assetId,
+			wirePath: fuzz.wirePath,
+			kind: fuzz.kind,
+			mimeType: fuzz.mimeType,
+			contentHash: fuzz.contentHash,
+			extension: fuzz.extension,
+			bytes: placeholderBytes,
+		});
+	}
+	return m;
+}
+
+/** Set of bundled wire paths for the binding-resolution media check. */
+function wirePathSet(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): Set<string> {
+	return new Set(Array.from(fuzzManifest.values(), (asset) => asset.wirePath));
+}
+
 describe("binding-resolution emitter totality (property-based fuzz)", () => {
 	it("every schema-valid doc compiles to a CCZ whose XPath references all resolve", () => {
 		fc.assert(
@@ -124,16 +164,22 @@ describe("binding-resolution emitter totality (property-based fuzz)", () => {
 				// compiler bug (either an `expandDoc` shape the emitter
 				// doesn't handle, or a parse-time / suite-oracle
 				// regression). `fc.assert` turns the throw into a
-				// shrunken counterexample.
-				const hq = expandDoc(doc);
-				const ccz = compileCcz(hq, doc.appName, doc);
+				// shrunken counterexample. Media-on path: thread the
+				// fuzz manifest through so case-block-injected forms
+				// carry media too.
+				const fuzzManifest = fuzzManifestFromDoc(doc);
+				const manifest = toAssetManifest(fuzzManifest);
+				const manifestPaths = wirePathSet(fuzzManifest);
+				const hq = expandDoc(doc, { assets: manifest });
+				const ccz = compileCcz(hq, doc.appName, doc, { assets: manifest });
 
 				// Step 2: for each form, run the binding-resolution
 				// oracle directly. `compileCcz` no longer invokes it
 				// (authoring rejection in `validator/rules/` is the
 				// user-visible gate); this fuzz proves the emitter is
 				// total — every accepted doc compiles to references the
-				// oracle is happy with.
+				// oracle is happy with. Threading the manifest exercises
+				// the install-time media-path resolution check.
 				const zip = new AdmZip(ccz);
 				const suiteEntry = zip.getEntry("suite.xml");
 				if (!suiteEntry) {
@@ -164,6 +210,7 @@ describe("binding-resolution emitter totality (property-based fuzz)", () => {
 						formPath,
 						doc.appName,
 						entries[i].datumIds,
+						manifestPaths,
 					);
 					if (errors.length > 0) {
 						throw new Error(

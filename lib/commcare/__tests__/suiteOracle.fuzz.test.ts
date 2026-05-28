@@ -35,11 +35,16 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import type {
+	AssetManifest,
+	ResolvedMediaAsset,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { AssetId } from "@/lib/domain/multimedia";
 import {
 	hasCaseSearch,
 	hasChildCase,
@@ -47,6 +52,7 @@ import {
 	moduleCount,
 	suiteDocArbitrary,
 } from "./suiteDocArbitrary";
+import { type FuzzMediaAsset, fuzzManifestFromDoc } from "./xformDocArbitrary";
 
 /** Fixed seed + run count so a failure reproduces exactly across runs + CI. */
 const SEED = 20260522;
@@ -70,14 +76,18 @@ function prepareAndGuard(doc: BlueprintDoc): void {
 }
 
 /**
- * Extract `suite.xml` and the default-locale app_strings key set from a
- * compiled `.ccz` buffer. The fuzzer mirrors the runtime's own read path:
- * the suite is one zip entry, and the locale ids it must resolve against live
- * in `default/app_strings.txt` as `key=value` lines.
+ * Extract `suite.xml`, the default-locale app_strings key→value map, and the
+ * `commcare/<file>` wire-path set from a compiled `.ccz` buffer. The fuzzer
+ * mirrors the runtime's own read path: the suite is one zip entry, the
+ * locale ids it must resolve against live in `default/app_strings.txt` as
+ * `key=value` lines, and the bundled-media set is every zip entry under the
+ * `commcare/` directory.
  */
 function extractSuite(ccz: Buffer): {
 	suiteXml: string;
 	appStringKeys: Set<string>;
+	appStringValues: Map<string, string>;
+	bundledPaths: Set<string>;
 } {
 	const zip = new AdmZip(ccz);
 	const suiteEntry = zip.getEntry("suite.xml");
@@ -93,13 +103,49 @@ function extractSuite(ccz: Buffer): {
 		);
 	}
 	const appStringKeys = new Set<string>();
+	const appStringValues = new Map<string, string>();
 	for (const line of stringsEntry.getData().toString("utf-8").split("\n")) {
 		const eq = line.indexOf("=");
 		if (eq === -1) continue;
-		appStringKeys.add(line.slice(0, eq));
+		const key = line.slice(0, eq);
+		const value = line.slice(eq + 1);
+		appStringKeys.add(key);
+		appStringValues.set(key, value);
 	}
 
-	return { suiteXml, appStringKeys };
+	const bundledPaths = new Set<string>();
+	for (const entry of zip.getEntries()) {
+		if (entry.entryName.startsWith("commcare/")) {
+			bundledPaths.add(entry.entryName);
+		}
+	}
+
+	return { suiteXml, appStringKeys, appStringValues, bundledPaths };
+}
+
+/**
+ * Lift the fuzz-synthesized manifest to the `AssetManifest` shape the
+ * emitter and compiler consume, attaching placeholder bytes so the CCZ
+ * bundler's byte-contract throw doesn't fire (the archive bytes themselves
+ * aren't a suite-oracle concern — empty buffers are fine).
+ */
+function toAssetManifest(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): AssetManifest {
+	const placeholderBytes = Buffer.alloc(0);
+	const m = new Map<AssetId, ResolvedMediaAsset>();
+	for (const [id, fuzz] of fuzzManifest) {
+		m.set(id, {
+			assetId: fuzz.assetId,
+			wirePath: fuzz.wirePath,
+			kind: fuzz.kind,
+			mimeType: fuzz.mimeType,
+			contentHash: fuzz.contentHash,
+			extension: fuzz.extension,
+			bytes: placeholderBytes,
+		});
+	}
+	return m;
 }
 
 describe("suite emitter totality (property-based fuzz)", () => {
@@ -124,11 +170,22 @@ describe("suite emitter totality (property-based fuzz)", () => {
 				if (hasChildCase(doc)) census.childCase += 1;
 				if (hasSort(doc)) census.sort += 1;
 
-				const hqJson = expandDoc(doc);
-				const ccz = compileCcz(hqJson, doc.appName, doc);
-				const { suiteXml, appStringKeys } = extractSuite(ccz);
+				// Media-on path: thread the fuzz manifest through expand + compile
+				// so menu-icon locales + image-map XPath literals land in the
+				// emitted suite.xml; the suite oracle's media-resolution check
+				// then verifies every reference resolves against the bundled set.
+				const fuzzManifest = fuzzManifestFromDoc(doc);
+				const manifest = toAssetManifest(fuzzManifest);
+				const hqJson = expandDoc(doc, { assets: manifest });
+				const ccz = compileCcz(hqJson, doc.appName, doc, { assets: manifest });
+				const { suiteXml, appStringKeys, appStringValues } = extractSuite(ccz);
 
-				const oracleErrors = validateSuite(suiteXml, appStringKeys);
+				const oracleErrors = validateSuite(suiteXml, appStringKeys, {
+					appStringValues,
+					manifest: new Set(
+						Array.from(fuzzManifest.values(), (a) => a.wirePath),
+					),
+				});
 				if (oracleErrors.length > 0) {
 					throw new Error(
 						`Oracle flagged emitted suite.xml:\n${oracleErrors

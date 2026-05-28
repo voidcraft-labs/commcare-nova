@@ -33,11 +33,16 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { expandDoc } from "@/lib/commcare/expander";
+import type {
+	AssetManifest,
+	ResolvedMediaAsset,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { AssetId } from "@/lib/domain/multimedia";
 import {
 	hasCaseSearch,
 	hasChildCase,
@@ -45,6 +50,7 @@ import {
 	moduleCount,
 	suiteDocArbitrary,
 } from "./suiteDocArbitrary";
+import { type FuzzMediaAsset, fuzzManifestFromDoc } from "./xformDocArbitrary";
 
 /** Fixed seed + run count so a failure reproduces exactly across runs + CI. */
 const SEED = 20260522;
@@ -77,6 +83,29 @@ function hasActiveCaseAction(doc: BlueprintDoc): boolean {
 	return Object.values(doc.forms).some((f) => f.type !== "survey");
 }
 
+/**
+ * Lift the fuzz manifest to `AssetManifest` for `expandDoc({assets})`. The
+ * expander is the only consumer here — it doesn't need bytes (no archive
+ * write); `bytes` stays undefined so the manifest is the path-only shape
+ * the upload path also produces.
+ */
+function toAssetManifest(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): AssetManifest {
+	const m = new Map<AssetId, ResolvedMediaAsset>();
+	for (const [id, fuzz] of fuzzManifest) {
+		m.set(id, {
+			assetId: fuzz.assetId,
+			wirePath: fuzz.wirePath,
+			kind: fuzz.kind,
+			mimeType: fuzz.mimeType,
+			contentHash: fuzz.contentHash,
+			extension: fuzz.extension,
+		});
+	}
+	return m;
+}
+
 describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 	// Census counters accumulated across the run; asserted after.
 	const census = {
@@ -101,7 +130,12 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 				if (hasSort(doc)) census.sort += 1;
 				if (hasActiveCaseAction(doc)) census.activeCaseAction += 1;
 
-				const hqJson = expandDoc(doc);
+				// Media-on path: thread the fuzz manifest through `expandDoc` so
+				// the multimedia_map + nav-media dicts + logo_refs land on the
+				// expanded application, which is what the oracle's
+				// `multimedia_map`/nav-media/logo shape checks resolve against.
+				const manifest = toAssetManifest(fuzzManifestFromDoc(doc));
+				const hqJson = expandDoc(doc, { assets: manifest });
 				const oracleErrors = validateHqJson(hqJson);
 				if (oracleErrors.length > 0) {
 					throw new Error(
