@@ -195,7 +195,7 @@ function makeOwnerEmailResolver(): (ownerId: string) => Promise<string> {
 		if (cached !== undefined) return cached;
 		let email = "";
 		try {
-			const userSnap = await db.collection("user").doc(ownerId).get();
+			const userSnap = await db.collection("auth_users").doc(ownerId).get();
 			const data = userSnap.data();
 			email = data && typeof data.email === "string" ? data.email : "";
 		} catch {
@@ -252,7 +252,7 @@ async function main(): Promise<void> {
 		const ownerId = typeof data.owner === "string" ? data.owner : "";
 		const ownerEmail = await resolveOwnerEmail(ownerId);
 		if (options.owner !== undefined && ownerEmail !== options.owner) continue;
-		const doc = data.doc;
+		const doc = data.blueprint;
 		if (!doc || typeof doc !== "object") continue;
 		let hydrated: BlueprintDoc;
 		try {
