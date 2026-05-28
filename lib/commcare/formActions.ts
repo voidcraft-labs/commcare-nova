@@ -53,7 +53,7 @@ import { FormPath } from "./xform/formPath";
  * `/data/<X>/item/<field>` — a dangling reference no oracle catches at the
  * HQ-JSON layer. Centralizing the decision makes that drift unrepresentable.
  */
-function descendInto(field: Field, ownPath: FormPath): FormPath {
+export function descendInto(field: Field, ownPath: FormPath): FormPath {
 	return field.kind === "repeat" && field.repeat_mode === "query_bound"
 		? ownPath.queryBoundIteration()
 		: ownPath;
@@ -255,6 +255,14 @@ export function buildFormActions(
 				);
 			}
 
+			// Child case property paths come from `field_paths` — the per-bucket
+			// path map deriveCaseConfig recorded during its walk. Resolving by id
+			// from the form root would be ambiguous when a child-case field
+			// shares an id with a cousin (the canonical `case_name`-shared-with-
+			// parent example: top-level `resolvePath("case_name")` returns the
+			// parent's `/data/case_name`, NOT the child's in-repeat path, and
+			// the child case's create binds silently calculate from the parent's
+			// name field).
 			const childProps: Record<
 				string,
 				{ question_path: string; update_mode: string }
@@ -264,8 +272,9 @@ export function buildFormActions(
 				question_id: fieldId,
 			} of child.case_properties) {
 				if (RESERVED_CASE_PROPERTIES.has(caseProp)) continue;
+				const path = child.field_paths.get(fieldId);
 				childProps[caseProp] = {
-					question_path: resolvePath(doc, formUuid, fieldId).toXPath(),
+					question_path: (path ?? FormPath.root().child(fieldId)).toXPath(),
 					update_mode: "always",
 				};
 			}
@@ -292,15 +301,22 @@ export function buildFormActions(
 				}
 			}
 
+			// Child case name source — pulled from the bucket's `field_paths`
+			// map (scope-correct) rather than re-resolved by id from the form
+			// root (cousin-ambiguous; would return the parent case's
+			// `/data/case_name` for every child whose name field is also
+			// `case_name`).
+			const caseNamePath = child.field_paths.get(child.case_name_field);
+			if (!caseNamePath) {
+				throw new Error(
+					`Form '${form.id}' derives child case '${child.case_type}' with a case-name field '${child.case_name_field}' that has no recorded path — deriveCaseConfig and buildFormActions are out of sync.`,
+				);
+			}
 			return {
 				doc_type: "OpenSubCaseAction",
 				case_type: child.case_type,
 				name_update: {
-					question_path: resolvePath(
-						doc,
-						formUuid,
-						child.case_name_field,
-					).toXPath(),
+					question_path: caseNamePath.toXPath(),
 					update_mode: "always",
 				},
 				reference_id: "",

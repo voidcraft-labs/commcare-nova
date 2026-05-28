@@ -220,6 +220,20 @@ describe("repeat-context subcase emission — per-mode + per-nest matrix", () =>
 			'<datum id="case_id_new_parent_0" function="uuid()"/>',
 		);
 		expect(suite).not.toMatch(/case_id_new_child1_\d+/);
+		// Child case name's `create/case_name` binds calculate from the
+		// child's IN-REPEAT path (`/data/children/case_name`), NOT the
+		// parent's root `/data/case_name` field. Both fields share the
+		// `case_name` id (cousins are legal in CommCare); a top-level
+		// `findField` would return the parent's path first-match. The
+		// `field_paths` map deriveCaseConfig records per-bucket prevents
+		// the silent calculate-from-parent-name bug.
+		expect(form).toContain(
+			'<bind nodeset="/data/children/case/create/case_name" calculate="/data/children/case_name"',
+		);
+		// Hostile: assert the wrong path is NOT what the calculate points at.
+		expect(form).not.toMatch(
+			/<bind nodeset="\/data\/children\/case\/create\/case_name" calculate="\/data\/case_name"/,
+		);
 	});
 
 	it("user_controlled + 2 subcases: <subcase_N> wrappers inside the repeat (nest=true)", () => {

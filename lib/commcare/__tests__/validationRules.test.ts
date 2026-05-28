@@ -1476,9 +1476,11 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 	});
 
 	it("does not fire on a cross-case-type field inside a repeat (subcase shape)", () => {
-		// `case_property_on != mod.caseType` is the subcase shape — out of
-		// scope for this rule (covered by SUBCASE_IN_REPEAT_NOT_MODELED
-		// until the splice algorithm lands).
+		// `case_property_on != mod.caseType` is the supported subcase-creation
+		// shape (one new child case per iteration) — out of scope for this
+		// rule. The splice algorithm in `xform/caseBlocks.ts::addCaseBlocks`
+		// handles it; `CHILD_CASE_NO_NAME_FIELD` guards the bucket-must-have-a-
+		// case_name invariant.
 		const doc = buildDoc({
 			appName: "T",
 			modules: [

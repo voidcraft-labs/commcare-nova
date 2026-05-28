@@ -708,7 +708,8 @@ export const FORM_TYPES = [
  * random root-level pool field. The pool ids (a-g) don't include
  * `children`, so the injected repeat id can't collide either.
  *
- * Drawn for ~30% of registration forms; survey/followup/close skip
+ * Drawn for ~67% of registration forms (`fc.option`'s `freq: 3` sets
+ * `P(nil) = 1/3`, so `P(value) ≈ 2/3`); survey/followup/close skip
  * the injection (deriveCaseConfig only emits subcase actions on forms
  * whose type carries case-management actions, and registration is the
  * canonical "register parent + N children" surface).
@@ -738,9 +739,14 @@ interface DocGenSpec {
 }
 
 /**
- * Subcase injection arbitrary — `~30%` of registration forms carry one.
- * Repeat-mode and child-case-type drawn uniformly; the `idsQuery` for
- * `query_bound` matches the leaves the per-mode compiler tests use.
+ * Subcase injection arbitrary — fast-check's `fc.option` with `freq: 3`
+ * makes `P(nil) = 1/3`, so ~2/3 of registration forms carry an injected
+ * subcase shape. Heavy coverage of the new repeat-context splice paths
+ * is the trade for less diversity in non-subcase shapes — the oracle
+ * benefits from frequent exercise of the new shape, and the rest of
+ * the field-spec arbitrary still varies independently. Repeat-mode and
+ * child-case-type drawn uniformly; the `idsQuery` for `query_bound`
+ * matches the leaves the per-mode compiler tests use.
  */
 const subcaseShapeArb: fc.Arbitrary<SubcaseShapeSpec | undefined> = fc.option(
 	fc.record({

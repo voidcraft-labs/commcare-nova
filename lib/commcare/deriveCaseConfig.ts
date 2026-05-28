@@ -24,6 +24,8 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { readFieldString } from "./fieldProps";
+import { descendInto } from "./formActions";
+import { FormPath } from "./xform/formPath";
 
 /** One derived child-case config (one-to-one with an HQ `OpenSubCaseAction`). */
 export interface DerivedChildCase {
@@ -40,6 +42,20 @@ export interface DerivedChildCase {
 	case_properties: CasePropertyMapping[];
 	relationship: "child" | "extension";
 	repeat_context?: string;
+	/**
+	 * Resolved data-tree path per field-id in this bucket (`case_name` source +
+	 * each `case_properties[].question_id`). Populated during the
+	 * `deriveCaseConfig` walk, where the path is unambiguous because the walker
+	 * threads `parentPath` through descent. Downstream consumers
+	 * (`buildFormActions`) read paths from here directly instead of re-resolving
+	 * by id — which would be ambiguous when a child-case field shares an id
+	 * with a cousin (e.g. the canonical `case_name` shared between the parent
+	 * and every child case). Without this map, a top-level `resolvePath(doc,
+	 * formUuid, "case_name")` returns the FIRST id-match (the parent's path),
+	 * not the child's in-repeat path, and the child case's create/case_name
+	 * bind silently calculates from the parent's name field.
+	 */
+	field_paths: Map<string, FormPath>;
 }
 
 /**
@@ -96,7 +112,7 @@ export function deriveCaseConfig(
 		{
 			caseType: string;
 			repeatAncestor: string | undefined;
-			fields: Array<{ id: string }>;
+			fields: Array<{ id: string; path: FormPath }>;
 		}
 	>();
 	// The root-ancestor sentinel contains `#`, illegal in an XML element name
@@ -108,17 +124,47 @@ export function deriveCaseConfig(
 	const bucketKey = (caseType: string, repeatAncestor: string | undefined) =>
 		`${caseType}::${repeatAncestor ?? "#root"}`;
 
-	const walk = (parentUuid: Uuid, repeatAncestor?: string): void => {
+	// The walker accumulates `parentPath` so every tracked field gets its
+	// fully-resolved `FormPath` recorded alongside its id. Down-stream
+	// consumers (`buildFormActions`) read paths from this map directly
+	// instead of calling `resolvePath(doc, formUuid, fieldId)`, which would
+	// be ambiguous for cousin-id collisions (e.g. the canonical `case_name`
+	// shared between a parent case at form root and a child case inside a
+	// repeat). `descendInto` adds the model-iteration `/item` step when
+	// crossing into a `query_bound` repeat, matching the XForm emitter's
+	// shape.
+	const walk = (
+		parentUuid: Uuid,
+		parentPath: FormPath,
+		repeatAncestor?: string,
+	): void => {
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[fieldUuid];
 			if (!field) continue;
+
+			// A bad field id (leading digit, hyphen, etc.) makes
+			// `parentPath.child` throw because FormPath enforces the XML
+			// element-name regex. The doc-layer validator rejects those ids
+			// separately via `CASE_PROPERTY_BAD_FORMAT` / `INVALID_FIELD_ID`,
+			// so derivation skips path tracking for the bad field rather than
+			// crashing — and skips its subtree too, because every descendant's
+			// path would also be unresolvable. Primary-case tracking (which
+			// only needs ids, not paths) still runs.
+			let selfPath: FormPath | null = null;
+			try {
+				selfPath = parentPath.child(field.id);
+			} catch {
+				selfPath = null;
+			}
 
 			const currentRepeat = field.kind === "repeat" ? field.id : repeatAncestor;
 			const casePropertyOn = readFieldString(field, "case_property_on");
 
 			if (casePropertyOn) {
 				if (casePropertyOn === moduleCaseType) {
-					// Primary case property
+					// Primary case property — id-only tracking, no path required
+					// (the existing `resolvePath` consumer in `buildFormActions`
+					// has the same id-based behavior; pre-existing scope.)
 					if (field.id === "case_name") {
 						case_name_field = field.id;
 					} else {
@@ -133,8 +179,11 @@ export function deriveCaseConfig(
 							question_id: field.id,
 						});
 					}
-				} else {
+				} else if (selfPath) {
 					// Child case property — bucket by (case_type, repeat_ancestor).
+					// Bucketing requires a resolved path; a bad-id field can't
+					// emit a valid bind anyway, so the doc is broken at a higher
+					// level and the validator catches it independently.
 					const key = bucketKey(casePropertyOn, currentRepeat);
 					let bucket = childGroups.get(key);
 					if (!bucket) {
@@ -145,19 +194,22 @@ export function deriveCaseConfig(
 						};
 						childGroups.set(key, bucket);
 					}
-					bucket.fields.push({ id: field.id });
+					bucket.fields.push({ id: field.id, path: selfPath });
 				}
 			}
 
-			// Recurse into container children. A container is marked by
-			// having a `fieldOrder` entry keyed by its uuid (leaves don't).
-			if (doc.fieldOrder[fieldUuid] !== undefined) {
-				walk(fieldUuid, currentRepeat);
+			// Recurse into container children — but only when we have a valid
+			// `selfPath`, since descendant paths thread off it. A container
+			// with a bad id has the validator firing against it; skipping its
+			// subtree here keeps the derivation total without masking the
+			// upstream error.
+			if (selfPath && doc.fieldOrder[fieldUuid] !== undefined) {
+				walk(fieldUuid, descendInto(field, selfPath), currentRepeat);
 			}
 		}
 	};
 
-	walk(formUuid);
+	walk(formUuid, FormPath.root());
 
 	const result: DerivedCaseConfig = {};
 	if (case_name_field) result.case_name_field = case_name_field;
@@ -187,7 +239,7 @@ function deriveChildCases(
 		{
 			caseType: string;
 			repeatAncestor: string | undefined;
-			fields: Array<{ id: string }>;
+			fields: Array<{ id: string; path: FormPath }>;
 		}
 	>,
 	caseTypes: CaseType[],
@@ -210,12 +262,22 @@ function deriveChildCases(
 			.filter((e) => e.id !== childCaseName)
 			.map((e) => ({ case_property: e.id, question_id: e.id }));
 
+		// Per-field path map — built from the bucket's recorded paths. Each
+		// field's path is the one the walker accumulated during descent, so
+		// it's scope-correct even when the field id collides with a cousin
+		// elsewhere in the form (the canonical `case_name`-shared-with-parent
+		// case being the bite-back-from-day-one example).
+		const fieldPaths = new Map<string, FormPath>(
+			bucket.fields.map((e) => [e.id, e.path]),
+		);
+
 		derived.push({
 			case_type: bucket.caseType,
 			...(childCaseName && { case_name_field: childCaseName }),
 			case_properties: childProps,
 			relationship,
 			...(bucket.repeatAncestor && { repeat_context: bucket.repeatAncestor }),
+			field_paths: fieldPaths,
 		});
 	}
 
