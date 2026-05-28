@@ -6,6 +6,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import { resolveMediaManifest } from "@/lib/media/manifest";
 import { saveCcz } from "@/lib/store";
 
 /**
@@ -19,7 +20,7 @@ import { saveCcz } from "@/lib/store";
  */
 export async function POST(req: NextRequest) {
 	try {
-		await requireSession(req);
+		const session = await requireSession(req);
 		const body = await req.json();
 		const { doc } = body;
 
@@ -46,10 +47,17 @@ export async function POST(req: NextRequest) {
 		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
 		rebuildFieldParent(docWithParent);
 
-		// Expand domain doc to HQ JSON.
-		const hqJson = expandDoc(docWithParent);
+		// Resolve the media manifest (rows + bytes) for this owner, then
+		// expand + compile with it so the XForms, suite, and profile carry
+		// the media references and the archive bundles the files. A
+		// media-free doc resolves to an empty manifest (no I/O) and the
+		// output is byte-identical to the pre-media path.
+		const assets = await resolveMediaManifest(docWithParent, session.user.id, {
+			withBytes: true,
+		});
+		const hqJson = expandDoc(docWithParent, { assets });
 
-		const buffer = compileCcz(hqJson, doc.appName, docWithParent);
+		const buffer = compileCcz(hqJson, doc.appName, docWithParent, { assets });
 
 		// Store buffer for download.
 		const compileId = randomUUID();

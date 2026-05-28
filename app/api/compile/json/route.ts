@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth-utils";
 import { expandDoc } from "@/lib/commcare/expander";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
+import { resolveMediaManifest } from "@/lib/media/manifest";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 
 /**
@@ -16,7 +17,7 @@ import { sanitizeFilename } from "@/lib/utils/sanitize";
  */
 export async function POST(req: NextRequest) {
 	try {
-		await requireSession(req);
+		const session = await requireSession(req);
 		const body = await req.json();
 		const { doc } = body;
 
@@ -38,7 +39,13 @@ export async function POST(req: NextRequest) {
 		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
 		rebuildFieldParent(docWithParent);
 
-		const hqJson = expandDoc(docWithParent);
+		// HQ-JSON export carries media references + multimedia_map + logo_refs
+		// (no bytes — the JSON doesn't bundle files; the multimedia upload is a
+		// separate step). Media-free docs resolve to an empty manifest.
+		const assets = await resolveMediaManifest(docWithParent, session.user.id, {
+			withBytes: false,
+		});
+		const hqJson = expandDoc(docWithParent, { assets });
 		const jsonStr = JSON.stringify(hqJson, null, 2);
 
 		return new NextResponse(jsonStr, {

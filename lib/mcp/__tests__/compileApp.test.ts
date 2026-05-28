@@ -184,12 +184,15 @@ describe("registerCompileApp — happy path, ccz format", () => {
 		const decoded = Buffer.from(payload.data, "base64");
 		expect(decoded.equals(fakeBytes)).toBe(true);
 		/* `compileCcz` receives the expanded JSON, the denormalized app
-		 * name (non-empty by `denormalize`'s invariant), and the source
-		 * blueprint — three args in that order, matching the signature. */
+		 * name (non-empty by `denormalize`'s invariant), the source
+		 * blueprint, and the resolved media manifest — four args in that
+		 * order, matching the signature. The fixture doc references no
+		 * media, so the manifest is an empty `Map`. */
 		expect(compileCcz).toHaveBeenCalledWith(
 			FAKE_HQ_JSON,
 			"Vaccine Tracker",
 			expect.objectContaining({ appId: "a1" }),
+			expect.objectContaining({ assets: expect.any(Map) }),
 		);
 	});
 });

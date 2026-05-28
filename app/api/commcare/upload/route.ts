@@ -17,6 +17,7 @@ import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import { resolveMediaManifest } from "@/lib/media/manifest";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -72,7 +73,12 @@ export async function POST(req: NextRequest) {
 		const { creds } = settings;
 
 		/* ── Expand domain doc to HQ JSON ────────────────────────────── */
-		const hqJson = expandDoc(docWithParent);
+		// The HQ JSON carries media references + multimedia_map + logo_refs
+		// (no bytes — the multimedia bytes upload is a separate HQ step).
+		const assets = await resolveMediaManifest(docWithParent, session.user.id, {
+			withBytes: false,
+		});
+		const hqJson = expandDoc(docWithParent, { assets });
 
 		/* ── Upload to CommCare HQ ──────────────────────────────────── */
 		const result = await importApp(

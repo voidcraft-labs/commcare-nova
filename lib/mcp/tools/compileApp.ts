@@ -18,6 +18,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { resolveMediaManifest } from "@/lib/media/manifest";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -66,7 +67,16 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * the wire collapses both to `not_found`. */
 				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
 
-				const hqJson = expandDoc(doc);
+				/* Resolve the media manifest for this owner. Bytes are loaded
+				 * only for the `ccz` format (the archive bundles the files);
+				 * the `json` format needs the wire references but not the
+				 * bytes. One manifest feeds both expand + compile so their
+				 * jr:// references and bundled files agree. */
+				const assets = await resolveMediaManifest(doc, ctx.userId, {
+					withBytes: args.format === "ccz",
+				});
+
+				const hqJson = expandDoc(doc, { assets });
 
 				/* Exhaustive switch on the `format` enum: a future third
 				 * enum value becomes a compile error via the `never` check
@@ -85,7 +95,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * lossless escape. The `encoding` field inside the
 						 * JSON wrapper tells the caller to decode rather
 						 * than treat the text as the archive directly. */
-						const cczBuf = compileCcz(hqJson, app.app_name, doc);
+						const cczBuf = compileCcz(hqJson, app.app_name, doc, { assets });
 						return {
 							content: [
 								{
