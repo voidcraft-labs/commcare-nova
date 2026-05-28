@@ -192,6 +192,19 @@ export type ValidationErrorCode =
 	| "HQJSON_BAD_SUBCASE_RELATIONSHIP"
 	| "HQJSON_BAD_DETAIL_DISPLAY"
 	| "HQJSON_BAD_TYPE"
+	// `multimedia_map` shape regression guard. CCHQ's
+	// `suite_xml/generator.py::media_resources` RAISES `MediaResourceError`
+	// when a `multimedia_map` key doesn't start with `jr://file/`, and the
+	// `media_type` value must be one of the closed CommCare media class
+	// names (`CommCareImage` / `CommCareAudio` / `CommCareVideo`). Menu
+	// media dicts (`media_image` / `media_audio`) and the web-apps logo
+	// (`logo_refs.hq_logo_web_apps.path`) carry the same `jr://file/`
+	// prefix contract — the suite the runtime parses from the upload is
+	// regenerated off these dicts.
+	| "HQJSON_BAD_MULTIMEDIA_MAP_KEY"
+	| "HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE"
+	| "HQJSON_BAD_NAV_MEDIA_VALUE"
+	| "HQJSON_BAD_LOGO_REF"
 	// Binding-resolution oracle (post-expansion) — JavaRosa's install-time XPath
 	// resolution contract. A reference an expression makes that can't be
 	// resolved against the form's symbol space crashes JavaRosa at form-init,
