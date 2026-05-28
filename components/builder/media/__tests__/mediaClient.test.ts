@@ -55,7 +55,7 @@ describe("clearMediaSlot", () => {
 		expect(clearMediaSlot(undefined, "image")).toBeUndefined();
 	});
 
-	it("returns undefined when clearing a kind that wasn't set, on a single-other-slot bundle... keeps the other", () => {
+	it("clearing an absent kind leaves the other slots intact", () => {
 		expect(clearMediaSlot({ audio: "aud-1" }, "image")).toEqual({
 			audio: "aud-1",
 		});

@@ -45,6 +45,40 @@ export function MediaPickerDialog({
 	kind,
 	onPick,
 }: MediaPickerDialogProps) {
+	// The data hooks (`useMediaLibrary`) live in `PickerBody`, which is
+	// a child of `Dialog.Popup` — Base UI only mounts the Popup's
+	// subtree while the dialog is open, so the library fetch fires when
+	// the user opens the picker, NOT eagerly on every slot's mount.
+	// (An always-mounted hook here would fire one library GET per slot
+	// per kind before any click.) The thin shell stays mounted so the
+	// open/close transition still animates.
+	return (
+		<Dialog.Root open={open} onOpenChange={onOpenChange}>
+			<Dialog.Portal>
+				<Dialog.Backdrop className={BACKDROP_CLS} />
+				<Dialog.Popup className={POPUP_CLS}>
+					<PickerBody
+						kind={kind}
+						onPick={(asset) => {
+							onPick(asset);
+							onOpenChange(false);
+						}}
+					/>
+				</Dialog.Popup>
+			</Dialog.Portal>
+		</Dialog.Root>
+	);
+}
+
+/** Mounted only while the dialog is open (child of `Dialog.Popup`). Owns
+ *  the library fetch + tab state so neither runs until the picker opens. */
+function PickerBody({
+	kind,
+	onPick,
+}: {
+	kind: MediaKind;
+	onPick: (asset: MediaAssetView) => void;
+}) {
 	const [tab, setTab] = useState<Tab>("upload");
 	const meta = MEDIA_KIND_META[kind];
 	const { assets, isLoading, error, hasMore, loadMore, addUploaded } =
@@ -53,62 +87,50 @@ export function MediaPickerDialog({
 	const commit = (asset: MediaAssetView) => {
 		addUploaded(asset);
 		onPick(asset);
-		onOpenChange(false);
 	};
 
 	return (
-		<Dialog.Root open={open} onOpenChange={onOpenChange}>
-			<Dialog.Portal>
-				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup className={POPUP_CLS}>
-					<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
-						<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-							Add {meta.label.toLowerCase()}
-						</Dialog.Title>
-						<Dialog.Close
-							className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
-							aria-label="Close"
-						>
-							<Icon icon={tablerX} className="size-4" />
-						</Dialog.Close>
-					</header>
+		<>
+			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
+				<Dialog.Title className="text-base font-display font-semibold text-nova-text">
+					Add {meta.label.toLowerCase()}
+				</Dialog.Title>
+				<Dialog.Close
+					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
+					aria-label="Close"
+				>
+					<Icon icon={tablerX} className="size-4" />
+				</Dialog.Close>
+			</header>
 
-					<div
-						role="tablist"
-						aria-label="Media source"
-						className="flex gap-1 border-b border-nova-border px-4 pt-3"
-					>
-						<TabButton
-							active={tab === "upload"}
-							onClick={() => setTab("upload")}
-						>
-							Upload
-						</TabButton>
-						<TabButton
-							active={tab === "library"}
-							onClick={() => setTab("library")}
-						>
-							Library
-						</TabButton>
-					</div>
+			<div
+				role="tablist"
+				aria-label="Media source"
+				className="flex gap-1 border-b border-nova-border px-4 pt-3"
+			>
+				<TabButton active={tab === "upload"} onClick={() => setTab("upload")}>
+					Upload
+				</TabButton>
+				<TabButton active={tab === "library"} onClick={() => setTab("library")}>
+					Library
+				</TabButton>
+			</div>
 
-					<div className="min-h-0 flex-1 overflow-y-auto p-4">
-						{tab === "upload" ? (
-							<UploadTab kind={kind} onUploaded={commit} />
-						) : (
-							<LibraryTab
-								assets={assets}
-								isLoading={isLoading}
-								error={error}
-								hasMore={hasMore}
-								loadMore={loadMore}
-								onPick={commit}
-							/>
-						)}
-					</div>
-				</Dialog.Popup>
-			</Dialog.Portal>
-		</Dialog.Root>
+			<div className="min-h-0 flex-1 overflow-y-auto p-4">
+				{tab === "upload" ? (
+					<UploadTab kind={kind} onUploaded={commit} />
+				) : (
+					<LibraryTab
+						assets={assets}
+						isLoading={isLoading}
+						error={error}
+						hasMore={hasMore}
+						loadMore={loadMore}
+						onPick={commit}
+					/>
+				)}
+			</div>
+		</>
 	);
 }
 

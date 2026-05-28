@@ -12,7 +12,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import {
 	fetchMediaLibrary,
@@ -70,53 +70,63 @@ export interface UseMediaLibrary {
 }
 
 /**
+ * One library fetch request: which `kind`, from which `cursor`, and
+ * whether the result appends (next page) or replaces (fresh page).
+ * A single effect keys off this object, so each request maps to
+ * exactly one fetch — a kind change and a `loadMore` both produce
+ * one new request, never the double-fire two kind-keyed effects
+ * would cause.
+ */
+interface LibraryRequest {
+	kind: MediaKind | undefined;
+	cursor: string | undefined;
+	append: boolean;
+}
+
+/**
  * Paginated view of the owner's `ready` assets, optionally filtered
- * to one `kind`. Fetches the first page on mount (and whenever
- * `kind` changes); `loadMore` appends the next page via the opaque
- * cursor.
+ * to one `kind`. Fetches the first page on mount and whenever `kind`
+ * changes; `loadMore` appends the next page via the opaque cursor.
  *
- * The effect guards against setState-after-unmount with a
- * per-run `cancelled` flag so an in-flight fetch resolving after
- * the picker closes doesn't leak a state update (or trip the
- * async-leak gate).
+ * The kind reset is done by deriving a fresh page-0 request DURING
+ * render (the `kindRef` compare) rather than in a second effect —
+ * that keeps it to one fetch per kind change with no mount
+ * double-fetch. The fetch effect guards setState-after-unmount with
+ * a per-run `cancelled` flag so a fetch resolving after the picker
+ * closes doesn't leak a state update (or trip the async-leak gate).
  */
 export function useMediaLibrary(kind?: MediaKind): UseMediaLibrary {
 	const [assets, setAssets] = useState<MediaAssetView[]>([]);
-	const [cursor, setCursor] = useState<string | null>(null);
-	const [hasMore, setHasMore] = useState(false);
+	const [nextCursor, setNextCursor] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	// Bumped to request the next page; the effect reads it so
-	// `loadMore` doesn't have to re-implement the fetch.
-	const [pageRequest, setPageRequest] = useState(0);
-	const cursorRef = useRef<string | null>(null);
+	const [request, setRequest] = useState<LibraryRequest>({
+		kind,
+		cursor: undefined,
+		append: false,
+	});
 
-	// Reset and refetch from the top whenever the kind filter changes.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: resetting on `kind` change is the intent
-	useEffect(() => {
-		setAssets([]);
-		setCursor(null);
-		cursorRef.current = null;
-		setHasMore(false);
-		setPageRequest(0);
-	}, [kind]);
+	// Derived-state-during-render: when the `kind` prop changes, issue a
+	// fresh page-0 request synchronously (no separate effect, so no
+	// double-fetch). React re-renders before commit when setState fires
+	// during render, so the fetch effect sees only the new request.
+	const [trackedKind, setTrackedKind] = useState(kind);
+	if (trackedKind !== kind) {
+		setTrackedKind(kind);
+		setRequest({ kind, cursor: undefined, append: false });
+	}
 
 	useEffect(() => {
 		let cancelled = false;
 		setIsLoading(true);
 		setError(null);
-		fetchMediaLibrary({
-			kind,
-			cursor: pageRequest === 0 ? undefined : (cursorRef.current ?? undefined),
-		})
+		fetchMediaLibrary({ kind: request.kind, cursor: request.cursor })
 			.then((page) => {
 				if (cancelled) return;
 				setAssets((prev) =>
-					pageRequest === 0 ? page.assets : [...prev, ...page.assets],
+					request.append ? [...prev, ...page.assets] : page.assets,
 				);
-				setCursor(page.nextCursor);
-				cursorRef.current = page.nextCursor;
-				setHasMore(page.nextCursor !== null);
+				setNextCursor(page.nextCursor);
 			})
 			.catch((err: unknown) => {
 				if (cancelled) return;
@@ -132,12 +142,12 @@ export function useMediaLibrary(kind?: MediaKind): UseMediaLibrary {
 		return () => {
 			cancelled = true;
 		};
-	}, [kind, pageRequest]);
+	}, [request]);
 
 	const loadMore = useCallback(() => {
-		if (isLoading || !cursor) return;
-		setPageRequest((n) => n + 1);
-	}, [isLoading, cursor]);
+		if (isLoading || !nextCursor) return;
+		setRequest((r) => ({ kind: r.kind, cursor: nextCursor, append: true }));
+	}, [isLoading, nextCursor]);
 
 	const addUploaded = useCallback((asset: MediaAssetView) => {
 		setAssets((prev) =>
@@ -145,5 +155,12 @@ export function useMediaLibrary(kind?: MediaKind): UseMediaLibrary {
 		);
 	}, []);
 
-	return { assets, isLoading, error, hasMore, loadMore, addUploaded };
+	return {
+		assets,
+		isLoading,
+		error,
+		hasMore: nextCursor !== null,
+		loadMore,
+		addUploaded,
+	};
 }

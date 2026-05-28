@@ -75,22 +75,35 @@ export interface SingleAssetSlotProps {
 	value: string | undefined;
 	onChange: (next: string | undefined) => void;
 	kind: MediaKind;
+	/**
+	 * Accessible name for the slot's controls. Standalone slots (form
+	 * icon, app logo) live outside a labelled editor section, so the
+	 * kind alone ("Image") doesn't say WHICH slot — pass e.g. "Form
+	 * menu icon". Defaults to the kind label.
+	 */
+	ariaLabel?: string;
 }
 
 export function SingleAssetSlot({
 	value,
 	onChange,
 	kind,
+	ariaLabel,
 }: SingleAssetSlotProps) {
 	return value ? (
 		<AssetChip
 			kind={kind}
 			assetId={value}
+			ariaLabel={ariaLabel}
 			onReplace={(asset) => onChange(asset.id)}
 			onRemove={() => onChange(undefined)}
 		/>
 	) : (
-		<AddPill kind={kind} onPick={(asset) => onChange(asset.id)} />
+		<AddPill
+			kind={kind}
+			ariaLabel={ariaLabel}
+			onPick={(asset) => onChange(asset.id)}
+		/>
 	);
 }
 
@@ -100,9 +113,11 @@ export function SingleAssetSlot({
 function AddPill({
 	kind,
 	onPick,
+	ariaLabel,
 }: {
 	kind: MediaKind;
 	onPick: (asset: MediaAssetView) => void;
+	ariaLabel?: string;
 }) {
 	const [open, setOpen] = useState(false);
 	const meta = MEDIA_KIND_META[kind];
@@ -111,6 +126,7 @@ function AddPill({
 			<button
 				type="button"
 				onClick={() => setOpen(true)}
+				aria-label={ariaLabel ?? `Add ${meta.label.toLowerCase()}`}
 				className="flex items-center gap-1.5 self-start rounded-md border border-dashed border-nova-border px-2 py-1 text-xs text-nova-text-muted transition-colors hover:border-nova-accent hover:text-nova-text"
 			>
 				<Icon icon={tablerPlus} className="size-3.5" />
@@ -132,20 +148,25 @@ function AssetChip({
 	assetId,
 	onReplace,
 	onRemove,
+	ariaLabel,
 }: {
 	kind: MediaKind;
 	assetId: string;
 	onReplace: (asset: MediaAssetView) => void;
 	onRemove: () => void;
+	ariaLabel?: string;
 }) {
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const meta = MEDIA_KIND_META[kind];
+	// Each control names the slot ("Replace form menu icon") so the chip
+	// needs no wrapping landmark of its own.
+	const what = ariaLabel ?? meta.label.toLowerCase();
 	return (
 		<div className="flex items-center gap-2 self-start rounded-md border border-nova-border bg-nova-surface p-1 pr-2">
 			<Popover.Root>
 				<Popover.Trigger
 					className="flex items-center gap-2 rounded outline-none"
-					aria-label={`Preview ${meta.label.toLowerCase()}`}
+					aria-label={`Preview ${what}`}
 				>
 					<ThumbBox kind={kind} assetId={assetId} />
 					<span className="text-xs text-nova-text-muted">{meta.label}</span>
@@ -166,7 +187,7 @@ function AssetChip({
 			<button
 				type="button"
 				onClick={() => setPickerOpen(true)}
-				aria-label={`Replace ${meta.label.toLowerCase()}`}
+				aria-label={`Replace ${what}`}
 				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
 			>
 				<Icon icon={tablerReplace} className="size-3.5" />
@@ -174,7 +195,7 @@ function AssetChip({
 			<button
 				type="button"
 				onClick={onRemove}
-				aria-label={`Remove ${meta.label.toLowerCase()}`}
+				aria-label={`Remove ${what}`}
 				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-error"
 			>
 				<Icon icon={tablerTrash} className="size-3.5" />

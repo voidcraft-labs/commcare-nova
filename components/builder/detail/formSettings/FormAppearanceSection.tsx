@@ -29,6 +29,7 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 					<SingleAssetSlot
 						value={form.icon}
 						kind="image"
+						ariaLabel="Form menu icon"
 						onChange={(icon) => updateForm(asUuid(formUuid), { icon })}
 					/>
 				</div>
@@ -39,6 +40,7 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 					<SingleAssetSlot
 						value={form.audioLabel}
 						kind="audio"
+						ariaLabel="Form audio label"
 						onChange={(audioLabel) =>
 							updateForm(asUuid(formUuid), { audioLabel })
 						}

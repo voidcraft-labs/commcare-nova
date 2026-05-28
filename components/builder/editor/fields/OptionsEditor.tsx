@@ -123,7 +123,11 @@ function OptionsEditorWidget({
 	const commit = useCallback(
 		(updated: DraftOption[]) => {
 			const cleaned = toOptions(updated).filter(
-				(o) => o.label.trim() || o.value.trim(),
+				// Drop only fully-empty rows. A row carrying media is kept
+				// even with a blank label/value so attaching an image and
+				// then blanking the text doesn't silently discard the asset
+				// reference along with the row.
+				(o) => o.label.trim() || o.value.trim() || o.media,
 			);
 			lastCommittedKeyRef.current = serializeOptions(cleaned);
 			onSave(cleaned);
