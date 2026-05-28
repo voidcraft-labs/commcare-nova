@@ -32,6 +32,10 @@ import {
 	moduleShell,
 } from "@/lib/commcare";
 import { genHexId, genShortId } from "@/lib/commcare/ids";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import { buildMultimediaMap } from "@/lib/commcare/multimedia/bundle";
+import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
+import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
 import {
 	type BlueprintDoc,
@@ -100,9 +104,25 @@ function translateFormLinks(
  * + `doc.caseTypes`. Connect config is stripped from each form unless
  * the app-level `connectType` is set — preserves the "connect mode
  * stash" semantics the SA relies on.
+ *
+ * `opts.assets` is the resolved media manifest. When present, the
+ * emitted XForms gain media itext values, the module/form/case-list
+ * shells gain `media_image` / `media_audio` dicts, and the application
+ * gains its `multimedia_map` + `logo_refs` — everything CCHQ needs to
+ * regenerate a media-bearing suite on import. When absent, media
+ * emission is off (validation loop, asset-free preview) and the output
+ * is media-free but structurally identical to the pre-media shape.
  */
-export function expandDoc(doc: BlueprintDoc): HqApplication {
+export interface ExpandOptions {
+	assets?: AssetManifest;
+}
+
+export function expandDoc(
+	doc: BlueprintDoc,
+	opts: ExpandOptions = {},
+): HqApplication {
 	const attachments: Record<string, string> = {};
+	const assets = opts.assets;
 
 	// Child case type map: child_case_type → parent module index. Derived
 	// from `case_types[].parent_type` + matching module case types. The
@@ -165,6 +185,7 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 			attachments[`${formUniqueId}.xml`] = buildXForm(doc, formUuid, {
 				xmlns,
 				...(effectiveConnect && { connect: effectiveConnect }),
+				...(assets && { assets }),
 			});
 
 			// Resolve form-link uuids to the 0-based indices HQ expects.
@@ -175,7 +196,7 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 				? translateFormLinks(form.formLinks, doc.moduleOrder, doc.formOrder)
 				: [];
 
-			return formShell(
+			const formShellObj = formShell(
 				formUniqueId,
 				form.name,
 				xmlns,
@@ -185,6 +206,19 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 				toHqWorkflow(form.postSubmit ?? defaultPostSubmit(form.type)),
 				hqFormLinks,
 			);
+
+			// Stamp the form's menu-command media (icon + audio label) onto
+			// the shell. CCHQ reads these `media_image` / `media_audio` dicts
+			// to regenerate the suite command's `<display>` on import.
+			const formMedia = buildNavMediaDicts(
+				form.icon,
+				form.audioLabel,
+				assets,
+				"expandDoc form media",
+			);
+			formShellObj.media_image = formMedia.media_image;
+			formShellObj.media_audio = formMedia.media_audio;
+			return formShellObj;
 		});
 
 		// Case-list HQ JSON projection: columns (with per-kind format
@@ -209,6 +243,27 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 			forms,
 			caseDetails,
 		);
+
+		// Stamp the module's home-tile media (icon + audio label) and the
+		// case-list link's media onto the shell + its `case_list` block.
+		// CCHQ reads these dicts to regenerate the suite `<menu>` /
+		// case-list-command `<display>` on import.
+		const moduleMedia = buildNavMediaDicts(
+			mod.icon,
+			mod.audioLabel,
+			assets,
+			"expandDoc module media",
+		);
+		shell.media_image = moduleMedia.media_image;
+		shell.media_audio = moduleMedia.media_audio;
+		const caseListMedia = buildNavMediaDicts(
+			mod.caseListConfig?.icon,
+			mod.caseListConfig?.audioLabel,
+			assets,
+			"expandDoc case-list media",
+		);
+		shell.case_list.media_image = caseListMedia.media_image;
+		shell.case_list.media_audio = caseListMedia.media_audio;
 
 		// Overlay the projected `search_config` onto the shell. The
 		// shell carries CCHQ defaults; the projection brings authored
@@ -249,7 +304,16 @@ export function expandDoc(doc: BlueprintDoc): HqApplication {
 		return shell;
 	});
 
-	return applicationShell(doc.appName, modules, attachments, {
+	const app = applicationShell(doc.appName, modules, attachments, {
 		...(doc.connectType && { autoGpsCapture: true }),
 	});
+
+	// Application-level media registry. `multimedia_map` declares every
+	// referenced file (keyed by wire path) so CCHQ can reconcile the
+	// step-2 multimedia upload by path; `logo_refs` carries the web-apps
+	// banner. Both stay empty when media emission is off.
+	app.multimedia_map = assets ? buildMultimediaMap(assets.values()) : {};
+	app.logo_refs = buildLogoRefs(doc.logo, assets, "expandDoc logo");
+
+	return app;
 }

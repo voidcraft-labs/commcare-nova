@@ -51,9 +51,11 @@ import {
 	expandHashtagsInContext,
 	type FormHashtagContext,
 } from "@/lib/commcare/hashtags/formContext";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { buildMetaBlock } from "@/lib/commcare/xform/metaBlock";
-import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Field, FieldKind, Media, Uuid } from "@/lib/domain";
 
 /**
  * Bare-hashtag pattern for label / hint prose.
@@ -330,6 +332,15 @@ function buildConnectBlocks(
 export interface BuildXFormOptions {
 	xmlns: string;
 	connect?: ResolvedConnectConfig;
+	/**
+	 * Resolved media assets for this emission run. When present, the
+	 * itext entries gain `<value form="image|audio|video">` siblings for
+	 * any field/option media slot, and leaf controls gain a `<help>` ref.
+	 * When `undefined`, media emission is off (the validation loop and
+	 * any preview that doesn't load assets) and the XForm carries no
+	 * media references — structurally valid, just media-free.
+	 */
+	assets?: AssetManifest;
 }
 
 /**
@@ -382,12 +393,26 @@ export function buildXForm(
 	// text. Without the duplicate, `**bold**` renders as literal asterisks on
 	// device. `buildLabelNodes` is called ONCE PER `<value>` so each gets
 	// independent node instances (a domhandler node has a single parent).
-	const addItext = (id: string, label: string | undefined): void => {
-		if (!label) return;
+	//
+	// `media` appends `<value form="image|audio|video">jr://file/...` siblings
+	// after the text values (the CCHQ shape — see `multimedia/itextMedia.ts`).
+	// An entry with media but no text still emits — the text `<value>` is just
+	// empty (`buildLabelNodes("")` yields no children), matching CCHQ's
+	// media-only itext shape — so a hint/help slot can carry media without
+	// text. An entry with neither text nor media is skipped entirely.
+	const addItext = (
+		id: string,
+		label: string | undefined,
+		media?: Media,
+	): void => {
+		const mediaValues = itextMediaValues(media, opts.assets, "buildXForm");
+		if (!label && mediaValues.length === 0) return;
+		const labelText = label ?? "";
 		itextEntries.push(
 			el("text", { id }, [
-				el("value", {}, buildLabelNodes(label, expand)),
-				el("value", { form: "markdown" }, buildLabelNodes(label, expand)),
+				el("value", {}, buildLabelNodes(labelText, expand)),
+				el("value", { form: "markdown" }, buildLabelNodes(labelText, expand)),
+				...mediaValues,
 			]),
 		);
 	};
@@ -485,11 +510,23 @@ export function buildXForm(
  */
 function readOptions(
 	field: Field,
-): Array<{ value: string; label: string }> | undefined {
+): Array<{ value: string; label: string; media?: Media }> | undefined {
 	const value = (field as unknown as Record<string, unknown>).options;
 	return Array.isArray(value)
-		? (value as Array<{ value: string; label: string }>)
+		? (value as Array<{ value: string; label: string; media?: Media }>)
 		: undefined;
+}
+
+/**
+ * Read a field's `Media` slot (`label_media` / `hint_media` /
+ * `help_media` / `validate_msg_media`) regardless of which kind
+ * declares it — same untyped-lookup rationale as `readFieldString` /
+ * `readOptions`. Returns `undefined` for kinds that don't carry the
+ * slot (so the caller emits no media for it).
+ */
+function readFieldMedia(field: Field, key: string): Media | undefined {
+	const value = (field as unknown as Record<string, unknown>)[key];
+	return value as Media | undefined;
 }
 
 /**
@@ -548,7 +585,7 @@ function buildFieldParts(
 	setvalues: Element[],
 	bodyElements: Element[],
 	insideRepeat: boolean,
-	addItext: (id: string, label: string | undefined) => void,
+	addItext: (id: string, label: string | undefined, media?: Media) => void,
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
@@ -569,6 +606,18 @@ function buildFieldParts(
 	const required = readFieldString(field, "required");
 	const label = readFieldString(field, "label");
 	const hint = readFieldString(field, "hint");
+	const help = readFieldString(field, "help");
+
+	// Per-message media slots. Each registers `<value form="...">` siblings
+	// on its itext entry (via `addItext`), and `hint`/`help` body refs emit
+	// when the slot OR its text is present — so a media-only hint/help still
+	// gets its body element rather than dangling an unreferenced itext entry.
+	const labelMedia = readFieldMedia(field, "label_media");
+	const hintMedia = readFieldMedia(field, "hint_media");
+	const helpMedia = readFieldMedia(field, "help_media");
+	const validateMsgMedia = readFieldMedia(field, "validate_msg_media");
+	const hasHint = !!(hint || hintMedia);
+	const hasHelp = !!(help || helpMedia);
 
 	// Secondary-instance requirements: any XPath that mentions `#case/`,
 	// `#user/`, or a raw `instance('casedb')` / `instance('commcaresession')`
@@ -675,15 +724,21 @@ function buildFieldParts(
 	binds.push(el("bind", bindAttribs));
 
 	// itext. Hidden kinds have no body element, so no label to reference.
-	if (field.kind !== "hidden" && label) {
-		addItext(`${itextKey}-label`, label);
-		addItext(`${itextKey}-hint`, hint);
+	// Each `addItext` self-skips when its text AND media are both empty, so
+	// optional slots (hint / help) only register an entry when present. The
+	// `-help` entry is new alongside its body `<help>` ref in `buildLeafControl`.
+	if (field.kind !== "hidden") {
+		addItext(`${itextKey}-label`, label, labelMedia);
+		addItext(`${itextKey}-hint`, hint, hintMedia);
+		addItext(`${itextKey}-help`, help, helpMedia);
 	}
 
 	// Validate message itext — paired with the `jr:constraintMsg` attribute
-	// above; never emit the entry without the reference, or vice versa.
+	// above; never emit the entry without the reference, or vice versa. The
+	// media slot rides the same entry so a validation message can carry an
+	// image/audio cue.
 	if (canValidate) {
-		addItext(`${itextKey}-constraintMsg`, validateMsg);
+		addItext(`${itextKey}-constraintMsg`, validateMsg, validateMsgMedia);
 	}
 
 	// Options (select kinds).
@@ -703,7 +758,7 @@ function buildFieldParts(
 	const options = readOptions(field);
 	if (options && options.length > 0) {
 		options.forEach((opt, index) => {
-			addItext(`${itextKey}-opt${index}-label`, opt.label);
+			addItext(`${itextKey}-opt${index}-label`, opt.label, opt.media);
 		});
 	}
 
@@ -721,6 +776,7 @@ function buildFieldParts(
 			vellumPath,
 			itextKey,
 			label,
+			labelMedia,
 			relevant,
 			insideRepeat,
 			dataSlot,
@@ -739,9 +795,12 @@ function buildFieldParts(
 	}
 
 	// Leaf controls — every one carries a `<label>` referencing the field's
-	// itext id, plus an optional `<hint>`. The control element + any
-	// kind-specific attributes are decided by `buildLeafControl`.
-	bodyElements.push(buildLeafControl(field, nodePath, itextKey, hint));
+	// itext id, plus an optional `<hint>` and `<help>` (each emitted when its
+	// text or media slot is present). The control element + any kind-specific
+	// attributes are decided by `buildLeafControl`.
+	bodyElements.push(
+		buildLeafControl(field, nodePath, itextKey, hasHint, hasHelp),
+	);
 }
 
 /**
@@ -759,14 +818,18 @@ function buildLeafControl(
 	field: Field,
 	nodePath: string,
 	itextKey: string,
-	hint: string | undefined,
+	hasHint: boolean,
+	hasHelp: boolean,
 ): Element {
 	// The shared head of every control: the label reference, then the optional
-	// hint reference. Built once and reused across the kind branches.
+	// hint and help references (in XForm body order: label → hint → help). A
+	// ref emits only when its itext entry was registered (text or media
+	// present), so no `<hint>`/`<help>` ever dangles against a missing entry.
 	const head: Element[] = [
 		el("label", { ref: `jr:itext('${itextKey}-label')` }),
 	];
-	if (hint) head.push(el("hint", { ref: `jr:itext('${itextKey}-hint')` }));
+	if (hasHint) head.push(el("hint", { ref: `jr:itext('${itextKey}-hint')` }));
+	if (hasHelp) head.push(el("help", { ref: `jr:itext('${itextKey}-help')` }));
 
 	if (field.kind === "single_select" || field.kind === "multi_select") {
 		const tag = field.kind === "single_select" ? "select1" : "select";
@@ -838,6 +901,7 @@ function buildContainer(
 	vellumPath: string,
 	itextKey: string,
 	label: string | undefined,
+	labelMedia: Media | undefined,
 	relevant: string | undefined,
 	insideRepeat: boolean,
 	dataSlot: number,
@@ -846,7 +910,7 @@ function buildContainer(
 	binds: Element[],
 	setvalues: Element[],
 	bodyElements: Element[],
-	addItext: (id: string, label: string | undefined) => void,
+	addItext: (id: string, label: string | undefined, media?: Media) => void,
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
@@ -953,17 +1017,18 @@ function buildContainer(
 	}
 	binds.push(...childBinds);
 
-	// `<label>` is gated on a truthy `label`. Container kinds (`group`,
-	// `repeat`) extend `containerFieldBase` (label optional); when label is
-	// empty/absent, no itext entry is registered for it, so emitting an
-	// unconditional `<label ref="jr:itext('${id}-label')"/>` would produce a
-	// dangling reference the XForm oracle flags as `XFORM_MISSING_ITEXT`.
-	// Skipping the element entirely is also what CommCare expects for
-	// transparent structural containers — the runtime renders nothing for an
-	// unlabeled group/repeat header.
-	const labelEl = label
-		? el("label", { ref: `jr:itext('${itextKey}-label')` })
-		: undefined;
+	// `<label>` is gated on a truthy `label` OR `labelMedia`. Container kinds
+	// (`group`, `repeat`) extend `containerFieldBase` (label + label_media both
+	// optional); the `-label` itext entry is registered iff text or media is
+	// present, so the body ref must match that condition exactly — emitting an
+	// unconditional `<label ref="jr:itext('${id}-label')"/>` would dangle
+	// against a missing entry (`XFORM_MISSING_ITEXT`), and registering an entry
+	// (media-only) without a ref would orphan it. Both empty → no element,
+	// matching CommCare's transparent-container behavior.
+	const labelEl =
+		label || labelMedia
+			? el("label", { ref: `jr:itext('${itextKey}-label')` })
+			: undefined;
 
 	if (field.kind === "repeat") {
 		bodyElements.push(
