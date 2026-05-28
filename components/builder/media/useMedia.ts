@@ -86,7 +86,7 @@ interface LibraryRequest {
  * changes; `loadMore` appends the next page via the opaque cursor.
  *
  * The kind reset is done by deriving a fresh page-0 request DURING
- * render (the `kindRef` compare) rather than in a second effect —
+ * render (the `trackedKind` compare) rather than in a second effect —
  * that keeps it to one fetch per kind change with no mount
  * double-fetch. The fetch effect guards setState-after-unmount with
  * a per-run `cancelled` flag so a fetch resolving after the picker

@@ -131,11 +131,11 @@ function textEntry<F extends Field, K extends keyof F & string>(
 	};
 }
 
-// The hint text entry. Kept distinct from `textEntry` because some
-// capture kinds (image/audio/video/signature) mount it via the same
-// `"hint" & keyof F` cast the prior schema used — preserving their
-// existing hint affordance unchanged while this change only ADDS media
-// slots. Input kinds that genuinely carry `hint` use it too.
+// The hint text entry. Distinct from `textEntry` because the capture
+// kinds (image/audio/video/signature) carry `hint` only structurally:
+// the entry is keyed via the `"hint" & keyof F` cast so it resolves for
+// any field that has the property whether or not its concrete type
+// declares it. Input kinds that declare `hint` use it too.
 function hintEntry<F extends Field>(): {
 	key: "hint" & keyof F;
 	component: typeof TextEditor;
