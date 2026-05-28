@@ -2,6 +2,11 @@
  * Tests for `mediaAssetReady` — every referenced asset is in
  * `status: "ready"`. The validator's manifest loader includes
  * pending rows; this rule surfaces them with an actionable message.
+ *
+ * Rendering asserts on the full sentence shape (`toBe(<exact
+ * string>)`) so a regression in `describeLocation` or the rule's
+ * message template trips here rather than slipping past a substring
+ * match.
  */
 
 import { describe, expect, it } from "vitest";
@@ -63,7 +68,9 @@ describe("mediaAssetReady", () => {
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("hasn't finished uploading");
+		expect(hits[0].message).toBe(
+			`At the media on option "r" of field "color" in form "Reg", the attached media asset hasn't finished uploading yet. Wait for the upload to complete (the asset chip shows a spinner during upload), or clear the slot if the upload was abandoned.`,
+		);
 		expect(hits[0].details?.assetId).toBe("pending-asset");
 		expect(hits[0].details?.status).toBe("pending");
 	});

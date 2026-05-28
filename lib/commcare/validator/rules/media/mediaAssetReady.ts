@@ -41,7 +41,7 @@ export function mediaAssetReady(
 			validationError(
 				"MEDIA_ASSET_NOT_READY",
 				scopeFor(ref.location),
-				`The media asset at ${describeLocation(ref.location)} hasn't finished uploading yet. Wait for the upload to complete (the asset chip shows a spinner during upload), or remove the reference if the upload was abandoned.`,
+				`At ${describeLocation(ref.location)}, the attached media asset hasn't finished uploading yet. Wait for the upload to complete (the asset chip shows a spinner during upload), or clear the slot if the upload was abandoned.`,
 				validationLocationFor(ref.location),
 				{
 					assetId: ref.assetId,

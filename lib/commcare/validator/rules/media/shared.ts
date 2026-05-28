@@ -43,8 +43,8 @@ import type { ValidationError, ValidationLocation } from "../../errors";
 const FIELD_BUNDLE_LABELS: Record<FieldMediaBundleKey, string> = {
 	label_media: "label",
 	hint_media: "hint",
-	help_media: "help text",
-	validate_msg_media: "validation message",
+	help_media: "help-text",
+	validate_msg_media: "validation-message",
 };
 
 /**
@@ -55,30 +55,37 @@ export function bundleKeyLabel(bundleKey: FieldMediaBundleKey): string {
 }
 
 /**
- * One-sentence-fragment description of a media reference site, embedded
- * inside a rule's error message after the leading "what failed" clause.
- * Always starts with a lowercase noun phrase so the surrounding
- * sentence reads naturally ("…attached to the label image slot on
- * field 'name'…").
+ * One-sentence-fragment description of a media reference site,
+ * embedded inside a rule's error message after a leading "At" or "The
+ * media asset at" preposition. Lowercase noun phrase, no trailing
+ * "slot" — the surrounding rule template owns the slot/asset
+ * vocabulary, so the location names only the carrier ("the icon on
+ * module \"Patients\"", not "the icon slot on module \"Patients\"").
+ *
+ * Doubled "slot" wording was a real bug before: leading template
+ * said "The image slot at" and the location added another "slot",
+ * rendering "The image slot at the icon slot on …". Keeping the
+ * noun in exactly one place — the leading template — is the
+ * structural fix.
  */
 export function describeLocation(location: MediaRefLocation): string {
 	switch (location.kind) {
 		case "app_logo":
-			return "the app logo slot";
+			return "the app logo";
 		case "module_icon":
-			return `the icon slot on module "${location.moduleName}"`;
+			return `the icon on module "${location.moduleName}"`;
 		case "module_audio_label":
-			return `the audio-label slot on module "${location.moduleName}"`;
+			return `the audio label on module "${location.moduleName}"`;
 		case "form_icon":
-			return `the icon slot on form "${location.formName}" (module "${location.moduleName}")`;
+			return `the icon on form "${location.formName}" in module "${location.moduleName}"`;
 		case "form_audio_label":
-			return `the audio-label slot on form "${location.formName}" (module "${location.moduleName}")`;
+			return `the audio label on form "${location.formName}" in module "${location.moduleName}"`;
 		case "field_media_bundle":
-			return `the ${bundleKeyLabel(location.bundleKey)} media slot on field "${location.fieldId}" (form "${location.formName}")`;
+			return `the ${bundleKeyLabel(location.bundleKey)} media on field "${location.fieldId}" in form "${location.formName}"`;
 		case "option_media":
-			return `the media slot on option "${location.optionValue}" of field "${location.fieldId}" (form "${location.formName}")`;
+			return `the media on option "${location.optionValue}" of field "${location.fieldId}" in form "${location.formName}"`;
 		case "image_map_mapping":
-			return `row ${location.rowIndex + 1} of image-map column "${location.columnHeader}" (module "${location.moduleName}")`;
+			return `row ${location.rowIndex + 1} of the image-map column "${location.columnHeader}" on module "${location.moduleName}"`;
 	}
 }
 

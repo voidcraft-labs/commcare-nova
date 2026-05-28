@@ -18,7 +18,11 @@
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
-import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import {
+	type MediaRefLocation,
+	type MediaSlotKind,
+	walkAssetRefs,
+} from "@/lib/domain/mediaRefs";
 import type { AssetMimeType } from "@/lib/domain/multimedia";
 import { type ValidationError, validationError } from "../../errors";
 import {
@@ -68,22 +72,20 @@ export function mediaKindMatches(
 }
 
 /**
- * Compose the mismatch error message. Names the slot kind first
- * (what the slot expects), the asset's actual MIME, the location it's
- * attached to, and the fix. The slot kind comes first because that's
- * the load-bearing fact — the slot's contract is fixed; the asset is
- * the thing the user can change.
+ * Compose the mismatch sentence. Leads with the location (what the
+ * user clicks to fix) and names the kind contract + the asset's
+ * actual MIME inside one clause; the fix sentence follows. The
+ * "a/an" picker handles the audio-kind vowel.
  */
 function kindMismatchMessage(
 	expectedKind: MediaSlotKind,
 	actualMimeType: AssetMimeType,
-	location: Parameters<typeof describeLocation>[0],
+	location: MediaRefLocation,
 ): string {
 	const article = `a${vowelArticleSuffix(expectedKind)}`;
 	return (
-		`The ${expectedKind} slot at ${describeLocation(location)} is filled with an asset whose type is ${actualMimeType}, ` +
-		`but only ${expectedKind} files belong in ${article} ${expectedKind} slot. ` +
-		`Replace the asset with ${article} ${expectedKind} file, or clear the slot.`
+		`At ${describeLocation(location)}, the slot expects ${article} ${expectedKind} but the attached asset is ${actualMimeType}. ` +
+		`Replace it with ${article} ${expectedKind} file, or clear the slot.`
 	);
 }
 

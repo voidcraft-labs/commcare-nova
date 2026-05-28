@@ -35,7 +35,7 @@ export function mediaAssetExists(
 			validationError(
 				"MEDIA_ASSET_NOT_FOUND",
 				scopeFor(ref.location),
-				`The media asset at ${describeLocation(ref.location)} couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open that slot and pick a different asset, or clear the slot if no media should sit there.`,
+				`At ${describeLocation(ref.location)}, the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
 				validationLocationFor(ref.location),
 				{ assetId: ref.assetId, ...navigabilityDetailsFor(ref.location) },
 			),

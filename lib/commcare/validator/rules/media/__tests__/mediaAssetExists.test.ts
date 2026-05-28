@@ -1,6 +1,11 @@
 /**
  * Tests for `mediaAssetExists` — every referenced `AssetId` resolves
  * to a row in the manifest.
+ *
+ * Per-carrier rendering asserts on the full sentence shape
+ * (`toBe(<exact string>)`) so a regression in `describeLocation` or
+ * the rule's message template trips the test rather than slipping
+ * past a substring match.
  */
 
 import { describe, expect, it } from "vitest";
@@ -44,8 +49,9 @@ describe("mediaAssetExists", () => {
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("label media slot");
-		expect(hits[0].message).toContain('"case_name"');
+		expect(hits[0].message).toBe(
+			`At the label media on field "case_name" in form "Reg", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
+		);
 		expect(hits[0].details?.assetId).toBe("missing-asset");
 	});
 
@@ -100,12 +106,17 @@ describe("mediaAssetExists", () => {
 			(e) => e.code === CODE,
 		);
 		expect(hits).toHaveLength(3);
-		const messages = hits.map((h) => h.message);
-		expect(messages.some((m) => m.includes("icon slot on module"))).toBe(true);
-		expect(messages.some((m) => m.includes("audio-label slot on form"))).toBe(
-			true,
+		const messages = hits.map((h) => h.message).sort();
+		// Sorting both arrays makes the assertion order-independent
+		// (the walker's emission order is canonical, but locking the
+		// assertion to it would reward incidental ordering changes).
+		expect(messages).toEqual(
+			[
+				`At the icon on module "Patients", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
+				`At the audio label on form "Reg" in module "Patients", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
+				`At row 1 of the image-map column "Region" on module "Patients", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
+			].sort(),
 		);
-		expect(messages.some((m) => m.includes("image-map column"))).toBe(true);
 	});
 
 	it("stays silent when every referenced id resolves", () => {
