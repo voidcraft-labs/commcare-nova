@@ -14,6 +14,8 @@ Consumers get narrow, memoized hooks with predictable selector shapes; no compon
 
 The public `Mutation` union is fine-grained. There is no `replaceForm`: wholesale form replacements decompose into `updateForm` + `removeField × N` + `addField × M` at the emission boundary — live generation produces that sequence directly via `lib/agent/blueprintHelpers.ts`. There are no `notify*` mutations: XPath hashtag rewrites + sibling-id dedup are reducer side-effects of `renameField` / `moveField`, surfaced to UI as `MutationResult` return values. The `notifyMoveRename` helper in `mutations/notify.ts` is a UI toast emitter consumers call with the `MoveFieldResult` they destructure from `applyMany`'s return array — not a mutation kind.
 
+**Clearing a field property uses a `null` sentinel, not `undefined`.** An `updateField` patch blanks a property by setting it to `null`; the reducer deletes the key on `null` or `undefined`, but only `null` survives the event log's Firestore writes (`ignoreUndefinedProperties` strips `undefined` leaves and omits the now-empty map), so an `undefined`-only clear applies in memory yet silently fails to round-trip in the log. The type system permits both, so this is a convention to follow when adding a clearable property. `updateModule` / `updateForm` clears still travel as `undefined`: reader-safe (their patch defaults to `{}` on read) but not yet log-faithful.
+
 ## Doc-shaped helpers colocated here
 
 Pure functions that read or produce a `BlueprintDoc` (or a subtree of one) live in this package alongside the store:
