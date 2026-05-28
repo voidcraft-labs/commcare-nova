@@ -1,12 +1,17 @@
 // lib/commcare/multimedia/bundle.ts
 //
-// The media bundle: everything the COMPILER needs to turn a resolved
-// asset manifest into the media-bearing parts of a CCZ —
+// Two outputs, split by consumer:
 //
-//   - `mediaSuiteXml`  — the media_suite.xml descriptor string.
-//   - `multimediaMap`  — the HQ-JSON `multimedia_map` (also stamped onto
-//                        the HqApplication for the upload path).
-//   - `cczEntries`     — the (path, bytes) pairs to write into the ZIP.
+//   - `MediaBundle`    — `mediaSuiteXml` + `cczEntries`. The COMPILER
+//                        reads these to write the media-bearing parts
+//                        of the local CCZ archive (the descriptor +
+//                        the bundled file bytes).
+//   - `buildMultimediaMap(assets)` → `Record<string, MultimediaMapItem>`.
+//                        The EXPANDER stamps this onto the
+//                        HqApplication for the HQ-JSON / upload path.
+//                        Produced separately so the compiler doesn't
+//                        carry an HQ-JSON-shaped output it never
+//                        consumes.
 //
 // The bundle is the totality boundary for media emission: given a
 // manifest the caller built by walking every media reference in the
@@ -16,13 +21,14 @@
 //
 // `multimedia_map` shape verified against
 // `commcare-hq/.../hqmedia/models.py::HQMediaMapItem` (`multimedia_id`,
-// `media_type`, `version`) and `commcare-hq/.../app_manager/suite_xml/generator.py::media_resources`
-// (lines 138-146 read each `multimedia_map.items()` key and RAISE
-// `MediaResourceError` when the key does not start with `jr://file/`).
-// The map key IS the fully-qualified jr:// reference
-// (`jr://file/commcare/<hash><ext>`); CCHQ strips the `jr://file/`
-// prefix to derive the install path. `media_type` is the CommCare
-// media class name (`CommCareImage` / `CommCareAudio` / `CommCareVideo`).
+// `media_type`, `version`) and
+// `commcare-hq/.../app_manager/suite_xml/generator.py::media_resources`,
+// which iterates `multimedia_map.items()` and raises `MediaResourceError`
+// when a key doesn't start with `jr://file/`. The map key IS the
+// fully-qualified jr:// reference (`jr://file/commcare/<hash><ext>`);
+// CCHQ strips the `jr://file/` prefix to derive the install path.
+// `media_type` is the CommCare media class name (`CommCareImage` /
+// `CommCareAudio` / `CommCareVideo`).
 
 import type { MediaKind } from "@/lib/domain/multimedia";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";

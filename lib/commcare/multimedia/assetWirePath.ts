@@ -13,9 +13,8 @@
 //
 // CommCare resolves a `jr://file/commcare/<hash><ext>` reference to the
 // installed file at `commcare/<hash><ext>` (relative to the suite).
-// commcare-core's `BasicInstaller::install` returns false for a
-// remote-authority resource (there's a `// TODO: Implement local cache
-// code` on that branch), so every byte MUST be bundled locally in the
+// commcare-core's `BasicInstaller::install` returns false on the
+// remote-authority branch, so every byte MUST be bundled locally in the
 // CCZ — this is why the media-suite resource emits an `authority="local"`
 // location and the compiler writes the bytes into the archive.
 //
@@ -136,9 +135,10 @@ export function requireAssetRef(
 		// this" shape (see e.g. `formActions.ts`'s case-name-field throw):
 		// describes the user-data state that caused the failure, names the
 		// emit site, and points at the recovery path. The compile route
-		// catches and surfaces a generic "Compilation failed" today.
+		// catches and surfaces a generic "Compilation failed" to the
+		// client; the full message lands in server logs.
 		throw new Error(
-			`The blueprint references a media asset I couldn't load (id "${assetId}", at ${where}). ` +
+			`The blueprint references a media asset that couldn't be loaded (id "${assetId}", at ${where}). ` +
 				"The asset may have been deleted from the media library, may still be uploading, " +
 				"or may belong to a different owner. Remove the reference or re-upload the asset " +
 				"to resolve.",

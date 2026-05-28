@@ -777,7 +777,8 @@ function buildFieldParts(
 	// itext. Hidden kinds have no body element, so no label to reference.
 	// Each `addItext` self-skips when its text AND media are both empty, so
 	// optional slots (hint / help) only register an entry when present. The
-	// `-help` entry is new alongside its body `<help>` ref in `buildLeafControl`.
+	// `-help` entry is registered alongside its `<help>` body ref in
+	// `buildLeafControl` so the two emit IFF help text or media is present.
 	//
 	// The label is force-registered for LEAF kinds: `buildLeafControl` emits
 	// `<label>` unconditionally, so the entry must exist even for an empty

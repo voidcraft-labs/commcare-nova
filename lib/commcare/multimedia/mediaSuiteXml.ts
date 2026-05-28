@@ -80,8 +80,12 @@ export function buildMediaSuiteXml(
 		// The resource id only needs to be unique within the suite (the
 		// runtime resolves the jr:// reference by its location PATH, not by
 		// id). The content hash is unique per asset, so `media-<hash>-<file>`
-		// is a stable, collision-free id mirroring CCHQ's `media-<uid>-<name>`
-		// template.
+		// is a stable, collision-free id. CCHQ's template is
+		// `media-<uid>-<name>` where `<name>` is the original upload
+		// filename; Nova's asset rows are content-addressed and carry no
+		// original filename, so the `<name>` slot collapses to the wire
+		// filename (`<hash><ext>`). The doubled hash is cosmetic noise in
+		// the id; behavior is identical.
 		const resourceId = `media-${asset.contentHash}-${filename}`;
 		return el("media", { path: MEDIA_INSTALL_PATH }, [
 			el("resource", { id: resourceId, version: "1" }, [

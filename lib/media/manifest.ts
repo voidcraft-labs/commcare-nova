@@ -59,20 +59,31 @@ export async function resolveMediaManifest(
 	if (ids.length === 0) return new Map();
 
 	const rows = await loadAssetsByIds(owner, ids);
-	const manifest = new Map<ReturnType<typeof asAssetId>, ResolvedMediaAsset>();
-	for (const row of rows) {
-		const bytes = options.withBytes
-			? await downloadAssetBytes(row.gcsObjectKey)
-			: undefined;
-		manifest.set(asAssetId(row.id), {
-			assetId: asAssetId(row.id),
-			wirePath: wirePathFor(row.contentHash, row.extension),
-			kind: row.kind,
-			mimeType: row.mimeType,
-			contentHash: row.contentHash,
-			extension: row.extension,
-			...(bytes !== undefined && { bytes }),
-		});
-	}
-	return manifest;
+	// Bytes (when requested) come from GCS — fetch in parallel. Compile
+	// is interactive (the user clicked "Compile to CCZ"); serializing
+	// the awaits inside a `for` loop would stretch the round-trip from
+	// max(per-asset latency) to sum(per-asset latency). `Promise.all` is
+	// fine for typical app-sized N; if rate limiting ever becomes a
+	// concern, gate concurrency with a small limit helper.
+	const entries = await Promise.all(
+		rows.map(async (row) => {
+			const bytes = options.withBytes
+				? await downloadAssetBytes(row.gcsObjectKey)
+				: undefined;
+			const id = asAssetId(row.id);
+			return [
+				id,
+				{
+					assetId: id,
+					wirePath: wirePathFor(row.contentHash, row.extension),
+					kind: row.kind,
+					mimeType: row.mimeType,
+					contentHash: row.contentHash,
+					extension: row.extension,
+					...(bytes !== undefined && { bytes }),
+				} satisfies ResolvedMediaAsset,
+			] as const;
+		}),
+	);
+	return new Map(entries);
 }

@@ -31,9 +31,8 @@ function manifestOf(assets: ResolvedMediaAsset[]): AssetManifest {
 describe("buildMultimediaMap", () => {
 	it("keys on the jr://file/ reference with the media class + version", () => {
 		// CCHQ's `suite_xml/generator.py::media_resources` REQUIRES every
-		// `multimedia_map` key to start with `jr://file/` (raises
-		// `MediaResourceError` otherwise). Verified against generator.py
-		// lines 138-146.
+		// `multimedia_map` key to start with `jr://file/` — it raises
+		// `MediaResourceError` on a key that doesn't.
 		const map = buildMultimediaMap([
 			asset("img", HASH_IMG, ".png", "image", false),
 			asset("aud", HASH_AUD, ".mp3", "audio", false),
