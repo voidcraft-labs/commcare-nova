@@ -11,7 +11,12 @@ import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { type ValidationError, validationError } from "../../errors";
-import { describeLocation, scopeFor, validationLocationFor } from "./shared";
+import {
+	describeLocation,
+	navigabilityDetailsFor,
+	scopeFor,
+	validationLocationFor,
+} from "./shared";
 
 /**
  * Walk every media reference; emit MEDIA_ASSET_NOT_FOUND for any
@@ -37,7 +42,7 @@ export function mediaAssetExists(
 				scopeFor(ref.location),
 				`The media asset at ${describeLocation(ref.location)} couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open that slot and pick a different asset, or clear the slot if no media should sit there.`,
 				validationLocationFor(ref.location),
-				{ assetId: ref.assetId },
+				{ assetId: ref.assetId, ...navigabilityDetailsFor(ref.location) },
 			),
 		);
 	}

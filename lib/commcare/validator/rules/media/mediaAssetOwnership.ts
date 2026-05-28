@@ -14,7 +14,12 @@ import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { type ValidationError, validationError } from "../../errors";
-import { describeLocation, scopeFor, validationLocationFor } from "./shared";
+import {
+	describeLocation,
+	navigabilityDetailsFor,
+	scopeFor,
+	validationLocationFor,
+} from "./shared";
 
 /**
  * Walk every media reference; for any whose resolved row's `owner`
@@ -38,7 +43,7 @@ export function mediaAssetOwnership(
 				scopeFor(ref.location),
 				`The media asset at ${describeLocation(ref.location)} belongs to a different user, so this app can't ship with it. Upload your own copy of the media and attach it to the slot, or clear the slot.`,
 				validationLocationFor(ref.location),
-				{ assetId: ref.assetId },
+				{ assetId: ref.assetId, ...navigabilityDetailsFor(ref.location) },
 			),
 		);
 	}

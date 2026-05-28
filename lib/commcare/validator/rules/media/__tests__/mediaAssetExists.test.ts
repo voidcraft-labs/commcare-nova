@@ -145,6 +145,67 @@ describe("mediaAssetExists", () => {
 		expect(hits).toHaveLength(0);
 	});
 
+	it("carries columnUuid + rowIndex in details when the bad ref sits in an image-map row", () => {
+		// Image-map mappings live one level below the validator's
+		// ValidationLocation shape (which carries entity uuids, not
+		// per-row coordinates). The asset-context rules surface the
+		// row's columnUuid + 0-based rowIndex on details so the UI can
+		// deep-link past the column to the exact row — same convention
+		// as `idMappingValueRequired`.
+		const doc = buildDoc({
+			appName: "T",
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "region", label: "Region" }] },
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							{
+								kind: "image-map",
+								uuid: "col-regions" as never,
+								field: "region",
+								header: "Region",
+								mapping: [
+									{ value: "N", assetId: "present" },
+									{ value: "S", assetId: "missing-row-asset" },
+								],
+							},
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const hits = runValidation(doc, {
+			mediaAssets: makeManifest([makeAssetRecord("present")]),
+			expectedOwner: APP_OWNER,
+		}).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+		const hit = hits[0];
+		expect(hit.details?.assetId).toBe("missing-row-asset");
+		expect(hit.details?.columnUuid).toBe("col-regions");
+		// 0-based row index — the second row (index 1) is the one
+		// pointing at the missing asset.
+		expect(hit.details?.rowIndex).toBe("1");
+	});
+
 	it("does not run at all when the runner is called without a manifest", () => {
 		const doc = buildDoc({
 			appName: "T",

@@ -21,7 +21,12 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import type { AssetMimeType } from "@/lib/domain/multimedia";
 import { type ValidationError, validationError } from "../../errors";
-import { describeLocation, scopeFor, validationLocationFor } from "./shared";
+import {
+	describeLocation,
+	navigabilityDetailsFor,
+	scopeFor,
+	validationLocationFor,
+} from "./shared";
 
 /**
  * Walk every media reference; for any whose resolved row's kind
@@ -57,6 +62,7 @@ export function mediaKindMatches(
 					expectedKind: ref.slotKind,
 					actualMimeType: record.mimeType,
 					actualKind: record.kind,
+					...navigabilityDetailsFor(ref.location),
 				},
 			),
 		);

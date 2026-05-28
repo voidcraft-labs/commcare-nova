@@ -22,6 +22,12 @@
  *     vocabulary ("label" / "hint" / "help text" / "validation
  *     message"). Avoids leaking the snake_case schema key into the
  *     error sentence.
+ *   - `navigabilityDetailsFor(location)` — extra `details` keys the
+ *     `ValidationLocation` shape can't carry. For image-map mapping
+ *     refs, surfaces `columnUuid` + `rowIndex` so the UI can deep-link
+ *     to the exact row; matches the precedent at
+ *     `idMappingValueRequired`. Returns an empty object for locations
+ *     that have nothing extra to surface.
  */
 
 import type {
@@ -172,4 +178,30 @@ export function validationLocationFor(
 				field: "caseListConfig.columns.mapping",
 			};
 	}
+}
+
+/**
+ * Per-location `details` keys the structured-error `ValidationLocation`
+ * shape can't carry (it covers entity uuids + names + the offending
+ * property, not row-level coordinates inside a column). For
+ * `image_map_mapping` refs, surface the column uuid and the 0-based
+ * row index so the UI / SA can deep-link to the exact row — mirrors
+ * the precedent at
+ * `lib/commcare/validator/rules/case-list/idMappingValueRequired.ts`'s
+ * `details` payload. Other location kinds carry no extra coordinates,
+ * so they return an empty object the spread operator drops cleanly.
+ *
+ * `details` is `Record<string, string>` on `ValidationError`, hence
+ * the `String(rowIndex)` projection.
+ */
+export function navigabilityDetailsFor(
+	location: MediaRefLocation,
+): Record<string, string> {
+	if (location.kind === "image_map_mapping") {
+		return {
+			columnUuid: location.columnUuid,
+			rowIndex: String(location.rowIndex),
+		};
+	}
+	return {};
 }
