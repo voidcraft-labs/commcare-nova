@@ -80,10 +80,11 @@ function kindMismatchMessage(
 	actualMimeType: AssetMimeType,
 	location: Parameters<typeof describeLocation>[0],
 ): string {
+	const article = `a${vowelArticleSuffix(expectedKind)}`;
 	return (
 		`The ${expectedKind} slot at ${describeLocation(location)} is filled with an asset whose type is ${actualMimeType}, ` +
-		`but only ${expectedKind} files belong in an ${expectedKind} slot. ` +
-		`Replace the asset with a${vowelArticleSuffix(expectedKind)} ${expectedKind} file, or clear the slot.`
+		`but only ${expectedKind} files belong in ${article} ${expectedKind} slot. ` +
+		`Replace the asset with ${article} ${expectedKind} file, or clear the slot.`
 	);
 }
 
