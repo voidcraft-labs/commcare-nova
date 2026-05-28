@@ -31,8 +31,6 @@ export function imageMapValueUnique(
 	_doc: BlueprintDoc,
 ): ValidationError[] {
 	const columns = mod.caseListConfig?.columns ?? [];
-	if (columns.length === 0) return [];
-
 	const errors: ValidationError[] = [];
 	for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
 		const column = columns[columnIndex];
