@@ -35,6 +35,7 @@ export type ValidationErrorCode =
 	| "CASE_LIST_BARE_SEARCH_INPUT_REF"
 	| "CASE_LIST_DUPLICATE_SORT_PRIORITY"
 	| "CASE_LIST_ID_MAPPING_EMPTY_VALUE"
+	| "CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE"
 	| "CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE"
 	| "CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK"
 	| "CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE"
@@ -192,6 +193,15 @@ export type ValidationErrorCode =
 	| "BINDING_RESOLUTION_INSTANCE_UNDECLARED"
 	| "BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED"
 	| "BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN"
+	// Media — the four asset-context rules under `rules/media/`. Each
+	// fires only when the validator runs with a resolved asset manifest
+	// (the SA validation loop's path); structural rules (e.g. image-map
+	// duplicate values) live alongside the case-list rules and fire
+	// regardless of manifest presence.
+	| "MEDIA_ASSET_NOT_FOUND"
+	| "MEDIA_ASSET_FOREIGN_OWNER"
+	| "MEDIA_ASSET_NOT_READY"
+	| "MEDIA_KIND_MISMATCH"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"
