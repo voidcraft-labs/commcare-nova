@@ -4,7 +4,6 @@ import { requireSession } from "@/lib/auth-utils";
 import { expandDoc } from "@/lib/commcare/expander";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
-import { resolveMediaManifest } from "@/lib/media/manifest";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
 
 /**
@@ -17,7 +16,7 @@ import { sanitizeFilename } from "@/lib/utils/sanitize";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const session = await requireSession(req);
+		await requireSession(req);
 		const body = await req.json();
 		const { doc } = body;
 
@@ -39,13 +38,12 @@ export async function POST(req: NextRequest) {
 		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
 		rebuildFieldParent(docWithParent);
 
-		// HQ-JSON export carries media references + multimedia_map + logo_refs
-		// (no bytes — the JSON doesn't bundle files; the multimedia upload is a
-		// separate step). Media-free docs resolve to an empty manifest.
-		const assets = await resolveMediaManifest(docWithParent, session.user.id, {
-			withBytes: false,
-		});
-		const hqJson = expandDoc(docWithParent, { assets });
+		// HQ-bound JSON export emits media-free until the multimedia bytes
+		// upload lands: shipping `multimedia_map` + `logo_refs` + media
+		// references without the matching files on the HQ side renders to
+		// broken images, which is worse than no images. The `.ccz` compile
+		// path keeps media-on (its files ship in the archive).
+		const hqJson = expandDoc(docWithParent);
 		const jsonStr = JSON.stringify(hqJson, null, 2);
 
 		return new NextResponse(jsonStr, {

@@ -94,7 +94,13 @@ export function buildMediaBundle(
 	manifest: AssetManifest,
 	where: string,
 ): MediaBundle {
-	const assets = [...manifest.values()];
+	// Sort by wire path so the bundle's three outputs (mediaSuiteXml,
+	// multimediaMap, cczEntries) carry the same deterministic order —
+	// same inputs always yield same bytes. `buildMediaSuiteXml` sorts
+	// internally; the other two consume the pre-sorted list.
+	const assets = [...manifest.values()].sort((a, b) =>
+		a.wirePath < b.wirePath ? -1 : a.wirePath > b.wirePath ? 1 : 0,
+	);
 	const cczEntries: MediaCczEntry[] = assets.map((asset) => {
 		if (!asset.bytes) {
 			throw new Error(

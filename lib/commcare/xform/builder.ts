@@ -681,8 +681,12 @@ function buildFieldParts(
 	// `jr:constraintMsg` MUST be an itext reference — HQ's XForm parser only
 	// reads the attribute when it points at an itext id via `jr:itext(...)`, so
 	// inline text would vanish on upload. The matching `<text>` entry is
-	// registered below when `canValidate` holds.
-	if (canValidate && validateMsg) {
+	// registered below when `canValidate` holds AND text OR media is present;
+	// the bind-attribute gate must match (text OR media), else a media-only
+	// validation cue silently orphans its itext entry — the body never
+	// references it, the cue never displays. Body-ref-iff-entry binds across
+	// every message slot.
+	if (canValidate && (validateMsg || validateMsgMedia)) {
 		bindAttribs["jr:constraintMsg"] = `jr:itext('${itextKey}-constraintMsg')`;
 	}
 
@@ -779,7 +783,12 @@ function buildFieldParts(
 	const options = readOptions(field);
 	if (options && options.length > 0) {
 		options.forEach((opt, index) => {
-			addItext(`${itextKey}-opt${index}-label`, opt.label, opt.media);
+			// Force-register every option's `-label` entry: each `<item>`
+			// below emits an unconditional `<label ref="jr:itext(…-opt{i}-label)">`,
+			// so the body-ref-iff-entry invariant forbids skipping the
+			// registration even for an empty option label — a dangling ref
+			// is parse-fatal in `verifyTextMappings`.
+			addItext(`${itextKey}-opt${index}-label`, opt.label, opt.media, true);
 		});
 	}
 

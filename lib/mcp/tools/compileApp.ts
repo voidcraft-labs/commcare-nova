@@ -67,14 +67,18 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * the wire collapses both to `not_found`. */
 				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
 
-				/* Resolve the media manifest for this owner. Bytes are loaded
-				 * only for the `ccz` format (the archive bundles the files);
-				 * the `json` format needs the wire references but not the
-				 * bytes. One manifest feeds both expand + compile so their
-				 * jr:// references and bundled files agree. */
-				const assets = await resolveMediaManifest(doc, ctx.userId, {
-					withBytes: args.format === "ccz",
-				});
+				/* Media manifest is loaded ONLY for the `ccz` format — the
+				 * archive bundles the bytes alongside the references. The
+				 * `json` format is HQ-bound and stays media-free until the
+				 * multimedia bytes upload lands; shipping references without
+				 * the matching files on the HQ side renders broken images.
+				 * `undefined` here flows through `expandDoc`/`compileCcz` as
+				 * media-off (output byte-identical to pre-media for the json
+				 * path). */
+				const assets =
+					args.format === "ccz"
+						? await resolveMediaManifest(doc, ctx.userId, { withBytes: true })
+						: undefined;
 
 				const hqJson = expandDoc(doc, { assets });
 

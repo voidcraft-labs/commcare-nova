@@ -100,9 +100,6 @@ export function compileCcz(
 		buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
 	);
 	files["media_suite.xml"] = mediaBundle.mediaSuiteXml;
-	// Media bytes are binary (PNG / MP3 / MP4); they are added to the archive
-	// as raw Buffers, NOT through the `files` string map (which re-encodes its
-	// entries as UTF-8 and would corrupt non-text bytes).
 
 	// `appStrings` is populated as we walk modules/forms; flushed once
 	// per language at the end.

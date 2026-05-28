@@ -126,6 +126,51 @@ describe("XForm itext media emission", () => {
 		expect(validateXForm(xml, "Register", "Patients")).toEqual([]);
 	});
 
+	it("emits jr:constraintMsg + itext for a media-only validate_msg_media (no text)", () => {
+		// Regression: the jr:constraintMsg bind attribute must gate on text
+		// OR media (mirroring `addItext`'s registration rule). A media-only
+		// cue otherwise registers an orphan itext entry that nothing
+		// references — the author's validation media silently never displays.
+		const doc = buildDoc({
+			appName: "Media-only validate_msg",
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+									validate: ". != ''",
+									// validate_msg deliberately absent — only the media.
+									validate_msg_media: { audio: "help-aud" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const xml = firstFormXml(expandDoc(doc, { assets: makeManifest() }));
+		// The bind references the itext entry…
+		expect(xml).toContain(
+			'jr:constraintMsg="jr:itext(&apos;case_name-constraintMsg&apos;)"',
+		);
+		// …and the entry carries the media value (empty text values + media).
+		expect(xml).toContain(
+			`<value form="audio">${ref("help-aud")}</value></text>`,
+		);
+	});
+
 	it("emits NO media value siblings when no manifest is provided (media off)", () => {
 		const xml = firstFormXml(expandDoc(mediaDoc()));
 		// No media <value form="..."> siblings at all.

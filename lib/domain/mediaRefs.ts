@@ -1,18 +1,15 @@
 // lib/domain/mediaRefs.ts
 //
 // The single walk that enumerates every media `AssetId` a blueprint
-// references. One source of truth for "which assets does this app use",
-// consumed by:
-//   - the compile / upload routes, to load exactly those assets (rows +
-//     bytes) into the emission manifest;
-//   - the `remove_media_asset` tool, to refuse deleting an asset still
-//     referenced (and name the referrers);
-//   - the readiness scan script.
+// references. One source of truth for "which assets does this app
+// use," consumed by the compile / upload manifest loader at
+// `lib/media/manifest.ts::resolveMediaManifest` to load exactly those
+// assets (rows + optional bytes) into the emission manifest.
 //
 // Walks the doc by entity maps (order-independent — references don't
 // care about position). Every carrier that can hold media is visited
-// here; adding a new media carrier means adding it to this walk so the
-// loader, the delete guard, and the scan all see it at once.
+// here; adding a new media carrier means adding it to this walk so
+// the loader sees it.
 
 import type { BlueprintDoc } from "./blueprint";
 import type { Media } from "./multimedia";

@@ -53,7 +53,6 @@ import { z } from "zod";
 import { importApp } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
-import { resolveMediaManifest } from "@/lib/media/manifest";
 import { initMcpCall } from "../context";
 import {
 	type McpToolErrorResult,
@@ -224,14 +223,11 @@ export function registerUploadAppToHq(
 					 * lives inside `importApp` via the hardcoded
 					 * `COMMCARE_HQ_URL`. `expandDoc` materializes the
 					 * `HqApplication` JSON HQ's `/api/import_app/`
-					 * endpoint expects. The media manifest carries the
-					 * references + multimedia_map + logo_refs (no bytes —
-					 * the multimedia bytes upload is the 2-step HQ sequence
-					 * built in a later slice). */
-					const assets = await resolveMediaManifest(doc, ctx.userId, {
-						withBytes: false,
-					});
-					const hqJson = expandDoc(doc, { assets });
+					 * endpoint expects. Media-free until the multimedia
+					 * bytes upload lands: shipping media references without
+					 * the matching files on the HQ side renders broken
+					 * images. */
+					const hqJson = expandDoc(doc);
 					/* App name defaulting: `?.trim() || app.app_name` maps
 					 * both omitted and whitespace-only inputs to the
 					 * blueprint's denormalized name — which is non-empty

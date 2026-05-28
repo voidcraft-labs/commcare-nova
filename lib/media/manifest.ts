@@ -44,9 +44,11 @@ export interface ResolveManifestOptions {
  * media-free app costs one cheap `collectAssetRefs` walk and no I/O.
  *
  * Assets the owner doesn't own / that aren't `ready` are dropped by
- * `loadAssetsByIds` (never leaked). A reference left unresolved this
- * way is rejected by the media validator rules before compile; if one
- * still reaches the emitter, its manifest lookup throws a compiler-bug.
+ * `loadAssetsByIds` (never leaked across owners). A reference the doc
+ * holds onto for such an asset surfaces downstream as a compiler-bug
+ * throw from `requireAssetRef` at emit time — that's the current
+ * floor; there is no doc-layer gate that rejects stale references
+ * before they reach the emitter today.
  */
 export async function resolveMediaManifest(
 	doc: BlueprintDoc,
