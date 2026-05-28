@@ -83,8 +83,19 @@ const PARSE_OPTS = { xmlMode: true } as const;
  *     to the form's `<model>`, alongside any other binds the main emitter
  *     produced.
  *   - `setvalues` — the `<setvalue>` elements (form-load case-id wires for
- *     non-repeat subcases) appended to the form's `<model>`. Form-root scope
- *     because `xforms-ready` fires once at form load.
+ *     non-repeat subcases, plus case-preload reads from `casedb`) appended to
+ *     the form's `<model>`. Form-root scope because `xforms-ready` fires once
+ *     at form load.
+ *   - `requiredNamePaths` — the `/data/...` paths of every question that
+ *     supplies a case name (primary open + each subcase open). The caller
+ *     merges `required="true()"` onto each field's existing bind (CommCare
+ *     forces every opened case's name question required, primary and subcase
+ *     alike; mirrors `XFormCaseBlock.add_create_block`).
+ *   - `needsCasedbInstance` — true when a preload setvalue reads from `casedb`.
+ *     The caller declares the `casedb` secondary instance if the form doesn't
+ *     already carry it (`buildXForm`'s instance scan only sees field-level
+ *     XPath, not these post-injection setvalues). Mirrors `add_case_preloads`'
+ *     `add_casedb()` call.
  *
  * `null` is returned when the form has no case-management actions to emit —
  * the caller short-circuits without touching the DOM.
@@ -115,6 +126,8 @@ interface CaseBlocksEmission {
 	readonly dataChildren: ReadonlyArray<CaseBlockChild>;
 	readonly binds: Element[];
 	readonly setvalues: Element[];
+	readonly requiredNamePaths?: string[];
+	readonly needsCasedbInstance?: boolean;
 }
 
 /**
@@ -155,8 +168,18 @@ function buildCaseBlocks(
 	const closeMode = closeCase.condition.type;
 	const isClose = closeMode === "always" || closeMode === "if";
 	const hasSubcases = subcases.length > 0;
+	// Case-preload (followup/close forms): one casedb-read `<setvalue>` per
+	// preloaded property. Independent of the primary `<case>` block — preload
+	// targets the form's own question nodes. Included in the early-return guard
+	// so a (degenerate) preload-only form still emits its setvalues.
+	const preloadAction = actions.case_preload;
+	const hasPreload =
+		preloadAction.condition.type === "always" &&
+		Object.keys(preloadAction.preload).length > 0;
 
-	if (!isCreate && !isUpdate && !isClose && !hasSubcases) return null;
+	if (!isCreate && !isUpdate && !isClose && !hasSubcases && !hasPreload) {
+		return null;
+	}
 
 	// Per-emission accumulators. `caseChildren` is the children list of the
 	// primary `<case>` element (create / update / close grandchildren); `binds`
@@ -164,6 +187,11 @@ function buildCaseBlocks(
 	const caseChildren: Element[] = [];
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
+	// Paths of the questions that supply a case name on this form — the
+	// primary open plus every subcase open. Surfaced so the caller stamps
+	// `required="true()"` onto each field's bind (CommCare forces every
+	// opened case's name question required).
+	const requiredNamePaths: string[] = [];
 
 	// Typed reference to the primary `<case>` element under `<data>`. Every
 	// `/data/case/...` path the primary-case branches emit is built off this
@@ -203,12 +231,18 @@ function buildCaseBlocks(
 		const namePath =
 			openCase.name_update?.question_path ||
 			FormPath.root().child("name").toXPath();
+		const validatedNamePath = validateXFormPath(namePath);
 		binds.push(
 			el("bind", {
 				nodeset: primaryCreatePath.child("case_name").toXPath(),
-				calculate: validateXFormPath(namePath),
+				calculate: validatedNamePath,
 			}),
 		);
+		// CommCare forces the case-name question required so a case can never be
+		// created nameless — `XFormCaseBlock.add_create_block` adds
+		// `required="true()"` to the source field's bind. Surface the path; the
+		// caller merges the attribute onto that field's existing bind.
+		requiredNamePaths.push(validatedNamePath);
 		// owner_id reads from the always-on meta block (which is itself seeded
 		// from session/context at form load). Matching CCHQ's canonical shape —
 		// `instance('commcaresession')/session/context/userid` resolves
@@ -302,6 +336,30 @@ function buildCaseBlocks(
 				el("bind", {
 					nodeset: primaryCasePath.child("close").toXPath(),
 					relevant: conditionToRelevantXPath(closeCase.condition),
+				}),
+			);
+		}
+	}
+
+	// Case-preload: seed each preloaded question from the loaded case at form
+	// load. `preload` maps the question's `/data/...` path → the case property
+	// to read. The value XPath is the canonical case-loading shape — look up
+	// the case selected for this entry (`session/data/case_id`) in `casedb`
+	// and read the property. Mirrors `XForm.add_case_preloads`. These setvalues
+	// are spliced in AFTER `buildXForm`'s instance scan, so `addCaseBlocks`
+	// declares the `casedb` instance itself via `needsCasedbInstance` →
+	// `ensureCasedbInstance`. `<setvalue>` because the read happens once, at load.
+	if (hasPreload) {
+		for (const [questionPath, caseProperty] of Object.entries(
+			preloadAction.preload,
+		)) {
+			setvalues.push(
+				el("setvalue", {
+					ref: validateXFormPath(questionPath),
+					event: "xforms-ready",
+					value: `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/${validatePropertyName(
+						caseProperty,
+					)}`,
 				}),
 			);
 		}
@@ -412,14 +470,26 @@ function buildCaseBlocks(
 				calculate: `'${validatedSubcaseType}'`,
 			}),
 		);
-		const namePath =
-			sc.name_update?.question_path || basePath.child("name").toXPath();
+		const namePath = validateXFormPath(
+			sc.name_update?.question_path || basePath.child("name").toXPath(),
+		);
 		binds.push(
 			el("bind", {
 				nodeset: subcaseCreatePath.child("case_name").toXPath(),
-				calculate: validateXFormPath(namePath),
+				calculate: namePath,
 			}),
 		);
+		// CommCare forces every opened case's name question required, subcases
+		// included — `add_create_block` runs the same `required="true()"` stamp
+		// for the basic-module subcase path. Surface the path for the merge.
+		requiredNamePaths.push(namePath);
+		// Owner-id binds to the submitting user. The basic module Nova uploads
+		// always autosets the owner via `autoset_owner_id_for_subcase`
+		// (`'owner_id' not in case_properties`, relationship-independent), so
+		// CCHQ's regenerated form carries this userID bind on EVERY subcase —
+		// child and extension alike. (The unowned-extension sentinel is an
+		// advanced-module-only shape Nova never emits.) The `extension`
+		// relationship is carried solely on the `<index>` below.
 		binds.push(
 			el("bind", {
 				nodeset: subcaseCreatePath.child("owner_id").toXPath(),
@@ -524,8 +594,31 @@ function buildCaseBlocks(
 			);
 		}
 
-		// Index edge back to the parent case — last child per CCHQ's wire
-		// order (create / update / index). `xform.py::add_index_ref` and the
+		// Subcase close-on-submit. CCHQ's basic-module path orders the subcase
+		// transaction children create / update / close / index — `add_close_block`
+		// runs before `add_index_ref` (`xform.py::XForm.add_form_actions`), so the
+		// `<close>` precedes the `<index>` pushed below. No authoring surface
+		// populates an active `close_condition` today (`buildFormActions`
+		// hardcodes a `never` condition for every subcase), so this branch is
+		// dormant in production — it exists so the moment a subcase-close
+		// authoring surface lands, both this emitter and the HQ-JSON projection
+		// render the `<close>` transaction from the same `FormActions` field, in
+		// the right wire position. Mirrors CCHQ's `add_close_block`.
+		const scCloseMode = sc.close_condition.type;
+		if (scCloseMode === "always" || scCloseMode === "if") {
+			scChildren.push(el("close", {}));
+			if (scCloseMode === "if" && sc.close_condition.question) {
+				binds.push(
+					el("bind", {
+						nodeset: subcaseCasePath.child("close").toXPath(),
+						relevant: conditionToRelevantXPath(sc.close_condition),
+					}),
+				);
+			}
+		}
+
+		// Index edge back to the parent case — last child per CCHQ's wire order
+		// (create / update / close / index). `xform.py::add_index_ref` and the
 		// fixtures `subcase-parent-ref.xml` + `multiple_subcase_repeat.xml`
 		// omit the `relationship` attribute when the relationship is the
 		// default `child`; only `extension` and `question` carry the
@@ -581,7 +674,13 @@ function buildCaseBlocks(
 		}
 	}
 
-	return { dataChildren, binds, setvalues };
+	return {
+		dataChildren,
+		binds,
+		setvalues,
+		...(requiredNamePaths.length > 0 && { requiredNamePaths }),
+		...(hasPreload && { needsCasedbInstance: true }),
+	};
 }
 
 /**
@@ -751,8 +850,30 @@ export function addCaseBlocks(
 				"Re-run the compile from a clean expandDoc.",
 		);
 	}
+	// Declare the `casedb` secondary instance when a preload setvalue reads
+	// from it. `buildXForm`'s instance scan runs over field-level XPath only,
+	// so a form that preloads but has no field-level `#case/` reference would
+	// otherwise carry a `casedb` read with no matching `<instance>`. Mirrors
+	// `add_case_preloads`'s `add_casedb()`. Idempotent: skip when the form
+	// already declares it (a field referenced `casedb`, so `buildXForm` did).
+	if (emission.needsCasedbInstance) {
+		ensureCasedbInstance(modelEl);
+	}
+
 	const inserted: ChildNode[] = [...emission.binds, ...emission.setvalues];
 	insertBeforeItext(modelEl, inserted);
+
+	// Force every opened case's name question required. CommCare guarantees a
+	// case can't be created nameless by stamping `required="true()"` onto the
+	// name question's bind (`XFormCaseBlock.add_create_block`, run for the
+	// primary case AND every subcase). `buildXForm` already emitted each field's
+	// bind, so we merge the attribute onto it rather than appending a duplicate
+	// — matching CCHQ's `add_bind` merge-on-conflict, and JavaRosa's own bind
+	// merge. A missing bind is a compiler-bug invariant (every field gets one),
+	// so append defensively.
+	for (const namePath of emission.requiredNamePaths ?? []) {
+		mergeRequiredOntoBind(modelEl, namePath);
+	}
 
 	// Single serialization pass. Unlike `buildXForm` upstream — which constructs
 	// the DOM from scratch and prepends the XML declaration because the
@@ -865,6 +986,70 @@ function appendNode(parent: Element, node: ChildNode): void {
 	node.parent = parent;
 	parent.children.push(node);
 	relinkSiblings(parent.children);
+}
+
+/**
+ * Stamp `required="true()"` onto the `<model>`-level `<bind>` whose nodeset is
+ * `namePath`, merging the attribute onto the field's existing bind rather than
+ * appending a duplicate (CCHQ's `add_bind` merge-on-conflict). Binds are direct
+ * children of `<model>`, so the search is direct-child only — matching CCHQ's
+ * direct-child `get_bind` and avoiding the `<instance>`/`<data>` subtree. A
+ * missing bind is a compiler-bug invariant (every field gets one), so a fresh
+ * bind is appended defensively.
+ */
+function mergeRequiredOntoBind(model: Element, namePath: string): void {
+	const existing = getChildren(model).find(
+		(child): child is Element =>
+			child instanceof Element &&
+			child.name === "bind" &&
+			child.attribs.nodeset === namePath,
+	);
+	if (existing) {
+		existing.attribs.required = "true()";
+		return;
+	}
+	insertBeforeItext(model, [
+		el("bind", { nodeset: namePath, required: "true()" }),
+	]);
+}
+
+/**
+ * Declare the `casedb` secondary instance on `<model>` if it isn't already
+ * present. Inserted immediately after the last existing `<instance>` so it
+ * joins the secondary-instance group (the canonical model child order is
+ * instance / secondary instances / binds / setvalues / itext). The element
+ * shape matches `buildXForm`'s own instance emission
+ * (`<instance src="jr://instance/casedb" id="casedb"/>`), so whether a form
+ * declares `casedb` via the field scan or via this path, the declaration is
+ * the same element. (Position among sibling instances is JavaRosa-irrelevant.)
+ */
+function ensureCasedbInstance(model: Element): void {
+	const children = getChildren(model);
+	const already = children.some(
+		(child) =>
+			child instanceof Element &&
+			child.name === "instance" &&
+			child.attribs.id === "casedb",
+	);
+	if (already) return;
+
+	let lastInstanceIndex = -1;
+	for (let i = 0; i < children.length; i++) {
+		const child = children[i];
+		if (child instanceof Element && child.name === "instance") {
+			lastInstanceIndex = i;
+		}
+	}
+
+	const casedb = el("instance", {
+		src: "jr://instance/casedb",
+		id: "casedb",
+	});
+	casedb.parent = model;
+	// After the last instance when one exists (always — the primary data
+	// instance); fall back to the front otherwise.
+	model.children.splice(lastInstanceIndex + 1, 0, casedb);
+	relinkSiblings(model.children);
 }
 
 /**

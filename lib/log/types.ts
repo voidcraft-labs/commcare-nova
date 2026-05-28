@@ -48,7 +48,12 @@ export const classifiedErrorPayloadSchema = z.object({
 	type: z.string(),
 	/** User-safe message. */
 	message: z.string(),
-	/** True if the error halted generation; false if the auto-fixer recovered. */
+	/**
+	 * Whether the error halted the run (terminal) versus a non-blocking error
+	 * the run continued past. Read by the client to pick toast severity
+	 * (error vs. warning) and the lifecycle state (failed vs. recovering);
+	 * derived from the classifier's `recoverable` flag at emit time.
+	 */
 	fatal: z.boolean(),
 });
 export type ClassifiedErrorPayload = z.infer<

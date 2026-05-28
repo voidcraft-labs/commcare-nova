@@ -521,6 +521,14 @@ interface ParsedFormXml {
 	/** `<setvalue>` records, keyed by `ref` (event suffixed when present). */
 	setvalues: Map<string, Record<string, string>>;
 	/**
+	 * Every `<setvalue>` in document order. The keyed `setvalues` map collapses
+	 * entries that share `ref@event` (a node can carry more than one — e.g. an
+	 * authored `default_value` and a case-preload read both target the same
+	 * question at `xforms-ready`); this list preserves their relative order,
+	 * which determines which write wins at runtime.
+	 */
+	setvalueOrder: Array<Record<string, string>>;
+	/**
 	 * Every `<case>` element in the data instance, in document order.
 	 * Each carries the parent-element path (e.g. `[]` for the primary
 	 * case, `["subcase_0"]` for an unconditional subcase, or
@@ -547,6 +555,7 @@ interface ParsedFormXml {
 function parseFormXml(xml: string): ParsedFormXml {
 	const binds = new Map<string, Record<string, string>>();
 	const setvalues = new Map<string, Record<string, string>>();
+	const setvalueOrder: ParsedFormXml["setvalueOrder"] = [];
 	const cases: ParsedFormXml["cases"] = [];
 
 	// Tag name stack — records every open element we're currently
@@ -588,6 +597,8 @@ function parseFormXml(xml: string): ParsedFormXml {
 						? `${attribs.ref}@${attribs.event}`
 						: attribs.ref;
 					setvalues.set(key, { ...attribs });
+					// Ordered list preserves duplicates the map collapses.
+					setvalueOrder.push({ ...attribs });
 					return;
 				}
 				if (dataInstanceDepth > 0 && name === "case") {
@@ -624,7 +635,7 @@ function parseFormXml(xml: string): ParsedFormXml {
 	parser.write(xml);
 	parser.end();
 
-	return { binds, setvalues, cases };
+	return { binds, setvalues, setvalueOrder, cases };
 }
 
 /**
@@ -764,6 +775,13 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 		const cchqOwnerId = cchq.binds.get("/data/case/create/owner_id");
 		expect(novaOwnerId?.calculate).toBe(cchqOwnerId?.calculate);
 		expect(novaOwnerId?.calculate).toBe("/data/meta/userID");
+
+		// The case-name source question carries `required="true()"` on both —
+		// CommCare forces it so a case can't be created nameless. Nova's name
+		// field is `/data/case_name`; CCHQ's fixture uses `/data/question1`.
+		// The attribute is merged onto the field's existing bind.
+		expect(nova.binds.get("/data/case_name")?.required).toBe("true()");
+		expect(cchq.binds.get("/data/question1")?.required).toBe("true()");
 	});
 
 	/**
@@ -1271,6 +1289,132 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 	});
 
 	/**
+	 * Reference fixture: `update_preload_case.xml` — case-preload setvalues
+	 * on a followup form. Holds Nova's preload emission against CCHQ's
+	 * `XForm.add_case_preloads` contract: one `<setvalue event="xforms-ready">`
+	 * per preloaded property, reading the loaded case's property out of
+	 * `casedb`.
+	 */
+	it("update_preload_case.xml — case-preload setvalues read from casedb", () => {
+		const novaDoc = buildDoc({
+			appName: "Parity",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "test_case_type",
+					caseListConfig: caseListConfig([
+						{ field: "question1", header: "Question" },
+					]),
+					forms: [
+						{
+							name: "Followup",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "question1",
+									label: "Question",
+									case_property_on: "test_case_type",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "test_case_type",
+					properties: [{ name: "question1", label: "Question" }],
+				},
+			],
+		});
+
+		const novaCcz = compileCcz(expandDoc(novaDoc), "Parity", novaDoc);
+		const novaForm = new AdmZip(novaCcz).readAsText("modules-0/forms-0.xml");
+		const nova = parseFormXml(novaForm);
+		const cchq = parseFormXml(readCchqFixture("update_preload_case.xml"));
+
+		// The preload setvalue seeds the question node from the loaded case at
+		// form load. Both emitters carry the same ref + event + value triple.
+		const key = "/data/question1@xforms-ready";
+		const novaPreload = nova.setvalues.get(key);
+		const cchqPreload = cchq.setvalues.get(key);
+		expect(novaPreload).toBeDefined();
+		expect(cchqPreload).toBeDefined();
+		expect(novaPreload?.value).toBe(cchqPreload?.value);
+		expect(novaPreload?.value).toBe(
+			"instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/question1",
+		);
+	});
+
+	/**
+	 * Preload overrides an explicit `default_value` on a case-property field,
+	 * matching CCHQ. Both setvalues target the same node at `xforms-ready`;
+	 * JavaRosa fires them in document order, last write wins. `buildXForm`
+	 * emits the field's `default_value` setvalue; `addCaseBlocks` splices the
+	 * preload setvalue in just before `<itext>`, i.e. AFTER it — so the loaded
+	 * case value wins, exactly as a CCHQ-uploaded app behaves (CCHQ emits the
+	 * preload regardless of any authored default). This pins the lockstep:
+	 * authoring an explicit default on a case-loading form's case property does
+	 * not change the initial value the user sees — the case value does.
+	 */
+	it("preload setvalue is ordered after an explicit default_value setvalue", () => {
+		const novaDoc = buildDoc({
+			appName: "Parity",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "test_case_type",
+					caseListConfig: caseListConfig([
+						{ field: "question1", header: "Question" },
+					]),
+					forms: [
+						{
+							name: "Followup",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "question1",
+									label: "Question",
+									case_property_on: "test_case_type",
+									default_value: "'manual-default'",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "test_case_type",
+					properties: [{ name: "question1", label: "Question" }],
+				},
+			],
+		});
+
+		const novaCcz = compileCcz(expandDoc(novaDoc), "Parity", novaDoc);
+		const xml = new AdmZip(novaCcz).readAsText("modules-0/forms-0.xml");
+		const { setvalueOrder } = parseFormXml(xml);
+
+		// Both setvalues target `/data/question1` at `xforms-ready`; the keyed
+		// map collapses them, so assert against the document-ordered list. Match
+		// on decoded attribute values (the parser decodes `&apos;` → `'`).
+		const defaultIdx = setvalueOrder.findIndex(
+			(sv) => sv.ref === "/data/question1" && sv.value === "'manual-default'",
+		);
+		const preloadIdx = setvalueOrder.findIndex(
+			(sv) =>
+				sv.ref === "/data/question1" &&
+				sv.value?.includes("instance('casedb')/casedb/case"),
+		);
+		expect(defaultIdx).toBeGreaterThan(-1);
+		expect(preloadIdx).toBeGreaterThan(-1);
+		// Preload comes later → fires last → the loaded case value wins.
+		expect(preloadIdx).toBeGreaterThan(defaultIdx);
+	});
+
+	/**
 	 * Features Nova does not yet emit at all — covered by the read-only
 	 * CCHQ fixtures but no corresponding emitter. When the feature
 	 * lands, replace these explanatory checks with full parity tests in
@@ -1285,22 +1429,21 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 	 *   field whose value writes through to a case attachment
 	 *   (`<bind nodeset="/data/case/attachment/<prop>" relevant="count(
 	 *   <qPath>) = 1"/>` + `<bind nodeset=".../@src" calculate="<qPath>"/>`).
-	 *   Nova does not emit case attachments today.
+	 *   Nova does not emit case attachments today — the `mediaCaseProperty`
+	 *   validator rejects media-kind fields with `case_property_on`, so this
+	 *   shape is unreachable in a valid doc. Supporting it is a separate
+	 *   feature (lift the rejection + emit on both pipelines + CCZ media
+	 *   bundling), NOT a lockstep gap.
 	 *
-	 * - `update_preload_case.xml` — case-preload setvalues for an
-	 *   existing case. Nova has the `case_preload` derivation in
-	 *   `deriveCaseConfig.ts` but the compiler does not lower it into
-	 *   `<setvalue ref="/data/<prop>" event="xforms-ready" value="
-	 *   instance('casedb')/.../@<prop>"/>` setvalues on the form.
+	 * (`update_preload_case.xml` was here — case-preload is now emitted; see
+	 * the positive parity test "update_preload_case.xml — case-preload
+	 * setvalues read from casedb" above.)
 	 */
 	it("documents unmodeled CCHQ features still under emission gap", () => {
 		// Sanity-check: the documentation references real CCHQ fixtures.
 		expect(readCchqFixture("update_parent_case.xml")).toContain("<parents>");
 		expect(readCchqFixture("update_attachment_case.xml")).toContain(
 			"<attachment>",
-		);
-		expect(readCchqFixture("update_preload_case.xml")).toMatch(
-			/setvalue[^>]*event="xforms-ready"[^>]*value="instance\('casedb'\)/,
 		);
 	});
 });
