@@ -5,14 +5,14 @@
  * at the app, module, form, and field levels, then runs deep XPath
  * validation. Returns structured `ValidationError[]` keyed by uuid.
  *
- * Asset-context media rules (existence / ownership / ready /
- * kind-match) need data the doc alone can't carry: the resolved
- * Firestore rows for the assets the doc references, and the app's
- * owner. Callers that have those (the SA validation loop) pass them
- * through `RunValidationOptions`; callers that don't (the bulk of
- * tests, the test oracles, the fuzz harness) omit the options and the
- * asset-context group is skipped. Doc-structural rules — including
- * `imageMapValueUnique` — fire either way; they live in MODULE_RULES.
+ * Asset-context media rules (existence / ready / kind-match) need data
+ * the doc alone can't carry: the resolved Firestore rows for the assets
+ * the doc references. Callers that have those (the SA validation loop)
+ * pass a manifest through `RunValidationOptions`; callers that don't
+ * (the bulk of tests, the test oracles, the fuzz harness) omit the
+ * options and the asset-context group is skipped. Doc-structural rules
+ * — including `imageMapValueUnique` — fire either way; they live in
+ * MODULE_RULES.
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
@@ -27,42 +27,31 @@ import { MEDIA_ASSET_RULES } from "./rules/media";
 import { MODULE_RULES } from "./rules/module";
 
 /**
- * Optional context the asset-context media rules consume. Both fields
- * are required together: the asset-context group is the contract that
- * checks the resolved manifest against the app's owner, so a manifest
- * without an owner — or vice versa — would be a half-checked state.
- * Callers either provide both (the SA validation loop, the compile
- * route) or neither (the test path).
+ * Optional context the asset-context media rules consume. A single
+ * required slot — the resolved media-asset manifest — so "ran the
+ * media group" and "didn't" are the only two states. No half-supplied
+ * state is representable.
  */
 export interface RunValidationOptions {
 	/**
 	 * Resolved media-asset manifest — every `AssetId` the doc
-	 * references, mapped to its loaded Firestore row. Built by the
-	 * caller from `collectAssetRefs(doc)` + `loadAssetsByIds(owner,
-	 * ...)`. When this and `expectedOwner` are both present, the four
-	 * media asset-context rules (existence / ownership / ready /
-	 * kind-match) run; when either is absent, the rules are skipped
-	 * silently.
+	 * references that the loader was willing to return, mapped to its
+	 * loaded Firestore row. Built by the caller from
+	 * `collectAssetRefs(doc)` + `loadAssetsByIds(owner, ...)`. When
+	 * supplied, the asset-context media rules run; when omitted, the
+	 * rules are skipped silently.
 	 */
-	readonly mediaAssets?: ReadonlyMap<string, MediaAssetRecord>;
-	/**
-	 * The app's owner userId. The ownership rule compares each
-	 * resolved asset's `owner` against this; a mismatch surfaces
-	 * MEDIA_ASSET_FOREIGN_OWNER.
-	 */
-	readonly expectedOwner?: string;
+	readonly mediaAssets: ReadonlyMap<string, MediaAssetRecord>;
 }
 
 /**
  * Run all validation rules on a `BlueprintDoc`.
  * Returns structured errors — `errorToString()` renders a human-readable form.
  *
- * When `options.mediaAssets` and `options.expectedOwner` are both
- * provided, the asset-context media rules run after the doc-
- * structural rules. They surface only the issues the structural
- * rules can't see (a referenced asset doesn't exist, belongs to a
- * different user, is still uploading, or its MIME doesn't match the
- * slot kind).
+ * When `options.mediaAssets` is supplied, the asset-context media
+ * rules run after the doc-structural rules. They surface only the
+ * issues the structural rules can't see (a referenced asset doesn't
+ * exist, is still uploading, or its kind doesn't match the slot).
  */
 export function runValidation(
 	doc: BlueprintDoc,
@@ -97,12 +86,12 @@ export function runValidation(
 		}
 	}
 
-	// Media asset-context rules — gated on both arms of the options
-	// payload. The two-arm gate exists because the contract is
-	// "manifest checked against owner"; either alone is half a check.
-	if (options?.mediaAssets && options.expectedOwner !== undefined) {
+	// Media asset-context rules — single-arm gate on the options
+	// payload. The manifest is the only thing the rules need; its
+	// presence both gates the group and provides the data.
+	if (options?.mediaAssets) {
 		for (const rule of MEDIA_ASSET_RULES) {
-			errors.push(...rule(doc, options.mediaAssets, options.expectedOwner));
+			errors.push(...rule(doc, options.mediaAssets));
 		}
 	}
 

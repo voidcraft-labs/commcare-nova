@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "../../../runner";
-import { APP_OWNER, makeAssetRecord, makeManifest } from "./fixtures";
+import { makeAssetRecord, makeManifest } from "./fixtures";
 
 const CODE = "MEDIA_KIND_MISMATCH" as const;
 
@@ -50,10 +50,9 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("image slot");
 		expect(hits[0].message).toContain("audio/mpeg");
@@ -97,10 +96,9 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("audio slot");
 	});
@@ -140,10 +138,9 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("video slot");
 	});
@@ -184,10 +181,9 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("image slot");
 		expect(hits[0].message).toContain("module");
@@ -229,10 +225,9 @@ describe("mediaKindMatches", () => {
 				extension: ".png",
 			}),
 		]);
-		const hits = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("audio slot");
 	});
@@ -279,10 +274,9 @@ describe("mediaKindMatches", () => {
 				extension: ".mp3",
 			}),
 		]);
-		const hits = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 });

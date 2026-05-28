@@ -35,20 +35,27 @@ export interface ResolveManifestOptions {
 
 /**
  * Build the `AssetManifest` for a blueprint: walk every media reference,
- * load the owner's matching `ready` rows in one batch, derive each
- * asset's content-hash wire path, and (when `withBytes`) stream its
- * bytes from GCS.
+ * load the owner's matching rows in one batch, keep only the `ready`
+ * ones, derive each asset's content-hash wire path, and (when
+ * `withBytes`) stream its bytes from GCS.
  *
  * Returns an empty manifest when the doc references no media — the
  * emitters treat an empty manifest the same as media-off, so a
  * media-free app costs one cheap `collectAssetRefs` walk and no I/O.
  *
- * Assets the owner doesn't own / that aren't `ready` are dropped by
- * `loadAssetsByIds` (never leaked across owners). A reference the doc
- * holds onto for such an asset surfaces downstream as a compiler-bug
- * throw from `requireAssetRef` at emit time — that's the current
- * floor; there is no doc-layer gate that rejects stale references
- * before they reach the emitter today.
+ * The wire-emission manifest filters out non-`ready` rows here even
+ * though `loadAssetsByIds` returns them — a pending row's GCS object
+ * is unvalidated bytes, so resolving a `jr://` ref to it would bundle
+ * garbage into the CCZ. The validator's `mediaAssetReady` rule fires
+ * first in the SA loop with the user-actionable "still uploading"
+ * message; the filter here is the lower-layer guard for any caller
+ * that reaches emission without the validator (`compileCcz`,
+ * `expandDoc` invoked directly from tests).
+ *
+ * A doc reference whose asset doesn't make it into the manifest
+ * (foreign-owned, deleted, or filtered pending here) surfaces at
+ * emission as a `requireAssetRef` throw — the floor when the
+ * validator path was skipped.
  */
 export async function resolveMediaManifest(
 	doc: BlueprintDoc,
@@ -58,7 +65,9 @@ export async function resolveMediaManifest(
 	const ids = [...collectAssetRefs(doc)];
 	if (ids.length === 0) return new Map();
 
-	const rows = await loadAssetsByIds(owner, ids);
+	const rows = (await loadAssetsByIds(owner, ids)).filter(
+		(row) => row.status === "ready",
+	);
 	// Bytes (when requested) come from GCS — fetch in parallel. Compile
 	// is interactive (the user clicked "Compile to CCZ"); serializing
 	// the awaits inside a `for` loop would stretch the round-trip from

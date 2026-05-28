@@ -215,18 +215,22 @@ export async function loadAssetForOwner(
 const ID_BATCH_SIZE = 30;
 
 /**
- * Bulk-load the owner's `ready` assets among a set of ids — the
+ * Bulk-load the owner's assets among a set of ids — the
  * compile / upload manifest loader's primary call. Used to resolve
  * every `AssetId` a blueprint references (from
  * `lib/domain/mediaRefs::collectAssetRefs`) into rows in one pass.
  *
- * Owner + ready filtering is done in memory after a `documentId() in`
- * query (which needs no composite index): an id that belongs to
- * another owner, is still `pending`, or doesn't exist is silently
- * omitted — never leaked. A referenced asset that's consequently
- * absent surfaces downstream (the wire emitter's manifest lookup
- * throws, and the media validator rules reject the blueprint before
- * compile), not as a cross-owner read here.
+ * Owner filtering is done in memory after a `documentId() in` query
+ * (which needs no composite index): an id that belongs to another
+ * owner OR doesn't exist is silently omitted — never leaked, so a
+ * malicious doc can't enumerate other users' assets through validator
+ * errors. `pending` rows are included: the validator's
+ * `mediaAssetReady` rule reports them with an actionable "still
+ * uploading" message keyed off the manifest hit. A foreign-owned
+ * reference reads as a manifest miss and surfaces as
+ * `mediaAssetExists`'s `MEDIA_ASSET_NOT_FOUND` — the same message
+ * the user sees for a deleted asset, which is the right UX (privacy
+ * keeps the foreign-owner distinction below the surface).
  */
 export async function loadAssetsByIds(
 	owner: string,
@@ -242,7 +246,7 @@ export async function loadAssetsByIds(
 			.get();
 		for (const d of snap.docs) {
 			const data = d.data();
-			if (data.owner === owner && data.status === "ready") {
+			if (data.owner === owner) {
 				out.push({ ...data, id: asAssetId(d.id) });
 			}
 		}

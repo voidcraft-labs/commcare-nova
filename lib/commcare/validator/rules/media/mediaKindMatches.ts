@@ -42,9 +42,6 @@ import {
 export function mediaKindMatches(
 	doc: BlueprintDoc,
 	manifest: ReadonlyMap<string, MediaAssetRecord>,
-	// Carried for the uniform `MediaAssetRule` shape; not consulted —
-	// kind-match is owner-agnostic.
-	_expectedOwner: string,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	for (const ref of walkAssetRefs(doc)) {

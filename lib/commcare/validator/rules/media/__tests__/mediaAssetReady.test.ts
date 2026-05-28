@@ -1,15 +1,13 @@
 /**
  * Tests for `mediaAssetReady` — every referenced asset is in
- * `status: "ready"`.
- *
- * Production `loadAssetsByIds` filters out `pending` rows; the
- * fixture hand-builds one to exercise the contract.
+ * `status: "ready"`. The validator's manifest loader includes
+ * pending rows; this rule surfaces them with an actionable message.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "../../../runner";
-import { APP_OWNER, makeAssetRecord, makeManifest } from "./fixtures";
+import { makeAssetRecord, makeManifest } from "./fixtures";
 
 const CODE = "MEDIA_ASSET_NOT_READY" as const;
 
@@ -61,10 +59,9 @@ describe("mediaAssetReady", () => {
 		const manifest = makeManifest([
 			makeAssetRecord("pending-asset", { status: "pending" }),
 		]);
-		const hits = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("hasn't finished uploading");
 		expect(hits[0].details?.assetId).toBe("pending-asset");
@@ -76,10 +73,9 @@ describe("mediaAssetReady", () => {
 		const manifest = makeManifest([
 			makeAssetRecord("ready-asset", { status: "ready" }),
 		]);
-		const hits = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: manifest }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(0);
 	});
 });

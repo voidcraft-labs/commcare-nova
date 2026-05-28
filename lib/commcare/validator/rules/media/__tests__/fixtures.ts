@@ -3,13 +3,17 @@
  *
  * `makeAssetRecord(...)` produces a `MediaAssetRecord` literal whose
  * non-test-relevant fields are filled with sensible defaults. Each
- * rule's test overrides just the field its assertion turns on (the
- * mismatch case for `mediaKindMatches`, the foreign owner for
- * `mediaAssetOwnership`, etc.). The hand-built fixture is the
- * cheapest faithful representation of what the manifest would
- * carry — `loadAssetsByIds` filters out the rows these rules are
- * meant to catch, so a real-loader fixture wouldn't exercise the
- * rules at all.
+ * test overrides just the slots its assertion turns on (the kind
+ * mismatch for `mediaKindMatches`, the pending status for
+ * `mediaAssetReady`).
+ *
+ * Hand-built rather than via the loader: `mediaAssetReady` asserts on
+ * pending rows, which the production library list filters out — a
+ * real-loader fixture for the kind/library surfaces wouldn't reach
+ * those states. The validator's manifest loader
+ * (`validationLoop.ts::loadManifestForLoop`) DOES include pending
+ * rows, so this fixture matches production semantics for the SA
+ * loop's manifest.
  */
 
 import { Timestamp } from "@google-cloud/firestore";
@@ -19,10 +23,6 @@ import { asAssetId } from "@/lib/domain/multimedia";
 
 /** The owner string the rule-tests treat as "this app's owner". */
 export const APP_OWNER = "owner-fixture";
-
-/** A foreign owner the ownership rule tests use to construct the
- *  cross-owner state the production loader would normally suppress. */
-export const FOREIGN_OWNER = "different-owner";
 
 /**
  * Build a `MediaAssetRecord` literal. Only `id` is positional because

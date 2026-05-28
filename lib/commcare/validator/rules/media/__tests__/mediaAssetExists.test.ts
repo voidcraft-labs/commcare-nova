@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "../../../runner";
-import { APP_OWNER, makeAssetRecord, makeManifest } from "./fixtures";
+import { makeAssetRecord, makeManifest } from "./fixtures";
 
 const CODE = "MEDIA_ASSET_NOT_FOUND" as const;
 
@@ -40,10 +40,9 @@ describe("mediaAssetExists", () => {
 			],
 		});
 		// Manifest is empty — the reference can't resolve.
-		const hits = runValidation(doc, {
-			mediaAssets: makeManifest([]),
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: makeManifest([]) }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("label media slot");
 		expect(hits[0].message).toContain('"case_name"');
@@ -97,10 +96,9 @@ describe("mediaAssetExists", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		doc.forms[formUuid].audioLabel = "missing-audio";
 
-		const hits = runValidation(doc, {
-			mediaAssets: makeManifest([]),
-			expectedOwner: APP_OWNER,
-		}).filter((e) => e.code === CODE);
+		const hits = runValidation(doc, { mediaAssets: makeManifest([]) }).filter(
+			(e) => e.code === CODE,
+		);
 		expect(hits).toHaveLength(3);
 		const messages = hits.map((h) => h.message);
 		expect(messages.some((m) => m.includes("icon slot on module"))).toBe(true);
@@ -140,7 +138,6 @@ describe("mediaAssetExists", () => {
 		});
 		const hits = runValidation(doc, {
 			mediaAssets: makeManifest([makeAssetRecord("good-asset")]),
-			expectedOwner: APP_OWNER,
 		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
 	});
@@ -195,7 +192,6 @@ describe("mediaAssetExists", () => {
 		});
 		const hits = runValidation(doc, {
 			mediaAssets: makeManifest([makeAssetRecord("present")]),
-			expectedOwner: APP_OWNER,
 		}).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		const hit = hits[0];

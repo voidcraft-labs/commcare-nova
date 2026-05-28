@@ -31,9 +31,6 @@ import {
 export function mediaAssetReady(
 	doc: BlueprintDoc,
 	manifest: ReadonlyMap<string, MediaAssetRecord>,
-	// Carried for the uniform `MediaAssetRule` shape; not consulted —
-	// readiness is owner-agnostic.
-	_expectedOwner: string,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	for (const ref of walkAssetRefs(doc)) {

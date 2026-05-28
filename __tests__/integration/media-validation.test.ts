@@ -1,7 +1,7 @@
 /**
  * Integration: a real `BlueprintDoc` round-trips through
- * `runValidation(doc, { mediaAssets, expectedOwner })` and the four
- * media asset-context rules emit the expected errors for each kind of
+ * `runValidation(doc, { mediaAssets })` and the three media
+ * asset-context rules emit the expected errors for each kind of
  * seeded bad reference.
  *
  * Sits at the integration layer (not the per-rule unit-test layer)
@@ -20,20 +20,18 @@ import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { asAssetId, asUuid, imageMapEntry } from "@/lib/domain";
 
 const OWNER = "owner-integration-fixture";
-const FOREIGN_OWNER = "different-owner";
 
 /**
- * Build a `MediaAssetRecord` fixture. Hand-built (not via the
- * production loader) so the manifest can express the states the
- * loader would otherwise filter — `pending` rows, foreign-owned
- * rows.
+ * Build a `MediaAssetRecord` fixture. Hand-built so the manifest can
+ * carry pending rows the production library list filters out — the SA
+ * loop's loader includes them (so `mediaAssetReady` can fire with its
+ * actionable message); these tests match that semantic.
  */
 function record(
 	id: string,
 	overrides: Partial<MediaAssetRecord> = {},
 ): MediaAssetRecord {
 	return {
-		id: asAssetId(overrides.id ?? id),
 		owner: OWNER,
 		contentHash: "a".repeat(64),
 		mimeType: "image/png",
@@ -46,12 +44,13 @@ function record(
 		status: "ready",
 		created_at: Timestamp.fromMillis(0),
 		...overrides,
+		id: asAssetId(overrides.id ?? id),
 	};
 }
 
 describe("media validation integration", () => {
 	it("threads a real manifest through the runner and surfaces every asset-context violation on one doc", () => {
-		// Doc seeds bad refs of all four kinds, plus one good ref to
+		// Doc seeds three kinds of bad ref, plus one good ref to
 		// confirm clean references don't fire.
 		const doc = buildDoc({
 			appName: "Media app",
@@ -76,9 +75,11 @@ describe("media validation integration", () => {
 								field: "region",
 								header: "Region",
 								mapping: [
-									// Good row — image asset, owned, ready.
+									// Good row — owned, ready, image.
 									imageMapEntry("N", "good-image"),
-									// Row whose asset is missing from the manifest.
+									// Row whose asset is missing from the manifest
+									// (production: the loader filtered it because the
+									// row was deleted or belongs to a foreign owner).
 									imageMapEntry("S", "missing-asset"),
 								],
 							},
@@ -95,10 +96,9 @@ describe("media validation integration", () => {
 									id: "case_name",
 									label: "Patient name",
 									case_property_on: "patient",
-									// Foreign-owned asset.
-									label_media: { image: "foreign-image" },
 									help: "Help text",
-									// Pending asset.
+									// Pending asset — manifest carries the row but
+									// `status: "pending"`.
 									help_media: { audio: "pending-audio" },
 								}),
 								f({
@@ -124,7 +124,6 @@ describe("media validation integration", () => {
 
 		const manifest = new Map<string, MediaAssetRecord>([
 			["good-image", record("good-image")],
-			["foreign-image", record("foreign-image", { owner: FOREIGN_OWNER })],
 			[
 				"pending-audio",
 				record("pending-audio", {
@@ -146,10 +145,7 @@ describe("media validation integration", () => {
 			// MEDIA_ASSET_NOT_FOUND.
 		]);
 
-		const errors = runValidation(doc, {
-			mediaAssets: manifest,
-			expectedOwner: OWNER,
-		});
+		const errors = runValidation(doc, { mediaAssets: manifest });
 
 		// One error per distinct contract violation. The integration
 		// concern is "does each rule fire from the runner under one
@@ -157,14 +153,13 @@ describe("media validation integration", () => {
 		// and edge cases.
 		const codes = errors.map((e) => e.code);
 		expect(codes).toContain("MEDIA_ASSET_NOT_FOUND");
-		expect(codes).toContain("MEDIA_ASSET_FOREIGN_OWNER");
 		expect(codes).toContain("MEDIA_ASSET_NOT_READY");
 		expect(codes).toContain("MEDIA_KIND_MISMATCH");
 	});
 
 	it("skips the asset-context group when the manifest is omitted", () => {
 		// Doc references a bad asset; without a manifest the runner is
-		// expected to skip the four asset-context rules entirely.
+		// expected to skip the three asset-context rules entirely.
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
@@ -204,7 +199,6 @@ describe("media validation integration", () => {
 			.filter(
 				(c) =>
 					c === "MEDIA_ASSET_NOT_FOUND" ||
-					c === "MEDIA_ASSET_FOREIGN_OWNER" ||
 					c === "MEDIA_ASSET_NOT_READY" ||
 					c === "MEDIA_KIND_MISMATCH",
 			);

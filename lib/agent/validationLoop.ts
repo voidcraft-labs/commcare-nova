@@ -150,15 +150,12 @@ export async function validateAndFix(
 		// `attachFieldMedia` followed by an `attachOptionMedia` will
 		// produce two different reference sets — so the manifest must
 		// reflect the current doc's references, not the initial one.
-		// `loadAssetsByIds` filters by owner + ready status, so a
-		// reference to a deleted / pending / foreign asset surfaces as
-		// MEDIA_ASSET_NOT_FOUND naturally — no special-case needed
-		// here.
+		// `loadAssetsByIds` filters by owner (closes cross-tenant
+		// enumeration); pending rows are included so `mediaAssetReady`
+		// can fire with its actionable "still uploading" message
+		// instead of `mediaAssetExists`'s generic "not found."
 		const mediaAssets = await loadManifestForLoop(workingDoc, ctx.userId);
-		const errors = runValidation(workingDoc, {
-			mediaAssets,
-			expectedOwner: ctx.userId,
-		});
+		const errors = runValidation(workingDoc, { mediaAssets });
 
 		if (errors.length === 0) {
 			const hqJson = expandDoc(workingDoc);

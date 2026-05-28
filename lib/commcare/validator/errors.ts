@@ -193,13 +193,12 @@ export type ValidationErrorCode =
 	| "BINDING_RESOLUTION_INSTANCE_UNDECLARED"
 	| "BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED"
 	| "BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN"
-	// Media — the four asset-context rules under `rules/media/`. Each
+	// Media — the three asset-context rules under `rules/media/`. Each
 	// fires only when the validator runs with a resolved asset manifest
 	// (the SA validation loop's path); structural rules (e.g. image-map
 	// duplicate values) live alongside the case-list rules and fire
 	// regardless of manifest presence.
 	| "MEDIA_ASSET_NOT_FOUND"
-	| "MEDIA_ASSET_FOREIGN_OWNER"
 	| "MEDIA_ASSET_NOT_READY"
 	| "MEDIA_KIND_MISMATCH"
 	// XPath deep (from existing pipeline)

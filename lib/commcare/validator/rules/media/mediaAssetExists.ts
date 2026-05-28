@@ -27,11 +27,6 @@ import {
 export function mediaAssetExists(
 	doc: BlueprintDoc,
 	manifest: ReadonlyMap<string, MediaAssetRecord>,
-	// Carried for the uniform `MediaAssetRule` shape; not consulted —
-	// existence is owner-agnostic. The dedicated ownership rule
-	// (`mediaAssetOwnership`) is the one that pivots on the expected
-	// owner.
-	_expectedOwner: string,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	for (const ref of walkAssetRefs(doc)) {
