@@ -1266,6 +1266,172 @@ function checkLocaleResolution(
 	return errors;
 }
 
+// ── Media wire-path resolution (manifest contract) ─────────────────
+
+/**
+ * The `jr://file/` prefix every CommCare media reference carries. Locale
+ * values + image-map XPath function literals both wrap their wire paths in
+ * this prefix; the check strips it to compare against the manifest's
+ * `commcare/<hash><ext>` keys.
+ */
+const JR_FILE_PREFIX = "jr://file/";
+
+/**
+ * Patterns extracting jr:// path literals out of an image-map column's
+ * `<xpath function="...">` content. Nova's image-map emitter inlines the
+ * paths as quoted XPath string literals inside a nested `if(...)` chain
+ * (see `suite/case-list/columns.ts::imageMapDisplayXpath`) — the matcher
+ * walks every quoted occurrence (single OR double-quoted) and pulls the
+ * `jr://file/...` prefix-to-quote slice.
+ *
+ * The regex is deliberately liberal on what counts as a path char (anything
+ * other than the closing quote) — the strict shape is what the emitter
+ * produces (`commcare/<hash><ext>`); the check only needs to compare the
+ * captured slice against the manifest.
+ */
+const IMAGE_MAP_JR_LITERAL_SINGLE = /'(jr:\/\/file\/[^']*)'/g;
+const IMAGE_MAP_JR_LITERAL_DOUBLE = /"(jr:\/\/file\/[^"]*)"/g;
+
+/**
+ * The closed context the media-path-resolution sweep needs: the suite-wide
+ * `app_strings.txt` key→value table (to resolve menu-borne locale media
+ * references through to their jr:// wire paths) plus the manifest of
+ * `commcare/<hash><ext>` wire paths the compiler bundled into the CCZ.
+ *
+ * Supplied together (or not at all): the menu-media path is locale-mediated
+ * — without the app-strings values, the suite carries no jr:// to scan for —
+ * and the manifest is the resolution target both surfaces share. The
+ * compile-time caller (`compiler.ts`) builds both from the same emit pass;
+ * the fuzz tests build both from the same generator.
+ */
+export interface SuiteMediaContext {
+	readonly appStringValues: ReadonlyMap<string, string>;
+	readonly manifest: ReadonlySet<string>;
+}
+
+/**
+ * Resolve every menu-borne `<text form="image|audio|video">` locale value
+ * AND every image-map `<template form="image">`-borne XPath function jr://
+ * literal against the supplied manifest.
+ *
+ * Menu media flows through `app_strings.txt`: the suite emits
+ * `<text form="image"><locale id="modules.m0.icon"/></text>`, and the icon's
+ * jr:// path lives in `app_strings.txt` under that locale id (see
+ * `lib/commcare/multimedia/navMenuMedia.ts::buildNavMenuNode`). The check
+ * resolves the locale id through `appStringValues` to its value, peels the
+ * `jr://file/` prefix, and looks up the wire path in `manifest`.
+ *
+ * Image-map media flows through inlined XPath literals: the suite emits
+ * `<template form="image"><text><xpath function="if(selected(...,'X'),
+ * 'jr://file/commcare/<hash>.png', ...)"...>` (see `suite/case-list/
+ * columns.ts::imageMapDisplayXpath`). The check walks every quoted
+ * `jr://file/...` occurrence in the function attribute and resolves each
+ * against the manifest.
+ *
+ * Both surfaces produce the same `SUITE_DANGLING_MEDIA_REF` finding — a
+ * reference without a bundled-bytes entry renders as a broken icon on
+ * device, regardless of which carrier carries it.
+ */
+function checkMediaResolution(
+	model: SuiteModel,
+	mediaContext: SuiteMediaContext | undefined,
+	loc: ValidationLocation,
+): ValidationError[] {
+	if (mediaContext === undefined) return [];
+	const errors: ValidationError[] = [];
+	const { appStringValues, manifest } = mediaContext;
+
+	// Surface 1 — menu-borne `<text form="image|audio|video"><locale id="X"/>`.
+	// The locale id resolves to a value in app_strings; when that value is a
+	// jr://file/<path> reference, the wire path must be in the manifest.
+	const seenLocaleIds = new Set<string>();
+	for (const mediaText of findAll(
+		(el) =>
+			el.name === "text" &&
+			(getAttributeValue(el, "form") === "image" ||
+				getAttributeValue(el, "form") === "audio" ||
+				getAttributeValue(el, "form") === "video"),
+		model.suite.children,
+	)) {
+		const form = getAttributeValue(mediaText, "form");
+		for (const localeEl of getChildren(mediaText)) {
+			if (!isTag(localeEl) || localeEl.name !== "locale") continue;
+			const localeId = getAttributeValue(localeEl, "id");
+			if (localeId === undefined) continue;
+			if (seenLocaleIds.has(localeId)) continue;
+			seenLocaleIds.add(localeId);
+
+			const stringValue = appStringValues.get(localeId);
+			// An unregistered locale id is caught by `checkLocaleResolution`
+			// (separate finding); the media check skips it so the error
+			// surface stays one-finding-per-cause.
+			if (stringValue === undefined) continue;
+			if (!stringValue.startsWith(JR_FILE_PREFIX)) continue;
+
+			const wirePath = stringValue.slice(JR_FILE_PREFIX.length);
+			if (manifest.has(wirePath)) continue;
+
+			errors.push(
+				validationError(
+					"SUITE_DANGLING_MEDIA_REF",
+					"app",
+					`A <text form="${form}"> menu carrier references locale "${localeId}" whose app_strings value "${stringValue}" points at a media file the compile-time manifest has no entry for ("${wirePath}"). The device resolves this jr:// reference against media_suite.xml's local resources, so a reference without a bundled file renders as a broken icon. This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+		}
+	}
+
+	// Surface 2 — image-map `<template form="image">` inlined jr:// literals
+	// in `<xpath function="...">` content. The Nova emitter inlines the paths
+	// as XPath string literals (single-language simplification); each quoted
+	// `jr://file/...` slice is one referenced wire path.
+	for (const template of findAll(
+		(el) => el.name === "template" && getAttributeValue(el, "form") === "image",
+		model.suite.children,
+	)) {
+		for (const fn of collectXPathFunctions(template)) {
+			for (const wirePath of extractJrFileLiterals(fn)) {
+				if (manifest.has(wirePath)) continue;
+				errors.push(
+					validationError(
+						"SUITE_DANGLING_MEDIA_REF",
+						"app",
+						`An image-map <template form="image"> inlines a media reference "jr://file/${wirePath}" that the compile-time manifest has no entry for. The device resolves this jr:// reference against media_suite.xml's local resources, so a reference without a bundled file renders as a broken icon. This is a bug in the suite generator.`,
+						loc,
+					),
+				);
+			}
+		}
+	}
+
+	return errors;
+}
+
+/**
+ * Extract every `commcare/<...>` wire path embedded as a quoted XPath
+ * `jr://file/...` literal inside one `<xpath function>` body. Both quote
+ * styles are scanned because the emitter's quote choice is deterministic
+ * but the oracle should tolerate either — a future quote-flip would
+ * otherwise silently waive the check.
+ */
+function extractJrFileLiterals(xpathFunction: string): string[] {
+	const paths: string[] = [];
+	for (const re of [IMAGE_MAP_JR_LITERAL_SINGLE, IMAGE_MAP_JR_LITERAL_DOUBLE]) {
+		// Reset the lastIndex on the shared regex object — these are module-
+		// level singletons and stateful across calls under the `g` flag.
+		re.lastIndex = 0;
+		for (
+			let match = re.exec(xpathFunction);
+			match !== null;
+			match = re.exec(xpathFunction)
+		) {
+			paths.push(match[1].slice(JR_FILE_PREFIX.length));
+		}
+	}
+	return paths;
+}
+
 // ── Sort — silently tolerated (behaves-wrong, never throws) ────────
 
 /**
@@ -1354,6 +1520,12 @@ function checkSort(
  * emitted `app_strings.txt` in the fuzzer). Returns structured errors (empty
  * array on a clean suite).
  *
+ * `mediaContext`, when supplied, additionally resolves every menu-borne
+ * `<text form="image|audio|video">` locale value AND every image-map
+ * `<template form="image">` inlined jr:// literal against the bundled-media
+ * manifest. Omit (or pass `undefined`) on the media-OFF path: the suite then
+ * carries no media references to resolve.
+ *
  * The oracle is app-scoped — suite findings carry no per-form location, only an
  * optional `moduleName` when an error is module-bounded (e.g. a menu→command
  * miss names the offending `m{N}` menu).
@@ -1361,6 +1533,7 @@ function checkSort(
 export function validateSuite(
 	suiteXml: string,
 	appStringKeys: ReadonlySet<string>,
+	mediaContext?: SuiteMediaContext,
 ): ValidationError[] {
 	const loc: ValidationLocation = {};
 
@@ -1489,5 +1662,8 @@ export function validateSuite(
 		...checkLocaleResolution(model, appStringKeys, loc),
 		// Sort — silently tolerated.
 		...checkSort(model, loc),
+		// Media wire-path resolution — fires only when the caller supplied a
+		// media context (the app_strings values + the bundled-media manifest).
+		...checkMediaResolution(model, mediaContext, loc),
 	];
 }

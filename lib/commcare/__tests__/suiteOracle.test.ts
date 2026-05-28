@@ -656,3 +656,101 @@ describe("suite oracle — sort attributes (silently tolerated by device)", () =
 		).toEqual([]);
 	});
 });
+
+// ── Media wire-path resolution ─────────────────────────────────────
+
+describe("suite oracle — media wire-path resolution", () => {
+	const MENU_LOCALE_ID = "modules.m0.icon";
+	const ICON_PATH = "commcare/aaaa.png";
+	const ICON_REF = `jr://file/${ICON_PATH}`;
+
+	/** A minimal suite carrying one menu-borne `<text form="image">` locale
+	 *  reference. The locale id is registered in app_strings (so the locale-
+	 *  resolution check is happy); the media check resolves the value. */
+	const MENU_ICON_SUITE = suite(`  <menu id="m0">
+    <display>
+      <text><locale id="modules.m0"/></text>
+      <text form="image"><locale id="${MENU_LOCALE_ID}"/></text>
+    </display>
+  </menu>`);
+
+	const MENU_APP_STRING_KEYS = new Set(["modules.m0", MENU_LOCALE_ID]);
+	const MENU_APP_STRING_VALUES = new Map([
+		["modules.m0", "Module zero"],
+		[MENU_LOCALE_ID, ICON_REF],
+	]);
+
+	it("passes when the menu locale's jr:// value resolves to a manifest entry", () => {
+		expect(
+			validateSuite(MENU_ICON_SUITE, MENU_APP_STRING_KEYS, {
+				appStringValues: MENU_APP_STRING_VALUES,
+				manifest: new Set([ICON_PATH]),
+			}),
+		).toEqual([]);
+	});
+
+	it("flags a menu locale jr:// value with no manifest entry (SUITE_DANGLING_MEDIA_REF)", () => {
+		const errors = validateSuite(MENU_ICON_SUITE, MENU_APP_STRING_KEYS, {
+			appStringValues: MENU_APP_STRING_VALUES,
+			manifest: new Set<string>(),
+		});
+		expect(
+			errors.some(
+				(e) =>
+					e.code === "SUITE_DANGLING_MEDIA_REF" &&
+					e.message.includes(ICON_PATH),
+			),
+		).toBe(true);
+	});
+
+	it("skips the media check when no media context is supplied", () => {
+		// The locale resolution still runs (passes — both ids are registered);
+		// the media check short-circuits, so no SUITE_DANGLING_MEDIA_REF surfaces
+		// even though the manifest would have nothing in it.
+		expect(validateSuite(MENU_ICON_SUITE, MENU_APP_STRING_KEYS)).toEqual([]);
+	});
+
+	const IMAGE_MAP_PATH_A = "commcare/bbbb.png";
+	const IMAGE_MAP_PATH_B = "commcare/cccc.png";
+	const IMAGE_MAP_SUITE = suite(`  <detail id="m0_case_short">
+    <title><text><locale id="cchq.case"/></text></title>
+    <field>
+      <header><text><locale id="m0.case_short.icon_1.header"/></text></header>
+      <template form="image"><text><xpath function="if(selected(status, 'a'), 'jr://file/${IMAGE_MAP_PATH_A}', if(selected(status, 'b'), 'jr://file/${IMAGE_MAP_PATH_B}', ''))"/></text></template>
+    </field>
+  </detail>`);
+
+	const IMAGE_MAP_APP_STRINGS = new Set(["m0.case_short.icon_1.header"]);
+
+	it("passes when image-map jr:// literals all resolve to manifest entries", () => {
+		expect(
+			validateSuite(IMAGE_MAP_SUITE, IMAGE_MAP_APP_STRINGS, {
+				appStringValues: new Map(),
+				manifest: new Set([IMAGE_MAP_PATH_A, IMAGE_MAP_PATH_B]),
+			}),
+		).toEqual([]);
+	});
+
+	it("flags an image-map jr:// literal with no manifest entry (SUITE_DANGLING_MEDIA_REF)", () => {
+		const errors = validateSuite(IMAGE_MAP_SUITE, IMAGE_MAP_APP_STRINGS, {
+			appStringValues: new Map(),
+			// Only the first wire path is in the manifest; the second dangles.
+			manifest: new Set([IMAGE_MAP_PATH_A]),
+		});
+		expect(
+			errors.some(
+				(e) =>
+					e.code === "SUITE_DANGLING_MEDIA_REF" &&
+					e.message.includes(IMAGE_MAP_PATH_B),
+			),
+		).toBe(true);
+		// Only the second path dangles, not the first.
+		expect(
+			errors.some(
+				(e) =>
+					e.code === "SUITE_DANGLING_MEDIA_REF" &&
+					e.message.includes(IMAGE_MAP_PATH_A),
+			),
+		).toBe(false);
+	});
+});

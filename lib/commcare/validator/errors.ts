@@ -169,6 +169,13 @@ export type ValidationErrorCode =
 	| "SUITE_SORT_BAD_DIRECTION"
 	| "SUITE_SORT_BAD_TYPE"
 	| "SUITE_SORT_BAD_BLANKS"
+	// Media wire-path resolution against the bundled-media manifest. Fires on
+	// menu-borne locale media values (`<text form="image"><locale id>` →
+	// app_strings → jr://file/<path>) and image-map column templates
+	// (`<template form="image"><text><xpath function>` with inlined jr://
+	// literals). A dangling reference parses clean and renders as a broken
+	// icon on device.
+	| "SUITE_DANGLING_MEDIA_REF"
 	// HQ import JSON (post-expansion) — the deserialization (`Application.wrap`)
 	// contract. A violation here makes CCHQ's CouchDB `DocumentSchema` wrap raise
 	// `BadValueError` / `ValueError` and rejects the whole app at import. A
