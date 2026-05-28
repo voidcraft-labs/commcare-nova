@@ -19,20 +19,17 @@
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
-import {
-	type AssetMimeType,
-	mediaKindForMimeType,
-} from "@/lib/domain/multimedia";
+import type { AssetMimeType } from "@/lib/domain/multimedia";
 import { type ValidationError, validationError } from "../../errors";
 import { describeLocation, scopeFor, validationLocationFor } from "./shared";
 
 /**
- * Walk every media reference; for any whose resolved row's MIME kind
+ * Walk every media reference; for any whose resolved row's kind
  * doesn't match the carrier slot's expected kind, emit
- * MEDIA_KIND_MISMATCH. The kind comparison delegates to
- * `mediaKindForMimeType` (one source of truth for "which kind is this
- * MIME?") rather than re-checking against the per-kind MIME partitions
- * — `mediaKindForMimeType` already encodes the partition.
+ * MEDIA_KIND_MISMATCH. The record carries `kind` directly (set at
+ * upload-confirm from the sniffed MIME, frozen on disk), so the
+ * comparison reads two `MediaKind` values without re-deriving from
+ * MIME.
  *
  * References whose ids don't resolve at all are silently skipped
  * (left to `mediaAssetExists`).
@@ -48,8 +45,7 @@ export function mediaKindMatches(
 	for (const ref of walkAssetRefs(doc)) {
 		const record = manifest.get(ref.assetId);
 		if (!record) continue;
-		const actualKind = mediaKindForMimeType(record.mimeType);
-		if (actualKind === ref.slotKind) continue;
+		if (record.kind === ref.slotKind) continue;
 		errors.push(
 			validationError(
 				"MEDIA_KIND_MISMATCH",
@@ -60,7 +56,7 @@ export function mediaKindMatches(
 					assetId: ref.assetId,
 					expectedKind: ref.slotKind,
 					actualMimeType: record.mimeType,
-					actualKind: actualKind ?? "unknown",
+					actualKind: record.kind,
 				},
 			),
 		);
