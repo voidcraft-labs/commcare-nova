@@ -250,14 +250,15 @@ describe("HQ shell media stamping", () => {
 		expect(hqJson.logo_refs).toEqual({
 			hq_logo_web_apps: { path: ref("logo") },
 		});
-		// multimedia_map keys on the wire path (no jr://file/ prefix).
-		expect(hqJson.multimedia_map[`commcare/${HASHES["mod-icon"]}.png`]).toEqual(
-			{
-				multimedia_id: HASHES["mod-icon"],
-				media_type: "CommCareImage",
-				version: 1,
-			},
-		);
+		// multimedia_map keys on the jr://file/ reference — CCHQ raises on
+		// keys missing the prefix (`generator.py::media_resources`).
+		expect(
+			hqJson.multimedia_map[`jr://file/commcare/${HASHES["mod-icon"]}.png`],
+		).toEqual({
+			multimedia_id: HASHES["mod-icon"],
+			media_type: "CommCareImage",
+			version: 1,
+		});
 	});
 
 	it("leaves shells media-free when no manifest is provided", () => {

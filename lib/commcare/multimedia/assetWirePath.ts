@@ -28,7 +28,6 @@ import {
 	asAssetId,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
-import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 
 /**
  * The `jr://file/` prefix every CommCare media reference carries. A
@@ -109,10 +108,12 @@ export function jrFileRef(wirePath: string): string {
 
 /**
  * Resolve an `AssetId` to its `jr://file/...` reference against a
- * manifest known to contain it. Throws a compiler-bug on a miss: the
- * caller built the manifest by walking the doc, so every referenced
- * asset is present by construction; a miss means the walk and the
- * emitter disagree about what the doc references.
+ * manifest known to contain it. The caller built the manifest by
+ * walking the doc + loading the matching rows; a miss means the doc
+ * references an asset the loader couldn't return — a stale ref (deleted
+ * row, foreign owner, still `pending`). A future media validator rule
+ * is the right place to gate this before compile; until that rule
+ * lands the throw here is the floor.
  *
  * Callers that legitimately have no manifest (media OFF) must guard on
  * `manifest === undefined` BEFORE reaching here — this helper is only
@@ -131,13 +132,17 @@ export function requireAssetRef(
 ): string {
 	const resolved = manifest.get(asAssetId(assetId));
 	if (!resolved) {
+		// Plain Error matching the project's "validator should have caught
+		// this" shape (see e.g. `formActions.ts`'s case-name-field throw):
+		// describes the user-data state that caused the failure, names the
+		// emit site, and points at the recovery path. The compile route
+		// catches and surfaces a generic "Compilation failed" today; when
+		// Segment 4 adds the validator gate the message becomes redundant.
 		throw new Error(
-			compilerBugMessage({
-				where,
-				invariant: `media asset "${assetId}" is referenced by the blueprint but absent from the resolved asset manifest`,
-				detail:
-					"The manifest is built by walking every media reference in the doc, so every referenced asset must be present. A miss means the reference walk that built the manifest and the emitter that consumes it disagree about which assets the doc uses — reconcile the two walks.",
-			}),
+			`The blueprint references a media asset I couldn't load (id "${assetId}", at ${where}). ` +
+				"The asset may have been deleted from the media library, may still be uploading, " +
+				"or may belong to a different owner. Remove the reference or re-upload the asset " +
+				"to resolve.",
 		);
 	}
 	return jrFileRef(resolved.wirePath);

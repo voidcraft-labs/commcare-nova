@@ -1100,14 +1100,20 @@ export const caseListConfigSchema = z
 		/**
 		 * Image shown on the "Open case list" affordance — the menu
 		 * link from the module's home screen that opens the case
-		 * list.
+		 * list. Emitted only on the HQ-upload path (stamped onto the
+		 * `case_list.media_image` shell so CCHQ regenerates the
+		 * case-list-link command's `<display>`). Nova's local `.ccz`
+		 * compiler emits no standalone case-list-link command, so this
+		 * slot is invisible in the local preview / downloadable `.ccz`
+		 * — users see the icon only after uploading to HQ.
 		 */
 		icon: assetIdSchema.optional(),
 		/**
 		 * Audio prompt paired with the case-list link, for
 		 * audio-prompt playback. Menu affordances carry image + audio
 		 * only — there is no video slot here (unlike a question
-		 * message, which can carry all three).
+		 * message, which can carry all three). Same HQ-only emission
+		 * shape as `icon` above.
 		 */
 		audioLabel: assetIdSchema.optional(),
 	})

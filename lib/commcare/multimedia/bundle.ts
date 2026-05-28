@@ -16,15 +16,21 @@
 //
 // `multimedia_map` shape verified against
 // `commcare-hq/.../hqmedia/models.py::HQMediaMapItem` (`multimedia_id`,
-// `media_type`, `version`) and `ApplicationMediaMixin.multimedia_map`
-// (the map key is the path WITHOUT the `jr://file/` prefix —
-// `commcare/<file>`, NOT `jr://file/commcare/<file>`). `media_type` is
-// the CommCare media class name (`CommCareImage` / `CommCareAudio` /
-// `CommCareVideo`).
+// `media_type`, `version`) and `commcare-hq/.../app_manager/suite_xml/generator.py::media_resources`
+// (lines 138-146 read each `multimedia_map.items()` key and RAISE
+// `MediaResourceError` when the key does not start with `jr://file/`).
+// The map key IS the fully-qualified jr:// reference
+// (`jr://file/commcare/<hash><ext>`); CCHQ strips the `jr://file/`
+// prefix to derive the install path. `media_type` is the CommCare
+// media class name (`CommCareImage` / `CommCareAudio` / `CommCareVideo`).
 
 import type { MediaKind } from "@/lib/domain/multimedia";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
-import type { AssetManifest, ResolvedMediaAsset } from "./assetWirePath";
+import {
+	type AssetManifest,
+	jrFileRef,
+	type ResolvedMediaAsset,
+} from "./assetWirePath";
 import { buildMediaSuiteXml } from "./mediaSuiteXml";
 
 /**
@@ -63,17 +69,20 @@ export interface MediaBundle {
 
 /**
  * Build the `multimedia_map` for a set of resolved assets. Key is the
- * wire path (`commcare/<file>`, no `jr://file/` prefix); value carries
- * the media class + a placeholder `multimedia_id` (the content hash —
- * deterministic, and CCHQ overwrites it after the multimedia upload).
- * Used by the expander to stamp the HqApplication for the upload path.
+ * fully-qualified `jr://file/commcare/<hash><ext>` reference (CCHQ
+ * raises on a key that doesn't start with `jr://file/` — see the file
+ * header). Value carries the media class + a placeholder
+ * `multimedia_id` (the content hash — deterministic, and CCHQ
+ * overwrites it via `create_mapping` once the bulk multimedia upload
+ * reconciles the file by path). Used by the expander to stamp the
+ * HqApplication for the upload path.
  */
 export function buildMultimediaMap(
 	assets: Iterable<ResolvedMediaAsset>,
 ): Record<string, MultimediaMapItem> {
 	const map: Record<string, MultimediaMapItem> = {};
 	for (const asset of assets) {
-		map[asset.wirePath] = {
+		map[jrFileRef(asset.wirePath)] = {
 			multimedia_id: asset.contentHash,
 			media_type: MEDIA_TYPE_FOR_KIND[asset.kind],
 			version: 1,

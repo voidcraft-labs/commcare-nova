@@ -90,7 +90,7 @@ describe("itextMediaValues", () => {
 
 	it("throws a compiler-bug when a referenced asset is missing from the manifest", () => {
 		expect(() => renderValues({ image: "ghost" }, MANIFEST)).toThrow(
-			/Internal bug.*ghost.*absent from the resolved asset manifest/s,
+			/references a media asset I couldn't load.*ghost/s,
 		);
 	});
 });

@@ -29,18 +29,22 @@ function manifestOf(assets: ResolvedMediaAsset[]): AssetManifest {
 }
 
 describe("buildMultimediaMap", () => {
-	it("keys on the wire path (no jr://file/ prefix) with the media class + version", () => {
+	it("keys on the jr://file/ reference with the media class + version", () => {
+		// CCHQ's `suite_xml/generator.py::media_resources` REQUIRES every
+		// `multimedia_map` key to start with `jr://file/` (raises
+		// `MediaResourceError` otherwise). Verified against generator.py
+		// lines 138-146.
 		const map = buildMultimediaMap([
 			asset("img", HASH_IMG, ".png", "image", false),
 			asset("aud", HASH_AUD, ".mp3", "audio", false),
 		]);
 		expect(map).toEqual({
-			[`commcare/${HASH_IMG}.png`]: {
+			[`jr://file/commcare/${HASH_IMG}.png`]: {
 				multimedia_id: HASH_IMG,
 				media_type: "CommCareImage",
 				version: 1,
 			},
-			[`commcare/${HASH_AUD}.mp3`]: {
+			[`jr://file/commcare/${HASH_AUD}.mp3`]: {
 				multimedia_id: HASH_AUD,
 				media_type: "CommCareAudio",
 				version: 1,
@@ -57,9 +61,9 @@ describe("buildMediaBundle", () => {
 		);
 		expect(bundle.mediaSuiteXml).toContain('descriptor="Media Suite File"');
 		expect(bundle.mediaSuiteXml).toContain(`./commcare/${HASH_IMG}.png`);
-		expect(bundle.multimediaMap[`commcare/${HASH_IMG}.png`]?.media_type).toBe(
-			"CommCareImage",
-		);
+		expect(
+			bundle.multimediaMap[`jr://file/commcare/${HASH_IMG}.png`]?.media_type,
+		).toBe("CommCareImage");
 		expect(bundle.cczEntries).toEqual([
 			{ path: `commcare/${HASH_IMG}.png`, bytes: Buffer.from("img-bytes") },
 		]);
