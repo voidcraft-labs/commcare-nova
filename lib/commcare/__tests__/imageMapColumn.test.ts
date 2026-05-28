@@ -138,10 +138,17 @@ describe("image-map column wire emission", () => {
 		const suite =
 			new AdmZip(ccz).getEntry("suite.xml")?.getData().toString("utf-8") ?? "";
 		expect(suite).toContain('<template form="image">');
-		// The serializer encodes the single quotes in the XPath literal as
-		// `&apos;` (the sole escaping authority — see elementBuilders).
-		expect(suite).toContain("selected(status, &apos;active&apos;)");
-		expect(suite).toContain(`jr://file/commcare/${HASH_ACTIVE}.png`);
+		// enum-image uses a NESTED `if(...)` chain (not id-mapping's
+		// `replace(join(...))` wrapper, which would leave a trailing space on
+		// the matched image path). The serializer encodes the literal single
+		// quotes as `&apos;`.
+		expect(suite).not.toContain("replace(join");
+		expect(suite).toContain(
+			"if(selected(status, &apos;active&apos;), " +
+				`&apos;jr://file/commcare/${HASH_ACTIVE}.png&apos;, ` +
+				"if(selected(status, &apos;closed&apos;), " +
+				`&apos;jr://file/commcare/${HASH_CLOSED}.png&apos;, &apos;&apos;))`,
+		);
 	});
 
 	it("degrades to a plain column when media is off", () => {

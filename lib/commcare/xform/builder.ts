@@ -399,14 +399,22 @@ export function buildXForm(
 	// An entry with media but no text still emits — the text `<value>` is just
 	// empty (`buildLabelNodes("")` yields no children), matching CCHQ's
 	// media-only itext shape — so a hint/help slot can carry media without
-	// text. An entry with neither text nor media is skipped entirely.
+	// text. An entry with neither text nor media is skipped entirely UNLESS
+	// `force` is set: a leaf control's `<label>` is emitted unconditionally
+	// (every leaf carries one), so its itext entry must exist even for an
+	// empty label, or the `jr:itext('<id>-label')` ref dangles and JavaRosa's
+	// `verifyTextMappings` rejects the form at parse. Optional slots (hint /
+	// help / constraintMsg / options) and container labels stay skip-on-empty
+	// — their body ref is itself conditional, so a skipped entry leaves no
+	// dangling reference.
 	const addItext = (
 		id: string,
 		label: string | undefined,
 		media?: Media,
+		force = false,
 	): void => {
 		const mediaValues = itextMediaValues(media, opts.assets, "buildXForm");
-		if (!label && mediaValues.length === 0) return;
+		if (!force && !label && mediaValues.length === 0) return;
 		const labelText = label ?? "";
 		itextEntries.push(
 			el("text", { id }, [
@@ -585,7 +593,12 @@ function buildFieldParts(
 	setvalues: Element[],
 	bodyElements: Element[],
 	insideRepeat: boolean,
-	addItext: (id: string, label: string | undefined, media?: Media) => void,
+	addItext: (
+		id: string,
+		label: string | undefined,
+		media?: Media,
+		force?: boolean,
+	) => void,
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
@@ -727,8 +740,16 @@ function buildFieldParts(
 	// Each `addItext` self-skips when its text AND media are both empty, so
 	// optional slots (hint / help) only register an entry when present. The
 	// `-help` entry is new alongside its body `<help>` ref in `buildLeafControl`.
+	//
+	// The label is force-registered for LEAF kinds: `buildLeafControl` emits
+	// `<label>` unconditionally, so the entry must exist even for an empty
+	// label (else the ref dangles — JavaRosa rejects at parse). Containers
+	// (`group`/`repeat`) keep skip-on-empty because `buildContainer` gates
+	// the `<label>` element on `label || labelMedia`, so a skipped entry has
+	// no referencing element.
 	if (field.kind !== "hidden") {
-		addItext(`${itextKey}-label`, label, labelMedia);
+		const isContainerKind = field.kind === "group" || field.kind === "repeat";
+		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind);
 		addItext(`${itextKey}-hint`, hint, hintMedia);
 		addItext(`${itextKey}-help`, help, helpMedia);
 	}
@@ -910,7 +931,12 @@ function buildContainer(
 	binds: Element[],
 	setvalues: Element[],
 	bodyElements: Element[],
-	addItext: (id: string, label: string | undefined, media?: Media) => void,
+	addItext: (
+		id: string,
+		label: string | undefined,
+		media?: Media,
+		force?: boolean,
+	) => void,
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],

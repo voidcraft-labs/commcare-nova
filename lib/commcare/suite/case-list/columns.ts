@@ -505,36 +505,50 @@ function idMappingDisplayXpath(
 }
 
 /**
- * Image-map column display XPath — the id-mapping shape with image
- * paths in place of text labels. Each arm maps a case-property value
- * to its `jr://file/commcare/...` path; with `<template form="image">`
- * (see `templateFormFor`), the runtime renders the resolved path as an
- * image. Mirrors CCHQ's `detail_screen.py::EnumImage` (which extends
- * the `Enum` format with `template_form = 'image'`); Nova inlines the
- * jr:// literals rather than routing through app_strings locale
- * variables, the same single-language simplification `idMappingDisplayXpath`
- * applies.
+ * Image-map column display XPath — maps each case-property value to its
+ * `jr://file/commcare/...` image path; with `<template form="image">`
+ * (see `templateFormFor`) the runtime renders the resolved path as an
+ * image.
  *
- * Resolution requires the asset manifest. Callers reach this only on
- * the media-ON path; the media-OFF path degrades the column to plain
- * (raw value) in `propertyDisplayXpath`, so a missing manifest here is
- * a compiler-bug via `requireAssetRef`.
+ * Shape is a NESTED `if(...)` chain, NOT the `replace(join(' ', …))`
+ * wrapper `idMappingDisplayXpath` uses. This is load-bearing and is
+ * exactly where image-map diverges from id-mapping: CCHQ applies the
+ * `join` wrapper only to `format="enum"` (text id-mapping), while
+ * `format="enum-image"` takes the nested-`if` branch — verified at
+ * `commcare-hq/.../suite_xml/xml_models.py::XPathEnum.build` (the
+ * `type == "display" and format == "enum"` wrapper vs the `elif`) and
+ * `detail_screen.py::EnumImage._xpath_template` (`"if({cond}, {var}"`).
+ * The wrapper would also CORRUPT the result here: `join(' ', 'jr://x',
+ * '', '')` leaves a trailing space (`'jr://x '`), a malformed image
+ * path — harmless for a text label, fatal for a resource reference.
+ * The nested chain returns the single matching path verbatim.
+ *
+ * Nova inlines the jr:// literals (rather than CCHQ's app_strings
+ * locale variables) and uses `selected(field, value)` membership (the
+ * same predicate `idMappingDisplayXpath` uses) — both the single-
+ * language simplification Nova applies throughout. An empty mapping
+ * short-circuits to `''` (no image).
+ *
+ * Resolution requires the asset manifest; the media-OFF path degrades
+ * the column to plain in `propertyDisplayXpath`, so reaching here with
+ * a missing manifest entry is a compiler-bug via `requireAssetRef`.
  */
 function imageMapDisplayXpath(
 	field: string,
 	mapping: ReadonlyArray<{ readonly value: string; readonly assetId: string }>,
 	assets: AssetManifest,
 ): string {
-	if (mapping.length === 0) return `''`;
-	const arms = mapping.map((entry) => {
+	// Fold right so the first entry is the outermost `if`, matching the
+	// runtime's first-match-wins walk: the empty-string base is the final
+	// else (no value matched => no image).
+	return mapping.reduceRight((elseArm, entry) => {
 		const value = quoteLiteral(entry.value, "case-list-filter");
 		const path = quoteLiteral(
 			requireAssetRef(entry.assetId, assets, "imageMapDisplayXpath"),
 			"case-list-filter",
 		);
-		return `if(selected(${field}, ${value}), ${path}, '')`;
-	});
-	return `replace(join(' ', ${arms.join(", ")}), '\\s+', ' ')`;
+		return `if(selected(${field}, ${value}), ${path}, ${elseArm})`;
+	}, `''`);
 }
 
 // ============================================================
