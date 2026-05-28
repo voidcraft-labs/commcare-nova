@@ -279,27 +279,12 @@ export function buildFormActions(
 				};
 			}
 
-			// Subcase wrapper splice target. For `user_controlled` / `count_bound`
-			// repeats this is the repeat element itself (`/data/<X>`); for
-			// `query_bound` it's the model-iteration `<item>` one level deeper
-			// (`/data/<X>/item`). `findField` resolves the repeat to its OWN path
-			// (the matched node); `descendInto` adds the `/item` step for
-			// `query_bound` so the splice target matches what CCHQ's
-			// `_create_casexml` path walker consumes verbatim.
-			let repeatContextStr = "";
-			if (child.repeat_context) {
-				const hit = findField(doc, formUuid, child.repeat_context);
-				if (hit) {
-					repeatContextStr = descendInto(hit.field, hit.path).toXPath();
-				} else {
-					// Field id didn't resolve — defensive fallback matching the old
-					// resolvePath default. Validator rules already gate against
-					// dangling field-id references.
-					repeatContextStr = FormPath.root()
-						.child(child.repeat_context)
-						.toXPath();
-				}
-			}
+			// Subcase wrapper splice target. `child.repeat_context` is the
+			// resolved XPath string already (deriveCaseConfig records the
+			// repeat's path during its walk, including the `/item` step for
+			// `query_bound`). Pass through verbatim — no second resolution,
+			// no cousin-id ambiguity.
+			const repeatContextStr = child.repeat_context ?? "";
 
 			// Child case name source — pulled from the bucket's `field_paths`
 			// map (scope-correct) rather than re-resolved by id from the form

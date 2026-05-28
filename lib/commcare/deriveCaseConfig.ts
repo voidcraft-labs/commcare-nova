@@ -82,10 +82,13 @@ export interface DerivedCaseConfig {
  * bucket produces one `DerivedChildCase`, looking up its relationship
  * from `caseTypes` (defaulting to `"child"` when absent).
  *
- * `repeat_context` on a child case is the uuid-id of the enclosing
- * repeat field, but only when every contributing field shares the
- * same ancestor repeat — otherwise the child case is ambiguous and
- * no context is emitted.
+ * Child buckets key on `(case_type, repeat_ancestor_path)`: two cousin
+ * repeats authoring fields for the same child case type produce TWO
+ * independent `DerivedChildCase` entries — one per repeat — each with
+ * its own `repeat_context`. `repeat_context` on the emitted entry is
+ * the repeat's full XPath (with the `/item` step appended for
+ * `query_bound`), not a bare field id, so cousins sharing an id stay
+ * distinguishable downstream.
  */
 export function deriveCaseConfig(
 	doc: BlueprintDoc,
@@ -111,32 +114,49 @@ export function deriveCaseConfig(
 		string,
 		{
 			caseType: string;
+			/** The repeat field's id, for human-readable validator messages. */
 			repeatAncestor: string | undefined;
+			/**
+			 * The repeat's resolved splice-target path — already including the
+			 * `/item` step for `query_bound` repeats. The wire-emission
+			 * `repeat_context` on `OpenSubCaseAction` is `path.toXPath()`.
+			 * Recording the PATH (not the id) per bucket is what
+			 * distinguishes two cousin repeats sharing the same id: their
+			 * paths differ (`/data/group_a/kids` vs `/data/group_b/kids`),
+			 * so they bucket independently.
+			 */
+			repeatAncestorPath: FormPath | undefined;
 			fields: Array<{ id: string; path: FormPath }>;
 		}
 	>();
-	// The root-ancestor sentinel contains `#`, illegal in an XML element name
-	// (`XML_ELEMENT_NAME_REGEX`), so a real repeat field id (always a valid
-	// element name) can never collide with it. A plain-word sentinel like
-	// `"__root__"` would NOT be safe: `__root__` is itself a legal field id
-	// (only the `__nova_` prefix is reserved), so a repeat named `__root__`
-	// would merge into the root bucket and silently lose its scope.
-	const bucketKey = (caseType: string, repeatAncestor: string | undefined) =>
-		`${caseType}::${repeatAncestor ?? "#root"}`;
+	// Bucket key is anchored on the repeat's RESOLVED PATH, not its bare id.
+	// CommCare allows cousins to share a field id — two repeats named e.g.
+	// `kids` in different groups are legal. Keying by id alone would collapse
+	// both into one bucket; their fields would compete in `field_paths` (last
+	// write wins) while `repeat_context` resolved separately would still
+	// reference one cousin — a split-scope wire shape neither cousin matches.
+	// Resolved paths are globally unique even when ids are not.
+	const bucketKey = (
+		caseType: string,
+		repeatAncestorPath: FormPath | undefined,
+	) => `${caseType}::${repeatAncestorPath?.toXPath() ?? "#root"}`;
 
-	// The walker accumulates `parentPath` so every tracked field gets its
-	// fully-resolved `FormPath` recorded alongside its id. Down-stream
-	// consumers (`buildFormActions`) read paths from this map directly
-	// instead of calling `resolvePath(doc, formUuid, fieldId)`, which would
-	// be ambiguous for cousin-id collisions (e.g. the canonical `case_name`
-	// shared between a parent case at form root and a child case inside a
-	// repeat). `descendInto` adds the model-iteration `/item` step when
-	// crossing into a `query_bound` repeat, matching the XForm emitter's
-	// shape.
+	// The walker threads two things through descent: `parentPath` (so every
+	// tracked field gets its fully-resolved `FormPath` recorded) and
+	// `repeatAncestorPath` (the splice target for any child-case bucket the
+	// walk produces underneath it). Down-stream consumers (`buildFormActions`)
+	// read paths directly instead of re-resolving by id — which would be
+	// ambiguous when a field id collides with a cousin (the canonical
+	// `case_name` shared between the parent and every child case being the
+	// bite-back-from-day-one example; cousin repeats sharing an id being a
+	// second class of collision). `descendInto` adds the model-iteration
+	// `/item` step when crossing into a `query_bound` repeat, matching the
+	// XForm emitter's shape.
 	const walk = (
 		parentUuid: Uuid,
 		parentPath: FormPath,
-		repeatAncestor?: string,
+		repeatAncestor: string | undefined,
+		repeatAncestorPath: FormPath | undefined,
 	): void => {
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[fieldUuid];
@@ -158,6 +178,15 @@ export function deriveCaseConfig(
 			}
 
 			const currentRepeat = field.kind === "repeat" ? field.id : repeatAncestor;
+			// When this field IS a repeat, its splice target — for any child
+			// case authored INSIDE it — is `descendInto(field, selfPath)`:
+			// `/data/<X>` for user_controlled / count_bound, `/data/<X>/item`
+			// for query_bound. The path is recorded once on the bucket; the
+			// emitter doesn't need to look it up.
+			const currentRepeatPath =
+				field.kind === "repeat" && selfPath
+					? descendInto(field, selfPath)
+					: repeatAncestorPath;
 			const casePropertyOn = readFieldString(field, "case_property_on");
 
 			if (casePropertyOn) {
@@ -180,16 +209,17 @@ export function deriveCaseConfig(
 						});
 					}
 				} else if (selfPath) {
-					// Child case property — bucket by (case_type, repeat_ancestor).
+					// Child case property — bucket by (case_type, repeat_path).
 					// Bucketing requires a resolved path; a bad-id field can't
 					// emit a valid bind anyway, so the doc is broken at a higher
 					// level and the validator catches it independently.
-					const key = bucketKey(casePropertyOn, currentRepeat);
+					const key = bucketKey(casePropertyOn, currentRepeatPath);
 					let bucket = childGroups.get(key);
 					if (!bucket) {
 						bucket = {
 							caseType: casePropertyOn,
 							repeatAncestor: currentRepeat,
+							repeatAncestorPath: currentRepeatPath,
 							fields: [],
 						};
 						childGroups.set(key, bucket);
@@ -204,12 +234,17 @@ export function deriveCaseConfig(
 			// subtree here keeps the derivation total without masking the
 			// upstream error.
 			if (selfPath && doc.fieldOrder[fieldUuid] !== undefined) {
-				walk(fieldUuid, descendInto(field, selfPath), currentRepeat);
+				walk(
+					fieldUuid,
+					descendInto(field, selfPath),
+					currentRepeat,
+					currentRepeatPath,
+				);
 			}
 		}
 	};
 
-	walk(formUuid, FormPath.root());
+	walk(formUuid, FormPath.root(), undefined, undefined);
 
 	const result: DerivedCaseConfig = {};
 	if (case_name_field) result.case_name_field = case_name_field;
@@ -239,6 +274,7 @@ function deriveChildCases(
 		{
 			caseType: string;
 			repeatAncestor: string | undefined;
+			repeatAncestorPath: FormPath | undefined;
 			fields: Array<{ id: string; path: FormPath }>;
 		}
 	>,
@@ -271,12 +307,20 @@ function deriveChildCases(
 			bucket.fields.map((e) => [e.id, e.path]),
 		);
 
+		// `repeat_context` is the splice-target XPath — already including the
+		// `/item` step for `query_bound`. Emitting the precomputed path
+		// (instead of the bare field id) sidesteps the cousin-id ambiguity
+		// `findField` would have suffered: two cousin repeats with the same
+		// id would have collapsed via the id lookup, but their paths are
+		// distinct.
+		const repeatContext = bucket.repeatAncestorPath?.toXPath();
+
 		derived.push({
 			case_type: bucket.caseType,
 			...(childCaseName && { case_name_field: childCaseName }),
 			case_properties: childProps,
 			relationship,
-			...(bucket.repeatAncestor && { repeat_context: bucket.repeatAncestor }),
+			...(repeatContext && { repeat_context: repeatContext }),
 			field_paths: fieldPaths,
 		});
 	}
