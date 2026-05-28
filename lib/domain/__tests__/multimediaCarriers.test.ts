@@ -39,7 +39,7 @@ describe("field schema — media slots", () => {
 		}
 	});
 
-	it("text field parses with the new help + required_msg text slots", () => {
+	it("text field parses with the new help text + media slot", () => {
 		const parsed = fieldSchema.parse({
 			kind: "text",
 			uuid: "field-uuid-1",
@@ -48,16 +48,13 @@ describe("field schema — media slots", () => {
 			help: "Enter the legal name shown on their ID document.",
 			help_media: { image: "media-asset-1" },
 			required: "true()",
-			required_msg: "We can't proceed without a name.",
-			required_msg_media: { audio: "media-asset-3" },
 		});
 		expect(parsed.kind).toBe("text");
 		if (parsed.kind === "text") {
 			expect(parsed.help).toBe(
 				"Enter the legal name shown on their ID document.",
 			);
-			expect(parsed.required_msg).toBe("We can't proceed without a name.");
-			expect(parsed.required_msg_media?.audio).toBe("media-asset-3");
+			expect(parsed.help_media?.image).toBe("media-asset-1");
 		}
 	});
 
@@ -73,7 +70,7 @@ describe("field schema — media slots", () => {
 			expect(parsed.label_media).toBeUndefined();
 			expect(parsed.hint_media).toBeUndefined();
 			expect(parsed.help).toBeUndefined();
-			expect(parsed.required_msg).toBeUndefined();
+			expect(parsed.help_media).toBeUndefined();
 		}
 	});
 

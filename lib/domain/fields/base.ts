@@ -18,16 +18,24 @@
 //   genuinely always needs a label.
 // - `inputFieldBaseSchema` (fieldBase + the optional input-specific
 //   slots: `hint`, `hint_media`, `help`, `help_media`, `required`,
-//   `required_msg`, `required_msg_media`, `validate_msg_media`,
-//   `relevant`, `case_property_on`) carries the input-specific wiring
-//   used by text/int/select/etc.
+//   `validate_msg_media`, `relevant`, `case_property_on`) carries the
+//   input-specific wiring used by text/int/select/etc.
 //
-// Each message slot (label / hint / help / required-error /
-// validate-error) carries its own optional `*_media` sibling — the
-// image / audio / video shown alongside that message's text. The
-// `_media` suffix (rather than a single nested `media` bundle) keeps
-// the carrier prefix legible to schema-walk callers, which key off
-// `field.label_media` directly.
+// Each displayable message slot (label / hint / help / validate-error)
+// carries its own optional `*_media` sibling — the image / audio /
+// video shown alongside that message's text. The `_media` suffix
+// (rather than a single nested `media` bundle) keeps the carrier prefix
+// legible to schema-walk callers, which key off `field.label_media`
+// directly.
+//
+// There is deliberately NO required-message slot. CommCare's runtime
+// (commcare-core, which also backs web apps via FormPlayer) parses no
+// `jr:requiredMsg` bind attribute — `XFormParser.parseBindAttributes`
+// reads only `required` / `constraint` / `constraintMsg` / `relevant`
+// / `calculate`, so a required field that's left blank always shows
+// CommCare's built-in prompt. An authoring slot for a custom
+// required-message would have no faithful wire target on the target
+// runtime, so it isn't offered.
 //
 // `containerFieldBase` and `fieldBaseSchema` are sibling extensions of
 // `structuralFieldBase`, not a chain — each field kind picks the base
@@ -100,9 +108,10 @@ export const containerFieldBase = structuralFieldBase.extend({
  *   - `hint` + `hint_media` — secondary always-visible text under
  *     the label.
  *   - `help` + `help_media` — tap-to-expand longer-form text.
- *   - `required` (XPath, existing) + `required_msg` (text) +
- *     `required_msg_media` — the message shown when a required
- *     field is left blank.
+ *   - `required` (XPath / `true()`) — gates whether the field must be
+ *     answered. There is no companion message slot: CommCare's runtime
+ *     has no `jr:requiredMsg` attribute, so the blank-required prompt
+ *     is always CommCare's built-in string (see the file header).
  *
  * The validation-error media slot (`validate_msg_media`) is NOT
  * here: its companion text, `validate_msg`, lives only on the
@@ -117,8 +126,6 @@ export type InputFieldBase = FieldBase & {
 	help?: string;
 	help_media?: Media;
 	required?: string; // XPath expression or "true()"
-	required_msg?: string;
-	required_msg_media?: Media;
 	relevant?: string; // XPath expression
 	case_property_on?: string; // case type name this field writes to
 };
@@ -129,8 +136,6 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	help: z.string().optional(),
 	help_media: mediaSchema.optional(),
 	required: z.string().optional(),
-	required_msg: z.string().optional(),
-	required_msg_media: mediaSchema.optional(),
 	relevant: z.string().optional(),
 	case_property_on: z.string().optional(),
 });

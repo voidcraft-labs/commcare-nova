@@ -108,7 +108,7 @@ function requiredEntry<F extends Field & { required?: string }>(): {
 	};
 }
 
-// A plain optional-text editor entry (help / required_msg). Both type
+// A plain optional-text editor entry (help). Both type
 // args are explicit at call sites (`textEntry<TextField, "help">(...)`):
 // `F` isn't in a parameter position, so TS can't infer it, and once `F`
 // is given `K` must be too.
@@ -153,9 +153,8 @@ function hintEntry<F extends Field>(): {
 }
 
 // A `Media` slot editor entry (label_media / hint_media / help_media /
-// required_msg_media / validate_msg_media). Same addable + visible-iff-set
-// shape as the text/XPath factories; `MediaSlotEditor` offers all three
-// media kinds.
+// validate_msg_media). Same addable + visible-iff-set shape as the
+// text/XPath factories; `MediaSlotEditor` offers all three media kinds.
 function mediaEntry<F extends Field, K extends keyof F & string>(
 	key: K,
 	label: string,
@@ -190,9 +189,8 @@ function casePropertyEntry<F extends Field>(): {
 // ── Per-kind schemas ────────────────────────────────────────────────────
 //
 // Each input kind's `ui` section carries the label/hint/help text+media
-// set; `logic` carries the required-message + validation-message media
-// (beside the `required` toggle and `validate` editor those messages
-// decorate). The entries are inlined per kind with concrete type args
+// set; `logic` carries the validation-message media (beside the
+// `validate` editor it decorates). The entries are inlined per kind with concrete type args
 // rather than collapsed into a generic helper: the `FieldEditorEntry<F>`
 // discriminated union only resolves against a concrete field type, so a
 // `<F>`-generic helper can't construct entries that typecheck (it's the
@@ -206,11 +204,6 @@ const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 	data: [casePropertyEntry<TextField>()],
 	logic: [
 		requiredEntry<TextField>(),
-		textEntry<TextField, "required_msg">("required_msg", "Required message"),
-		mediaEntry<TextField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<TextField, "validate">("validate", "Validation"),
 		mediaEntry<TextField, "validate_msg_media">(
 			"validate_msg_media",
@@ -233,11 +226,6 @@ const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 	data: [casePropertyEntry<IntField>()],
 	logic: [
 		requiredEntry<IntField>(),
-		textEntry<IntField, "required_msg">("required_msg", "Required message"),
-		mediaEntry<IntField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<IntField, "validate">("validate", "Validation"),
 		mediaEntry<IntField, "validate_msg_media">(
 			"validate_msg_media",
@@ -260,11 +248,6 @@ const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 	data: [casePropertyEntry<DecimalField>()],
 	logic: [
 		requiredEntry<DecimalField>(),
-		textEntry<DecimalField, "required_msg">("required_msg", "Required message"),
-		mediaEntry<DecimalField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<DecimalField, "validate">("validate", "Validation"),
 		mediaEntry<DecimalField, "validate_msg_media">(
 			"validate_msg_media",
@@ -287,11 +270,6 @@ const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 	data: [casePropertyEntry<DateField>()],
 	logic: [
 		requiredEntry<DateField>(),
-		textEntry<DateField, "required_msg">("required_msg", "Required message"),
-		mediaEntry<DateField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<DateField, "validate">("validate", "Validation"),
 		mediaEntry<DateField, "validate_msg_media">(
 			"validate_msg_media",
@@ -314,11 +292,6 @@ const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 	data: [casePropertyEntry<TimeField>()],
 	logic: [
 		requiredEntry<TimeField>(),
-		textEntry<TimeField, "required_msg">("required_msg", "Required message"),
-		mediaEntry<TimeField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<TimeField, "validate">("validate", "Validation"),
 		mediaEntry<TimeField, "validate_msg_media">(
 			"validate_msg_media",
@@ -341,14 +314,6 @@ const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 	data: [casePropertyEntry<DatetimeField>()],
 	logic: [
 		requiredEntry<DatetimeField>(),
-		textEntry<DatetimeField, "required_msg">(
-			"required_msg",
-			"Required message",
-		),
-		mediaEntry<DatetimeField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<DatetimeField, "validate">("validate", "Validation"),
 		mediaEntry<DatetimeField, "validate_msg_media">(
 			"validate_msg_media",
@@ -374,11 +339,6 @@ const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 	data: [casePropertyEntry<SecretField>()],
 	logic: [
 		requiredEntry<SecretField>(),
-		textEntry<SecretField, "required_msg">("required_msg", "Required message"),
-		mediaEntry<SecretField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<SecretField, "validate">("validate", "Validation"),
 		mediaEntry<SecretField, "validate_msg_media">(
 			"validate_msg_media",
@@ -400,11 +360,6 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 	data: [casePropertyEntry<BarcodeField>()],
 	logic: [
 		requiredEntry<BarcodeField>(),
-		textEntry<BarcodeField, "required_msg">("required_msg", "Required message"),
-		mediaEntry<BarcodeField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<BarcodeField, "validate">("validate", "Validation"),
 		mediaEntry<BarcodeField, "validate_msg_media">(
 			"validate_msg_media",
@@ -423,19 +378,11 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 };
 
 // Geopoint is input-capable but has no `validate` / `validate_msg` —
-// so it gets the required-message entries but NOT validation-message media.
+// so it carries no validation-message media entry.
 const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	data: [casePropertyEntry<GeopointField>()],
 	logic: [
 		requiredEntry<GeopointField>(),
-		textEntry<GeopointField, "required_msg">(
-			"required_msg",
-			"Required message",
-		),
-		mediaEntry<GeopointField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<GeopointField, "relevant">("relevant", "Show When"),
 		xpathEntry<GeopointField, "default_value">(
 			"default_value",
@@ -459,14 +406,6 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 	],
 	logic: [
 		requiredEntry<SingleSelectField>(),
-		textEntry<SingleSelectField, "required_msg">(
-			"required_msg",
-			"Required message",
-		),
-		mediaEntry<SingleSelectField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<SingleSelectField, "validate">("validate", "Validation"),
 		mediaEntry<SingleSelectField, "validate_msg_media">(
 			"validate_msg_media",
@@ -491,14 +430,6 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 	],
 	logic: [
 		requiredEntry<MultiSelectField>(),
-		textEntry<MultiSelectField, "required_msg">(
-			"required_msg",
-			"Required message",
-		),
-		mediaEntry<MultiSelectField, "required_msg_media">(
-			"required_msg_media",
-			"Required message media",
-		),
 		xpathEntry<MultiSelectField, "validate">("validate", "Validation"),
 		mediaEntry<MultiSelectField, "validate_msg_media">(
 			"validate_msg_media",

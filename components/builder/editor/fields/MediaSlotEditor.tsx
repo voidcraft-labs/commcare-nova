@@ -4,7 +4,7 @@
 // `FieldEditorComponentProps` contract (value + onChange keyed to one
 // field property) to the standalone `MediaSlot` primitive. Every
 // message-slot media key (`label_media`, `hint_media`, `help_media`,
-// `required_msg_media`, `validate_msg_media`) renders through this —
+// `validate_msg_media`) renders through this —
 // all three kinds (image / audio / video) are offered, since a
 // question message can carry any of them.
 
