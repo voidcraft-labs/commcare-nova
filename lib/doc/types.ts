@@ -64,7 +64,7 @@ type UpdateFieldArm = {
 		kind: z.ZodLiteral<"updateField">;
 		uuid: typeof uuidSchema;
 		targetKind: z.ZodLiteral<K>;
-		patch: (typeof fieldPatchSchemaByKind)[K];
+		patch: z.ZodDefault<(typeof fieldPatchSchemaByKind)[K]>;
 	}>;
 }[(typeof fieldKinds)[number]];
 
@@ -74,7 +74,28 @@ const updateFieldArms = fieldKinds.map(
 			kind: z.literal("updateField"),
 			uuid: uuidSchema,
 			targetKind: z.literal(targetKind),
-			patch: fieldPatchSchemaByKind[targetKind],
+			// `patch` defaults to `{}` when absent on read. An edit that only
+			// *clears* properties produces an all-`undefined` patch (e.g.
+			// `editField({ case_property_on: null })` becomes
+			// `{ case_property_on: undefined }`); the project-wide
+			// `ignoreUndefinedProperties: true` Firestore setting strips those
+			// leaves on write, leaving the `patch` map empty, which Firestore
+			// then omits from the document entirely. Without this default the
+			// strict arm rejects the now-patchless event on read and throws,
+			// taking down the whole event scan for the app — and the log is
+			// supplemental, so one degenerate event must never block reading the
+			// rest of it. An empty patch is a no-op when replayed (the reducer's
+			// `{ ...field, ...patch }` spread leaves the field untouched), and
+			// the blueprint snapshot stays authoritative for the field's
+			// post-clear state, so nothing that matters for correctness is lost.
+			//
+			// Cast needed because under the generic `targetKind` the schema is a
+			// union of every kind's patch schema, which isn't directly
+			// `.default()`-callable; the outer `as UpdateFieldArm` restores the
+			// precise per-kind type.
+			patch: (fieldPatchSchemaByKind[targetKind] as z.ZodTypeAny).default(
+				() => ({}),
+			),
 		}) as UpdateFieldArm,
 ) as [UpdateFieldArm, ...UpdateFieldArm[]];
 
@@ -103,7 +124,10 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("updateModule"),
 		uuid: uuidSchema,
-		patch: moduleUpdatePatchSchema,
+		// Defaults to `{}` on read for the same reason as `updateField`'s
+		// `patch` — a clear-only module edit serializes to an empty (omitted)
+		// map under `ignoreUndefinedProperties`. See `updateFieldArms`.
+		patch: moduleUpdatePatchSchema.default(() => ({})),
 	}),
 	// Form
 	z.object({
@@ -128,7 +152,10 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("updateForm"),
 		uuid: uuidSchema,
-		patch: formUpdatePatchSchema,
+		// Defaults to `{}` on read for the same reason as `updateField`'s
+		// `patch` — a clear-only form edit serializes to an empty (omitted)
+		// map under `ignoreUndefinedProperties`. See `updateFieldArms`.
+		patch: formUpdatePatchSchema.default(() => ({})),
 	}),
 	// Field
 	z.object({
