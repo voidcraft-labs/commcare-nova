@@ -20,8 +20,10 @@ import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useRef, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
+import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import type { Field, SelectOption } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
+import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 
 /**
  * Draft option with a stable identity for React key management.
@@ -57,9 +59,14 @@ function toDraftOptions(options: SelectOption[]): DraftOption[] {
 	return options.map((o) => ({ ...o, id: nextDraftId++ }));
 }
 
-/** Strip draft IDs before persisting. */
+/** Strip the component-local draft id before persisting, preserving
+ *  every real option field (value, label, and optional media). A
+ *  destructure-and-spread (rather than picking `{value, label}`) is
+ *  load-bearing: picking would silently drop `media` on every commit,
+ *  erasing an option's attached image/audio/video the moment its label
+ *  or value is edited. */
 function toOptions(draft: DraftOption[]): SelectOption[] {
-	return draft.map(({ value, label }) => ({ value, label }));
+	return draft.map(({ id: _id, ...option }) => option);
 }
 
 /**
@@ -144,6 +151,22 @@ function OptionsEditorWidget({
 		[draft, commit],
 	);
 
+	// Attach / replace / clear an option's media. Commits immediately
+	// rather than on group-blur: the media picker is a separate dialog,
+	// so focus never returns to the fieldset to trigger the blur commit.
+	const setOptionMedia = useCallback(
+		(index: number, media: Media | undefined) => {
+			const next = draft.map((o, i) => {
+				if (i !== index) return o;
+				const { media: _was, ...base } = o;
+				return (media ? { ...base, media } : base) as DraftOption;
+			});
+			setDraft(next);
+			commit(next);
+		},
+		[draft, commit],
+	);
+
 	const addOption = useCallback(() => {
 		const num = draft.length + 1;
 		const next: DraftOption[] = [
@@ -204,7 +227,10 @@ function OptionsEditorWidget({
 			</legend>
 			<div className="space-y-1.5">
 				{draft.map((opt, i) => (
-					<div key={opt.id} className="flex items-center gap-1.5 group">
+					<div
+						key={opt.id}
+						className="flex flex-wrap items-center gap-1.5 group"
+					>
 						<div className="flex-1 min-w-0 flex gap-1">
 							<input
 								value={opt.label}
@@ -238,6 +264,13 @@ function OptionsEditorWidget({
 						>
 							<Icon icon={tablerTrash} width="12" height="12" />
 						</button>
+						<div className="basis-full pl-1">
+							<MediaSlot
+								value={opt.media}
+								onChange={(media) => setOptionMedia(i, media)}
+								kinds={MEDIA_KINDS}
+							/>
+						</div>
 					</div>
 				))}
 			</div>

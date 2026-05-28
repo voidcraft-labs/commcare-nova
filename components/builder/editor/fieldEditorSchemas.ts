@@ -13,6 +13,7 @@
 // the domain layer never does.
 
 import { CasePropertyEditor } from "@/components/builder/editor/fields/CasePropertyEditor";
+import { MediaSlotEditor } from "@/components/builder/editor/fields/MediaSlotEditor";
 import { OptionsEditor } from "@/components/builder/editor/fields/OptionsEditor";
 import { RequiredEditor } from "@/components/builder/editor/fields/RequiredEditor";
 import { ALWAYS_REQUIRED } from "@/components/builder/editor/fields/requiredState";
@@ -107,6 +108,34 @@ function requiredEntry<F extends Field & { required?: string }>(): {
 	};
 }
 
+// A plain optional-text editor entry (help / required_msg). Both type
+// args are explicit at call sites (`textEntry<TextField, "help">(...)`):
+// `F` isn't in a parameter position, so TS can't infer it, and once `F`
+// is given `K` must be too.
+function textEntry<F extends Field, K extends keyof F & string>(
+	key: K,
+	label: string,
+): {
+	key: K;
+	component: typeof TextEditor;
+	label: string;
+	addable: true;
+	visible: (field: F) => boolean;
+} {
+	return {
+		key,
+		component: TextEditor,
+		label,
+		addable: true,
+		visible: (field) => !!field[key],
+	};
+}
+
+// The hint text entry. Kept distinct from `textEntry` because some
+// capture kinds (image/audio/video/signature) mount it via the same
+// `"hint" & keyof F` cast the prior schema used — preserving their
+// existing hint affordance unchanged while this change only ADDS media
+// slots. Input kinds that genuinely carry `hint` use it too.
 function hintEntry<F extends Field>(): {
 	key: "hint" & keyof F;
 	component: typeof TextEditor;
@@ -123,6 +152,29 @@ function hintEntry<F extends Field>(): {
 	};
 }
 
+// A `Media` slot editor entry (label_media / hint_media / help_media /
+// required_msg_media / validate_msg_media). Same addable + visible-iff-set
+// shape as the text/XPath factories; `MediaSlotEditor` offers all three
+// media kinds.
+function mediaEntry<F extends Field, K extends keyof F & string>(
+	key: K,
+	label: string,
+): {
+	key: K;
+	component: typeof MediaSlotEditor;
+	label: string;
+	addable: true;
+	visible: (field: F) => boolean;
+} {
+	return {
+		key,
+		component: MediaSlotEditor,
+		label,
+		addable: true,
+		visible: (field) => !!field[key],
+	};
+}
+
 function casePropertyEntry<F extends Field>(): {
 	key: "case_property_on" & keyof F;
 	component: typeof CasePropertyEditor;
@@ -136,75 +188,172 @@ function casePropertyEntry<F extends Field>(): {
 }
 
 // ── Per-kind schemas ────────────────────────────────────────────────────
-// The full shape every kind file used to own. `validate_msg` is
-// deliberately absent from every schema — XPathEditor renders it as a
-// nested affordance under `validate` rather than as a sibling entry.
+//
+// Each input kind's `ui` section carries the label/hint/help text+media
+// set; `logic` carries the required-message + validation-message media
+// (beside the `required` toggle and `validate` editor those messages
+// decorate). The entries are inlined per kind with concrete type args
+// rather than collapsed into a generic helper: the `FieldEditorEntry<F>`
+// discriminated union only resolves against a concrete field type, so a
+// `<F>`-generic helper can't construct entries that typecheck (it's the
+// same reason the existing `xpathEntry` calls pass concrete kinds).
+// `validate_msg` is deliberately absent as a sibling entry — XPathEditor
+// renders it as a nested affordance under `validate`. `validate_msg_media`
+// IS a sibling logic entry (the nested XPath affordance has no media tier),
+// labelled to read as the validation message's media.
 
 const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 	data: [casePropertyEntry<TextField>()],
 	logic: [
 		requiredEntry<TextField>(),
+		textEntry<TextField, "required_msg">("required_msg", "Required message"),
+		mediaEntry<TextField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<TextField, "validate">("validate", "Validation"),
+		mediaEntry<TextField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<TextField, "relevant">("relevant", "Show When"),
 		xpathEntry<TextField, "default_value">("default_value", "Default Value"),
 		xpathEntry<TextField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<TextField>()],
+	ui: [
+		mediaEntry<TextField, "label_media">("label_media", "Label media"),
+		hintEntry<TextField>(),
+		mediaEntry<TextField, "hint_media">("hint_media", "Hint media"),
+		textEntry<TextField, "help">("help", "Help"),
+		mediaEntry<TextField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 	data: [casePropertyEntry<IntField>()],
 	logic: [
 		requiredEntry<IntField>(),
+		textEntry<IntField, "required_msg">("required_msg", "Required message"),
+		mediaEntry<IntField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<IntField, "validate">("validate", "Validation"),
+		mediaEntry<IntField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<IntField, "relevant">("relevant", "Show When"),
 		xpathEntry<IntField, "default_value">("default_value", "Default Value"),
 		xpathEntry<IntField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<IntField>()],
+	ui: [
+		mediaEntry<IntField, "label_media">("label_media", "Label media"),
+		hintEntry<IntField>(),
+		mediaEntry<IntField, "hint_media">("hint_media", "Hint media"),
+		textEntry<IntField, "help">("help", "Help"),
+		mediaEntry<IntField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 	data: [casePropertyEntry<DecimalField>()],
 	logic: [
 		requiredEntry<DecimalField>(),
+		textEntry<DecimalField, "required_msg">("required_msg", "Required message"),
+		mediaEntry<DecimalField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<DecimalField, "validate">("validate", "Validation"),
+		mediaEntry<DecimalField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<DecimalField, "relevant">("relevant", "Show When"),
 		xpathEntry<DecimalField, "default_value">("default_value", "Default Value"),
 		xpathEntry<DecimalField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<DecimalField>()],
+	ui: [
+		mediaEntry<DecimalField, "label_media">("label_media", "Label media"),
+		hintEntry<DecimalField>(),
+		mediaEntry<DecimalField, "hint_media">("hint_media", "Hint media"),
+		textEntry<DecimalField, "help">("help", "Help"),
+		mediaEntry<DecimalField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 	data: [casePropertyEntry<DateField>()],
 	logic: [
 		requiredEntry<DateField>(),
+		textEntry<DateField, "required_msg">("required_msg", "Required message"),
+		mediaEntry<DateField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<DateField, "validate">("validate", "Validation"),
+		mediaEntry<DateField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<DateField, "relevant">("relevant", "Show When"),
 		xpathEntry<DateField, "default_value">("default_value", "Default Value"),
 		xpathEntry<DateField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<DateField>()],
+	ui: [
+		mediaEntry<DateField, "label_media">("label_media", "Label media"),
+		hintEntry<DateField>(),
+		mediaEntry<DateField, "hint_media">("hint_media", "Hint media"),
+		textEntry<DateField, "help">("help", "Help"),
+		mediaEntry<DateField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 	data: [casePropertyEntry<TimeField>()],
 	logic: [
 		requiredEntry<TimeField>(),
+		textEntry<TimeField, "required_msg">("required_msg", "Required message"),
+		mediaEntry<TimeField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<TimeField, "validate">("validate", "Validation"),
+		mediaEntry<TimeField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<TimeField, "relevant">("relevant", "Show When"),
 		xpathEntry<TimeField, "default_value">("default_value", "Default Value"),
 		xpathEntry<TimeField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<TimeField>()],
+	ui: [
+		mediaEntry<TimeField, "label_media">("label_media", "Label media"),
+		hintEntry<TimeField>(),
+		mediaEntry<TimeField, "hint_media">("hint_media", "Hint media"),
+		textEntry<TimeField, "help">("help", "Help"),
+		mediaEntry<TimeField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 	data: [casePropertyEntry<DatetimeField>()],
 	logic: [
 		requiredEntry<DatetimeField>(),
+		textEntry<DatetimeField, "required_msg">(
+			"required_msg",
+			"Required message",
+		),
+		mediaEntry<DatetimeField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<DatetimeField, "validate">("validate", "Validation"),
+		mediaEntry<DatetimeField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<DatetimeField, "relevant">("relevant", "Show When"),
 		xpathEntry<DatetimeField, "default_value">(
 			"default_value",
@@ -212,35 +361,81 @@ const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 		),
 		xpathEntry<DatetimeField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<DatetimeField>()],
+	ui: [
+		mediaEntry<DatetimeField, "label_media">("label_media", "Label media"),
+		hintEntry<DatetimeField>(),
+		mediaEntry<DatetimeField, "hint_media">("hint_media", "Hint media"),
+		textEntry<DatetimeField, "help">("help", "Help"),
+		mediaEntry<DatetimeField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 	data: [casePropertyEntry<SecretField>()],
 	logic: [
 		requiredEntry<SecretField>(),
+		textEntry<SecretField, "required_msg">("required_msg", "Required message"),
+		mediaEntry<SecretField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<SecretField, "validate">("validate", "Validation"),
+		mediaEntry<SecretField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<SecretField, "relevant">("relevant", "Show When"),
 		xpathEntry<SecretField, "default_value">("default_value", "Default Value"),
 	],
-	ui: [hintEntry<SecretField>()],
+	ui: [
+		mediaEntry<SecretField, "label_media">("label_media", "Label media"),
+		hintEntry<SecretField>(),
+		mediaEntry<SecretField, "hint_media">("hint_media", "Hint media"),
+		textEntry<SecretField, "help">("help", "Help"),
+		mediaEntry<SecretField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 	data: [casePropertyEntry<BarcodeField>()],
 	logic: [
 		requiredEntry<BarcodeField>(),
+		textEntry<BarcodeField, "required_msg">("required_msg", "Required message"),
+		mediaEntry<BarcodeField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<BarcodeField, "validate">("validate", "Validation"),
+		mediaEntry<BarcodeField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<BarcodeField, "relevant">("relevant", "Show When"),
 		xpathEntry<BarcodeField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<BarcodeField>()],
+	ui: [
+		mediaEntry<BarcodeField, "label_media">("label_media", "Label media"),
+		hintEntry<BarcodeField>(),
+		mediaEntry<BarcodeField, "hint_media">("hint_media", "Hint media"),
+		textEntry<BarcodeField, "help">("help", "Help"),
+		mediaEntry<BarcodeField, "help_media">("help_media", "Help media"),
+	],
 };
 
+// Geopoint is input-capable but has no `validate` / `validate_msg` —
+// so it gets the required-message entries but NOT validation-message media.
 const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	data: [casePropertyEntry<GeopointField>()],
 	logic: [
 		requiredEntry<GeopointField>(),
+		textEntry<GeopointField, "required_msg">(
+			"required_msg",
+			"Required message",
+		),
+		mediaEntry<GeopointField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<GeopointField, "relevant">("relevant", "Show When"),
 		xpathEntry<GeopointField, "default_value">(
 			"default_value",
@@ -248,7 +443,13 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 		),
 		xpathEntry<GeopointField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<GeopointField>()],
+	ui: [
+		mediaEntry<GeopointField, "label_media">("label_media", "Label media"),
+		hintEntry<GeopointField>(),
+		mediaEntry<GeopointField, "hint_media">("hint_media", "Hint media"),
+		textEntry<GeopointField, "help">("help", "Help"),
+		mediaEntry<GeopointField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
@@ -258,11 +459,29 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 	],
 	logic: [
 		requiredEntry<SingleSelectField>(),
+		textEntry<SingleSelectField, "required_msg">(
+			"required_msg",
+			"Required message",
+		),
+		mediaEntry<SingleSelectField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<SingleSelectField, "validate">("validate", "Validation"),
+		mediaEntry<SingleSelectField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<SingleSelectField, "relevant">("relevant", "Show When"),
 		xpathEntry<SingleSelectField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<SingleSelectField>()],
+	ui: [
+		mediaEntry<SingleSelectField, "label_media">("label_media", "Label media"),
+		hintEntry<SingleSelectField>(),
+		mediaEntry<SingleSelectField, "hint_media">("hint_media", "Hint media"),
+		textEntry<SingleSelectField, "help">("help", "Help"),
+		mediaEntry<SingleSelectField, "help_media">("help_media", "Help media"),
+	],
 };
 
 const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
@@ -272,20 +491,44 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 	],
 	logic: [
 		requiredEntry<MultiSelectField>(),
+		textEntry<MultiSelectField, "required_msg">(
+			"required_msg",
+			"Required message",
+		),
+		mediaEntry<MultiSelectField, "required_msg_media">(
+			"required_msg_media",
+			"Required message media",
+		),
 		xpathEntry<MultiSelectField, "validate">("validate", "Validation"),
+		mediaEntry<MultiSelectField, "validate_msg_media">(
+			"validate_msg_media",
+			"Validation message media",
+		),
 		xpathEntry<MultiSelectField, "relevant">("relevant", "Show When"),
 		xpathEntry<MultiSelectField, "calculate">("calculate", "Calculate"),
 	],
-	ui: [hintEntry<MultiSelectField>()],
+	ui: [
+		mediaEntry<MultiSelectField, "label_media">("label_media", "Label media"),
+		hintEntry<MultiSelectField>(),
+		mediaEntry<MultiSelectField, "hint_media">("hint_media", "Hint media"),
+		textEntry<MultiSelectField, "help">("help", "Help"),
+		mediaEntry<MultiSelectField, "help_media">("help_media", "Help media"),
+	],
 };
 
+// Capture kinds (image/audio/video/signature) carry a display `label`
+// + `label_media` but no help/required/validate message slots — the
+// label-media entry joins each kind's pre-existing hint entry.
 const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
 	data: [],
 	logic: [
 		requiredEntry<ImageField>(),
 		xpathEntry<ImageField, "relevant">("relevant", "Show When"),
 	],
-	ui: [hintEntry<ImageField>()],
+	ui: [
+		mediaEntry<ImageField, "label_media">("label_media", "Label media"),
+		hintEntry<ImageField>(),
+	],
 };
 
 const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
@@ -294,7 +537,10 @@ const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
 		requiredEntry<AudioField>(),
 		xpathEntry<AudioField, "relevant">("relevant", "Show When"),
 	],
-	ui: [hintEntry<AudioField>()],
+	ui: [
+		mediaEntry<AudioField, "label_media">("label_media", "Label media"),
+		hintEntry<AudioField>(),
+	],
 };
 
 const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
@@ -303,7 +549,10 @@ const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
 		requiredEntry<VideoField>(),
 		xpathEntry<VideoField, "relevant">("relevant", "Show When"),
 	],
-	ui: [hintEntry<VideoField>()],
+	ui: [
+		mediaEntry<VideoField, "label_media">("label_media", "Label media"),
+		hintEntry<VideoField>(),
+	],
 };
 
 const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
@@ -312,13 +561,16 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 		requiredEntry<SignatureField>(),
 		xpathEntry<SignatureField, "relevant">("relevant", "Show When"),
 	],
-	ui: [hintEntry<SignatureField>()],
+	ui: [
+		mediaEntry<SignatureField, "label_media">("label_media", "Label media"),
+		hintEntry<SignatureField>(),
+	],
 };
 
 // Hidden's `calculate` is required-by-schema — always-visible, never
 // addable, never collapses. The other logic keys follow the standard
 // optional pattern. No `ui` section (hidden fields have no label, no
-// hint, and never render to the user).
+// label media, and never render to the user).
 const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	data: [casePropertyEntry<HiddenField>()],
 	logic: [
@@ -330,6 +582,10 @@ const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	ui: [],
 };
 
+// Group/repeat are structural containers shown with minimal chrome
+// (Logic only). Their `label_media` carrier exists in the schema and is
+// set via the SA tools; the inline inspector keeps them uncluttered
+// rather than adding an Appearance section to every container.
 const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	data: [],
 	logic: [xpathEntry<GroupField, "relevant">("relevant", "Show When")],
@@ -354,7 +610,7 @@ const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 const labelFieldEditorSchema: FieldEditorSchema<LabelField> = {
 	data: [],
 	logic: [xpathEntry<LabelField, "relevant">("relevant", "Show When")],
-	ui: [],
+	ui: [mediaEntry<LabelField, "label_media">("label_media", "Label media")],
 };
 
 /**

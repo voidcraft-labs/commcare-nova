@@ -4,6 +4,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import { AfterSubmitSection } from "./AfterSubmitSection";
 import { CloseConditionSection } from "./CloseConditionSection";
 import { ConnectSection } from "./ConnectSection";
+import { FormAppearanceSection } from "./FormAppearanceSection";
 import type { FormSettingsSectionProps } from "./types";
 
 /** Shell prop shape: the standard section props plus a dismiss callback
@@ -49,6 +50,8 @@ export function FormSettingsPanel({
 				<AfterSubmitSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
+
+				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
 			</div>
 		</div>
 	);

@@ -30,6 +30,7 @@ import { requireSession } from "@/lib/auth-utils";
 import {
 	createPendingAsset,
 	findReadyAssetByOwnerAndHash,
+	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
 import {
 	ALL_MIME_TYPES,
@@ -100,9 +101,10 @@ export async function POST(req: NextRequest) {
 		}
 
 		// Dedup probe — if the owner already has this exact content
-		// hash as a `ready` asset, return that id and skip the bytes
-		// push. The browser sees `deduplicated: true` and goes
-		// straight to attaching the asset to its target carrier.
+		// hash as a `ready` asset, return it and skip the bytes push.
+		// The browser sees `deduplicated: true` and attaches the
+		// returned asset to its target carrier without a second round
+		// trip — so the full wire asset is included, not just the id.
 		const existing = await findReadyAssetByOwnerAndHash(
 			session.user.id,
 			contentHash,
@@ -111,6 +113,7 @@ export async function POST(req: NextRequest) {
 			return NextResponse.json({
 				assetId: existing.id,
 				deduplicated: true,
+				asset: toWireMediaAsset(existing),
 			});
 		}
 
@@ -141,6 +144,11 @@ export async function POST(req: NextRequest) {
 			assetId,
 			deduplicated: false,
 			uploadUrl: url,
+			// The signed URL is bound to the NORMALIZED `mimeType`, not
+			// the client's raw `File.type` (which may be an alias like
+			// `audio/x-m4a`). The browser must send this exact value as
+			// the PUT `Content-Type`, or GCS rejects the signature.
+			uploadContentType: mimeType,
 			expiresAtMs,
 		});
 	} catch (err) {
