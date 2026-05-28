@@ -2,20 +2,18 @@
  * Rule: within one image-map column, every mapping entry's `value`
  * is unique.
  *
- * The image-map column's wire shape is the id-mapping chain with
- * image paths inlined — one nested `if(selected(<field>,
- * '<value>'), <jr://path>, ...)` arm per mapping row. Two rows that
- * share the same `value` collapse to one wire arm: the first row's
- * image always wins, the duplicate row is dead. The schema's
- * top-level `.refine()` rejects duplicates at parse time, so the
- * common path never reaches this rule — but the SA's tool surface
- * builds `.partial()` patches that bypass the refine, and tests
- * commonly construct columns without round-tripping through Zod.
- * This rule is the totality backstop.
+ * The wire shape is a nested `if(selected(<field>, '<value>'),
+ * <jr://path>, ...)` chain — one arm per mapping row. Two rows
+ * sharing one `value` collapse to one arm; the first row's image
+ * displays and the duplicate row never renders. The schema's
+ * `.refine()` rejects duplicates at parse, so the common path never
+ * reaches this rule — but `.partial()` patches from SA tools bypass
+ * the refine, and tests commonly construct columns without round-
+ * tripping through Zod. This rule is the totality backstop.
  *
- * Cousin columns can share a value freely (the wire arm is per-
- * column); only siblings inside one column collide. The rule's
- * inner loop scopes the uniqueness check to one column at a time.
+ * Cousin columns can share a value freely (the arm is per-column);
+ * only siblings inside one column collide. The inner loop scopes the
+ * uniqueness check to one column at a time.
  *
  * Mirrors `idMappingValueRequired`'s shape: module scope; iterate
  * `caseListConfig.columns`; emit one error per duplicate row with
@@ -49,7 +47,7 @@ export function imageMapValueUnique(
 					validationError(
 						"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
 						"module",
-						`Image-map column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has two rows that share the value "${entry.value}" (rows ${prior + 1} and ${rowIndex + 1}). Each case-property value can map to at most one image — only the first row's image would ever display, so the duplicate row is dead. Change one row's value, or remove the duplicate.`,
+						`Image-map column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has two rows that share the value "${entry.value}" (rows ${prior + 1} and ${rowIndex + 1}). Each case-property value can map to at most one image, so only the first row's image displays. Change one row's value, or delete the duplicate.`,
 						{ moduleUuid, moduleName: mod.name },
 						{
 							columnIndex: String(columnIndex),

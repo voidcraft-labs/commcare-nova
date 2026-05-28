@@ -146,10 +146,10 @@ export async function validateAndFix(
 	while (true) {
 		attempt++;
 		// Resolve the manifest before validation each iteration. The
-		// SA's fixes can rewrite which assets the doc references — an
-		// `attachFieldMedia` followed by an `attachOptionMedia` will
-		// produce two different reference sets — so the manifest must
-		// reflect the current doc's references, not the initial one.
+		// SA's mutations between iterations can rewrite which assets
+		// the doc references, so the manifest must reflect the current
+		// doc's references — a snapshot from before the loop would go
+		// stale on the first mutation that touches a media slot.
 		// `loadAssetsByIds` filters by owner (closes cross-tenant
 		// enumeration); pending rows are included so `mediaAssetReady`
 		// can fire with its actionable "still uploading" message

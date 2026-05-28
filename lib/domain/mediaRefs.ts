@@ -23,11 +23,10 @@
 //
 // Carrier scope intentionally OMITS:
 //   - `field.required_msg_media` — `jr:requiredMsg` has no commcare-core
-//     wire target (verified in `XFormParser::parseBindAttributes`); the
-//     authoring slot was rolled back in Segment 3.
-//   - `caseListConfig.icon` / `caseListConfig.audioLabel` — Reserved
-//     slot with no wire path emit today; bundling its bytes into the
-//     CCZ would orphan them.
+//     wire target; verified at `XFormParser::parseBindAttributes`.
+//   - `caseListConfig.icon` / `caseListConfig.audioLabel` — reserved
+//     slots with no wire emission. Walking them would let the manifest
+//     loader bundle orphan bytes into the CCZ.
 
 import type { BlueprintDoc } from "./blueprint";
 import { type Field, isContainer } from "./fields";
@@ -359,9 +358,10 @@ function* walkFieldMediaSlots(
 
 /**
  * Walk the three `Media` slot keys (image / audio / video) on one
- * bundle, yielding one `AssetRef` per non-empty slot. Closed by the
- * `Media` schema's strict-object shape — a slot added at the schema
- * layer would fail the walk here until `MEDIA_BUNDLE_KEYS` grows.
+ * bundle, yielding one `AssetRef` per non-empty slot. The slot set is
+ * hand-coupled: `MEDIA_BUNDLE_KEYS` (here) and `MediaSlotKind`
+ * (the slot type) are the single source of truth; adding a slot at
+ * the `Media` schema layer requires touching both explicitly.
  */
 function* yieldBundleSlots(
 	bundle: Media | undefined,
