@@ -1112,8 +1112,14 @@ function childCaseNoNameField(
 	const errors: ValidationError[] = [];
 	for (const child of caseConfig.child_cases) {
 		if (child.case_name_field) continue;
-		const scope = child.repeat_context
-			? ` inside repeat "${child.repeat_context}"`
+		// Author-facing scope label uses the bare repeat id (`kids`), not the
+		// wire XPath (`/data/group_a/kids/item`). The wire path is correct
+		// emission data but the wrong vocabulary for an authoring error: the
+		// user named the repeat `kids` in the editor and that's what should
+		// appear in quotes. The bare id travels alongside `repeat_context`
+		// on `DerivedChildCase` for exactly this reason.
+		const scope = child.repeat_ancestor_id
+			? ` inside repeat "${child.repeat_ancestor_id}"`
 			: "";
 		errors.push(
 			validationError(
@@ -1123,7 +1129,9 @@ function childCaseNoNameField(
 				baseLocation(ctx),
 				{
 					caseType: child.case_type,
-					...(child.repeat_context ? { repeatId: child.repeat_context } : {}),
+					...(child.repeat_ancestor_id
+						? { repeatId: child.repeat_ancestor_id }
+						: {}),
 				},
 			),
 		);

@@ -41,7 +41,24 @@ export interface DerivedChildCase {
 	case_name_field?: string;
 	case_properties: CasePropertyMapping[];
 	relationship: "child" | "extension";
+	/**
+	 * Wire-format splice-target XPath for the enclosing repeat (e.g.
+	 * `/data/group_a/kids`, or `/data/X/item` for `query_bound`), already
+	 * resolved during the derivation walk. Consumed by the XForm emitter
+	 * verbatim — no second resolution. `undefined` for child cases authored
+	 * outside any repeat (splice at the data root).
+	 *
+	 * NOT the bare repeat field id — that lives on `repeat_ancestor_id` and
+	 * is the right value for human-readable validator messages.
+	 */
 	repeat_context?: string;
+	/**
+	 * The enclosing repeat field's id (e.g. `kids`), kept alongside
+	 * `repeat_context` so validator messages can name the repeat the way
+	 * the author authored it. Always set when `repeat_context` is set, and
+	 * vice versa; the two travel in lockstep.
+	 */
+	repeat_ancestor_id?: string;
 	/**
 	 * Resolved data-tree path per field-id in this bucket (`case_name` source +
 	 * each `case_properties[].question_id`). Populated during the
@@ -177,15 +194,20 @@ export function deriveCaseConfig(
 				selfPath = null;
 			}
 
+			// `descendInto` produces this field's path for its subtree: for
+			// repeats, `/data/<X>` (user_controlled / count_bound) or
+			// `/data/<X>/item` (query_bound); for any other container, the
+			// identity pass-through. Computed once and reused for both the
+			// repeat-splice-target tracking AND the recursive `parentPath`
+			// argument below — those two values are always equal when this
+			// field is a container, so a single computation makes the
+			// equality structural rather than relying on the reader to
+			// re-derive it.
+			const containerPath = selfPath ? descendInto(field, selfPath) : null;
 			const currentRepeat = field.kind === "repeat" ? field.id : repeatAncestor;
-			// When this field IS a repeat, its splice target — for any child
-			// case authored INSIDE it — is `descendInto(field, selfPath)`:
-			// `/data/<X>` for user_controlled / count_bound, `/data/<X>/item`
-			// for query_bound. The path is recorded once on the bucket; the
-			// emitter doesn't need to look it up.
 			const currentRepeatPath =
-				field.kind === "repeat" && selfPath
-					? descendInto(field, selfPath)
+				field.kind === "repeat" && containerPath
+					? containerPath
 					: repeatAncestorPath;
 			const casePropertyOn = readFieldString(field, "case_property_on");
 
@@ -233,13 +255,8 @@ export function deriveCaseConfig(
 			// with a bad id has the validator firing against it; skipping its
 			// subtree here keeps the derivation total without masking the
 			// upstream error.
-			if (selfPath && doc.fieldOrder[fieldUuid] !== undefined) {
-				walk(
-					fieldUuid,
-					descendInto(field, selfPath),
-					currentRepeat,
-					currentRepeatPath,
-				);
+			if (containerPath && doc.fieldOrder[fieldUuid] !== undefined) {
+				walk(fieldUuid, containerPath, currentRepeat, currentRepeatPath);
 			}
 		}
 	};
@@ -307,13 +324,14 @@ function deriveChildCases(
 			bucket.fields.map((e) => [e.id, e.path]),
 		);
 
-		// `repeat_context` is the splice-target XPath — already including the
-		// `/item` step for `query_bound`. Emitting the precomputed path
-		// (instead of the bare field id) sidesteps the cousin-id ambiguity
-		// `findField` would have suffered: two cousin repeats with the same
-		// id would have collapsed via the id lookup, but their paths are
-		// distinct.
+		// Two repeat slots travel together on each emitted child case:
+		// `repeat_context` (wire-format splice-target XPath, drives emission
+		// in `buildFormActions` + `addCaseBlocks`) and `repeat_ancestor_id`
+		// (bare field id, drives human-readable validator messages so the
+		// author sees the repeat the way they authored it, not as wire XPath).
+		// Both source from the same bucket — they're set or unset in lockstep.
 		const repeatContext = bucket.repeatAncestorPath?.toXPath();
+		const repeatAncestorId = bucket.repeatAncestor;
 
 		derived.push({
 			case_type: bucket.caseType,
@@ -321,6 +339,7 @@ function deriveChildCases(
 			case_properties: childProps,
 			relationship,
 			...(repeatContext && { repeat_context: repeatContext }),
+			...(repeatAncestorId && { repeat_ancestor_id: repeatAncestorId }),
 			field_paths: fieldPaths,
 		});
 	}

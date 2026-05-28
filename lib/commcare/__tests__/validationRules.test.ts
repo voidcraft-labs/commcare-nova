@@ -1598,6 +1598,74 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 		expect(offender?.message).toContain("child");
 	});
 
+	/**
+	 * The validator message + `repeatId` payload cite the bare repeat field id
+	 * the author wrote (`kids`), NOT the wire-format XPath
+	 * (`/data/family/kids/item`). Authoring-layer surfaces speak the authoring
+	 * vocabulary; wire XPath leaks `/item` + the full data-tree path that the
+	 * author has no reason to know about. Regression pin: the round-3 fix
+	 * switched `DerivedChildCase.repeat_context` from bare id to XPath; the
+	 * paired `repeat_ancestor_id` slot preserves the authoring-voice form.
+	 */
+	it("cites the bare repeat field id in the message + repeatId payload, not the wire XPath", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Families",
+					caseType: "family",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Family name",
+									case_property_on: "family",
+								}),
+								f({
+									kind: "repeat",
+									id: "kids",
+									label: "Children",
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											kind: "text",
+											id: "kid_age",
+											label: "Age",
+											case_property_on: "child",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "family",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+				{
+					name: "child",
+					properties: [{ name: "kid_age", label: "Age" }],
+				},
+			],
+		});
+		const errors = runValidation(doc);
+		const offender = errors.find((e) => e.code === "CHILD_CASE_NO_NAME_FIELD");
+		expect(offender).toBeDefined();
+		expect(offender?.message).toContain('"kids"');
+		expect(offender?.message).not.toMatch(/\/data\/kids/);
+		expect(offender?.details?.repeatId).toBe("kids");
+	});
+
 	it("does not fire when the child bucket includes a `case_name` field", () => {
 		const doc = buildDoc({
 			appName: "T",
