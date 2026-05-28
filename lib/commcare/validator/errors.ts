@@ -215,6 +215,26 @@ export type ValidationErrorCode =
 	| "BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED"
 	| "BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN"
 	| "BINDING_RESOLUTION_MEDIA_REF_UNDECLARED"
+	// `media_suite.xml` parse contract. CommCare's runtime parses the file
+	// through the generic `SuiteParser` + `ResourceParser` machinery; each
+	// `<media>` block contributes one or more `<resource>` entries, and the
+	// installer (`BasicInstaller`) routes through the resource's
+	// `<location authority="local">` to read its bundled bytes. Category-1
+	// codes are fatal at parse (KXmlParser throws or `parseInt` fails);
+	// Category-2 codes parse clean but render the media unusable at install.
+	| "MEDIA_SUITE_PARSE_ERROR"
+	| "MEDIA_SUITE_NO_SUITE_ELEMENT"
+	| "MEDIA_SUITE_VERSION_NOT_INTEGER"
+	| "MEDIA_NO_PATH"
+	| "MEDIA_NO_RESOURCE"
+	| "MEDIA_RESOURCE_NO_ID"
+	| "MEDIA_RESOURCE_VERSION_NOT_INTEGER"
+	| "MEDIA_RESOURCE_NO_LOCATION"
+	| "MEDIA_LOCATION_NO_AUTHORITY"
+	| "MEDIA_LOCATION_NO_PATH"
+	| "MEDIA_LOCATION_UNKNOWN_AUTHORITY"
+	| "MEDIA_RESOURCE_DUPLICATE_ID"
+	| "MEDIA_LOCATION_PATH_NOT_BUNDLED"
 	// Media — the three asset-context rules under `rules/media/`. Each
 	// fires only when the validator runs with a resolved asset manifest
 	// (the SA validation loop's path); structural rules (e.g. image-map
