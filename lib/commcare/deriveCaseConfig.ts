@@ -303,12 +303,10 @@ function deriveChildCases(
 		const ctDef = caseTypes.find((ct) => ct.name === bucket.caseType);
 		const relationship = ctDef?.relationship ?? "child";
 
-		// Child case name is the field id'd `case_name` in this bucket. When
-		// absent it stays `undefined` — the validator rule `childCaseNoNameField`
-		// reports against this bucket directly. The old silent fallback (use the
-		// first field in the bucket as the name source) is gone; a missing
-		// `case_name` is now a real authoring error the user sees rather than a
-		// silent re-purpose of an unrelated field.
+		// Child case name source: the field id'd `case_name` in this bucket.
+		// `undefined` when absent — the validator rule `childCaseNoNameField`
+		// reports against this bucket so the author sees an actionable error
+		// rather than a silently re-purposed unrelated field.
 		const childCaseName = bucket.fields.find((e) => e.id === "case_name")?.id;
 
 		const childProps: CasePropertyMapping[] = bucket.fields

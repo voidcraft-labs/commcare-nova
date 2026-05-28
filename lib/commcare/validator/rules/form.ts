@@ -1093,16 +1093,11 @@ function primaryCaseFieldInRepeat(
  * Mirror of the primary case's `NO_CASE_NAME_FIELD` rule for child
  * cases. Every child-case bucket — derived by
  * `deriveCaseConfig::deriveChildCases` from `(case_property_on,
- * repeat_ancestor)` — needs a field with id `case_name` in that scope
- * so the new case has a display name. The expander emits an empty
- * `case_name_field` sentinel when the bucket has no such field; this
- * rule surfaces the omission with a per-bucket message that names the
+ * repeat_ancestor_path)` — needs a field with id `case_name` in that
+ * scope so the new case has a display name. Without this rule, a
+ * missing `case_name` would either ship a nameless case to CommCare
+ * or silently re-purpose an unrelated field; the message names the
  * case type AND (when applicable) the repeat the bucket lives inside.
- *
- * The old silent fallback in `deriveChildCases` (use the first field
- * in the bucket as the case_name source) is gone — that footgun
- * silently re-purposed an unrelated field as the case display name.
- * This rule replaces it with an actionable authoring error.
  */
 function childCaseNoNameField(
 	ctx: FormContext,
