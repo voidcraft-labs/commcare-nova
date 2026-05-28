@@ -56,17 +56,11 @@ export function bundleKeyLabel(bundleKey: FieldMediaBundleKey): string {
 
 /**
  * One-sentence-fragment description of a media reference site,
- * embedded inside a rule's error message after a leading "At" or "The
- * media asset at" preposition. Lowercase noun phrase, no trailing
- * "slot" — the surrounding rule template owns the slot/asset
- * vocabulary, so the location names only the carrier ("the icon on
- * module \"Patients\"", not "the icon slot on module \"Patients\"").
- *
- * Doubled "slot" wording was a real bug before: leading template
- * said "The image slot at" and the location added another "slot",
- * rendering "The image slot at the icon slot on …". Keeping the
- * noun in exactly one place — the leading template — is the
- * structural fix.
+ * embedded inside a rule's error message after a leading "At" or
+ * "The media asset at" preposition. The carrier name uses a bare
+ * noun phrase. The leading template at each rule owns the `slot` /
+ * `media asset` vocabulary, so a `describeLocation` value never
+ * embeds it.
  */
 export function describeLocation(location: MediaRefLocation): string {
 	switch (location.kind) {

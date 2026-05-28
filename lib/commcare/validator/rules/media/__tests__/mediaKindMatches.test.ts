@@ -3,12 +3,8 @@
  * matches the carrier slot's expected kind.
  *
  * Asserts on the full sentence shape (`toBe(<exact string>)`) per
- * carrier, not on noun-substring shards — the previous fragment-based
- * assertions ("image slot", "audio slot") matched two distinct
- * renderings and let a doubled-"slot" rendering bug through. Locking
- * to the full sentence is one-line-of-churn-per-test if the wording
- * ever changes, in exchange for catching exactly this regression
- * class.
+ * carrier so a regression in `describeLocation` or `kindMismatchMessage`
+ * fails the test rather than slipping past a substring match.
  */
 
 import { describe, expect, it } from "vitest";
