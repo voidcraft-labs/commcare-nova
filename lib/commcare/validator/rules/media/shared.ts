@@ -172,10 +172,14 @@ export function validationLocationFor(
 				field: "options",
 			};
 		case "image_map_mapping":
+			// `field` is intentionally absent — mirrors
+			// `idMappingValueRequired`, which carries `{ moduleUuid,
+			// moduleName }` only. The row coordinates the asset-context
+			// rules need (column uuid, row index) flow through `details`
+			// via `navigabilityDetailsFor`, not through `field`.
 			return {
 				moduleUuid: location.moduleUuid,
 				moduleName: location.moduleName,
-				field: "caseListConfig.columns.mapping",
 			};
 	}
 }
