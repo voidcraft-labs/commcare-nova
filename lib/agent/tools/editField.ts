@@ -76,9 +76,7 @@ export type EditFieldResult = string | { error: string };
  *   - `null`   → clear the property — emitted as `null`, NOT `undefined`.
  *                The `updateField` reducer deletes the key on a `null`
  *                value, and `null` (unlike `undefined`) survives Firestore,
- *                so the clear round-trips through the event log. Coercing a
- *                clear to `undefined` here is exactly what silently dropped
- *                blanks from the log before.
+ *                so the clear round-trips through the event log.
  *   - a value  → set the property (key present with the value)
  *
  * Unlike the add-path where empty string is a required-sentinel meaning

@@ -74,20 +74,20 @@ const updateFieldArms = fieldKinds.map(
 			kind: z.literal("updateField"),
 			uuid: uuidSchema,
 			targetKind: z.literal(targetKind),
-			// `patch` defaults to `{}` when absent on read. An edit that only
-			// *clears* properties produces an all-`undefined` patch (e.g.
-			// `editField({ case_property_on: null })` becomes
-			// `{ case_property_on: undefined }`); the project-wide
-			// `ignoreUndefinedProperties: true` Firestore setting strips those
-			// leaves on write, leaving the `patch` map empty, which Firestore
-			// then omits from the document entirely. Without this default the
-			// strict arm rejects the now-patchless event on read and throws,
-			// taking down the whole event scan for the app — and the log is
-			// supplemental, so one degenerate event must never block reading the
-			// rest of it. An empty patch is a no-op when replayed (the reducer's
-			// `{ ...field, ...patch }` spread leaves the field untouched), and
-			// the blueprint snapshot stays authoritative for the field's
-			// post-clear state, so nothing that matters for correctness is lost.
+			// `patch` defaults to `{}` when it is absent on read. A field
+			// clear travels as an explicit `null` value (which survives
+			// Firestore), so a normal clear-only edit produces a NON-empty
+			// patch and never needs this default. The default exists for a
+			// patch that is genuinely empty on the wire: a degenerate
+			// no-property update, or a legacy event written before clears
+			// carried `null` — back then a clear lowered to an all-`undefined`
+			// patch that `ignoreUndefinedProperties` stripped to an empty map,
+			// which Firestore omits from the document entirely. Defaulting to
+			// `{}` lets such an event parse and replay as a no-op (the reducer
+			// applies no keys) instead of the strict arm throwing and taking
+			// down the whole event scan — the log is supplemental, so one
+			// degenerate event must never block reading the rest. The blueprint
+			// snapshot stays authoritative for the field's actual state.
 			//
 			// Cast needed because under the generic `targetKind` the schema is a
 			// union of every kind's patch schema, which isn't directly

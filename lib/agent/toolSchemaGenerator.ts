@@ -231,10 +231,11 @@ const casePropertyOnField = () =>
 
 // Nullable variants for the edit patch. `null` means "clear this
 // property" (distinct from "leave unchanged", which is the key absent).
-// Every clearable edit-patch key uses these — the tool handler maps
-// `null → undefined` before dispatch, and Immer's `Object.assign` drops
-// keys set to `undefined`, which is how the reducer clears a property
-// without needing a separate "remove" mutation.
+// The `null` is preserved end-to-end — `editField` carries it into the
+// `updateField` patch and the reducer deletes the key on a `null` (or
+// `undefined`) value, clearing the property without a separate "remove"
+// mutation. `null` (unlike `undefined`) survives Firestore, so the clear
+// round-trips through the event log.
 const nullableString = (doc: string) =>
 	z.string().nullable().optional().describe(doc);
 const nullableOptions = () =>
@@ -307,8 +308,9 @@ function buildAddFieldSchema(kinds: readonly FieldKind[]) {
 /**
  * Edit-patch shape. Every key is optional (omitted = "leave as-is").
  * Every clearable key is nullable (null = "clear this property"). The
- * tool handler maps null→undefined before dispatch so the reducer's
- * Object.assign drops the key and the field goes back to its default.
+ * `null` is preserved through dispatch; the `updateField` reducer deletes
+ * the key on a `null` (or `undefined`) value, so the field goes back to
+ * its default without a separate "remove" mutation.
  *
  * `id` and `kind` are also optional but NOT nullable: both are required
  * identity/structural properties that have no meaningful "cleared"

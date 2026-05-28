@@ -285,8 +285,8 @@ describe("updateField", () => {
 		// `null` is the on-the-wire representation of a clear: the SA's
 		// `editField({ case_property_on: null })` lowers to this patch. The
 		// reducer must DELETE the key (not set it to null, which fieldSchema
-		// would reject). This is the exact edit that, encoded as `undefined`,
-		// used to vanish from the event log entirely.
+		// would reject). `null` is used rather than `undefined` because it
+		// survives Firestore, so the clear persists in the event log.
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
@@ -331,8 +331,8 @@ describe("updateField", () => {
 	it("accepts a null patch value through mutationSchema so a blank round-trips", () => {
 		// The round-trip proof: a clear is persisted as `patch:
 		// { case_property_on: null }`, and `null` (unlike `undefined`) survives
-		// Firestore. The mutation must parse cleanly on read — the strict arm
-		// rejecting it was the original event-reader crash.
+		// Firestore. The update arm's patch schema must accept the `null` value
+		// so the mutation parses cleanly on read.
 		const parsed = mutationSchema.parse({
 			kind: "updateField",
 			uuid: Q("a"),
