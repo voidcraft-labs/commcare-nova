@@ -37,6 +37,29 @@ import { readFieldString } from "./fieldProps";
 import { FormPath } from "./xform/formPath";
 
 /**
+ * Given a container field and its OWN path, return the path its children
+ * live under. For a `query_bound` (Vellum "model iteration") repeat that's
+ * one `<item>` step deeper (`<X>/<item>`); for every other field it's the
+ * field's own path. Mirrors `Vellum/src/modeliteration.js::
+ * modelRepeatMugOptions.getPathName` (appends `/item` when
+ * `dataSource.idsQuery` is set) and the bind-emission shape in
+ * `xform/builder.ts::buildContainer`.
+ *
+ * The single authority for the `/item` descent decision — every walk over
+ * the field tree that needs a child's path (`findField`,
+ * `buildCaseReferencesLoad`, the subcase splice-target resolution in
+ * `buildFormActions`) routes through here. A walk that forgot the `/item`
+ * step would silently emit `/data/<X>/<field>` where the data element is
+ * `/data/<X>/item/<field>` — a dangling reference no oracle catches at the
+ * HQ-JSON layer. Centralizing the decision makes that drift unrepresentable.
+ */
+function descendInto(field: Field, ownPath: FormPath): FormPath {
+	return field.kind === "repeat" && field.repeat_mode === "query_bound"
+		? ownPath.queryBoundIteration()
+		: ownPath;
+}
+
+/**
  * Locate a field by bare id under `parentUuid`, returning both the
  * entity and its resolved `FormPath` in one traversal.
  *
@@ -46,18 +69,9 @@ import { FormPath } from "./xform/formPath";
  * ancestor container segment so callers don't have to re-walk the tree
  * to compute it.
  *
- * When descent crosses INTO a `query_bound` repeat, the prefix gets an
- * additional `/item` step before recursion — the children of a model
- * iteration repeat live under `<X>/<item>`, not directly under `<X>`,
- * and the bind-emission paths inside `xform/builder.ts::buildContainer`
- * already mirror that shape (via `FormPath.queryBoundIteration()`). Without
- * this injection here, a calculate reference produced from a question_path
- * INSIDE a query_bound repeat would dangle: the bind nodeset is
- * `/data/<X>/item/<field>` but the resolved path the calculate consumed
- * would be `/data/<X>/<field>`, two different XPath references to the
- * same authored question. The matched field's OWN path doesn't get the
- * `/item` (the repeat IS the matched field; `/item` is what lives INSIDE
- * it, not what the repeat node is named).
+ * Descent into a `query_bound` repeat adds the `/item` step via
+ * `descendInto`. The matched field's OWN path never gets `/item` (the
+ * repeat IS the matched field; `/item` is what lives INSIDE it).
  */
 function findField(
 	doc: BlueprintDoc,
@@ -71,15 +85,12 @@ function findField(
 		const selfPath = prefix.child(field.id);
 		if (field.id === fieldId) return { field, path: selfPath };
 		if (doc.fieldOrder[fieldUuid] !== undefined) {
-			// Crossing INTO a container — for `query_bound` repeats, the children
-			// live under an extra `<item>` step. Mirrors Vellum's
-			// `modeliteration.js::modelRepeatMugOptions.getPathName`, which
-			// appends `/item` to the path when `dataSource.idsQuery` is set.
-			const childPrefix =
-				field.kind === "repeat" && field.repeat_mode === "query_bound"
-					? selfPath.queryBoundIteration()
-					: selfPath;
-			const found = findField(doc, fieldUuid, fieldId, childPrefix);
+			const found = findField(
+				doc,
+				fieldUuid,
+				fieldId,
+				descendInto(field, selfPath),
+			);
 			if (found) return found;
 		}
 	}
@@ -263,21 +274,14 @@ export function buildFormActions(
 			// repeats this is the repeat element itself (`/data/<X>`); for
 			// `query_bound` it's the model-iteration `<item>` one level deeper
 			// (`/data/<X>/item`). `findField` resolves the repeat to its OWN path
-			// (the matched node), so the `/item` step is appended here for
-			// `query_bound` to match what CCHQ's `_create_casexml` path walker
-			// consumes verbatim. Mirrors Vellum's `modeliteration.js::
-			// modelRepeatMugOptions.getPathName` for the authoring side.
+			// (the matched node); `descendInto` adds the `/item` step for
+			// `query_bound` so the splice target matches what CCHQ's
+			// `_create_casexml` path walker consumes verbatim.
 			let repeatContextStr = "";
 			if (child.repeat_context) {
 				const hit = findField(doc, formUuid, child.repeat_context);
 				if (hit) {
-					const isQueryBound =
-						hit.field.kind === "repeat" &&
-						hit.field.repeat_mode === "query_bound";
-					const splicePath = isQueryBound
-						? hit.path.queryBoundIteration()
-						: hit.path;
-					repeatContextStr = splicePath.toXPath();
+					repeatContextStr = descendInto(hit.field, hit.path).toXPath();
 				} else {
 					// Field id didn't resolve — defensive fallback matching the old
 					// resolvePath default. Validator rules already gate against
@@ -354,16 +358,12 @@ export function buildCaseReferencesLoad(
 			}
 
 			// Containers: recurse into their children. `doc.fieldOrder`
-			// having an entry for this uuid is the container marker. For
-			// `query_bound` repeats, descend into the model-iteration
-			// `<item>` so descendant paths get the `/item` step the XForm
-			// emitter and `findField` both produce.
+			// having an entry for this uuid is the container marker.
+			// `descendInto` adds the model-iteration `<item>` step for
+			// `query_bound` so descendant paths match the XForm emitter +
+			// `findField`.
 			if (doc.fieldOrder[fieldUuid] !== undefined) {
-				const childParent =
-					field.kind === "repeat" && field.repeat_mode === "query_bound"
-						? nodePath.queryBoundIteration()
-						: nodePath;
-				walk(fieldUuid, childParent);
+				walk(fieldUuid, descendInto(field, nodePath));
 			}
 		}
 	};

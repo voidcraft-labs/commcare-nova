@@ -71,13 +71,13 @@ function findUnblockedSubcaseFields(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	moduleCaseType: string,
+	knownCaseTypes: ReadonlySet<string>,
 ): Array<{ fieldId: string; repeatId: string; caseType: string }> {
 	const matches: Array<{
 		fieldId: string;
 		repeatId: string;
 		caseType: string;
 	}> = [];
-	const knownCaseTypes = new Set((doc.caseTypes ?? []).map((ct) => ct.name));
 	const walk = (parentUuid: Uuid, repeatAncestor: string | undefined): void => {
 		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[uuid];
@@ -150,12 +150,20 @@ function scanApp(
 
 	// Tag-along read of the now-supported shape (former
 	// SUBCASE_IN_REPEAT_NOT_MODELED). Reports a capability gained.
+	// The declared case-type set is constant per app, so compute it once
+	// here rather than rebuilding it inside the per-form walk.
+	const knownCaseTypes = new Set((doc.caseTypes ?? []).map((ct) => ct.name));
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
 		if (!mod.caseType) continue;
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
-			const matches = findUnblockedSubcaseFields(doc, formUuid, mod.caseType);
+			const matches = findUnblockedSubcaseFields(
+				doc,
+				formUuid,
+				mod.caseType,
+				knownCaseTypes,
+			);
 			for (const m of matches) {
 				rows.push({
 					appId,
@@ -174,21 +182,28 @@ function scanApp(
 }
 
 /**
- * Read `owner` off the persisted app doc (root-level `apps` collection
- * carries an `owner` field per the auth model). Returns the user's email
- * when available — the output rows include it so operators can reach the
- * affected author directly.
+ * Resolve a user's email from their id, memoized by id. The same owner
+ * owns many apps, so without the cache a full-collection scan issues one
+ * redundant `user` read per app; with it, one read per distinct owner.
+ * Returns `""` for an unknown / missing user.
  */
-async function lookupOwnerEmail(ownerId: string): Promise<string> {
-	if (!ownerId) return "";
-	try {
-		const userSnap = await db.collection("user").doc(ownerId).get();
-		const data = userSnap.data();
-		const email = data && typeof data.email === "string" ? data.email : "";
+function makeOwnerEmailResolver(): (ownerId: string) => Promise<string> {
+	const cache = new Map<string, string>();
+	return async (ownerId: string): Promise<string> => {
+		if (!ownerId) return "";
+		const cached = cache.get(ownerId);
+		if (cached !== undefined) return cached;
+		let email = "";
+		try {
+			const userSnap = await db.collection("user").doc(ownerId).get();
+			const data = userSnap.data();
+			email = data && typeof data.email === "string" ? data.email : "";
+		} catch {
+			email = "";
+		}
+		cache.set(ownerId, email);
 		return email;
-	} catch {
-		return "";
-	}
+	};
 }
 
 async function main(): Promise<void> {
@@ -227,6 +242,7 @@ async function main(): Promise<void> {
 		].join("\t"),
 	);
 
+	const resolveOwnerEmail = makeOwnerEmailResolver();
 	const appsSnap = await db.collection("apps").get();
 	let scanned = 0;
 	let rowCount = 0;
@@ -234,7 +250,7 @@ async function main(): Promise<void> {
 		if (options.limit !== undefined && scanned >= options.limit) break;
 		const data = appSnap.data();
 		const ownerId = typeof data.owner === "string" ? data.owner : "";
-		const ownerEmail = await lookupOwnerEmail(ownerId);
+		const ownerEmail = await resolveOwnerEmail(ownerId);
 		if (options.owner !== undefined && ownerEmail !== options.owner) continue;
 		const doc = data.doc;
 		if (!doc || typeof doc !== "object") continue;

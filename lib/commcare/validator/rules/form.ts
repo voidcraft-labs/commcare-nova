@@ -1049,6 +1049,12 @@ function caseHashtagOnCreateForm(
  * repeat are the supported subcase-creation shape (one new child case
  * per iteration); they're handled by the splice algorithm in
  * `xform/caseBlocks.ts::addCaseBlocks` and never reach this rule.
+ *
+ * Survey forms carry no case actions — `deriveCaseConfig` returns `{}`
+ * for them, so their `case_property_on` annotations never become case
+ * properties on the wire. Flagging one would be a false positive (the
+ * field has no case effect to conflict with), so survey forms are
+ * skipped entirely.
  */
 function primaryCaseFieldInRepeat(
 	doc: BlueprintDoc,
@@ -1056,6 +1062,7 @@ function primaryCaseFieldInRepeat(
 	mod: Module,
 ): ValidationError[] {
 	if (!mod.caseType) return [];
+	if (doc.forms[ctx.formUuid].type === "survey") return [];
 	const errors: ValidationError[] = [];
 	const walk = (parentUuid: Uuid, repeatAncestor: string | undefined): void => {
 		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {

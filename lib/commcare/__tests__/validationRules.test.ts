@@ -1426,6 +1426,55 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 		);
 	});
 
+	it("does not fire on a survey form (case mappings are ignored there)", () => {
+		// A survey form carries no case actions — deriveCaseConfig returns {}
+		// for it, so a `case_property_on` annotation never becomes a case
+		// property. Flagging a survey field would be a false positive.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Parents",
+					caseType: "parent",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "items",
+									label: "Items",
+									repeat_mode: "user_controlled",
+									children: [
+										f({
+											kind: "text",
+											id: "note",
+											label: "Note",
+											// Module's own case type, inside a repeat — would fire
+											// the rule on a non-survey form, but survey ignores it.
+											case_property_on: "parent",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+		const errors = runValidation(doc);
+		expect(errors.some((e) => e.code === "PRIMARY_CASE_FIELD_IN_REPEAT")).toBe(
+			false,
+		);
+	});
+
 	it("does not fire on a cross-case-type field inside a repeat (subcase shape)", () => {
 		// `case_property_on != mod.caseType` is the subcase shape — out of
 		// scope for this rule (covered by SUBCASE_IN_REPEAT_NOT_MODELED

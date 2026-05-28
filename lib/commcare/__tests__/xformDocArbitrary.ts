@@ -346,10 +346,9 @@ export function buildField(
 function injectSubcaseRepeat(
 	ctx: FieldBuildCtx,
 	formUuid: Uuid,
-	minter: IdMinter,
 	spec: SubcaseShapeSpec,
 ): void {
-	const repeatUuid = minter.uuid("fld");
+	const repeatUuid = ctx.minter.uuid("fld");
 	ctx.fieldOrder[formUuid].push(repeatUuid);
 	const repeatBase = {
 		uuid: repeatUuid,
@@ -383,7 +382,7 @@ function injectSubcaseRepeat(
 	// childCaseType so deriveCaseConfig groups this field into a
 	// (childCaseType, repeatUuid) bucket — distinct from any other
 	// child-case bucket the doc carries.
-	const childFieldUuid = minter.uuid("fld");
+	const childFieldUuid = ctx.minter.uuid("fld");
 	ctx.fieldOrder[repeatUuid].push(childFieldUuid);
 	ctx.fields[childFieldUuid] = {
 		uuid: childFieldUuid,
@@ -933,7 +932,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			// siblings can't collide either.
 			if (formSpec.type === "registration" && formSpec.subcase) {
 				injectedChildCaseTypes.add(formSpec.subcase.childCaseType);
-				injectSubcaseRepeat(ctx, formUuid, minter, formSpec.subcase);
+				injectSubcaseRepeat(ctx, formUuid, formSpec.subcase);
 			}
 		});
 	});

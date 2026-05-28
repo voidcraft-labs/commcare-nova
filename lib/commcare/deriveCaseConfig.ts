@@ -88,9 +88,9 @@ export function deriveCaseConfig(
 	// subcase actions rather than collapsing into one ambiguous bucket. This
 	// mirrors CCHQ's wire model — `Form.actions.subcases: SchemaListProperty(
 	// OpenSubCaseAction)` — where each subcase action is independently scoped
-	// to its own `repeat_context`. The empty-string sentinel for "no repeat
-	// ancestor" pairs the root-level case-type fields into one bucket per
-	// type, preserving today's non-repeat-subcase semantic.
+	// to its own `repeat_context`. The "no repeat ancestor" bucket pairs the
+	// root-level case-type fields into one bucket per type, preserving today's
+	// non-repeat-subcase semantic.
 	const childGroups = new Map<
 		string,
 		{
@@ -99,8 +99,14 @@ export function deriveCaseConfig(
 			fields: Array<{ id: string }>;
 		}
 	>();
+	// The root-ancestor sentinel contains `#`, illegal in an XML element name
+	// (`XML_ELEMENT_NAME_REGEX`), so a real repeat field id (always a valid
+	// element name) can never collide with it. A plain-word sentinel like
+	// `"__root__"` would NOT be safe: `__root__` is itself a legal field id
+	// (only the `__nova_` prefix is reserved), so a repeat named `__root__`
+	// would merge into the root bucket and silently lose its scope.
 	const bucketKey = (caseType: string, repeatAncestor: string | undefined) =>
-		`${caseType}::${repeatAncestor ?? "__root__"}`;
+		`${caseType}::${repeatAncestor ?? "#root"}`;
 
 	const walk = (parentUuid: Uuid, repeatAncestor?: string): void => {
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {

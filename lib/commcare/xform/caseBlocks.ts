@@ -718,11 +718,17 @@ export function addCaseBlocks(
 		{ parent: Element; children: Element[] }
 	>();
 	for (const child of emission.dataChildren) {
-		const parent = resolveSpliceParent(dataEl, child.parentPath);
 		const key = child.parentPath.toXPath();
 		let group = spliceGroups.get(key);
 		if (!group) {
-			group = { parent, children: [] };
+			// Only walk the DOM for a parent we haven't resolved yet — multiple
+			// subcases sharing one repeat_context (the nest=true shape) all map
+			// to the same splice parent, so the walk runs once per distinct
+			// parent, not once per child.
+			group = {
+				parent: resolveSpliceParent(dataEl, child.parentPath),
+				children: [],
+			};
 			spliceGroups.set(key, group);
 		}
 		group.children.push(child.element);
