@@ -436,7 +436,7 @@ export class EngineController {
 	private isUserControlledRepeat(uuid: string): boolean {
 		if (!this.docStore) return false;
 		const field = this.docStore.getState().fields[uuid];
-		if (!field || field.kind !== "repeat") return false;
+		if (field?.kind !== "repeat") return false;
 		return field.repeat_mode === "user_controlled";
 	}
 
