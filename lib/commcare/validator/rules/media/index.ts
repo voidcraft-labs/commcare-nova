@@ -5,10 +5,9 @@
  *
  *   - `MEDIA_ASSET_RULES` — the three asset-context rules (existence /
  *     ready / kind match). Each takes the doc + the resolved
- *     manifest. The runner runs the group only when the caller
- *     supplies a manifest (the SA validation loop's path); without one
- *     (the typical test path, the offline preview path) the group is
- *     skipped — the doc is still structurally valid; the media refs
+ *     manifest. The runner runs the group when the caller supplies a
+ *     manifest; callers that don't (no resolved manifest at hand) skip
+ *     the group — the doc is still structurally valid, the media refs
  *     just aren't resolvable in that environment.
  *
  *   - `imageMapValueUnique` — module-scoped totality rule that

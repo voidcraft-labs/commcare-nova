@@ -10,8 +10,8 @@
 //    manifest;
 //  - the validator's media asset-context rules under
 //    `lib/commcare/validator/rules/media/` — walks each reference site
-//    by location, asserting the resolved asset's existence, owner,
-//    ready status, and kind-vs-slot fit.
+//    by location, asserting the resolved asset's existence, ready
+//    status, and kind-vs-slot fit.
 //
 // The hierarchical walk (modules → forms → fields, with container
 // recursion) is load-bearing: every reference site carries its

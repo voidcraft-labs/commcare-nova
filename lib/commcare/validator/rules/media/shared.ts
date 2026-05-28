@@ -1,5 +1,5 @@
 /**
- * Shared helpers for the four media asset-context rules.
+ * Shared helpers for the three media asset-context rules.
  *
  * Each rule walks every `AssetRef` the doc holds, asserts a per-rule
  * invariant against the resolved manifest, and emits a structured
@@ -8,7 +8,7 @@
  *   - `describeLocation(location)` — turns the location's structural
  *     shape into a one-sentence human description the rule's error
  *     message embeds. Single source of truth for "what does the user
- *     read?" so the four rules agree on phrasing for the same
+ *     read?" so the three rules agree on phrasing for the same
  *     carrier.
  *   - `scopeFor(location)` — projects the location to the validator's
  *     scope enum so the error routes to the right scope bucket (app /
