@@ -67,13 +67,6 @@ export type FieldMediaBundleKey =
 	| "help_media"
 	| "validate_msg_media";
 
-const FIELD_MEDIA_BUNDLE_KEYS: ReadonlyArray<FieldMediaBundleKey> = [
-	"label_media",
-	"hint_media",
-	"help_media",
-	"validate_msg_media",
-];
-
 /**
  * Where a media reference lives in the blueprint. The discriminator
  * is structural — each variant carries the uuids + display names a
@@ -305,38 +298,96 @@ function* walkFormFieldRefs(
 	}
 }
 
-/** Per-field media-bundle slot walk (`label_media`, `hint_media`, etc.). */
+/**
+ * Per-field media-bundle slot walk. Each `Field` arm independently
+ * declares which of the four bundle keys it carries — `label_media`
+ * is on every visible-input arm and on container arms via
+ * `fieldBaseSchema` / `containerFieldBase`; the other three sit on
+ * per-kind schemas. The reads below use per-key `in`-narrowing so
+ * TypeScript types `field[<key>]` directly off the schema arms — no
+ * `as` cast — and a future schema rename that drops a bundle key
+ * from every arm fails to compile here.
+ *
+ * Unrolled rather than looped over `FieldMediaBundleKey` because a
+ * looped version requires an indexed-access type the discriminated
+ * `Field` union doesn't admit without a cast (the four keys have no
+ * single common parent arm).
+ */
 function* walkFieldMediaSlots(
 	field: Field,
 	fieldUuid: Uuid,
 	ctx: FormWalkContext,
 ): Generator<AssetRef> {
-	// Field bases extend differently per kind (containers and hidden
-	// don't declare every slot), so the read is a generic property
-	// lookup against the optional bundle keys. The set of bundle keys
-	// is closed at type level by `FieldMediaBundleKey`.
-	const bundles = field as Partial<Record<FieldMediaBundleKey, Media>>;
-	for (const bundleKey of FIELD_MEDIA_BUNDLE_KEYS) {
-		const bundle = bundles[bundleKey];
-		if (!bundle) continue;
-		for (const slotKind of MEDIA_BUNDLE_KEYS) {
-			const assetId = bundle[slotKind];
-			if (!assetId) continue;
-			yield {
-				assetId,
-				slotKind,
-				location: {
-					kind: "field_media_bundle",
-					bundleKey,
-					moduleUuid: ctx.moduleUuid,
-					moduleName: ctx.moduleName,
-					formUuid: ctx.formUuid,
-					formName: ctx.formName,
-					fieldUuid,
-					fieldId: field.id,
-				},
-			};
-		}
+	const fieldId = field.id;
+	if ("label_media" in field) {
+		yield* yieldBundleSlots(
+			field.label_media,
+			"label_media",
+			fieldUuid,
+			fieldId,
+			ctx,
+		);
+	}
+	if ("hint_media" in field) {
+		yield* yieldBundleSlots(
+			field.hint_media,
+			"hint_media",
+			fieldUuid,
+			fieldId,
+			ctx,
+		);
+	}
+	if ("help_media" in field) {
+		yield* yieldBundleSlots(
+			field.help_media,
+			"help_media",
+			fieldUuid,
+			fieldId,
+			ctx,
+		);
+	}
+	if ("validate_msg_media" in field) {
+		yield* yieldBundleSlots(
+			field.validate_msg_media,
+			"validate_msg_media",
+			fieldUuid,
+			fieldId,
+			ctx,
+		);
+	}
+}
+
+/**
+ * Walk the three `Media` slot keys (image / audio / video) on one
+ * bundle, yielding one `AssetRef` per non-empty slot. Closed by the
+ * `Media` schema's strict-object shape — a slot added at the schema
+ * layer would fail the walk here until `MEDIA_BUNDLE_KEYS` grows.
+ */
+function* yieldBundleSlots(
+	bundle: Media | undefined,
+	bundleKey: FieldMediaBundleKey,
+	fieldUuid: Uuid,
+	fieldId: string,
+	ctx: FormWalkContext,
+): Generator<AssetRef> {
+	if (!bundle) return;
+	for (const slotKind of MEDIA_BUNDLE_KEYS) {
+		const assetId = bundle[slotKind];
+		if (!assetId) continue;
+		yield {
+			assetId,
+			slotKind,
+			location: {
+				kind: "field_media_bundle",
+				bundleKey,
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid,
+				fieldId,
+			},
+		};
 	}
 }
 
