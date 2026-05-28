@@ -26,8 +26,8 @@
  * their domain equivalents when seeding a field's defaults.
  */
 import type { z } from "zod";
-import type { CaseType, Field, FormType, Uuid } from "@/lib/domain";
-import { CASE_LOADING_FORM_TYPES, fieldSchema } from "@/lib/domain";
+import type { CaseType, Field, Uuid } from "@/lib/domain";
+import { fieldSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { addFieldsItemSchema } from "./toolSchemas";
 
@@ -141,21 +141,15 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
  *          vocab at this boundary)
  *        - `validate_msg` from `property.validation_msg`
  *
- *   3. **Preload auto-default.** For case-loading forms (followup,
- *      close), any field whose `case_property_on` matches the module's
- *      own case type (other than `case_name`) gets `default_value`
- *      auto-set to `#case/{id}`. Mirrors the `case_preload` logic in
- *      `deriveCaseConfig.ts`, which preloads every primary case
- *      property regardless of whether the id is declared on the
- *      case-type catalog. The field's id names the slot the preload
- *      writes to; the compiler emits a `<setvalue>` binding, and the
- *      UI renders the preloaded value as the field's initial state.
+ * Case preload is NOT seeded here. A case-loading form's primary properties
+ * are read back from the case at the wire layer — `xform/caseBlocks.ts`
+ * lowers the derived `case_preload` action into `<setvalue>` reads from
+ * `casedb`. Stamping a `default_value = "#case/{id}"` here was a redundant
+ * second channel for the same effect; the structural preload owns it.
  */
 export function applyDefaults<E extends object = object>(
 	q: Partial<FlatField> & E,
 	caseTypes: CaseTypes,
-	formType?: FormType,
-	moduleCaseType?: string,
 ): Partial<FlatField> & E {
 	const result = { ...q };
 
@@ -193,18 +187,6 @@ export function applyDefaults<E extends object = object>(
 			}
 			result.options ??= prop.options;
 		}
-	}
-
-	if (
-		formType &&
-		CASE_LOADING_FORM_TYPES.has(formType) &&
-		result.case_property_on &&
-		result.case_property_on === moduleCaseType &&
-		result.id !== "case_name" &&
-		!result.default_value &&
-		!result.calculate
-	) {
-		result.default_value = `#case/${result.id}`;
 	}
 
 	return result;

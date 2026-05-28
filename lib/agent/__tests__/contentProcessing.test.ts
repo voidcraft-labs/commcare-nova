@@ -152,49 +152,23 @@ describe("applyDefaults", () => {
 		expect(result.label).toBe("Household ID");
 	});
 
-	// ── Follow-up form auto-default_value ────────────────────────────
+	// ── Case preload is structural, not a default_value autoset ──────────
+	//
+	// `applyDefaults` no longer seeds `default_value = "#case/{id}"` on
+	// case-loading-form primary fields. Preload is emitted at the wire layer
+	// (`xform/caseBlocks.ts` lowers the derived `case_preload` action to
+	// casedb `<setvalue>` reads), so the agent layer leaves `default_value`
+	// untouched.
 
-	it("auto-sets default_value for primary case properties in follow-up forms", () => {
+	it("does not seed default_value for a primary case property", () => {
 		const result = applyDefaults(
 			{ id: "age", kind: "int", case_property_on: "patient" },
 			[testCaseType],
-			"followup",
-			"patient",
-		);
-		expect(result.default_value).toBe("#case/age");
-	});
-
-	it("does not auto-set default_value for case_name in follow-up forms", () => {
-		const result = applyDefaults(
-			{ id: "case_name", kind: "text", case_property_on: "patient" },
-			[testCaseType],
-			"followup",
-			"patient",
 		);
 		expect(result.default_value).toBeUndefined();
 	});
 
-	it("does not auto-set default_value in registration forms", () => {
-		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property_on: "patient" },
-			[testCaseType],
-			"registration",
-			"patient",
-		);
-		expect(result.default_value).toBeUndefined();
-	});
-
-	it("does not auto-set default_value for child case properties", () => {
-		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property_on: "patient" },
-			[testCaseType],
-			"followup",
-			"household",
-		);
-		expect(result.default_value).toBeUndefined();
-	});
-
-	it("does not override explicit default_value", () => {
+	it("preserves an explicitly authored default_value", () => {
 		const result = applyDefaults(
 			{
 				id: "age",
@@ -203,32 +177,7 @@ describe("applyDefaults", () => {
 				default_value: "today()",
 			},
 			[testCaseType],
-			"followup",
-			"patient",
 		);
 		expect(result.default_value).toBe("today()");
-	});
-
-	it("does not auto-set default_value when field has calculate", () => {
-		const result = applyDefaults(
-			{
-				id: "age",
-				kind: "int",
-				case_property_on: "patient",
-				calculate: "#case/age + 1",
-			},
-			[testCaseType],
-			"followup",
-			"patient",
-		);
-		expect(result.default_value).toBeUndefined();
-	});
-
-	it("does not auto-set default_value when formType/moduleCaseType not provided", () => {
-		const result = applyDefaults(
-			{ id: "age", kind: "int", case_property_on: "patient" },
-			[testCaseType],
-		);
-		expect(result.default_value).toBeUndefined();
 	});
 });
