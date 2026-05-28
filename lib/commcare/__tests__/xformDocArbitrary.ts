@@ -329,6 +329,70 @@ export function buildField(
 	} as Field;
 }
 
+/**
+ * Inject a repeat at the form root containing exactly one child case
+ * `case_name` field. The injection drives the path-aware splice
+ * algorithm in `xform/caseBlocks.ts::addCaseBlocks` across all three
+ * repeat modes — the `nest=false` branch (single subcase per repeat)
+ * fires for every injected shape, and `query_bound` exercises the
+ * `/item` segment in both `findField`'s resolved path AND the bind
+ * nodesets.
+ *
+ * The repeat id `children` and the child field id `case_name` are
+ * OFF the sibling pool (`SIBLING_ID_POOL`), so they can't collide
+ * with any random root-level pool field nor with cousins under
+ * different forms.
+ */
+function injectSubcaseRepeat(
+	ctx: FieldBuildCtx,
+	formUuid: Uuid,
+	spec: SubcaseShapeSpec,
+): void {
+	const repeatUuid = ctx.minter.uuid("fld");
+	ctx.fieldOrder[formUuid].push(repeatUuid);
+	const repeatBase = {
+		uuid: repeatUuid,
+		kind: "repeat" as const,
+		id: "children",
+		label: "Children",
+	};
+	let repeatField: Field;
+	if (spec.mode === "user_controlled") {
+		repeatField = { ...repeatBase, repeat_mode: "user_controlled" } as Field;
+	} else if (spec.mode === "count_bound") {
+		repeatField = {
+			...repeatBase,
+			repeat_mode: "count_bound",
+			repeat_count: "3",
+		} as Field;
+	} else {
+		repeatField = {
+			...repeatBase,
+			repeat_mode: "query_bound",
+			data_source: {
+				ids_query: `instance('casedb')/casedb/case[@case_type='${spec.childCaseType}']/@case_id`,
+			},
+		} as Field;
+	}
+	ctx.fields[repeatUuid] = repeatField;
+	ctx.fieldOrder[repeatUuid] = [];
+
+	// The single child field carries the new case_name source for the
+	// derived child-case bucket. `case_property_on` matches the
+	// childCaseType so deriveCaseConfig groups this field into a
+	// (childCaseType, repeatUuid) bucket — distinct from any other
+	// child-case bucket the doc carries.
+	const childFieldUuid = ctx.minter.uuid("fld");
+	ctx.fieldOrder[repeatUuid].push(childFieldUuid);
+	ctx.fields[childFieldUuid] = {
+		uuid: childFieldUuid,
+		kind: "text",
+		id: "case_name",
+		label: "Child name",
+		case_property_on: spec.childCaseType,
+	} as Field;
+}
+
 // ── Field generation spec (the arbitrary's intermediate shape) ─────
 
 /**
@@ -627,6 +691,34 @@ export const FORM_TYPES = [
  * requires a block on every form of a Connect app); when it's `null`, no form
  * carries one.
  */
+/**
+ * Per-form subcase injection — when present, lowers into a repeat at
+ * the form root holding one cross-case-type field id'd `case_name`.
+ * The wire emission exercises the path-aware splice algorithm in
+ * `xform/caseBlocks.ts::addCaseBlocks` across all three repeat modes,
+ * including the `query_bound` `/item` segment + the nest=false branch
+ * where the `<case>` element splices DIRECTLY into the repeat with no
+ * `<subcase_N>` wrapper. The fuzzer asserts validation is clean
+ * (`PRIMARY_CASE_FIELD_IN_REPEAT` / `CHILD_CASE_NO_NAME_FIELD` both
+ * pass — the injected child case bucket has its `case_name` source,
+ * and no primary-case fields land inside the injected repeat).
+ *
+ * The injected child case type joins `caseTypes`. The field id
+ * `case_name` is OFF the sibling pool, so it can't collide with any
+ * random root-level pool field. The pool ids (a-g) don't include
+ * `children`, so the injected repeat id can't collide either.
+ *
+ * Drawn for ~67% of registration forms (`fc.option`'s `freq: 3` sets
+ * `P(nil) = 1/3`, so `P(value) ≈ 2/3`); survey/followup/close skip
+ * the injection (deriveCaseConfig only emits subcase actions on forms
+ * whose type carries case-management actions, and registration is the
+ * canonical "register parent + N children" surface).
+ */
+type SubcaseShapeSpec = {
+	mode: "user_controlled" | "count_bound" | "query_bound";
+	childCaseType: string;
+};
+
 interface DocGenSpec {
 	connectType: ConnectType | null;
 	modules: Array<{
@@ -638,9 +730,35 @@ interface DocGenSpec {
 			/** Present iff the app is Connect-typed; the sub-config selection
 			 *  for this form, always mode-matched to `connectType`. */
 			connect?: ConnectFormSpec;
+			/** Present iff the form is a registration form and the dice rolled
+			 *  for subcase injection. The lowering builds the repeat + child
+			 *  field; the child case type joins the doc's `caseTypes`. */
+			subcase?: SubcaseShapeSpec;
 		}>;
 	}>;
 }
+
+/**
+ * Subcase injection arbitrary — fast-check's `fc.option` with `freq: 3`
+ * makes `P(nil) = 1/3`, so ~2/3 of registration forms carry an injected
+ * subcase shape. Heavy coverage of the new repeat-context splice paths
+ * is the trade for less diversity in non-subcase shapes — the oracle
+ * benefits from frequent exercise of the new shape, and the rest of
+ * the field-spec arbitrary still varies independently. Repeat-mode and
+ * child-case-type drawn uniformly; the `idsQuery` for `query_bound`
+ * matches the leaves the per-mode compiler tests use.
+ */
+const subcaseShapeArb: fc.Arbitrary<SubcaseShapeSpec | undefined> = fc.option(
+	fc.record({
+		mode: fc.constantFrom<SubcaseShapeSpec["mode"]>(
+			"user_controlled",
+			"count_bound",
+			"query_bound",
+		),
+		childCaseType: fc.constantFrom("child", "child_visit", "child_followup"),
+	}),
+	{ freq: 3, nil: undefined },
+);
 
 /**
  * The form spec WITHOUT its Connect selection — the connect block is layered
@@ -650,6 +768,7 @@ interface DocGenSpec {
 const formCoreArb = fc.record({
 	type: fc.constantFrom(...FORM_TYPES),
 	fields: fc.array(fieldSpecArb(2), { minLength: 1, maxLength: 4 }),
+	subcase: subcaseShapeArb,
 });
 
 const moduleCoreArb = fc.record({
@@ -712,6 +831,11 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	const formOrder: Record<Uuid, Uuid[]> = {};
 	const fieldOrder: Record<Uuid, Uuid[]> = {};
 	const caseTypeNames = new Set<string>();
+	// Track injected child case types separately — they're added to
+	// caseTypes regardless of whether any module's primary case_type
+	// matches. The subcase injection at the form level is what brings
+	// them into the doc, not the module declaration.
+	const injectedChildCaseTypes = new Set<string>();
 
 	spec.modules.forEach((modSpec, mIdx) => {
 		const moduleUuid = minter.uuid("mod");
@@ -804,10 +928,26 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			formSpec.fields.forEach((fieldSpec, i) => {
 				buildField(ctx, formUuid, pickSiblingId(i), fieldSpec);
 			});
+
+			// Per-form subcase injection (registration forms only). When the
+			// dice rolled for a subcase, build a repeat at the form root
+			// containing one child case_name field. The repeat element id
+			// `children` is OFF the sibling pool, so no collision with random
+			// root fields. The child field id `case_name` is also off the
+			// pool — and it's the SOLE child of the injected repeat, so
+			// siblings can't collide either.
+			if (formSpec.type === "registration" && formSpec.subcase) {
+				injectedChildCaseTypes.add(formSpec.subcase.childCaseType);
+				injectSubcaseRepeat(ctx, formUuid, formSpec.subcase);
+			}
 		});
 	});
 
-	const caseTypes: CaseType[] = [...caseTypeNames].map((name) => ({
+	const allCaseTypeNames = new Set([
+		...caseTypeNames,
+		...injectedChildCaseTypes,
+	]);
+	const caseTypes: CaseType[] = [...allCaseTypeNames].map((name) => ({
 		name,
 		properties: [{ name: "case_name", label: "Name" }],
 	}));

@@ -82,6 +82,18 @@ Two more wire oracles follow the XForm oracle's shape — a faithful mirror of t
 
 The case-attachment shape (`update_attachment_case.xml` — a captured media field persisted to `<case><attachment>`) is NOT emitted: the `mediaCaseProperty` validator rejects media-kind fields with `case_property_on`, so the state is unreachable in a valid doc. Supporting it is a separate feature (lift the rejection + emit on both pipelines + CCZ media bundling), distinct from the display-media work.
 
+### Repeat-context subcase splice + nest decision
+
+A field whose `case_property_on` names a non-module case type authors a CHILD case; when the field sits inside a repeat, the child case is created per iteration. `deriveCaseConfig` buckets these by `(case_type, repeat_ancestor_path)` — keying on the repeat's resolved `FormPath`, not its bare field id, so two cousin repeats that legally share an id (`children > section_a > kids` + `children > section_b > kids`) emit two independent `OpenSubCaseAction`s rather than collapsing into one with split-scope `field_paths`. Each bucket carries both `repeat_context` (wire-format XPath, e.g. `/data/group_a/kids` or `/data/X/item` for `query_bound`) for emission and `repeat_ancestor_id` (bare field id) for human-readable validator messages.
+
+`xform/caseBlocks.ts::addCaseBlocks` mirrors CCHQ's `_create_casexml` splice: pre-count subcases per `repeat_context` to pick `nest = (count > 1)`. `nest = false` (single subcase under the repeat) splices `<case>` directly into the repeat's template subtree, bind nodesets anchor at `/data/<X>/case/...` (`subcase-repeat.xml` shape). `nest = true` (multiple subcases sharing a repeat OR every non-repeat-context subcase) wraps in `<subcase_N>`, binds at `/data/<X>/subcase_N/case/...` (`multiple_subcase_repeat.xml` shape). Splice target resolution walks the parsed DOM by `repeat_context`'s FormPath segments — `data → X → item` for `query_bound` falls out naturally because Vellum's `getPathName` rewrites the iteration path to include `/item`.
+
+Adding a second cross-case-type field to a single-subcase-in-repeat form FLIPS the wire shape (`<case>` → `<subcase_0>`/`<subcase_1>`). Old case_ids persist (the bind calculate is the same `uuid()`); old submissions are unaffected.
+
+### Typed FormPath
+
+`xform/formPath.ts::FormPath` is the typed value every wire emitter constructs paths through. Element + attribute steps only; attribute steps are terminal; element-step names pass `XML_ELEMENT_NAME_REGEX` at construction. The serializer `toXPath()` is the sole place `/data/...` literals appear in the package. Use it for PATH REFERENCES (bind `nodeset`, control `ref`, `<setvalue ref>`, splice walk steps); XPath EXPRESSION bodies (`calculate` / `relevant` / `constraint`) stay parsed via the Lezer grammar.
+
 ### Form `<meta>` block
 
 Every Nova-emitted XForm carries the OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`/`<userID>`/`<instanceID>`/`<appVersion>`/`<drift>`) plus the eight setvalues that populate them at form load/save and two `<bind type="xsd:dateTime">` elements typing the timestamp nodes. Unconditional emission via `xform/metaBlock.ts::buildMetaBlock`. Without the block, submissions are accepted on the wire but downstream tooling that filters or joins on `instanceID` / `timeStart` / `userID` falls over.
