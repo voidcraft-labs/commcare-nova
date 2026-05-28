@@ -728,3 +728,33 @@ export function hasSort(doc: BlueprintDoc): boolean {
 		(m.caseListConfig?.columns ?? []).some((c) => c.sort !== undefined),
 	);
 }
+
+/**
+ * Whether the doc carries ANY media reference — on a field message slot, an
+ * option, a module/form menu, an image-map column, or the app logo.
+ * Mirrors `collectAssetRefs` for the census layer: a fuzz run that drifts to
+ * `hasMedia / total < threshold` stops exercising the manifest-resolution
+ * checks the oracles exist for, which the suite/hqJson fuzz assertions
+ * downstream catch.
+ */
+export function hasMedia(doc: BlueprintDoc): boolean {
+	if (doc.logo !== undefined) return true;
+	for (const module of Object.values(doc.modules)) {
+		if (module.icon !== undefined || module.audioLabel !== undefined)
+			return true;
+		for (const column of module.caseListConfig?.columns ?? []) {
+			if (column.kind === "image-map" && column.mapping.length > 0) return true;
+		}
+	}
+	for (const form of Object.values(doc.forms)) {
+		if (form.icon !== undefined || form.audioLabel !== undefined) return true;
+	}
+	for (const field of Object.values(doc.fields)) {
+		const f = field as Record<string, unknown>;
+		if (f.label_media || f.hint_media || f.help_media || f.validate_msg_media)
+			return true;
+		const options = (f.options ?? []) as ReadonlyArray<{ media?: unknown }>;
+		if (options.some((o) => o.media !== undefined)) return true;
+	}
+	return false;
+}

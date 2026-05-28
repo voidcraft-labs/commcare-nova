@@ -46,6 +46,7 @@ import type { AssetId } from "@/lib/domain/multimedia";
 import {
 	hasCaseSearch,
 	hasChildCase,
+	hasMedia,
 	hasSort,
 	moduleCount,
 	suiteDocArbitrary,
@@ -115,6 +116,10 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 		childCase: 0,
 		sort: 0,
 		activeCaseAction: 0,
+		// Media-bearing docs exercise the `multimedia_map` + nav-media +
+		// logo_refs shape checks; floored below so a generator drift can't
+		// silently skip them.
+		mediaBearing: 0,
 	};
 
 	it("every schema-valid doc expands to an oracle-clean HqApplication", () => {
@@ -129,6 +134,7 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 				if (hasChildCase(doc)) census.childCase += 1;
 				if (hasSort(doc)) census.sort += 1;
 				if (hasActiveCaseAction(doc)) census.activeCaseAction += 1;
+				if (hasMedia(doc)) census.mediaBearing += 1;
 
 				// Media-on path: thread the fuzz manifest through `expandDoc` so
 				// the multimedia_map + nav-media dicts + logo_refs land on the
@@ -170,5 +176,9 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 		// number/format propagation onto the detail surfaces.
 		expect(census.caseSearch / census.total).toBeGreaterThan(0.25);
 		expect(census.sort / census.total).toBeGreaterThan(0.3);
+		// Media-bearing docs drive the multimedia_map + nav-media + logo_refs
+		// shape checks. The floor prevents a generator drift that drops media
+		// emission from silently waiving those checks.
+		expect(census.mediaBearing / census.total).toBeGreaterThan(0.3);
 	});
 });

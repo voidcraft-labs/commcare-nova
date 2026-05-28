@@ -49,6 +49,7 @@ import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
@@ -96,6 +97,16 @@ export function compileCcz(
 	// manifest the bundle is empty and `mediaSuiteXml` is the byte-identical
 	// empty placeholder, so a media-free app's archive is unchanged.
 	const mediaBundle = buildMediaBundle(assets ?? new Map(), "compileCcz");
+
+	// The set of `commcare/<hash><ext>` wire paths bundled into the archive
+	// — derived from the SAME asset manifest the expander stamped jr://
+	// references against. Both the XForm and suite oracle invocations below
+	// receive this set so a generator drift between "what gets emitted as a
+	// jr:// reference" and "what gets bundled" surfaces as an oracle finding
+	// at compile time instead of as a broken-icon symptom on device.
+	const bundledWirePaths = new Set(
+		mediaBundle.cczEntries.map((entry) => entry.path),
+	);
 
 	files["profile.ccpr"] = generateProfile(
 		appName,
@@ -371,7 +382,12 @@ export function compileCcz(
 			// validator accepts compiles to a CCZ whose XPath references
 			// all resolve — and is not invoked here.
 			if (xform) {
-				const xformErrors = validateXForm(xform, formName, modName);
+				const xformErrors = validateXForm(
+					xform,
+					formName,
+					modName,
+					bundledWirePaths,
+				);
 				if (xformErrors.length > 0) {
 					throw new Error(
 						`XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +
@@ -486,10 +502,40 @@ export function compileCcz(
 	// key set is the complete locale registry the oracle resolves `<locale id>`
 	// references against. (The oracle's own strict `XMLValidator.validate`
 	// subsumes the well-formedness parse-check this replaced.)
-	const suiteErrors = validateSuite(suiteXml, new Set(Object.keys(appStrings)));
+	// The suite oracle's media-resolution check resolves menu-borne locales +
+	// image-map XPath literals against the bundled wire paths. Threading the
+	// app_strings table (key→value) AND the manifest closes the loop the
+	// fuzz already exercises: a divergence between the suite emitter's jr://
+	// references and what the bundler wrote into the CCZ surfaces at compile
+	// time rather than as a broken-icon on device.
+	const suiteErrors = validateSuite(
+		suiteXml,
+		new Set(Object.keys(appStrings)),
+		{
+			appStringValues: new Map(Object.entries(appStrings)),
+			manifest: bundledWirePaths,
+		},
+	);
 	if (suiteErrors.length > 0) {
 		throw new Error(
 			`Generated suite.xml failed the suite oracle:\n${suiteErrors
+				.map((e) => `  - ${errorToString(e)}`)
+				.join("\n")}`,
+		);
+	}
+
+	// The `media_suite.xml` oracle. Catches a generator slip in the
+	// `mediaSuiteXml` builder before the archive ships — duplicate resource
+	// ids, missing authority, locations pointing at zip entries that aren't
+	// bundled, etc. Same generator-totality posture as the suite oracle: a
+	// failing media suite here is a compiler bug, never an authoring state.
+	const mediaSuiteErrors = validateMediaSuite(
+		mediaBundle.mediaSuiteXml,
+		bundledWirePaths,
+	);
+	if (mediaSuiteErrors.length > 0) {
+		throw new Error(
+			`Generated media_suite.xml failed the media-suite oracle:\n${mediaSuiteErrors
 				.map((e) => `  - ${errorToString(e)}`)
 				.join("\n")}`,
 		);

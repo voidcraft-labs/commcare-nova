@@ -40,6 +40,7 @@ import type {
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
@@ -48,6 +49,7 @@ import type { AssetId } from "@/lib/domain/multimedia";
 import {
 	hasCaseSearch,
 	hasChildCase,
+	hasMedia,
 	hasSort,
 	moduleCount,
 	suiteDocArbitrary,
@@ -85,6 +87,7 @@ function prepareAndGuard(doc: BlueprintDoc): void {
  */
 function extractSuite(ccz: Buffer): {
 	suiteXml: string;
+	mediaSuiteXml: string;
 	appStringKeys: Set<string>;
 	appStringValues: Map<string, string>;
 	bundledPaths: Set<string>;
@@ -95,6 +98,14 @@ function extractSuite(ccz: Buffer): {
 		throw new Error("compileCcz produced a .ccz with no suite.xml entry.");
 	}
 	const suiteXml = suiteEntry.getData().toString("utf-8");
+
+	const mediaSuiteEntry = zip.getEntry("media_suite.xml");
+	if (mediaSuiteEntry === null) {
+		throw new Error(
+			"compileCcz produced a .ccz with no media_suite.xml entry.",
+		);
+	}
+	const mediaSuiteXml = mediaSuiteEntry.getData().toString("utf-8");
 
 	const stringsEntry = zip.getEntry("default/app_strings.txt");
 	if (stringsEntry === null) {
@@ -120,7 +131,13 @@ function extractSuite(ccz: Buffer): {
 		}
 	}
 
-	return { suiteXml, appStringKeys, appStringValues, bundledPaths };
+	return {
+		suiteXml,
+		mediaSuiteXml,
+		appStringKeys,
+		appStringValues,
+		bundledPaths,
+	};
 }
 
 /**
@@ -156,6 +173,11 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		caseSearch: 0,
 		childCase: 0,
 		sort: 0,
+		// The media-resolution checks (menu locales + image-map literals)
+		// only exercise on docs that actually carry media. A drift to zero
+		// media coverage would silently weaken the suite oracle's media
+		// path; the assertion below floors the ratio.
+		mediaBearing: 0,
 	};
 
 	it("every schema-valid doc emits an oracle-clean suite.xml", () => {
@@ -169,6 +191,7 @@ describe("suite emitter totality (property-based fuzz)", () => {
 				if (hasCaseSearch(doc)) census.caseSearch += 1;
 				if (hasChildCase(doc)) census.childCase += 1;
 				if (hasSort(doc)) census.sort += 1;
+				if (hasMedia(doc)) census.mediaBearing += 1;
 
 				// Media-on path: thread the fuzz manifest through expand + compile
 				// so menu-icon locales + image-map XPath literals land in the
@@ -178,7 +201,13 @@ describe("suite emitter totality (property-based fuzz)", () => {
 				const manifest = toAssetManifest(fuzzManifest);
 				const hqJson = expandDoc(doc, { assets: manifest });
 				const ccz = compileCcz(hqJson, doc.appName, doc, { assets: manifest });
-				const { suiteXml, appStringKeys, appStringValues } = extractSuite(ccz);
+				const {
+					suiteXml,
+					mediaSuiteXml,
+					appStringKeys,
+					appStringValues,
+					bundledPaths,
+				} = extractSuite(ccz);
 
 				const oracleErrors = validateSuite(suiteXml, appStringKeys, {
 					appStringValues,
@@ -191,6 +220,24 @@ describe("suite emitter totality (property-based fuzz)", () => {
 						`Oracle flagged emitted suite.xml:\n${oracleErrors
 							.map((e) => `  - [${e.code}] ${errorToString(e)}`)
 							.join("\n")}\n\n--- emitted suite.xml ---\n${suiteXml}`,
+					);
+				}
+
+				// Parallel media-suite oracle pass. The bundled-paths set from the
+				// CCZ entries IS the install-time resolution target; a divergence
+				// between the media-suite descriptor and the bundled files would
+				// surface here as a `MEDIA_LOCATION_PATH_NOT_BUNDLED` finding.
+				const mediaSuiteErrors = validateMediaSuite(
+					mediaSuiteXml,
+					bundledPaths,
+				);
+				if (mediaSuiteErrors.length > 0) {
+					throw new Error(
+						`Oracle flagged emitted media_suite.xml:\n${mediaSuiteErrors
+							.map((e) => `  - [${e.code}] ${errorToString(e)}`)
+							.join(
+								"\n",
+							)}\n\n--- emitted media_suite.xml ---\n${mediaSuiteXml}`,
 					);
 				}
 			}),
@@ -208,5 +255,9 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		expect(census.caseSearch / census.total).toBeGreaterThan(0.25);
 		expect(census.childCase / census.total).toBeGreaterThan(0.15);
 		expect(census.sort / census.total).toBeGreaterThan(0.3);
+		// Media-bearing docs exercise the menu-locale + image-map XPath-literal
+		// resolution paths. A drift below this floor stops exercising the
+		// media-OFF→media-ON contract and silently weakens the suite oracle.
+		expect(census.mediaBearing / census.total).toBeGreaterThan(0.3);
 	});
 });
