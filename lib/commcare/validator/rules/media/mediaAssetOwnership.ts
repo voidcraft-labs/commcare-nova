@@ -1,17 +1,13 @@
 /**
  * Rule: every referenced asset's `owner` matches the app's owner.
  *
- * Defense-in-depth against cross-owner leakage at the validate
- * boundary. `loadAssetsByIds` (`lib/db/mediaAssets.ts`) already
- * filters by owner before returning rows, so the production loader
- * never produces a manifest that trips this rule — but the rule is
- * the contract, not the loader. A loader change, a hand-built test
- * fixture, or an MCP tool that resolves a foreign asset directly
- * would all reach a path that this rule catches.
+ * Fires when a manifest row's `owner` doesn't match the expected
+ * owner. The user sees: "this media belongs to someone else, the
+ * app can't ship with it." The fix: upload an owned copy and attach
+ * it, or clear the slot.
  *
- * Skips the existence check itself: an id missing from the manifest
- * is `mediaAssetExists`'s concern. A foreign-owned row present in
- * the manifest is uniquely this rule's concern.
+ * An id missing from the manifest is `mediaAssetExists`'s concern;
+ * this rule only judges rows the manifest does carry.
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";

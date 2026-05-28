@@ -2,21 +2,13 @@
  * Rule: every referenced asset is in `status: "ready"` — its bytes
  * have been validated and stored.
  *
- * The upload flow has a transient `pending` window: the Firestore
- * row exists from the moment the signed PUT URL is minted, but the
- * confirm step (sniffing MIME, computing SHA-256, decoding via
- * sharp/ffprobe) doesn't run until after the browser PUTs the
- * bytes. A user who navigates away mid-upload, or whose browser
- * never reaches confirm, leaves the row at `pending`. Shipping an
- * app that references that row would render a broken icon / play a
- * 0-byte audio on the device — the wire path resolves, but the GCS
- * object behind it is the unvalidated client upload.
+ * Fires when a manifest row's `status` isn't `"ready"`. The user
+ * sees: "the media isn't fully uploaded yet, the app can't ship."
+ * The fix: wait for the upload to finish, or clear the slot if the
+ * upload was abandoned.
  *
- * The production loader (`loadAssetsByIds`) filters out `pending`
- * rows already, so a normal SA loop never reaches this rule's
- * positive case in production. The rule is the contract: a test
- * fixture, a hand-built MCP tool result, or a future loader
- * widening that surfaces a pending row will be caught here.
+ * An id missing from the manifest is `mediaAssetExists`'s concern;
+ * this rule only judges rows the manifest does carry.
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
