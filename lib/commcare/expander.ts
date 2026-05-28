@@ -256,14 +256,14 @@ export function expandDoc(
 		);
 		shell.media_image = moduleMedia.media_image;
 		shell.media_audio = moduleMedia.media_audio;
-		const caseListMedia = buildNavMediaDicts(
-			mod.caseListConfig?.icon,
-			mod.caseListConfig?.audioLabel,
-			assets,
-			"expandDoc case-list media",
-		);
-		shell.case_list.media_image = caseListMedia.media_image;
-		shell.case_list.media_audio = caseListMedia.media_audio;
+		// `case_list.media_image` / `media_audio` are NOT stamped from
+		// `mod.caseListConfig?.icon` / `audioLabel`. The schema reserves
+		// those slots but no wire path emits them today (Nova's compiler
+		// emits no standalone case-list-link command in suite.xml; HQ-bound
+		// JSON is media-OFF until the multimedia bytes upload lands).
+		// Stamping a non-empty dict here would also produce orphan bytes
+		// in the `.ccz` archive (the bytes are not collected by
+		// `collectAssetRefs` either; see `lib/domain/mediaRefs.ts`).
 
 		// Overlay the projected `search_config` onto the shell. The
 		// shell carries CCHQ defaults; the projection brings authored

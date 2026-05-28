@@ -1098,22 +1098,23 @@ export const caseListConfigSchema = z
 		filter: predicateSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
-		 * Image shown on the "Open case list" affordance — the menu
-		 * link from the module's home screen that opens the case
-		 * list. Emitted only on the HQ-upload path (stamped onto the
-		 * `case_list.media_image` shell so CCHQ regenerates the
-		 * case-list-link command's `<display>`). Nova's local `.ccz`
-		 * compiler emits no standalone case-list-link command, so this
-		 * slot is invisible in the local preview / downloadable `.ccz`
-		 * — users see the icon only after uploading to HQ.
+		 * Image intended for the "Open case list" affordance — the menu
+		 * link from the module's home screen that opens the case list.
+		 * **Reserved**: the slot is in the schema but no wire path emits
+		 * it today. Nova's compiler emits no standalone case-list-link
+		 * command in suite.xml, and the HQ-bound JSON path doesn't stamp
+		 * `case_list.media_image` from this slot. The bytes are also not
+		 * collected by `collectAssetRefs`. Setting this slot is therefore
+		 * a no-op end-to-end; mounting authoring UI for it should wait
+		 * until both the local case-list-link command emission and the
+		 * HQ multimedia bytes upload are wired.
 		 */
 		icon: assetIdSchema.optional(),
 		/**
-		 * Audio prompt paired with the case-list link, for
-		 * audio-prompt playback. Menu affordances carry image + audio
-		 * only — there is no video slot here (unlike a question
-		 * message, which can carry all three). Same HQ-only emission
-		 * shape as `icon` above.
+		 * Audio prompt intended for the case-list link. **Reserved**, same
+		 * no-op shape as `icon` above. Menu affordances carry image +
+		 * audio only — there is no video slot (unlike a question message,
+		 * which can carry all three).
 		 */
 		audioLabel: assetIdSchema.optional(),
 	})

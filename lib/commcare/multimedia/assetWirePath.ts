@@ -111,9 +111,10 @@ export function jrFileRef(wirePath: string): string {
  * manifest known to contain it. The caller built the manifest by
  * walking the doc + loading the matching rows; a miss means the doc
  * references an asset the loader couldn't return — a stale ref (deleted
- * row, foreign owner, still `pending`). A future media validator rule
- * is the right place to gate this before compile; until that rule
- * lands the throw here is the floor.
+ * row, foreign owner, still `pending`). The throw here is the floor:
+ * the doc-layer gate that would catch the stale ref before compile is
+ * not yet wired (no validator rule today rejects a reference to a
+ * missing asset).
  *
  * Callers that legitimately have no manifest (media OFF) must guard on
  * `manifest === undefined` BEFORE reaching here — this helper is only
@@ -136,8 +137,7 @@ export function requireAssetRef(
 		// this" shape (see e.g. `formActions.ts`'s case-name-field throw):
 		// describes the user-data state that caused the failure, names the
 		// emit site, and points at the recovery path. The compile route
-		// catches and surfaces a generic "Compilation failed" today; when
-		// Segment 4 adds the validator gate the message becomes redundant.
+		// catches and surfaces a generic "Compilation failed" today.
 		throw new Error(
 			`The blueprint references a media asset I couldn't load (id "${assetId}", at ${where}). ` +
 				"The asset may have been deleted from the media library, may still be uploading, " +

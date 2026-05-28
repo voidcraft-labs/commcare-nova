@@ -119,6 +119,15 @@ describe("XForm itext media emission", () => {
 		expect(xml).toContain(`<value form="image">${ref("vmsg-img")}</value>`);
 		expect(xml).toContain(`<value form="image">${ref("opt-img")}</value>`);
 
+		// Text + media co-emission on the same itext id (regression for the
+		// gate-skew where the bind attribute / body ref desynced from the
+		// entry's text-or-media registration rule).
+		expect(xml).toContain(
+			`<text id="case_name-constraintMsg"><value>Name is required</value>` +
+				`<value form="markdown">Name is required</value>` +
+				`<value form="image">${ref("vmsg-img")}</value></text>`,
+		);
+
 		// The help slot adds a body <help> ref alongside the label.
 		expect(xml).toContain('<help ref="jr:itext(&apos;case_name-help&apos;)"/>');
 
