@@ -6,6 +6,11 @@
  * rule's primary job is to catch states constructed below the schema:
  * tests, `.partial()` patches from the SA tool surface, hand-built
  * fixtures.
+ *
+ * Asserts on the full sentence shape so a regression in the rule's
+ * message template fails the test rather than slipping past a
+ * substring match. Matches the locked-down assertion pattern in the
+ * sibling rule test files.
  */
 
 import { describe, expect, it } from "vitest";
@@ -69,10 +74,12 @@ describe("imageMapValueUnique", () => {
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("Region");
-		// 1-based row indexing in the message.
-		expect(hits[0].message).toContain("rows 1 and 2");
+		expect(hits[0].message).toBe(
+			`Image-map column "Region" (column #1) on module "Mod" has two rows that share the value "N" (rows 1 and 2). Each case-property value can map to at most one image, so only the first row's image displays. Change one row's value, or delete the duplicate.`,
+		);
 		expect(hits[0].details?.value).toBe("N");
+		expect(hits[0].details?.firstRowIndex).toBe("0");
+		expect(hits[0].details?.duplicateRowIndex).toBe("1");
 	});
 
 	it("is silent when every row's value is distinct", () => {
