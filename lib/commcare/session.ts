@@ -646,8 +646,18 @@ export function buildStackElement(
  * more `<instance>` elements, optional `<session>`, optional `<stack>`.
  * The serializer preserves child insertion order, so the constructed tree's
  * shape is the on-wire shape.
+ *
+ * `commandDisplay` is the command's display child. The compiler passes the
+ * form's nav node — a bare `<text><locale/></text>` when the form has no
+ * menu media, or a `<display>` wrapping the text + `<text form="image|audio">`
+ * media locales when it does. When omitted (the string-render test surface),
+ * the command falls back to the bare `<text><locale/></text>` from
+ * `entry.localeId`, the pre-media shape.
  */
-export function buildEntryElement(entry: EntryDefinition): Element {
+export function buildEntryElement(
+	entry: EntryDefinition,
+	commandDisplay?: Element,
+): Element {
 	const children: Element[] = [];
 
 	// `<form>` carries the form's xmlns as text content. The serializer
@@ -658,7 +668,7 @@ export function buildEntryElement(entry: EntryDefinition): Element {
 
 	children.push(
 		el("command", { id: entry.commandId }, [
-			el("text", {}, [el("locale", { id: entry.localeId })]),
+			commandDisplay ?? el("text", {}, [el("locale", { id: entry.localeId })]),
 		]),
 	);
 

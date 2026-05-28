@@ -6,9 +6,10 @@
 // `expandDoc`) and the source `BlueprintDoc`, and produces a .ccz ZIP
 // archive ready for CommCare Mobile. The archive contains:
 //
-//   - profile.ccpr                : app profile (name + suite descriptors)
+//   - profile.ccpr                : app profile (name + suite descriptors + logo)
 //   - suite.xml                   : menus, commands, case details, entries, locales
-//   - media_suite.xml             : empty media suite (multimedia is unused)
+//   - media_suite.xml             : media resource descriptor (empty when no media)
+//   - commcare/<hash>.<ext>       : one bundled file per referenced media asset
 //   - {lang}/app_strings.txt      : per-language localized string tables
 //   - modules-{m}/forms-{f}.xml   : one XForm per form, with case blocks injected
 //
@@ -36,6 +37,10 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import type { HqApplication } from "@/lib/commcare";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import { buildMediaBundle } from "@/lib/commcare/multimedia/bundle";
+import { buildLogoProfileProperty } from "@/lib/commcare/multimedia/logoEntry";
+import { buildNavMenuNode } from "@/lib/commcare/multimedia/navMenuMedia";
 import {
 	buildEntryElement,
 	deriveEntryDefinition,
@@ -49,6 +54,14 @@ import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
 
+/** Compile-time options. `assets` is the resolved media manifest; when
+ *  present the archive bundles the referenced files + media_suite.xml +
+ *  logo property + menu/command media. Absent = media-free archive,
+ *  byte-identical to the pre-media output. */
+export interface CompileOptions {
+	assets?: AssetManifest;
+}
+
 /**
  * Compile an HQ application JSON (already expanded from a domain doc)
  * into a .ccz archive `Buffer`.
@@ -57,20 +70,39 @@ import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
  * walk mirrors `hqJson.modules` / `hqJson.modules[m].forms` exactly,
  * which lets us resolve the form-type metadata (absent from the HQ
  * wire shape) while producing the session entry for each form.
+ *
+ * `opts.assets` is the resolved media manifest. It MUST be built from
+ * the SAME manifest passed to `expandDoc` (so the jr:// references the
+ * XForms + shells carry resolve to bundled files); the route that loads
+ * assets passes one manifest to both. Absent = media-free archive.
  */
 export function compileCcz(
 	hqJson: HqApplication,
 	appName: string,
 	doc: BlueprintDoc,
+	opts: CompileOptions = {},
 ): Buffer {
 	const hqModules = hqJson.modules;
 	const attachments = hqJson._attachments;
+	const assets = opts.assets;
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
 
-	files["profile.ccpr"] = generateProfile(appName);
-	files["media_suite.xml"] = '<?xml version="1.0"?>\n<suite version="1"/>';
+	// Media bundle: media_suite.xml descriptor, the multimedia_map (already
+	// stamped on `hqJson` by the expander), and the CCZ byte entries. With no
+	// manifest the bundle is empty and `mediaSuiteXml` is the byte-identical
+	// empty placeholder, so a media-free app's archive is unchanged.
+	const mediaBundle = buildMediaBundle(assets ?? new Map(), "compileCcz");
+
+	files["profile.ccpr"] = generateProfile(
+		appName,
+		buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
+	);
+	files["media_suite.xml"] = mediaBundle.mediaSuiteXml;
+	// Media bytes are binary (PNG / MP3 / MP4); they are added to the archive
+	// as raw Buffers, NOT through the `files` string map (which re-encodes its
+	// entries as UTF-8 and would corrupt non-text bytes).
 
 	// `appStrings` is populated as we walk modules/forms; flushed once
 	// per language at the end.
@@ -358,15 +390,38 @@ export function compileCcz(
 				]),
 			);
 
-			suiteEntries.push(buildEntryElement(entryDef));
+			// Form menu-command media: the entry's `<command>` display gains
+			// `<text form="image|audio">` media locales (icon / audio label)
+			// when the form carries them. The nav node is a bare `<text>` when
+			// it doesn't, so the no-media shape is unchanged. Its app_strings
+			// (the jr:// path locales) merge into the table the suite oracle
+			// resolves `<locale id>` against.
+			const formNav = buildNavMenuNode(
+				`forms.m${mIdx}f${fIdx}`,
+				form.icon,
+				form.audioLabel,
+				assets,
+				"compileCcz form command",
+			);
+			Object.assign(appStrings, formNav.strings);
+			suiteEntries.push(buildEntryElement(entryDef, formNav.node));
 			menuCommands.push(el("command", { id: cmdId }));
 		}
 
+		// Module home-tile media: the `<menu>`'s display gains the icon /
+		// audio-label media locales when the module carries them; otherwise
+		// the bare `<text><locale/></text>` Nova has always emitted.
+		const moduleNav = buildNavMenuNode(
+			`modules.m${mIdx}`,
+			mod.icon,
+			mod.audioLabel,
+			assets,
+			"compileCcz module menu",
+		);
+		Object.assign(appStrings, moduleNav.strings);
+
 		suiteMenus.push(
-			el("menu", { id: `m${mIdx}` }, [
-				el("text", {}, [el("locale", { id: `modules.m${mIdx}` })]),
-				...menuCommands,
-			]),
+			el("menu", { id: `m${mIdx}` }, [moduleNav.node, ...menuCommands]),
 		);
 	}
 
@@ -448,7 +503,7 @@ export function compileCcz(
 		files[`${dir}/app_strings.txt`] = langStrings;
 	}
 
-	return packageCcz(files);
+	return packageCcz(files, mediaBundle.cczEntries);
 }
 
 /**
@@ -464,8 +519,13 @@ export function compileCcz(
  * The `appName` flows raw through the `name` attribute and the
  * `CommCare App Name` property value; the serializer XML-escapes both
  * once at render time (`&` / `<` / `>` / `"` / `'`).
+ *
+ * `logoProperty`, when present, is the web-apps banner
+ * `<property key="brand-banner-web-apps" value="jr://file/..." force="true"/>`
+ * built from `doc.logo`; it's appended to the property list. Absent =
+ * no logo property (media off, or no logo set).
  */
-function generateProfile(appName: string): string {
+function generateProfile(appName: string, logoProperty?: Element): string {
 	const profileEl = el(
 		"profile",
 		{
@@ -479,6 +539,7 @@ function generateProfile(appName: string): string {
 			el("property", { key: "CommCare App Name", value: appName }),
 			el("property", { key: "cc-content-version", value: "1" }),
 			el("property", { key: "cc-app-version", value: "1" }),
+			...(logoProperty ? [logoProperty] : []),
 			el("features", {}, [el("users", { active: "true" })]),
 			el("suite", {}, [
 				el(
@@ -504,13 +565,21 @@ function generateProfile(appName: string): string {
 }
 
 /**
- * Pack the collected file map into a ZIP archive and return the
- * in-memory buffer.
+ * Pack the collected files into a ZIP archive and return the in-memory
+ * buffer. Text files (`files`) are UTF-8 encoded; media files
+ * (`mediaEntries`) are added as their raw bytes — routing binary media
+ * through the UTF-8 text map would corrupt it.
  */
-function packageCcz(files: Record<string, string>): Buffer {
+function packageCcz(
+	files: Record<string, string>,
+	mediaEntries: readonly { path: string; bytes: Buffer }[] = [],
+): Buffer {
 	const zip = new AdmZip();
 	for (const [filePath, content] of Object.entries(files)) {
 		zip.addFile(filePath, Buffer.from(content, "utf-8"));
+	}
+	for (const entry of mediaEntries) {
+		zip.addFile(entry.path, entry.bytes);
 	}
 	return zip.toBuffer();
 }
