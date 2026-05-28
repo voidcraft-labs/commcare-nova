@@ -81,7 +81,7 @@ export const addFieldsTool = {
 					},
 				};
 			}
-			const { formUuid, form, mod } = resolved;
+			const { formUuid, form } = resolved;
 
 			// Process incoming flat SA-format fields: strip sentinels, apply
 			// case-property defaults from the data model, then mint a uuid
@@ -100,12 +100,7 @@ export const addFieldsTool = {
 				// explicitly (sentinel-empty-string → null), and the generic
 				// `applyDefaults` preserves that narrowing on the way out, so
 				// the `parentId` read below is well-typed without a cast.
-				const processed = applyDefaults(
-					stripEmpty(raw),
-					doc.caseTypes,
-					form.type,
-					mod.caseType,
-				);
+				const processed = applyDefaults(stripEmpty(raw), doc.caseTypes);
 
 				// Resolve parentUuid: empty/undefined → form; otherwise find
 				// the uuid of a newly-added parent or an existing field.
