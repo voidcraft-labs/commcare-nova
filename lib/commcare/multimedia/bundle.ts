@@ -94,11 +94,26 @@ export function buildMediaBundle(
 	manifest: AssetManifest,
 	where: string,
 ): MediaBundle {
+	// Dedupe by `wirePath` BEFORE producing the bundle's three outputs.
+	// Two distinct `AssetId`s can share the same `(contentHash, extension)`
+	// — and therefore the same wire path — when the storage-layer dedup
+	// probe races (a concurrent upload of the same bytes lands two `ready`
+	// rows because the probe ignores `pending` rows, documented in
+	// `lib/db/mediaAssets.ts::findReadyAssetByOwnerAndHash`). Without
+	// dedup, the bundle would emit two `<media>` blocks with identical
+	// `<resource id>` siblings + two cczEntries collisions (silent
+	// `AdmZip.addFile` overwrite) + a `multimediaMap` key overwrite. The
+	// payload is byte-identical so picking either entry is correct; we
+	// pick the last-iterated to keep `Map.set`'s natural semantics.
+	const deduped = new Map<string, ResolvedMediaAsset>();
+	for (const asset of manifest.values()) {
+		deduped.set(asset.wirePath, asset);
+	}
 	// Sort by wire path so the bundle's three outputs (mediaSuiteXml,
 	// multimediaMap, cczEntries) carry the same deterministic order —
 	// same inputs always yield same bytes. `buildMediaSuiteXml` sorts
 	// internally; the other two consume the pre-sorted list.
-	const assets = [...manifest.values()].sort((a, b) =>
+	const assets = [...deduped.values()].sort((a, b) =>
 		a.wirePath < b.wirePath ? -1 : a.wirePath > b.wirePath ? 1 : 0,
 	);
 	const cczEntries: MediaCczEntry[] = assets.map((asset) => {

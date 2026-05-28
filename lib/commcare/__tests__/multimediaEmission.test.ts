@@ -171,6 +171,52 @@ describe("XForm itext media emission", () => {
 		);
 	});
 
+	it("media-OFF + media-only slots: emits NO dangling body refs (no <hint>, no <help>, no jr:constraintMsg)", () => {
+		// Regression: the body-ref / bind-attribute gates use the same
+		// predicate `addItext` uses to register the entry, so media-OFF
+		// (no manifest) with ONLY media set on optional slots must skip
+		// the ref entirely — a `<hint>`/`<help>` ref or `jr:constraintMsg`
+		// attribute pointing at a non-registered entry would dangle and
+		// crash at JavaRosa parse.
+		const doc = buildDoc({
+			appName: "Media-only optional slots",
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+									// Only media on hint / help / validate_msg — no text.
+									hint_media: { image: "label-img" },
+									help_media: { audio: "help-aud" },
+									validate: ". != ''",
+									validate_msg_media: { image: "vmsg-img" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		// Expand WITHOUT a manifest — media emission is OFF.
+		const xml = firstFormXml(expandDoc(doc));
+		expect(xml).not.toContain("<hint ref=");
+		expect(xml).not.toContain("<help ref=");
+		expect(xml).not.toContain("jr:constraintMsg=");
+		expect(validateXForm(xml, "Register", "Patients")).toEqual([]);
+	});
+
 	it("emits NO media value siblings when no manifest is provided (media off)", () => {
 		const xml = firstFormXml(expandDoc(mediaDoc()));
 		// No media <value form="..."> siblings at all.

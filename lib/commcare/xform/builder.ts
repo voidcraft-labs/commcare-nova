@@ -448,6 +448,7 @@ export function buildXForm(
 			dataElements,
 			binds,
 			expand,
+			opts.assets,
 		);
 	}
 
@@ -538,6 +539,32 @@ function readFieldMedia(field: Field, key: string): Media | undefined {
 }
 
 /**
+ * Will `addItext` register a `<text>` entry for this slot? The
+ * body-ref-iff-entry invariant the optional-message gates rely on:
+ * if this returns false, the entry won't emit, so no `<hint>`/`<help>`/
+ * `<label>` body ref or `jr:constraintMsg` bind attribute should
+ * reference it. Mirrors `addItext`'s skip rule exactly:
+ *
+ *   - text present → entry emits.
+ *   - text absent + media-OFF (no manifest) → no media values, skip.
+ *   - text absent + manifest present + no media slot set → skip.
+ *   - text absent + manifest present + at least one media slot set → emit.
+ *
+ * Keeps the check cheap (no manifest lookup), so a missing-from-manifest
+ * `AssetId` still throws from `requireAssetRef` at the actual registration
+ * site, not silently here.
+ */
+function hasItextContent(
+	text: string | undefined,
+	media: Media | undefined,
+	assets: AssetManifest | undefined,
+): boolean {
+	if (text) return true;
+	if (!media || !assets) return false;
+	return !!(media.image || media.audio || media.video);
+}
+
+/**
  * Recursively emit the four XForm parts for a single field:
  *
  *   - `dataElements`: one `<instance>` data node per field
@@ -603,6 +630,7 @@ function buildFieldParts(
 	topDataElements: Element[],
 	topBinds: Element[],
 	expand: (expr: string) => string,
+	assets: AssetManifest | undefined,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const nodePath = `${parentPath}/${field.id}`;
@@ -623,14 +651,20 @@ function buildFieldParts(
 
 	// Per-message media slots. Each registers `<value form="...">` siblings
 	// on its itext entry (via `addItext`), and `hint`/`help` body refs emit
-	// when the slot OR its text is present — so a media-only hint/help still
-	// gets its body element rather than dangling an unreferenced itext entry.
+	// when the slot would actually produce an entry. This is the body-ref-
+	// iff-entry invariant: an optional ref must be predicated on the SAME
+	// condition `addItext` uses to register the entry, not just on raw
+	// media-slot presence — otherwise media-OFF (no manifest) with a media-
+	// only slot set would emit a body ref against a non-registered entry,
+	// silently failing for `<hint>`/`<help>` (oracle catches) AND for
+	// `jr:constraintMsg` (oracle's `ref`-attribute scan misses, so the
+	// dangle ships and detonates at JavaRosa parse on the device).
 	const labelMedia = readFieldMedia(field, "label_media");
 	const hintMedia = readFieldMedia(field, "hint_media");
 	const helpMedia = readFieldMedia(field, "help_media");
 	const validateMsgMedia = readFieldMedia(field, "validate_msg_media");
-	const hasHint = !!(hint || hintMedia);
-	const hasHelp = !!(help || helpMedia);
+	const hasHint = hasItextContent(hint, hintMedia, assets);
+	const hasHelp = hasItextContent(help, helpMedia, assets);
 
 	// Secondary-instance requirements: any XPath that mentions `#case/`,
 	// `#user/`, or a raw `instance('casedb')` / `instance('commcaresession')`
@@ -680,13 +714,13 @@ function buildFieldParts(
 
 	// `jr:constraintMsg` MUST be an itext reference — HQ's XForm parser only
 	// reads the attribute when it points at an itext id via `jr:itext(...)`, so
-	// inline text would vanish on upload. The matching `<text>` entry is
-	// registered below when `canValidate` holds AND text OR media is present;
-	// the bind-attribute gate must match (text OR media), else a media-only
-	// validation cue silently orphans its itext entry — the body never
-	// references it, the cue never displays. Body-ref-iff-entry binds across
-	// every message slot.
-	if (canValidate && (validateMsg || validateMsgMedia)) {
+	// inline text would vanish on upload. The bind-attribute gate uses the
+	// same predicate `addItext` uses to register the entry, so the attribute
+	// emits IFF an entry exists to back it. Media-OFF (no manifest) with only
+	// media set produces no entry — the gate skips the attribute in lockstep
+	// (a `jr:constraintMsg` ref against a non-registered entry is parse-fatal
+	// at JavaRosa install).
+	if (canValidate && hasItextContent(validateMsg, validateMsgMedia, assets)) {
 		bindAttribs["jr:constraintMsg"] = `jr:itext('${itextKey}-constraintMsg')`;
 	}
 
@@ -820,6 +854,7 @@ function buildFieldParts(
 			topDataElements,
 			topBinds,
 			expand,
+			assets,
 		);
 		return;
 	}
@@ -950,6 +985,7 @@ function buildContainer(
 	topDataElements: Element[],
 	topBinds: Element[],
 	expand: (expr: string) => string,
+	assets: AssetManifest | undefined,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -992,6 +1028,7 @@ function buildContainer(
 			topDataElements,
 			topBinds,
 			expand,
+			assets,
 		);
 	}
 
@@ -1060,10 +1097,9 @@ function buildContainer(
 	// against a missing entry (`XFORM_MISSING_ITEXT`), and registering an entry
 	// (media-only) without a ref would orphan it. Both empty → no element,
 	// matching CommCare's transparent-container behavior.
-	const labelEl =
-		label || labelMedia
-			? el("label", { ref: `jr:itext('${itextKey}-label')` })
-			: undefined;
+	const labelEl = hasItextContent(label, labelMedia, assets)
+		? el("label", { ref: `jr:itext('${itextKey}-label')` })
+		: undefined;
 
 	if (field.kind === "repeat") {
 		bodyElements.push(
