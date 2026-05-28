@@ -19,7 +19,11 @@ import { Icon } from "@iconify/react/offline";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef, useState } from "react";
-import type { MediaKind } from "@/lib/domain/multimedia";
+import {
+	type MediaKind,
+	mediaKindForMimeType,
+	normalizeMimeType,
+} from "@/lib/domain/multimedia";
 import type { MediaAssetView } from "./mediaClient";
 import { mediaSrc } from "./mediaClient";
 import { MEDIA_KIND_META } from "./mediaKindMeta";
@@ -37,6 +41,12 @@ export interface MediaPickerDialogProps {
 	onOpenChange: (open: boolean) => void;
 	kind: MediaKind;
 	onPick: (asset: MediaAssetView) => void;
+	/**
+	 * Dialog title + accessible name. The same dialog serves both add
+	 * ("Add image") and replace ("Replace image") flows, so the caller
+	 * supplies the verb-correct title.
+	 */
+	title: string;
 }
 
 export function MediaPickerDialog({
@@ -44,6 +54,7 @@ export function MediaPickerDialog({
 	onOpenChange,
 	kind,
 	onPick,
+	title,
 }: MediaPickerDialogProps) {
 	// The data hooks (`useMediaLibrary`) live in `PickerBody`, which is
 	// a child of `Dialog.Popup` — Base UI only mounts the Popup's
@@ -59,6 +70,7 @@ export function MediaPickerDialog({
 				<Dialog.Popup className={POPUP_CLS}>
 					<PickerBody
 						kind={kind}
+						title={title}
 						onPick={(asset) => {
 							onPick(asset);
 							onOpenChange(false);
@@ -74,13 +86,14 @@ export function MediaPickerDialog({
  *  the library fetch + tab state so neither runs until the picker opens. */
 function PickerBody({
 	kind,
+	title,
 	onPick,
 }: {
 	kind: MediaKind;
+	title: string;
 	onPick: (asset: MediaAssetView) => void;
 }) {
 	const [tab, setTab] = useState<Tab>("upload");
-	const meta = MEDIA_KIND_META[kind];
 	const { assets, isLoading, error, hasMore, loadMore, addUploaded } =
 		useMediaLibrary(kind);
 
@@ -93,10 +106,10 @@ function PickerBody({
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
 				<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-					Add {meta.label.toLowerCase()}
+					{title}
 				</Dialog.Title>
 				<Dialog.Close
-					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
+					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
@@ -149,9 +162,9 @@ function TabButton({
 			role="tab"
 			aria-selected={active}
 			onClick={onClick}
-			className={`-mb-px border-b-2 px-3 pb-2 text-sm transition-colors ${
+			className={`-mb-px border-b-2 px-3 pb-2 text-sm transition-colors focus-visible:outline-1 focus-visible:outline-nova-violet-bright ${
 				active
-					? "border-nova-accent text-nova-text"
+					? "border-nova-violet text-nova-text"
 					: "border-transparent text-nova-text-muted hover:text-nova-text"
 			}`}
 		>
@@ -170,10 +183,24 @@ function UploadTab({
 	const meta = MEDIA_KIND_META[kind];
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [dragging, setDragging] = useState(false);
+	const [kindError, setKindError] = useState<string | null>(null);
 	const { upload, status } = useMediaUpload();
 
 	const handleFile = async (file: File | undefined) => {
 		if (!file) return;
+		// The native file input's `accept` filter only guards the browse
+		// dialog, not drag-drop. Reject a wrong-kind file locally (after
+		// normalizing aliases like `audio/x-m4a`) so the user gets an
+		// instant answer instead of hashing the bytes + a server round
+		// trip just to be rejected.
+		const dropped = normalizeMimeType(file.type);
+		if (!dropped || mediaKindForMimeType(dropped) !== kind) {
+			setKindError(
+				`That file isn't ${meta.label === "Audio" ? "an" : "a"} ${meta.label.toLowerCase()}. This slot takes ${meta.accept.split(",").join(", ")}.`,
+			);
+			return;
+		}
+		setKindError(null);
 		const asset = await upload(file);
 		if (asset) onUploaded(asset);
 	};
@@ -193,7 +220,7 @@ function UploadTab({
 			}}
 			className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors ${
 				dragging
-					? "border-nova-accent bg-nova-accent/[0.06]"
+					? "border-nova-violet bg-nova-violet/[0.06]"
 					: "border-nova-border"
 			}`}
 		>
@@ -205,7 +232,7 @@ function UploadTab({
 				type="button"
 				onClick={() => inputRef.current?.click()}
 				disabled={status.state === "uploading"}
-				className="rounded-md bg-nova-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+				className="rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-50"
 			>
 				{status.state === "uploading" ? "Uploading…" : "Browse files"}
 			</button>
@@ -218,8 +245,10 @@ function UploadTab({
 				className="hidden"
 				onChange={(e) => void handleFile(e.target.files?.[0])}
 			/>
-			{status.state === "error" && (
-				<p className="text-xs text-nova-error">{status.message}</p>
+			{(kindError ?? (status.state === "error" ? status.message : null)) && (
+				<p className="text-xs text-nova-rose">
+					{kindError ?? (status.state === "error" ? status.message : "")}
+				</p>
 			)}
 		</div>
 	);
@@ -258,9 +287,9 @@ function LibraryTab({
 				placeholder="Search by name"
 				autoComplete="off"
 				data-1p-ignore
-				className="w-full rounded-md border border-nova-border bg-nova-surface px-3 py-1.5 text-sm text-nova-text outline-none placeholder:text-nova-text-muted focus:border-nova-accent"
+				className="w-full rounded-md border border-nova-border bg-nova-surface px-3 py-1.5 text-sm text-nova-text outline-none placeholder:text-nova-text-muted focus:border-nova-violet"
 			/>
-			{error && <p className="text-xs text-nova-error">{error}</p>}
+			{error && <p className="text-xs text-nova-rose">{error}</p>}
 			{filtered.length === 0 && !isLoading ? (
 				<p className="py-6 text-center text-sm text-nova-text-muted">
 					{assets.length === 0
@@ -275,7 +304,7 @@ function LibraryTab({
 								type="button"
 								onClick={() => onPick(asset)}
 								title={asset.displayName ?? asset.originalFilename}
-								className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-accent"
+								className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 							>
 								<LibraryThumb asset={asset} />
 							</button>
@@ -288,7 +317,7 @@ function LibraryTab({
 					type="button"
 					onClick={loadMore}
 					disabled={isLoading}
-					className="self-center rounded-md border border-nova-border px-3 py-1 text-xs text-nova-text-muted transition-colors hover:text-nova-text disabled:opacity-50"
+					className="self-center rounded-md border border-nova-border px-3 py-1 text-xs text-nova-text-muted transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-50"
 				>
 					{isLoading ? "Loading…" : "Load more"}
 				</button>

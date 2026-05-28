@@ -273,6 +273,7 @@ function OptionsEditorWidget({
 								value={opt.media}
 								onChange={(media) => setOptionMedia(i, media)}
 								kinds={MEDIA_KINDS}
+								ariaLabel={opt.label.trim() || `Option ${i + 1}`}
 							/>
 						</div>
 					</div>

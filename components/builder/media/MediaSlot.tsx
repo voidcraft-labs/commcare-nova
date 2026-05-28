@@ -38,12 +38,31 @@ export interface MediaSlotProps {
 	onChange: (next: Media | undefined) => void;
 	/** Which kinds this carrier can hold. Menu carriers omit "video". */
 	kinds: readonly MediaKind[];
+	/**
+	 * Context for the per-kind controls' accessible names. A bare
+	 * "Add image" repeats across every option row and every message
+	 * slot; passing e.g. "Option 1" or "Label" yields "Add option 1
+	 * image" so screen-reader users can tell the controls apart. When
+	 * omitted (the slot already sits under a labelled section header),
+	 * the kind alone is used.
+	 */
+	ariaLabel?: string;
 }
 
-export function MediaSlot({ value, onChange, kinds }: MediaSlotProps) {
+export function MediaSlot({
+	value,
+	onChange,
+	kinds,
+	ariaLabel,
+}: MediaSlotProps) {
 	const setKind = (kind: MediaKind, assetId: string) =>
 		onChange(setMediaSlot(value, kind, assetId));
 	const clearKind = (kind: MediaKind) => onChange(clearMediaSlot(value, kind));
+	// Compose the per-control noun: "Option 1 image", "Label audio", …
+	const labelFor = (kind: MediaKind) =>
+		ariaLabel
+			? `${ariaLabel} ${MEDIA_KIND_META[kind].label.toLowerCase()}`
+			: undefined;
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -54,6 +73,7 @@ export function MediaSlot({ value, onChange, kinds }: MediaSlotProps) {
 						key={kind}
 						kind={kind}
 						assetId={assetId}
+						ariaLabel={labelFor(kind)}
 						onReplace={(asset) => setKind(kind, asset.id)}
 						onRemove={() => clearKind(kind)}
 					/>
@@ -61,6 +81,7 @@ export function MediaSlot({ value, onChange, kinds }: MediaSlotProps) {
 					<AddPill
 						key={kind}
 						kind={kind}
+						ariaLabel={labelFor(kind)}
 						onPick={(asset) => setKind(kind, asset.id)}
 					/>
 				);
@@ -127,7 +148,7 @@ function AddPill({
 				type="button"
 				onClick={() => setOpen(true)}
 				aria-label={ariaLabel ?? `Add ${meta.label.toLowerCase()}`}
-				className="flex items-center gap-1.5 self-start rounded-md border border-dashed border-nova-border px-2 py-1 text-xs text-nova-text-muted transition-colors hover:border-nova-accent hover:text-nova-text"
+				className="flex items-center gap-1.5 self-start rounded-md border border-dashed border-nova-border px-2 py-1 text-xs text-nova-text-muted transition-colors hover:border-nova-violet hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 			>
 				<Icon icon={tablerPlus} className="size-3.5" />
 				{meta.label}
@@ -136,6 +157,7 @@ function AddPill({
 				open={open}
 				onOpenChange={setOpen}
 				kind={kind}
+				title={`Add ${meta.label.toLowerCase()}`}
 				onPick={onPick}
 			/>
 		</>
@@ -165,7 +187,7 @@ function AssetChip({
 		<div className="flex items-center gap-2 self-start rounded-md border border-nova-border bg-nova-surface p-1 pr-2">
 			<Popover.Root>
 				<Popover.Trigger
-					className="flex items-center gap-2 rounded outline-none"
+					className="flex items-center gap-2 rounded outline-none focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 					aria-label={`Preview ${what}`}
 				>
 					<ThumbBox kind={kind} assetId={assetId} />
@@ -188,7 +210,7 @@ function AssetChip({
 				type="button"
 				onClick={() => setPickerOpen(true)}
 				aria-label={`Replace ${what}`}
-				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
+				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 			>
 				<Icon icon={tablerReplace} className="size-3.5" />
 			</button>
@@ -196,7 +218,7 @@ function AssetChip({
 				type="button"
 				onClick={onRemove}
 				aria-label={`Remove ${what}`}
-				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-error"
+				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-rose focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 			>
 				<Icon icon={tablerTrash} className="size-3.5" />
 			</button>
@@ -205,6 +227,7 @@ function AssetChip({
 				open={pickerOpen}
 				onOpenChange={setPickerOpen}
 				kind={kind}
+				title={`Replace ${what}`}
 				onPick={onReplace}
 			/>
 		</div>

@@ -30,7 +30,6 @@ export interface UseMediaUpload {
 	/** Run an upload; resolves to the asset, or `null` if it failed (see `status`). */
 	upload: (file: File) => Promise<MediaAssetView | null>;
 	status: MediaUploadStatus;
-	reset: () => void;
 }
 
 export function useMediaUpload(): UseMediaUpload {
@@ -54,9 +53,7 @@ export function useMediaUpload(): UseMediaUpload {
 		}
 	}, []);
 
-	const reset = useCallback(() => setStatus({ state: "idle" }), []);
-
-	return { upload, status, reset };
+	return { upload, status };
 }
 
 export interface UseMediaLibrary {

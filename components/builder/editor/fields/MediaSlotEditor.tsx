@@ -18,12 +18,17 @@ import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 export function MediaSlotEditor<F extends Field, K extends keyof F>({
 	value,
 	onChange,
+	label,
 }: FieldEditorComponentProps<F, K>) {
 	return (
 		<MediaSlot
 			value={value as Media | undefined}
 			onChange={(next) => onChange(next as F[K])}
 			kinds={MEDIA_KINDS}
+			// The entry label is "Label media" / "Hint media" / …; drop the
+			// trailing "media" so the per-kind control reads "Add label
+			// image" rather than "Add label media image".
+			ariaLabel={label.replace(/ media$/i, "")}
 		/>
 	);
 }
