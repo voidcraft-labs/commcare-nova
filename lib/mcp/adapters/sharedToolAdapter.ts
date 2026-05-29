@@ -98,13 +98,6 @@ export interface SharedToolModule {
 	 * expects `ZodRawShapeCompat` (`Record<string, AnySchema>`).
 	 */
 	readonly inputSchema: z.ZodObject<z.ZodRawShape>;
-	/**
-	 * Optional strictness flag some tools set; currently informational —
-	 * the MCP SDK has no corresponding knob, so we mirror it onto the
-	 * adapter interface only so TypeScript stops complaining when tool
-	 * modules set it and callers pass the module object straight in.
-	 */
-	readonly strict?: boolean;
 	execute(
 		input: unknown,
 		ctx: ToolExecutionContext,
