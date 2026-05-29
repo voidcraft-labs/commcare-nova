@@ -1,13 +1,12 @@
 /**
  * Unit tests for the wiring inside `lib/db/settings.ts` that the layers above
  * mock away — specifically the security-critical decrypt ordering in
- * `getCredentialsForUpload` and the `reconcileActiveDomain` default logic.
+ * `getCredentialsForUpload`.
  *
- * The MCP tool and Server Action tests mock `getCredentialsForUpload` /
- * `reconcileActiveDomain` wholesale, so they can't catch a regression that
- * decrypts a key before the upload target resolves (a KMS call on a doomed
- * request) or mis-derives the persisted default. These tests exercise the
- * real wiring with only the Firestore + KMS boundaries mocked.
+ * The MCP tool and Server Action tests mock `getCredentialsForUpload`
+ * wholesale, so they can't catch a regression that decrypts a key before the
+ * upload target resolves (a KMS call on a doomed request). These tests exercise
+ * the real wiring with only the Firestore + KMS boundaries mocked.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,11 +36,7 @@ vi.mock("@/lib/commcare/client", () => ({
 	discoverAccessibleDomains: mocks.discover,
 }));
 
-import {
-	getCredentialsForUpload,
-	reconcileActiveDomain,
-	refreshApprovedDomains,
-} from "../settings";
+import { getCredentialsForUpload, refreshApprovedDomains } from "../settings";
 
 const PROD = { name: "connect-ace-prod", displayName: "ACE Prod" };
 const CRISPR = { name: "ace-crispr-connect", displayName: "CRISPR" };
@@ -111,33 +106,18 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 		expect(mocks.decrypt).not.toHaveBeenCalled();
 	});
 
-	it("multi-space key with a valid default → ok on the default, decrypts once", async () => {
+	it("an explicit reachable request resolves on a multi-space key", async () => {
 		mocks.settingsGet.mockResolvedValue(
 			snap({
 				commcare_username: "alice@example.com",
 				commcare_api_key: "ciphertext",
 				approved_domains: [PROD, CRISPR],
-				active_domain: "ace-crispr-connect",
-			}),
-		);
-		const r = await getCredentialsForUpload("u1");
-		expect(r.ok).toBe(true);
-		if (r.ok) expect(r.domain).toEqual(CRISPR);
-		expect(mocks.decrypt).toHaveBeenCalledTimes(1);
-	});
-
-	it("an explicit reachable request overrides the default", async () => {
-		mocks.settingsGet.mockResolvedValue(
-			snap({
-				commcare_username: "alice@example.com",
-				commcare_api_key: "ciphertext",
-				approved_domains: [PROD, CRISPR],
-				active_domain: "ace-crispr-connect",
 			}),
 		);
 		const r = await getCredentialsForUpload("u1", "connect-ace-prod");
 		expect(r.ok).toBe(true);
 		if (r.ok) expect(r.domain).toEqual(PROD);
+		expect(mocks.decrypt).toHaveBeenCalledTimes(1);
 	});
 
 	it("no settings doc → not_configured, NEVER decrypts", async () => {
@@ -164,36 +144,11 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 	});
 });
 
-describe("reconcileActiveDomain — what default gets persisted after the set changes", () => {
-	it("preserves a prior default that's still reachable", () => {
-		expect(reconcileActiveDomain([PROD, CRISPR], "connect-ace-prod")).toBe(
-			"connect-ace-prod",
-		);
-	});
-
-	it("auto-binds a single-space key to its sole space", () => {
-		expect(reconcileActiveDomain([PROD], undefined)).toBe("connect-ace-prod");
-	});
-
-	it("leaves a multi-space key with no prior default UNSET (force a choice)", () => {
-		expect(reconcileActiveDomain([PROD, CRISPR], undefined)).toBeUndefined();
-	});
-
-	it("drops a stale prior default no longer reachable (multi-space → unset)", () => {
-		expect(reconcileActiveDomain([PROD, CRISPR], "gone")).toBeUndefined();
-	});
-
-	it("falls back to the sole space when the prior is stale (single-space)", () => {
-		expect(reconcileActiveDomain([PROD], "gone")).toBe("connect-ace-prod");
-	});
-});
-
 describe("refreshApprovedDomains — never clobbers stored spaces on a non-success", () => {
 	const configuredRow = snap({
 		commcare_username: "alice@example.com",
 		commcare_api_key: "ciphertext",
 		approved_domains: [PROD],
-		active_domain: "connect-ace-prod",
 	});
 
 	it("an empty-but-successful probe returns no_spaces and writes NOTHING", async () => {

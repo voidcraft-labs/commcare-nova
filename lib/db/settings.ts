@@ -11,9 +11,10 @@
  * cleanly separated from app preferences.
  *
  * Multi-space keys: an HQ API key can reach several project spaces, so this
- * module stores the full reachable set (`approved_domains`) plus the user's
- * chosen default (`active_domain`). Which space an upload targets is decided
- * by the pure `resolveUploadDomain` — never re-implemented here.
+ * module stores the full reachable set (`approved_domains`). Which space an
+ * upload targets is decided per-upload by the pure `resolveUploadDomain` —
+ * never re-implemented here, and deliberately never remembered as a stored
+ * default (a multi-space key exists to operate across spaces).
  */
 
 import { FieldValue } from "@google-cloud/firestore";
@@ -34,21 +35,17 @@ import type { UserSettingsDoc } from "./types";
  * Safe subset of settings returned to the client (never includes the raw
  * API key). Discriminated on `configured`.
  *
- * On a configured row, `availableDomains` is every space the key can upload to.
- * `domain` is the resolved default upload target: the sole space for a
- * single-space key, or the stored `active_domain` for a multi-space key. It is
- * `null` for a multi-space key with no stored default — the common case, since
- * the default is no longer user-settable in Settings (only auto-bound for
- * single-space keys, or carried on a legacy/migrated row). The upload dialog
- * is where the per-upload target is chosen; consumers use `domain` only as a
- * pre-selection hint.
+ * On a configured row, `availableDomains` is every space the key can upload to
+ * (length 1 ⇒ a single-space key). There is no stored default target: a
+ * single-space key resolves to its sole space at upload time, and a multi-space
+ * key's target is chosen per-upload (the dialog, or the MCP caller) — so this
+ * shape carries the reachable set and nothing to pre-select from.
  */
 export type CommCareSettingsPublic =
 	| { configured: false }
 	| {
 			configured: true;
 			username: string;
-			domain: CommCareDomain | null;
 			availableDomains: CommCareDomain[];
 	  };
 
@@ -66,27 +63,6 @@ export type CredentialsForUploadResult =
 			error: "not_authorized" | "ambiguous";
 			available: CommCareDomain[];
 	  };
-
-// ── Internal helpers ───────────────────────────────────────────────
-
-/**
- * Pick the default space to persist after the reachable set changes.
- *
- * Preserves a prior default that's still reachable; otherwise a single-space
- * key auto-binds to its sole space and a multi-space key is left unset. Since
- * the Settings picker was removed, the only `priorActive` a multi-space key
- * can carry is a legacy/migrated value — a fresh multi-space save now always
- * leaves the default unset, and the upload dialog chooses the target instead.
- */
-export function reconcileActiveDomain(
-	approvedDomains: CommCareDomain[],
-	priorActive: string | undefined,
-): string | undefined {
-	if (priorActive && approvedDomains.some((d) => d.name === priorActive)) {
-		return priorActive;
-	}
-	return approvedDomains.length === 1 ? approvedDomains[0].name : undefined;
-}
 
 // ── Read operations ────────────────────────────────────────────────
 
@@ -112,19 +88,9 @@ export async function getCommCareSettings(
 		return { configured: false };
 	}
 
-	/* Resolve the active target with no explicit request: the resolver returns
-	 * `ok` for a single space or a valid chosen default, and otherwise (multi
-	 * space, no default) signals ambiguity — which we surface to the client as
-	 * a `null` domain meaning "pick one." */
-	const resolved = resolveUploadDomain({
-		availableDomains,
-		activeDomainName: data.active_domain,
-	});
-
 	return {
 		configured: true,
 		username: data.commcare_username,
-		domain: resolved.ok ? resolved.domain : null,
 		availableDomains,
 	};
 }
@@ -151,11 +117,7 @@ export async function getCredentialsForUpload(
 		return { ok: false, error: "not_configured" };
 	}
 
-	const resolved = resolveUploadDomain({
-		availableDomains,
-		activeDomainName: data.active_domain,
-		requested,
-	});
+	const resolved = resolveUploadDomain({ availableDomains, requested });
 	if (!resolved.ok) {
 		return { ok: false, error: resolved.reason, available: resolved.available };
 	}
@@ -181,31 +143,21 @@ export interface SaveCommCareSettingsInput {
 /**
  * Save (or update) a user's CommCare HQ credentials.
  *
- * Encrypts the API key via Cloud KMS, stores the full reachable space set,
- * and reconciles the chosen default (see `reconcileActiveDomain`). A cleared
- * default is removed with `FieldValue.delete()` so a re-save that goes from
- * single-space to multi-space doesn't leave a stale auto-bound default behind
- * the `merge: true` write.
+ * Encrypts the API key via Cloud KMS and stores the full reachable space set.
+ * No upload default is persisted — the target is chosen per-upload — so a
+ * `merge: true` write of just these fields is safe.
  */
 export async function saveCommCareSettings(
 	userId: string,
 	input: SaveCommCareSettingsInput,
 ): Promise<void> {
-	const [encryptedKey, existing] = await Promise.all([
-		encrypt(input.apiKey),
-		docs.settings(userId).get(),
-	]);
-	const priorActive = existing.exists
-		? existing.data()?.active_domain
-		: undefined;
-	const activeName = reconcileActiveDomain(input.approvedDomains, priorActive);
+	const encryptedKey = await encrypt(input.apiKey);
 
 	await docs.settings(userId).set(
 		{
 			commcare_username: input.username,
 			commcare_api_key: encryptedKey,
 			approved_domains: input.approvedDomains,
-			active_domain: activeName ?? FieldValue.delete(),
 			updated_at: FieldValue.serverTimestamp(),
 		} as unknown as UserSettingsDoc,
 		{ merge: true },
@@ -222,9 +174,9 @@ export type RefreshDomainsResult =
 /**
  * Re-introspect the key's reachable spaces and persist the refreshed set.
  *
- * Decrypts the stored key, re-runs domain discovery, and reconciles the
- * default. A row with no stored key reads back as unconfigured (nothing to
- * refresh). An HQ API error returns `hq_error` WITHOUT writing.
+ * Decrypts the stored key and re-runs domain discovery. A row with no stored
+ * key reads back as unconfigured (nothing to refresh). An HQ API error returns
+ * `hq_error` WITHOUT writing.
  *
  * Empty-but-successful result guard: `testDomainAccess` maps a per-domain
  * 401/403 to a definitive `false` (only 5xx propagates as an error), so a
@@ -253,11 +205,9 @@ export async function refreshApprovedDomains(
 		return { ok: false, kind: "hq_error", status: accessible.status };
 	if (accessible.length === 0) return { ok: false, kind: "no_spaces" };
 
-	const activeName = reconcileActiveDomain(accessible, data.active_domain);
 	await docs.settings(userId).set(
 		{
 			approved_domains: accessible,
-			active_domain: activeName ?? FieldValue.delete(),
 			updated_at: FieldValue.serverTimestamp(),
 		} as unknown as UserSettingsDoc,
 		{ merge: true },
