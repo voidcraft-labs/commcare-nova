@@ -57,10 +57,8 @@ export const ACCEPTED_EXTENSIONS = [
 	".gif",
 	".webp",
 	".mp3",
-	".m4a",
 	".mp4",
 	".wav",
-	".ogg",
 ] as const;
 export type AcceptedExtension = (typeof ACCEPTED_EXTENSIONS)[number];
 
@@ -152,9 +150,9 @@ export async function validateMediaBytes(args: {
 
 	// MIME-claim membership is checked BEFORE the size cap so we can
 	// pick the right per-kind cap. The claim is normalized first so
-	// an alias spelling (a browser sending `audio/x-m4a` for a `.m4a`)
-	// reconciles to its canonical form; a claim that doesn't normalize
-	// to an accepted type is rejected here.
+	// an alias spelling (a browser sending `image/apng` for an animated
+	// `.png`) reconciles to its canonical form; a claim that doesn't
+	// normalize to an accepted type is rejected here.
 	const normalizedClaim = normalizeMimeType(claimedMimeType);
 	if (!normalizedClaim) {
 		return {
@@ -202,9 +200,9 @@ export async function validateMediaBytes(args: {
 		};
 	}
 	// Normalize the sniff before comparing — `file-type` reports some
-	// formats under alias spellings (`audio/x-m4a` for M4A,
-	// `audio/ogg; codecs=opus` for Opus) that name an accepted format
-	// under a non-canonical string.
+	// formats under alias spellings (`image/apng` for animated PNG) or
+	// with codec parameters (`video/mp4; codecs=...`) that name an
+	// accepted format under a non-canonical string.
 	const sniffedMime = normalizeMimeType(sniffed.mime);
 	if (!sniffedMime) {
 		return {

@@ -78,8 +78,8 @@ describe("EXTENSION_FOR_MIME_TYPE", () => {
 		expect(EXTENSION_FOR_MIME_TYPE["audio/mpeg"]).toBe(".mp3");
 	});
 
-	it("maps audio/mp4 to .m4a (distinct from video .mp4)", () => {
-		expect(EXTENSION_FOR_MIME_TYPE["audio/mp4"]).toBe(".m4a");
+	it("maps audio/wav to .wav", () => {
+		expect(EXTENSION_FOR_MIME_TYPE["audio/wav"]).toBe(".wav");
 	});
 
 	it("maps video/mp4 to .mp4 directly", () => {
@@ -153,15 +153,23 @@ describe("normalizeMimeType", () => {
 		}
 	});
 
-	it("maps file-type's M4A spelling to the canonical audio/mp4", () => {
-		// `file-type` reports the dominant M4A brand as `audio/x-m4a`.
-		expect(normalizeMimeType("audio/x-m4a")).toBe("audio/mp4");
-		expect(normalizeMimeType("audio/m4a")).toBe("audio/mp4");
+	it("strips codec parameters to the base type", () => {
+		// A parameterized claim (e.g. fragmented MP4) still names an
+		// accepted base type once the `; codecs=...` parameter is dropped.
+		expect(normalizeMimeType("video/mp4; codecs=avc1.42E01E")).toBe(
+			"video/mp4",
+		);
 	});
 
-	it("strips codec parameters so Opus-in-Ogg resolves to audio/ogg", () => {
-		// `file-type` reports Opus as `audio/ogg; codecs=opus`.
-		expect(normalizeMimeType("audio/ogg; codecs=opus")).toBe("audio/ogg");
+	it("rejects m4a/ogg audio — CommCare HQ's mime table can't ingest them", () => {
+		// audio/mp4 (.m4a) and audio/ogg (.ogg) are deliberately NOT in the
+		// accepted set: HQ's slim-image Python mimetypes table has no entry
+		// for those extensions, so the upload would 400. No alias rescues a
+		// type that isn't accepted.
+		expect(normalizeMimeType("audio/mp4")).toBeUndefined();
+		expect(normalizeMimeType("audio/ogg")).toBeUndefined();
+		expect(normalizeMimeType("audio/x-m4a")).toBeUndefined();
+		expect(normalizeMimeType("audio/ogg; codecs=opus")).toBeUndefined();
 	});
 
 	it("maps animated PNG (image/apng) to image/png", () => {

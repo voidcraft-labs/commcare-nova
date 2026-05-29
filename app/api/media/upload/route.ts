@@ -46,9 +46,10 @@ const requestBodySchema = z
 	.object({
 		filename: z.string().min(1).max(255),
 		// Accepted as a free string and normalized below, not
-		// `z.enum(ALL_MIME_TYPES)` — a browser's `File.type` for a
-		// `.m4a` is `audio/x-m4a` on some platforms, an alias that
-		// `normalizeMimeType` reconciles to the canonical `audio/mp4`.
+		// `z.enum(ALL_MIME_TYPES)` — a browser's `File.type` can be an
+		// alias (`image/apng` for an animated `.png`) or codec-
+		// parameterized (`video/mp4; codecs=...`); `normalizeMimeType`
+		// reconciles both to a canonical accepted type.
 		mimeType: z.string().min(1),
 		sizeBytes: z.number().int().positive(),
 		contentHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
 			uploadUrl: url,
 			// The signed URL is bound to the NORMALIZED `mimeType`, not
 			// the client's raw `File.type` (which may be an alias like
-			// `audio/x-m4a`). The browser must send this exact value as
+			// `image/apng`). The browser must send this exact value as
 			// the PUT `Content-Type`, or GCS rejects the signature.
 			uploadContentType: mimeType,
 			expiresAtMs,

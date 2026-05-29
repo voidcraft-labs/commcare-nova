@@ -190,7 +190,7 @@ function UploadTab({
 		if (!file) return;
 		// The native file input's `accept` filter only guards the browse
 		// dialog, not drag-drop. Reject a wrong-kind file locally (after
-		// normalizing aliases like `audio/x-m4a`) so the user gets an
+		// normalizing aliases like `image/apng`) so the user gets an
 		// instant answer instead of hashing the bytes + a server round
 		// trip just to be rejected.
 		const dropped = normalizeMimeType(file.type);

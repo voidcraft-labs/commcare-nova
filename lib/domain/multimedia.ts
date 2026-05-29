@@ -73,12 +73,17 @@ export const IMAGE_MIME_TYPES = [
 ] as const;
 export type ImageMimeType = (typeof IMAGE_MIME_TYPES)[number];
 
-export const AUDIO_MIME_TYPES = [
-	"audio/mpeg",
-	"audio/mp4",
-	"audio/wav",
-	"audio/ogg",
-] as const;
+/**
+ * Audio is restricted to the two formats CommCare HQ can actually ingest.
+ * HQ's media-upload endpoint validates the file extension against Python's
+ * `mimetypes` table (`hqmedia/views.py::BaseProcessFileUploadView.validate_file`),
+ * and HQ's deployed image (python3.13-bookworm-slim) ships no `/etc/mime.types`
+ * and registers no extra types — so its table is CPython's hardcoded map, which
+ * has `.mp3` (audio/mpeg) and `.wav` (audio/wav) but NOT `.m4a` (audio/mp4) or
+ * `.ogg` (audio/ogg). Accepting m4a/ogg would let a user attach audio that
+ * 400s on every HQ upload — a dead affordance Nova rejects at the source.
+ */
+export const AUDIO_MIME_TYPES = ["audio/mpeg", "audio/wav"] as const;
 export type AudioMimeType = (typeof AUDIO_MIME_TYPES)[number];
 
 export const VIDEO_MIME_TYPES = ["video/mp4"] as const;
@@ -131,18 +136,13 @@ export function mediaKindForMimeType(mimeType: string): MediaKind | undefined {
 }
 
 /**
- * Aliases a raw MIME string can take for an accepted format. A
- * `file-type` sniff and a browser `Content-Type` don't always use
- * the canonical spelling: `file-type` reports M4A audio as
- * `audio/x-m4a` and Opus-in-Ogg as `audio/ogg; codecs=opus`, and a
- * browser may send either form. The codec-parameter case
- * (`audio/ogg; codecs=opus`) collapses to its base type by the
- * parameter strip in `normalizeMimeType`, so only the genuinely
- * different spellings need an entry here.
+ * Aliases a raw MIME string can take for an accepted format, when a
+ * `file-type` sniff or a browser `Content-Type` uses a non-canonical
+ * spelling. Only genuinely different spellings need an entry — codec
+ * parameters (`; codecs=...`) are stripped to the base type by
+ * `normalizeMimeType` before lookup.
  */
 const MIME_ALIASES: Record<string, AssetMimeType> = {
-	"audio/x-m4a": "audio/mp4",
-	"audio/m4a": "audio/mp4",
 	// Animated PNG is a backward-compatible PNG extension; `file-type`
 	// sniffs it as `image/apng`. Treat it as `image/png` so a normal-
 	// looking `.png` that happens to be animated isn't rejected with a
@@ -156,14 +156,14 @@ const MIME_ALIASES: Record<string, AssetMimeType> = {
  * `file-type` sniff result — to its canonical accepted form, or
  * `undefined` if it isn't an accepted media type.
  *
- *  - strips codec parameters (`audio/ogg; codecs=opus` → `audio/ogg`)
- *  - maps known aliases (`audio/x-m4a` → `audio/mp4`)
+ *  - strips codec parameters (`video/mp4; codecs=avc1` → `video/mp4`)
+ *  - maps known aliases (`image/apng` → `image/png`)
  *  - returns canonical entries unchanged
  *
  * Both the claimed and the sniffed MIME flow through this before the
- * validator compares them, so a `.m4a` whose browser claim is
- * `audio/mp4` and whose sniff is `audio/x-m4a` reconciles to one
- * canonical value on both sides.
+ * validator compares them, so a file whose browser claim and `file-type`
+ * sniff spell the same format differently reconciles to one canonical
+ * value on both sides.
  */
 export function normalizeMimeType(raw: string): AssetMimeType | undefined {
 	const lower = raw.trim().toLowerCase();
@@ -180,14 +180,9 @@ export function normalizeMimeType(raw: string): AssetMimeType | undefined {
  * sniff confirms the real type, regardless of what the client's
  * original filename claimed. Used to construct the GCS object key.
  *
- * Two slightly-tricky cases:
- *
- *  - `audio/mpeg` → `.mp3` (the MIME's "mpeg" is historical; the
- *    Lame-encoded MPEG-1 Audio Layer 3 container is universally
- *    `.mp3` on disk and by every player's extension match).
- *  - `audio/mp4` → `.m4a` (MPEG-4 Audio; `.mp4` extension would
- *    confuse players that switch on extension to pick a video
- *    decoder).
+ * One slightly-tricky case: `audio/mpeg` → `.mp3` (the MIME's "mpeg"
+ * is historical; the MPEG-1 Audio Layer 3 container is universally
+ * `.mp3` on disk and by every player's extension match).
  */
 export const EXTENSION_FOR_MIME_TYPE: Record<AssetMimeType, string> = {
 	"image/png": ".png",
@@ -195,9 +190,7 @@ export const EXTENSION_FOR_MIME_TYPE: Record<AssetMimeType, string> = {
 	"image/gif": ".gif",
 	"image/webp": ".webp",
 	"audio/mpeg": ".mp3",
-	"audio/mp4": ".m4a",
 	"audio/wav": ".wav",
-	"audio/ogg": ".ogg",
 	"video/mp4": ".mp4",
 };
 
