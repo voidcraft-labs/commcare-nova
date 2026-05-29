@@ -360,4 +360,47 @@ describe("mediaUploadAssetsFromManifest", () => {
 			/without loaded bytes/,
 		);
 	});
+
+	it("collapses two asset ids that share one wire path into a single upload", () => {
+		// The storage layer's ready-dedup probe ignores pending rows, so a
+		// race can land two `ready` rows with the same (contentHash,
+		// extension) — and thus one wire path. The compiler dedups these in
+		// `buildMediaBundle`; the upload must too, so the POST count (and
+		// the `uploaded` tally) matches the actual file count.
+		const manifest: AssetManifest = new Map([
+			[
+				asAssetId("id-1"),
+				{
+					assetId: asAssetId("id-1"),
+					wirePath: "commcare/aaa.png",
+					kind: "image" as const,
+					mimeType: "image/png",
+					contentHash: "aaa",
+					extension: ".png",
+					bytes: Buffer.from("PNG"),
+				},
+			],
+			[
+				asAssetId("id-2"),
+				{
+					assetId: asAssetId("id-2"),
+					wirePath: "commcare/aaa.png",
+					kind: "image" as const,
+					mimeType: "image/png",
+					contentHash: "aaa",
+					extension: ".png",
+					bytes: Buffer.from("PNG"),
+				},
+			],
+		]);
+
+		const assets = mediaUploadAssetsFromManifest(manifest);
+		expect(assets).toEqual([
+			{
+				wirePath: "commcare/aaa.png",
+				kind: "image",
+				bytes: Buffer.from("PNG"),
+			},
+		]);
+	});
 });

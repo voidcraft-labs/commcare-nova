@@ -70,15 +70,6 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * the wire collapses both to `not_found`. */
 				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
 
-				/* Media manifest is loaded ONLY for the `ccz` format — the
-				 * archive bundles the bytes alongside the references. The
-				 * `json` format returns the raw HQ JSON with no byte upload
-				 * following it, so it ships media-free: emitting references
-				 * without the matching files would render to broken images.
-				 * (The HQ upload tool `upload_app_to_hq` is media-ON because
-				 * it POSTs the bytes per file after import; this read-only
-				 * compile does not.) `undefined` here flows through
-				 * `expandDoc`/`compileCcz` as media-off. */
 				/* Media gate — only the `ccz` format is media-ON, so only it
 				 * can hit `expandDoc`'s `requireAssetRef` throw on a stale
 				 * media reference (deleted, still-uploading, foreign-owned,
@@ -102,6 +93,15 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					}
 				}
 
+				/* Media manifest is loaded ONLY for the `ccz` format — the
+				 * archive bundles the bytes alongside the references. The
+				 * `json` format returns the raw HQ JSON with no byte upload
+				 * following it, so it ships media-free: emitting references
+				 * without the matching files would render to broken images.
+				 * (The HQ upload tool `upload_app_to_hq` is media-ON because
+				 * it POSTs the bytes per file after import; this read-only
+				 * compile does not.) `undefined` here flows through
+				 * `expandDoc`/`compileCcz` as media-off. */
 				const assets =
 					args.format === "ccz"
 						? await resolveMediaManifest(doc, ctx.userId, { withBytes: true })

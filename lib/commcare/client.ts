@@ -583,11 +583,21 @@ export async function uploadAppMedia(
  * caller's contract for the upload path, mirroring the compiler's
  * byte-load invariant. A missing buffer means the manifest was resolved
  * for a path-only consumer and wrongly handed to the upload flow.
+ *
+ * Deduplicates by wire path, mirroring `buildMediaBundle`: two distinct
+ * `AssetId`s can resolve to one `(contentHash, extension)` — and so one
+ * wire path — when the storage layer's ready-dedup probe races (it
+ * ignores `pending` rows, so concurrent uploads of identical bytes can
+ * land two `ready` rows). The compiler collapses such a pair into one
+ * archive entry; the upload must collapse it into one POST so the
+ * `uploaded` count matches the file count and no redundant request is
+ * sent (the second POST would be a harmless `create_mapping` overwrite,
+ * but it shouldn't be made).
  */
 export function mediaUploadAssetsFromManifest(
 	manifest: AssetManifest,
 ): MediaUploadAsset[] {
-	const assets: MediaUploadAsset[] = [];
+	const byWirePath = new Map<string, MediaUploadAsset>();
 	for (const asset of manifest.values()) {
 		if (!asset.bytes) {
 			throw new Error(
@@ -596,11 +606,12 @@ export function mediaUploadAssetsFromManifest(
 					"before uploading, or check the caller passed the byte-loaded manifest rather than a path-only one.",
 			);
 		}
-		assets.push({
+		if (byWirePath.has(asset.wirePath)) continue;
+		byWirePath.set(asset.wirePath, {
 			wirePath: asset.wirePath,
 			kind: asset.kind,
 			bytes: asset.bytes,
 		});
 	}
-	return assets;
+	return [...byWirePath.values()];
 }

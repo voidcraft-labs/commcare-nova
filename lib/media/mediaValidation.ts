@@ -9,10 +9,12 @@
 // the SA validation loop runs, BEFORE expand, so the user instead gets
 // the rule's actionable Elm-shape message with the carrier location.
 //
-// Server-only: it reads Firestore (the owner's asset rows). The one
-// media-side consumer of the `lib/commcare/validator` boundary besides
-// the manifest builder — which is why it carries its own file-specific
-// entry in biome.json's allowlist (mirroring `!lib/media/manifest.ts`).
+// Server-only: it reads Firestore (the owner's asset rows). It is the
+// only media-side consumer of `lib/commcare/validator`; the manifest
+// builder (`lib/media/manifest.ts`) crosses the same one-way
+// `@/lib/commcare` boundary too, but via `multimedia/assetWirePath`, not
+// the validator. Both therefore carry their own file-specific entry in
+// biome.json's allowlist (mirroring `!lib/media/manifest.ts`).
 
 import "server-only";
 
