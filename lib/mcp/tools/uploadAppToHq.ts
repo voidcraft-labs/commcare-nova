@@ -41,7 +41,13 @@
  *   4. `domain_ambiguous`       — multi-space key, no `domain`, no default;
  *                                 the tool names the spaces and asks the
  *                                 caller to choose rather than guessing.
- *   5. `hq_upload_failed`       — `importApp` returned a non-success
+ *   5. `invalid_input`          — the app references media that isn't ready
+ *                                 to upload (a deleted, still-uploading,
+ *                                 foreign-owned, or kind-mismatched asset).
+ *                                 Fires after domain resolution, before the
+ *                                 HQ network call; the message carries the
+ *                                 media rule's Elm-shape text.
+ *   6. `hq_upload_failed`       — `importApp` returned a non-success
  *                                 response (HQ rejected the upload, network
  *                                 fault, or 5xx from HQ).
  *

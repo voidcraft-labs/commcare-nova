@@ -1,11 +1,18 @@
 /**
  * CommCare HQ app upload proxy — POST /api/commcare/upload.
  *
- * Accepts a blueprint, expands it to HQ JSON, and uploads it to
- * CommCare HQ's import API. The API key stays server-side.
+ * Accepts a blueprint and uploads it to CommCare HQ as a new app in the
+ * caller's chosen project space. The API key stays server-side, and each
+ * call creates a brand-new app — HQ has no atomic update API yet.
  *
- * Each call creates a brand-new app in the target project space —
- * there is no atomic update API in CommCare HQ yet.
+ * Media-ON, two-phase: media references are validated first (a stale,
+ * still-uploading, foreign-owned, or kind-mismatched ref returns an
+ * actionable 400, never an opaque 500), then the blueprint expands
+ * media-ON and imports. Once the app exists, each asset's bytes are
+ * uploaded per-file against the new app id so HQ's `create_mapping`
+ * resolves the references on the device. A media-byte failure never fails
+ * the upload — the app is already created, so it degrades to a warning on
+ * the response.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
