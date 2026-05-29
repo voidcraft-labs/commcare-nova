@@ -51,6 +51,14 @@ const SEED = 20260522;
 const NUM_RUNS = 500;
 
 /**
+ * Per-test timeout for the heavy fuzz body. Each iteration compiles a CCZ,
+ * walks every form's XForm, and runs the install-time resolution oracle.
+ * 30s gives enough headroom for the heaviest cross-worker contention
+ * without hiding a runaway loop.
+ */
+const FUZZ_TIMEOUT_MS = 30_000;
+
+/**
  * Rebuild the per-doc `fieldParent` index (the generator omits it for
  * compactness) and assert schema validity. Mirrors the prep step in
  * `xformOracle.fuzz.test.ts` so the fuzzers share their doc-shape
@@ -155,7 +163,9 @@ function wirePathSet(
 }
 
 describe("binding-resolution emitter totality (property-based fuzz)", () => {
-	it("every schema-valid doc compiles to a CCZ whose XPath references all resolve", () => {
+	it("every schema-valid doc compiles to a CCZ whose XPath references all resolve", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
 		fc.assert(
 			fc.property(blueprintDocArbitrary, (doc) => {
 				prepareAndGuard(doc);

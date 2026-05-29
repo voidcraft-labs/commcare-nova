@@ -61,6 +61,16 @@ const SEED = 20260522;
 const NUM_RUNS = 400;
 
 /**
+ * Per-test timeout for the heavy fuzz body. Each iteration compiles a CCZ,
+ * extracts suite + media_suite + app_strings, and runs two oracles — the
+ * body itself is ~2.5s for 400 runs in isolation, but cross-worker
+ * contention under the full vitest run can push past Vitest's 5s default.
+ * 30s gives enough headroom for the heaviest contention case without
+ * hiding a runaway loop (which would still exceed it).
+ */
+const FUZZ_TIMEOUT_MS = 30_000;
+
+/**
  * Rebuild the reverse parent index (the generator leaves it empty, like
  * `buildDoc`) and assert the doc is schema-valid. A non-empty domain-validator
  * result is a GENERATOR bug, thrown loud here rather than fed to the emitter.
@@ -180,7 +190,9 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		mediaBearing: 0,
 	};
 
-	it("every schema-valid doc emits an oracle-clean suite.xml", () => {
+	it("every schema-valid doc emits an oracle-clean suite.xml", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
 		fc.assert(
 			fc.property(suiteDocArbitrary, (doc) => {
 				prepareAndGuard(doc);

@@ -58,6 +58,13 @@ const SEED = 20260522;
 const NUM_RUNS = 400;
 
 /**
+ * Per-test timeout for the heavy fuzz body. Each iteration expands a doc
+ * and walks every module/form. 30s covers worst-case cross-worker
+ * contention without hiding a runaway loop.
+ */
+const FUZZ_TIMEOUT_MS = 30_000;
+
+/**
  * Rebuild the reverse parent index (the generator leaves it empty, like
  * `buildDoc`) and assert the doc is schema-valid. A non-empty domain-validator
  * result is a GENERATOR bug, thrown loud here rather than fed to the emitter.
@@ -122,7 +129,9 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 		mediaBearing: 0,
 	};
 
-	it("every schema-valid doc expands to an oracle-clean HqApplication", () => {
+	it("every schema-valid doc expands to an oracle-clean HqApplication", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
 		fc.assert(
 			fc.property(suiteDocArbitrary, (doc) => {
 				prepareAndGuard(doc);

@@ -381,16 +381,14 @@ function checkForm(form: HqForm, errors: ValidationError[]): void {
 	const formName = form.name.en ?? form.unique_id;
 	const loc: ValidationLocation = { formName };
 
-	// `?? {}` tolerates partial-shape fixtures; the dict is required at
-	// runtime by `expandDoc` but absent on hand-built test fixtures.
 	checkNavMediaDict(
-		form.media_image ?? {},
+		form.media_image,
 		`Form "${formName}" media_image`,
 		loc,
 		errors,
 	);
 	checkNavMediaDict(
-		form.media_audio ?? {},
+		form.media_audio,
 		`Form "${formName}" media_audio`,
 		loc,
 		errors,
@@ -667,27 +665,28 @@ function checkModule(module: HqModule, errors: ValidationError[]): void {
 	// Module-level + case-list-level menu media. Each carrier emits a
 	// `media_image` / `media_audio` dict (NavMenuItemMediaMixin); when present,
 	// every value is a jr:// install path the regenerated suite resolves.
-	// `?? {}` tolerates partial-shape fixtures (hand-built without the dict).
+	// Every slot is required on the typed shell — the emitter's shell
+	// factories always stamp them.
 	checkNavMediaDict(
-		module.media_image ?? {},
+		module.media_image,
 		`Module "${moduleName}" media_image`,
 		loc,
 		errors,
 	);
 	checkNavMediaDict(
-		module.media_audio ?? {},
+		module.media_audio,
 		`Module "${moduleName}" media_audio`,
 		loc,
 		errors,
 	);
 	checkNavMediaDict(
-		module.case_list?.media_image ?? {},
+		module.case_list.media_image,
 		`Module "${moduleName}" case-list media_image`,
 		loc,
 		errors,
 	);
 	checkNavMediaDict(
-		module.case_list?.media_audio ?? {},
+		module.case_list.media_audio,
 		`Module "${moduleName}" case-list media_audio`,
 		loc,
 		errors,
@@ -752,15 +751,11 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 	// Application-level multimedia surfaces: the `multimedia_map` keys + the
 	// `logo_refs` paths. Both feed the suite regeneration on the next CCHQ
 	// build, so a malformed entry detonates at that point even though the
-	// initial import wraps clean.
-	//
-	// The `?? {}` fallbacks tolerate hand-built fixtures + test mocks that
-	// type-cast incomplete `HqApplication`-shaped objects (these slots are
-	// typed `Record<string, ...>` — present at runtime in every real
-	// expander output, but absent in partial fixtures). The empty-dict
-	// semantic is identical: no entries to check.
-	checkMultimediaMap(hqApp.multimedia_map ?? {}, errors);
-	checkLogoRefs(hqApp.logo_refs ?? {}, errors);
+	// initial import wraps clean. Both slots are required on `HqApplication`
+	// and always stamped by `expandDoc`'s shell factories — the type system
+	// gates a missing dict before this check runs.
+	checkMultimediaMap(hqApp.multimedia_map, errors);
+	checkLogoRefs(hqApp.logo_refs, errors);
 
 	return errors;
 }

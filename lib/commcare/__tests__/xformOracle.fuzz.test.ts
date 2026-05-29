@@ -58,6 +58,13 @@ const SEED = 20260522;
 const NUM_RUNS = 500;
 
 /**
+ * Per-test timeout for the heavy fuzz body. Each iteration expands or
+ * compiles a doc and walks every emitted XForm. 30s covers worst-case
+ * cross-worker contention without hiding a runaway loop.
+ */
+const FUZZ_TIMEOUT_MS = 30_000;
+
+/**
  * Prepare a generated doc for consumption: rebuild the reverse parent index
  * (the generator leaves it empty, like `buildDoc`) and assert the doc is
  * schema-valid. A non-empty domain-validator result is a GENERATOR bug, thrown
@@ -114,7 +121,9 @@ function wirePathSet(
 }
 
 describe("XForm emitter totality (property-based fuzz)", () => {
-	it("every form of every schema-valid doc emits oracle-clean XForm", () => {
+	it("every form of every schema-valid doc emits oracle-clean XForm", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
 		fc.assert(
 			fc.property(blueprintDocArbitrary, (doc) => {
 				prepareAndGuard(doc);
@@ -152,7 +161,9 @@ describe("XForm emitter totality (property-based fuzz)", () => {
 		);
 	});
 
-	it("compileCcz never trips its post-case-block-injection oracle re-check", () => {
+	it("compileCcz never trips its post-case-block-injection oracle re-check", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
 		// The SECOND oracle call site: `compiler.ts` splices <case>/<subcase>
 		// blocks into each case-bearing form's XForm, then re-runs `validateXForm`
 		// and THROWS if the spliced output is invalid. Driving compileCcz here
