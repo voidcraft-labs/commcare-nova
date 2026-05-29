@@ -45,7 +45,7 @@ The output is the same as `/nova:build`, plus a note about the choices Claude ma
 
 Modifies an existing app. Like `/nova:build`, edits run interactively, so Claude can ask you questions while it works.
 
-Quote the instruction. `/nova:edit` is the only Nova command that takes two arguments instead of one freeform string, and Claude Code splits its arguments on whitespace — without quotes, only the first word after the app ID would become the instruction. Other multi-word commands like `/nova:upload_to_hq vaccine tracking` don't need quotes because they take the whole rest of the line as one value.
+Quote the instruction — Claude Code splits arguments on whitespace, so without quotes only the first word after the app ID would become the instruction. (`/nova:upload_to_hq` also takes an optional second argument, a project space, but that's a single slug — you only need quotes there if your app *name* has spaces *and* you're naming a space too; see below.)
 
 ```text
 /nova:edit <your-app-id> "add a phone number field to the registration form"
@@ -83,14 +83,15 @@ Prints a summary of one app: its modules, forms, fields, and case types. Use thi
 
 ## Uploading to CommCare HQ
 
-### `/nova:upload_to_hq <app_id or name>`
+### `/nova:upload_to_hq <app_id or name> [project space]`
 
-Pushes an app from Nova to CommCare HQ. The argument is either the app's ID or a name to search for; if more than one app matches the name, Claude shows the matches and asks which one you mean.
+Pushes an app from Nova to CommCare HQ. The first argument is the app's ID or a name to search for; if more than one app matches the name, Claude shows the matches and asks which one you mean.
 
-Before it actually uploads, Claude shows you the target project space — if your API key (saved in [Nova settings](https://commcare.app/settings)) reaches more than one, it asks which one — and asks you to confirm. Decline to back out without uploading.
+Name a **project space** as the second argument to upload straight there — useful when your key reaches several spaces and you already know the target. Leave it off and Claude shows you the target before uploading — asking which one if your API key (saved in [Nova settings](https://commcare.app/settings)) reaches more than one — then asks you to confirm; decline to back out. If you name a space the key can't reach, Claude lists the ones it can so you can pick.
 
 ```text
 /nova:upload_to_hq vaccine tracking
+/nova:upload_to_hq "vaccine tracking" my-project-space
 ```
 
 On success, the response includes the URL of the new HQ app and any warnings HQ returned. CommCare HQ has no API for updating an app, so every upload creates a new app on HQ; your Nova copy is unaffected. If you want to retire the previous HQ version, archive it in HQ.
