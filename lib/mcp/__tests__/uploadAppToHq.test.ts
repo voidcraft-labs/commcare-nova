@@ -176,7 +176,7 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerUploadAppToHq — happy path", () => {
-	it("resolves the default space (no domain arg) and returns the HQ app id + URL", async () => {
+	it("resolves the sole space (no domain arg) and returns the HQ app id + URL", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-123",
@@ -194,9 +194,9 @@ describe("registerUploadAppToHq — happy path", () => {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
-		/* No `domain` arg → resolution falls to the user's default; the
-		 * resolver is asked with `undefined`, and the resolved domain is what
-		 * reaches `importApp`. */
+		/* No `domain` arg → the resolver is asked with `undefined` and resolves
+		 * the sole reachable space (the only no-arg success case); that resolved
+		 * domain is what reaches `importApp`. */
 		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", undefined);
 		expect(importApp).toHaveBeenCalledWith(
 			FIXTURE_CREDS.creds,

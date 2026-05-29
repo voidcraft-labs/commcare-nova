@@ -77,10 +77,10 @@ export class McpInvalidInputError extends Error {
  *   - `hq_upload_failed` — HQ rejected the upload (post-validation failure).
  *   - `domain_not_authorized` — the caller passed a `domain` the key can't
  *     reach. The reachable set is named in the message.
- *   - `domain_ambiguous` — the key reaches multiple spaces, the caller passed
- *     no `domain`, and no default is set. The tool refuses to guess (a silent
- *     pick is exactly the bug this whole surface exists to prevent) and names
- *     the spaces so the caller can pass one or set a default in Settings.
+ *   - `domain_ambiguous` — the key reaches multiple spaces and the caller
+ *     passed no `domain`. The tool refuses to guess (a silent pick is exactly
+ *     the bug this whole surface exists to prevent) and names the spaces so the
+ *     caller can ask the user and pass one.
  */
 export type UploadErrorType =
 	| "hq_not_configured"
