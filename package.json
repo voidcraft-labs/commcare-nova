@@ -3,7 +3,9 @@
 	"version": "0.1.0",
 	"private": true,
 	"scripts": {
-		"dev": "next dev",
+		"dev": "npm run db:dev && next dev",
+		"db:dev": "docker compose up -d --wait && atlas migrate apply --env testcontainer --url \"postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable\" --allow-dirty",
+		"db:dev:down": "docker compose down",
 		"build": "next build",
 		"start": "next start",
 		"lint": "biome check --error-on-warnings",

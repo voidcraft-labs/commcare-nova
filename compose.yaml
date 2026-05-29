@@ -1,0 +1,53 @@
+# Local-dev Postgres for the case store.
+#
+# `npm run dev` boots this and applies migrations before starting Next.js
+# (see the `db:dev` script in package.json). The app connects to it via
+# `NOVA_DB_LOCAL_URL` — see `lib/case-store/postgres/connection.ts`, which
+# uses a plain `pg.Pool` against that URL instead of the Cloud SQL connector.
+#
+# PERSISTENT: the `nova-cases-data` named volume survives `docker compose
+# down` and machine restarts, so the sample/case data you create while
+# developing isn't wiped between sessions.
+#
+# The image + PostGIS version match the test harness and Cloud SQL exactly
+# (see `lib/case-store/CLAUDE.md` → "Image and extensions"), pinned by digest
+# so local dev, CI, and prod all exercise the same engine.
+#
+# Explicit project `name` so the persistent volume resolves to the same
+# `commcare-nova_nova-cases-data` regardless of the working directory compose
+# runs from (the repo root or a git worktree) — without it, Compose derives
+# the project (and volume prefix) from the directory name, stranding data per
+# worktree.
+name: commcare-nova
+
+services:
+  postgres:
+    image: imresamu/postgis:18-3.6.1-alpine3.23@sha256:8990ecd2e7d5744904830ea8b0e4ee90981ad65f08c331cf060da43c46712bac
+    container_name: nova-cases-db
+    environment:
+      POSTGRES_USER: nova
+      POSTGRES_PASSWORD: nova
+      POSTGRES_DB: nova_cases
+    ports:
+      - "5432:5432"
+    volumes:
+      # Postgres 18+ stores data in a major-version subdirectory, so the
+      # mount point is `/var/lib/postgresql` (NOT `/.../data` — pg18 rejects a
+      # volume mounted directly at the old data dir). See
+      # https://github.com/docker-library/postgres/pull/1259.
+      - nova-cases-data:/var/lib/postgresql
+      # Runs ONCE, on first boot when the data volume is empty: creates the
+      # three extensions the compiler stack needs as the superuser, mirroring
+      # the test harness + Cloud SQL provisioning. Atlas (which applies the
+      # schema migrations afterward, as a non-superuser) can't CREATE EXTENSION.
+      - ./lib/case-store/dev/init-extensions.sql:/docker-entrypoint-initdb.d/10-extensions.sql:ro
+    # `docker compose up --wait` blocks until this passes, so `db:dev` only
+    # runs `atlas migrate apply` once the server actually accepts connections.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nova -d nova_cases"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  nova-cases-data:

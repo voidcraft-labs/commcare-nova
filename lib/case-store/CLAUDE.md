@@ -331,6 +331,28 @@ The CommCare boundary keeps `lib/case-store/**` and
 `lib/commcare/**` independent — a Biome `noRestrictedImports`
 rule enforces the boundary.
 
+## Local development
+
+`npm run dev` boots a local Postgres via `compose.yaml` (the same
+pinned postgis image the test harness and Cloud SQL use), applies the
+migrations with `atlas migrate apply`, then starts Next.js — see the
+`db:dev` script. The app connects to it through `NOVA_DB_LOCAL_URL`
+(set in `.env`); when that var is present, `postgres/connection.ts`
+uses a plain `pg.Pool` against it instead of the Cloud SQL connector.
+It is an EXPLICIT opt-in, not a `NODE_ENV` fallback — production never
+sets the var, so it still goes through the connector and its loud
+`NOVA_DB_*` validation (the production-misconfig-masking that an
+unconditional localhost fallback would cause is what the connection
+layer guards against; an opt-in URL doesn't).
+
+Data lives in the persistent `nova-cases-data` Docker volume, so
+sample / case rows survive restarts. `npm run db:dev:down` stops the
+container (volume persists); `docker compose down -v` wipes it. The
+three required extensions (`pg_trgm` / `fuzzystrmatch` / `postgis`)
+install once on first boot via `dev/init-extensions.sql`, mirroring
+the prod / harness superuser split (Atlas runs as a non-superuser and
+can't `CREATE EXTENSION`).
+
 ## Migrations
 
 Atlas (`https://atlasgo.io`) owns schema-as-code and migration

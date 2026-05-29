@@ -16,7 +16,8 @@ Next.js web app that generates CommCare apps from natural language conversation.
 ## Commands
 
 ```bash
-npm run dev                             # Turbopack
+npm run dev                             # boots local case-store Postgres (compose.yaml) + applies migrations, then Turbopack
+npm run db:dev / db:dev:down            # start (+migrate) / stop the local case-store Postgres on its own
 npm run build / lint / format / test
 npm run test:leaks                      # full suite under the async-leak detector (slow; see Testing)
 npx tsx scripts/test-schema.ts          # test SA tool-input schemas are API-accepted
