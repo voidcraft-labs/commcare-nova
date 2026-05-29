@@ -13,9 +13,9 @@
  *     failure test asserts `importApp` was never called.
  *   - A mid-upload throw still flushes the writer via the `finally` block.
  *   - The optional `domain` arg threads to `getCredentialsForUpload`: omitted
- *     → resolved server-side from the default; supplied → an explicit target
- *     that can fail as `domain_not_authorized`; multi-space with neither →
- *     `domain_ambiguous` (the tool refuses to guess).
+ *     → resolves the sole reachable space (single-space key); supplied → an
+ *     explicit target that can fail as `domain_not_authorized`; multi-space with
+ *     no `domain` → `domain_ambiguous` (the tool refuses to guess).
  *
  * The MCP SDK is mocked at the boundary via the `makeFakeServer` helper
  * (same pattern the sibling tests use). `@/lib/mcp/loadApp` is mocked
@@ -176,7 +176,7 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerUploadAppToHq — happy path", () => {
-	it("resolves the default space (no domain arg) and returns the HQ app id + URL", async () => {
+	it("resolves the sole space (no domain arg) and returns the HQ app id + URL", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-123",
@@ -194,9 +194,9 @@ describe("registerUploadAppToHq — happy path", () => {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
-		/* No `domain` arg → resolution falls to the user's default; the
-		 * resolver is asked with `undefined`, and the resolved domain is what
-		 * reaches `importApp`. */
+		/* No `domain` arg → the resolver is asked with `undefined` and resolves
+		 * the sole reachable space (the only no-arg success case); that resolved
+		 * domain is what reaches `importApp`. */
 		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", undefined);
 		expect(importApp).toHaveBeenCalledWith(
 			FIXTURE_CREDS.creds,

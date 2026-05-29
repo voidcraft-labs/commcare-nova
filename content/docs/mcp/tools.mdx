@@ -97,7 +97,7 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 |---|---|
 | `validate_app` | Run Nova's validation pass. The loop auto-fixes common issues; remaining errors come back in the response. |
 | `compile_app` | Compile to CommCare HQ format — either the JSON shape HQ accepts, or a `.ccz` archive. |
-| `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which project spaces (domains) it can reach and your chosen default. |
+| `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which project spaces (domains) it can reach. |
 | `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL. |
 
 <Callout type="info">

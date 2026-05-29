@@ -1,7 +1,7 @@
 /**
  * `nova.get_hq_connection` — report whether the authenticated user has
  * CommCare HQ credentials configured, and if so, which project spaces they
- * can upload to and which one is the active default.
+ * can upload to.
  *
  * Scope: `nova.hq.read` (per-tool, in addition to the route-layer
  * `nova.read` floor). HQ access is orthogonal to Nova-internal
@@ -9,11 +9,10 @@
  *
  * A CommCare HQ API key can be unscoped, in which case it reaches every
  * project space its owner belongs to. So this tool returns the full set the
- * key can upload to (`available_domains`) plus the user's chosen default
- * (`domain`). `domain` is `null` precisely when the key reaches multiple
- * spaces and the user hasn't picked a default yet — the caller should then
- * pick one from `available_domains` (e.g. prompt the user) and pass it to
- * `upload_app_to_hq` rather than letting the upload guess.
+ * key can upload to (`available_domains`). When that set holds more than one
+ * space, the caller asks the user which space and passes their choice to
+ * `upload_app_to_hq` rather than letting the upload guess — there is no stored
+ * default; a multi-space key's target is always the user's per-upload choice.
  *
  * Does NOT return the API key or username — the safe public shape from
  * `getCommCareSettings` drops the secret entirely. Nothing this tool
@@ -38,19 +37,17 @@ type DomainBody = { name: string; displayName: string };
  * Wire shape returned to the MCP client.
  *
  * Discriminated on `configured`. When configured, `available_domains` lists
- * every space the key can upload to (length 1 ⇒ a single-space key), and
- * `domain` is the active default — `null` when the key is multi-space and no
- * default has been chosen, signalling the caller to pick from
- * `available_domains`. A configured row always carries at least one available
- * domain — not by the schema (`approved_domains` defaults to `[]`) but by the
- * runtime collapse in `getCommCareSettings`, which reports `configured: false`
- * when the stored set is empty.
+ * every space the key can upload to (length 1 ⇒ a single-space key); a
+ * multi-space set means the caller must pick a target for `upload_app_to_hq`.
+ * A configured row always carries at least one available domain — not by the
+ * schema (`approved_domains` defaults to `[]`) but by the runtime collapse in
+ * `getCommCareSettings`, which reports `configured: false` when the stored set
+ * is empty.
  */
 type GetHqConnectionBody =
 	| { configured: false }
 	| {
 			configured: true;
-			domain: DomainBody | null;
 			available_domains: DomainBody[];
 	  };
 
@@ -70,7 +67,7 @@ export function registerGetHqConnection(
 		"get_hq_connection",
 		{
 			description:
-				"Check the user's CommCare HQ connection: whether it's configured, every project space (domain) the API key can upload to (`available_domains`), and the active default (`domain`). Call this before `upload_app_to_hq` to confirm the target. `domain` is null when the key reaches multiple spaces and no default is chosen — pick one from `available_domains` and pass it to `upload_app_to_hq`.",
+				"Check the user's CommCare HQ connection: whether it's configured and every project space (domain) the API key can upload to (`available_domains`). Call this before `upload_app_to_hq` to confirm the target. When `available_domains` holds more than one space, ask the user which space and pass their choice to `upload_app_to_hq` — never choose for them; a multi-space key's target is always the user's per-upload decision.",
 		},
 		async (_extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
@@ -86,7 +83,6 @@ export function registerGetHqConnection(
 				const body: GetHqConnectionBody = settings.configured
 					? {
 							configured: true,
-							domain: settings.domain,
 							available_domains: settings.availableDomains,
 						}
 					: { configured: false };

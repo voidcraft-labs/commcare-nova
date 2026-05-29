@@ -12,14 +12,12 @@
  *
  * Target space — the optional `domain` argument:
  *   An HQ API key can reach several project spaces (an unscoped key reaches
- *   every space its owner belongs to). The caller may pass `domain` to pick
- *   one explicitly — the durable shape for autonomous / multi-tenant flows,
- *   since it carries no global state to race on. When `domain` is omitted the
- *   tool falls back to the user's stored default; with no default and a
- *   single reachable space, that space is used. The one case the tool refuses
- *   to guess is a multi-space key with no `domain` and no default — see
- *   `domain_ambiguous` below. Use `get_hq_connection` to list the reachable
- *   spaces (`available_domains`) and the current default.
+ *   every space its owner belongs to). Omitting `domain` works only when the
+ *   key reaches exactly one space — that sole space is used. A multi-space key
+ *   must pass `domain` explicitly: there is no stored default, so a multi-space
+ *   key with no `domain` is `domain_ambiguous` (see below) — the tool refuses
+ *   to guess. Use `get_hq_connection` to list the reachable spaces
+ *   (`available_domains`) and ask the user which one.
  *
  * Actionable `error_type` values, in the order their gates fire — each
  * producing a distinct envelope so MCP clients can branch cleanly:
@@ -32,7 +30,7 @@
  *   3. `domain_not_authorized`  — `domain` was supplied but the key can't
  *                                 reach it; the message names the reachable
  *                                 set.
- *   4. `domain_ambiguous`       — multi-space key, no `domain`, no default;
+ *   4. `domain_ambiguous`       — multi-space key with no `domain` supplied;
  *                                 the tool names the spaces and asks the
  *                                 caller to choose rather than guessing.
  *   5. `hq_upload_failed`       — `importApp` returned a non-success
@@ -92,7 +90,7 @@ export const UPLOAD_ERROR_TAGS = {
 	hq_upload_failed: "hq_upload_failed",
 	/** Supplied `domain` is outside the key's reachable set. */
 	domain_not_authorized: "domain_not_authorized",
-	/** Multi-space key, no `domain` and no default — caller must choose. */
+	/** Multi-space key with no `domain` supplied — caller must choose. */
 	domain_ambiguous: "domain_ambiguous",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
@@ -144,7 +142,7 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ as a new app. Pass `domain` to choose the target project space; omit it to use the user's default. Call `get_hq_connection` first to list reachable spaces (`available_domains`). A multi-space key with no `domain` and no default returns `domain_ambiguous` — it won't guess. HQ has no atomic update API, so each call creates a fresh HQ app; returns the HQ app id and URL on success.",
+				"Upload an owned app to CommCare HQ as a new app. Pass `domain` to choose the target project space; you can omit it only when the key reaches exactly one space. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one — a multi-space key with no `domain` returns `domain_ambiguous` (it won't guess). HQ has no atomic update API, so each call creates a fresh HQ app; returns the HQ app id and URL on success.",
 			inputSchema: {
 				app_id: z
 					.string()
@@ -161,7 +159,7 @@ export function registerUploadAppToHq(
 					.string()
 					.optional()
 					.describe(
-						"Optional target project space (domain slug). Must be one the user's API key can reach — see `get_hq_connection`'s `available_domains`. Omit to use the user's default space.",
+						"Optional target project space (domain slug). Must be one the user's API key can reach — see `get_hq_connection`'s `available_domains`. Omit only when the key reaches a single space; a multi-space key requires it.",
 					),
 			},
 		},
@@ -187,11 +185,11 @@ export function registerUploadAppToHq(
 				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
 
 				/* Gate 2 — credentials + target-space resolution in one read.
-				 * The optional `domain` arg overrides the user's default; the
-				 * decrypted key is only attached when a target resolves. The
-				 * three failure shapes map 1:1 to distinct wire error types so
-				 * a client can branch (configure, pick a valid space, or
-				 * disambiguate). */
+				 * The optional `domain` arg picks the target (required for a
+				 * multi-space key); the decrypted key is only attached when a
+				 * target resolves. The three failure shapes map 1:1 to distinct
+				 * wire error types so a client can branch (configure, pick a
+				 * valid space, or disambiguate). */
 				const requested = args.domain?.trim() || undefined;
 				const credResult = await getCredentialsForUpload(ctx.userId, requested);
 				if (!credResult.ok) {
@@ -212,7 +210,7 @@ export function registerUploadAppToHq(
 					}
 					return makeGateError(
 						UPLOAD_ERROR_TAGS.domain_ambiguous,
-						`Your CommCare HQ API key reaches ${credResult.available.length} project spaces (${reachable}). Pass \`domain\` to choose one, or set a default project space in Settings.`,
+						`Your CommCare HQ API key reaches ${credResult.available.length} project spaces (${reachable}). Pass \`domain\` to choose which one to upload to.`,
 						appId,
 					);
 				}
