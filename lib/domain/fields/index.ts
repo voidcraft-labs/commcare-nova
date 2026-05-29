@@ -299,6 +299,23 @@ export function pickFieldKeysForKind(
 }
 
 /**
+ * Does the given field kind's schema declare `key`? Reads the precomputed
+ * per-kind key set, so it answers from the SCHEMA — not from a particular
+ * field instance, where an unset optional slot (e.g. an unattached
+ * `label_media`) is absent as an own property even though the kind
+ * supports it. That distinction is exactly why the media-attach tools
+ * can't use `key in field`: a field with no media yet would falsely read
+ * as "doesn't support this slot."
+ *
+ * For `repeat` it uses the umbrella key set (the union across all three
+ * modes), since the caller is asking about kind-level support, not a
+ * specific mode's variant keys.
+ */
+export function fieldKindDeclaresKey(kind: FieldKind, key: string): boolean {
+	return fieldKindKeySets[kind].has(key);
+}
+
+/**
  * Resolve a repeat key set from a (possibly-unknown) `repeat_mode` value.
  * Falls back to the umbrella set when the mode is missing or unknown so
  * the caller can still produce a candidate object — the subsequent parse

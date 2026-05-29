@@ -45,6 +45,7 @@ function dispatchMutation(
 		case "setAppName":
 		case "setConnectType":
 		case "setCaseTypes":
+		case "setAppLogo":
 			applyAppMutation(draft, mut);
 			return;
 		case "addModule":

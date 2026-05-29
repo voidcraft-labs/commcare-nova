@@ -65,6 +65,13 @@ import { generateSchemaTool } from "@/lib/agent/tools/generateSchema";
 import { getFieldTool } from "@/lib/agent/tools/getField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
 import { getModuleTool } from "@/lib/agent/tools/getModule";
+import { attachFieldMediaTool } from "@/lib/agent/tools/media/attachFieldMedia";
+import { attachOptionMediaTool } from "@/lib/agent/tools/media/attachOptionMedia";
+import { listMediaAssetsTool } from "@/lib/agent/tools/media/listMediaAssets";
+import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
+import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
+import { setFormMediaTool } from "@/lib/agent/tools/media/setFormMedia";
+import { setModuleMediaTool } from "@/lib/agent/tools/media/setModuleMedia";
 import { removeFieldTool } from "@/lib/agent/tools/removeField";
 import { removeFormTool } from "@/lib/agent/tools/removeForm";
 import { removeModuleTool } from "@/lib/agent/tools/removeModule";
@@ -85,6 +92,7 @@ import { registerGetHqConnection } from "./tools/getHqConnection";
 import { registerListApps } from "./tools/listApps";
 import { registerSearchApps } from "./tools/searchApps";
 import { registerUploadAppToHq } from "./tools/uploadAppToHq";
+import { registerUploadMediaAsset } from "./tools/uploadMediaAsset";
 import type { ToolContext } from "./types";
 
 /**
@@ -143,6 +151,20 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	 * the case-list-config search-input quartet above). */
 	{ name: "set_case_search_advanced", tool: setCaseSearchAdvancedTool },
 	{ name: "set_case_search_display", tool: setCaseSearchDisplayTool },
+	/* Media authoring — the dedicated surface for attaching asset ids to
+	 * carriers (the generic mutation tools omit every media slot). Five
+	 * doc-mutation tools (field/option/module/form/app-logo) plus two
+	 * library tools (`list` discovers asset ids; `remove` deletes one
+	 * with a reference guard). The MCP-only `upload_media_asset` is
+	 * hand-registered below — it neither targets a doc nor an app id, so
+	 * it can't ride the shared adapter. */
+	{ name: "attach_field_media", tool: attachFieldMediaTool },
+	{ name: "attach_option_media", tool: attachOptionMediaTool },
+	{ name: "set_module_media", tool: setModuleMediaTool },
+	{ name: "set_form_media", tool: setFormMediaTool },
+	{ name: "set_app_logo", tool: setAppLogoTool },
+	{ name: "list_media_assets", tool: listMediaAssetsTool },
+	{ name: "remove_media_asset", tool: removeMediaAssetTool },
 	{ name: "update_form", tool: updateFormTool },
 	{ name: "update_module", tool: updateModuleTool },
 	{ name: "validate_app", tool: validateAppTool },
@@ -178,6 +200,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerCompileApp(server, ctx);
 	registerGetHqConnection(server, ctx);
 	registerUploadAppToHq(server, ctx);
+	registerUploadMediaAsset(server, ctx);
 
 	/* Shared SA tools — one manifest, one adapter, one source of truth
 	 * with the chat-side `solutionsArchitect` factory. */

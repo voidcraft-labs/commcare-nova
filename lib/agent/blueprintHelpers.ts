@@ -24,6 +24,7 @@ import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type {
+	AssetId,
 	BlueprintDoc,
 	CaseType,
 	Column,
@@ -279,6 +280,16 @@ export function updateModuleMutations(
 	patch: Partial<Omit<Module, "uuid">>,
 ): Mutation[] {
 	return [{ kind: "updateModule", uuid: mod.uuid, patch }];
+}
+
+/**
+ * Set or clear the blueprint-root `logo` (the app-level login/home-screen
+ * image). The app has no other app-level setter — this is the only writer
+ * for `doc.logo`. Passing an asset id sets it; passing `null` clears it.
+ * The `setAppLogo` reducer maps `null → undefined` so the cleared key
+ * drops off the doc rather than persisting as a literal `null`. */
+export function setAppLogoMutations(logo: AssetId | null): Mutation[] {
+	return [{ kind: "setAppLogo", logo }];
 }
 
 // ── Mutation builders — case list config ────────────────────────────────
@@ -600,12 +611,25 @@ export function updateFormMutations(
 		connect: ConnectConfig | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
+		// Menu-media slots. Both are `assetIdSchema.optional()` on the
+		// `Form` schema (no stored `null`), so the patch carries `null` to
+		// mean "clear" and the builder maps it to `undefined` — the same
+		// clear convention every other clearable key here uses.
+		icon: AssetId | null;
+		audioLabel: AssetId | null;
 	}>,
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
 	const reducerPatch: Partial<Omit<Form, "uuid">> = {};
 	if (patch.name !== undefined) reducerPatch.name = patch.name;
 	if (patch.type !== undefined) reducerPatch.type = patch.type;
+	if (patch.icon !== undefined) {
+		reducerPatch.icon = patch.icon === null ? undefined : patch.icon;
+	}
+	if (patch.audioLabel !== undefined) {
+		reducerPatch.audioLabel =
+			patch.audioLabel === null ? undefined : patch.audioLabel;
+	}
 	if (patch.closeCondition !== undefined) {
 		// `null` → clear (reducer treats `undefined` as "remove" via
 		// Object.assign — not perfect, but Immer's Object.assign with an

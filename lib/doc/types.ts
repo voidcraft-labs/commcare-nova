@@ -13,6 +13,7 @@ export { asUuid } from "@/lib/domain";
 
 import { z } from "zod";
 import {
+	assetIdSchema,
 	CONNECT_TYPES,
 	caseTypeSchema,
 	fieldKinds,
@@ -167,6 +168,18 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("setConnectType"),
 		connectType: z.enum(CONNECT_TYPES).nullable(),
+	}),
+	// `logo` is `assetIdSchema.optional()` on the doc — there is no
+	// stored `null`. The payload is `.nullable()` (not optional) so the
+	// mutation always carries an explicit intent: an asset id sets the
+	// logo, `null` clears it. The reducer maps `null → undefined` so the
+	// cleared key drops off the doc rather than persisting as a literal
+	// `null` the schema would reject. Distinct from `setConnectType`,
+	// whose `connectType` slot is genuinely `.nullable()` and stores the
+	// `null` verbatim.
+	z.object({
+		kind: z.literal("setAppLogo"),
+		logo: assetIdSchema.nullable(),
 	}),
 	z.object({
 		kind: z.literal("setCaseTypes"),

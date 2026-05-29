@@ -86,6 +86,31 @@ export async function createSignedUploadUrl(args: {
 }
 
 /**
+ * Upload a byte buffer directly to GCS from the server. The browser
+ * flow never needs this — it PUTs to a signed URL — but the MCP
+ * `upload_media_asset` tool decodes base64 bytes inline (Claude Code
+ * et al can't run the hash → signed-PUT → confirm dance), so the
+ * server holds the bytes and writes them itself.
+ *
+ * `resumable: false` forces a single multipart write rather than GCS's
+ * resumable-session protocol: the payloads here are small (bounded by
+ * the per-kind size caps), and a one-shot write avoids the extra
+ * session-handshake round trip a resumable upload pays for. The
+ * `contentType` is set on the object so the proxy GET route serves the
+ * right `Content-Type` later.
+ */
+export async function uploadAssetBytes(args: {
+	gcsObjectKey: string;
+	bytes: Buffer;
+	contentType: string;
+}): Promise<void> {
+	await getBucket().file(args.gcsObjectKey).save(args.bytes, {
+		resumable: false,
+		contentType: args.contentType,
+	});
+}
+
+/**
  * Stream bytes from GCS for the proxy GET route. The caller is
  * responsible for piping into the HTTP response and for closing
  * the stream on early-disconnect.

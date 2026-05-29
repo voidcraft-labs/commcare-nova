@@ -48,7 +48,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 | Tool | What it does |
 |---|---|
-| `add_case_list_column` | Add one column to the case list (plain / date / phone / id-mapping / interval / calculated). |
+| `add_case_list_column` | Add one column to the case list (plain / date / phone / id-mapping / image-map / interval / calculated). |
 | `update_case_list_column` | Replace a column's body, addressed by the column's uuid. |
 | `remove_case_list_column` | Remove one column by uuid. |
 | `reorder_case_list_columns` | Reorder columns by passing the desired uuid sequence. |
@@ -90,6 +90,21 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 | `remove_field` | Delete a field. |
 | `get_field` | Show one field's properties. |
 | `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. |
+
+## Working with media
+
+You can attach images, audio, and video to parts of an app — a field's label or hint, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id.
+
+| Tool | What it does |
+|---|---|
+| `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Audio must be `.mp3` or `.wav` and video `.mp4` — CommCare HQ can't accept `.m4a` or `.ogg`. |
+| `list_media_assets` | List your uploaded files and their asset ids — how your agent finds the ids the attach tools need. |
+| `remove_media_asset` | Delete a file from your library. Refuses if the current app still uses it. |
+| `attach_field_media` | Set or clear the image/audio/video on a field's label, hint, help, or validation message. |
+| `attach_option_media` | Set or clear the media on one choice of a dropdown (single- or multi-select). |
+| `set_module_media` | Set or clear a module's home-screen icon and audio label. |
+| `set_form_media` | Set or clear a form's menu icon and audio label. |
+| `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
 
 ## Validating and uploading
 
