@@ -4,26 +4,37 @@
  * Both actions return result objects and never throw — Next.js surfaces
  * unhandled Server Action errors as full-page error boundaries, so we
  * catch everything internally and return structured error responses.
+ *
+ * An HQ API key can reach several project spaces, so these actions deal in
+ * the full reachable set: verifying stores every reachable space, and the
+ * picker/refresh actions let the user choose and re-read the default. Each
+ * action returns the fresh `CommCareSettingsPublic` so the client can replace
+ * its state wholesale rather than reconstructing it.
  */
 
 "use server";
 
 import { getSession } from "@/lib/auth-utils";
+import { discoverAccessibleDomains } from "@/lib/commcare/client";
 import {
-	type CommCareDomain,
-	listDomains,
-	testDomainAccess,
-} from "@/lib/commcare/client";
-import {
+	type CommCareSettingsPublic,
 	deleteCommCareSettings,
+	getCommCareSettings,
+	refreshApprovedDomains,
 	saveCommCareSettings,
+	setActiveDomain,
 } from "@/lib/db/settings";
 import { log } from "@/lib/logger";
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type VerifyResult =
-	| { success: true; domain: CommCareDomain }
+/**
+ * Shared result for actions that mutate the connection — the success branch
+ * carries the refreshed public settings so the client can swap its state in
+ * one step (active space + the full reachable set).
+ */
+export type SettingsResult =
+	| { success: true; settings: CommCareSettingsPublic }
 	| { success: false; error: string };
 
 export type DeleteResult =
@@ -47,13 +58,16 @@ function settingsErrorMessage(status: number): string {
 /**
  * Verify CommCare HQ credentials against HQ's API, then save on success.
  *
- * Tests domains sequentially and bails on the first match — CommCare API
- * keys are scoped to a single domain, so at most one will pass.
+ * Discovers every project space the key can actually upload to — one HQ list
+ * call plus a parallel app-access probe per space — and stores all of them.
+ * Storing the full set (not the first space that passes) is the fix for the
+ * silent-wrong-target bug: a multi-space key now shows every space it reaches
+ * so the user can pick the upload target.
  */
 export async function verifyAndSaveCredentials(
 	username: string,
 	apiKey: string,
-): Promise<VerifyResult> {
+): Promise<SettingsResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { success: false, error: "Authentication required." };
@@ -65,51 +79,92 @@ export async function verifyAndSaveCredentials(
 
 		const creds = { username: username.trim(), apiKey: apiKey.trim() };
 
-		/* Step 1: Fetch the user's domain list to validate the key. */
-		const allDomains = await listDomains(creds);
-		if (!Array.isArray(allDomains)) {
-			return { success: false, error: settingsErrorMessage(allDomains.status) };
+		const accessible = await discoverAccessibleDomains(creds);
+		if (!Array.isArray(accessible)) {
+			return { success: false, error: settingsErrorMessage(accessible.status) };
 		}
-		if (allDomains.length === 0) {
-			return {
-				success: false,
-				error: "No project spaces found for this account.",
-			};
-		}
-
-		/* Step 2: Test domains one at a time, bail on first match. */
-		let foundDomain: CommCareDomain | null = null;
-		for (const domain of allDomains) {
-			const result = await testDomainAccess(creds, domain.name);
-
-			/* Non-boolean = a server error (5xx) — abort. */
-			if (typeof result === "object") {
-				return { success: false, error: settingsErrorMessage(result.status) };
-			}
-			if (result) {
-				foundDomain = domain;
-				break;
-			}
-		}
-
-		if (!foundDomain) {
+		if (accessible.length === 0) {
 			return {
 				success: false,
 				error:
-					"API key doesn't have access to any project space. CommCare keys are scoped to one domain — make sure this key matches the right project.",
+					"This API key can't reach any project space. Check that the key is correct and that your CommCare account has access to a project.",
 			};
 		}
 
-		/* Step 3: Save encrypted credentials + authorized domain. */
 		await saveCommCareSettings(session.user.id, {
 			username: creds.username,
 			apiKey: creds.apiKey,
-			approvedDomains: [foundDomain],
+			approvedDomains: accessible,
 		});
 
-		return { success: true, domain: foundDomain };
+		return {
+			success: true,
+			settings: await getCommCareSettings(session.user.id),
+		};
 	} catch (err) {
 		log.error("[settings/commcare] verify error", err);
+		return {
+			success: false,
+			error: "An unexpected error occurred. Please try again.",
+		};
+	}
+}
+
+/**
+ * Set which reachable project space is the default upload target.
+ *
+ * The picker only offers reachable spaces, so a rejection from
+ * `setActiveDomain` means a stale client; its message is user-facing.
+ */
+export async function setActiveDomainAction(
+	domainName: string,
+): Promise<SettingsResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { success: false, error: "Authentication required." };
+
+		const result = await setActiveDomain(session.user.id, domainName);
+		if (!result.ok) return { success: false, error: result.message };
+
+		return {
+			success: true,
+			settings: await getCommCareSettings(session.user.id),
+		};
+	} catch (err) {
+		log.error("[settings/commcare] setActiveDomain error", err);
+		return {
+			success: false,
+			error: "Couldn't update the default project space. Please try again.",
+		};
+	}
+}
+
+/**
+ * Re-read the spaces the stored key can reach — picks up project memberships
+ * added since the key was first saved.
+ */
+export async function refreshDomainsAction(): Promise<SettingsResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { success: false, error: "Authentication required." };
+
+		const result = await refreshApprovedDomains(session.user.id);
+		if (!result.ok) {
+			/* `no_spaces` is distinct from an HQ outage: the key authenticated
+			 * but reaches nothing now. Leave the stored connection intact and
+			 * tell the user why, rather than mapping it to a generic error. */
+			if (result.kind === "no_spaces") {
+				return {
+					success: false,
+					error:
+						"This API key no longer reaches any project space — it may have been revoked or had its access changed. Your saved connection is unchanged.",
+				};
+			}
+			return { success: false, error: settingsErrorMessage(result.status) };
+		}
+		return { success: true, settings: result.settings };
+	} catch (err) {
+		log.error("[settings/commcare] refresh error", err);
 		return {
 			success: false,
 			error: "An unexpected error occurred. Please try again.",

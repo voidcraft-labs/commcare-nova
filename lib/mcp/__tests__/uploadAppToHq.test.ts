@@ -1,23 +1,21 @@
 /**
  * `registerUploadAppToHq` unit tests.
  *
- * Each test exercises one path through the handler's explicit two-gate
- * validation sequence, plus the ownership pre-gate, the app-name
- * fallback, progress emissions on the happy path, and log-writer drain
- * on a mid-upload throw.
+ * Each test exercises one path through the handler's gate sequence, plus the
+ * ownership pre-gate, the app-name fallback, progress emissions on the happy
+ * path, and log-writer drain on a mid-upload throw.
  *
  * Hard invariants the suite encodes:
- *   - Gate 1 (hq_not_configured) exits BEFORE a `LogWriter` is ever
- *     constructed — the writer allocation sits inside the post-gate
+ *   - Gate "hq_not_configured" / "domain_ambiguous" exit BEFORE a `LogWriter`
+ *     is ever constructed — the writer allocation sits inside the post-gate
  *     block. This is what `LogWriterMock.instances` is asserted on.
- *   - `importApp` is only reached once both pre-network gates pass.
- *     Each gate's failure test asserts `importApp` was never called.
- *   - A mid-upload throw still flushes the writer via the `finally`
- *     block.
- *   - The handler does NOT accept a `domain` argument — the target
- *     domain is derived server-side from the user's stored creds.
- *     This eliminates the prior `invalid_domain` + `domain_mismatch`
- *     failure modes at the type level.
+ *   - `importApp` is only reached once all pre-network gates pass. Each gate's
+ *     failure test asserts `importApp` was never called.
+ *   - A mid-upload throw still flushes the writer via the `finally` block.
+ *   - The optional `domain` arg threads to `getCredentialsForUpload`: omitted
+ *     → resolved server-side from the default; supplied → an explicit target
+ *     that can fail as `domain_not_authorized`; multi-space with neither →
+ *     `domain_ambiguous` (the tool refuses to guess).
  *
  * The MCP SDK is mocked at the boundary via the `makeFakeServer` helper
  * (same pattern the sibling tests use). `@/lib/mcp/loadApp` is mocked
@@ -30,7 +28,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { importApp } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
-import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
+import { getCredentialsForUpload } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
@@ -52,7 +50,7 @@ import { makeFakeServer } from "./fakeServer";
  * a stub for any specific function. */
 vi.mock("@/lib/db/apps", () => ({}));
 vi.mock("@/lib/db/settings", () => ({
-	getDecryptedCredentialsWithDomain: vi.fn(),
+	getCredentialsForUpload: vi.fn(),
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	importApp: vi.fn(),
@@ -138,11 +136,15 @@ const FAKE_HQ_JSON = {
 	modules: [],
 } as unknown as HqApplication;
 
-/** Canonical creds fixture — mirrors the shape `getDecryptedCredentialsWithDomain` returns. */
-const FIXTURE_SETTINGS = {
+/**
+ * Canonical success result — mirrors the `{ ok: true, creds, domain }` shape
+ * `getCredentialsForUpload` returns once a target space resolves.
+ */
+const FIXTURE_CREDS = {
+	ok: true as const,
 	creds: { username: "alice@example.com", apiKey: "key-xyz" },
 	domain: { name: "acme-research", displayName: "ACME Research" },
-} as const;
+};
 
 /* The `nova.hq.write` scope is required by the per-tool guard inside
  * `registerUploadAppToHq`. Floor scopes (`nova.read` / `nova.write`)
@@ -158,7 +160,7 @@ const toolCtx: ToolContext = {
 
 beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
-	vi.mocked(getDecryptedCredentialsWithDomain).mockReset();
+	vi.mocked(getCredentialsForUpload).mockReset();
 	vi.mocked(importApp).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	LogWriterMock.instances = [];
@@ -166,9 +168,7 @@ beforeEach(() => {
 	/* Default happy-path mocks — individual tests override via
 	 * `mockReturnValueOnce` / `mockResolvedValueOnce` where needed. The
 	 * defaults mean tests only have to pin the deviation they care about. */
-	vi.mocked(getDecryptedCredentialsWithDomain).mockResolvedValue(
-		FIXTURE_SETTINGS,
-	);
+	vi.mocked(getCredentialsForUpload).mockResolvedValue(FIXTURE_CREDS);
 	vi.mocked(loadAppBlueprint).mockResolvedValue(fixtureLoadedApp());
 	vi.mocked(expandDoc).mockReturnValue(FAKE_HQ_JSON);
 });
@@ -176,7 +176,7 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerUploadAppToHq — happy path", () => {
-	it("runs both gates, uploads to the stored domain, and returns the HQ app id + URL", async () => {
+	it("resolves the default space (no domain arg) and returns the HQ app id + URL", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-123",
@@ -194,21 +194,17 @@ describe("registerUploadAppToHq — happy path", () => {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
-		/* The domain passed to `importApp` comes from the stored
-		 * credentials, NOT from the tool arguments — asserting the exact
-		 * value here is a regression lock against a future "accept domain
-		 * as an arg again" refactor. */
-		expect(getDecryptedCredentialsWithDomain).toHaveBeenCalledWith("u1");
+		/* No `domain` arg → resolution falls to the user's default; the
+		 * resolver is asked with `undefined`, and the resolved domain is what
+		 * reaches `importApp`. */
+		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", undefined);
 		expect(importApp).toHaveBeenCalledWith(
-			FIXTURE_SETTINGS.creds,
+			FIXTURE_CREDS.creds,
 			"acme-research",
 			"Imported",
 			FAKE_HQ_JSON,
 		);
 
-		/* Content JSON carries both the stage marker + app_id alongside
-		 * the upload result — everything the model needs to branch on
-		 * sits inside `content[0].text`. */
 		const parsed = JSON.parse(out.content[0]?.text ?? "{}");
 		expect(parsed).toEqual({
 			stage: "upload_complete",
@@ -222,6 +218,36 @@ describe("registerUploadAppToHq — happy path", () => {
 		 * runs regardless of outcome. */
 		expect(LogWriterMock.instances).toHaveLength(1);
 		expect(LogWriterMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
+	});
+
+	it("forwards an explicit `domain` arg to resolution and uploads to it", async () => {
+		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+			ok: true,
+			creds: FIXTURE_CREDS.creds,
+			domain: { name: "connect-ace-prod", displayName: "ACE Prod" },
+		});
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-prod",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		await capture()({ app_id: "a1", domain: "connect-ace-prod" }, {});
+
+		expect(getCredentialsForUpload).toHaveBeenCalledWith(
+			"u1",
+			"connect-ace-prod",
+		);
+		expect(importApp).toHaveBeenCalledWith(
+			FIXTURE_CREDS.creds,
+			"connect-ace-prod",
+			"Vaccine Tracker",
+			FAKE_HQ_JSON,
+		);
 	});
 });
 
@@ -258,18 +284,21 @@ describe("registerUploadAppToHq — pre-gate 0: missing nova.hq.write", () => {
 		/* Pre-gate 0 fires BEFORE every other I/O — no blueprint load,
 		 * no settings read, no HQ call, no log writer allocation. The
 		 * scope failure leaks nothing about the user's data. */
-		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
+		expect(getCredentialsForUpload).not.toHaveBeenCalled();
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 });
 
-describe("registerUploadAppToHq — gate 1: HQ not configured", () => {
+describe("registerUploadAppToHq — gate 2: HQ not configured", () => {
 	it("returns error_type 'hq_not_configured' when no creds exist", async () => {
-		vi.mocked(getDecryptedCredentialsWithDomain).mockResolvedValueOnce(null);
-		/* Ownership + blueprint load resolves cleanly (it's gate 1 that
-		 * fails, not the ownership gate). */
+		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+			ok: false,
+			error: "not_configured",
+		});
+		/* Ownership + blueprint load resolves cleanly (it's the creds gate
+		 * that fails, not the ownership gate). */
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 
 		const { server, capture } = makeFakeServer();
@@ -287,15 +316,92 @@ describe("registerUploadAppToHq — gate 1: HQ not configured", () => {
 		};
 		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.hq_not_configured);
 		expect(payload.app_id).toBe("a1");
-		/* Gate 1 failure short-circuits before any HQ network call. */
+		/* Gate failure short-circuits before any HQ network call. */
 		expect(importApp).not.toHaveBeenCalled();
 		/* And — critically — no `LogWriter` was allocated for a gate
-		 * that has nothing to flush. The writer ctor lives past gate 1. */
+		 * that has nothing to flush. The writer ctor lives past this gate. */
 		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 });
 
-describe("registerUploadAppToHq — gate 2: HQ upload failed", () => {
+describe("registerUploadAppToHq — gate 2: domain not authorized", () => {
+	it("returns 'domain_not_authorized' naming the reachable set when the requested space is unreachable", async () => {
+		const reachable = [
+			{ name: "acme-research", displayName: "ACME Research" },
+			{ name: "connect-ace-prod", displayName: "ACE Prod" },
+		];
+		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+			ok: false,
+			error: "not_authorized",
+			available: reachable,
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		const out = (await capture()(
+			{ app_id: "a1", domain: "ghost-space" },
+			{},
+		)) as {
+			isError: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.domain_not_authorized);
+		/* The message names both the rejected request and the reachable set
+		 * so the caller (or the user behind it) can correct course. */
+		expect(payload.message).toContain("ghost-space");
+		expect(payload.message).toContain("acme-research");
+		expect(payload.message).toContain("connect-ace-prod");
+		expect(importApp).not.toHaveBeenCalled();
+		expect(LogWriterMock.instances).toHaveLength(0);
+	});
+});
+
+describe("registerUploadAppToHq — gate 2: ambiguous multi-space key", () => {
+	it("returns 'domain_ambiguous' naming the spaces when no domain and no default", async () => {
+		const reachable = [
+			{ name: "connect-ace-prod", displayName: "ACE Prod" },
+			{ name: "ace-crispr-connect", displayName: "CRISPR" },
+		];
+		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+			ok: false,
+			error: "ambiguous",
+			available: reachable,
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			isError: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		expect(payload.error_type).toBe(UPLOAD_ERROR_TAGS.domain_ambiguous);
+		/* Both spaces are named so the caller can pick one — the whole
+		 * point is to NOT silently bind to the first. */
+		expect(payload.message).toContain("connect-ace-prod");
+		expect(payload.message).toContain("ace-crispr-connect");
+		/* Resolution failed before any network call or writer allocation. */
+		expect(importApp).not.toHaveBeenCalled();
+		expect(LogWriterMock.instances).toHaveLength(0);
+	});
+});
+
+describe("registerUploadAppToHq — gate 3: HQ upload failed", () => {
 	it("returns error_type 'hq_upload_failed' when importApp surfaces a non-success", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: false,
@@ -322,7 +428,7 @@ describe("registerUploadAppToHq — gate 2: HQ upload failed", () => {
 		 * the LLM can explain the failure category to the user. */
 		expect(payload.message).toContain("502");
 
-		/* LogWriter WAS allocated (gate 2 sits past the writer ctor) AND
+		/* LogWriter WAS allocated (this gate sits past the writer ctor) AND
 		 * flushed — the `finally` block drains even on non-success return. */
 		expect(LogWriterMock.instances).toHaveLength(1);
 		expect(LogWriterMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
@@ -361,7 +467,7 @@ describe("registerUploadAppToHq — ownership failure", () => {
 		 * or HQ call — the ownership pre-gate (folded into
 		 * `loadAppBlueprint`) is the first line of defense against
 		 * cross-tenant upload probes. */
-		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
+		expect(getCredentialsForUpload).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 		expect(LogWriterMock.instances).toHaveLength(0);
 	});
@@ -390,7 +496,7 @@ describe("registerUploadAppToHq — wire parity (IDOR regression lock)", () => {
 		/* No settings fetch, no HQ call on either branch — both
 		 * short-circuited at the ownership gate with identical
 		 * envelopes. */
-		expect(getDecryptedCredentialsWithDomain).not.toHaveBeenCalled();
+		expect(getCredentialsForUpload).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 	});
 });
@@ -410,7 +516,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 		await capture()({ app_id: "a1" }, {});
 
 		expect(importApp).toHaveBeenCalledWith(
-			FIXTURE_SETTINGS.creds,
+			FIXTURE_CREDS.creds,
 			"acme-research",
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
@@ -434,7 +540,7 @@ describe("registerUploadAppToHq — app name fallback", () => {
 		 * blueprint name — a blank `app_name` on HQ is strictly worse
 		 * than using the real name. */
 		expect(importApp).toHaveBeenCalledWith(
-			FIXTURE_SETTINGS.creds,
+			FIXTURE_CREDS.creds,
 			"acme-research",
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
