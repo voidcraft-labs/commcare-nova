@@ -18,8 +18,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import {
+	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
@@ -76,6 +79,29 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * it POSTs the bytes per file after import; this read-only
 				 * compile does not.) `undefined` here flows through
 				 * `expandDoc`/`compileCcz` as media-off. */
+				/* Media gate — only the `ccz` format is media-ON, so only it
+				 * can hit `expandDoc`'s `requireAssetRef` throw on a stale
+				 * media reference (deleted, still-uploading, foreign-owned,
+				 * or kind-mismatched asset). Gated by the same
+				 * `format === "ccz"` condition as the manifest resolve so the
+				 * `json` path stays byte-identical. A media-invalid doc throws
+				 * `McpInvalidInputError` → `invalid_input` envelope with the
+				 * rule's Elm-shape text, instead of an opaque `internal` error
+				 * from the expand throw. */
+				if (args.format === "ccz") {
+					const mediaErrors = await collectMediaValidationErrors(
+						doc,
+						ctx.userId,
+					);
+					if (mediaErrors.length > 0) {
+						throw new McpInvalidInputError(
+							`This app references media that isn't ready to compile: ${mediaErrors
+								.map(errorToString)
+								.join(" ")}`,
+						);
+					}
+				}
+
 				const assets =
 					args.format === "ccz"
 						? await resolveMediaManifest(doc, ctx.userId, { withBytes: true })

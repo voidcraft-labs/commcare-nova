@@ -18,11 +18,13 @@ import {
 	uploadAppMedia,
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -77,6 +79,26 @@ export async function POST(req: NextRequest) {
 		}
 		const { creds } = settings;
 		const domain = body.domain.trim();
+
+		/* ── Validate media references before media-ON expand ─────────── */
+		// This path is media-ON, so a stale media reference (deleted,
+		// still-uploading, foreign-owned, or kind-mismatched asset) would
+		// make `expandDoc` throw `requireAssetRef` → opaque 500. Run the
+		// media rules first and surface the actionable message with the
+		// carrier location instead. Scoped to media-category errors so a
+		// previously-working non-media upload isn't newly blocked (this
+		// path historically ran only schema parse).
+		const mediaErrors = await collectMediaValidationErrors(
+			docWithParent,
+			session.user.id,
+		);
+		if (mediaErrors.length > 0) {
+			throw new ApiError(
+				"This app references media that isn't ready to upload.",
+				400,
+				mediaErrors.map(errorToString),
+			);
+		}
 
 		/* ── Resolve media manifest (with bytes) ─────────────────────── */
 		// The upload path is media-ON: the imported app's forms carry the

@@ -36,10 +36,12 @@ import {
 import { expandDoc } from "@/lib/commcare/expander";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import type { HqApplication } from "@/lib/commcare/types";
+import { validationError } from "@/lib/commcare/validator/errors";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { SCOPES } from "../scopes";
@@ -75,6 +77,12 @@ vi.mock("@/lib/commcare/expander", () => ({
 }));
 vi.mock("@/lib/media/manifest", () => ({
 	resolveMediaManifest: vi.fn(),
+}));
+/* The media-validation gate reads Firestore; mock it so the unit suite
+ * stays hermetic. Default `[]` = no media issues = proceed past the gate;
+ * the media-rejection test overrides per-call. */
+vi.mock("@/lib/media/mediaValidation", () => ({
+	collectMediaValidationErrors: vi.fn(),
 }));
 vi.mock("../loadApp", () => ({
 	loadAppBlueprint: vi.fn(),
@@ -180,6 +188,7 @@ beforeEach(() => {
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(uploadAppMedia).mockReset();
 	vi.mocked(mediaUploadAssetsFromManifest).mockReset();
+	vi.mocked(collectMediaValidationErrors).mockReset();
 	LogWriterMock.instances = [];
 
 	/* Default happy-path mocks — individual tests override via
@@ -195,6 +204,9 @@ beforeEach(() => {
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 	vi.mocked(mediaUploadAssetsFromManifest).mockReturnValue([]);
 	vi.mocked(uploadAppMedia).mockResolvedValue({ uploaded: 0, failures: [] });
+	/* Media gate transparent by default — no stale references. The
+	 * media-rejection test overrides with `mockResolvedValueOnce`. */
+	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -466,6 +478,74 @@ describe("registerUploadAppToHq — gate 2: HQ upload failed", () => {
 		 * flushed — the `finally` block drains even on non-success return. */
 		expect(LogWriterMock.instances).toHaveLength(1);
 		expect(LogWriterMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("registerUploadAppToHq — media validation gate", () => {
+	it("returns invalid_input (not an opaque internal error) when a media ref is stale", async () => {
+		/* A stale media ref — the kind of issue that would otherwise make
+		 * the media-ON `expandDoc` throw `requireAssetRef`, surfacing as a
+		 * generic `internal` error. The gate surfaces the rule's
+		 * actionable message as `invalid_input` instead. */
+		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+			validationError(
+				"MEDIA_ASSET_NOT_FOUND",
+				"field",
+				"At the label on field 'photo' in form 'Intake', the referenced media asset no longer exists. Re-attach an asset or remove the reference.",
+				{ formName: "Intake", fieldId: "photo" },
+			),
+		]);
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			isError: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+			message: string;
+		};
+		/* Routed through `McpInvalidInputError` → `invalid_input`. */
+		expect(payload.error_type).toBe("invalid_input");
+		expect(payload.app_id).toBe("a1");
+		expect(payload.message).toContain("no longer exists");
+
+		/* The gate fires BEFORE import + the LogWriter ctor — a
+		 * media-invalid doc never reaches HQ and never allocates a writer. */
+		expect(importApp).not.toHaveBeenCalled();
+		expect(LogWriterMock.instances).toHaveLength(0);
+	});
+
+	it("proceeds to import + upload when media validation is clean", async () => {
+		/* `collectMediaValidationErrors` defaults to `[]` (beforeEach) —
+		 * the gate is transparent and the normal flow runs. */
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-clean",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			stage: string;
+			hq_app_id: string;
+		};
+		expect(parsed.stage).toBe("upload_complete");
+		expect(parsed.hq_app_id).toBe("hq-clean");
+		expect(collectMediaValidationErrors).toHaveBeenCalledTimes(1);
+		expect(importApp).toHaveBeenCalledTimes(1);
 	});
 });
 

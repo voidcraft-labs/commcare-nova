@@ -307,3 +307,41 @@ export function validationError(
 export function errorToString(err: ValidationError): string {
 	return err.message;
 }
+
+// ── Media error category ───────────────────────────────────────────
+
+/**
+ * The media-category validation codes — the union of every rule that
+ * fires on a media reference or a media-bearing case-list column. Two
+ * groups:
+ *
+ *   - the three asset-context rules under `rules/media/` (existence /
+ *     ready / kind-match), which fire only when `runValidation` runs
+ *     with a resolved asset manifest, and
+ *   - `imageMapValueUnique`, a doc-structural rule registered in
+ *     `MODULE_RULES` that fires regardless of manifest presence. Its
+ *     code carries the `CASE_LIST_` prefix (it's a case-list-column
+ *     rule by shape) — listed explicitly here because a prefix-based
+ *     filter would silently drop it.
+ *
+ * Single source of truth for the media-validation entry-point guard,
+ * which runs FULL `runValidation` but surfaces only the issues in this
+ * set. The full run is deliberate (a media rule like `imageMapValueUnique`
+ * lives in `MODULE_RULES`, so a subset run would re-implement runner
+ * internals); the filter keeps the guard from newly blocking
+ * previously-working non-media uploads on those entry points. A new
+ * media rule adds its code here beside its `ValidationErrorCode` entry.
+ */
+export const MEDIA_VALIDATION_CODES: ReadonlySet<ValidationErrorCode> = new Set(
+	[
+		"MEDIA_ASSET_NOT_FOUND",
+		"MEDIA_ASSET_NOT_READY",
+		"MEDIA_KIND_MISMATCH",
+		"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
+	],
+);
+
+/** Whether a validation error belongs to the media category. */
+export function isMediaValidationError(err: ValidationError): boolean {
+	return MEDIA_VALIDATION_CODES.has(err.code);
+}

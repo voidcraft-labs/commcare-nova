@@ -3,10 +3,12 @@ import { type NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-utils";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { saveCcz } from "@/lib/store";
 
 /**
@@ -46,6 +48,27 @@ export async function POST(req: NextRequest) {
 		// walk the doc.
 		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
 		rebuildFieldParent(docWithParent);
+
+		// This path is media-ON (the archive bundles media bytes), so a
+		// stale media reference (deleted, still-uploading, foreign-owned,
+		// or kind-mismatched asset) would make `expandDoc` throw
+		// `requireAssetRef` → opaque 500. Run the media rules first and
+		// surface the actionable message instead. Scoped to media-category
+		// errors so a previously-working non-media compile isn't newly
+		// blocked (this path historically ran only schema parse).
+		const mediaErrors = await collectMediaValidationErrors(
+			docWithParent,
+			session.user.id,
+		);
+		if (mediaErrors.length > 0) {
+			return NextResponse.json(
+				{
+					error: "This app references media that isn't ready to compile.",
+					details: mediaErrors.map(errorToString),
+				},
+				{ status: 400 },
+			);
+		}
 
 		// Resolve the media manifest (rows + bytes) for this owner, then
 		// expand + compile with it so the XForms, suite, and profile carry

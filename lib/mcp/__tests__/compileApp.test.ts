@@ -28,8 +28,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
+import { validationError } from "@/lib/commcare/validator/errors";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { registerCompileApp } from "../tools/compileApp";
@@ -47,6 +49,12 @@ vi.mock("@/lib/commcare/expander", () => ({
 }));
 vi.mock("@/lib/commcare/compiler", () => ({
 	compileCcz: vi.fn(),
+}));
+/* The media-validation gate reads Firestore; mock it so the unit suite
+ * stays hermetic. Default `[]` = no media issues = proceed; the
+ * media-rejection test overrides per-call. */
+vi.mock("@/lib/media/mediaValidation", () => ({
+	collectMediaValidationErrors: vi.fn(),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -125,6 +133,10 @@ beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
+	vi.mocked(collectMediaValidationErrors).mockReset();
+	/* Default: no media issues → the gate is transparent. Tests that
+	 * exercise the rejection path override with `mockResolvedValueOnce`. */
+	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -282,6 +294,83 @@ describe("registerCompileApp — wire parity (IDOR regression lock)", () => {
 		/* Neither branch reached the expander — both short-circuited at
 		 * the ownership gate with identical envelopes. */
 		expect(expandDoc).not.toHaveBeenCalled();
+	});
+});
+
+describe("registerCompileApp — media validation gate (ccz only)", () => {
+	it("returns invalid_input (not a 500/compile) when ccz references a stale media asset", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
+		/* A stale media ref — the kind of issue that would otherwise make
+		 * `expandDoc`'s `requireAssetRef` throw an opaque internal error.
+		 * The gate surfaces the rule's actionable message instead. */
+		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+			validationError(
+				"MEDIA_ASSET_NOT_READY",
+				"field",
+				"At the icon on module 'Patients', the image is still uploading. Wait for it to finish, then try again.",
+				{ moduleName: "Patients" },
+			),
+		]);
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+			isError?: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		/* Routed through `McpInvalidInputError` → `invalid_input`, NOT the
+		 * generic taxonomy a compile throw would land in. */
+		expect(payload.error_type).toBe("invalid_input");
+		expect(payload.message).toContain("still uploading");
+		expect(payload.app_id).toBe("a1");
+		/* The gate fires BEFORE expand + compile — neither runs on a
+		 * media-invalid doc. */
+		expect(expandDoc).not.toHaveBeenCalled();
+		expect(compileCcz).not.toHaveBeenCalled();
+	});
+
+	it("proceeds to compile when ccz media validation is clean", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
+		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
+		vi.mocked(compileCcz).mockReturnValueOnce(Buffer.from("ccz"));
+		/* `mockResolvedValue([])` from beforeEach — no media issues. */
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			format: string;
+		};
+		expect(payload.format).toBe("ccz");
+		expect(collectMediaValidationErrors).toHaveBeenCalledTimes(1);
+		expect(compileCcz).toHaveBeenCalledTimes(1);
+	});
+
+	it("never runs the media gate for the json format", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
+		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		await capture()({ app_id: "a1", format: "json" }, {});
+
+		/* The json path is media-OFF — `expandDoc` can't throw
+		 * `requireAssetRef` there, so the gate must stay off to keep the
+		 * path byte-identical. */
+		expect(collectMediaValidationErrors).not.toHaveBeenCalled();
 	});
 });
 

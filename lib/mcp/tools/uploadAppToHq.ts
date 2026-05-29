@@ -62,10 +62,13 @@ import {
 	uploadAppMedia,
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { initMcpCall } from "../context";
 import {
+	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
@@ -191,6 +194,25 @@ export function registerUploadAppToHq(
 						UPLOAD_ERROR_TAGS.hq_not_configured,
 						"CommCare HQ is not configured. Add your HQ credentials in Settings before uploading.",
 						appId,
+					);
+				}
+
+				/* Media gate — this upload is media-ON, so a stale media
+				 * reference (deleted, still-uploading, foreign-owned, or
+				 * kind-mismatched asset) would make `expandDoc` throw
+				 * `requireAssetRef`, surfacing as an opaque `internal`
+				 * error. Run the media rules first and throw the actionable
+				 * message as `McpInvalidInputError` so the outer catch's
+				 * `toMcpErrorResult` emits an `invalid_input` envelope with
+				 * the rule's Elm-shape text. Thrown before run-id derivation
+				 * + `initMcpCall` so a media-invalid doc never allocates a
+				 * LogWriter. */
+				const mediaErrors = await collectMediaValidationErrors(doc, ctx.userId);
+				if (mediaErrors.length > 0) {
+					throw new McpInvalidInputError(
+						`This app references media that isn't ready to upload: ${mediaErrors
+							.map(errorToString)
+							.join(" ")}`,
 					);
 				}
 
