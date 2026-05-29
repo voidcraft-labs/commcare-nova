@@ -18,13 +18,13 @@
  *     `media_suite.xml` through the generic suite machinery — the same
  *     `SuiteParser` + `ResourceParser` that read the main `suite.xml` —
  *     verified at `commcare-core/.../xml/SuiteParser.java::parse` (the
- *     `<media>`-tag branch routes each child through
- *     `ResourceParser::parse`). `ResourceParser` calls `parseInt` on the
- *     `<resource version>` attribute and reads each `<location>` text
- *     via `parser.nextText()`. A missing required attribute, a non-integer
- *     `version`, or an empty `<location>` is fatal at parse —
- *     `InvalidStructureException` / `NumberFormatException` aborts the read
- *     and the device rejects the archive.
+ *     `<media>`-tag branch routes each child through `ResourceParser::parse`).
+ *     Two reads there abort the parse: `ResourceParser` reads the
+ *     `<resource version>` through the guarded `ElementParser.parseInt`, which
+ *     throws `InvalidStructureException` on an absent or non-integer value; and
+ *     it reads each `<location authority>` with `.toLowerCase()` and no null
+ *     guard, so an absent authority throws. Either aborts the read and the
+ *     device rejects the archive.
  *
  *   - **Category 2 — parse-clean, install-fatal.** `BasicInstaller::install`
  *     (`commcare-core/.../resources/model/installers/BasicInstaller.java`)
@@ -32,9 +32,11 @@
  *     bundled bytes; every other authority returns `false` and the
  *     resource fails install. Nova bundles every media file locally, so
  *     the oracle treats anything other than `local` as a generator bug.
- *     Duplicate `<resource id>` siblings + locations pointing at zip
- *     entries that aren't bundled also parse clean and fail at install
- *     (the runtime can't find the bytes to read).
+ *     Three more states parse clean and fail at install: duplicate
+ *     `<resource id>` siblings, a location whose `./<wirePath>` isn't among
+ *     the bundled zip entries, and an empty `<location>` — `ResourceParser`
+ *     reads its text via `parser.nextText()`, which yields `""` without
+ *     throwing, so the empty path simply can't resolve to bundled bytes.
  *
  * ## Bundled-file set (Category 2)
  *
