@@ -1,7 +1,7 @@
 /**
  * `nova.get_hq_connection` — report whether the authenticated user has
  * CommCare HQ credentials configured, and if so, which project spaces they
- * can upload to and which one is the active default.
+ * can upload to.
  *
  * Scope: `nova.hq.read` (per-tool, in addition to the route-layer
  * `nova.read` floor). HQ access is orthogonal to Nova-internal
