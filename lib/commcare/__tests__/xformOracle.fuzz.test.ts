@@ -49,6 +49,15 @@ const SEED = 20260522;
 const NUM_RUNS = 500;
 
 /**
+ * Generous per-test budget for the two emit-heavy properties below. Each is
+ * SYNCHRONOUS and emits / compiles `NUM_RUNS` docs — seconds normally, longer
+ * under CI / leak-detector load. Vitest's default 5s `testTimeout` flagged them
+ * "timed out" whenever a run crossed 5s on a busy machine: a load-dependent
+ * FALSE failure, not a hang (bounded by `NUM_RUNS`). Size to the real workload.
+ */
+const FUZZ_TIMEOUT_MS = 120_000;
+
+/**
  * Prepare a generated doc for consumption: rebuild the reverse parent index
  * (the generator leaves it empty, like `buildDoc`) and assert the doc is
  * schema-valid. A non-empty domain-validator result is a GENERATOR bug, thrown
@@ -68,48 +77,56 @@ function prepareAndGuard(doc: BlueprintDoc): void {
 }
 
 describe("XForm emitter totality (property-based fuzz)", () => {
-	it("every form of every schema-valid doc emits oracle-clean XForm", () => {
-		fc.assert(
-			fc.property(blueprintDocArbitrary, (doc) => {
-				prepareAndGuard(doc);
+	it(
+		"every form of every schema-valid doc emits oracle-clean XForm",
+		() => {
+			fc.assert(
+				fc.property(blueprintDocArbitrary, (doc) => {
+					prepareAndGuard(doc);
 
-				// Emit + check every form's XForm. A non-empty oracle result is
-				// the property failure we're hunting (classify A vs B).
-				const hqJson = expandDoc(doc);
-				for (const [key, attachment] of Object.entries(hqJson._attachments)) {
-					if (!key.endsWith(".xml")) continue;
-					if (typeof attachment !== "string") continue;
-					const oracleErrors = validateXForm(attachment, key, "fuzz");
-					if (oracleErrors.length > 0) {
-						throw new Error(
-							`Oracle flagged emitted XForm "${key}":\n${oracleErrors
-								.map((e) => `  - [${e.code}] ${errorToString(e)}`)
-								.join("\n")}\n\n--- emitted XForm ---\n${attachment}`,
-						);
+					// Emit + check every form's XForm. A non-empty oracle result is
+					// the property failure we're hunting (classify A vs B).
+					const hqJson = expandDoc(doc);
+					for (const [key, attachment] of Object.entries(hqJson._attachments)) {
+						if (!key.endsWith(".xml")) continue;
+						if (typeof attachment !== "string") continue;
+						const oracleErrors = validateXForm(attachment, key, "fuzz");
+						if (oracleErrors.length > 0) {
+							throw new Error(
+								`Oracle flagged emitted XForm "${key}":\n${oracleErrors
+									.map((e) => `  - [${e.code}] ${errorToString(e)}`)
+									.join("\n")}\n\n--- emitted XForm ---\n${attachment}`,
+							);
+						}
 					}
-				}
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED },
-		);
-	});
+				}),
+				{ numRuns: NUM_RUNS, seed: SEED },
+			);
+		},
+		FUZZ_TIMEOUT_MS,
+	);
 
-	it("compileCcz never trips its post-case-block-injection oracle re-check", () => {
-		// The SECOND oracle call site: `compiler.ts` splices <case>/<subcase>
-		// blocks into each case-bearing form's XForm, then re-runs `validateXForm`
-		// and THROWS if the spliced output is invalid. Driving compileCcz here
-		// fuzzes that injected-XForm shape — a throw is a finding (the case-block
-		// splice produced output the oracle rejects: classify A vs B from the
-		// thrown message). expandDoc-direct fuzzing above never reaches it.
-		fc.assert(
-			fc.property(blueprintDocArbitrary, (doc) => {
-				prepareAndGuard(doc);
-				const hqJson = expandDoc(doc);
-				// Throws on any post-injection oracle failure; surface it verbatim
-				// as the property failure (the message already names the form +
-				// the offending oracle codes).
-				compileCcz(hqJson, doc.appName, doc);
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED },
-		);
-	});
+	it(
+		"compileCcz never trips its post-case-block-injection oracle re-check",
+		() => {
+			// The SECOND oracle call site: `compiler.ts` splices <case>/<subcase>
+			// blocks into each case-bearing form's XForm, then re-runs `validateXForm`
+			// and THROWS if the spliced output is invalid. Driving compileCcz here
+			// fuzzes that injected-XForm shape — a throw is a finding (the case-block
+			// splice produced output the oracle rejects: classify A vs B from the
+			// thrown message). expandDoc-direct fuzzing above never reaches it.
+			fc.assert(
+				fc.property(blueprintDocArbitrary, (doc) => {
+					prepareAndGuard(doc);
+					const hqJson = expandDoc(doc);
+					// Throws on any post-injection oracle failure; surface it verbatim
+					// as the property failure (the message already names the form +
+					// the offending oracle codes).
+					compileCcz(hqJson, doc.appName, doc);
+				}),
+				{ numRuns: NUM_RUNS, seed: SEED },
+			);
+		},
+		FUZZ_TIMEOUT_MS,
+	);
 });

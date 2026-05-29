@@ -25,8 +25,10 @@ import { showToast } from "@/lib/ui/toastStore";
 interface ExportPanelProps {
 	/** Whether CommCare HQ credentials are configured. */
 	commcareConfigured: boolean;
-	/** The user's authorized project space domain, or null if not configured. */
+	/** The active default upload space, or null when none is chosen yet. */
 	commcareDomain: { name: string; displayName: string } | null;
+	/** Every project space the key can upload to (drives the dialog picker). */
+	commcareAvailableDomains: { name: string; displayName: string }[];
 }
 
 /**
@@ -44,12 +46,14 @@ function toPersistable(doc: BlueprintDoc): PersistableDoc {
 /**
  * Memoized to prevent parent-cascade re-renders from BuilderSubheader.
  * BuilderSubheader re-renders on breadcrumb/navigation changes (correct),
- * but ExportPanel's props (commcareConfigured, commcareDomain) are stable
- * across navigations — the cascade is pure waste (profiler: 16ms wasted).
+ * but ExportPanel's props (commcareConfigured, commcareDomain,
+ * commcareAvailableDomains) are stable across navigations — the cascade is
+ * pure waste (profiler: 16ms wasted).
  */
 export const ExportPanel = memo(function ExportPanel({
 	commcareConfigured,
 	commcareDomain,
+	commcareAvailableDomains,
 }: ExportPanelProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -170,7 +174,8 @@ export const ExportPanel = memo(function ExportPanel({
 				open={uploadDialogOpen}
 				onClose={handleCloseUpload}
 				getDoc={getDoc}
-				domain={commcareDomain}
+				activeDomain={commcareDomain}
+				availableDomains={commcareAvailableDomains}
 			/>
 		</>
 	);

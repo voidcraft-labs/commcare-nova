@@ -51,6 +51,15 @@ const SEED = 20260522;
 const NUM_RUNS = 400;
 
 /**
+ * Generous per-test budget for the emit-heavy property below. It's SYNCHRONOUS
+ * and expands `NUM_RUNS` docs — seconds normally, longer under CI /
+ * leak-detector load. Vitest's default 5s `testTimeout` flagged it "timed out"
+ * whenever the run crossed 5s on a busy machine: a load-dependent FALSE failure,
+ * not a hang (bounded by `NUM_RUNS`). Size the budget to the real workload.
+ */
+const FUZZ_TIMEOUT_MS = 120_000;
+
+/**
  * Rebuild the reverse parent index (the generator leaves it empty, like
  * `buildDoc`) and assert the doc is schema-valid. A non-empty domain-validator
  * result is a GENERATOR bug, thrown loud here rather than fed to the emitter.
@@ -88,36 +97,40 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 		activeCaseAction: 0,
 	};
 
-	it("every schema-valid doc expands to an oracle-clean HqApplication", () => {
-		fc.assert(
-			fc.property(suiteDocArbitrary, (doc) => {
-				prepareAndGuard(doc);
+	it(
+		"every schema-valid doc expands to an oracle-clean HqApplication",
+		() => {
+			fc.assert(
+				fc.property(suiteDocArbitrary, (doc) => {
+					prepareAndGuard(doc);
 
-				// Census the doc shape before emitting.
-				census.total += 1;
-				if (moduleCount(doc) > 1) census.multiModule += 1;
-				if (hasCaseSearch(doc)) census.caseSearch += 1;
-				if (hasChildCase(doc)) census.childCase += 1;
-				if (hasSort(doc)) census.sort += 1;
-				if (hasActiveCaseAction(doc)) census.activeCaseAction += 1;
+					// Census the doc shape before emitting.
+					census.total += 1;
+					if (moduleCount(doc) > 1) census.multiModule += 1;
+					if (hasCaseSearch(doc)) census.caseSearch += 1;
+					if (hasChildCase(doc)) census.childCase += 1;
+					if (hasSort(doc)) census.sort += 1;
+					if (hasActiveCaseAction(doc)) census.activeCaseAction += 1;
 
-				const hqJson = expandDoc(doc);
-				const oracleErrors = validateHqJson(hqJson);
-				if (oracleErrors.length > 0) {
-					throw new Error(
-						`Oracle flagged expanded HqApplication:\n${oracleErrors
-							.map((e) => `  - [${e.code}] ${errorToString(e)}`)
-							.join("\n")}\n\n--- expanded modules ---\n${JSON.stringify(
-							hqJson.modules,
-							null,
-							2,
-						)}`,
-					);
-				}
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED },
-		);
-	});
+					const hqJson = expandDoc(doc);
+					const oracleErrors = validateHqJson(hqJson);
+					if (oracleErrors.length > 0) {
+						throw new Error(
+							`Oracle flagged expanded HqApplication:\n${oracleErrors
+								.map((e) => `  - [${e.code}] ${errorToString(e)}`)
+								.join("\n")}\n\n--- expanded modules ---\n${JSON.stringify(
+								hqJson.modules,
+								null,
+								2,
+							)}`,
+						);
+					}
+				}),
+				{ numRuns: NUM_RUNS, seed: SEED },
+			);
+		},
+		FUZZ_TIMEOUT_MS,
+	);
 
 	it("the run hit minimum coverage thresholds for each import-fatal surface", () => {
 		// These ratios are floors, not targets — a generator that drifts below any
