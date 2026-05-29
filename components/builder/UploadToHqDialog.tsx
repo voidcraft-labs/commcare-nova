@@ -7,10 +7,8 @@
  * dialog is where the upload target is chosen (the Settings card is
  * display-only): a single-space key shows a static verified card; a
  * multi-space key shows a picker (the shadcn `Select`, Base-UI-backed),
- * pre-selecting the saved default when one exists. The Select portals into
- * this dialog (`SelectContent` `container`) so its dropdown opens above the
- * modal. The selected space is sent to the upload route, which re-authorizes
- * it against the key's reachable set.
+ * pre-selecting the saved default when one exists. The selected space is sent
+ * to the upload route, which re-authorizes it against the key's reachable set.
  */
 
 "use client";
@@ -91,11 +89,6 @@ export function UploadToHqDialog({
 	const [appName, setAppName] = useState(storeAppName);
 	/* The chosen target space (a domain slug). Seeded from the default on open. */
 	const [selectedDomain, setSelectedDomain] = useState("");
-	/* The dialog's popup element. The Select portals into it (see SelectContent
-	 * `container`) so its dropdown shares the modal's stacking context and opens
-	 * ABOVE the dialog — a body-portaled dropdown sits at `--z-popover` (50),
-	 * behind the dialog's `--z-modal` (100). */
-	const [dialogPopup, setDialogPopup] = useState<HTMLElement | null>(null);
 
 	const notConfigured = availableDomains.length === 0;
 	const isMultiSpace = availableDomains.length > 1;
@@ -190,7 +183,7 @@ export function UploadToHqDialog({
 		<Dialog.Root open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
 			<Dialog.Portal>
 				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup ref={setDialogPopup} className={POPUP_CLS}>
+				<Dialog.Popup className={POPUP_CLS}>
 					{/* ── Header ───────────────────────────────────── */}
 					<div className="flex items-center justify-between px-5 pt-5 pb-0">
 						<Dialog.Title className="text-base font-display font-semibold text-nova-text">
@@ -238,7 +231,7 @@ export function UploadToHqDialog({
 													>
 														<SelectValue placeholder="Choose a project space…" />
 													</SelectTrigger>
-													<SelectContent container={dialogPopup}>
+													<SelectContent>
 														{availableDomains.map((d) => (
 															<SelectItem key={d.name} value={d.name}>
 																{d.displayName}

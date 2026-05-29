@@ -63,28 +63,29 @@ function SelectContent({
 	align = "center",
 	alignOffset = 0,
 	alignItemWithTrigger = true,
-	container,
 	...props
 }: SelectPrimitive.Popup.Props &
 	Pick<
 		SelectPrimitive.Positioner.Props,
 		"align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
-	> &
-	// `container` portals the popup into a specific element instead of
-	// document.body. The popup defaults to body (z `--z-popover`, 50), which
-	// renders BEHIND a Dialog (`--z-modal`, 100); passing the dialog's popup
-	// element here makes the Select share the modal's stacking context so it
-	// opens above the modal content.
-	Pick<SelectPrimitive.Portal.Props, "container">) {
+	>) {
 	return (
-		<SelectPrimitive.Portal container={container}>
+		// The popup portals to document.body (Base UI's default) — escaping
+		// ancestor stacking/overflow is the whole point, so a Select opened from
+		// inside a Dialog floats above it with no per-call wiring. The positioner
+		// sits at `z-modal`, co-planar with dialogs, and wins by portal order: its
+		// portal mounts after the dialog's, so it stacks on top. Do NOT portal this
+		// into a dialog panel — a fixed-position popup inside a transformed panel
+		// (a centered dialog uses `translate(-50%,-50%)`) anchors to the panel
+		// rather than the viewport and lands in the wrong place.
+		<SelectPrimitive.Portal>
 			<SelectPrimitive.Positioner
 				side={side}
 				sideOffset={sideOffset}
 				align={align}
 				alignOffset={alignOffset}
 				alignItemWithTrigger={alignItemWithTrigger}
-				className="isolate z-50"
+				className="isolate z-modal"
 			>
 				<SelectPrimitive.Popup
 					data-slot="select-content"
