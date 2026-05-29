@@ -67,19 +67,26 @@ export class McpInvalidInputError extends Error {
 }
 
 /**
- * Errors produced by `upload_app_to_hq`'s two-gate validation chain.
- * Exported so the tool's `UPLOAD_ERROR_TAGS` record can `satisfies`-
- * check against the union — a new bucket without a corresponding entry
- * here becomes a compile error rather than a silent wire drift.
+ * Errors produced by `upload_app_to_hq`'s validation chain. Exported so the
+ * tool's `UPLOAD_ERROR_TAGS` record can `satisfies`-check against the union —
+ * a new bucket without a corresponding entry here becomes a compile error
+ * rather than a silent wire drift.
  *
- * Two buckets, not four: the prior `invalid_domain` + `domain_mismatch`
- * pair disappeared when `upload_app_to_hq` stopped accepting a
- * client-supplied `domain` argument. The domain now comes from the
- * user's stored credentials (validated at save time), so neither gate
- * can fire anymore. Agents previewing the target domain before
- * uploading use `get_hq_connection`.
+ * Four buckets:
+ *   - `hq_not_configured` — the user has no stored HQ credentials.
+ *   - `hq_upload_failed` — HQ rejected the upload (post-validation failure).
+ *   - `domain_not_authorized` — the caller passed a `domain` the key can't
+ *     reach. The reachable set is named in the message.
+ *   - `domain_ambiguous` — the key reaches multiple spaces, the caller passed
+ *     no `domain`, and no default is set. The tool refuses to guess (a silent
+ *     pick is exactly the bug this whole surface exists to prevent) and names
+ *     the spaces so the caller can pass one or set a default in Settings.
  */
-export type UploadErrorType = "hq_not_configured" | "hq_upload_failed";
+export type UploadErrorType =
+	| "hq_not_configured"
+	| "hq_upload_failed"
+	| "domain_not_authorized"
+	| "domain_ambiguous";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

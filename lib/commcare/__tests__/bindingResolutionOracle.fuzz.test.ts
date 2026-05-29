@@ -42,6 +42,16 @@ const SEED = 20260522;
 const NUM_RUNS = 500;
 
 /**
+ * Generous per-test budget. This property is SYNCHRONOUS and emits `NUM_RUNS`
+ * full `.ccz` compiles — seconds of real work normally, and several times that
+ * under CI / leak-detector instrumentation or a loaded machine. Vitest's
+ * default 5s `testTimeout` can't interrupt a sync test, so it flags the run
+ * "timed out" the moment it crosses 5s — a load-dependent FALSE failure, not a
+ * hang (the run is bounded by `NUM_RUNS`). Size the budget to the workload.
+ */
+const FUZZ_TIMEOUT_MS = 120_000;
+
+/**
  * Rebuild the per-doc `fieldParent` index (the generator omits it for
  * compactness) and assert schema validity. Mirrors the prep step in
  * `xformOracle.fuzz.test.ts` so the fuzzers share their doc-shape
@@ -115,66 +125,70 @@ function parseSuite(suiteXml: string): {
 }
 
 describe("binding-resolution emitter totality (property-based fuzz)", () => {
-	it("every schema-valid doc compiles to a CCZ whose XPath references all resolve", () => {
-		fc.assert(
-			fc.property(blueprintDocArbitrary, (doc) => {
-				prepareAndGuard(doc);
+	it(
+		"every schema-valid doc compiles to a CCZ whose XPath references all resolve",
+		() => {
+			fc.assert(
+				fc.property(blueprintDocArbitrary, (doc) => {
+					prepareAndGuard(doc);
 
-				// Step 1: compileCcz must be total. A throw here is a
-				// compiler bug (either an `expandDoc` shape the emitter
-				// doesn't handle, or a parse-time / suite-oracle
-				// regression). `fc.assert` turns the throw into a
-				// shrunken counterexample.
-				const hq = expandDoc(doc);
-				const ccz = compileCcz(hq, doc.appName, doc);
+					// Step 1: compileCcz must be total. A throw here is a
+					// compiler bug (either an `expandDoc` shape the emitter
+					// doesn't handle, or a parse-time / suite-oracle
+					// regression). `fc.assert` turns the throw into a
+					// shrunken counterexample.
+					const hq = expandDoc(doc);
+					const ccz = compileCcz(hq, doc.appName, doc);
 
-				// Step 2: for each form, run the binding-resolution
-				// oracle directly. `compileCcz` no longer invokes it
-				// (authoring rejection in `validator/rules/` is the
-				// user-visible gate); this fuzz proves the emitter is
-				// total — every accepted doc compiles to references the
-				// oracle is happy with.
-				const zip = new AdmZip(ccz);
-				const suiteEntry = zip.getEntry("suite.xml");
-				if (!suiteEntry) {
-					throw new Error("CCZ is missing suite.xml");
-				}
-				const suiteXml = suiteEntry.getData().toString("utf-8");
-				const { resources, entries } = parseSuite(suiteXml);
-				if (resources.length !== entries.length) {
-					throw new Error(
-						`suite.xml has ${resources.length} xform resources but ${entries.length} entries — expected lockstep`,
-					);
-				}
-
-				for (let i = 0; i < resources.length; i++) {
-					const formPath = resources[i];
-					const xformEntry = zip.getEntry(formPath);
-					if (!xformEntry) {
+					// Step 2: for each form, run the binding-resolution
+					// oracle directly. `compileCcz` no longer invokes it
+					// (authoring rejection in `validator/rules/` is the
+					// user-visible gate); this fuzz proves the emitter is
+					// total — every accepted doc compiles to references the
+					// oracle is happy with.
+					const zip = new AdmZip(ccz);
+					const suiteEntry = zip.getEntry("suite.xml");
+					if (!suiteEntry) {
+						throw new Error("CCZ is missing suite.xml");
+					}
+					const suiteXml = suiteEntry.getData().toString("utf-8");
+					const { resources, entries } = parseSuite(suiteXml);
+					if (resources.length !== entries.length) {
 						throw new Error(
-							`CCZ references form "${formPath}" but the file is missing`,
+							`suite.xml has ${resources.length} xform resources but ${entries.length} entries — expected lockstep`,
 						);
 					}
-					const xform = xformEntry.getData().toString("utf-8");
-					// Form / module names aren't structurally important for
-					// the oracle — they only appear in error messages that
-					// the throw below stringifies.
-					const errors = validateBindingResolution(
-						xform,
-						formPath,
-						doc.appName,
-						entries[i].datumIds,
-					);
-					if (errors.length > 0) {
-						throw new Error(
-							`Binding resolution failed for "${formPath}":\n` +
-								errors.map((e) => `  - ${errorToString(e)}`).join("\n"),
+
+					for (let i = 0; i < resources.length; i++) {
+						const formPath = resources[i];
+						const xformEntry = zip.getEntry(formPath);
+						if (!xformEntry) {
+							throw new Error(
+								`CCZ references form "${formPath}" but the file is missing`,
+							);
+						}
+						const xform = xformEntry.getData().toString("utf-8");
+						// Form / module names aren't structurally important for
+						// the oracle — they only appear in error messages that
+						// the throw below stringifies.
+						const errors = validateBindingResolution(
+							xform,
+							formPath,
+							doc.appName,
+							entries[i].datumIds,
 						);
+						if (errors.length > 0) {
+							throw new Error(
+								`Binding resolution failed for "${formPath}":\n` +
+									errors.map((e) => `  - ${errorToString(e)}`).join("\n"),
+							);
+						}
 					}
-				}
-				return true;
-			}),
-			{ seed: SEED, numRuns: NUM_RUNS, endOnFailure: true },
-		);
-	});
+					return true;
+				}),
+				{ seed: SEED, numRuns: NUM_RUNS, endOnFailure: true },
+			);
+		},
+		FUZZ_TIMEOUT_MS,
+	);
 });

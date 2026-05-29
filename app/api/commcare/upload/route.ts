@@ -13,7 +13,7 @@ import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
-import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
+import { getCredentialsForUpload } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -55,29 +55,38 @@ export async function POST(req: NextRequest) {
 		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
 		rebuildFieldParent(docWithParent);
 
-		/* ── Resolve credentials + verify domain authorization ──────── */
-		const settings = await getDecryptedCredentialsWithDomain(session.user.id);
-		if (!settings) {
-			throw new ApiError(
-				"CommCare HQ is not configured. Add your API key in Settings.",
-				400,
-			);
+		/* ── Resolve credentials + authorize the requested space ──────── */
+		const requested = body.domain.trim();
+		const credResult = await getCredentialsForUpload(
+			session.user.id,
+			requested,
+		);
+		if (!credResult.ok) {
+			if (credResult.error === "not_configured") {
+				throw new ApiError(
+					"CommCare HQ is not configured. Add your API key in Settings.",
+					400,
+				);
+			}
+			if (credResult.error === "not_authorized") {
+				const reachable = credResult.available.map((d) => d.name).join(", ");
+				throw new ApiError(
+					`Your API key can't upload to "${requested}". It reaches: ${reachable}. Pick one of those project spaces.`,
+					403,
+				);
+			}
+			/* `ambiguous` shouldn't occur — the dialog always sends a chosen
+			 * space — but a malformed request with no space lands here. */
+			throw new ApiError("No project space selected for the upload.", 400);
 		}
-		if (settings.domain.name !== body.domain.trim()) {
-			throw new ApiError(
-				"You can only upload to your authorized project space.",
-				403,
-			);
-		}
-		const { creds } = settings;
 
 		/* ── Expand domain doc to HQ JSON ────────────────────────────── */
 		const hqJson = expandDoc(docWithParent);
 
 		/* ── Upload to CommCare HQ ──────────────────────────────────── */
 		const result = await importApp(
-			creds,
-			body.domain.trim(),
+			credResult.creds,
+			credResult.domain.name,
 			body.appName.trim(),
 			hqJson,
 		);

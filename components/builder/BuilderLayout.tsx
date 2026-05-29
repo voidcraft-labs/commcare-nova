@@ -76,6 +76,14 @@ interface BuilderLayoutProps {
 	commcareSettings?: CommCareSettingsPublic;
 }
 
+/**
+ * Stable empty reference for the unconfigured / not-yet-loaded case. Reusing
+ * one module-level array keeps `commcareAvailableDomains`'s identity constant
+ * across renders so `ExportPanel`'s `memo` holds — a fresh `[]` literal each
+ * render would defeat it (and re-fire the upload dialog's reset effect).
+ */
+const EMPTY_DOMAINS: { name: string; displayName: string }[] = [];
+
 export function BuilderLayout({
 	children,
 	isExistingApp,
@@ -89,11 +97,15 @@ export function BuilderLayout({
 
 	/* CommCare settings — server-resolved, passed through to BuilderSubheader.
 	 * `commcareSettings` is a discriminated union; narrow on `configured`
-	 * to access `domain` (only present in the `true` branch). */
+	 * to access the active default `domain` (nullable on a multi-space key
+	 * with no chosen default) and the full reachable set `availableDomains`. */
 	const commcareConfigured = commcareSettings?.configured ?? false;
 	const commcareDomain = commcareSettings?.configured
 		? commcareSettings.domain
 		: null;
+	const commcareAvailableDomains = commcareSettings?.configured
+		? commcareSettings.availableDomains
+		: EMPTY_DOMAINS;
 
 	// ── Flipbook scroll sync ──────────────────────────────────────────────
 	// Switching cursor modes preserves scroll position so the same field
@@ -383,6 +395,7 @@ export function BuilderLayout({
 							<BuilderSubheader
 								commcareConfigured={commcareConfigured}
 								commcareDomain={commcareDomain}
+								commcareAvailableDomains={commcareAvailableDomains}
 							/>
 						</motion.div>
 					)}

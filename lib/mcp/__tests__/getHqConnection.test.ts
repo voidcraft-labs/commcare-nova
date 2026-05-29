@@ -1,12 +1,14 @@
 /**
  * `registerGetHqConnection` unit tests.
  *
- * Three wire-contract invariants the suite locks:
- *   - Configured → `{configured: true, domain: {name, displayName}}`.
- *     Username and any key material stay out of the wire.
+ * Wire-contract invariants the suite locks:
+ *   - Configured → `{configured: true, domain, available_domains}`.
+ *     `available_domains` lists every reachable space; `domain` is the
+ *     active default. Username and any key material stay out of the wire.
+ *   - Multi-space, no default → `domain: null` with the full
+ *     `available_domains` set, signalling the caller to pick one.
  *   - Unconfigured → `{configured: false}` with NO `domain` key.
- *     Callers branch on the discriminant shape; an explicit-null domain
- *     would require a two-field check.
+ *     Callers branch on the discriminant shape.
  *   - A `getCommCareSettings` throw surfaces as an MCP `isError: true`
  *     envelope via the shared classifier, never as an unhandled
  *     rejection.
@@ -42,11 +44,13 @@ beforeEach(() => {
 });
 
 describe("registerGetHqConnection — configured", () => {
-	it("returns {configured: true, domain} and forwards the caller userId to the DB layer", async () => {
+	it("returns {configured, domain, available_domains} and forwards the caller userId to the DB layer", async () => {
+		const acme = { name: "acme-research", displayName: "ACME Research" };
 		vi.mocked(getCommCareSettings).mockResolvedValueOnce({
 			configured: true,
 			username: "alice@example.com",
-			domain: { name: "acme-research", displayName: "ACME Research" },
+			domain: acme,
+			availableDomains: [acme],
 		});
 
 		const { server, capture } = makeFakeServer();
@@ -62,13 +66,41 @@ describe("registerGetHqConnection — configured", () => {
 		>;
 		expect(parsed).toEqual({
 			configured: true,
-			domain: { name: "acme-research", displayName: "ACME Research" },
+			domain: acme,
+			available_domains: [acme],
 		});
 		/* Regression lock — the username and any key material MUST NOT
 		 * leak onto the wire. */
 		expect("username" in parsed).toBe(false);
 		/* Owner filter uses the authenticated caller, not a client arg. */
 		expect(getCommCareSettings).toHaveBeenCalledWith("u1");
+	});
+
+	it("returns domain: null with the full reachable set for a multi-space key with no default", async () => {
+		const prod = { name: "connect-ace-prod", displayName: "ACE Prod" };
+		const crispr = { name: "ace-crispr-connect", displayName: "CRISPR" };
+		vi.mocked(getCommCareSettings).mockResolvedValueOnce({
+			configured: true,
+			username: "alice@example.com",
+			domain: null,
+			availableDomains: [prod, crispr],
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerGetHqConnection(server, toolCtx);
+
+		const out = (await capture()({})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as Record<
+			string,
+			unknown
+		>;
+		expect(parsed).toEqual({
+			configured: true,
+			domain: null,
+			available_domains: [prod, crispr],
+		});
 	});
 });
 
