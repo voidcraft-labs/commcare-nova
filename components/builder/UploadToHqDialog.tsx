@@ -3,11 +3,14 @@
  * as a new CommCare application to one of the user's project spaces.
  *
  * Uses Base UI Dialog for accessible dismiss/focus coordination via
- * FloatingTreeStore. An HQ API key can reach several project spaces, so the
- * target is chosen here: a single-space key shows a static verified card;
- * a multi-space key shows a picker (the shadcn `Select`, Base-UI-backed)
- * defaulting to the user's chosen default. The selected space is sent to the
- * upload route, which re-authorizes it against the key's reachable set.
+ * FloatingTreeStore. An HQ API key can reach several project spaces, and THIS
+ * dialog is where the upload target is chosen (the Settings card is
+ * display-only): a single-space key shows a static verified card; a
+ * multi-space key shows a picker (the shadcn `Select`, Base-UI-backed),
+ * pre-selecting the saved default when one exists. The Select portals into
+ * this dialog (`SelectContent` `container`) so its dropdown opens above the
+ * modal. The selected space is sent to the upload route, which re-authorizes
+ * it against the key's reachable set.
  */
 
 "use client";
@@ -23,7 +26,7 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerX from "@iconify-icons/tabler/x";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	Select,
 	SelectContent,
@@ -88,9 +91,23 @@ export function UploadToHqDialog({
 	const [appName, setAppName] = useState(storeAppName);
 	/* The chosen target space (a domain slug). Seeded from the default on open. */
 	const [selectedDomain, setSelectedDomain] = useState("");
+	/* The dialog's popup element. The Select portals into it (see SelectContent
+	 * `container`) so its dropdown shares the modal's stacking context and opens
+	 * ABOVE the dialog — a body-portaled dropdown sits at `--z-popover` (50),
+	 * behind the dialog's `--z-modal` (100). */
+	const [dialogPopup, setDialogPopup] = useState<HTMLElement | null>(null);
 
 	const notConfigured = availableDomains.length === 0;
 	const isMultiSpace = availableDomains.length > 1;
+
+	/* Base UI Select resolves the trigger label from `items` (value → label),
+	 * so the closed trigger shows the friendly displayName rather than the raw
+	 * slug — no per-render formatter needed. */
+	const domainItems = useMemo(
+		() =>
+			availableDomains.map((d) => ({ label: d.displayName, value: d.name })),
+		[availableDomains],
+	);
 
 	/* ── Reset form state on the open (false→true) transition only ──── */
 	/* Seeding only on open — not on every dep change — means a prop or
@@ -173,7 +190,7 @@ export function UploadToHqDialog({
 		<Dialog.Root open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
 			<Dialog.Portal>
 				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup className={POPUP_CLS}>
+				<Dialog.Popup ref={setDialogPopup} className={POPUP_CLS}>
 					{/* ── Header ───────────────────────────────────── */}
 					<div className="flex items-center justify-between px-5 pt-5 pb-0">
 						<Dialog.Title className="text-base font-display font-semibold text-nova-text">
@@ -206,45 +223,35 @@ export function UploadToHqDialog({
 											Project Space
 										</span>
 										{isMultiSpace ? (
-											<Select
-												value={selectedDomain}
-												onValueChange={(next) => setSelectedDomain(next ?? "")}
-												disabled={isUploading}
-											>
-												<SelectTrigger
-													className="w-full"
-													aria-label="Project space"
+											<>
+												<Select
+													items={domainItems}
+													value={selectedDomain}
+													onValueChange={(next) =>
+														setSelectedDomain(next ?? "")
+													}
+													disabled={isUploading}
 												>
-													{/* Render the friendly displayName in the closed
-													 * trigger. A function child takes over all of
-													 * Select.Value's rendering — Base UI runs it before
-													 * (and instead of) the `placeholder` branch — so the
-													 * empty-value case must return the prompt text itself,
-													 * otherwise the trigger goes blank in the must-choose
-													 * state rather than showing the placeholder. */}
-													<SelectValue placeholder="Choose a project space…">
-														{(value) =>
-															value
-																? (availableDomains.find(
-																		(d) => d.name === value,
-																	)?.displayName ?? value)
-																: "Choose a project space…"
-														}
-													</SelectValue>
-												</SelectTrigger>
-												<SelectContent>
-													{availableDomains.map((d) => (
-														<SelectItem key={d.name} value={d.name}>
-															<span className="text-nova-text">
+													<SelectTrigger
+														className="w-full"
+														aria-label="Project space"
+													>
+														<SelectValue placeholder="Choose a project space…" />
+													</SelectTrigger>
+													<SelectContent container={dialogPopup}>
+														{availableDomains.map((d) => (
+															<SelectItem key={d.name} value={d.name}>
 																{d.displayName}
-															</span>
-															<span className="text-xs text-nova-text-muted">
-																{d.name}
-															</span>
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+												{selectedDomain && (
+													<span className="text-[11px] text-nova-text-muted">
+														Uploads to {selectedDomain}
+													</span>
+												)}
+											</>
 										) : (
 											<div className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-nova-emerald/[0.04] border border-nova-emerald/15">
 												<div className="flex items-center justify-center w-7 h-7 rounded-full bg-nova-emerald/10 shrink-0">

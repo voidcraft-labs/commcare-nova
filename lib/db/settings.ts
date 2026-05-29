@@ -34,11 +34,14 @@ import type { UserSettingsDoc } from "./types";
  * Safe subset of settings returned to the client (never includes the raw
  * API key). Discriminated on `configured`.
  *
- * On a configured row, `domain` is the resolved active upload target and is
- * `null` precisely when the key reaches multiple spaces and the user hasn't
- * chosen a default yet — a deliberate "must choose" state, not a missing
- * value. `availableDomains` is every space the key can upload to (length 1 ⇒
- * a single-space key, where `domain` is always that one space).
+ * On a configured row, `availableDomains` is every space the key can upload to.
+ * `domain` is the resolved default upload target: the sole space for a
+ * single-space key, or the stored `active_domain` for a multi-space key. It is
+ * `null` for a multi-space key with no stored default — the common case, since
+ * the default is no longer user-settable in Settings (only auto-bound for
+ * single-space keys, or carried on a legacy/migrated row). The upload dialog
+ * is where the per-upload target is chosen; consumers use `domain` only as a
+ * pre-selection hint.
  */
 export type CommCareSettingsPublic =
 	| { configured: false }
@@ -69,10 +72,11 @@ export type CredentialsForUploadResult =
 /**
  * Pick the default space to persist after the reachable set changes.
  *
- * Preserves a prior choice that's still reachable (re-pasting the same key
- * keeps the user's selection); otherwise a single-space key auto-binds to its
- * sole space and a multi-space key is left unset (forcing a deliberate choice
- * rather than silently binding to the first space).
+ * Preserves a prior default that's still reachable; otherwise a single-space
+ * key auto-binds to its sole space and a multi-space key is left unset. Since
+ * the Settings picker was removed, the only `priorActive` a multi-space key
+ * can carry is a legacy/migrated value — a fresh multi-space save now always
+ * leaves the default unset, and the upload dialog chooses the target instead.
  */
 export function reconcileActiveDomain(
 	approvedDomains: CommCareDomain[],
@@ -206,36 +210,6 @@ export async function saveCommCareSettings(
 		} as unknown as UserSettingsDoc,
 		{ merge: true },
 	);
-}
-
-/**
- * Set the user's default upload space.
- *
- * Rejects (return-based, not a throw — this is an expected validation outcome,
- * not an infra fault) a name the key can't reach. The picker only offers
- * reachable spaces, so a rejection means a stale client or a direct caller
- * naming a space outside the key's scope. The message is user-facing.
- */
-export async function setActiveDomain(
-	userId: string,
-	domainName: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-	const snap = await docs.settings(userId).get();
-	const available =
-		(snap.exists ? snap.data()?.approved_domains : undefined) ?? [];
-	if (!available.some((d) => d.name === domainName)) {
-		const reachable =
-			available.map((d) => d.name).join(", ") || "no project spaces";
-		return {
-			ok: false,
-			message: `Can't make "${domainName}" the default upload space — this API key only reaches ${reachable}. Pick one of those, or refresh the list in Settings if you recently joined a project.`,
-		};
-	}
-	await docs.settings(userId).update({
-		active_domain: domainName,
-		updated_at: FieldValue.serverTimestamp(),
-	});
-	return { ok: true };
 }
 
 /** Outcome of a refresh — distinct failure kinds so the caller can compose

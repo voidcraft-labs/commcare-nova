@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
 	discoverAccessibleDomains: vi.fn(),
 	saveCommCareSettings: vi.fn(),
 	getCommCareSettings: vi.fn(),
-	setActiveDomain: vi.fn(),
 	refreshApprovedDomains: vi.fn(),
 	deleteCommCareSettings: vi.fn(),
 }));
@@ -33,16 +32,11 @@ vi.mock("@/lib/commcare/client", () => ({
 vi.mock("@/lib/db/settings", () => ({
 	saveCommCareSettings: mocks.saveCommCareSettings,
 	getCommCareSettings: mocks.getCommCareSettings,
-	setActiveDomain: mocks.setActiveDomain,
 	refreshApprovedDomains: mocks.refreshApprovedDomains,
 	deleteCommCareSettings: mocks.deleteCommCareSettings,
 }));
 
-import {
-	refreshDomainsAction,
-	setActiveDomainAction,
-	verifyAndSaveCredentials,
-} from "../actions";
+import { refreshDomainsAction, verifyAndSaveCredentials } from "../actions";
 
 const SESSION = { user: { id: "u1", email: "alice@example.com" } };
 const PROD = { name: "connect-ace-prod", displayName: "ACE Prod" };
@@ -119,40 +113,6 @@ describe("verifyAndSaveCredentials", () => {
 		const result = await verifyAndSaveCredentials("alice", "key");
 		expect(result.success).toBe(false);
 		expect(mocks.saveCommCareSettings).not.toHaveBeenCalled();
-	});
-});
-
-describe("setActiveDomainAction", () => {
-	it("persists the choice and returns fresh settings on success", async () => {
-		mocks.setActiveDomain.mockResolvedValue({ ok: true });
-		const settings = {
-			configured: true,
-			username: "alice@example.com",
-			domain: PROD,
-			availableDomains: [PROD, CRISPR],
-		};
-		mocks.getCommCareSettings.mockResolvedValue(settings);
-
-		const result = await setActiveDomainAction("connect-ace-prod");
-
-		expect(mocks.setActiveDomain).toHaveBeenCalledWith(
-			"u1",
-			"connect-ace-prod",
-		);
-		expect(result).toEqual({ success: true, settings });
-	});
-
-	it("surfaces the rejection message when the space is unreachable", async () => {
-		mocks.setActiveDomain.mockResolvedValue({
-			ok: false,
-			message: 'Can\'t make "ghost" the default upload space — …',
-		});
-		const result = await setActiveDomainAction("ghost");
-		expect(result).toEqual({
-			success: false,
-			error: 'Can\'t make "ghost" the default upload space — …',
-		});
-		expect(mocks.getCommCareSettings).not.toHaveBeenCalled();
 	});
 });
 
