@@ -87,7 +87,7 @@ Prints a summary of one app: its modules, forms, fields, and case types. Use thi
 
 Pushes an app from Nova to CommCare HQ. The argument is either the app's ID or a name to search for; if more than one app matches the name, Claude shows the matches and asks which one you mean.
 
-Before it actually uploads, Claude shows you the target HQ project space (read from the API key you saved in [Nova settings](https://commcare.app/settings)) and asks you to confirm. Decline to back out without uploading.
+Before it actually uploads, Claude shows you the target project space — if your API key (saved in [Nova settings](https://commcare.app/settings)) reaches more than one, it asks which one — and asks you to confirm. Decline to back out without uploading.
 
 ```text
 /nova:upload_to_hq vaccine tracking

@@ -1,8 +1,16 @@
 /**
  * CommCare HQ integration settings — client component.
  *
- * Card-based UI for managing CommCare HQ API credentials. Verification
- * and deletion use Server Actions (`actions.ts`).
+ * Card-based UI for managing CommCare HQ API credentials. Verification,
+ * default-space selection, refresh, and deletion all use Server Actions
+ * (`actions.ts`), each returning the fresh `CommCareSettingsPublic` so the
+ * client swaps its state wholesale.
+ *
+ * Multi-space keys: an HQ API key can reach several project spaces. A
+ * single-space key shows the familiar "Connected to X" badge; a multi-space
+ * key shows a picker (the shadcn `Select`) so the user chooses which space
+ * uploads target — and is asked to choose when no default is set yet, rather
+ * than being silently bound to one.
  *
  * API key field behavior:
  *   - Idle / error: plaintext text input, editable
@@ -18,13 +26,26 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
+import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerShieldLock from "@iconify-icons/tabler/shield-lock";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import type { CommCareDomain } from "@/lib/commcare/client";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
-import { deleteCredentials, verifyAndSaveCredentials } from "./actions";
+import {
+	deleteCredentials,
+	refreshDomainsAction,
+	setActiveDomainAction,
+	verifyAndSaveCredentials,
+} from "./actions";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -34,7 +55,7 @@ interface CommCareSettingsProps {
 	userEmail: string;
 }
 
-/** State machine for the form UI. */
+/** State machine for the connect/disconnect lifecycle of the card. */
 type FormStatus =
 	| { type: "idle" }
 	| { type: "verifying" }
@@ -53,7 +74,7 @@ const INPUT_ACTIVE = `${INPUT_BASE} bg-nova-deep border-nova-border text-nova-te
 const INPUT_LOCKED = `${INPUT_BASE} bg-nova-deep/50 border-nova-border/50 text-nova-text-muted cursor-not-allowed`;
 
 /** Placeholder shown in the masked API key field. The actual key never leaves the server. */
-const API_KEY_MASK = "\u2022".repeat(32);
+const API_KEY_MASK = "•".repeat(32);
 
 // ── Animation presets ──────────────────────────────────────────────
 
@@ -70,23 +91,35 @@ export function CommCareSettings({
 }: CommCareSettingsProps) {
 	/* ── Form values ─────────────────────────────────────────────── */
 	/* `initial` is a discriminated union — narrow on `configured` before
-	 * reading the saved username/domain, falling back to email/null when
+	 * reading the saved username/domains, falling back to email/empty when
 	 * unconfigured. */
 	const [username, setUsername] = useState(
 		initial.configured ? initial.username : userEmail,
 	);
 	const [apiKey, setApiKey] = useState("");
 
-	/* ── Domain + status ─────────────────────────────────────────── */
-	const [domain, setDomain] = useState<CommCareDomain | null>(
+	/* ── Domains + status ────────────────────────────────────────── */
+	/* The full reachable set plus the resolved active default. `activeDomain`
+	 * is null when the key reaches multiple spaces and no default is chosen. */
+	const [availableDomains, setAvailableDomains] = useState<CommCareDomain[]>(
+		initial.configured ? initial.availableDomains : [],
+	);
+	const [activeDomain, setActiveDomain] = useState<CommCareDomain | null>(
 		initial.configured ? initial.domain : null,
 	);
 	const [status, setStatus] = useState<FormStatus>(
 		initial.configured ? { type: "configured" } : { type: "idle" },
 	);
+	/* Picker-save / refresh run independently of the connect lifecycle, so
+	 * they get their own busy + error state rather than crowding `status`. */
+	const [domainBusy, setDomainBusy] = useState(false);
+	const [domainError, setDomainError] = useState<string | null>(null);
 
 	/* ── Derived states ──────────────────────────────────────────── */
 	const isConfigured = status.type === "configured";
+	/* Multi-space key with no chosen default — the "must choose" state. The
+	 * header must NOT read as a settled green "Connected" here. */
+	const needsDomainChoice = isConfigured && !activeDomain;
 	const isVerifying = status.type === "verifying";
 	const fieldsLocked =
 		isVerifying || isConfigured || status.type === "deleting";
@@ -97,10 +130,25 @@ export function CommCareSettings({
 	const showSaveArea = !isConfigured && status.type !== "deleting";
 	const showDisconnectArea = isConfigured || status.type === "deleting";
 
+	/* ── Apply a settings snapshot from any action's result ───────── */
+	const applySettings = useCallback((settings: CommCareSettingsPublic) => {
+		if (settings.configured) {
+			setUsername(settings.username);
+			setAvailableDomains(settings.availableDomains);
+			setActiveDomain(settings.domain);
+			setStatus({ type: "configured" });
+		} else {
+			setAvailableDomains([]);
+			setActiveDomain(null);
+			setStatus({ type: "idle" });
+		}
+	}, []);
+
 	/* ── Save handler ────────────────────────────────────────────── */
 	const handleSave = useCallback(async () => {
 		if (!username.trim() || !apiKey.trim()) return;
 		setStatus({ type: "verifying" });
+		setDomainError(null);
 
 		const result = await verifyAndSaveCredentials(
 			username.trim(),
@@ -108,21 +156,50 @@ export function CommCareSettings({
 		);
 
 		if (result.success) {
-			setDomain(result.domain);
-			setStatus({ type: "configured" });
+			applySettings(result.settings);
 		} else {
 			setStatus({ type: "error", message: result.error });
 		}
-	}, [username, apiKey]);
+	}, [username, apiKey, applySettings]);
+
+	/* ── Default-space picker ─────────────────────────────────────── */
+	const handlePickDomain = useCallback(
+		async (name: string) => {
+			/* Base UI's `onValueChange` can emit null on a clear path; ignore
+			 * an empty selection rather than persisting "no default". */
+			if (!name || name === activeDomain?.name) return;
+			setDomainBusy(true);
+			setDomainError(null);
+
+			const result = await setActiveDomainAction(name);
+			setDomainBusy(false);
+			if (result.success) applySettings(result.settings);
+			else setDomainError(result.error);
+		},
+		[activeDomain, applySettings],
+	);
+
+	/* ── Refresh the reachable set ────────────────────────────────── */
+	const handleRefresh = useCallback(async () => {
+		setDomainBusy(true);
+		setDomainError(null);
+
+		const result = await refreshDomainsAction();
+		setDomainBusy(false);
+		if (result.success) applySettings(result.settings);
+		else setDomainError(result.error);
+	}, [applySettings]);
 
 	/* ── Disconnect handler ──────────────────────────────────────── */
 	const handleDisconnect = useCallback(async () => {
 		setStatus({ type: "deleting" });
+		setDomainError(null);
 
 		const result = await deleteCredentials();
 
 		if (result.success) {
-			setDomain(null);
+			setAvailableDomains([]);
+			setActiveDomain(null);
 			setUsername(userEmail);
 			setApiKey("");
 			setStatus({ type: "idle" });
@@ -153,10 +230,28 @@ export function CommCareSettings({
 					</p>
 				</div>
 
-				{/* Connected pill — appears in the header corner */}
-				<AnimatePresence>
-					{isConfigured && (
+				{/* Status pill — green "Connected" only once a default space is
+				 * chosen; amber "Choose a space" when the key is multi-space and
+				 * no default is set yet (so the header never reads "all set"
+				 * while the body is asking the user to pick). */}
+				<AnimatePresence mode="wait">
+					{needsDomainChoice ? (
 						<motion.div
+							key="choose"
+							initial={{ opacity: 0, scale: 0.9 }}
+							animate={{ opacity: 1, scale: 1 }}
+							exit={{ opacity: 0, scale: 0.9 }}
+							transition={{ duration: 0.2 }}
+							className="ml-auto flex items-center gap-1.5 rounded-full border border-nova-amber/20 bg-nova-amber/10 px-2.5 py-1"
+						>
+							<div className="h-1.5 w-1.5 rounded-full bg-nova-amber" />
+							<span className="text-xs font-medium text-nova-amber">
+								Choose a space
+							</span>
+						</motion.div>
+					) : isConfigured ? (
+						<motion.div
+							key="connected"
 							initial={{ opacity: 0, scale: 0.9 }}
 							animate={{ opacity: 1, scale: 1 }}
 							exit={{ opacity: 0, scale: 0.9 }}
@@ -168,39 +263,29 @@ export function CommCareSettings({
 								Connected
 							</span>
 						</motion.div>
-					)}
+					) : null}
 				</AnimatePresence>
 			</div>
 
 			{/* ── Card body ─────────────────────────────────────────── */}
 			<div className="p-6">
-				{/* Connected domain badge — shown above the fields */}
+				{/* Project-space area — badge (single) or picker (multi) */}
 				<AnimatePresence>
-					{isConfigured && domain && (
+					{isConfigured && (
 						<motion.div
 							initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-							animate={{
-								opacity: 1,
-								height: "auto",
-								marginBottom: 20,
-							}}
+							animate={{ opacity: 1, height: "auto", marginBottom: 20 }}
 							exit={{ opacity: 0, height: 0, marginBottom: 0 }}
 							transition={{ duration: 0.25 }}
 						>
-							<div className="flex items-center gap-2.5 rounded-lg border border-nova-emerald/10 bg-nova-emerald/[0.04] px-3.5 py-2.5">
-								<Icon
-									icon={tablerCheck}
-									width="15"
-									height="15"
-									className="shrink-0 text-nova-emerald"
-								/>
-								<span className="text-sm text-nova-text">
-									Connected to{" "}
-									<span className="font-semibold text-nova-emerald">
-										{domain.displayName}
-									</span>
-								</span>
-							</div>
+							<DomainSection
+								availableDomains={availableDomains}
+								activeDomain={activeDomain}
+								busy={domainBusy}
+								error={domainError}
+								onPick={handlePickDomain}
+								onRefresh={handleRefresh}
+							/>
 						</motion.div>
 					)}
 				</AnimatePresence>
@@ -356,5 +441,146 @@ export function CommCareSettings({
 				</p>
 			</div>
 		</section>
+	);
+}
+
+// ── Project-space sub-view ─────────────────────────────────────────
+
+interface DomainSectionProps {
+	availableDomains: CommCareDomain[];
+	activeDomain: CommCareDomain | null;
+	busy: boolean;
+	error: string | null;
+	onPick: (name: string) => void;
+	onRefresh: () => void;
+}
+
+/**
+ * The connected-state project-space surface.
+ *
+ * A single-space key shows the familiar verified badge — there's nothing to
+ * pick. A multi-space key shows a picker so the user chooses the upload
+ * target, and a prompt (amber, not the green "connected" tone) when no
+ * default is chosen yet. Both shapes carry a "Refresh" affordance because a
+ * key's reachable set grows when its owner joins a new project.
+ */
+function DomainSection({
+	availableDomains,
+	activeDomain,
+	busy,
+	error,
+	onPick,
+	onRefresh,
+}: DomainSectionProps) {
+	const isMultiSpace = availableDomains.length > 1;
+
+	return (
+		<div className="flex flex-col gap-2.5">
+			{isMultiSpace ? (
+				<>
+					<div className="flex items-center justify-between gap-3">
+						<span className="text-sm font-medium text-nova-text-secondary">
+							Upload target
+						</span>
+						<RefreshButton busy={busy} onRefresh={onRefresh} />
+					</div>
+
+					<Select
+						value={activeDomain?.name ?? ""}
+						onValueChange={(next) => onPick(next ?? "")}
+						disabled={busy}
+					>
+						<SelectTrigger
+							className="w-full"
+							aria-label="Default project space"
+						>
+							{/* Render the friendly displayName in the closed trigger. A
+							 * function child takes over all of Select.Value's rendering —
+							 * Base UI runs it before (and instead of) the `placeholder`
+							 * branch — so the empty-value case must return the prompt text
+							 * itself, otherwise the trigger goes blank in the must-choose
+							 * state rather than showing the placeholder. */}
+							<SelectValue placeholder="Choose a project space…">
+								{(value) =>
+									value
+										? (availableDomains.find((d) => d.name === value)
+												?.displayName ?? value)
+										: "Choose a project space…"
+								}
+							</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							{availableDomains.map((d) => (
+								<SelectItem key={d.name} value={d.name}>
+									<span className="text-nova-text">{d.displayName}</span>
+									<span className="text-xs text-nova-text-muted">{d.name}</span>
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+
+					{activeDomain ? (
+						<p className="text-xs text-nova-text-muted">
+							Uploads go to{" "}
+							<span className="font-medium text-nova-text-secondary">
+								{activeDomain.name}
+							</span>
+							. This API key reaches {availableDomains.length} project spaces.
+						</p>
+					) : (
+						<p className="text-xs text-nova-amber">
+							This API key reaches {availableDomains.length} project spaces —
+							pick which one uploads should go to.
+						</p>
+					)}
+				</>
+			) : (
+				<div className="flex items-center justify-between gap-3">
+					<div className="flex min-w-0 items-center gap-2.5 rounded-lg border border-nova-emerald/10 bg-nova-emerald/[0.04] px-3.5 py-2.5">
+						<Icon
+							icon={tablerCheck}
+							width="15"
+							height="15"
+							className="shrink-0 text-nova-emerald"
+						/>
+						<span className="truncate text-sm text-nova-text">
+							Connected to{" "}
+							<span className="font-semibold text-nova-emerald">
+								{activeDomain?.displayName ?? availableDomains[0]?.displayName}
+							</span>
+						</span>
+					</div>
+					<RefreshButton busy={busy} onRefresh={onRefresh} />
+				</div>
+			)}
+
+			{error && <p className="text-sm text-nova-rose">{error}</p>}
+		</div>
+	);
+}
+
+/** Compact "re-read the reachable spaces" control with a spinner. */
+function RefreshButton({
+	busy,
+	onRefresh,
+}: {
+	busy: boolean;
+	onRefresh: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onRefresh}
+			disabled={busy}
+			className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-nova-text-muted transition-colors hover:bg-white/[0.04] hover:text-nova-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
+		>
+			<Icon
+				icon={busy ? tablerLoader2 : tablerRefresh}
+				width="13"
+				height="13"
+				className={busy ? "animate-spin" : undefined}
+			/>
+			Refresh
+		</button>
 	);
 }

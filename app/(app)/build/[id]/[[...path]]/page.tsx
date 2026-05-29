@@ -25,7 +25,10 @@ import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import { getSession } from "@/lib/auth-utils";
 import { loadApp } from "@/lib/db/apps";
-import { getCommCareSettings } from "@/lib/db/settings";
+import {
+	type CommCareSettingsPublic,
+	getCommCareSettings,
+} from "@/lib/db/settings";
 import { ThreadHistory } from "./thread-history";
 
 export default async function BuilderPage({
@@ -38,7 +41,7 @@ export default async function BuilderPage({
 	const session = await getSession();
 	const commcareSettings = session
 		? await getCommCareSettings(session.user.id)
-		: { configured: false as const, username: "", domain: null };
+		: ({ configured: false } satisfies CommCareSettingsPublic);
 
 	/* New apps — no blueprint fetch needed. */
 	if (id === "new") {
