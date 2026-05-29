@@ -42,7 +42,7 @@ import { showToast } from "@/lib/ui/toastStore";
  *  the user needs to reply manually first. */
 function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 	const last = messages[messages.length - 1];
-	if (!last || last.role !== "assistant") return false;
+	if (last?.role !== "assistant") return false;
 
 	type Part = UIMessage["parts"][number];
 	const lastStepIdx = last.parts.reduce(

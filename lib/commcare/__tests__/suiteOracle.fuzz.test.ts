@@ -61,14 +61,13 @@ const SEED = 20260522;
 const NUM_RUNS = 400;
 
 /**
- * Per-test timeout for the heavy fuzz body. Each iteration compiles a CCZ,
- * extracts suite + media_suite + app_strings, and runs two oracles — the
- * body itself is ~2.5s for 400 runs in isolation, but cross-worker
- * contention under the full vitest run can push past Vitest's 5s default.
- * 30s gives enough headroom for the heaviest contention case without
- * hiding a runaway loop (which would still exceed it).
+ * Generous per-test budget for the emit-heavy property below. It's SYNCHRONOUS
+ * and compiles `NUM_RUNS` full `.ccz`s — seconds normally, longer under CI /
+ * leak-detector load. Vitest's default 5s `testTimeout` flagged it "timed out"
+ * whenever the run crossed 5s on a busy machine: a load-dependent FALSE failure,
+ * not a hang (bounded by `NUM_RUNS`). Size the budget to the real workload.
  */
-const FUZZ_TIMEOUT_MS = 30_000;
+const FUZZ_TIMEOUT_MS = 120_000;
 
 /**
  * Rebuild the reverse parent index (the generator leaves it empty, like

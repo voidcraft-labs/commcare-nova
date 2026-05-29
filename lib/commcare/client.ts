@@ -218,6 +218,66 @@ export async function testDomainAccess(
 }
 
 /**
+ * Resolve the set of project spaces the key can reach at the app level.
+ *
+ * `listDomains` returns every space the user belongs to that the key's scope
+ * allows — but HQ returns 401 from the app-level endpoint for some of those
+ * (membership without app access; see `testDomainAccess`). So we probe every
+ * listed space and keep only the ones that pass.
+ *
+ * Probes run in a BOUNDED-concurrency window (`PROBE_CONCURRENCY` at a time),
+ * not all at once. An unscoped key on a heavily-shared account (e.g. a Dimagi
+ * internal user) can list hundreds of spaces; firing every probe simultaneously
+ * would open hundreds of connections to HQ and self-inflict a 429 — and since
+ * a 429 on any probe fails the whole discovery, that would make save/refresh
+ * fail outright for exactly the largest keys. The window keeps HQ load modest
+ * while still parallelizing; save/refresh are rare and not latency-critical.
+ *
+ * A 5xx (or 429) from `listDomains` or any probe surfaces as `CommCareApiError`
+ * so the caller can tell "HQ is down / throttling" from "the key reaches these
+ * spaces"; the first such error short-circuits the remaining windows.
+ *
+ * Fidelity caveat: the probe hits the read-level `list_apps` endpoint, which
+ * the actual upload (`import_app`) does not — upload additionally requires the
+ * `edit_apps` permission on the space. So this set can slightly OVER-report: a
+ * space where the user can read but not author apps passes the probe yet the
+ * upload itself returns 403. That degrades cleanly (the upload surfaces a
+ * permission error naming the space); we don't pre-probe `edit_apps` because
+ * there is no cheap read-only endpoint that gates on it.
+ */
+const PROBE_CONCURRENCY = 8;
+
+export async function discoverAccessibleDomains(
+	creds: CommCareCredentials,
+): Promise<CommCareDomain[] | CommCareApiError> {
+	const all = await listDomains(creds);
+	if (!Array.isArray(all)) return all;
+
+	const accessible: CommCareDomain[] = [];
+	/* Sequential windows of `PROBE_CONCURRENCY` parallel probes. Bounds peak
+	 * connections to HQ regardless of how many spaces the key lists. */
+	for (let i = 0; i < all.length; i += PROBE_CONCURRENCY) {
+		const window = all.slice(i, i + PROBE_CONCURRENCY);
+		const probed = await Promise.all(
+			window.map(async (domain) => ({
+				domain,
+				access: await testDomainAccess(creds, domain.name),
+			})),
+		);
+
+		/* A server error (5xx) or throttle (429) means we can't trust the
+		 * result set — propagate it rather than silently dropping a space or
+		 * continuing to hammer HQ. */
+		const serverError = probed.find((p) => typeof p.access === "object");
+		if (serverError) return serverError.access as CommCareApiError;
+
+		for (const p of probed) if (p.access === true) accessible.push(p.domain);
+	}
+
+	return accessible;
+}
+
+/**
  * Extract a named cookie value from a response's Set-Cookie headers.
  *
  * Uses the standard `getSetCookie()` API (Node 20+) which returns one

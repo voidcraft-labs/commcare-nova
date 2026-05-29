@@ -6,7 +6,7 @@ import type {
 	MoveFieldResult,
 } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+import { asUuid, mutationSchema } from "@/lib/doc/types";
 import type { Column, Field, Form, Module } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
@@ -279,6 +279,72 @@ describe("updateField", () => {
 		warn.mockRestore();
 		// No-op: original label preserved (field_ defaults label to id).
 		expect(asField(next.fields[Q("a")])?.label).toBe("name");
+	});
+
+	it("clears a property when the patch value is null (the wire-safe blank)", () => {
+		// `null` is the on-the-wire representation of a clear: the SA's
+		// `editField({ case_property_on: null })` lowers to this patch. The
+		// reducer must DELETE the key (not set it to null, which fieldSchema
+		// would reject). `null` is used rather than `undefined` because it
+		// survives Firestore, so the clear persists in the event log.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("a")]: field_(Q("a"), "name", { case_property_on: "child" }),
+			},
+			fieldOrder: { [F("1")]: [Q("a")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "updateField",
+				uuid: Q("a"),
+				targetKind: "text",
+				patch: { case_property_on: null },
+			});
+		});
+		const f = next.fields[Q("a")];
+		expect(f).toBeDefined();
+		expect("case_property_on" in (f ?? {})).toBe(false);
+	});
+
+	it("still clears a property when the patch value is undefined (client in-memory edit)", () => {
+		// Client-side edits aren't logged, so they keep using `undefined` to
+		// clear. The reducer must treat `undefined` identically to `null`.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("a")]: field_(Q("a"), "name", { case_property_on: "child" }),
+			},
+			fieldOrder: { [F("1")]: [Q("a")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "updateField",
+				uuid: Q("a"),
+				targetKind: "text",
+				patch: { case_property_on: undefined },
+			});
+		});
+		expect("case_property_on" in (next.fields[Q("a")] ?? {})).toBe(false);
+	});
+
+	it("accepts a null patch value through mutationSchema so a blank round-trips", () => {
+		// The round-trip proof: a clear is persisted as `patch:
+		// { case_property_on: null }`, and `null` (unlike `undefined`) survives
+		// Firestore. The update arm's patch schema must accept the `null` value
+		// so the mutation parses cleanly on read.
+		const parsed = mutationSchema.parse({
+			kind: "updateField",
+			uuid: Q("a"),
+			targetKind: "text",
+			patch: { case_property_on: null },
+		});
+		expect(parsed.kind).toBe("updateField");
+		// The null survives the parse (it's the clear directive the reducer reads).
+		expect(
+			(parsed as { patch: { case_property_on?: string | null } }).patch
+				.case_property_on,
+		).toBeNull();
 	});
 });
 

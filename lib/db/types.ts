@@ -126,13 +126,26 @@ export const userSettingsDocSchema = z.object({
 	/** Cloud KMS-encrypted CommCare HQ API key (base64). Never sent to the client. */
 	commcare_api_key: z.string(),
 	/**
-	 * Domains the API key can access, tested on credential save.
-	 * Safe to store permanently because API key scope
-	 * and domain slugs are both immutable in CommCare HQ.
+	 * Every project space the API key can actually upload to — the spaces
+	 * that passed an app-level access probe at credential save / refresh. An
+	 * unscoped HQ key reaches every space its owner belongs to, so this can
+	 * hold many; a project-scoped key holds one. The set is cached (slugs are
+	 * stable) but not permanent: a user joining a new project grows it, which
+	 * is what the "Refresh domains" action re-reads.
 	 */
 	approved_domains: z
 		.array(z.object({ name: z.string(), displayName: z.string() }))
 		.default([]),
+	/**
+	 * The user's chosen upload default — a `name` that must be one of
+	 * `approved_domains`. Absent when the key reaches multiple spaces and the
+	 * user hasn't picked yet; auto-set to the sole space for single-space
+	 * keys. Resolution never silently falls back to `approved_domains[0]` for
+	 * a multi-space key (that silent bind is the bug this field exists to
+	 * prevent), so an absent default on a multi-space key is a deliberate
+	 * "must choose" state, not a missing value to guess at.
+	 */
+	active_domain: z.string().optional(),
 	/** Last time settings were modified. */
 	updated_at: timestamp,
 });

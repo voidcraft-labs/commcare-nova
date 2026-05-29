@@ -18,10 +18,10 @@ export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export const MODEL_DEFAULT = "claude-sonnet-4-6";
 
 /** Model ID for the Solutions Architect agent. */
-export const SA_MODEL = "claude-opus-4-7";
+export const SA_MODEL = "claude-opus-4-8";
 
-/** Reasoning configuration for the Solutions Architect agent. */
-export const SA_REASONING: { effort: ReasoningEffort } = { effort: "xhigh" };
+/** Reasoning configuration for the Solutions Architect agent. `high` is the recommended default for Opus 4.8. */
+export const SA_REASONING: { effort: ReasoningEffort } = { effort: "high" };
 
 /** Pricing per million tokens, keyed by model ID (either full or alias). */
 export const MODEL_PRICING: Record<
@@ -34,6 +34,7 @@ export const MODEL_PRICING: Record<
 		cacheWrite: 3.75,
 		cacheRead: 0.3,
 	},
+	"claude-opus-4-8": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
 	"claude-opus-4-7": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
 	"claude-opus-4-6": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
 	"claude-haiku-4-5-20251001": {

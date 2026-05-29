@@ -428,11 +428,21 @@ export function reconcileFieldForKind(
 
 /**
  * Drop the immutable `uuid` + `kind` slots from a field-kind schema and
- * make every remaining key optional — the patch shape for an
+ * make every remaining key optional-and-nullable — the patch shape for an
  * `updateField` mutation. Identity and discriminant are fixed for the
  * lifetime of a field entity; everything else is mutable. Used once
  * per non-repeat kind plus once per repeat variant in
  * `fieldPatchSchemaByKind`.
+ *
+ * Each value is `.nullable().optional()`, encoding the three patch states:
+ *   - absent → leave the property unchanged
+ *   - `null` → CLEAR the property (the `updateField` reducer deletes the
+ *     key). `null` is the on-the-wire representation of a blank: a patch
+ *     value of `undefined` cannot survive Firestore's
+ *     `ignoreUndefinedProperties` (it gets stripped, and a patch that
+ *     reduces to empty is omitted entirely), so a clear-only edit must
+ *     carry an explicit `null` to round-trip through the event log.
+ *   - a value → set the property
  *
  * The generic carries the source schema's full shape so each call site
  * gets a precisely-typed partial — the per-variant key set survives
@@ -443,21 +453,31 @@ function partialOf<
 >(
 	schema: z.ZodObject<S>,
 ): z.ZodObject<{
-	[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<S[K]>;
+	[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<z.ZodNullable<S[K]>>;
 }> {
 	// `S extends { uuid; kind }` guarantees these slots exist; Zod's
 	// `omit()` parameter type encodes "every key in `S` must appear in
 	// the mask" (`Record<keyof S, never>` for unmasked keys), which the
 	// generic constraint can't satisfy structurally. The runtime call
-	// is sound, so cast the mask through `unknown`. The explicit return
-	// type captures the post-projection shape so callers see the
-	// per-variant key set rather than `Record<string, never>`.
-	return schema
-		.omit({ uuid: true, kind: true } as unknown as Parameters<
-			typeof schema.omit
-		>[0])
-		.partial() as z.ZodObject<{
-		[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<S[K]>;
+	// is sound, so cast the mask through `unknown`.
+	const omitted = schema.omit({
+		uuid: true,
+		kind: true,
+	} as unknown as Parameters<typeof schema.omit>[0]);
+	// Make every remaining value nullable BEFORE `.partial()` wraps it in
+	// optional, so the final per-key shape is `optional(nullable(T))`. The
+	// explicit return type restores the precise per-variant key set that
+	// the `Object.fromEntries` round-trip erases to `Record<string, …>`.
+	const nullableShape = Object.fromEntries(
+		Object.entries(omitted.shape).map(([key, value]) => [
+			key,
+			(value as z.ZodTypeAny).nullable(),
+		]),
+	);
+	return z.object(nullableShape).partial() as unknown as z.ZodObject<{
+		[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<
+			z.ZodNullable<S[K]>
+		>;
 	}>;
 }
 
@@ -517,13 +537,20 @@ export const fieldPatchSchemaByKind = {
  * (`kind`). Pairs with `fieldPatchSchemaByKind` (the runtime Zod
  * schema for the same shape).
  *
+ * Every property is optional and `| null`: absent leaves it unchanged,
+ * `null` clears it (the reducer deletes the key), a value sets it. `null`
+ * is the wire representation of a blank — see `partialOf` for why a clear
+ * cannot be carried as `undefined` through the event log.
+ *
  * Distributes over a wider `K` to give a union of per-variant
  * partials, so callers can write `FieldPatchFor<F["kind"]>` against
  * a generic field whose kind is narrowed downstream.
  */
-export type FieldPatchFor<K extends FieldKind> = Partial<
-	Omit<Extract<Field, { kind: K }>, "uuid" | "kind">
->;
+export type FieldPatchFor<K extends FieldKind> = {
+	[P in keyof Omit<Extract<Field, { kind: K }>, "uuid" | "kind">]?:
+		| Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P]
+		| null;
+};
 
 export type { SelectOption } from "./base";
 // Re-export the shared option shape (used by single_select + multi_select,

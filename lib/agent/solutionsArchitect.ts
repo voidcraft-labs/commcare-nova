@@ -188,9 +188,7 @@ export function createSolutionsArchitect(
 	 *
 	 * The generic input type `I` is carried through `FlexibleSchema<I>` so
 	 * the returned `execute` callback hands the exact Zod-output type to
-	 * the shared tool module — no `unknown` fallback. `strict` is
-	 * forwarded only when the tool module declares it; omitting the key
-	 * leaves the AI SDK's own default in place.
+	 * the shared tool module — no `unknown` fallback.
 	 *
 	 * Returns a plain object literal rather than routing through `tool()`:
 	 * the AI SDK's `tool()` function is identity at runtime (`(t) => t`)
@@ -204,7 +202,6 @@ export function createSolutionsArchitect(
 	function wrapMutating<I, R>(t: {
 		description: string;
 		inputSchema: FlexibleSchema<I>;
-		strict?: boolean;
 		execute(
 			input: I,
 			ctx: ToolExecutionContext,
@@ -214,7 +211,6 @@ export function createSolutionsArchitect(
 		return {
 			description: t.description,
 			inputSchema: t.inputSchema,
-			...(t.strict !== undefined && { strict: t.strict }),
 			execute: (input: I) =>
 				serial(async () => {
 					/* `kind: "mutate"` discriminator is internal to the shared
@@ -510,7 +506,7 @@ export function createSolutionsArchitect(
 		stopWhen: stepCountIs(80),
 		prepareStep: () => {
 			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
-			// for human-readable thinking summaries to stream back. `effort` is a
+			// and later for human-readable thinking summaries to stream back. `effort` is a
 			// top-level provider option (sibling of `thinking`), not nested inside
 			// it — Zod silently strips nested unknown fields.
 			const anthropic: AnthropicProviderOptions = {
@@ -526,7 +522,10 @@ export function createSolutionsArchitect(
 			 * We map the AI SDK's step-finish argument into the normalized
 			 * AgentStep shape here so the handler stays SDK-version stable.
 			 * `toolResults` is loosely typed by the SDK — narrow at the
-			 * boundary rather than inside the shared helper. */
+			 * boundary rather than inside the shared helper. Tool failures
+			 * (invalid input / execution throw) arrive as `tool-error`
+			 * content parts, NOT in `toolResults`; pull them out so the
+			 * handler can log the error instead of dropping it. */
 			ctx.handleAgentStep(
 				{
 					usage: step.usage,
@@ -538,6 +537,11 @@ export function createSolutionsArchitect(
 						input: tc.input,
 					})),
 					toolResults: step.toolResults,
+					toolErrors: step.content.flatMap((part) =>
+						part.type === "tool-error"
+							? [{ toolCallId: part.toolCallId, error: part.error }]
+							: [],
+					),
 					warnings: step.warnings,
 				},
 				"Solutions Architect",

@@ -102,7 +102,7 @@ export const addFieldTool = {
 					result: { error: `Form m${moduleIndex}-f${formIndex} not found` },
 				};
 			}
-			const { formUuid, form, mod } = resolved;
+			const { formUuid } = resolved;
 
 			// Resolve parent uuid: the form itself by default, or an existing
 			// container field when `parentId` names one. A non-existent or
@@ -144,18 +144,13 @@ export const addFieldTool = {
 			//     `required` / the nested `validate: { expr, msg? }` object /
 			//     `options` from the catalog wherever the payload left them
 			//     unset.
-			//   - Preload auto-default: on case-loading forms, a field whose
-			//     `case_property_on` matches the module's case type (and isn't
-			//     `case_name`) gets `default_value = "#case/{id}"`.
+			// Case preload is not seeded here — it's emitted structurally at the
+			// wire layer (`xform/caseBlocks.ts` lowers the derived `case_preload`
+			// action to casedb `<setvalue>` reads).
 			// `addFieldSchema` uses plain optionals, so `stripEmpty`'s
 			// sentinel collapse isn't needed here — that's the one place the
 			// two tool pipelines diverge.
-			const processed = applyDefaults(
-				fieldInput,
-				doc.caseTypes,
-				form.type,
-				mod.caseType,
-			);
+			const processed = applyDefaults(fieldInput, doc.caseTypes);
 
 			// Mint a uuid and assemble the validated domain `Field` shape.
 			// A failure here means the declared kind requires a key the

@@ -59,11 +59,13 @@ const SEED = 20260522;
 const NUM_RUNS = 500;
 
 /**
- * Per-test timeout for the heavy fuzz body. Each iteration expands or
- * compiles a doc and walks every emitted XForm. 30s covers worst-case
- * cross-worker contention without hiding a runaway loop.
+ * Generous per-test budget for the two emit-heavy properties below. Each is
+ * SYNCHRONOUS and emits / compiles `NUM_RUNS` docs — seconds normally, longer
+ * under CI / leak-detector load. Vitest's default 5s `testTimeout` flagged them
+ * "timed out" whenever a run crossed 5s on a busy machine: a load-dependent
+ * FALSE failure, not a hang (bounded by `NUM_RUNS`). Size to the real workload.
  */
-const FUZZ_TIMEOUT_MS = 30_000;
+const FUZZ_TIMEOUT_MS = 120_000;
 
 /**
  * Prepare a generated doc for consumption: rebuild the reverse parent index

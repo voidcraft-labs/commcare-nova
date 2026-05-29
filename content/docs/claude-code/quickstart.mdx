@@ -36,4 +36,4 @@ If you'd rather Claude make every call itself without asking, use `/nova:autobui
 
 ## Uploading to CommCare HQ
 
-`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app. Before your first upload, add your CommCare HQ API key on the [Nova settings page](https://commcare.app/settings) — Nova reads the target HQ project space from there. After that, uploads work without configuration. Full details are on the [Commands](./commands.mdx#novaupload_to_hq-app_id-or-name) page.
+`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app. Before your first upload, add your CommCare HQ API key on the [Nova settings page](https://commcare.app/settings). If your key reaches more than one project space, Claude asks which one to upload to each time. Full details are on the [Commands](./commands.mdx#novaupload_to_hq-app_id-or-name) page.

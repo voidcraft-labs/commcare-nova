@@ -52,7 +52,6 @@ export const generateSchemaTool = {
 	description:
 		"Set the data model (case types and properties) for the app. Call this first before generateScaffold. Provide the structured case types directly.",
 	inputSchema: generateSchemaInputSchema,
-	strict: true as const,
 	async execute(
 		input: GenerateSchemaInput,
 		ctx: ToolExecutionContext,

@@ -25,14 +25,14 @@ import {
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
-import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
+import { getCredentialsForUpload } from "@/lib/db/settings";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
 vi.mock("@/lib/db/settings", () => ({
-	getDecryptedCredentialsWithDomain: vi.fn(),
+	getCredentialsForUpload: vi.fn(),
 }));
 vi.mock("@/lib/media/mediaValidation", () => ({
 	collectMediaValidationErrors: vi.fn(),
@@ -94,7 +94,7 @@ function reqWith(body: unknown) {
 
 beforeEach(() => {
 	vi.mocked(requireSession).mockReset();
-	vi.mocked(getDecryptedCredentialsWithDomain).mockReset();
+	vi.mocked(getCredentialsForUpload).mockReset();
 	vi.mocked(collectMediaValidationErrors).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(expandDoc).mockReset();
@@ -103,9 +103,12 @@ beforeEach(() => {
 	vi.mocked(mediaUploadAssetsFromManifest).mockReset();
 
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
-	// Creds whose domain matches the request body so control reaches the
-	// media gate (which sits after the domain-auth check).
-	vi.mocked(getDecryptedCredentialsWithDomain).mockResolvedValue({
+	// Successful credential + target-space resolution (`{ ok: true }`) so
+	// control passes the credential gate and reaches the media gate. The
+	// requested-space authorization lives inside `getCredentialsForUpload`,
+	// so a resolved result here means the key can reach the requested space.
+	vi.mocked(getCredentialsForUpload).mockResolvedValue({
+		ok: true,
 		creds: { username: "alice", apiKey: "k" },
 		domain: { name: DOMAIN, displayName: "ACME" },
 	} as never);

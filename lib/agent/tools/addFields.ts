@@ -1,12 +1,14 @@
 /**
  * SA tool: `addFields` — bulk-add fields to an existing form.
  *
- * The SA emits a flat list of fields with sentinel-padded optionals
- * (see `toolSchemaGenerator.ts` for why). This tool runs them through
- * the three-step pipeline in `contentProcessing.ts` — `stripEmpty` →
- * `applyDefaults` → `flatFieldToField` — mints uuids, resolves semantic
- * parent ids (including parents added earlier in the same batch), and
- * emits one mutation batch tagged `form:M-F`.
+ * The SA emits a flat list of fields — `id` / `kind` / `label` required,
+ * everything else (including `parentId` and `required`) optional and
+ * simply omitted when unset (see `toolSchemaGenerator.ts` for why the
+ * old required-with-sentinel form was dropped). This tool runs them
+ * through the three-step pipeline in `contentProcessing.ts` —
+ * `stripEmpty` → `applyDefaults` → `flatFieldToField` — mints uuids,
+ * resolves semantic parent ids (including parents added earlier in the
+ * same batch), and emits one mutation batch tagged `form:M-F`.
  *
  * Appends to existing fields; does not replace. The SA relies on that
  * contract when it splits a large add across multiple calls.
@@ -81,7 +83,7 @@ export const addFieldsTool = {
 					},
 				};
 			}
-			const { formUuid, form, mod } = resolved;
+			const { formUuid, form } = resolved;
 
 			// Process incoming flat SA-format fields: strip sentinels, apply
 			// case-property defaults from the data model, then mint a uuid
@@ -100,12 +102,7 @@ export const addFieldsTool = {
 				// explicitly (sentinel-empty-string → null), and the generic
 				// `applyDefaults` preserves that narrowing on the way out, so
 				// the `parentId` read below is well-typed without a cast.
-				const processed = applyDefaults(
-					stripEmpty(raw),
-					doc.caseTypes,
-					form.type,
-					mod.caseType,
-				);
+				const processed = applyDefaults(stripEmpty(raw), doc.caseTypes);
 
 				// Resolve parentUuid: empty/undefined → form; otherwise find
 				// the uuid of a newly-added parent or an existing field.

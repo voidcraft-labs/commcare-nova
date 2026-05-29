@@ -1028,84 +1028,109 @@ function caseHashtagOnCreateForm(
 }
 
 /**
- * A `case_property_on` value names a case type other than the module's
- * own case type — Nova's expander treats this as a child-case
- * reference and auto-derives a subcase. The shape is fine outside a
- * repeat; the wire emitter (`xform/caseBlocks.ts::buildCaseBlocks` +
- * `xform/caseBlocks.ts::addCaseBlocks`) handles the non-repeat
- * subcase by splicing the wrapper element under the form's top-level
- * `<data>`. But when the field sits INSIDE a repeat, the wire
- * emitter builds bind nodesets with the repeat-scoped prefix
- * (`/data/<repeat_id>/subcase_<n>/case/...`) while the splice site
- * still appends the wrapper under top-level `<data>`. The two
- * disagree on the wire path, the post-injection XForm oracle
- * catches the dangling bind, and `compileCcz` throws — exactly the
- * emit-time-error UX the total-function-emitter principle forbids.
+ * A primary case field — one whose `case_property_on` equals the
+ * module's own case type — placed inside a repeat is structurally
+ * invalid. A form creates or updates exactly ONE primary case, but a
+ * repeat iterates zero or more independent values per iteration —
+ * there's no rule to decide which iteration's value "wins" for the
+ * primary case property.
  *
- * CCHQ's emitter handles this shape (`commcare-hq/.../app_manager/
- * xform.py::XForm.add_create_block` walks the repeat-context path
- * to find the splice parent) and the canonical fixture
- * `multiple_subcase_repeat.xml` exercises it. Nova's emitter does
- * not — until it does, reject the authoring shape so the user gets
- * an actionable error in the editor instead of an opaque compile-
- * time throw.
+ * Both Vellum and CCHQ enforce this invariant upstream. Vellum's
+ * per-field case-management section is hidden when any ancestor is a
+ * Repeat (`Vellum/src/caseManagement.js::getSectionDisplay`); CCHQ's
+ * case-config UI rejects with "Inside the wrong repeat!" when the
+ * property's `repeat_context` doesn't match the transaction's (and a
+ * primary transaction's `repeat_context` is always empty —
+ * `commcare-hq/.../case_config_ui.js::caseProperty.validate`). Nova's
+ * authoring layer matches: the error lands in the editor at edit time,
+ * not at compile time.
  *
- * Alternative authoring shapes the user can reach for:
- *   - Move the child-creation off the registration form into a
- *     followup form that does one subcase per submission (the
- *     standard "one parent registration + many child followups"
- *     pattern Nova fully supports today).
- *   - Hoist the child field out of the repeat and create exactly
- *     one subcase per parent — Nova's non-repeat subcase emission
- *     is supported.
+ * Cross-case-type fields (`case_property_on != mod.caseType`) inside a
+ * repeat are the supported subcase-creation shape (one new child case
+ * per iteration); they're handled by the splice algorithm in
+ * `xform/caseBlocks.ts::addCaseBlocks` and never reach this rule.
+ *
+ * Survey forms carry no case actions — `deriveCaseConfig` returns `{}`
+ * for them, so their `case_property_on` annotations never become case
+ * properties on the wire. Flagging one would be a false positive (the
+ * field has no case effect to conflict with), so survey forms are
+ * skipped entirely.
  */
-function subcaseInRepeatNotModeled(
+function primaryCaseFieldInRepeat(
 	doc: BlueprintDoc,
 	ctx: FormContext,
 	mod: Module,
 ): ValidationError[] {
 	if (!mod.caseType) return [];
-	const knownCaseTypes = new Set((doc.caseTypes ?? []).map((ct) => ct.name));
-	if (knownCaseTypes.size === 0) return [];
+	if (doc.forms[ctx.formUuid].type === "survey") return [];
 	const errors: ValidationError[] = [];
-
 	const walk = (parentUuid: Uuid, repeatAncestor: string | undefined): void => {
 		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[uuid];
 			if (!field) continue;
-			const fieldCaseType =
-				typeof (field as Record<string, unknown>).case_property_on === "string"
-					? ((field as Record<string, unknown>).case_property_on as string)
-					: undefined;
-			if (
-				repeatAncestor &&
-				fieldCaseType &&
-				fieldCaseType !== mod.caseType &&
-				knownCaseTypes.has(fieldCaseType)
-			) {
+			const casePropertyOn = readFieldString(field, "case_property_on");
+			if (repeatAncestor && casePropertyOn === mod.caseType) {
 				errors.push(
 					validationError(
-						"SUBCASE_IN_REPEAT_NOT_MODELED",
+						"PRIMARY_CASE_FIELD_IN_REPEAT",
 						"form",
-						`"${ctx.formName}" has field "${field.id}" inside repeat "${repeatAncestor}" with case_property_on "${fieldCaseType}" (different from the module's case type "${mod.caseType}"). Nova doesn't yet support creating subcases inside a repeat (one parent + many children created in one submission). Move the child-creation to a separate followup form that creates one subcase per submission, or hoist this field out of the repeat to create exactly one subcase per parent.`,
+						`"${ctx.formName}" has field "${field.id}" inside repeat "${repeatAncestor}" saving to the module's own case type "${mod.caseType}". A form creates or updates one primary case, but a repeat captures zero or more independent values per iteration — they can't coexist. Either move "${field.id}" out of the repeat (so its value applies to the parent case), or change \`case_property_on\` to a child case type (so each iteration creates a child case).`,
 						baseLocation(ctx),
-						{
-							fieldId: field.id,
-							repeatId: repeatAncestor,
-							childCaseType: fieldCaseType,
-						},
+						{ fieldId: field.id, repeatId: repeatAncestor },
 					),
 				);
 			}
 			if (doc.fieldOrder[uuid] !== undefined) {
-				const nextRepeatAncestor =
-					field.kind === "repeat" ? field.id : repeatAncestor;
-				walk(uuid, nextRepeatAncestor);
+				walk(uuid, field.kind === "repeat" ? field.id : repeatAncestor);
 			}
 		}
 	};
 	walk(ctx.formUuid, undefined);
+	return errors;
+}
 
+/**
+ * Mirror of the primary case's `NO_CASE_NAME_FIELD` rule for child
+ * cases. Every child-case bucket — derived by
+ * `deriveCaseConfig::deriveChildCases` from `(case_property_on,
+ * repeat_ancestor_path)` — needs a field with id `case_name` in that
+ * scope so the new case has a display name. Without this rule, a
+ * missing `case_name` would either ship a nameless case to CommCare
+ * or silently re-purpose an unrelated field; the message names the
+ * case type AND (when applicable) the repeat the bucket lives inside.
+ */
+function childCaseNoNameField(
+	ctx: FormContext,
+	caseConfig: DerivedCaseConfig,
+): ValidationError[] {
+	if (!caseConfig.child_cases || caseConfig.child_cases.length === 0) return [];
+	const errors: ValidationError[] = [];
+	for (const child of caseConfig.child_cases) {
+		if (child.case_name_field) continue;
+		// Author-facing scope label uses the bare repeat id (`kids`), not the
+		// wire XPath (`/data/group_a/kids/item`). The wire path is correct
+		// emission data but the wrong vocabulary for an authoring error: the
+		// user named the repeat `kids` in the editor and that's what should
+		// appear in quotes. The bare id travels alongside `repeat_context`
+		// on `DerivedChildCase` for exactly this reason.
+		const scope = child.repeat_ancestor_id
+			? ` inside repeat "${child.repeat_ancestor_id}"`
+			: "";
+		errors.push(
+			validationError(
+				"CHILD_CASE_NO_NAME_FIELD",
+				"form",
+				`"${ctx.formName}" creates a child case of type "${child.case_type}"${scope} but no field at that scope has id "case_name". Every new case needs a name — add a text field with id "case_name" and \`case_property_on: "${child.case_type}"\`${scope}.`,
+				baseLocation(ctx),
+				{
+					caseType: child.case_type,
+					...(child.repeat_ancestor_id
+						? { repeatId: child.repeat_ancestor_id }
+						: {}),
+				},
+			),
+		);
+	}
 	return errors;
 }
 
@@ -1147,12 +1172,22 @@ export function runFormRules(
 		moduleName: mod.name,
 	};
 
+	// `primaryCaseFieldInRepeat` runs BEFORE `deriveCaseConfig`-derived
+	// rules so a primary-case field misplaced inside a repeat shows up as
+	// its own error rather than silently propagating through the
+	// derivation. The derivation itself can't tell the misplacement from
+	// an intentional non-repeat primary-case field (the walker just bucks
+	// based on `(case_property_on, repeatAncestor)`), so the rule fires
+	// against the offending field independently.
+	const primaryInRepeatErrors = primaryCaseFieldInRepeat(doc, ctx, mod);
+
 	const caseConfig = deriveCaseConfig(doc, formUuid, mod.caseType, form.type);
 
 	const errors: ValidationError[] = [];
 	errors.push(...emptyForm(doc, form, ctx));
 	errors.push(...closeConditionValidation(doc, form, ctx, mod));
 	errors.push(...duplicateFieldIds(doc, ctx));
+	errors.push(...primaryInRepeatErrors);
 	errors.push(...noCaseNameField(form, ctx, caseConfig));
 	errors.push(...caseNameFieldMissing(doc, form, ctx, caseConfig));
 	errors.push(...reservedCaseProperty(ctx, caseConfig));
@@ -1168,7 +1203,7 @@ export function runFormRules(
 	errors.push(...formLinkValidation(doc, form, ctx));
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
-	errors.push(...subcaseInRepeatNotModeled(doc, ctx, mod));
+	errors.push(...childCaseNoNameField(ctx, caseConfig));
 
 	return errors;
 }

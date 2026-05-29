@@ -1,11 +1,16 @@
 /**
  * Upload to CommCare HQ dialog — modal for uploading the current app
- * as a new CommCare application to the user's project space.
+ * as a new CommCare application to one of the user's project spaces.
  *
  * Uses Base UI Dialog for accessible dismiss/focus coordination via
- * FloatingTreeStore. The domain is resolved from the user's stored
- * settings (an API key is scoped to exactly one domain) and shown as
- * static text — no selection needed.
+ * FloatingTreeStore. An HQ API key can reach several project spaces, and THIS
+ * dialog is where the upload target is chosen (the Settings card is
+ * display-only): a single-space key shows a static verified card; a
+ * multi-space key shows a picker (the shadcn `Select`, Base-UI-backed),
+ * pre-selecting the saved default when one exists. The Select portals into
+ * this dialog (`SelectContent` `container`) so its dropdown opens above the
+ * modal. The selected space is sent to the upload route, which re-authorizes
+ * it against the key's reachable set.
  */
 
 "use client";
@@ -21,11 +26,21 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerX from "@iconify-icons/tabler/x";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { PersistableDoc } from "@/lib/domain";
 
 // ── Types ──────────────────────────────────────────────────────────
+
+/** A project space the key can upload to. */
+type Domain = { name: string; displayName: string };
 
 interface UploadToHqDialogProps {
 	open: boolean;
@@ -34,8 +49,10 @@ interface UploadToHqDialogProps {
 	 *  Called when the user clicks Upload. The server converts the doc
 	 *  to CommCare's wire format at the upload boundary. */
 	getDoc: () => PersistableDoc;
-	/** The user's authorized project space, resolved from settings on mount. */
-	domain: { name: string; displayName: string } | null;
+	/** The user's default upload space, or null when none chosen (multi-space). */
+	activeDomain: Domain | null;
+	/** Every space the key can upload to. Empty ⇒ HQ not configured. */
+	availableDomains: Domain[];
 }
 
 /** Upload status — independent of the form fields. */
@@ -62,7 +79,8 @@ export function UploadToHqDialog({
 	open,
 	onClose,
 	getDoc,
-	domain,
+	activeDomain,
+	availableDomains,
 }: UploadToHqDialogProps) {
 	/* Self-subscribe to the app name from the doc store — no prop drilling
 	 * from BuilderLayout needed. Only re-renders when appName actually changes. */
@@ -71,17 +89,51 @@ export function UploadToHqDialog({
 		type: "idle",
 	});
 	const [appName, setAppName] = useState(storeAppName);
+	/* The chosen target space (a domain slug). Seeded from the default on open. */
+	const [selectedDomain, setSelectedDomain] = useState("");
+	/* The dialog's popup element. The Select portals into it (see SelectContent
+	 * `container`) so its dropdown shares the modal's stacking context and opens
+	 * ABOVE the dialog — a body-portaled dropdown sits at `--z-popover` (50),
+	 * behind the dialog's `--z-modal` (100). */
+	const [dialogPopup, setDialogPopup] = useState<HTMLElement | null>(null);
 
-	/* ── Reset form state when dialog opens ────────────────────────── */
+	const notConfigured = availableDomains.length === 0;
+	const isMultiSpace = availableDomains.length > 1;
+
+	/* Base UI Select resolves the trigger label from `items` (value → label),
+	 * so the closed trigger shows the friendly displayName rather than the raw
+	 * slug — no per-render formatter needed. */
+	const domainItems = useMemo(
+		() =>
+			availableDomains.map((d) => ({ label: d.displayName, value: d.name })),
+		[availableDomains],
+	);
+
+	/* ── Reset form state on the open (false→true) transition only ──── */
+	/* Seeding only on open — not on every dep change — means a prop or
+	 * store update while the dialog is open (a refreshed app name, a settings
+	 * change elsewhere) can't clobber the name the user is typing or the space
+	 * they just picked. The deps are still listed for lint correctness; the
+	 * `justOpened` guard is what scopes the reset to the transition. */
+	const wasOpenRef = useRef(false);
 	useEffect(() => {
-		if (!open) return;
+		const justOpened = open && !wasOpenRef.current;
+		wasOpenRef.current = open;
+		if (!justOpened) return;
 		setUploadStatus({ type: "idle" });
 		setAppName(storeAppName);
-	}, [open, storeAppName]);
+		/* Seed the picker with the default; for a single-space key the sole
+		 * space is the only choice. Empty string leaves the picker unselected
+		 * (a multi-space key with no default), gating Upload until chosen. */
+		setSelectedDomain(
+			activeDomain?.name ??
+				(availableDomains.length === 1 ? availableDomains[0].name : ""),
+		);
+	}, [open, storeAppName, activeDomain, availableDomains]);
 
 	/* ── Upload handler ────────────────────────────────────────────── */
 	const handleUpload = useCallback(async () => {
-		if (!domain || !appName.trim()) return;
+		if (!selectedDomain || !appName.trim()) return;
 
 		setUploadStatus({ type: "uploading" });
 
@@ -91,7 +143,7 @@ export function UploadToHqDialog({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					domain: domain.name,
+					domain: selectedDomain,
 					appName: appName.trim(),
 					doc,
 				}),
@@ -125,16 +177,20 @@ export function UploadToHqDialog({
 				status: 0,
 			});
 		}
-	}, [domain, appName, getDoc]);
+	}, [selectedDomain, appName, getDoc]);
 
 	const isUploading = uploadStatus.type === "uploading";
-	const canUpload = !!domain && !isUploading && appName.trim().length > 0;
+	const canUpload =
+		!notConfigured &&
+		!!selectedDomain &&
+		!isUploading &&
+		appName.trim().length > 0;
 
 	return (
 		<Dialog.Root open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
 			<Dialog.Portal>
 				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup className={POPUP_CLS}>
+				<Dialog.Popup ref={setDialogPopup} className={POPUP_CLS}>
 					{/* ── Header ───────────────────────────────────── */}
 					<div className="flex items-center justify-between px-5 pt-5 pb-0">
 						<Dialog.Title className="text-base font-display font-semibold text-nova-text">
@@ -153,7 +209,7 @@ export function UploadToHqDialog({
 								warnings={uploadStatus.warnings}
 								onClose={onClose}
 							/>
-						) : !domain ? (
+						) : notConfigured ? (
 							<LoadErrorView
 								message="CommCare HQ is not configured. Add your API key in Settings."
 								onClose={onClose}
@@ -161,29 +217,61 @@ export function UploadToHqDialog({
 						) : (
 							<>
 								<div className="space-y-4">
-									{/* Project space — verified badge, API key is scoped to one domain */}
+									{/* Project space — picker (multi) or verified badge (single) */}
 									<div className="flex flex-col gap-1.5">
 										<span className="text-sm text-nova-text-secondary font-medium">
 											Project Space
 										</span>
-										<div className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-nova-emerald/[0.04] border border-nova-emerald/15">
-											<div className="flex items-center justify-center w-7 h-7 rounded-full bg-nova-emerald/10 shrink-0">
-												<Icon
-													icon={tablerCircleCheck}
-													width="16"
-													height="16"
-													className="text-nova-emerald"
-												/>
+										{isMultiSpace ? (
+											<>
+												<Select
+													items={domainItems}
+													value={selectedDomain}
+													onValueChange={(next) =>
+														setSelectedDomain(next ?? "")
+													}
+													disabled={isUploading}
+												>
+													<SelectTrigger
+														className="w-full"
+														aria-label="Project space"
+													>
+														<SelectValue placeholder="Choose a project space…" />
+													</SelectTrigger>
+													<SelectContent container={dialogPopup}>
+														{availableDomains.map((d) => (
+															<SelectItem key={d.name} value={d.name}>
+																{d.displayName}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+												{selectedDomain && (
+													<span className="text-[11px] text-nova-text-muted">
+														Uploads to {selectedDomain}
+													</span>
+												)}
+											</>
+										) : (
+											<div className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-nova-emerald/[0.04] border border-nova-emerald/15">
+												<div className="flex items-center justify-center w-7 h-7 rounded-full bg-nova-emerald/10 shrink-0">
+													<Icon
+														icon={tablerCircleCheck}
+														width="16"
+														height="16"
+														className="text-nova-emerald"
+													/>
+												</div>
+												<div className="min-w-0">
+													<p className="text-sm font-medium text-nova-text truncate leading-snug">
+														{availableDomains[0].displayName}
+													</p>
+													<p className="text-[11px] text-nova-text-muted leading-snug">
+														{availableDomains[0].name}
+													</p>
+												</div>
 											</div>
-											<div className="min-w-0">
-												<p className="text-sm font-medium text-nova-text truncate leading-snug">
-													{domain.displayName}
-												</p>
-												<p className="text-[11px] text-nova-text-muted leading-snug">
-													{domain.name}
-												</p>
-											</div>
-										</div>
+										)}
 									</div>
 
 									{/* App name input */}
@@ -211,8 +299,8 @@ export function UploadToHqDialog({
 											className="text-nova-text-muted mt-0.5 shrink-0"
 										/>
 										<p className="text-xs text-nova-text-muted leading-relaxed">
-											Creates a new app in your project space. Does not update
-											existing apps.
+											Creates a new app in the selected project space. Does not
+											update existing apps.
 										</p>
 									</div>
 								</div>
@@ -344,7 +432,7 @@ function SuccessView({
 	);
 }
 
-/** Load error view — shown when domain is missing (settings not configured). */
+/** Load error view — shown when no spaces are reachable (settings not configured). */
 function LoadErrorView({
 	message,
 	onClose,

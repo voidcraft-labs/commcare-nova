@@ -54,6 +54,7 @@ import {
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
+import { FormPath } from "@/lib/commcare/xform/formPath";
 import { buildMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import type { BlueprintDoc, Field, FieldKind, Media, Uuid } from "@/lib/domain";
 
@@ -224,6 +225,7 @@ function buildConnectBlocks(
 		// `id=` attribute, and the bind nodeset below, so all three references
 		// to this block always agree.
 		const lmId = lm.id;
+		const lmPath = FormPath.root().child(lmId);
 		dataElements.push(
 			el(lmId, { "vellum:role": "ConnectLearnModule" }, [
 				el("module", { xmlns: CONNECT_XMLNS, id: lmId }, [
@@ -235,8 +237,8 @@ function buildConnectBlocks(
 		);
 		binds.push(
 			el("bind", {
-				"vellum:nodeset": `#form/${lmId}`,
-				nodeset: `/data/${lmId}`,
+				"vellum:nodeset": lmPath.toVellum(),
+				nodeset: lmPath.toXPath(),
 			}),
 		);
 	}
@@ -244,6 +246,7 @@ function buildConnectBlocks(
 	if (connect.assessment) {
 		const assessId = connect.assessment.id;
 		instances.scanXPath(connect.assessment.user_score);
+		const assessPath = FormPath.root().child(assessId);
 		dataElements.push(
 			el(assessId, { "vellum:role": "ConnectAssessment" }, [
 				el("assessment", { xmlns: CONNECT_XMLNS, id: assessId }, [
@@ -253,11 +256,11 @@ function buildConnectBlocks(
 		);
 		binds.push(
 			el("bind", {
-				"vellum:nodeset": `#form/${assessId}`,
-				nodeset: `/data/${assessId}`,
+				"vellum:nodeset": assessPath.toVellum(),
+				nodeset: assessPath.toXPath(),
 			}),
 			el("bind", {
-				nodeset: `/data/${assessId}/assessment/user_score`,
+				nodeset: assessPath.child("assessment").child("user_score").toXPath(),
 				calculate: expand(connect.assessment.user_score),
 			}),
 		);
@@ -274,6 +277,7 @@ function buildConnectBlocks(
 		const { entityId, entityName } = effectiveDeliverEntities(du);
 		instances.scanXPath(entityId);
 		instances.scanXPath(entityName);
+		const duPath = FormPath.root().child(duId);
 		dataElements.push(
 			el(duId, { "vellum:role": "ConnectDeliverUnit" }, [
 				el("deliver", { xmlns: CONNECT_XMLNS, id: duId }, [
@@ -285,15 +289,15 @@ function buildConnectBlocks(
 		);
 		binds.push(
 			el("bind", {
-				"vellum:nodeset": `#form/${duId}`,
-				nodeset: `/data/${duId}`,
+				"vellum:nodeset": duPath.toVellum(),
+				nodeset: duPath.toXPath(),
 			}),
 			el("bind", {
-				nodeset: `/data/${duId}/deliver/entity_id`,
+				nodeset: duPath.child("deliver").child("entity_id").toXPath(),
 				calculate: expand(entityId),
 			}),
 			el("bind", {
-				nodeset: `/data/${duId}/deliver/entity_name`,
+				nodeset: duPath.child("deliver").child("entity_name").toXPath(),
 				calculate: expand(entityName),
 			}),
 		);
@@ -302,6 +306,7 @@ function buildConnectBlocks(
 	if (connect.task) {
 		const t = connect.task;
 		const taskId = t.id;
+		const taskPath = FormPath.root().child(taskId);
 		dataElements.push(
 			el(taskId, { "vellum:role": "ConnectTask" }, [
 				el("task", { xmlns: CONNECT_XMLNS, id: taskId }, [
@@ -312,8 +317,8 @@ function buildConnectBlocks(
 		);
 		binds.push(
 			el("bind", {
-				"vellum:nodeset": `#form/${taskId}`,
-				nodeset: `/data/${taskId}`,
+				"vellum:nodeset": taskPath.toVellum(),
+				nodeset: taskPath.toXPath(),
 			}),
 		);
 	}
@@ -429,7 +434,7 @@ export function buildXForm(
 		buildFieldParts(
 			doc,
 			fieldUuid,
-			"/data",
+			FormPath.root(),
 			// Top-level fields get an empty itext-key prefix, so their key is
 			// just `field.id` — the common flat-form case.
 			"",
@@ -613,7 +618,7 @@ function hasItextContent(
 function buildFieldParts(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
-	parentPath: string,
+	parentPath: FormPath,
 	itextKeyPrefix: string,
 	dataElements: Element[],
 	binds: Element[],
@@ -633,7 +638,7 @@ function buildFieldParts(
 	assets: AssetManifest | undefined,
 ): void {
 	const field = doc.fields[fieldUuid];
-	const nodePath = `${parentPath}/${field.id}`;
+	const nodePath = parentPath.child(field.id);
 	// Form-unique itext key, built forward from the field-id ancestry (see the
 	// `itextKeyPrefix` paragraph above). Every `<text id>` definition and every
 	// `jr:itext('...')` reference this field emits derives from this one value.
@@ -689,10 +694,11 @@ function buildFieldParts(
 	// original shorthand for the Vellum editor on round-trip. Attributes are
 	// accumulated in an ordered object so the emitted attribute sequence
 	// matches the prior emitter (the serializer preserves insertion order).
-	const vellumPath = `#form${nodePath.slice(5)}`; // "/data/x" → "#form/x"
+	const nodePathStr = nodePath.toXPath();
+	const vellumPathStr = nodePath.toVellum();
 	const bindAttribs: Record<string, string> = {
-		"vellum:nodeset": vellumPath,
-		nodeset: nodePath,
+		"vellum:nodeset": vellumPathStr,
+		nodeset: nodePathStr,
 	};
 	const xsdType = getXsdType(field.kind);
 	if (xsdType) bindAttribs.type = xsdType;
@@ -739,8 +745,8 @@ function buildFieldParts(
 	if (defaultValue) {
 		const setvalueAttribs: Record<string, string> = {
 			event: insideRepeat ? "jr-insert" : "xforms-ready",
-			"vellum:ref": vellumPath,
-			ref: nodePath,
+			"vellum:ref": vellumPathStr,
+			ref: nodePathStr,
 		};
 		if (hasHashtags(defaultValue))
 			setvalueAttribs["vellum:value"] = defaultValue;
@@ -838,7 +844,6 @@ function buildFieldParts(
 			field,
 			fieldUuid,
 			nodePath,
-			vellumPath,
 			itextKey,
 			label,
 			labelMedia,
@@ -882,7 +887,7 @@ function buildFieldParts(
  */
 function buildLeafControl(
 	field: Field,
-	nodePath: string,
+	nodePath: FormPath,
 	itextKey: string,
 	hasHint: boolean,
 	hasHelp: boolean,
@@ -896,6 +901,7 @@ function buildLeafControl(
 	];
 	if (hasHint) head.push(el("hint", { ref: `jr:itext('${itextKey}-hint')` }));
 	if (hasHelp) head.push(el("help", { ref: `jr:itext('${itextKey}-help')` }));
+	const ref = nodePath.toXPath();
 
 	if (field.kind === "single_select" || field.kind === "multi_select") {
 		const tag = field.kind === "single_select" ? "select1" : "select";
@@ -910,15 +916,15 @@ function buildLeafControl(
 				el("value", {}, [text(opt.value)]),
 			]),
 		);
-		return el(tag, { ref: nodePath }, [...head, ...items]);
+		return el(tag, { ref }, [...head, ...items]);
 	}
 
 	if (field.kind === "label") {
-		return el("trigger", { ref: nodePath, appearance: "minimal" }, head);
+		return el("trigger", { ref, appearance: "minimal" }, head);
 	}
 
 	if (field.kind === "secret") {
-		return el("secret", { ref: nodePath }, head);
+		return el("secret", { ref }, head);
 	}
 
 	if (
@@ -934,7 +940,7 @@ function buildLeafControl(
 					? "video/*"
 					: "image/*";
 		const uploadAttribs: Record<string, string> = {
-			ref: nodePath,
+			ref,
 			mediatype,
 		};
 		if (field.kind === "signature") uploadAttribs.appearance = "signature";
@@ -944,7 +950,7 @@ function buildLeafControl(
 	// Remaining input kinds: text, int, decimal, date, time, datetime,
 	// geopoint, barcode. They all render as `<input>` with the XSD type on the
 	// bind (added by the caller).
-	return el("input", { ref: nodePath }, head);
+	return el("input", { ref }, head);
 }
 
 /**
@@ -963,8 +969,7 @@ function buildContainer(
 	doc: BlueprintDoc,
 	field: Field,
 	fieldUuid: Uuid,
-	nodePath: string,
-	vellumPath: string,
+	nodePath: FormPath,
 	itextKey: string,
 	label: string | undefined,
 	labelMedia: Media | undefined,
@@ -1005,7 +1010,9 @@ function buildContainer(
 	// the flat `<id>...</id>` shape with no rewrite.
 	const isQueryBoundRepeat =
 		field.kind === "repeat" && field.repeat_mode === "query_bound";
-	const childParentPath = isQueryBoundRepeat ? `${nodePath}/item` : nodePath;
+	const childParentPath = isQueryBoundRepeat
+		? nodePath.queryBoundIteration()
+		: nodePath;
 
 	for (const childUuid of doc.fieldOrder[fieldUuid] ?? []) {
 		buildFieldParts(
@@ -1077,8 +1084,8 @@ function buildContainer(
 	// irrelevant to JavaRosa).
 	if (relevant) {
 		const groupBindAttribs: Record<string, string> = {
-			"vellum:nodeset": vellumPath,
-			nodeset: nodePath,
+			"vellum:nodeset": nodePath.toVellum(),
+			nodeset: nodePath.toXPath(),
 		};
 		if (hasHashtags(relevant)) groupBindAttribs["vellum:relevant"] = relevant;
 		groupBindAttribs.relevant = expand(relevant);
@@ -1130,7 +1137,7 @@ function buildContainer(
 	// predicate `labelEl` is computed from so a media-only group label still
 	// counts as labelled (the body emits `<label>` and the group renders as
 	// real chrome, not a transparent wrapper).
-	const groupAttribs: Record<string, string> = { ref: nodePath };
+	const groupAttribs: Record<string, string> = { ref: nodePath.toXPath() };
 	if (hasItextContent(label, labelMedia, assets))
 		groupAttribs.appearance = "field-list";
 	const groupChildren: Element[] = labelEl
@@ -1166,7 +1173,7 @@ function buildContainer(
  */
 function buildRepeatBody(
 	field: Field & { kind: "repeat" },
-	nodePath: string,
+	nodePath: FormPath,
 	labelEl: Element | undefined,
 	childBody: Element[],
 	insideRepeat: boolean,
@@ -1177,7 +1184,7 @@ function buildRepeatBody(
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
 ): Element {
-	let repeatNodeset = nodePath;
+	let repeatNodeset = nodePath.toXPath();
 	const repeatAttribs: Record<string, string> = {};
 
 	if (field.repeat_mode === "count_bound") {
@@ -1242,11 +1249,12 @@ function buildRepeatBody(
 			) {
 				countNodeName = `${countNodeBase}_${n}`;
 			}
-			const countNodePath = `/data/${countNodeName}`;
+			const countNodePath = FormPath.root().child(countNodeName);
+			const countNodeXPath = countNodePath.toXPath();
 			topDataElements.push(el(countNodeName, {}));
 			// `xsd:int` matches the count's domain (a cardinality) and the
 			// canonical fixture's `<bind ... type="xsd:int"/>`.
-			topBinds.push(el("bind", { nodeset: countNodePath, type: "xsd:int" }));
+			topBinds.push(el("bind", { nodeset: countNodeXPath, type: "xsd:int" }));
 			// Frozen-at-form-load is count_bound's documented contract (JavaRosa
 			// evaluates `jr:count` once and never recalculates), so the seed
 			// always fires on `xforms-ready` — there is no per-iteration re-seed
@@ -1254,7 +1262,7 @@ function buildRepeatBody(
 			setvalues.push(
 				el("setvalue", {
 					event: "xforms-ready",
-					ref: countNodePath,
+					ref: countNodeXPath,
 					value: expandedCount,
 				}),
 			);
@@ -1265,18 +1273,24 @@ function buildRepeatBody(
 			// here. Insertion order matches the prior emitter: vellum:count,
 			// jr:count, jr:noAddRemove.
 			repeatAttribs["vellum:count"] = field.repeat_count;
-			repeatAttribs["jr:count"] = countNodePath;
+			repeatAttribs["jr:count"] = countNodeXPath;
 			repeatAttribs["jr:noAddRemove"] = "true()";
 		}
 	} else if (field.repeat_mode === "query_bound") {
-		repeatNodeset = `${nodePath}/item`;
-		repeatAttribs["jr:count"] = `${nodePath}/@count`;
+		const itemPath = nodePath.queryBoundIteration();
+		const idsAttrPath = nodePath.attr("ids").toXPath();
+		const countAttrPath = nodePath.attr("count").toXPath();
+		const currentIndexAttrPath = nodePath.attr("current_index").toXPath();
+		const itemIndexAttrPath = itemPath.attr("index").toXPath();
+		const itemIdAttrPath = itemPath.attr("id").toXPath();
+		repeatNodeset = itemPath.toXPath();
+		repeatAttribs["jr:count"] = countAttrPath;
 		repeatAttribs["jr:noAddRemove"] = "true()";
 		const expandedIdsQuery = expand(field.data_source.ids_query);
 		const idsValue = `join(' ', ${expandedIdsQuery})`;
-		const countValue = `count-selected(${nodePath}/@ids)`;
-		const indexValue = `int(${nodePath}/@current_index)`;
-		const idValue = `selected-at(${nodePath}/@ids, ../@index)`;
+		const countValue = `count-selected(${idsAttrPath})`;
+		const indexValue = `int(${currentIndexAttrPath})`;
+		const idValue = `selected-at(${idsAttrPath}, ../@index)`;
 		// `@current_index` calculate bind: JavaRosa updates the outer container's
 		// `@current_index` to match the live item count at every jr-insert. The
 		// per-instance `@index` setvalue reads this to know which slot it is.
@@ -1285,8 +1299,8 @@ function buildRepeatBody(
 		// `selected-at(@ids, @index)` to always pick id 0.
 		binds.push(
 			el("bind", {
-				nodeset: `${nodePath}/@current_index`,
-				calculate: `count(${nodePath}/item)`,
+				nodeset: currentIndexAttrPath,
+				calculate: `count(${itemPath.toXPath()})`,
 			}),
 		);
 		// Event coercion for nested model-iteration repeats. Mirrors Vellum's
@@ -1300,22 +1314,22 @@ function buildRepeatBody(
 		setvalues.push(
 			el("setvalue", {
 				event: seedEvent,
-				ref: `${nodePath}/@ids`,
+				ref: idsAttrPath,
 				value: idsValue,
 			}),
 			el("setvalue", {
 				event: seedEvent,
-				ref: `${nodePath}/@count`,
+				ref: countAttrPath,
 				value: countValue,
 			}),
 			el("setvalue", {
 				event: "jr-insert",
-				ref: `${nodePath}/item/@index`,
+				ref: itemIndexAttrPath,
 				value: indexValue,
 			}),
 			el("setvalue", {
 				event: "jr-insert",
-				ref: `${nodePath}/item/@id`,
+				ref: itemIdAttrPath,
 				value: idValue,
 			}),
 		);
@@ -1333,7 +1347,7 @@ function buildRepeatBody(
 		childBody,
 	);
 	const groupChildren: Element[] = labelEl ? [labelEl, repeatEl] : [repeatEl];
-	return el("group", { ref: nodePath }, groupChildren);
+	return el("group", { ref: nodePath.toXPath() }, groupChildren);
 }
 
 /**

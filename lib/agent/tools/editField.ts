@@ -34,7 +34,12 @@
 
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	FieldKind,
+	FieldPatchFor,
+	Uuid,
+} from "@/lib/domain";
 import { getConvertibleTypes } from "@/lib/domain";
 import {
 	renameFieldMutations,
@@ -68,26 +73,26 @@ export type EditFieldResult = string | { error: string };
  *
  * Every clearable key in the edit schema is `.nullable().optional()`:
  *   - absent   → leave current value alone (key omitted from output)
- *   - `null`   → clear the property (key present with `undefined`;
- *                Immer's Object.assign drops it)
+ *   - `null`   → clear the property — emitted as `null`, NOT `undefined`.
+ *                The `updateField` reducer deletes the key on a `null`
+ *                value, and `null` (unlike `undefined`) survives Firestore,
+ *                so the clear round-trips through the event log.
  *   - a value  → set the property (key present with the value)
  *
- * Uniform `?? undefined` coercion covers all three cases. Unlike the
- * add-path where empty string is a required-sentinel meaning absent,
- * the edit path reserves `null` for "clear" so the SA has an
+ * Unlike the add-path where empty string is a required-sentinel meaning
+ * absent, the edit path reserves `null` for "clear" so the SA has an
  * unambiguous way to remove a property a user explicitly unset.
  */
 function editPatchToFieldPatch(
 	updates: Omit<z.infer<typeof editFieldUpdatesSchema>, "id" | "kind">,
-): Partial<Omit<Field, "uuid">> {
+): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
-	// Plain scalars: SA passes a new value, `null` to clear, or omits
-	// to leave unchanged. The reducer's `Object.assign` drops keys set
-	// to `undefined`, so `null → undefined` is the clear path. The
-	// XPath-valued scalars (`relevant`, `calculate`, `default_value`,
-	// `required`) get HTML-entity unescape on the way through — same
-	// treatment `applyDefaults` applies on the add path, so the same
-	// SA payload produces the same stored entity through both tools.
+	// Plain scalars: SA passes a new value, `null` to clear, or omits to
+	// leave unchanged. A `null` is preserved as `null` (the reducer deletes
+	// the key on it). The XPath-valued scalars (`relevant`, `calculate`,
+	// `default_value`, `required`) get HTML-entity unescape on the way
+	// through — same treatment `applyDefaults` applies on the add path, so
+	// the same SA payload produces the same stored entity through both tools.
 	const xpathScalarKeys = new Set([
 		"relevant",
 		"calculate",
@@ -115,47 +120,49 @@ function editPatchToFieldPatch(
 		if (typeof value === "string" && xpathScalarKeys.has(key)) {
 			patch[key] = unescapeXPath(value);
 		} else {
-			patch[key] = value ?? undefined;
+			// A string sets the property; `null` clears it (preserved as
+			// `null` so the clear survives serialization).
+			patch[key] = value;
 		}
 	}
 	if (updates.options !== undefined) {
-		patch.options = updates.options ?? undefined;
+		patch.options = updates.options;
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
-	//     `validate_msg` keys (msg unset → `undefined`, which clears).
+	//     `validate_msg` keys (msg unset → `null`, which clears it).
 	//     `expr` is XPath, so unescape on the way through.
-	//   - null → clear both keys.
+	//   - null → clear both keys (emitted as `null`).
 	//   - undefined (omitted) → leave unchanged.
 	if (updates.validate !== undefined) {
 		if (updates.validate === null) {
-			patch.validate = undefined;
-			patch.validate_msg = undefined;
+			patch.validate = null;
+			patch.validate_msg = null;
 		} else {
 			patch.validate = unescapeXPath(updates.validate.expr);
-			patch.validate_msg = updates.validate.msg ?? undefined;
+			patch.validate_msg = updates.validate.msg ?? null;
 		}
 	}
 	// Nested `repeat: { mode, count?, ids_query? }` config. The patch
 	// always overwrites all three flat repeat keys when `repeat` is
 	// present: the new mode determines which mode-specific field is
-	// valid, and the unused field gets `undefined` so the reducer
-	// clears it. Mode is required inside the nested object so we
-	// always have a value to write. `count` and `ids_query` are XPath
-	// expressions — empty-string is treated as "not set" (matching the
-	// add path's truthy-check) and unescaped when present.
+	// valid, and the unused field gets `null` so the reducer clears it.
+	// Mode is required inside the nested object so we always have a value
+	// to write. `count` and `ids_query` are XPath expressions —
+	// empty-string is treated as "not set" (matching the add path's
+	// truthy-check) and unescaped when present.
 	if (updates.repeat !== undefined) {
 		patch.repeat_mode = updates.repeat.mode;
 		patch.repeat_count =
 			updates.repeat.count && updates.repeat.count.length > 0
 				? unescapeXPath(updates.repeat.count)
-				: undefined;
+				: null;
 		patch.data_source =
 			updates.repeat.ids_query && updates.repeat.ids_query.length > 0
 				? { ids_query: unescapeXPath(updates.repeat.ids_query) }
-				: undefined;
+				: null;
 	}
-	return patch as Partial<Omit<Field, "uuid">>;
+	return patch as FieldPatchFor<FieldKind>;
 }
 
 export const editFieldTool = {

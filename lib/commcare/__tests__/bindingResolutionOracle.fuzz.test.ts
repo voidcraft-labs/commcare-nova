@@ -51,12 +51,14 @@ const SEED = 20260522;
 const NUM_RUNS = 500;
 
 /**
- * Per-test timeout for the heavy fuzz body. Each iteration compiles a CCZ,
- * walks every form's XForm, and runs the install-time resolution oracle.
- * 30s gives enough headroom for the heaviest cross-worker contention
- * without hiding a runaway loop.
+ * Generous per-test budget. This property is SYNCHRONOUS and emits `NUM_RUNS`
+ * full `.ccz` compiles — seconds of real work normally, and several times that
+ * under CI / leak-detector instrumentation or a loaded machine. Vitest's
+ * default 5s `testTimeout` can't interrupt a sync test, so it flags the run
+ * "timed out" the moment it crosses 5s — a load-dependent FALSE failure, not a
+ * hang (the run is bounded by `NUM_RUNS`). Size the budget to the workload.
  */
-const FUZZ_TIMEOUT_MS = 30_000;
+const FUZZ_TIMEOUT_MS = 120_000;
 
 /**
  * Rebuild the per-doc `fieldParent` index (the generator omits it for

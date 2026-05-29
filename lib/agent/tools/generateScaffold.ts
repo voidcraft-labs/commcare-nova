@@ -57,7 +57,6 @@ export const generateScaffoldTool = {
 	description:
 		"Set the module and form structure for the app. Call after generateSchema. Provide the complete scaffold directly.",
 	inputSchema: generateScaffoldInputSchema,
-	strict: true as const,
 	async execute(
 		input: GenerateScaffoldInput,
 		ctx: ToolExecutionContext,

@@ -18,20 +18,26 @@
 // its dialect, so the close path destroys Kysely and then closes
 // the connector.
 //
-// ## No local-dev mode
+// ## Two connection modes
 //
-// This file targets Cloud Run as the only execution environment.
-// The Cloud SQL instance is `--no-assign-ip`; `cloud-sql-proxy
-// --private-ip` from a developer laptop does not work because the
-// proxy authenticates via the Admin API but makes a direct TCP
-// connection to the IP, which is unreachable from outside the VPC.
+// **Production** targets Cloud Run → Cloud SQL: the instance is
+// `--no-assign-ip`, so the connector resolves a private IP via the SQL
+// Admin API and authenticates with IAM. `cloud-sql-proxy --private-ip`
+// from a laptop can't reach that IP (it's outside the VPC).
+//
+// **Local dev** is an EXPLICIT opt-in via `NOVA_DB_LOCAL_URL`: when that var
+// is set, `initialize()` connects to a plain Postgres at that URL — the
+// docker-compose container `npm run dev` boots (`compose.yaml` at the repo
+// root) — with no connector, IAM, or private-IP resolution. It is NOT a
+// silent `NODE_ENV` fallback: production never sets the var, so a missing
+// `NOVA_DB_*` there still fails loudly via `readCaseStoreEnvConfig`. That is
+// the distinction the earlier "no localhost fallback" rule was protecting —
+// an unconditional fallback masks production misconfiguration; an explicit
+// opt-in URL that prod never sets does not.
+//
 // Tests use the testcontainers harness under
-// `lib/case-store/sql/__tests__/`. Ad-hoc DB inspection runs
-// through Cloud SQL Studio in the Google Cloud Console.
-//
-// A "fall back to localhost in development" branch would create a
-// silent two-mode runtime that masks production-only configuration
-// failures.
+// `lib/case-store/sql/__tests__/`. Ad-hoc prod DB inspection runs through
+// Cloud SQL Studio in the Google Cloud Console.
 
 import {
 	AuthTypes,
@@ -221,7 +227,12 @@ export function buildPoolConfig(
 // Process-scoped lazy singleton.
 
 interface CaseStoreHandles {
-	connector: Connector;
+	/**
+	 * The Cloud SQL connector — `null` on the local-dev path
+	 * (`NOVA_DB_LOCAL_URL`), where a plain `pg.Pool` connects directly and
+	 * there is no connector to construct or close.
+	 */
+	connector: Connector | null;
 	db: Kysely<Database>;
 }
 
@@ -238,6 +249,27 @@ let initInFlight: Promise<CaseStoreHandles> | null = null;
  */
 async function initialize(): Promise<CaseStoreHandles> {
 	enforceConnectionBudget();
+
+	// Local-dev path (explicit opt-in). When `NOVA_DB_LOCAL_URL` is set,
+	// connect to a plain Postgres at that URL — the docker-compose container
+	// `npm run dev` boots — with no Cloud SQL connector, IAM, or private-IP
+	// resolution. Guarded on the var's presence, NOT on `NODE_ENV`: production
+	// never sets it, so the Cloud SQL branch below (and its loud
+	// `readCaseStoreEnvConfig` validation) still owns every non-local run. See
+	// the file header for why an explicit opt-in is sound where a silent
+	// fallback wasn't.
+	const localUrl = process.env.NOVA_DB_LOCAL_URL;
+	if (localUrl !== undefined && localUrl.length > 0) {
+		const pool = new Pool({
+			connectionString: localUrl,
+			max: POOL_MAX_PER_INSTANCE,
+		});
+		const dialect = new PostgresDialect({
+			pool: pool as unknown as PostgresPool,
+		});
+		return { connector: null, db: new Kysely<Database>({ dialect }) };
+	}
+
 	const env = readCaseStoreEnvConfig();
 	const connector = new Connector();
 	const clientOpts = await connector.getOptions({
@@ -298,5 +330,7 @@ export async function closeCaseStoreDatabase(): Promise<void> {
 	const captured = handles;
 	handles = null;
 	await captured.db.destroy();
-	captured.connector.close();
+	// `null` on the local-dev path — only the Cloud SQL connector owns a
+	// cert-refresh timer that needs stopping.
+	captured.connector?.close();
 }

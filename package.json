@@ -3,7 +3,9 @@
 	"version": "0.1.0",
 	"private": true,
 	"scripts": {
-		"dev": "next dev",
+		"dev": "npm run db:dev && next dev",
+		"db:dev": "docker compose up -d --wait && atlas migrate apply --env testcontainer --url \"postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable\" --allow-dirty",
+		"db:dev:down": "docker compose down",
 		"build": "next build",
 		"start": "next start",
 		"lint": "biome check --error-on-warnings",
@@ -17,8 +19,8 @@
 		"db:lint": "atlas migrate lint --env local --latest 1"
 	},
 	"dependencies": {
-		"@ai-sdk/anthropic": "^4.0.0-beta.31",
-		"@ai-sdk/react": "^4.0.0-beta.105",
+		"@ai-sdk/anthropic": "^4.0.0-beta.42",
+		"@ai-sdk/react": "^4.0.0-beta.116",
 		"@atlaskit/pragmatic-drag-and-drop": "^1.7.10",
 		"@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^2.1.5",
 		"@atlaskit/pragmatic-drag-and-drop-hitbox": "^1.1.0",
@@ -57,7 +59,7 @@
 		"@uiw/codemirror-themes": "^4.25.8",
 		"@uiw/react-codemirror": "^4.25.8",
 		"adm-zip": "^0.5.16",
-		"ai": "^7.0.0-beta.105",
+		"ai": "^7.0.0-beta.116",
 		"ajv": "^8.20.0",
 		"ajv-formats": "^3.0.1",
 		"better-auth": "^1.6.9",
