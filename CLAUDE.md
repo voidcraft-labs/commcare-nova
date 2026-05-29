@@ -111,6 +111,12 @@ Root `app/layout.tsx` is intentionally minimal — html/body/fonts/global CSS on
 
 `lib/commcare/` is the single package that owns CommCare's wire vocabulary — `HqApplication` JSON, XForm XML, `.ccz` archive, the XPath dialect, identifier rules, HQ REST client, KMS encryption for stored HQ credentials. Everything else in `lib/` speaks the domain shape (`BlueprintDoc` + `Field`) and only crosses into CommCare through the `@/lib/commcare` barrel. A Biome `noRestrictedImports` rule enforces the boundary; the allowed consumers live in `biome.json`. See `lib/commcare/CLAUDE.md`.
 
+### Multimedia
+
+Media assets (image/audio/video) attach to field message slots, select options, module/form menu tiles, and the app logo. Bytes live in GCS keyed by content hash; one Firestore row per asset tracks status (`lib/db/mediaAssets`, `lib/storage/media`). Uploads are validated by magic-bytes sniff (`lib/media/validate`) — accepted set is image (png/jpg/gif/webp), audio **`.mp3`/`.wav` only**, video `.mp4`; `.m4a`/`.ogg` are rejected because CommCare HQ's deployed mime table can't ingest them. `lib/media/manifest` + `lib/media/mediaValidation` are the only consumers of the `@/lib/commcare` boundary outside the emitter itself (allowlisted in `biome.json`): they resolve assets to wire paths and run the media validator.
+
+**Media-OFF/ON emit contract.** Media wire artifacts (itext `<value form>`, `media_suite.xml`, `multimedia_map`, the logo profile property) emit ONLY where the bytes also ship: the `.ccz` compile path (bundled in the archive) and the HQ-upload path (app imported media-ON, then bytes POSTed per-file — HQ assigns the real `multimedia_id` via `create_mapping`). Raw-JSON paths (`/api/compile/json`, MCP `compile_app` json) stay media-OFF and are byte-identical to the pre-media output. Every media-ON entry point runs the media validator before expand, so a stale/pending/foreign/kind-mismatched ref surfaces as an actionable error rather than a broken reference on the device. Clearing a media slot uses a dedicated mutation kind (never an `{ key: undefined }` patch, which JSON drops on the wire) — see `lib/doc/CLAUDE.md`.
+
 ### Root route
 
 `/` branches between landing / get-started / app list with no redirects. A cheap app-existence check runs before the Suspense boundary so new users skip the skeleton flash. No `/apps` route — the domain *is* the namespace.
