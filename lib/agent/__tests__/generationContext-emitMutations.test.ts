@@ -19,6 +19,7 @@ import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import { updateAppForRun } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
@@ -29,6 +30,12 @@ import { makeMinimalDoc, makeTestContext } from "./fixtures";
  * the module level so the no-op save doesn't reach Firestore. */
 vi.mock("@/lib/db/apps", () => ({
 	updateAppForRun: vi.fn(() => Promise.resolve()),
+}));
+
+/* Mock the logger so `emitError`'s server-side cause-logging is silent in
+ * test output and assertable. */
+vi.mock("@/lib/logger", () => ({
+	log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), critical: vi.fn() },
 }));
 
 // Representative text-field add mutation. The specific mutation shape is
@@ -331,6 +338,54 @@ describe("GenerationContext.emitError", () => {
 			type: string;
 		};
 		expect(writerCall.type).toBe("data-conversation-event");
+	});
+
+	it("logs an internal error's raw cause server-side so it isn't swallowed", () => {
+		// The conversation event + event log only carry the user-safe
+		// `message`; the real cause (`raw`) is dropped there. emitError must
+		// surface it via the logger, or an `internal` classification reaches
+		// the operator as a bare "Something went wrong" with nothing to act on.
+		vi.mocked(log.error).mockClear();
+		const { ctx } = makeTestContext();
+		ctx.emitError(
+			{
+				type: "internal",
+				message: "Something went wrong during generation.",
+				recoverable: false,
+				raw: "Cloud SQL case store is missing required environment variables: NOVA_DB_NAME",
+			},
+			"validateApp:materialize",
+		);
+		expect(log.error).toHaveBeenCalledWith(
+			expect.stringContaining("internal error"),
+			undefined,
+			expect.objectContaining({
+				raw: expect.stringContaining("missing required environment variables"),
+				context: "validateApp:materialize",
+			}),
+		);
+	});
+
+	it("logs known external errors at warn, not error", () => {
+		// Recoverable/expected external conditions (rate limit, auth, …)
+		// shouldn't flood Error Reporting — they surface the cause at `warn`.
+		vi.mocked(log.warn).mockClear();
+		vi.mocked(log.error).mockClear();
+		const { ctx } = makeTestContext();
+		ctx.emitError(
+			{
+				type: "api_rate_limit",
+				message: "Rate limited by the AI service.",
+				recoverable: false,
+				raw: "429 Too Many Requests",
+			},
+			"route:stream",
+		);
+		expect(log.warn).toHaveBeenCalledWith(
+			expect.stringContaining("api_rate_limit"),
+			expect.objectContaining({ raw: "429 Too Many Requests" }),
+		);
+		expect(log.error).not.toHaveBeenCalled();
 	});
 });
 

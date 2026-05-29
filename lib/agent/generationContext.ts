@@ -307,8 +307,32 @@ export class GenerationContext implements ToolExecutionContext {
 	 * failure that triggered the classification; the event log carries
 	 * the error either way, so a broken SSE writer is not fatal for
 	 * admin observability.
+	 *
+	 * Logs the underlying cause server-side BEFORE emitting. The
+	 * conversation event + event log only carry the user-safe `message`
+	 * (`classifiedErrorPayloadSchema` drops `raw` deliberately — the log
+	 * is not a stack-trace surface), so without this an `internal`
+	 * classification reaches the operator as a bare "Something went wrong
+	 * during generation." with no way to see what actually threw.
+	 * `internal` (an unexpected failure worth a report) logs at `error`;
+	 * the known external conditions (rate limit, auth, overload, …) log at
+	 * `warn` so they don't flood Error Reporting with expected states.
 	 */
 	emitError(error: ClassifiedError, context?: string): void {
+		const cause = {
+			raw: error.raw ?? "",
+			context: context ?? "",
+			recoverable: error.recoverable,
+		};
+		if (error.type === "internal") {
+			log.error(
+				`[generation] internal error: ${error.message}`,
+				undefined,
+				cause,
+			);
+		} else {
+			log.warn(`[generation] ${error.type}: ${error.message}`, cause);
+		}
 		const payload: ClassifiedErrorPayload = {
 			type: error.type,
 			message: error.message,
