@@ -5,11 +5,11 @@
  *
  * Menu carriers take image + audio only (no video — see
  * `lib/domain/multimedia.ts::mediaSchema`'s docstring). Both slots are set
- * in one call: this folds the plan's separate icon/audio setters into one
- * tool, since a module's menu media is a single small carrier. Each slot
- * is required-and-nullable — the SA always states intent: an asset id
- * sets the slot, `null` clears it. To touch only one slot, the SA reads
- * the other's current value (via getModule) and passes it back.
+ * in one call: a module's menu media is a single small carrier, so one
+ * tool covering both slots saves a round trip with no payload-size cost.
+ * Each slot is required-and-nullable — the SA always states intent: an
+ * asset id sets the slot, `null` clears it. To touch only one slot, the SA
+ * reads the other's current value (via getModule) and passes it back.
  *
  * Asset existence is not checked here — the SA validation loop's media
  * rules surface a bad reference with this module's location. The tool

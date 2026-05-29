@@ -653,9 +653,9 @@ export function removeFormMutations(
  * (the reducer stores `undefined`), passing an object replaces it, and
  * omitting the key leaves it untouched.
  *
- * `connect` additionally runs through `normalizeConnectConfig` so empty
- * sub-configs don't get written — matches legacy behavior where an
- * explicit `{ connect: {} }` patch was treated as "clear".
+ * `connect` additionally runs through `normalizeConnectConfig` so an
+ * empty / all-empty connect config is stripped — it lands as absent
+ * rather than as an empty `{ connect: {} }` marker.
  */
 export function updateFormMutations(
 	doc: BlueprintDoc,
