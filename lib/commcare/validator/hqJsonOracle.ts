@@ -566,7 +566,7 @@ function checkMultimediaMap(
 				validationError(
 					"HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE",
 					"app",
-					`The generated multimedia_map entry for "${key}" declares media_type="${item.media_type}", but CommCare only resolves CommCareImage, CommCareAudio, or CommCareVideo. An unresolvable media_type produces a suite resource with no installable file. This is a bug in the app generator.`,
+					`The generated multimedia_map entry for "${key}" declares media_type="${item.media_type}", but CommCare's media classes are CommCareImage, CommCareAudio, and CommCareVideo. CommCare doesn't reject an unknown value — its media_resources generator falls back to a generic "Media" descriptor — so this is an emitter regression rather than an import failure: the media_type comes from a closed kind→class table, never user input, and a value outside the three means that mapping drifted. This is a bug in the app generator.`,
 					{},
 				),
 			);

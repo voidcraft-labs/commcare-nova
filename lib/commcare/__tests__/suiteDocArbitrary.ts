@@ -731,15 +731,18 @@ export function hasSort(doc: BlueprintDoc): boolean {
 }
 
 /**
- * Whether the doc carries ANY media reference — on a field message slot, an
- * option, a module/form menu, an image-map column, or the app logo.
- * Mirrors `collectAssetRefs` for the census layer: a fuzz run that drifts to
- * `hasMedia / total < threshold` stops exercising the manifest-resolution
- * checks the oracles exist for, which the suite/hqJson fuzz assertions
- * downstream catch.
+ * Whether the doc carries media that lowers into the SUITE — a module/form
+ * menu `icon`/`audioLabel` (→ `<text form="image|audio"><locale>`) or an
+ * image-map column (→ `<template form="image">` with inlined `jr://` literals).
+ *
+ * This is exactly the population `suiteOracle::checkMediaResolution` walks, so
+ * the suite fuzz floors THIS ratio rather than the broader `hasMedia`: the app
+ * logo lowers into the profile and field-itext media into each form's XForm,
+ * neither of which the suite check touches. Flooring `hasMedia` would let a
+ * drift toward logo-only or field-itext-only media keep the census green while
+ * the suite media-resolution check stopped firing entirely — a silent no-op.
  */
-export function hasMedia(doc: BlueprintDoc): boolean {
-	if (doc.logo !== undefined) return true;
+export function hasSuiteMedia(doc: BlueprintDoc): boolean {
 	for (const module of Object.values(doc.modules)) {
 		if (module.icon !== undefined || module.audioLabel !== undefined)
 			return true;
@@ -750,8 +753,16 @@ export function hasMedia(doc: BlueprintDoc): boolean {
 	for (const form of Object.values(doc.forms)) {
 		if (form.icon !== undefined || form.audioLabel !== undefined) return true;
 	}
-	// Field message-slot + option media is the form-itext sub-population;
-	// delegate to its typed owner so the two census predicates share one
-	// detector rather than each hand-rolling the field walk.
-	return hasFormItextMedia(doc);
+	return false;
+}
+
+/**
+ * Whether the doc carries ANY media reference — app logo, suite-borne media
+ * (`hasSuiteMedia`), or form-itext media (`hasFormItextMedia`). The union of
+ * the three disjoint populations the three oracles each check; the hqJson fuzz
+ * floors this because `multimedia_map` covers every referenced asset
+ * regardless of carrier.
+ */
+export function hasMedia(doc: BlueprintDoc): boolean {
+	return doc.logo !== undefined || hasSuiteMedia(doc) || hasFormItextMedia(doc);
 }

@@ -89,6 +89,16 @@ describe("suite oracle — structural gates", () => {
 			"SUITE_VERSION_NOT_INTEGER",
 		);
 	});
+
+	it("flags an absent suite version", () => {
+		// SuiteParser reads the root version with raw `Integer.parseInt` before
+		// its try block, so a missing attribute throws an uncaught
+		// NumberFormatException — just as fatal as a non-integer value.
+		const xml = '<?xml version="1.0"?>\n<suite></suite>';
+		expect(codes(validateSuite(xml, new Set()))).toContain(
+			"SUITE_VERSION_NOT_INTEGER",
+		);
+	});
 });
 
 // ── Category 1 — datum value/nodeset ───────────────────────────────

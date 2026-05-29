@@ -49,8 +49,8 @@ import type { AssetId } from "@/lib/domain/multimedia";
 import {
 	hasCaseSearch,
 	hasChildCase,
-	hasMedia,
 	hasSort,
+	hasSuiteMedia,
 	moduleCount,
 	suiteDocArbitrary,
 } from "./suiteDocArbitrary";
@@ -183,11 +183,13 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		caseSearch: 0,
 		childCase: 0,
 		sort: 0,
-		// The media-resolution checks (menu locales + image-map literals)
-		// only exercise on docs that actually carry media. A drift to zero
-		// media coverage would silently weaken the suite oracle's media
-		// path; the assertion below floors the ratio.
-		mediaBearing: 0,
+		// The media-resolution checks (menu locales + image-map literals) only
+		// exercise on docs carrying SUITE-borne media — menu icon/audioLabel or
+		// an image-map column. A drift to zero of that population would silently
+		// weaken the suite oracle's media path; the assertion below floors it.
+		// (Deliberately NOT the broader `hasMedia`: logo + field-itext media
+		// lower elsewhere and wouldn't keep this check exercised.)
+		suiteMedia: 0,
 	};
 
 	it("every schema-valid doc emits an oracle-clean suite.xml", {
@@ -203,7 +205,7 @@ describe("suite emitter totality (property-based fuzz)", () => {
 				if (hasCaseSearch(doc)) census.caseSearch += 1;
 				if (hasChildCase(doc)) census.childCase += 1;
 				if (hasSort(doc)) census.sort += 1;
-				if (hasMedia(doc)) census.mediaBearing += 1;
+				if (hasSuiteMedia(doc)) census.suiteMedia += 1;
 
 				// Media-on path: thread the fuzz manifest through expand + compile
 				// so menu-icon locales + image-map XPath literals land in the
@@ -267,9 +269,10 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		expect(census.caseSearch / census.total).toBeGreaterThan(0.25);
 		expect(census.childCase / census.total).toBeGreaterThan(0.15);
 		expect(census.sort / census.total).toBeGreaterThan(0.3);
-		// Media-bearing docs exercise the menu-locale + image-map XPath-literal
-		// resolution paths. A drift below this floor stops exercising the
-		// media-OFF→media-ON contract and silently weakens the suite oracle.
-		expect(census.mediaBearing / census.total).toBeGreaterThan(0.3);
+		// Suite-borne-media docs exercise the menu-locale + image-map
+		// XPath-literal resolution paths. A drift below this floor stops
+		// exercising the media-OFF→media-ON contract and silently weakens the
+		// suite oracle's media-resolution check.
+		expect(census.suiteMedia / census.total).toBeGreaterThan(0.3);
 	});
 });

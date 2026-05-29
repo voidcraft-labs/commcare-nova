@@ -305,8 +305,8 @@ function checkLocation(
 		// A non-local authority — explicit `remote`, or any unrecognized
 		// literal, which `ResourceParser::parse` leaves at its `REMOTE` enum
 		// default — is added as a remote location and routed through the
-		// installer's remote branch, which attempts a network fetch the
-		// bundled `jr://` path can't satisfy and returns false. Nova bundles
+		// installer's remote branch, which never installs a resource: its
+		// cache-write path is unimplemented and returns false. Nova bundles
 		// every media file into the CCZ, so the only correct authority is
 		// `local`; any other value is a generator bug.
 		errors.push(

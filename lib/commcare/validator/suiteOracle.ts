@@ -682,17 +682,31 @@ function checkStacks(
 // ── Category 1 — suite version (C1-26) ─────────────────────────────
 
 /**
- * `<suite version>` integer check (C1-26). Core parses the version as an
- * integer; a non-integer value fails the parse.
+ * `<suite version>` integer check (C1-26). Core parses the root version as an
+ * integer; both an absent and a non-integer value fail the parse.
  */
 function checkSuiteVersion(
 	model: SuiteModel,
 	loc: ValidationLocation,
 ): ValidationError[] {
 	const version = getAttributeValue(model.suite, "version");
-	// An absent version defaults cleanly in Core; only a present non-integer is
-	// a parse failure.
-	if (version === undefined) return [];
+	// `SuiteParser::parse` reads the root <suite version> with raw
+	// `Integer.parseInt` BEFORE its try block opens, so both an absent
+	// attribute (`Integer.parseInt(null)`) and a present non-integer throw an
+	// unchecked `NumberFormatException` that aborts the parse — absent is just
+	// as fatal as malformed. (Distinct from the per-`<resource>` version, which
+	// `ResourceParser::parse` reads through the guarded `ElementParser.parseInt`
+	// helper that throws `InvalidStructureException`.)
+	if (version === undefined) {
+		return [
+			validationError(
+				"SUITE_VERSION_NOT_INTEGER",
+				"app",
+				`The suite has no version attribute, but CommCare parses the suite version as an integer and aborts the parse when it's absent. This is a bug in the suite generator.`,
+				loc,
+			),
+		];
+	}
 	if (!/^-?\d+$/.test(version)) {
 		return [
 			validationError(
