@@ -4,6 +4,12 @@
  * helpers + React hooks are I/O and are covered by typecheck + the
  * browser-level pass; the pure slot transforms + hashing are tested
  * here.
+ *
+ * Hashing is tested through `sha256HexOfBytes` (the pure buffer→hex
+ * core), NOT `sha256Hex(Blob)`: `Blob.arrayBuffer()` registers a
+ * BLOBREADER async resource that lingers past test-end under the leak
+ * detector, and the blob read is I/O — the byte→hash transformation is
+ * the part worth unit-testing.
  */
 
 import { describe, expect, it } from "vitest";
@@ -12,7 +18,7 @@ import {
 	clearMediaSlot,
 	mediaSrc,
 	setMediaSlot,
-	sha256Hex,
+	sha256HexOfBytes,
 } from "../mediaClient";
 
 describe("setMediaSlot", () => {
@@ -68,17 +74,17 @@ describe("mediaSrc", () => {
 	});
 });
 
-describe("sha256Hex", () => {
+describe("sha256HexOfBytes", () => {
 	it("computes the lowercase-hex SHA-256 of the bytes", async () => {
 		// Known vector: sha256("abc").
-		const blob = new Blob([new TextEncoder().encode("abc")]);
-		expect(await sha256Hex(blob)).toBe(
+		const bytes = new TextEncoder().encode("abc");
+		expect(await sha256HexOfBytes(bytes)).toBe(
 			"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 		);
 	});
 
 	it("is deterministic", async () => {
-		const blob = new Blob([new Uint8Array([1, 2, 3, 4])]);
-		expect(await sha256Hex(blob)).toBe(await sha256Hex(blob));
+		const bytes = new Uint8Array([1, 2, 3, 4]);
+		expect(await sha256HexOfBytes(bytes)).toBe(await sha256HexOfBytes(bytes));
 	});
 });

@@ -151,8 +151,14 @@ describe("POST /api/commcare/upload — media validation gate", () => {
 		const res = await POST(
 			reqWith({ domain: DOMAIN, appName: "T", doc: validDoc() }),
 		);
+		// Drain the response body — an unread `NextResponse.json` stream is a
+		// dangling async resource the leak detector flags; reading it also lets
+		// us assert the response shape, not just the status.
+		const body = (await res.json()) as { appId: string; warnings: string[] };
 
 		expect(res.status).toBe(201);
+		expect(body.appId).toBe("hq-1");
+		expect(body.warnings).toEqual([]);
 		expect(collectMediaValidationErrors).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
 			"u1",

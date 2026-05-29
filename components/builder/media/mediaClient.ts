@@ -60,17 +60,27 @@ export function mediaSrc(assetId: string): string {
 }
 
 /**
+ * SHA-256 (lowercase hex) of a byte buffer, via SubtleCrypto. The pure
+ * hashing core — separated from `sha256Hex` so the byte→hex transform
+ * can be unit-tested without reading a `Blob` (whose `arrayBuffer()`
+ * leaves a BLOBREADER async resource the leak detector flags).
+ */
+export async function sha256HexOfBytes(bytes: BufferSource): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", bytes);
+	return Array.from(new Uint8Array(digest))
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+}
+
+/**
  * SHA-256 (lowercase hex) of a file's bytes, computed in the browser
  * via SubtleCrypto. Sent at upload-initiate so the server can
  * dedup-skip the bytes push when the owner already holds this exact
  * content — and matched against the server's own hash at confirm.
+ * A thin `Blob` adapter over `sha256HexOfBytes`.
  */
 export async function sha256Hex(file: Blob): Promise<string> {
-	const buffer = await file.arrayBuffer();
-	const digest = await crypto.subtle.digest("SHA-256", buffer);
-	return Array.from(new Uint8Array(digest))
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
+	return sha256HexOfBytes(await file.arrayBuffer());
 }
 
 /** Initiate response shape — discriminated by `deduplicated`. */
