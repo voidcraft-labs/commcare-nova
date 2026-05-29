@@ -28,10 +28,9 @@
  *
  *   - **Category 2 — parse-clean, install-fatal.** `BasicInstaller::install`
  *     (`commcare-core/.../resources/model/installers/BasicInstaller.java`)
- *     routes a resource by its location's `authority`: `local` reads
- *     bundled bytes; `remote` returns `false` (the branch carries an
- *     unimplemented `// TODO: Implement local cache code`, so any remote
- *     reference fails install). Nova bundles every media file locally, so
+ *     routes a resource by its location's `authority`: only `local` reads
+ *     bundled bytes; every other authority returns `false` and the
+ *     resource fails install. Nova bundles every media file locally, so
  *     the oracle treats anything other than `local` as a generator bug.
  *     Duplicate `<resource id>` siblings + locations pointing at zip
  *     entries that aren't bundled also parse clean and fail at install
@@ -63,25 +62,6 @@ import {
 } from "./errors";
 
 const XML_OPTS = { xmlMode: true } as const;
-
-/**
- * The closed set of `<location authority>` values commcare-core's
- * `ResourceParser::parse` recognizes (`local` / `remote`); anything else
- * defaults to `RESOURCE_AUTHORITY_REMOTE` (the parser branches on a literal
- * `"local"` / `"remote"` match) and `BasicInstaller::install` returns
- * `false` on remote, so an unknown authority is identically install-fatal.
- *
- * Nova emits only `local` — every media file is bundled in the CCZ.
- */
-const VALID_AUTHORITIES: ReadonlySet<string> = new Set(["local", "remote"]);
-
-/**
- * The single authority Nova's emitter is meant to produce. Anything else
- * (including the legal-but-unsupported `remote`) is a generator bug: the
- * compiler always writes bytes into the archive, so a remote reference
- * would point at nowhere on device.
- */
-const NOVA_AUTHORITY = "local";
 
 /**
  * Validate a generated `media_suite.xml` against CommCare's parse + install
@@ -293,10 +273,10 @@ function checkResource(
 
 /**
  * Validate one `<location>` element. The `authority` attribute is required
- * (`ResourceParser::parse` reads `sAuthority` and tests against the literal
- * `"local"` / `"remote"` strings; an absent attribute defaults to remote,
- * which `BasicInstaller::install` then refuses). The text content is the
- * resource path; an empty value leaves the installer with nothing to
+ * and must be `local` — Nova's only authored value, and the only value
+ * `BasicInstaller::install` reads bundled bytes for; any other value
+ * (absent, remote, or unrecognized) fails install. The text content is
+ * the resource path; an empty value leaves the installer with nothing to
  * resolve. When the path starts with `./`, the suffix is checked against
  * the bundled-file set.
  */
@@ -319,25 +299,18 @@ function checkLocation(
 				loc,
 			),
 		);
-	} else if (!VALID_AUTHORITIES.has(authority.toLowerCase())) {
+	} else if (authority.toLowerCase() !== "local") {
+		// CommCare's installer only fetches bytes for `local` authority
+		// (verified at `BasicInstaller::install`); anything else — `remote`,
+		// an unrecognized literal, anything that defaults to remote — returns
+		// false and the resource fails install. Nova bundles every media file
+		// into the CCZ, so the only authored authority is `local`; any other
+		// value is a generator bug.
 		errors.push(
 			validationError(
 				"MEDIA_LOCATION_UNKNOWN_AUTHORITY",
 				"app",
-				`The generated media_suite.xml has a <location authority="${authority}">${where}, but CommCare's ResourceParser only honors "local" or "remote" and defaults the rest to remote — which BasicInstaller's install method refuses. This is a bug in the media-suite generator.`,
-				loc,
-			),
-		);
-	} else if (authority.toLowerCase() !== NOVA_AUTHORITY) {
-		// `remote` is a legal authority value for `ResourceParser`, but
-		// `BasicInstaller::install` returns false on the remote branch (the
-		// `// TODO: Implement local cache code` Nova relies on). Nova bundles
-		// every media file locally; a remote authority here is a generator bug.
-		errors.push(
-			validationError(
-				"MEDIA_LOCATION_UNKNOWN_AUTHORITY",
-				"app",
-				`The generated media_suite.xml has a <location authority="${authority}">${where}, but Nova bundles every media file locally — a remote authority points at a resource the installer can never fetch (BasicInstaller's remote branch returns false). This is a bug in the media-suite generator.`,
+				`The generated media_suite.xml has a <location authority="${authority}">${where}, but CommCare's installer only reads bundled bytes for "local" authority. Anything else fails install — the path isn't bundled and the installer can never fetch it. This is a bug in the media-suite generator.`,
 				loc,
 			),
 		);
