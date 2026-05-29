@@ -181,9 +181,7 @@ export function createSolutionsArchitect(
 	 *
 	 * The generic input type `I` is carried through `FlexibleSchema<I>` so
 	 * the returned `execute` callback hands the exact Zod-output type to
-	 * the shared tool module — no `unknown` fallback. `strict` is
-	 * forwarded only when the tool module declares it; omitting the key
-	 * leaves the AI SDK's own default in place.
+	 * the shared tool module — no `unknown` fallback.
 	 *
 	 * Returns a plain object literal rather than routing through `tool()`:
 	 * the AI SDK's `tool()` function is identity at runtime (`(t) => t`)
@@ -197,7 +195,6 @@ export function createSolutionsArchitect(
 	function wrapMutating<I, R>(t: {
 		description: string;
 		inputSchema: FlexibleSchema<I>;
-		strict?: boolean;
 		execute(
 			input: I,
 			ctx: ToolExecutionContext,
@@ -207,7 +204,6 @@ export function createSolutionsArchitect(
 		return {
 			description: t.description,
 			inputSchema: t.inputSchema,
-			...(t.strict !== undefined && { strict: t.strict }),
 			execute: (input: I) =>
 				serial(async () => {
 					/* `kind: "mutate"` discriminator is internal to the shared

@@ -4,12 +4,11 @@
  * Both `addFields` (batch) and `addField` (single) walk this pipeline
  * before emitting `addField` mutations:
  *
- *   1. **`stripEmpty`** — batch-only. `addFieldsItemSchema` uses
- *      sentinel-padded optionals (empty string = absent) to stay under
- *      the Anthropic structured-output compiler's 8-optional ceiling
- *      per array item; `stripEmpty` collapses those sentinels to
- *      absence. The single-field `addFieldSchema` uses plain optionals
- *      and skips this step.
+ *   1. **`stripEmpty`** — batch-only. `addFieldsItemSchema` carries one
+ *      required-with-sentinel field (`label`, where "" = no label);
+ *      `stripEmpty` collapses that "" — and any other empty string / empty
+ *      array the SA happens to send — to absence. The single-field
+ *      `addFieldSchema` uses plain optionals and skips this step.
  *   2. **`applyDefaults`** — both surfaces. XPath HTML-entity unescape,
  *      case-type property defaulting (seed `kind` / `label` / etc.
  *      from the catalog), and preload auto-default (`default_value =
@@ -73,38 +72,39 @@ export function unescapeXPath(s: string): string {
 /**
  * The flat field shape the SA emits inside an `addFields` batch item.
  * Derived directly from `addFieldsItemSchema` so the interface can't
- * drift from the tool's input contract. `label`, `required`, and
- * `parentId` are required-with-sentinel (empty string = absent) to stay
- * under Anthropic's 8-optional-fields-per-array-item compiler ceiling;
- * `stripEmpty` normalizes the sentinels to absence before the handler
- * assembles a domain `Field`. `parentId` is a semantic field id (or
- * empty string for "insert at the form's top level"); the handler
- * resolves it to a UUID when building the `addField` mutation.
+ * drift from the tool's input contract. Only `label` is required-with-
+ * sentinel ("" = no label); `stripEmpty` normalizes it — and any other
+ * empty value — to absence before the handler assembles a domain `Field`.
+ * `parentId` is an optional semantic field id (omitted = "insert at the
+ * form's top level"); the handler resolves a present value to a UUID when
+ * building the `addField` mutation.
  */
 export type FlatField = z.infer<typeof addFieldsItemSchema>;
 
 // ── Sentinel collapse ────────────────────────────────────────────────
 
 /**
- * Collapse sentinel values to absence:
+ * Collapse empty values to absence:
  *   - empty string → drop the key entirely
  *   - empty array  → drop
  *
- * `parentId` is special-cased: an empty string becomes `null` (rather
- * than being dropped) so downstream "no parent = form level" logic can
- * distinguish "field omitted this key" from "SA explicitly said
- * top-level." Today both paths converge on the same insertion point,
- * but the null is retained for clarity and future branching.
+ * The one value this matters for by contract is `label: ""` (the
+ * required-with-sentinel "no label" case); it also defensively drops any
+ * other empty string the SA sends for a now-optional field rather than
+ * omitting it.
  *
- * Batch-path only. `addFieldsItemSchema` uses sentinel-padded
- * optionals to stay under the Anthropic compiler's 8-optional ceiling
- * per array item, so the `addFields` tool runs its input through this
- * before `applyDefaults`. `addField` uses plain optionals and skips
- * sentinel collapse — its payload feeds `applyDefaults` directly.
+ * `parentId` is special-cased: missing or empty becomes `null` (rather
+ * than just being dropped) so the downstream "no parent = form level"
+ * logic reads an explicit value. Now that `parentId` is optional the SA
+ * usually omits it, which lands here as `undefined` → `null`.
  *
- * Input is typed as `FlatField` (the Zod-validated shape with sentinel-
- * required keys); output is `Partial<FlatField>` because any of those
- * keys may now be absent.
+ * Batch-path only — the `addFields` tool runs its input through this
+ * before `applyDefaults`. `addField` (single) feeds `applyDefaults`
+ * directly.
+ *
+ * Input is typed as `FlatField` (the Zod-validated batch-item shape);
+ * output is `Partial<FlatField>` because any non-required key may be
+ * absent after the collapse.
  */
 export function stripEmpty(q: FlatField): Partial<FlatField> & {
 	parentId?: string | null;
@@ -207,13 +207,12 @@ export function applyDefaults<E extends object = object>(
  * be salvaged into a valid `Field`; callers skip and log.
  *
  * `label`, `hint`, etc. are included only when they carry a non-empty
- * value. The batch schema's sentinel-required `label`/`required` fields
- * are already stripped to absent by `stripEmpty` before this runs, and
- * the single-field schema uses plain optionals (no sentinels), so the
- * extra guard here is defensive but cheap.
+ * value. The batch schema's required-with-sentinel `label` is already
+ * collapsed to absent by `stripEmpty` when "", and the other fields are
+ * plain optionals, so the extra guard here is defensive but cheap.
  *
  * Lives alongside `stripEmpty` + `applyDefaults` because the three
- * helpers form the shared add-path pipeline — sentinels collapse
+ * helpers form the shared add-path pipeline — empty-value collapse
  * (batch only), defaults merge, then assembly — that both `addFields`
  * and `addField` walk in order.
  */

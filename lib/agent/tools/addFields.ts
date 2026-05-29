@@ -1,12 +1,14 @@
 /**
  * SA tool: `addFields` — bulk-add fields to an existing form.
  *
- * The SA emits a flat list of fields with sentinel-padded optionals
- * (see `toolSchemaGenerator.ts` for why). This tool runs them through
- * the three-step pipeline in `contentProcessing.ts` — `stripEmpty` →
- * `applyDefaults` → `flatFieldToField` — mints uuids, resolves semantic
- * parent ids (including parents added earlier in the same batch), and
- * emits one mutation batch tagged `form:M-F`.
+ * The SA emits a flat list of fields — `id` / `kind` / `label` required,
+ * everything else (including `parentId` and `required`) optional and
+ * simply omitted when unset (see `toolSchemaGenerator.ts` for why the
+ * old required-with-sentinel form was dropped). This tool runs them
+ * through the three-step pipeline in `contentProcessing.ts` —
+ * `stripEmpty` → `applyDefaults` → `flatFieldToField` — mints uuids,
+ * resolves semantic parent ids (including parents added earlier in the
+ * same batch), and emits one mutation batch tagged `form:M-F`.
  *
  * Appends to existing fields; does not replace. The SA relies on that
  * contract when it splits a large add across multiple calls.

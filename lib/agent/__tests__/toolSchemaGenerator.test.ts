@@ -5,8 +5,10 @@
 // the contract consumers rely on:
 //
 //   - Every kind the registry declares shows up in the `kind` enum.
-//   - The batch-item schema stays exactly at the 8-optional-field
-//     Anthropic compiler ceiling.
+//   - The batch-item schema requires only `id` / `kind` / `label`;
+//     `parentId` and `required` are optional (the tool runs on tool-use,
+//     not grammar-constrained structured output, so the old 8-optional
+//     cap never bound it).
 //   - Clearable edit-patch fields accept `null`.
 //   - Per-kind `saDocs` lines flow through into the `kind` enum's
 //     description (the SA reads the description when picking a kind).
@@ -49,11 +51,13 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
-	it("keeps the batch-item schema at exactly 8 optional fields (Anthropic ceiling)", () => {
-		// The Anthropic structured-output compiler times out above 8
-		// optional fields per array item. The generator promotes `label`
-		// and `required` to sentinel-required to stay at the limit; this
-		// test flags any accidental addition or removal.
+	it("keeps the batch-item schema at 10 optional fields", () => {
+		// The addFields tool runs on tool-use input, which isn't grammar-
+		// constrained, so the structured-output 8-optional compile ceiling
+		// never bound it. `parentId` + `required` are optional alongside
+		// the six flat optionals and the two nested-config objects
+		// (`validate`, `repeat`) — ten in total. This test flags any
+		// accidental addition or removal.
 		const jsonSchema = z.toJSONSchema(
 			generated.addFieldsItemSchema,
 		) as unknown as {
@@ -64,19 +68,35 @@ describe("toolSchemaGenerator", () => {
 		const optionalCount = allKeys.filter(
 			(k) => !jsonSchema.required.includes(k),
 		).length;
-		expect(optionalCount).toBe(8);
+		expect(optionalCount).toBe(10);
 	});
 
-	it("requires id, kind, parentId, label, and required on batch items", () => {
-		// Repeat-mode config lives nested under the optional `repeat`
-		// object; validation lives nested under optional `validate`.
-		// Neither contributes top-level required keys.
+	it("requires only id, kind, and label on batch items", () => {
+		// `label` is required-with-sentinel ("" = no label) as a conscious-
+		// choice guard for the empty-label kinds. `parentId` and `required`
+		// are optional — the SA omits them (handler defaults parent →
+		// form-level, absent required → not required). Repeat/validation
+		// config live nested under their optional objects, contributing no
+		// top-level required keys.
 		const jsonSchema = z.toJSONSchema(
 			generated.addFieldsItemSchema,
 		) as unknown as { required: string[] };
 		expect(new Set(jsonSchema.required)).toEqual(
-			new Set(["id", "kind", "parentId", "label", "required"]),
+			new Set(["id", "kind", "label"]),
 		);
+	});
+
+	it("parses a batch item that omits parentId and required", () => {
+		// The fix that made these optional: a flat field with neither
+		// `parentId` nor `required` must parse cleanly (it used to be a
+		// hard tool-input rejection that forced the SA to retry with ""
+		// sentinels). `label` is still required.
+		const result = generated.addFieldsItemSchema.safeParse({
+			id: "patient_name",
+			kind: "text",
+			label: "Patient name",
+		});
+		expect(result.success).toBe(true);
 	});
 
 	it("makes clearable edit-patch fields nullable", () => {

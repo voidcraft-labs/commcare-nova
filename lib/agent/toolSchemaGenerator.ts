@@ -6,23 +6,28 @@
 // difference is wrapping (array vs object), optionality, and whether null
 // is accepted as "clear this property" (patch only).
 //
-// ## The 8-optional ceiling
+// ## Why `parentId`/`required` are optional but `label` is required
 //
-// Anthropic's structured-output schema compiler times out on array-item
-// schemas that carry more than ~8 optional fields. The field union
-// accepts every kind in one shape (the SA picks `kind` at the top), so
-// the full set of optionals is the UNION across all kinds: ~10+. To keep
-// the add-batch schema within the 8-optional cap, `label` and `required`
-// are promoted to REQUIRED fields and carry sentinel values instead:
+// Anthropic's GRAMMAR-CONSTRAINED decoding (the `Output.object` /
+// structured-output path) times out compiling array-item schemas with
+// more than ~8 optional fields on opus-4-7 and earlier ("Grammar
+// compilation timed out"); opus-4-8 raises that to at least 11. But these
+// three tools run as plain `tool_use`, never `Output.object` — and plain
+// tool use is NOT grammar-constrained, so there is no compilation step and
+// no such ceiling (opus-4-7 accepts 10 optionals in this shape in ~4s).
+// The earlier required-with-sentinel pattern was inherited from the
+// structured-output test path and never actually bound the production tool
+// surface, so `parentId` and `required` are plain optionals: the SA omits
+// them freely instead of eating a tool-input rejection + wasted retry when
+// it forgets to pass the sentinel.
 //
-//   - `label: ""`   means "no label" (used by hidden fields, which have
-//     no user-visible label but still need a slot in the shape).
-//   - `required: ""` means "not required" (the SA fills an XPath
-//     expression or "true()" when it wants a field required).
-//
-// `contentProcessing.stripEmpty()` collapses these sentinels to
-// `undefined` before the mutation mapper builds a `Field` — the domain
-// shape never sees an empty string where it expects absence.
+// `label` STAYS required-with-sentinel — as a conscious-choice guard, not
+// a compiler-budget hack: its valid-emptiness is kind-dependent (visible
+// kinds require a non-empty label; `hidden` / transparent `group` /
+// titleless `repeat` use ""), so forcing the SA to always supply a value
+// keeps that decision explicit. `contentProcessing.stripEmpty()` collapses
+// the "" sentinel — and any omitted optional — to `undefined` before the
+// mutation mapper builds a `Field`.
 //
 // ## Vocabulary
 //
@@ -102,7 +107,7 @@ const FIELD_DOCS = {
 	hint: "Help text rendered below the input.",
 	required:
 		'XPath expression — "true()" for always-required, or a conditional ' +
-		'like "#form/age > 0". Pass "" for not required. Supports hashtag ' +
+		'like "#form/age > 0". Omit for not required. Supports hashtag ' +
 		"references.",
 	validate:
 		"XPath expression evaluated when the user leaves the field. " +
@@ -165,27 +170,31 @@ const FIELD_DOCS = {
 // shared instance can leak that cache between tools.
 
 const idField = () => z.string().describe(FIELD_DOCS.id);
+
+// `parentId` is optional — omit it to insert at the form's top level
+// (the handler defaults a missing parent to form-level). Pass a
+// group/repeat id (including one added earlier in the same batch) to
+// nest under it.
 const parentIdField = () =>
 	z
 		.string()
+		.optional()
 		.describe(
-			'Parent group/repeat id (semantic id, not uuid). Pass "" to ' +
-				"insert at the form's top level.",
+			"Parent group/repeat id (semantic id, not uuid). Omit to insert " +
+				"at the form's top level.",
 		);
 
-// Sentinel-carrying required fields. Empty string = "not set"; the
-// mutation mapper drops them via `stripEmpty`. Required here so the
-// Anthropic compiler counts them as NON-optional, leaving the 8-slot
-// optional budget free for the real optionals.
+// `label` is required-with-sentinel ("" = no label). Required, not
+// optional, as a conscious-choice guard: visible kinds need a real label,
+// the empty-label kinds (hidden / transparent group / titleless repeat)
+// opt in with "". Not a compiler-budget device — see the header comment.
+// `stripEmpty` collapses the "" to absent before assembly.
 const labelSentinel = () => z.string().describe(FIELD_DOCS.label);
-const requiredSentinel = () => z.string().describe(FIELD_DOCS.required);
 
-// Optional shape primitives — these DO count against the 8-optional
-// ceiling on the batch-item schema. `validate` and `repeat` are nested
-// objects so each consumes a single slot regardless of how many inner
-// fields they hold; that's what makes the 8-slot budget fit when both
-// validation config and repeat-mode config land on the same union of
-// kinds.
+// Optional shape primitives. `validate` and `repeat` are nested objects
+// that group related config (expr+msg, mode+count/ids_query) into one
+// field each, keeping the item shape flat and easy for the SA to fill.
+const requiredField = () => z.string().optional().describe(FIELD_DOCS.required);
 const hintField = () => z.string().optional().describe(FIELD_DOCS.hint);
 const relevantField = () => z.string().optional().describe(FIELD_DOCS.relevant);
 const calculateField = () =>
@@ -247,23 +256,20 @@ const nullableOptions = () =>
 
 /**
  * Batch-add item shape. Lives inside `z.array(...)` as the per-item
- * schema for `addFields`. Eight optional fields exactly — `label` and
- * `required` are promoted to sentinel-required to stay under the
- * Anthropic compiler limit.
+ * schema for `addFields`. Only `id`, `kind`, and `label` are required
+ * (`label` is required-with-sentinel — see its factory); everything else,
+ * including `parentId` and `required`, is optional and simply omitted when
+ * unset. The SA emits these as `tool_use` input, which isn't grammar-
+ * constrained, so the old structured-output optional cap doesn't apply
+ * (see the header comment).
  */
 function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 	return z.object({
 		id: idField(),
 		kind: makeKindEnum(kinds),
-		parentId: parentIdField(),
-		// Required sentinels (don't count against the optional cap).
 		label: labelSentinel(),
-		required: requiredSentinel(),
-		// Eight optionals — the cap (verified by `scripts/test-schema.ts`
-		// against opus-4-7; nine times out the Anthropic grammar
-		// compiler). `validate` and `repeat` are nested objects so each
-		// consumes a single slot for what would otherwise be 2-3 flat
-		// fields each — the only reason the cap fits at all.
+		parentId: parentIdField(),
+		required: requiredField(),
 		hint: hintField(),
 		validate: validateConfigField().optional(),
 		relevant: relevantField(),
