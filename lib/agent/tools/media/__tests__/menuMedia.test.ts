@@ -5,11 +5,13 @@
  * These three share the nullable-asset-slot shape (asset id sets, `null`
  * clears) and target the menu carriers (module / form tiles, app logo).
  *
- * Coverage per tool: set both slots; clear via null; module/form-not-found
+ * Coverage per tool: set both slots; clear via null; clear survives the
+ * SSE JSON wire (the blocker regression guard); module/form-not-found
  * error; and the cross-surface parity check on one representative tool.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import { setAppLogoTool } from "../setAppLogo";
 import { setFormMediaTool } from "../setFormMedia";
 import { setModuleMediaTool } from "../setModuleMedia";
@@ -60,6 +62,28 @@ describe("setModuleMedia", () => {
 			seeded.newDoc,
 		);
 		const mod = cleared.newDoc.modules[MOD_A];
+		expect(mod?.icon).toBeUndefined();
+		expect(mod?.audioLabel).toBe("asset-audio");
+	});
+
+	it("clears the icon AFTER a JSON wire round-trip (blocker guard)", async () => {
+		const { doc: baseDoc, ctx } = makeMediaFixture();
+		const seeded = await setModuleMediaTool.execute(
+			{ moduleIndex: 0, icon: "asset-icon", audioLabel: "asset-audio" },
+			ctx,
+			baseDoc,
+		);
+		const clear = await setModuleMediaTool.execute(
+			{ moduleIndex: 0, icon: null, audioLabel: "asset-audio" },
+			ctx,
+			seeded.newDoc,
+		);
+		// Apply the clear's mutations through the JSON wire — a clear encoded
+		// as `{ icon: undefined }` would be dropped by `JSON.stringify` and
+		// the icon would survive; the dedicated `setModuleMedia` mutation
+		// carries explicit `null`, so it clears over the wire.
+		const overWire = applyOverWire(seeded.newDoc, clear.mutations);
+		const mod = overWire.modules[MOD_A];
 		expect(mod?.icon).toBeUndefined();
 		expect(mod?.audioLabel).toBe("asset-audio");
 	});
@@ -133,6 +157,29 @@ describe("setFormMedia", () => {
 		expect(form?.audioLabel).toBeUndefined();
 	});
 
+	it("clears both slots AFTER a JSON wire round-trip (blocker guard)", async () => {
+		const { doc: baseDoc, ctx } = makeMediaFixture();
+		const seeded = await setFormMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				icon: "asset-icon",
+				audioLabel: "asset-audio",
+			},
+			ctx,
+			baseDoc,
+		);
+		const clear = await setFormMediaTool.execute(
+			{ moduleIndex: 0, formIndex: 0, icon: null, audioLabel: null },
+			ctx,
+			seeded.newDoc,
+		);
+		const overWire = applyOverWire(seeded.newDoc, clear.mutations);
+		const form = overWire.forms[FORM_A];
+		expect(form?.icon).toBeUndefined();
+		expect(form?.audioLabel).toBeUndefined();
+	});
+
 	it("returns an Elm-style error when the form is out of range", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await setFormMediaTool.execute(
@@ -175,6 +222,22 @@ describe("setAppLogo", () => {
 		);
 		expect(cleared.newDoc.logo).toBeUndefined();
 		expect(cleared.result).toContain("Cleared");
+	});
+
+	it("clears the logo AFTER a JSON wire round-trip (blocker guard)", async () => {
+		const { doc: baseDoc, ctx } = makeMediaFixture();
+		const seeded = await setAppLogoTool.execute(
+			{ logo: "asset-logo" },
+			ctx,
+			baseDoc,
+		);
+		const clear = await setAppLogoTool.execute(
+			{ logo: null },
+			ctx,
+			seeded.newDoc,
+		);
+		const overWire = applyOverWire(seeded.newDoc, clear.mutations);
+		expect(overWire.logo).toBeUndefined();
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {

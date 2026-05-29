@@ -21,7 +21,7 @@
 
 import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
-import { updateModuleMutations } from "../../blueprintHelpers";
+import { setModuleMediaMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
@@ -72,13 +72,16 @@ export const setModuleMediaTool = {
 					"set module media",
 				);
 
-			// `null → undefined` so a cleared slot drops off the module.
-			// `updateModuleMutations` patches `Partial<Omit<Module,"uuid">>`,
-			// so `icon`/`audioLabel` route through it directly.
-			const mutations = updateModuleMutations(mod, {
-				icon: brandAssetSlot(icon) ?? undefined,
-				audioLabel: brandAssetSlot(audioLabel) ?? undefined,
-			});
+			// Emit the dedicated `setModuleMedia` mutation: a clear must ride
+			// the SSE wire as an explicit `null` (the reducer maps it to
+			// `undefined`). An `updateModule` patch would encode a clear as
+			// `{ icon: undefined }`, which `JSON.stringify` drops, leaving the
+			// stale ref on the client.
+			const mutations = setModuleMediaMutations(
+				mod.uuid,
+				brandAssetSlot(icon),
+				brandAssetSlot(audioLabel),
+			);
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(
 				mutations,

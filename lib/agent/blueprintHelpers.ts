@@ -34,6 +34,7 @@ import type {
 	FieldPatchFor,
 	Form,
 	FormType,
+	Media,
 	Module,
 	PostSubmitDestination,
 	SearchInputDef,
@@ -290,6 +291,61 @@ export function updateModuleMutations(
  * drops off the doc rather than persisting as a literal `null`. */
 export function setAppLogoMutations(logo: AssetId | null): Mutation[] {
 	return [{ kind: "setAppLogo", logo }];
+}
+
+/**
+ * The four field message slots a media bundle attaches to, sourced from
+ * the `setFieldMedia` mutation arm so the builder signature can't drift
+ * from the wire schema.
+ */
+export type FieldMediaSlot = Extract<
+	Mutation,
+	{ kind: "setFieldMedia" }
+>["slot"];
+
+/**
+ * Set or clear one of a field's message-slot media bundles
+ * (`label`/`hint`/`help`/`validate_msg`). Emits the dedicated
+ * `setFieldMedia` mutation — NOT an `updateField` patch — because a clear
+ * must cross the SSE wire as an explicit `null` (the reducer maps it to
+ * `undefined`). A clear encoded as `{ <slot>_media: undefined }` on an
+ * `updateField` patch would be dropped by `JSON.stringify`, silently
+ * leaving the stale asset ref on the client. Passing a `Media` bundle
+ * sets the slot; passing `null` clears it. The reducer guards slot-vs-kind
+ * (the SA tool also rejects an unsupported slot up front). */
+export function setFieldMediaMutations(
+	fieldUuid: Uuid,
+	slot: FieldMediaSlot,
+	media: Media | null,
+): Mutation[] {
+	return [{ kind: "setFieldMedia", fieldUuid, slot, media }];
+}
+
+/**
+ * Set or clear a module's menu media (home-screen tile `icon` +
+ * `audioLabel`). Emits the dedicated `setModuleMedia` mutation rather than
+ * an `updateModule` patch, for the same wire-survival reason as
+ * `setFieldMediaMutations`: a clear rides as explicit `null` (mapped to
+ * `undefined` in the reducer) so it isn't dropped by `JSON.stringify`.
+ * Both slots are set in one call — pass `null` on either to clear it. */
+export function setModuleMediaMutations(
+	moduleUuid: Uuid,
+	icon: AssetId | null,
+	audioLabel: AssetId | null,
+): Mutation[] {
+	return [{ kind: "setModuleMedia", uuid: moduleUuid, icon, audioLabel }];
+}
+
+/**
+ * Set or clear a form's menu media (tile `icon` + `audioLabel`). Mirrors
+ * `setModuleMediaMutations` one level down — dedicated `setFormMedia`
+ * mutation so a clear survives the SSE wire as an explicit `null`. */
+export function setFormMediaMutations(
+	formUuid: Uuid,
+	icon: AssetId | null,
+	audioLabel: AssetId | null,
+): Mutation[] {
+	return [{ kind: "setFormMedia", uuid: formUuid, icon, audioLabel }];
 }
 
 // ── Mutation builders — case list config ────────────────────────────────
@@ -611,25 +667,12 @@ export function updateFormMutations(
 		connect: ConnectConfig | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
-		// Menu-media slots. Both are `assetIdSchema.optional()` on the
-		// `Form` schema (no stored `null`), so the patch carries `null` to
-		// mean "clear" and the builder maps it to `undefined` — the same
-		// clear convention every other clearable key here uses.
-		icon: AssetId | null;
-		audioLabel: AssetId | null;
 	}>,
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
 	const reducerPatch: Partial<Omit<Form, "uuid">> = {};
 	if (patch.name !== undefined) reducerPatch.name = patch.name;
 	if (patch.type !== undefined) reducerPatch.type = patch.type;
-	if (patch.icon !== undefined) {
-		reducerPatch.icon = patch.icon === null ? undefined : patch.icon;
-	}
-	if (patch.audioLabel !== undefined) {
-		reducerPatch.audioLabel =
-			patch.audioLabel === null ? undefined : patch.audioLabel;
-	}
 	if (patch.closeCondition !== undefined) {
 		// `null` → clear (reducer treats `undefined` as "remove" via
 		// Object.assign — not perfect, but Immer's Object.assign with an

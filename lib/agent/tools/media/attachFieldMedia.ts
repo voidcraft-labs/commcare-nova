@@ -12,11 +12,19 @@
  * Slot availability is per-kind, not universal: `label_media` is on every
  * visible field (and containers); `hint_media` / `help_media` are on
  * input kinds; `validate_msg_media` only on the kinds that support
- * validation. The tool narrows with `"<key>" in field` (the same
- * narrowing `lib/domain/mediaRefs.ts` uses) and refuses a slot the field
- * doesn't carry with an Elm-shape error — a raw `updateField` would
- * silently no-op an unsupported slot, leaving the SA believing the
- * attachment landed.
+ * validation. The tool gates the slot against the field's KIND via
+ * `fieldKindDeclaresKey` — the schema key set, NOT `key in field`, because
+ * an unset optional slot is absent as an own property even on a kind that
+ * supports it — and refuses an unsupported slot with an Elm-shape error.
+ *
+ * The tool emits the dedicated `setFieldMedia` mutation (via
+ * `setFieldMediaMutations`), NOT an `updateField` patch. A clear must
+ * cross the SSE wire as an explicit `null`: an `updateField` patch encodes
+ * a clear as `{ <slot>_media: undefined }`, which `JSON.stringify` DROPS,
+ * so the client's `applyMany` would never clear the slot and the stale
+ * asset ref would persist (and auto-save back over the SA's correct
+ * clear). `setFieldMedia` carries `media: Media | null` and the reducer
+ * maps `null → undefined`, so both set and clear survive the wire.
  *
  * Asset existence is not checked here — the SA validation loop's media
  * rules surface a bad reference (deleted / pending / foreign-owned /
@@ -30,11 +38,11 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, Field, FieldPatchFor } from "@/lib/domain";
+import type { BlueprintDoc, Field } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
 import {
 	resolveFieldByIndex,
-	updateFieldMutations,
+	setFieldMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
@@ -122,26 +130,19 @@ export const attachFieldMediaTool = {
 				};
 			}
 
-			// Empty bundle clears the slot; a populated bundle replaces it.
-			// An all-empty bundle resolves to `undefined` so the carrier
-			// drops the reference (rather than storing an empty object).
+			// Empty bundle clears the slot; a populated bundle sets it. An
+			// all-empty bundle becomes a `null` payload so the reducer drops
+			// the slot (rather than storing an empty object). `null` survives
+			// JSON over the SSE wire; `undefined` would not.
 			const branded = brandMediaBundle(media);
 			const hasAny =
 				branded.image !== undefined ||
 				branded.audio !== undefined ||
 				branded.video !== undefined;
-			// The patch key is the kind-specific `<slot>_media`. The cast
-			// through `FieldPatchFor` aligns the single-key patch with the
-			// per-kind partial shape; `field.kind` is the concrete target
-			// kind the reducer discriminates against.
-			const patch = {
-				[mediaKey]: hasAny ? branded : undefined,
-			} as FieldPatchFor<typeof field.kind>;
-			const mutations = updateFieldMutations(
-				doc,
+			const mutations = setFieldMediaMutations(
 				field.uuid,
-				field.kind,
-				patch,
+				slot,
+				hasAny ? branded : null,
 			);
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(

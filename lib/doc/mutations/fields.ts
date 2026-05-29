@@ -2,6 +2,7 @@ import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
+	fieldKindDeclaresKey,
 	fieldSchema,
 	getConvertibleTypes,
 	pickFieldKeysForKind,
@@ -150,7 +151,8 @@ export function applyFieldMutation(
 				| "renameField"
 				| "duplicateField"
 				| "updateField"
-				| "convertField";
+				| "convertField"
+				| "setFieldMedia";
 		}
 	>,
 ): MoveFieldResult | FieldRenameMeta | undefined {
@@ -556,6 +558,36 @@ export function applyFieldMutation(
 				return;
 			}
 			draft.fields[mut.uuid] = reconciled;
+			return;
+		}
+		case "setFieldMedia": {
+			// Set or clear one message slot's media bundle. The mutation
+			// carries an explicit `media: Media | null` (null survives JSON
+			// where `{ key: undefined }` would not), so both set and clear
+			// cross the SSE wire intact. The slot name maps to the
+			// `<slot>_media` field key.
+			const field = draft.fields[mut.fieldUuid];
+			if (!field) return;
+			const mediaKey = `${mut.slot}_media` as const;
+			// Guard slot-vs-kind against the schema key set (not `key in field`
+			// — an unset optional slot is absent as an own property even on a
+			// supporting kind). A slot the kind doesn't declare is skipped
+			// rather than written as a stray key the strict field schema would
+			// later reject. The SA tool rejects this up front; the reducer
+			// guard is the backstop for any other emitter.
+			if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
+				log.warn(
+					`setFieldMedia: ${field.kind} field has no ${mediaKey} slot — skipped.`,
+					{ uuid: mut.fieldUuid, slot: mut.slot },
+				);
+				return;
+			}
+			// Map `null → undefined` so a cleared slot drops off the field
+			// (the slot is `.optional()`, never a stored `null`). Cast through
+			// a record view: the four `<slot>_media` keys live on different
+			// arms of the discriminated `Field` union with no single common
+			// parent, so a structural write is the cleanest way to set one.
+			(field as Record<string, unknown>)[mediaKey] = mut.media ?? undefined;
 			return;
 		}
 	}

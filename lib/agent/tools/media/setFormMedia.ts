@@ -18,7 +18,7 @@
 
 import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
-import { resolveFormUuid, updateFormMutations } from "../../blueprintHelpers";
+import { resolveFormUuid, setFormMediaMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { brandAssetSlot, nullableAssetSlot } from "./shared";
@@ -66,13 +66,16 @@ export const setFormMediaTool = {
 				};
 			}
 
-			// `null → undefined` clears the slot. `updateFormMutations`
-			// exposes the menu-media slots (`icon` / `audioLabel`) alongside
-			// its other patchable form keys.
-			const mutations = updateFormMutations(doc, formUuid, {
-				icon: brandAssetSlot(icon),
-				audioLabel: brandAssetSlot(audioLabel),
-			});
+			// Emit the dedicated `setFormMedia` mutation: a clear must ride
+			// the SSE wire as an explicit `null` (the reducer maps it to
+			// `undefined`). An `updateForm` patch would encode a clear as
+			// `{ icon: undefined }`, which `JSON.stringify` drops, leaving the
+			// stale ref on the client.
+			const mutations = setFormMediaMutations(
+				formUuid,
+				brandAssetSlot(icon),
+				brandAssetSlot(audioLabel),
+			);
 			const newDoc = applyToDoc(doc, mutations);
 			await ctx.recordMutations(
 				mutations,

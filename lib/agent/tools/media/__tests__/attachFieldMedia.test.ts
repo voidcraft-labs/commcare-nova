@@ -4,14 +4,18 @@
  * Coverage:
  *   1. Sets a slot's media bundle on the field.
  *   2. Clears the slot when handed an empty bundle.
- *   3. Refuses a slot the field's kind doesn't carry (validate_msg on a
+ *   3. CLEAR survives the SSE JSON wire (the blocker regression guard) —
+ *      a clear encoded as `{ key: undefined }` would be dropped by
+ *      `JSON.stringify` and silently no-op on the client.
+ *   4. Refuses a slot the field's kind doesn't carry (validate_msg on a
  *      hidden field) with an Elm-style error naming the available slots.
- *   4. Field-not-found surfaces an Elm-style error.
- *   5. Cross-surface parity — chat + MCP contexts produce identical
+ *   5. Field-not-found surfaces an Elm-style error.
+ *   6. Cross-surface parity — chat + MCP contexts produce identical
  *      mutation batches.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import { attachFieldMediaTool } from "../attachFieldMedia";
 import { makeMediaFixture, makeMediaMcpFixture, TEXT_FIELD } from "./fixtures";
 
@@ -100,6 +104,46 @@ describe("attachFieldMedia", () => {
 			field && "label_media" in field ? field.label_media : undefined,
 		).toBeUndefined();
 		expect(cleared.result).toContain("Cleared");
+	});
+
+	it("clears the slot AFTER a JSON wire round-trip (blocker guard)", async () => {
+		// Build a doc that already has label_media set, then take the CLEAR
+		// tool's mutations and apply them through `applyOverWire` (JSON
+		// serialize/parse) against that doc — exactly what the client does
+		// with the SSE `data-mutations` payload. A clear encoded as
+		// `{ label_media: undefined }` on an `updateField` patch would be
+		// dropped by `JSON.stringify` and the slot would survive; the
+		// dedicated `setFieldMedia` mutation carries an explicit `null`, so
+		// it clears over the wire too.
+		const { doc: baseDoc, ctx } = makeMediaFixture();
+		const seeded = await attachFieldMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				slot: "label",
+				media: { image: "asset-img-1" },
+			},
+			ctx,
+			baseDoc,
+		);
+		const clear = await attachFieldMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				slot: "label",
+				media: {},
+			},
+			ctx,
+			seeded.newDoc,
+		);
+
+		const overWire = applyOverWire(seeded.newDoc, clear.mutations);
+		const field = overWire.fields[TEXT_FIELD];
+		expect(
+			field && "label_media" in field ? field.label_media : undefined,
+		).toBeUndefined();
 	});
 
 	it("refuses a slot the field's kind doesn't carry", async () => {
