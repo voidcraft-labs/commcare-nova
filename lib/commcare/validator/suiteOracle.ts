@@ -1277,22 +1277,6 @@ function checkLocaleResolution(
 const JR_FILE_PREFIX = "jr://file/";
 
 /**
- * Patterns extracting jr:// path literals out of an image-map column's
- * `<xpath function="...">` content. Nova's image-map emitter inlines the
- * paths as quoted XPath string literals inside a nested `if(...)` chain
- * (see `suite/case-list/columns.ts::imageMapDisplayXpath`) — the matcher
- * walks every quoted occurrence (single OR double-quoted) and pulls the
- * `jr://file/...` prefix-to-quote slice.
- *
- * The regex is deliberately liberal on what counts as a path char (anything
- * other than the closing quote) — the strict shape is what the emitter
- * produces (`commcare/<hash><ext>`); the check only needs to compare the
- * captured slice against the manifest.
- */
-const IMAGE_MAP_JR_LITERAL_SINGLE = /'(jr:\/\/file\/[^']*)'/g;
-const IMAGE_MAP_JR_LITERAL_DOUBLE = /"(jr:\/\/file\/[^"]*)"/g;
-
-/**
  * The closed context the media-path-resolution sweep needs: the suite-wide
  * `app_strings.txt` key→value table (to resolve menu-borne locale media
  * references through to their jr:// wire paths) plus the manifest of
@@ -1410,22 +1394,25 @@ function checkMediaResolution(
 
 /**
  * Extract every `commcare/<...>` wire path embedded as a quoted XPath
- * `jr://file/...` literal inside one `<xpath function>` body. Both quote
- * styles are scanned because the emitter's quote choice is deterministic
- * but the oracle should tolerate either — a future quote-flip would
- * otherwise silently waive the check.
+ * `jr://file/...` literal inside one `<xpath function>` body. Nova's
+ * image-map emitter inlines the paths as quoted XPath string literals
+ * inside a nested `if(...)` chain (see `suite/case-list/columns.ts::
+ * imageMapDisplayXpath`); the scan walks every quoted occurrence and
+ * pulls the post-prefix slice. Both quote styles are scanned because the
+ * emitter's quote choice is deterministic but the oracle should tolerate
+ * either — a future quote-flip would otherwise silently waive the check.
+ *
+ * The regex bodies are local to this call so the `/g` lastIndex stays
+ * scoped to the iteration — `matchAll` consumes the regex via its own
+ * iterator and never leaks state outside the loop.
  */
 function extractJrFileLiterals(xpathFunction: string): string[] {
 	const paths: string[] = [];
-	for (const re of [IMAGE_MAP_JR_LITERAL_SINGLE, IMAGE_MAP_JR_LITERAL_DOUBLE]) {
-		// Reset the lastIndex on the shared regex object — these are module-
-		// level singletons and stateful across calls under the `g` flag.
-		re.lastIndex = 0;
-		for (
-			let match = re.exec(xpathFunction);
-			match !== null;
-			match = re.exec(xpathFunction)
-		) {
+	for (const pattern of [
+		/'(jr:\/\/file\/[^']*)'/g,
+		/"(jr:\/\/file\/[^"]*)"/g,
+	]) {
+		for (const match of xpathFunction.matchAll(pattern)) {
 			paths.push(match[1].slice(JR_FILE_PREFIX.length));
 		}
 	}
