@@ -10,7 +10,7 @@
 // `<sort>` block presence, `<template form="phone">` on long-only)
 // flow through the `CaseListEmitContext.detailKind` discriminator.
 //
-// The six Nova column kinds map to CCHQ formats as follows:
+// The seven Nova column kinds map to CCHQ formats as follows:
 //
 //   - `plain`             → CCHQ `detail_screen.py::Plain` format.
 //     Bare property reference; the runtime renders the case
@@ -48,6 +48,16 @@
 //     property value; the `replace(join(...), '\\s+', ' ')` collapse
 //     trims the leading whitespace from the join's empty-arm
 //     fall-throughs. Sort uses raw `{xpath}`.
+//
+//   - `image-map`         → CCHQ `detail_screen.py::EnumImage` format
+//     (`<template form="image">`). The id-mapping shape with image
+//     paths instead of text labels: a NESTED-`if` chain
+//     `if(selected({xpath}, 'value-1'), 'jr://file/commcare/<hash><ext>',
+//     if(...))` inlining the resolved `jr://` path literals. Nested-if
+//     (not id-mapping's `replace(join(...))`) because the join's
+//     empty-arm collapse would leave a trailing space inside a matched
+//     `jr://` path and break the reference. Degrades to a plain column
+//     (raw property value) when media emission is off (no manifest).
 //
 //   - `interval`          → merges CCHQ's `TimeAgo` + `LateFlag`
 //     formats under one Nova kind. The `display` discriminator

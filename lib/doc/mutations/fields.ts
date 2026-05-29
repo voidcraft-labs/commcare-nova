@@ -854,12 +854,14 @@ function cascadeCasePropertyRename(
 		// cells, not modules, so a module with two stale column
 		// refs contributes two.
 		//
-		// Five of the six column kinds (`plain`, `date`, `phone`,
-		// `id-mapping`, `interval`) carry a `field` slot pointing at
-		// a case-property name; the rename rewrites those in place.
-		// `calculated` columns have no `field` slot — the
-		// expression is the source — and are skipped here; this
-		// loop is the property-name-as-string rewrite only.
+		// Six of the seven column kinds (`plain`, `date`, `phone`,
+		// `id-mapping`, `image-map`, `interval`) carry a `field` slot
+		// pointing at a case-property name; the rename rewrites those in
+		// place. `calculated` columns have no `field` slot — the
+		// expression is the source — and are skipped here; this loop is
+		// the property-name-as-string rewrite only. (`image-map`'s
+		// `mapping[].value` keys on the property's VALUE, not its name,
+		// so those rows need no rewrite — only its `field` does.)
 		const config = mod.caseListConfig;
 		if (config) {
 			for (const col of config.columns) {
