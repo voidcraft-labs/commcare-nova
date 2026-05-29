@@ -37,9 +37,9 @@ Request-level `cacheControl: { type: 'ephemeral' }` in the provider options. Ant
 
 Cache TTL is 5 minutes. The route uses a client-reported timestamp to choose the message strategy: within the window, full history is sent; after expiry, only the last user message goes (one-shot edit). Edit-vs-build mode is a separate decision — see root CLAUDE.md.
 
-## Provider options shape (Opus 4.7)
+## Provider options shape
 
-SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }, effort }`. `effort` is a **top-level** provider option (sibling of `thinking`), not nested inside it — the AI SDK's Zod schema silently strips misplaced fields, so a misplaced field appears to work and silently doesn't reach the wire. `display: 'summarized'` is required for human-readable thinking summaries on Opus 4.7. Always type provider options as `AnthropicProviderOptions`, never `Record<string, JSONValue>`.
+SA shape: `{ cacheControl, thinking: { type: 'adaptive', display: 'summarized' }, effort }`. `effort` is a **top-level** provider option (sibling of `thinking`), not nested inside it — the AI SDK's Zod schema silently strips misplaced fields, so a misplaced field appears to work and silently doesn't reach the wire. `display: 'summarized'` is required for human-readable thinking summaries on Opus 4.7 and later. Always type provider options as `AnthropicProviderOptions`, never `Record<string, JSONValue>`.
 
 ## Two tool groups: generation + shared
 
