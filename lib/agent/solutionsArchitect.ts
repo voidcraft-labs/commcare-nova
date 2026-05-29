@@ -483,7 +483,7 @@ export function createSolutionsArchitect(
 		stopWhen: stepCountIs(80),
 		prepareStep: () => {
 			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
-			// for human-readable thinking summaries to stream back. `effort` is a
+			// and later for human-readable thinking summaries to stream back. `effort` is a
 			// top-level provider option (sibling of `thinking`), not nested inside
 			// it — Zod silently strips nested unknown fields.
 			const anthropic: AnthropicProviderOptions = {
