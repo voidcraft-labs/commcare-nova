@@ -1071,6 +1071,33 @@ export interface FuzzMediaAsset {
 }
 
 /**
+ * True when the doc carries at least one media reference that lowers to
+ * an XForm `<value form="image|audio|video">jr://...` sibling — i.e. a
+ * field message-slot bundle (`label_media` / `hint_media` / `help_media`
+ * / `validate_msg_media`) or an option `media` bundle.
+ *
+ * This is the form-itext sub-population, deliberately NARROWER than
+ * `hasMedia`: menu-style carriers (app logo, module/form icon +
+ * audioLabel, image-map columns) emit into the suite + app_strings, not
+ * into any form's itext, so they never feed the XForm oracle's
+ * `XFORM_DANGLING_MEDIA_REF` resolution path. The XForm fuzz floors THIS
+ * ratio (not `hasMedia`'s) so a drift in `FIELD_MEDIA_SPEC_ARB` toward
+ * all-empty slots fails loud rather than turning the media-resolution
+ * check into a silent no-op while menu media keeps `hasMedia` true.
+ */
+export function hasFormItextMedia(doc: BlueprintDoc): boolean {
+	for (const ref of walkAssetRefs(doc)) {
+		if (
+			ref.location.kind === "field_media_bundle" ||
+			ref.location.kind === "option_media"
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Build a deterministic manifest covering every `AssetId` the doc
  * references. Walks via `walkAssetRefs` (the same single-source-of-truth
  * walker the validator + manifest loader consume) so the fuzz manifest

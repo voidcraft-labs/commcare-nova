@@ -34,7 +34,7 @@
  */
 
 import * as fc from "fast-check";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type {
@@ -51,6 +51,7 @@ import {
 	blueprintDocArbitrary,
 	type FuzzMediaAsset,
 	fuzzManifestFromDoc,
+	hasFormItextMedia,
 } from "./xformDocArbitrary";
 
 /** Fixed seed + run count so a failure reproduces exactly across runs + CI. */
@@ -121,12 +122,26 @@ function wirePathSet(
 }
 
 describe("XForm emitter totality (property-based fuzz)", () => {
+	// Census counters accumulated across the run; asserted after. The XForm
+	// oracle's `XFORM_DANGLING_MEDIA_REF` resolution path only fires on forms
+	// that actually emit a `<value form=...>jr://...` sibling — i.e. only on
+	// docs with field message-slot or option media. A drift in the field-media
+	// arbitrary toward all-empty slots would leave that path unexercised while
+	// every other assertion stayed green; the floor below catches it.
+	const census = { total: 0, formItextMedia: 0 };
+
 	it("every form of every schema-valid doc emits oracle-clean XForm", {
 		timeout: FUZZ_TIMEOUT_MS,
 	}, () => {
 		fc.assert(
 			fc.property(blueprintDocArbitrary, (doc) => {
 				prepareAndGuard(doc);
+
+				// Census the doc shape before emitting: count docs carrying
+				// form-itext media (the population the media-resolution check
+				// below exercises).
+				census.total += 1;
+				if (hasFormItextMedia(doc)) census.formItextMedia += 1;
 
 				// Build the fuzz manifest covering every media reference the doc
 				// makes; thread it into `expandDoc` so the XForm emitter actually
@@ -188,5 +203,18 @@ describe("XForm emitter totality (property-based fuzz)", () => {
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED },
 		);
+	});
+
+	it("the run exercised the form-itext media-resolution path", () => {
+		// A floor, not a target: the media-resolution check
+		// (`XFORM_DANGLING_MEDIA_REF`) only runs on docs that emit a
+		// `<value form=...>jr://...` sibling, which only field message-slot
+		// and option media produce. If `FIELD_MEDIA_SPEC_ARB` drifts toward
+		// all-empty slots this ratio collapses and the check silently stops
+		// firing; failing here forces the generator drift to be noticed.
+		// Raising the floor is fine; lowering it to paper over a drift is the
+		// failure mode this guards against.
+		expect(census.total).toBeGreaterThan(0);
+		expect(census.formItextMedia / census.total).toBeGreaterThan(0.3);
 	});
 });

@@ -81,6 +81,7 @@ import {
 	type FieldBuildCtx,
 	type FieldGenSpec,
 	fieldSpecArb,
+	hasFormItextMedia,
 	IdMinter,
 	pickSiblingId,
 } from "./xformDocArbitrary";
@@ -749,12 +750,8 @@ export function hasMedia(doc: BlueprintDoc): boolean {
 	for (const form of Object.values(doc.forms)) {
 		if (form.icon !== undefined || form.audioLabel !== undefined) return true;
 	}
-	for (const field of Object.values(doc.fields)) {
-		const f = field as Record<string, unknown>;
-		if (f.label_media || f.hint_media || f.help_media || f.validate_msg_media)
-			return true;
-		const options = (f.options ?? []) as ReadonlyArray<{ media?: unknown }>;
-		if (options.some((o) => o.media !== undefined)) return true;
-	}
-	return false;
+	// Field message-slot + option media is the form-itext sub-population;
+	// delegate to its typed owner so the two census predicates share one
+	// detector rather than each hand-rolling the field walk.
+	return hasFormItextMedia(doc);
 }

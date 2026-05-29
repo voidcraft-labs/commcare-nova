@@ -931,21 +931,30 @@ const JR_ITEXT_REF_PATTERN = /^jr:itext\('([^']+)'\)$/;
 
 /**
  * Resolution of every `jr:itext('X')` reference the form makes — across two
- * surfaces JavaRosa walks against the same itext table:
+ * surfaces JavaRosa treats DIFFERENTLY at parse time:
  *
  *   - **Body-element `ref` attributes.** `<label ref="jr:itext('X')">`,
  *     `<hint ref="...">`, `<help ref="...">`, `<value ref="...">` on inline
- *     `<item>`s.
+ *     `<item>`s. A dangling id here is parse-FATAL: `commcare-core
+ *     .../xform/parse/XFormParser.java::verifyTextMappings` throws
+ *     `XFormParseException` when the default locale has no matching `<text>`.
  *   - **`<bind jr:constraintMsg>` attributes.** `commcare-core
- *     .../xform/parse/XFormParser.java::parseBindAttributes` reads
- *     `jr:constraintMsg` off the bind and routes its `jr:itext('X')` value
- *     through the same `parseTextHandle` lookup, so a dangling id there is
- *     identically install-fatal at JavaRosa form-init.
+ *     .../xform/parse/XFormParser.java::parseBindAttributes` stores the
+ *     `jr:constraintMsg` value RAW on the binding — it never routes through
+ *     `verifyTextMappings`, so a dangling id there is NOT parse-fatal. The
+ *     runtime tolerates it: `Constraint.java::getConstraintMessage` resolves the
+ *     itext lazily at constraint-failure display time and falls back to the raw
+ *     string when the lookup misses. The bind-attribute scan is therefore a
+ *     regression guard STRICTER than Core (same posture as `XFORM_DANGLING_BIND`),
+ *     not a mirror of a runtime crash.
  *
- * Without the bind-attribute scan, a media-only `validate_msg_media` whose
- * registration gate ever drifts from the bind-attribute gate parses clean here
- * while detonating at form-init — exactly the regression that motivated
- * folding the two surfaces into one check rather than scanning only `ref`.
+ * Both surfaces share one check because the emit-time invariant is uniform: a
+ * `jr:itext('X')` reference — body ref or `jr:constraintMsg` — must exist iff its
+ * `<text id="X">` entry does. A media-only `validate_msg_media` whose
+ * registration gate ever drifts from the bind-attribute gate would emit a
+ * dangling `jr:constraintMsg` ref — caught here as a generator bug rather than
+ * shipped as a silently-degraded constraint message (the bare `jr:itext('X')`
+ * string surfacing to the user instead of the intended text).
  */
 function checkItextReferences(
 	model: XFormModel,

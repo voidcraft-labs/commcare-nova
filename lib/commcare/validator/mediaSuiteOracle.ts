@@ -295,17 +295,20 @@ function checkLocation(
 			validationError(
 				"MEDIA_LOCATION_NO_AUTHORITY",
 				"app",
-				`The generated media_suite.xml has a <location>${where} with no authority attribute. CommCare's ResourceParser reads this attribute directly and the installer routes on its value; an absent authority defaults to remote and fails install. This is a bug in the media-suite generator.`,
+				`The generated media_suite.xml has a <location>${where} with no authority attribute. CommCare's ResourceParser lowercases this attribute without a null check, so an absent authority aborts the media_suite parse before the installer ever runs. This is a bug in the media-suite generator.`,
 				loc,
 			),
 		);
 	} else if (authority.toLowerCase() !== "local") {
-		// CommCare's installer only fetches bytes for `local` authority
-		// (verified at `BasicInstaller::install`); anything else — `remote`,
-		// an unrecognized literal, anything that defaults to remote — returns
-		// false and the resource fails install. Nova bundles every media file
-		// into the CCZ, so the only authored authority is `local`; any other
-		// value is a generator bug.
+		// CommCare reads bundled bytes only for `local` authority, via
+		// `BasicInstaller::install`'s local branch (`ref.doesBinaryExist()`).
+		// A non-local authority — explicit `remote`, or any unrecognized
+		// literal, which `ResourceParser::parse` leaves at its `REMOTE` enum
+		// default — is added as a remote location and routed through the
+		// installer's remote branch, which attempts a network fetch the
+		// bundled `jr://` path can't satisfy and returns false. Nova bundles
+		// every media file into the CCZ, so the only correct authority is
+		// `local`; any other value is a generator bug.
 		errors.push(
 			validationError(
 				"MEDIA_LOCATION_UNKNOWN_AUTHORITY",
