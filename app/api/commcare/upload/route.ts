@@ -11,12 +11,18 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
+import {
+	importApp,
+	isValidDomainSlug,
+	mediaUploadAssetsFromManifest,
+	uploadAppMedia,
+} from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import { resolveMediaManifest } from "@/lib/media/manifest";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -70,20 +76,29 @@ export async function POST(req: NextRequest) {
 			);
 		}
 		const { creds } = settings;
+		const domain = body.domain.trim();
 
-		/* ── Expand domain doc to HQ JSON ────────────────────────────── */
-		// HQ-bound JSON ships media-free: emitting media references
-		// without the matching files on the HQ side would render to
-		// broken images, which is worse than no images.
-		const hqJson = expandDoc(docWithParent);
-
-		/* ── Upload to CommCare HQ ──────────────────────────────────── */
-		const result = await importApp(
-			creds,
-			body.domain.trim(),
-			body.appName.trim(),
-			hqJson,
+		/* ── Resolve media manifest (with bytes) ─────────────────────── */
+		// The upload path is media-ON: the imported app's forms carry the
+		// `jr://file/commcare/<hash><ext>` itext references, and the bytes
+		// follow via the multimedia upload below. One resolution pass with
+		// bytes feeds BOTH the expander (references + multimedia_map) and
+		// the byte upload, so the references emitted and the files sent
+		// come from the same source and cannot drift.
+		const manifest = await resolveMediaManifest(
+			docWithParent,
+			session.user.id,
+			{ withBytes: true },
 		);
+
+		/* ── Expand domain doc to HQ JSON (media-ON) ─────────────────── */
+		const hqJson = expandDoc(docWithParent, { assets: manifest });
+
+		/* ── Import the app first ───────────────────────────────────── */
+		// The app must exist before any media upload — the app id goes in
+		// the upload URL, and HQ records each uploaded file against this
+		// new app's `multimedia_map`.
+		const result = await importApp(creds, domain, body.appName.trim(), hqJson);
 
 		if (!result.success) {
 			/* Map HQ 5xx → 502 so our monitoring distinguishes upstream failures
@@ -98,7 +113,41 @@ export async function POST(req: NextRequest) {
 			userId: session.user.id,
 		});
 
-		return NextResponse.json(result, { status: 201 });
+		/* ── Upload media bytes against the new app ──────────────────── */
+		// The app is created; now ship each asset's bytes so HQ's
+		// `create_mapping` overwrites the placeholder `multimedia_map`
+		// entries with real ids and the references resolve on the device.
+		// A media failure never invalidates the import (the app already
+		// exists) — per-asset failures surface as warnings.
+		const warnings = [...result.warnings];
+		const mediaResult = await uploadAppMedia(
+			creds,
+			domain,
+			result.appId,
+			mediaUploadAssetsFromManifest(manifest),
+		);
+		if ("success" in mediaResult) {
+			// A non-success summary means the batch couldn't start (e.g.
+			// invalid domain slug — already validated above, so defensive).
+			warnings.push(
+				"Media upload could not be completed; the app was created but its media may not display.",
+			);
+			log.error("[commcare/upload] media upload batch failed", {
+				domain: body.domain,
+				appId: result.appId,
+				status: mediaResult.status,
+			});
+		} else if (mediaResult.failures.length > 0) {
+			warnings.push(mediaUploadWarning(mediaResult.failures.length));
+			log.error("[commcare/upload] some media assets failed to upload", {
+				domain: body.domain,
+				appId: result.appId,
+				failed: mediaResult.failures.length,
+				uploaded: mediaResult.uploaded,
+			});
+		}
+
+		return NextResponse.json({ ...result, warnings }, { status: 201 });
 	} catch (err) {
 		return handleApiError(
 			err instanceof Error ? err : new Error("Upload failed"),
@@ -106,7 +155,20 @@ export async function POST(req: NextRequest) {
 	}
 }
 
-// ── Error messages (upload context) ───────────────────────────────
+// ── Warnings + error messages (upload context) ────────────────────
+
+/**
+ * User-facing warning when one or more media assets failed to upload.
+ * The app was still created on HQ — the affected media just won't render
+ * until re-uploaded. Kept count-based (not per-asset paths) so the
+ * message stays readable; server logs hold the detail.
+ */
+function mediaUploadWarning(failedCount: number): string {
+	const noun = failedCount === 1 ? "file" : "files";
+	return `${failedCount} media ${noun} could not be uploaded — the app was created, but ${
+		failedCount === 1 ? "that file" : "those files"
+	} won't display until re-uploaded.`;
+}
 
 /** Map CommCare HQ status codes to messages appropriate for the upload dialog. */
 function uploadErrorMessage(status: number): string {

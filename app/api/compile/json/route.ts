@@ -38,11 +38,14 @@ export async function POST(req: NextRequest) {
 		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
 		rebuildFieldParent(docWithParent);
 
-		// HQ-bound JSON exports media-free: shipping `multimedia_map` +
-		// `logo_refs` + media references without the matching files on
-		// the HQ side would render to broken images, which is worse than
-		// no images. The `.ccz` compile path keeps media-on because its
-		// files ship in the archive.
+		// This raw-JSON download stays media-free: it emits the HQ JSON
+		// but no byte upload follows it, so shipping `multimedia_map` +
+		// `logo_refs` + media references without the matching files would
+		// render to broken images, which is worse than no images. The two
+		// media-ON paths each ship the bytes alongside the references —
+		// the `.ccz` compile path bundles them in the archive, and the HQ
+		// upload path (`/api/commcare/upload`) POSTs them per file after
+		// import. This path does neither, so it omits the manifest.
 		const hqJson = expandDoc(docWithParent);
 		const jsonStr = JSON.stringify(hqJson, null, 2);
 

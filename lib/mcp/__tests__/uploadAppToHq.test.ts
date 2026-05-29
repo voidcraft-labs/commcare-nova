@@ -27,12 +27,19 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { importApp } from "@/lib/commcare/client";
+import {
+	importApp,
+	type MediaUploadAsset,
+	mediaUploadAssetsFromManifest,
+	uploadAppMedia,
+} from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import type { HqApplication } from "@/lib/commcare/types";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { resolveMediaManifest } from "@/lib/media/manifest";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { SCOPES } from "../scopes";
@@ -56,9 +63,18 @@ vi.mock("@/lib/db/settings", () => ({
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	importApp: vi.fn(),
+	uploadAppMedia: vi.fn(),
+	/* Pass-through default — the real projection is trivial and the flow
+	 * tests assert what `uploadAppMedia` is CALLED with, so the asset list
+	 * derived from the manifest must reflect the manifest the resolver
+	 * returned. Individual tests pin the manifest via `resolveMediaManifest`. */
+	mediaUploadAssetsFromManifest: vi.fn(() => []),
 }));
 vi.mock("@/lib/commcare/expander", () => ({
 	expandDoc: vi.fn(),
+}));
+vi.mock("@/lib/media/manifest", () => ({
+	resolveMediaManifest: vi.fn(),
 }));
 vi.mock("../loadApp", () => ({
 	loadAppBlueprint: vi.fn(),
@@ -161,6 +177,9 @@ beforeEach(() => {
 	vi.mocked(getDecryptedCredentialsWithDomain).mockReset();
 	vi.mocked(importApp).mockReset();
 	vi.mocked(expandDoc).mockReset();
+	vi.mocked(resolveMediaManifest).mockReset();
+	vi.mocked(uploadAppMedia).mockReset();
+	vi.mocked(mediaUploadAssetsFromManifest).mockReset();
 	LogWriterMock.instances = [];
 
 	/* Default happy-path mocks — individual tests override via
@@ -171,6 +190,11 @@ beforeEach(() => {
 	);
 	vi.mocked(loadAppBlueprint).mockResolvedValue(fixtureLoadedApp());
 	vi.mocked(expandDoc).mockReturnValue(FAKE_HQ_JSON);
+	/* Media-free defaults: empty manifest → empty asset list → upload is a
+	 * no-op. Media-flow tests override the manifest + projection + upload. */
+	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	vi.mocked(mediaUploadAssetsFromManifest).mockReturnValue([]);
+	vi.mocked(uploadAppMedia).mockResolvedValue({ uploaded: 0, failures: [] });
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -222,6 +246,122 @@ describe("registerUploadAppToHq — happy path", () => {
 		 * runs regardless of outcome. */
 		expect(LogWriterMock.instances).toHaveLength(1);
 		expect(LogWriterMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("registerUploadAppToHq — media upload ordering", () => {
+	/** A manifest stand-in — its contents don't matter because
+	 *  `mediaUploadAssetsFromManifest` is mocked; only that it's threaded
+	 *  from `resolveMediaManifest` → `expandDoc` → upload list does. */
+	const FAKE_MANIFEST: AssetManifest = new Map();
+
+	it("imports the app first, then uploads media against the returned app id", async () => {
+		const order: string[] = [];
+		vi.mocked(resolveMediaManifest).mockImplementation(async () => {
+			order.push("resolve");
+			return new Map();
+		});
+		vi.mocked(importApp).mockImplementation(async () => {
+			order.push("import");
+			return {
+				success: true,
+				appId: "hq-789",
+				appUrl: "https://hq.example/app",
+				warnings: [],
+			};
+		});
+		const fakeAssets: MediaUploadAsset[] = [
+			{ wirePath: "commcare/a.png", kind: "image", bytes: Buffer.from("x") },
+		];
+		vi.mocked(mediaUploadAssetsFromManifest).mockReturnValue(fakeAssets);
+		vi.mocked(uploadAppMedia).mockImplementation(async () => {
+			order.push("upload");
+			return { uploaded: 1, failures: [] };
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		await capture()({ app_id: "a1" }, {});
+
+		/* Strict sequence: resolve manifest → import app → upload media.
+		 * Import must precede upload because the upload URL embeds the
+		 * app id `importApp` returns. */
+		expect(order).toEqual(["resolve", "import", "upload"]);
+
+		/* The media bytes are uploaded against the id `importApp` returned,
+		 * to the stored domain, with the asset list derived from the same
+		 * manifest the expander consumed. */
+		expect(uploadAppMedia).toHaveBeenCalledWith(
+			FIXTURE_SETTINGS.creds,
+			"acme-research",
+			"hq-789",
+			fakeAssets,
+		);
+	});
+
+	it("expands media-ON with the resolved manifest threaded into expandDoc", async () => {
+		vi.mocked(resolveMediaManifest).mockResolvedValue(FAKE_MANIFEST);
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-1",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		await capture()({ app_id: "a1" }, {});
+
+		/* expandDoc receives `{ assets: manifest }` — this is the media-ON
+		 * flip: the emitted forms carry the jr:// itext references the
+		 * subsequent byte upload resolves. */
+		expect(expandDoc).toHaveBeenCalledWith(fixtureBlueprint(), {
+			assets: FAKE_MANIFEST,
+		});
+		/* The manifest is resolved WITH bytes — the upload needs them. */
+		expect(resolveMediaManifest).toHaveBeenCalledWith(
+			fixtureBlueprint(),
+			"u1",
+			{
+				withBytes: true,
+			},
+		);
+	});
+
+	it("surfaces partial media failure as a warning without failing the upload", async () => {
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-1",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+		const partialAssets: MediaUploadAsset[] = [
+			{ wirePath: "commcare/a.png", kind: "image", bytes: Buffer.from("x") },
+			{ wirePath: "commcare/b.mp3", kind: "audio", bytes: Buffer.from("y") },
+		];
+		vi.mocked(mediaUploadAssetsFromManifest).mockReturnValue(partialAssets);
+		vi.mocked(uploadAppMedia).mockResolvedValueOnce({
+			uploaded: 1,
+			failures: [{ wirePath: "commcare/b.mp3", status: 400 }],
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			stage: string;
+			hq_app_id: string;
+			warnings: string[];
+		};
+		/* Still a success envelope — the app was created. */
+		expect(parsed.stage).toBe("upload_complete");
+		expect(parsed.hq_app_id).toBe("hq-1");
+		/* The one failed asset becomes a single user-facing warning. */
+		expect(parsed.warnings).toHaveLength(1);
+		expect(parsed.warnings[0]).toContain("1 media file");
 	});
 });
 

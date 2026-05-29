@@ -50,9 +50,10 @@ const MEDIA_TYPE_FOR_KIND: Record<MediaKind, string> = {
 	video: "CommCareVideo",
 };
 
-/** One `multimedia_map` value. CCHQ reassigns `multimedia_id` after the
- *  step-2 multimedia upload reconciles files by path; Nova seeds a
- *  deterministic placeholder so the inbound shape is valid. */
+/** One `multimedia_map` value. CCHQ reassigns `multimedia_id` when the
+ *  per-file multimedia upload calls `create_mapping(multimedia, path)`
+ *  and overwrites this entry with the couch-assigned `_id`; Nova seeds a
+ *  deterministic placeholder so the inbound import shape is valid. */
 export interface MultimediaMapItem {
 	readonly multimedia_id: string;
 	readonly media_type: string;
@@ -82,9 +83,9 @@ export interface MediaBundle {
  * raises on a key that doesn't start with `jr://file/` — see the file
  * header). Value carries the media class + a placeholder
  * `multimedia_id` (the content hash — deterministic, and CCHQ
- * overwrites it via `create_mapping` once the bulk multimedia upload
- * reconciles the file by path). Used by the expander to stamp the
- * HqApplication for the upload path.
+ * overwrites it via `create_mapping` when the per-file multimedia
+ * upload posts the bytes for this path). Used by the expander to stamp
+ * the HqApplication for the upload path.
  */
 export function buildMultimediaMap(
 	assets: Iterable<ResolvedMediaAsset>,

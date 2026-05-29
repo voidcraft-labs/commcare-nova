@@ -10,6 +10,12 @@
  * HQ has no atomic update API, so every call produces a brand-new app
  * in the target project — the returned `hq_app_id` is always fresh.
  *
+ * The upload is media-ON and two-phase: import the media-bearing HQ JSON
+ * first (forms carry `jr://file/commcare/...` itext references), then
+ * upload each asset's bytes against the new app so HQ maps them by path.
+ * A media failure leaves the created app intact and surfaces as a
+ * warning — it never fails the upload.
+ *
  * The handler does NOT accept a `domain` argument. HQ API keys are
  * scoped to exactly one project space per user, so the domain is a
  * property of the user's stored credentials, not a client-supplied
@@ -50,9 +56,14 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { importApp } from "@/lib/commcare/client";
+import {
+	importApp,
+	mediaUploadAssetsFromManifest,
+	uploadAppMedia,
+} from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { getDecryptedCredentialsWithDomain } from "@/lib/db/settings";
+import { resolveMediaManifest } from "@/lib/media/manifest";
 import { initMcpCall } from "../context";
 import {
 	type McpToolErrorResult,
@@ -219,14 +230,26 @@ export function registerUploadAppToHq(
 						app_id: appId,
 					});
 
-					/* Gate 2 — the only network call. The SSRF boundary
+					/* Media manifest, resolved once with bytes. The upload
+					 * path is media-ON: the expanded forms carry the
+					 * `jr://file/commcare/<hash><ext>` itext references and
+					 * the bytes follow via the multimedia upload below. One
+					 * resolution pass feeds both the expander (references +
+					 * `multimedia_map`) and the byte upload, so the
+					 * references emitted and the files sent come from the
+					 * same source. An empty manifest (media-free app) makes
+					 * the upload step a no-op. */
+					const manifest = await resolveMediaManifest(doc, ctx.userId, {
+						withBytes: true,
+					});
+
+					/* Gate 2 — import the app first. The SSRF boundary
 					 * lives inside `importApp` via the hardcoded
 					 * `COMMCARE_HQ_URL`. `expandDoc` materializes the
-					 * `HqApplication` JSON HQ's `/api/import_app/`
-					 * endpoint expects. Media-free: emitting media
-					 * references without the matching files on the HQ
-					 * side would render broken images. */
-					const hqJson = expandDoc(doc);
+					 * media-ON `HqApplication` JSON HQ's `/api/import_app/`
+					 * endpoint expects; the app id it returns goes in the
+					 * media upload URL. */
+					const hqJson = expandDoc(doc, { assets: manifest });
 					/* App name defaulting: `?.trim() || app.app_name` maps
 					 * both omitted and whitespace-only inputs to the
 					 * blueprint's denormalized name — which is non-empty
@@ -249,6 +272,32 @@ export function registerUploadAppToHq(
 						);
 					}
 
+					/* App is created; upload each asset's bytes against it.
+					 * HQ's `create_mapping` overwrites the placeholder
+					 * `multimedia_map` ids with the couch-assigned ones so
+					 * the references resolve on the device. A media failure
+					 * never invalidates the (already-created) app — per-asset
+					 * failures surface as warnings. */
+					const warnings = [...result.warnings];
+					const mediaResult = await uploadAppMedia(
+						settings.creds,
+						targetDomain,
+						result.appId,
+						mediaUploadAssetsFromManifest(manifest),
+					);
+					if ("success" in mediaResult) {
+						warnings.push(
+							"Media upload could not be completed; the app was created but its media may not display.",
+						);
+					} else if (mediaResult.failures.length > 0) {
+						const n = mediaResult.failures.length;
+						warnings.push(
+							`${n} media ${n === 1 ? "file" : "files"} could not be uploaded — the app was created, but ${
+								n === 1 ? "that file" : "those files"
+							} won't display until re-uploaded.`,
+						);
+					}
+
 					progress.notify(
 						"upload_complete",
 						`Uploaded — HQ app id ${result.appId}`,
@@ -267,7 +316,7 @@ export function registerUploadAppToHq(
 						output: {
 							hq_app_id: result.appId,
 							url: result.appUrl,
-							warnings: result.warnings,
+							warnings,
 						},
 					});
 
@@ -280,7 +329,7 @@ export function registerUploadAppToHq(
 									app_id: appId,
 									hq_app_id: result.appId,
 									url: result.appUrl,
-									warnings: result.warnings,
+									warnings,
 								}),
 							},
 						],
