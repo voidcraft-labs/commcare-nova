@@ -19,6 +19,7 @@ import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import { updateAppForRun } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
@@ -29,6 +30,12 @@ import { makeMinimalDoc, makeTestContext } from "./fixtures";
  * the module level so the no-op save doesn't reach Firestore. */
 vi.mock("@/lib/db/apps", () => ({
 	updateAppForRun: vi.fn(() => Promise.resolve()),
+}));
+
+/* Mock the logger so `emitError`'s server-side cause-logging is silent in
+ * test output and assertable. */
+vi.mock("@/lib/logger", () => ({
+	log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), critical: vi.fn() },
 }));
 
 // Representative text-field add mutation. The specific mutation shape is
@@ -332,6 +339,54 @@ describe("GenerationContext.emitError", () => {
 		};
 		expect(writerCall.type).toBe("data-conversation-event");
 	});
+
+	it("logs an internal error's raw cause server-side so it isn't swallowed", () => {
+		// The conversation event + event log only carry the user-safe
+		// `message`; the real cause (`raw`) is dropped there. emitError must
+		// surface it via the logger, or an `internal` classification reaches
+		// the operator as a bare "Something went wrong" with nothing to act on.
+		vi.mocked(log.error).mockClear();
+		const { ctx } = makeTestContext();
+		ctx.emitError(
+			{
+				type: "internal",
+				message: "Something went wrong during generation.",
+				recoverable: false,
+				raw: "Cloud SQL case store is missing required environment variables: NOVA_DB_NAME",
+			},
+			"validateApp:materialize",
+		);
+		expect(log.error).toHaveBeenCalledWith(
+			expect.stringContaining("internal error"),
+			undefined,
+			expect.objectContaining({
+				raw: expect.stringContaining("missing required environment variables"),
+				context: "validateApp:materialize",
+			}),
+		);
+	});
+
+	it("logs known external errors at warn, not error", () => {
+		// Recoverable/expected external conditions (rate limit, auth, …)
+		// shouldn't flood Error Reporting — they surface the cause at `warn`.
+		vi.mocked(log.warn).mockClear();
+		vi.mocked(log.error).mockClear();
+		const { ctx } = makeTestContext();
+		ctx.emitError(
+			{
+				type: "api_rate_limit",
+				message: "Rate limited by the AI service.",
+				recoverable: false,
+				raw: "429 Too Many Requests",
+			},
+			"route:stream",
+		);
+		expect(log.warn).toHaveBeenCalledWith(
+			expect.stringContaining("api_rate_limit"),
+			expect.objectContaining({ raw: "429 Too Many Requests" }),
+		);
+		expect(log.error).not.toHaveBeenCalled();
+	});
 });
 
 describe("GenerationContext.handleAgentStep", () => {
@@ -456,5 +511,78 @@ describe("GenerationContext.handleAgentStep", () => {
 		const snap = usage.snapshot();
 		expect(snap.stepCount).toBe(1);
 		expect(snap.toolCallCount).toBe(1);
+	});
+
+	it("logs a failed tool call's error as a paired tool-result", () => {
+		// A call rejected for invalid input (or that throws in `execute`)
+		// surfaces as a `tool-error` part — the SA pulls it from
+		// `step.content` into `toolErrors`, NOT `toolResults`. The handler
+		// folds it into an `{ error }` output so the failed call leaves a
+		// paired record in the log instead of a bare, resultless invocation
+		// (the gap that made the omit-then-retry diagnosis require inference).
+		const { ctx, logWriter } = makeTestContext();
+
+		ctx.handleAgentStep(
+			{
+				usage: MINIMAL_USAGE,
+				toolCalls: [
+					{ toolCallId: "tc-1", toolName: "addFields", input: { fields: [] } },
+				],
+				toolResults: [],
+				toolErrors: [
+					{
+						toolCallId: "tc-1",
+						error: new Error("Invalid input: missing required field"),
+					},
+				],
+			},
+			"Solutions Architect",
+		);
+
+		// Two events: the tool-call, then a tool-result whose output carries
+		// the extracted error message (Error → `.message`).
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
+		const payloads = logWriter.logEvent.mock.calls.map(
+			(c) => (c[0] as { payload: unknown }).payload,
+		);
+		expect(payloads).toEqual([
+			{
+				type: "tool-call",
+				toolCallId: "tc-1",
+				toolName: "addFields",
+				input: { fields: [] },
+			},
+			{
+				type: "tool-result",
+				toolCallId: "tc-1",
+				toolName: "addFields",
+				output: { error: "Invalid input: missing required field" },
+			},
+		]);
+	});
+
+	it("prefers a real tool-result over a tool-error for the same call", () => {
+		// Defensive: a call can't both succeed and error, but if the SDK
+		// ever reports both, the genuine result must win — the error fold
+		// is skipped when a result is already present.
+		const { ctx, logWriter } = makeTestContext();
+
+		ctx.handleAgentStep(
+			{
+				usage: MINIMAL_USAGE,
+				toolCalls: [{ toolCallId: "tc-1", toolName: "addFields", input: {} }],
+				toolResults: [{ toolCallId: "tc-1", output: { success: true } }],
+				toolErrors: [{ toolCallId: "tc-1", error: "ignored" }],
+			},
+			"Solutions Architect",
+		);
+
+		const resultPayload = logWriter.logEvent.mock.calls
+			.map(
+				(c) =>
+					(c[0] as { payload: { type: string; output?: unknown } }).payload,
+			)
+			.find((p) => p.type === "tool-result");
+		expect(resultPayload?.output).toEqual({ success: true });
 	});
 });
