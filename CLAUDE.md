@@ -19,7 +19,7 @@ Next.js web app that generates CommCare apps from natural language conversation.
 npm run dev                             # Turbopack
 npm run build / lint / format / test
 npm run test:leaks                      # full suite under the async-leak detector (slow; see Testing)
-npx tsx scripts/test-schema.ts          # test structured output schemas
+npx tsx scripts/test-schema.ts          # test SA tool-input schemas are API-accepted
 npx tsx scripts/build-xpath-parser.ts   # rebuild Lezer parser from lib/commcare/xpath/grammar.lezer.grammar
 ```
 
@@ -216,7 +216,7 @@ Z-index is a semantic scale of named tokens (not hardcoded numbers) — use the 
 
 ## Structured output constraint
 
-The Anthropic schema compiler times out above 8 optional fields per array item — verified hard ceiling on opus-4-7 (9 reproducibly fails via `scripts/test-schema.ts`). Two patterns to fit at 8: required-with-sentinel for universal keys (post-processed via `stripEmpty`), and nested-object optionals for grouped feature configs (one slot regardless of inner field count). Field schemas come from one shared source — never inline new ones in tool defs. Test with the schema script.
+The "~8 optional fields per array item" compile ceiling is specific to **grammar-constrained decoding** — the `Output.object` / structured-output path. There, Anthropic's grammar compiler times out above ~8 optionals on opus-4-7 and earlier ("Grammar compilation timed out"); opus-4-8 raises it to at least 11. **Plain tool use (`tools[name].inputSchema`) is NOT grammar-constrained**, so it has no such ceiling — the SA's field-mutation tools (`addFields` et al.) run on tool use and carry 10+ optionals freely. The required-with-sentinel pattern that used to pad `addFields` was inherited from a structured-output test path and never bound the real tool surface; `addFields` now requires only `id`/`kind`/`label` (label kept required-with-sentinel as a kind-dependent label-validity guard, not a budget device). For any genuine structured-output (`Output.object`) schema, two patterns still fit the cap: required-with-sentinel for universal keys (post-processed via `stripEmpty`) and nested-object optionals for grouped feature configs (one slot regardless of inner field count). Field schemas come from one shared source — never inline new ones in tool defs. Verify tool-input acceptance with `scripts/test-schema.ts`.
 
 ## Model configuration
 
