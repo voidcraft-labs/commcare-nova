@@ -98,9 +98,10 @@ export async function getCommCareSettings(
 /**
  * Resolve decrypted credentials AND the target project space for an upload,
  * in a single Firestore read. `requested` is an optional explicit space name
- * (per-call MCP arg / per-request body field) that overrides the stored
- * default. Used by both the MCP upload tool and the HTTP upload route so they
- * share one authorization decision.
+ * (per-call MCP arg / per-request body field); with none supplied the resolver
+ * uses the sole reachable space (single-space key) or returns `ambiguous` for a
+ * multi-space key. Used by both the MCP upload tool and the HTTP upload route so
+ * they share one authorization decision.
  *
  * The API key is decrypted only after the target resolves, so an unauthorized
  * or ambiguous request never reaches KMS.
