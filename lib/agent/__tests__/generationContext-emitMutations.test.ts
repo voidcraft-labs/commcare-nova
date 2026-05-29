@@ -457,4 +457,77 @@ describe("GenerationContext.handleAgentStep", () => {
 		expect(snap.stepCount).toBe(1);
 		expect(snap.toolCallCount).toBe(1);
 	});
+
+	it("logs a failed tool call's error as a paired tool-result", () => {
+		// A call rejected for invalid input (or that throws in `execute`)
+		// surfaces as a `tool-error` part — the SA pulls it from
+		// `step.content` into `toolErrors`, NOT `toolResults`. The handler
+		// folds it into an `{ error }` output so the failed call leaves a
+		// paired record in the log instead of a bare, resultless invocation
+		// (the gap that made the omit-then-retry diagnosis require inference).
+		const { ctx, logWriter } = makeTestContext();
+
+		ctx.handleAgentStep(
+			{
+				usage: MINIMAL_USAGE,
+				toolCalls: [
+					{ toolCallId: "tc-1", toolName: "addFields", input: { fields: [] } },
+				],
+				toolResults: [],
+				toolErrors: [
+					{
+						toolCallId: "tc-1",
+						error: new Error("Invalid input: missing required field"),
+					},
+				],
+			},
+			"Solutions Architect",
+		);
+
+		// Two events: the tool-call, then a tool-result whose output carries
+		// the extracted error message (Error → `.message`).
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
+		const payloads = logWriter.logEvent.mock.calls.map(
+			(c) => (c[0] as { payload: unknown }).payload,
+		);
+		expect(payloads).toEqual([
+			{
+				type: "tool-call",
+				toolCallId: "tc-1",
+				toolName: "addFields",
+				input: { fields: [] },
+			},
+			{
+				type: "tool-result",
+				toolCallId: "tc-1",
+				toolName: "addFields",
+				output: { error: "Invalid input: missing required field" },
+			},
+		]);
+	});
+
+	it("prefers a real tool-result over a tool-error for the same call", () => {
+		// Defensive: a call can't both succeed and error, but if the SDK
+		// ever reports both, the genuine result must win — the error fold
+		// is skipped when a result is already present.
+		const { ctx, logWriter } = makeTestContext();
+
+		ctx.handleAgentStep(
+			{
+				usage: MINIMAL_USAGE,
+				toolCalls: [{ toolCallId: "tc-1", toolName: "addFields", input: {} }],
+				toolResults: [{ toolCallId: "tc-1", output: { success: true } }],
+				toolErrors: [{ toolCallId: "tc-1", error: "ignored" }],
+			},
+			"Solutions Architect",
+		);
+
+		const resultPayload = logWriter.logEvent.mock.calls
+			.map(
+				(c) =>
+					(c[0] as { payload: { type: string; output?: unknown } }).payload,
+			)
+			.find((p) => p.type === "tool-result");
+		expect(resultPayload?.output).toEqual({ success: true });
+	});
 });

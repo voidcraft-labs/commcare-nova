@@ -499,7 +499,10 @@ export function createSolutionsArchitect(
 			 * We map the AI SDK's step-finish argument into the normalized
 			 * AgentStep shape here so the handler stays SDK-version stable.
 			 * `toolResults` is loosely typed by the SDK — narrow at the
-			 * boundary rather than inside the shared helper. */
+			 * boundary rather than inside the shared helper. Tool failures
+			 * (invalid input / execution throw) arrive as `tool-error`
+			 * content parts, NOT in `toolResults`; pull them out so the
+			 * handler can log the error instead of dropping it. */
 			ctx.handleAgentStep(
 				{
 					usage: step.usage,
@@ -511,6 +514,11 @@ export function createSolutionsArchitect(
 						input: tc.input,
 					})),
 					toolResults: step.toolResults,
+					toolErrors: step.content.flatMap((part) =>
+						part.type === "tool-error"
+							? [{ toolCallId: part.toolCallId, error: part.error }]
+							: [],
+					),
 					warnings: step.warnings,
 				},
 				"Solutions Architect",

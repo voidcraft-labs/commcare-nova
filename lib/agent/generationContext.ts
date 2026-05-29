@@ -138,6 +138,20 @@ export interface AgentStep {
 		toolCallId: string;
 		output: unknown;
 	}>;
+	/**
+	 * Tool calls that FAILED rather than returned a result — invalid input
+	 * rejected before `execute` runs, or an execution throw. The AI SDK
+	 * surfaces these as `tool-error` content parts, kept out of
+	 * `toolResults`; the caller pulls them from `step.content`. Captured so
+	 * a failed call leaves a paired error in the log instead of a bare,
+	 * resultless tool-call (the gap that made the omit-then-retry diagnosis
+	 * require inference). `toolName` is omitted — it's recovered from the
+	 * matching `toolCalls` entry, same as `toolResults`.
+	 */
+	toolErrors?: Array<{
+		toolCallId: string;
+		error: unknown;
+	}>;
 	warnings?: CallWarning[];
 }
 
@@ -476,6 +490,20 @@ export class GenerationContext implements ToolExecutionContext {
 		const resultByCallId = new Map<string, unknown>();
 		for (const tr of step.toolResults ?? []) {
 			resultByCallId.set(tr.toolCallId, tr.output);
+		}
+		// Fold SDK-surfaced tool errors (invalid input rejected before
+		// `execute`, or an execution throw) into the same map as an
+		// `{ error }` output — the shape the tool bodies already use for
+		// handled errors, so log readers and the chat UI treat both alike.
+		// Without this a failed call emits a tool-call with no paired
+		// result, leaving the log showing a bare, unexplained invocation.
+		// Errored and successful results are mutually exclusive per call, so
+		// a present result always wins.
+		for (const te of step.toolErrors ?? []) {
+			if (resultByCallId.has(te.toolCallId)) continue;
+			resultByCallId.set(te.toolCallId, {
+				error: te.error instanceof Error ? te.error.message : String(te.error),
+			});
 		}
 		for (const tc of step.toolCalls ?? []) {
 			this.usage.noteToolCall();
