@@ -53,7 +53,6 @@ describe("verifyAndSaveCredentials", () => {
 		const settings = {
 			configured: true,
 			username: "alice@example.com",
-			domain: null,
 			availableDomains: [PROD, CRISPR],
 		};
 		mocks.getCommCareSettings.mockResolvedValue(settings);
@@ -121,7 +120,6 @@ describe("refreshDomainsAction", () => {
 		const settings = {
 			configured: true,
 			username: "alice@example.com",
-			domain: PROD,
 			availableDomains: [PROD, CRISPR],
 		};
 		mocks.refreshApprovedDomains.mockResolvedValue({ ok: true, settings });

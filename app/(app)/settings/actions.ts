@@ -30,7 +30,7 @@ import { log } from "@/lib/logger";
 /**
  * Shared result for actions that mutate the connection — the success branch
  * carries the refreshed public settings so the client can swap its state in
- * one step (active space + the full reachable set).
+ * one step (the full reachable set of project spaces).
  */
 export type SettingsResult =
 	| { success: true; settings: CommCareSettingsPublic }

@@ -13,9 +13,9 @@
  *     failure test asserts `importApp` was never called.
  *   - A mid-upload throw still flushes the writer via the `finally` block.
  *   - The optional `domain` arg threads to `getCredentialsForUpload`: omitted
- *     → resolved server-side from the default; supplied → an explicit target
- *     that can fail as `domain_not_authorized`; multi-space with neither →
- *     `domain_ambiguous` (the tool refuses to guess).
+ *     → resolves the sole reachable space (single-space key); supplied → an
+ *     explicit target that can fail as `domain_not_authorized`; multi-space with
+ *     no `domain` → `domain_ambiguous` (the tool refuses to guess).
  *
  * The MCP SDK is mocked at the boundary via the `makeFakeServer` helper
  * (same pattern the sibling tests use). `@/lib/mcp/loadApp` is mocked
