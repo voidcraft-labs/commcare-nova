@@ -425,7 +425,10 @@ function DomainSection({
 
 	return (
 		<div className="flex flex-col gap-2.5">
-			<div className="flex items-center justify-between gap-3">
+			{/* Status badge + Refresh form one left-aligned cluster. `justify-between`
+			 * here pinned Refresh to the far edge of the card, leaving a wide dead
+			 * gap; the connection state and its refresh action read as one unit. */}
+			<div className="flex flex-wrap items-center gap-2">
 				{isMultiSpace ? (
 					<Popover>
 						<PopoverTrigger className="inline-flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-nova-emerald/10 bg-nova-emerald/[0.04] px-3.5 py-2.5 text-sm text-nova-text transition-colors hover:border-nova-emerald/25">
@@ -457,10 +460,7 @@ function DomainSection({
 							</p>
 							<ul className="flex flex-col gap-0.5">
 								{availableDomains.map((d) => (
-									<li
-										key={d.name}
-										className="flex flex-col rounded-md px-2 py-1.5"
-									>
+									<li key={d.name} className="flex flex-col px-1 py-1.5">
 										<span className="text-sm text-nova-text">
 											{d.displayName}
 										</span>
