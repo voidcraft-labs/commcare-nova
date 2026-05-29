@@ -6,10 +6,10 @@
  * catch everything internally and return structured error responses.
  *
  * An HQ API key can reach several project spaces, so these actions deal in
- * the full reachable set: verifying stores every reachable space, and the
- * picker/refresh actions let the user choose and re-read the default. Each
- * action returns the fresh `CommCareSettingsPublic` so the client can replace
- * its state wholesale rather than reconstructing it.
+ * the full reachable set: verifying stores every reachable space, and refresh
+ * re-reads it. Choosing which space an upload targets happens per-upload in
+ * the upload dialog, not here. Each action returns the fresh
+ * `CommCareSettingsPublic` so the client can replace its state wholesale.
  */
 
 "use server";
@@ -22,7 +22,6 @@ import {
 	getCommCareSettings,
 	refreshApprovedDomains,
 	saveCommCareSettings,
-	setActiveDomain,
 } from "@/lib/db/settings";
 import { log } from "@/lib/logger";
 
@@ -106,35 +105,6 @@ export async function verifyAndSaveCredentials(
 		return {
 			success: false,
 			error: "An unexpected error occurred. Please try again.",
-		};
-	}
-}
-
-/**
- * Set which reachable project space is the default upload target.
- *
- * The picker only offers reachable spaces, so a rejection from
- * `setActiveDomain` means a stale client; its message is user-facing.
- */
-export async function setActiveDomainAction(
-	domainName: string,
-): Promise<SettingsResult> {
-	try {
-		const session = await getSession();
-		if (!session) return { success: false, error: "Authentication required." };
-
-		const result = await setActiveDomain(session.user.id, domainName);
-		if (!result.ok) return { success: false, error: result.message };
-
-		return {
-			success: true,
-			settings: await getCommCareSettings(session.user.id),
-		};
-	} catch (err) {
-		log.error("[settings/commcare] setActiveDomain error", err);
-		return {
-			success: false,
-			error: "Couldn't update the default project space. Please try again.",
 		};
 	}
 }

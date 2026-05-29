@@ -1,16 +1,15 @@
 /**
  * CommCare HQ integration settings — client component.
  *
- * Card-based UI for managing CommCare HQ API credentials. Verification,
- * default-space selection, refresh, and deletion all use Server Actions
- * (`actions.ts`), each returning the fresh `CommCareSettingsPublic` so the
- * client swaps its state wholesale.
+ * Card-based UI for managing CommCare HQ API credentials. Verify, refresh,
+ * and disconnect use Server Actions (`actions.ts`), each returning the fresh
+ * `CommCareSettingsPublic` so the client swaps its state wholesale.
  *
- * Multi-space keys: an HQ API key can reach several project spaces. A
- * single-space key shows the familiar "Connected to X" badge; a multi-space
- * key shows a picker (the shadcn `Select`) so the user chooses which space
- * uploads target — and is asked to choose when no default is set yet, rather
- * than being silently bound to one.
+ * Multi-space keys: an HQ API key can reach several project spaces. This card
+ * is display-only about that — a single-space key shows a "Connected to X"
+ * badge; a multi-space key shows how many spaces it reaches, with a popover
+ * listing them. Choosing WHICH space an upload targets happens in the upload
+ * dialog (per-upload), not here.
  *
  * API key field behavior:
  *   - Idle / error: plaintext text input, editable
@@ -23,6 +22,7 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerExternalLink from "@iconify-icons/tabler/external-link";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
@@ -32,18 +32,15 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/shadcn/select";
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import type { CommCareDomain } from "@/lib/commcare/client";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import {
 	deleteCredentials,
 	refreshDomainsAction,
-	setActiveDomainAction,
 	verifyAndSaveCredentials,
 } from "./actions";
 
@@ -99,27 +96,21 @@ export function CommCareSettings({
 	const [apiKey, setApiKey] = useState("");
 
 	/* ── Domains + status ────────────────────────────────────────── */
-	/* The full reachable set plus the resolved active default. `activeDomain`
-	 * is null when the key reaches multiple spaces and no default is chosen. */
+	/* The full set of project spaces the key can reach. Display-only here;
+	 * the upload dialog is where a target is chosen. */
 	const [availableDomains, setAvailableDomains] = useState<CommCareDomain[]>(
 		initial.configured ? initial.availableDomains : [],
-	);
-	const [activeDomain, setActiveDomain] = useState<CommCareDomain | null>(
-		initial.configured ? initial.domain : null,
 	);
 	const [status, setStatus] = useState<FormStatus>(
 		initial.configured ? { type: "configured" } : { type: "idle" },
 	);
-	/* Picker-save / refresh run independently of the connect lifecycle, so
-	 * they get their own busy + error state rather than crowding `status`. */
+	/* Refresh runs independently of the connect lifecycle, so it gets its own
+	 * busy + error state rather than crowding `status`. */
 	const [domainBusy, setDomainBusy] = useState(false);
 	const [domainError, setDomainError] = useState<string | null>(null);
 
 	/* ── Derived states ──────────────────────────────────────────── */
 	const isConfigured = status.type === "configured";
-	/* Multi-space key with no chosen default — the "must choose" state. The
-	 * header must NOT read as a settled green "Connected" here. */
-	const needsDomainChoice = isConfigured && !activeDomain;
 	const isVerifying = status.type === "verifying";
 	const fieldsLocked =
 		isVerifying || isConfigured || status.type === "deleting";
@@ -135,11 +126,9 @@ export function CommCareSettings({
 		if (settings.configured) {
 			setUsername(settings.username);
 			setAvailableDomains(settings.availableDomains);
-			setActiveDomain(settings.domain);
 			setStatus({ type: "configured" });
 		} else {
 			setAvailableDomains([]);
-			setActiveDomain(null);
 			setStatus({ type: "idle" });
 		}
 	}, []);
@@ -162,24 +151,9 @@ export function CommCareSettings({
 		}
 	}, [username, apiKey, applySettings]);
 
-	/* ── Default-space picker ─────────────────────────────────────── */
-	const handlePickDomain = useCallback(
-		async (name: string) => {
-			/* Base UI's `onValueChange` can emit null on a clear path; ignore
-			 * an empty selection rather than persisting "no default". */
-			if (!name || name === activeDomain?.name) return;
-			setDomainBusy(true);
-			setDomainError(null);
-
-			const result = await setActiveDomainAction(name);
-			setDomainBusy(false);
-			if (result.success) applySettings(result.settings);
-			else setDomainError(result.error);
-		},
-		[activeDomain, applySettings],
-	);
-
 	/* ── Refresh the reachable set ────────────────────────────────── */
+	/* Re-reads which spaces the key can reach — picks up project memberships
+	 * added since the key was first saved. */
 	const handleRefresh = useCallback(async () => {
 		setDomainBusy(true);
 		setDomainError(null);
@@ -199,7 +173,6 @@ export function CommCareSettings({
 
 		if (result.success) {
 			setAvailableDomains([]);
-			setActiveDomain(null);
 			setUsername(userEmail);
 			setApiKey("");
 			setStatus({ type: "idle" });
@@ -230,28 +203,10 @@ export function CommCareSettings({
 					</p>
 				</div>
 
-				{/* Status pill — green "Connected" only once a default space is
-				 * chosen; amber "Choose a space" when the key is multi-space and
-				 * no default is set yet (so the header never reads "all set"
-				 * while the body is asking the user to pick). */}
-				<AnimatePresence mode="wait">
-					{needsDomainChoice ? (
+				{/* Connected pill — appears in the header corner once configured. */}
+				<AnimatePresence>
+					{isConfigured && (
 						<motion.div
-							key="choose"
-							initial={{ opacity: 0, scale: 0.9 }}
-							animate={{ opacity: 1, scale: 1 }}
-							exit={{ opacity: 0, scale: 0.9 }}
-							transition={{ duration: 0.2 }}
-							className="ml-auto flex items-center gap-1.5 rounded-full border border-nova-amber/20 bg-nova-amber/10 px-2.5 py-1"
-						>
-							<div className="h-1.5 w-1.5 rounded-full bg-nova-amber" />
-							<span className="text-xs font-medium text-nova-amber">
-								Choose a space
-							</span>
-						</motion.div>
-					) : isConfigured ? (
-						<motion.div
-							key="connected"
 							initial={{ opacity: 0, scale: 0.9 }}
 							animate={{ opacity: 1, scale: 1 }}
 							exit={{ opacity: 0, scale: 0.9 }}
@@ -263,13 +218,13 @@ export function CommCareSettings({
 								Connected
 							</span>
 						</motion.div>
-					) : null}
+					)}
 				</AnimatePresence>
 			</div>
 
 			{/* ── Card body ─────────────────────────────────────────── */}
 			<div className="p-6">
-				{/* Project-space area — badge (single) or picker (multi) */}
+				{/* Project-space area — badge (single) or count + popover (multi) */}
 				<AnimatePresence>
 					{isConfigured && (
 						<motion.div
@@ -280,10 +235,8 @@ export function CommCareSettings({
 						>
 							<DomainSection
 								availableDomains={availableDomains}
-								activeDomain={activeDomain}
 								busy={domainBusy}
 								error={domainError}
-								onPick={handlePickDomain}
 								onRefresh={handleRefresh}
 							/>
 						</motion.div>
@@ -448,94 +401,78 @@ export function CommCareSettings({
 
 interface DomainSectionProps {
 	availableDomains: CommCareDomain[];
-	activeDomain: CommCareDomain | null;
 	busy: boolean;
 	error: string | null;
-	onPick: (name: string) => void;
 	onRefresh: () => void;
 }
 
 /**
- * The connected-state project-space surface.
+ * The connected-state project-space surface — display-only.
  *
- * A single-space key shows the familiar verified badge — there's nothing to
- * pick. A multi-space key shows a picker so the user chooses the upload
- * target, and a prompt (amber, not the green "connected" tone) when no
- * default is chosen yet. Both shapes carry a "Refresh" affordance because a
- * key's reachable set grows when its owner joins a new project.
+ * A single-space key shows a verified "Connected to X" badge. A multi-space
+ * key shows the count with a popover listing every reachable space (the user
+ * picks the actual upload target in the upload dialog, not here). Both carry a
+ * "Refresh" affordance because a key's reachable set grows when its owner
+ * joins a new project.
  */
 function DomainSection({
 	availableDomains,
-	activeDomain,
 	busy,
 	error,
-	onPick,
 	onRefresh,
 }: DomainSectionProps) {
 	const isMultiSpace = availableDomains.length > 1;
 
 	return (
 		<div className="flex flex-col gap-2.5">
-			{isMultiSpace ? (
-				<>
-					<div className="flex items-center justify-between gap-3">
-						<span className="text-sm font-medium text-nova-text-secondary">
-							Upload target
-						</span>
-						<RefreshButton busy={busy} onRefresh={onRefresh} />
-					</div>
-
-					<Select
-						value={activeDomain?.name ?? ""}
-						onValueChange={(next) => onPick(next ?? "")}
-						disabled={busy}
-					>
-						<SelectTrigger
-							className="w-full"
-							aria-label="Default project space"
-						>
-							{/* Render the friendly displayName in the closed trigger. A
-							 * function child takes over all of Select.Value's rendering —
-							 * Base UI runs it before (and instead of) the `placeholder`
-							 * branch — so the empty-value case must return the prompt text
-							 * itself, otherwise the trigger goes blank in the must-choose
-							 * state rather than showing the placeholder. */}
-							<SelectValue placeholder="Choose a project space…">
-								{(value) =>
-									value
-										? (availableDomains.find((d) => d.name === value)
-												?.displayName ?? value)
-										: "Choose a project space…"
-								}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							{availableDomains.map((d) => (
-								<SelectItem key={d.name} value={d.name}>
-									<span className="text-nova-text">{d.displayName}</span>
-									<span className="text-xs text-nova-text-muted">{d.name}</span>
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-
-					{activeDomain ? (
-						<p className="text-xs text-nova-text-muted">
-							Uploads go to{" "}
-							<span className="font-medium text-nova-text-secondary">
-								{activeDomain.name}
+			<div className="flex items-center justify-between gap-3">
+				{isMultiSpace ? (
+					<Popover>
+						<PopoverTrigger className="inline-flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-nova-emerald/10 bg-nova-emerald/[0.04] px-3.5 py-2.5 text-sm text-nova-text transition-colors hover:border-nova-emerald/25">
+							<Icon
+								icon={tablerCheck}
+								width="15"
+								height="15"
+								className="shrink-0 text-nova-emerald"
+							/>
+							<span className="truncate">
+								Connected to{" "}
+								<span className="font-semibold text-nova-emerald">
+									{availableDomains.length} project spaces
+								</span>
 							</span>
-							. This API key reaches {availableDomains.length} project spaces.
-						</p>
-					) : (
-						<p className="text-xs text-nova-amber">
-							This API key reaches {availableDomains.length} project spaces —
-							pick which one uploads should go to.
-						</p>
-					)}
-				</>
-			) : (
-				<div className="flex items-center justify-between gap-3">
+							<Icon
+								icon={tablerChevronDown}
+								width="14"
+								height="14"
+								className="shrink-0 text-nova-text-muted"
+							/>
+						</PopoverTrigger>
+						<PopoverContent
+							align="start"
+							className="max-h-72 w-80 overflow-y-auto"
+						>
+							<p className="px-1 pb-1 text-xs text-nova-text-muted">
+								This API key can upload to:
+							</p>
+							<ul className="flex flex-col gap-0.5">
+								{availableDomains.map((d) => (
+									<li
+										key={d.name}
+										className="flex flex-col rounded-md px-2 py-1.5"
+									>
+										<span className="text-sm text-nova-text">
+											{d.displayName}
+										</span>
+										<span className="text-xs text-nova-text-muted">
+											{d.name}
+										</span>
+									</li>
+								))}
+							</ul>
+						</PopoverContent>
+					</Popover>
+				) : (
 					<div className="flex min-w-0 items-center gap-2.5 rounded-lg border border-nova-emerald/10 bg-nova-emerald/[0.04] px-3.5 py-2.5">
 						<Icon
 							icon={tablerCheck}
@@ -546,13 +483,13 @@ function DomainSection({
 						<span className="truncate text-sm text-nova-text">
 							Connected to{" "}
 							<span className="font-semibold text-nova-emerald">
-								{activeDomain?.displayName ?? availableDomains[0]?.displayName}
+								{availableDomains[0]?.displayName}
 							</span>
 						</span>
 					</div>
-					<RefreshButton busy={busy} onRefresh={onRefresh} />
-				</div>
-			)}
+				)}
+				<RefreshButton busy={busy} onRefresh={onRefresh} />
+			</div>
 
 			{error && <p className="text-sm text-nova-rose">{error}</p>}
 		</div>

@@ -63,14 +63,21 @@ function SelectContent({
 	align = "center",
 	alignOffset = 0,
 	alignItemWithTrigger = true,
+	container,
 	...props
 }: SelectPrimitive.Popup.Props &
 	Pick<
 		SelectPrimitive.Positioner.Props,
 		"align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
-	>) {
+	> &
+	// `container` portals the popup into a specific element instead of
+	// document.body. The popup defaults to body (z `--z-popover`, 50), which
+	// renders BEHIND a Dialog (`--z-modal`, 100); passing the dialog's popup
+	// element here makes the Select share the modal's stacking context so it
+	// opens above the modal content.
+	Pick<SelectPrimitive.Portal.Props, "container">) {
 	return (
-		<SelectPrimitive.Portal>
+		<SelectPrimitive.Portal container={container}>
 			<SelectPrimitive.Positioner
 				side={side}
 				sideOffset={sideOffset}
