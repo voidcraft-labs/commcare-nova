@@ -45,7 +45,7 @@ import {
 } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import type { FieldKind } from "@/lib/domain";
+import { asAssetId, type FieldKind } from "@/lib/domain";
 import { log } from "@/lib/logger";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
@@ -638,6 +638,34 @@ describe("useBlueprintMutations", () => {
 		const s = result.current.store?.getState();
 		const formUuid = getFormUuid(result.current.store);
 		expect(s?.forms[formUuid].name).toBe("Renamed Form");
+	});
+
+	it("setFormMedia sets and clears form media through explicit nulls", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		const formUuid = getFormUuid(result.current.store);
+		act(() => {
+			result.current.mutations.setFormMedia(formUuid, {
+				icon: asAssetId("image-asset"),
+				audioLabel: asAssetId("audio-asset"),
+			});
+		});
+		expect(result.current.store?.getState().forms[formUuid]).toMatchObject({
+			icon: "image-asset",
+			audioLabel: "audio-asset",
+		});
+
+		act(() => {
+			result.current.mutations.setFormMedia(formUuid, {
+				icon: null,
+				audioLabel: asAssetId("audio-asset"),
+			});
+		});
+		const form = result.current.store?.getState().forms[formUuid];
+		expect(form?.icon).toBeUndefined();
+		expect(form?.audioLabel).toBe("audio-asset");
 	});
 
 	// ── removeForm ────────────────────────────────────────────────────────

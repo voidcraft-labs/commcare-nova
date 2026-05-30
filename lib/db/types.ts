@@ -306,6 +306,7 @@ export type ThreadDoc = z.infer<typeof threadDocSchema>;
  * Composite indexes (see `firestore.indexes.json`):
  *
  *   (owner ASC, contentHash ASC) — dedup probe at upload-initiate
+ *   (owner ASC, gcsObjectKey ASC) — shared-byte guard before deletion
  *   (owner ASC, createdAt DESC)  — library pagination, newest first
  */
 export const mediaAssetDocSchema = z.object({
@@ -353,10 +354,11 @@ export const mediaAssetDocSchema = z.object({
 	kind: z.enum(MEDIA_KINDS),
 	/**
 	 * GCS object key (without the `gs://<bucket>/` prefix) the
-	 * bytes live at — `users/<owner>/<contentHash>.<ext>`. The
-	 * key is reconstructible from `(owner, contentHash, extension)`;
-	 * storing it explicitly anchors the bucket layout against schema
-	 * drift if the layout ever changes.
+	 * bytes live at. Browser uploads start at a per-attempt pending key,
+	 * then confirm promotes validated bytes to the content-hash final key
+	 * (`users/<owner>/<contentHash>.<ext>`). Storing the key explicitly
+	 * anchors the bucket layout against schema drift if the layout ever
+	 * changes.
 	 */
 	gcsObjectKey: z.string().min(1),
 	/** Filename as supplied by the client at upload. Display only. */

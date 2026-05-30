@@ -1,20 +1,21 @@
 /**
  * SA tool: `remove_media_asset` — delete one media asset from the user's
- * library (both the Firestore row and the GCS object).
+ * library.
  *
  * No DELETE HTTP route exists to reuse; the deletion is composed here from
  * the same storage + DB primitives the upload-rejection path uses:
  * `loadAssetForOwner` (ownership-gate + resolve the GCS object key),
- * `storage.deleteAsset` (GCS object), `mediaAssets.deleteAsset`
- * (Firestore row).
+ * `mediaAssets.deleteAsset` (Firestore row), and `storage.deleteAsset`
+ * (GCS object) only when no other asset row shares the bytes.
  *
  * **Reference guard.** Before deleting, the tool scans the current app's
- * doc for live references to the asset (`walkAssetRefs`). If any carrier
- * still points at it, the tool refuses and names the carrier(s) — deleting
- * a referenced asset would orphan a live reference, which the media
- * validation gate would then reject at upload/compile time with a "not
- * found" error far from where the SA could fix it. Refusing at the source
- * keeps the doc's references and the library in sync.
+ * doc AND the user's other live apps for live references to the asset
+ * (`walkAssetRefs`). If any carrier still points at it, the tool refuses
+ * and names the carrier(s) — deleting a referenced asset would orphan a
+ * live reference, which the media validation gate would then reject at
+ * upload/compile time with a "not found" error far from where the SA could
+ * fix it. Refusing at the source keeps the docs' references and the
+ * library in sync.
  *
  * Ownership is enforced by `loadAssetForOwner`, which throws
  * `MediaAssetOwnershipError` for a foreign-owned row; the tool maps both
@@ -28,14 +29,17 @@
  */
 
 import { z } from "zod";
+import { listApps, loadApp } from "@/lib/db/apps";
 import {
 	deleteAsset as deleteAssetRow,
+	hasOtherAssetForGcsObjectKey,
 	loadAssetForOwner,
 	MediaAssetOwnershipError,
 } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain";
 import { type AssetRef, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { log } from "@/lib/logger";
 import { deleteAsset as deleteGcsObject } from "@/lib/storage/media";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import type { ReadToolResult } from "../common";
@@ -60,7 +64,7 @@ export type RemoveMediaAssetResult =
 
 export const removeMediaAssetTool = {
 	description:
-		"Delete one media asset from the user's library (the file and its record). Refuses if the current app still references the asset anywhere — clear those references first. Identify the asset by its id from list_media_assets.",
+		"Delete one media asset from the user's library. Refuses if any live app still references the asset anywhere — clear those references first. Identify the asset by its id from list_media_assets.",
 	inputSchema: removeMediaAssetInputSchema,
 	async execute(
 		input: RemoveMediaAssetInput,
@@ -106,14 +110,36 @@ export const removeMediaAssetTool = {
 				},
 			};
 		}
+		const otherAppReferences = await findOtherAppReferences(ctx, input.assetId);
+		if (otherAppReferences.length > 0) {
+			return {
+				kind: "read" as const,
+				data: {
+					error: `Can't delete media asset "${input.assetId}" — other apps still use it: ${otherAppReferences.join("; ")}. Clear those references before deleting the asset.`,
+				},
+			};
+		}
 
-		// No live references — safe to delete. Drop the GCS object and the
-		// Firestore row. Order is GCS-then-row so a crash between them
-		// leaves a row pointing at a missing object (harmless: a later
-		// re-delete or orphan cleanup removes the row) rather than a
-		// dangling object with no row to find it by.
-		await deleteGcsObject(asset.gcsObjectKey);
+		const sharedObject = await hasOtherAssetForGcsObjectKey(
+			ctx.userId,
+			asset.gcsObjectKey,
+			asset.id,
+		).catch((err: unknown) => {
+			log.error("[remove_media_asset] shared-object check failed", {
+				assetId,
+				gcsObjectKey: asset.gcsObjectKey,
+				err,
+			});
+			// If we cannot prove the bytes are unshared, retain them.
+			return true;
+		});
+		// No live references — safe to remove from the library. Drop the row
+		// first so a storage-cleanup failure can only leave an orphaned blob,
+		// never a ready row pointing at missing bytes.
 		await deleteAssetRow(assetId);
+		if (!sharedObject) {
+			await deleteGcsObject(asset.gcsObjectKey);
+		}
 
 		return {
 			kind: "read" as const,
@@ -124,6 +150,42 @@ export const removeMediaAssetTool = {
 		};
 	},
 };
+
+const OTHER_APP_SCAN_PAGE_SIZE = 50;
+const OTHER_APP_REF_LIMIT = 5;
+
+async function findOtherAppReferences(
+	ctx: ToolExecutionContext,
+	assetId: string,
+): Promise<string[]> {
+	const references: string[] = [];
+	let cursor: string | undefined;
+	do {
+		const page = await listApps(ctx.userId, {
+			limit: OTHER_APP_SCAN_PAGE_SIZE,
+			sort: "updated_desc",
+			cursor,
+		});
+		for (const summary of page.apps) {
+			if (summary.id === ctx.appId) continue;
+			const app = await loadApp(summary.id);
+			if (!app || app.owner !== ctx.userId || app.deleted_at !== null) continue;
+			const doc = { ...app.blueprint, fieldParent: {} } as BlueprintDoc;
+			const carriers = [...walkAssetRefs(doc)]
+				.filter((ref) => ref.assetId === assetId)
+				.map(describeCarrier);
+			if (carriers.length === 0) continue;
+			references.push(
+				`"${summary.app_name}" (${summary.id}) on ${[...new Set(carriers)].join(
+					"; ",
+				)}`,
+			);
+			if (references.length >= OTHER_APP_REF_LIMIT) return references;
+		}
+		cursor = page.nextCursor;
+	} while (cursor);
+	return references;
+}
 
 /**
  * Render a media reference's carrier into a human-readable phrase for the

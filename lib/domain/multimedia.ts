@@ -15,7 +15,7 @@
 //    only image + audio (no video), so they use a narrower shape that
 //    rejects a video at compile time rather than at validate.
 //  - MIME-type partitions, per-kind size caps, the kind/extension
-//    lookups, and the GCS object-key derivation — the cross-cutting
+//    lookups, and the GCS object-key derivations — the cross-cutting
 //    constants both the storage layer and the upload routes consume.
 //
 // The stored-record shapes live with their boundaries: the
@@ -231,12 +231,11 @@ export type Media = z.infer<typeof mediaSchema>;
  *    sniffed `mimeType` / `extension` / `dimensions` / `durationMs`
  *    are written.
  *
- * `failed` is not a state — the confirm step deletes both the GCS
- * object and the Firestore row on validation failure, so there's
- * no orphan to garbage-collect. A `pending` row left dangling by a
- * client that never confirms is filtered out of the library list
- * and rejected by the validator gate; it is harmless until cleanup
- * removes it.
+ * `failed` is not a state — the confirm step deletes the Firestore
+ * row and, when unshared, the pending GCS object on validation failure.
+ * A `pending` row left dangling by a client that never confirms is
+ * filtered out of the library list and rejected by the validator gate;
+ * it is harmless until cleanup removes it.
  *
  * The stored-record shapes live with their respective boundaries:
  * `mediaAssetDocSchema` (Firestore-shaped, `Timestamp`-typed) in
@@ -249,12 +248,13 @@ export const MEDIA_ASSET_STATUSES = ["pending", "ready"] as const;
 export type MediaAssetStatus = (typeof MEDIA_ASSET_STATUSES)[number];
 
 /**
- * GCS object key derivation. Per-owner namespace gives us
- * (owner, hash) dedup at the storage layer — same blob uploaded by
- * two apps of the same user shares one object, while two users
- * keep separate copies (closing the cross-tenant probe vector). The
- * trailing extension is the canonical extension for the sniffed
- * MIME (not the client's original filename extension).
+ * Final GCS object key derivation. Per-owner namespace gives us
+ * (owner, hash) dedup at the storage layer once bytes have been
+ * validated — same blob uploaded by two apps of the same user shares
+ * one object, while two users keep separate copies (closing the
+ * cross-tenant probe vector). The trailing extension is the canonical
+ * extension for the sniffed MIME (not the client's original filename
+ * extension).
  */
 export function gcsObjectKeyFor(
 	owner: string,
@@ -262,6 +262,24 @@ export function gcsObjectKeyFor(
 	extension: string,
 ): string {
 	return `users/${owner}/${contentHash}${extension}`;
+}
+
+/**
+ * Pending GCS object key derivation for browser signed-PUT uploads.
+ *
+ * The browser's signed URL is minted BEFORE the server has validated the
+ * bytes. It must therefore land at a per-attempt key, not the final
+ * content-hash key: a stale leaked URL can only overwrite its own pending
+ * object, never a ready asset another row already serves. Confirm-time
+ * validation promotes clean bytes to `gcsObjectKeyFor(...)`; rejection
+ * deletes this pending object and row.
+ */
+export function pendingGcsObjectKeyFor(
+	owner: string,
+	assetId: AssetId,
+	extension: string,
+): string {
+	return `users/${owner}/pending/${assetId}${extension}`;
 }
 
 /**

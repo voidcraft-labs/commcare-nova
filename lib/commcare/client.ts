@@ -421,6 +421,7 @@ export interface MediaUploadAsset {
 /** One asset that HQ rejected, paired with the wire path it was keyed on. */
 export interface MediaUploadFailure {
 	readonly wirePath: string;
+	/** HTTP status from HQ, or 0 when the per-file request threw before a response. */
 	readonly status: number;
 }
 
@@ -579,8 +580,9 @@ async function uploadMediaFile(
  * POST (the import endpoint's CSRF requirement applies to these routes
  * too — they're not `@csrf_exempt`).
  *
- * Partial-failure policy: each asset is uploaded independently and a
- * failure on one is recorded in `failures` rather than aborting the
+ * Partial-failure policy: each asset is uploaded independently and any
+ * per-file failure (HQ rejection, malformed success shape, or thrown
+ * transport error) is recorded in `failures` rather than aborting the
  * rest. The app already exists on HQ (import ran first and isn't
  * transactional with media), so the right outcome on a media failure is
  * a created app with one broken reference, surfaced to the user as a
@@ -613,13 +615,19 @@ export async function uploadAppMedia(
 	let uploaded = 0;
 	const failures: MediaUploadFailure[] = [];
 	for (const asset of assets) {
-		const result = await uploadMediaFile(
-			creds,
-			domain,
-			appId,
-			asset,
-			csrfToken,
-		);
+		let result: { success: true; mediaId: string } | CommCareApiError;
+		try {
+			result = await uploadMediaFile(creds, domain, appId, asset, csrfToken);
+		} catch (err) {
+			log.error("[commcare] media upload threw", {
+				domain,
+				appId,
+				wirePath: asset.wirePath,
+				err,
+			});
+			failures.push({ wirePath: asset.wirePath, status: 0 });
+			continue;
+		}
 		if (result.success) {
 			uploaded++;
 		} else {

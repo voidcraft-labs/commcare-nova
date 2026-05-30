@@ -257,6 +257,26 @@ describe("uploadAppMedia", () => {
 		});
 	});
 
+	it("records a thrown per-asset transport failure without aborting the rest", async () => {
+		fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/accounts/login/")) return csrfLoginResponse("tok");
+			if (url.includes("/audio/")) throw new Error("network down");
+			return uploadSuccessResponse("media-id-ok");
+		});
+
+		const result = await uploadAppMedia(CREDS, DOMAIN, APP_ID, [
+			asset("commcare/aaa.png", "image"),
+			asset("commcare/bbb.mp3", "audio"),
+			asset("commcare/ccc.mp4", "video"),
+		]);
+
+		expect(result).toEqual({
+			uploaded: 2,
+			failures: [{ wirePath: "commcare/bbb.mp3", status: 0 }],
+		});
+	});
+
 	it("treats HTTP 200 with empty `ref` (no m_id) as a failure, not silent success", async () => {
 		// A shape regression — 200 but no ref.m_id — would otherwise leave
 		// a broken reference with zero signal. The client guards both

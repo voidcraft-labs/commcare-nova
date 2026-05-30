@@ -38,7 +38,10 @@ import {
 	createPendingAsset,
 	findReadyAssetByOwnerAndHash,
 } from "@/lib/db/mediaAssets";
-import { gcsObjectKeyFor } from "@/lib/domain/multimedia";
+import {
+	gcsObjectKeyFor,
+	MEDIA_SIZE_CAPS_BYTES,
+} from "@/lib/domain/multimedia";
 import { validateMediaBytes } from "@/lib/media/validate";
 import { uploadAssetBytes } from "@/lib/storage/media";
 import {
@@ -48,6 +51,12 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import type { ToolContext } from "../types";
+
+const MAX_INLINE_UPLOAD_BYTES = Math.max(
+	...Object.values(MEDIA_SIZE_CAPS_BYTES),
+);
+const MAX_INLINE_UPLOAD_MB = Math.floor(MAX_INLINE_UPLOAD_BYTES / 1024 / 1024);
+const MAX_INLINE_BASE64_CHARS = Math.ceil(MAX_INLINE_UPLOAD_BYTES / 3) * 4;
 
 /**
  * Input schema for `upload_media_asset`, declared as a `z.object` so the
@@ -78,6 +87,7 @@ export const uploadMediaAssetInputSchema = z
 		data_base64: z
 			.string()
 			.min(1)
+			.max(MAX_INLINE_BASE64_CHARS)
 			.describe("The file's full contents, base64-encoded."),
 	})
 	.strict();
@@ -112,7 +122,13 @@ export function registerUploadMediaAsset(
 				 * (it silently drops invalid chars), so an empty decode of a
 				 * non-empty input is the signal that the payload wasn't
 				 * valid base64. */
-				const bytes = Buffer.from(args.data_base64, "base64");
+				const base64 = args.data_base64.replace(/\s+/g, "");
+				if (base64.length > MAX_INLINE_BASE64_CHARS) {
+					throw new McpInvalidInputError(
+						`The inline media payload is too large. Uploads are capped at ${MAX_INLINE_UPLOAD_MB} MB before base64 encoding; send a smaller file.`,
+					);
+				}
+				const bytes = Buffer.from(base64, "base64");
 				if (bytes.length === 0) {
 					throw new McpInvalidInputError(
 						"The base64 file contents couldn't be decoded into any bytes. Make sure `data_base64` is the file's full base64 encoding.",
@@ -167,7 +183,7 @@ export function registerUploadMediaAsset(
 					bytes,
 					contentType: validated.mimeType,
 				});
-				const assetId = await createPendingAsset({
+				const pending = await createPendingAsset({
 					owner: ctx.userId,
 					contentHash: validated.contentHash,
 					mimeType: validated.mimeType,
@@ -178,7 +194,7 @@ export function registerUploadMediaAsset(
 					originalFilename: args.filename,
 				});
 				await confirmAssetReady({
-					assetId,
+					assetId: pending.assetId,
 					...(validated.dimensions !== undefined && {
 						dimensions: validated.dimensions,
 					}),
@@ -187,7 +203,7 @@ export function registerUploadMediaAsset(
 					}),
 				});
 
-				return successResult(assetId, validated.kind, false);
+				return successResult(pending.assetId, validated.kind, false);
 			} catch (err) {
 				return toMcpErrorResult(err, { userId: ctx.userId });
 			}

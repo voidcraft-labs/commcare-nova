@@ -13,8 +13,9 @@
  *     URL the browser uses to push bytes directly to GCS
  *
  * Step 2 lives at `[assetId]/confirm/route.ts` — the browser calls
- * it after the PUT completes, and the server re-validates the
- * stored bytes from GCS before flipping the row to `ready`.
+ * it after the PUT completes, and the server re-validates the pending
+ * bytes from GCS before promoting them to the content-hash key and
+ * flipping the row to `ready`.
  *
  * Why a separate step for hash claim: SubtleCrypto can compute the
  * sha256 in the browser before initiating, which means the dedup
@@ -35,7 +36,6 @@ import {
 import {
 	ALL_MIME_TYPES,
 	EXTENSION_FOR_MIME_TYPE,
-	gcsObjectKeyFor,
 	MEDIA_SIZE_CAPS_BYTES,
 	mediaKindForMimeType,
 	normalizeMimeType,
@@ -119,30 +119,27 @@ export async function POST(req: NextRequest) {
 		}
 
 		// New blob. Reserve the row first (so the confirm step has
-		// something to look up), then mint the signed URL.
+		// something to look up), then mint the signed URL against the
+		// row's per-attempt pending key. Confirm promotes validated
+		// bytes to the content-hash final key; a stale signed URL can
+		// only overwrite this attempt's pending object.
 		const extension = EXTENSION_FOR_MIME_TYPE[mimeType];
-		const gcsObjectKey = gcsObjectKeyFor(
-			session.user.id,
-			contentHash,
-			extension,
-		);
-		const assetId = await createPendingAsset({
+		const pending = await createPendingAsset({
 			owner: session.user.id,
 			contentHash,
 			mimeType,
 			kind,
 			extension,
 			sizeBytes,
-			gcsObjectKey,
 			originalFilename: filename,
 		});
 		const { url, expiresAtMs } = await createSignedUploadUrl({
-			gcsObjectKey,
+			gcsObjectKey: pending.gcsObjectKey,
 			contentType: mimeType,
 		});
 
 		return NextResponse.json({
-			assetId,
+			assetId: pending.assetId,
 			deduplicated: false,
 			uploadUrl: url,
 			// The signed URL is bound to the NORMALIZED `mimeType`, not

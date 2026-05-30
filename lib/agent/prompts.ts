@@ -269,7 +269,7 @@ A few things to know:
 - Audio must be \`.mp3\` or \`.wav\`, and video must be \`.mp4\`. CommCare HQ can't accept \`.m4a\` or \`.ogg\` — if a user has audio in those formats, ask them to convert to \`.mp3\` or \`.wav\` first.
 - If you reference an asset that isn't ready (deleted, still uploading, or the wrong kind for the slot), validation will tell you exactly which slot has the problem. Fix the reference there.
 - To remove media from a slot, attach an empty bundle (for field/option media) or pass \`null\` (for menu icons, audio labels, and the logo).
-- To delete an asset from the user's library entirely, use \`remove_media_asset\`. It won't delete an asset the app still uses — clear those references first.
+- To delete an asset from the user's library entirely, use \`remove_media_asset\`. It won't delete an asset any live app still uses — clear those references first.
 
 ---
 

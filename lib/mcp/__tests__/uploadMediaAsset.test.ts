@@ -9,6 +9,7 @@
  *   2. Dedup — a matching `ready` asset returns its id, no store.
  *   3. Validation rejection — `invalid_input` envelope with the message.
  *   4. Empty/invalid base64 — `invalid_input` envelope.
+ *   5. Oversized inline payload — rejected before Buffer allocation.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -79,7 +80,10 @@ describe("uploadMediaAsset", () => {
 	it("validates, stores, and returns a fresh asset id", async () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
 		findReadyAssetByOwnerAndHash.mockResolvedValue(null);
-		createPendingAsset.mockResolvedValue("new-asset-id");
+		createPendingAsset.mockResolvedValue({
+			assetId: "new-asset-id",
+			gcsObjectKey: "users/user-1/deadbeef.png",
+		});
 
 		const { server, capture } = makeFakeServer();
 		registerUploadMediaAsset(server, toolCtx);
@@ -155,5 +159,26 @@ describe("uploadMediaAsset", () => {
 		const payload = parsePayload(out);
 		expect(payload.error_type).toBe("invalid_input");
 		expect(validateMediaBytes).not.toHaveBeenCalled();
+	});
+
+	it("rejects an oversized inline payload before decoding", async () => {
+		const oversizedBase64 = {
+			replace: vi.fn(() => ({ length: Number.MAX_SAFE_INTEGER })),
+		} as unknown as string;
+
+		const { server, capture } = makeFakeServer();
+		registerUploadMediaAsset(server, toolCtx);
+		const out = (await capture()({
+			filename: "huge.mp4",
+			mime_type: "video/mp4",
+			data_base64: oversizedBase64,
+		})) as { isError?: boolean };
+
+		expect(out.isError).toBe(true);
+		const payload = parsePayload(out);
+		expect(payload.error_type).toBe("invalid_input");
+		expect(String(payload.message)).toContain("too large");
+		expect(validateMediaBytes).not.toHaveBeenCalled();
+		expect(uploadAssetBytes).not.toHaveBeenCalled();
 	});
 });

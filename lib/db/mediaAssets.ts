@@ -23,6 +23,7 @@ import {
 	asAssetId,
 	type MediaAssetStatus,
 	type MediaKind,
+	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { collections, docs } from "./firestore";
 import type { MediaAssetDoc } from "./types";
@@ -81,15 +82,20 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
 }
 
 /**
- * Create a `pending` asset row. Returns the assigned `assetId`.
- * The signed PUT URL is minted separately (in `lib/storage/media.ts`)
- * after this row exists, so the row is the durable handle the
- * confirm step looks up.
+ * Create a `pending` asset row. Returns the assigned `assetId` plus
+ * the GCS object key the caller should write bytes to. The signed PUT
+ * URL is minted separately (in `lib/storage/media.ts`) after this row
+ * exists, so the row is the durable handle the confirm step looks up.
  *
- * Failure between this call and the eventual confirm leaves a
- * `pending` row behind. It is harmless: the library list filters
- * pending rows out, and the validator gate rejects any blueprint
- * that references one.
+ * Browser uploads leave `gcsObjectKey` absent and get a per-attempt
+ * pending key (`users/<owner>/pending/<assetId>.<ext>`). Confirm-time
+ * validation promotes clean bytes to the content-hash final key. MCP
+ * uploads may pass a final `gcsObjectKey` because their bytes are
+ * already validated before storage.
+ *
+ * Failure between this call and the eventual confirm leaves a `pending`
+ * row behind. It is harmless: the library list filters pending rows
+ * out, and the validator gate rejects any blueprint that references one.
  */
 export async function createPendingAsset(args: {
 	owner: string;
@@ -98,10 +104,13 @@ export async function createPendingAsset(args: {
 	kind: MediaKind;
 	extension: string;
 	sizeBytes: number;
-	gcsObjectKey: string;
+	gcsObjectKey?: string;
 	originalFilename: string;
-}): Promise<AssetId> {
-	const assetId = randomUUID();
+}): Promise<{ assetId: AssetId; gcsObjectKey: string }> {
+	const assetId = asAssetId(randomUUID());
+	const gcsObjectKey =
+		args.gcsObjectKey ??
+		pendingGcsObjectKeyFor(args.owner, assetId, args.extension);
 	await docs.mediaAsset(assetId).create({
 		owner: args.owner,
 		contentHash: args.contentHash,
@@ -109,7 +118,7 @@ export async function createPendingAsset(args: {
 		kind: args.kind,
 		extension: args.extension,
 		sizeBytes: args.sizeBytes,
-		gcsObjectKey: args.gcsObjectKey,
+		gcsObjectKey,
 		originalFilename: args.originalFilename,
 		// Seed `displayName` to the upload filename so the library UI
 		// always has a non-empty label; the user can rename later
@@ -122,7 +131,7 @@ export async function createPendingAsset(args: {
 		// wall-clock millisecond get monotonic timestamps anyway.
 		created_at: FieldValue.serverTimestamp() as unknown as Timestamp,
 	});
-	return asAssetId(assetId);
+	return { assetId, gcsObjectKey };
 }
 
 /**
@@ -130,27 +139,30 @@ export async function createPendingAsset(args: {
  * only known after validation: image `dimensions` (sharp) or
  * audio/video `durationMs` (ffprobe).
  *
- * Only those slots plus `status` are written. `mimeType`,
- * `extension`, and `sizeBytes` were set correctly at create time
- * and provably can't change here — the validator returns success
- * only when the sniffed MIME equals the (already-canonical) claim
- * and the byte length equals the claimed size — so re-writing them
- * would be dead motion.
+ * Only those slots plus `status` and, for browser confirms, the promoted
+ * final `gcsObjectKey` are written. `mimeType`, `extension`, and
+ * `sizeBytes` were set correctly at create time and provably can't change
+ * here — the validator returns success only when the sniffed MIME equals
+ * the (already-canonical) claim and the byte length equals the claimed
+ * size — so re-writing them would be dead motion.
  */
 export async function confirmAssetReady(args: {
 	assetId: AssetId;
+	gcsObjectKey?: string;
 	dimensions?: { width: number; height: number };
 	durationMs?: number;
 }): Promise<void> {
 	const patch: Partial<MediaAssetDoc> & { status: "ready" } = {
 		status: "ready",
 	};
-	// Assign the kind-specific slots only when present. The client
-	// runs with `ignoreUndefinedProperties: true`, so assigning
-	// `undefined` here would silently DROP the field on update
-	// rather than clear it — the conditional keeps the absent-vs-set
-	// distinction honest (an image has no `durationMs`; a video has
-	// no `dimensions`).
+	if (args.gcsObjectKey !== undefined) {
+		patch.gcsObjectKey = args.gcsObjectKey;
+	}
+	// Assign each kind-specific slot only when the validator produced it: an
+	// image confirm carries `dimensions` (sharp) and no `durationMs`; an
+	// audio/video confirm carries `durationMs` (ffprobe) and no `dimensions`.
+	// This is a first-time set on the `pending → ready` flip, never a clear —
+	// the slot the kind doesn't carry is simply absent from the patch.
 	if (args.dimensions) {
 		patch.dimensions = args.dimensions;
 	}
@@ -161,16 +173,44 @@ export async function confirmAssetReady(args: {
 }
 
 /**
+ * True when another row owned by the same user points at the same GCS
+ * object. Used before deleting bytes: duplicate-ready races and legacy
+ * content-hash-keyed rows can share storage, so a row delete must not
+ * blindly remove the object out from under a sibling.
+ *
+ * This closes the common shared-bytes case, not a transactional one: a
+ * same-owner delete racing a same-bytes re-upload that promotes to the final
+ * key AFTER this check can still leave the new row pointing at deleted bytes
+ * (no Firestore↔GCS transaction spans the two layers). The window is narrow
+ * and the broken reference is recoverable by re-upload; callers fail closed —
+ * a query throw is treated as "shared" so bytes are retained — which keeps the
+ * conservative choice the default.
+ */
+export async function hasOtherAssetForGcsObjectKey(
+	owner: string,
+	gcsObjectKey: string,
+	excludeAssetId: AssetId,
+): Promise<boolean> {
+	const snap = await collections
+		.mediaAssets()
+		.where("owner", "==", owner)
+		.where("gcsObjectKey", "==", gcsObjectKey)
+		.limit(2)
+		.get();
+	return snap.docs.some((doc) => doc.id !== excludeAssetId);
+}
+
+/**
  * Owner-and-hash dedup probe. Used at upload-initiate: if the
  * caller's claimed hash already exists for this owner AND the
  * row is `ready`, the route returns the existing assetId and
  * tells the browser to skip the bytes-PUT step entirely.
  *
  * Returns the matching record, or `null` if no row matches.
- * A `pending` row of the same (owner, hash) is treated as no
- * match — the caller goes ahead and creates a fresh pending row,
- * which is fine because both will resolve to the same bytes at
- * the same GCS path.
+ * A `pending` row of the same (owner, hash) is treated as no match — the
+ * caller goes ahead and creates a fresh pending row with its own
+ * per-attempt object. Confirm collapses to an existing ready sibling when
+ * one appears.
  */
 export async function findReadyAssetByOwnerAndHash(
 	owner: string,

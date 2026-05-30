@@ -41,6 +41,7 @@ import type {
 	Uuid,
 } from "@/lib/doc/types";
 import {
+	type AssetId,
 	asUuid,
 	type CaseProperty,
 	type CaseType,
@@ -195,6 +196,14 @@ export interface BlueprintMutations {
 	 * names (e.g. `closeCondition`, `postSubmit`).
 	 */
 	updateForm: (uuid: Uuid, patch: Partial<Omit<Form, "uuid">>) => void;
+	/**
+	 * Set or clear form menu media via the dedicated null-carrying mutation
+	 * so clears survive JSON replay.
+	 */
+	setFormMedia: (
+		uuid: Uuid,
+		media: { icon: AssetId | null; audioLabel: AssetId | null },
+	) => void;
 	removeForm: (uuid: Uuid) => void;
 
 	// ── Module mutations ──────────────────────────────────────────────────
@@ -625,6 +634,22 @@ export function useBlueprintMutations(): BlueprintMutations {
 						kind: "updateForm",
 						uuid,
 						patch,
+					},
+				]);
+			},
+
+			setFormMedia(uuid, media) {
+				const doc = get();
+				if (!doc.forms[uuid]) {
+					warnUnresolved("setFormMedia", { uuid });
+					return;
+				}
+				store.getState().applyMany([
+					{
+						kind: "setFormMedia",
+						uuid,
+						icon: media.icon,
+						audioLabel: media.audioLabel,
 					},
 				]);
 			},

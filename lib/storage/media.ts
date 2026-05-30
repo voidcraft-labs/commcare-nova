@@ -56,19 +56,19 @@ function getBucket(): Bucket {
  * Generates a V4 signed PUT URL the browser uses to push bytes
  * directly to GCS. The URL is bound to:
  *
- *  - the destination object key (path the bytes land at — derived
- *    from `users/<owner>/<contentHash>.<ext>`, so a different
- *    owner's namespace is structurally unreachable),
+ *  - the destination object key (path the bytes land at — browser
+ *    uploads use `users/<owner>/pending/<assetId>.<ext>`, so a
+ *    different owner's namespace is structurally unreachable),
  *  - the request `Content-Type` header (the upload must declare
  *    the same MIME the route's pre-screen accepted).
  *
- * A 5-minute TTL keeps a leaked URL short-lived. The path
- * commitment is the authoritative tamper protection: the confirm
- * step downloads the bytes from `gcsObjectKey`, re-computes the
- * sha256, and rejects if the actual hash doesn't match the path's
- * claimed hash. There's no server-side body-hash binding here —
- * we'd need a separate canonical-request mechanism, and the
- * confirm-time re-validation already covers it.
+ * A 5-minute TTL keeps a leaked URL short-lived. Confirm-time
+ * validation is the authoritative tamper protection: the confirm step
+ * downloads the bytes from `gcsObjectKey`, re-computes the sha256, and
+ * rejects if the actual hash doesn't match the row's claimed hash.
+ * There's no server-side body-hash binding here — we'd need a separate
+ * canonical-request mechanism, and the confirm-time re-validation
+ * already covers it.
  */
 export async function createSignedUploadUrl(args: {
 	gcsObjectKey: string;
@@ -108,6 +108,24 @@ export async function uploadAssetBytes(args: {
 		resumable: false,
 		contentType: args.contentType,
 	});
+}
+
+/**
+ * Copy a validated pending object to its final storage key.
+ *
+ * Browser signed-PUT uploads land at a per-attempt pending key so stale
+ * signed URLs cannot overwrite a ready content-hash object. Confirm-time
+ * validation calls this after the bytes have passed the hash/MIME/parser
+ * checks, promoting the object to the deduped final key that ready rows
+ * serve.
+ */
+export async function copyAssetObject(
+	sourceGcsObjectKey: string,
+	destinationGcsObjectKey: string,
+): Promise<void> {
+	await getBucket()
+		.file(sourceGcsObjectKey)
+		.copy(getBucket().file(destinationGcsObjectKey));
 }
 
 /**

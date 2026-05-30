@@ -5,18 +5,18 @@
  * server:
  *
  *   1. loads the `pending` row (rejects if foreign owner or missing)
- *   2. downloads the bytes from GCS once
+ *   2. downloads the bytes from the pending GCS object once
  *   3. runs the validation pipeline against the stored bytes
- *   4. on failure: deletes the GCS object AND the Firestore row,
+ *   4. on failure: deletes the pending GCS object AND the Firestore row,
  *      returns 400 with the rejection message
- *   5. on success: writes validated metadata, flips status to `ready`
+ *   5. on success: promotes the bytes to the content-hash final key,
+ *      writes validated metadata, flips status to `ready`
  *
  * The validator's hash check catches GCS-side tampering between the
  * PUT and this confirm (the sniffed bytes' sha256 must match the
- * claimed hash the route's gcsObjectKey was derived from). The
- * sharp/ffprobe re-parse catches truncation + corruption — bytes
- * that pass the magic-bytes sniff but don't actually parse as the
- * format they claim.
+ * row's claimed content hash). The sharp/ffprobe re-parse catches
+ * truncation + corruption — bytes that pass the magic-bytes sniff but
+ * don't actually parse as the format they claim.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -26,14 +26,21 @@ import {
 	confirmAssetReady,
 	deleteAsset as deleteAssetRow,
 	findReadyAssetByOwnerAndHash,
+	hasOtherAssetForGcsObjectKey,
 	loadAssetForOwner,
 	MediaAssetOwnershipError,
+	type MediaAssetRecord,
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
-import { asAssetId, MEDIA_SIZE_CAPS_BYTES } from "@/lib/domain/multimedia";
+import {
+	asAssetId,
+	gcsObjectKeyFor,
+	MEDIA_SIZE_CAPS_BYTES,
+} from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { validateMediaBytes } from "@/lib/media/validate";
 import {
+	copyAssetObject,
 	deleteAsset as deleteGcsObject,
 	downloadAssetBytes,
 	getStoredObjectSize,
@@ -85,10 +92,7 @@ export async function POST(
 		}
 		const cap = MEDIA_SIZE_CAPS_BYTES[asset.kind];
 		if (storedSize > cap) {
-			await Promise.allSettled([
-				deleteGcsObject(asset.gcsObjectKey),
-				deleteAssetRow(assetId),
-			]);
+			await deleteRejectedUpload(session.user.id, asset);
 			const capMb = (cap / 1024 / 1024).toFixed(0);
 			const actualMb = (storedSize / 1024 / 1024).toFixed(2);
 			throw new ApiError(
@@ -106,42 +110,55 @@ export async function POST(
 			originalFilename: asset.originalFilename,
 		});
 		if (!result.ok) {
-			// Drop the bytes + row so the upload pathway returns to
-			// a clean state. A best-effort delete — concurrent calls
-			// could race, and a stale orphan is harmless (orphan
-			// cleanup handles it).
-			await Promise.allSettled([
-				deleteGcsObject(asset.gcsObjectKey),
-				deleteAssetRow(assetId),
-			]);
+			// Drop this attempt's bytes + row so the upload pathway
+			// returns to a clean state. The object delete is guarded
+			// against legacy/shared rows before touching GCS.
+			await deleteRejectedUpload(session.user.id, asset);
 			throw new ApiError(result.message, 400);
 		}
 
 		// Collapse a dedup race. Two concurrent uploads of identical
 		// bytes both miss the initiate-time dedup probe (neither is
-		// `ready` yet) and create two pending rows pointing at the
-		// same GCS object. If a sibling already flipped to `ready`,
-		// drop this pending row — WITHOUT deleting the shared GCS
-		// object — and return the sibling, so the library never shows
-		// the same asset twice. (This closes the common case; a
-		// simultaneous double-confirm where neither sees the other
-		// yet can still leave two rows — benign, identical bytes —
-		// and is the deletion path's job to handle by checking for
-		// siblings on the same object key.)
+		// `ready` yet). If a sibling already flipped to `ready`, drop
+		// this pending row and return the sibling, so the library never
+		// shows the same asset twice. Simultaneous double-confirm can
+		// still leave two ready rows, but both point at identical final
+		// bytes and the deletion path checks for shared object keys.
 		const sibling = await findReadyAssetByOwnerAndHash(
 			session.user.id,
 			asset.contentHash,
 		);
 		if (sibling && sibling.id !== assetId) {
-			await deleteAssetRow(assetId);
+			await deleteRejectedUpload(session.user.id, asset);
 			return NextResponse.json({ ok: true, asset: toWireMediaAsset(sibling) });
+		}
+
+		const finalGcsObjectKey = gcsObjectKeyFor(
+			session.user.id,
+			asset.contentHash,
+			asset.extension,
+		);
+		let pendingObjectToDelete: string | null = null;
+		if (asset.gcsObjectKey !== finalGcsObjectKey) {
+			await copyAssetObject(asset.gcsObjectKey, finalGcsObjectKey);
+			pendingObjectToDelete = asset.gcsObjectKey;
 		}
 
 		await confirmAssetReady({
 			assetId,
+			gcsObjectKey: finalGcsObjectKey,
 			dimensions: result.validated.dimensions,
 			durationMs: result.validated.durationMs,
 		});
+		if (pendingObjectToDelete) {
+			await deleteGcsObject(pendingObjectToDelete).catch((err: unknown) => {
+				log.error("[media:confirm] pending-object cleanup failed", {
+					assetId,
+					gcsObjectKey: pendingObjectToDelete,
+					err,
+				});
+			});
+		}
 
 		return NextResponse.json({
 			ok: true,
@@ -153,6 +170,7 @@ export async function POST(
 			asset: toWireMediaAsset({
 				...asset,
 				status: "ready",
+				gcsObjectKey: finalGcsObjectKey,
 				dimensions: result.validated.dimensions,
 				durationMs: result.validated.durationMs,
 			}),
@@ -165,4 +183,35 @@ export async function POST(
 			err instanceof Error ? err : new ApiError("Confirm failed", 500),
 		);
 	}
+}
+
+/**
+ * Delete a rejected upload attempt without risking a shared ready object.
+ *
+ * New browser uploads use per-attempt pending keys, but legacy rows and
+ * simultaneous duplicate-ready races can share an object. If another row
+ * points at the same key, remove only this Firestore row and leave bytes
+ * intact for the sibling.
+ */
+async function deleteRejectedUpload(
+	owner: string,
+	asset: MediaAssetRecord,
+): Promise<void> {
+	const shared = await hasOtherAssetForGcsObjectKey(
+		owner,
+		asset.gcsObjectKey,
+		asset.id,
+	).catch((err: unknown) => {
+		log.error("[media:confirm] shared-object check failed", {
+			assetId: asset.id,
+			gcsObjectKey: asset.gcsObjectKey,
+			err,
+		});
+		// Fail closed on bytes deletion: if we cannot prove the object is
+		// unshared, leave it behind and delete only the invalid row.
+		return true;
+	});
+	const deletions: Promise<unknown>[] = [deleteAssetRow(asset.id)];
+	if (!shared) deletions.push(deleteGcsObject(asset.gcsObjectKey));
+	await Promise.allSettled(deletions);
 }

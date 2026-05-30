@@ -48,8 +48,9 @@
  *                                 HQ network call; the message carries the
  *                                 media rule's Elm-shape text.
  *   6. `hq_upload_failed`       — `importApp` returned a non-success
- *                                 response (HQ rejected the upload, network
- *                                 fault, or 5xx from HQ).
+ *                                 response (HQ rejected the upload or
+ *                                 returned 5xx). A thrown transport fault
+ *                                 goes through the shared MCP classifier.
  *
  * (`not_found` from the ownership pre-gate is also possible but not
  * actionable — it collapses cross-tenant probes to the same shape as
@@ -77,6 +78,7 @@ import {
 import { expandDoc } from "@/lib/commcare/expander";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { log } from "@/lib/logger";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { initMcpCall } from "../context";
@@ -343,6 +345,12 @@ export function registerUploadAppToHq(
 						warnings.push(
 							"Media upload could not be completed; the app was created but its media may not display.",
 						);
+						log.error("[mcp/upload_app_to_hq] media upload batch failed", {
+							domain: targetDomain,
+							appId,
+							hqAppId: result.appId,
+							status: mediaResult.status,
+						});
 					} else if (mediaResult.failures.length > 0) {
 						const n = mediaResult.failures.length;
 						warnings.push(
@@ -350,6 +358,13 @@ export function registerUploadAppToHq(
 								n === 1 ? "that file" : "those files"
 							} won't display until re-uploaded.`,
 						);
+						log.error("[mcp/upload_app_to_hq] some media assets failed", {
+							domain: targetDomain,
+							appId,
+							hqAppId: result.appId,
+							failures: mediaResult.failures,
+							uploaded: mediaResult.uploaded,
+						});
 					}
 
 					progress.notify(
