@@ -188,6 +188,9 @@ async function condenseText(
 			label: `attachment:${filename}`,
 			model: HAIKU,
 			maxOutputTokens: 16_000,
+			// We recover below by inlining the raw body, so a transient Haiku
+			// failure must NOT surface a user-facing "generation failed" error.
+			emitErrors: false,
 		});
 		return wrapAttachment(filename, extracted);
 	} catch {
@@ -266,6 +269,9 @@ export async function prepareAttachments(
 					label: `attachment:${filename}`,
 					model: HAIKU,
 					maxOutputTokens: 16_000,
+					// Recovered below via native PDF pass-through — don't surface a
+					// user-facing error for a failure we handle.
+					emitErrors: false,
 				});
 				nextParts.push(textPart(wrapAttachment(filename, extracted)));
 			} catch {

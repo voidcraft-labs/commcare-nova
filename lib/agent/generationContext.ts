@@ -585,6 +585,11 @@ export class GenerationContext implements ToolExecutionContext {
 		label: string;
 		model?: string;
 		maxOutputTokens?: number;
+		/** When false, a failure is logged but NOT surfaced as a user-facing
+		 *  generation error — for callers that recover from the failure themselves
+		 *  (e.g. attachment extraction falling back to the raw document text). The
+		 *  error is still thrown so the caller's catch runs. Defaults to emitting. */
+		emitErrors?: boolean;
 	}): Promise<string> {
 		try {
 			const model = opts.model ?? MODEL_DEFAULT;
@@ -598,7 +603,16 @@ export class GenerationContext implements ToolExecutionContext {
 			if (result.usage) this.trackSubGeneration(result.usage);
 			return result.text;
 		} catch (error) {
-			this.emitError(classifyError(error), `generatePlainText:${opts.label}`);
+			if (opts.emitErrors === false) {
+				log.warn(
+					`generatePlainText:${opts.label} failed; caller will recover`,
+					{
+						error: error instanceof Error ? error.message : String(error),
+					},
+				);
+			} else {
+				this.emitError(classifyError(error), `generatePlainText:${opts.label}`);
+			}
 			throw error;
 		}
 	}
@@ -629,6 +643,9 @@ export class GenerationContext implements ToolExecutionContext {
 		label: string;
 		model?: string;
 		maxOutputTokens?: number;
+		/** See `generatePlainText` — false logs but does not surface a user-facing
+		 *  error, for callers that recover (attachment extraction → native PDF). */
+		emitErrors?: boolean;
 	}): Promise<string> {
 		try {
 			const model = opts.model ?? MODEL_DEFAULT;
@@ -654,7 +671,19 @@ export class GenerationContext implements ToolExecutionContext {
 			if (result.usage) this.trackSubGeneration(result.usage);
 			return result.text;
 		} catch (error) {
-			this.emitError(classifyError(error), `extractFromContent:${opts.label}`);
+			if (opts.emitErrors === false) {
+				log.warn(
+					`extractFromContent:${opts.label} failed; caller will recover`,
+					{
+						error: error instanceof Error ? error.message : String(error),
+					},
+				);
+			} else {
+				this.emitError(
+					classifyError(error),
+					`extractFromContent:${opts.label}`,
+				);
+			}
 			throw error;
 		}
 	}
