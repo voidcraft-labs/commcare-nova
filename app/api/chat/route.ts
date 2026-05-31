@@ -11,6 +11,7 @@ import {
 	createSolutionsArchitect,
 	GenerationContext,
 	MESSAGES,
+	prepareAttachments,
 } from "@/lib/agent";
 import { resolveAnthropicKey } from "@/lib/auth-utils";
 import {
@@ -257,6 +258,16 @@ export async function POST(req: Request) {
 				appId,
 			});
 
+			/* Condense large document attachments with Haiku BEFORE they reach
+			 * Opus. The SA re-reads its full message context on every tool-loop
+			 * step, so a raw multi-page spec would be billed at the Opus input
+			 * rate dozens of times in one turn; the condensed extract pays that
+			 * cost once and against the cheap model. Only the last user message's
+			 * file parts are rewritten — everything downstream consumes
+			 * `preparedMessages` so the user-message event, the SA's history, and
+			 * the agent stream all see the same condensed content. */
+			const preparedMessages = await prepareAttachments(messages, ctx);
+
 			/* Persist the current request's user message as the first
 			 * conversation event of the run. Emitting through the context
 			 * (rather than directly via `logWriter.logEvent`) keeps seq
@@ -269,7 +280,7 @@ export async function POST(req: Request) {
 			 * required, not optional). Using the guard replaces inline
 			 * structural types with a single source of truth that tracks
 			 * SDK updates automatically. */
-			const lastMessage = messages.at(-1);
+			const lastMessage = preparedMessages.at(-1);
 			if (lastMessage?.role === "user") {
 				const text = lastMessage.parts
 					.filter(isTextUIPart)
@@ -376,11 +387,11 @@ export async function POST(req: Request) {
 				};
 				const effectiveMessages = editing
 					? cacheExpired
-						? messages.filter((m) => m.role === "user").slice(-1)
-						: messages
+						? preparedMessages.filter((m) => m.role === "user").slice(-1)
+						: preparedMessages
 								.map(stripBuildOnlyParts)
 								.filter((m): m is UIMessage => m !== undefined)
-					: messages;
+					: preparedMessages;
 
 				const agentStream = await createAgentUIStream({
 					agent: sa,
