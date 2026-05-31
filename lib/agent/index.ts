@@ -3,6 +3,11 @@
 // Public barrel for the lib/agent layer. Server-only: every symbol here
 // transitively imports Anthropic and firebase-admin.
 
+// attachments — server-side preparation of chat file attachments. Condenses
+// large document attachments with Haiku before they reach the Solutions
+// Architect, so a multi-page spec doesn't inflate the Opus context across the
+// tool loop. The chat route calls `prepareAttachments` on the inbound messages.
+export { prepareAttachments } from "./attachments";
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
