@@ -22,11 +22,15 @@
 // walker — one walk, two consumers.
 //
 // Carrier scope intentionally OMITS:
-//   - `field.required_msg_media` — `jr:requiredMsg` has no commcare-core
-//     wire target; verified at `XFormParser::parseBindAttributes`.
-//   - `caseListConfig.icon` / `caseListConfig.audioLabel` — reserved
-//     slots with no wire emission. Walking them would let the manifest
-//     loader bundle orphan bytes into the CCZ.
+//   - `field.required_msg_media` — commcare-core's `XFormParser::parseBind`
+//     reads the `required` condition but no `requiredMsg` attribute, so a
+//     per-question custom required MESSAGE has no on-device carrier. (Case
+//     SEARCH prompts do support `required_msg` via formplayer's
+//     `DisplayElement`, but that's a separate surface Nova doesn't model.)
+//
+// `caseListConfig.icon` / `audioLabel` ARE walked, but only for
+// `caseListOnly` modules — that's the one shape where CCHQ emits a
+// case-list menu command for the icon to land on (see the walk below).
 
 import type { BlueprintDoc } from "./blueprint";
 import { type Field, isContainer } from "./fields";
@@ -84,6 +88,16 @@ export type MediaRefLocation =
 	  }
 	| {
 			readonly kind: "module_audio_label";
+			readonly moduleUuid: Uuid;
+			readonly moduleName: string;
+	  }
+	| {
+			readonly kind: "case_list_icon";
+			readonly moduleUuid: Uuid;
+			readonly moduleName: string;
+	  }
+	| {
+			readonly kind: "case_list_audio_label";
 			readonly moduleUuid: Uuid;
 			readonly moduleName: string;
 	  }
@@ -188,9 +202,32 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 			};
 		}
 
-		// `caseListConfig.icon` / `audioLabel` are deliberately NOT walked
-		// — see file header. The schema marks them Reserved; surfacing
-		// them here would let the manifest loader bundle orphan bytes.
+		// Case-list-link menu media: the icon / audio on the "open case
+		// list" command. CCHQ emits that command only when
+		// `case_list.show` is true, which Nova sets solely for
+		// `caseListOnly` modules (see `expander.ts`'s gate) — so the media
+		// has a render target only there. Walking it on a non-caseListOnly
+		// module would bundle bytes no command references.
+		if (mod.caseListOnly) {
+			if (mod.caseListConfig?.icon) {
+				yield {
+					assetId: mod.caseListConfig.icon,
+					slotKind: "image",
+					location: { kind: "case_list_icon", moduleUuid, moduleName },
+				};
+			}
+			if (mod.caseListConfig?.audioLabel) {
+				yield {
+					assetId: mod.caseListConfig.audioLabel,
+					slotKind: "audio",
+					location: {
+						kind: "case_list_audio_label",
+						moduleUuid,
+						moduleName,
+					},
+				};
+			}
+		}
 		const columns = mod.caseListConfig?.columns ?? [];
 		for (const column of columns) {
 			if (column.kind !== "image-map") continue;

@@ -136,9 +136,29 @@ export interface StackOperation {
 
 // ── Entry Definition ───────────────────────────────────────────────────
 
-/** Complete entry definition for a form in suite.xml. */
+/**
+ * Complete entry definition for an `<entry>` in suite.xml.
+ *
+ * Two entry shapes share this struct because CCHQ renders both as
+ * top-level `<entry>` blocks the runtime dispatches through:
+ *
+ *   - **Form entry** — carries `formXmlns`, so `buildEntryElement`
+ *     emits a `<form>` child naming the XForm the entry launches.
+ *     Built by `deriveEntryDefinition`.
+ *   - **Case-list-browse entry** — the `caseListOnly` module's
+ *     standalone case-list command (CCHQ's `case_list.show=true`
+ *     block at `entries.py`'s `if module.case_list.show:`). It loads
+ *     a case into the case-list/-detail screens but launches no form,
+ *     so `formXmlns` is omitted and `buildEntryElement` skips the
+ *     `<form>` child. Built by `deriveCaseListEntryDefinition`.
+ *
+ * `formXmlns` is the sole discriminator between the two on the wire —
+ * everything else (command, locale, instances, session datum) is
+ * structurally identical.
+ */
 export interface EntryDefinition {
-	formXmlns: string;
+	/** The XForm xmlns the entry launches. Omitted for the case-list-browse entry, which loads a case but launches no form. */
+	formXmlns?: string;
 	commandId: string;
 	localeId: string;
 	instances: EntryInstance[];
@@ -149,6 +169,101 @@ export interface EntryDefinition {
 // ── Derivation Functions ───────────────────────────────────────────────
 
 const SESSION_REF = "instance('commcaresession')/session/data";
+
+/**
+ * Build the case-loading datum's nodeset:
+ * `instance('casedb')/casedb/case[@case_type='<type>'][@status='open']<filterFragment>`.
+ *
+ * The single source for this string across both case-loading entry
+ * shapes — the form entry's `case_id` datum
+ * (`deriveSessionDatums`) and the `caseListOnly` browse entry's
+ * `case_id` datum (`deriveCaseListEntryDefinition`). Keeping it in one
+ * place stops the two from drifting on the `[@case_type][@status]`
+ * predicate order or the filter-append rule.
+ *
+ * Filter precedence (case-type / status first, user filter last)
+ * matches CCHQ's canonical builder at
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper._get_nodeset_xpath`.
+ */
+function caseLoadingNodeset(
+	caseType: string,
+	caseListFilter: Predicate | undefined,
+): string {
+	const filterFragment = emitNodesetFilter(caseListFilter);
+	return `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}`;
+}
+
+/**
+ * Accumulate the `<instance>` declarations a case-loading entry's body
+ * holds, into `instances` (deduped via `seen`). Both case-loading entry
+ * shapes — the form entry (`deriveEntryDefinition`) and the
+ * `caseListOnly` browse entry (`deriveCaseListEntryDefinition`) — load
+ * the same `m{N}_case_short` / `m{N}_case_long` details and reference the
+ * same XPath surfaces, so they share this accumulation rather than
+ * duplicating it.
+ *
+ * CCHQ's server-side suite post-process
+ * (`commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`)
+ * walks every detail an entry references and adds the matching
+ * `<instance>` declarations on the regenerated suite. Nova's local
+ * `.ccz` emission has no equivalent post-pass, so this walks every
+ * XPath surface the entry's body reaches:
+ *
+ *   - the case-list `filter` predicate (lives inside the case-loading
+ *     datum's nodeset);
+ *   - the `searchButtonDisplayCondition` predicate (lowers to the
+ *     `<action relevant>` on the case-list detail's search-action
+ *     element, evaluated in this entry's context);
+ *   - every calc-column expression on `m{N}_case_short` /
+ *     `m{N}_case_long`.
+ *
+ * Accumulation ORDER is observable on the wire — predicate instances
+ * (filter, then display condition) before calc-column instances. The
+ * caller seeds `casedb` from the datum first so the final order is
+ * casedb → predicate instances → calc-column instances, matching the
+ * form-entry shape byte-for-byte.
+ */
+function accumulateCaseLoadingInstances(
+	caseListFilter: Predicate | undefined,
+	searchButtonDisplayCondition: Predicate | undefined,
+	caseListColumnExpressions: readonly ValueExpression[] | undefined,
+	instances: EntryInstance[],
+	seen: Set<string>,
+): void {
+	// Predicate-derived instances. Every predicate whose XPath fragment
+	// lives inside an `<entry>`-scoped slot contributes its instance set
+	// — the case-list filter (inside the datum's nodeset) and the
+	// search-button display condition (on the detail's `<action relevant>`,
+	// evaluated against the enclosing entry's instances). The Term-kind →
+	// instance-id mapping is fixed in `instanceSourceFor`.
+	const predicatesContributing: Predicate[] = [];
+	if (caseListFilter !== undefined) predicatesContributing.push(caseListFilter);
+	if (searchButtonDisplayCondition !== undefined) {
+		predicatesContributing.push(searchButtonDisplayCondition);
+	}
+	for (const predicate of predicatesContributing) {
+		for (const id of collectPredicateInstances(predicate)) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id) });
+		}
+	}
+
+	// Calc-column expressions land on `m{N}_case_short` / `m{N}_case_long`.
+	// CCHQ resolves the detail's XPath against the enclosing entry's
+	// declarations — accumulate every instance the expression reaches so
+	// the local `.ccz` carries the same declarations CCHQ's server-side
+	// post-process would add on a regenerated suite.
+	if (caseListColumnExpressions !== undefined) {
+		for (const expression of caseListColumnExpressions) {
+			for (const id of collectExpressionInstances(expression)) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id) });
+			}
+		}
+	}
+}
 
 /**
  * Derive session datums required by a form entry.
@@ -198,12 +313,11 @@ export function deriveSessionDatums(
 
 	// (1) Case-loading datum for followup / close.
 	if (CASE_LOADING_FORM_TYPES.has(formType) && caseType) {
-		const filterFragment = emitNodesetFilter(caseListFilter);
 		datums.push({
 			id: "case_id",
 			instanceId: "casedb",
 			instanceSrc: "jr://instance/casedb",
-			nodeset: `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}`,
+			nodeset: caseLoadingNodeset(caseType, caseListFilter),
 			value: "./@case_id",
 			detailSelect: `m${moduleIndex}_case_short`,
 		});
@@ -484,43 +598,19 @@ export function deriveEntryDefinition(
 		}
 	}
 
-	// Predicate-derived instance accumulation. Every predicate whose
-	// XPath fragment lives inside an `<entry>`-scoped slot
-	// contributes its instance set here — the case-list filter (lives
-	// inside the case-loading datum's nodeset) and the search-button
-	// display condition (lives on the case-list detail's
-	// `<action relevant>` attribute, evaluated against the enclosing
-	// entry's instances). The Term-kind → instance-id mapping is
-	// fixed in `instanceSourceFor` so emission stays consistent
-	// across surfaces (`<entry>`, `<remote-request>`, future
-	// `<query>` slots).
-	const predicatesContributing: Predicate[] = [];
-	if (caseListFilter !== undefined) predicatesContributing.push(caseListFilter);
-	if (searchButtonDisplayCondition !== undefined) {
-		predicatesContributing.push(searchButtonDisplayCondition);
-	}
-	for (const predicate of predicatesContributing) {
-		for (const id of collectPredicateInstances(predicate)) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			instances.push({ id, src: instanceSourceFor(id) });
-		}
-	}
-	// Calc-column expressions land on `m{N}_case_short` /
-	// `m{N}_case_long`. CCHQ resolves the detail's XPath against the
-	// enclosing entry's instance declarations — accumulate every
-	// instance the expression reaches so the local `.ccz` carries the
-	// same declarations CCHQ's server-side post-process would add on a
-	// regenerated suite.
-	if (caseListColumnExpressions !== undefined) {
-		for (const expression of caseListColumnExpressions) {
-			for (const id of collectExpressionInstances(expression)) {
-				if (seen.has(id)) continue;
-				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id) });
-			}
-		}
-	}
+	// Accumulate the `<instance>` declarations the entry's body reaches —
+	// the case-list filter, the search-button display condition, and every
+	// calc-column expression. Shared with the `caseListOnly` browse entry
+	// so the two case-loading shapes can't drift on which instances they
+	// declare. Runs after the datum's `casedb` seed above so the final
+	// order is casedb → predicate instances → calc-column instances.
+	accumulateCaseLoadingInstances(
+		caseListFilter,
+		searchButtonDisplayCondition,
+		caseListColumnExpressions,
+		instances,
+		seen,
+	);
 
 	// Determine stack operations. Three cases:
 	//   1. Form has form_links → emit one <create> per link plus a
@@ -556,6 +646,92 @@ export function deriveEntryDefinition(
 		instances,
 		...(datums.length > 0 && { session: { datums } }),
 		...(operations && { stack: { operations } }),
+	};
+}
+
+/**
+ * Build the `EntryDefinition` for a `caseListOnly` module's standalone
+ * case-list-browse command.
+ *
+ * CCHQ emits this entry from the `if module.case_list.show:` block at
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py`
+ * whenever a module's case list is shown without an attached form — the
+ * exact shape Nova's `expander.ts` stamps as `case_list.show = true` for
+ * `caseListOnly` modules. The rendered fixture is
+ * `commcare-hq/corehq/apps/app_manager/tests/data/suite/call-center.xml`:
+ * an `<entry>` with NO `<form>`, a `<command id="m{N}-case-list">`, the
+ * `casedb` instance, and a single `case_id` session datum that browses
+ * the case list. The command id / locale id follow CCHQ's
+ * `id_strings.case_list_command` (`m{N}-case-list`) /
+ * `id_strings.case_list_locale` (`case_lists.m{N}`).
+ *
+ * The datum carries BOTH `detail-select` (`m{N}_case_short`, the list
+ * screen) AND `detail-confirm` (`m{N}_case_long`, the detail screen) —
+ * unlike the form entry's case-loading datum, which only selects. A
+ * pure browse entry has no follow-on form, so the confirm screen IS the
+ * destination; without `detail-confirm` the user could pick a case but
+ * never see its detail.
+ *
+ * `formXmlns` is omitted so `buildEntryElement` skips the `<form>`
+ * child. The instance accumulation mirrors `deriveEntryDefinition`
+ * exactly (the browse entry loads the same `m{N}_case_short` /
+ * `m{N}_case_long` details the form entry does), so the local `.ccz`
+ * carries the same `<instance>` declarations CCHQ's server-side
+ * post-process would add on a regenerated suite.
+ *
+ * `searchButtonDisplayCondition` is accumulated because a `caseListOnly`
+ * module may still carry a `caseSearchConfig` (the combo is a valid,
+ * silent authoring state — `caseSearchConfigRequiresCaseType` only
+ * rejects a missing case type). When present, the case-list short
+ * detail's `<action relevant>` evaluates in this entry's context, so
+ * every instance the condition references needs a declaration here. With
+ * no forms in the module, this browse entry is the SOLE loader of
+ * `m{N}_case_short`, so it is the only place those instances can land.
+ */
+export function deriveCaseListEntryDefinition(
+	moduleIndex: number,
+	caseType: string,
+	caseListFilter?: Predicate,
+	searchButtonDisplayCondition?: Predicate,
+	caseListColumnExpressions?: readonly ValueExpression[],
+): EntryDefinition {
+	// The browse datum: loads a case from the list into both the list
+	// (detail-select) and detail (detail-confirm) screens. Shares the
+	// nodeset builder with the form entry's `case_id` datum so the two
+	// can't drift on the case-type / status / filter predicate order.
+	const datum: SessionDatum = {
+		id: "case_id",
+		instanceId: "casedb",
+		instanceSrc: "jr://instance/casedb",
+		nodeset: caseLoadingNodeset(caseType, caseListFilter),
+		value: "./@case_id",
+		detailSelect: `m${moduleIndex}_case_short`,
+		detailConfirm: `m${moduleIndex}_case_long`,
+	};
+
+	// Seed `casedb` from the datum, then accumulate every body-reachable
+	// instance in the same order as the form entry (casedb → predicate
+	// instances → calc-column instances).
+	const instances: EntryInstance[] = [];
+	const seen = new Set<string>();
+	if (datum.instanceId !== undefined) {
+		seen.add(datum.instanceId);
+		instances.push({ id: datum.instanceId, src: datum.instanceSrc ?? "" });
+	}
+	accumulateCaseLoadingInstances(
+		caseListFilter,
+		searchButtonDisplayCondition,
+		caseListColumnExpressions,
+		instances,
+		seen,
+	);
+
+	return {
+		// `formXmlns` omitted — the browse entry launches no form.
+		commandId: `m${moduleIndex}-case-list`,
+		localeId: `case_lists.m${moduleIndex}`,
+		instances,
+		session: { datums: [datum] },
 	};
 }
 
@@ -642,10 +818,16 @@ export function buildStackElement(
  * serializes the entire suite once via `dom-serializer`.
  *
  * Element order inside `<entry>` matches CCHQ's canonical fixture order:
- * `<form>`, `<command>` (with nested `<text><locale/></text>`), zero or
- * more `<instance>` elements, optional `<session>`, optional `<stack>`.
- * The serializer preserves child insertion order, so the constructed tree's
- * shape is the on-wire shape.
+ * optional `<form>`, `<command>` (with nested `<text><locale/></text>`),
+ * zero or more `<instance>` elements, optional `<session>`, optional
+ * `<stack>`. The serializer preserves child insertion order, so the
+ * constructed tree's shape is the on-wire shape.
+ *
+ * The `<form>` child is emitted only when `entry.formXmlns` is set. A
+ * form entry always carries it; the `caseListOnly` case-list-browse
+ * entry omits it (CCHQ's `case_list.show` block at `entries.py` builds
+ * an `<entry>` with no `<form>`, per the `call-center.xml` fixture) —
+ * the entry loads a case but launches no form.
  *
  * `commandDisplay` is the command's display child. The compiler passes the
  * form's nav node — a bare `<text><locale/></text>` when the form has no
@@ -663,8 +845,11 @@ export function buildEntryElement(
 	// `<form>` carries the form's xmlns as text content. The serializer
 	// XML-escapes the text once at render time, so a future xmlns
 	// containing `&` (etc.) round-trips correctly without any local
-	// escaping.
-	children.push(el("form", {}, [text(entry.formXmlns)]));
+	// escaping. Omitted for the case-list-browse entry, which has no
+	// form to launch — CCHQ's `case_list.show` entry carries no `<form>`.
+	if (entry.formXmlns !== undefined) {
+		children.push(el("form", {}, [text(entry.formXmlns)]));
+	}
 
 	children.push(
 		el("command", { id: entry.commandId }, [

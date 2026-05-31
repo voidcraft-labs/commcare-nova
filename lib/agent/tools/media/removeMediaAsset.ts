@@ -203,6 +203,10 @@ function describeCarrier(ref: AssetRef): string {
 			return `the icon on module "${loc.moduleName}"`;
 		case "module_audio_label":
 			return `the audio label on module "${loc.moduleName}"`;
+		case "case_list_icon":
+			return `the case-list icon on module "${loc.moduleName}"`;
+		case "case_list_audio_label":
+			return `the case-list audio label on module "${loc.moduleName}"`;
 		case "form_icon":
 			return `the icon on form "${loc.formName}" (module "${loc.moduleName}")`;
 		case "form_audio_label":

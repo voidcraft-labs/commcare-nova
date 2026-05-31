@@ -1098,17 +1098,21 @@ export const caseListConfigSchema = z
 		filter: predicateSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
-		 * Image intended for the "Open case list" affordance — the menu
-		 * link from the module's home screen that opens the case list.
-		 * **Reserved**: schema slot kept on the type, but no wire path
-		 * emits it and no walk collects its bytes — setting it is a
-		 * no-op end-to-end.
+		 * Image for the "Open case list" affordance — the menu link from
+		 * the module's home screen that opens the case list. Emits ONLY on
+		 * `caseListOnly` modules: that's the one shape where a standalone
+		 * case-list command exists to host the icon (the local `.ccz`
+		 * command `<display>`, the HQ `case_list.media_image` dict). On a
+		 * module with forms there's no standalone case-list command, so the
+		 * slot is a no-op there. The bytes are collected by the
+		 * `mediaRefs.ts` walk under the same `caseListOnly` gate.
 		 */
 		icon: assetIdSchema.optional(),
 		/**
-		 * Audio prompt intended for the case-list link. **Reserved**,
-		 * same no-op shape as `icon` above. Menu affordances carry image
-		 * + audio only — there is no video slot (unlike a question
+		 * Audio prompt for the case-list link. Same `caseListOnly`-only
+		 * emission shape as `icon` above (local command `<display>` +
+		 * HQ `case_list.media_audio`). Menu affordances carry image +
+		 * audio only — there is no video slot (unlike a question
 		 * message, which can carry all three).
 		 */
 		audioLabel: assetIdSchema.optional(),

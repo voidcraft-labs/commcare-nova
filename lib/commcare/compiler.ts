@@ -43,6 +43,7 @@ import { buildLogoProfileProperty } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMenuNode } from "@/lib/commcare/multimedia/navMenuMedia";
 import {
 	buildEntryElement,
+	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
 } from "@/lib/commcare/session";
 import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
@@ -153,6 +154,18 @@ export function compileCcz(
 		const hqForms = hqMod.forms;
 
 		appStrings[`modules.m${mIdx}`] = modName;
+
+		// Every calc-column expression on this module's case-list short /
+		// long detail. Module-invariant (it depends only on
+		// `caseListConfig.columns`), so it's computed once here and reused
+		// by both case-loading entry paths below — the per-form entry and
+		// the `caseListOnly` browse entry — each of which references the
+		// `m{N}_case_short` / `m{N}_case_long` details these expressions
+		// land on, and so must declare every `<instance>` they reach.
+		const caseListColumnExpressions =
+			mod.caseListConfig?.columns
+				.filter((c) => c.kind === "calculated")
+				.map((c) => c.expression) ?? [];
 
 		// Case detail definitions — emitted only when the module has a case
 		// type. Short + long details are always paired.
@@ -346,11 +359,8 @@ export function compileCcz(
 			// Built BEFORE the validation gates so the binding-resolution
 			// oracle has the entry's session datums to cross-check the
 			// XForm's `instance('commcaresession')/session/data/<X>`
-			// references against.
-			const caseListColumnExpressions =
-				mod.caseListConfig?.columns
-					.filter((c) => c.kind === "calculated")
-					.map((c) => c.expression) ?? [];
+			// references against. `caseListColumnExpressions` is the
+			// module-scoped accumulation hoisted above the form loop.
 			const entryDef = deriveEntryDefinition(
 				xmlns,
 				mIdx,
@@ -425,6 +435,64 @@ export function compileCcz(
 			Object.assign(appStrings, formNav.strings);
 			suiteEntries.push(buildEntryElement(entryDef, formNav.node));
 			menuCommands.push(el("command", { id: cmdId }));
+		}
+
+		// Case-list-browse command for a `caseListOnly` module. CCHQ emits
+		// a standalone case-list command + entry from its
+		// `if module.case_list.show:` block (`entries.py`) when a module
+		// shows its case list without an attached form — the shape Nova's
+		// expander stamps as `case_list.show = true`. The local `.ccz`
+		// compiler emits the matching command + entry so a directly-installed
+		// archive reaches the case list (without this, a `caseListOnly`
+		// module's `<menu>` carries zero commands and the case list is
+		// unreachable on-device, diverging from the HQ-regenerated suite).
+		//
+		// Guarded on a present case type the same way the per-form case
+		// path is — a `caseListOnly` module with no case type has no case
+		// list to browse (and the validator's `caseListOnlyNoCaseType` rule
+		// rejects that state upstream).
+		if (mod.caseListOnly && caseType) {
+			// The case-list command's display node. A bare
+			// `<text><locale id="case_lists.m{N}"/></text>` when the module
+			// carries no case-list menu media, or a `<display>` wrapping the
+			// text + `<text form="image|audio">` media locales when it does
+			// — the same builder the form / module nav nodes use, here fed
+			// the case-list link's `icon` / `audioLabel` slots. This is the
+			// render target the expander's `case_list.media_*` stamping
+			// always implied but the local path previously had nowhere to
+			// land.
+			const caseListNav = buildNavMenuNode(
+				`case_lists.m${mIdx}`,
+				mod.caseListConfig?.icon,
+				mod.caseListConfig?.audioLabel,
+				assets,
+				"compileCcz case-list command",
+			);
+			// The command's base label resolves to the module name —
+			// matching CCHQ's `case_list.label = { en: mod.name }` shell
+			// stamping in `expander.ts`. Its media locales (when present)
+			// merge in alongside.
+			appStrings[`case_lists.m${mIdx}`] = modName;
+			Object.assign(appStrings, caseListNav.strings);
+
+			// The browse entry: no `<form>`, a `case_id` datum carrying both
+			// detail-select + detail-confirm, and the same instance
+			// accumulation the form entry uses (the browse entry is the sole
+			// loader of `m{N}_case_short` / `m{N}_case_long` in a formless
+			// module). Calc-column expressions + the case-list filter +
+			// any search-button display condition are read from the module
+			// exactly as the per-form path reads them.
+			const caseListEntryDef = deriveCaseListEntryDefinition(
+				mIdx,
+				caseType,
+				mod.caseListConfig?.filter,
+				mod.caseSearchConfig?.searchButtonDisplayCondition,
+				caseListColumnExpressions.length > 0
+					? caseListColumnExpressions
+					: undefined,
+			);
+			suiteEntries.push(buildEntryElement(caseListEntryDef, caseListNav.node));
+			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));
 		}
 
 		// Module home-tile media: the `<menu>`'s display gains the icon /

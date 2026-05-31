@@ -70,6 +70,10 @@ export function describeLocation(location: MediaRefLocation): string {
 			return `the icon on module "${location.moduleName}"`;
 		case "module_audio_label":
 			return `the audio label on module "${location.moduleName}"`;
+		case "case_list_icon":
+			return `the case-list icon on module "${location.moduleName}"`;
+		case "case_list_audio_label":
+			return `the case-list audio label on module "${location.moduleName}"`;
 		case "form_icon":
 			return `the icon on form "${location.formName}" in module "${location.moduleName}"`;
 		case "form_audio_label":
@@ -98,6 +102,8 @@ export function scopeFor(location: MediaRefLocation): ValidationError["scope"] {
 			return "app";
 		case "module_icon":
 		case "module_audio_label":
+		case "case_list_icon":
+		case "case_list_audio_label":
 		case "image_map_mapping":
 			return "module";
 		case "form_icon":
@@ -135,6 +141,18 @@ export function validationLocationFor(
 				moduleUuid: location.moduleUuid,
 				moduleName: location.moduleName,
 				field: "audioLabel",
+			};
+		case "case_list_icon":
+			return {
+				moduleUuid: location.moduleUuid,
+				moduleName: location.moduleName,
+				field: "caseListIcon",
+			};
+		case "case_list_audio_label":
+			return {
+				moduleUuid: location.moduleUuid,
+				moduleName: location.moduleName,
+				field: "caseListAudioLabel",
 			};
 		case "form_icon":
 			return {

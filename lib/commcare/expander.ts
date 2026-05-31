@@ -257,14 +257,9 @@ export function expandDoc(
 		);
 		shell.media_image = moduleMedia.media_image;
 		shell.media_audio = moduleMedia.media_audio;
-		// `case_list.media_image` / `media_audio` are NOT stamped from
-		// `mod.caseListConfig?.icon` / `audioLabel`. The schema reserves
-		// those slots but no wire path emits them: Nova's compiler emits
-		// no standalone case-list-link command in suite.xml, and the
-		// HQ-bound JSON path emits media-free. Stamping a non-empty dict
-		// here would also produce orphan bytes in the `.ccz` (the bytes
-		// are not collected by `collectAssetRefs` either — see
-		// `lib/domain/mediaRefs.ts`).
+		// `case_list.media_image` / `media_audio` are stamped below, inside
+		// the `caseListOnly` block — that's the only shape where CCHQ emits
+		// a case-list menu command for the icon to land on.
 
 		// Overlay the projected `search_config` onto the shell. The
 		// shell carries CCHQ defaults; the projection brings authored
@@ -283,6 +278,20 @@ export function expandDoc(
 		if (mod.caseListOnly) {
 			shell.case_list.show = true;
 			shell.case_list.label = { en: mod.name };
+			// Case-list-link menu media — same dict shape as the module
+			// home-tile media above. CCHQ renders it on the case-list
+			// command that `case_list.show = true` produces, and the local
+			// `.ccz` compiler reads the same shell, so both artifacts agree.
+			// Empty dicts on the media-OFF path (`assets` undefined), so
+			// byte-free output is unchanged.
+			const caseListMedia = buildNavMediaDicts(
+				mod.caseListConfig?.icon,
+				mod.caseListConfig?.audioLabel,
+				assets,
+				"expandDoc case-list media",
+			);
+			shell.case_list.media_image = caseListMedia.media_image;
+			shell.case_list.media_audio = caseListMedia.media_audio;
 		}
 
 		// Activate `parent_select` when this module's case type appears
