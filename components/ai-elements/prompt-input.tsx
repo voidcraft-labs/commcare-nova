@@ -38,11 +38,6 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import {
-	HoverCard,
-	HoverCardContent,
-	HoverCardTrigger,
-} from "@/components/shadcn/hover-card";
-import {
 	InputGroup,
 	InputGroupAddon,
 	InputGroupButton,
@@ -325,8 +320,15 @@ export const PromptInputActionAddAttachments = ({
 }: PromptInputActionAddAttachmentsProps) => {
 	const attachments = usePromptInputAttachments();
 
+	// Base UI's menu item passes a wrapped event (BaseUIEvent), not a bare DOM
+	// Event — derive the exact param type from the primitive's own prop so the
+	// handler stays correct if base-nova swaps the underlying event shape.
 	const handleSelect = useCallback(
-		(e: Event) => {
+		(
+			e: Parameters<
+				NonNullable<ComponentProps<typeof DropdownMenuItem>["onSelect"]>
+			>[0],
+		) => {
 			e.preventDefault();
 			attachments.openFileDialog();
 		},
@@ -1106,8 +1108,14 @@ export const PromptInputSubmit = ({
 		statusIcon = <Icon icon={tablerX} className="size-4" />;
 	}
 
+	// InputGroupButton (Base UI) hands its onClick a wrapped event; derive the
+	// param type from the primitive so forwarding to the caller's onClick typechecks.
 	const handleClick = useCallback(
-		(e: React.MouseEvent<HTMLButtonElement>) => {
+		(
+			e: Parameters<
+				NonNullable<ComponentProps<typeof InputGroupButton>["onClick"]>
+			>[0],
+		) => {
 			if (isGenerating && onStop) {
 				e.preventDefault();
 				onStop();
@@ -1132,32 +1140,3 @@ export const PromptInputSubmit = ({
 		</InputGroupButton>
 	);
 };
-
-export type PromptInputHoverCardProps = ComponentProps<typeof HoverCard>;
-
-export const PromptInputHoverCard = ({
-	openDelay = 0,
-	closeDelay = 0,
-	...props
-}: PromptInputHoverCardProps) => (
-	<HoverCard closeDelay={closeDelay} openDelay={openDelay} {...props} />
-);
-
-export type PromptInputHoverCardTriggerProps = ComponentProps<
-	typeof HoverCardTrigger
->;
-
-export const PromptInputHoverCardTrigger = (
-	props: PromptInputHoverCardTriggerProps,
-) => <HoverCardTrigger {...props} />;
-
-export type PromptInputHoverCardContentProps = ComponentProps<
-	typeof HoverCardContent
->;
-
-export const PromptInputHoverCardContent = ({
-	align = "start",
-	...props
-}: PromptInputHoverCardContentProps) => (
-	<HoverCardContent align={align} {...props} />
-);
