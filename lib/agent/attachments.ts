@@ -254,9 +254,15 @@ export async function prepareAttachments(
 
 		// PDFs: condense large ones via Haiku as a native document block (no
 		// client-side text extraction — Haiku reads the original). Small PDFs
-		// pass through for Opus to read natively. URL length is a byte proxy.
+		// pass through for Opus to read natively. The threshold is expressed in
+		// DECODED chars (same as the text path), but we compare the un-decoded
+		// data-URL length to avoid decoding the PDF just to size it — so scale the
+		// threshold by base64 inflation, matching the oversize guard above. Without
+		// the scaling a PDF would extract ~1.37× too eagerly (at ~23KB decoded
+		// instead of the intended ~32KB), inconsistent with the text branch.
 		if (mediaType === "application/pdf") {
-			const isLarge = url.length > ATTACHMENT_EXTRACT_CHAR_THRESHOLD;
+			const isLarge =
+				url.length > ATTACHMENT_EXTRACT_CHAR_THRESHOLD * BASE64_INFLATION;
 			if (!isLarge) {
 				nextParts.push(part);
 				continue;
