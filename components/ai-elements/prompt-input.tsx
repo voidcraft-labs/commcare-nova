@@ -426,11 +426,18 @@ export const PromptInput = ({
 				.filter(Boolean);
 
 			return patterns.some((pattern) => {
-				if (pattern.endsWith("/*")) {
-					// e.g: image/* -> image/
-					const prefix = pattern.slice(0, -1);
-					return f.type.startsWith(prefix);
+				// The HTML `accept` attribute allows three forms; honor all of them
+				// (the upstream matcher handled only MIME, so an extension-based
+				// accept list silently rejected every file the native picker allowed):
+				//   - extension (".pdf"): match the filename, since f.type is a MIME.
+				if (pattern.startsWith(".")) {
+					return f.name.toLowerCase().endsWith(pattern.toLowerCase());
 				}
+				//   - wildcard MIME ("image/*").
+				if (pattern.endsWith("/*")) {
+					return f.type.startsWith(pattern.slice(0, -1));
+				}
+				//   - exact MIME ("application/pdf").
 				return f.type === pattern;
 			});
 		},

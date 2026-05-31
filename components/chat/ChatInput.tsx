@@ -2,6 +2,7 @@
 import type { FileUIPart } from "ai";
 import {
 	Attachment,
+	AttachmentInfo,
 	AttachmentPreview,
 	AttachmentRemove,
 	Attachments,
@@ -21,6 +22,7 @@ import {
 	PromptInputTools,
 	usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
+import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
 
 /** File types the SA can actually consume: text/markdown/csv + images + PDF are
@@ -35,24 +37,42 @@ const ACCEPT = ".txt,.md,.csv,.pdf,.png,.jpg,.jpeg,.gif,.webp,.docx,.xlsx";
 const MAX_FILES = 5;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+/** Friendly, Elm-style messages for PromptInput's file-validation rejections.
+ *  Without surfacing these, a rejected attachment silently vanishes (no chip),
+ *  which reads as "nothing happened" — the same dead-end as an unhandled accept
+ *  mismatch. Keyed by PromptInput's `onError` codes. */
+const ATTACHMENT_ERROR_MESSAGES: Record<string, string> = {
+	accept:
+		"That file type isn't supported. Attach a PDF, image, text, Markdown, CSV, Word, or Excel file.",
+	max_file_size:
+		"That file is over the 10 MB limit. Try a smaller file, or split it into parts.",
+	max_files:
+		"You can attach up to 5 files at once — remove one before adding another.",
+};
+
 /** The pending-upload chip row, shown above the textarea while files are staged
- *  for the next send. Reads from PromptInput's own attachment state. */
+ *  for the next send. Renders the PromptInputHeader (and thus its padding) only
+ *  when files exist — an empty header would otherwise leave a gutter above the
+ *  textarea. Reads from PromptInput's own attachment state. */
 function PendingAttachments() {
 	const attachments = usePromptInputAttachments();
 	if (attachments.files.length === 0) return null;
 	return (
-		<Attachments variant="inline">
-			{attachments.files.map((file) => (
-				<Attachment
-					data={file}
-					key={file.id}
-					onRemove={() => attachments.remove(file.id)}
-				>
-					<AttachmentPreview />
-					<AttachmentRemove />
-				</Attachment>
-			))}
-		</Attachments>
+		<PromptInputHeader>
+			<Attachments variant="inline">
+				{attachments.files.map((file) => (
+					<Attachment
+						data={file}
+						key={file.id}
+						onRemove={() => attachments.remove(file.id)}
+					>
+						<AttachmentPreview />
+						<AttachmentInfo />
+						<AttachmentRemove />
+					</Attachment>
+				))}
+			</Attachments>
+		</PromptInputHeader>
 	);
 }
 
@@ -97,11 +117,16 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
 			maxFileSize={MAX_FILE_SIZE}
 			maxFiles={MAX_FILES}
 			multiple
+			onError={(err) =>
+				showToast(
+					"warning",
+					"Couldn't attach file",
+					ATTACHMENT_ERROR_MESSAGES[err.code] ?? err.message,
+				)
+			}
 			onSubmit={handleSubmit}
 		>
-			<PromptInputHeader>
-				<PendingAttachments />
-			</PromptInputHeader>
+			<PendingAttachments />
 			<PromptInputBody>
 				<PromptInputTextarea
 					disabled={disabled}
