@@ -431,6 +431,18 @@ export const PromptInput = ({
 		filesRef.current = files;
 	}, [files]);
 
+	// When an attachment is added, drop focus into the textarea so the user can
+	// immediately type their message — without this, focus is left on whatever
+	// triggered the add (the menu item / file picker), stranding the caret. Only
+	// react to the count GROWING; removing a chip shouldn't grab focus.
+	const prevFileCount = useRef(files.length);
+	useEffect(() => {
+		if (files.length > prevFileCount.current) {
+			formRef.current?.querySelector("textarea")?.focus();
+		}
+		prevFileCount.current = files.length;
+	}, [files.length]);
+
 	const openFileDialogLocal = useCallback(() => {
 		inputRef.current?.click();
 	}, []);
