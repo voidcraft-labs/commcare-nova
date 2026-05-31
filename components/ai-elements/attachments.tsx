@@ -338,6 +338,7 @@ export const AttachmentRemove = ({
 		<Button
 			aria-label={label}
 			className={cn(
+				"cursor-pointer",
 				variant === "grid" && [
 					"absolute top-2 right-2 size-6 rounded-full p-0",
 					"bg-background/80 backdrop-blur-sm",

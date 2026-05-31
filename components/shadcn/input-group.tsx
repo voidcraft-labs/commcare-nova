@@ -101,7 +101,14 @@ function InputGroupButton({
 			type={type}
 			data-size={size}
 			variant={variant}
-			className={cn(inputGroupButtonVariants({ size }), className)}
+			// Pointer cursor on these inline icon buttons (the attach "+", submit, …)
+			// matches Nova's interactive-element convention; Tailwind v4 leaves the
+			// button cursor as default otherwise.
+			className={cn(
+				"cursor-pointer disabled:cursor-not-allowed",
+				inputGroupButtonVariants({ size }),
+				className,
+			)}
 			{...props}
 		/>
 	);
