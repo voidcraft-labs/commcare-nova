@@ -85,12 +85,13 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
 		<PromptInput
 			accept={ACCEPT}
 			className={cn(
-				"bg-nova-surface",
-				// Docked sidebar gets a top divider; the centered card already has its
-				// own border, so it only carries the violet focus emphasis.
-				centered
-					? "ring-1 ring-nova-violet/20 focus-within:ring-nova-violet/40"
-					: "border-t border-nova-border",
+				// Pad so the rounded input floats inside its container. The InputGroup
+				// already carries the border + violet focus ring; without padding its
+				// rounded corners + ring sit flush against the centered card's
+				// rounded-2xl overflow-hidden edge and get cropped. So the form itself
+				// needs no ring/fill — just padding, plus a top divider when docked.
+				"p-3",
+				centered ? "" : "border-t border-nova-border",
 			)}
 			globalDrop
 			maxFileSize={MAX_FILE_SIZE}

@@ -320,24 +320,25 @@ export const PromptInputActionAddAttachments = ({
 }: PromptInputActionAddAttachmentsProps) => {
 	const attachments = usePromptInputAttachments();
 
-	// Base UI's menu item passes a wrapped event (BaseUIEvent), not a bare DOM
-	// Event — derive the exact param type from the primitive's own prop so the
-	// handler stays correct if base-nova swaps the underlying event shape.
-	const handleSelect = useCallback(
-		(
-			e: Parameters<
-				NonNullable<ComponentProps<typeof DropdownMenuItem>["onSelect"]>
-			>[0],
-		) => {
-			e.preventDefault();
-			attachments.openFileDialog();
-		},
-		[attachments],
-	);
+	// base-nova's DropdownMenuItem is Base UI's Menu.Item, which fires onClick on
+	// activation (mouse + keyboard). Radix's onSelect — what the upstream AI
+	// Elements used — binds the DOM text-selection event on a Base UI item and
+	// never fires on a click, so the picker never opened. Opening the hidden file
+	// input from this click is a user gesture (the picker is allowed); Base UI
+	// closes the menu afterward on its own.
+	const handleClick = useCallback(() => {
+		attachments.openFileDialog();
+	}, [attachments]);
 
 	return (
-		<DropdownMenuItem {...props} onSelect={handleSelect}>
-			<Icon icon={tablerPhoto} className="mr-2 size-4" /> {label}
+		// Full-bleed row (no inset rounding, generous padding) so the highlight
+		// fills the padding-less popup edge-to-edge — matches Nova's MENU_ITEM_BASE.
+		<DropdownMenuItem
+			{...props}
+			className={cn("rounded-none px-3 py-2", props.className)}
+			onClick={handleClick}
+		>
+			<Icon icon={tablerPhoto} className="size-4" /> {label}
 		</DropdownMenuItem>
 	);
 };
@@ -1062,7 +1063,17 @@ export const PromptInputActionMenuContent = ({
 	className,
 	...props
 }: PromptInputActionMenuContentProps) => (
-	<DropdownMenuContent align="start" className={cn(className)} {...props} />
+	// Match Nova's proven menu shape (see lib/styles MENU_POPUP_CLS + the working
+	// SelectMenu): a FULL-BLEED highlight. The popup carries no padding and clips
+	// to its rounded corners (`p-0 overflow-hidden`); each item is `w-full` with
+	// its own padding, so the highlight fills the popup edge-to-edge with even
+	// margins — instead of the shim's inset rounded-pill, which left an uneven gap.
+	// `w-auto` sizes the popup to the widest item rather than the tiny "+" trigger.
+	<DropdownMenuContent
+		align="start"
+		className={cn("w-auto overflow-hidden p-0", className)}
+		{...props}
+	/>
 );
 
 export type PromptInputActionMenuItemProps = ComponentProps<
