@@ -348,7 +348,9 @@ export const AttachmentRemove = ({
 				],
 				variant === "inline" && [
 					"size-5 rounded p-0",
-					"opacity-0 transition-opacity group-hover:opacity-100",
+					// Always visible (muted), brightening on hover — the upstream
+					// opacity-0 hover-reveal is invisible on touch and hard to find.
+					"text-nova-text-muted transition-colors hover:text-nova-text",
 					"[&>svg]:size-2.5",
 				],
 				variant === "list" && ["size-8 shrink-0 rounded p-0", "[&>svg]:size-4"],
