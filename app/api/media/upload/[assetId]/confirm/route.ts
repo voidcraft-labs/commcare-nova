@@ -14,9 +14,9 @@
  *
  * The validator's hash check catches GCS-side tampering between the
  * PUT and this confirm (the sniffed bytes' sha256 must match the
- * row's claimed content hash). The sharp/ffprobe re-parse catches
- * truncation + corruption — bytes that pass the magic-bytes sniff but
- * don't actually parse as the format they claim.
+ * row's claimed content hash). The sharp/music-metadata re-parse
+ * catches truncation + corruption — bytes that pass the magic-bytes
+ * sniff but don't actually parse as the format they claim.
  */
 
 import { type NextRequest, NextResponse } from "next/server";

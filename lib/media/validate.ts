@@ -12,7 +12,7 @@
  *   1. Extension whitelist
  *   2. Size cap per kind
  *   3. Magic-bytes sniff (file-type)
- *   4. Library re-parse (sharp for images, ffprobe for audio/video)
+ *   4. Library re-parse (sharp for images, music-metadata for audio/video)
  *   5. SHA-256 computed from the validated bytes
  *
  * Trust nothing the client says about the bytes; verify everything.
@@ -25,10 +25,9 @@
  * specific mismatch + what the user can do about it.
  */
 
-import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import ffprobeInstaller from "@ffprobe-installer/ffprobe";
+import { createHash } from "node:crypto";
 import { fileTypeFromBuffer } from "file-type";
+import { type IAudioMetadata, parseBuffer } from "music-metadata";
 import sharp from "sharp";
 import {
 	ALL_MIME_TYPES,
@@ -239,7 +238,7 @@ export async function validateMediaBytes(args: {
 	// Stage 4: library re-parse. For images, `sharp` opens the bytes
 	// and reads metadata — failure here means the magic-bytes
 	// matched but the body is truncated or malformed. For audio/
-	// video, ffprobe demuxes the container. Both raise on parse
+	// video, music-metadata parses the container structure. Both raise on parse
 	// failure; we map that to a clean rejection.
 	let dimensions: { width: number; height: number } | undefined;
 	let durationMs: number | undefined;
@@ -265,7 +264,7 @@ export async function validateMediaBytes(args: {
 		}
 	} else {
 		try {
-			durationMs = await probeDurationMs(bytes, canonicalExtension);
+			durationMs = await probeDurationMs(bytes, sniffedMime);
 		} catch (err) {
 			const detail = err instanceof Error ? err.message : String(err);
 			return {
@@ -304,133 +303,94 @@ export async function validateMediaBytes(args: {
 }
 
 /**
- * Demux an audio/video container to read its duration (ms). ffprobe
- * reads a file path, not a buffer, so we write the bytes to a tmp
- * file scoped to the os tmpdir and delete it after the probe. The
- * cost is one fs write per upload — acceptable for an interactive
- * flow; not in the hot read path.
- *
- * The temp filename is built from a fresh random id + the canonical
- * extension only — never from the client's original filename. Two
- * reasons:
- *
- *  - The original filename is unconstrained beyond its extension
- *    suffix, so interpolating it into `join(tmpdir(), ...)` would
- *    let a `../`-laden filename escape the temp directory and have
- *    us write attacker-controlled bytes to an attacker-influenced
- *    path.
- *  - A per-call random id (not the content hash) keeps two
- *    concurrent probes of the *same bytes* — a confirm retry, two
- *    tabs — from colliding on one temp path and racing each other's
- *    write / probe / unlink. A content-hash path would be identical
- *    across those calls precisely because the bytes are identical.
- *
- * The canonical extension is still appended so ffprobe's
- * extension-based format hinting works.
+ * Wall-clock ceiling for the in-process container parse. Unlike a
+ * child process, music-metadata runs on this event loop, so a
+ * container engineered to make the box/frame walk pathologically
+ * expensive can't be SIGKILL'd from outside the way `ffprobe` once
+ * was. The per-kind size cap already bounds the work in MAGNITUDE;
+ * this bounds it in TIME, so one hostile confirm can't stall the
+ * request indefinitely. The losing parse promise keeps running until
+ * it settles on its own — bounded by the size cap — but the caller is
+ * freed to reject. A real media file parses in well under this.
  */
-async function probeDurationMs(
-	bytes: Buffer,
-	canonicalExtension: string,
-): Promise<number> {
-	const { tmpdir } = await import("node:os");
-	const { writeFile, unlink } = await import("node:fs/promises");
-	const { join } = await import("node:path");
-	const tmpPath = join(
-		tmpdir(),
-		`nova-media-probe-${randomUUID()}${canonicalExtension}`,
-	);
-	await writeFile(tmpPath, bytes);
-	try {
-		const seconds = await probeDurationSeconds(tmpPath);
-		if (!Number.isFinite(seconds)) {
-			throw new Error(
-				"ffprobe returned no duration — the container may be malformed or use a format we can't demux",
-			);
-		}
-		return Math.round(seconds * 1000);
-	} finally {
-		await unlink(tmpPath).catch(() => {
-			/* best-effort cleanup; tmpdir GC handles stragglers */
-		});
-	}
-}
-
-const PROBE_TIMEOUT_MS = 10_000;
+const MEDIA_PARSE_TIMEOUT_MS = 10_000;
 
 /**
- * Spawn ffprobe directly (not through fluent-ffmpeg's static helper)
- * so we hold the `ChildProcess` handle and can SIGKILL it on
- * timeout. The static `ffmpeg.ffprobe(path, cb)` form returns no
- * handle, so a hanging probe — exactly the pathological-container
- * case the timeout defends against — would keep the child alive past
- * the request: a dangling process is the open-handle class the
- * pre-push async-leak gate exists to catch. Killing the child closes
- * that gap. The timer is cleared on settle so it never outlives the
- * call, and `settled` guards against the timeout and the close event
- * both trying to settle the promise.
+ * Read an audio/video container's duration (ms) by parsing it
+ * in-process with music-metadata — no subprocess, no temp file, no
+ * native binary. The in-process parser is deliberate: a bundled
+ * demuxer binary doesn't survive the Alpine + Next-standalone deploy
+ * (it isn't traced into the runtime image and may not be musl-linked),
+ * and a native demuxer carries a memory-safety CVE surface on
+ * untrusted input that a JS parser avoids.
  *
- * Returns the container duration in seconds (ffprobe's
- * `format.duration`).
+ * The parse reads container STRUCTURE (atoms / frame headers), not the
+ * encoded payload: a malformed container throws — which the caller
+ * maps to a clean rejection — but a structurally-valid file whose
+ * stream bytes are otherwise arbitrary still passes. That is the same
+ * structural-not-semantic guarantee the previous demux gave; proving
+ * the media actually decodes would need a full decode pass we
+ * deliberately don't run on the upload path.
+ *
+ * Duration is BEST-EFFORT and may be absent: a video-only mp4 (no
+ * audio track) parses cleanly but exposes no duration. A missing
+ * duration is therefore NOT a rejection — only a throw is. The value,
+ * when present, is stored as informational metadata that no validation
+ * gate reads.
  */
-function probeDurationSeconds(tmpPath: string): Promise<number> {
-	return new Promise<number>((resolve, reject) => {
-		const child = spawn(ffprobeInstaller.path, [
-			"-v",
-			"error",
-			"-show_entries",
-			"format=duration",
-			"-of",
-			"json",
-			tmpPath,
-		]);
-		let settled = false;
-		let stdout = "";
-		let stderr = "";
-		const timer = setTimeout(() => {
-			settled = true;
-			child.kill("SIGKILL");
-			reject(
-				new Error(
-					`ffprobe didn't return within ${PROBE_TIMEOUT_MS / 1000}s — the container may be malformed or use a format we can't demux`,
-				),
-			);
-		}, PROBE_TIMEOUT_MS);
-		child.stdout.on("data", (chunk) => {
-			stdout += chunk;
-		});
-		child.stderr.on("data", (chunk) => {
-			stderr += chunk;
-		});
-		child.on("error", (err) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			reject(err);
-		});
-		child.on("close", (code) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			if (code !== 0) {
-				reject(
-					new Error(
-						`ffprobe exited with code ${code} — the container may be malformed or use a format we can't demux${stderr ? ` (${stderr.trim()})` : ""}`,
-					),
-				);
-				return;
-			}
-			try {
-				const parsed = JSON.parse(stdout) as {
-					format?: { duration?: string | number };
-				};
-				resolve(Number(parsed.format?.duration));
-			} catch {
-				reject(
-					new Error(
-						"ffprobe output couldn't be parsed — the container may be malformed or use a format we can't demux",
-					),
-				);
-			}
-		});
+/**
+ * The two ways the timed parse can land: the container finished
+ * parsing, or the wall-clock guard fired first. Modeled as a
+ * RESOLVABLE sentinel rather than a rejecting `Promise<never>` so the
+ * guard side of the race can be SETTLED in `finally` whichever side
+ * won — an unsettled guard promise dangles past the call, the
+ * permanent-leak shape the async-leak gate exists to catch (clearing
+ * the timer alone leaves the promise pending forever).
+ */
+type ParseOutcome =
+	| { kind: "parsed"; metadata: IAudioMetadata }
+	| { kind: "timed-out" };
+
+async function probeDurationMs(
+	bytes: Buffer,
+	sniffedMime: AssetMimeType,
+): Promise<number | undefined> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let settleGuard: ((outcome: ParseOutcome) => void) | undefined;
+	const guard = new Promise<ParseOutcome>((resolve) => {
+		settleGuard = resolve;
+		timer = setTimeout(
+			() => resolve({ kind: "timed-out" }),
+			MEDIA_PARSE_TIMEOUT_MS,
+		);
 	});
+	try {
+		// `skipCovers` avoids decoding embedded cover art we never use.
+		// We don't force `duration: true` (a full-file scan): the size
+		// cap already bounds magnitude, and reading less of an untrusted
+		// file is the safer default — header-derivable duration covers
+		// the common case, and a missing one is acceptable (see above).
+		const outcome = await Promise.race([
+			parseBuffer(
+				bytes,
+				{ mimeType: sniffedMime, size: bytes.length },
+				{ skipCovers: true },
+			).then<ParseOutcome>((metadata) => ({ kind: "parsed", metadata })),
+			guard,
+		]);
+		if (outcome.kind === "timed-out") {
+			throw new Error(
+				`took longer than ${MEDIA_PARSE_TIMEOUT_MS / 1000}s to read — the container may be malformed or use a format we can't parse`,
+			);
+		}
+		const seconds = outcome.metadata.format.duration;
+		return seconds !== undefined && Number.isFinite(seconds)
+			? Math.round(seconds * 1000)
+			: undefined;
+	} finally {
+		if (timer) clearTimeout(timer);
+		// Settle the guard so it can't outlive the call once the race is
+		// decided. A no-op if the timer already resolved it.
+		settleGuard?.({ kind: "timed-out" });
+	}
 }

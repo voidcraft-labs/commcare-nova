@@ -3,8 +3,8 @@
  *
  * The tool decodes inline base64, runs the shared validation pipeline,
  * dedups, and stores. The pipeline + storage + DB calls are mocked so the
- * test exercises the tool's branching, not the real GCS / sharp / ffprobe
- * stack. Coverage:
+ * test exercises the tool's branching, not the real GCS / sharp /
+ * music-metadata stack. Coverage:
  *   1. Happy path — validate → store → confirm → returns asset id.
  *   2. Dedup — a matching `ready` asset returns its id, no store.
  *   3. Validation rejection — `invalid_input` envelope with the message.

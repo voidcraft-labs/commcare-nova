@@ -137,7 +137,7 @@ export async function createPendingAsset(args: {
 /**
  * Flip a `pending` asset to `ready`, attaching the metadata that's
  * only known after validation: image `dimensions` (sharp) or
- * audio/video `durationMs` (ffprobe).
+ * audio/video `durationMs` (music-metadata).
  *
  * Only those slots plus `status` and, for browser confirms, the promoted
  * final `gcsObjectKey` are written. `mimeType`, `extension`, and
@@ -160,7 +160,7 @@ export async function confirmAssetReady(args: {
 	}
 	// Assign each kind-specific slot only when the validator produced it: an
 	// image confirm carries `dimensions` (sharp) and no `durationMs`; an
-	// audio/video confirm carries `durationMs` (ffprobe) and no `dimensions`.
+	// audio/video confirm carries `durationMs` (music-metadata) and no `dimensions`.
 	// This is a first-time set on the `pending → ready` flip, never a clear —
 	// the slot the kind doesn't carry is simply absent from the patch.
 	if (args.dimensions) {

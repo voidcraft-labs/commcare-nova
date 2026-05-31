@@ -250,9 +250,10 @@ export async function getStoredObjectSize(
  * memory must cover `50 MB × expected concurrent confirms` with
  * headroom — a single confirm is fine on any reasonable instance,
  * but a burst of concurrent video confirms scales linearly. If
- * concurrency ever makes that ceiling tight, switch the video path
- * to stream-to-tmp-file validation (ffprobe already reads a path)
- * so video bytes never fully reside in memory.
+ * concurrency ever makes that ceiling tight, the validator's
+ * container parse can run off a stream instead of a full buffer
+ * (music-metadata reads from a tokenizer / web stream), so the
+ * bytes never fully reside in memory.
  */
 export async function downloadAssetBytes(
 	gcsObjectKey: string,

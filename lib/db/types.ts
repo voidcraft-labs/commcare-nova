@@ -340,7 +340,12 @@ export const mediaAssetDocSchema = z.object({
 			height: z.number().int().positive(),
 		})
 		.optional(),
-	/** Audio/video-only — duration in milliseconds, derived by ffprobe at confirm time. */
+	/**
+	 * Audio/video-only — duration in milliseconds, parsed from the
+	 * container at confirm time. Best-effort: absent when the container
+	 * exposes no duration (e.g. a video-only mp4 with no audio track),
+	 * so optional even on audio/video assets. Informational only.
+	 */
 	durationMs: z.number().int().positive().optional(),
 	/**
 	 * Coarse media kind, denormalized so the library list can filter

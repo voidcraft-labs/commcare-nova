@@ -5,6 +5,10 @@
  *   - sharp generates a tiny PNG so the magic-bytes sniff,
  *     sharp re-parse, and dimensions branch all execute against a
  *     real image.
+ *   - A synthesized PCM WAV and a checked-in video-only mp4 fixture
+ *     drive the audio/video branch through music-metadata — the path
+ *     that had no real-media coverage before, so a broken probe (a
+ *     missing binary, a wrong contract) shipped silently.
  *   - Hand-crafted byte arrays simulate magic-mismatch + truncation
  *     rejection paths.
  *
@@ -13,6 +17,8 @@
  */
 
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { validateMediaBytes } from "../validate";
@@ -33,6 +39,40 @@ async function makeTinyPng(): Promise<Buffer> {
 	})
 		.png()
 		.toBuffer();
+}
+
+/**
+ * Synthesize a minimal valid PCM WAV in-process — no encoder, no
+ * checked-in fixture. 8 kHz mono 16-bit, 0.1 s of silence (800
+ * samples). `file-type` sniffs the `RIFF…WAVE` signature as audio/wav
+ * and music-metadata derives 0.1 s from the data-chunk size, so this
+ * drives the real audio branch end to end with a known duration.
+ */
+function makeTinyWav(): Buffer {
+	const sampleRate = 8000;
+	const numChannels = 1;
+	const bitsPerSample = 16;
+	const numSamples = 800; // 0.1 s
+	const blockAlign = (numChannels * bitsPerSample) / 8;
+	const byteRate = sampleRate * blockAlign;
+	const dataSize = numSamples * blockAlign;
+	const buf = Buffer.alloc(44 + dataSize);
+	buf.write("RIFF", 0, "ascii");
+	buf.writeUInt32LE(36 + dataSize, 4);
+	buf.write("WAVE", 8, "ascii");
+	buf.write("fmt ", 12, "ascii");
+	buf.writeUInt32LE(16, 16); // PCM fmt-chunk size
+	buf.writeUInt16LE(1, 20); // audioFormat = PCM
+	buf.writeUInt16LE(numChannels, 22);
+	buf.writeUInt32LE(sampleRate, 24);
+	buf.writeUInt32LE(byteRate, 28);
+	buf.writeUInt16LE(blockAlign, 32);
+	buf.writeUInt16LE(bitsPerSample, 34);
+	buf.write("data", 36, "ascii");
+	buf.writeUInt32LE(dataSize, 40);
+	// Data stays zero-filled (silence): the bytes parse cleanly; their
+	// content is irrelevant to the duration the header declares.
+	return buf;
 }
 
 describe("validateMediaBytes — happy path", () => {
@@ -251,6 +291,50 @@ describe("validateMediaBytes — sharp parse failure", () => {
 			expect(["magic-bytes-sniff-failed", "image-parse-failed"]).toContain(
 				result.reason,
 			);
+		}
+	});
+});
+
+describe("validateMediaBytes — audio & video (music-metadata)", () => {
+	it("validates a real WAV and reads its duration", async () => {
+		const bytes = makeTinyWav();
+		const result = await validateMediaBytes({
+			bytes,
+			claimedMimeType: "audio/wav",
+			claimedSizeBytes: bytes.length,
+			originalFilename: "clip.wav",
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.validated.kind).toBe("audio");
+			expect(result.validated.mimeType).toBe("audio/wav");
+			expect(result.validated.extension).toBe(".wav");
+			// 800 samples ÷ 8 kHz = 0.1 s. Bounded rather than exact to
+			// absorb any rounding in the container's duration math.
+			expect(result.validated.durationMs).toBeGreaterThanOrEqual(90);
+			expect(result.validated.durationMs).toBeLessThanOrEqual(110);
+			expect(result.validated.dimensions).toBeUndefined();
+		}
+	});
+
+	it("accepts a video-only mp4 that exposes NO duration (regression guard)", async () => {
+		// A video-only mp4 (no audio track) parses cleanly but yields no
+		// duration. The validator MUST accept it with `durationMs` absent —
+		// rejecting on a missing duration would block every video-only
+		// upload. The fixture is a 32×32 single-frame H.264 clip, no audio.
+		const bytes = readFileSync(join(__dirname, "fixtures", "tiny-video.mp4"));
+		const result = await validateMediaBytes({
+			bytes,
+			claimedMimeType: "video/mp4",
+			claimedSizeBytes: bytes.length,
+			originalFilename: "clip.mp4",
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.validated.kind).toBe("video");
+			expect(result.validated.mimeType).toBe("video/mp4");
+			expect(result.validated.extension).toBe(".mp4");
+			expect(result.validated.durationMs).toBeUndefined();
 		}
 	});
 });
