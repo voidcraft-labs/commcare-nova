@@ -93,7 +93,7 @@ function pendingAsset(
 		kind: "image",
 		extension: ".png",
 		sizeBytes: 10,
-		gcsObjectKey: "users/user-1/pending/asset-1.png",
+		gcsObjectKey: "pending/user-1/asset-1.png",
 		originalFilename: "logo.png",
 		displayName: "logo.png",
 		status: "pending",
@@ -137,7 +137,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 
 		expect(res.status).toBe(200);
 		expect(copyAssetObject).toHaveBeenCalledWith(
-			"users/user-1/pending/asset-1.png",
+			"pending/user-1/asset-1.png",
 			`users/user-1/${HASH}.png`,
 		);
 		expect(confirmAssetReady).toHaveBeenCalledWith({
@@ -146,9 +146,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 			dimensions: { width: 1, height: 1 },
 			durationMs: undefined,
 		});
-		expect(deleteGcsObject).toHaveBeenCalledWith(
-			"users/user-1/pending/asset-1.png",
-		);
+		expect(deleteGcsObject).toHaveBeenCalledWith("pending/user-1/asset-1.png");
 		expect(body.asset.gcsObjectKey).toBe(`users/user-1/${HASH}.png`);
 	});
 

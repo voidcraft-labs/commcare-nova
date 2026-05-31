@@ -57,8 +57,8 @@ function getBucket(): Bucket {
  * directly to GCS. The URL is bound to:
  *
  *  - the destination object key (path the bytes land at — browser
- *    uploads use `users/<owner>/pending/<assetId>.<ext>`, so a
- *    different owner's namespace is structurally unreachable),
+ *    uploads use `pending/<owner>/<assetId>.<ext>`; the owner segment
+ *    keeps a different owner's namespace structurally unreachable),
  *  - the request `Content-Type` header (the upload must declare
  *    the same MIME the route's pre-screen accepted).
  *

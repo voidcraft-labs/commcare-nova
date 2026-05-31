@@ -54,7 +54,7 @@ beforeEach(() => {
 	vi.mocked(findReadyAssetByOwnerAndHash).mockResolvedValue(null);
 	vi.mocked(createPendingAsset).mockResolvedValue({
 		assetId: asAssetId("asset-1"),
-		gcsObjectKey: "users/user-1/pending/asset-1.png",
+		gcsObjectKey: "pending/user-1/asset-1.png",
 	});
 	vi.mocked(createSignedUploadUrl).mockResolvedValue({
 		url: "https://storage.example/signed",
@@ -88,7 +88,7 @@ describe("POST /api/media/upload", () => {
 		});
 		expect(pendingArgs).not.toHaveProperty("gcsObjectKey");
 		expect(createSignedUploadUrl).toHaveBeenCalledWith({
-			gcsObjectKey: "users/user-1/pending/asset-1.png",
+			gcsObjectKey: "pending/user-1/asset-1.png",
 			contentType: "image/png",
 		});
 	});

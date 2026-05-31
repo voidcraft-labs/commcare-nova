@@ -88,7 +88,7 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
  * exists, so the row is the durable handle the confirm step looks up.
  *
  * Browser uploads leave `gcsObjectKey` absent and get a per-attempt
- * pending key (`users/<owner>/pending/<assetId>.<ext>`). Confirm-time
+ * pending key (`pending/<owner>/<assetId>.<ext>`). Confirm-time
  * validation promotes clean bytes to the content-hash final key. MCP
  * uploads may pass a final `gcsObjectKey` because their bytes are
  * already validated before storage.

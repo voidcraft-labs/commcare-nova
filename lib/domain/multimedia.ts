@@ -235,7 +235,10 @@ export type Media = z.infer<typeof mediaSchema>;
  * row and, when unshared, the pending GCS object on validation failure.
  * A `pending` row left dangling by a client that never confirms is
  * filtered out of the library list and rejected by the validator gate;
- * it is harmless until cleanup removes it.
+ * its abandoned GCS object is reaped by the bucket's `pending/` lifecycle
+ * rule (1-day TTL), and the dangling Firestore row stays harmless (it
+ * never surfaces in the library or a shipped app — there is no row reaper
+ * today, only the object-side lifecycle rule).
  *
  * The stored-record shapes live with their respective boundaries:
  * `mediaAssetDocSchema` (Firestore-shaped, `Timestamp`-typed) in
@@ -268,18 +271,25 @@ export function gcsObjectKeyFor(
  * Pending GCS object key derivation for browser signed-PUT uploads.
  *
  * The browser's signed URL is minted BEFORE the server has validated the
- * bytes. It must therefore land at a per-attempt key, not the final
- * content-hash key: a stale leaked URL can only overwrite its own pending
- * object, never a ready asset another row already serves. Confirm-time
- * validation promotes clean bytes to `gcsObjectKeyFor(...)`; rejection
- * deletes this pending object and row.
+ * bytes, so it lands at a per-attempt key under a top-level `pending/`
+ * prefix — never the final content-hash key. A stale leaked URL can only
+ * overwrite its own pending object; the key still embeds the owner, so it
+ * also can't reach another user's space. Confirm-time validation promotes
+ * clean bytes to `gcsObjectKeyFor(...)`; rejection deletes this pending
+ * object and row.
+ *
+ * The `pending/` prefix is top-level (not nested under `users/<owner>/`) so
+ * one bucket lifecycle rule — delete objects under `pending/` past a short
+ * TTL — reaps uploads that were initiated but never confirmed. GCS
+ * lifecycle prefix matching anchors at the object-name start, so a
+ * per-owner-nested pending path could not be expressed as a single rule.
  */
 export function pendingGcsObjectKeyFor(
 	owner: string,
 	assetId: AssetId,
 	extension: string,
 ): string {
-	return `users/${owner}/pending/${assetId}${extension}`;
+	return `pending/${owner}/${assetId}${extension}`;
 }
 
 /**
