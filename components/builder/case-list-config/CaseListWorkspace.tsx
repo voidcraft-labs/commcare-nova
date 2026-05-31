@@ -52,6 +52,7 @@ import {
 } from "@/lib/domain";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
 import { useAppId } from "@/lib/session/hooks";
+import { AppearanceSection } from "./AppearanceSection";
 import { CaseListSectionHeader } from "./CaseListSectionHeader";
 import { DisplaySection } from "./DisplaySection";
 import type { FilterPreviewStats } from "./FiltersPreview";
@@ -298,6 +299,19 @@ export function CaseListWorkspace({ moduleUuid }: CaseListWorkspaceProps) {
 					/>
 				</div>
 			</section>
+
+			{/*
+			 * Section: Appearance.
+			 *
+			 * Owns the `caseListConfig.icon` + `audioLabel` slots — the
+			 * media for the "Open case list" menu link. Self-gates on
+			 * `caseListOnly` (returns null otherwise, since only that
+			 * module shape emits a standalone case-list command to host
+			 * the media) and renders its own leading hairline divider so
+			 * the seam disappears together with the section when it's
+			 * hidden.
+			 */}
+			<AppearanceSection moduleUuid={moduleUuid} />
 		</div>
 	);
 }

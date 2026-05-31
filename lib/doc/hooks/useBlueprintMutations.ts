@@ -211,6 +211,20 @@ export interface BlueprintMutations {
 	 *  Accepts a module without a uuid — the hook mints one for the new entity. */
 	addModule: (module: Omit<Module, "uuid"> & { uuid?: string }) => Uuid;
 	updateModule: (uuid: Uuid, patch: Partial<Omit<Module, "uuid">>) => void;
+	/**
+	 * Set or clear the module menu-tile media (home-screen `icon` +
+	 * `audioLabel`) via the dedicated null-carrying mutation. Mirrors
+	 * `setFormMedia`: the generic `updateModule` patch encodes a clear as
+	 * `{ key: undefined }`, which `JSON.stringify` DROPS on the SSE wire —
+	 * the cleared slot would never reach the client doc and the stale ref
+	 * would survive. The `setModuleMedia` kind carries an explicit
+	 * `AssetId | null` per slot (which survives JSON) and maps `null →
+	 * undefined` inside the reducer, so both set and clear round-trip.
+	 */
+	setModuleMedia: (
+		uuid: Uuid,
+		media: { icon: AssetId | null; audioLabel: AssetId | null },
+	) => void;
 	removeModule: (uuid: Uuid) => void;
 
 	// ── App-level ─────────────────────────────────────────────────────────
@@ -223,6 +237,19 @@ export interface BlueprintMutations {
 		app_name?: string;
 		connect_type?: ConnectType | null;
 	}) => void;
+	/**
+	 * Set or clear the app-level logo (the single image shown on the
+	 * web-apps login + home screens) via the dedicated null-carrying
+	 * mutation. The doc's `logo` slot is `.optional()`, not `.nullable()`,
+	 * so a clear must DROP the key rather than store a literal `null` the
+	 * schema rejects — and the SSE wire would silently lose an
+	 * `undefined`-valued clear. Passing an explicit `AssetId | null` (set
+	 * vs clear) keeps the intent on the wire; the reducer maps `null →
+	 * undefined` so the cleared key falls off the doc. Takes no uuid —
+	 * the logo is a single app-level slot, so there is no entity to
+	 * validate (mirrors `setCaseTypes`, not `setFormMedia`).
+	 */
+	setAppLogo: (logo: AssetId | null) => void;
 	setCaseTypes: (caseTypes: CaseType[] | null) => void;
 	/**
 	 * Update a single property on a case type's property list.
@@ -688,6 +715,22 @@ export function useBlueprintMutations(): BlueprintMutations {
 				store.getState().applyMany([{ kind: "updateModule", uuid, patch }]);
 			},
 
+			setModuleMedia(uuid, media) {
+				const doc = get();
+				if (!doc.modules[uuid]) {
+					warnUnresolved("setModuleMedia", { uuid });
+					return;
+				}
+				store.getState().applyMany([
+					{
+						kind: "setModuleMedia",
+						uuid,
+						icon: media.icon,
+						audioLabel: media.audioLabel,
+					},
+				]);
+			},
+
 			removeModule(uuid) {
 				const doc = get();
 				if (!doc.modules[uuid]) {
@@ -718,6 +761,15 @@ export function useBlueprintMutations(): BlueprintMutations {
 				if (mutations.length > 0) {
 					store.getState().applyMany(mutations);
 				}
+			},
+
+			setAppLogo(logo) {
+				// No uuid to validate — the logo is a single app-level slot, so
+				// this mirrors `setCaseTypes` (bare dispatch) rather than the
+				// entity-guarded `setFormMedia` / `setModuleMedia`. The payload
+				// carries an explicit `AssetId | null`; the reducer maps `null →
+				// undefined` so a clear drops the optional key off the doc.
+				store.getState().applyMany([{ kind: "setAppLogo", logo }]);
 			},
 
 			setCaseTypes(caseTypes) {

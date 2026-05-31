@@ -4,6 +4,7 @@ import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerListSearch from "@iconify-icons/tabler/list-search";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
+import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseListSummary } from "@/lib/doc/hooks/useCaseListSummary";
@@ -65,6 +66,14 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 					<EditableTitle value={mod.name} readOnly />
 				)}
 				<SavedCheck visible={saved} />
+				{/* Module-settings gear — the module-level analog of
+				 *  `FormScreen`'s `FormSettingsButton` on the form header.
+				 *  Edit-mode only (matches the form-header gate) and only once
+				 *  the module uuid has resolved from the URL. Its `ml-auto`
+				 *  trigger pushes it to the right edge of this header row. */}
+				{canEdit && moduleUuid && (
+					<ModuleSettingsButton moduleUuid={moduleUuid} />
+				)}
 			</div>
 
 			{/*

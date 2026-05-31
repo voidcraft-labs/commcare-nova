@@ -156,6 +156,20 @@ search with the `SEARCH_IDLE` sentinel), `useFieldIconMap` (per-form
 - `findFieldById.ts` — depth-first lookup by semantic id.
 - `types.ts` — shared `FormSettingsSectionProps`.
 
+`detail/moduleSettings/` and `detail/appSettings/` are the module- and
+app-level analogs, each a `…SettingsButton` (Base UI popover trigger) →
+`…SettingsPanel` (`w-80` drawer chrome) → `…AppearanceSection` (the
+menu-tile / logo media slots). They carry no CodeMirror editor, so they
+use plain `open`/`onOpenChange` state — no outside-press dismissal guard.
+`ModuleSettingsButton` mounts on the module-home header (`ModuleScreen`,
+edit-mode only, the module analog of `FormSettingsButton` on the form
+header); `AppSettingsButton` mounts in `BuilderSubheader` beside
+`AppConnectSettings`. Module / form / app media each clears through its
+dedicated null-carrying mutation (`setModuleMedia` / `setFormMedia` /
+`setAppLogo`); the case-list appearance slots ride the wholesale
+`updateModule({ caseListConfig })` path instead — see the case-list
+workspace section below.
+
 ## Virtual form list
 
 `VirtualFormList.tsx` (in `components/preview/form/virtual/`) is the
@@ -171,15 +185,16 @@ Provider tree (outer → inner): BlueprintDocProvider → BuilderSessionProvider
 
 ## Case-list-config workspace
 
-`components/builder/case-list-config/` is the case-list authoring surface. `CaseListWorkspace.tsx` is the single-scroll three-section magazine layout rendered at `/build/[id]/{moduleUuid}/cases` in edit mode. PreviewShell branches on `screen.kind === "cases"` and dispatches edit mode to the workspace; live mode renders the running-app `CaseListScreen`.
+`components/builder/case-list-config/` is the case-list authoring surface. `CaseListWorkspace.tsx` is the single-scroll magazine layout rendered at `/build/[id]/{moduleUuid}/cases` in edit mode. PreviewShell branches on `screen.kind === "cases"` and dispatches edit mode to the workspace; live mode renders the running-app `CaseListScreen`.
 
-Three sticky violet-railed section headers anchor the layout — Display, Filter, Search — in that order. `CaseListSectionHeader.tsx` renders each header with `position: sticky; top: 0`, a 3px violet rail with soft glow, and a status-density line beneath bound live to the doc store via shallow selectors (e.g. `"5 columns · sorted by date_visit ↓"` / `"3 condition(s) · 42 cases match"` / `"2 input(s)"`). Empty states per section render a violet-tinted glass card with a single CTA whose disabled state gates on whether the case type has declared properties.
+Sticky violet-railed section headers anchor the layout — Display, Filter, Search — in that order, plus a trailing Appearance section that renders only on `caseListOnly` modules. `CaseListSectionHeader.tsx` renders each header with `position: sticky; top: 0`, a 3px violet rail with soft glow, and a status-density line beneath bound live to the doc store via shallow selectors (e.g. `"5 columns · sorted by date_visit ↓"` / `"3 condition(s) · 42 cases match"` / `"2 input(s)"`). Empty states per section render a violet-tinted glass card with a single CTA whose disabled state gates on whether the case type has declared properties.
 
 Each section owns one slot of `caseListConfig`:
 
 - **Display section** — owns `caseListConfig.columns`. The unified column list. `DisplaySection.tsx` mounts `SortPriorityStack` (the priority pill stack at the top of the section, drag-to-reorder priority — pills arrange the column sort order at-a-glance), the column list (one `ColumnEditor` per column, drag-orderable), and the live `DisplayPreview`. The preview reads `column.visibleInList ?? true` for visibility filtering and dispatches calc cells through `columnCellRenderer.tsx`'s `kind: "calculated"` arm.
 - **Filter section** — owns `caseListConfig.filter`. `FiltersSection.tsx` mounts a `PredicateSlotCard` (the shared optional-Predicate slot primitive) over the `filter` slot, with the `FiltersPreview` panel composed beneath. The primitive owns the add/clear chrome, the `matchAll()` seed on Add, and the slot-presence validity short-circuit; the section just routes the primitive's emission into the full `CaseListConfig` and gates the preview on the verdict.
 - **Search section** — owns `caseListConfig.searchInputs`. `SearchInputsSection.tsx` is a discriminated UI: `kind: "simple"` rows render property + mode + via inputs (`PropertyRefPicker` + `RelationPathBuilder` + mode picker filtered by type + property data type); `kind: "advanced"` rows render `PredicateCardEditor` on the row's `predicate` slot. A per-row "Convert to advanced/simple" affordance preserves common slots (`uuid`, `name`, `label`, `type`, `default`) across the conversion (simple→advanced seeds `eq(prop, '')` or `match-all()`; advanced→simple drops the predicate and resets the property).
+- **Appearance section** — owns `caseListConfig.icon` + `audioLabel` (the image + audio for the "Open case list" menu link). `AppearanceSection.tsx` self-gates on `module.caseListOnly` (returns null otherwise — that's the only module shape that emits a standalone case-list command to host the media) and renders its own leading hairline divider so the seam vanishes with the section. Mounted last. Unlike module / form / app media (dedicated null-carrying mutations), these two slots ride the workspace's wholesale `updateModule({ caseListConfig })` path — each change rebuilds the whole config via `setOptionalSlot`, which drops the cleared key (a concrete object replaces the slot wholesale, so an omitted key clears JSON-safely).
 
 `ColumnEditor.tsx` is registry-driven (`columnEditorSchemas.ts` is `Record<ColumnKind, ColumnCardSchema<K>>` — a missing kind fails to compile). Seven per-kind cards live in `cards/column/`: `PlainColumnCard`, `DateColumnCard`, `PhoneColumnCard`, `IdMappingCard`, `ImageMapColumnCard` (the id-mapping card with an image `SingleAssetSlot` per row in place of the label input), `IntervalCard` (covers both relative-interval and threshold-flag UX, dispatched on `display: "always" | "flag"` with role-flipping `text` slot), and `CalculatedColumnCard` (mounts the `ExpressionCardEditor` on the column's `expression` slot — calc has no `field` slot, so no `ColumnFieldRow`). The column cards consume the shared editing primitives (`BlurCommitTextInput`, `CardShell`, `PropertyPicker`, `CustomDatePatternInput`, `nodeIdentity`) under `components/builder/shared/` — see the shared paragraph below.
 
