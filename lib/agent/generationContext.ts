@@ -603,6 +603,62 @@ export class GenerationContext implements ToolExecutionContext {
 		}
 	}
 
+	/**
+	 * Multimodal sibling of `generatePlainText`: sends a text instruction plus a
+	 * single file content block — a native document/image block the provider
+	 * hands to the model intact — and returns the model's plain-text response.
+	 *
+	 * The distinction from `generatePlainText` is the input shape, not the
+	 * output: `generatePlainText` carries an already-decoded text `prompt`,
+	 * whereas this method carries the file's raw payload (a `data:` URL or
+	 * base64) so the model reads the original document directly. That matters
+	 * for PDFs, where decoding to text on our side would lose layout and embedded
+	 * structure the model can otherwise use.
+	 *
+	 * `data` is a `DataContent` string (typically a `data:` URL); the Anthropic
+	 * provider detects the media type and emits the matching native block.
+	 *
+	 * Usage tracks through the same accumulator as every other sub-generation,
+	 * so an extraction call shows up on the per-run cost summary alongside the
+	 * main agent loop.
+	 */
+	async extractFromContent(opts: {
+		system: string;
+		instruction: string;
+		file: { mediaType: string; data: string };
+		label: string;
+		model?: string;
+		maxOutputTokens?: number;
+	}): Promise<string> {
+		try {
+			const model = opts.model ?? MODEL_DEFAULT;
+			const result = await generateText({
+				model: this.anthropic(model),
+				system: opts.system,
+				messages: [
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: opts.instruction },
+							{
+								type: "file",
+								data: opts.file.data,
+								mediaType: opts.file.mediaType,
+							},
+						],
+					},
+				],
+				maxOutputTokens: opts.maxOutputTokens,
+			});
+			logWarnings(`extractFromContent:${opts.label}`, result.warnings);
+			if (result.usage) this.trackSubGeneration(result.usage);
+			return result.text;
+		} catch (error) {
+			this.emitError(classifyError(error), `extractFromContent:${opts.label}`);
+			throw error;
+		}
+	}
+
 	/** One-shot structured generation with automatic usage tracking. */
 	async generate<T>(
 		schema: z.ZodType<T>,
