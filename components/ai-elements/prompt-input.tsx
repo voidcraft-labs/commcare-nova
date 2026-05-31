@@ -1085,7 +1085,10 @@ export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
 
 export const PromptInputSubmit = ({
 	className,
-	variant = "default",
+	// Ghost (transparent), not the filled primary — Nova's send button is a violet
+	// glyph on transparent that brightens to white on hover. A filled-violet button
+	// would wash the violet glyph out against its own background.
+	variant = "ghost",
 	size = "icon-sm",
 	status,
 	onStop,
@@ -1129,7 +1132,10 @@ export const PromptInputSubmit = ({
 	return (
 		<InputGroupButton
 			aria-label={isGenerating ? "Stop" : "Submit"}
-			className={cn("text-nova-violet-bright", className)}
+			className={cn(
+				"text-nova-violet-bright transition-colors hover:text-white disabled:opacity-30",
+				className,
+			)}
 			onClick={handleClick}
 			size={size}
 			type={isGenerating && onStop ? "button" : "submit"}
