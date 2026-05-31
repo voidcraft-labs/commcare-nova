@@ -25,6 +25,17 @@ import {
 } from "@/lib/agent/attachments";
 import type { GenerationContext } from "@/lib/agent/generationContext";
 
+/* mammoth (the docx→markdown converter imported by attachments.ts) pulls in
+ * bluebird, which creates a module-level promise at import time that the
+ * async-leak detector flags as a leaked async resource — keeping the test
+ * worker from going idle. We don't exercise the docx path in these tests, so we
+ * mock mammoth at the import boundary: the real module (and bluebird) never
+ * loads, and the worker stays leak-free. Same pattern as mocking mcp-handler's
+ * session-GC interval and motion's frame loop in vitest.setup.ts. */
+vi.mock("mammoth", () => ({
+	default: { convertToMarkdown: vi.fn(async () => ({ value: "" })) },
+}));
+
 describe("decodeTextDataUrl", () => {
 	it("decodes a base64 text data URL to utf-8", () => {
 		const b64 = Buffer.from("hello, world", "utf-8").toString("base64");
