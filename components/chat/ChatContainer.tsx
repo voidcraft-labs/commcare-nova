@@ -13,7 +13,7 @@
  */
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { DefaultChatTransport, type FileUIPart, type UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Logo } from "@/components/ui/Logo";
@@ -330,9 +330,12 @@ export function ChatContainer({
 	// ── Derived values ───────────────────────────────────────────────────
 
 	const handleSend = useCallback(
-		(text: string) => {
-			if (!text.trim()) return;
-			sendMessage({ text });
+		({ text, files }: { text: string; files?: FileUIPart[] }) => {
+			if (!text.trim() && !files?.length) return;
+			// Files ride inside the message parts (FileUIPart[]); the route's
+			// prepareAttachments condenses large documents server-side before they
+			// reach the SA. Empty/undefined files send a plain text turn as before.
+			sendMessage({ text, files });
 		},
 		[sendMessage],
 	);

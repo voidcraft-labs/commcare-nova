@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import type { UIMessage } from "ai";
+import type { FileUIPart, UIMessage } from "ai";
 import { motion } from "motion/react";
 import {
 	type ReactNode,
@@ -11,6 +11,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { StickToBottomContext } from "use-stick-to-bottom";
+import {
+	Conversation,
+	ConversationContent,
+	ConversationEmptyState,
+	ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
@@ -84,7 +91,9 @@ interface ChatSidebarProps {
 	heroLogo?: ReactNode;
 	messages: UIMessage[];
 	status: "submitted" | "streaming" | "ready" | "error";
-	onSend: (message: string) => void;
+	/** Send a turn. `files` are AI SDK `FileUIPart`s (data-URL payloads converted
+	 *  by the PromptInput); the server condenses large ones before the model. */
+	onSend: (message: { text: string; files?: FileUIPart[] }) => void;
 	addToolOutput: (params: {
 		tool: string;
 		toolCallId: string;
@@ -326,28 +335,28 @@ export function ChatSidebar({
 		}
 	}, [centered]);
 
-	// Scroll state — persists across sidebar open/close because ChatSidebar
-	// stays mounted (width animated to 0). No module-level variables needed.
-	const chatScrollPinnedRef = useRef(true);
-	const chatScrollTopRef = useRef(0);
-
 	const pendingAnswerRef = useRef<((text: string) => void) | null>(null);
-	const scrollElRef = useRef<HTMLDivElement | null>(null);
-	const isNearBottomRef = useRef(chatScrollPinnedRef.current);
-	const isUserHoldingRef = useRef(false);
+
+	/* The StickToBottom scroll context, captured from Conversation. We don't drive
+	 * the auto-pin ourselves (use-stick-to-bottom owns that, including across the
+	 * center↔sidebar morph), but the question-card autoscroll below still needs to
+	 * reach into the live content element to scroll a mid-list card into view. */
+	const stickContextRef = useRef<StickToBottomContext | null>(null);
 
 	const triggerSendWave = useCallback(() => {
 		gridController.setMode("sending");
 	}, [gridController]);
 
-	// Route typed messages as question answers when a AskQuestionsCard is waiting
+	// Route typed messages as question answers when an AskQuestionsCard is waiting.
+	// Answers are text-only (the question UI is multiple-choice); any staged files
+	// are forwarded only on a normal send, never folded into an answer.
 	const handleSend = useCallback(
-		(text: string) => {
+		(message: { text: string; files?: FileUIPart[] }) => {
 			if (pendingAnswerRef.current) {
-				pendingAnswerRef.current(text);
+				pendingAnswerRef.current(message.text);
 			} else {
 				triggerSendWave();
-				onSend(text);
+				onSend(message);
 			}
 		},
 		[onSend, triggerSendWave],
@@ -362,103 +371,6 @@ export function ChatSidebar({
 		[addToolOutput, triggerSendWave],
 	);
 
-	// Smart scroll management: auto-scroll when near bottom, respect user scroll hold,
-	// persist state across instances (tab switch, center → sidebar transition).
-	const scrollRef = useCallback((el: HTMLDivElement | null) => {
-		scrollElRef.current = el;
-		if (!el) return;
-
-		const THRESHOLD = 50;
-		let animFrameId: number | undefined;
-
-		const wasAtBottom = chatScrollPinnedRef.current;
-		isNearBottomRef.current = wasAtBottom;
-
-		if (wasAtBottom) {
-			el.scrollTop = el.scrollHeight;
-			// Keep pinning during layout animation (center → sidebar, ~500ms)
-			const startTime = performance.now();
-			const pin = () => {
-				if (performance.now() - startTime > 600) return;
-				if (isNearBottomRef.current && !isUserHoldingRef.current) {
-					el.scrollTop = el.scrollHeight;
-				}
-				animFrameId = requestAnimationFrame(pin);
-			};
-			animFrameId = requestAnimationFrame(pin);
-		} else {
-			el.scrollTop = chatScrollTopRef.current;
-		}
-
-		const autoScroll = () => {
-			if (isNearBottomRef.current && !isUserHoldingRef.current) {
-				el.scrollTop = el.scrollHeight;
-			}
-		};
-
-		const checkNearBottom = () => {
-			isNearBottomRef.current =
-				el.scrollTop + el.clientHeight >= el.scrollHeight - THRESHOLD;
-		};
-
-		const onScroll = () => {
-			if (!isUserHoldingRef.current) checkNearBottom();
-		};
-		const onMouseDown = () => {
-			isUserHoldingRef.current = true;
-		};
-		const onMouseUp = () => {
-			isUserHoldingRef.current = false;
-			checkNearBottom();
-		};
-
-		const mutationObserver = new MutationObserver(autoScroll);
-		mutationObserver.observe(el, { childList: true, subtree: true });
-
-		const resizeObserver = new ResizeObserver(autoScroll);
-		resizeObserver.observe(el);
-
-		el.addEventListener("scroll", onScroll, { passive: true });
-		el.addEventListener("mousedown", onMouseDown);
-		document.addEventListener("mouseup", onMouseUp);
-
-		return () => {
-			chatScrollPinnedRef.current = isNearBottomRef.current;
-			chatScrollTopRef.current = el.scrollTop;
-			if (animFrameId !== undefined) cancelAnimationFrame(animFrameId);
-			mutationObserver.disconnect();
-			resizeObserver.disconnect();
-			el.removeEventListener("scroll", onScroll);
-			el.removeEventListener("mousedown", onMouseDown);
-			document.removeEventListener("mouseup", onMouseUp);
-			scrollElRef.current = null;
-		};
-	}, []);
-
-	// Anchor scroll position during center↔sidebar morph.
-	// The existing ResizeObserver + onScroll race: onScroll fires first when the
-	// browser clamps scrollTop during resize, clearing isNearBottomRef before the
-	// ResizeObserver can act. This rAF loop captures intent at morph start and
-	// overrides on every frame, keeping position stable throughout the transition.
-	useEffect(() => {
-		const el = scrollElRef.current;
-		if (!morphing || !el) return;
-
-		const pinToBottom = isNearBottomRef.current;
-		const savedTop = el.scrollTop;
-		let id: number;
-
-		const tick = () => {
-			if (!isUserHoldingRef.current) {
-				el.scrollTop = pinToBottom ? el.scrollHeight : savedTop;
-			}
-			id = requestAnimationFrame(tick);
-		};
-		id = requestAnimationFrame(tick);
-
-		return () => cancelAnimationFrame(id);
-	}, [morphing]);
-
 	// ── Auto-scroll question cards into view when they appear ──
 	let activeQuestionCount = 0;
 	for (const msg of messages) {
@@ -472,17 +384,21 @@ export function ChatSidebar({
 		}
 	}
 
+	// use-stick-to-bottom keeps the view pinned to the latest message, but it does
+	// not scroll a mid-list element into view. A new waiting question card can land
+	// above the fold, so when the count of waiting cards rises we scroll the last
+	// one into view. We reach the live content element through the StickToBottom
+	// context (ConversationContent owns its own ref internally and exposes none),
+	// then let scrollIntoView locate its own scroll ancestor.
 	const prevActiveQCountRef = useRef(0);
 	useEffect(() => {
-		if (
-			activeQuestionCount > prevActiveQCountRef.current &&
-			scrollElRef.current &&
-			!isUserHoldingRef.current
-		) {
+		if (activeQuestionCount > prevActiveQCountRef.current) {
 			requestAnimationFrame(() => {
-				const el = scrollElRef.current;
-				if (!el) return;
-				const cards = el.querySelectorAll('[data-question-card="waiting"]');
+				const content = stickContextRef.current?.contentRef.current;
+				if (!content) return;
+				const cards = content.querySelectorAll(
+					'[data-question-card="waiting"]',
+				);
 				const lastCard = cards[cards.length - 1] as HTMLElement | undefined;
 				if (lastCard) {
 					lastCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -530,40 +446,63 @@ export function ChatSidebar({
 					</div>
 				)}
 
-				{/* Messages — historical threads above, active thread below */}
-				<div
-					ref={scrollRef}
-					className={`${centered ? "" : "flex-1"} overflow-y-auto p-4 space-y-4`}
+				{/* Messages — historical threads above, active thread below.
+				 *  Conversation (a use-stick-to-bottom root) owns the scroll: it
+				 *  keeps the view pinned to the latest message and across the
+				 *  center↔sidebar morph, replacing the former hand-rolled
+				 *  MutationObserver/ResizeObserver pinning. contextRef hands us the
+				 *  scroll context so the question-card autoscroll can reach the
+				 *  content element. */}
+				{/* Conversation hardcodes `flex-1 overflow-y-hidden`. In the bounded
+				 *  `h-full` sidebar that's correct. In the centered card the parent is
+				 *  auto-height (only `max-h`), where `flex-1` + clipped overflow would
+				 *  collapse the scroll region to zero (min-height:auto resolves to 0
+				 *  with no free space to grow into) and clip the welcome intro — so we
+				 *  override to `flex-none` there, letting it size to content. */}
+				<Conversation
+					className={centered ? "flex-none" : "flex-1"}
+					contextRef={stickContextRef}
 				>
-					{/* Historical threads — server-rendered by ThreadHistory,
-					 *  passed through the client boundary as children. */}
-					{children}
+					{/* ConversationContent's base `gap-8` is roomier than Nova's chat
+					 *  density; override to `gap-4` (matches the former `space-y-4`).
+					 *  Single-source the spacing via gap rather than stacking margins. */}
+					<ConversationContent className="gap-4 p-4">
+						{/* Historical threads — server-rendered by ThreadHistory,
+						 *  passed through the client boundary as children. */}
+						{children}
 
-					{/* Active thread empty state */}
-					{messages.length === 0 && !isLoading && (
-						<div className={centered ? "text-center" : "text-center py-8"}>
-							{centered ? (
+						{/* Active thread empty state */}
+						{messages.length === 0 &&
+							!isLoading &&
+							(centered ? (
 								<WelcomeIntro />
 							) : (
-								<p className="text-sm text-nova-text-muted">
-									{isExistingApp
-										? "What changes would you like to make?"
-										: "Describe the CommCare app you want to build."}
-								</p>
-							)}
-						</div>
-					)}
+								<ConversationEmptyState
+									title=""
+									description={
+										isExistingApp
+											? "What changes would you like to make?"
+											: "Describe the CommCare app you want to build."
+									}
+								/>
+							))}
 
-					{/* Live messages from the active useChat session */}
-					{messages.map((msg) => (
-						<ChatMessage
-							key={msg.id}
-							message={msg}
-							addToolOutput={handleToolOutput}
-							pendingAnswerRef={pendingAnswerRef}
-						/>
-					))}
-				</div>
+						{/* Live messages from the active useChat session. Only the last
+						 *  message can be mid-stream, so it alone receives isStreaming —
+						 *  the reasoning panel narrows that to "trailing part is still
+						 *  reasoning" so the shimmer stops once answer tokens arrive. */}
+						{messages.map((msg, msgIndex) => (
+							<ChatMessage
+								key={msg.id}
+								message={msg}
+								addToolOutput={handleToolOutput}
+								pendingAnswerRef={pendingAnswerRef}
+								isStreaming={isLoading && msgIndex === messages.length - 1}
+							/>
+						))}
+					</ConversationContent>
+					<ConversationScrollButton />
+				</Conversation>
 
 				{/* Nova's thinking panel — permanent status display */}
 				<div className="shrink-0">
