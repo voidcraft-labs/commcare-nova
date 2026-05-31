@@ -364,7 +364,7 @@ export type PromptInputProps = Omit<
 	// bytes
 	maxFileSize?: number;
 	onError?: (err: {
-		code: "max_files" | "max_file_size" | "accept";
+		code: "max_files" | "max_file_size" | "accept" | "duplicate";
 		message: string;
 	}) => void;
 	onSubmit: (
@@ -447,6 +447,7 @@ export const PromptInput = ({
 	const addLocal = useCallback(
 		(fileList: File[] | FileList) => {
 			const incoming = [...fileList];
+
 			const accepted = incoming.filter((f) => matchesAccept(f));
 			if (incoming.length && accepted.length === 0) {
 				onError?.({
@@ -455,6 +456,7 @@ export const PromptInput = ({
 				});
 				return;
 			}
+
 			const withinSize = (f: File) =>
 				maxFileSize ? f.size <= maxFileSize : true;
 			const sized = accepted.filter(withinSize);
@@ -466,33 +468,49 @@ export const PromptInput = ({
 				return;
 			}
 
-			setItems((prev) => {
-				const capacity =
-					typeof maxFiles === "number"
-						? Math.max(0, maxFiles - prev.length)
-						: undefined;
-				const capped =
-					typeof capacity === "number" ? sized.slice(0, capacity) : sized;
-				if (typeof capacity === "number" && sized.length > capacity) {
-					onError?.({
-						code: "max_files",
-						message: "Too many files. Some were not added.",
-					});
-				}
-				const next: (FileUIPart & { id: string })[] = [];
-				for (const file of capped) {
-					next.push({
-						filename: file.name,
-						id: nanoid(),
-						mediaType: file.type,
-						type: "file",
-						url: URL.createObjectURL(file),
-					});
-				}
-				return [...prev, ...next];
-			});
+			// Re-adding a file that's already staged is a no-op (matched by name) —
+			// surfaced as a duplicate error so the user knows why nothing was added.
+			const existingNames = new Set(files.map((f) => f.filename));
+			const deduped = sized.filter((f) => !existingNames.has(f.name));
+			if (sized.length > 0 && deduped.length === 0) {
+				onError?.({
+					code: "duplicate",
+					message: "That file is already attached.",
+				});
+				return;
+			}
+
+			// Compute capacity from the CURRENT count (closure `files`) and build the
+			// new parts here — NOT inside the setItems updater. The updater must be
+			// pure: React runs it during render and double-invokes it under
+			// StrictMode, so an onError() (setState elsewhere) or URL.createObjectURL()
+			// inside it throws "setState during render" and fires/leaks twice.
+			const capacity =
+				typeof maxFiles === "number"
+					? Math.max(0, maxFiles - files.length)
+					: undefined;
+			const capped =
+				typeof capacity === "number" ? deduped.slice(0, capacity) : deduped;
+			if (typeof capacity === "number" && deduped.length > capacity) {
+				onError?.({
+					code: "max_files",
+					message: "Too many files. Some were not added.",
+				});
+			}
+			if (capped.length === 0) {
+				return;
+			}
+
+			const next: (FileUIPart & { id: string })[] = capped.map((file) => ({
+				filename: file.name,
+				id: nanoid(),
+				mediaType: file.type,
+				type: "file" as const,
+				url: URL.createObjectURL(file),
+			}));
+			setItems((prev) => [...prev, ...next]);
 		},
-		[matchesAccept, maxFiles, maxFileSize, onError],
+		[matchesAccept, maxFiles, maxFileSize, onError, files],
 	);
 
 	const removeLocal = useCallback(

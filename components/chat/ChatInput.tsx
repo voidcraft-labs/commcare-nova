@@ -48,6 +48,7 @@ const ATTACHMENT_ERROR_MESSAGES: Record<string, string> = {
 		"That file is over the 10 MB limit. Try a smaller file, or split it into parts.",
 	max_files:
 		"You can attach up to 5 files at once — remove one before adding another.",
+	duplicate: "That file is already attached.",
 };
 
 /** The pending-upload chip row, shown above the textarea while files are staged
