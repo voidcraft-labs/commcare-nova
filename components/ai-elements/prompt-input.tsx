@@ -13,6 +13,7 @@ import type {
 	ChangeEventHandler,
 	ClipboardEventHandler,
 	ComponentProps,
+	FocusEventHandler,
 	FormEvent,
 	FormEventHandler,
 	HTMLAttributes,
@@ -85,6 +86,12 @@ export interface AttachmentsContext {
 	clear: () => void;
 	openFileDialog: () => void;
 	fileInputRef: RefObject<HTMLInputElement | null>;
+	/** Id of the chip "armed" for keyboard removal — the two-stage Backspace
+	 *  pattern: a deliberate Backspace on an empty input arms (highlights) the
+	 *  last chip; the next one removes it. `null` when nothing is armed. The
+	 *  textarea sets it; the chip row reads it to render the highlight. */
+	armedRemoveId: string | null;
+	setArmedRemoveId: (id: string | null) => void;
 }
 
 export interface TextInputContext {
@@ -157,6 +164,7 @@ export const PromptInputProvider = ({
 	const [attachmentFiles, setAttachmentFiles] = useState<
 		(FileUIPart & { id: string })[]
 	>([]);
+	const [armedRemoveId, setArmedRemoveId] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	// oxlint-disable-next-line eslint(no-empty-function)
 	const openRef = useRef<() => void>(() => {});
@@ -226,13 +234,15 @@ export const PromptInputProvider = ({
 	const attachments = useMemo<AttachmentsContext>(
 		() => ({
 			add,
+			armedRemoveId,
 			clear,
 			fileInputRef,
 			files: attachmentFiles,
 			openFileDialog,
 			remove,
+			setArmedRemoveId,
 		}),
-		[attachmentFiles, add, remove, clear, openFileDialog],
+		[attachmentFiles, armedRemoveId, add, remove, clear, openFileDialog],
 	);
 
 	const __registerFileInput = useCallback(
@@ -396,7 +406,18 @@ export const PromptInput = ({
 
 	// ----- Local attachments (only used when no provider)
 	const [items, setItems] = useState<(FileUIPart & { id: string })[]>([]);
+	const [localArmedRemoveId, setLocalArmedRemoveId] = useState<string | null>(
+		null,
+	);
 	const files = usingProvider ? controller.attachments.files : items;
+	// The two-stage-Backspace "armed" chip lives wherever the files do: the
+	// provider's state when lifted, otherwise local.
+	const armedRemoveId = usingProvider
+		? controller.attachments.armedRemoveId
+		: localArmedRemoveId;
+	const setArmedRemoveId = usingProvider
+		? controller.attachments.setArmedRemoveId
+		: setLocalArmedRemoveId;
 
 	// ----- Local referenced sources (always local to PromptInput)
 	const [referencedSources, setReferencedSources] = useState<
@@ -698,16 +719,33 @@ export const PromptInput = ({
 		[add],
 	);
 
+	// A removed chip (via × or send) must not leave a stale armed id behind.
+	useEffect(() => {
+		if (armedRemoveId && !files.some((f) => f.id === armedRemoveId)) {
+			setArmedRemoveId(null);
+		}
+	}, [files, armedRemoveId, setArmedRemoveId]);
+
 	const attachmentsCtx = useMemo<AttachmentsContext>(
 		() => ({
 			add,
+			armedRemoveId,
 			clear: clearAttachments,
 			fileInputRef: inputRef,
 			files: files.map((item) => ({ ...item, id: item.id })),
 			openFileDialog,
 			remove,
+			setArmedRemoveId,
 		}),
-		[files, add, remove, clearAttachments, openFileDialog],
+		[
+			files,
+			armedRemoveId,
+			setArmedRemoveId,
+			add,
+			remove,
+			clearAttachments,
+			openFileDialog,
+		],
 	);
 
 	const refsCtx = useMemo<ReferencedSourcesContext>(
@@ -846,6 +884,7 @@ export type PromptInputTextareaProps = ComponentProps<
 >;
 
 export const PromptInputTextarea = ({
+	onBlur,
 	onChange,
 	onKeyDown,
 	className,
@@ -887,17 +926,37 @@ export const PromptInputTextarea = ({
 				form?.requestSubmit();
 			}
 
-			// Remove last attachment when Backspace is pressed and textarea is empty
+			// Two-stage Backspace removal on an empty input: a deliberate Backspace
+			// arms (highlights) the last chip; the next one removes it. Auto-repeat
+			// (holding/spamming Backspace while editing text) is ignored, so
+			// overshooting past the last character can't nuke an attachment.
 			if (
 				e.key === "Backspace" &&
 				e.currentTarget.value === "" &&
 				attachments.files.length > 0
 			) {
 				e.preventDefault();
-				const lastAttachment = attachments.files.at(-1);
-				if (lastAttachment) {
-					attachments.remove(lastAttachment.id);
+				if (e.repeat) {
+					return;
 				}
+				const armed =
+					attachments.armedRemoveId &&
+					attachments.files.some((f) => f.id === attachments.armedRemoveId);
+				if (armed) {
+					attachments.remove(attachments.armedRemoveId as string);
+					attachments.setArmedRemoveId(null);
+				} else {
+					const lastAttachment = attachments.files.at(-1);
+					if (lastAttachment) {
+						attachments.setArmedRemoveId(lastAttachment.id);
+					}
+				}
+				return;
+			}
+
+			// Any other key (typing, navigation, …) cancels a pending chip removal.
+			if (attachments.armedRemoveId) {
+				attachments.setArmedRemoveId(null);
 			}
 		},
 		[onKeyDown, isComposing, attachments],
@@ -933,6 +992,19 @@ export const PromptInputTextarea = ({
 	const handleCompositionEnd = useCallback(() => setIsComposing(false), []);
 	const handleCompositionStart = useCallback(() => setIsComposing(true), []);
 
+	// Leaving the input cancels a pending two-stage chip removal — the armed
+	// state belongs to actively editing, so blurring resets it (matches the
+	// "any other key disarms" rule for the keyboard path).
+	const handleBlur: FocusEventHandler<HTMLTextAreaElement> = useCallback(
+		(e) => {
+			onBlur?.(e);
+			if (attachments.armedRemoveId) {
+				attachments.setArmedRemoveId(null);
+			}
+		},
+		[onBlur, attachments],
+	);
+
 	const controlledProps = controller
 		? {
 				onChange: (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -951,8 +1023,15 @@ export const PromptInputTextarea = ({
 			// overlays on every text control.
 			autoComplete="off"
 			data-1p-ignore
-			className={cn("field-sizing-content max-h-48 min-h-16", className)}
+			// Dim the placeholder to match Nova's prior chat input (and ui/Input):
+			// the base Textarea's `placeholder:text-muted-foreground` (nova-text-
+			// secondary) reads a shade too prominent for a placeholder.
+			className={cn(
+				"field-sizing-content max-h-48 min-h-16 placeholder:text-nova-text-muted",
+				className,
+			)}
 			name="message"
+			onBlur={handleBlur}
 			onCompositionEnd={handleCompositionEnd}
 			onCompositionStart={handleCompositionStart}
 			onKeyDown={handleKeyDown}

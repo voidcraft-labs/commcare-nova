@@ -63,6 +63,17 @@ function PendingAttachments() {
 			<Attachments variant="inline">
 				{attachments.files.map((file) => (
 					<Attachment
+						className={cn(
+							// Armed for two-stage Backspace removal: "press Backspace again
+							// to remove this". Uses Nova's destructive color (nova-rose) — a
+							// thin ring + soft fill that reads as "pending removal" and is
+							// distinct from the textbox's violet focus ring (a matching violet
+							// ring read as a focus state and clashed). Solid token, not
+							// /opacity — Tailwind v4 doesn't resolve a var-based ring color
+							// with an opacity modifier.
+							file.id === attachments.armedRemoveId &&
+								"bg-nova-rose/10 ring-1 ring-nova-rose",
+						)}
 						data={file}
 						key={file.id}
 						onRemove={() => attachments.remove(file.id)}
