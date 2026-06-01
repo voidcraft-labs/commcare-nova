@@ -93,8 +93,14 @@ interface ChatInputProps {
 	 *  already converted by PromptInput; the server condenses large ones. */
 	onSend: (message: { text: string; files?: FileUIPart[] }) => void;
 	disabled?: boolean;
-	/** Centered (Idle) layout vs docked sidebar — drives placeholder + chrome. */
+	/** Centered (Idle) card layout vs docked sidebar — drives the input chrome
+	 *  (the docked variant gets a top divider). */
 	centered?: boolean;
+	/** True only for the opening prompt of a brand-new build (centered + nothing
+	 *  sent yet). Drives the placeholder: the "tell me about the app" framing
+	 *  fits only before the first send — the instant the user sends, it flips to
+	 *  the "ask for changes" copy, well before the layout finishes docking. */
+	openingPrompt?: boolean;
 }
 
 /**
@@ -105,7 +111,12 @@ interface ChatInputProps {
  * PromptInput can host are intentionally absent — the SA model is a fixed code
  * constant and there is no search/voice surface.
  */
-export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
+export function ChatInput({
+	onSend,
+	disabled,
+	centered,
+	openingPrompt,
+}: ChatInputProps) {
 	const handleSubmit = (message: PromptInputMessage) => {
 		const text = (message.text ?? "").trim();
 		const hasFiles = message.files.length > 0;
@@ -143,7 +154,7 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
 				<PromptInputTextarea
 					disabled={disabled}
 					placeholder={
-						centered
+						openingPrompt
 							? "Tell me about the app you want to build..."
 							: "Ask for changes..."
 					}
@@ -151,8 +162,11 @@ export function ChatInput({ onSend, disabled, centered }: ChatInputProps) {
 			</PromptInputBody>
 			<PromptInputFooter>
 				<PromptInputTools>
+					{/* Disabled in lockstep with the textarea + submit while a turn is
+					 *  in flight — staging an attachment you can't yet send (the whole
+					 *  composer is locked one-turn-at-a-time) reads as broken. */}
 					<PromptInputActionMenu>
-						<PromptInputActionMenuTrigger />
+						<PromptInputActionMenuTrigger disabled={disabled} />
 						<PromptInputActionMenuContent>
 							<PromptInputActionAddAttachments />
 						</PromptInputActionMenuContent>

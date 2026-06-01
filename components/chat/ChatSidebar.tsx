@@ -525,6 +525,11 @@ export function ChatSidebar({
 							onSend={handleSend}
 							disabled={isLoading || isGenerating}
 							centered={centered}
+							// "Tell me about the app" fits only the opening prompt of a
+							// brand-new build; the moment a message exists (sent or
+							// streaming) it becomes an edit conversation, so flip to the
+							// "ask for changes" copy then — not when the layout docks.
+							openingPrompt={centered && messages.length === 0}
 						/>
 					</div>
 				)}
