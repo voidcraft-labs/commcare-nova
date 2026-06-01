@@ -24,6 +24,10 @@ import { FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const createFormInputSchema = z
 	.object({
@@ -46,7 +50,7 @@ export const createFormInputSchema = z
 export type CreateFormInput = z.infer<typeof createFormInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type CreateFormResult = string | { error: string };
+export type CreateFormResult = MutationSuccess | { error: string };
 
 export const createFormTool = {
 	description:
@@ -90,7 +94,13 @@ export const createFormTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully created form "${name}" (${type}) in module "${mod?.name ?? moduleIndex}" at index m${moduleIndex}-f${newFormIndex}. Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.`,
+				result: {
+					message: `Successfully created form "${name}" (${type}) in module "${mod?.name ?? moduleIndex}" at index m${moduleIndex}-f${newFormIndex}. Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.`,
+					summary: {
+						location: mod?.name,
+						subject: name,
+					} satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

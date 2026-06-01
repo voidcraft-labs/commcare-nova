@@ -1,5 +1,6 @@
 "use client";
 import type { ToolUIPart, UIMessage } from "ai";
+import type { ReactNode } from "react";
 import { useRef } from "react";
 import {
 	Attachment,
@@ -13,14 +14,9 @@ import {
 	ReasoningContent,
 	ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
-import {
-	Tool,
-	ToolContent,
-	ToolHeader,
-	ToolInput,
-	ToolOutput,
-} from "@/components/ai-elements/tool";
 import { AskQuestionsCard } from "@/components/chat/AskQuestionsCard";
+import { ToolRunSummary } from "@/components/chat/ToolRunSummary";
+import { isEditToolPart } from "@/lib/chat/toolSummary";
 import { ChatMarkdown } from "@/lib/markdown";
 
 interface ChatMessageProps {
@@ -32,9 +28,9 @@ interface ChatMessageProps {
 	}) => void;
 	pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>;
 	/** Set by ChatSidebar for the last message while the SSE stream is open.
-	 *  Drives the reasoning panel's "Thinking…" shimmer — see the reasoning
-	 *  branch below, which narrows it to "the trailing part is still reasoning"
-	 *  so the shimmer stops the instant the model emits its first answer token. */
+	 *  Drives the reasoning panel's "Thinking…" shimmer — narrowed below to "the
+	 *  trailing part is still reasoning" so the shimmer stops the instant the model
+	 *  emits its first answer token. */
 	isStreaming?: boolean;
 }
 
@@ -47,173 +43,166 @@ export function ChatMessage({
 	const isUser = message.role === "user";
 
 	/**
-	 * Stable ID map for text parts. The AI SDK's UIMessage text parts have no
-	 * intrinsic identifier — tool parts have `toolCallId`, but text parts are
-	 * anonymous. This ref assigns a unique ID to each text part on first
-	 * observation. Since parts are append-only within a message (never reordered
-	 * or removed), each ID stays paired with the same part for the component's
-	 * lifetime. IDs use `message.id` as a namespace for global uniqueness.
+	 * Stable ID map for text parts. UIMessage text parts have no intrinsic
+	 * identifier (tool parts have `toolCallId`, text parts are anonymous). This ref
+	 * assigns a unique ID to each text part on first observation; since parts are
+	 * append-only within a message, each ID stays paired with its part for the
+	 * component's lifetime. The ordinal counts only text parts, so grouping the
+	 * tool parts below doesn't disturb it.
 	 */
 	const textPartIds = useRef<string[]>([]);
-
-	/* Counter tracks how many text parts we've seen so far in this render pass,
-	 * to pair each text part with its stable ID from the ref. */
 	let textPartOrdinal = 0;
 
-	/* The model can interleave several `reasoning` parts within one assistant
-	 * turn (one per thinking burst). AI Elements' convention is a single
-	 * Reasoning panel per turn, so we join every reasoning part's text and
-	 * render the consolidated block at the position of the FIRST reasoning part,
-	 * returning null for the rest. Doing it inline (rather than a pre-pass) keeps
-	 * the panel in its natural transcript position relative to text/tool parts. */
-	const consolidatedReasoning = message.parts
-		.filter((part) => part.type === "reasoning")
-		.map((part) => part.text)
-		.join("\n\n");
-	let reasoningRendered = false;
-
-	/* Index of the trailing part — used to detect whether the turn is still
-	 * mid-thought (last part is reasoning) so the shimmer only runs then. */
+	/* Reasoning is relevant to the work that FOLLOWS it (think → act → think
+	 * again), so each burst renders at its own position rather than being hoisted
+	 * into one block at the top. The trailing burst of an in-flight message is the
+	 * only one still streaming — its trigger shimmers "Thinking…"; once the model
+	 * emits its next part the burst is complete. */
 	const lastPart = message.parts.at(-1);
-	const reasoningIsStreaming =
+	const trailingReasoningIsStreaming =
 		Boolean(isStreaming) && lastPart?.type === "reasoning";
+
+	/*
+	 * Walk the parts once, grouping each CONSECUTIVE run of one kind:
+	 *   - edit-tool calls collapse into one ToolRunSummary ("N changes") so a
+	 *     large build's dozens of addFields don't flood the transcript;
+	 *   - reasoning bursts collapse into one Reasoning panel at their position
+	 *     (consecutive parts = one burst the SDK split across deltas).
+	 * Switching kind — or hitting text / attachments / askQuestions — flushes the
+	 * open run first, preserving the model's narrative order
+	 * (think → "3 changes" → text → think → "4 changes"). Generation tools and
+	 * bookkeeping parts (data-*, step-start) are elided: the signal grid +
+	 * GenerationProgress own build-mode feedback.
+	 */
+	const items: ReactNode[] = [];
+	let toolRun: ToolUIPart[] = [];
+	let reasoningRun: string[] = [];
+	let reasoningRunKey: string | null = null;
+
+	const flushTools = () => {
+		if (toolRun.length > 0) {
+			const parts = toolRun;
+			items.push(
+				<ToolRunSummary key={`run-${parts[0].toolCallId}`} parts={parts} />,
+			);
+			toolRun = [];
+		}
+	};
+
+	/* `streaming` is true only for the trailing burst of an in-flight message — a
+	 * mid-message burst the loop flushes because tool/text follows it has already
+	 * finished. Panels are collapsed by default; `defaultOpen={false}` also
+	 * suppresses the component's auto-open-while-streaming, so an active burst
+	 * stays tucked away (its trigger shimmers) until the user expands it. */
+	const flushReasoning = (streaming = false) => {
+		if (reasoningRun.length === 0 || !reasoningRunKey) return;
+		const text = reasoningRun.join("\n\n");
+		const key = reasoningRunKey;
+		reasoningRun = [];
+		reasoningRunKey = null;
+		if (!text.trim()) return;
+		items.push(
+			<Reasoning defaultOpen={false} isStreaming={streaming} key={key}>
+				<ReasoningTrigger />
+				<ReasoningContent>{text}</ReasoningContent>
+			</Reasoning>,
+		);
+	};
+
+	for (const [partIndex, part] of message.parts.entries()) {
+		if (isEditToolPart(part)) {
+			flushReasoning();
+			toolRun.push(part as ToolUIPart);
+			continue;
+		}
+		if (part.type === "reasoning") {
+			flushTools();
+			reasoningRunKey ??= `${message.id}-reasoning-${partIndex}`;
+			reasoningRun.push(part.text);
+			continue;
+		}
+		flushTools();
+		flushReasoning();
+
+		if (part.type === "text") {
+			/* Assign/reuse this text part's stable id (ordinal = Nth text part). */
+			const idx = textPartOrdinal++;
+			if (idx >= textPartIds.current.length) {
+				textPartIds.current.push(crypto.randomUUID());
+			}
+			const text = part.text.trim();
+			if (!text) continue;
+			/* MessageContent supplies the user bubble chrome and renders assistant
+			 * text as unwrapped prose, so we emit content only. */
+			items.push(
+				isUser ? (
+					<div
+						className="whitespace-pre-wrap break-words"
+						key={textPartIds.current[idx]}
+					>
+						{text}
+					</div>
+				) : (
+					<div className="chat-markdown" key={textPartIds.current[idx]}>
+						<ChatMarkdown>{text}</ChatMarkdown>
+					</div>
+				),
+			);
+			continue;
+		}
+
+		if (part.type === "file") {
+			/* User attachments echoed into the transcript. The server condenses the
+			 * file CONTENT before the model sees it, but the chip shows the original
+			 * filename. AttachmentData needs an id; the part has none, so synthesize a
+			 * stable one (inert — the list variant has no remove affordance). */
+			const data = { ...part, id: `${message.id}-file-${partIndex}` };
+			items.push(
+				<Attachments key={data.id} variant="list">
+					<Attachment data={data}>
+						<AttachmentPreview />
+						<AttachmentInfo />
+					</Attachment>
+				</Attachments>,
+			);
+			continue;
+		}
+
+		if (part.type === "tool-askQuestions") {
+			items.push(
+				<AskQuestionsCard
+					addToolOutput={addToolOutput}
+					input={
+						part.input as {
+							header: string;
+							questions: {
+								question: string;
+								options: { label: string; description?: string }[];
+							}[];
+						}
+					}
+					key={part.toolCallId}
+					output={
+						part.state === "output-available"
+							? (part.output as Record<string, string>)
+							: undefined
+					}
+					pendingAnswerRef={pendingAnswerRef}
+					state={part.state}
+					toolCallId={part.toolCallId}
+				/>,
+			);
+		}
+
+		/* tool-generateSchema / tool-generateScaffold, data-* events, step-start,
+		 * etc. render nothing here. */
+	}
+	flushTools();
+	flushReasoning(trailingReasoningIsStreaming);
 
 	return (
 		<Message from={message.role}>
-			<MessageContent>
-				{message.parts.map((part, partIndex) => {
-					if (part.type === "text") {
-						const text = part.text.trim();
-						/* Assign a stable ID to this text part if it doesn't have one yet.
-						 * Ordinal maps to the Nth text part in the message — stable because
-						 * parts are append-only and we only count text parts. */
-						const idx = textPartOrdinal++;
-						if (idx >= textPartIds.current.length) {
-							textPartIds.current.push(crypto.randomUUID());
-						}
-						if (!text) return null;
-						/* MessageContent already supplies the user bubble chrome (rounded
-						 * border + surface fill) and renders assistant text as unwrapped
-						 * prose, so we emit content only — wrapping here would double-bubble
-						 * the user turn and fight the re-skin on the assistant turn. */
-						return isUser ? (
-							<div
-								key={textPartIds.current[idx]}
-								className="whitespace-pre-wrap break-words"
-							>
-								{text}
-							</div>
-						) : (
-							<div key={textPartIds.current[idx]} className="chat-markdown">
-								<ChatMarkdown>{text}</ChatMarkdown>
-							</div>
-						);
-					}
-
-					if (part.type === "file") {
-						/* User attachments echoed back into the transcript. The server
-						 * condenses the file's CONTENT before it reaches the model, but the
-						 * chip shows the original filename the user attached. AttachmentData
-						 * requires an `id`; the file part carries none, so we synthesize a
-						 * stable one from the message id + part index (inert here — list
-						 * variant has no remove affordance, the id just keys the chip). */
-						const data = {
-							...part,
-							id: `${message.id}-file-${partIndex}`,
-						};
-						return (
-							<Attachments key={data.id} variant="list">
-								<Attachment data={data}>
-									<AttachmentPreview />
-									<AttachmentInfo />
-								</Attachment>
-							</Attachments>
-						);
-					}
-
-					if (part.type === "reasoning") {
-						/* Render the consolidated panel once, at the first reasoning part. */
-						if (reasoningRendered || !consolidatedReasoning.trim()) return null;
-						reasoningRendered = true;
-						return (
-							<Reasoning
-								key={`${message.id}-reasoning`}
-								isStreaming={reasoningIsStreaming}
-							>
-								<ReasoningTrigger />
-								<ReasoningContent>{consolidatedReasoning}</ReasoningContent>
-							</Reasoning>
-						);
-					}
-
-					if (part.type === "tool-askQuestions") {
-						return (
-							<AskQuestionsCard
-								key={part.toolCallId}
-								toolCallId={part.toolCallId}
-								input={
-									part.input as {
-										header: string;
-										questions: {
-											question: string;
-											options: { label: string; description?: string }[];
-										}[];
-									}
-								}
-								state={part.state}
-								output={
-									part.state === "output-available"
-										? (part.output as Record<string, string>)
-										: undefined
-								}
-								addToolOutput={addToolOutput}
-								pendingAnswerRef={pendingAnswerRef}
-							/>
-						);
-					}
-
-					/* Generation tools own their feedback elsewhere — the signal grid
-					 * (live energy) and GenerationProgress (staged status). Rendering a
-					 * tool card for them would duplicate that surface, so they're elided. */
-					if (
-						part.type === "tool-generateSchema" ||
-						part.type === "tool-generateScaffold"
-					) {
-						return null;
-					}
-
-					/* Every remaining tool-* part is an edit/mutation tool (edit mode):
-					 * surface it as a collapsible Tool card. `startsWith` doesn't narrow
-					 * the discriminated union, so we cast to ToolUIPart to read the
-					 * toolCallId / input / state / output / errorText fields. */
-					if (part.type.startsWith("tool-")) {
-						const toolPart = part as ToolUIPart;
-						return (
-							<Tool key={toolPart.toolCallId}>
-								<ToolHeader type={toolPart.type} state={toolPart.state} />
-								<ToolContent>
-									<ToolInput input={toolPart.input} />
-									<ToolOutput
-										output={
-											typeof toolPart.output === "string" ? (
-												<ChatMarkdown>{toolPart.output}</ChatMarkdown>
-											) : undefined
-										}
-										errorText={
-											toolPart.state === "output-error"
-												? toolPart.errorText
-												: undefined
-										}
-									/>
-								</ToolContent>
-							</Tool>
-						);
-					}
-
-					/* Non-rendered parts: data-* events, step-start, etc. */
-					return null;
-				})}
-			</MessageContent>
+			<MessageContent>{items}</MessageContent>
 		</Message>
 	);
 }

@@ -20,6 +20,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { addSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	moduleNotFoundResult,
 	newUuid,
@@ -45,6 +46,7 @@ export type AddSearchInputInput = z.infer<typeof addSearchInputInputSchema>;
 export interface AddSearchInputSuccess {
 	message: string;
 	uuid: Uuid;
+	summary: ToolCallSummary;
 }
 
 export type AddSearchInputResult = AddSearchInputSuccess | { error: string };
@@ -103,6 +105,7 @@ export const addSearchInputTool = {
 				result: {
 					message: `Added ${searchInput.kind} search input "${searchInput.label}" (uuid ${uuid}) at index ${finalCount - 1} on module "${mod.name}".`,
 					uuid,
+					summary: { location: mod.name, subject: searchInput.label },
 				},
 			};
 		} catch (err) {

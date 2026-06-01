@@ -20,8 +20,8 @@
  *   1. Index resolution miss (module / form) → `{ error }`, no
  *      mutations.
  *   2. Runtime error in the pipeline → `{ error }`, no mutations.
- *   3. Success → a human-readable summary string; the stage tag drives
- *      lifecycle derivation on the chat client.
+ *   3. Success → a human-readable `message` (+ a UI `summary`); the stage
+ *      tag drives lifecycle derivation on the chat client.
  */
 
 import { z } from "zod";
@@ -38,6 +38,10 @@ import {
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const addFieldsInputSchema = z
 	.object({
@@ -50,12 +54,12 @@ export const addFieldsInputSchema = z
 export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
 
 /**
- * Either a success string or an error record. The success shape is a
- * verbose human-readable summary the SA can read back to the user
+ * Success carries a verbose human-readable `message` the SA reads back
  * without re-querying the doc — field count delta, added ids, and any
- * skipped-during-assembly entries with their ids.
+ * skipped-during-assembly entries — plus a UI-only `summary` for the chat
+ * transcript; failure is an error record.
  */
-export type AddFieldsResult = string | { error: string };
+export type AddFieldsResult = MutationSuccess | { error: string };
 
 export const addFieldsTool = {
 	description:
@@ -169,7 +173,17 @@ export const addFieldsTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully added ${mutations.length} field${mutations.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
+				result: {
+					message: `Successfully added ${mutations.length} field${mutations.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.${skippedNote}`,
+					// Bulk add — no single subject; the count drives the action
+					// ("Added 3 fields") and the form breadcrumb names the container.
+					// `mutations.length` is the count actually added (skipped items
+					// aren't in it), matching the message's own count.
+					summary: {
+						location: form.name,
+						count: mutations.length,
+					} satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

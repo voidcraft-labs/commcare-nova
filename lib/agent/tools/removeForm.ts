@@ -26,6 +26,10 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { removeFormMutations, resolveFormUuid } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const removeFormInputSchema = z
 	.object({
@@ -37,7 +41,7 @@ export const removeFormInputSchema = z
 export type RemoveFormInput = z.infer<typeof removeFormInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type RemoveFormResult = string | { error: string };
+export type RemoveFormResult = MutationSuccess | string | { error: string };
 
 export const removeFormTool = {
 	description: "Remove a form from a module.",
@@ -89,7 +93,13 @@ export const removeFormTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully removed form "${removedName}" from module "${mod?.name ?? `module ${moduleIndex}`}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
+				result: {
+					message: `Successfully removed form "${removedName}" from module "${mod?.name ?? `module ${moduleIndex}`}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
+					summary: {
+						location: mod?.name,
+						subject: removedName,
+					} satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

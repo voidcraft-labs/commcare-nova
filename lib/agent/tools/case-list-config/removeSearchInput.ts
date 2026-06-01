@@ -19,6 +19,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { removeSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const removeSearchInputInputSchema = z
@@ -40,6 +41,7 @@ export interface RemoveSearchInputSuccess {
 	message: string;
 	uuid: Uuid;
 	remaining: number;
+	summary: ToolCallSummary;
 }
 
 export type RemoveSearchInputResult =
@@ -100,6 +102,7 @@ export const removeSearchInputTool = {
 					message: `Removed search input ${searchInputUuid} on module "${mod.name}". ${remaining} search input${remaining === 1 ? "" : "s"} remain.`,
 					uuid: searchInputUuid,
 					remaining,
+					summary: { location: mod.name },
 				},
 			};
 		} catch (err) {

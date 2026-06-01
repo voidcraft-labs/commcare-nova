@@ -18,8 +18,8 @@
  * shared `ToolExecutionContext` interface. Two exit branches:
  *
  *   1. Unexpected runtime error → `{ error }`, no mutations.
- *   2. Success → human-readable summary string carrying the new
- *      module's index + optional case_type, stage `module:create`.
+ *   2. Success → a human-readable `message` (+ a UI `summary`) carrying the
+ *      new module's index + optional case_type, stage `module:create`.
  */
 
 import { z } from "zod";
@@ -27,6 +27,10 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { addModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const createModuleInputSchema = z
 	.object({
@@ -49,7 +53,7 @@ export const createModuleInputSchema = z
 export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type CreateModuleResult = string | { error: string };
+export type CreateModuleResult = MutationSuccess | { error: string };
 
 export const createModuleTool = {
 	description:
@@ -79,7 +83,10 @@ export const createModuleTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
+				result: {
+					message: `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
+					summary: { subject: name } satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

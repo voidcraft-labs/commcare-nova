@@ -19,6 +19,7 @@ import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	ADVANCED_SLOT_NAMES,
 	type AdvancedSlotName,
@@ -53,6 +54,7 @@ export type SetCaseSearchAdvancedInput = z.infer<
 export interface SetCaseSearchAdvancedSuccess {
 	message: string;
 	advancedSlotsSet: readonly AdvancedSlotName[];
+	summary: ToolCallSummary;
 }
 
 export type SetCaseSearchAdvancedResult =
@@ -119,6 +121,7 @@ export const setCaseSearchAdvancedTool = {
 							? `Cleared every case-search advanced slot on module "${mod.name}" (index ${moduleIndex}).`
 							: `Set case-search advanced on module "${mod.name}" (index ${moduleIndex}): ${advancedSlotsSet.join(", ")}.`,
 					advancedSlotsSet,
+					summary: { location: mod.name },
 				},
 			};
 		} catch (err) {

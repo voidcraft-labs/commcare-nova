@@ -29,6 +29,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { updateColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	columnInputSchema,
 	moduleNotFoundResult,
@@ -57,6 +58,7 @@ export type UpdateCaseListColumnInput = z.infer<
 export interface UpdateCaseListColumnSuccess {
 	message: string;
 	uuid: Uuid;
+	summary: ToolCallSummary;
 }
 
 export type UpdateCaseListColumnResult =
@@ -115,6 +117,7 @@ export const updateCaseListColumnTool = {
 				result: {
 					message: `Updated case list column ${columnUuid} on module "${mod.name}". New kind: ${column.kind}, header "${column.header}".`,
 					uuid: columnUuid,
+					summary: { location: mod.name, subject: column.header },
 				},
 			};
 		} catch (err) {
