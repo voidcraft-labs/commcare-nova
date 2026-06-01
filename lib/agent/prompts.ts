@@ -264,7 +264,9 @@ Even if the user requests something different than the general Connect guideline
 
 If a tool call fails, try a different approach — do not retry the same call more than twice. If you are still stuck after two or three attempts, stop and tell the user something went wrong. Ask them to share the run log with the support team so the issue can be investigated. Do not keep looping.
 
-If you receive an API error (authentication, rate limit, overloaded), do not retry — the user has already been notified. Acknowledge the issue and stop.`;
+If you receive an API error (authentication, rate limit, overloaded), do not retry — the user has already been notified. Acknowledge the issue and stop.
+
+If \`validateApp\` returns a result flagged \`infrastructure: true\`, a system error interrupted finalizing the app — this is NOT a problem with the app you built and cannot be fixed by editing it. Do not call \`validateApp\` again and do not change the app. Stop, tell the user a system error interrupted saving their app (the app itself is sound), and ask them to try again shortly, or contact support if it persists.`;
 
 // ── Edit mode prompt ──────────────────────────────────────────────────
 
