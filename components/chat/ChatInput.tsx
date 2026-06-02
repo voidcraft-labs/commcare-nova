@@ -25,10 +25,10 @@ import {
 import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
 
-/** File types the SA can actually consume: text/markdown/csv + images + PDF are
- *  read natively (Anthropic) or condensed by Haiku; docx/xlsx are converted to
- *  markdown server-side. Everything else is rejected at the picker so the server
- *  transform only ever sees this closed set. */
+/** File types the SA can actually consume: text/markdown/csv and PDF are
+ *  condensed by the summarizer server-side (docx/xlsx are converted to markdown
+ *  first); images pass through to Opus's vision pass. Everything else is rejected
+ *  at the picker so the server transform only ever sees this closed set. */
 const ACCEPT = ".txt,.md,.csv,.pdf,.png,.jpg,.jpeg,.gif,.webp,.docx,.xlsx";
 
 /** Per-file and per-turn ceilings — the first line of defense for the base64

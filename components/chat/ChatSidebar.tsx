@@ -464,14 +464,20 @@ export function ChatSidebar({
 				 *  MutationObserver/ResizeObserver pinning. contextRef hands us the
 				 *  scroll context so the question-card autoscroll can reach the
 				 *  content element. */}
-				{/* Conversation hardcodes `flex-1 overflow-y-hidden`. In the bounded
-				 *  `h-full` sidebar that's correct. In the centered card the parent is
-				 *  auto-height (only `max-h`), where `flex-1` + clipped overflow would
-				 *  collapse the scroll region to zero (min-height:auto resolves to 0
-				 *  with no free space to grow into) and clip the welcome intro — so we
-				 *  override to `flex-none` there, letting it size to content. */}
+				{/* The card is `overflow-hidden`; the signal panel + composer below are
+				 *  `shrink-0` and must NEVER be clipped, so the Conversation absorbs all
+				 *  flex pressure (it's the scroll region).
+				 *  - Sidebar: a definite-height (`h-full`) parent, so `flex-1` distributes
+				 *    the free space.
+				 *  - Centered: an auto-height parent (only `max-h`). `flex-1`'s `0%` basis
+				 *    would collapse the empty welcome intro to zero (no free space to grow
+				 *    into); `flex-none` sizes to content but then a tall conversation
+				 *    overflows the `max-h` and pushes the composer past the clip. `flex-auto`
+				 *    is the fix: its basis is the CONTENT height (welcome intro sizes
+				 *    naturally), and `min-h-0` lets it shrink + scroll once content exceeds
+				 *    `max-h`, keeping the composer on-screen. */}
 				<Conversation
-					className={centered ? "flex-none" : "flex-1"}
+					className={centered ? "flex-auto min-h-0" : "flex-1"}
 					contextRef={stickContextRef}
 				>
 					{/* ConversationContent's base `gap-8` is roomier than Nova's chat
