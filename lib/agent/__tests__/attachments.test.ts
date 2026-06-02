@@ -279,6 +279,34 @@ describe("prepareAttachments", () => {
 			parts.map((p) => (p.type === "text" ? p.text : "")).join(""),
 		).toContain("too large");
 	});
+
+	it("placeholders a non-data URL instead of decoding it to garbage", async () => {
+		const ctx = fakeCtx();
+		// A blob: URL that slipped past a failed client-side conversion. Decoding it
+		// as base64 would produce binary noise; the guard must stop first and never
+		// invoke the condenser.
+		const out = await prepareAttachments(
+			[
+				userMsg([
+					{
+						type: "file",
+						filename: "spec.docx",
+						mediaType:
+							"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+						url: "blob:http://localhost:3000/3f8a1c2d-1234-5678-9abc-def012345678",
+					},
+				]),
+			],
+			ctx,
+		);
+		const parts = out.at(-1)?.parts ?? [];
+		expect(ctx.generatePlainText).not.toHaveBeenCalled();
+		expect(ctx.extractFromContent).not.toHaveBeenCalled();
+		expect(parts.some((p) => p.type === "file")).toBe(false);
+		expect(
+			parts.map((p) => (p.type === "text" ? p.text : "")).join(""),
+		).toContain("could not be read");
+	});
 });
 
 // ── countCondensableAttachments ─────────────────────────────────────────

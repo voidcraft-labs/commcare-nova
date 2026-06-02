@@ -400,6 +400,20 @@ async function prepareUserPart(
 	const { mediaType, url } = part;
 	const filename = part.filename ?? "attachment";
 
+	// Readable-URL guard. Every processable attachment arrives as a base64
+	// `data:` URL (the client reads the staged file into one before sending).
+	// Anything else — a `blob:` / `http:` URL that slipped through, e.g. a
+	// client-side conversion the CSP blocked — is NOT readable here: base64-
+	// decoding it would yield binary noise, and passing a non-data URL through to
+	// the model (an image) is just as unreadable. Stop before any decode and hand
+	// the SA a clear placeholder, never garbage. This is the never-garble backstop
+	// to the client always sending data URLs.
+	if (!url.startsWith("data:")) {
+		return textPart(
+			`<<Attachment ${filename} could not be read — its upload didn't complete. Try attaching it again.>>`,
+		);
+	}
+
 	// Oversize guard — compare the data-URL length against the byte ceiling
 	// scaled for base64 inflation, so we reject without decoding.
 	if (url.length > ATTACHMENT_MAX_BYTES * BASE64_INFLATION) {
