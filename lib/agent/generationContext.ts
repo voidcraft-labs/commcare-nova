@@ -62,7 +62,9 @@ import type {
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
+import type { CondenseResult } from "./attachments";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
+import { extractFromContentWith, generatePlainTextWith } from "./subGeneration";
 import type { ToolExecutionContext } from "./toolExecutionContext";
 
 /** Log AI SDK warnings to the console if present. */
@@ -590,10 +592,13 @@ export class GenerationContext implements ToolExecutionContext {
 		 *  (e.g. attachment extraction falling back to the raw document text). The
 		 *  error is still thrown so the caller's catch runs. Defaults to emitting. */
 		emitErrors?: boolean;
-	}): Promise<string> {
+	}): Promise<CondenseResult> {
 		try {
 			const model = opts.model ?? MODEL_DEFAULT;
-			const result = await generateText({
+			// The model call itself is provider-agnostic; the only Anthropic-bound
+			// part is resolving the id. `generatePlainTextWith` is the shared core
+			// the attachment-preview script also drives against Gemini.
+			const result = await generatePlainTextWith({
 				model: this.anthropic(model),
 				system: opts.system,
 				prompt: opts.prompt,
@@ -601,7 +606,12 @@ export class GenerationContext implements ToolExecutionContext {
 			});
 			logWarnings(`generatePlainText:${opts.label}`, result.warnings);
 			if (result.usage) this.trackSubGeneration(result.usage);
-			return result.text;
+			// `"length"` = the model hit the output cap; surface it so the
+			// attachment pipeline can note the extract is incomplete.
+			return {
+				text: result.text,
+				truncated: result.finishReason === "length",
+			};
 		} catch (error) {
 			if (opts.emitErrors === false) {
 				log.warn(
@@ -620,7 +630,8 @@ export class GenerationContext implements ToolExecutionContext {
 	/**
 	 * Multimodal sibling of `generatePlainText`: sends a text instruction plus a
 	 * single file content block — a native document/image block the provider
-	 * hands to the model intact — and returns the model's plain-text response.
+	 * hands to the model intact — and returns the model's text plus whether it hit
+	 * the output cap (`truncated`).
 	 *
 	 * The distinction from `generatePlainText` is the input shape, not the
 	 * output: `generatePlainText` carries an already-decoded text `prompt`,
@@ -646,30 +657,25 @@ export class GenerationContext implements ToolExecutionContext {
 		/** See `generatePlainText` — false logs but does not surface a user-facing
 		 *  error, for callers that recover (attachment extraction → native PDF). */
 		emitErrors?: boolean;
-	}): Promise<string> {
+	}): Promise<CondenseResult> {
 		try {
 			const model = opts.model ?? MODEL_DEFAULT;
-			const result = await generateText({
+			// Shared provider-agnostic core (see `generatePlainText`) — the native
+			// file block reaches Anthropic here and Gemini in the preview script
+			// through the identical content shape.
+			const result = await extractFromContentWith({
 				model: this.anthropic(model),
 				system: opts.system,
-				messages: [
-					{
-						role: "user",
-						content: [
-							{ type: "text", text: opts.instruction },
-							{
-								type: "file",
-								data: opts.file.data,
-								mediaType: opts.file.mediaType,
-							},
-						],
-					},
-				],
+				instruction: opts.instruction,
+				file: opts.file,
 				maxOutputTokens: opts.maxOutputTokens,
 			});
 			logWarnings(`extractFromContent:${opts.label}`, result.warnings);
 			if (result.usage) this.trackSubGeneration(result.usage);
-			return result.text;
+			return {
+				text: result.text,
+				truncated: result.finishReason === "length",
+			};
 		} catch (error) {
 			if (opts.emitErrors === false) {
 				log.warn(

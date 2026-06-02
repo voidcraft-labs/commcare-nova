@@ -41,6 +41,7 @@ describe("GenerationContext.extractFromContent", () => {
 			text: "EXTRACTED",
 			usage: { inputTokens: 10, outputTokens: 5 },
 			warnings: [],
+			finishReason: "stop",
 		});
 
 		const out = await ctx.extractFromContent({
@@ -55,8 +56,10 @@ describe("GenerationContext.extractFromContent", () => {
 			maxOutputTokens: 4096,
 		});
 
-		// Return value flows straight through from the model result.
-		expect(out).toBe("EXTRACTED");
+		// Text flows through from the model result; a clean `stop` finish is not
+		// truncated.
+		expect(out.text).toBe("EXTRACTED");
+		expect(out.truncated).toBe(false);
 
 		// The user turn carries the instruction text followed by the file
 		// content block — the document block the provider turns into a native
@@ -74,6 +77,31 @@ describe("GenerationContext.extractFromContent", () => {
 		// System prompt + output cap are passed through verbatim.
 		expect(call.system).toBe("extract");
 		expect(call.maxOutputTokens).toBe(4096);
+	});
+
+	it("flags truncation when the model hits the output ceiling", async () => {
+		mockGenerateText().mockResolvedValue({
+			text: "PARTIAL EXTRACT",
+			usage: { inputTokens: 10, outputTokens: 4096 },
+			warnings: [],
+			finishReason: "length",
+		});
+
+		const out = await ctx.extractFromContent({
+			system: "extract",
+			instruction: "Extract requirements.",
+			file: {
+				mediaType: "application/pdf",
+				data: "data:application/pdf;base64,AAAA",
+			},
+			label: "attachment-pdf",
+			maxOutputTokens: 4096,
+		});
+
+		// `finishReason: "length"` means the response was chopped at the cap — the
+		// caller must surface this rather than treat it as a complete extract.
+		expect(out.text).toBe("PARTIAL EXTRACT");
+		expect(out.truncated).toBe(true);
 	});
 
 	it("re-throws on model failure so callers can fall back (and emits an error event)", async () => {

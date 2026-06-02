@@ -9,11 +9,13 @@
 // the per-run cost and crowd the context window.
 //
 // `prepareAttachments` rewrites those file parts BEFORE the message reaches
-// Opus, condensing large documents to a faithful requirements extract with the
-// cheap Haiku model. The dial is fidelity-vs-cost: small documents inline raw
-// (perfect fidelity, negligible tokens); large ones are extracted once by Haiku
-// and the extract — not the raw doc — is what Opus and every tool-loop step
-// re-read. Images always pass through untouched for Opus's own vision pass.
+// Opus, condensing EVERY non-image document to a faithful requirements extract
+// with the cheap Haiku model. Real attachments (SOWs, contracts, transcripts)
+// are mostly prose with requirements buried in them, so extracting once strips
+// the noise AND shrinks what Opus re-reads on every tool-loop step — denser and
+// cheaper than the raw doc at any size worth attaching. The extract, not the raw
+// doc, is what Opus and every step re-read. Images always pass through untouched
+// for Opus's own vision pass (a text description would discard the pixels).
 //
 // Two invariants the rest of the system depends on:
 //   - Never mutate the input messages array (the route reuses `messages`
@@ -25,7 +27,48 @@
 import type { UIMessage } from "ai";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
-import type { GenerationContext } from "./generationContext";
+
+/**
+ * One condensing sub-generation's result: the extracted `text`, and whether the
+ * model hit its output ceiling (`truncated`). Truncation is an extreme edge —
+ * only a document whose faithful extract exceeds the model's max output (64k
+ * tokens) — but it must not pass silently: the pipeline appends a note so the SA
+ * knows the extract is incomplete rather than treating a cut-off as the whole
+ * document (and retrying the same doc to the same dead end).
+ */
+export interface CondenseResult {
+	text: string;
+	truncated: boolean;
+}
+
+/**
+ * The slice of generation capability `prepareAttachments` actually needs: the
+ * two condensing sub-generations. Narrowing to this interface (rather than the
+ * full `GenerationContext`) is what lets the attachment-preview script drive the
+ * exact same orchestration against a swappable model backend — Haiku or Gemini —
+ * without constructing a real context (SSE writer, usage accumulator, Firestore).
+ * `GenerationContext` satisfies this structurally; the script supplies a tiny
+ * backend over `lib/agent/subGeneration.ts`.
+ */
+export interface AttachmentCondenser {
+	generatePlainText(opts: {
+		system: string;
+		prompt: string;
+		label: string;
+		model?: string;
+		maxOutputTokens?: number;
+		emitErrors?: boolean;
+	}): Promise<CondenseResult>;
+	extractFromContent(opts: {
+		system: string;
+		instruction: string;
+		file: { mediaType: string; data: string };
+		label: string;
+		model?: string;
+		maxOutputTokens?: number;
+		emitErrors?: boolean;
+	}): Promise<CondenseResult>;
+}
 
 // ── Tuning constants (not user-configurable) ────────────────────────────
 //
@@ -34,13 +77,15 @@ import type { GenerationContext } from "./generationContext";
 // toggle would only invite misconfiguration.
 
 /**
- * Above this many extracted characters (~8k tokens at ~4 chars/token), condense
- * the document with Haiku; below it, inline the raw text for perfect fidelity.
- * Set well above a typical short note so small attachments never pay a model
- * round-trip, but low enough that a real multi-page spec gets condensed before
- * it inflates the Opus context across the tool loop.
+ * Output ceiling for the condense call, set to the extraction model's MAX output
+ * (Haiku 4.5 and the Gemini Flash line both cap at 64k tokens). This is NOT a
+ * cost or effort dial — `maxOutputTokens` is a hard guillotine that chops the
+ * response mid-stream when hit; a faithful extract's length tracks the document's
+ * actual content, so the only correct value is the model's real ceiling. Lower
+ * values would silently truncate legitimate extracts. Truncation at THIS value
+ * is the extreme edge handled with a note (see `CondenseResult`).
  */
-export const ATTACHMENT_EXTRACT_CHAR_THRESHOLD = 32_000;
+const EXTRACT_MAX_OUTPUT_TOKENS = 64_000;
 
 /**
  * Hard ceiling on a single decoded attachment. Above this we refuse to process
@@ -67,20 +112,81 @@ const BASE64_INFLATION = 1.37;
 const HAIKU = "claude-haiku-4-5-20251001";
 
 /**
- * System prompt for the extraction step. The goal is FAITHFUL condensation, not
- * summarization: every concrete requirement that could become a form, field,
- * case type, validation rule, or workflow must survive verbatim, because the
- * Solutions Architect — not Haiku — owns the translation into CommCare
- * vocabulary. Haiku's only job is to strip prose and boilerplate while
- * preserving the structured detail the SA needs.
+ * System prompt for the extraction step. The contract is FAITHFUL extraction,
+ * never summarization: every concrete requirement — fields, options, validation,
+ * conditional logic, case relationships, plus non-functional/app-level rules,
+ * explicit exclusions, and deferred items — must survive so the Solutions
+ * Architect, not Haiku, owns the translation into CommCare vocabulary. The
+ * load-bearing disciplines, all downstream-protecting: enumerate option sets in
+ * full (even defined-but-unused ones), keep inline fragments as attributes of
+ * their parent field rather than spawning junk fields, record contradictions as
+ * [CONFLICT] instead of picking a side, keep unfilled values as [OPEN] and
+ * implied-but-unstated conditionals as [INFERRED] rather than inventing or
+ * upgrading anything — resolving ambiguity and reconciling across documents are
+ * the architect's job, done later with full context. The filename the model
+ * echoes in its `Source:` line is supplied per call in the user turn (never in
+ * this cached system prefix); see `condenseText` and the PDF branch of
+ * `prepareAttachments`.
  */
-const EXTRACT_SYSTEM =
-	"You are a requirements extractor for a CommCare app builder. Given a document, " +
-	"reproduce EVERY requirement that could become a form, field, case type, validation rule, " +
-	"or workflow: preserve all field names, enumerated options, units, validation constraints, " +
-	"conditional logic, and case/parent-child relationships VERBATIM. Strip only prose, " +
-	"boilerplate, and formatting. Do NOT invent, summarize away detail, or normalize to CommCare " +
-	"vocabulary — that is the architect's job. Output compact bulleted structure grouped by section.";
+const EXTRACT_SYSTEM = `You are a requirements extractor for a CommCare app builder. You receive ONE
+document — an email, a contract/SOW, a spreadsheet, a CSV/line-list, or a PDF
+form — and output a compact, structured list of every requirement that could
+become a form, field/question, case type, validation rule, workflow, user role,
+report, or app-level setting. (Images are handled elsewhere; you won't receive them.)
+
+REPRODUCE VERBATIM — never normalize, convert, or rename:
+- field/question labels, every enumerated option, units, numeric ranges/limits,
+  format or ID patterns, calculated-field formulas, required/optional flags,
+  identifiers, and case / parent-child relationships including cardinality (1:many).
+
+ENUMERATE COMPLETELY — the most common miss:
+- List every option of every pick-list, dropdown, checkbox group, legend, lookup
+  table, or "lists/validation" tab IN FULL — even if no column, field, or row
+  currently references it. A defined-but-unused option set is still a requirement.
+- When an option appears inline with a follow-up question (e.g.
+  "[ ] Episiotomy — repaired? [ ] Yes [ ] No", or "Other ____"), capture BOTH: keep
+  the option in its parent's option set AND record the follow-up field. Do not drop
+  the option just because it carries a sub-question.
+- In spreadsheets, read EVERY sheet/tab, including instruction/README and lookup tabs.
+
+DON'T MIS-SPLIT INLINE FRAGMENTS:
+- Treat units, fill-in blanks, "(specify)", "at __:__", and similar fragments as
+  attributes of their parent field — not new fields. Never emit a field named after
+  a stray word ("at", "of") or a bare unit.
+- "(tick one)" → single-select; "(tick all that apply)" → multi-select.
+
+ALSO CAPTURE — commonly dropped:
+- Non-functional / app-level: offline/sync, devices/OS, languages, user roles & data
+  visibility, scale/performance, data protection/residency, reporting/indicator definitions.
+- Negative & scope: anything excluded or forbidden ("do NOT collect X", "must NOT be
+  mandatory"), out-of-scope, and deferred/"phase 2" items. Label them; don't delete.
+- Rules buried in prose, free-text cells, notes columns, README/instruction tabs, and a
+  form's footnotes — mine these for validation rules, flags, exclusions, and skip logic.
+
+PRESERVE, DON'T RESOLVE:
+- Conflicts: if a requirement is stated two ways or a value is inconsistent (4 vs 8
+  visits, kg vs grams, an option list that differs between two sections), record BOTH
+  and mark [CONFLICT]. Never reconcile — across sections OR across documents; that is
+  the architect's job.
+- Unknowns: keep "TBD" / "to be confirmed" / a labelled blank as [OPEN]. Never invent a value.
+
+DON'T INVENT:
+- Do not add fields, options, roles, reports, validation ranges, or skip logic the
+  document does not state. Strip only true noise — greetings, scheduling, pricing/payment,
+  legal boilerplate, signatures — UNLESS a sentence encodes a constraint; then keep only
+  the constraint.
+- Record only skip/show-if logic the document actually indicates (a stated "if X", a
+  "(tick one)", layout grouping, or a note). If a conditional is strongly implied but not
+  stated, mark it [INFERRED] — do not assert it as a firm requirement.
+- Do not upgrade required/optional status the document doesn't give: "record whether…" is
+  not "required". If unstated, leave it [OPEN].
+
+OUTPUT:
+- Begin with one line: \`Document type: <type> | Source: <filename>\`.
+- Compact bullets grouped by source section, form, or case type.
+- Tag where useful: [FIELD] [OPTIONS] [VALIDATION] [CALC] [SKIP] [CASE] [WORKFLOW]
+  [ROLE] [NFR] [REPORT] [EXCLUDE] [DEFER] [CONFLICT] [OPEN] [INFERRED].
+- No preamble, no closing summary.`;
 
 /** Media types we decode straight to text (no library round-trip needed). */
 const TEXT_MEDIA = new Set([
@@ -93,9 +199,20 @@ const TEXT_MEDIA = new Set([
 const isImage = (mediaType: string): boolean => mediaType.startsWith("image/");
 
 /** Wrap a document body with a labeled marker so the SA can tell where an
- *  attachment's content begins and which file it came from. */
-const wrapAttachment = (filename: string, body: string): string =>
-	`<<Attachment: ${filename}>>\n${body}`;
+ *  attachment's content begins and which file it came from. When the extract was
+ *  cut off at the model's output ceiling, append a note so the SA treats it as
+ *  incomplete — and knows the recovery is to ask the user to split the document,
+ *  not to retry the same oversized file. */
+const wrapAttachment = (
+	filename: string,
+	body: string,
+	truncated = false,
+): string => {
+	const note = truncated
+		? "\n\n<<Note: this extract reached the summarizer's maximum output length, so trailing content from the original document may be missing. If a needed detail seems absent, ask the user to split the document or paste the missing section directly.>>"
+		: "";
+	return `<<Attachment: ${filename}>>\n${body}${note}`;
+};
 
 /** Build a text `UIMessage` part. */
 const textPart = (text: string): UIMessage["parts"][number] => ({
@@ -167,32 +284,37 @@ export function xlsxToMarkdown(buffer: Buffer): string {
 // ── Orchestration ───────────────────────────────────────────────────────────
 
 /**
- * Faithfully condense a long text body with Haiku, returning the labeled
- * extract. Bodies below the threshold inline raw (no model call). On any
- * extraction failure the raw body inlines instead — fidelity over failure, so
- * a transient Haiku outage degrades to "Opus reads the full doc" rather than
- * "the attachment silently vanishes."
+ * Faithfully condense a text body with Haiku, returning the labeled extract.
+ * EVERY text/office attachment is condensed regardless of size: real attachments
+ * (SOWs, contracts, transcripts) are mostly prose with requirements buried in
+ * them, so extraction concentrates the signal AND shrinks what Opus re-reads on
+ * every tool-loop step — cheaper than inlining the raw doc at any size past a
+ * trivial note. On any extraction failure the raw body inlines instead —
+ * fidelity over failure, so a transient Haiku outage degrades to "Opus reads the
+ * full doc" rather than "the attachment silently vanishes." A truncated extract
+ * (hit the output ceiling) passes through WITH a note rather than erroring.
  */
 async function condenseText(
-	ctx: GenerationContext,
+	ctx: AttachmentCondenser,
 	filename: string,
 	body: string,
 ): Promise<string> {
-	if (body.length < ATTACHMENT_EXTRACT_CHAR_THRESHOLD) {
-		return wrapAttachment(filename, body);
-	}
 	try {
-		const extracted = await ctx.generatePlainText({
+		const { text, truncated } = await ctx.generatePlainText({
 			system: EXTRACT_SYSTEM,
-			prompt: body,
+			// The filename leads the user turn (separated from the body by a blank
+			// line so it reads as metadata, not a requirement) — it's the only way
+			// the model can fill the prompt's `Source:` line without violating the
+			// same prompt's "never invent a value" rule. The body follows verbatim.
+			prompt: `Filename: ${filename}\n\n${body}`,
 			label: `attachment:${filename}`,
 			model: HAIKU,
-			maxOutputTokens: 16_000,
+			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 			// We recover below by inlining the raw body, so a transient Haiku
 			// failure must NOT surface a user-facing "generation failed" error.
 			emitErrors: false,
 		});
-		return wrapAttachment(filename, extracted);
+		return wrapAttachment(filename, text, truncated);
 	} catch {
 		// Extraction failed — inline the raw body so the requirement detail
 		// still reaches the SA. Costs more tokens this turn but never drops data.
@@ -205,13 +327,19 @@ async function condenseText(
  * cost budget, BEFORE the message reaches Opus.
  *
  *   - Images pass through untouched (Opus does its own vision pass).
- *   - Text / office docs decode to text, then condense via Haiku if large or
- *     inline raw if small.
- *   - Large PDFs go to Haiku as a NATIVE document block (we don't decode PDF
- *     text ourselves — Haiku reads the original, preserving layout/structure);
- *     small PDFs pass through for Opus to read natively.
+ *   - Text / office docs decode to text, then are ALWAYS condensed via Haiku —
+ *     real attachments are mostly prose with requirements buried in them, so
+ *     extraction concentrates the signal and shrinks Opus's per-step re-read at
+ *     any size worth attaching.
+ *   - PDFs ALWAYS go to Haiku as a NATIVE document block (we don't decode PDF
+ *     text ourselves — Haiku reads the original, preserving layout/structure).
  *   - Oversize files (beyond the byte ceiling) become a human-readable
  *     placeholder note instead of being processed.
+ *
+ * Only images skip the condenser. A condensed extract that hit the model's
+ * output ceiling passes through with a truncation note (see `wrapAttachment`);
+ * a condenser failure falls back to the raw text / native PDF — an attachment is
+ * never dropped.
  *
  * Returns a NEW messages array — the input is never mutated. Only the last
  * message is touched, and only when it is a user message with file parts;
@@ -219,7 +347,7 @@ async function condenseText(
  */
 export async function prepareAttachments(
 	messages: UIMessage[],
-	ctx: GenerationContext,
+	ctx: AttachmentCondenser,
 ): Promise<UIMessage[]> {
 	const last = messages.at(-1);
 	if (!last || last.role !== "user") return messages;
@@ -252,34 +380,22 @@ export async function prepareAttachments(
 			continue;
 		}
 
-		// PDFs: condense large ones via Haiku as a native document block (no
-		// client-side text extraction — Haiku reads the original). Small PDFs
-		// pass through for Opus to read natively. The threshold is expressed in
-		// DECODED chars (same as the text path), but we compare the un-decoded
-		// data-URL length to avoid decoding the PDF just to size it — so scale the
-		// threshold by base64 inflation, matching the oversize guard above. Without
-		// the scaling a PDF would extract ~1.37× too eagerly (at ~23KB decoded
-		// instead of the intended ~32KB), inconsistent with the text branch.
+		// PDFs: condense via Haiku as a native document block (no client-side text
+		// extraction — Haiku reads the original PDF, preserving layout/structure).
 		if (mediaType === "application/pdf") {
-			const isLarge =
-				url.length > ATTACHMENT_EXTRACT_CHAR_THRESHOLD * BASE64_INFLATION;
-			if (!isLarge) {
-				nextParts.push(part);
-				continue;
-			}
 			try {
-				const extracted = await ctx.extractFromContent({
+				const { text, truncated } = await ctx.extractFromContent({
 					system: EXTRACT_SYSTEM,
-					instruction: `Extract every requirement from this document (${filename}).`,
+					instruction: `Extract every requirement from this document. Filename: ${filename}.`,
 					file: { mediaType, data: url },
 					label: `attachment:${filename}`,
 					model: HAIKU,
-					maxOutputTokens: 16_000,
+					maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 					// Recovered below via native PDF pass-through — don't surface a
 					// user-facing error for a failure we handle.
 					emitErrors: false,
 				});
-				nextParts.push(textPart(wrapAttachment(filename, extracted)));
+				nextParts.push(textPart(wrapAttachment(filename, text, truncated)));
 			} catch {
 				// Extraction failed — fall back to the native PDF pass-through so
 				// Opus still sees the document rather than losing it.
@@ -288,7 +404,7 @@ export async function prepareAttachments(
 			continue;
 		}
 
-		// Text + office formats: decode to text, then condense-or-inline.
+		// Text + office formats: decode to text, then condense.
 		try {
 			let body: string;
 			if (TEXT_MEDIA.has(mediaType)) {
