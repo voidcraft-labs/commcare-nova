@@ -40,6 +40,7 @@ import {
 	type AnthropicProviderOptions,
 	createAnthropic,
 } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type {
 	CallWarning,
 	LanguageModelUsage,
@@ -64,7 +65,11 @@ import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
 import type { CondenseResult } from "./attachments";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
-import { extractFromContentWith, generatePlainTextWith } from "./subGeneration";
+import {
+	extractFromContentWith,
+	generatePlainTextWith,
+	type SubGenerationProviderOptions,
+} from "./subGeneration";
 import type { ToolExecutionContext } from "./toolExecutionContext";
 
 /** Log AI SDK warnings to the console if present. */
@@ -159,6 +164,10 @@ export interface AgentStep {
 
 export class GenerationContext implements ToolExecutionContext {
 	private anthropic: ReturnType<typeof createAnthropic>;
+	/** Google provider for the document summarizer (Gemini). `null` when
+	 *  `GOOGLE_GENERATIVE_AI_API_KEY` is unset — `resolveModel` then fails loud
+	 *  on a Gemini call and the condenser falls back to raw inlining. */
+	private google: ReturnType<typeof createGoogleGenerativeAI> | null;
 	readonly writer: UIMessageStreamWriter;
 	readonly logWriter: LogWriter;
 	readonly usage: UsageAccumulator;
@@ -176,6 +185,14 @@ export class GenerationContext implements ToolExecutionContext {
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
+		/* The Google key is a platform env var (the document summarizer is a
+		 * platform feature, not BYOK) — distinct from the shared Anthropic key
+		 * threaded in via `opts.apiKey`. Built once per request; null-when-unset
+		 * so `resolveModel` can fail loud rather than construct a broken client. */
+		const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+		this.google = googleKey
+			? createGoogleGenerativeAI({ apiKey: googleKey })
+			: null;
 		this.writer = opts.writer;
 		this.logWriter = opts.logWriter;
 		this.usage = opts.usage;
@@ -183,8 +200,31 @@ export class GenerationContext implements ToolExecutionContext {
 		this.appId = opts.appId;
 	}
 
-	/** Get the Anthropic model provider for a given model ID. */
+	/** Get the Anthropic model provider for a given model ID. The SA always
+	 *  runs on Anthropic (Opus), so its factory uses this directly. */
 	model(id: string) {
+		return this.anthropic(id);
+	}
+
+	/**
+	 * Resolve a model id to a provider-bound `LanguageModel`. Gemini ids route to
+	 * the Google provider (the document summarizer); every other id to Anthropic
+	 * (the SA and its structured sub-gens). The Google provider is built from
+	 * `GOOGLE_GENERATIVE_AI_API_KEY`; when that's unset a Gemini call fails loud
+	 * at ERROR level — so a missing key surfaces in Error Reporting instead of
+	 * silently degrading — and the condenser's own catch inlines the raw document
+	 * (still never-drop, but slower and far more expensive at the Opus rate).
+	 */
+	private resolveModel(id: string) {
+		if (id.startsWith("gemini")) {
+			if (!this.google) {
+				log.error(
+					"[generation] GOOGLE_GENERATIVE_AI_API_KEY is not set — the Gemini document summarizer cannot run; attachments fall back to raw inlining (slower + far more expensive). Set the key in the environment to restore condensing.",
+				);
+				throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set");
+			}
+			return this.google(id);
+		}
 		return this.anthropic(id);
 	}
 
@@ -587,6 +627,10 @@ export class GenerationContext implements ToolExecutionContext {
 		label: string;
 		model?: string;
 		maxOutputTokens?: number;
+		/** Provider options for the resolved model — e.g. Gemini's thinking level
+		 *  and media resolution for the document summarizer. Provider-neutral here;
+		 *  the value is built by the caller (see `attachments.ts`). */
+		providerOptions?: SubGenerationProviderOptions;
 		/** When false, a failure is logged but NOT surfaced as a user-facing
 		 *  generation error — for callers that recover from the failure themselves
 		 *  (e.g. attachment extraction falling back to the raw document text). The
@@ -595,14 +639,15 @@ export class GenerationContext implements ToolExecutionContext {
 	}): Promise<CondenseResult> {
 		try {
 			const model = opts.model ?? MODEL_DEFAULT;
-			// The model call itself is provider-agnostic; the only Anthropic-bound
-			// part is resolving the id. `generatePlainTextWith` is the shared core
-			// the attachment-preview script also drives against Gemini.
+			// `resolveModel` routes the id to its provider (Gemini → Google for the
+			// summarizer, otherwise Anthropic). `generatePlainTextWith` is the
+			// shared core the attachment-preview script also drives.
 			const result = await generatePlainTextWith({
-				model: this.anthropic(model),
+				model: this.resolveModel(model),
 				system: opts.system,
 				prompt: opts.prompt,
 				maxOutputTokens: opts.maxOutputTokens,
+				providerOptions: opts.providerOptions,
 			});
 			logWarnings(`generatePlainText:${opts.label}`, result.warnings);
 			if (result.usage) this.trackSubGeneration(result.usage);
@@ -654,21 +699,26 @@ export class GenerationContext implements ToolExecutionContext {
 		label: string;
 		model?: string;
 		maxOutputTokens?: number;
+		/** Provider options for the resolved model — e.g. Gemini's thinking level
+		 *  and media resolution (the latter governs how a PDF is rasterized before
+		 *  the model reads it). See `generatePlainText`. */
+		providerOptions?: SubGenerationProviderOptions;
 		/** See `generatePlainText` — false logs but does not surface a user-facing
 		 *  error, for callers that recover (attachment extraction → native PDF). */
 		emitErrors?: boolean;
 	}): Promise<CondenseResult> {
 		try {
 			const model = opts.model ?? MODEL_DEFAULT;
-			// Shared provider-agnostic core (see `generatePlainText`) — the native
-			// file block reaches Anthropic here and Gemini in the preview script
-			// through the identical content shape.
+			// `resolveModel` routes to the provider (Gemini → Google for the
+			// summarizer). The native file block reaches the model through the
+			// identical content shape regardless of provider.
 			const result = await extractFromContentWith({
-				model: this.anthropic(model),
+				model: this.resolveModel(model),
 				system: opts.system,
 				instruction: opts.instruction,
 				file: opts.file,
 				maxOutputTokens: opts.maxOutputTokens,
+				providerOptions: opts.providerOptions,
 			});
 			logWarnings(`extractFromContent:${opts.label}`, result.warnings);
 			if (result.usage) this.trackSubGeneration(result.usage);

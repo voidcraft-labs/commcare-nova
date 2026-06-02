@@ -6,13 +6,14 @@
  * extraction prompt, same docx/xlsx conversion) against local files, with a
  * SWAPPABLE condenser model:
  *
- *   - `haiku`  — Anthropic claude-haiku-4-5 (what production uses today)
- *   - `gemini` — Google gemini-3.5-flash
+ *   - `gemini` — Google gemini-3.5-flash, the official production summarizer
+ *     (reuses production's exact thinking + media-resolution options).
+ *   - `haiku`  — Anthropic claude-haiku-4-5, the prior summarizer, kept as a
+ *     comparison baseline.
  *
  * The pipeline is unchanged; only the model backend differs. That works because
  * `prepareAttachments` depends on the narrow `AttachmentCondenser` interface, and
- * the condensing model call (`lib/agent/subGeneration.ts`) is provider-agnostic —
- * Gemini exists ONLY in this script, never in production.
+ * the condensing model call (`lib/agent/subGeneration.ts`) is provider-agnostic.
  *
  * For each file it prints what the SA would receive plus input/output tokens and
  * an estimated cost per model, so you can compare condenser quality AND price.
@@ -30,13 +31,11 @@ import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import {
-	createGoogleGenerativeAI,
-	type GoogleLanguageModelOptions,
-} from "@ai-sdk/google";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel, UIMessage } from "ai";
 import {
 	type AttachmentCondenser,
+	CONDENSER_PROVIDER_OPTIONS,
 	prepareAttachments,
 } from "../lib/agent/attachments";
 import {
@@ -64,27 +63,6 @@ const GEMINI_ID = "gemini-3.5-flash";
  */
 const GEMINI_PRICING = { input: 1.5, output: 9 } as const;
 const HAIKU_PRICING = MODEL_PRICING[HAIKU_ID];
-
-/**
- * Gemini provider options for this quality comparison, both dialed to maximum:
- *
- *   - `thinkingLevel: "high"` — Flash supports 'minimal' | 'low' | 'medium' |
- *     'high' and otherwise defaults lower, so we set it explicitly. Output
- *     billing includes thinking tokens, so the printed cost reflects it.
- *   - `mediaResolution: "MEDIA_RESOLUTION_HIGH"` — governs how a PDF is rendered
- *     to image tiles per page before the model reads it. HIGH preserves small
- *     print, dense tables, and checkbox glyphs in scanned/typeset forms that LOW
- *     would blur away — at the cost of more input tokens per page.
- *
- * This lives only here — Gemini, and its provider options, never touch the
- * production condense path; the shared helper takes `providerOptions` generically.
- */
-const GEMINI_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
-	google: {
-		thinkingConfig: { thinkingLevel: "high" },
-		mediaResolution: "MEDIA_RESOLUTION_HIGH",
-	} satisfies GoogleLanguageModelOptions,
-};
 
 /** data: URL media type by file extension — mirrors the client's accept set. */
 const MEDIA_BY_EXT: Record<string, string> = {
@@ -130,7 +108,7 @@ const MODEL_SPECS: Record<ModelKey, ModelSpec> = {
 		label: "Gemini 3.5 Flash",
 		id: GEMINI_ID,
 		pricing: GEMINI_PRICING,
-		providerOptions: GEMINI_PROVIDER_OPTIONS,
+		providerOptions: CONDENSER_PROVIDER_OPTIONS,
 		reasoning: "high",
 	},
 };

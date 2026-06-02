@@ -149,7 +149,7 @@ describe("prepareAttachments", () => {
 		expect(text).toContain("maximum output length");
 	});
 
-	it("Haiku-extracts large text attachments", async () => {
+	it("condenses large text attachments", async () => {
 		const big = "x".repeat(40_000);
 		const b64 = Buffer.from(big, "utf-8").toString("base64");
 		const ctx = fakeCtx();

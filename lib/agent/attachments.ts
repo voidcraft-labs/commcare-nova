@@ -10,7 +10,8 @@
 //
 // `prepareAttachments` rewrites those file parts BEFORE the message reaches
 // Opus, condensing EVERY non-image document to a faithful requirements extract
-// with the cheap Haiku model. Real attachments (SOWs, contracts, transcripts)
+// with Gemini 3.5 Flash (the official summarizer). Real attachments (SOWs,
+// contracts, transcripts)
 // are mostly prose with requirements buried in them, so extracting once strips
 // the noise AND shrinks what Opus re-reads on every tool-loop step — denser and
 // cheaper than the raw doc at any size worth attaching. The extract, not the raw
@@ -24,9 +25,11 @@
 //     type) falls back to inlining the raw/converted text or a human-readable
 //     placeholder, so the SA always learns the attachment existed.
 
+import type { GoogleLanguageModelOptions } from "@ai-sdk/google";
 import type { UIMessage } from "ai";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
+import type { SubGenerationProviderOptions } from "./subGeneration";
 
 /**
  * One condensing sub-generation's result: the extracted `text`, and whether the
@@ -57,6 +60,7 @@ export interface AttachmentCondenser {
 		label: string;
 		model?: string;
 		maxOutputTokens?: number;
+		providerOptions?: SubGenerationProviderOptions;
 		emitErrors?: boolean;
 	}): Promise<CondenseResult>;
 	extractFromContent(opts: {
@@ -66,6 +70,7 @@ export interface AttachmentCondenser {
 		label: string;
 		model?: string;
 		maxOutputTokens?: number;
+		providerOptions?: SubGenerationProviderOptions;
 		emitErrors?: boolean;
 	}): Promise<CondenseResult>;
 }
@@ -77,13 +82,15 @@ export interface AttachmentCondenser {
 // toggle would only invite misconfiguration.
 
 /**
- * Output ceiling for the condense call, set to the extraction model's MAX output
- * (Haiku 4.5 and the Gemini Flash line both cap at 64k tokens). This is NOT a
- * cost or effort dial — `maxOutputTokens` is a hard guillotine that chops the
- * response mid-stream when hit; a faithful extract's length tracks the document's
- * actual content, so the only correct value is the model's real ceiling. Lower
- * values would silently truncate legitimate extracts. Truncation at THIS value
- * is the extreme edge handled with a note (see `CondenseResult`).
+ * Output ceiling for the condense call, set to the summarizer's MAX output
+ * (Gemini 3.5 Flash caps at 64k tokens). This is NOT a cost or effort dial —
+ * `maxOutputTokens` is a hard guillotine that chops the response mid-stream when
+ * hit; a faithful extract's length tracks the document's actual content, so the
+ * only correct value is the model's real ceiling. Lower values would silently
+ * truncate legitimate extracts. Truncation at THIS value is the extreme edge
+ * handled with a note (see `CondenseResult`). Note Gemini bills thinking tokens
+ * as output, so high-reasoning extraction shares this budget with the visible
+ * text — another reason to keep the cap at the true maximum.
  */
 const EXTRACT_MAX_OUTPUT_TOKENS = 64_000;
 
@@ -105,18 +112,41 @@ export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
  */
 const BASE64_INFLATION = 1.37;
 
-// ── Extraction prompt ────────────────────────────────────────────────────
+// ── Summarizer model + provider options ──────────────────────────────────
 
-/** Haiku model id — the cheap model used for faithful document condensation.
- *  Lives in lib/models.ts pricing; named here as the extraction policy's model. */
-const HAIKU = "claude-haiku-4-5-20251001";
+/**
+ * The official document summarizer: Google Gemini 3.5 Flash. Resolved by
+ * `GenerationContext.resolveModel` to the Google provider (built from
+ * `GOOGLE_GENERATIVE_AI_API_KEY` — a PLATFORM env var, not the shared Anthropic
+ * key; condensing is a platform feature, so a missing key fails loud and the
+ * pipeline falls back to raw inlining). The preview script reuses the same id +
+ * options so what it tests matches production.
+ */
+const CONDENSER_MODEL = "gemini-3.5-flash";
+
+/**
+ * Gemini provider options for the summarizer, both dialed to maximum:
+ *   - `thinkingLevel: "high"` — deepest reasoning for the extraction.
+ *   - `mediaResolution: "MEDIA_RESOLUTION_HIGH"` — governs how a PDF is
+ *     rasterized to image tiles before the model reads it; HIGH preserves small
+ *     print, dense tables, and checkbox glyphs in scanned/typeset forms (no
+ *     effect on text/office docs, which reach the model as text).
+ * Output billing on Gemini includes thinking tokens, so high reasoning is the
+ * cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
+ */
+export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
+	google: {
+		thinkingConfig: { thinkingLevel: "high" },
+		mediaResolution: "MEDIA_RESOLUTION_HIGH",
+	} satisfies GoogleLanguageModelOptions,
+};
 
 /**
  * System prompt for the extraction step. The contract is FAITHFUL extraction,
  * never summarization: every concrete requirement — fields, options, validation,
  * conditional logic, case relationships, plus non-functional/app-level rules,
  * explicit exclusions, and deferred items — must survive so the Solutions
- * Architect, not Haiku, owns the translation into CommCare vocabulary. The
+ * Architect, not the summarizer, owns the translation into CommCare vocabulary. The
  * load-bearing disciplines, all downstream-protecting: enumerate option sets in
  * full (even defined-but-unused ones), keep inline fragments as attributes of
  * their parent field rather than spawning junk fields, record contradictions as
@@ -299,15 +329,16 @@ export function xlsxToMarkdown(buffer: Buffer): string {
 // ── Orchestration ───────────────────────────────────────────────────────────
 
 /**
- * Faithfully condense a text body with Haiku, returning the labeled extract.
- * EVERY text/office attachment is condensed regardless of size: real attachments
- * (SOWs, contracts, transcripts) are mostly prose with requirements buried in
- * them, so extraction concentrates the signal AND shrinks what Opus re-reads on
- * every tool-loop step — cheaper than inlining the raw doc at any size past a
- * trivial note. On any extraction failure the raw body inlines instead —
- * fidelity over failure, so a transient Haiku outage degrades to "Opus reads the
- * full doc" rather than "the attachment silently vanishes." A truncated extract
- * (hit the output ceiling) passes through WITH a note rather than erroring.
+ * Faithfully condense a text body with the summarizer, returning the labeled
+ * extract. EVERY text/office attachment is condensed regardless of size: real
+ * attachments (SOWs, contracts, transcripts) are mostly prose with requirements
+ * buried in them, so extraction concentrates the signal AND shrinks what Opus
+ * re-reads on every tool-loop step — cheaper than inlining the raw doc at any
+ * size past a trivial note. On any extraction failure the raw body inlines
+ * instead — fidelity over failure, so a transient summarizer outage degrades to
+ * "Opus reads the full doc" rather than "the attachment silently vanishes." A
+ * truncated extract (hit the output ceiling) passes through WITH a note rather
+ * than erroring.
  */
 async function condenseText(
 	ctx: AttachmentCondenser,
@@ -323,9 +354,10 @@ async function condenseText(
 			// same prompt's "never invent a value" rule. The body follows verbatim.
 			prompt: `Filename: ${filename}\n\n${body}`,
 			label: `attachment:${filename}`,
-			model: HAIKU,
+			model: CONDENSER_MODEL,
+			providerOptions: CONDENSER_PROVIDER_OPTIONS,
 			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
-			// We recover below by inlining the raw body, so a transient Haiku
+			// We recover below by inlining the raw body, so a transient summarizer
 			// failure must NOT surface a user-facing "generation failed" error.
 			emitErrors: false,
 		});
@@ -346,9 +378,9 @@ async function condenseText(
  *   - Images pass through untouched (Opus does its own vision pass — a text
  *     description would discard the pixels).
  *   - Text / office docs decode to text (docx/xlsx → markdown) and are ALWAYS
- *     condensed via Haiku — real attachments bury requirements in prose, so
- *     extraction concentrates the signal and shrinks Opus's per-step re-read.
- *   - PDFs ALWAYS go to Haiku as a NATIVE document block (Haiku reads the
+ *     condensed via the summarizer — real attachments bury requirements in
+ *     prose, so extraction concentrates the signal and shrinks Opus's re-read.
+ *   - PDFs ALWAYS go to the summarizer as a NATIVE document block (it reads the
  *     original, preserving layout/structure a flat text decode would lose).
  *   - Oversize files (beyond the byte ceiling) become a placeholder note.
  *
@@ -379,8 +411,8 @@ async function prepareUserPart(
 	// Images: Opus reads them directly, so pass the part through untouched.
 	if (isImage(mediaType)) return part;
 
-	// PDFs: condense via Haiku as a native document block (no client-side text
-	// extraction — Haiku reads the original PDF, preserving layout/structure).
+	// PDFs: condense via the summarizer as a native document block (no client-side
+	// text extraction — it reads the original PDF, preserving layout/structure).
 	if (mediaType === "application/pdf") {
 		try {
 			const { text, truncated } = await ctx.extractFromContent({
@@ -388,7 +420,8 @@ async function prepareUserPart(
 				instruction: `Extract every requirement from this document. Filename: ${filename}.`,
 				file: { mediaType, data: url },
 				label: `attachment:${filename}`,
-				model: HAIKU,
+				model: CONDENSER_MODEL,
+				providerOptions: CONDENSER_PROVIDER_OPTIONS,
 				maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 				// Recovered below via native PDF pass-through — don't surface a
 				// user-facing error for a failure we handle.
@@ -453,7 +486,7 @@ export function countCondensableAttachments(messages: UIMessage[]): number {
  * every other message and every non-file part is preserved verbatim.
  *
  * Parts are rewritten CONCURRENTLY: each attachment's condense is an independent
- * Haiku call, so a turn carrying N documents waits on the SLOWEST call, not the
+ * summarizer call, so a turn carrying N documents waits on the SLOWEST call, not the
  * sum of all of them. `.map` preserves order and `prepareUserPart` always
  * resolves to exactly one part, so `Promise.all` can't reject and an attachment
  * is never dropped.
