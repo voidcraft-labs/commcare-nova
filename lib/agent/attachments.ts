@@ -338,27 +338,111 @@ async function condenseText(
 }
 
 /**
- * Rewrite the last user message's file parts into model-ready content under a
- * cost budget, BEFORE the message reaches Opus.
+ * Rewrite ONE part of the user turn into model-ready content, BEFORE it reaches
+ * Opus. Self-contained per part — the branches share no state, which is what
+ * lets `prepareAttachments` run them concurrently:
  *
- *   - Images pass through untouched (Opus does its own vision pass).
- *   - Text / office docs decode to text, then are ALWAYS condensed via Haiku —
- *     real attachments are mostly prose with requirements buried in them, so
- *     extraction concentrates the signal and shrinks Opus's per-step re-read at
- *     any size worth attaching.
- *   - PDFs ALWAYS go to Haiku as a NATIVE document block (we don't decode PDF
- *     text ourselves — Haiku reads the original, preserving layout/structure).
- *   - Oversize files (beyond the byte ceiling) become a human-readable
- *     placeholder note instead of being processed.
+ *   - Non-file parts (the user's typed text) carry through unchanged.
+ *   - Images pass through untouched (Opus does its own vision pass — a text
+ *     description would discard the pixels).
+ *   - Text / office docs decode to text (docx/xlsx → markdown) and are ALWAYS
+ *     condensed via Haiku — real attachments bury requirements in prose, so
+ *     extraction concentrates the signal and shrinks Opus's per-step re-read.
+ *   - PDFs ALWAYS go to Haiku as a NATIVE document block (Haiku reads the
+ *     original, preserving layout/structure a flat text decode would lose).
+ *   - Oversize files (beyond the byte ceiling) become a placeholder note.
  *
- * Only images skip the condenser. A condensed extract that hit the model's
- * output ceiling passes through with a truncation note (see `wrapAttachment`);
- * a condenser failure falls back to the raw text / native PDF — an attachment is
- * never dropped.
+ * Every branch resolves to exactly one replacement part and handles its own
+ * failure — a condense failure falls back to raw text / native PDF, a decode
+ * failure to a placeholder — so the call never rejects and an attachment is
+ * never dropped. A condensed extract that hit the model's output ceiling carries
+ * a truncation note (see `wrapAttachment`).
+ */
+async function prepareUserPart(
+	part: UIMessage["parts"][number],
+	ctx: AttachmentCondenser,
+): Promise<UIMessage["parts"][number]> {
+	// Non-file parts (the user's typed text, etc.) carry through unchanged.
+	if (part.type !== "file") return part;
+
+	const { mediaType, url } = part;
+	const filename = part.filename ?? "attachment";
+
+	// Oversize guard — compare the data-URL length against the byte ceiling
+	// scaled for base64 inflation, so we reject without decoding.
+	if (url.length > ATTACHMENT_MAX_BYTES * BASE64_INFLATION) {
+		return textPart(
+			`<<Attachment ${filename} was too large to process. Attach a smaller file or split it into parts.>>`,
+		);
+	}
+
+	// Images: Opus reads them directly, so pass the part through untouched.
+	if (isImage(mediaType)) return part;
+
+	// PDFs: condense via Haiku as a native document block (no client-side text
+	// extraction — Haiku reads the original PDF, preserving layout/structure).
+	if (mediaType === "application/pdf") {
+		try {
+			const { text, truncated } = await ctx.extractFromContent({
+				system: EXTRACT_SYSTEM,
+				instruction: `Extract every requirement from this document. Filename: ${filename}.`,
+				file: { mediaType, data: url },
+				label: `attachment:${filename}`,
+				model: HAIKU,
+				maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
+				// Recovered below via native PDF pass-through — don't surface a
+				// user-facing error for a failure we handle.
+				emitErrors: false,
+			});
+			return textPart(wrapAttachment(filename, text, truncated));
+		} catch {
+			// Extraction failed — fall back to the native PDF pass-through so
+			// Opus still sees the document rather than losing it.
+			return part;
+		}
+	}
+
+	// Text + office formats: decode to text, then condense.
+	try {
+		let body: string;
+		if (TEXT_MEDIA.has(mediaType)) {
+			body = decodeTextDataUrl(url);
+		} else if (
+			mediaType.includes("wordprocessingml") ||
+			filename.endsWith(".docx")
+		) {
+			body = await docxToMarkdown(decodeBinaryDataUrl(url));
+		} else if (
+			mediaType.includes("spreadsheetml") ||
+			filename.endsWith(".xlsx")
+		) {
+			body = xlsxToMarkdown(decodeBinaryDataUrl(url));
+		} else {
+			// An unknown non-image type slipped past the client's accept
+			// allowlist: best-effort text decode rather than a hard refusal.
+			body = decodeTextDataUrl(url);
+		}
+		return textPart(await condenseText(ctx, filename, body));
+	} catch {
+		// Decode/convert failed entirely (corrupt file, wrong type) — leave a
+		// placeholder so the SA knows an unreadable attachment was present.
+		return textPart(`<<Attachment ${filename} could not be read.>>`);
+	}
+}
+
+/**
+ * Rewrite the last user message's file parts into model-ready content, BEFORE
+ * the message reaches Opus — see `prepareUserPart` for the per-attachment
+ * routing. Only the last message is touched, and only when it is a user message;
+ * every other message and every non-file part is preserved verbatim.
  *
- * Returns a NEW messages array — the input is never mutated. Only the last
- * message is touched, and only when it is a user message with file parts;
- * every other message and non-file part is preserved verbatim.
+ * Parts are rewritten CONCURRENTLY: each attachment's condense is an independent
+ * Haiku call, so a turn carrying N documents waits on the SLOWEST call, not the
+ * sum of all of them. `.map` preserves order and `prepareUserPart` always
+ * resolves to exactly one part, so `Promise.all` can't reject and an attachment
+ * is never dropped.
+ *
+ * Returns a NEW messages array — the input is never mutated.
  */
 export async function prepareAttachments(
 	messages: UIMessage[],
@@ -367,85 +451,9 @@ export async function prepareAttachments(
 	const last = messages.at(-1);
 	if (!last || last.role !== "user") return messages;
 
-	const nextParts: UIMessage["parts"] = [];
-	for (const part of last.parts) {
-		// Non-file parts (the user's typed text, etc.) carry through unchanged.
-		if (part.type !== "file") {
-			nextParts.push(part);
-			continue;
-		}
-
-		const { mediaType, url } = part;
-		const filename = part.filename ?? "attachment";
-
-		// Oversize guard — compare the data-URL length against the byte ceiling
-		// scaled for base64 inflation, so we reject without decoding.
-		if (url.length > ATTACHMENT_MAX_BYTES * BASE64_INFLATION) {
-			nextParts.push(
-				textPart(
-					`<<Attachment ${filename} was too large to process. Attach a smaller file or split it into parts.>>`,
-				),
-			);
-			continue;
-		}
-
-		// Images: Opus reads them directly, so pass the part through untouched.
-		if (isImage(mediaType)) {
-			nextParts.push(part);
-			continue;
-		}
-
-		// PDFs: condense via Haiku as a native document block (no client-side text
-		// extraction — Haiku reads the original PDF, preserving layout/structure).
-		if (mediaType === "application/pdf") {
-			try {
-				const { text, truncated } = await ctx.extractFromContent({
-					system: EXTRACT_SYSTEM,
-					instruction: `Extract every requirement from this document. Filename: ${filename}.`,
-					file: { mediaType, data: url },
-					label: `attachment:${filename}`,
-					model: HAIKU,
-					maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
-					// Recovered below via native PDF pass-through — don't surface a
-					// user-facing error for a failure we handle.
-					emitErrors: false,
-				});
-				nextParts.push(textPart(wrapAttachment(filename, text, truncated)));
-			} catch {
-				// Extraction failed — fall back to the native PDF pass-through so
-				// Opus still sees the document rather than losing it.
-				nextParts.push(part);
-			}
-			continue;
-		}
-
-		// Text + office formats: decode to text, then condense.
-		try {
-			let body: string;
-			if (TEXT_MEDIA.has(mediaType)) {
-				body = decodeTextDataUrl(url);
-			} else if (
-				mediaType.includes("wordprocessingml") ||
-				filename.endsWith(".docx")
-			) {
-				body = await docxToMarkdown(decodeBinaryDataUrl(url));
-			} else if (
-				mediaType.includes("spreadsheetml") ||
-				filename.endsWith(".xlsx")
-			) {
-				body = xlsxToMarkdown(decodeBinaryDataUrl(url));
-			} else {
-				// An unknown non-image type slipped past the client's accept
-				// allowlist: best-effort text decode rather than a hard refusal.
-				body = decodeTextDataUrl(url);
-			}
-			nextParts.push(textPart(await condenseText(ctx, filename, body)));
-		} catch {
-			// Decode/convert failed entirely (corrupt file, wrong type) — leave a
-			// placeholder so the SA knows an unreadable attachment was present.
-			nextParts.push(textPart(`<<Attachment ${filename} could not be read.>>`));
-		}
-	}
+	const nextParts = await Promise.all(
+		last.parts.map((part) => prepareUserPart(part, ctx)),
+	);
 
 	const nextLast: UIMessage = { ...last, parts: nextParts };
 	return [...messages.slice(0, -1), nextLast];
