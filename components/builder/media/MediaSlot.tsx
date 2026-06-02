@@ -3,11 +3,18 @@
 // The media-attach affordances every carrier mounts:
 //
 //  - `MediaSlot` — the `Media` bundle (image / audio / video, each
-//    independent). Renders one row per requested kind: an empty kind
-//    shows a "+ Image/Audio/Video" pill; a filled kind shows the
-//    asset chip with a preview-on-click popover + replace/remove.
+//    independent). Renders the attached assets as removable chips plus a
+//    single "Attach" control that opens the picker. The picker's type
+//    filter is how a carrier with several allowed kinds chooses what to
+//    add — one entry point, not one pill per kind.
 //  - `SingleAssetSlot` — one `AssetId` of a fixed kind (module icon,
-//    case-list icon, app logo). Same chip, single slot.
+//    case-list icon, app logo). One chip, one "Attach" control.
+//
+// Controls name themselves by kind ("Remove image", "Preview audio");
+// `ariaLabel`, when a carrier passes it, names the GROUP those controls
+// belong to (the field/option/slot) — so a screen reader hears "Label
+// Media group, Remove image" without any name being stitched together
+// from substrings. The picker derives its own title from its kinds.
 //
 // Both speak only ids to their carrier; the picker resolves bytes +
 // metadata. The preview popover is colocated here (it's an
@@ -17,7 +24,7 @@
 
 import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
-import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerReplace from "@iconify-icons/tabler/replace";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useState } from "react";
@@ -27,7 +34,6 @@ import {
 	POPOVER_POSITIONER_ELEVATED_CLS,
 } from "@/lib/styles";
 import { MediaPickerDialog } from "./MediaPickerDialog";
-import type { MediaAssetView } from "./mediaClient";
 import { clearMediaSlot, mediaSrc, setMediaSlot } from "./mediaClient";
 import { MEDIA_KIND_META } from "./mediaKindMeta";
 
@@ -39,14 +45,23 @@ export interface MediaSlotProps {
 	/** Which kinds this carrier can hold. Menu carriers omit "video". */
 	kinds: readonly MediaKind[];
 	/**
-	 * Context for the per-kind controls' accessible names. A bare
-	 * "Add image" repeats across every option row and every message
-	 * slot; passing e.g. "Option 1" or "Label" yields "Add option 1
-	 * image" so screen-reader users can tell the controls apart. When
-	 * omitted (the slot already sits under a labelled section header),
-	 * the kind alone is used.
+	 * Accessible name for the control GROUP — the field, option, or slot
+	 * these controls belong to (e.g. "Label Media", "Option 1"). Not
+	 * stitched into each control's name; it labels the group so the
+	 * per-kind control names stay clean. Omitted when an adjacent visible
+	 * label already identifies the slot.
 	 */
 	ariaLabel?: string;
+}
+
+/**
+ * Which kinds the open picker offers. "Attach" opens it to every kind
+ * the carrier allows (with the type filter); a chip's "Replace" opens
+ * it locked to that one kind so a swap can't land in a different slot.
+ */
+interface PickerState {
+	open: boolean;
+	kinds: readonly MediaKind[];
 }
 
 export function MediaSlot({
@@ -55,37 +70,41 @@ export function MediaSlot({
 	kinds,
 	ariaLabel,
 }: MediaSlotProps) {
-	const setKind = (kind: MediaKind, assetId: string) =>
-		onChange(setMediaSlot(value, kind, assetId));
-	const clearKind = (kind: MediaKind) => onChange(clearMediaSlot(value, kind));
-	// Compose the per-control noun: "Option 1 image", "Label audio", …
-	const labelFor = (kind: MediaKind) =>
-		ariaLabel
-			? `${ariaLabel} ${MEDIA_KIND_META[kind].label.toLowerCase()}`
-			: undefined;
+	const [picker, setPicker] = useState<PickerState>({ open: false, kinds });
+	// Attached kinds in the carrier's canonical order, so the chips read
+	// image → audio → video regardless of which was added first.
+	const attached = kinds.filter((kind) => value?.[kind]);
+	const allFilled = attached.length === kinds.length;
+	const groupProps = ariaLabel
+		? ({ role: "group", "aria-label": ariaLabel } as const)
+		: {};
 
 	return (
-		<div className="flex flex-col gap-1.5">
-			{kinds.map((kind) => {
-				const assetId = value?.[kind];
-				return assetId ? (
-					<AssetChip
-						key={kind}
-						kind={kind}
-						assetId={assetId}
-						ariaLabel={labelFor(kind)}
-						onReplace={(asset) => setKind(kind, asset.id)}
-						onRemove={() => clearKind(kind)}
-					/>
-				) : (
-					<AddPill
-						key={kind}
-						kind={kind}
-						ariaLabel={labelFor(kind)}
-						onPick={(asset) => setKind(kind, asset.id)}
-					/>
-				);
-			})}
+		<div className="flex flex-wrap items-center gap-1.5" {...groupProps}>
+			{attached.map((kind) => (
+				<AssetChip
+					key={kind}
+					kind={kind}
+					assetId={value?.[kind] as string}
+					onReplace={() => setPicker({ open: true, kinds: [kind] })}
+					onRemove={() => onChange(clearMediaSlot(value, kind))}
+				/>
+			))}
+			{!allFilled && (
+				<AttachButton
+					// Once something is attached, the control adds another kind
+					// rather than the first — "Add" reads truer than a second
+					// "Attach".
+					label={attached.length === 0 ? "Attach" : "Add"}
+					onClick={() => setPicker({ open: true, kinds })}
+				/>
+			)}
+			<MediaPickerDialog
+				open={picker.open}
+				onOpenChange={(open) => setPicker((prev) => ({ ...prev, open }))}
+				kinds={picker.kinds}
+				onPick={(asset) => onChange(setMediaSlot(value, asset.kind, asset.id))}
+			/>
 		</div>
 	);
 }
@@ -97,10 +116,9 @@ export interface SingleAssetSlotProps {
 	onChange: (next: string | undefined) => void;
 	kind: MediaKind;
 	/**
-	 * Accessible name for the slot's controls. Standalone slots (form
-	 * icon, app logo) live outside a labelled editor section, so the
-	 * kind alone ("Image") doesn't say WHICH slot — pass e.g. "Form
-	 * menu icon". Defaults to the kind label.
+	 * Accessible name for the control group. Standalone slots (form icon,
+	 * app logo) live outside a labelled editor section, so the kind alone
+	 * ("Image") doesn't say WHICH slot — pass e.g. "Form menu icon".
 	 */
 	ariaLabel?: string;
 }
@@ -111,84 +129,77 @@ export function SingleAssetSlot({
 	kind,
 	ariaLabel,
 }: SingleAssetSlotProps) {
-	return value ? (
-		<AssetChip
-			kind={kind}
-			assetId={value}
-			ariaLabel={ariaLabel}
-			onReplace={(asset) => onChange(asset.id)}
-			onRemove={() => onChange(undefined)}
-		/>
-	) : (
-		<AddPill
-			kind={kind}
-			ariaLabel={ariaLabel}
-			onPick={(asset) => onChange(asset.id)}
-		/>
+	const [pickerOpen, setPickerOpen] = useState(false);
+	const groupProps = ariaLabel
+		? ({ role: "group", "aria-label": ariaLabel } as const)
+		: {};
+
+	return (
+		<div className="flex flex-wrap items-center gap-1.5" {...groupProps}>
+			{value ? (
+				<AssetChip
+					kind={kind}
+					assetId={value}
+					onReplace={() => setPickerOpen(true)}
+					onRemove={() => onChange(undefined)}
+				/>
+			) : (
+				<AttachButton label="Attach" onClick={() => setPickerOpen(true)} />
+			)}
+			<MediaPickerDialog
+				open={pickerOpen}
+				onOpenChange={setPickerOpen}
+				kinds={[kind]}
+				onPick={(asset) => onChange(asset.id)}
+			/>
+		</div>
 	);
 }
 
 // ── Shared pieces ────────────────────────────────────────────────
 
-/** The empty-slot affordance: a dashed "+ Kind" pill that opens the picker. */
-function AddPill({
-	kind,
-	onPick,
-	ariaLabel,
+/** The empty-slot affordance: a dashed "Attach" button that opens the picker. */
+function AttachButton({
+	label,
+	onClick,
 }: {
-	kind: MediaKind;
-	onPick: (asset: MediaAssetView) => void;
-	ariaLabel?: string;
+	label: string;
+	onClick: () => void;
 }) {
-	const [open, setOpen] = useState(false);
-	const meta = MEDIA_KIND_META[kind];
 	return (
-		<>
-			<button
-				type="button"
-				onClick={() => setOpen(true)}
-				aria-label={ariaLabel ?? `Add ${meta.label.toLowerCase()}`}
-				className="flex items-center gap-1.5 self-start rounded-md border border-dashed border-nova-border px-2 py-1 text-xs text-nova-text-muted transition-colors hover:border-nova-violet hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
-			>
-				<Icon icon={tablerPlus} className="size-3.5" />
-				{meta.label}
-			</button>
-			<MediaPickerDialog
-				open={open}
-				onOpenChange={setOpen}
-				kind={kind}
-				title={`Add ${meta.label.toLowerCase()}`}
-				onPick={onPick}
-			/>
-		</>
+		<button
+			type="button"
+			onClick={onClick}
+			className="flex items-center gap-1.5 self-start rounded-md border border-dashed border-nova-border px-2 py-1 text-xs text-nova-text-muted transition-colors hover:border-nova-violet hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+		>
+			<Icon icon={tablerPaperclip} className="size-3.5" />
+			{label}
+		</button>
 	);
 }
 
-/** A filled slot: thumbnail + name, opening a preview popover with replace/remove. */
+/** A filled slot: thumbnail + name, opening a preview popover, with replace/remove. */
 function AssetChip({
 	kind,
 	assetId,
 	onReplace,
 	onRemove,
-	ariaLabel,
 }: {
 	kind: MediaKind;
 	assetId: string;
-	onReplace: (asset: MediaAssetView) => void;
+	onReplace: () => void;
 	onRemove: () => void;
-	ariaLabel?: string;
 }) {
-	const [pickerOpen, setPickerOpen] = useState(false);
 	const meta = MEDIA_KIND_META[kind];
-	// Each control names the slot ("Replace form menu icon") so the chip
-	// needs no wrapping landmark of its own.
-	const what = ariaLabel ?? meta.label.toLowerCase();
+	// Controls name themselves by kind; the enclosing group's aria-label
+	// supplies which slot, so "Remove image" needs no slot context inline.
+	const noun = meta.label.toLowerCase();
 	return (
 		<div className="flex items-center gap-2 self-start rounded-md border border-nova-border bg-nova-surface p-1 pr-2">
 			<Popover.Root>
 				<Popover.Trigger
 					className="flex items-center gap-2 rounded outline-none focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
-					aria-label={`Preview ${what}`}
+					aria-label={`Preview ${noun}`}
 				>
 					<ThumbBox kind={kind} assetId={assetId} />
 					<span className="text-xs text-nova-text-muted">{meta.label}</span>
@@ -208,8 +219,8 @@ function AssetChip({
 
 			<button
 				type="button"
-				onClick={() => setPickerOpen(true)}
-				aria-label={`Replace ${what}`}
+				onClick={onReplace}
+				aria-label={`Replace ${noun}`}
 				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 			>
 				<Icon icon={tablerReplace} className="size-3.5" />
@@ -217,19 +228,11 @@ function AssetChip({
 			<button
 				type="button"
 				onClick={onRemove}
-				aria-label={`Remove ${what}`}
+				aria-label={`Remove ${noun}`}
 				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-rose focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 			>
 				<Icon icon={tablerTrash} className="size-3.5" />
 			</button>
-
-			<MediaPickerDialog
-				open={pickerOpen}
-				onOpenChange={setPickerOpen}
-				kind={kind}
-				title={`Replace ${what}`}
-				onPick={onReplace}
-			/>
 		</div>
 	);
 }

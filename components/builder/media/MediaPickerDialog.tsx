@@ -4,12 +4,15 @@
 //
 //  - Upload — drag-and-drop or browse; runs the client upload flow
 //    (hash → initiate → PUT → confirm), then commits the asset.
-//  - Library — the owner's existing `ready` assets of this kind,
-//    newest first, paginated; click one to pick it.
+//  - Library — the owner's existing `ready` assets, newest first,
+//    paginated; click one to pick it.
 //
-// A freshly uploaded asset is prepended to the library list (so it's
-// visible if the user switches tabs) and committed immediately via
-// `onPick`. The dialog speaks only `MediaAssetView` to its caller;
+// The dialog serves slots that allow ONE kind (a module icon, the app
+// logo) and slots that allow several (a question's display media can
+// be image / audio / video). When more than one kind is allowed the
+// Library tab shows a type filter, and Upload accepts any allowed kind
+// — the picked file's sniffed kind routes it to the right sub-slot in
+// the carrier. The dialog speaks only `MediaAssetView` to its caller;
 // the carrier decides what to store (the asset id).
 
 "use client";
@@ -35,42 +38,41 @@ const POPUP_CLS =
 	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 type Tab = "upload" | "library";
+/** Library browse filter: one allowed kind, or "all" of them. */
+type LibraryFilter = MediaKind | "all";
 
 export interface MediaPickerDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	kind: MediaKind;
-	onPick: (asset: MediaAssetView) => void;
 	/**
-	 * Dialog title + accessible name. The same dialog serves both add
-	 * ("Add image") and replace ("Replace image") flows, so the caller
-	 * supplies the verb-correct title.
+	 * The kinds this slot accepts. One kind → the picker is locked to it
+	 * (no filter). Several → the Library tab shows a type filter and
+	 * Upload accepts any of them. Order is the carrier's canonical order.
 	 */
-	title: string;
+	kinds: readonly MediaKind[];
+	onPick: (asset: MediaAssetView) => void;
 }
 
 export function MediaPickerDialog({
 	open,
 	onOpenChange,
-	kind,
+	kinds,
 	onPick,
-	title,
 }: MediaPickerDialogProps) {
 	// The data hooks (`useMediaLibrary`) live in `PickerBody`, which is
 	// a child of `Dialog.Popup` — Base UI only mounts the Popup's
 	// subtree while the dialog is open, so the library fetch fires when
 	// the user opens the picker, NOT eagerly on every slot's mount.
 	// (An always-mounted hook here would fire one library GET per slot
-	// per kind before any click.) The thin shell stays mounted so the
-	// open/close transition still animates.
+	// before any click.) The thin shell stays mounted so the open/close
+	// transition still animates.
 	return (
 		<Dialog.Root open={open} onOpenChange={onOpenChange}>
 			<Dialog.Portal>
 				<Dialog.Backdrop className={BACKDROP_CLS} />
 				<Dialog.Popup className={POPUP_CLS}>
 					<PickerBody
-						kind={kind}
-						title={title}
+						kinds={kinds}
 						onPick={(asset) => {
 							onPick(asset);
 							onOpenChange(false);
@@ -83,19 +85,32 @@ export function MediaPickerDialog({
 }
 
 /** Mounted only while the dialog is open (child of `Dialog.Popup`). Owns
- *  the library fetch + tab state so neither runs until the picker opens. */
+ *  the library fetch + tab/filter state so none of it runs until open. */
 function PickerBody({
-	kind,
-	title,
+	kinds,
 	onPick,
 }: {
-	kind: MediaKind;
-	title: string;
+	kinds: readonly MediaKind[];
 	onPick: (asset: MediaAssetView) => void;
 }) {
 	const [tab, setTab] = useState<Tab>("upload");
+	// A multi-kind slot gets a browse filter (defaulting to "all"); a
+	// single-kind slot is pinned to its one kind with no filter UI.
+	const multiKind = kinds.length > 1;
+	// The dialog titles itself from its kinds — "Attach Image" when locked
+	// to one, "Attach Media" when it accepts several — so callers don't
+	// thread a title string (and can't drift it from what's offered).
+	const title = multiKind
+		? "Attach Media"
+		: `Attach ${MEDIA_KIND_META[kinds[0]].label}`;
+	const [filter, setFilter] = useState<LibraryFilter>(
+		multiKind ? "all" : kinds[0],
+	);
+	// "all" → fetch every kind (the library route treats an absent kind
+	// as unfiltered); a specific kind narrows the page.
+	const libraryKind = filter === "all" ? undefined : filter;
 	const { assets, isLoading, error, hasMore, loadMore, addUploaded } =
-		useMediaLibrary(kind);
+		useMediaLibrary(libraryKind);
 
 	const commit = (asset: MediaAssetView) => {
 		addUploaded(asset);
@@ -131,7 +146,7 @@ function PickerBody({
 
 			<div className="min-h-0 flex-1 overflow-y-auto p-4">
 				{tab === "upload" ? (
-					<UploadTab kind={kind} onUploaded={commit} />
+					<UploadTab kinds={kinds} onUploaded={commit} />
 				) : (
 					<LibraryTab
 						assets={assets}
@@ -140,6 +155,12 @@ function PickerBody({
 						hasMore={hasMore}
 						loadMore={loadMore}
 						onPick={commit}
+						// The type filter only makes sense when more than one
+						// kind is browsable; a single-kind library is already
+						// narrowed by the fetch.
+						filter={multiKind ? filter : null}
+						kinds={kinds}
+						onFilterChange={setFilter}
 					/>
 				)}
 			</div>
@@ -173,30 +194,56 @@ function TabButton({
 	);
 }
 
+/**
+ * Human "a/an image, audio, or video" phrase + the combined `accept`
+ * MIME list, both derived from the allowed kinds so the upload-tab copy
+ * and the wrong-kind rejection name exactly what the slot takes.
+ */
+function describeKinds(kinds: readonly MediaKind[]): {
+	nounPhrase: string;
+	accept: string;
+} {
+	const labels = kinds.map((k) => MEDIA_KIND_META[k].label.toLowerCase());
+	const accept = kinds.map((k) => MEDIA_KIND_META[k].accept).join(",");
+	// "image" → "an image"; "image"/"audio" → "an image or audio";
+	// "image"/"audio"/"video" → "an image, audio, or video".
+	const article = /^[aeiou]/.test(labels[0] ?? "") ? "an" : "a";
+	let nounPhrase: string;
+	if (labels.length === 1) {
+		nounPhrase = `${article} ${labels[0]}`;
+	} else if (labels.length === 2) {
+		nounPhrase = `${article} ${labels[0]} or ${labels[1]}`;
+	} else {
+		nounPhrase = `${article} ${labels.slice(0, -1).join(", ")}, or ${labels.at(-1)}`;
+	}
+	return { nounPhrase, accept };
+}
+
 function UploadTab({
-	kind,
+	kinds,
 	onUploaded,
 }: {
-	kind: MediaKind;
+	kinds: readonly MediaKind[];
 	onUploaded: (asset: MediaAssetView) => void;
 }) {
-	const meta = MEDIA_KIND_META[kind];
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [dragging, setDragging] = useState(false);
 	const [kindError, setKindError] = useState<string | null>(null);
 	const { upload, status } = useMediaUpload();
+	const { nounPhrase, accept } = useMemo(() => describeKinds(kinds), [kinds]);
 
 	const handleFile = async (file: File | undefined) => {
 		if (!file) return;
-		// The native file input's `accept` filter only guards the browse
-		// dialog, not drag-drop. Reject a wrong-kind file locally (after
-		// normalizing aliases like `image/apng`) so the user gets an
-		// instant answer instead of hashing the bytes + a server round
-		// trip just to be rejected.
+		// The native input's `accept` filter only guards the browse
+		// dialog, not drag-drop. Reject a file whose sniffed kind isn't
+		// one this slot allows (after normalizing aliases like
+		// `image/apng`) so the user gets an instant answer instead of
+		// hashing the bytes + a server round trip just to be rejected.
 		const dropped = normalizeMimeType(file.type);
-		if (!dropped || mediaKindForMimeType(dropped) !== kind) {
+		const kind = dropped ? mediaKindForMimeType(dropped) : undefined;
+		if (!kind || !kinds.includes(kind)) {
 			setKindError(
-				`That file isn't ${meta.label === "Audio" ? "an" : "a"} ${meta.label.toLowerCase()}. This slot takes ${meta.accept.split(",").join(", ")}.`,
+				`That file isn't ${nounPhrase}. This slot takes ${accept.split(",").join(", ")}.`,
 			);
 			return;
 		}
@@ -225,9 +272,7 @@ function UploadTab({
 			}`}
 		>
 			<Icon icon={tablerCloudUpload} className="size-8 text-nova-text-muted" />
-			<p className="text-sm text-nova-text-muted">
-				Drag a {meta.label.toLowerCase()} here, or
-			</p>
+			<p className="text-sm text-nova-text-muted">Drag {nounPhrase} here, or</p>
 			<button
 				type="button"
 				onClick={() => inputRef.current?.click()}
@@ -239,7 +284,7 @@ function UploadTab({
 			<input
 				ref={inputRef}
 				type="file"
-				accept={meta.accept}
+				accept={accept}
 				autoComplete="off"
 				data-1p-ignore
 				className="hidden"
@@ -261,6 +306,9 @@ function LibraryTab({
 	hasMore,
 	loadMore,
 	onPick,
+	filter,
+	kinds,
+	onFilterChange,
 }: {
 	assets: MediaAssetView[];
 	isLoading: boolean;
@@ -268,6 +316,10 @@ function LibraryTab({
 	hasMore: boolean;
 	loadMore: () => void;
 	onPick: (asset: MediaAssetView) => void;
+	/** Active browse filter, or `null` to hide the filter row (single-kind slot). */
+	filter: LibraryFilter | null;
+	kinds: readonly MediaKind[];
+	onFilterChange: (filter: LibraryFilter) => void;
 }) {
 	const [query, setQuery] = useState("");
 	const filtered = useMemo(() => {
@@ -280,6 +332,29 @@ function LibraryTab({
 
 	return (
 		<div className="flex flex-col gap-3">
+			{filter !== null && (
+				<div
+					role="tablist"
+					aria-label="Filter by type"
+					className="flex flex-wrap gap-1"
+				>
+					<FilterChip
+						active={filter === "all"}
+						onClick={() => onFilterChange("all")}
+					>
+						All
+					</FilterChip>
+					{kinds.map((kind) => (
+						<FilterChip
+							key={kind}
+							active={filter === kind}
+							onClick={() => onFilterChange(kind)}
+						>
+							{MEDIA_KIND_META[kind].label}
+						</FilterChip>
+					))}
+				</div>
+			)}
 			<input
 				type="text"
 				value={query}
@@ -323,6 +398,33 @@ function LibraryTab({
 				</button>
 			)}
 		</div>
+	);
+}
+
+/** A small segmented-control chip for the Library type filter. */
+function FilterChip({
+	active,
+	onClick,
+	children,
+}: {
+	active: boolean;
+	onClick: () => void;
+	children: React.ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			role="tab"
+			aria-selected={active}
+			onClick={onClick}
+			className={`rounded-full px-2.5 py-0.5 text-xs transition-colors focus-visible:outline-1 focus-visible:outline-nova-violet-bright ${
+				active
+					? "bg-nova-violet text-white"
+					: "bg-nova-surface text-nova-text-muted hover:text-nova-text"
+			}`}
+		>
+			{children}
+		</button>
 	);
 }
 
