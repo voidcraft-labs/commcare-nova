@@ -120,7 +120,8 @@ const HAIKU = "claude-haiku-4-5-20251001";
  * load-bearing disciplines, all downstream-protecting: enumerate option sets in
  * full (even defined-but-unused ones), keep inline fragments as attributes of
  * their parent field rather than spawning junk fields, record contradictions as
- * [CONFLICT] instead of picking a side, keep unfilled values as [OPEN] and
+ * [CONFLICT] and omissions (one part needs what another never supplies) as [GAP]
+ * instead of resolving either, keep unfilled values as [OPEN] and
  * implied-but-unstated conditionals as [INFERRED] rather than inventing or
  * upgrading anything — resolving ambiguity and reconciling across documents are
  * the architect's job, done later with full context. The filename the model
@@ -148,11 +149,6 @@ ENUMERATE COMPLETELY — the most common miss:
   the option in its parent's option set AND record the follow-up field. Do not drop
   the option just because it carries a sub-question.
 - In spreadsheets, read EVERY sheet/tab, including instruction/README and lookup tabs.
-- RECONCILE PROSE AGAINST TABLES: if the document has a data dictionary, register,
-  or table, also scan the narrative for any field, option, or rule mentioned there
-  but missing from the table, and include it (mark [OPEN] if its details are unspecified).
-- SURFACE ANOMALOUS DATA VALUES: in sample/data rows, flag any value that isn't in a
-  defined option list, or that implies a needed field or data rule, as [CONFLICT] or [OPEN].
 
 DON'T MIS-SPLIT INLINE FRAGMENTS:
 - Treat units, fill-in blanks, "(specify)", "at __:__", and similar fragments as
@@ -169,11 +165,25 @@ ALSO CAPTURE — commonly dropped:
   form's footnotes — mine these for validation rules, flags, exclusions, and skip logic.
 
 PRESERVE, DON'T RESOLVE:
-- Conflicts: if a requirement is stated two ways or a value is inconsistent (4 vs 8
-  visits, kg vs grams, an option list that differs between two sections), record BOTH
-  and mark [CONFLICT]. Never reconcile — across sections OR across documents; that is
-  the architect's job.
+- Conflicts: if two parts of the document disagree — a requirement stated two ways or a
+  value that's inconsistent (4 vs 8 visits, kg vs grams, an option list that differs
+  between two sections, a data value not in the field's defined list) — record BOTH sides
+  and mark [CONFLICT]. Never reconcile, across sections OR documents; that's the architect's job.
 - Unknowns: keep "TBD" / "to be confirmed" / a labelled blank as [OPEN]. Never invent a value.
+
+RECONCILE & FLAG GAPS:
+- [GAP] means one part of the document requires or names something another part never
+  supplies. It is NOT a contradiction (that's [CONFLICT]); it's an omission.
+- If the document has a data dictionary, register, or table, scan the narrative for any
+  field, option, or rule it mentions but the table omits — include it and mark [GAP]
+  (add [OPEN] if its details are unspecified).
+- Flag as [GAP]: a report/indicator that needs data no field captures; a referenced list
+  ("see Annex B", "...others TBD") that isn't supplied; a calculation whose inputs are absent.
+- In sample/data rows, flag any value NOT in the field's defined option list as [CONFLICT],
+  keeping the verbatim variant (e.g. "convulsions / fits" vs "convulsions/fits").
+- Where a field has no option set defined anywhere, you MAY list the distinct values seen
+  in data, marked [INFERRED] — but only when informative; do not list obvious sets
+  (M/F, Yes/No, a single observed value) just to list them.
 
 DON'T INVENT:
 - Do not add fields, options, roles, reports, validation ranges, or skip logic the
@@ -190,7 +200,7 @@ OUTPUT:
 - Begin with one line: \`Document type: <type> | Source: <filename>\`.
 - Compact bullets grouped by source section, form, or case type.
 - Tag where useful: [FIELD] [OPTIONS] [VALIDATION] [CALC] [SKIP] [CASE] [WORKFLOW]
-  [ROLE] [NFR] [REPORT] [EXCLUDE] [DEFER] [CONFLICT] [OPEN] [INFERRED].
+  [ROLE] [NFR] [REPORT] [EXCLUDE] [DEFER] [CONFLICT] [GAP] [OPEN] [INFERRED].
 - No preamble, no closing summary.`;
 
 /** Media types we decode straight to text (no library round-trip needed). */
