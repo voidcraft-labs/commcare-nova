@@ -64,6 +64,18 @@ export async function GET(
 				// risk of staleness.
 				"Cache-Control": "private, immutable, max-age=86400",
 				"X-Content-Type-Options": "nosniff",
+				// Defense-in-depth for the same-origin serving model. `nosniff`
+				// plus the server-sniffed canonical `Content-Type` already keep
+				// the browser from executing a stored file as active content,
+				// and the accepted set excludes SVG/HTML. `sandbox` is the
+				// backstop: if a response is ever navigated to directly, it
+				// loads into an opaque, script-less origin that can't reach the
+				// app's cookies or session — so even a content-type slip or
+				// renderer bug can't become a session-stealing XSS on our
+				// origin. The directive is document-scoped, so it does NOT
+				// affect inline `<img>`/`<audio>`/`<video>` rendering of these
+				// bytes (those are subresource loads, not documents).
+				"Content-Security-Policy": "sandbox",
 			},
 		});
 	} catch (err) {
