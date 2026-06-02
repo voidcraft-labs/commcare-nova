@@ -31,6 +31,7 @@ import {
 	derivePhase,
 	useAgentError,
 	useAgentStage,
+	useAttachmentPrep,
 	useBuilderPhase,
 	usePostBuildEdit,
 	useSessionEventsEmpty,
@@ -127,6 +128,7 @@ export function ChatSidebar({
 	const agentStage = useAgentStage();
 	const postBuildEdit = usePostBuildEdit();
 	const statusMessage = useStatusMessage();
+	const attachmentPrep = useAttachmentPrep();
 	const isGenerating = phase === BuilderPhase.Generating;
 	/* `isLoading` and `streamOpen` are the same derived value from the
 	 * transport status — the "the SSE stream is open right now" signal.
@@ -230,6 +232,12 @@ export function ChatSidebar({
 		// LLM's wrap-up text keeps the stream open). Without this, the grid
 		// shows "Thinking" for 5–15s after generation is already complete.
 		if (phase === BuilderPhase.Completed) return "done";
+		// Condensing document attachments — a pre-Opus step that blocks the first
+		// model token. Reuse the reasoning animation (label set below). Placed
+		// after the error/generation/completed branches so a real run always
+		// wins, but before `streamOpen` — which would otherwise show the generic
+		// "Transmitting"/"Thinking" during the condense wait.
+		if (attachmentPrep) return "reasoning";
 		if (streamOpen) {
 			// Keep the send wave looping until the server actually starts streaming.
 			// During 'submitted', no tokens are flowing so reasoning/editing would
@@ -249,8 +257,11 @@ export function ChatSidebar({
 		return "idle";
 	})();
 
-	const desiredLabel =
-		isGenerating && statusMessage ? statusMessage : defaultLabel(desiredMode);
+	const desiredLabel = attachmentPrep
+		? "Reading your documents"
+		: isGenerating && statusMessage
+			? statusMessage
+			: defaultLabel(desiredMode);
 
 	useEffect(() => {
 		gridController.setMode(desiredMode, desiredLabel);

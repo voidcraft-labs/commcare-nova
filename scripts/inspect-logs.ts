@@ -208,6 +208,8 @@ function summarizeConversation(payload: ConversationPayload): string {
 			return `error [${payload.error.type}]${payload.error.fatal ? " FATAL" : ""}: ${truncate(payload.error.message, 80)}`;
 		case "validation-attempt":
 			return `validation-attempt #${payload.attempt}: ${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"}`;
+		case "attachment-prep":
+			return `attachment-prep ${payload.phase}${payload.count !== undefined ? ` (${payload.count} doc${payload.count === 1 ? "" : "s"})` : ""}`;
 	}
 }
 

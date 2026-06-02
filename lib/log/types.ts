@@ -113,6 +113,19 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		attempt: z.number().int().positive(),
 		errors: z.array(z.string()),
 	}),
+	/* Attachment-prep annotation — brackets the pre-Opus condense step
+	 * (`prepareAttachments`). `phase: "start"` fires before condensing begins,
+	 * `"done"` after every attachment is condensed; the window between them is
+	 * when the UI shows a "reading documents" status. `count` (start only) is
+	 * how many non-image attachments are condensed, so a log reader can see how
+	 * much document work the turn did — and, later, mine past summaries to
+	 * benchmark the summarizer. Logged like `validation-attempt`: a run
+	 * annotation, not chat-visible content. */
+	z.object({
+		type: z.literal("attachment-prep"),
+		phase: z.enum(["start", "done"]),
+		count: z.number().int().positive().optional(),
+	}),
 ]);
 export type ConversationPayload = z.infer<typeof conversationPayloadSchema>;
 

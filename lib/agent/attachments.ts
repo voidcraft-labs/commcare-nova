@@ -431,6 +431,22 @@ async function prepareUserPart(
 }
 
 /**
+ * Count the attachments on the last user message that `prepareAttachments` will
+ * condense — non-image `file` parts. Images pass through untouched and typed
+ * text isn't a file, so a turn with none does no condensing work. The chat
+ * route uses this to bracket the condense step with `attachment-prep` lifecycle
+ * events (the "reading documents" status) ONLY when there is real work to
+ * narrate, and to record the document count on the log annotation.
+ */
+export function countCondensableAttachments(messages: UIMessage[]): number {
+	const last = messages.at(-1);
+	if (!last || last.role !== "user") return 0;
+	return last.parts.filter(
+		(part) => part.type === "file" && !isImage(part.mediaType),
+	).length;
+}
+
+/**
  * Rewrite the last user message's file parts into model-ready content, BEFORE
  * the message reaches Opus — see `prepareUserPart` for the per-attachment
  * routing. Only the last message is touched, and only when it is a user message;

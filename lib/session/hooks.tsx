@@ -20,6 +20,7 @@ import {
 	bufferHasBuildFoundation,
 	deriveAgentError,
 	deriveAgentStage,
+	deriveAttachmentPrep,
 	derivePostBuildEdit,
 	deriveStatusMessage,
 	deriveValidationAttempt,
@@ -183,6 +184,14 @@ export function useStatusMessage(): string {
 		const attempt = deriveValidationAttempt(events);
 		return deriveStatusMessage(stage, error, attempt);
 	}, [events]);
+}
+
+/** Whether the run is condensing document attachments right now — the pre-Opus
+ *  `prepareAttachments` window. Drives the "reading documents" signal-grid
+ *  status while the first model token is still blocked. */
+export function useAttachmentPrep(): boolean {
+	const events = useBuilderSession((s) => s.events);
+	return useMemo(() => deriveAttachmentPrep(events), [events]);
 }
 
 /** Latest validation-attempt context (attempt number + error count), or
@@ -461,6 +470,12 @@ export function buildReplayMessages(
 				 * attempt + error count via deriveStatusMessage; the
 				 * chat view stays focused on user/assistant/tool
 				 * content. */
+				break;
+			case "attachment-prep":
+				/* Log-only annotation — the signal grid shows the "reading
+				 * documents" status via deriveAttachmentPrep; not chat-visible
+				 * content, so the replayed transcript skips it (mirrors
+				 * validation-attempt). */
 				break;
 		}
 	}

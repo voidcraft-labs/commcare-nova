@@ -8,6 +8,7 @@ import {
 import {
 	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
+	countCondensableAttachments,
 	createSolutionsArchitect,
 	GenerationContext,
 	MESSAGES,
@@ -266,7 +267,25 @@ export async function POST(req: Request) {
 			 * file parts are rewritten — everything downstream consumes
 			 * `preparedMessages` so the user-message event, the SA's history, and
 			 * the agent stream all see the same condensed content. */
+			/* Bracket the condense step with `attachment-prep` lifecycle events
+			 * so the signal grid can show a "reading documents" status — for a
+			 * multi-doc turn this step blocks the first Opus token for several
+			 * seconds. Only emit when there's real condensing work (a non-image
+			 * file part); images and typed text pass through instantly. The
+			 * events also land in the run log (like `validation-attempt`), so
+			 * the stream records when condensing ran and over how many docs. */
+			const condensableCount = countCondensableAttachments(messages);
+			if (condensableCount > 0) {
+				ctx.emitConversation({
+					type: "attachment-prep",
+					phase: "start",
+					count: condensableCount,
+				});
+			}
 			const preparedMessages = await prepareAttachments(messages, ctx);
+			if (condensableCount > 0) {
+				ctx.emitConversation({ type: "attachment-prep", phase: "done" });
+			}
 
 			/* Persist the current request's user message as the first
 			 * conversation event of the run. Emitting through the context

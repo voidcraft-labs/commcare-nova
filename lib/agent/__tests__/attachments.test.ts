@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
 	type AttachmentCondenser,
+	countCondensableAttachments,
 	decodeTextDataUrl,
 	prepareAttachments,
 	rowsToMarkdownTable,
@@ -277,5 +278,55 @@ describe("prepareAttachments", () => {
 		expect(
 			parts.map((p) => (p.type === "text" ? p.text : "")).join(""),
 		).toContain("too large");
+	});
+});
+
+// ── countCondensableAttachments ─────────────────────────────────────────
+//
+// Gates whether the chat route shows the "reading documents" status: counts
+// the non-image file parts on the last user message (the parts that actually
+// get condensed). Images pass through to vision; typed text isn't a file.
+
+describe("countCondensableAttachments", () => {
+	const fileP = (mediaType: string) =>
+		({ type: "file", filename: "f", mediaType, url: "data:," }) as const;
+
+	it("counts non-image file parts on the last user message", () => {
+		expect(
+			countCondensableAttachments([
+				userMsg([
+					{ type: "text", text: "hi" },
+					fileP("application/pdf"),
+					fileP("text/plain"),
+				]),
+			]),
+		).toBe(2);
+	});
+
+	it("ignores images — they pass through to Opus vision", () => {
+		expect(
+			countCondensableAttachments([
+				userMsg([fileP("image/png"), fileP("application/pdf")]),
+			]),
+		).toBe(1);
+	});
+
+	it("is 0 for an image-only turn", () => {
+		expect(countCondensableAttachments([userMsg([fileP("image/png")])])).toBe(
+			0,
+		);
+	});
+
+	it("is 0 when the last message is not a user message", () => {
+		const assistant = {
+			id: "a1",
+			role: "assistant",
+			parts: [fileP("application/pdf")],
+		} as unknown as UIMessage;
+		expect(countCondensableAttachments([assistant])).toBe(0);
+	});
+
+	it("is 0 for an empty conversation", () => {
+		expect(countCondensableAttachments([])).toBe(0);
 	});
 });

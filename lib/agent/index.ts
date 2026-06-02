@@ -4,10 +4,15 @@
 // transitively imports Anthropic and firebase-admin.
 
 // attachments — server-side preparation of chat file attachments. Condenses
-// large document attachments with Haiku before they reach the Solutions
-// Architect, so a multi-page spec doesn't inflate the Opus context across the
-// tool loop. The chat route calls `prepareAttachments` on the inbound messages.
-export { prepareAttachments } from "./attachments";
+// document attachments to a requirements extract before they reach the
+// Solutions Architect, so a multi-page spec doesn't inflate the Opus context
+// across the tool loop. The chat route calls `prepareAttachments` on the
+// inbound messages and `countCondensableAttachments` to decide whether to show
+// the "reading documents" status while that runs.
+export {
+	countCondensableAttachments,
+	prepareAttachments,
+} from "./attachments";
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
