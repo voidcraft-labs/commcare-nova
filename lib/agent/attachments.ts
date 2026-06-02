@@ -148,6 +148,11 @@ ENUMERATE COMPLETELY — the most common miss:
   the option in its parent's option set AND record the follow-up field. Do not drop
   the option just because it carries a sub-question.
 - In spreadsheets, read EVERY sheet/tab, including instruction/README and lookup tabs.
+- RECONCILE PROSE AGAINST TABLES: if the document has a data dictionary, register,
+  or table, also scan the narrative for any field, option, or rule mentioned there
+  but missing from the table, and include it (mark [OPEN] if its details are unspecified).
+- SURFACE ANOMALOUS DATA VALUES: in sample/data rows, flag any value that isn't in a
+  defined option list, or that implies a needed field or data rule, as [CONFLICT] or [OPEN].
 
 DON'T MIS-SPLIT INLINE FRAGMENTS:
 - Treat units, fill-in blanks, "(specify)", "at __:__", and similar fragments as
