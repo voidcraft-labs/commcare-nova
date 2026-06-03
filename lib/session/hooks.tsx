@@ -9,8 +9,11 @@
  */
 "use client";
 
-import type { UIMessage } from "ai";
 import { useMemo } from "react";
+import type {
+	NovaMessageMetadata,
+	NovaUIMessage,
+} from "@/lib/chat/attachmentRefs";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
@@ -186,9 +189,10 @@ export function useStatusMessage(): string {
 	}, [events]);
 }
 
-/** Whether the run is condensing document attachments right now — the pre-Opus
- *  `prepareAttachments` window. Drives the "reading documents" signal-grid
- *  status while the first model token is still blocked. */
+/** Whether the run is reading document attachments right now — the pre-Opus
+ *  `resolveAttachments` window (resolving asset refs to their stored extracts).
+ *  Drives the "reading documents" signal-grid status while the first model
+ *  token is still blocked. */
 export function useAttachmentPrep(): boolean {
 	const events = useBuilderSession((s) => s.events);
 	return useMemo(() => deriveAttachmentPrep(events), [events]);
@@ -255,7 +259,7 @@ export function useReplayState(): ReplayData | undefined {
 }
 
 /**
- * Derives progressive `UIMessage[]` from the replay event log up to the
+ * Derives progressive `NovaUIMessage[]` from the replay event log up to the
  * current cursor. Returns the reference-stable empty array sentinel when
  * replay is not loaded.
  *
@@ -277,7 +281,7 @@ export function useReplayState(): ReplayData | undefined {
  * derivation so the built array reference is stable across re-renders
  * that don't touch `events` or `cursor`.
  */
-export function useReplayMessages(): UIMessage[] {
+export function useReplayMessages(): NovaUIMessage[] {
 	/* Shallow select: returns the same `{events, cursor}` reference when
 	 * neither field has changed — which is exactly the condition under
 	 * which we want to skip re-deriving. When replay is undefined, both
@@ -297,7 +301,7 @@ export function useReplayMessages(): UIMessage[] {
 
 /** Reference-stable empty array — returned when no replay is loaded so
  *  consumers don't re-render on every store tick. */
-const EMPTY_REPLAY_MESSAGES: UIMessage[] = [];
+const EMPTY_REPLAY_MESSAGES: NovaUIMessage[] = [];
 
 /**
  * Local projection types — the chat-visible shape we produce from the
@@ -307,7 +311,7 @@ const EMPTY_REPLAY_MESSAGES: UIMessage[] = [];
  *
  * At the push sites these types are type-checked (typos in literal
  * discriminants, missing fields, wrong value types all fail the
- * compiler). The `as unknown as UIMessage[]` projection happens exactly
+ * compiler). The `as unknown as NovaUIMessage[]` projection happens exactly
  * once at the return — any shape drift between our mapping and the
  * SDK's expectations surfaces there, not sprinkled across every case.
  */
@@ -334,11 +338,15 @@ type ReplayMessage = {
 	id: string;
 	role: "user" | "assistant";
 	parts: ReplayPart[];
+	/** Attachment manifest, set on a replayed user turn from the user-message
+	 *  event's `attachments` — the same `AttachmentRef` shape the live transcript
+	 *  reads, so `ChatMessage` renders the chips through one path. */
+	metadata?: NovaMessageMetadata;
 };
 
 /**
  * Pure builder: projects a slice of the event log (up to and including
- * `cursor`) into the `UIMessage[]` shape the chat UI consumes.
+ * `cursor`) into the `NovaUIMessage[]` shape the chat UI consumes.
  *
  * Walks conversation events sequentially and groups them into messages:
  *   - `user-message` starts a new user message and closes the current
@@ -369,7 +377,7 @@ type ReplayMessage = {
 export function buildReplayMessages(
 	events: readonly Event[],
 	cursor: number,
-): UIMessage[] {
+): NovaUIMessage[] {
 	const messages: ReplayMessage[] = [];
 	/* Turn index — incremented on each new message (user or assistant
 	 * open). Drives stable `id` values that survive cursor scrubs and
@@ -418,6 +426,9 @@ export function buildReplayMessages(
 				id: `u-${turnIdx}`,
 				role: "user",
 				parts: [{ type: "text", text: p.text }],
+				...(p.attachments && p.attachments.length > 0
+					? { metadata: { attachments: p.attachments } }
+					: {}),
 			});
 			turnIdx++;
 			continue;
@@ -486,7 +497,7 @@ export function buildReplayMessages(
 	/* Single projection cast: `ReplayPart` is a structural subset of
 	 * the SDK's `UIMessagePart` union for the variants the chat UI
 	 * consumes. See the `Replay*` type comment above for rationale. */
-	return messages as unknown as UIMessage[];
+	return messages as unknown as NovaUIMessage[];
 }
 
 // ── Derived ───────────────────────────────────────────────────────────────

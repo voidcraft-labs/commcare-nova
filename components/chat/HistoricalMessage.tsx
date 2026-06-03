@@ -10,6 +10,7 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
+import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import type { StoredMessagePart, StoredThreadMessage } from "@/lib/db/types";
 import { ChatMarkdown } from "@/lib/markdown";
 
@@ -66,6 +67,11 @@ export function HistoricalMessage({ message }: HistoricalMessageProps) {
 
 	return (
 		<>
+			{message.attachments && message.attachments.length > 0 && (
+				<div className="opacity-60">
+					<MessageAttachments attachments={message.attachments} />
+				</div>
+			)}
 			{message.parts.map((part, idx) => (
 				<div
 					// biome-ignore lint/suspicious/noArrayIndexKey: parts lack unique IDs, append-only array

@@ -1,13 +1,7 @@
 "use client";
-import type { ToolUIPart, UIMessage } from "ai";
+import type { ToolUIPart } from "ai";
 import type { ReactNode } from "react";
 import { useRef } from "react";
-import {
-	Attachment,
-	AttachmentInfo,
-	AttachmentPreview,
-	Attachments,
-} from "@/components/ai-elements/attachments";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
 	Reasoning,
@@ -15,12 +9,14 @@ import {
 	ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { AskQuestionsCard } from "@/components/chat/AskQuestionsCard";
+import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { ToolRunSummary } from "@/components/chat/ToolRunSummary";
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { isEditToolPart } from "@/lib/chat/toolSummary";
 import { ChatMarkdown } from "@/lib/markdown";
 
 interface ChatMessageProps {
-	message: UIMessage;
+	message: NovaUIMessage;
 	addToolOutput: (params: {
 		tool: string;
 		toolCallId: string;
@@ -75,6 +71,19 @@ export function ChatMessage({
 	 * GenerationProgress own build-mode feedback.
 	 */
 	const items: ReactNode[] = [];
+	/* Attachment chips lead the message — the files the user attached, each
+	 * opening the Document / What-the-AI-reads preview. Read off the message
+	 * metadata (the one `AttachmentRef` shape live, replay, and thread history
+	 * all populate), so there's a single render path regardless of source. */
+	const attachments = message.metadata?.attachments;
+	if (attachments && attachments.length > 0) {
+		items.push(
+			<MessageAttachments
+				key={`${message.id}-attachments`}
+				attachments={attachments}
+			/>,
+		);
+	}
 	let toolRun: ToolUIPart[] = [];
 	let reasoningRun: string[] = [];
 	let reasoningRunKey: string | null = null;
@@ -147,23 +156,6 @@ export function ChatMessage({
 						<ChatMarkdown>{text}</ChatMarkdown>
 					</div>
 				),
-			);
-			continue;
-		}
-
-		if (part.type === "file") {
-			/* User attachments echoed into the transcript. The server condenses the
-			 * file CONTENT before the model sees it, but the chip shows the original
-			 * filename. AttachmentData needs an id; the part has none, so synthesize a
-			 * stable one (inert — the list variant has no remove affordance). */
-			const data = { ...part, id: `${message.id}-file-${partIndex}` };
-			items.push(
-				<Attachments key={data.id} variant="list">
-					<Attachment data={data}>
-						<AttachmentPreview />
-						<AttachmentInfo />
-					</Attachment>
-				</Attachments>,
 			);
 			continue;
 		}

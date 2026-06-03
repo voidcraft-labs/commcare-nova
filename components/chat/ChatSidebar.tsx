@@ -1,7 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import type { FileUIPart, UIMessage } from "ai";
 import { motion } from "motion/react";
 import {
 	type ReactNode,
@@ -22,6 +21,7 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
+import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -90,11 +90,11 @@ function createGridController(
 interface ChatSidebarProps {
 	centered: boolean;
 	heroLogo?: ReactNode;
-	messages: UIMessage[];
+	messages: NovaUIMessage[];
 	status: "submitted" | "streaming" | "ready" | "error";
-	/** Send a turn. `files` are AI SDK `FileUIPart`s (data-URL payloads converted
-	 *  by the PromptInput); the server condenses large ones before the model. */
-	onSend: (message: { text: string; files?: FileUIPart[] }) => void;
+	/** Send a turn. `attachments` are asset-id refs to files picked from the file
+	 *  manager; the server resolves each to its stored extract or image bytes. */
+	onSend: (message: { text: string; attachments?: AttachmentRef[] }) => void;
 	addToolOutput: (params: {
 		tool: string;
 		toolCallId: string;
@@ -359,10 +359,10 @@ export function ChatSidebar({
 	}, [gridController]);
 
 	// Route typed messages as question answers when an AskQuestionsCard is waiting.
-	// Answers are text-only (the question UI is multiple-choice); any staged files
-	// are forwarded only on a normal send, never folded into an answer.
+	// Answers are text-only (the question UI is multiple-choice); any staged
+	// attachments are forwarded only on a normal send, never folded into an answer.
 	const handleSend = useCallback(
-		(message: { text: string; files?: FileUIPart[] }) => {
+		(message: { text: string; attachments?: AttachmentRef[] }) => {
 			if (pendingAnswerRef.current) {
 				pendingAnswerRef.current(message.text);
 			} else {

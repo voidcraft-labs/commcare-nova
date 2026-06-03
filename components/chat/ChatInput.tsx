@@ -1,97 +1,45 @@
 "use client";
-import type { FileUIPart } from "ai";
-import {
-	Attachment,
-	AttachmentInfo,
-	AttachmentPreview,
-	AttachmentRemove,
-	Attachments,
-} from "@/components/ai-elements/attachments";
+import { Icon } from "@iconify/react/offline";
+import tablerPaperclip from "@iconify-icons/tabler/paperclip";
+import { useState } from "react";
 import {
 	PromptInput,
-	PromptInputActionAddAttachments,
-	PromptInputActionMenu,
-	PromptInputActionMenuContent,
-	PromptInputActionMenuTrigger,
 	PromptInputBody,
 	PromptInputFooter,
-	PromptInputHeader,
 	type PromptInputMessage,
 	PromptInputSubmit,
 	PromptInputTextarea,
 	PromptInputTools,
-	usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
-import { showToast } from "@/lib/ui/toastStore";
+import {
+	AssetPreviewDialog,
+	type AssetPreviewTarget,
+} from "@/components/builder/media/AssetPreviewDialog";
+import { MediaPickerDialog } from "@/components/builder/media/MediaPickerDialog";
+import type { MediaAssetView } from "@/components/builder/media/mediaClient";
+import { ChatAttachmentBar } from "@/components/chat/ChatAttachmentBar";
+import {
+	type AttachmentRef,
+	CHAT_ATTACHMENT_KINDS,
+} from "@/lib/chat/attachmentRefs";
 import { cn } from "@/lib/utils";
 
-/** File types the SA can actually consume: text/markdown/csv and PDF are
- *  condensed by the summarizer server-side (docx/xlsx are converted to markdown
- *  first); images pass through to Opus's vision pass. Everything else is rejected
- *  at the picker so the server transform only ever sees this closed set. */
-const ACCEPT = ".txt,.md,.csv,.pdf,.png,.jpg,.jpeg,.gif,.webp,.docx,.xlsx";
-
-/** Per-file and per-turn ceilings — the first line of defense for the base64
- *  payload that rides in the request body (the server enforces its own ceiling
- *  behind this). */
-const MAX_FILES = 5;
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-/** Friendly, Elm-style messages for PromptInput's file-validation rejections.
- *  Without surfacing these, a rejected attachment silently vanishes (no chip),
- *  which reads as "nothing happened" — the same dead-end as an unhandled accept
- *  mismatch. Keyed by PromptInput's `onError` codes. */
-const ATTACHMENT_ERROR_MESSAGES: Record<string, string> = {
-	accept:
-		"That file type isn't supported. Attach a PDF, image, text, Markdown, CSV, Word, or Excel file.",
-	max_file_size:
-		"That file is over the 10 MB limit. Try a smaller file, or split it into parts.",
-	max_files:
-		"You can attach up to 5 files at once — remove one before adding another.",
-	duplicate: "That file is already attached.",
-};
-
-/** The pending-upload chip row, shown above the textarea while files are staged
- *  for the next send. Renders the PromptInputHeader (and thus its padding) only
- *  when files exist — an empty header would otherwise leave a gutter above the
- *  textarea. Reads from PromptInput's own attachment state. */
-function PendingAttachments() {
-	const attachments = usePromptInputAttachments();
-	if (attachments.files.length === 0) return null;
-	return (
-		<PromptInputHeader>
-			<Attachments variant="inline">
-				{attachments.files.map((file) => (
-					<Attachment
-						className={cn(
-							// Armed for two-stage Backspace removal: "press Backspace again
-							// to remove this". Uses Nova's destructive color (nova-rose) — a
-							// thin ring + soft fill that reads as "pending removal" and is
-							// distinct from the textbox's violet focus ring (a matching violet
-							// ring read as a focus state and clashed). Solid token, not
-							// /opacity — Tailwind v4 doesn't resolve a var-based ring color
-							// with an opacity modifier.
-							file.id === attachments.armedRemoveId &&
-								"bg-nova-rose/10 ring-1 ring-nova-rose",
-						)}
-						data={file}
-						key={file.id}
-						onRemove={() => attachments.remove(file.id)}
-					>
-						<AttachmentPreview />
-						<AttachmentInfo />
-						<AttachmentRemove />
-					</Attachment>
-				))}
-			</Attachments>
-		</PromptInputHeader>
-	);
+/** Map a picked library asset to the wire ref the chat sends. The bytes never
+ *  ride the request — only this id-keyed pointer, which the server resolves to
+ *  the stored extract (documents) or image bytes (vision). */
+function toAttachmentRef(asset: MediaAssetView): AttachmentRef {
+	return {
+		assetId: asset.id,
+		kind: asset.kind,
+		filename: asset.displayName ?? asset.originalFilename,
+		mimeType: asset.mimeType,
+	};
 }
 
 interface ChatInputProps {
-	/** Send a turn. `files` are AI SDK `FileUIPart`s with data-URL payloads,
-	 *  already converted by PromptInput; the server condenses large ones. */
-	onSend: (message: { text: string; files?: FileUIPart[] }) => void;
+	/** Send a turn. `attachments` are asset-id refs to files the user picked from
+	 *  the file manager; the server resolves each to its extract or image bytes. */
+	onSend: (message: { text: string; attachments?: AttachmentRef[] }) => void;
 	disabled?: boolean;
 	/** Centered (Idle) card layout vs docked sidebar — drives the input chrome
 	 *  (the docked variant gets a top divider). */
@@ -105,11 +53,12 @@ interface ChatInputProps {
 
 /**
  * The chat composer, built on AI Elements `PromptInput`. PromptInput owns its own
- * text + attachment state and resets on submit, so this component is stateless: it
- * only shapes the submitted message into Nova's `onSend` contract and supplies the
- * attachment affordance. The model picker, web-search, and speech actions that
- * PromptInput can host are intentionally absent — the SA model is a fixed code
- * constant and there is no search/voice surface.
+ * text state and resets on submit; THIS component owns the staged attachments —
+ * assets the user picks from the media library (file manager), not files staged
+ * in the browser. The "+" opens the picker; picked assets show as chips above the
+ * textarea and ride the next send as id refs. There is no raw-file path: every
+ * attachment is a stored asset the assistant reads via its extract (or, for
+ * images, its bytes).
  */
 export function ChatInput({
 	onSend,
@@ -117,69 +66,111 @@ export function ChatInput({
 	centered,
 	openingPrompt,
 }: ChatInputProps) {
+	/** Assets staged for the next send (picked from the file manager). */
+	const [picked, setPicked] = useState<MediaAssetView[]>([]);
+	/** File-manager dialog open state. */
+	const [pickerOpen, setPickerOpen] = useState(false);
+	/** Asset currently shown in the preview dialog (`null` = closed). */
+	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
+		null,
+	);
+
+	const addPicked = (asset: MediaAssetView) =>
+		setPicked((cur) =>
+			cur.some((a) => a.id === asset.id) ? cur : [...cur, asset],
+		);
+	const removePicked = (assetId: string) =>
+		setPicked((cur) => cur.filter((a) => a.id !== assetId));
+
 	const handleSubmit = (message: PromptInputMessage) => {
 		const text = (message.text ?? "").trim();
-		const hasFiles = message.files.length > 0;
-		if ((!text && !hasFiles) || disabled) return;
-		onSend({ text, files: message.files });
+		if ((!text && picked.length === 0) || disabled) return;
+		const attachments = picked.map(toAttachmentRef);
+		onSend({
+			text,
+			attachments: attachments.length > 0 ? attachments : undefined,
+		});
+		// PromptInput clears its own text; we clear the staged attachments.
+		setPicked([]);
 	};
 
 	return (
-		<PromptInput
-			accept={ACCEPT}
-			className={cn(
-				// Pad so the rounded input floats inside its container. The InputGroup
-				// already carries the border + violet focus ring; without padding its
-				// rounded corners + ring sit flush against the centered card's
-				// rounded-2xl overflow-hidden edge and get cropped. So the form itself
-				// needs no ring/fill — just padding, plus a top divider when docked.
-				"p-3",
-				centered ? "" : "border-t border-nova-border",
-			)}
-			globalDrop
-			maxFileSize={MAX_FILE_SIZE}
-			maxFiles={MAX_FILES}
-			multiple
-			onError={(err) =>
-				showToast(
-					"warning",
-					"Couldn't attach file",
-					ATTACHMENT_ERROR_MESSAGES[err.code] ?? err.message,
-				)
-			}
-			onSubmit={handleSubmit}
-		>
-			<PendingAttachments />
-			<PromptInputBody>
-				<PromptInputTextarea
-					disabled={disabled}
-					placeholder={
-						openingPrompt
-							? "Tell me about the app you want to build..."
-							: "Ask for changes..."
+		<>
+			<PromptInput
+				className={cn(
+					// Pad so the rounded input floats inside its container. The InputGroup
+					// already carries the border + violet focus ring; without padding its
+					// rounded corners + ring sit flush against the centered card's
+					// rounded-2xl overflow-hidden edge and get cropped. So the form itself
+					// needs no ring/fill — just padding, plus a top divider when docked.
+					"p-3",
+					centered ? "" : "border-t border-nova-border",
+				)}
+				onSubmit={handleSubmit}
+			>
+				<ChatAttachmentBar
+					assets={picked}
+					onRemove={removePicked}
+					onPreview={(asset) =>
+						setPreviewTarget({
+							id: asset.id,
+							kind: asset.kind,
+							filename: asset.displayName ?? asset.originalFilename,
+						})
 					}
 				/>
-			</PromptInputBody>
-			<PromptInputFooter>
-				<PromptInputTools>
-					{/* Disabled in lockstep with the textarea + submit while a turn is
-					 *  in flight — staging an attachment you can't yet send (the whole
-					 *  composer is locked one-turn-at-a-time) reads as broken. */}
-					<PromptInputActionMenu>
-						<PromptInputActionMenuTrigger disabled={disabled} />
-						<PromptInputActionMenuContent>
-							<PromptInputActionAddAttachments />
-						</PromptInputActionMenuContent>
-					</PromptInputActionMenu>
-				</PromptInputTools>
-				{/* While a turn is in flight the whole input is disabled (Nova shows
-				 *  progress on the signal grid, not a stop button), so the submit
-				 *  reflects that as the in-flight spinner. */}
-				<PromptInputSubmit
-					disabled={disabled}
-					status={disabled ? "submitted" : "ready"}
-				/>
-			</PromptInputFooter>
-		</PromptInput>
+				<PromptInputBody>
+					<PromptInputTextarea
+						disabled={disabled}
+						placeholder={
+							openingPrompt
+								? "Tell me about the app you want to build..."
+								: "Ask for changes..."
+						}
+					/>
+				</PromptInputBody>
+				<PromptInputFooter>
+					<PromptInputTools>
+						{/* Attach from the file manager. Disabled in lockstep with the
+						 *  textarea + submit while a turn is in flight — staging an
+						 *  attachment you can't yet send reads as broken. */}
+						<button
+							type="button"
+							onClick={() => setPickerOpen(true)}
+							disabled={disabled}
+							aria-label="Attach a file"
+							title="Attach a file"
+							className="flex size-8 cursor-pointer items-center justify-center rounded-md text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:cursor-default disabled:opacity-50"
+						>
+							<Icon icon={tablerPaperclip} className="size-4" />
+						</button>
+					</PromptInputTools>
+					{/* While a turn is in flight the whole input is disabled (Nova shows
+					 *  progress on the signal grid, not a stop button), so the submit
+					 *  reflects that as the in-flight spinner. */}
+					<PromptInputSubmit
+						disabled={disabled}
+						status={disabled ? "submitted" : "ready"}
+					/>
+				</PromptInputFooter>
+			</PromptInput>
+
+			{/* The file manager + the preview dialog live OUTSIDE the form (both
+			 *  portal to the body anyway), so their internal buttons can't submit
+			 *  the composer. The picker only offers chat-attachable kinds; the
+			 *  preview opens from a staged chip. */}
+			<MediaPickerDialog
+				open={pickerOpen}
+				onOpenChange={setPickerOpen}
+				kinds={CHAT_ATTACHMENT_KINDS}
+				onPick={addPicked}
+			/>
+			<AssetPreviewDialog
+				target={previewTarget}
+				onOpenChange={(open) => {
+					if (!open) setPreviewTarget(null);
+				}}
+			/>
+		</>
 	);
 }

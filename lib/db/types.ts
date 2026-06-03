@@ -20,6 +20,7 @@
 
 import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
+import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
 import { blueprintDocSchema } from "../domain/blueprint";
 import {
 	ALL_MIME_TYPES,
@@ -258,6 +259,10 @@ const storedThreadMessageSchema = z.object({
 	role: z.enum(["user", "assistant"]),
 	/** Visible parts only — text and answered askQuestions. */
 	parts: z.array(storedMessagePartSchema),
+	/** Attachment manifest for a user turn — the same `AttachmentRef` shape the
+	 *  live transcript + replay use, so loaded history renders the chips (and
+	 *  their previews) through the one render path. */
+	attachments: z.array(attachmentRefSchema).optional(),
 });
 export type StoredThreadMessage = z.infer<typeof storedThreadMessageSchema>;
 

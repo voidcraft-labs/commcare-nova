@@ -150,6 +150,26 @@ export async function uploadMediaAsset(file: File): Promise<MediaAssetView> {
 	return confirmed.asset;
 }
 
+/**
+ * Fetch a document's requirements extract — the text the assistant reads
+ * ("What the AI reads"). Returns `null` when no current extract exists yet
+ * (the route 404s until extraction finishes), so the caller shows a
+ * not-ready state rather than an error. Throws only on an unexpected failure.
+ */
+export async function fetchAssetExtract(
+	assetId: string,
+): Promise<string | null> {
+	const res = await fetch(`/api/media/${assetId}/extract`);
+	if (res.status === 404) return null;
+	if (!res.ok) {
+		throw await errorFromResponse(
+			res,
+			"Couldn't load what the assistant reads from this document.",
+		);
+	}
+	return res.text();
+}
+
 /** A page of the owner's media library. */
 export interface MediaLibraryPage {
 	assets: MediaAssetView[];
