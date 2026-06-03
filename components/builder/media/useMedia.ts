@@ -13,7 +13,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { MediaKind } from "@/lib/domain/multimedia";
+import type { AssetKind } from "@/lib/domain/multimedia";
 import {
 	fetchMediaLibrary,
 	type MediaAssetView,
@@ -75,7 +75,7 @@ export interface UseMediaLibrary {
  * would cause.
  */
 interface LibraryRequest {
-	kind: MediaKind | undefined;
+	kind: AssetKind | undefined;
 	cursor: string | undefined;
 	append: boolean;
 }
@@ -92,7 +92,7 @@ interface LibraryRequest {
  * a per-run `cancelled` flag so a fetch resolving after the picker
  * closes doesn't leak a state update (or trip the async-leak gate).
  */
-export function useMediaLibrary(kind?: MediaKind): UseMediaLibrary {
+export function useMediaLibrary(kind?: AssetKind): UseMediaLibrary {
 	const [assets, setAssets] = useState<MediaAssetView[]>([]);
 	const [nextCursor, setNextCursor] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(false);

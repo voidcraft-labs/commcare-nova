@@ -4,7 +4,11 @@
  * Cursor-paginated, newest first. Backs the asset-library picker.
  *
  * Optional query parameters:
- *   - `kind` — filter to "image" | "audio" | "video"
+ *   - `kind` — filter to any one asset kind. Media kinds (image/audio/video)
+ *     back the carrier pickers; document kinds (pdf/text/docx/xlsx) back the
+ *     chat file manager, which surfaces library-only documents. The
+ *     `(owner, kind, created_at)` composite index is kind-generic, so a
+ *     document filter is the same server-side equality query as a media one.
  *   - `cursor` — the opaque token the previous page returned in
  *     `nextCursor`; pass it back verbatim to fetch the next page.
  *     Omit it for the first page.
@@ -19,10 +23,11 @@ import {
 	MalformedCursorError,
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
+import { ASSET_KINDS } from "@/lib/domain/multimedia";
 
 const querySchema = z
 	.object({
-		kind: z.enum(["image", "audio", "video"]).optional(),
+		kind: z.enum(ASSET_KINDS).optional(),
 		cursor: z.string().optional(),
 	})
 	.strict();
@@ -37,7 +42,7 @@ export async function GET(req: NextRequest) {
 		});
 		if (!parsed.success) {
 			throw new ApiError(
-				"Library query couldn't be parsed — `kind` must be image/audio/video and `cursor` must be the opaque token a prior page returned.",
+				"Library query couldn't be parsed — `kind` must be one of image/audio/video/pdf/text/docx/xlsx and `cursor` must be the opaque token a prior page returned.",
 				400,
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);

@@ -11,7 +11,7 @@
 // runtime (Firestore SDK) into the browser bundle.
 
 import type { WireMediaAsset } from "@/lib/db/mediaAssets";
-import type { Media, MediaKind } from "@/lib/domain/multimedia";
+import type { AssetKind, Media, MediaKind } from "@/lib/domain/multimedia";
 
 /** The asset shape the API returns and the UI renders. */
 export type MediaAssetView = WireMediaAsset;
@@ -158,11 +158,12 @@ export interface MediaLibraryPage {
 
 /**
  * Fetch one page of the owner's `ready` assets, newest first.
- * Optionally filtered to a `kind`; `cursor` resumes from a prior
- * page's `nextCursor`.
+ * Optionally filtered to a `kind` (any `AssetKind` — the chat file
+ * manager filters by document kinds, the carrier pickers by media
+ * kinds); `cursor` resumes from a prior page's `nextCursor`.
  */
 export async function fetchMediaLibrary(
-	options: { kind?: MediaKind; cursor?: string } = {},
+	options: { kind?: AssetKind; cursor?: string } = {},
 ): Promise<MediaLibraryPage> {
 	const params = new URLSearchParams();
 	if (options.kind) params.set("kind", options.kind);

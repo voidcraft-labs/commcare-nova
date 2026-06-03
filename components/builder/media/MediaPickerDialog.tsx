@@ -23,8 +23,8 @@ import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef, useState } from "react";
 import {
+	type AssetKind,
 	assetKindForMimeType,
-	type MediaKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
 import { ASSET_KIND_META } from "./assetKindMeta";
@@ -39,7 +39,7 @@ const POPUP_CLS =
 
 type Tab = "upload" | "library";
 /** Library browse filter: one allowed kind, or "all" of them. */
-type LibraryFilter = MediaKind | "all";
+type LibraryFilter = AssetKind | "all";
 
 export interface MediaPickerDialogProps {
 	open: boolean;
@@ -49,7 +49,7 @@ export interface MediaPickerDialogProps {
 	 * (no filter). Several → the Library tab shows a type filter and
 	 * Upload accepts any of them. Order is the carrier's canonical order.
 	 */
-	kinds: readonly MediaKind[];
+	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
 }
 
@@ -90,7 +90,7 @@ function PickerBody({
 	kinds,
 	onPick,
 }: {
-	kinds: readonly MediaKind[];
+	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
 }) {
 	const [tab, setTab] = useState<Tab>("upload");
@@ -199,7 +199,7 @@ function TabButton({
  * MIME list, both derived from the allowed kinds so the upload-tab copy
  * and the wrong-kind rejection name exactly what the slot takes.
  */
-function describeKinds(kinds: readonly MediaKind[]): {
+function describeKinds(kinds: readonly AssetKind[]): {
 	nounPhrase: string;
 	accept: string;
 } {
@@ -223,7 +223,7 @@ function UploadTab({
 	kinds,
 	onUploaded,
 }: {
-	kinds: readonly MediaKind[];
+	kinds: readonly AssetKind[];
 	onUploaded: (asset: MediaAssetView) => void;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -353,7 +353,7 @@ function LibraryTab({
 	onPick: (asset: MediaAssetView) => void;
 	/** Active browse filter, or `null` to hide the filter row (single-kind slot). */
 	filter: LibraryFilter | null;
-	kinds: readonly MediaKind[];
+	kinds: readonly AssetKind[];
 	onFilterChange: (filter: LibraryFilter) => void;
 }) {
 	const [query, setQuery] = useState("");
