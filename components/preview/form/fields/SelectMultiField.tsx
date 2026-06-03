@@ -105,7 +105,12 @@ export function SelectMultiField({
 				})}
 			</div>
 			{showError && state.errorMessage && (
-				<ValidationError message={state.errorMessage} />
+				<ValidationError
+					message={state.errorMessage}
+					media={
+						"validate_msg_media" in field ? field.validate_msg_media : undefined
+					}
+				/>
 			)}
 		</fieldset>
 	);

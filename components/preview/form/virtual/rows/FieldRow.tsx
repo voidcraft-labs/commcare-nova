@@ -21,6 +21,7 @@ import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollReg
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
+import { FieldHelp } from "@/components/preview/form/FieldHelp";
 import { FieldRenderer } from "@/components/preview/form/FieldRenderer";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { HiddenField } from "@/components/preview/form/fields/HiddenField";
@@ -172,6 +173,14 @@ export const FieldRow = memo(function FieldRow({
 				    is only on input-capable kinds, so guard the access. */}
 				<MediaDisplay
 					media={"hint_media" in q ? q.hint_media : undefined}
+					interactive={false}
+				/>
+				{/* Help text + help media. Nova's preview shows help inline
+				    (CommCare hides it behind a "?"); both slots are input-kind
+				    only, so guard the access. */}
+				<FieldHelp
+					help={"help" in q ? q.help : undefined}
+					helpMedia={"help_media" in q ? q.help_media : undefined}
 					interactive={false}
 				/>
 				<FieldRenderer

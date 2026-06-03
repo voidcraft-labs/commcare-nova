@@ -46,6 +46,7 @@ import { asUuid, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
@@ -270,6 +271,14 @@ const InteractiveField = memo(function InteractiveField({
 				    is only on input-capable kinds, so guard the access. */}
 				<MediaDisplay
 					media={"hint_media" in field ? field.hint_media : undefined}
+					interactive
+				/>
+				{/* Help text + help media — shown inline in the builder preview
+				    (CommCare hides help behind a "?"); both slots are input-kind
+				    only, so guard the access. */}
+				<FieldHelp
+					help={"help" in field ? field.help : undefined}
+					helpMedia={"help_media" in field ? field.help_media : undefined}
 					interactive
 				/>
 				<FieldRenderer
