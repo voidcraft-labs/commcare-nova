@@ -239,27 +239,37 @@ export async function getStoredObjectSize(
 }
 
 /**
- * Drain the GCS object into memory once for confirm-time
- * validation. The caller MUST size-gate via `getStoredObjectSize`
- * first — this materializes the whole body, so an unbounded object
- * would OOM the instance. Runs only at confirm time (one shot per
- * upload), never on the read path.
+ * Drain a GCS object into memory, enforcing a byte ceiling AS IT READS.
+ * The cap lives in this streamed read (a running counter that destroys
+ * the stream past `maxBytes`), NOT in a separate `getStoredObjectSize`
+ * metadata check beforehand: a signed PUT URL is a reusable write
+ * credential for its whole TTL, so a client can overwrite the pending
+ * object with a huge body in the window between a metadata size-check and
+ * the download. Capping the read itself closes that TOCTOU — at most
+ * `maxBytes` ever resides in memory, whatever the object grew to.
  *
- * Memory ceiling: the per-request footprint is bounded by the
- * largest per-kind size cap (video, 50 MB). The deployed instance
- * memory must cover `50 MB × expected concurrent confirms` with
- * headroom — a single confirm is fine on any reasonable instance,
- * but a burst of concurrent video confirms scales linearly. If
- * concurrency ever makes that ceiling tight, the validator's
- * container parse can run off a stream instead of a full buffer
- * (music-metadata reads from a tokenizer / web stream), so the
- * bytes never fully reside in memory.
+ * Runs only at confirm time (one shot per upload) and the compile bundle,
+ * never on the hot read path — that streams straight through via
+ * `streamAsset`. Callers pass the kind's `ASSET_SIZE_CAPS_BYTES` entry.
  */
 export async function downloadAssetBytes(
 	gcsObjectKey: string,
+	maxBytes: number,
 ): Promise<Buffer> {
-	const [buf] = await getBucket().file(gcsObjectKey).download();
-	return buf;
+	const stream = getBucket().file(gcsObjectKey).createReadStream();
+	const chunks: Buffer[] = [];
+	let total = 0;
+	for await (const chunk of stream) {
+		total += chunk.length;
+		if (total > maxBytes) {
+			stream.destroy();
+			throw new Error(
+				`The stored file is larger than the ${(maxBytes / 1024 / 1024).toFixed(0)} MB cap for its kind — it may have been overwritten after the upload started. Upload it again.`,
+			);
+		}
+		chunks.push(chunk as Buffer);
+	}
+	return Buffer.concat(chunks);
 }
 
 /**

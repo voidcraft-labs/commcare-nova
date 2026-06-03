@@ -27,9 +27,9 @@ import {
 	type MediaKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { ASSET_KIND_META } from "./assetKindMeta";
 import type { MediaAssetView } from "./mediaClient";
 import { mediaSrc } from "./mediaClient";
-import { MEDIA_KIND_META } from "./mediaKindMeta";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
 
 const BACKDROP_CLS =
@@ -102,7 +102,7 @@ function PickerBody({
 	// thread a title string (and can't drift it from what's offered).
 	const title = multiKind
 		? "Attach Media"
-		: `Attach ${MEDIA_KIND_META[kinds[0]].label}`;
+		: `Attach ${ASSET_KIND_META[kinds[0]].label}`;
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
@@ -203,8 +203,8 @@ function describeKinds(kinds: readonly MediaKind[]): {
 	nounPhrase: string;
 	accept: string;
 } {
-	const labels = kinds.map((k) => MEDIA_KIND_META[k].label.toLowerCase());
-	const accept = kinds.map((k) => MEDIA_KIND_META[k].accept).join(",");
+	const labels = kinds.map((k) => ASSET_KIND_META[k].label.toLowerCase());
+	const accept = kinds.map((k) => ASSET_KIND_META[k].accept).join(",");
 	// "image" → "an image"; "image"/"audio" → "an image or audio";
 	// "image"/"audio"/"video" → "an image, audio, or video".
 	const article = /^[aeiou]/.test(labels[0] ?? "") ? "an" : "a";
@@ -361,7 +361,7 @@ function LibraryTab({
 							active={filter === kind}
 							onClick={() => onFilterChange(kind)}
 						>
-							{MEDIA_KIND_META[kind].label}
+							{ASSET_KIND_META[kind].label}
 						</FilterChip>
 					))}
 				</div>
@@ -454,7 +454,7 @@ function LibraryThumb({ asset }: { asset: MediaAssetView }) {
 	return (
 		<span className="flex size-full items-center justify-center">
 			<Icon
-				icon={MEDIA_KIND_META[asset.kind].icon}
+				icon={ASSET_KIND_META[asset.kind].icon}
 				className="size-6 text-nova-text-muted"
 			/>
 		</span>

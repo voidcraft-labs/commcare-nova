@@ -101,7 +101,14 @@ export async function POST(
 			);
 		}
 
-		const bytes = await downloadAssetBytes(asset.gcsObjectKey);
+		// The byte cap is enforced inside the read (not just the
+		// `getStoredObjectSize` early-exit above): a signed PUT URL stays
+		// usable for its TTL, so the stored object could have been
+		// overwritten with a larger body since that metadata check.
+		const bytes = await downloadAssetBytes(
+			asset.gcsObjectKey,
+			ASSET_SIZE_CAPS_BYTES[asset.kind],
+		);
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: asset.mimeType,
@@ -133,10 +140,16 @@ export async function POST(
 			return NextResponse.json({ ok: true, asset: toWireMediaAsset(sibling) });
 		}
 
+		// Key the final object off the VALIDATED mimeType/extension, not the
+		// pending row's. For media the two agree, but a document's browser
+		// MIME is unreliable: a `.md` initiated as `text/plain` lands with a
+		// pending extension of `.txt`, while validation derives `.md` from
+		// the filename. The validated extension is authoritative for the key
+		// (and the row below), so the stored object isn't mis-suffixed.
 		const finalGcsObjectKey = gcsObjectKeyFor(
 			session.user.id,
-			asset.contentHash,
-			asset.extension,
+			result.validated.contentHash,
+			result.validated.extension,
 		);
 		let pendingObjectToDelete: string | null = null;
 		if (asset.gcsObjectKey !== finalGcsObjectKey) {
@@ -147,6 +160,11 @@ export async function POST(
 		await confirmAssetReady({
 			assetId,
 			gcsObjectKey: finalGcsObjectKey,
+			// The validator may refine mimeType/extension from the pending
+			// row's create-time guess (see above) — write the authoritative
+			// values so the row matches the stored bytes.
+			mimeType: result.validated.mimeType,
+			extension: result.validated.extension,
 			dimensions: result.validated.dimensions,
 			durationMs: result.validated.durationMs,
 		});
@@ -162,15 +180,16 @@ export async function POST(
 
 		return NextResponse.json({
 			ok: true,
-			// `mimeType` / `extension` / `sizeBytes` are unchanged from
-			// the pending row (the validator only succeeds when the
-			// sniff matches the canonical claim and the size matches),
-			// so the response carries them straight off `asset`; only
-			// status + the post-validation dimensions/duration are new.
+			// `sizeBytes` is unchanged (the validator hard-rejects a
+			// length mismatch). `mimeType`/`extension` carry the validated
+			// values (which may refine the pending row's guess for a
+			// document) so the response matches what was stored.
 			asset: toWireMediaAsset({
 				...asset,
 				status: "ready",
 				gcsObjectKey: finalGcsObjectKey,
+				mimeType: result.validated.mimeType,
+				extension: result.validated.extension,
 				dimensions: result.validated.dimensions,
 				durationMs: result.validated.durationMs,
 			}),

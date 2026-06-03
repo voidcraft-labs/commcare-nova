@@ -125,10 +125,18 @@ export type AssetMimeType = (typeof ALL_MIME_TYPES)[number];
 
 /**
  * Kinds that attach to a CommCare carrier (a field message, a select
- * option, a menu tile, the app logo) and emit to the wire. This is the
- * wire-attachable set — every carrier's slot is typed to `MediaKind`, so
- * a document can't be attached to one or reach the emitter by
- * construction. The `Media` bundle below is keyed by exactly these.
+ * option, a menu tile, the app logo) and emit to the wire. The `Media`
+ * bundle below is keyed by exactly these.
+ *
+ * NOTE the boundary is NOT compile-time: a slot's VALUE is an opaque
+ * `AssetId` (the brand doesn't encode the asset's kind), so a document's
+ * id is type-indistinguishable from a media id in a slot. The wire/library
+ * split — a document never reaching a carrier or the emitter — is enforced
+ * at RUNTIME, fail-closed, in three places: the SA media tools gate kind
+ * at attach time; the validator's `mediaKindMatches` rule rejects a
+ * document id sitting in a media slot before compile; and
+ * `resolveMediaManifest` filters on `isMediaKind` before emission. Each is
+ * load-bearing — none is redundant.
  */
 export const MEDIA_KINDS = ["image", "audio", "video"] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];

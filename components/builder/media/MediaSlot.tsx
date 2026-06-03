@@ -37,9 +37,9 @@ import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_ELEVATED_CLS,
 } from "@/lib/styles";
+import { ASSET_KIND_META } from "./assetKindMeta";
 import { MediaPickerDialog } from "./MediaPickerDialog";
 import { clearMediaSlot, mediaSrc, setMediaSlot } from "./mediaClient";
-import { MEDIA_KIND_META } from "./mediaKindMeta";
 
 // ── MediaSlot — the image/audio/video bundle ─────────────────────
 
@@ -202,7 +202,7 @@ function AssetChip({
 	onReplace: () => void;
 	onRemove: () => void;
 }) {
-	const meta = MEDIA_KIND_META[kind];
+	const meta = ASSET_KIND_META[kind];
 	// Controls name themselves by kind; the enclosing group's aria-label
 	// supplies which slot, so "Remove image" needs no slot context inline.
 	const noun = meta.label.toLowerCase();
@@ -264,7 +264,7 @@ function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 	return (
 		<span className="flex size-7 items-center justify-center rounded bg-nova-deep">
 			<Icon
-				icon={MEDIA_KIND_META[kind].icon}
+				icon={ASSET_KIND_META[kind].icon}
 				className="size-4 text-nova-text-muted"
 			/>
 		</span>

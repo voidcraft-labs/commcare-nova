@@ -353,53 +353,52 @@ function isUtf8Text(bytes: Buffer): boolean {
 }
 
 /**
- * Wall-clock ceiling for the in-process container parse. Unlike a
- * child process, music-metadata runs on this event loop, so a
- * container engineered to make the box/frame walk pathologically
- * expensive can't be SIGKILL'd from outside the way `ffprobe` once
- * was. The per-kind size cap already bounds the work in MAGNITUDE;
- * this bounds it in TIME, so one hostile confirm can't stall the
- * request indefinitely. The losing parse promise keeps running until
- * it settles on its own — bounded by the size cap — but the caller is
- * freed to reject. A real media file parses in well under this.
+ * Wall-clock ceiling for the in-process container parse. music-metadata
+ * runs on this event loop (not a child process), so a container
+ * engineered to make the box/frame walk pathologically expensive can't
+ * be SIGKILL'd from outside the way a subprocess can. The per-kind size
+ * cap already bounds the work in MAGNITUDE; this bounds it in TIME, so
+ * one hostile confirm can't stall the request indefinitely. The losing
+ * parse promise keeps running until it settles on its own — bounded by
+ * the size cap — but the caller is freed to reject. A real media file
+ * parses in well under this.
  */
 const MEDIA_PARSE_TIMEOUT_MS = 10_000;
 
 /**
- * Read an audio/video container's duration (ms) by parsing it
- * in-process with music-metadata — no subprocess, no temp file, no
- * native binary. The in-process parser is deliberate: a bundled
- * demuxer binary doesn't survive the Alpine + Next-standalone deploy
- * (it isn't traced into the runtime image and may not be musl-linked),
- * and a native demuxer carries a memory-safety CVE surface on
- * untrusted input that a JS parser avoids.
- *
- * The parse reads container STRUCTURE (atoms / frame headers), not the
- * encoded payload: a malformed container throws — which the caller
- * maps to a clean rejection — but a structurally-valid file whose
- * stream bytes are otherwise arbitrary still passes. That is the same
- * structural-not-semantic guarantee the previous demux gave; proving
- * the media actually decodes would need a full decode pass we
- * deliberately don't run on the upload path.
- *
- * Duration is BEST-EFFORT and may be absent: a video-only mp4 (no
- * audio track) parses cleanly but exposes no duration. A missing
- * duration is therefore NOT a rejection — only a throw is. The value,
- * when present, is stored as informational metadata that no validation
- * gate reads.
- */
-/**
- * The two ways the timed parse can land: the container finished
- * parsing, or the wall-clock guard fired first. Modeled as a
- * RESOLVABLE sentinel rather than a rejecting `Promise<never>` so the
- * guard side of the race can be SETTLED in `finally` whichever side
- * won — an unsettled guard promise dangles past the call, the
- * permanent-leak shape the async-leak gate exists to catch (clearing
- * the timer alone leaves the promise pending forever).
+ * The two ways the timed parse can land: the container finished parsing,
+ * or the wall-clock guard fired first. Modeled as a RESOLVABLE sentinel
+ * rather than a rejecting `Promise<never>` so the guard side of the race
+ * can be SETTLED in `finally` whichever side won — an unsettled guard
+ * promise dangles past the call, the permanent-leak shape the async-leak
+ * gate exists to catch (clearing the timer alone leaves the promise
+ * pending forever).
  */
 type ParseOutcome =
 	| { kind: "parsed"; metadata: IAudioMetadata }
 	| { kind: "timed-out" };
+
+/**
+ * Read an audio/video container's duration (ms) by parsing it in-process
+ * with music-metadata — no subprocess, no temp file, no native binary.
+ * The in-process parser is deliberate: a bundled demuxer binary doesn't
+ * survive the Alpine + Next-standalone deploy (it isn't traced into the
+ * runtime image and may not be musl-linked), and a native demuxer carries
+ * a memory-safety CVE surface on untrusted input that a JS parser avoids.
+ *
+ * The parse reads container STRUCTURE (atoms / frame headers), not the
+ * encoded payload: a malformed container throws — which the caller maps
+ * to a clean rejection — but a structurally-valid file whose stream bytes
+ * are otherwise arbitrary still passes. That is the structural-not-
+ * semantic guarantee: the format is verified, the payload isn't decoded;
+ * proving the media actually decodes would need a full decode pass we
+ * deliberately don't run on the upload path.
+ *
+ * Duration is BEST-EFFORT and may be absent: a video-only mp4 (no audio
+ * track) parses cleanly but exposes no duration. A missing duration is
+ * therefore NOT a rejection — only a throw is. The value, when present,
+ * is stored as informational metadata that no validation gate reads.
+ */
 
 async function probeDurationMs(
 	bytes: Buffer,
@@ -434,9 +433,12 @@ async function probeDurationMs(
 			);
 		}
 		const seconds = outcome.metadata.format.duration;
-		return seconds !== undefined && Number.isFinite(seconds)
-			? Math.round(seconds * 1000)
-			: undefined;
+		if (seconds === undefined || !Number.isFinite(seconds)) return undefined;
+		// The asset schema types `durationMs` as a POSITIVE int. A
+		// degenerate 0-duration container — or a sub-millisecond clip that
+		// rounds to 0 — is stored as absent rather than a schema-violating 0.
+		const ms = Math.round(seconds * 1000);
+		return ms > 0 ? ms : undefined;
 	} finally {
 		if (timer) clearTimeout(timer);
 		// Settle the guard so it can't outlive the call once the race is

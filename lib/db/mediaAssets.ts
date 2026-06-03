@@ -135,20 +135,25 @@ export async function createPendingAsset(args: {
 }
 
 /**
- * Flip a `pending` asset to `ready`, attaching the metadata that's
- * only known after validation: image `dimensions` (sharp) or
- * audio/video `durationMs` (music-metadata).
+ * Flip a `pending` asset to `ready`, writing the metadata the validator
+ * settled: the promoted final `gcsObjectKey`, the authoritative
+ * `mimeType` + `extension`, and the kind-specific `dimensions` (image,
+ * via sharp) or `durationMs` (audio/video, via music-metadata).
  *
- * Only those slots plus `status` and, for browser confirms, the promoted
- * final `gcsObjectKey` are written. `mimeType`, `extension`, and
- * `sizeBytes` were set correctly at create time and provably can't change
- * here — the validator returns success only when the sniffed MIME equals
- * the (already-canonical) claim and the byte length equals the claimed
- * size — so re-writing them would be dead motion.
+ * `mimeType`/`extension` are written because the validator can REFINE the
+ * pending row's create-time guess: a document's browser `Content-Type` is
+ * unreliable (a `.md` is often initiated as `text/plain`), so the
+ * validator derives the canonical pair from the bytes / filename and that
+ * is what must be stored. For media they simply match the create-time
+ * values, so the write is a harmless no-op. `sizeBytes` is the one field
+ * that can't change — the validator hard-rejects any byte-length mismatch
+ * against the claim before this runs.
  */
 export async function confirmAssetReady(args: {
 	assetId: AssetId;
 	gcsObjectKey?: string;
+	mimeType?: AssetMimeType;
+	extension?: string;
 	dimensions?: { width: number; height: number };
 	durationMs?: number;
 }): Promise<void> {
@@ -158,11 +163,18 @@ export async function confirmAssetReady(args: {
 	if (args.gcsObjectKey !== undefined) {
 		patch.gcsObjectKey = args.gcsObjectKey;
 	}
+	if (args.mimeType !== undefined) {
+		patch.mimeType = args.mimeType;
+	}
+	if (args.extension !== undefined) {
+		patch.extension = args.extension;
+	}
 	// Assign each kind-specific slot only when the validator produced it: an
 	// image confirm carries `dimensions` (sharp) and no `durationMs`; an
-	// audio/video confirm carries `durationMs` (music-metadata) and no `dimensions`.
-	// This is a first-time set on the `pending → ready` flip, never a clear —
-	// the slot the kind doesn't carry is simply absent from the patch.
+	// audio/video confirm carries `durationMs` (music-metadata) and no
+	// `dimensions`; a document carries neither. This is a first-time set on
+	// the `pending → ready` flip, never a clear — a slot the kind doesn't
+	// carry is simply absent from the patch.
 	if (args.dimensions) {
 		patch.dimensions = args.dimensions;
 	}

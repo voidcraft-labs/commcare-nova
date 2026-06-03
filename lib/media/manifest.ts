@@ -21,6 +21,7 @@ import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
+	ASSET_SIZE_CAPS_BYTES,
 	asAssetId,
 	isMediaKind,
 	type MediaKind,
@@ -69,13 +70,15 @@ export async function resolveMediaManifest(
 	const ids = [...collectAssetRefs(doc)];
 	if (ids.length === 0) return new Map();
 
-	// Keep `ready` rows of a wire-attachable (media) kind. `collectAssetRefs`
-	// only walks carrier slots, which are typed to `MediaKind`, so a
-	// document can't legitimately be referenced here — and the media
-	// validator rejects a stale/foreign/kind-mismatched ref before compile.
-	// The `isMediaKind` narrow is the type-level backstop that also lets the
-	// row flow into `ResolvedMediaAsset` (whose `kind` is `MediaKind`): the
-	// wire layer never carries a document.
+	// Keep `ready` rows of a wire-attachable (media) kind. Carrier slots
+	// hold an opaque `AssetId` (the brand doesn't encode kind), so the
+	// wire/library boundary is RUNTIME-enforced and fail-closed, not
+	// compile-time: the validator's `mediaKindMatches` rule rejects a
+	// document id in a media slot before compile, and this `isMediaKind`
+	// filter is the wire-layer floor for any caller that reaches emission.
+	// Keep it even though it reads as redundant — it's the last guard that
+	// a document never lands in the suite. It also narrows the row into
+	// `ResolvedMediaAsset` (whose `kind` is `MediaKind`).
 	const rows = (await loadAssetsByIds(owner, ids)).filter(
 		(row): row is MediaAssetRecord & { kind: MediaKind } =>
 			row.status === "ready" && isMediaKind(row.kind),
@@ -89,7 +92,10 @@ export async function resolveMediaManifest(
 	const entries = await Promise.all(
 		rows.map(async (row) => {
 			const bytes = options.withBytes
-				? await downloadAssetBytes(row.gcsObjectKey)
+				? await downloadAssetBytes(
+						row.gcsObjectKey,
+						ASSET_SIZE_CAPS_BYTES[row.kind],
+					)
 				: undefined;
 			const id = asAssetId(row.id);
 			return [

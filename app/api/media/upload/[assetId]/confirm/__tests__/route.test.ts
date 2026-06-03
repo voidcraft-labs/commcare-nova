@@ -143,6 +143,11 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		expect(confirmAssetReady).toHaveBeenCalledWith({
 			assetId: "asset-1",
 			gcsObjectKey: `users/user-1/${HASH}.png`,
+			// The confirm step writes the validator's authoritative
+			// mimeType/extension (refines a document's create-time guess;
+			// a no-op for media).
+			mimeType: "image/png",
+			extension: ".png",
 			dimensions: { width: 1, height: 1 },
 			durationMs: undefined,
 		});

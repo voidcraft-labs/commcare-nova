@@ -1,4 +1,4 @@
-// components/builder/media/mediaKindMeta.ts
+// components/builder/media/assetKindMeta.ts
 //
 // Per-kind presentation metadata shared across the media UI — the
 // icon, the human label, and the `accept` string for the native
@@ -25,7 +25,7 @@ import {
 	XLSX_MIME_TYPES,
 } from "@/lib/domain/multimedia";
 
-export interface MediaKindMeta {
+export interface AssetKindMeta {
 	readonly icon: IconifyIcon;
 	/** Capitalized singular label, e.g. "Image". */
 	readonly label: string;
@@ -33,7 +33,7 @@ export interface MediaKindMeta {
 	readonly accept: string;
 }
 
-export const MEDIA_KIND_META: Record<AssetKind, MediaKindMeta> = {
+export const ASSET_KIND_META: Record<AssetKind, AssetKindMeta> = {
 	image: {
 		icon: tablerPhoto,
 		label: "Image",

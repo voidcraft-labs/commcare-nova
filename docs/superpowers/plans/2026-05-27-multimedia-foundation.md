@@ -67,7 +67,7 @@ One module the HTTP confirm route and the MCP `upload_media_asset` tool both cal
 
 ## Authoring UI
 
-`components/builder/media/`: `MediaSlot.tsx` (exports `MediaSlot`, the three-kind bundle, and `SingleAssetSlot`, the fixed-kind variant for menu/logo), `MediaPickerDialog.tsx` (Upload + Library tabs), `mediaClient.ts` (client hash + upload + library fetch), `useMedia.ts`, `mediaKindMeta.ts`. The picker's Upload tab computes SHA-256 client-side and drives a real progress bar via `XMLHttpRequest.upload`; a dedup hit skips the PUT.
+`components/builder/media/`: `MediaSlot.tsx` (exports `MediaSlot`, the three-kind bundle, and `SingleAssetSlot`, the fixed-kind variant for menu/logo), `MediaPickerDialog.tsx` (Upload + Library tabs), `mediaClient.ts` (client hash + upload + library fetch), `useMedia.ts`, `assetKindMeta.ts`. The picker's Upload tab computes SHA-256 client-side and drives a real progress bar via `XMLHttpRequest.upload`; a dedup hit skips the PUT.
 
 Mount sites: field message media via `components/builder/editor/fields/MediaSlotEditor.tsx` (driven by the declarative `fieldEditorSchemas` — no per-kind switching in the panel); option media inline in `OptionsEditor.tsx`; form menu tile in `formSettings/FormAppearanceSection.tsx`; image-map column rows in `case-list-config/cards/column/ImageMapColumnCard.tsx`. Module / case-list / app-logo media have no builder chrome (tool-only — see Coverage). All Base UI primitives, `@iconify/react/offline` icons, semantic z-index tokens, `autoComplete="off"` + `data-1p-ignore` on inputs. The TipTap inline `![alt](url)` image button is untouched — structured media is additive.
 
