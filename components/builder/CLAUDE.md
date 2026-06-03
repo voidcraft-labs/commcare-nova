@@ -159,12 +159,15 @@ search with the `SEARCH_IDLE` sentinel), `useFieldIconMap` (per-form
 `detail/moduleSettings/` and `detail/appSettings/` are the module- and
 app-level analogs, each a `…SettingsButton` (Base UI popover trigger) →
 `…SettingsPanel` (`w-80` drawer chrome) → `…AppearanceSection` (the
-menu-tile / logo media slots). They carry no CodeMirror editor, so they
+menu-tile / logo media slots). The app panel additionally hosts
+`AppConnectSection` — the app-level CommCare Connect mode toggle + learn/
+deliver type pills (formerly a standalone subheader pill), styled to
+mirror the form `ConnectSection`. They carry no CodeMirror editor, so they
 use plain `open`/`onOpenChange` state — no outside-press dismissal guard.
 `ModuleSettingsButton` mounts on the module-home header (`ModuleScreen`,
 edit-mode only, the module analog of `FormSettingsButton` on the form
-header); `AppSettingsButton` mounts in `BuilderSubheader` beside
-`AppConnectSettings`. Module / form / app media each clears through its
+header); `AppSettingsButton` mounts in `BuilderSubheader`. Module / form /
+app media each clears through its
 dedicated null-carrying mutation (`setModuleMedia` / `setFormMedia` /
 `setAppLogo`); the case-list appearance slots ride the wholesale
 `updateModule({ caseListConfig })` path instead — see the case-list

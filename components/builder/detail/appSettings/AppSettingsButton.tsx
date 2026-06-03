@@ -7,18 +7,19 @@ import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 import { AppSettingsPanel } from "./AppSettingsPanel";
 
 /**
- * App-level settings popover trigger mounted in `BuilderSubheader` next
- * to `AppConnectSettings`. Always available while the builder toolbar
- * shows (the subheader gates the whole control cluster on `isReady &&
- * hasData`), so there is no per-entity availability check here.
+ * App-level settings popover trigger mounted in `BuilderSubheader`. Always
+ * available while the builder toolbar shows (the subheader gates the whole
+ * control cluster on `isReady && hasData`), so there is no per-entity
+ * availability check here. The panel hosts the app-level sections —
+ * appearance (logo) and CommCare Connect mode.
  *
- * The trigger matches `AppConnectSettings`'s neutral-state styling
- * (`min-h-[44px]` toolbar button, muted text, hover surface) so the two
- * app-level controls read as siblings in the toolbar. No CodeMirror
- * editor lives in this panel, so plain `open` / `onOpenChange` state
- * suffices — no outside-press dismissal guard. The nested media picker /
- * preview popovers live inside this subtree, so Base UI doesn't treat a
- * click on them as an outside press that would tear the panel down.
+ * The trigger uses the toolbar's neutral-state styling (`min-h-[44px]`
+ * button, muted text, hover surface) so it reads as a sibling of the other
+ * toolbar controls. No CodeMirror editor lives in this panel, so plain
+ * `open` / `onOpenChange` state suffices — no outside-press dismissal
+ * guard. The nested media picker / preview popovers live inside this
+ * subtree, so Base UI doesn't treat a click on them as an outside press
+ * that would tear the panel down.
  */
 export function AppSettingsButton() {
 	const [open, setOpen] = useState(false);
