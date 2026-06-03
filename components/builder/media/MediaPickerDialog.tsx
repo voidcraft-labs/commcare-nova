@@ -246,8 +246,13 @@ function UploadTab({
 		// cast. A kind outside the set (e.g. a document on a media carrier)
 		// is rejected here.
 		if (!kind || !kinds.some((k) => k === kind)) {
+			const supported = kinds
+				.map(
+					(k) => `${ASSET_KIND_META[k].label} (${ASSET_KIND_META[k].extLabel})`,
+				)
+				.join(", ");
 			setKindError(
-				`That file isn't ${nounPhrase}. This slot takes ${accept.split(",").join(", ")}.`,
+				`That file isn't ${nounPhrase}. This slot takes ${supported}.`,
 			);
 			return;
 		}
@@ -294,6 +299,32 @@ function UploadTab({
 				className="hidden"
 				onChange={(e) => void handleFile(e.target.files?.[0])}
 			/>
+			{/* Spell out exactly what this slot takes — one row per allowed
+			    kind with its extensions — so the user knows before they
+			    browse, not after a rejection. This is the only set the slot
+			    accepts; anything else is filtered out here and in the
+			    library. */}
+			<div className="flex flex-col gap-1 pt-1">
+				<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted/70">
+					{kinds.length === 1 ? "Supported format" : "Supported formats"}
+				</span>
+				{kinds.map((kind) => {
+					const meta = ASSET_KIND_META[kind];
+					return (
+						<div
+							key={kind}
+							className="flex items-center justify-center gap-1.5 text-xs"
+						>
+							<Icon
+								icon={meta.icon}
+								className="size-3.5 shrink-0 text-nova-text-muted"
+							/>
+							<span className="text-nova-text-secondary">{meta.label}</span>
+							<span className="text-nova-text-muted">{meta.extLabel}</span>
+						</div>
+					);
+				})}
+			</div>
 			{(kindError ?? (status.state === "error" ? status.message : null)) && (
 				<p className="text-xs text-nova-rose">
 					{kindError ?? (status.state === "error" ? status.message : "")}
