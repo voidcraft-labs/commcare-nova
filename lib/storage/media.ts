@@ -359,6 +359,15 @@ export async function readTextObject(
 	// cheap and lets a not-extracted-yet read return null without a throw.
 	const size = await getStoredObjectSize(gcsObjectKey);
 	if (size === null) return null;
-	const bytes = await downloadAssetBytes(gcsObjectKey, maxBytes);
-	return bytes.toString("utf8");
+	try {
+		const bytes = await downloadAssetBytes(gcsObjectKey, maxBytes);
+		return bytes.toString("utf8");
+	} catch (err) {
+		// The object existed at the probe but is gone now (a delete raced between
+		// the HEAD and the stream open). Keep the null-on-miss contract
+		// unconditional rather than letting a GCS 404 escape as an unhandled
+		// throw — the caller maps null to a clean not-found, a stray throw to a 500.
+		if ((err as { code?: number } | null)?.code === 404) return null;
+		throw err;
+	}
 }

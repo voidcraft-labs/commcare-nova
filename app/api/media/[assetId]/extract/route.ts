@@ -18,7 +18,13 @@
  * Not on a chat run, so it uses the standalone Gemini condenser rather than a
  * `GenerationContext`; the extraction is a cheap Flash call, deliberately not
  * metered against the chat spend cap (the media subsystem has no usage
- * accumulator, and a per-(hash, version) extract runs at most once).
+ * accumulator). POST is best-effort single-flight: a current-version `ready`
+ * extract is returned without re-running, and a current-version `extracting`
+ * record short-circuits with 202 so the eager file-manager trigger and the lazy
+ * chat backstop don't both bill the model. This is not a transactional lock —
+ * two requests that both read the doc before either marks `extracting` can still
+ * both run — but it collapses the common staggered race; the GCS key is
+ * content-addressed so even a true double-run converges on identical bytes.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -52,6 +58,11 @@ import {
 /** Gemini high-reasoning over a large PDF runs for tens of seconds; give the
  *  extraction the same ceiling the chat run gets rather than the route default. */
 export const maxDuration = 300;
+
+/** An `extracting` record older than this is treated as a hung/crashed job (the
+ *  process was reclaimed past `maxDuration` before it could record ready/failed)
+ *  and re-extracted rather than blocking forever behind a dead in-flight marker. */
+const EXTRACTING_STALE_MS = maxDuration * 1000;
 
 /**
  * Load the asset, owner-gated, rejecting anything that can't be extracted: a
@@ -126,6 +137,30 @@ export async function POST(
 					charCount: asset.extract.charCount,
 				},
 			});
+		}
+
+		// A current-version extraction already in flight: short-circuit with 202
+		// rather than re-running + double-billing the model (the eager file-manager
+		// trigger can race the lazy chat backstop). A stale `extracting` record —
+		// a job whose process died past `maxDuration` before recording a result —
+		// falls through and re-extracts so a dead marker can't wedge the document.
+		if (
+			asset.extract?.status === "extracting" &&
+			asset.extract.version === EXTRACTOR_VERSION &&
+			Date.now() - asset.extract.extractedAt.toMillis() < EXTRACTING_STALE_MS
+		) {
+			return NextResponse.json(
+				{
+					ok: true,
+					extract: {
+						status: "extracting" as const,
+						version: EXTRACTOR_VERSION,
+						truncated: false,
+						charCount: 0,
+					},
+				},
+				{ status: 202 },
+			);
 		}
 
 		await setAssetExtractStatus(assetId, {

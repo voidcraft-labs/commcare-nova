@@ -15,7 +15,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { extractDocument } from "@/lib/agent/documentExtraction";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { setAssetExtractStatus } from "@/lib/db/mediaAssets";
+import {
+	MediaAssetOwnershipError,
+	setAssetExtractStatus,
+} from "@/lib/db/mediaAssets";
+import { asAssetId } from "@/lib/domain/multimedia";
 import { readTextObject, writeTextObject } from "@/lib/storage/media";
 import { GET, POST } from "../route";
 
@@ -164,6 +168,46 @@ describe("POST extract", () => {
 		expect(extractDocument).toHaveBeenCalledOnce();
 	});
 
+	it("short-circuits with 202 when a current-version extraction is already in flight", async () => {
+		loadAssetForOwnerMock.mockResolvedValue(
+			docAsset({
+				extract: {
+					status: "extracting",
+					version: 1,
+					model: "gemini-3.5-flash",
+					truncated: false,
+					charCount: 0,
+					// Just now — well within the staleness window.
+					extractedAt: { toMillis: () => Date.now() } as never,
+				},
+			}),
+		);
+		const res = await POST(req(), ctx());
+		expect(res.status).toBe(202);
+		expect(extractDocument).not.toHaveBeenCalled();
+		expect(setAssetExtractStatus).not.toHaveBeenCalled();
+	});
+
+	it("re-extracts when an `extracting` record is stale (a hung/crashed job)", async () => {
+		loadAssetForOwnerMock.mockResolvedValue(
+			docAsset({
+				extract: {
+					status: "extracting",
+					version: 1,
+					model: "gemini-3.5-flash",
+					truncated: false,
+					charCount: 0,
+					// Older than maxDuration (300s) → treated as a dead in-flight marker.
+					extractedAt: { toMillis: () => Date.now() - 400_000 } as never,
+				},
+			}),
+		);
+		extractDocumentMock.mockResolvedValue({ text: "REDONE", truncated: false });
+		const res = await POST(req(), ctx());
+		expect(res.status).toBe(200);
+		expect(extractDocument).toHaveBeenCalledOnce();
+	});
+
 	it("rejects a non-document kind with 400", async () => {
 		loadAssetForOwnerMock.mockResolvedValue(docAsset({ kind: "image" }));
 		const res = await POST(req(), ctx());
@@ -196,6 +240,18 @@ describe("POST extract", () => {
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(404);
 	});
+
+	it("404s a foreign-owned asset so ids stay non-enumerable", async () => {
+		// loadAssetForOwner THROWS for a row owned by someone else; the route's
+		// catch maps that to a 404 — identical to not-found — so a caller can't
+		// distinguish "isn't yours" from "doesn't exist".
+		loadAssetForOwnerMock.mockRejectedValue(
+			new MediaAssetOwnershipError(asAssetId("asset-1"), "user-2", "user-1"),
+		);
+		const res = await POST(req(), ctx());
+		expect(res.status).toBe(404);
+		expect(extractDocument).not.toHaveBeenCalled();
+	});
 });
 
 describe("GET extract", () => {
@@ -222,6 +278,15 @@ describe("GET extract", () => {
 
 	it("404s when the document has no current-version extract", async () => {
 		loadAssetForOwnerMock.mockResolvedValue(docAsset()); // no extract field
+		const res = await GET(req(), ctx());
+		expect(res.status).toBe(404);
+		expect(readTextObject).not.toHaveBeenCalled();
+	});
+
+	it("404s a foreign-owned asset so ids stay non-enumerable", async () => {
+		loadAssetForOwnerMock.mockRejectedValue(
+			new MediaAssetOwnershipError(asAssetId("asset-1"), "user-2", "user-1"),
+		);
 		const res = await GET(req(), ctx());
 		expect(res.status).toBe(404);
 		expect(readTextObject).not.toHaveBeenCalled();

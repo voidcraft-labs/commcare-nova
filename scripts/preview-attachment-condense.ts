@@ -35,9 +35,12 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel, UIMessage } from "ai";
 import {
 	type AttachmentCondenser,
-	CONDENSER_PROVIDER_OPTIONS,
 	prepareAttachments,
 } from "../lib/agent/attachments";
+import {
+	CONDENSER_MODEL,
+	CONDENSER_PROVIDER_OPTIONS,
+} from "../lib/agent/documentExtraction";
 import {
 	extractFromContentWith,
 	generatePlainTextWith,
@@ -49,7 +52,9 @@ import { MODEL_PRICING } from "../lib/models";
 // ── Model + pricing config ──────────────────────────────────────────────────
 
 const HAIKU_ID = "claude-haiku-4-5-20251001";
-const GEMINI_ID = "gemini-3.5-flash";
+/** Single-sourced from the production extractor so the preview can't drift from
+ *  the model the route actually calls (the module comment promises this). */
+const GEMINI_ID = CONDENSER_MODEL;
 
 /**
  * Gemini 3.5 Flash pricing, $/1M tokens (paid tier). Output is billed inclusive
