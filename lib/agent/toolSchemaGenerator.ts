@@ -110,9 +110,12 @@ const FIELD_DOCS = {
 		'like "#form/age > 0". Omit for not required. Supports hashtag ' +
 		"references.",
 	validate:
-		"XPath expression evaluated when the user leaves the field. " +
-		'Example: ". > 0 and . < 150". Pass "" for no validation. Supports ' +
-		"hashtag references.",
+		"XPath boolean that must hold for the field's value to be accepted, " +
+		"checked when the user leaves the field (`.` is the entered value); " +
+		"pairs with `validate_msg`, shown when it fails. Write the rule that " +
+		"captures the field's actual valid values, using the full XPath " +
+		"language to whatever precision the field's meaning calls for. Pass " +
+		'"" when any value is acceptable. Supports hashtag references.',
 	validate_msg:
 		"Error message displayed when `validate` evaluates to false. Only " +
 		"meaningful when `validate` is set.",
