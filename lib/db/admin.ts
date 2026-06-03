@@ -17,7 +17,7 @@ import type {
 } from "@/lib/admin/types";
 import { type AppSummary, listApps } from "./apps";
 import { collections, docs, getDb } from "./firestore";
-import { getCurrentPeriod } from "./usage";
+import { getCurrentPeriod } from "./period";
 
 // ── Auth User Data ───────────────────────────────────────────────────
 

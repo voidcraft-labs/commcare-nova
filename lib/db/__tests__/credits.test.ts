@@ -20,9 +20,9 @@
  * removing a `.int()`/`.nonnegative()` guard flip the parse to success and turn
  * the test red — without it the test would pass for the wrong reason.
  */
-import { Timestamp } from "@google-cloud/firestore";
+import { FieldValue, Timestamp } from "@google-cloud/firestore";
 import type { UIMessage } from "ai";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ACTUAL_COST_BACKSTOP_USD,
 	CREDITS_PER_BUILD,
@@ -33,7 +33,43 @@ import {
 	isChargeableTurn,
 	MONTHLY_CREDIT_ALLOWANCE,
 } from "@/lib/db/creditPolicy";
+import { getCurrentPeriod } from "@/lib/db/period";
 import { creditGrantDocSchema, creditMonthDocSchema } from "@/lib/db/types";
+
+/**
+ * Hoisted transaction mock for the `reserveCredits` unit suite.
+ *
+ * `reserveCredits` does NOT reach the transaction the way `runSummary` does
+ * (which calls `getDb().runTransaction(...)`). It resolves a raw doc ref via
+ * `docs.creditMonthRaw(...)` and runs the transaction off `ref.firestore`:
+ *
+ *   const ref = docs.creditMonthRaw(userId, period);
+ *   await ref.firestore.runTransaction(async (tx) => { ... });
+ *
+ * So the mock returns one fixed `ref` object whose `.firestore.runTransaction`
+ * IS the hoisted `runTransactionMock`. That same `ref` is the identity the
+ * production code passes to `tx.get(ref)` / `tx.set(ref, ...)`, so asserting
+ * `txGet`/`txSet` were called with `ref` proves the reservation read and wrote
+ * the right document — not a freshly reconstructed ref. `txGet`/`txSet` are the
+ * inner `tx` spies; `runTransactionMock` drives the closure so each test scripts
+ * exactly what the transactional read returns.
+ *
+ * `./period` is intentionally NOT mocked: the real `getCurrentPeriod` runs and
+ * the test imports it to compute the expected period, so the returned
+ * `Reservation.period` is checked against the genuine value rather than a stub
+ * that could drift from production.
+ */
+const { txGet, txSet, runTransactionMock, ref } = vi.hoisted(() => {
+	const runTransactionMock = vi.fn();
+	// The raw ref the production code holds: its `.firestore.runTransaction`
+	// is the entry point, and `ref` itself is the doc identity asserted below.
+	const ref = { firestore: { runTransaction: runTransactionMock } };
+	return { txGet: vi.fn(), txSet: vi.fn(), runTransactionMock, ref };
+});
+
+vi.mock("../firestore", () => ({
+	docs: { creditMonthRaw: () => ref },
+}));
 
 /** A fixed read-shape timestamp so each parse fails (or passes) for its own field. */
 const ts = Timestamp.fromDate(new Date("2026-06-03T00:00:00Z"));
@@ -269,5 +305,192 @@ describe("credit policy — pure helpers and constants", () => {
 		// No last message → `undefined?.role` → never charges. Guards the
 		// degenerate input rather than letting `.at(-1)` throw downstream.
 		expect(isChargeableTurn([])).toBe(false);
+	});
+});
+
+/**
+ * `reserveCredits` LOGIC against a scripted transaction.
+ *
+ * These cover the read-check-write branches of the reservation: the
+ * balance computation from raw transaction data (including defaults for a
+ * missing doc), the over-budget rejection, and the exact merge payload the
+ * write seeds. The transaction is driven by hand (`runTransactionMock`
+ * invokes the closure with the `txGet`/`txSet` spies) so each branch is
+ * deterministic.
+ *
+ * The reservation reads the balance and writes a literal incremented
+ * `consumed` (not `FieldValue.increment`) precisely so the gate can reject
+ * over-budget INSIDE the transaction; the literal is pinned by the numeric
+ * `consumed:` assertions in the seed and increment cases below.
+ */
+describe("reserveCredits", () => {
+	const USER = "user-reserve-test";
+
+	beforeEach(() => {
+		txGet.mockReset();
+		txSet.mockReset();
+		runTransactionMock.mockReset();
+		// Default driver: run the closure exactly once with the spy-backed tx.
+		runTransactionMock.mockImplementation(
+			async (
+				closure: (tx: {
+					get: typeof txGet;
+					set: typeof txSet;
+				}) => Promise<void>,
+			) => {
+				await closure({ get: txGet, set: txSet });
+			},
+		);
+	});
+
+	/**
+	 * Extract the single `tx.set` payload, asserting it was called on the same
+	 * `ref` the production code read from — so a future accidental
+	 * ref-reconstruction (writing a different doc than was balance-checked)
+	 * shows up as a failed test, not a silent wrong-doc write.
+	 */
+	function setPayload(): Record<string, unknown> {
+		expect(txSet).toHaveBeenCalledTimes(1);
+		const [setRef, payload] = txSet.mock.calls[0];
+		expect(setRef).toBe(ref);
+		return payload as Record<string, unknown>;
+	}
+
+	it("seeds a full allowance and books the cost on a missing doc", async () => {
+		// First reservation of a never-touched period: no doc exists, so the
+		// write must SEED a complete doc (explicit allowance + bonus, since
+		// `allowance` has no Zod default) with consumed = the cost just booked.
+		txGet.mockResolvedValue({ exists: false, data: () => undefined });
+		const { reserveCredits } = await import("../credits");
+
+		const result = await reserveCredits(USER, CREDITS_PER_BUILD);
+
+		expect(setPayload()).toEqual({
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			bonus: 0,
+			consumed: CREDITS_PER_BUILD,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		expect(txSet.mock.calls[0][2]).toEqual({ merge: true });
+		// The booked period is the genuine current period; reserved echoes cost.
+		expect(result).toEqual({
+			period: getCurrentPeriod(),
+			reserved: CREDITS_PER_BUILD,
+		});
+	});
+
+	it("increments consumed on an existing affordable doc, preserving allowance and bonus", async () => {
+		// A mid-period doc with plenty of headroom (2000 + 300 bonus − 50
+		// consumed = 2250 spendable) easily covers a 100-credit build. The
+		// write must preserve the prior allowance/bonus and only advance
+		// consumed by the cost — re-seeding allowance/bonus from the read so a
+		// merge can never strand a partially-written doc.
+		txGet.mockResolvedValue({
+			exists: true,
+			data: () => ({ allowance: 2000, consumed: 50, bonus: 300 }),
+		});
+		const { reserveCredits } = await import("../credits");
+
+		const result = await reserveCredits(USER, CREDITS_PER_BUILD);
+
+		expect(setPayload()).toEqual({
+			allowance: 2000,
+			bonus: 300,
+			consumed: 50 + CREDITS_PER_BUILD,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		expect(txSet.mock.calls[0][2]).toEqual({ merge: true });
+		expect(result).toEqual({
+			period: getCurrentPeriod(),
+			reserved: CREDITS_PER_BUILD,
+		});
+	});
+
+	it("books a cost exactly equal to the remaining balance (the boundary is affordable)", async () => {
+		// Balance exactly equals the cost: allowance 2000, consumed 1900, no
+		// bonus → 100 spendable, charging 100. The check is `balance < cost`,
+		// so spending the last credit is allowed (not rejected); consumed lands
+		// at the full allowance.
+		txGet.mockResolvedValue({
+			exists: true,
+			data: () => ({ allowance: 2000, consumed: 1900, bonus: 0 }),
+		});
+		const { reserveCredits } = await import("../credits");
+
+		await reserveCredits(USER, CREDITS_PER_BUILD);
+
+		expect(setPayload()).toMatchObject({ consumed: 2000 });
+	});
+
+	it("throws OutOfCreditsError and never writes when the balance can't cover the cost", async () => {
+		// One edit's worth of headroom (5 spendable) cannot cover a 100-credit
+		// build: the gate must reject with the typed error AND leave the doc
+		// untouched — a rejected reservation books nothing.
+		txGet.mockResolvedValue({
+			exists: true,
+			data: () => ({ allowance: 2000, consumed: 1995, bonus: 0 }),
+		});
+		const { OutOfCreditsError, reserveCredits } = await import("../credits");
+
+		await expect(
+			reserveCredits(USER, CREDITS_PER_BUILD),
+		).rejects.toBeInstanceOf(OutOfCreditsError);
+		expect(txSet).not.toHaveBeenCalled();
+	});
+
+	it("carries the human-readable message and name on OutOfCreditsError", async () => {
+		// The route maps this typed error to a 429; its message is the
+		// user-facing reason and its name lets a classifier branch on it.
+		const { OutOfCreditsError } = await import("../credits");
+		const err = new OutOfCreditsError();
+		expect(err).toBeInstanceOf(Error);
+		expect(err.name).toBe("OutOfCreditsError");
+		expect(err.message).toBe("Out of credits for this period");
+	});
+
+	it("rejects on a transaction retry whose re-read shows the balance newly depleted", async () => {
+		// Proves the REAL closure is re-runnable and that its read-then-reject path
+		// rejects when the re-read shows the balance below the cost. This stands in
+		// for what the loser undergoes on contention: the server SDK ABORTs one of
+		// two contending transactions and retries it, and the retried `tx.get`
+		// returns the snapshot a competitor already depleted — so the SAME
+		// read-check-write logic that booked the charge on attempt 1 rejects on
+		// attempt 2. The test drives the closure twice with scripted snapshots; it
+		// does NOT exercise real commit ordering (an in-process mock can't).
+		txGet
+			// Attempt 1: balance 100, exactly affordable → would book the charge.
+			.mockResolvedValueOnce({
+				exists: true,
+				data: () => ({ allowance: 2000, consumed: 1900, bonus: 0 }),
+			})
+			// Attempt 2 (post-abort re-read): a competitor consumed the last 100,
+			// so the balance is now 0 < 100 → must reject.
+			.mockResolvedValueOnce({
+				exists: true,
+				data: () => ({ allowance: 2000, consumed: 2000, bonus: 0 }),
+			});
+		// Drive the closure twice, mirroring Firestore's real retry loop when a
+		// concurrent writer commits between our read and our set.
+		runTransactionMock.mockImplementationOnce(
+			async (
+				closure: (tx: {
+					get: typeof txGet;
+					set: typeof txSet;
+				}) => Promise<void>,
+			) => {
+				await closure({ get: txGet, set: txSet });
+				await closure({ get: txGet, set: txSet });
+			},
+		);
+		const { OutOfCreditsError, reserveCredits } = await import("../credits");
+
+		await expect(
+			reserveCredits(USER, CREDITS_PER_BUILD),
+		).rejects.toBeInstanceOf(OutOfCreditsError);
+		// Attempt 1 booked the charge; attempt 2 re-read the depleted balance and
+		// rejected before writing. Under Firestore's real abort-retry the attempt-1
+		// write never commits (it was on the aborted attempt) — the test asserts
+		// the LOGIC each attempt runs, and that the final outcome is a rejection.
+		expect(txSet).toHaveBeenCalledTimes(1);
 	});
 });

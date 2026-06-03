@@ -8,11 +8,8 @@
 
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import {
-	getCurrentPeriod,
-	getMonthlyUsage,
-	MONTHLY_SPEND_CAP_USD,
-} from "@/lib/db/usage";
+import { getCurrentPeriod } from "@/lib/db/period";
+import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
 
 export async function GET(req: Request) {
 	try {

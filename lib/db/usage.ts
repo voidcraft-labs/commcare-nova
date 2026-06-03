@@ -15,6 +15,7 @@ import { FieldValue } from "@google-cloud/firestore";
 import { log } from "@/lib/logger";
 import { DEFAULT_PRICING, MODEL_PRICING } from "@/lib/models";
 import { docs } from "./firestore";
+import { getCurrentPeriod } from "./period";
 import { writeRunSummary } from "./runSummary";
 import type { RunSummaryDoc, UsageDoc } from "./types";
 
@@ -31,18 +32,6 @@ import type { RunSummaryDoc, UsageDoc } from "./types";
  */
 export const MONTHLY_SPEND_CAP_USD =
 	Number(process.env.MONTHLY_SPEND_CAP_USD) || 15;
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-/**
- * Current calendar month as a `yyyy-mm` string (e.g. "2026-04").
- * Used as the Firestore document ID for usage aggregation.
- * UTC-based — consistent across Cloud Run instances.
- */
-export function getCurrentPeriod(): string {
-	const now = new Date();
-	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
 
 // ── Read ──────────────────────────────────────────────────────────
 
