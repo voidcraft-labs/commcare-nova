@@ -17,14 +17,24 @@ import { describe, expect, it, vi } from "vitest";
 // inside the factory must be hoisted too — vi.hoisted lifts a block of setup
 // alongside the mock calls. Without this, the mock factory runs before the
 // top-level `const` bindings exist and throws a ReferenceError on load.
-const { writeRunSummaryMock } = vi.hoisted(() => ({
+const { writeRunSummaryMock, refundCreditsMock } = vi.hoisted(() => ({
 	writeRunSummaryMock: vi.fn(),
+	refundCreditsMock: vi.fn(),
 }));
 
 // Run summary writer is fire-and-forget in prod — mock it outright so
 // the idempotence + zero-cost tests can count invocations.
 vi.mock("../runSummary", () => ({
 	writeRunSummary: writeRunSummaryMock,
+}));
+
+// `refundCredits` lives in `../credits` — a SEPARATE module from
+// `UsageAccumulator` — so a module-level mock DOES intercept the import that
+// `usage.ts` resolves at flush time (unlike `incrementUsage`, which is
+// intra-module and can only be observed at the Firestore boundary below). We
+// assert on the mock's invocations to prove the refund branch's guard logic.
+vi.mock("../credits", () => ({
+	refundCredits: refundCreditsMock,
 }));
 
 // Mock Firestore at the adapter boundary — `incrementUsage` lives in the
@@ -164,5 +174,162 @@ describe("UsageAccumulator", () => {
 			moduleCount: 0,
 		});
 		expect(acc.runId).toBe("run-getter-test");
+	});
+
+	// ── Credit refund on no-op / failed runs ────────────────────────
+	//
+	// A reservation booked at request start (didReserve) is handed back to the
+	// user when the run did no billable work: it either FAILED (broke the app)
+	// or produced zero cost. The two flush() branches are INDEPENDENT — a failed
+	// run with real cost both accrues the cost (so the $50 backstop sees retry
+	// spam) AND refunds the reserved credits. These cases cover every branch of
+	// that guard, not just a representative one.
+	describe("credit refund branch", () => {
+		/** A reserved seed pinned to a deterministic charge period for refund assertions. */
+		const reservedSeed = {
+			appId: "a",
+			userId: "u",
+			runId: "r",
+			model: "claude-opus-4-7",
+			promptMode: "build" as const,
+			freshEdit: false,
+			appReady: false,
+			cacheExpired: false,
+			moduleCount: 0,
+			didReserve: true,
+			reservedAmount: 100,
+			chargePeriod: "2026-06",
+		};
+
+		it("refunds the reservation on a zero-cost run and skips the increment", async () => {
+			setMock.mockClear();
+			writeRunSummaryMock.mockReset();
+			refundCreditsMock.mockReset();
+			// No track() calls → zero cost → the run did no billable work.
+			const acc = new UsageAccumulator(reservedSeed);
+			await acc.flush();
+
+			// Reservation handed straight back, against the period it was booked to.
+			expect(refundCreditsMock).toHaveBeenCalledTimes(1);
+			expect(refundCreditsMock).toHaveBeenCalledWith("u", "2026-06", 100);
+			// Zero cost short-circuits the increment — no Firestore write at all.
+			expect(setMock).not.toHaveBeenCalled();
+		});
+
+		it("charges (no refund) on a successful run with real cost", async () => {
+			setMock.mockClear();
+			writeRunSummaryMock.mockReset();
+			refundCreditsMock.mockReset();
+			const acc = new UsageAccumulator(reservedSeed);
+			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
+			await acc.flush();
+
+			// Real cost accrues to the monthly spend doc (the Firestore set fires)…
+			expect(setMock).toHaveBeenCalledTimes(1);
+			// …and a healthy charge is never refunded.
+			expect(refundCreditsMock).not.toHaveBeenCalled();
+		});
+
+		it("on a FAILED run with real cost it BOTH accrues the cost AND refunds", async () => {
+			setMock.mockClear();
+			writeRunSummaryMock.mockReset();
+			refundCreditsMock.mockReset();
+			const acc = new UsageAccumulator(reservedSeed);
+			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
+			acc.markRunFailed();
+			await acc.flush();
+
+			// The two branches are independent: the actual $ cost still accrues so
+			// the $50 backstop sees retry spam from a user hammering a broken app…
+			expect(setMock).toHaveBeenCalledTimes(1);
+			// …while the user's credits are made whole because the app broke.
+			expect(refundCreditsMock).toHaveBeenCalledTimes(1);
+			expect(refundCreditsMock).toHaveBeenCalledWith("u", "2026-06", 100);
+		});
+
+		it("never refunds a free continuation that was never reserved", async () => {
+			setMock.mockClear();
+			writeRunSummaryMock.mockReset();
+			refundCreditsMock.mockReset();
+			// didReserve:false — an assistant-tail continuation that booked nothing.
+			const acc = new UsageAccumulator({
+				...reservedSeed,
+				didReserve: false,
+				reservedAmount: undefined,
+				chargePeriod: undefined,
+			});
+			acc.markRunFailed();
+			await acc.flush();
+
+			// Zero-cost AND failed, yet nothing was reserved → nothing to give back.
+			// A phantom refund here would credit work the user never paid for.
+			expect(refundCreditsMock).not.toHaveBeenCalled();
+		});
+
+		it("the didReserve flag alone vetoes the refund even with amount + period present", async () => {
+			setMock.mockClear();
+			writeRunSummaryMock.mockReset();
+			refundCreditsMock.mockReset();
+			// `reservedAmount` and `chargePeriod` are PRESENT but `didReserve` is
+			// false. This isolates `didReserve`'s contribution to the guard: with the
+			// other two clauses truthy, only the flag can veto the refund. Dropping
+			// the `didReserve` clause from the guard would wrongly refund here — the
+			// other two cases leave all three falsy together, so they can't catch it.
+			const acc = new UsageAccumulator({
+				...reservedSeed,
+				didReserve: false,
+				reservedAmount: 100,
+				chargePeriod: "2026-06",
+			});
+			await acc.flush();
+
+			expect(refundCreditsMock).not.toHaveBeenCalled();
+		});
+
+		it("refunds the seed's reservedAmount, not a hardcoded build cost", async () => {
+			setMock.mockClear();
+			writeRunSummaryMock.mockReset();
+			refundCreditsMock.mockReset();
+			// An EDIT reserves 5, not a build's 100. Asserting on 5 pins that the
+			// refund forwards `seed.reservedAmount` rather than a literal — every
+			// other refund case uses 100, so a hardcoded amount would slip past them.
+			const acc = new UsageAccumulator({
+				...reservedSeed,
+				reservedAmount: 5,
+			});
+			await acc.flush();
+
+			expect(refundCreditsMock).toHaveBeenCalledWith("u", "2026-06", 5);
+		});
+
+		it("refunds at most once across repeated flush() calls", async () => {
+			setMock.mockClear();
+			writeRunSummaryMock.mockReset();
+			refundCreditsMock.mockReset();
+			const acc = new UsageAccumulator(reservedSeed);
+			await acc.flush();
+			await acc.flush();
+
+			// The `_finalized` guard short-circuits the second flush before the
+			// refund branch — a double-refund would over-credit the user.
+			expect(refundCreditsMock).toHaveBeenCalledTimes(1);
+		});
+
+		it("refunds against the CAPTURED chargePeriod, not the current period", async () => {
+			setMock.mockClear();
+			writeRunSummaryMock.mockReset();
+			refundCreditsMock.mockReset();
+			// chargePeriod is a PRIOR month: a flush that crosses midnight into a
+			// new month must un-book the month actually debited at reservation. If
+			// the refund wrongly read getCurrentPeriod(), it would refund the wrong
+			// (current) month and leave the debited one over-charged.
+			const acc = new UsageAccumulator({
+				...reservedSeed,
+				chargePeriod: "2026-05",
+			});
+			await acc.flush();
+
+			expect(refundCreditsMock).toHaveBeenCalledWith("u", "2026-05", 100);
+		});
 	});
 });

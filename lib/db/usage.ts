@@ -14,6 +14,7 @@
 import { FieldValue } from "@google-cloud/firestore";
 import { log } from "@/lib/logger";
 import { DEFAULT_PRICING, MODEL_PRICING } from "@/lib/models";
+import { refundCredits } from "./credits";
 import { docs } from "./firestore";
 import { getCurrentPeriod } from "./period";
 import { writeRunSummary } from "./runSummary";
@@ -152,6 +153,23 @@ export interface AccumulatorSeed {
 	moduleCount: number;
 	/** ISO timestamp. Defaults to "now" at construction. */
 	startedAt?: string;
+	/**
+	 * Credit-reservation context, threaded from the chat route when a run booked
+	 * a charge at request start. All three are present together (a chargeable
+	 * turn) or all absent (a free assistant-tail continuation). They drive the
+	 * refund branch in `flush()`: a run that failed or did no billable work hands
+	 * the reservation back.
+	 */
+	/** Whether the route reserved credits for this run. The refund branch is gated on it. */
+	didReserve?: boolean;
+	/** Credits reserved (a build's 100 or an edit's 5). Refunded verbatim on a no-op. */
+	reservedAmount?: number;
+	/**
+	 * The period the charge was booked against. The refund targets THIS period,
+	 * not `getCurrentPeriod()` at flush time — a flush that crosses midnight into
+	 * a new month must still un-book the month that was actually debited.
+	 */
+	chargePeriod?: string;
 }
 
 /** Fields that can be updated mid-request via `configureRun`. */
@@ -180,6 +198,10 @@ export class UsageAccumulator {
 	private stepCount = 0;
 	private toolCallCount = 0;
 	private _finalized = false;
+	/* Flipped by `markRunFailed` when the run broke the app. A failed run still
+	 * accrues its actual $ cost (the $50 backstop must see retry spam) but hands
+	 * the reserved credits back — the user isn't charged for a broken result. */
+	private _runFailed = false;
 
 	constructor(seed: AccumulatorSeed) {
 		this.seed = { ...seed };
@@ -207,6 +229,16 @@ export class UsageAccumulator {
 	/** Record a tool call — feeds the `toolCallCount` run-summary field. */
 	noteToolCall(): void {
 		this.toolCallCount++;
+	}
+
+	/**
+	 * Mark the run as failed so `flush()` refunds the credit reservation. The
+	 * chat route's single error funnel calls this before flush. Safe to call any
+	 * time, including after `flush()` (the refund already happened; this only
+	 * sets a flag the finalized flush no longer reads).
+	 */
+	markRunFailed(): void {
+		this._runFailed = true;
 	}
 
 	/**
@@ -261,12 +293,20 @@ export class UsageAccumulator {
 	 * - Run summary is always written (awaited, transactional), even on
 	 *   zero-cost edit replays, so inspect tools have a row to display
 	 *   and multi-turn threads accumulate correctly.
-	 * - Monthly increment is skipped for zero-cost runs — `incrementUsage`
-	 *   would otherwise bump `request_count` without matching spend.
+	 * - Monthly increment fires whenever there was real cost — failed runs
+	 *   included. The actual $ spend always accrues so the $50 backstop sees
+	 *   retry spam from a user hammering a broken app. (Zero-cost runs skip it:
+	 *   `incrementUsage` would bump `request_count` without matching spend.)
+	 * - Credit refund fires when a reservation was booked AND the run did no
+	 *   billable work — it FAILED (broke the app) or produced zero cost. These
+	 *   two are INDEPENDENT decisions: a failed run with real cost both accrues
+	 *   the cost (above) and refunds the reservation (below). The refund targets
+	 *   the period CAPTURED at reservation (`chargePeriod`), not the period at
+	 *   flush time, so a flush that crosses midnight un-books the right month.
 	 *
-	 * Both writes swallow their own errors (fire-and-forget semantics from
-	 * the caller's perspective) so finalization never blocks on
-	 * observability failures.
+	 * All three writes swallow their own errors (fire-and-forget semantics from
+	 * the caller's perspective) so finalization never blocks on observability
+	 * failures.
 	 */
 	async flush(): Promise<void> {
 		if (this._finalized) return;
@@ -283,6 +323,9 @@ export class UsageAccumulator {
 		 * errors, so we don't wrap in try/catch here. */
 		await writeRunSummary(this.seed.appId, this.seed.runId, summary);
 
+		// Branch 1 — actual spend. Accrues whenever the SA ran (including a
+		// failed run, so the $50 backstop counts retry spam). Independent of the
+		// refund below.
 		if (summary.costEstimate > 0) {
 			try {
 				await incrementUsage(this.seed.userId, {
@@ -292,6 +335,29 @@ export class UsageAccumulator {
 				});
 			} catch (err) {
 				log.error("[UsageAccumulator] monthly increment failed", err, {
+					userId: this.seed.userId,
+				});
+			}
+		}
+
+		// Branch 2 — credit refund. Only when a reservation was booked
+		// (`didReserve`, with its amount + period) AND the run earned nothing
+		// chargeable — it failed or produced zero cost. The `didReserve` gate
+		// stops a free continuation (which never reserved) from phantom-refunding.
+		if (
+			this.seed.didReserve &&
+			this.seed.reservedAmount &&
+			this.seed.chargePeriod &&
+			(this._runFailed || summary.costEstimate === 0)
+		) {
+			try {
+				await refundCredits(
+					this.seed.userId,
+					this.seed.chargePeriod,
+					this.seed.reservedAmount,
+				);
+			} catch (err) {
+				log.error("[UsageAccumulator] credit refund failed", err, {
 					userId: this.seed.userId,
 				});
 			}
