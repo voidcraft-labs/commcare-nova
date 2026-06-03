@@ -176,7 +176,9 @@ describe("OptionsEditor", () => {
 		// The per-row trash buttons and the Add button are all
 		// descendants of the fieldset; the row buttons come first, the
 		// Add button is last. Grab the first one and click it.
-		const fieldset = screen.getByRole("group");
+		// Query the <fieldset> element directly: the per-option MediaSlot
+		// now carries role="group" too, so getByRole("group") is ambiguous.
+		const fieldset = document.querySelector("fieldset") as HTMLElement;
 		const buttons = fieldset.querySelectorAll("button[type='button']");
 		fireEvent.click(buttons[0] as HTMLButtonElement);
 		expect(onChange).toHaveBeenCalled();
@@ -201,7 +203,9 @@ describe("OptionsEditor", () => {
 		// the reducer treats it as a removal patch. Persisting a
 		// 1-entry list would fail the schema's `min(2)` on the next
 		// validation pass.
-		const fieldset = screen.getByRole("group");
+		// Query the <fieldset> element directly: the per-option MediaSlot
+		// now carries role="group" too, so getByRole("group") is ambiguous.
+		const fieldset = document.querySelector("fieldset") as HTMLElement;
 		const buttons = fieldset.querySelectorAll("button[type='button']");
 		fireEvent.click(buttons[0] as HTMLButtonElement);
 		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];

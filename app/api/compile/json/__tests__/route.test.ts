@@ -146,8 +146,12 @@ describe("POST /api/compile/json", () => {
 		]);
 
 		const res = await POST(reqWith({ doc: validDoc() }));
+		// Read the body (asserting the message + closing the response
+		// stream — an unread error body leaks under the async-leak gate).
+		const body = (await res.json()) as { error: string; details?: string[] };
 
 		expect(res.status).toBe(400);
+		expect(body.error).toContain("media");
 		// The media gate short-circuits before expand.
 		expect(expandDoc).not.toHaveBeenCalled();
 	});
