@@ -285,8 +285,12 @@ function AssetPreview({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 		);
 	}
 	if (kind === "audio") {
+		// A native `<audio>` player has no intrinsic width, so `w-full` collapses
+		// it to 0 inside the shrink-to-fit popover (an `<img>` escapes this because
+		// its bitmap gives the popover a width to resolve against). A definite
+		// width gives the control bar room to render instead of an empty popover.
 		// biome-ignore lint/a11y/useMediaCaption: author-supplied media; no caption track available
-		return <audio src={src} controls className="w-full" />;
+		return <audio src={src} controls className="w-72" />;
 	}
 	// biome-ignore lint/a11y/useMediaCaption: author-supplied media; no caption track available
 	return <video src={src} controls className="max-h-48 w-full rounded" />;
