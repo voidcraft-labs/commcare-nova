@@ -80,22 +80,29 @@ export const ExportPanel = memo(function ExportPanel({
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0) return;
 		try {
+			// One request: the compile endpoint returns the `.ccz` bytes inline
+			// (octet-stream on success, JSON on failure), so we branch on `res.ok`
+			// just like the JSON export below — no separate download round-trip.
 			const res = await fetch("/api/compile", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ doc: toPersistable(s) }),
 			});
-			const data = await res.json();
-			if (data.downloadUrl) {
-				const cczRes = await fetch(data.downloadUrl);
-				const blob = await cczRes.blob();
-				const url = URL.createObjectURL(blob);
-				const a = document.createElement("a");
-				a.href = url;
-				a.download = `${data.appName || "app"}.ccz`;
-				a.click();
-				URL.revokeObjectURL(url);
+			if (!res.ok) {
+				showToast(
+					"error",
+					"Export failed",
+					"Could not generate the .ccz file.",
+				);
+				return;
 			}
+			const blob = await res.blob();
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `${s.appName || "app"}.ccz`;
+			a.click();
+			URL.revokeObjectURL(url);
 		} catch {
 			showToast("error", "Export failed", "Could not generate the .ccz file.");
 		}
