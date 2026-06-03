@@ -15,12 +15,14 @@
  *
  * Document hierarchy:
  *
- *   collections.usage(userId)    → usage/{userId}/months/{yyyy-mm}
- *   collections.apps()           → apps/{appId}          (root-level)
- *   collections.events(appId)    → apps/{appId}/events/{eventId}
- *   collections.runs(appId)      → apps/{appId}/runs/{runId}
- *   collections.threads(appId)   → apps/{appId}/threads/{threadId}
- *   collections.settings()       → user_settings/{userId} (CommCare HQ credentials)
+ *   collections.usage(userId)        → usage/{userId}/months/{yyyy-mm}
+ *   collections.creditMonths(userId) → credits/{userId}/months/{yyyy-mm}
+ *   collections.creditGrants(userId) → credits/{userId}/grants/{grantId}
+ *   collections.apps()               → apps/{appId}          (root-level)
+ *   collections.events(appId)        → apps/{appId}/events/{eventId}
+ *   collections.runs(appId)          → apps/{appId}/runs/{runId}
+ *   collections.threads(appId)       → apps/{appId}/threads/{threadId}
+ *   collections.settings()           → user_settings/{userId} (CommCare HQ credentials)
  */
 import {
 	type CollectionReference,
@@ -36,6 +38,10 @@ import { type Event, eventSchema } from "@/lib/log/types";
 import {
 	type AppDoc,
 	appDocSchema,
+	type CreditGrantDoc,
+	type CreditMonthDoc,
+	creditGrantDocSchema,
+	creditMonthDocSchema,
 	type RunSummaryDoc,
 	runSummaryDocSchema,
 	type ThreadDoc,
@@ -110,6 +116,8 @@ function zodConverter<T>(schema: ZodType<T>): FirestoreDataConverter<T> {
 }
 
 const usageConverter = zodConverter(usageDocSchema);
+const creditMonthConverter = zodConverter(creditMonthDocSchema);
+const creditGrantConverter = zodConverter(creditGrantDocSchema);
 const appConverter = zodConverter(appDocSchema);
 const eventConverter = zodConverter(eventSchema);
 const runSummaryConverter = zodConverter(runSummaryDocSchema);
@@ -141,6 +149,22 @@ export const collections = {
 			.doc(userId)
 			.collection("months")
 			.withConverter(usageConverter),
+
+	/** Per-user monthly credit balance: `credits/{userId}/months/{yyyy-mm}` */
+	creditMonths: (userId: string): CollectionReference<CreditMonthDoc> =>
+		getDb()
+			.collection("credits")
+			.doc(userId)
+			.collection("months")
+			.withConverter(creditMonthConverter),
+
+	/** Per-user append-only credit audit: `credits/{userId}/grants/{grantId}` */
+	creditGrants: (userId: string): CollectionReference<CreditGrantDoc> =>
+		getDb()
+			.collection("credits")
+			.doc(userId)
+			.collection("grants")
+			.withConverter(creditGrantConverter),
 
 	/** Root-level apps collection: `apps/{appId}` */
 	apps: (): CollectionReference<AppDoc> =>
@@ -191,6 +215,28 @@ export const docs = {
 	/** Direct reference: `usage/{userId}/months/{yyyy-mm}` */
 	usage: (userId: string, period: string): DocumentReference<UsageDoc> =>
 		collections.usage(userId).doc(period),
+
+	/** Direct reference: `credits/{userId}/months/{yyyy-mm}` (converter-applied, for reads). */
+	creditMonth: (
+		userId: string,
+		period: string,
+	): DocumentReference<CreditMonthDoc> =>
+		collections.creditMonths(userId).doc(period),
+
+	/**
+	 * RAW (converter-less) reference to the credit-month doc, for the reservation
+	 * transaction. A `withConverter` `tx.get()` routes the snapshot through
+	 * `schema.parse`, which throws on a partially-initialized existing doc inside
+	 * the transaction (the same parse-on-read hazard `writeRunSummary` guards
+	 * against). The reservation reads raw data, supplies the missing-doc defaults
+	 * in code, and writes back through a merge — so it must read off the raw ref.
+	 *
+	 * `withConverter(null)` strips the converter from the same path
+	 * `collections.creditMonths` owns, so the credit-month path is single-sourced
+	 * (no re-hardcoded `collection(...).doc(...)` chain to drift).
+	 */
+	creditMonthRaw: (userId: string, period: string): DocumentReference =>
+		collections.creditMonths(userId).doc(period).withConverter(null),
 
 	/** Direct reference: `apps/{appId}` */
 	app: (appId: string): DocumentReference<AppDoc> =>

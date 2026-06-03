@@ -6,7 +6,9 @@
  *
  * Document hierarchy:
  *
- *   usage/{userId}/months/{yyyy-mm}    → UsageDoc         (monthly spend tracking)
+ *   usage/{userId}/months/{yyyy-mm}    → UsageDoc         (monthly actual-$ cost, accumulate-only)
+ *   credits/{userId}/months/{yyyy-mm}  → CreditMonthDoc   (monthly credit balance, the resettable gate)
+ *   credits/{userId}/grants/{grantId}  → CreditGrantDoc   (append-only admin reset/grant audit)
  *   apps/{appId}                       → AppDoc           (root-level, owner field links to user)
  *   apps/{appId}/events/{eventId}      → Event            (unified mutation+conversation log)
  *   apps/{appId}/runs/{runId}          → RunSummaryDoc    (per-run cost/behavior summary)
@@ -53,6 +55,67 @@ export const usageDocSchema = z.object({
 	updated_at: timestamp,
 });
 export type UsageDoc = z.infer<typeof usageDocSchema>;
+
+// ── Credits ─────────────────────────────────────────────────────────
+
+/**
+ * Monthly per-user credit balance — stored at `credits/{userId}/months/{yyyy-mm}`.
+ *
+ * The resettable *gate* ledger, parallel to `UsageDoc` but on its own
+ * collection so an admin reset/grant never touches the cost record. Balance is
+ * derived, not stored: `allowance + bonus − consumed`. Every quantity is a
+ * non-negative integer — credits are discrete (build 100, edit 5), so a
+ * fractional balance component is corruption, never a valid state.
+ *
+ * `allowance` has no default because its value (e.g. `2000`) is credit *policy*
+ * that lives in the credit-amount module, not in this schema — baking it in here
+ * would duplicate that policy and couple the two. Writers always seed `allowance`
+ * explicitly in the reservation transaction, and a missing credit doc is treated
+ * as a full balance by an in-code `snap.exists` check (gate and dashboard), never
+ * filled by a schema default — the doc is never `parse`d into existence here.
+ */
+export const creditMonthDocSchema = z.object({
+	/** Monthly grant, written explicitly on the first reservation of the period. */
+	allowance: z.number().int().nonnegative(),
+	/** Credits debited this period — the running sum of build/edit charges. */
+	consumed: z.number().int().nonnegative().default(0),
+	/** Additive admin grants (comps) applied to this period. */
+	bonus: z.number().int().nonnegative().default(0),
+	/** Last write, via FieldValue.serverTimestamp(); a Timestamp instance on read. */
+	updated_at: timestamp,
+});
+export type CreditMonthDoc = z.infer<typeof creditMonthDocSchema>;
+
+/**
+ * Append-only audit row for one admin credit intervention — stored at
+ * `credits/{userId}/grants/{grantId}`.
+ *
+ * Records who did what and when so a comp is traceable, and is written in the
+ * same transaction as the balance mutation so audit and effect commit together.
+ * This collection only ever grows; it never mutates the usage (cost) ledger.
+ */
+export const creditGrantDocSchema = z.object({
+	/**
+	 * Credits added by a grant; informational (0) for a reset, which zeroes
+	 * `consumed`. Always a non-negative integer — credits are discrete, a reset
+	 * writes 0 and a grant a positive whole amount, so the same
+	 * `.int().nonnegative()` floor as the credit-month quantities applies.
+	 */
+	amount: z.number().int().nonnegative(),
+	/** Which intervention this row records. */
+	type: z.enum(["reset", "grant"]),
+	/** Acting admin's userId. */
+	actor: z.string(),
+	/** Acting admin's email, denormalized so the audit list renders without a user join. */
+	actor_email: z.string(),
+	/** Free-text justification; null when the admin gave none. */
+	reason: z.string().nullable().default(null),
+	/** The yyyy-mm period the intervention affected. */
+	period: z.string(),
+	/** Set on write via FieldValue.serverTimestamp(); a Timestamp instance on read. */
+	created_at: timestamp,
+});
+export type CreditGrantDoc = z.infer<typeof creditGrantDocSchema>;
 
 // ── Per-run summary ───────────────────────────────────────────────
 
