@@ -14,17 +14,18 @@
  * API reference (from dimagi/commcare-hq#37559):
  *   - User domains:   GET  /api/user_domains/v1/
  *   - App import:     POST /a/{domain}/apps/api/import_app/
- *   - Media upload:   POST /a/{domain}/apps/{app_id}/multimedia/uploaded/{kind}/
+ *   - Media upload:   POST /a/{domain}/apps/api/{app_id}/multimedia/        (bulk ZIP)
+ *   - Media status:   GET  /a/{domain}/apps/api/{app_id}/multimedia/status/{processing_id}/
  *
  * Authentication uses CommCare's API key format:
  *   Authorization: ApiKey {username}:{api_key}
+ *
+ * The media upload uses the bulk `upload_multimedia_api` endpoint (same
+ * `@api_auth()` gate as import) — NOT the per-kind `multimedia/uploaded/{kind}/`
+ * endpoints, which are session-only and reject the API key. See
+ * `uploadAppMediaBundle`.
  */
 
-import {
-	type AssetManifest,
-	jrFileRef,
-} from "@/lib/commcare/multimedia/assetWirePath";
-import type { MediaKind } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -397,289 +398,159 @@ export async function importApp(
 	};
 }
 
-// ── Multimedia upload ──────────────────────────────────────────────
+// ── Multimedia upload (bulk API) ───────────────────────────────────
 
 /**
- * One media asset uploaded to a CommCare HQ app. Carries the wire path
- * (the `jr://file/commcare/<hash><ext>` reference the form's itext
- * already points at) and the validated bytes to send.
- *
- * `wirePath` is the bare `commcare/<hash><ext>` stem; the upload layer
- * derives both the multipart `path` field (the full `jr://` reference)
- * and the `Filedata` filename from it, so the reference HQ records in
- * `multimedia_map` is byte-identical to the one the expander emitted.
+ * Outcome of a bulk media upload. `matched` / `unmatched` come from HQ's
+ * async processing of the ZIP (files matched to the app's references vs
+ * files the app doesn't reference); `errors` carries any processing errors
+ * HQ reported. `timedOut` means we stopped polling before HQ finished — the
+ * ZIP was accepted and is still processing server-side, so the media will
+ * appear shortly even though we didn't confirm the match.
  */
-export interface MediaUploadAsset {
-	/** `commcare/<contentHash><extension>` — same stem the expander/bundler use. */
-	readonly wirePath: string;
-	/** Media kind — selects the per-kind HQ upload endpoint. */
-	readonly kind: MediaKind;
-	/** Validated file bytes to send as the multipart `Filedata` field. */
-	readonly bytes: Buffer;
+export interface MediaBundleUploadResult {
+	readonly matched: number;
+	readonly unmatched: number;
+	readonly errors: readonly string[];
+	readonly timedOut: boolean;
 }
 
-/** One asset that HQ rejected, paired with the wire path it was keyed on. */
-export interface MediaUploadFailure {
-	readonly wirePath: string;
-	/** HTTP status from HQ, or 0 when the per-file request threw before a response. */
-	readonly status: number;
-}
+/* Poll cadence + ceiling for the async bulk-upload processing. The bytes
+ * are already accepted when polling starts, so this only confirms the match
+ * result — bounded so a slow/stuck task can't hold the request open. */
+const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
+const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
 
 /**
- * Result of uploading every media asset for an app. `uploaded` counts
- * the assets HQ accepted; `failures` lists the rest with the status that
- * surfaced. The caller decides how to present partial success — the app
- * itself is already created on HQ before any byte upload runs, so a
- * media failure never invalidates the import (it only leaves that one
- * asset's `multimedia_map` entry pointing at no bytes, which renders as
- * a broken reference for that asset alone).
+ * Upload an app's media as one bulk ZIP to CommCare HQ's
+ * `upload_multimedia_api` (`POST /a/{domain}/apps/api/{app_id}/multimedia/`).
+ *
+ * This is the API-key-authenticated media path — the SAME `@api_auth()`
+ * gate as `import_app_api`. The per-kind `multimedia/uploaded/<kind>/`
+ * endpoints are `login_and_domain_required` (session/cookie auth that
+ * ignores the `ApiKey` header), so an API-key client gets HQ's HTML login
+ * page back instead of JSON — they can't be used here. Verified against
+ * `commcare-hq/.../app_manager/views/app_import_api.py` (the `@api_auth()`
+ * decorator) and `hqmedia/views.py` (the session-only per-kind views).
+ *
+ * HQ unzips the bundle and matches each `commcare/<hash><ext>` entry against
+ * the app's FORM/MENU media paths — `process_bulk_upload_zip` keeps only
+ * entries whose path is in `app.get_all_paths_of_type(...)`, and HQ's
+ * `ApplicationMediaMixin.all_media` EXCLUDES app-level media (logos). So a
+ * file referenced anywhere in the forms/menus attaches; an image used ONLY
+ * as the web-apps logo is reported `unmatched` here (its only HQ home is the
+ * session-auth per-logo endpoint, unreachable by API key, or the bundled
+ * `.ccz`). A logo image that's ALSO form/menu media still attaches — the
+ * file matches via that reference and the logo resolves to the same path.
+ * Processing is asynchronous: the POST returns a `processing_id` once the
+ * ZIP is accepted, and the match runs in a background task we poll to a
+ * bounded deadline.
+ *
+ * Auth mirrors `importApp`: `ApiKey` header + a CSRF token (these endpoints
+ * are not `@csrf_exempt`). No 16KB WAF padding — the body is a binary ZIP,
+ * not the XForms-tag-bearing JSON the WAF rule trips on.
  */
-export interface MediaUploadSummary {
-	readonly uploaded: number;
-	readonly failures: readonly MediaUploadFailure[];
-}
-
-/**
- * CommCare HQ's per-kind multimedia upload endpoint segment. The URL is
- * `/a/{domain}/apps/{app_id}/multimedia/uploaded/{segment}/`.
- *
- * Verified against `commcare-hq/.../hqmedia/urls.py` (the
- * `uploaded/image/` · `uploaded/audio/` · `uploaded/video/` routes,
- * mounted under app_manager's `^(?P<app_id>[\w-]+)/multimedia/`) and the
- * per-kind view classes `ProcessImageFileUploadView` /
- * `ProcessAudioFileUploadView` / `ProcessVideoFileUploadView` in
- * `commcare-hq/.../hqmedia/views.py`.
- */
-const MEDIA_UPLOAD_SEGMENT: Record<MediaKind, string> = {
-	image: "image",
-	audio: "audio",
-	video: "video",
-};
-
-/**
- * Upload one media asset's bytes to an already-imported CommCare HQ app.
- *
- * The app MUST exist first (its id is in the URL) and MUST have been
- * imported media-ON (its forms carry the `jr://file/commcare/<hash><ext>`
- * itext references and its `multimedia_map` carries placeholder entries
- * keyed on the same path). Server-side, `process_upload`
- * (`commcare-hq/.../hqmedia/views.py::BaseProcessFileUploadView.process_upload`)
- * stores the bytes as a `CommCareMultimedia` couch doc, then calls
- * `app.create_mapping(multimedia, path)` — which overwrites
- * `multimedia_map[path]` with the couch-assigned `_id`. So the upload is
- * what makes the form's reference resolve to real bytes on the device.
- *
- * Request shape (multipart form, verified against
- * `BaseProcessUploadedView` + `BaseProcessFileUploadView`):
- *   - `Filedata` — the file bytes. The filename's extension must match
- *     the `path`'s extension (HQ's `validate_file` checks
- *     `file_ext ∈ guess_all_extensions(path)`), so the filename is the
- *     wire path's basename (`<hash><ext>`).
- *   - `path` — the full `jr://file/commcare/<hash><ext>` reference, the
- *     `multimedia_map` key `create_mapping` writes. Byte-identical to the
- *     expander's emitted reference so the form's itext resolves to it.
- *
- * Response shape (synchronous, verified against
- * `BaseProcessUploadedView.post` + `CommCareMultimedia.get_media_info`):
- *   - HTTP 200 with `{ ref: { m_id, uid, path, media_type, ... },
- *     errors: [] }` on success — `ref.m_id` is the couch `_id` HQ
- *     assigned, present when the upload succeeded.
- *   - HTTP 400 (`HttpResponseBadRequest`) with `{ errors: [...] }` on a
- *     `BadMediaFileException` (bad MIME, extension mismatch, etc.).
- *
- * Auth / CSRF / WAF: same `ApiKey {username}:{api_key}` header as
- * `importApp`, and the route is NOT `@csrf_exempt`, so the caller passes
- * a CSRF token fetched once via `fetchCsrfToken` and reused across every
- * asset. The route carries `@waf_allow('XSS_BODY')` and the body is raw
- * file bytes (no XForms tags), so the 16KB padding `importApp` needs is
- * not applied here.
- *
- * Returns the assigned media id on success or a typed error with the HTTP
- * status. The CommCare wire vocabulary (`Filedata`, `m_id`, `path`) stays
- * inside this boundary — callers see only the wire path and the assigned
- * id.
- */
-async function uploadMediaFile(
+export async function uploadAppMediaBundle(
 	creds: CommCareCredentials,
 	domain: string,
 	appId: string,
-	asset: MediaUploadAsset,
-	csrfToken: string | null,
-): Promise<{ success: true; mediaId: string } | CommCareApiError> {
-	const segment = MEDIA_UPLOAD_SEGMENT[asset.kind];
-	const url = `${COMMCARE_HQ_URL}/a/${domain}/apps/${appId}/multimedia/uploaded/${segment}/`;
+	zipBytes: Buffer,
+): Promise<MediaBundleUploadResult | CommCareApiError> {
+	if (!isValidDomainSlug(domain)) {
+		return { success: false, status: 400 };
+	}
+	const base = `${COMMCARE_HQ_URL}/a/${domain}/apps/api/${appId}/multimedia`;
+	const uploadUrl = `${base}/`;
 
-	/* The multipart `path` field is the full `jr://file/...` reference —
-	 * NOT the bare wire path — because that string becomes the
-	 * `multimedia_map` key `create_mapping` writes, and it must match the
-	 * reference the expander emitted into the form's itext. Both derive
-	 * from `asset.wirePath` via `jrFileRef`, so they cannot drift. */
-	const jrPath = jrFileRef(asset.wirePath);
-	/* The `Filedata` filename's extension must match the `path`'s
-	 * extension (HQ's `validate_file` rejects a mismatch). The wire path's
-	 * basename (`<hash><ext>`) carries the right extension by
-	 * construction. */
-	const filename = asset.wirePath.slice(asset.wirePath.lastIndexOf("/") + 1);
-
+	/* Obtain a CSRF token before the POST — see fetchCsrfToken(). */
+	const csrfToken = await fetchCsrfToken();
 	const formData = new FormData();
-	formData.append("path", jrPath);
-	/* `Buffer` → `Uint8Array` view so the Blob carries the bytes without a
-	 * copy; the file is small (capped at the per-kind size limit). */
 	formData.append(
-		"Filedata",
-		new Blob([new Uint8Array(asset.bytes)]),
-		filename,
+		"bulk_upload_file",
+		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
+		"multimedia.zip",
 	);
-
-	const headers: Record<string, string> = {
-		Authorization: authHeader(creds),
-	};
+	const headers: Record<string, string> = { Authorization: authHeader(creds) };
 	if (csrfToken) {
 		headers["X-CSRFToken"] = csrfToken;
 		headers.Cookie = `csrftoken=${csrfToken}`;
-		headers.Referer = url;
+		headers.Referer = uploadUrl;
 	}
 
-	const res = await fetch(url, { method: "POST", headers, body: formData });
-
+	const res = await fetch(uploadUrl, {
+		method: "POST",
+		headers,
+		body: formData,
+	});
 	if (!res.ok) {
-		return logAndReturnError(`media upload failed (${asset.wirePath})`, res);
+		return logAndReturnError("media bundle upload failed", res);
 	}
 
-	const data = (await res.json()) as {
-		ref?: { m_id?: string };
-		errors?: string[];
+	const started = (await res.json()) as {
+		success?: boolean;
+		processing_id?: string;
+		error?: string;
 	};
-
-	/* HQ returns HTTP 200 only on success (a `BadMediaFileException`
-	 * yields HttpResponseBadRequest, caught above). Success is `errors`
-	 * empty AND `ref.m_id` present — guard both so a shape regression
-	 * surfaces as a failure rather than a silent broken reference. */
-	if ((data.errors?.length ?? 0) > 0 || !data.ref?.m_id) {
-		log.error("[commcare] media upload rejected by HQ", {
+	if (!started.success || !started.processing_id) {
+		log.error("[commcare] media bundle upload rejected by HQ", {
 			domain,
 			appId,
-			path: asset.wirePath,
-			errors: data.errors,
+			error: started.error,
 		});
 		return { success: false, status: 422 };
 	}
 
-	return { success: true, mediaId: data.ref.m_id };
+	return pollMediaBundleStatus(creds, base, started.processing_id);
 }
 
 /**
- * Upload every media asset for an already-imported CommCare HQ app.
- *
- * Ordering invariant: `importApp` MUST have returned first — the app id
- * is in each upload URL, and the app must already carry the forms'
- * `jr://` itext references (media-ON import) so the uploaded bytes
- * actually render. This function never imports; it only follows.
- *
- * A single CSRF token is fetched once and reused across every per-asset
- * POST (the import endpoint's CSRF requirement applies to these routes
- * too — they're not `@csrf_exempt`).
- *
- * Partial-failure policy: each asset is uploaded independently and any
- * per-file failure (HQ rejection, malformed success shape, or thrown
- * transport error) is recorded in `failures` rather than aborting the
- * rest. The app already exists on HQ (import ran first and isn't
- * transactional with media), so the right outcome on a media failure is
- * a created app with one broken reference, surfaced to the user as a
- * warning — not a discarded import. The caller maps `failures` into the
- * import result's `warnings` channel.
- *
- * `assets` is taken from the resolved media manifest the caller already
- * built for the expander (so the same bytes feed both the references and
- * the upload). When the manifest is empty (a media-free app), this is a
- * no-op returning `{ uploaded: 0, failures: [] }`.
+ * Poll HQ's `multimedia_status_api` until the bulk upload finishes or the
+ * deadline passes. The bytes are already accepted, so a transient status
+ * read (a non-200 between processing steps) is retried until the deadline
+ * rather than failed. On timeout, `timedOut` signals the work is still
+ * queued server-side. Status shape verified against
+ * `commcare-hq/.../hqmedia/cache.py::BulkMultimediaStatusCache.get_response`
+ * (`complete` / `errors` / `matched_count` / `unmatched_count`).
  */
-export async function uploadAppMedia(
+async function pollMediaBundleStatus(
 	creds: CommCareCredentials,
-	domain: string,
-	appId: string,
-	assets: readonly MediaUploadAsset[],
-): Promise<MediaUploadSummary | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) {
-		return { success: false, status: 400 };
-	}
-	if (assets.length === 0) {
-		return { uploaded: 0, failures: [] };
-	}
+	base: string,
+	processingId: string,
+): Promise<MediaBundleUploadResult> {
+	const statusUrl = `${base}/status/${processingId}/`;
+	const deadline = Date.now() + MEDIA_BUNDLE_POLL_TIMEOUT_MS;
+	const statusHeaders = { Authorization: authHeader(creds) };
 
-	/* One token for the whole batch — see `fetchCsrfToken`. Fetching per
-	 * asset would be N redundant round-trips for a single ephemeral
-	 * value. */
-	const csrfToken = await fetchCsrfToken();
-
-	let uploaded = 0;
-	const failures: MediaUploadFailure[] = [];
-	for (const asset of assets) {
-		let result: { success: true; mediaId: string } | CommCareApiError;
-		try {
-			result = await uploadMediaFile(creds, domain, appId, asset, csrfToken);
-		} catch (err) {
-			log.error("[commcare] media upload threw", {
-				domain,
-				appId,
-				wirePath: asset.wirePath,
-				err,
-			});
-			failures.push({ wirePath: asset.wirePath, status: 0 });
-			continue;
+	// Check first, then sleep between checks — so a fast task (or, in tests,
+	// a mocked status) returns with no mandatory delay, and a transient 404
+	// right after the POST (processing_id not yet registered) just retries.
+	while (Date.now() < deadline) {
+		const res = await fetch(statusUrl, {
+			method: "GET",
+			headers: statusHeaders,
+		});
+		if (res.ok) {
+			const status = (await res.json()) as {
+				complete?: boolean;
+				errors?: string[];
+				matched_count?: number;
+				unmatched_count?: number;
+			};
+			if (status.complete) {
+				return {
+					matched: status.matched_count ?? 0,
+					unmatched: status.unmatched_count ?? 0,
+					errors: status.errors ?? [],
+					timedOut: false,
+				};
+			}
 		}
-		if (result.success) {
-			uploaded++;
-		} else {
-			failures.push({ wirePath: asset.wirePath, status: result.status });
-		}
+		await delay(MEDIA_BUNDLE_POLL_INTERVAL_MS);
 	}
-
-	return { uploaded, failures };
+	return { matched: 0, unmatched: 0, errors: [], timedOut: true };
 }
 
-/**
- * Project a resolved media manifest into the upload-ready asset list.
- *
- * The manifest the caller built for the expander (via
- * `resolveMediaManifest(doc, owner, { withBytes: true })`) is the single
- * source of truth: this derives the upload list from it so the bytes
- * uploaded and the references emitted come from one resolution pass and
- * cannot diverge.
- *
- * Throws if an entry is missing its bytes — `withBytes: true` is the
- * caller's contract for the upload path, mirroring the compiler's
- * byte-load invariant. A missing buffer means the manifest was resolved
- * for a path-only consumer and wrongly handed to the upload flow.
- *
- * Deduplicates by wire path, mirroring `buildMediaBundle`: two distinct
- * `AssetId`s can resolve to one `(contentHash, extension)` — and so one
- * wire path — when the storage layer's ready-dedup probe races (it
- * ignores `pending` rows, so concurrent uploads of identical bytes can
- * land two `ready` rows). The compiler collapses such a pair into one
- * archive entry; the upload must collapse it into one POST so the
- * `uploaded` count matches the file count and no redundant request is
- * sent (the second POST would be a harmless `create_mapping` overwrite,
- * but it shouldn't be made).
- */
-export function mediaUploadAssetsFromManifest(
-	manifest: AssetManifest,
-): MediaUploadAsset[] {
-	const byWirePath = new Map<string, MediaUploadAsset>();
-	for (const asset of manifest.values()) {
-		if (!asset.bytes) {
-			throw new Error(
-				`The media upload flow received an asset without loaded bytes (wire path "${asset.wirePath}"). ` +
-					"The HQ multimedia upload needs each asset's bytes — resolve the manifest with `withBytes: true` " +
-					"before uploading, or check the caller passed the byte-loaded manifest rather than a path-only one.",
-			);
-		}
-		if (byWirePath.has(asset.wirePath)) continue;
-		byWirePath.set(asset.wirePath, {
-			wirePath: asset.wirePath,
-			kind: asset.kind,
-			bytes: asset.bytes,
-		});
-	}
-	return [...byWirePath.values()];
+/** Promise-returning sleep for the bounded status poll. */
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }

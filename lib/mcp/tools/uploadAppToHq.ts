@@ -70,12 +70,9 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import {
-	importApp,
-	mediaUploadAssetsFromManifest,
-	uploadAppMedia,
-} from "@/lib/commcare/client";
+import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { log } from "@/lib/logger";
@@ -328,43 +325,57 @@ export function registerUploadAppToHq(
 						);
 					}
 
-					/* App is created; upload each asset's bytes against it.
-					 * HQ's `create_mapping` overwrites the placeholder
-					 * `multimedia_map` ids with the couch-assigned ones so
-					 * the references resolve on the device. A media failure
-					 * never invalidates the (already-created) app — per-asset
-					 * failures surface as warnings. */
+					/* App is created; ship its media as ONE bulk ZIP to HQ's
+					 * api-key-authed `upload_multimedia_api`, which unzips and
+					 * matches each entry to the app's `jr://` references (the
+					 * per-kind endpoints are session-only — see
+					 * `uploadAppMediaBundle`). A media failure never invalidates
+					 * the (already-created) app — it surfaces as a warning. A
+					 * media-free app skips the upload. */
 					const warnings = [...result.warnings];
-					const mediaResult = await uploadAppMedia(
-						credResult.creds,
-						targetDomain,
-						result.appId,
-						mediaUploadAssetsFromManifest(manifest),
-					);
-					if ("success" in mediaResult) {
-						warnings.push(
-							"Media upload could not be completed; the app was created but its media may not display.",
+					if (manifest.size > 0) {
+						const mediaResult = await uploadAppMediaBundle(
+							credResult.creds,
+							targetDomain,
+							result.appId,
+							buildMediaBulkUploadZip(manifest),
 						);
-						log.error("[mcp/upload_app_to_hq] media upload batch failed", {
-							domain: targetDomain,
-							appId,
-							hqAppId: result.appId,
-							status: mediaResult.status,
-						});
-					} else if (mediaResult.failures.length > 0) {
-						const n = mediaResult.failures.length;
-						warnings.push(
-							`${n} media ${n === 1 ? "file" : "files"} could not be uploaded — the app was created, but ${
-								n === 1 ? "that file" : "those files"
-							} won't display until re-uploaded.`,
-						);
-						log.error("[mcp/upload_app_to_hq] some media assets failed", {
-							domain: targetDomain,
-							appId,
-							hqAppId: result.appId,
-							failures: mediaResult.failures,
-							uploaded: mediaResult.uploaded,
-						});
+						if ("success" in mediaResult) {
+							warnings.push(
+								"Media upload could not be completed; the app was created but its media may not display.",
+							);
+							log.error("[mcp/upload_app_to_hq] media bundle upload failed", {
+								domain: targetDomain,
+								appId,
+								hqAppId: result.appId,
+								status: mediaResult.status,
+							});
+						} else if (mediaResult.timedOut) {
+							warnings.push(
+								"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",
+							);
+						} else if (
+							mediaResult.unmatched > 0 ||
+							mediaResult.errors.length > 0
+						) {
+							const n = mediaResult.unmatched + mediaResult.errors.length;
+							warnings.push(
+								`${n} media ${n === 1 ? "file" : "files"} could not be attached — the app was created, but ${
+									n === 1 ? "that file" : "those files"
+								} won't display until re-uploaded.`,
+							);
+							log.error(
+								"[mcp/upload_app_to_hq] some media files did not attach",
+								{
+									domain: targetDomain,
+									appId,
+									hqAppId: result.appId,
+									matched: mediaResult.matched,
+									unmatched: mediaResult.unmatched,
+									errors: mediaResult.errors,
+								},
+							);
+						}
 					}
 
 					progress.notify(

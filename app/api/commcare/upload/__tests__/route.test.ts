@@ -18,11 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
-import {
-	importApp,
-	mediaUploadAssetsFromManifest,
-	uploadAppMedia,
-} from "@/lib/commcare/client";
+import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
@@ -44,8 +40,12 @@ vi.mock("@/lib/commcare/client", async (orig) => ({
 	// network surfaces.
 	...(await orig<typeof import("@/lib/commcare/client")>()),
 	importApp: vi.fn(),
-	uploadAppMedia: vi.fn(),
-	mediaUploadAssetsFromManifest: vi.fn(() => []),
+	uploadAppMediaBundle: vi.fn(),
+}));
+// The bulk-zip builder needs real bytes; the route only checks the manifest
+// is non-empty before calling it, so a stub buffer keeps it network-free.
+vi.mock("@/lib/commcare/multimedia/bulkUploadZip", () => ({
+	buildMediaBulkUploadZip: vi.fn(() => Buffer.from("zip")),
 }));
 
 const SESSION = { user: { id: "u1" } };
@@ -99,8 +99,7 @@ beforeEach(() => {
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(importApp).mockReset();
-	vi.mocked(uploadAppMedia).mockReset();
-	vi.mocked(mediaUploadAssetsFromManifest).mockReset();
+	vi.mocked(uploadAppMediaBundle).mockReset();
 
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	// Successful credential + target-space resolution (`{ ok: true }`) so
@@ -115,8 +114,12 @@ beforeEach(() => {
 	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 	vi.mocked(expandDoc).mockReturnValue({} as never);
-	vi.mocked(mediaUploadAssetsFromManifest).mockReturnValue([]);
-	vi.mocked(uploadAppMedia).mockResolvedValue({ uploaded: 0, failures: [] });
+	vi.mocked(uploadAppMediaBundle).mockResolvedValue({
+		matched: 0,
+		unmatched: 0,
+		errors: [],
+		timedOut: false,
+	});
 });
 
 describe("POST /api/commcare/upload — media validation gate", () => {
@@ -143,13 +146,18 @@ describe("POST /api/commcare/upload — media validation gate", () => {
 		expect(expandDoc).not.toHaveBeenCalled();
 	});
 
-	it("proceeds to import + media upload when media validation is clean", async () => {
+	it("proceeds to import + bulk media upload when media validation is clean", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
 			appUrl: "https://hq.example/app",
 			warnings: [],
 		});
+		// A non-empty manifest so the route reaches the media upload (a
+		// media-free app skips it — covered below).
+		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
+			new Map([["a1", {} as never]]) as never,
+		);
 
 		const res = await POST(
 			reqWith({ domain: DOMAIN, appName: "T", doc: validDoc() }),
@@ -161,12 +169,56 @@ describe("POST /api/commcare/upload — media validation gate", () => {
 
 		expect(res.status).toBe(201);
 		expect(body.appId).toBe("hq-1");
+		// Default bundle result is a clean match → no warnings.
 		expect(body.warnings).toEqual([]);
 		expect(collectMediaValidationErrors).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
 			"u1",
 		);
 		expect(importApp).toHaveBeenCalledTimes(1);
-		expect(uploadAppMedia).toHaveBeenCalledTimes(1);
+		expect(uploadAppMediaBundle).toHaveBeenCalledTimes(1);
+	});
+
+	it("skips the media upload for a media-free app", async () => {
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-2",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+		// Default manifest is empty → no media to ship.
+		const res = await POST(
+			reqWith({ domain: DOMAIN, appName: "T", doc: validDoc() }),
+		);
+		await res.json();
+
+		expect(res.status).toBe(201);
+		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
+	});
+
+	it("warns when HQ leaves media files unmatched", async () => {
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-3",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
+			new Map([["a1", {} as never]]) as never,
+		);
+		vi.mocked(uploadAppMediaBundle).mockResolvedValueOnce({
+			matched: 0,
+			unmatched: 1,
+			errors: [],
+			timedOut: false,
+		});
+
+		const res = await POST(
+			reqWith({ domain: DOMAIN, appName: "T", doc: validDoc() }),
+		);
+		const body = (await res.json()) as { warnings: string[] };
+
+		expect(res.status).toBe(201);
+		expect(body.warnings.join(" ")).toMatch(/could not be uploaded/i);
 	});
 });

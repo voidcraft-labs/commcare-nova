@@ -21,10 +21,10 @@ import { requireSession } from "@/lib/auth-utils";
 import {
 	importApp,
 	isValidDomainSlug,
-	mediaUploadAssetsFromManifest,
-	uploadAppMedia,
+	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
@@ -153,37 +153,50 @@ export async function POST(req: NextRequest) {
 		});
 
 		/* ── Upload media bytes against the new app ──────────────────── */
-		// The app is created; now ship each asset's bytes so HQ's
-		// `create_mapping` overwrites the placeholder `multimedia_map`
-		// entries with real ids and the references resolve on the device.
-		// A media failure never invalidates the import (the app already
-		// exists) — per-asset failures surface as warnings.
+		// The app is created; now ship its media as ONE bulk ZIP to HQ's
+		// api-key-authed `upload_multimedia_api`, which unzips and matches
+		// each `commcare/<hash><ext>` entry to the app's `jr://` references
+		// (the per-kind `uploaded/<kind>/` endpoints are session-only and
+		// reject the API key — see `uploadAppMediaBundle`). A media failure
+		// never invalidates the import (the app already exists) — it surfaces
+		// as a warning. A media-free app skips the upload entirely.
 		const warnings = [...result.warnings];
-		const mediaResult = await uploadAppMedia(
-			creds,
-			domain,
-			result.appId,
-			mediaUploadAssetsFromManifest(manifest),
-		);
-		if ("success" in mediaResult) {
-			// A non-success summary means the batch couldn't start (e.g.
-			// invalid domain slug — already validated above, so defensive).
-			warnings.push(
-				"Media upload could not be completed; the app was created but its media may not display.",
+		if (manifest.size > 0) {
+			const mediaResult = await uploadAppMediaBundle(
+				creds,
+				domain,
+				result.appId,
+				buildMediaBulkUploadZip(manifest),
 			);
-			log.error("[commcare/upload] media upload batch failed", {
-				domain: body.domain,
-				appId: result.appId,
-				status: mediaResult.status,
-			});
-		} else if (mediaResult.failures.length > 0) {
-			warnings.push(mediaUploadWarning(mediaResult.failures.length));
-			log.error("[commcare/upload] some media assets failed to upload", {
-				domain: body.domain,
-				appId: result.appId,
-				failed: mediaResult.failures.length,
-				uploaded: mediaResult.uploaded,
-			});
+			if ("success" in mediaResult) {
+				// The ZIP itself was rejected (auth / transport) — the app
+				// exists but carries no media bytes.
+				warnings.push(
+					"Media upload could not be completed; the app was created but its media may not display.",
+				);
+				log.error("[commcare/upload] media bundle upload failed", {
+					domain: body.domain,
+					appId: result.appId,
+					status: mediaResult.status,
+				});
+			} else if (mediaResult.timedOut) {
+				// Accepted + queued, but HQ hadn't finished processing when we
+				// stopped polling — the media should appear shortly.
+				warnings.push(
+					"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",
+				);
+			} else if (mediaResult.unmatched > 0 || mediaResult.errors.length > 0) {
+				warnings.push(
+					mediaUploadWarning(mediaResult.unmatched + mediaResult.errors.length),
+				);
+				log.error("[commcare/upload] some media files did not attach", {
+					domain: body.domain,
+					appId: result.appId,
+					matched: mediaResult.matched,
+					unmatched: mediaResult.unmatched,
+					errors: mediaResult.errors,
+				});
+			}
 		}
 
 		return NextResponse.json({ ...result, warnings }, { status: 201 });

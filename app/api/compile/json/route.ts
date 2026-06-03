@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { expandDoc } from "@/lib/commcare/expander";
+import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
@@ -99,19 +100,12 @@ export async function POST(req: NextRequest) {
 		}
 
 		// Media-ON: bundle the json + the HQ-format multimedia zip + a README
-		// describing the two-step manual import.
-		const mediaZip = new AdmZip();
-		for (const asset of assets.values()) {
-			// `withBytes: true` guarantees bytes on every resolved asset; the
-			// guard keeps the type honest without a non-null assertion.
-			if (asset.bytes) {
-				mediaZip.addFile(asset.wirePath, asset.bytes);
-			}
-		}
-
+		// describing the two-step manual import. The multimedia zip is the
+		// SAME bulk-upload format the HQ-upload path POSTs, built by one shared
+		// helper so a manual import and an API upload can't diverge.
 		const bundle = new AdmZip();
 		bundle.addFile(`${appName}.json`, Buffer.from(jsonStr, "utf-8"));
-		bundle.addFile("multimedia.zip", mediaZip.toBuffer());
+		bundle.addFile("multimedia.zip", buildMediaBulkUploadZip(assets));
 		bundle.addFile("README.txt", Buffer.from(importReadme(appName), "utf-8"));
 
 		return new NextResponse(new Uint8Array(bundle.toBuffer()), {
