@@ -11,59 +11,77 @@
 import { describe, expect, it } from "vitest";
 import {
 	ALL_MIME_TYPES,
+	ASSET_KINDS,
+	ASSET_SIZE_CAPS_BYTES,
 	AUDIO_MIME_TYPES,
+	assetKindForMimeType,
+	DOCUMENT_KINDS,
 	EXTENSION_FOR_MIME_TYPE,
 	gcsObjectKeyFor,
 	IMAGE_MIME_TYPES,
 	MEDIA_KINDS,
-	MEDIA_SIZE_CAPS_BYTES,
-	mediaKindForMimeType,
 	mediaSchema,
 	normalizeMimeType,
 	VIDEO_MIME_TYPES,
 } from "../multimedia";
 
-describe("mediaKindForMimeType", () => {
+describe("assetKindForMimeType", () => {
 	it("returns 'image' for every image MIME type", () => {
 		for (const mime of IMAGE_MIME_TYPES) {
-			expect(mediaKindForMimeType(mime)).toBe("image");
+			expect(assetKindForMimeType(mime)).toBe("image");
 		}
 	});
 
 	it("returns 'audio' for every audio MIME type", () => {
 		for (const mime of AUDIO_MIME_TYPES) {
-			expect(mediaKindForMimeType(mime)).toBe("audio");
+			expect(assetKindForMimeType(mime)).toBe("audio");
 		}
 	});
 
 	it("returns 'video' for every video MIME type", () => {
 		for (const mime of VIDEO_MIME_TYPES) {
-			expect(mediaKindForMimeType(mime)).toBe("video");
+			expect(assetKindForMimeType(mime)).toBe("video");
 		}
 	});
 
 	it("returns undefined for SVG (deliberately rejected)", () => {
-		expect(mediaKindForMimeType("image/svg+xml")).toBeUndefined();
+		expect(assetKindForMimeType("image/svg+xml")).toBeUndefined();
 	});
 
-	it("returns undefined for any unknown MIME type", () => {
-		expect(mediaKindForMimeType("application/pdf")).toBeUndefined();
-		expect(mediaKindForMimeType("text/plain")).toBeUndefined();
-		expect(mediaKindForMimeType("")).toBeUndefined();
+	it("returns the document kind for each document MIME type", () => {
+		expect(assetKindForMimeType("application/pdf")).toBe("pdf");
+		expect(assetKindForMimeType("text/plain")).toBe("text");
+		expect(assetKindForMimeType("text/markdown")).toBe("text");
+		expect(
+			assetKindForMimeType(
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			),
+		).toBe("docx");
+		expect(
+			assetKindForMimeType(
+				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			),
+		).toBe("xlsx");
+	});
+
+	it("returns undefined for a genuinely unknown MIME type", () => {
+		expect(assetKindForMimeType("application/zip")).toBeUndefined();
+		expect(assetKindForMimeType("image/svg+xml")).toBeUndefined();
+		expect(assetKindForMimeType("")).toBeUndefined();
 	});
 });
 
-describe("MEDIA_SIZE_CAPS_BYTES", () => {
-	it("covers every media kind", () => {
-		for (const kind of MEDIA_KINDS) {
-			expect(MEDIA_SIZE_CAPS_BYTES[kind]).toBeGreaterThan(0);
+describe("ASSET_SIZE_CAPS_BYTES", () => {
+	it("covers every asset kind", () => {
+		for (const kind of ASSET_KINDS) {
+			expect(ASSET_SIZE_CAPS_BYTES[kind]).toBeGreaterThan(0);
 		}
 	});
 
 	it("keeps the documented tight caps (5 MB / 10 MB / 50 MB)", () => {
-		expect(MEDIA_SIZE_CAPS_BYTES.image).toBe(5 * 1024 * 1024);
-		expect(MEDIA_SIZE_CAPS_BYTES.audio).toBe(10 * 1024 * 1024);
-		expect(MEDIA_SIZE_CAPS_BYTES.video).toBe(50 * 1024 * 1024);
+		expect(ASSET_SIZE_CAPS_BYTES.image).toBe(5 * 1024 * 1024);
+		expect(ASSET_SIZE_CAPS_BYTES.audio).toBe(10 * 1024 * 1024);
+		expect(ASSET_SIZE_CAPS_BYTES.video).toBe(50 * 1024 * 1024);
 	});
 });
 
@@ -140,9 +158,25 @@ describe("mediaSchema", () => {
 	});
 });
 
-describe("MEDIA_KINDS", () => {
-	it("matches the three slot kinds the size-cap map covers", () => {
+describe("kind partitions", () => {
+	it("MEDIA_KINDS is exactly the three wire-attachable kinds", () => {
 		expect([...MEDIA_KINDS].sort()).toEqual(["audio", "image", "video"]);
+	});
+
+	it("DOCUMENT_KINDS is the library-only document set", () => {
+		expect([...DOCUMENT_KINDS].sort()).toEqual(["docx", "pdf", "text", "xlsx"]);
+	});
+
+	it("ASSET_KINDS is media + documents", () => {
+		expect([...ASSET_KINDS].sort()).toEqual([
+			"audio",
+			"docx",
+			"image",
+			"pdf",
+			"text",
+			"video",
+			"xlsx",
+		]);
 	});
 });
 
@@ -184,7 +218,7 @@ describe("normalizeMimeType", () => {
 
 	it("returns undefined for SVG and other unaccepted types", () => {
 		expect(normalizeMimeType("image/svg+xml")).toBeUndefined();
-		expect(normalizeMimeType("application/pdf")).toBeUndefined();
+		expect(normalizeMimeType("application/zip")).toBeUndefined();
 		expect(normalizeMimeType("")).toBeUndefined();
 	});
 });

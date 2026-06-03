@@ -23,8 +23,8 @@ import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef, useState } from "react";
 import {
+	assetKindForMimeType,
 	type MediaKind,
-	mediaKindForMimeType,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
 import type { MediaAssetView } from "./mediaClient";
@@ -240,8 +240,12 @@ function UploadTab({
 		// `image/apng`) so the user gets an instant answer instead of
 		// hashing the bytes + a server round trip just to be rejected.
 		const dropped = normalizeMimeType(file.type);
-		const kind = dropped ? mediaKindForMimeType(dropped) : undefined;
-		if (!kind || !kinds.includes(kind)) {
+		const kind = dropped ? assetKindForMimeType(dropped) : undefined;
+		// `kind` is the wider `AssetKind`; `some` (not `includes`) lets us
+		// compare it against this picker's narrower allowed set without a
+		// cast. A kind outside the set (e.g. a document on a media carrier)
+		// is rejected here.
+		if (!kind || !kinds.some((k) => k === kind)) {
 			setKindError(
 				`That file isn't ${nounPhrase}. This slot takes ${accept.split(",").join(", ")}.`,
 			);
@@ -323,12 +327,19 @@ function LibraryTab({
 }) {
 	const [query, setQuery] = useState("");
 	const filtered = useMemo(() => {
+		// Scope to this picker's allowed kinds first: the library list can
+		// hold documents, but a carrier picker (media-only) must never
+		// surface one — a document can't attach to a CommCare carrier, so it
+		// can't be offered there. (`some`, since `a.kind` is the wider
+		// `AssetKind`.) The Files library passes every kind, so nothing is
+		// dropped there.
+		const inScope = assets.filter((a) => kinds.some((k) => k === a.kind));
 		const q = query.trim().toLowerCase();
-		if (!q) return assets;
-		return assets.filter((a) =>
+		if (!q) return inScope;
+		return inScope.filter((a) =>
 			(a.displayName ?? a.originalFilename).toLowerCase().includes(q),
 		);
-	}, [assets, query]);
+	}, [assets, query, kinds]);
 
 	return (
 		<div className="flex flex-col gap-3">

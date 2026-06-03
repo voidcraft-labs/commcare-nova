@@ -89,40 +89,107 @@ export type AudioMimeType = (typeof AUDIO_MIME_TYPES)[number];
 export const VIDEO_MIME_TYPES = ["video/mp4"] as const;
 export type VideoMimeType = (typeof VIDEO_MIME_TYPES)[number];
 
+/**
+ * Document MIME types — the library-only asset formats (see
+ * `DOCUMENT_KINDS` below). Unlike image/audio/video, documents are NEVER
+ * attachable to a CommCare carrier and never reach the wire emitter; they
+ * live in the user's file library as inputs to attach to the SA chat.
+ *
+ * `text/plain` (and `text/markdown`) carry NO magic-bytes signature, so
+ * `file-type` can't sniff them — the validator gives the `text` kind a
+ * dedicated arm (extension + UTF-8 validity) instead of the magic-bytes
+ * gate the other formats pass.
+ */
+export const PDF_MIME_TYPES = ["application/pdf"] as const;
+export const TEXT_MIME_TYPES = ["text/plain", "text/markdown"] as const;
+export const DOCX_MIME_TYPES = [
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+] as const;
+export const XLSX_MIME_TYPES = [
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+] as const;
+export const DOCUMENT_MIME_TYPES = [
+	...PDF_MIME_TYPES,
+	...TEXT_MIME_TYPES,
+	...DOCX_MIME_TYPES,
+	...XLSX_MIME_TYPES,
+] as const;
+
 export const ALL_MIME_TYPES = [
 	...IMAGE_MIME_TYPES,
 	...AUDIO_MIME_TYPES,
 	...VIDEO_MIME_TYPES,
+	...DOCUMENT_MIME_TYPES,
 ] as const;
 export type AssetMimeType = (typeof ALL_MIME_TYPES)[number];
 
 /**
- * The slot kind paired with a MIME type at the validation boundary.
- * Used by the upload route to pick the right size cap and by the
- * library list endpoint to filter by kind.
+ * Kinds that attach to a CommCare carrier (a field message, a select
+ * option, a menu tile, the app logo) and emit to the wire. This is the
+ * wire-attachable set — every carrier's slot is typed to `MediaKind`, so
+ * a document can't be attached to one or reach the emitter by
+ * construction. The `Media` bundle below is keyed by exactly these.
  */
 export const MEDIA_KINDS = ["image", "audio", "video"] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
 
 /**
+ * Kinds that live ONLY in the user's file library — never attachable to
+ * a CommCare carrier, never wire-emitted. Per-format (not a single coarse
+ * "document") so preview, validation, and the library type-filter each
+ * dispatch cleanly on the kind.
+ */
+export const DOCUMENT_KINDS = ["pdf", "text", "docx", "xlsx"] as const;
+export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+
+/**
+ * Every stored-asset kind. The asset row's `kind` is one of these; the
+ * library lists them all. The wire/library split is enforced at the
+ * carrier boundary (carriers accept only `MediaKind`), not here.
+ */
+export const ASSET_KINDS = [...MEDIA_KINDS, ...DOCUMENT_KINDS] as const;
+export type AssetKind = (typeof ASSET_KINDS)[number];
+
+/** Narrow an `AssetKind` to the library-only document set. */
+export function isDocumentKind(kind: AssetKind): kind is DocumentKind {
+	return (DOCUMENT_KINDS as readonly string[]).includes(kind);
+}
+
+/** Narrow an `AssetKind` to the wire-attachable media set. */
+export function isMediaKind(kind: AssetKind): kind is MediaKind {
+	return (MEDIA_KINDS as readonly string[]).includes(kind);
+}
+
+/**
  * Per-kind upload size caps. Tight by design: forces sane originals.
  * Cellular-deployment-friendly. Server-enforced; client-side `accept`
- * is just for UX feedback.
+ * is just for UX feedback. Documents skew larger than the media caps
+ * (a PDF report dwarfs a menu icon) but text stays small — it's plain
+ * UTF-8, and a multi-MB "text" file is almost always a mislabeled binary.
  */
-export const MEDIA_SIZE_CAPS_BYTES: Record<MediaKind, number> = {
+export const ASSET_SIZE_CAPS_BYTES: Record<AssetKind, number> = {
 	image: 5 * 1024 * 1024,
 	audio: 10 * 1024 * 1024,
 	video: 50 * 1024 * 1024,
+	pdf: 20 * 1024 * 1024,
+	text: 1 * 1024 * 1024,
+	docx: 10 * 1024 * 1024,
+	xlsx: 10 * 1024 * 1024,
 };
 
 /**
- * Resolve a canonical MIME type to its kind. Returns `undefined` for
- * any MIME outside the accepted set — the caller treats that as a
+ * Resolve a canonical MIME type to its asset kind. Returns `undefined`
+ * for any MIME outside the accepted set — the caller treats that as a
  * validation rejection. Expects an already-canonical MIME; run
  * `normalizeMimeType` first if the input is a raw browser claim or a
  * `file-type` sniff result.
+ *
+ * Returns document kinds too, but a carrier-scoped caller (a field/menu
+ * picker) passes only `MediaKind`s in its allowed set and rejects any
+ * kind outside it — so a document resolved here still can't attach to a
+ * carrier.
  */
-export function mediaKindForMimeType(mimeType: string): MediaKind | undefined {
+export function assetKindForMimeType(mimeType: string): AssetKind | undefined {
 	if ((IMAGE_MIME_TYPES as readonly string[]).includes(mimeType)) {
 		return "image";
 	}
@@ -132,7 +199,46 @@ export function mediaKindForMimeType(mimeType: string): MediaKind | undefined {
 	if ((VIDEO_MIME_TYPES as readonly string[]).includes(mimeType)) {
 		return "video";
 	}
+	if ((PDF_MIME_TYPES as readonly string[]).includes(mimeType)) {
+		return "pdf";
+	}
+	if ((TEXT_MIME_TYPES as readonly string[]).includes(mimeType)) {
+		return "text";
+	}
+	if ((DOCX_MIME_TYPES as readonly string[]).includes(mimeType)) {
+		return "docx";
+	}
+	if ((XLSX_MIME_TYPES as readonly string[]).includes(mimeType)) {
+		return "xlsx";
+	}
 	return undefined;
+}
+
+/**
+ * Asset kind for a (lowercased) file extension. The fallback the
+ * validator uses when the browser sends no usable `Content-Type` — empty
+ * or `application/octet-stream`, common for `.md` and sometimes office
+ * files — to pick the size cap + the per-kind validation arm. The
+ * extension is only a HINT for routing; the magic-bytes sniff (or the
+ * UTF-8 check for text) is still the authoritative format gate.
+ */
+const KIND_FOR_EXTENSION: Record<string, AssetKind> = {
+	".png": "image",
+	".jpg": "image",
+	".jpeg": "image",
+	".gif": "image",
+	".webp": "image",
+	".mp3": "audio",
+	".wav": "audio",
+	".mp4": "video",
+	".pdf": "pdf",
+	".txt": "text",
+	".md": "text",
+	".docx": "docx",
+	".xlsx": "xlsx",
+};
+export function assetKindForExtension(ext: string): AssetKind | undefined {
+	return KIND_FOR_EXTENSION[ext.toLowerCase()];
 }
 
 /**
@@ -192,6 +298,12 @@ export const EXTENSION_FOR_MIME_TYPE: Record<AssetMimeType, string> = {
 	"audio/mpeg": ".mp3",
 	"audio/wav": ".wav",
 	"video/mp4": ".mp4",
+	"application/pdf": ".pdf",
+	"text/plain": ".txt",
+	"text/markdown": ".md",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		".docx",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
 };
 
 /**

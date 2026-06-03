@@ -35,9 +35,9 @@ import {
 } from "@/lib/db/mediaAssets";
 import {
 	ALL_MIME_TYPES,
+	ASSET_SIZE_CAPS_BYTES,
+	assetKindForMimeType,
 	EXTENSION_FOR_MIME_TYPE,
-	MEDIA_SIZE_CAPS_BYTES,
-	mediaKindForMimeType,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
 import { createSignedUploadUrl } from "@/lib/storage/media";
@@ -84,14 +84,14 @@ export async function POST(req: NextRequest) {
 		// Per-kind size cap before any storage round trip. The
 		// validator runs the same check again at confirm time against
 		// the actual bytes — this is the cheap up-front rejection.
-		const kind = mediaKindForMimeType(mimeType);
+		const kind = assetKindForMimeType(mimeType);
 		if (!kind) {
 			throw new ApiError(
 				`MIME type \`${mimeType}\` isn't one we accept. Accepted types: ${ALL_MIME_TYPES.join(", ")}.`,
 				400,
 			);
 		}
-		const cap = MEDIA_SIZE_CAPS_BYTES[kind];
+		const cap = ASSET_SIZE_CAPS_BYTES[kind];
 		if (sizeBytes > cap) {
 			const capMb = (cap / 1024 / 1024).toFixed(0);
 			const actualMb = (sizeBytes / 1024 / 1024).toFixed(2);

@@ -17,10 +17,14 @@ import {
 	type ResolvedMediaAsset,
 	wirePathFor,
 } from "@/lib/commcare/multimedia/assetWirePath";
-import { loadAssetsByIds } from "@/lib/db/mediaAssets";
+import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
-import { asAssetId } from "@/lib/domain/multimedia";
+import {
+	asAssetId,
+	isMediaKind,
+	type MediaKind,
+} from "@/lib/domain/multimedia";
 import { downloadAssetBytes } from "@/lib/storage/media";
 
 export interface ResolveManifestOptions {
@@ -65,8 +69,16 @@ export async function resolveMediaManifest(
 	const ids = [...collectAssetRefs(doc)];
 	if (ids.length === 0) return new Map();
 
+	// Keep `ready` rows of a wire-attachable (media) kind. `collectAssetRefs`
+	// only walks carrier slots, which are typed to `MediaKind`, so a
+	// document can't legitimately be referenced here — and the media
+	// validator rejects a stale/foreign/kind-mismatched ref before compile.
+	// The `isMediaKind` narrow is the type-level backstop that also lets the
+	// row flow into `ResolvedMediaAsset` (whose `kind` is `MediaKind`): the
+	// wire layer never carries a document.
 	const rows = (await loadAssetsByIds(owner, ids)).filter(
-		(row) => row.status === "ready",
+		(row): row is MediaAssetRecord & { kind: MediaKind } =>
+			row.status === "ready" && isMediaKind(row.kind),
 	);
 	// Bytes (when requested) come from GCS — fetch in parallel. Compile
 	// is interactive (the user clicked "Compile to CCZ"); serializing

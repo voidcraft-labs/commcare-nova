@@ -11,8 +11,14 @@
  *
  *   1. Extension whitelist
  *   2. Size cap per kind
- *   3. Magic-bytes sniff (file-type)
- *   4. Library re-parse (sharp for images, music-metadata for audio/video)
+ *   3. Format check — a magic-bytes sniff (file-type) for everything that
+ *      carries a container signature; a UTF-8 check for text, which has
+ *      none
+ *   4. Body re-parse for image (sharp) + audio/video (music-metadata).
+ *      pdf/docx/xlsx are validated by the sniff ALONE — the server never
+ *      parses an untrusted office/PDF body (that's a real parser-CVE
+ *      surface); the preview parses them client-side, on the owner's own
+ *      file, instead
  *   5. SHA-256 computed from the validated bytes
  *
  * Trust nothing the client says about the bytes; verify everything.
@@ -31,11 +37,12 @@ import { type IAudioMetadata, parseBuffer } from "music-metadata";
 import sharp from "sharp";
 import {
 	ALL_MIME_TYPES,
+	ASSET_SIZE_CAPS_BYTES,
+	type AssetKind,
 	type AssetMimeType,
+	assetKindForExtension,
+	assetKindForMimeType,
 	EXTENSION_FOR_MIME_TYPE,
-	MEDIA_SIZE_CAPS_BYTES,
-	type MediaKind,
-	mediaKindForMimeType,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
 
@@ -58,6 +65,11 @@ export const ACCEPTED_EXTENSIONS = [
 	".mp3",
 	".mp4",
 	".wav",
+	".pdf",
+	".txt",
+	".md",
+	".docx",
+	".xlsx",
 ] as const;
 export type AcceptedExtension = (typeof ACCEPTED_EXTENSIONS)[number];
 
@@ -75,7 +87,7 @@ export interface ValidatedMediaMetadata {
 	mimeType: AssetMimeType;
 	extension: string;
 	sizeBytes: number;
-	kind: MediaKind;
+	kind: AssetKind;
 	dimensions?: { width: number; height: number };
 	durationMs?: number;
 }
@@ -94,6 +106,7 @@ export type ValidationFailureReason =
 	| "hash-claim-mismatch"
 	| "image-parse-failed"
 	| "media-parse-failed"
+	| "text-not-utf8"
 	| "claimed-size-mismatch";
 
 /**
@@ -147,34 +160,27 @@ export async function validateMediaBytes(args: {
 		};
 	}
 
-	// MIME-claim membership is checked BEFORE the size cap so we can
-	// pick the right per-kind cap. The claim is normalized first so
-	// an alias spelling (a browser sending `image/apng` for an animated
-	// `.png`) reconciles to its canonical form; a claim that doesn't
-	// normalize to an accepted type is rejected here.
+	// The kind is resolved BEFORE the size cap so we can pick the right
+	// per-kind cap + validation arm. Prefer the claimed MIME (normalized
+	// so an alias like `image/apng` reconciles); fall back to the declared
+	// extension when the browser sent no usable Content-Type — empty or
+	// `application/octet-stream`, common for `.md` and some office files.
+	// `declaredExt` passed the whitelist in stage 1, so the fallback always
+	// resolves a kind; the sniff (or the UTF-8 check) below is the
+	// authoritative format gate regardless of which source named the kind.
 	const normalizedClaim = normalizeMimeType(claimedMimeType);
-	if (!normalizedClaim) {
-		return {
-			ok: false,
-			reason: "mime-claim-mismatch",
-			message: `Tried to upload \`${args.originalFilename}\` with MIME type \`${claimedMimeType}\`, but that type isn't accepted. Accepted types are ${ALL_MIME_TYPES.join(", ")}. The file may be in an unsupported format.`,
-		};
-	}
-	const claimedKind = mediaKindForMimeType(normalizedClaim);
-	// claimedKind is non-undefined here because `normalizeMimeType`
-	// only returns members of ALL_MIME_TYPES, all of which the kind
-	// partition covers; the guard satisfies the compiler and surfaces
-	// a clear bug message if a MIME is ever added to ALL_MIME_TYPES
-	// but not to the kind partition.
+	const claimedKind =
+		(normalizedClaim ? assetKindForMimeType(normalizedClaim) : undefined) ??
+		assetKindForExtension(declaredExt);
 	if (!claimedKind) {
 		return {
 			ok: false,
 			reason: "mime-claim-mismatch",
-			message: `Compiler bug: MIME type \`${normalizedClaim}\` is in ALL_MIME_TYPES but not partitioned into a kind. Report this — the kind partition in lib/domain/multimedia.ts is incomplete.`,
+			message: `Tried to upload \`${args.originalFilename}\`, but neither its type (\`${claimedMimeType || "none"}\`) nor its \`${declaredExt}\` extension maps to an accepted format. Accepted types are ${ALL_MIME_TYPES.join(", ")}.`,
 		};
 	}
 
-	const cap = MEDIA_SIZE_CAPS_BYTES[claimedKind];
+	const cap = ASSET_SIZE_CAPS_BYTES[claimedKind];
 	if (bytes.length > cap) {
 		const capMb = (cap / 1024 / 1024).toFixed(0);
 		const actualMb = (bytes.length / 1024 / 1024).toFixed(2);
@@ -185,93 +191,120 @@ export async function validateMediaBytes(args: {
 		};
 	}
 
-	// Stage 3: magic-bytes sniff. `file-type` reads the first ~262
-	// bytes to identify the format from its container signature. A
-	// `.png` extension on bytes that don't carry a PNG magic number
-	// is rejected here — that's the primary defense against type
-	// spoofing.
-	const sniffed = await fileTypeFromBuffer(bytes);
-	if (!sniffed) {
-		return {
-			ok: false,
-			reason: "magic-bytes-sniff-failed",
-			message: `Couldn't identify the format of \`${args.originalFilename}\` from its bytes. The file may be empty, corrupted, or in a format we don't recognize. Try re-exporting from its original source.`,
-		};
-	}
-	// Normalize the sniff before comparing — `file-type` reports some
-	// formats under alias spellings (`image/apng` for animated PNG) or
-	// with codec parameters (`video/mp4; codecs=...`) that name an
-	// accepted format under a non-canonical string.
-	const sniffedMime = normalizeMimeType(sniffed.mime);
-	if (!sniffedMime) {
-		return {
-			ok: false,
-			reason: "magic-bytes-sniff-failed",
-			message: `\`${args.originalFilename}\` looks like a \`${sniffed.mime}\` file, which isn't an accepted media type. Accepted: ${ALL_MIME_TYPES.join(", ")}.`,
-		};
-	}
-
-	if (sniffedMime !== normalizedClaim) {
-		return {
-			ok: false,
-			reason: "mime-claim-mismatch",
-			message: `\`${args.originalFilename}\` claims to be \`${normalizedClaim}\` but the bytes are actually \`${sniffedMime}\`. This usually means the file was renamed without re-encoding. Either rename it to match its real format or re-export it as \`${normalizedClaim}\`.`,
-		};
-	}
-
-	const canonicalExtension = EXTENSION_FOR_MIME_TYPE[sniffedMime];
-	// The pre-screen extension and the post-sniff canonical extension
-	// can legitimately differ for one pair: `.jpg` and `.jpeg` both
-	// map to `image/jpeg`. Accept the family match (both extensions
-	// are valid for the same canonical MIME); reject everything else.
-	const sameJpegFamily =
-		canonicalExtension === ".jpg" &&
-		(declaredExt === ".jpg" || declaredExt === ".jpeg");
-	if (!sameJpegFamily && declaredExt !== canonicalExtension) {
-		return {
-			ok: false,
-			reason: "extension-mime-mismatch",
-			message: `\`${args.originalFilename}\` has extension \`${declaredExt}\` but its bytes are \`${sniffedMime}\` (which we'd expect to end in \`${canonicalExtension}\`). Rename the file to match the format, or re-export to the format the extension suggests.`,
-		};
-	}
-
-	// Stage 4: library re-parse. For images, `sharp` opens the bytes
-	// and reads metadata — failure here means the magic-bytes
-	// matched but the body is truncated or malformed. For audio/
-	// video, music-metadata parses the container structure. Both raise on parse
-	// failure; we map that to a clean rejection.
+	// Per-kind format check + body validation. Text carries no magic-bytes
+	// signature, so it can't go through the `file-type` sniff — it's
+	// validated as UTF-8 by extension instead. Everything else
+	// (image/audio/video/pdf/docx/xlsx) carries a container signature
+	// `file-type` detects.
+	let sniffedMime: AssetMimeType;
+	let canonicalExtension: string;
 	let dimensions: { width: number; height: number } | undefined;
 	let durationMs: number | undefined;
 
-	if (claimedKind === "image") {
-		try {
-			const meta = await sharp(bytes).metadata();
-			if (!meta.width || !meta.height) {
+	if (claimedKind === "text") {
+		// No sniff possible. Reject a binary file mislabeled `.txt`/`.md`:
+		// the bytes must decode as valid UTF-8 with no NUL byte. The
+		// canonical MIME + extension come from the declared extension
+		// (`.md` → markdown, else plain) since there's nothing to sniff.
+		if (!isUtf8Text(bytes)) {
+			return {
+				ok: false,
+				reason: "text-not-utf8",
+				message: `\`${args.originalFilename}\` doesn't read as a text file — it has bytes that aren't valid UTF-8 text. If it's really a document, upload it in its original format (PDF, Word, or Excel) rather than as text.`,
+			};
+		}
+		sniffedMime = declaredExt === ".md" ? "text/markdown" : "text/plain";
+		canonicalExtension = declaredExt === ".md" ? ".md" : ".txt";
+	} else {
+		// Stage 3: magic-bytes sniff. `file-type` reads the leading bytes to
+		// identify the format from its container signature — including the
+		// ZIP + `[Content_Types].xml` inspection that tells docx/xlsx from a
+		// bare archive. A `.png` on non-PNG bytes, or a `.docx` that's just
+		// a renamed ZIP, is rejected here: the primary anti-spoof defense.
+		const sniffed = await fileTypeFromBuffer(bytes);
+		if (!sniffed) {
+			return {
+				ok: false,
+				reason: "magic-bytes-sniff-failed",
+				message: `Couldn't identify the format of \`${args.originalFilename}\` from its bytes. The file may be empty, corrupted, or in a format we don't recognize. Try re-exporting from its original source.`,
+			};
+		}
+		// Normalize the sniff before comparing — `file-type` reports some
+		// formats under alias spellings (`image/apng`) or with codec
+		// parameters (`video/mp4; codecs=...`).
+		const normalizedSniff = normalizeMimeType(sniffed.mime);
+		if (!normalizedSniff) {
+			return {
+				ok: false,
+				reason: "magic-bytes-sniff-failed",
+				message: `\`${args.originalFilename}\` looks like a \`${sniffed.mime}\` file, which isn't an accepted type. Accepted: ${ALL_MIME_TYPES.join(", ")}.`,
+			};
+		}
+		// Cross-check the sniff against the claimed MIME WHEN the browser
+		// sent a usable one. A missing/unusable claim (the extension named
+		// the kind) has nothing to cross-check — the sniff plus the
+		// extension-vs-sniff check below are the gates in that case.
+		if (normalizedClaim && normalizedSniff !== normalizedClaim) {
+			return {
+				ok: false,
+				reason: "mime-claim-mismatch",
+				message: `\`${args.originalFilename}\` claims to be \`${normalizedClaim}\` but the bytes are actually \`${normalizedSniff}\`. This usually means the file was renamed without re-encoding. Either rename it to match its real format or re-export it as \`${normalizedClaim}\`.`,
+			};
+		}
+		sniffedMime = normalizedSniff;
+		canonicalExtension = EXTENSION_FOR_MIME_TYPE[sniffedMime];
+		// The pre-screen extension and the post-sniff canonical extension
+		// can legitimately differ for one pair: `.jpg` and `.jpeg` both map
+		// to `image/jpeg`. Accept the family match; reject the rest — which
+		// also catches a renamed file whose real format (the sniff) doesn't
+		// match its extension (a PNG renamed `.docx`).
+		const sameJpegFamily =
+			canonicalExtension === ".jpg" &&
+			(declaredExt === ".jpg" || declaredExt === ".jpeg");
+		if (!sameJpegFamily && declaredExt !== canonicalExtension) {
+			return {
+				ok: false,
+				reason: "extension-mime-mismatch",
+				message: `\`${args.originalFilename}\` has extension \`${declaredExt}\` but its bytes are \`${sniffedMime}\` (which we'd expect to end in \`${canonicalExtension}\`). Rename the file to match the format, or re-export to the format the extension suggests.`,
+			};
+		}
+
+		// Stage 4: body re-parse — image (sharp) + audio/video
+		// (music-metadata) only. pdf/docx/xlsx are validated by the sniff
+		// ALONE: the server deliberately doesn't parse an untrusted office /
+		// PDF body (a real parser memory-safety + prototype-pollution
+		// surface). The preview parses them client-side, on the owner's own
+		// file, where any parser bug is confined to their own browser.
+		if (claimedKind === "image") {
+			try {
+				const meta = await sharp(bytes).metadata();
+				if (!meta.width || !meta.height) {
+					return {
+						ok: false,
+						reason: "image-parse-failed",
+						message: `\`${args.originalFilename}\` parsed as a \`${sniffedMime}\` image but has no readable dimensions. The file may be truncated or malformed. Try re-exporting from the source.`,
+					};
+				}
+				dimensions = { width: meta.width, height: meta.height };
+			} catch (err) {
+				const detail = err instanceof Error ? err.message : String(err);
 				return {
 					ok: false,
 					reason: "image-parse-failed",
-					message: `\`${args.originalFilename}\` parsed as a \`${sniffedMime}\` image but has no readable dimensions. The file may be truncated or malformed. Try re-exporting from the source.`,
+					message: `Couldn't parse \`${args.originalFilename}\` as a \`${sniffedMime}\` image (${detail}). The file may be truncated or malformed.`,
 				};
 			}
-			dimensions = { width: meta.width, height: meta.height };
-		} catch (err) {
-			const detail = err instanceof Error ? err.message : String(err);
-			return {
-				ok: false,
-				reason: "image-parse-failed",
-				message: `Couldn't parse \`${args.originalFilename}\` as a \`${sniffedMime}\` image (${detail}). The file may be truncated or malformed.`,
-			};
-		}
-	} else {
-		try {
-			durationMs = await probeDurationMs(bytes, sniffedMime);
-		} catch (err) {
-			const detail = err instanceof Error ? err.message : String(err);
-			return {
-				ok: false,
-				reason: "media-parse-failed",
-				message: `Couldn't parse \`${args.originalFilename}\` as a \`${sniffedMime}\` ${claimedKind} stream (${detail}). The file may be truncated or in an unsupported codec.`,
-			};
+		} else if (claimedKind === "audio" || claimedKind === "video") {
+			try {
+				durationMs = await probeDurationMs(bytes, sniffedMime);
+			} catch (err) {
+				const detail = err instanceof Error ? err.message : String(err);
+				return {
+					ok: false,
+					reason: "media-parse-failed",
+					message: `Couldn't parse \`${args.originalFilename}\` as a \`${sniffedMime}\` ${claimedKind} stream (${detail}). The file may be truncated or in an unsupported codec.`,
+				};
+			}
 		}
 	}
 
@@ -300,6 +333,23 @@ export async function validateMediaBytes(args: {
 			durationMs,
 		},
 	};
+}
+
+/**
+ * Does this buffer read as plain UTF-8 text? The `text` kind carries no
+ * magic-bytes signature to sniff, so this is its format gate. A NUL byte
+ * (never present in real text) is an immediate reject, and the bytes must
+ * decode as UTF-8 with no invalid sequence — the `fatal` decoder throws on
+ * one. Catches a binary file mislabeled `.txt`/`.md`.
+ */
+function isUtf8Text(bytes: Buffer): boolean {
+	if (bytes.includes(0)) return false;
+	try {
+		new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**

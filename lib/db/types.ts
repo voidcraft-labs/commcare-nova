@@ -23,8 +23,8 @@ import { z } from "zod";
 import { blueprintDocSchema } from "../domain/blueprint";
 import {
 	ALL_MIME_TYPES,
+	ASSET_KINDS,
 	MEDIA_ASSET_STATUSES,
-	MEDIA_KINDS,
 } from "../domain/multimedia";
 
 // ── Shared ──────────────────────────────────────────────────────────
@@ -348,15 +348,15 @@ export const mediaAssetDocSchema = z.object({
 	 */
 	durationMs: z.number().int().positive().optional(),
 	/**
-	 * Coarse media kind, denormalized so the library list can filter
+	 * Coarse asset kind, denormalized so the library list can filter
 	 * "images only" with a server-side equality query instead of an
-	 * in-memory scan over a page (which returns lopsided page sizes
-	 * when one kind is sparse). Derived from the sniffed MIME at
-	 * upload and frozen — the confirm step never changes the kind
-	 * because a sniffed MIME that disagrees with the claim is
-	 * rejected, not stored.
+	 * in-memory scan over a page (which returns lopsided page sizes when
+	 * one kind is sparse). One of image/audio/video (wire-attachable) or
+	 * pdf/text/docx/xlsx (library-only documents). Derived at upload from
+	 * the sniffed MIME (or the extension, for text); the kind is stable
+	 * across the confirm step.
 	 */
-	kind: z.enum(MEDIA_KINDS),
+	kind: z.enum(ASSET_KINDS),
 	/**
 	 * GCS object key (without the `gs://<bucket>/` prefix) the
 	 * bytes live at. Browser uploads start at a per-attempt pending key,

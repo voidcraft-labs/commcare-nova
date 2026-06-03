@@ -19,10 +19,10 @@ import { randomUUID } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp } from "@google-cloud/firestore";
 import {
 	type AssetId,
+	type AssetKind,
 	type AssetMimeType,
 	asAssetId,
 	type MediaAssetStatus,
-	type MediaKind,
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { collections, docs } from "./firestore";
@@ -49,7 +49,7 @@ export interface WireMediaAsset {
 	id: AssetId;
 	contentHash: string;
 	mimeType: string;
-	kind: MediaKind;
+	kind: AssetKind;
 	extension: string;
 	sizeBytes: number;
 	dimensions?: { width: number; height: number };
@@ -101,7 +101,7 @@ export async function createPendingAsset(args: {
 	owner: string;
 	contentHash: string;
 	mimeType: AssetMimeType;
-	kind: MediaKind;
+	kind: AssetKind;
 	extension: string;
 	sizeBytes: number;
 	gcsObjectKey?: string;
@@ -312,7 +312,7 @@ const LIBRARY_PAGE_SIZE = 50;
  */
 export async function listReadyAssetsForOwner(
 	owner: string,
-	options: { kind?: MediaKind; cursor?: string } = {},
+	options: { kind?: AssetKind; cursor?: string } = {},
 ): Promise<{ assets: MediaAssetRecord[]; nextCursor: string | null }> {
 	let query = collections
 		.mediaAssets()

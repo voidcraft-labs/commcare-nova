@@ -7,14 +7,22 @@
 // actually accepts.
 
 import type { IconifyIcon } from "@iconify/types";
+import tablerFileText from "@iconify-icons/tabler/file-text";
+import tablerFileTypeDocx from "@iconify-icons/tabler/file-type-docx";
+import tablerFileTypePdf from "@iconify-icons/tabler/file-type-pdf";
+import tablerFileTypeXls from "@iconify-icons/tabler/file-type-xls";
 import tablerMusic from "@iconify-icons/tabler/music";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import tablerVideo from "@iconify-icons/tabler/video";
 import {
+	type AssetKind,
 	AUDIO_MIME_TYPES,
+	DOCX_MIME_TYPES,
 	IMAGE_MIME_TYPES,
-	type MediaKind,
+	PDF_MIME_TYPES,
+	TEXT_MIME_TYPES,
 	VIDEO_MIME_TYPES,
+	XLSX_MIME_TYPES,
 } from "@/lib/domain/multimedia";
 
 export interface MediaKindMeta {
@@ -25,7 +33,7 @@ export interface MediaKindMeta {
 	readonly accept: string;
 }
 
-export const MEDIA_KIND_META: Record<MediaKind, MediaKindMeta> = {
+export const MEDIA_KIND_META: Record<AssetKind, MediaKindMeta> = {
 	image: {
 		icon: tablerPhoto,
 		label: "Image",
@@ -40,5 +48,29 @@ export const MEDIA_KIND_META: Record<MediaKind, MediaKindMeta> = {
 		icon: tablerVideo,
 		label: "Video",
 		accept: VIDEO_MIME_TYPES.join(","),
+	},
+	// Documents include file extensions in `accept` alongside the MIME
+	// types: browsers send unreliable `Content-Type` for office files and
+	// `.md` (often empty or `application/octet-stream`), so the extension
+	// is what makes the OS file picker show them.
+	pdf: {
+		icon: tablerFileTypePdf,
+		label: "PDF",
+		accept: [...PDF_MIME_TYPES, ".pdf"].join(","),
+	},
+	text: {
+		icon: tablerFileText,
+		label: "Text",
+		accept: [...TEXT_MIME_TYPES, ".txt", ".md"].join(","),
+	},
+	docx: {
+		icon: tablerFileTypeDocx,
+		label: "Word",
+		accept: [...DOCX_MIME_TYPES, ".docx"].join(","),
+	},
+	xlsx: {
+		icon: tablerFileTypeXls,
+		label: "Excel",
+		accept: [...XLSX_MIME_TYPES, ".xlsx"].join(","),
 	},
 };

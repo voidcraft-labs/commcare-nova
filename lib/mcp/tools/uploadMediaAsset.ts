@@ -39,8 +39,8 @@ import {
 	findReadyAssetByOwnerAndHash,
 } from "@/lib/db/mediaAssets";
 import {
+	ASSET_SIZE_CAPS_BYTES,
 	gcsObjectKeyFor,
-	MEDIA_SIZE_CAPS_BYTES,
 } from "@/lib/domain/multimedia";
 import { validateMediaBytes } from "@/lib/media/validate";
 import { uploadAssetBytes } from "@/lib/storage/media";
@@ -53,7 +53,7 @@ import {
 import type { ToolContext } from "../types";
 
 const MAX_INLINE_UPLOAD_BYTES = Math.max(
-	...Object.values(MEDIA_SIZE_CAPS_BYTES),
+	...Object.values(ASSET_SIZE_CAPS_BYTES),
 );
 const MAX_INLINE_UPLOAD_MB = Math.floor(MAX_INLINE_UPLOAD_BYTES / 1024 / 1024);
 const MAX_INLINE_BASE64_CHARS = Math.ceil(MAX_INLINE_UPLOAD_BYTES / 3) * 4;

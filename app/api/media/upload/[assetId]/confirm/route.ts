@@ -33,9 +33,9 @@ import {
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
 import {
+	ASSET_SIZE_CAPS_BYTES,
 	asAssetId,
 	gcsObjectKeyFor,
-	MEDIA_SIZE_CAPS_BYTES,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { validateMediaBytes } from "@/lib/media/validate";
@@ -90,7 +90,7 @@ export async function POST(
 				404,
 			);
 		}
-		const cap = MEDIA_SIZE_CAPS_BYTES[asset.kind];
+		const cap = ASSET_SIZE_CAPS_BYTES[asset.kind];
 		if (storedSize > cap) {
 			await deleteRejectedUpload(session.user.id, asset);
 			const capMb = (cap / 1024 / 1024).toFixed(0);

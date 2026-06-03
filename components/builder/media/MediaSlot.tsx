@@ -28,7 +28,11 @@ import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerReplace from "@iconify-icons/tabler/replace";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useState } from "react";
-import type { Media, MediaKind } from "@/lib/domain/multimedia";
+import {
+	isMediaKind,
+	type Media,
+	type MediaKind,
+} from "@/lib/domain/multimedia";
 import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_ELEVATED_CLS,
@@ -103,7 +107,15 @@ export function MediaSlot({
 				open={picker.open}
 				onOpenChange={(open) => setPicker((prev) => ({ ...prev, open }))}
 				kinds={picker.kinds}
-				onPick={(asset) => onChange(setMediaSlot(value, asset.kind, asset.id))}
+				// The picker is media-scoped for a carrier, so a picked asset is
+				// always a media kind; the `isMediaKind` narrow makes that
+				// type-safe (`setMediaSlot` keys the bundle by `MediaKind`) and
+				// is an inert guard at runtime.
+				onPick={(asset) => {
+					if (isMediaKind(asset.kind)) {
+						onChange(setMediaSlot(value, asset.kind, asset.id));
+					}
+				}}
 			/>
 		</div>
 	);
