@@ -10,14 +10,17 @@
  * tooling that filters or joins on these fields falls over.
  *
  * Shape mirrors `commcare-hq/.../app_manager/xform.py::XForm._add_meta_2`.
- * Nova emits unprefixed element names (`<meta>`, `<deviceID>`, …)
- * matching the setvalue ref shape (`/data/meta/...`). Vellum stamps the
- * elements with an `orx:` prefix; JavaRosa's `TreeElement` keys child
- * lookup by local name (`TreeElement::getChild`) and CCHQ's form
- * processor strips namespaces via `xml2json`, so the unprefixed shape
- * resolves to the same TreeElement and JSON key at submission time. The
- * unprefixed shape keeps the data tree consistent with how Nova names
- * every other field.
+ * The meta elements carry the OpenRosa `orx:` namespace (`orx:meta`,
+ * `orx:deviceID`, …, with `cc:appVersion` in the CommCare namespace),
+ * matching `_add_meta_2`. The namespace is load-bearing for the Vellum
+ * editor: it identifies the block as the standard metadata, so Vellum
+ * leaves it alone instead of treating each meta node as a user question
+ * (an unprefixed `<meta>` made Vellum bind the group as a question and
+ * reject it — "'meta' is not a valid Question ID"). The setvalue / bind
+ * refs stay unprefixed (`/data/meta/...`): JavaRosa resolves the path by
+ * local name (`TreeElement::getChild`) and CCHQ's form processor strips
+ * namespaces via `xml2json`, so the path resolves to the namespaced
+ * element at submission time.
  *
  * `<setvalue>` does not carry a `type` attribute in XForms 1.0/1.1 —
  * JavaRosa silently ignores unknown attributes there. Datatype hints
@@ -66,20 +69,30 @@ export interface MetaBlockEmission {
  * the form-open moment.
  */
 export function buildMetaBlock(): MetaBlockEmission {
-	// Children of <meta>. Element list mirrors CCHQ's `_add_meta_2` tag
-	// tuple; order has no semantic effect on JavaRosa parsing (the tree
-	// is built by element name) but keeps emitted bytes diffable against
-	// the canonical Vellum fixture during review.
-	const dataElement = el("meta", {}, [
-		el("deviceID", {}),
-		el("timeStart", {}),
-		el("timeEnd", {}),
-		el("username", {}),
-		el("userID", {}),
-		el("instanceID", {}),
-		el("appVersion", {}),
-		el("drift", {}),
-	]);
+	// Children of `<orx:meta>`. The meta nodes carry the OpenRosa `orx:`
+	// namespace (`http://openrosa.org/jr/xforms`, declared on the `h:html`
+	// root), with `appVersion` in the CommCare `cc:` namespace — exactly
+	// CCHQ's `_add_meta_2` shape (and the `open_case.xml` Vellum fixture).
+	// The namespace is what tells Vellum this is the standard metadata block:
+	// without the `orx:` prefix Vellum reads each meta node as a user
+	// question, and the group node fails with "'meta' is not a valid Question
+	// ID". The `cc:` prefix is declared on the meta element itself, mirroring
+	// the fixture. Element order has no JavaRosa semantics (the tree is keyed
+	// by local name) but keeps emitted bytes diffable against the fixture.
+	const dataElement = el(
+		"orx:meta",
+		{ "xmlns:cc": "http://commcarehq.org/xforms" },
+		[
+			el("orx:deviceID", {}),
+			el("orx:timeStart", {}),
+			el("orx:timeEnd", {}),
+			el("orx:username", {}),
+			el("orx:userID", {}),
+			el("orx:instanceID", {}),
+			el("cc:appVersion", {}),
+			el("orx:drift", {}),
+		],
+	);
 
 	// One meta-child path per setvalue / bind, constructed via FormPath so the
 	// `/data/meta/...` shape is structural rather than string-templated. Every

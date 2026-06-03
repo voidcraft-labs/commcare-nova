@@ -72,7 +72,11 @@ import {
 	type ValidationLocation,
 	validationError,
 } from "./errors";
-import { buildXFormDataModel, type XFormDataModel } from "./xformDataModel";
+import {
+	buildXFormDataModel,
+	localName,
+	type XFormDataModel,
+} from "./xformDataModel";
 
 /**
  * The valid events an `<action>`/`<setvalue>` may declare. Mirrors
@@ -105,17 +109,6 @@ type XFormModel = XFormDataModel;
  */
 function targetsMainInstance(ref: string, rootPath: string): boolean {
 	return ref.startsWith(rootPath);
-}
-
-/**
- * The local (unprefixed) part of a parsed element name. htmlparser2 keeps the
- * namespace prefix in `Element.name` (`h:body`, not `body`), so matching the
- * XHTML body element requires comparing the local name rather than the raw
- * prefixed string the emitter chose.
- */
-function localName(name: string): string {
-	const colon = name.indexOf(":");
-	return colon === -1 ? name : name.slice(colon + 1);
 }
 
 // ── itext duplicate-definition detection (#10) ─────────────────────

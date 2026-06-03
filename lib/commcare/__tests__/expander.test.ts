@@ -2739,12 +2739,15 @@ describe("empty form expansion", () => {
 		// serializer renders it self-closing (`<h:body/>` ≡ `<h:body></h:body>`).
 		expect(xml).toContain("<h:head>");
 		expect(xml).toMatch(/<h:body\s*\/>/);
-		// The data tree still carries the always-on <meta> block (deviceID,
+		// The data tree still carries the always-on meta block (deviceID,
 		// timeStart, etc.) even when the form has no authored fields — every
-		// submission needs the OpenRosa metadata. The block lives under <data>.
-		expect(xml).toContain("<meta>");
-		expect(xml).toContain("<deviceID/>");
-		expect(xml).toContain("<instanceID/>");
+		// submission needs the OpenRosa metadata. The nodes are `orx:`-namespaced
+		// (so Vellum recognizes the standard metadata block), with `appVersion`
+		// in the CommCare `cc:` namespace.
+		expect(xml).toContain('<orx:meta xmlns:cc="http://commcarehq.org/xforms">');
+		expect(xml).toContain("<orx:deviceID/>");
+		expect(xml).toContain("<orx:instanceID/>");
+		expect(xml).toContain("<cc:appVersion/>");
 		// The meta block emits two <bind type="xsd:dateTime"> elements (one
 		// each for timeStart and timeEnd) — the dateTime type lives on a
 		// parallel bind because <setvalue> doesn't carry a `type` attribute
