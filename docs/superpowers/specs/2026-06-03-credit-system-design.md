@@ -1,10 +1,10 @@
 # Credit System — Design Spec
 
 **Date:** 2026-06-03
-**Status:** Approved design (rev 2, post adversarial review); pending written-spec sign-off → implementation plan.
+**Status:** Approved design (rev 3); pending written-spec sign-off → implementation plan.
 **Branch/worktree:** `worktree-credit-system`
 
-> **Rev 2 note.** A 5-lens adversarial review of rev 1 surfaced 2 critical + 12 major issues. The biggest: rev 1 charged "once per `runId`," but a `runId` spans an entire mounted *sitting* (build + every edit + every clarification until page reload), so that would have given unlimited edits for one charge and created phantom refunds. Rev 2 re-bases the charging unit on a server-observable, per-POST signal (**last message role**) and reworks the reservation, migration, and constant-placement accordingly. The "Review resolutions" appendix maps every finding to its fix.
+> **Rev history.** Rev 1 → a 5-lens adversarial review found 2 critical + 12 major issues; the biggest was that "charge once per `runId`" is wrong because a `runId` spans an entire mounted *sitting*. **Rev 2** re-based the charge on a per-POST, server-observable **last-message-role** signal and reworked reservation/migration/constants (see "Review resolutions" appendix). **Rev 3** (this rev) — after surfacing to the user that rev 2 had silently drifted from their picked charging unit — adopts **tiered per-instruction pricing: build = 100 credits, edit = 5**, so iterating feels nearly free while builds remain the meaningful unit. The amount keys off `appReady` (already the build-vs-edit signal); everything else from rev 2 stands.
 
 ## 1. Why
 
@@ -33,9 +33,9 @@ The fix is the model every credit product converges on: **separate the gating le
 
 | Lever | Decision |
 |---|---|
-| **Charging unit** | Per **new user instruction** — see §2a. One chargeable turn = 100 credits, reserved up front. Clarification answers and the rest of a multi-turn generation are free. |
-| **Denomination** | Penny-anchored: **1 credit = $0.01**, **1 generation = 100 credits**, **monthly allowance = 2,000 credits (20 generations)**. |
-| **Build vs edit** | Same **100 credits**. (Edits cost more in *dollars* today — a cache-expiry artifact to optimize, not user-facing value.) |
+| **Charging unit** | Per **new user instruction** — see §2a. **Tiered: build = 100 credits, edit = 5 credits**, reserved up front. Clarification answers and the rest of a multi-turn generation are free. |
+| **Denomination** | Penny-anchored: **1 credit = $0.01**. **Build = 100 ($1), edit = 5 ($0.05)**. **Monthly allowance = 2,000 credits** (≈20 builds, or hundreds of edits). |
+| **Build vs edit** | **Build 100, edit 5.** Edits are deliberately cheap so iterating feels nearly free — *priced on perceived value, decoupled* from the fact that an edit currently costs MORE in dollars than a build (the cache-expiry artifact). The $50 backstop + cost ledger gate and track the real dollars; credits meaningfully gate builds, the backstop gates edit runaways until the artifact is optimized. |
 | **Rollover** | **None** — allowance is a fresh 2,000 each calendar month, realized as per-period docs; no cron, no carryover. |
 | **Cost backstop** | **$50/user/month of actual cost**, invisible, hard. Never trips in normal use; caps a worst-case runaway. |
 
@@ -45,19 +45,25 @@ A `runId` is **not** one generation — it spans an entire mounted sitting (`com
 
 `askQuestions` (`lib/agent/tools/askQuestions.ts`) is a **stream-ending** tool: the request ends with the question, the user taps options, and the client **auto-resends** (`ChatContainer.tsx::shouldAutoResend`) — which fires exactly when **the last message is an `assistant` message** carrying an answered `askQuestions`. A fresh user instruction always appends a **`user`** message.
 
-**Therefore the chargeable signal, observable at the top of every POST with no client cooperation and no spoof surface:**
+**Therefore the chargeable signal — observable at the top of every POST, with no client cooperation and no spoof surface — read from the RAW incoming `body.messages` (see the trap below):**
 
 ```
-A POST is a CHARGEABLE new generation  ⇔  the last entry in `messages` is a `user` message.
-A POST is a FREE continuation           ⇔  the last entry is an `assistant` message
-                                            (an answered-askQuestions auto-resend).
+CHARGE (a new generation)  ⇔  the last entry in body.messages is a `user` message.
+FREE  (a continuation)     ⇔  the last entry is an `assistant` message
+                              (an answered-askQuestions auto-resend).
+
+AMOUNT  =  appReady ? CREDITS_PER_EDIT (5) : CREDITS_PER_BUILD (100)
+           (appReady already splits build vs edit mode in the route: `editing = !!appReady`)
 ```
 
-- A build instruction, and every subsequent edit instruction, ends with a `user` message → **each charges 100** (20 such generations/month).
-- A clarification round-trip within a generation (auto-resend) ends with an `assistant` message → **free**; it is part of the generation already charged when the user's instruction kicked it off.
-- This is per-POST, so each charge is independent: no `runId`-spanning idempotency marker, and the phantom-refund class of bug (a later turn refunding an earlier turn's charge) cannot occur.
+- A **build** instruction (appReady false) ending in a `user` message → **charges 100**.
+- Each subsequent **edit** instruction (appReady true) ending in a `user` message → **charges 5**.
+- A clarification round-trip within either (auto-resend) ends with an `assistant` message → **free**; it belongs to the generation already charged when the user's instruction kicked it off.
+- Per-POST, so each charge is independent: no `runId`-spanning idempotency marker, and the phantom-refund class of bug (a later turn refunding an earlier turn's charge) cannot occur.
 
-**Accepted wart:** a non-mutating user message (rare chit-chat / a question to the SA) ends with a `user` message and therefore charges 100, because the work the SA does in response cannot be known to be a no-op until after it runs, and the real mutation of a generation may land in a *later* continuation turn (so a "refund if this turn produced no mutation" rule would wrongly refund the question-asking first turn of a build). Refund is therefore reserved for **hard failures only** (zero billable cost — the SA didn't run). In Nova the chat *is* the build surface, so non-instruction messages are rare; the SA prompt already steers toward action.
+> **Trap (load-bearing):** the route's message strategy sends *last-user-message-only* after prompt-cache expiry. The charge signal MUST read the **raw `body.messages`** (and `body`'s `appReady`), *before* any message-strategy transform — reading the transformed array would make the last role always `user` and silently break the clarification-free property. `appReady` comes from the raw request body, so the amount is unaffected, but the charge-or-not signal is.
+
+**Accepted wart (now trivial):** a non-mutating user message (rare chit-chat / a question to the SA) ends with a `user` message and so charges — but in edit mode that's only **5 credits**, negligible. (A build-mode message essentially always generates.) The real mutation of a generation may land in a *later* continuation turn, so a "refund if this turn produced no mutation" rule would wrongly refund the question-asking first turn of a build; refund is therefore reserved for **hard failures only** (zero billable cost — the SA didn't run). In Nova the chat *is* the build surface, so non-instruction messages are rare anyway.
 
 ## 3. Constants
 
@@ -66,9 +72,10 @@ Credit constants are **gate/quota policy**, not model-keyed config. They live wi
 ```ts
 // lib/db/credits.ts
 export const CREDITS_PER_DOLLAR       = 100;   // 1 credit = $0.01 (re-exported for the admin/user $ hint)
-export const CREDITS_PER_GENERATION   = 100;   // flat per chargeable turn
-export const MONTHLY_CREDIT_ALLOWANCE = 2000;  // 20 generations/month, no rollover
-export const ACTUAL_COST_BACKSTOP_USD = 50;    // invisible runaway guard
+export const CREDITS_PER_BUILD        = 100;   // a new-app generation ($1)
+export const CREDITS_PER_EDIT         = 5;     // an edit to an existing app ($0.05) — kept cheap so iterating feels free
+export const MONTHLY_CREDIT_ALLOWANCE = 2000;  // ≈20 builds, or hundreds of edits; resets monthly, no rollover
+export const ACTUAL_COST_BACKSTOP_USD = 50;    // invisible runaway guard (the real cost gate for edit runaways)
 ```
 
 ## 4. Data model — two ledgers
@@ -94,15 +101,15 @@ credits/{userId}/grants/{grantId}   → CreditGrantDoc   (append-only admin audi
 Implicit and lazy: a new month's first chargeable turn creates the period doc seeded `allowance:2000, consumed:0, bonus:0` inside the reservation transaction (explicit values, **not** a Zod default). No cron, no rollover.
 
 ### 5b. Reserve (the no-overshoot mechanism)
-A chargeable turn (§2a) reserves `CREDITS_PER_GENERATION` **before the SA runs**, as a **`db.runTransaction` over the raw `credits/{userId}/months/{period}` ref** (mirroring `writeRunSummary`, not the unconditional `incrementUsage` set-merge):
+A chargeable turn (§2a) reserves `cost = appReady ? CREDITS_PER_EDIT : CREDITS_PER_BUILD` **before the SA runs**, as a **`db.runTransaction` over the raw `credits/{userId}/months/{period}` ref** (mirroring `writeRunSummary`, not the unconditional `incrementUsage` set-merge):
 1. `tx.get(rawRef)`. If missing → balance = 2000; else compute `allowance + bonus − consumed` from raw data.
-2. If `balance < CREDITS_PER_GENERATION` → throw `OutOfCredits` (route → 429).
-3. Else `tx.set(rawRef, {allowance, bonus, consumed: consumed+100, updated_at}, {merge:true})`.
+2. If `balance < cost` → throw `OutOfCredits` (route → 429).
+3. Else `tx.set(rawRef, {allowance, bonus, consumed: consumed+cost, updated_at}, {merge:true})`.
 
-The transaction closes the cross-app concurrent-new-run race (`hasActiveGeneration` locks per-app and fails *open*, so it does not). The reservation records `didReserve = true` + the **charge period** on the accumulator seed.
+The transaction closes the cross-app concurrent-new-run race (`hasActiveGeneration` locks per-app and fails *open*, so it does not). The reservation records on the accumulator seed: `didReserve = true`, the **reserved amount** (so the refund returns exactly what was taken), and the **charge period**.
 
 ### 5c. Refund (hard-failure only)
-A reserved turn that produces **zero billable cost** (the SA didn't run — same condition under which `flush()` skips the usage increment today) returns its reservation: `flush()` refunds **iff `didReserve && costEstimate === 0`**, decrementing `consumed` on the **charge period captured at reservation** (not `getCurrentPeriod()` at flush time — a post-UTC-midnight flush would otherwise refund the wrong month). Because `didReserve` is per-POST, a free continuation (which never reserved) cannot refund anything, and a reserved-then-refunded turn never writes a "paid" marker that a later turn could misread (there is no cross-turn marker at all).
+A reserved turn that produces **zero billable cost** (the SA didn't run — same condition under which `flush()` skips the usage increment today) returns its reservation: `flush()` refunds **iff `didReserve && costEstimate === 0`**, decrementing `consumed` by the **reserved amount** (5 or 100, captured at reservation) on the **charge period captured at reservation** (not `getCurrentPeriod()` at flush time — a post-UTC-midnight flush would otherwise refund the wrong month). Because `didReserve` is per-POST, a free continuation (which never reserved) cannot refund anything, and a reserved-then-refunded turn never writes a "paid" marker that a later turn could misread (there is no cross-turn marker at all).
 
 ### 5d. Reset / grant (admin, comp pattern)
 Both are a **single transaction/batch** spanning the month doc **and** the new `CreditGrantDoc`, so balance and audit commit atomically:
@@ -114,10 +121,10 @@ Admin-only; **never touches `usage/` (cost reporting)** by construction.
 
 Replaces the dollar-cap block. **Placement matters:** the credit *read* (fast-fail) sits where the dollar cap is today (top of handler), but the transactional *reserve* must run **after** `runId`/`appId` resolution and after every pre-stream rejection point (`createApp` 503, ownership 404, `hasActiveGeneration` 429) so no early return follows a reservation and leaks it. Order:
 
-1. **Determine chargeable** = last message role is `user` (§2a).
+1. **Determine chargeable + amount** from the RAW `body.messages` (last role `user`?) and `body.appReady` (`appReady ? 5 : 100`) — read before any message-strategy transform (§2a trap).
 2. **Fast-fail read** (top of handler, fail-closed → 503 on Firestore error):
    - **Backstop (every POST, incl. continuations):** `usage.cost_estimate >= ACTUAL_COST_BACKSTOP_USD` → 429, generic message (no "$50" leaked).
-   - **Balance (chargeable POSTs only):** if balance `< 100` → 429 `out_of_credits` ("You're out of credits for this month — they refresh on the 1st."). Avoids creating an orphan app in the common out-of-credits case.
+   - **Balance (chargeable POSTs only):** if balance `< cost` (5 or 100) → 429 `out_of_credits` ("You're out of credits for this month — they refresh on the 1st."). Avoids creating an orphan app in the common out-of-credits case.
 3. Resolve `appId` (`createApp` lock for new builds), verify ownership, `hasActiveGeneration`.
 4. **Reserve** (chargeable POSTs only): the §5b transaction. The rare race (passed step 2, lost at step 3's transaction) → `failApp` + 429. The marker-read/transaction failure is **fail-closed → 503**, never a silent skip-the-charge.
 5. Build accumulator (`didReserve`, charge period), stream, `flush()` (refund per §5c).
@@ -163,8 +170,8 @@ Only after the fold is **durably applied and confirmed in PROD**: a third run/co
 Scan → review with user → `--apply` cost-restore → capture output → (separately) `--apply` orphan-delete → `git rm` both migration scripts. Note: today's resets are **manual Firestore hand-edits** (there is no committed reset script to remove); a private uncommitted `scripts/reset-usage.ts` exists on the author's `main` working tree and is deleted there once the admin endpoint ships — it is not in version control and is out of this PR's scope. `.env.example`'s `MONTHLY_SPEND_CAP_USD` block is removed in this PR (no other config depends on it).
 
 ## 10. Tests (state model, not DOM — per memory)
-- **Credit ledger logic** (pure/transactional): balance math; lazy seed-in-transaction; reserve below/at/above 100; refund only when `didReserve && cost===0`; charge-period binding across a month boundary; reset/grant atomicity (month doc + grant row together); concurrent reservation at balance 100 (transaction serializes).
-- **Charge-signal logic** (pure): `isChargeableTurn(messages)` — last-role `user` vs answered-askQuestions `assistant`; build-then-edit-then-clarify sequences.
+- **Credit ledger logic** (pure/transactional): balance math; lazy seed-in-transaction; reserve the right amount (build 100 / edit 5) below/at/above balance; refund the reserved amount only when `didReserve && cost===0`; charge-period binding across a month boundary; reset/grant atomicity (month doc + grant row together); concurrent reservation races (transaction serializes).
+- **Charge-signal logic** (pure): `isChargeableTurn(rawMessages)` — last-role `user` vs answered-askQuestions `assistant`; the amount selector `appReady ? 5 : 100`; build-then-edit-then-clarify sequences (build 100, edit 5, clarify 0).
 - **Gate**: out-of-credits 429, backstop 429, continuation bypass, fail-closed 503 on every new read (balance, backstop, reservation).
 - **Migration reconciliation** (pure): conservative restore of the three known values; flag-not-apply on ledger>usage; orphan-delete precondition; on fixtures mirroring mmaher/alohi/andiaye/cross-month/soft-deleted shapes.
 - `scripts/test-schema.ts` if any schema changes (none to the SA tool surface expected). `npm run test:leaks` green before merge.
@@ -175,11 +182,11 @@ Scan → review with user → `--apply` cost-restore → capture output → (sep
 - Public docs site (`app/(docs)/`): audit during the `docs` skill pass for any user-facing $15-cap mention → credits.
 
 ## 12. Final verification (user-runnable acceptance)
-> Admin runs `npm run dev`, opens `/admin`, and sees per user: **credits used / remaining this month**, **lifetime credits used**, **actual $ this month**, and **lifetime $** — all as rendered figures. On a user's detail page the admin clicks **Reset credits**, confirms the dialog, and sees `consumed` drop to 0 / balance return to 2,000, a new audit row appear, **and both the actual-$ this-month and lifetime-$ figures unchanged**. As that user, the `AccountMenu` shows a **credits-remaining** bar (no dollars); running 20 generations succeeds and the 21st is blocked "out of credits"; answering a clarification mid-generation does **not** decrement the balance.
+> Admin runs `npm run dev`, opens `/admin`, and sees per user: **credits used / remaining this month**, **lifetime credits used**, **actual $ this month**, and **lifetime $** — all as rendered figures. On a user's detail page the admin clicks **Reset credits**, confirms the dialog, and sees `consumed` drop to 0 / balance return to 2,000, a new audit row appear, **and both the actual-$ this-month and lifetime-$ figures unchanged**. As that user, the `AccountMenu` shows a **credits-remaining** bar (no dollars); a **build** debits **100**, each **edit** debits **5**, and answering a **clarification** mid-generation debits **0**; when the balance can't cover the next charge the request is blocked "out of credits."
 
 ## 13. Risks
 - **Flat-credit cost tail.** 20 generations is ~$4 (cheap builds) to a theoretical ~$360 (max-cost edits). Accepted; the $50 backstop caps the disaster, the cost ledger gives tuning data.
-- **Non-mutating message charges** (§2a wart). Accepted; rare on a build-surface chat; revisit only if data shows it bites.
+- **Non-mutating message charges** (§2a wart) — now trivial: 5 credits in edit mode (the only realistic case). Accepted.
 - **Edit cost > build cost** ($2.70 vs $0.84 mean) — investigation deferred to wrap-up (hypothesis: cache-expiry full-history reprocess on opus-4-8; `freshEdit`/`cacheExpired` flags will confirm). Not a blocker.
 
 ## Appendix — Review resolutions (rev 1 → rev 2)
