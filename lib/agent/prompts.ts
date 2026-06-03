@@ -247,6 +247,14 @@ Bound modes (\`count_bound\`, \`query_bound\`) freeze cardinality at form load �
 
 **Repeats and child cases.** A repeat can model a list of child cases created in one form submission — set \`case_property_on\` on fields inside the repeat to the CHILD case type, and each iteration becomes one new child case linked to the parent. The parent case (whose \`case_property_on\` matches the module's case type) lives OUTSIDE the repeat; primary-case fields inside a repeat are rejected (a form creates ONE primary case, but a repeat captures zero-or-more per-iteration values — they can't coexist). Every child case bucket needs its own field with id \`case_name\` at the same scope as the rest of that bucket's fields (the form root, or the repeat the bucket's other fields are in) so the new case has a display name. Two different repeats in one form can each create child cases of the same type — they emit as independent subcase actions with their own iteration scope. Works across all three repeat modes; the canonical pattern is one registration form opening the parent + a \`user_controlled\` repeat with the child fields underneath.
 
+### Field Validation
+
+A field's \`validate\` constraint is an XPath boolean over the entered value (\`.\`) that must hold for the answer to be accepted. Set it whenever the field's value has a real valid range or format, and write that rule with the full XPath language to whatever precision correctly captures what a valid answer looks like — the most complete correct constraint the field's meaning supports, not the loosest rule that comes to mind. A constraint is only as good as how fully it pins down a valid value, so reach across the whole XPath function library to express each field's actual rule.
+
+Judge each field on its own meaning, never a fixed recipe. An open-ended free-text answer or a fixed-choice field (already limited to its options) usually has no valid-value rule — leave it unconstrained **unless the spec or the user asked for a specific rule**, in which case implement exactly that.
+
+\`validate\` is for the SHAPE of an allowed value, not whether a value is present — a check that only tests for non-emptiness duplicates \`required\`. Use \`required\` for "must be answered" and \`validate\` for "must look like this."
+
 ---
 
 ## CommCare Connect
