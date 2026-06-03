@@ -283,23 +283,33 @@ git commit -m "feat(credits): pure credit policy — constants + balance/charge/
 
 ## Task 3: `reserveCredits` transaction
 
-**Files:** Create `lib/db/period.ts`; Modify `lib/db/credits.ts`, `lib/db/usage.ts` + importers of `getCurrentPeriod`; Test `lib/db/__tests__/credits.test.ts`.
+**Files:** Create `lib/db/period.ts`, `lib/db/__tests__/credits.integration.test.ts`; Modify `lib/db/credits.ts`, `lib/db/usage.ts` + importers of `getCurrentPeriod`; Test `lib/db/__tests__/credits.test.ts`.
 
 > **First, break the import cycle:** extract `getCurrentPeriod` (currently in `lib/db/usage.ts`) into a tiny leaf `lib/db/period.ts` (no imports back into `usage`/`credits`). Update every importer (`lib/db/usage.ts` itself, `lib/db/admin.ts`, and any script) to import it from `./period`. This lets `credits.ts` use it AND lets `usage.ts` import `refundCredits` from `credits.ts` (Task 5) without a runtime cycle. Run `npx tsc --noEmit` after the move — expect clean.
 
 The reservation is a `runTransaction` over the **raw** ref (Task 1's `docs.creditMonthRaw`): read current data (or defaults if missing), reject if balance < cost, else write the seeded doc with `consumed += cost`. Throws a typed `OutOfCreditsError` the route maps to 429.
 
-- [ ] **Step 1: Write failing tests** — use the Firestore emulator harness this repo already uses for `usage`/`runSummary` transaction tests (find the existing pattern in `lib/db/__tests__/` — e.g. `runSummary.test.ts` — and reuse its `getDb`/emulator setup verbatim; do NOT hand-mock Firestore transactions). Cases:
-```ts
-// reserveCredits(userId, cost):
-//  - missing doc: seeds {allowance:2000, consumed:cost, bonus:0}; returns {period, reserved:cost}
-//  - existing balance >= cost: increments consumed by cost
-//  - balance < cost: throws OutOfCreditsError, doc unchanged
-//  - two concurrent reserves at balance exactly one cost apart: exactly one succeeds (transaction serializes)
-```
-(Write each as a real test against the emulator. The concurrent case: `await Promise.allSettled([reserveCredits(...), reserveCredits(...)])` from balance=100 with cost=100 → exactly one fulfilled, one rejected with `OutOfCreditsError`.)
+> **Test strategy (this repo's split — confirmed by reading the suite):** the `lib/db` UNIT suites MOCK Firestore (`vi.mock("../firestore")` with a hoisted `runTransactionMock` driving the closure + scripted `tx.get`/`tx.set` spies — see `lib/db/__tests__/runSummary.test.ts`). The TRUE transaction round-trip + concurrency runs in a separate `*.integration.test.ts` against a real Firestore emulator, auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset (see `lib/db/__tests__/api-keys.integration.test.ts`; runs via `npm run test:integration`). **Do NOT hand-mock a concurrency race** — a mock can't model Firestore's optimistic-concurrency serialization, so a mock "race" test would be tautological. Race goes in the integration suite only.
 
-- [ ] **Step 2: Run — expect FAIL.**
+- [ ] **Step 1a: Write failing UNIT tests** in `lib/db/__tests__/credits.test.ts`, mirroring `runSummary.test.ts`'s mock surface (hoisted `txGet`/`txSet`/`runTransactionMock`, `vi.mock("../firestore")`). These test reserve LOGIC, not Firestore:
+```ts
+// reserveCredits(userId, cost) — script tx.get to return the doc snapshot:
+//  - snap missing (exists=false): tx.set called with {allowance:2000, consumed:cost, bonus:0, updated_at}; returns {period, reserved:cost}
+//  - snap exists, balance (allowance+bonus-consumed) >= cost: tx.set called with consumed incremented by cost (allowance/bonus preserved)
+//  - snap exists, balance < cost: throws OutOfCreditsError; tx.set NOT called
+//  - the returned period equals getCurrentPeriod() and reserved equals the cost passed
+```
+- [ ] **Step 1b: Write the INTEGRATION test** in `lib/db/__tests__/credits.integration.test.ts`, mirroring `api-keys.integration.test.ts` (the `FIRESTORE_EMULATOR_HOST`-gated `describe.skipIf(...)` / auto-skip header pattern). Real-emulator cases:
+```ts
+//  - reserveCredits on a fresh user actually creates credits/{u}/months/{period} with consumed=cost
+//  - a second reserve decrements further; reserve at balance < cost throws and leaves the doc unchanged
+//  - CONCURRENCY: from balance exactly one cost (e.g. consumed=1900, cost=100, allowance 2000):
+//      await Promise.allSettled([reserveCredits(u,100), reserveCredits(u,100)])
+//      → exactly one fulfilled, one rejected OutOfCreditsError; final consumed === 2000 (never 2100)
+```
+Try to run it (`npm run test:integration`, check `package.json` for how the emulator is started); if the emulator isn't available in this environment, the suite auto-skips — note that in your report, and verify the file's structure mirrors a known-passing integration test so it runs correctly in CI.
+
+- [ ] **Step 2: Run — expect FAIL** (unit suite; `npx vitest run lib/db/__tests__/credits.test.ts`).
 
 - [ ] **Step 3: Implement in `lib/db/credits.ts`**
 ```ts
@@ -347,25 +357,31 @@ export async function reserveCredits(userId: string, cost: number): Promise<Rese
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS** (incl. concurrent case).
+- [ ] **Step 4: Run — expect PASS** (unit suite green; integration suite passes if the emulator is up, else auto-skips — report which).
 - [ ] **Step 5: Commit**
 ```bash
-git add lib/db/credits.ts lib/db/__tests__/credits.test.ts
-git commit -m "feat(credits): transactional reserveCredits with OutOfCreditsError"
+git add lib/db/period.ts lib/db/credits.ts lib/db/usage.ts lib/db/__tests__/credits.test.ts lib/db/__tests__/credits.integration.test.ts
+# (+ any getCurrentPeriod importer you updated, e.g. lib/db/admin.ts)
+git commit -m "feat(credits): transactional reserveCredits + period leaf (unit + integration tests)"
 ```
 
 ---
 
 ## Task 4: `refundCredits`, `resetCredits`, `grantCredits`, `getCreditSummary`
 
-**Files:** Modify `lib/db/credits.ts`; Test `lib/db/__tests__/credits.test.ts`.
+**Files:** Modify `lib/db/credits.ts`, `lib/db/__tests__/credits.test.ts`, `lib/db/__tests__/credits.integration.test.ts`.
 
-- [ ] **Step 1: Write failing tests** (emulator). Cases:
-  - `refundCredits(userId, period, amount)` decrements `consumed` by `amount` on that period (clamped at 0).
-  - `resetCredits(userId, actor, actorEmail, reason)` sets current period `consumed = 0` **and** appends one `credits/{userId}/grants` row `{type:"reset"}` — both committed (read both back); a thrown grant write must not leave consumed zeroed (atomic).
-  - **`resetCredits` on a user with NO current-period doc writes a COMPLETE doc** (allowance seeded, not a partial `{consumed}`), so a subsequent `getCreditSummary` (converter-applied read) parses without throwing and returns a full balance. (Guards the no-default-`allowance` × converter-read hazard.)
-  - `grantCredits(userId, amount, actor, actorEmail, reason)` increments `bonus` by `amount` + appends `{type:"grant", amount}`.
-  - `getCreditSummary(userId)` returns `{ period, allowance, consumed, bonus, balance, lifetimeConsumed }` with a missing current-period doc reading as full balance and `lifetimeConsumed` = sum of `consumed` across all credit months.
+> Same split as Task 3: UNIT (mock, `runSummary.test.ts` pattern) for logic; INTEGRATION (emulator, auto-skip) for the real atomic round-trips. Atomicity claims (both docs commit together; reset writes a complete doc) belong in the INTEGRATION suite — a mock can't prove a real transaction's all-or-nothing commit.
+
+- [ ] **Step 1a: UNIT tests** (`credits.test.ts`, mocked) — logic:
+  - `refundCredits(userId, period, amount)` — on an existing doc, `tx.set` called with `consumed` decremented by `amount` clamped at 0; on a missing doc (`exists=false`), returns without writing.
+  - `resetCredits` — reads-then-seeds: `tx.set` on the month ref with `{allowance: existing ?? 2000, consumed:0, bonus: existing ?? 0}` AND a second `tx.set` on a fresh grant ref `{type:"reset", actor, actor_email, reason, period, amount:0}`. Assert BOTH `tx.set` calls happen.
+  - `grantCredits` — `tx.set` on month ref with `bonus` incremented by `amount` (allowance seeded) AND a grant row `{type:"grant", amount}`.
+  - `getCreditSummary` — over a scripted set of month docs: returns `{period, allowance, consumed, bonus, balance, lifetimeConsumed}`; missing current-period doc → full balance; `lifetimeConsumed` = Σ `consumed` across months.
+- [ ] **Step 1b: INTEGRATION tests** (`credits.integration.test.ts`, emulator, auto-skip) — real round-trips:
+  - reset/grant actually commit BOTH the month-doc mutation and the grant audit row (read both back); atomicity holds.
+  - **`resetCredits` on a user with NO current-period doc writes a COMPLETE doc** (allowance present), and a subsequent `getCreditSummary` parses without throwing + returns a full balance. (Guards the no-default-`allowance` × converter-read hazard — only real Firestore + the real converter proves this.)
+  - `refundCredits` round-trip decrements then a re-read reflects it.
 
 - [ ] **Step 2: Run — expect FAIL.**
 
