@@ -214,6 +214,22 @@ describe("resolveAttachments", () => {
 		expect(readTextObject).toHaveBeenCalledOnce();
 	});
 
+	it("degrades to placeholders (never throws) when the batch asset load fails", async () => {
+		// A Firestore outage in loadAssetsByIds must not fail the whole turn from
+		// outside the route's try/finally — it degrades to placeholders, upholding
+		// the never-drop invariant.
+		loadAssetsByIdsMock.mockRejectedValue(new Error("firestore down"));
+		const resolved = await resolveAttachments(
+			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
+			"user-1",
+			stubCondenser(),
+		);
+		const texts = resolved[0].parts
+			.filter((p) => p.type === "text")
+			.map((p) => p.text);
+		expect(texts.some((t) => t.includes("spec.md"))).toBe(true);
+	});
+
 	it("passes messages without attachments through untouched", async () => {
 		const plain: NovaUIMessage = {
 			id: "u1",

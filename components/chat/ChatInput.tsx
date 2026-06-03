@@ -41,6 +41,11 @@ interface ChatInputProps {
 	 *  the file manager; the server resolves each to its extract or image bytes. */
 	onSend: (message: { text: string; attachments?: AttachmentRef[] }) => void;
 	disabled?: boolean;
+	/** True while an AskQuestionsCard is waiting for a reply: a composer send
+	 *  routes to that card as a text-only answer, so attachments can't go with it.
+	 *  Disables the attach button and preserves any staged files for the next
+	 *  normal turn rather than dropping them. */
+	answerPending?: boolean;
 	/** Centered (Idle) card layout vs docked sidebar — drives the input chrome
 	 *  (the docked variant gets a top divider). */
 	centered?: boolean;
@@ -63,6 +68,7 @@ interface ChatInputProps {
 export function ChatInput({
 	onSend,
 	disabled,
+	answerPending,
 	centered,
 	openingPrompt,
 }: ChatInputProps) {
@@ -85,6 +91,13 @@ export function ChatInput({
 	const handleSubmit = (message: PromptInputMessage) => {
 		const text = (message.text ?? "").trim();
 		if ((!text && picked.length === 0) || disabled) return;
+		if (answerPending) {
+			// This send answers a waiting question card (text-only). Forward just
+			// the text and KEEP the staged attachments — they're not part of an
+			// answer, but they shouldn't vanish; they ride the next normal turn.
+			if (text) onSend({ text });
+			return;
+		}
 		const attachments = picked.map(toAttachmentRef);
 		onSend({
 			text,
@@ -131,13 +144,14 @@ export function ChatInput({
 				</PromptInputBody>
 				<PromptInputFooter>
 					<PromptInputTools>
-						{/* Attach from the file manager. Disabled in lockstep with the
-						 *  textarea + submit while a turn is in flight — staging an
-						 *  attachment you can't yet send reads as broken. */}
+						{/* Attach from the file manager. Disabled while a turn is in
+						 *  flight (staging something you can't yet send reads as broken)
+						 *  AND while a question card is awaiting a reply — that send is a
+						 *  text-only answer, so an attachment couldn't ride it anyway. */}
 						<button
 							type="button"
 							onClick={() => setPickerOpen(true)}
-							disabled={disabled}
+							disabled={disabled || answerPending}
 							aria-label="Attach a file"
 							title="Attach a file"
 							className="flex size-8 cursor-pointer items-center justify-center rounded-md text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:cursor-default disabled:opacity-50"

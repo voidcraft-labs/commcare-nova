@@ -541,6 +541,10 @@ export function ChatSidebar({
 						<ChatInput
 							onSend={handleSend}
 							disabled={isLoading || isGenerating}
+							// A waiting question card routes the next composer send to it as
+							// a text-only answer, so the composer disables attaching and
+							// preserves any staged files instead of dropping them.
+							answerPending={activeQuestionCount > 0}
 							centered={centered}
 							// "Tell me about the app" fits only the opening prompt of a
 							// brand-new build; the moment a message exists (sent or

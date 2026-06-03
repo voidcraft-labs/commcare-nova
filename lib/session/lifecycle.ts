@@ -104,13 +104,13 @@ export function deriveValidationAttempt(
 }
 
 /**
- * Whether the run is condensing document attachments right now — true between
- * the `attachment-prep` `start` and `done` annotations (latest-wins). This is
- * the pre-Opus `prepareAttachments` window, which for a multi-document turn
- * blocks the first model token for several seconds; the signal grid shows a
- * "reading documents" status during it. Returns false once `done` lands (or
- * the buffer clears at run end), so it never bleeds into the generation stages
- * that follow.
+ * Whether the run is reading document attachments right now — true between the
+ * `attachment-prep` `start` and `done` annotations (latest-wins). This is the
+ * pre-Opus `resolveAttachments` window (resolving asset refs to their stored
+ * extracts, lazily extracting any document without one), which can block the
+ * first model token for several seconds; the signal grid shows a "reading
+ * documents" status during it. Returns false once `done` lands (or the buffer
+ * clears at run end), so it never bleeds into the generation stages that follow.
  */
 export function deriveAttachmentPrep(events: readonly Event[]): boolean {
 	for (let i = events.length - 1; i >= 0; i--) {
