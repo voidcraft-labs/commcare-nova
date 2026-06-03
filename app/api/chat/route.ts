@@ -69,8 +69,8 @@ export async function POST(req: Request) {
 		if ((usage?.cost_estimate ?? 0) >= MONTHLY_SPEND_CAP_USD) {
 			return Response.json(
 				{
-					error: MESSAGES.spend_cap_exceeded,
-					type: "spend_cap_exceeded",
+					error: MESSAGES.out_of_credits,
+					type: "out_of_credits",
 				},
 				{ status: 429 },
 			);
