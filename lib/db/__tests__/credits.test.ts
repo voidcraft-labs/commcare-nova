@@ -59,16 +59,43 @@ import { creditGrantDocSchema, creditMonthDocSchema } from "@/lib/db/types";
  * `Reservation.period` is checked against the genuine value rather than a stub
  * that could drift from production.
  */
-const { txGet, txSet, runTransactionMock, ref } = vi.hoisted(() => {
-	const runTransactionMock = vi.fn();
-	// The raw ref the production code holds: its `.firestore.runTransaction`
-	// is the entry point, and `ref` itself is the doc identity asserted below.
-	const ref = { firestore: { runTransaction: runTransactionMock } };
-	return { txGet: vi.fn(), txSet: vi.fn(), runTransactionMock, ref };
-});
+const { txGet, txSet, runTransactionMock, ref, grantRef, creditMonthsGet } =
+	vi.hoisted(() => {
+		const runTransactionMock = vi.fn();
+		// The raw month ref the production code holds: its `.firestore.runTransaction`
+		// is the entry point shared by every transactional writer here (reserve,
+		// refund, reset, grant), and `ref` itself is the month-doc identity asserted
+		// below. reset/grant write a SECOND doc — the audit row — so a distinct
+		// `grantRef` stands in for `collections.creditGrants(userId).doc()`. The two
+		// `tx.set` calls reset/grant make are told apart by ref identity (month vs
+		// grant), never by call order, so a future reordering of the writes can't make
+		// an assertion silently pass against the wrong document.
+		const ref = { firestore: { runTransaction: runTransactionMock } };
+		const grantRef = { __kind: "grantRef" };
+		// `getCreditSummary` is a plain collection read, NOT a transaction — it calls
+		// `collections.creditMonths(userId).get()`. This spy stands in for that read so
+		// each summary case scripts the on-disk month set it sums over.
+		const creditMonthsGet = vi.fn();
+		return {
+			txGet: vi.fn(),
+			txSet: vi.fn(),
+			runTransactionMock,
+			ref,
+			grantRef,
+			creditMonthsGet,
+		};
+	});
 
 vi.mock("../firestore", () => ({
+	// `docs.creditMonthRaw` resolves the converter-less month ref every
+	// transactional writer reads/writes; `collections.creditGrants(...).doc()`
+	// mints the append-only audit ref reset/grant write alongside it; and
+	// `collections.creditMonths(...).get()` is the summary's read of every month.
 	docs: { creditMonthRaw: () => ref },
+	collections: {
+		creditGrants: () => ({ doc: () => grantRef }),
+		creditMonths: () => ({ get: creditMonthsGet }),
+	},
 }));
 
 /** A fixed read-shape timestamp so each parse fails (or passes) for its own field. */
@@ -492,5 +519,351 @@ describe("reserveCredits", () => {
 		// write never commits (it was on the aborted attempt) — the test asserts
 		// the LOGIC each attempt runs, and that the final outcome is a rejection.
 		expect(txSet).toHaveBeenCalledTimes(1);
+	});
+});
+
+/**
+ * Shared driver for the transactional credit writers (`refundCredits`,
+ * `resetCredits`, `grantCredits`). Each runs over `ref.firestore.runTransaction`
+ * exactly as the reservation does, so this resets the spies and drives the
+ * closure once with the spy-backed `tx`. The `runSummary.test.ts` pattern.
+ */
+function installTransactionDriver(): void {
+	txGet.mockReset();
+	txSet.mockReset();
+	runTransactionMock.mockReset();
+	runTransactionMock.mockImplementation(
+		async (
+			closure: (tx: { get: typeof txGet; set: typeof txSet }) => Promise<void>,
+		) => {
+			await closure({ get: txGet, set: txSet });
+		},
+	);
+}
+
+/**
+ * Pull the merge payload `tx.set` wrote against a specific ref identity. The
+ * reset/grant writers set two docs in one transaction — the month doc (`ref`)
+ * and the audit row (`grantRef`) — so a payload is selected by WHICH ref it
+ * targeted, never by call order. Selecting by identity is what lets the tests
+ * pin the two writes independently and survive a future reordering of them.
+ */
+function payloadForRef(target: unknown): Record<string, unknown> {
+	const call = txSet.mock.calls.find(([setRef]) => setRef === target);
+	expect(call).toBeDefined();
+	return (call as unknown[])[1] as Record<string, unknown>;
+}
+
+describe("refundCredits", () => {
+	const USER = "user-refund-test";
+	const PERIOD = "2026-06";
+
+	beforeEach(installTransactionDriver);
+
+	it("decrements consumed by the refunded amount on an existing doc", async () => {
+		// A mid-period doc with 250 consumed; refunding a 100-credit build's
+		// reservation must walk consumed back to 150 and leave allowance/bonus
+		// untouched (the refund only un-books the charge, never re-grants).
+		txGet.mockResolvedValue({
+			exists: true,
+			data: () => ({ allowance: 2000, consumed: 250, bonus: 0 }),
+		});
+		const { refundCredits } = await import("../credits");
+
+		await refundCredits(USER, PERIOD, CREDITS_PER_BUILD);
+
+		expect(txSet).toHaveBeenCalledTimes(1);
+		const [setRef, payload, options] = txSet.mock.calls[0];
+		expect(setRef).toBe(ref);
+		expect(payload).toEqual({
+			consumed: 250 - CREDITS_PER_BUILD,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		expect(options).toEqual({ merge: true });
+	});
+
+	it("clamps consumed at zero rather than booking a negative balance", async () => {
+		// A doc whose consumed (40) is below the refund amount (100) — possible if
+		// a prior partial accounting under-counted. The floor is 0: a refund can
+		// never drive consumed negative (which `creditMonthDocSchema` would reject
+		// on the next read anyway). consumed lands at 0, not −60.
+		txGet.mockResolvedValue({
+			exists: true,
+			data: () => ({ allowance: 2000, consumed: 40, bonus: 0 }),
+		});
+		const { refundCredits } = await import("../credits");
+
+		await refundCredits(USER, PERIOD, CREDITS_PER_BUILD);
+
+		expect(payloadForRef(ref)).toEqual({
+			consumed: 0,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+	});
+
+	it("is a no-op when the period has no doc to refund against", async () => {
+		// A refund booked against a period that was never debited (no doc) has
+		// nothing to un-book. It must NOT seed a doc — seeding here would
+		// materialize a phantom month with a negative-looking history. The
+		// transaction reads, sees nothing, and returns without writing.
+		txGet.mockResolvedValue({ exists: false, data: () => undefined });
+		const { refundCredits } = await import("../credits");
+
+		await refundCredits(USER, PERIOD, CREDITS_PER_BUILD);
+
+		expect(txSet).not.toHaveBeenCalled();
+	});
+});
+
+describe("resetCredits", () => {
+	const USER = "user-reset-test";
+	const WHO = {
+		actor: "admin-1",
+		actorEmail: "admin@dimagi.com",
+		reason: "support comp",
+	};
+
+	beforeEach(installTransactionDriver);
+
+	it("seeds a complete month doc with consumed zeroed and appends a reset audit row", async () => {
+		// An existing mid-period doc (1500 consumed, 200 bonus): a reset must
+		// preserve the prior allowance/bonus, zero consumed, AND append the audit
+		// row — both writes in one transaction.
+		txGet.mockResolvedValue({
+			exists: true,
+			data: () => ({ allowance: 2000, consumed: 1500, bonus: 200 }),
+		});
+		const { resetCredits } = await import("../credits");
+
+		await resetCredits(USER, WHO);
+
+		// Two writes land: the month doc and the grant row.
+		expect(txSet).toHaveBeenCalledTimes(2);
+
+		// Month doc: a COMPLETE record — allowance is present (it has no Zod
+		// default, so a partial merge would make the next converter read throw),
+		// prior bonus preserved, consumed zeroed.
+		expect(payloadForRef(ref)).toEqual({
+			allowance: 2000,
+			consumed: 0,
+			bonus: 200,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		expect(txSet.mock.calls.find(([setRef]) => setRef === ref)?.[2]).toEqual({
+			merge: true,
+		});
+
+		// Audit row: a reset records amount 0 (it zeroes consumed, adds nothing)
+		// plus who/when/why for traceability.
+		expect(payloadForRef(grantRef)).toEqual({
+			amount: 0,
+			type: "reset",
+			actor: WHO.actor,
+			actor_email: WHO.actorEmail,
+			reason: WHO.reason,
+			period: getCurrentPeriod(),
+			created_at: FieldValue.serverTimestamp(),
+		});
+	});
+
+	it("seeds the full allowance when resetting a user with no current-period doc", async () => {
+		// A reset on a never-touched period must still write a COMPLETE doc: the
+		// allowance falls back to the monthly default and bonus to 0, so a later
+		// converter-applied read parses cleanly rather than throwing on a missing
+		// allowance. A null reason (admin gave none) is recorded verbatim.
+		txGet.mockResolvedValue({ exists: false, data: () => undefined });
+		const { resetCredits } = await import("../credits");
+
+		await resetCredits(USER, {
+			actor: "admin-1",
+			actorEmail: "admin@dimagi.com",
+			reason: null,
+		});
+
+		expect(payloadForRef(ref)).toEqual({
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: 0,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		expect(payloadForRef(grantRef)).toMatchObject({
+			type: "reset",
+			amount: 0,
+			reason: null,
+		});
+	});
+});
+
+describe("grantCredits", () => {
+	const USER = "user-grant-test";
+	const WHO = {
+		actor: "admin-1",
+		actorEmail: "admin@dimagi.com",
+		reason: "beta tester comp",
+	};
+
+	beforeEach(installTransactionDriver);
+
+	it("adds to bonus without touching consumed and appends a grant audit row", async () => {
+		// A grant ADDS bonus credits — it must never write `consumed`. Writing
+		// consumed (even to 0) would silently erase the period's usage, turning a
+		// grant into a reset. The existing doc has 300 consumed and 100 bonus;
+		// granting 500 lands bonus at 600 and leaves consumed entirely absent from
+		// the payload (so the merge preserves the on-disk 300).
+		txGet.mockResolvedValue({
+			exists: true,
+			data: () => ({ allowance: 2000, consumed: 300, bonus: 100 }),
+		});
+		const { grantCredits } = await import("../credits");
+
+		await grantCredits(USER, 500, WHO);
+
+		expect(txSet).toHaveBeenCalledTimes(2);
+
+		const monthPayload = payloadForRef(ref);
+		expect(monthPayload).toEqual({
+			allowance: 2000,
+			bonus: 100 + 500,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		// The load-bearing negative assertion: a grant leaves consumed untouched.
+		expect(monthPayload).not.toHaveProperty("consumed");
+		expect(txSet.mock.calls.find(([setRef]) => setRef === ref)?.[2]).toEqual({
+			merge: true,
+		});
+
+		// Audit row records the granted amount and the actor.
+		expect(payloadForRef(grantRef)).toEqual({
+			amount: 500,
+			type: "grant",
+			actor: WHO.actor,
+			actor_email: WHO.actorEmail,
+			reason: WHO.reason,
+			period: getCurrentPeriod(),
+			created_at: FieldValue.serverTimestamp(),
+		});
+	});
+
+	it("seeds the full allowance when granting to a user with no current-period doc", async () => {
+		// A grant on a never-touched period seeds allowance from the monthly
+		// default and starts bonus from 0 + the granted amount — a complete doc so
+		// the next converter read parses.
+		txGet.mockResolvedValue({ exists: false, data: () => undefined });
+		const { grantCredits } = await import("../credits");
+
+		await grantCredits(USER, 250, WHO);
+
+		const monthPayload = payloadForRef(ref);
+		expect(monthPayload).toEqual({
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			bonus: 250,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		expect(monthPayload).not.toHaveProperty("consumed");
+		expect(payloadForRef(grantRef)).toMatchObject({
+			type: "grant",
+			amount: 250,
+		});
+	});
+});
+
+/**
+ * `getCreditSummary` over a scripted set of month docs. Unlike the writers, the
+ * summary is a plain collection read (`collections.creditMonths(userId).get()`),
+ * so it is driven by `creditMonthsGet` (NOT the transaction mock). Each case
+ * scripts the on-disk month set as converter-applied snapshots — the docs carry
+ * full `CreditMonthDoc` shapes because the read goes through the converter in
+ * production.
+ */
+describe("getCreditSummary", () => {
+	const USER = "user-summary-test";
+
+	beforeEach(() => {
+		creditMonthsGet.mockReset();
+	});
+
+	/** Build a scripted month snapshot keyed by period id. */
+	const monthsSnapshot = (
+		months: Record<
+			string,
+			{ allowance: number; consumed: number; bonus: number }
+		>,
+	) => ({
+		docs: Object.entries(months).map(([id, data]) => ({
+			id,
+			data: () => data,
+		})),
+	});
+
+	it("reports the current period's balance and sums lifetime consumed across all months", async () => {
+		// Three months on disk including the current one. The summary reports the
+		// CURRENT period's balance components, while lifetimeConsumed sums consumed
+		// over EVERY month (600 + 2000 + 105 = 2705).
+		const period = getCurrentPeriod();
+		creditMonthsGet.mockResolvedValue(
+			monthsSnapshot({
+				"2026-04": { allowance: 2000, consumed: 600, bonus: 0 },
+				"2026-05": { allowance: 2000, consumed: 2000, bonus: 0 },
+				[period]: { allowance: 2000, consumed: 105, bonus: 50 },
+			}),
+		);
+		const { getCreditSummary } = await import("../credits");
+
+		const summary = await getCreditSummary(USER);
+
+		expect(summary).toEqual({
+			period,
+			allowance: 2000,
+			consumed: 105,
+			bonus: 50,
+			// allowance + bonus − consumed = 2000 + 50 − 105.
+			balance: 1945,
+			// 600 + 2000 + 105 across the three months.
+			lifetimeConsumed: 2705,
+		});
+	});
+
+	it("reads the current period as a full balance when its doc is absent yet still sums prior months", async () => {
+		// The user generated in past months but hasn't this month, so there is no
+		// current-period doc. The current balance reads as a fresh full allowance
+		// (no pre-seeding write needed), AND lifetimeConsumed still sums the prior
+		// months — the combination most easily under-tested.
+		const period = getCurrentPeriod();
+		creditMonthsGet.mockResolvedValue(
+			monthsSnapshot({
+				"2026-04": { allowance: 2000, consumed: 300, bonus: 0 },
+				"2026-05": { allowance: 2000, consumed: 450, bonus: 0 },
+			}),
+		);
+		const { getCreditSummary } = await import("../credits");
+
+		const summary = await getCreditSummary(USER);
+
+		expect(summary).toEqual({
+			period,
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: 0,
+			balance: MONTHLY_CREDIT_ALLOWANCE,
+			lifetimeConsumed: 750,
+		});
+	});
+
+	it("reports a full balance and zero lifetime for a user with no months at all", async () => {
+		// A brand-new user: no months on disk. The current balance is the full
+		// allowance and lifetimeConsumed is 0 — the day-one read with no writes.
+		creditMonthsGet.mockResolvedValue(monthsSnapshot({}));
+		const { getCreditSummary } = await import("../credits");
+
+		const summary = await getCreditSummary(USER);
+
+		expect(summary).toEqual({
+			period: getCurrentPeriod(),
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: 0,
+			balance: MONTHLY_CREDIT_ALLOWANCE,
+			lifetimeConsumed: 0,
+		});
 	});
 });

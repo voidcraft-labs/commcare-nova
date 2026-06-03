@@ -89,6 +89,63 @@ async function clearCreditMonths(db: Firestore): Promise<void> {
 }
 
 /**
+ * Delete the test user's whole append-only grants subcollection between cases.
+ * Grants never get overwritten in production — each intervention appends a fresh
+ * doc — so without this clear the rows would accumulate across cases and make a
+ * "read back exactly one grant row" assertion count stale rows from earlier
+ * tests.
+ */
+async function clearCreditGrants(db: Firestore): Promise<void> {
+	const snap = await db
+		.collection("credits")
+		.doc(TEST_USER_ID)
+		.collection("grants")
+		.get();
+	await Promise.all(snap.docs.map((d) => d.ref.delete()));
+}
+
+/**
+ * Read back every grant audit row for the test user, newest interventions last
+ * (unordered — the cases assert on count and on the single row's contents, not
+ * on ordering). Returns the raw stored shape so a case can pin `type`/`amount`/
+ * `actor` exactly as written.
+ */
+async function readCreditGrants(db: Firestore): Promise<
+	Array<{
+		amount: number;
+		type: string;
+		actor: string;
+		actor_email: string;
+		reason: string | null;
+		period: string;
+	}>
+> {
+	const snap = await db
+		.collection("credits")
+		.doc(TEST_USER_ID)
+		.collection("grants")
+		.get();
+	return snap.docs.map((d) => {
+		const data = d.data() as {
+			amount: number;
+			type: string;
+			actor: string;
+			actor_email: string;
+			reason: string | null;
+			period: string;
+		};
+		return {
+			amount: data.amount,
+			type: data.type,
+			actor: data.actor,
+			actor_email: data.actor_email,
+			reason: data.reason,
+			period: data.period,
+		};
+	});
+}
+
+/**
  * Seed the test user's current-period credit doc to a precise balance so a
  * case can place the user exactly at the affordability boundary it needs.
  */
@@ -168,5 +225,216 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 			consumed: MONTHLY_CREDIT_ALLOWANCE - 5,
 			bonus: 0,
 		});
+	});
+});
+
+/**
+ * Integration round-trips for the refund and admin reset/grant writers, plus the
+ * summary read. What these prove that the unit suite (scripted spies) can't:
+ *
+ *   - reset and grant land BOTH documents — the month-doc mutation AND the
+ *     append-only audit row — in ONE committed transaction: the two `tx.set`
+ *     calls share a single `runTransaction` closure, so reading both back after
+ *     a successful commit proves they were written together as one unit. (This
+ *     is the committed-together property, not a both-or-neither rollback claim —
+ *     no failure is injected mid-transaction here.) The unit suite only proves
+ *     both `tx.set` calls FIRE; it can't observe a real commit.
+ *   - `resetCredits` and `grantCredits` on a user with NO current-period doc
+ *     write a doc the REAL Zod converter reads back without throwing — the
+ *     central hazard guard. A reset seeds a COMPLETE doc (explicit allowance,
+ *     consumed 0); a grant omits `consumed` (it must never erase usage), so its
+ *     doc-less write relies on `creditMonthDocSchema.consumed`'s `.default(0)` to
+ *     fill the gap on read. `allowance` has no Zod default on either path, so
+ *     only a real converter read over a real on-disk doc proves the seed parses.
+ *     A spied read can't.
+ *   - `refundCredits` actually decrements `consumed` on disk and a re-read
+ *     reflects it.
+ *
+ * The production `getDb()` inside the writers/summary connects to the same
+ * emulator as our `db` client via `FIRESTORE_EMULATOR_HOST`.
+ */
+describe.skipIf(!emulatorAvailable)("credit writers integration", () => {
+	let db: Firestore;
+	const period = getCurrentPeriod();
+	const WHO = {
+		actor: "admin-integration",
+		actorEmail: "admin@dimagi.com",
+		reason: "integration comp",
+	};
+
+	beforeAll(() => {
+		// The reserve describe above may already have initialized the default app
+		// in this worker; `initializeApp` throws on a second default-app init, so
+		// only initialize when none exists yet.
+		if (getApps().length === 0) {
+			initializeApp({ projectId: TEST_PROJECT_ID });
+		}
+		db = new Firestore({ projectId: TEST_PROJECT_ID, preferRest: true });
+	});
+
+	afterAll(async () => {
+		for (const app of getApps()) {
+			await deleteApp(app);
+		}
+	});
+
+	beforeEach(async () => {
+		await clearCreditMonths(db);
+		await clearCreditGrants(db);
+	});
+
+	it("resets a user with no current-period doc into a COMPLETE doc the converter parses", async () => {
+		const { getCreditSummary, resetCredits } = await import("../credits");
+
+		// The user has never been debited this period — no doc exists.
+		expect(await readCreditMonth(db, period)).toBeUndefined();
+
+		await resetCredits(TEST_USER_ID, WHO);
+
+		// A complete doc landed: allowance is present (the no-default field), bonus
+		// 0, consumed 0. A partial `{ consumed: 0 }` merge would have omitted
+		// allowance and tripped the converter on the next read.
+		expect(await readCreditMonth(db, period)).toEqual({
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: 0,
+		});
+
+		// The central hazard guard: the summary reads through the REAL Zod
+		// converter. If the seed were partial (no allowance), this would THROW on
+		// parse. It must instead return a clean full balance.
+		const summary = await getCreditSummary(TEST_USER_ID);
+		expect(summary).toMatchObject({
+			period,
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: 0,
+			balance: MONTHLY_CREDIT_ALLOWANCE,
+		});
+
+		// The reset committed its audit row in the same transaction.
+		const grants = await readCreditGrants(db);
+		expect(grants).toHaveLength(1);
+		expect(grants[0]).toMatchObject({
+			type: "reset",
+			amount: 0,
+			actor: WHO.actor,
+			actor_email: WHO.actorEmail,
+			reason: WHO.reason,
+			period,
+		});
+	});
+
+	it("resets an existing mid-period doc to consumed 0 and appends the audit row atomically", async () => {
+		const { resetCredits } = await import("../credits");
+
+		// A mid-period doc with usage and a prior bonus.
+		await seedCreditMonth(db, period, {
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 1500,
+			bonus: 200,
+		});
+
+		await resetCredits(TEST_USER_ID, WHO);
+
+		// consumed zeroed; the prior bonus and allowance preserved.
+		expect(await readCreditMonth(db, period)).toEqual({
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: 200,
+		});
+		// Both the month mutation and the audit row are on disk → committed together.
+		expect(await readCreditGrants(db)).toHaveLength(1);
+	});
+
+	it("grants bonus credits and appends the audit row without touching consumed", async () => {
+		const { getCreditSummary, grantCredits } = await import("../credits");
+
+		// A mid-period doc with usage the grant must NOT disturb.
+		await seedCreditMonth(db, period, {
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 300,
+			bonus: 0,
+		});
+
+		await grantCredits(TEST_USER_ID, 500, WHO);
+
+		// bonus advanced by the granted amount; consumed preserved exactly (a grant
+		// is additive — it must never erase usage the way a reset does).
+		expect(await readCreditMonth(db, period)).toEqual({
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 300,
+			bonus: 500,
+		});
+
+		// Balance reflects the grant on top of the preserved consumed:
+		// 2000 + 500 − 300 = 2200.
+		const summary = await getCreditSummary(TEST_USER_ID);
+		expect(summary.balance).toBe(MONTHLY_CREDIT_ALLOWANCE + 500 - 300);
+
+		const grants = await readCreditGrants(db);
+		expect(grants).toHaveLength(1);
+		expect(grants[0]).toMatchObject({ type: "grant", amount: 500 });
+	});
+
+	it("grants to a user with no current-period doc into a doc the converter parses (no explicit consumed)", async () => {
+		const { getCreditSummary, grantCredits } = await import("../credits");
+
+		// The user has never been debited this period — no doc exists.
+		expect(await readCreditMonth(db, period)).toBeUndefined();
+
+		const GRANT = 500;
+		await grantCredits(TEST_USER_ID, GRANT, WHO);
+
+		// The on-disk doc carries the seeded allowance, the granted bonus, and a
+		// consumed of 0 that the grant NEVER wrote explicitly — it lands only
+		// because `creditMonthDocSchema.consumed` carries `.default(0)`. A grant
+		// must not write consumed (that would erase usage), so a future removal of
+		// that default would leave the doc-less grant doc with no consumed at all.
+		expect(await readCreditMonth(db, period)).toEqual({
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: GRANT,
+		});
+
+		// The central hazard guard for the GRANT path: the summary reads through
+		// the REAL Zod converter. The grant wrote no consumed; if that field's
+		// `.default(0)` were ever dropped, the converter would throw on this read.
+		// It must instead parse cleanly and report the granted balance on top of a
+		// fresh full allowance with zero consumed.
+		const summary = await getCreditSummary(TEST_USER_ID);
+		expect(summary).toMatchObject({
+			period,
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: GRANT,
+			balance: MONTHLY_CREDIT_ALLOWANCE + GRANT,
+		});
+
+		// The grant committed its audit row in the same transaction.
+		const grants = await readCreditGrants(db);
+		expect(grants).toHaveLength(1);
+		expect(grants[0]).toMatchObject({ type: "grant", amount: GRANT });
+	});
+
+	it("refunds by decrementing consumed on disk, and is a no-op against a missing period", async () => {
+		const { refundCredits } = await import("../credits");
+
+		// A doc that booked two builds; refunding one walks consumed 200 → 100.
+		await seedCreditMonth(db, period, {
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 2 * CREDITS_PER_BUILD,
+			bonus: 0,
+		});
+
+		await refundCredits(TEST_USER_ID, period, CREDITS_PER_BUILD);
+		expect((await readCreditMonth(db, period))?.consumed).toBe(
+			CREDITS_PER_BUILD,
+		);
+
+		// A refund against a period with no doc seeds nothing — it stays absent.
+		const otherPeriod = "1999-01";
+		await refundCredits(TEST_USER_ID, otherPeriod, CREDITS_PER_BUILD);
+		expect(await readCreditMonth(db, otherPeriod)).toBeUndefined();
 	});
 });

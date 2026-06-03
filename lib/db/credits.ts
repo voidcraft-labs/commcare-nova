@@ -9,7 +9,7 @@
  */
 import { FieldValue } from "@google-cloud/firestore";
 import { MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
-import { docs } from "./firestore";
+import { collections, docs } from "./firestore";
 import { getCurrentPeriod } from "./period";
 import type { CreditMonthDoc } from "./types";
 
@@ -106,4 +106,220 @@ export async function reserveCredits(
 	});
 
 	return { period, reserved: cost };
+}
+
+/**
+ * Hand back the credits a reservation booked for a run that did no billable
+ * work — a hard failure that broke the app, or a turn that produced nothing.
+ *
+ * Refunds against the period the reservation was BOOKED to (passed in, not
+ * re-derived from `getCurrentPeriod()`): a flush that crosses midnight into a
+ * new month must still un-book the month that was actually debited.
+ *
+ * The decrement is clamped at 0 so a refund can never drive `consumed` negative
+ * — `creditMonthDocSchema` rejects a negative quantity, so an under-clamp would
+ * write a doc the next read can't parse. A period with no doc has nothing to
+ * un-book, so the transaction reads, finds nothing, and returns WITHOUT seeding
+ * one: seeding here would materialize a phantom month. Runs over the raw ref for
+ * the same parse-on-read reason the reservation does.
+ */
+export async function refundCredits(
+	userId: string,
+	period: string,
+	amount: number,
+): Promise<void> {
+	const ref = docs.creditMonthRaw(userId, period);
+
+	await ref.firestore.runTransaction(async (tx) => {
+		const snap = await tx.get(ref);
+		// A never-debited period has no doc — nothing to refund, and seeding one
+		// would invent a month the user never spent in. Leave it untouched.
+		if (!snap.exists) return;
+
+		const consumed = (snap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
+		tx.set(
+			ref,
+			{
+				consumed: Math.max(0, consumed - amount),
+				updated_at: FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+	});
+}
+
+/**
+ * The acting admin behind a reset/grant, recorded on the audit row. Exported as
+ * the single source of truth for this shape so the admin write-route (which
+ * builds it from the session) and these writers agree on the field names —
+ * `actorEmail` is the admin's denormalized email stored as `actor_email` for the
+ * audit display; `reason` is the optional free-text justification.
+ */
+export interface AdminActor {
+	/** Acting admin's userId. */
+	actor: string;
+	/** Acting admin's email, denormalized onto the audit row. */
+	actorEmail: string;
+	/** Free-text justification, or null when the admin gave none. */
+	reason: string | null;
+}
+
+/**
+ * Reset a user's current-period credits: zero `consumed` and append an audit
+ * row recording who did it and why — both in ONE transaction so the effect and
+ * its audit commit together (or not at all).
+ *
+ * Read-then-seed is load-bearing: a reset on a user with NO current-period doc
+ * must still write a COMPLETE doc. `allowance` has no Zod default by design
+ * (its value is credit policy, not schema), so a partial `{ consumed: 0 }` merge
+ * would leave a doc the next converter-applied read (the summary, the admin
+ * dashboard) throws on. So we seed `allowance` from the existing value or the
+ * monthly default, preserve any prior `bonus`, and zero `consumed`. The audit
+ * row records `amount: 0` — a reset zeroes consumed and grants nothing.
+ */
+export async function resetCredits(
+	userId: string,
+	who: AdminActor,
+): Promise<void> {
+	const period = getCurrentPeriod();
+	const monthRef = docs.creditMonthRaw(userId, period);
+	// A fresh auto-id ref for the append-only audit row, minted before the
+	// transaction so the same ref is written exactly once inside it.
+	const grantRef = collections.creditGrants(userId).doc();
+
+	await monthRef.firestore.runTransaction(async (tx) => {
+		const snap = await tx.get(monthRef);
+		const data = snap.exists
+			? (snap.data() as Partial<CreditMonthDoc>)
+			: undefined;
+
+		// Seed a complete doc: explicit allowance (no Zod default), preserved
+		// bonus, consumed zeroed.
+		tx.set(
+			monthRef,
+			{
+				allowance: data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
+				consumed: 0,
+				bonus: data?.bonus ?? 0,
+				updated_at: FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		// Audit row, written in the same transaction so the comp is always
+		// traceable to an actor. No merge: each grant ref is a fresh document.
+		tx.set(grantRef, {
+			amount: 0,
+			type: "reset",
+			actor: who.actor,
+			actor_email: who.actorEmail,
+			reason: who.reason,
+			period,
+			created_at: FieldValue.serverTimestamp(),
+		});
+	});
+}
+
+/**
+ * Grant a user bonus credits for the current period and append an audit row —
+ * both in ONE transaction so the effect and its audit commit together.
+ *
+ * A grant ADDS to `bonus` and must never write `consumed`: writing consumed
+ * (even to 0) would silently erase the period's usage, turning a grant into a
+ * reset. The merge therefore omits `consumed` entirely so the on-disk value is
+ * preserved. Read-then-seed seeds `allowance` for the same complete-doc reason
+ * as the reset; `bonus` accumulates onto any prior bonus.
+ */
+export async function grantCredits(
+	userId: string,
+	amount: number,
+	who: AdminActor,
+): Promise<void> {
+	const period = getCurrentPeriod();
+	const monthRef = docs.creditMonthRaw(userId, period);
+	const grantRef = collections.creditGrants(userId).doc();
+
+	await monthRef.firestore.runTransaction(async (tx) => {
+		const snap = await tx.get(monthRef);
+		const data = snap.exists
+			? (snap.data() as Partial<CreditMonthDoc>)
+			: undefined;
+
+		// Seed allowance (complete-doc guard), add to bonus, and deliberately do
+		// NOT write consumed so the on-disk usage is preserved by the merge.
+		tx.set(
+			monthRef,
+			{
+				allowance: data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
+				bonus: (data?.bonus ?? 0) + amount,
+				updated_at: FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
+
+		tx.set(grantRef, {
+			amount,
+			type: "grant",
+			actor: who.actor,
+			actor_email: who.actorEmail,
+			reason: who.reason,
+			period,
+			created_at: FieldValue.serverTimestamp(),
+		});
+	});
+}
+
+/**
+ * A user's current-period balance plus their lifetime credits consumed. The
+ * shape the user-facing usage endpoint and the admin dashboard both render.
+ */
+export interface CreditSummary {
+	/** The current `yyyy-mm` period the balance figures describe. */
+	period: string;
+	/** Current period's monthly grant. */
+	allowance: number;
+	/** Current period's debited credits. */
+	consumed: number;
+	/** Current period's additive admin grants. */
+	bonus: number;
+	/** Spendable now: `allowance + bonus − consumed`. */
+	balance: number;
+	/** Credits consumed across every period the user has ever had a doc for. */
+	lifetimeConsumed: number;
+}
+
+/**
+ * Read a user's current balance and lifetime credits consumed.
+ *
+ * Reads every credit-month doc through the converter (these are complete,
+ * on-disk docs — the parse-on-read hazard only bites the reservation's
+ * mid-transaction read of a possibly-partial doc, not a settled collection
+ * read), summing `consumed` across all of them for `lifetimeConsumed` and
+ * pulling the current period's components out for the balance. A user with no
+ * current-period doc reads as a fresh full allowance — the same absent-doc =
+ * full-balance rule the gate uses — without forcing a pre-seeding write.
+ */
+export async function getCreditSummary(userId: string): Promise<CreditSummary> {
+	const period = getCurrentPeriod();
+	const monthsSnap = await collections.creditMonths(userId).get();
+
+	let lifetimeConsumed = 0;
+	let current: CreditMonthDoc | undefined;
+	for (const monthDoc of monthsSnap.docs) {
+		const data = monthDoc.data();
+		lifetimeConsumed += data.consumed;
+		if (monthDoc.id === period) current = data;
+	}
+
+	const allowance = current?.allowance ?? MONTHLY_CREDIT_ALLOWANCE;
+	const consumed = current?.consumed ?? 0;
+	const bonus = current?.bonus ?? 0;
+	return {
+		period,
+		allowance,
+		consumed,
+		bonus,
+		balance: allowance + bonus - consumed,
+		lifetimeConsumed,
+	};
 }
