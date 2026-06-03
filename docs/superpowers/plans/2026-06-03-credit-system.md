@@ -1,0 +1,696 @@
+# Credit System Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **Frontend tasks (11–14) MUST load the `frontend-design` skill and build from `@/components/shadcn` (base-nova), never raw Base UI; icons from `@iconify/react/offline` (Tabler).** Tests are state-model/pure — **no RTL/jsdom UI tests** (project rule). Run each test once; a flake is a blocking bug, not a retry.
+
+**Goal:** Replace the per-user dollar spend cap with a credit-based gate (build = 100 credits, edit = 5, reserved before each generation), tracked on a resettable ledger separate from an accumulate-only actual-cost ledger, with an audited admin reset/grant, lifetime+period visibility, a $50 invisible runaway backstop, and a migration that restores hand-blanked cost truth.
+
+**Architecture:** Two Firestore ledgers. `usage/{userId}/months/{period}` stays the **actual-$** rollup (now accumulate-only; resets never touch it). A new `credits/{userId}/months/{period}` + append-only `credits/{userId}/grants/{id}` is the **resettable gate**. `/api/chat` charges per new user instruction (signal = last role in the **raw** `body.messages`; amount = `appReady ? 5 : 100`), reserving credits in a transaction before the SA runs and refunding on hard-failure no-op. Admin reset/grant is a transactional, audited credit mutation. MCP is out of scope (no server-side LLM cost).
+
+**Tech Stack:** Next.js 16 (App Router), TypeScript strict, `@google-cloud/firestore` (transactions, `FieldValue`), Zod converters, Vitest, shadcn (base-nova) + Base UI, Tailwind v4, `commander` + `tsx` for scripts.
+
+Spec: `docs/superpowers/specs/2026-06-03-credit-system-design.md`.
+
+---
+
+## File Structure
+
+**Create:**
+- `lib/db/credits.ts` — credit constants + all credit-ledger logic (pure helpers `creditBalance`, `chargeAmount`, `isChargeableTurn`; transactional `reserveCredits`, `refundCredits`, `resetCredits`, `grantCredits`; read `getCreditSummary`). Owns: Tasks 2,3,4. *Constants live here, not `lib/models.ts` — they are gate/quota policy, co-located with the gate (the old `MONTHLY_SPEND_CAP_USD` lived in `lib/db/usage.ts` for the same reason).*
+- `lib/db/__tests__/credits.test.ts` — pure + transactional ledger tests (Tasks 2,3,4).
+- `app/api/admin/users/[id]/credits/route.ts` — first admin **write** route: POST reset/grant (Task 10).
+- `app/api/admin/users/[id]/credits/__tests__/route.test.ts` — endpoint guard + transaction tests (Task 10).
+- `app/(app)/admin/users/[id]/credit-controls.tsx` — client reset/grant control (shadcn AlertDialog) + audit list (Task 12).
+- `scripts/inspect-credit-migration.ts` — read-only migration scan (Task 15).
+- `scripts/migrate-actual-cost.ts` — dry-run-default cost-restore migrator with `--apply`, plus guarded `--delete-orphan` pass (Tasks 16,17).
+
+**Modify:**
+- `lib/db/types.ts` — add `creditMonthDocSchema`/`CreditMonthDoc`, `creditGrantDocSchema`/`CreditGrantDoc` (Task 1).
+- `lib/db/firestore.ts` — add `credits` + `creditGrants` collection helpers, `creditMonth`/`creditGrant` doc helpers, converters, and a raw (converter-less) credit-month ref accessor for transactions (Task 1).
+- `lib/db/usage.ts` — remove `MONTHLY_SPEND_CAP_USD`; `UsageAccumulator` gains `didReserve`/`reservedAmount`/`chargePeriod` seed fields + refund in `flush()` (Task 5). `getMonthlyUsage` stays (backstop reads it).
+- `lib/agent/errorClassifier.ts` — `spend_cap_exceeded` → `out_of_credits` in `AgentErrorType` + `MESSAGES` (Task 6).
+- `app/api/chat/route.ts` — replace the dollar-cap block with the credit gate; reserve after pre-stream rejections; thread reservation into the accumulator (Task 7).
+- `app/api/user/usage/route.ts` — return the credit shape (balance/allowance/consumed + lifetime) (Task 8).
+- `lib/admin/types.ts` — `AdminUserRow`, `AdminStats`, `UsagePeriod`, `AdminUserDetailResponse` gain credit + lifetime fields + grants audit (Task 9).
+- `lib/db/admin.ts` — read credits; compute lifetime credits + lifetime cost; fetch grants audit (Task 9).
+- `app/(app)/admin/user-table.tsx` — credit + lifetime columns (Task 11).
+- `app/(app)/admin/users/[id]/user-usage.tsx` — credit columns + totals row (Task 12).
+- `app/(app)/admin/users/[id]/page.tsx` — mount `credit-controls.tsx` (Task 12).
+- `app/(app)/admin/admin-content.tsx` — headline fleet-credits stat (Task 13).
+- `components/ui/AccountMenu.tsx` — credits-remaining bar instead of dollars (Task 14).
+- `.env.example` — remove the `MONTHLY_SPEND_CAP_USD` usage-tracking block (Task 18).
+- `lib/db/CLAUDE.md`, root `CLAUDE.md` — two-ledger model + invariant; "spend cap" → "credit gate + backstop" (Task 18).
+
+**Verify-only (no change expected):** `app/api/chat/schema.ts` (`appReady` already present), `lib/mcp/**` (out of scope — confirm untouched).
+
+---
+
+## Task 1: Credit schemas + Firestore helpers
+
+**Files:**
+- Modify: `lib/db/types.ts`
+- Modify: `lib/db/firestore.ts`
+- Test: `lib/db/__tests__/credits.test.ts` (create; schema cases here)
+
+- [ ] **Step 1: Write failing schema tests**
+
+In `lib/db/__tests__/credits.test.ts`:
+```ts
+import { describe, expect, it } from "vitest";
+import { creditGrantDocSchema, creditMonthDocSchema } from "@/lib/db/types";
+
+describe("creditMonthDocSchema", () => {
+  it("defaults consumed and bonus to 0; requires allowance to be present on existing docs", () => {
+    const parsed = creditMonthDocSchema.parse({ allowance: 2000 });
+    expect(parsed).toMatchObject({ allowance: 2000, consumed: 0, bonus: 0 });
+  });
+  it("rejects a negative consumed", () => {
+    expect(() => creditMonthDocSchema.parse({ allowance: 2000, consumed: -1 })).toThrow();
+  });
+});
+
+describe("creditGrantDocSchema", () => {
+  it("accepts a reset grant row", () => {
+    const row = creditGrantDocSchema.parse({
+      amount: 0, type: "reset", actor: "admin1", actor_email: "a@dimagi.com",
+      reason: null, period: "2026-06",
+    });
+    expect(row.type).toBe("reset");
+  });
+});
+```
+
+- [ ] **Step 2: Run — expect FAIL** (`creditMonthDocSchema` not exported)
+
+Run: `npx vitest run lib/db/__tests__/credits.test.ts`
+Expected: FAIL — `creditMonthDocSchema is not a function` / import error.
+
+- [ ] **Step 3: Add schemas to `lib/db/types.ts`**
+
+Add near `usageDocSchema` (use the existing `timestamp` helper already in this file):
+```ts
+/**
+ * Monthly per-user credit balance — the resettable gate ledger, parallel to
+ * the usage doc but on a different collection so resets never touch cost.
+ * Balance = allowance + bonus - consumed. `allowance` is always written
+ * explicitly (the reservation seeds it in-transaction; a Zod default would
+ * couple this schema to the credits-constant module), so it has no default;
+ * an absent credit doc is treated as a full balance in code, never parsed here.
+ */
+export const creditMonthDocSchema = z.object({
+  /** Monthly grant, written explicitly on first reservation of the period. */
+  allowance: z.number().nonnegative(),
+  /** Credits debited this period (sum of build/edit charges). */
+  consumed: z.number().nonnegative().default(0),
+  /** Additive admin grants (comps) applied to this period. */
+  bonus: z.number().nonnegative().default(0),
+  updated_at: timestamp,
+});
+export type CreditMonthDoc = z.infer<typeof creditMonthDocSchema>;
+
+/**
+ * Append-only audit row for an admin credit intervention. Records who/when so
+ * a comp is traceable — the universal guardrail across Stripe/Orb/Metronome.
+ * Never mutates the usage (cost) ledger.
+ */
+export const creditGrantDocSchema = z.object({
+  /** Credits added (grant) — informational for a reset (which zeroes consumed). */
+  amount: z.number(),
+  type: z.enum(["reset", "grant"]),
+  /** Admin userId who performed the action. */
+  actor: z.string(),
+  /** Denormalized admin email for the audit display. */
+  actor_email: z.string(),
+  reason: z.string().nullable().default(null),
+  /** The yyyy-mm period affected. */
+  period: z.string(),
+  created_at: timestamp,
+});
+export type CreditGrantDoc = z.infer<typeof creditGrantDocSchema>;
+```
+*(If `timestamp` allows server-sentinel-on-write but ISO/Timestamp-on-read like the other docs in this file, follow that exact pattern — match `usageDocSchema.updated_at`. The grant test above omits `created_at`; if `timestamp` is required-on-read, give the test `created_at` a Timestamp-like stub as the other doc tests in this repo do, or make `created_at` `.optional()` mirroring how run/usage timestamps are handled. Match the existing convention exactly.)*
+
+- [ ] **Step 4: Add Firestore helpers to `lib/db/firestore.ts`**
+
+Import the new schemas/types, add converters, and extend `collections` + `docs`. Mirror the `usage` helper exactly:
+```ts
+// in the imports block from "./types":
+import {
+  type CreditGrantDoc, creditGrantDocSchema,
+  type CreditMonthDoc, creditMonthDocSchema,
+  /* ...existing... */
+} from "./types";
+
+const creditMonthConverter = zodConverter(creditMonthDocSchema);
+const creditGrantConverter = zodConverter(creditGrantDocSchema);
+
+// in `collections`:
+/** Per-user monthly credit balance: `credits/{userId}/months/{yyyy-mm}` */
+creditMonths: (userId: string): CollectionReference<CreditMonthDoc> =>
+  getDb().collection("credits").doc(userId).collection("months").withConverter(creditMonthConverter),
+/** Per-user append-only credit audit: `credits/{userId}/grants/{id}` */
+creditGrants: (userId: string): CollectionReference<CreditGrantDoc> =>
+  getDb().collection("credits").doc(userId).collection("grants").withConverter(creditGrantConverter),
+
+// in `docs`:
+/** Direct ref: `credits/{userId}/months/{yyyy-mm}` (converter-applied, for reads). */
+creditMonth: (userId: string, period: string): DocumentReference<CreditMonthDoc> =>
+  collections.creditMonths(userId).doc(period),
+/**
+ * RAW (converter-less) ref to the credit-month doc, for transactions.
+ * A `withConverter` `tx.get()` routes through `schema.parse` and would throw on
+ * a partially-initialized existing doc inside the transaction (same hazard the
+ * run-summary writer documents); the reservation reads/writes raw data and
+ * supplies defaults in code.
+ */
+creditMonthRaw: (userId: string, period: string): DocumentReference =>
+  getDb().collection("credits").doc(userId).collection("months").doc(period),
+```
+
+- [ ] **Step 5: Run — expect PASS**
+
+Run: `npx vitest run lib/db/__tests__/credits.test.ts`
+Expected: PASS (3 tests). Also run `npx tsc --noEmit` — expect no new errors.
+
+- [ ] **Step 6: Commit**
+```bash
+git add lib/db/types.ts lib/db/firestore.ts lib/db/__tests__/credits.test.ts
+git commit -m "feat(credits): credit-month + grant schemas and Firestore helpers"
+```
+
+---
+
+## Task 2: Credit constants + pure helpers
+
+**Files:**
+- Create: `lib/db/credits.ts`
+- Test: `lib/db/__tests__/credits.test.ts` (append)
+
+- [ ] **Step 1: Write failing tests** (append to `credits.test.ts`)
+```ts
+import {
+  ACTUAL_COST_BACKSTOP_USD, CREDITS_PER_BUILD, CREDITS_PER_EDIT,
+  MONTHLY_CREDIT_ALLOWANCE, chargeAmount, creditBalance, isChargeableTurn,
+} from "@/lib/db/credits";
+import type { UIMessage } from "ai";
+
+const u = (role: "user" | "assistant"): UIMessage =>
+  ({ id: "m", role, parts: [{ type: "text", text: "x" }] }) as UIMessage;
+
+describe("pure credit helpers", () => {
+  it("constants are the locked values", () => {
+    expect([CREDITS_PER_BUILD, CREDITS_PER_EDIT, MONTHLY_CREDIT_ALLOWANCE, ACTUAL_COST_BACKSTOP_USD])
+      .toEqual([100, 5, 2000, 50]);
+  });
+  it("creditBalance = allowance + bonus - consumed", () => {
+    expect(creditBalance({ allowance: 2000, consumed: 105, bonus: 0 })).toBe(1895);
+    expect(creditBalance(undefined)).toBe(MONTHLY_CREDIT_ALLOWANCE); // absent doc = full
+  });
+  it("chargeAmount: build vs edit by appReady", () => {
+    expect(chargeAmount(false)).toBe(100);
+    expect(chargeAmount(true)).toBe(5);
+  });
+  it("isChargeableTurn: last RAW message role user = charge; assistant = free", () => {
+    expect(isChargeableTurn([u("assistant"), u("user")])).toBe(true);
+    expect(isChargeableTurn([u("user"), u("assistant")])).toBe(false); // answered-askQuestions auto-resend
+    expect(isChargeableTurn([])).toBe(false);
+  });
+});
+```
+
+- [ ] **Step 2: Run — expect FAIL** (module missing).
+Run: `npx vitest run lib/db/__tests__/credits.test.ts`
+
+- [ ] **Step 3: Create `lib/db/credits.ts` (constants + pure helpers)**
+```ts
+/**
+ * Credit ledger — the resettable per-user gate, kept on its own collection so
+ * admin resets never touch the accumulate-only cost ledger (`usage/`). Constants
+ * are gate/quota policy and live here next to the gate, not in the model-config
+ * file (which holds only model-keyed rates).
+ */
+import type { UIMessage } from "ai";
+import type { CreditMonthDoc } from "./types";
+
+/** 1 credit = $0.01 — the lightly-visible conversion anchor for $ hints. */
+export const CREDITS_PER_DOLLAR = 100;
+/** A new-app generation. */
+export const CREDITS_PER_BUILD = 100;
+/** An edit to an existing app — cheap so iterating feels nearly free. */
+export const CREDITS_PER_EDIT = 5;
+/** Monthly grant; resets each calendar month (no rollover). */
+export const MONTHLY_CREDIT_ALLOWANCE = 2000;
+/** Invisible per-user monthly actual-$ runaway guard. */
+export const ACTUAL_COST_BACKSTOP_USD = 50;
+
+/** Spendable balance for a period. An absent doc reads as a full allowance. */
+export function creditBalance(doc: Pick<CreditMonthDoc, "allowance" | "consumed" | "bonus"> | undefined): number {
+  if (!doc) return MONTHLY_CREDIT_ALLOWANCE;
+  return doc.allowance + doc.bonus - doc.consumed;
+}
+
+/** Credit cost of a chargeable turn: edits are cheap, builds are the unit. */
+export function chargeAmount(appReady: boolean): number {
+  return appReady ? CREDITS_PER_EDIT : CREDITS_PER_BUILD;
+}
+
+/**
+ * Is this POST a new user-initiated generation (charge) or a free continuation?
+ * MUST be passed the RAW incoming messages (before the route's last-user-message-only
+ * cache-expiry transform): a fresh instruction appends a `user` message; an
+ * answered-askQuestions auto-resend ends with an `assistant` message.
+ */
+export function isChargeableTurn(rawMessages: readonly UIMessage[]): boolean {
+  const last = rawMessages.at(-1);
+  return last?.role === "user";
+}
+```
+
+- [ ] **Step 4: Run — expect PASS.** `npx vitest run lib/db/__tests__/credits.test.ts`
+- [ ] **Step 5: Commit**
+```bash
+git add lib/db/credits.ts lib/db/__tests__/credits.test.ts
+git commit -m "feat(credits): constants + pure balance/charge/turn helpers"
+```
+
+---
+
+## Task 3: `reserveCredits` transaction
+
+**Files:** Modify `lib/db/credits.ts`; Test `lib/db/__tests__/credits.test.ts`.
+
+The reservation is a `runTransaction` over the **raw** ref (Task 1's `docs.creditMonthRaw`): read current data (or defaults if missing), reject if balance < cost, else write the seeded doc with `consumed += cost`. Throws a typed `OutOfCreditsError` the route maps to 429.
+
+- [ ] **Step 1: Write failing tests** — use the Firestore emulator harness this repo already uses for `usage`/`runSummary` transaction tests (find the existing pattern in `lib/db/__tests__/` — e.g. `runSummary.test.ts` — and reuse its `getDb`/emulator setup verbatim; do NOT hand-mock Firestore transactions). Cases:
+```ts
+// reserveCredits(userId, cost):
+//  - missing doc: seeds {allowance:2000, consumed:cost, bonus:0}; returns {period, reserved:cost}
+//  - existing balance >= cost: increments consumed by cost
+//  - balance < cost: throws OutOfCreditsError, doc unchanged
+//  - two concurrent reserves at balance exactly one cost apart: exactly one succeeds (transaction serializes)
+```
+(Write each as a real test against the emulator. The concurrent case: `await Promise.allSettled([reserveCredits(...), reserveCredits(...)])` from balance=100 with cost=100 → exactly one fulfilled, one rejected with `OutOfCreditsError`.)
+
+- [ ] **Step 2: Run — expect FAIL.**
+
+- [ ] **Step 3: Implement in `lib/db/credits.ts`**
+```ts
+import { FieldValue } from "@google-cloud/firestore";
+import { docs } from "./firestore";
+import { getCurrentPeriod } from "./usage"; // reuse the existing yyyy-mm helper (single source)
+
+/** Thrown by reserveCredits when the user can't afford the charge. The route maps it to 429. */
+export class OutOfCreditsError extends Error {
+  constructor() {
+    super("Out of credits for this period");
+    this.name = "OutOfCreditsError";
+  }
+}
+
+export interface Reservation {
+  /** Period the charge was booked against — threaded to the refund so a post-midnight refund hits the right month. */
+  period: string;
+  /** Credits reserved (5 or 100) — refunded verbatim on a no-op. */
+  reserved: number;
+}
+
+/**
+ * Reserve `cost` credits for the current period before a generation runs.
+ * Raw-ref transaction (no converter — avoids parse-on-read throwing inside the tx
+ * on a partially-initialized doc). Seeds a missing doc with the full allowance.
+ */
+export async function reserveCredits(userId: string, cost: number): Promise<Reservation> {
+  const period = getCurrentPeriod();
+  const ref = docs.creditMonthRaw(userId, period);
+  await ref.firestore.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? (snap.data() as Partial<CreditMonthDoc>) : undefined;
+    const allowance = data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE;
+    const consumed = data?.consumed ?? 0;
+    const bonus = data?.bonus ?? 0;
+    if (allowance + bonus - consumed < cost) throw new OutOfCreditsError();
+    // Write explicit allowance/bonus so a missing doc is fully seeded; increment consumed.
+    tx.set(ref, { allowance, bonus, consumed: consumed + cost, updated_at: FieldValue.serverTimestamp() }, { merge: true });
+  });
+  return { period, reserved: cost };
+}
+```
+
+- [ ] **Step 4: Run — expect PASS** (incl. concurrent case).
+- [ ] **Step 5: Commit**
+```bash
+git add lib/db/credits.ts lib/db/__tests__/credits.test.ts
+git commit -m "feat(credits): transactional reserveCredits with OutOfCreditsError"
+```
+
+---
+
+## Task 4: `refundCredits`, `resetCredits`, `grantCredits`, `getCreditSummary`
+
+**Files:** Modify `lib/db/credits.ts`; Test `lib/db/__tests__/credits.test.ts`.
+
+- [ ] **Step 1: Write failing tests** (emulator). Cases:
+  - `refundCredits(userId, period, amount)` decrements `consumed` by `amount` on that period (clamped at 0).
+  - `resetCredits(userId, actor, actorEmail, reason)` sets current period `consumed = 0` **and** appends one `credits/{userId}/grants` row `{type:"reset"}` — both committed (read both back); a thrown grant write must not leave consumed zeroed (atomic).
+  - `grantCredits(userId, amount, actor, actorEmail, reason)` increments `bonus` by `amount` + appends `{type:"grant", amount}`.
+  - `getCreditSummary(userId)` returns `{ period, allowance, consumed, bonus, balance, lifetimeConsumed }` with a missing current-period doc reading as full balance and `lifetimeConsumed` = sum of `consumed` across all credit months.
+
+- [ ] **Step 2: Run — expect FAIL.**
+
+- [ ] **Step 3: Implement** (append to `lib/db/credits.ts`)
+```ts
+import { collections } from "./firestore";
+
+/** Return a no-op run's reservation. Clamps consumed at 0 (never negative). */
+export async function refundCredits(userId: string, period: string, amount: number): Promise<void> {
+  const ref = docs.creditMonthRaw(userId, period);
+  await ref.firestore.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return; // nothing to refund
+    const consumed = (snap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
+    tx.set(ref, { consumed: Math.max(0, consumed - amount), updated_at: FieldValue.serverTimestamp() }, { merge: true });
+  });
+}
+
+interface AdminActor { actor: string; actorEmail: string; reason: string | null; }
+
+/** Reset: zero this period's consumed + append an audit row, atomically. */
+export async function resetCredits(userId: string, who: AdminActor): Promise<void> {
+  const period = getCurrentPeriod();
+  const monthRef = docs.creditMonthRaw(userId, period);
+  const grantRef = collections.creditGrants(userId).doc();
+  await monthRef.firestore.runTransaction(async (tx) => {
+    tx.set(monthRef, { consumed: 0, updated_at: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(grantRef, {
+      amount: 0, type: "reset", actor: who.actor, actor_email: who.actorEmail,
+      reason: who.reason, period, created_at: FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+/** Grant: add bonus credits to this period + append an audit row, atomically. */
+export async function grantCredits(userId: string, amount: number, who: AdminActor): Promise<void> {
+  const period = getCurrentPeriod();
+  const monthRef = docs.creditMonthRaw(userId, period);
+  const grantRef = collections.creditGrants(userId).doc();
+  await monthRef.firestore.runTransaction(async (tx) => {
+    const snap = await tx.get(monthRef);
+    const data = snap.exists ? (snap.data() as Partial<CreditMonthDoc>) : undefined;
+    tx.set(monthRef, {
+      allowance: data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
+      bonus: (data?.bonus ?? 0) + amount,
+      updated_at: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    tx.set(grantRef, {
+      amount, type: "grant", actor: who.actor, actor_email: who.actorEmail,
+      reason: who.reason, period, created_at: FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+export interface CreditSummary {
+  period: string; allowance: number; consumed: number; bonus: number; balance: number; lifetimeConsumed: number;
+}
+
+/** Read a user's current balance + lifetime credits consumed (Σ consumed over all months). */
+export async function getCreditSummary(userId: string): Promise<CreditSummary> {
+  const period = getCurrentPeriod();
+  const monthsSnap = await collections.creditMonths(userId).get();
+  let lifetimeConsumed = 0;
+  let current: CreditMonthDoc | undefined;
+  for (const d of monthsSnap.docs) {
+    const data = d.data();
+    lifetimeConsumed += data.consumed;
+    if (d.id === period) current = data;
+  }
+  const allowance = current?.allowance ?? MONTHLY_CREDIT_ALLOWANCE;
+  const consumed = current?.consumed ?? 0;
+  const bonus = current?.bonus ?? 0;
+  return { period, allowance, consumed, bonus, balance: allowance + bonus - consumed, lifetimeConsumed };
+}
+```
+
+- [ ] **Step 4: Run — expect PASS.**
+- [ ] **Step 5: Commit**
+```bash
+git add lib/db/credits.ts lib/db/__tests__/credits.test.ts
+git commit -m "feat(credits): refund, reset/grant (atomic + audit), getCreditSummary"
+```
+
+---
+
+## Task 5: UsageAccumulator carries the reservation + refunds on no-op
+
+**Files:** Modify `lib/db/usage.ts`; Test: the existing `lib/db/__tests__/usage-accumulator.test.ts`.
+
+The accumulator's `flush()` already branches on `costEstimate > 0` for the usage increment. Add reservation fields to the seed and a refund in the `else` (zero-cost) path, gated on `didReserve`, refunding `reservedAmount` against `chargePeriod`.
+
+- [ ] **Step 1: Write failing tests** (append to `usage-accumulator.test.ts`, follow its existing fixture/seed pattern):
+  - A seed with `didReserve: true, reservedAmount: 100, chargePeriod: "2026-06"` and zero tracked cost → `flush()` calls `refundCredits("u","2026-06",100)` once (spy/mock `refundCredits`).
+  - Same seed but with cost > 0 → no refund.
+  - Seed with `didReserve: false` and zero cost → no refund (a free continuation never refunds).
+  - `flush()` called twice → refund happens at most once (`_finalized` guard).
+
+- [ ] **Step 2: Run — expect FAIL.**
+
+- [ ] **Step 3: Implement** — extend `AccumulatorSeed` with optional `didReserve?: boolean; reservedAmount?: number; chargePeriod?: string;`, store them, and in `flush()`:
+```ts
+// inside flush(), replacing the existing `if (summary.costEstimate > 0) { ...increment... }`:
+if (summary.costEstimate > 0) {
+  try { await incrementUsage(this.seed.userId, { /* unchanged */ }); }
+  catch (err) { log.error("[UsageAccumulator] monthly increment failed", err, { userId: this.seed.userId }); }
+} else if (this.seed.didReserve && this.seed.reservedAmount && this.seed.chargePeriod) {
+  // Hard-failure no-op: the SA produced no billable cost. Return the reservation
+  // to the period it was booked against (not getCurrentPeriod() — a post-midnight
+  // flush would refund the wrong month). didReserve gates this so a free
+  // continuation (which never reserved) can never phantom-refund.
+  try { await refundCredits(this.seed.userId, this.seed.chargePeriod, this.seed.reservedAmount); }
+  catch (err) { log.error("[UsageAccumulator] credit refund failed", err, { userId: this.seed.userId }); }
+}
+```
+Import `refundCredits` from `./credits`. (Heed any circular-import: `credits.ts` imports `getCurrentPeriod` from `usage.ts` as a value; `usage.ts` importing `refundCredits` from `credits.ts` as a value creates a runtime cycle. Break it by moving `getCurrentPeriod` to a tiny leaf or by having `usage.ts` import `refundCredits` lazily inside `flush` (`const { refundCredits } = await import("./credits")`). Prefer moving `getCurrentPeriod` into `credits.ts`'s leaf dependency or a shared `lib/db/period.ts`; pick the cleanest and note it. Verify with `tsc` + a runtime test that neither module is `undefined` at import.)
+
+- [ ] **Step 4: Run — expect PASS.** Also `npx tsc --noEmit`.
+- [ ] **Step 5: Commit**
+```bash
+git add lib/db/usage.ts lib/db/__tests__/usage-accumulator.test.ts lib/db/credits.ts
+git commit -m "feat(credits): accumulator refunds the reservation on a no-op run"
+```
+
+---
+
+## Task 6: Error taxonomy rename `spend_cap_exceeded` → `out_of_credits`
+
+**Files:** Modify `lib/agent/errorClassifier.ts`; Test: its existing test if present, else add a case.
+
+- [ ] **Step 1:** In `lib/agent/errorClassifier.ts`, rename the `spend_cap_exceeded` member of the `AgentErrorType` union to `out_of_credits` and update its `MESSAGES` entry to: `"You're out of credits for this month — they refresh on the 1st."` Because the union is closed, `tsc` will surface every consumer; fix each (the chat route 429 `type` field — Task 7 — and any test). `McpErrorType` inherits the union and gains `out_of_credits` transparently.
+- [ ] **Step 2:** Run `npx tsc --noEmit` — expect errors ONLY at the chat route (fixed in Task 7) and any test referencing the old literal; fix the test literal here.
+- [ ] **Step 3:** Run `npx vitest run lib/agent` — expect PASS.
+- [ ] **Step 4: Commit**
+```bash
+git add lib/agent/errorClassifier.ts
+git commit -m "refactor(credits): rename spend_cap_exceeded -> out_of_credits error type"
+```
+
+---
+
+## Task 7: Wire the credit gate into `/api/chat`
+
+**Files:** Modify `app/api/chat/route.ts`; Test: extract gate decision into a pure helper and test that (no route/RTL test).
+
+**Design recap (spec §6):** (1) compute `chargeable`/`cost` from RAW `body.messages` + `body.appReady`; (2) fast-fail read at the top (backstop on every POST; balance on chargeable POSTs) — fail-closed → 503; (3) resolve appId/ownership/concurrency; (4) **reserve** (chargeable only) after all those rejection points; (5) thread `didReserve/reservedAmount/chargePeriod` into the accumulator.
+
+- [ ] **Step 1: Write a failing pure-helper test.** Create `app/api/chat/__tests__/creditGate.test.ts`. The helper `creditGateDecision({ rawMessages, appReady })` returns `{ chargeable: boolean; cost: number }`:
+```ts
+import { creditGateDecision } from "../creditGate";
+// last raw msg user + appReady false  -> { chargeable:true, cost:100 }
+// last raw msg user + appReady true   -> { chargeable:true, cost:5 }
+// last raw msg assistant              -> { chargeable:false, cost:0 }
+```
+
+- [ ] **Step 2: Run — expect FAIL.**
+
+- [ ] **Step 3: Create `app/api/chat/creditGate.ts`**
+```ts
+import type { UIMessage } from "ai";
+import { chargeAmount, isChargeableTurn } from "@/lib/db/credits";
+
+/** Pure charge decision from the RAW request (before any message-strategy transform). */
+export function creditGateDecision(input: { rawMessages: readonly UIMessage[]; appReady: boolean }): {
+  chargeable: boolean; cost: number;
+} {
+  const chargeable = isChargeableTurn(input.rawMessages);
+  return { chargeable, cost: chargeable ? chargeAmount(input.appReady) : 0 };
+}
+```
+
+- [ ] **Step 4: Run — expect PASS.**
+
+- [ ] **Step 5: Edit `app/api/chat/route.ts`** — replace the dollar-cap block (the current `getMonthlyUsage` / `MONTHLY_SPEND_CAP_USD` try/catch) with:
+  - Near the top, after `parsed`: `const { chargeable, cost } = creditGateDecision({ rawMessages: messages, appReady: !!body.appReady });` (uses RAW `messages` from `body`, before any transform).
+  - **Fast-fail read** (replacing the old cap block, fail-closed → 503): read `getMonthlyUsage(userId)` for the backstop (`cost_estimate >= ACTUAL_COST_BACKSTOP_USD` → 429 generic) and, if `chargeable`, `getCreditSummary(userId)` (`balance < cost` → 429 `out_of_credits`, `type: "out_of_credits"`, message `MESSAGES.out_of_credits`).
+  - **Reserve** after `appId`/ownership/`hasActiveGeneration` resolution and before constructing the accumulator: if `chargeable`, `const reservation = await reserveCredits(userId, cost);` wrapped so `OutOfCreditsError` → `failApp` (if a build app was created) + 429 `out_of_credits`, and any other error → fail-closed 503 (never silently skip the charge).
+  - Pass into `new UsageAccumulator({ ... })`: `didReserve: chargeable, reservedAmount: chargeable ? cost : undefined, chargePeriod: reservation?.period`.
+  - Remove the now-unused `MONTHLY_SPEND_CAP_USD` import; keep `getMonthlyUsage`.
+
+- [ ] **Step 6: Verify** — `npx tsc --noEmit` (no errors), `npx vitest run app/api/chat` + `npx vitest run lib/db` (PASS). Manual reasoning check against spec §6 ordering: enumerate every `return`/throw after the reservation line and confirm each is inside the stream scope (so `flush()` refunds) — there should be none before the stream.
+
+- [ ] **Step 7: Commit**
+```bash
+git add app/api/chat/route.ts app/api/chat/creditGate.ts app/api/chat/__tests__/creditGate.test.ts
+git commit -m "feat(credits): credit gate replaces dollar cap in /api/chat"
+```
+
+---
+
+## Task 8: User-facing usage endpoint returns credits
+
+**Files:** Modify `app/api/user/usage/route.ts`.
+
+- [ ] **Step 1:** Change the GET handler to return `getCreditSummary(session.user.id)` shape: `{ balance, allowance, consumed, lifetimeConsumed }` (drop `cost`/`cap`). Keep `requireAuth`/session pattern unchanged.
+- [ ] **Step 2:** Update/replace any test of this route to assert the credit shape.
+- [ ] **Step 3:** `npx tsc --noEmit`; `npx vitest run app/api/user`.
+- [ ] **Step 4: Commit** `git commit -am "feat(credits): /api/user/usage returns credit balance"`
+
+---
+
+## Task 9: Admin data layer — credits + lifetime + audit
+
+**Files:** Modify `lib/admin/types.ts`, `lib/db/admin.ts`.
+
+- [ ] **Step 1:** Extend `lib/admin/types.ts`:
+  - `AdminUserRow` += `credits_used: number; credits_remaining: number; credits_allowance: number; credits_used_lifetime: number; cost_lifetime: number;` (keep `cost` = this-month actual $, relabel its doc-comment "true cost, no longer the gate").
+  - `AdminStats` += `totalCreditsConsumed: number;`.
+  - `UsagePeriod` += `credits_consumed?: number; credits_bonus?: number;` (per-period credit columns).
+  - `AdminUserDetailResponse` += `credits: CreditSummary` and `grants: Array<{ amount; type; actor_email; reason; period; created_at: string }>`.
+- [ ] **Step 2:** In `lib/db/admin.ts`:
+  - `getAdminUsersWithStats`: batch-read each user's current `credits/{id}/months/{period}` (alongside the existing usage `getAll`), compute `credits_used/remaining/allowance` via `creditBalance`; compute `credits_used_lifetime` (Σ credit-month consumed) and `cost_lifetime` (Σ usage-month cost_estimate). Add `totalCreditsConsumed` to stats. *(Lifetime sums are O(users) extra subcollection reads; acceptable at current scale — same shape as the existing per-user app-count `Promise.all`.)*
+  - `getAdminUserDetail`/a new `getAdminUserCredits`: return `getCreditSummary(userId)` + map `collections.creditGrants(userId).orderBy("created_at","desc")` to the audit array.
+  - `getAdminUserUsage`: join per-period `credits_consumed`/`credits_bonus` onto each `UsagePeriod`.
+- [ ] **Step 3:** `npx tsc --noEmit`; run `npx vitest run lib/db` (and any admin test).
+- [ ] **Step 4: Commit** `git commit -am "feat(credits): admin data layer surfaces credits + lifetime + audit"`
+
+---
+
+## Task 10: Admin reset/grant endpoint (first admin write route)
+
+**Files:** Create `app/api/admin/users/[id]/credits/route.ts` + `__tests__/route.test.ts`.
+
+- [ ] **Step 1: Write failing tests:** non-admin → 403 (`requireAdmin`); admin POST `{action:"reset"}` → calls `resetCredits` with the target id + acting admin's id/email; admin POST `{action:"grant", amount}` → calls `grantCredits`; bad body → `ApiError` 400 via `handleApiError`. (Mock `resetCredits`/`grantCredits`; assert call args. Follow the existing `app/api/admin/users/[id]/route.ts` GET test for the `requireAdmin`/`handleApiError` harness.)
+- [ ] **Step 2: Run — expect FAIL.**
+- [ ] **Step 3: Implement** `POST` handler: `requireAdmin(req)` → resolve `id` param (target user) + acting admin from session; Zod-parse body `{ action: "reset" | "grant", amount?: number, reason?: string }` (grant requires positive integer `amount`); call `resetCredits`/`grantCredits` with `{actor: admin.id, actorEmail: admin.email, reason: reason ?? null}`; return `{ ok: true }`; wrap in `handleApiError`. This establishes the first admin write-route pattern (documented in a file-top comment: requireAdmin + ApiError envelope, Firestore transaction + audit).
+- [ ] **Step 4: Run — expect PASS;** `npx tsc --noEmit`.
+- [ ] **Step 5: Commit** `git commit -am "feat(credits): admin reset/grant endpoint with audit"`
+
+---
+
+## Task 11: Admin user table — credit + lifetime columns
+
+> **Load the `frontend-design` skill.** Match the existing `app/(app)/admin/user-table.tsx` column/markup style exactly; shadcn + Tabler offline icons only.
+
+**Files:** Modify `app/(app)/admin/user-table.tsx`.
+
+- [ ] **Step 1:** Replace the single `cost` column with: **Credits** (`{credits_used} / {credits_allowance}` with remaining emphasized), **Lifetime cr** (`credits_used_lifetime`), **$ this mo** (`cost`), **$ lifetime** (`cost_lifetime`). Keep `generations`, `last_active_at`. Use the existing number/date formatting helpers in this file; do not introduce new ones.
+- [ ] **Step 2:** `npx tsc --noEmit`. Verify columns render with the new `AdminUserRow` fields (no test — UI; verified in Final Verification).
+- [ ] **Step 3: Commit** `git commit -am "feat(credits): admin table shows credits + lifetime figures"`
+
+---
+
+## Task 12: User detail — credit columns, totals row, reset/grant control
+
+> **Load the `frontend-design` skill.** shadcn `AlertDialog`, `Button`, `Field`/`Input`, `Label` from `@/components/shadcn`; Tabler offline icons; `cn` from `@/lib/utils`.
+
+**Files:** Create `app/(app)/admin/users/[id]/credit-controls.tsx`; Modify `app/(app)/admin/users/[id]/user-usage.tsx`, `app/(app)/admin/users/[id]/page.tsx`.
+
+- [ ] **Step 1: `user-usage.tsx`** — add per-period **credits consumed** + **bonus** columns beside the cost columns, and a **totals row**: lifetime credits used + lifetime cost (from the detail response). Match the existing table markup.
+- [ ] **Step 2: `credit-controls.tsx`** (client component) — a card showing the current balance (`credits/allowance`, lifetime consumed) with two `AlertDialog`-confirmed actions:
+  - **Reset credits** → `POST /api/admin/users/{id}/credits {action:"reset", reason?}`.
+  - **Grant credits** → input for `amount` + optional `reason` → `POST {action:"grant", amount, reason}`.
+  On success, refresh via `router.refresh()` (use `useExternalNavigate` per the store-boundary rule, NOT `useRouter` directly). Render the `grants` audit list (newest first: type, amount, actor_email, reason, date). Pending state via a controllable in-flight flag (no never-resolving promise).
+- [ ] **Step 3: `page.tsx`** — **mount `<CreditControls userId={id} credits={...} grants={...} />`** in the user detail layout, fed by the Task 9 detail data (stream via the existing Suspense pattern on the page).
+- [ ] **Step 4:** `npx tsc --noEmit`. (UI verified in Final Verification.)
+- [ ] **Step 5: Commit** `git commit -am "feat(credits): admin reset/grant control + per-period credit columns"`
+
+---
+
+## Task 13: Admin headline fleet-credits stat
+
+**Files:** Modify `app/(app)/admin/admin-content.tsx`.
+
+- [ ] **Step 1:** Add a stat card for `stats.totalCreditsConsumed` (this period) beside the existing total-generations/total-spend cards. Match the existing stat-card markup. `totalSpend` stays (now "actual $ this month").
+- [ ] **Step 2:** `npx tsc --noEmit`. **Commit** `git commit -am "feat(credits): admin headline shows fleet credits consumed"`
+
+---
+
+## Task 14: User's AccountMenu shows credits, not dollars
+
+> **Load the `frontend-design` skill.**
+
+**Files:** Modify `components/ui/AccountMenu.tsx`.
+
+- [ ] **Step 1:** Change its `UsageData` interface + fetch to the Task 8 credit shape; convert the bar `usageRatio` to `consumed / allowance` (or `1 - balance/allowance`); update `getBarGradient` thresholds to fire near depletion; render "**{balance} / {allowance} credits**" (no dollar figure). Keep the existing bar/markup structure; just re-anchor the numbers.
+- [ ] **Step 2:** `npx tsc --noEmit`. **Commit** `git commit -am "feat(credits): account menu shows credit balance instead of dollars"`
+
+---
+
+## Task 15: Migration scan (read-only)
+
+**Files:** Create `scripts/inspect-credit-migration.ts`. Mirror `scripts/inspect-usage.ts` conventions (commander, `scripts/lib/firestore` `db`, `scripts/lib/format`, `runMain`). **Never writes.**
+
+- [ ] **Step 1: Implement** a read-only report:
+  - `collectionGroup("runs")` → attribute `costEstimate` to `apps.owner` (batched app-doc `owner`+`deleted_at` join), grouped by **`finishedAt`'s yyyy-mm** (state the field explicitly; flag any run whose `startedAt` and `finishedAt` straddle a month boundary as **CROSS-MONTH — manual review**).
+  - For each `(user, period)`: print current `usage.cost_estimate`, run-ledger-sum, and the live-read known values (mmaher April `unadjusted_estimate`, the recorded mmaher/alohi June figures), and **flag every `(user,period)` where ledger-sum > current usage** (the hand-blanked candidates) — do NOT compute a "restore" automatically.
+  - Print the orphan key's live value if present.
+- [ ] **Step 2: Run read-only against PROD** (post-merge, with the user): `npx tsx scripts/inspect-credit-migration.ts`. Capture output.
+- [ ] **Step 3: Commit** `git commit -am "chore(credits): read-only migration scan"`
+
+---
+
+## Task 16: Cost-restore migrator (dry-run default, --apply)
+
+**Files:** Create `scripts/migrate-actual-cost.ts`. Guarded writer (mirror `scripts/recover-app.ts` `--confirm`/dry-run); writes ONLY to `usage/{userId}/months/{period}.cost_estimate`.
+
+- [ ] **Step 1: Implement** — restore ONLY the verified values (read live, never hardcode the orphan): set mmaher 2026-06 `cost_estimate = 15.015480`, mmaher 2026-04 `cost_estimate = max(current, unadjusted_estimate live-read)`, alohi 2026-06 `cost_estimate = 18.767942`. Other flagged `(user,period)` from Task 15 are printed as "restore manually with `--user <email> --period <p> --to <usd>`" — applied only when explicitly named (never bulk-maxed). Dry-run prints before/after; `--apply` writes; re-reads + prints confirmation.
+- [ ] **Step 2:** Dry-run, then `--apply` against PROD with the user; capture output.
+- [ ] **Step 3: Commit** `git commit -am "chore(credits): cost-restore migrator (verified values + named manual restores)"`
+
+---
+
+## Task 17: Guarded orphan delete (separate pass)
+
+**Files:** Modify `scripts/migrate-actual-cost.ts` (add a `--delete-orphan` action).
+
+- [ ] **Step 1: Implement** `--delete-orphan`: live-read `usage/w4KlwedcG1WijXOK0hVz/months/2026-04`; **assert `cost_estimate >= unadjusted_estimate`** (fold confirmed) — refuse otherwise; then `FieldValue.delete()` the `unadjusted_estimate` key. Dry-run default; `--apply` writes; re-read confirms key gone.
+- [ ] **Step 2:** Run AFTER Task 16's `--apply` is confirmed in PROD: dry-run → `--apply --delete-orphan` with the user; capture output.
+- [ ] **Step 3: Commit** `git commit -am "chore(credits): guarded delete of the unadjusted_estimate orphan"`
+
+*(After the migration apply output is captured and signed off, a follow-up commit `git rm`s both migration scripts per the delete-one-off-scripts rule. The uncommitted `scripts/reset-usage.ts` stopgap on the author's `main` working tree is deleted there once this ships — out of this PR's scope.)*
+
+---
+
+## Task 18: Config + docs cleanup
+
+**Files:** Modify `.env.example`, `lib/db/CLAUDE.md`, root `CLAUDE.md`.
+
+- [ ] **Step 1:** Remove the `MONTHLY_SPEND_CAP_USD` "Usage tracking" block from `.env.example` (no other config depends on it — verified).
+- [ ] **Step 2:** `lib/db/CLAUDE.md`: document the two-ledger model — `usage/` is accumulate-only actual cost (resets never touch it); `credits/` is the resettable gate; the charge signal reads raw `body.messages`. Root `CLAUDE.md`: update the "Fail-closed persistence"/usage wording from "spend cap" to "credit gate (build 100 / edit 5, reserved up front) + invisible $50 actual-$ backstop." **No line numbers, no external-doc references** in any committed comment/doc per project rules.
+- [ ] **Step 3:** Run the `docs` skill pass over `app/(docs)/` for any user-facing $15-cap mention → credits.
+- [ ] **Step 4: Commit** `git commit -am "docs(credits): two-ledger model + remove spend-cap env var"`
+
+---
+
+## Final Verification (user-runnable acceptance)
+
+- [ ] `npm run lint && npx tsc --noEmit` — clean (0 errors, 0 warnings).
+- [ ] `npm run test:leaks` — full suite green under the async-leak detector.
+- [ ] **User-runnable acceptance:** The admin runs `npm run dev`, opens `http://localhost:3000/admin`, and sees per user **credits used / remaining this month**, **lifetime credits used**, **$ this month**, and **$ lifetime** as rendered figures. Opening a user's detail page (`/admin/users/<id>`), the admin clicks **Reset credits**, confirms the dialog, and sees `consumed` drop to 0 / balance back to 2,000, a new audit row appear, **and both $ figures unchanged**. Signed in as that user, the `AccountMenu` shows a **credits-remaining** bar (no dollars); starting a build debits **100**, an edit debits **5**, answering a clarifying question debits **0**; when the balance can't cover the next charge the request is blocked with "You're out of credits for this month."
+- [ ] **PROD migration (post-merge, with user):** run Task 15 scan → review → Task 16 `--apply` → confirm mmaher/alohi/April restored in the admin `$ lifetime` figures → Task 17 `--apply --delete-orphan` → confirm orphan gone → follow-up commit `git rm`s the migration scripts.
+
+---
+
+## Self-Review
+
+**Spec coverage:** §2 charging unit → Tasks 2,7. §2a signal/amount → Tasks 2,7. §3 constants → Task 2. §4a accumulate-only usage → Task 5 (no reset writer added) + Task 18 doc. §4b credits ledger → Task 1. §5 lifecycle (reserve/refund/reset/grant/summary) → Tasks 3,4,5. §6 gate → Task 7. §7 debit integration → Tasks 5,7. §8a table → Tasks 9,11. §8b detail+control → Tasks 9,12. §8c endpoint → Task 10. §8d AccountMenu → Tasks 8,14. §9 migration → Tasks 15,16,17. §10 tests → Tasks 1–10 test steps. §11 docs → Task 18. §12 acceptance → Final Verification. **No gaps.**
+
+**Placeholder scan:** every code step shows real code or an exact existing file/pattern to mirror; UI tasks name the component, its props, and its **mount site** (Task 12 mounts in `page.tsx`; Task 11/13/14 modify existing mounted surfaces). No "TBD"/"add validation"/"similar to Task N".
+
+**Type consistency:** `CreditMonthDoc{allowance,consumed,bonus,updated_at}`, `CreditGrantDoc{amount,type,actor,actor_email,reason,period,created_at}`, `Reservation{period,reserved}`, `CreditSummary{period,allowance,consumed,bonus,balance,lifetimeConsumed}`, `creditGateDecision→{chargeable,cost}` — names used identically across Tasks 1,3,4,5,7,9. Helpers: `creditBalance`, `chargeAmount`, `isChargeableTurn`, `reserveCredits`, `refundCredits`, `resetCredits`, `grantCredits`, `getCreditSummary` — consistent. Error type `out_of_credits` consistent (Tasks 6,7). Constants `CREDITS_PER_BUILD=100`, `CREDITS_PER_EDIT=5`, `MONTHLY_CREDIT_ALLOWANCE=2000`, `ACTUAL_COST_BACKSTOP_USD=50` — consistent.
