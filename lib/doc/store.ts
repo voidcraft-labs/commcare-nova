@@ -189,9 +189,9 @@ export function createBlueprintDocStore() {
 							set((draft) => {
 								// Copy EVERY doc field onto the draft in one pass. A
 								// hand-listed field-by-field assignment silently drops any
-								// top-level slot it omits — so a load that forgot `logo`
-								// blanked the saved logo on every refresh. `Object.assign`
-								// can't forget a field. The cast strips the action-overlay
+								// top-level slot it omits — omit `logo` and the saved logo
+								// blanks on the next load. `Object.assign` can't forget a
+								// field. The cast strips the action-overlay
 								// (`BlueprintDocState = BlueprintDoc & { actions }`) whose
 								// readonly Record maps otherwise reject the swap; the draft's
 								// own action methods aren't keys on `next`, so they survive.

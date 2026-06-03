@@ -1100,8 +1100,8 @@ const RESERVED_NS_PREFIXES = new Set(["xml"]);
  *
  * `fast-xml-parser`'s validator (the model's parse gate) does NOT check
  * namespace declarations, so this is the check that catches an emitter that
- * uses a prefix it forgot to declare (the `<orx:meta>`-without-`xmlns:orx`
- * regression). "Declared anywhere" counts as available — this flags
+ * uses a prefix it forgot to declare (e.g. an `<orx:meta>` emitted without
+ * its `xmlns:orx` declaration). "Declared anywhere" counts as available — this flags
  * never-declared prefixes, not strict per-element scoping, so a
  * correctly-scoped prefix never trips it.
  */

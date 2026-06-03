@@ -140,7 +140,7 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * single rule. The media bucket is dedicated, so it owns no other rules to
  * preserve, and re-running yields the same state. Operational, not on the
  * request path — run once per bucket (and after any prefix change) via
- * `scripts/apply-media-bucket-lifecycle.ts`.
+ * `scripts/infra/apply-media-bucket-lifecycle.ts`.
  */
 export async function applyPendingObjectLifecycle(): Promise<void> {
 	await getBucket().addLifecycleRule(

@@ -10,7 +10,8 @@ export async function GET(
 	const { id } = await params;
 	// Owner-scoped read: the archive is bound to the user who compiled it,
 	// so a foreign id resolves under THIS caller's namespace and isn't found
-	// — the random UUID is no longer the only thing gating a cross-user read.
+	// — access binds to the owner, so the random id alone never gates a
+	// cross-user read.
 	const buffer = await getCcz(id, session.user.id);
 
 	if (!buffer) {

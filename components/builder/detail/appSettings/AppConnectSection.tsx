@@ -5,8 +5,7 @@ import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useSwitchConnectMode } from "@/lib/session/hooks";
 
 /**
- * App-level CommCare Connect section in the App Settings panel — the new
- * home for what used to be the standalone subheader pill. Mirrors the
+ * App-level CommCare Connect section in the App Settings panel. Mirrors the
  * form-level `ConnectSection`'s layout (header row with a Toggle, an
  * animated reveal beneath), but owns the APP's connect *type* rather than
  * a per-form config:

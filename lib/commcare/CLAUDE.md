@@ -98,7 +98,7 @@ Adding a second cross-case-type field to a single-subcase-in-repeat form FLIPS t
 
 The OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`/`<userID>`/`<instanceID>`/`<appVersion>`/`<drift>`, eight populating setvalues, two `<bind type="xsd:dateTime">` timestamp binds) is a CCHQ render-time artifact, NOT part of a form's source — exactly like the case transaction blocks. CCHQ injects it for every form via `xform.py::add_case_and_meta` → `_add_meta_2` (stripping any pre-existing meta first), so a Vellum-edited source never carries it. `buildXForm` therefore omits it: the HQ-upload source has no meta block and CCHQ regenerates it on render. Only the local `.ccz` path — which has no CCHQ render step — injects it, via `xform/metaBlock.ts::addMetaBlock`, which `compiler.ts` calls right after `addCaseBlocks` (case-then-meta order). The split is load-bearing: a meta block in the uploaded source can't be opened in CCHQ's form builder (Vellum parses every `<data>` child as a question and rejects `<meta>`/`<orx:meta>` — "'meta' is not a valid Question ID").
 
-`addCaseBlocks` and `addMetaBlock` share their DOM-splice mechanics (`xform/domSplice.ts`): both re-parse the emitted form, splice into `<data>`/`<model>`, idempotently declare the secondary instance they need (`casedb` / `commcaresession`), and re-serialize through the one `dom-serializer` escaping authority.
+`addCaseBlocks` and `addMetaBlock` share `xform/domSplice.ts` so the two render-time injections stay in lockstep — one splice-into-`<data>`/`<model>` path, one idempotent secondary-instance declaration (`casedb` / `commcaresession`), one `dom-serializer` escaping authority.
 
 ### Hashtag form-context
 

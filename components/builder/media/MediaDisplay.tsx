@@ -52,7 +52,7 @@ export function MediaDisplay({
 			{media.audio && (
 				// Definite width — a native `<audio>` has no intrinsic width and
 				// `w-full` collapses to 0 inside an `items-start` flex column (the
-				// same trap MediaSlot's preview hit).
+				// same `w-full`-collapse MediaSlot's audio preview guards against).
 				// biome-ignore lint/a11y/useMediaCaption: author-supplied media; no caption track available
 				<audio
 					src={mediaSrc(media.audio)}
