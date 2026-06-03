@@ -29,6 +29,35 @@ describe("validateXForm — XForm parse-time oracle", () => {
 		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
+	it("catches an element using an undeclared namespace prefix (malformed XML)", () => {
+		// `<orx:meta>` with no `xmlns:orx` declaration — the prefix is
+		// undefined, so the whole form is malformed XML. fast-xml-parser's
+		// well-formedness gate doesn't catch an undeclared prefix; the
+		// namespace check does (the regression that silently broke media
+		// uploads — CCHQ rejects the form, so no media attaches).
+		const xml = `<?xml version="1.0"?>
+<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
+  <h:head>
+    <model>
+      <instance><data><orx:meta><orx:instanceID/></orx:meta><name/></data></instance>
+      <bind nodeset="/data/name" type="xsd:string"/>
+      <itext><translation lang="en" default="">
+        <text id="name-label"><value>Name</value></text>
+      </translation></itext>
+    </model>
+  </h:head>
+  <h:body>
+    <input ref="/data/name"><label ref="jr:itext('name-label')"/></input>
+  </h:body>
+</h:html>`;
+		const errors = validateXForm(xml, "F", "M");
+		expect(
+			errors.some(
+				(e) => e.code === "XFORM_PARSE_ERROR" && e.message.includes("orx"),
+			),
+		).toBe(true);
+	});
+
 	it("catches bind pointing to nonexistent instance node", () => {
 		const xml = `<?xml version="1.0"?>
 <h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">

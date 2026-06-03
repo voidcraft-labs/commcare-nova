@@ -1084,6 +1084,62 @@ function readElementText(el: Element): string {
 	return acc;
 }
 
+// ── Namespace declarations (#0 — malformedness) ────────────────────
+
+/** XML namespace prefixes that are always available without an explicit
+ *  `xmlns:` declaration. */
+const RESERVED_NS_PREFIXES = new Set(["xml"]);
+
+/**
+ * Every namespace prefix used on an element or attribute NAME must be
+ * declared somewhere via `xmlns:<prefix>`. An undeclared prefix makes the
+ * whole document malformed XML: CCHQ's namespace-aware parser rejects the
+ * form, and on the multimedia path `FormMediaMixin.all_media` then returns
+ * empty (the form never parses), so EVERY media reference silently fails to
+ * attach on upload.
+ *
+ * `fast-xml-parser`'s validator (the model's parse gate) does NOT check
+ * namespace declarations, so this is the check that catches an emitter that
+ * uses a prefix it forgot to declare (the `<orx:meta>`-without-`xmlns:orx`
+ * regression). "Declared anywhere" counts as available — this flags
+ * never-declared prefixes, not strict per-element scoping, so a
+ * correctly-scoped prefix never trips it.
+ */
+function checkNamespacePrefixes(
+	doc: Document,
+	formName: string,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const declared = new Set<string>();
+	const used = new Set<string>();
+	for (const el of findAll(() => true, doc.children)) {
+		const nameColon = el.name.indexOf(":");
+		if (nameColon !== -1) used.add(el.name.slice(0, nameColon));
+		for (const attr of Object.keys(el.attribs)) {
+			if (attr === "xmlns") continue; // the default namespace carries no prefix
+			if (attr.startsWith("xmlns:")) {
+				declared.add(attr.slice("xmlns:".length));
+				continue;
+			}
+			const attrColon = attr.indexOf(":");
+			if (attrColon !== -1) used.add(attr.slice(0, attrColon));
+		}
+	}
+	const errors: ValidationError[] = [];
+	for (const prefix of used) {
+		if (RESERVED_NS_PREFIXES.has(prefix) || declared.has(prefix)) continue;
+		errors.push(
+			validationError(
+				"XFORM_PARSE_ERROR",
+				"form",
+				`"${formName}" uses the XML namespace prefix "${prefix}:" but never declares it (no matching xmlns:${prefix}). That makes the whole form malformed XML — CCHQ's parser rejects it, which silently breaks every media reference on upload. This is a bug in the form generator.`,
+				loc,
+			),
+		);
+	}
+	return errors;
+}
+
 // ── Public API ─────────────────────────────────────────────────────
 
 /**
@@ -1121,6 +1177,7 @@ export function validateXForm(
 	// Run every invariant against the shared model. Order is cosmetic — errors
 	// accumulate into one flat array the caller renders.
 	return [
+		...checkNamespacePrefixes(doc, formName, loc),
 		...checkTranslations(doc, formName, loc),
 		...checkItextDefinitions(doc, formName, loc),
 		...checkBinds(model, formName, loc),
