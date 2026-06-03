@@ -29,6 +29,7 @@ import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
@@ -171,6 +172,12 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 							collapsed ? "rounded-b-lg border-b" : ""
 						} ${showIntoGroupRing ? "ring-2 ring-nova-violet" : ""}`}
 					>
+						{/* Group label media — banner above the header row, matching
+						    the live `GroupField` position for flipbook parity. */}
+						<MediaDisplay
+							media={q && "label_media" in q ? q.label_media : undefined}
+							interactive={false}
+						/>
 						<div className="flex items-center gap-2">
 							<button
 								type="button"
