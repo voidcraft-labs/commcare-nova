@@ -54,6 +54,7 @@ import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
+import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
@@ -318,13 +319,21 @@ export function compileCcz(
 
 			appStrings[`forms.m${mIdx}f${fIdx}`] = formName;
 
-			// Case-block injection: the emitter produces a clean XForm; the
-			// compiler splices in <case>/<subcase> elements based on the
-			// form's derived actions so the mobile runtime can read/write
-			// the case database.
+			// Build-time injection. The emitter produces a clean XForm (no case
+			// blocks, no meta — those are CCHQ render-time artifacts the HQ-upload
+			// source omits and CCHQ regenerates). The local .ccz has no CCHQ render
+			// step, so the compiler mirrors `xform.py::add_case_and_meta` here:
+			// `addCaseBlocks` splices the <case>/<subcase> transaction blocks from
+			// the form's derived actions, then `addMetaBlock` appends the OpenRosa
+			// <meta> block. Case-then-meta order matches CCHQ's instance layout.
+			// `addMetaBlock` is unconditional — every form carries meta, surveys
+			// included — while case blocks only emit on case-managed modules.
 			let xform = attachments[`${uniqueId}.xml`];
 			if (xform && caseType) {
 				xform = addCaseBlocks(xform, hqForm.actions, caseType);
+			}
+			if (xform) {
+				xform = addMetaBlock(xform);
 			}
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit

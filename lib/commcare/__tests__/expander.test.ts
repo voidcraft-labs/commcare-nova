@@ -1774,11 +1774,12 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).toContain('calculate="/data/a * 2"');
 	});
 
-	it("does not require the casedb instance for #form/-only expressions", () => {
-		// The always-on <meta> block references `instance('commcaresession')`,
-		// so every form pulls in commcaresession. The casedb instance is the
-		// one we expect to stay out for a #form/-only expression — no case
-		// references means no casedb declaration.
+	it("declares no secondary instances for #form/-only expressions", () => {
+		// The HQ-upload source carries no meta block (CCHQ injects it at render
+		// time), so a survey form whose only XPath is a `#form/` self-reference
+		// declares NO secondary instances at all: no casedb (no case reference)
+		// and no commcaresession (the meta setvalues that referenced it ship on
+		// the `.ccz` path, not here).
 		const doc = buildDoc({
 			appName: "FormRef",
 			modules: [
@@ -1804,6 +1805,7 @@ describe("#form/ hashtag expansion", () => {
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).not.toContain('id="casedb"');
+		expect(xform).not.toContain('id="commcaresession"');
 	});
 });
 
@@ -2094,9 +2096,9 @@ describe("jr-insert for repeat defaults", () => {
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('event="jr-insert"');
 		// The repeat-default setvalue specifically must be jr-insert, not
-		// xforms-ready. We can't blanket-reject xforms-ready on the whole
-		// document — the always-on <meta> block sets six of its eight
-		// timestamps with xforms-ready. Assert structurally instead.
+		// xforms-ready. Assert structurally on the status setvalue rather than
+		// blanket-rejecting xforms-ready, so a non-repeat default_value
+		// elsewhere on a form can't make the test brittle.
 		const statusSetvalue = xform.match(
 			/<setvalue\b[^>]*ref="\/data\/items\/status"[^/]*\/>/,
 		);
@@ -2739,31 +2741,21 @@ describe("empty form expansion", () => {
 		// serializer renders it self-closing (`<h:body/>` ≡ `<h:body></h:body>`).
 		expect(xml).toContain("<h:head>");
 		expect(xml).toMatch(/<h:body\s*\/>/);
-		// The data tree still carries the always-on meta block (deviceID,
-		// timeStart, etc.) even when the form has no authored fields — every
-		// submission needs the OpenRosa metadata. The nodes are `orx:`-namespaced
-		// (so Vellum recognizes the standard metadata block), with `appVersion`
-		// in the CommCare `cc:` namespace.
-		// The `orx:` prefix MUST be declared on the root — without it the
-		// `<orx:meta>` prefix is undefined, the whole form is malformed XML,
-		// and CCHQ's parser rejects it (which silently breaks every media
-		// reference on upload). Assert the declaration so it can't go missing.
+		// The `orx:` prefix is declared on the root unconditionally (matching
+		// Vellum's writer) so the `.ccz` meta splice has it in scope.
+		// The HQ-upload source carries NO meta block: CCHQ injects it at render
+		// time (`_add_meta_2`), and a meta node in the source breaks CCHQ's form
+		// builder. The block lands only on the `.ccz` path; the compiler test
+		// pins the injected shape.
 		expect(xml).toContain('xmlns:orx="http://openrosa.org/jr/xforms"');
-		expect(xml).toContain('<orx:meta xmlns:cc="http://commcarehq.org/xforms">');
-		expect(xml).toContain("<orx:deviceID/>");
-		expect(xml).toContain("<orx:instanceID/>");
-		expect(xml).toContain("<cc:appVersion/>");
-		// The meta block emits two <bind type="xsd:dateTime"> elements (one
-		// each for timeStart and timeEnd) — the dateTime type lives on a
-		// parallel bind because <setvalue> doesn't carry a `type` attribute
-		// in XForms 1.x. Asserting both explicitly so a refactor can't drop
-		// the typing silently.
-		expect(xml).toMatch(
-			/<bind nodeset="\/data\/meta\/timeStart" type="xsd:dateTime"\/>/,
-		);
-		expect(xml).toMatch(
-			/<bind nodeset="\/data\/meta\/timeEnd" type="xsd:dateTime"\/>/,
-		);
+		expect(xml).not.toContain("<orx:meta");
+		expect(xml).not.toContain("<orx:deviceID/>");
+		expect(xml).not.toContain("<orx:instanceID/>");
+		expect(xml).not.toContain("<cc:appVersion/>");
+		// No meta binds either — the dateTime typing binds (`timeStart` /
+		// `timeEnd`) ship with the meta block, on the `.ccz` path only.
+		expect(xml).not.toContain('nodeset="/data/meta/timeStart"');
+		expect(xml).not.toContain('nodeset="/data/meta/timeEnd"');
 	});
 });
 

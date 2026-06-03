@@ -41,17 +41,24 @@
  *     them, matching CCHQ's `delay_case_id` branch).
  */
 
-import render from "dom-serializer";
 import { type ChildNode, Element } from "domhandler";
 import { findOne, getChildren } from "domutils";
-import { parseDocument } from "htmlparser2";
 import type { FormActionCondition, FormActions } from "@/lib/commcare";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import {
 	validateCaseType,
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
+import {
+	appendChildren,
+	ensureInstance,
+	findDataElement,
+	findModelElement,
+	insertBeforeItext,
+	parseXForm,
+	serializeXForm,
+} from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 
 /**
@@ -64,14 +71,6 @@ import { FormPath } from "@/lib/commcare/xform/formPath";
  * all resolve into the case-transaction namespace without restatement.
  */
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
-
-/**
- * Parse options for the round-trip. Mirrors `validator/xformDataModel.ts`'s
- * parse contract — the same option set the post-injection XForm oracle uses to
- * re-parse what we emit here, so the byte-level round-trip is the contract on
- * both sides.
- */
-const PARSE_OPTS = { xmlMode: true } as const;
 
 /**
  * The structured payload `buildCaseBlocks` returns. Three siblings the caller
@@ -770,12 +769,13 @@ function xpathStringLiteral(value: string): string {
  * `<bind>` rules wiring each case field to its XForm data path, and
  * `<setvalue>` elements seeding the case_id at form load.
  *
- * Round-trip parse + serialize via `htmlparser2` + `dom-serializer` —
- * `dom-serializer` is the single XML-escaping authority, so every interpolated
- * XPath body / case-type / field path goes through one structural pass with no
- * hand-escaping. The post-injection XForm oracle reparses what this returns
- * (`validator/xformDataModel.ts::buildXFormDataModel`) under the same parse
- * options, so the byte-level round-trip is the contract on both sides.
+ * Round-trip parse + splice + serialize via the shared `xform/domSplice.ts`
+ * helpers — `dom-serializer` is the single XML-escaping authority there, so
+ * every interpolated XPath body / case-type / field path goes through one
+ * structural pass with no hand-escaping. The post-injection XForm oracle
+ * reparses what this returns (`validator/xformDataModel.ts::buildXFormDataModel`)
+ * under the same parse options, so the byte-level round-trip is the contract on
+ * both sides.
  *
  * Early-returns the input string untouched when no case-block work is needed,
  * skipping the parse / serialize round-trip.
@@ -788,23 +788,8 @@ export function addCaseBlocks(
 	const emission = buildCaseBlocks(actions, caseType);
 	if (emission === null) return xform;
 
-	const doc = parseDocument(xform, PARSE_OPTS);
-
-	// Resolve the form's primary `<data>` instance node. The emitter
-	// (`xform/builder.ts`) emits exactly one `<data>` element under the only
-	// `<instance>` with no `id` attribute, so `findOne` against the document
-	// tree resolves it unambiguously. A missing `<data>` is a compiler-bug
-	// invariant (the emitter would have failed first), not a fixable
-	// authoring state.
-	const dataEl = findOne((elem) => elem.name === "data", doc.children, true);
-	if (dataEl === null) {
-		throw new Error(
-			"addCaseBlocks could not find a <data> element in the XForm. " +
-				"The form emitter guarantees exactly one top-level <data> per form; " +
-				"this points at corruption between buildXForm and addCaseBlocks. " +
-				"Re-run the compile from a clean expandDoc.",
-		);
-	}
+	const doc = parseXForm(xform);
+	const dataEl = findDataElement(doc, "addCaseBlocks");
 
 	// Group dataChildren by their splice parent's serialized XPath and walk
 	// each parent once. Per-parent batching keeps `appendChildren`'s
@@ -841,15 +826,7 @@ export function addCaseBlocks(
 	// when an `<itext>` is present (always, for Nova-emitted forms) we insert
 	// just before it; otherwise we append. Both `<bind>` and `<setvalue>`
 	// groups go in together so they remain adjacent on the wire.
-	const modelEl = findOne((elem) => elem.name === "model", doc.children, true);
-	if (modelEl === null) {
-		throw new Error(
-			"addCaseBlocks could not find a <model> element in the XForm. " +
-				"The form emitter guarantees exactly one <model> per form; " +
-				"this points at corruption between buildXForm and addCaseBlocks. " +
-				"Re-run the compile from a clean expandDoc.",
-		);
-	}
+	const modelEl = findModelElement(doc, "addCaseBlocks");
 	// Declare the `casedb` secondary instance when a preload setvalue reads
 	// from it. `buildXForm`'s instance scan runs over field-level XPath only,
 	// so a form that preloads but has no field-level `#case/` reference would
@@ -857,7 +834,7 @@ export function addCaseBlocks(
 	// `add_case_preloads`'s `add_casedb()`. Idempotent: skip when the form
 	// already declares it (a field referenced `casedb`, so `buildXForm` did).
 	if (emission.needsCasedbInstance) {
-		ensureCasedbInstance(modelEl);
+		ensureInstance(modelEl, "casedb", "jr://instance/casedb");
 	}
 
 	const inserted: ChildNode[] = [...emission.binds, ...emission.setvalues];
@@ -875,14 +852,7 @@ export function addCaseBlocks(
 		mergeRequiredOntoBind(modelEl, namePath);
 	}
 
-	// Single serialization pass. Unlike `buildXForm` upstream — which constructs
-	// the DOM from scratch and prepends the XML declaration because the
-	// serializer doesn't emit one — we are serializing a tree the parser
-	// already populated with the input's `<?xml ...?>` processing instruction.
-	// The serializer renders that PI verbatim, so prepending another declaration
-	// would produce two and trip the post-injection XML well-formedness gate
-	// ("XML declaration allowed only at the start of the document").
-	return render(doc, RENDER_OPTS);
+	return serializeXForm(doc);
 }
 
 /**
@@ -937,58 +907,6 @@ function resolveSpliceParent(dataEl: Element, path: FormPath): Element {
 }
 
 /**
- * Append each child element to the parent. Updates the children array and
- * re-seats every `prev` / `next` pointer in one pass — `dom-serializer` walks
- * both the array and the linked-list pointers, so leaving the pointers stale
- * on either side would corrupt the serialized output.
- */
-function appendChildren(parent: Element, children: Element[]): void {
-	for (const child of children) child.parent = parent;
-	parent.children.push(...children);
-	relinkSiblings(parent.children);
-}
-
-/**
- * Insert a node list into `<model>` just before the `<itext>` child (when
- * present) so the model preserves the canonical instance / secondary
- * instances / binds / setvalues / itext order. With no `<itext>` (a shape
- * Nova never actually emits, but tolerated defensively), the nodes are
- * appended at the end.
- *
- * Maintains the linked-list pointers (`prev` / `next`) the serializer walks
- * alongside `children`, so the spliced nodes serialize in their inserted
- * position even though `dom-serializer` traverses both arrays.
- */
-function insertBeforeItext(model: Element, nodes: ChildNode[]): void {
-	const itextIndex = getChildren(model).findIndex(
-		(child) => child instanceof Element && child.name === "itext",
-	);
-	if (itextIndex === -1) {
-		for (const node of nodes) appendNode(model, node);
-		return;
-	}
-	// Splice the nodes at the `<itext>` slot — pushing `<itext>` (and anything
-	// after it) one position rightward. Then re-seat every `prev` / `next`
-	// pointer from the freshly ordered array. `dom-serializer` walks both the
-	// children array and the linked-list pointers, so leaving the pointers
-	// stale would corrupt the serialized output.
-	model.children.splice(itextIndex, 0, ...nodes);
-	for (const node of nodes) node.parent = model;
-	relinkSiblings(model.children);
-}
-
-/**
- * Append one node at the end of `parent.children`. Used only by the
- * `<itext>`-absent fallback in `insertBeforeItext`. Same pointer-relinking
- * contract as `appendChildren`.
- */
-function appendNode(parent: Element, node: ChildNode): void {
-	node.parent = parent;
-	parent.children.push(node);
-	relinkSiblings(parent.children);
-}
-
-/**
  * Stamp `required="true()"` onto the `<model>`-level `<bind>` whose nodeset is
  * `namePath`, merging the attribute onto the field's existing bind rather than
  * appending a duplicate (CCHQ's `add_bind` merge-on-conflict). Binds are direct
@@ -1011,57 +929,4 @@ function mergeRequiredOntoBind(model: Element, namePath: string): void {
 	insertBeforeItext(model, [
 		el("bind", { nodeset: namePath, required: "true()" }),
 	]);
-}
-
-/**
- * Declare the `casedb` secondary instance on `<model>` if it isn't already
- * present. Inserted immediately after the last existing `<instance>` so it
- * joins the secondary-instance group (the canonical model child order is
- * instance / secondary instances / binds / setvalues / itext). The element
- * shape matches `buildXForm`'s own instance emission
- * (`<instance src="jr://instance/casedb" id="casedb"/>`), so whether a form
- * declares `casedb` via the field scan or via this path, the declaration is
- * the same element. (Position among sibling instances is JavaRosa-irrelevant.)
- */
-function ensureCasedbInstance(model: Element): void {
-	const children = getChildren(model);
-	const already = children.some(
-		(child) =>
-			child instanceof Element &&
-			child.name === "instance" &&
-			child.attribs.id === "casedb",
-	);
-	if (already) return;
-
-	let lastInstanceIndex = -1;
-	for (let i = 0; i < children.length; i++) {
-		const child = children[i];
-		if (child instanceof Element && child.name === "instance") {
-			lastInstanceIndex = i;
-		}
-	}
-
-	const casedb = el("instance", {
-		src: "jr://instance/casedb",
-		id: "casedb",
-	});
-	casedb.parent = model;
-	// After the last instance when one exists (always — the primary data
-	// instance); fall back to the front otherwise.
-	model.children.splice(lastInstanceIndex + 1, 0, casedb);
-	relinkSiblings(model.children);
-}
-
-/**
- * Walk an ordered children list and re-seat every `prev` / `next` pointer to
- * match the array's index order. Cheaper than tracking adjacency on every
- * splice site, and `dom-serializer` walks both the array and the linked-list
- * pointers — leaving the pointers stale would corrupt the serialized output.
- */
-function relinkSiblings(children: ChildNode[]): void {
-	for (let i = 0; i < children.length; i++) {
-		const node = children[i];
-		node.prev = i > 0 ? children[i - 1] : null;
-		node.next = i < children.length - 1 ? children[i + 1] : null;
-	}
 }

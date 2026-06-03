@@ -55,7 +55,6 @@ import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { buildMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import type { BlueprintDoc, Field, FieldKind, Media, Uuid } from "@/lib/domain";
 
 /**
@@ -367,19 +366,15 @@ export function buildXForm(
 	const bodyElements: Element[] = [];
 	const itextEntries: Element[] = [];
 
-	// OpenRosa <meta> block — `<deviceID>`, `<timeStart>`, `<timeEnd>`,
-	// `<username>`, `<userID>`, `<instanceID>`, `<appVersion>`, `<drift>`
-	// plus the eight setvalues that populate them at form load and the
-	// two `<bind type="xsd:dateTime">` elements that type `timeStart` and
-	// `timeEnd`. Always emitted; receiving systems (CCHQ, FormPlayer
-	// reports, mobile sync) rely on it for audit + integrity. The
-	// setvalues reference `instance('commcaresession')/session/context/...`
-	// so the form inherently requires the session instance.
-	const meta = buildMetaBlock();
-	dataElements.push(meta.dataElement);
-	setvalues.push(...meta.setvalues);
-	binds.push(...meta.binds);
-	instances.require("commcaresession");
+	// The OpenRosa `<meta>` block is NOT emitted here. It is a CCHQ build-time
+	// artifact (`xform.py::_add_meta_2`): the HQ-upload source omits it and CCHQ
+	// regenerates it on render, while the local `.ccz` path injects it via
+	// `xform/metaBlock.ts::addMetaBlock` (same split as the case transaction
+	// blocks). A meta block in the uploaded source can't be opened in CCHQ's form
+	// builder, so it belongs only on the `.ccz` where bytes ship without a render
+	// step. This emitter therefore requires `commcaresession` only when a field
+	// XPath, case datum, or Connect expression actually references it — never
+	// unconditionally.
 
 	// Form-context-aware hashtag expander, captured once and threaded
 	// through every helper. On case-create (registration) forms,
@@ -497,10 +492,11 @@ export function buildXForm(
 		"h:html",
 		{
 			"xmlns:h": "http://www.w3.org/1999/xhtml",
-			// `orx:` declared on the root because the `<orx:meta>` metadata block
-			// uses it (see `metaBlock.ts`). Without this declaration the prefix is
-			// undefined and the whole form is malformed XML — CCHQ's parser rejects
-			// it, so every media reference fails to resolve on upload.
+			// `orx:` declared on the root unconditionally, matching Vellum's own
+			// writer. This emitter's output uses no `orx:` element, but the `.ccz`
+			// path splices the `<orx:meta>` block in (`xform/metaBlock.ts`), and the
+			// prefix must already be in scope at the root or that block is malformed
+			// XML. Declaring it here keeps both paths' bytes well-formed.
 			"xmlns:orx": "http://openrosa.org/jr/xforms",
 			xmlns: "http://www.w3.org/2002/xforms",
 			"xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
