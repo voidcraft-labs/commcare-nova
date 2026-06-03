@@ -6,6 +6,7 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
+import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { AppSummary } from "@/lib/db/apps";
 import { useExternalNavigate } from "@/lib/routing/hooks";
@@ -30,6 +31,7 @@ interface AppCardProps {
 		| "form_count"
 		| "status"
 		| "updated_at"
+		| "logo"
 	>;
 	/** Animation stagger index. */
 	index: number;
@@ -104,6 +106,15 @@ export function AppCard({
 
 	const content = (
 		<div className="flex items-center justify-between gap-3">
+			{app.logo && (
+				// The app's web-apps logo, denormalized onto the list summary.
+				// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
+				<img
+					src={mediaSrc(app.logo)}
+					alt=""
+					className="size-9 rounded-md object-cover shrink-0"
+				/>
+			)}
 			<div className="min-w-0 flex-1">
 				<h3
 					className={`font-medium truncate ${isFailed ? "text-nova-text-muted" : href ? "group-hover:text-nova-text" : ""} transition-colors`}

@@ -168,6 +168,7 @@ describe("removeMediaAsset", () => {
 					form_count: 1,
 					status: "complete",
 					error_type: null,
+					logo: null,
 					created_at: "2026-05-29T00:00:00.000Z",
 					updated_at: "2026-05-29T00:00:00.000Z",
 				},

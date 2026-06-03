@@ -6,6 +6,7 @@ import { motion } from "motion/react";
 import { useCallback, useState } from "react";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
+import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseListSummary } from "@/lib/doc/hooks/useCaseListSummary";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
@@ -146,12 +147,23 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 							onClick={handleClick}
 							className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
 						>
-							<Icon
-								icon={icon}
-								width="18"
-								height="18"
-								className="text-nova-text-muted group-hover:text-pv-accent transition-colors shrink-0"
-							/>
+							{form.icon ? (
+								// Form menu-tile icon — CommCare shows it on the form's
+								// command in the module menu.
+								// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
+								<img
+									src={mediaSrc(form.icon)}
+									alt=""
+									className="size-7 rounded object-cover shrink-0"
+								/>
+							) : (
+								<Icon
+									icon={icon}
+									width="18"
+									height="18"
+									className="text-nova-text-muted group-hover:text-pv-accent transition-colors shrink-0"
+								/>
+							)}
 							<div className="flex-1 min-w-0">
 								<div className="text-sm font-medium text-nova-text">
 									{form.name}
