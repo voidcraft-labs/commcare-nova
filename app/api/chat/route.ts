@@ -8,13 +8,14 @@ import {
 import {
 	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
-	countCondensableAttachments,
+	countAttachments,
 	createSolutionsArchitect,
 	GenerationContext,
 	MESSAGES,
-	prepareAttachments,
+	resolveAttachments,
 } from "@/lib/agent";
 import { resolveAnthropicKey } from "@/lib/auth-utils";
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import {
 	createApp,
 	failApp,
@@ -40,8 +41,10 @@ export const maxDuration = 300;
 export async function POST(req: Request) {
 	const body = await req.json();
 
-	// Messages come from the AI SDK's useChat — typed but not schema-validated
-	const messages: UIMessage[] = body.messages;
+	// Messages come from the AI SDK's useChat — typed but not schema-validated.
+	// `NovaUIMessage` carries the attachment-ref metadata the composer attaches;
+	// `resolveAttachments` reads `metadata.attachments` off each message.
+	const messages: NovaUIMessage[] = body.messages;
 	if (!Array.isArray(messages)) {
 		return new Response(JSON.stringify({ error: "Missing messages array" }), {
 			status: 400,
@@ -259,31 +262,36 @@ export async function POST(req: Request) {
 				appId,
 			});
 
-			/* Condense large document attachments with Haiku BEFORE they reach
-			 * Opus. The SA re-reads its full message context on every tool-loop
-			 * step, so a raw multi-page spec would be billed at the Opus input
-			 * rate dozens of times in one turn; the condensed extract pays that
-			 * cost once and against the cheap model. Only the last user message's
-			 * file parts are rewritten — everything downstream consumes
-			 * `preparedMessages` so the user-message event, the SA's history, and
-			 * the agent stream all see the same condensed content. */
-			/* Bracket the condense step with `attachment-prep` lifecycle events
-			 * so the signal grid can show a "reading documents" status — for a
-			 * multi-doc turn this step blocks the first Opus token for several
-			 * seconds. Only emit when there's real condensing work (a non-image
-			 * file part); images and typed text pass through instantly. The
-			 * events also land in the run log (like `validation-attempt`), so
-			 * the stream records when condensing ran and over how many docs. */
-			const condensableCount = countCondensableAttachments(messages);
-			if (condensableCount > 0) {
+			/* Resolve attachment references into model-ready content BEFORE the
+			 * SA. The composer sends asset-id refs in message metadata; this
+			 * appends, per ref, the stored requirements extract (documents, read
+			 * once at upload and reused every turn) or the image bytes (vision).
+			 * EVERY message is resolved, not just the last, so a follow-up turn's
+			 * history carries refs + resolved text rather than raw file parts:
+			 * the SA re-reads dense extracts (cheap), and the multi-turn crash
+			 * (Anthropic rejecting `text/markdown` file parts) can't recur. The
+			 * lazy backstop extracts through `ctx` (usage-tracked) when a
+			 * referenced document has no current extract yet. */
+			/* Bracket the resolve step with `attachment-prep` lifecycle events so
+			 * the signal grid can show a "reading documents" status: a turn with a
+			 * not-yet-extracted document blocks the first Opus token while the
+			 * backstop runs. Only emit when there's a document to read (images
+			 * resolve instantly; a doc-free turn does no narrate-worthy work). The
+			 * events also land in the run log (like `validation-attempt`). */
+			const attachmentCount = countAttachments(messages);
+			if (attachmentCount > 0) {
 				ctx.emitConversation({
 					type: "attachment-prep",
 					phase: "start",
-					count: condensableCount,
+					count: attachmentCount,
 				});
 			}
-			const preparedMessages = await prepareAttachments(messages, ctx);
-			if (condensableCount > 0) {
+			const preparedMessages = await resolveAttachments(
+				messages,
+				keyResult.session.user.id,
+				ctx,
+			);
+			if (attachmentCount > 0) {
 				ctx.emitConversation({ type: "attachment-prep", phase: "done" });
 			}
 
@@ -299,13 +307,21 @@ export async function POST(req: Request) {
 			 * required, not optional). Using the guard replaces inline
 			 * structural types with a single source of truth that tracks
 			 * SDK updates automatically. */
-			const lastMessage = preparedMessages.at(-1);
+			// Log the user's TYPED text + attachment manifest from the ORIGINAL
+			// message (pre-resolve): the resolved extract bodies are large and live
+			// durably on the asset, so re-inlining them in the log adds bloat, not value.
+			const lastMessage = messages.at(-1);
 			if (lastMessage?.role === "user") {
 				const text = lastMessage.parts
 					.filter(isTextUIPart)
 					.map((p) => p.text)
 					.join("\n");
-				ctx.emitConversation({ type: "user-message", text });
+				const attachments = lastMessage.metadata?.attachments;
+				ctx.emitConversation({
+					type: "user-message",
+					text,
+					...(attachments && attachments.length > 0 ? { attachments } : {}),
+				});
 			} else if (lastMessage) {
 				/* Defensive — the useChat flow always ends with a user message, but
 				 * if a caller bypassed the client and sent a malformed history we

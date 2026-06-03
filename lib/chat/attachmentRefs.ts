@@ -1,0 +1,60 @@
+// lib/chat/attachmentRefs.ts
+//
+// The canonical shape for a chat attachment: a REFERENCE to a stored media
+// asset, not its bytes. One shape flows across every surface — the live message
+// metadata the composer sends, the event-log manifest, and the stored-thread
+// record — so a single render path (ChatMessage reading `metadata.attachments`)
+// draws the chip regardless of where the message came from, and the chip always
+// has what it needs to open a preview (the `assetId` + `kind`).
+//
+// Why metadata, not file parts: attachments live in the per-owner media store
+// now. The chat carries asset-id refs, and the server resolves each ref to the
+// stored requirements EXTRACT (documents) or the image bytes (vision). This
+// kills the old base64-in-the-request path (and the blob/CSP corruption it
+// caused) and fixes the multi-turn crash — history carries refs + resolved
+// text, never the raw `text/markdown` file parts Anthropic rejects.
+
+import type { UIMessage } from "ai";
+import { z } from "zod";
+import { ASSET_KINDS, DOCUMENT_KINDS } from "@/lib/domain/multimedia";
+
+/**
+ * A reference to one attached asset. `assetId` is the durable pointer (the
+ * bytes live at `/api/media/{assetId}`, the extract at
+ * `/api/media/{assetId}/extract`); `kind` drives how the server resolves it and
+ * how the chip renders; `filename` + `mimeType` are display/labeling only. No
+ * URL is stored — it's derived from `assetId`, so the ref can't drift from the
+ * route layout.
+ */
+export const attachmentRefSchema = z.object({
+	assetId: z.string().min(1),
+	kind: z.enum(ASSET_KINDS),
+	filename: z.string().min(1),
+	mimeType: z.string().min(1),
+});
+export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
+
+/**
+ * Per-message metadata the composer attaches via `sendMessage({ text, metadata })`.
+ * The AI SDK rides it on the `UIMessage` and POSTs the whole message, so the
+ * route reads `body.messages[i].metadata.attachments` and the refs persist in
+ * history across turns — which is what lets the server re-resolve every turn's
+ * attachments (not just the last), closing the multi-turn gap.
+ */
+export const messageMetadataSchema = z.object({
+	attachments: z.array(attachmentRefSchema).optional(),
+});
+export type NovaMessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+/** The app's `UIMessage`, carrying Nova's attachment metadata. Typing the chat
+ *  with this is what makes `sendMessage`'s `metadata` field accept our shape. */
+export type NovaUIMessage = UIMessage<NovaMessageMetadata>;
+
+/**
+ * Asset kinds the chat composer accepts: images (read directly by the model's
+ * vision pass) plus the library-only document kinds (condensed to a requirements
+ * extract). Deliberately NOT audio/video — those are CommCare carriers, not
+ * things the Solutions Architect reads. Passed to `MediaPickerDialog` as the
+ * allowed `kinds`.
+ */
+export const CHAT_ATTACHMENT_KINDS = ["image", ...DOCUMENT_KINDS] as const;

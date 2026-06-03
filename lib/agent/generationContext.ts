@@ -63,7 +63,7 @@ import type {
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
-import type { CondenseResult } from "./attachments";
+import type { CondenseResult } from "./documentExtraction";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
 import {
 	extractFromContentWith,

@@ -1,9 +1,10 @@
 /**
- * Preview the EXACT text a document attachment condenses to before it reaches
- * the Solutions Architect — without paying for the SA's Opus tool loop.
+ * Preview the EXACT requirements extract a document condenses to — the text the
+ * Solutions Architect reads in place of the raw file ("What the AI reads"),
+ * without paying for the SA's Opus tool loop.
  *
- * This drives the REAL `prepareAttachments` pipeline (same routing, same
- * extraction prompt, same docx/xlsx conversion) against local files, with a
+ * Drives the REAL extraction core (`extractDocument`: same prompt, same
+ * docx/xlsx/PDF routing the upload route uses) against local files, with a
  * SWAPPABLE condenser model:
  *
  *   - `gemini` — Google gemini-3.5-flash, the official production summarizer
@@ -11,12 +12,13 @@
  *   - `haiku`  — Anthropic claude-haiku-4-5, the prior summarizer, kept as a
  *     comparison baseline.
  *
- * The pipeline is unchanged; only the model backend differs. That works because
- * `prepareAttachments` depends on the narrow `AttachmentCondenser` interface, and
- * the condensing model call (`lib/agent/subGeneration.ts`) is provider-agnostic.
+ * Only the model backend differs. That works because `extractDocument` depends
+ * on the narrow `AttachmentCondenser` interface and the condensing call
+ * (`lib/agent/subGeneration.ts`) is provider-agnostic. Images carry no extract
+ * (the model reads them directly), so they're reported and skipped.
  *
- * For each file it prints what the SA would receive plus input/output tokens and
- * an estimated cost per model, so you can compare condenser quality AND price.
+ * For each file it prints the extract plus input/output tokens and an estimated
+ * cost per model, so you can compare extract quality AND price.
  *
  * Usage:
  *   npx tsx scripts/preview-attachment-condense.ts <file...> [--model haiku|gemini|both]
@@ -32,14 +34,12 @@ import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import type { LanguageModel, UIMessage } from "ai";
+import type { LanguageModel } from "ai";
 import {
 	type AttachmentCondenser,
-	prepareAttachments,
-} from "../lib/agent/attachments";
-import {
 	CONDENSER_MODEL,
 	CONDENSER_PROVIDER_OPTIONS,
+	extractDocument,
 } from "../lib/agent/documentExtraction";
 import {
 	extractFromContentWith,
@@ -47,13 +47,17 @@ import {
 	type SubGenerationProviderOptions,
 	type SubGenerationResult,
 } from "../lib/agent/subGeneration";
+import {
+	assetKindForExtension,
+	isDocumentKind,
+} from "../lib/domain/multimedia";
 import { MODEL_PRICING } from "../lib/models";
 
 // ── Model + pricing config ──────────────────────────────────────────────────
 
 const HAIKU_ID = "claude-haiku-4-5-20251001";
 /** Single-sourced from the production extractor so the preview can't drift from
- *  the model the route actually calls (the module comment promises this). */
+ *  the model the route actually calls. */
 const GEMINI_ID = CONDENSER_MODEL;
 
 /**
@@ -62,24 +66,20 @@ const GEMINI_ID = CONDENSER_MODEL;
  * rates come from the app's own `MODEL_PRICING` (single source of truth). Verify
  * against https://ai.google.dev/gemini-api/docs/pricing if Google revises.
  *
- * NOTE: caching does not enter here — condensing is a single one-shot call per
+ * NOTE: caching does not enter here — extraction is a single one-shot call per
  * document, so neither Anthropic's cache-write/read nor Gemini's cached-token +
  * hourly-storage model applies. Only input + output rates matter.
  */
 const GEMINI_PRICING = { input: 1.5, output: 9 } as const;
 const HAIKU_PRICING = MODEL_PRICING[HAIKU_ID];
 
-/** data: URL media type by file extension — mirrors the client's accept set. */
-const MEDIA_BY_EXT: Record<string, string> = {
+/** MIME type by file extension — mirrors the client's accept set. Drives the
+ *  PDF native-block media type; the kind is resolved from the extension. */
+const MIME_BY_EXT: Record<string, string> = {
 	".txt": "text/plain",
 	".md": "text/markdown",
 	".csv": "text/csv",
 	".pdf": "application/pdf",
-	".png": "image/png",
-	".jpg": "image/jpeg",
-	".jpeg": "image/jpeg",
-	".gif": "image/gif",
-	".webp": "image/webp",
 	".docx":
 		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -135,21 +135,18 @@ function resolveModel(
 
 // ── Condenser backend (the swap point) ──────────────────────────────────────
 
-/** Accumulates token usage, truncation, and the first model error across a run. */
+/** Accumulates token usage + truncation across a run. */
 interface RunStats {
 	inputTokens: number;
 	outputTokens: number;
 	calls: number;
 	truncated: boolean;
-	error?: unknown;
 }
 
 /**
  * An `AttachmentCondenser` backed by a chosen model. It IGNORES the `model` id
- * the pipeline passes (production's Haiku) and substitutes ours — that's the
- * whole point of the swap. On a model error it records the error and re-throws,
- * so the pipeline runs its real fallback (inline the raw doc); the caller reads
- * `stats.error` to print the failure instead of a giant raw dump.
+ * `extractDocument` passes (production's Gemini) and substitutes ours — that's
+ * the whole point of the swap — and records usage for the cost print.
  */
 function makeCondenser(
 	model: LanguageModel,
@@ -164,37 +161,27 @@ function makeCondenser(
 	};
 	return {
 		async generatePlainText(opts) {
-			try {
-				const r = await generatePlainTextWith({
-					model,
-					system: opts.system,
-					prompt: opts.prompt,
-					maxOutputTokens: opts.maxOutputTokens,
-					providerOptions,
-				});
-				track(r);
-				return { text: r.text, truncated: r.finishReason === "length" };
-			} catch (err) {
-				stats.error ??= err;
-				throw err;
-			}
+			const r = await generatePlainTextWith({
+				model,
+				system: opts.system,
+				prompt: opts.prompt,
+				maxOutputTokens: opts.maxOutputTokens,
+				providerOptions,
+			});
+			track(r);
+			return { text: r.text, truncated: r.finishReason === "length" };
 		},
 		async extractFromContent(opts) {
-			try {
-				const r = await extractFromContentWith({
-					model,
-					system: opts.system,
-					instruction: opts.instruction,
-					file: opts.file,
-					maxOutputTokens: opts.maxOutputTokens,
-					providerOptions,
-				});
-				track(r);
-				return { text: r.text, truncated: r.finishReason === "length" };
-			} catch (err) {
-				stats.error ??= err;
-				throw err;
-			}
+			const r = await extractFromContentWith({
+				model,
+				system: opts.system,
+				instruction: opts.instruction,
+				file: opts.file,
+				maxOutputTokens: opts.maxOutputTokens,
+				providerOptions,
+			});
+			track(r);
+			return { text: r.text, truncated: r.finishReason === "length" };
 		},
 	};
 }
@@ -204,7 +191,7 @@ function makeCondenser(
 const RULE = "─".repeat(72);
 const DOLLARS = (n: number) => `$${n.toFixed(5)}`;
 
-/** Estimated cost of one condense call given token usage + the model's rates. */
+/** Estimated cost of one extract call given token usage + the model's rates. */
 function estimateCost(
 	stats: RunStats,
 	pricing: { input: number; output: number },
@@ -215,41 +202,21 @@ function estimateCost(
 	);
 }
 
-/** Turn the rewritten message parts into the printable text the SA would see —
- *  condensed/inlined text verbatim, file parts noted as native pass-throughs. */
-function renderParts(parts: UIMessage["parts"]): string {
-	return parts
-		.map((part) => {
-			if (part.type === "text") return part.text;
-			if (part.type === "file") {
-				return `[native pass-through to the SA: ${part.filename ?? "file"} (${part.mediaType}) — sent to Opus as-is, not condensed]`;
-			}
-			return "";
-		})
-		.filter(Boolean)
-		.join("\n\n");
-}
-
-/** Build the synthetic user message the pipeline rewrites — one file part, the
- *  same shape the chat client produces. */
-function fileMessage(path: string): UIMessage {
-	const bytes = readFileSync(path);
-	const ext = extname(path).toLowerCase();
-	const mediaType = MEDIA_BY_EXT[ext] ?? "application/octet-stream";
-	const filename = basename(path);
-	const url = `data:${mediaType};base64,${bytes.toString("base64")}`;
-	return {
-		id: `preview-${filename}`,
-		role: "user",
-		parts: [{ type: "file", mediaType, filename, url }],
-	};
-}
-
-/** Run one model against one file and print the result block. */
-async function runModel(spec: ModelSpec, message: UIMessage): Promise<void> {
-	const resolved = resolveModel(spec.key);
+/** Run one model against one file and print the extract block. */
+async function runModel(spec: ModelSpec, path: string): Promise<void> {
 	const reasoningNote = spec.reasoning ? `, thinking: ${spec.reasoning}` : "";
 	console.log(`\n### ${spec.label} (${spec.id}${reasoningNote})`);
+
+	const ext = extname(path).toLowerCase();
+	const kind = assetKindForExtension(ext);
+	if (!kind || !isDocumentKind(kind)) {
+		console.log(
+			`  no extract — ${ext || "this file"} is not a document kind. Images are read directly by the model's vision pass; audio/video aren't chat attachments.`,
+		);
+		return;
+	}
+
+	const resolved = resolveModel(spec.key);
 	if ("skip" in resolved) {
 		console.log(`  ⏭  skipped — ${resolved.skip}`);
 		return;
@@ -261,37 +228,33 @@ async function runModel(spec: ModelSpec, message: UIMessage): Promise<void> {
 		calls: 0,
 		truncated: false,
 	};
-	const [rewritten] = await prepareAttachments(
-		[message],
-		makeCondenser(resolved.model, stats, spec.providerOptions),
-	);
-	const output = renderParts(rewritten.parts);
-
-	if (stats.error) {
-		const msg =
-			stats.error instanceof Error ? stats.error.message : String(stats.error);
-		console.log(`  ⚠️  model call failed — ${msg}`);
-		console.log("  (pipeline fell back to inlining the raw document)");
+	let extract: string;
+	try {
+		const result = await extractDocument({
+			bytes: readFileSync(path),
+			mimeType: MIME_BY_EXT[ext] ?? "application/octet-stream",
+			kind,
+			filename: basename(path),
+			condenser: makeCondenser(resolved.model, stats, spec.providerOptions),
+		});
+		extract = result.text;
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.log(`  ⚠️  extraction failed — ${msg}`);
 		return;
 	}
 
-	if (stats.calls === 0) {
+	const cost = estimateCost(stats, spec.pricing);
+	console.log(
+		`  tokens: ${stats.inputTokens.toLocaleString()} in → ${stats.outputTokens.toLocaleString()} out  ·  est. cost ${DOLLARS(cost)}  ·  ${stats.calls} call(s)`,
+	);
+	if (stats.truncated) {
 		console.log(
-			"  no model call — an image (sent to Opus's vision pass) or an oversize file. The SA receives the content below as-is.",
+			"  ⚠️  hit the output ceiling — extract is truncated; the SA gets a note saying so.",
 		);
-	} else {
-		const cost = estimateCost(stats, spec.pricing);
-		console.log(
-			`  tokens: ${stats.inputTokens.toLocaleString()} in → ${stats.outputTokens.toLocaleString()} out  ·  est. cost ${DOLLARS(cost)}  ·  ${stats.calls} call(s)`,
-		);
-		if (stats.truncated) {
-			console.log(
-				"  ⚠️  hit the output ceiling — extract is truncated; the SA gets a note saying so.",
-			);
-		}
 	}
-	console.log(`  output: ${output.length.toLocaleString()} chars\n`);
-	console.log(output);
+	console.log(`  extract: ${extract.length.toLocaleString()} chars\n`);
+	console.log(extract);
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────
@@ -328,9 +291,8 @@ async function main(): Promise<void> {
 
 	for (const path of files) {
 		console.log(`\n${RULE}\n📄  ${path}\n${RULE}`);
-		const message = fileMessage(path);
 		for (const spec of specs) {
-			await runModel(spec, message);
+			await runModel(spec, path);
 		}
 	}
 }
