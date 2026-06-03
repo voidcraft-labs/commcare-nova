@@ -289,25 +289,27 @@ git commit -m "feat(credits): pure credit policy — constants + balance/charge/
 
 The reservation is a `runTransaction` over the **raw** ref (Task 1's `docs.creditMonthRaw`): read current data (or defaults if missing), reject if balance < cost, else write the seeded doc with `consumed += cost`. Throws a typed `OutOfCreditsError` the route maps to 429.
 
-> **Test strategy (this repo's split — confirmed by reading the suite):** the `lib/db` UNIT suites MOCK Firestore (`vi.mock("../firestore")` with a hoisted `runTransactionMock` driving the closure + scripted `tx.get`/`tx.set` spies — see `lib/db/__tests__/runSummary.test.ts`). The TRUE transaction round-trip + concurrency runs in a separate `*.integration.test.ts` against a real Firestore emulator, auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset (see `lib/db/__tests__/api-keys.integration.test.ts`; runs via `npm run test:integration`). **Do NOT hand-mock a concurrency race** — a mock can't model Firestore's optimistic-concurrency serialization, so a mock "race" test would be tautological. Race goes in the integration suite only.
+> **Test strategy (this repo's split — confirmed by reading the suite + landed in Task 3):** the `lib/db` UNIT suites MOCK Firestore (`vi.mock("../firestore")` with a hoisted `runTransactionMock` driving the closure — see `lib/db/__tests__/runSummary.test.ts`). Real round-trips run in a `*.integration.test.ts` against a real Firestore emulator, auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset (see `api-keys.integration.test.ts`; `npm run test:integration`).
+>
+> **The concurrency race is NOT emulator-tested (empirically determined in Task 3, ratified):** both production's server SDK (`@google-cloud/firestore`, Standard edition) and the emulator use **pessimistic** transaction concurrency (read locks) — they are faithful in kind. The difference that matters: the **emulator's lock manager LIVELOCKS** two contending single-doc transactions (each holds a read lock awaiting the other's write lock → lock-timeout → ~30s hang, confirmed in `firestore-debug.log`), whereas **production cleanly ABORTS** the losing transaction on contention ("Too much contention") and the SDK auto-retries it — the retry re-reads the now-depleted balance and rejects with `OutOfCreditsError`. So a real concurrent-race test can't resolve on the emulator (it hangs), and there is **no integration CI** (no `.github/workflows`/cloudbuild) — no real-Firestore target would ever run it. The race-safety contract is therefore proven **deterministically in the UNIT suite by driving the real `reserveCredits` closure twice** (the retried closure re-reads a depleted balance and rejects — the read-then-reject path that makes the abort-and-retry safe; mirrors `runSummary.test.ts`'s retry test). This is NOT the forbidden tautological hand-mocked race (which scripts two fake outcomes); it runs the real closure against scripted sequential state. Task 7's cross-app gate race inherits this same guarantee from `reserveCredits` — no separate race test there.
 
-- [ ] **Step 1a: Write failing UNIT tests** in `lib/db/__tests__/credits.test.ts`, mirroring `runSummary.test.ts`'s mock surface (hoisted `txGet`/`txSet`/`runTransactionMock`, `vi.mock("../firestore")`). These test reserve LOGIC, not Firestore:
+- [ ] **Step 1a: UNIT tests** in `lib/db/__tests__/credits.test.ts`, mirroring `runSummary.test.ts`'s mock surface (hoisted `txGet`/`txSet`/`runTransactionMock`, `vi.mock("../firestore")`), driving the real `reserveCredits` closure:
 ```ts
 // reserveCredits(userId, cost) — script tx.get to return the doc snapshot:
 //  - snap missing (exists=false): tx.set called with {allowance:2000, consumed:cost, bonus:0, updated_at}; returns {period, reserved:cost}
 //  - snap exists, balance (allowance+bonus-consumed) >= cost: tx.set called with consumed incremented by cost (allowance/bonus preserved)
+//  - exact-balance boundary (balance === cost): succeeds
 //  - snap exists, balance < cost: throws OutOfCreditsError; tx.set NOT called
-//  - the returned period equals getCurrentPeriod() and reserved equals the cost passed
+//  - OutOfCreditsError shape (name + human-readable message)
+//  - CONCURRENCY CONTRACT (deterministic): drive the closure twice — attempt 1 affordable (succeeds), attempt 2 re-reads the now-depleted balance and rejects with OutOfCreditsError. Proves the read-then-reject path that makes Firestore's optimistic retry safe.
+//  - returned period === getCurrentPeriod(), reserved === cost
 ```
-- [ ] **Step 1b: Write the INTEGRATION test** in `lib/db/__tests__/credits.integration.test.ts`, mirroring `api-keys.integration.test.ts` (the `FIRESTORE_EMULATOR_HOST`-gated `describe.skipIf(...)` / auto-skip header pattern). Real-emulator cases:
+- [ ] **Step 1b: INTEGRATION test** in `lib/db/__tests__/credits.integration.test.ts`, mirroring `api-keys.integration.test.ts`'s `FIRESTORE_EMULATOR_HOST` auto-skip header — real round-trips ONLY (no race):
 ```ts
 //  - reserveCredits on a fresh user actually creates credits/{u}/months/{period} with consumed=cost
 //  - a second reserve decrements further; reserve at balance < cost throws and leaves the doc unchanged
-//  - CONCURRENCY: from balance exactly one cost (e.g. consumed=1900, cost=100, allowance 2000):
-//      await Promise.allSettled([reserveCredits(u,100), reserveCredits(u,100)])
-//      → exactly one fulfilled, one rejected OutOfCreditsError; final consumed === 2000 (never 2100)
 ```
-Try to run it (`npm run test:integration`, check `package.json` for how the emulator is started); if the emulator isn't available in this environment, the suite auto-skips — note that in your report, and verify the file's structure mirrors a known-passing integration test so it runs correctly in CI.
+Run via `npm run test:integration` if the emulator is available (it boots a Java Firestore emulator); else it auto-skips — report which. Confirm the file mirrors `api-keys.integration.test.ts` structurally.
 
 - [ ] **Step 2: Run — expect FAIL** (unit suite; `npx vitest run lib/db/__tests__/credits.test.ts`).
 
