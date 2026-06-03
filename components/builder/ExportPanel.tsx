@@ -42,6 +42,62 @@ function toPersistable(doc: BlueprintDoc): PersistableDoc {
 }
 
 /**
+ * Download a Blob under `filename` via a transient object URL. Centralizes the
+ * create → click → revoke lifecycle both export handlers share so the revoke is
+ * never forgotten — a leaked object URL pins the blob in memory.
+ */
+function triggerBlobDownload(blob: Blob, filename: string): void {
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+/**
+ * POST a persistable doc to a compile/export endpoint and download the file it
+ * returns. The two export buttons differ only in endpoint, the failure-toast
+ * noun, and how the filename's extension is derived from the response blob —
+ * the request shape, the `res.ok` branch, the blob download, and the
+ * network-failure toast are identical, so they live here once. Both endpoints
+ * return the artifact bytes on success and JSON on failure, so we branch on
+ * `res.ok` and never read the error body as a blob.
+ */
+async function exportDoc(opts: {
+	doc: PersistableDoc;
+	endpoint: string;
+	/** Noun for the failure toast, e.g. `"the .ccz file"` / `"the JSON file"`. */
+	fileLabel: string;
+	/** Derive the download filename from the response blob (its MIME type may pick the extension). */
+	filename: (blob: Blob) => string;
+}): Promise<void> {
+	try {
+		const res = await fetch(opts.endpoint, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ doc: opts.doc }),
+		});
+		if (!res.ok) {
+			showToast(
+				"error",
+				"Export failed",
+				`Could not generate ${opts.fileLabel}.`,
+			);
+			return;
+		}
+		const blob = await res.blob();
+		triggerBlobDownload(blob, opts.filename(blob));
+	} catch {
+		showToast(
+			"error",
+			"Export failed",
+			`Could not generate ${opts.fileLabel}.`,
+		);
+	}
+}
+
+/**
  * Memoized to prevent parent-cascade re-renders from BuilderSubheader.
  * BuilderSubheader re-renders on breadcrumb/navigation changes (correct),
  * but ExportPanel's props (commcareConfigured, commcareAvailableDomains) are
@@ -79,67 +135,29 @@ export const ExportPanel = memo(function ExportPanel({
 	const handleExportCcz = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0) return;
-		try {
-			// One request: the compile endpoint returns the `.ccz` bytes inline
-			// (octet-stream on success, JSON on failure), so we branch on `res.ok`
-			// just like the JSON export below — no separate download round-trip.
-			const res = await fetch("/api/compile", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ doc: toPersistable(s) }),
-			});
-			if (!res.ok) {
-				showToast(
-					"error",
-					"Export failed",
-					"Could not generate the .ccz file.",
-				);
-				return;
-			}
-			const blob = await res.blob();
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = `${s.appName || "app"}.ccz`;
-			a.click();
-			URL.revokeObjectURL(url);
-		} catch {
-			showToast("error", "Export failed", "Could not generate the .ccz file.");
-		}
+		// The compile endpoint returns the `.ccz` bytes inline — one request, no
+		// separate download round-trip.
+		await exportDoc({
+			doc: toPersistable(s),
+			endpoint: "/api/compile",
+			fileLabel: "the .ccz file",
+			filename: () => `${s.appName || "app"}.ccz`,
+		});
 	}, [docStore]);
 
 	const handleExportJson = useCallback(async () => {
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0) return;
-		try {
-			const res = await fetch("/api/compile/json", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ doc: toPersistable(s) }),
-			});
-			if (!res.ok) {
-				showToast(
-					"error",
-					"Export failed",
-					"Could not generate the JSON file.",
-				);
-				return;
-			}
-			const blob = await res.blob();
-			// The export is media-aware: a media-free app comes back as a
-			// plain JSON file; an app WITH media comes back as a `.zip`
-			// bundling the JSON + a CommCare-HQ-format multimedia zip + a
-			// README. Name the download from the response type.
-			const ext = blob.type.includes("zip") ? "zip" : "json";
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = `${s.appName || "app"}.${ext}`;
-			a.click();
-			URL.revokeObjectURL(url);
-		} catch {
-			showToast("error", "Export failed", "Could not generate the JSON file.");
-		}
+		await exportDoc({
+			doc: toPersistable(s),
+			endpoint: "/api/compile/json",
+			fileLabel: "the JSON file",
+			// Media-aware: a media-free app comes back as a plain `.json`; an app
+			// WITH media comes back as a `.zip` bundle. Name the download from the
+			// response blob's MIME type.
+			filename: (blob) =>
+				`${s.appName || "app"}.${blob.type.includes("zip") ? "zip" : "json"}`,
+		});
 	}, [docStore]);
 
 	const exportOptions: ExportOption[] = useMemo(
