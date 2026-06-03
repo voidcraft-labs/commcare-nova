@@ -174,13 +174,31 @@ const InteractiveField = memo(function InteractiveField({
 	// them; this transparency only applies to interactive/preview mode.
 	if (field.kind === "group" && !field.label) {
 		return (
-			<InteractiveFormRenderer
-				parentEntityId={field.uuid}
-				prefix={path}
-				parentPath={fieldPath}
-				depth={depth}
-				leadingGap={false}
-			/>
+			<>
+				{/* A label-less group is transparent in preview, but its
+				    `label_media` is authored content — without this it vanishes on
+				    the edit→preview flip (edit renders it in the GroupBracket
+				    "Untitled group" header). Render it depth-padded to the group's
+				    column, above the inline children, keeping the group otherwise
+				    transparent. */}
+				{field.label_media && (
+					<div
+						style={{
+							paddingLeft: depthPadding(depth),
+							paddingRight: depthPadding(depth),
+						}}
+					>
+						<MediaDisplay media={field.label_media} interactive />
+					</div>
+				)}
+				<InteractiveFormRenderer
+					parentEntityId={field.uuid}
+					prefix={path}
+					parentPath={fieldPath}
+					depth={depth}
+					leadingGap={false}
+				/>
+			</>
 		);
 	}
 

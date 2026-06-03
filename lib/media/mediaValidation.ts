@@ -67,6 +67,25 @@ export async function collectMediaValidationErrors(
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 
+	// Cap the reference COUNT before loading any rows. `loadAssetsByIds` issues
+	// one Firestore batch read per 30 ids, so an unbounded reference set fans
+	// out into many sequential round-trips before `exportBudgetError` (which
+	// runs on the LOADED rows) can reject it — and this load runs twice per
+	// request (here + `resolveMediaManifest`). The doc schema puts no ceiling
+	// on field/option count, so a valid-parsing doc can carry an arbitrary
+	// number of distinct refs; short-circuit here so the read fan-out is bounded
+	// by the same export-asset limit the byte budget enforces downstream.
+	if (ids.length > MAX_MEDIA_EXPORT_ASSETS) {
+		return [
+			validationError(
+				"MEDIA_EXPORT_TOO_LARGE",
+				"app",
+				`This app references too many attachments to export — ${ids.length} (the limit is ${MAX_MEDIA_EXPORT_ASSETS}). Remove some attachments, then export again.`,
+				{},
+			),
+		];
+	}
+
 	// Build the asset manifest the asset-context rules consume. An empty
 	// map (no refs) still runs the media group — the rules produce zero
 	// errors against zero refs, and `imageMapValueUnique` (manifest-
