@@ -1,5 +1,8 @@
 "use client";
+import { ExtractionInfoPopover } from "@/components/builder/media/ExtractionInfoPopover";
+import { ExtractionStatusBadge } from "@/components/builder/media/ExtractionStatusBadge";
 import type { MediaAssetView } from "@/components/builder/media/mediaClient";
+import { isDocumentKind } from "@/lib/domain/multimedia";
 import { AttachmentChip } from "./AttachmentChip";
 
 interface ChatAttachmentBarProps {
@@ -23,8 +26,11 @@ export function ChatAttachmentBar({
 	onPreview,
 }: ChatAttachmentBarProps) {
 	if (assets.length === 0) return null;
+	// The "what does the assistant read?" affordance only makes sense once a
+	// document is staged (images are read directly, so they have no extract).
+	const hasDocument = assets.some((a) => isDocumentKind(a.kind));
 	return (
-		<div className="flex flex-wrap gap-1.5 px-1 pb-2">
+		<div className="flex flex-wrap items-center gap-1.5 px-1 pb-2">
 			{assets.map((asset) => (
 				<AttachmentChip
 					key={asset.id}
@@ -32,8 +38,10 @@ export function ChatAttachmentBar({
 					filename={asset.displayName ?? asset.originalFilename}
 					onPreview={() => onPreview(asset)}
 					onRemove={() => onRemove(asset.id)}
+					trailing={<ExtractionStatusBadge asset={asset} />}
 				/>
 			))}
+			{hasDocument && <ExtractionInfoPopover />}
 		</div>
 	);
 }

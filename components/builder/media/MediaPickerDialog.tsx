@@ -25,9 +25,12 @@ import { useMemo, useRef, useState } from "react";
 import {
 	type AssetKind,
 	assetKindForMimeType,
+	isDocumentKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
 import { ASSET_KIND_META } from "./assetKindMeta";
+import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
+import { ExtractionStatusBadge } from "./ExtractionStatusBadge";
 import type { MediaAssetView } from "./mediaClient";
 import { mediaSrc } from "./mediaClient";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
@@ -120,9 +123,14 @@ function PickerBody({
 	return (
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
-				<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-					{title}
-				</Dialog.Title>
+				<div className="flex items-center gap-1.5">
+					<Dialog.Title className="text-base font-display font-semibold text-nova-text">
+						{title}
+					</Dialog.Title>
+					{/* Documents are read into an extract the assistant uses — explain
+					 *  that here, where they're uploaded, not just on the chip later. */}
+					{kinds.some(isDocumentKind) && <ExtractionInfoPopover />}
+				</div>
 				<Dialog.Close
 					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 					aria-label="Close"
@@ -416,7 +424,7 @@ function LibraryTab({
 			) : (
 				<ul className="grid grid-cols-3 gap-2">
 					{filtered.map((asset) => (
-						<li key={asset.id}>
+						<li key={asset.id} className="relative">
 							<button
 								type="button"
 								onClick={() => onPick(asset)}
@@ -425,6 +433,15 @@ function LibraryTab({
 							>
 								<LibraryThumb asset={asset} />
 							</button>
+							{/* Extraction indicator for documents — a sibling of the pick
+							 *  button (not nested), so the failed-state retry control isn't
+							 *  interactive content inside a button. Renders nothing for
+							 *  media kinds. */}
+							{isDocumentKind(asset.kind) && (
+								<div className="pointer-events-none absolute inset-x-1 bottom-1 flex justify-center [&>*]:pointer-events-auto">
+									<ExtractionStatusBadge asset={asset} />
+								</div>
+							)}
 						</li>
 					))}
 				</ul>

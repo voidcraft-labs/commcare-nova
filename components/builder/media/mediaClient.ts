@@ -11,7 +11,12 @@
 // runtime (Firestore SDK) into the browser bundle.
 
 import type { WireMediaAsset } from "@/lib/db/mediaAssets";
-import type { AssetKind, Media, MediaKind } from "@/lib/domain/multimedia";
+import type {
+	AssetKind,
+	Media,
+	MediaExtractStatus,
+	MediaKind,
+} from "@/lib/domain/multimedia";
 
 /** The asset shape the API returns and the UI renders. */
 export type MediaAssetView = WireMediaAsset;
@@ -168,6 +173,35 @@ export async function fetchAssetExtract(
 		);
 	}
 	return res.text();
+}
+
+/**
+ * Trigger (or confirm) a document's feature extraction and resolve to its
+ * resulting status. The route is idempotent + best-effort single-flight: it
+ * returns `ready` immediately for a current extract, `extracting` (202) when a
+ * job is already in flight, and otherwise runs the extraction to completion
+ * before resolving — so this promise settles with the FINAL status, which the
+ * file-manager indicator shows while it's pending. A failure server-side is
+ * recorded as `failed`; a transport error maps to `failed` too (the file is
+ * saved — the chat's lazy backstop will re-read it on send).
+ */
+export async function triggerAssetExtraction(
+	assetId: string,
+): Promise<MediaExtractStatus> {
+	try {
+		const res = await fetch(`/api/media/${assetId}/extract`, {
+			method: "POST",
+		});
+		if (res.ok || res.status === 202) {
+			const body = (await res.json()) as {
+				extract?: { status?: MediaExtractStatus };
+			};
+			return body.extract?.status ?? "ready";
+		}
+		return "failed";
+	} catch {
+		return "failed";
+	}
 }
 
 /** A page of the owner's media library. */
