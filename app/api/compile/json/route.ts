@@ -19,8 +19,9 @@ import { sanitizeFilename } from "@/lib/utils/sanitize";
  * media-carrying CommCare app from a manual import, matching what the
  * `.ccz` and HQ-upload paths already give the API-key flow:
  *
- *   - Media-free app → a plain `<app>.json` (import via HQ → Import
- *     Application). Byte-identical to the pre-media JSON output.
+ *   - Media-free app → a plain `<app>.json` (import via HQ → Settings →
+ *     Import App from Another Server). Byte-identical to the pre-media JSON
+ *     output.
  *   - App with media → a `<app>.zip` bundling the MEDIA-ON `<app>.json`
  *     (it carries the `jr://file/commcare/...` references + multimedia_map)
  *     alongside a `multimedia.zip` and a README. CommCare HQ has no single
@@ -121,23 +122,51 @@ export async function POST(req: NextRequest) {
 	}
 }
 
-/** The manual-import instructions bundled into the media export. */
+/**
+ * The manual-import instructions bundled into the media export.
+ *
+ * The dummy App URL is load-bearing, not a placeholder: CommCare HQ's only
+ * UI path to upload an app's JSON is "Import App from Another Server", whose
+ * first screen requires a source-app URL. That screen NEVER fetches the URL —
+ * it regex-validates the shape and checks the subdomain is a CommCare server
+ * other than the current one (`domain/forms.py::ExtractAppInfoForm`:
+ * `^https://[^/]+/a/(?P<domain>[^/]+)/apps/view/(?P<app_id>[a-f0-9]{32})/?`
+ * plus a `{www|india|eu}.commcarehq.org` subdomain check that must differ from
+ * `SERVER_ENVIRONMENT`). So a fixed dummy with a 32-hex app id and the `india`
+ * subdomain sails past the gate; the real JSON is uploaded on the next screen.
+ */
 function importReadme(appName: string): string {
 	return [
 		`${appName} — exported from Nova for CommCare HQ`,
 		"",
-		"This archive has two files. Get both into CommCare HQ:",
+		"This archive has two files to load into CommCare HQ:",
+		`  - ${appName}.json   the application`,
+		"  - multimedia.zip    its media (CommCare bulk-upload format)",
 		"",
-		`  1. The app — "${appName}.json". Import it in CommCare HQ`,
-		`     (Applications -> Import Application).`,
+		"=== 1. Import the app ===",
 		"",
-		`  2. The media — "multimedia.zip", already in CommCare's`,
-		`     bulk-upload format. After the app is imported, upload it`,
-		`     through that app's bulk multimedia upload.`,
+		"In CommCare HQ, open the Settings (gear) menu -> Project Settings ->",
+		"Import App from Another Server:",
+		"  https://www.commcarehq.org/a/<your-project>/settings/project/import_app/",
 		"",
-		"Import the app first: the media files are named by content hash and",
-		"match the app's references automatically, so they attach to the",
-		"right places once the references exist.",
+		"This is the only place CommCare's UI lets you upload an app's JSON. The",
+		"first screen asks for an 'App URL' from another server, but it only",
+		"checks the URL's shape and that the server differs from yours — it never",
+		"opens the link. Paste this exact dummy URL and click Next:",
+		"",
+		"  https://india.commcarehq.org/a/x/apps/view/00000000000000000000000000000000/",
+		"",
+		"(If your CommCare instance IS the India server, change 'india' to 'www'.",
+		" The only rule: the subdomain must be www, india, or eu — and not yours.)",
+		"",
+		`On the next screen, upload "${appName}.json", name the app, and import.`,
+		"",
+		"=== 2. Import the media ===",
+		"",
+		"After the app imports, CommCare shows an instructions page with a link to",
+		'your new app\'s multimedia upload. Open it and upload "multimedia.zip".',
+		"The files are named by content hash and match the app's references",
+		"automatically, so they attach to the right places.",
 		"",
 	].join("\n");
 }
