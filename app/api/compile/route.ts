@@ -82,9 +82,11 @@ export async function POST(req: NextRequest) {
 
 		const buffer = compileCcz(hqJson, doc.appName, docWithParent, { assets });
 
-		// Store buffer for download.
+		// Store buffer for download, owner-scoped so the download route can
+		// bind access to this user — the archive bundles the app structure
+		// and media bytes, so it must not be readable by id alone.
 		const compileId = randomUUID();
-		await saveCcz(compileId, buffer);
+		await saveCcz(compileId, buffer, session.user.id);
 
 		return NextResponse.json({
 			success: true,

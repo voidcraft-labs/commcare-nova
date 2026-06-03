@@ -26,7 +26,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { ApiError, handleApiError } from "@/lib/apiError";
+import { ApiError, handleApiError, readJsonBody } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import {
 	createPendingAsset,
@@ -56,10 +56,19 @@ const requestBodySchema = z
 	})
 	.strict();
 
+/**
+ * This route's body is just the four-field metadata object above —
+ * filename (≤255) + a MIME string + a size number + a 64-char hash, well
+ * under 1 KB. Cap the request body tightly so it can't be used to make the
+ * server buffer and parse a large JSON payload before the schema rejects
+ * it; 4 KB leaves generous headroom for the longest legitimate filename.
+ */
+const UPLOAD_METADATA_MAX_BYTES = 4 * 1024;
+
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
-		const body = await req.json().catch(() => null);
+		const body = await readJsonBody(req, UPLOAD_METADATA_MAX_BYTES);
 		const parsed = requestBodySchema.safeParse(body);
 		if (!parsed.success) {
 			throw new ApiError(

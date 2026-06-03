@@ -125,5 +125,12 @@ describe("POST /api/compile — media validation gate", () => {
 			"u1",
 		);
 		expect(compileCcz).toHaveBeenCalledTimes(1);
+		// The archive is stored owner-scoped (the session user), so the
+		// download route can bind access to its compiler.
+		expect(saveCcz).toHaveBeenCalledWith(
+			body.compileId,
+			expect.anything(),
+			"u1",
+		);
 	});
 });

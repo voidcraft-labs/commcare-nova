@@ -186,6 +186,25 @@ export const ASSET_SIZE_CAPS_BYTES: Record<AssetKind, number> = {
 };
 
 /**
+ * Aggregate export budget for a single compile / HQ upload. The media-ON
+ * paths load EVERY referenced ready asset's bytes into memory at once —
+ * the `.ccz` bundles them in one ZIP buffer, the HQ path POSTs them
+ * per-file from the same manifest — so the cost scales with the SUM of
+ * referenced media, which the per-asset caps above don't bound. Without
+ * an aggregate ceiling an app that references hundreds of distinct owned
+ * assets could balloon a shared worker's heap (CWE-770). These bound the
+ * whole export: the media validator sums the referenced ready assets and
+ * rejects an over-budget app before `resolveMediaManifest` downloads a
+ * single object.
+ *
+ * Set generously — a real media-rich app never approaches them (200 MB /
+ * 500 attachments is already far past any sane CommCare deployment) — so
+ * the only thing they catch is the pathological case.
+ */
+export const MAX_MEDIA_EXPORT_ASSETS = 500;
+export const MAX_MEDIA_EXPORT_BYTES = 200 * 1024 * 1024;
+
+/**
  * Resolve a canonical MIME type to its asset kind. Returns `undefined`
  * for any MIME outside the accepted set — the caller treats that as a
  * validation rejection. Expects an already-canonical MIME; run
@@ -388,6 +407,15 @@ export function gcsObjectKeyFor(
 }
 
 /**
+ * Top-level prefix every signed-PUT pending object lives under. Shared so
+ * the bucket lifecycle rule that reaps abandoned / oversized pending
+ * uploads (`applyPendingObjectLifecycle` in `lib/storage/media`) matches
+ * the exact prefix `pendingGcsObjectKeyFor` writes — the rule and the key
+ * builder can't drift to different prefixes.
+ */
+export const PENDING_OBJECT_PREFIX = "pending/";
+
+/**
  * Pending GCS object key derivation for browser signed-PUT uploads.
  *
  * The browser's signed URL is minted BEFORE the server has validated the
@@ -398,18 +426,18 @@ export function gcsObjectKeyFor(
  * clean bytes to `gcsObjectKeyFor(...)`; rejection deletes this pending
  * object and row.
  *
- * The `pending/` prefix is top-level (not nested under `users/<owner>/`) so
- * one bucket lifecycle rule — delete objects under `pending/` past a short
- * TTL — reaps uploads that were initiated but never confirmed. GCS
- * lifecycle prefix matching anchors at the object-name start, so a
- * per-owner-nested pending path could not be expressed as a single rule.
+ * The prefix is top-level (not nested under `users/<owner>/`) so one bucket
+ * lifecycle rule — delete objects under it past a short TTL — reaps uploads
+ * that were initiated but never confirmed. GCS lifecycle prefix matching
+ * anchors at the object-name start, so a per-owner-nested pending path could
+ * not be expressed as a single rule.
  */
 export function pendingGcsObjectKeyFor(
 	owner: string,
 	assetId: AssetId,
 	extension: string,
 ): string {
-	return `pending/${owner}/${assetId}${extension}`;
+	return `${PENDING_OBJECT_PREFIX}${owner}/${assetId}${extension}`;
 }
 
 /**

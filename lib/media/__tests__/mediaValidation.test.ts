@@ -26,6 +26,7 @@ import {
 	makeManifest,
 } from "@/lib/commcare/validator/rules/media/__tests__/fixtures";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
+import { MAX_MEDIA_EXPORT_BYTES } from "@/lib/domain/multimedia";
 import { collectMediaValidationErrors } from "../mediaValidation";
 
 const OWNER = "owner-1";
@@ -185,6 +186,29 @@ describe("collectMediaValidationErrors", () => {
 				].includes(c),
 			),
 		).toBe(true);
+	});
+
+	it("flags an over-budget export as MEDIA_EXPORT_TOO_LARGE before any download", async () => {
+		// A single READY image whose size alone exceeds the aggregate export
+		// budget. The reference itself resolves fine (ready + right kind), but
+		// the media-ON paths load every referenced asset's bytes into memory at
+		// once, so the gate rejects the app here — before `resolveMediaManifest`
+		// downloads a single object. (The per-asset caps would stop a real
+		// 200 MB upload; the mock sets the size directly to exercise the
+		// aggregate gate, which bounds the SUM the per-asset caps don't.)
+		vi.mocked(loadAssetsByIds).mockResolvedValue([
+			makeAssetRecord("huge-asset", { sizeBytes: MAX_MEDIA_EXPORT_BYTES + 1 }),
+		]);
+
+		const errors = await collectMediaValidationErrors(
+			docWithLabelImage("huge-asset"),
+			OWNER,
+		);
+
+		// Only the budget error — the reference is otherwise valid, and the
+		// error is app-scoped (an aggregate property, not a per-ref issue).
+		expect(errors.map((e) => e.code)).toEqual(["MEDIA_EXPORT_TOO_LARGE"]);
+		expect(errors[0].scope).toBe("app");
 	});
 
 	it("returns no errors and skips the Firestore read for a media-free doc", async () => {

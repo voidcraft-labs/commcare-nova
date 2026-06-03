@@ -17,6 +17,7 @@
 
 import type { Readable } from "node:stream";
 import { type Bucket, Storage } from "@google-cloud/storage";
+import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
 let _storage: Storage | null = null;
 let _bucket: Bucket | null = null;
@@ -110,6 +111,48 @@ function getBucket(): Bucket {
 		_bucket = getStorage().bucket(name);
 	}
 	return _bucket;
+}
+
+/**
+ * Days a pending upload object lives before the bucket lifecycle rule
+ * reaps it. GCS lifecycle `age` is day-granular (its minimum), so 1 day is
+ * the tightest reap. Short by design: a confirm completes seconds after
+ * the PUT, so anything still in `pending/` a day later is abandoned.
+ */
+const PENDING_OBJECT_TTL_DAYS = 1;
+
+/**
+ * Apply the bucket lifecycle rule that auto-deletes abandoned upload
+ * objects under the `pending/` prefix.
+ *
+ * Browser uploads PUT to a per-attempt `pending/<owner>/...` key via a V4
+ * signed URL. A V4 signed PUT can't bind a maximum Content-Length (that's
+ * a signed-POST-policy feature), so a client that uploads an oversized
+ * object and then never calls confirm leaves it in `pending/` — confirm-
+ * time validation is what deletes oversized bytes, and it only runs if the
+ * client calls confirm. This rule is the backstop: GCS itself deletes any
+ * `pending/` object older than `PENDING_OBJECT_TTL_DAYS`, reaping both
+ * abandoned and oversized attempts with no server-side cron. Ready objects
+ * are never touched — confirm promotes validated bytes OUT of `pending/`
+ * to the content-hash key before flipping the row to ready.
+ *
+ * Idempotent: `append: false` replaces the bucket's lifecycle with this
+ * single rule. The media bucket is dedicated, so it owns no other rules to
+ * preserve, and re-running yields the same state. Operational, not on the
+ * request path — run once per bucket (and after any prefix change) via
+ * `scripts/apply-media-bucket-lifecycle.ts`.
+ */
+export async function applyPendingObjectLifecycle(): Promise<void> {
+	await getBucket().addLifecycleRule(
+		{
+			action: { type: "Delete" },
+			condition: {
+				age: PENDING_OBJECT_TTL_DAYS,
+				matchesPrefix: [PENDING_OBJECT_PREFIX],
+			},
+		},
+		{ append: false },
+	);
 }
 
 /**

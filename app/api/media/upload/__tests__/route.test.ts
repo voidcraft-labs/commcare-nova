@@ -43,7 +43,12 @@ vi.mock("@/lib/storage/media", () => ({
 }));
 
 function reqWith(body: unknown) {
-	return { json: async () => body } as Parameters<typeof POST>[0];
+	// `headers` is needed by `readJsonBody`'s Content-Length guard; an empty
+	// Headers means no declared length, so it falls through to `json()`.
+	return {
+		headers: new Headers(),
+		json: async () => body,
+	} as Parameters<typeof POST>[0];
 }
 
 beforeEach(() => {

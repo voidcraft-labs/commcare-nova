@@ -244,6 +244,11 @@ export type ValidationErrorCode =
 	| "MEDIA_ASSET_NOT_FOUND"
 	| "MEDIA_ASSET_NOT_READY"
 	| "MEDIA_KIND_MISMATCH"
+	// Aggregate export-budget guard (not a per-ref rule): the media-ON
+	// compile / HQ-upload paths load every referenced ready asset into
+	// memory at once, so the total count + bytes are bounded before any
+	// download. Fires from `collectMediaValidationErrors`, not a rule file.
+	| "MEDIA_EXPORT_TOO_LARGE"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"

@@ -21,11 +21,17 @@ import "server-only";
 import {
 	isMediaValidationError,
 	type ValidationError,
+	validationError,
 } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { loadAssetsByIds } from "@/lib/db/mediaAssets";
+import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
+import {
+	isMediaKind,
+	MAX_MEDIA_EXPORT_ASSETS,
+	MAX_MEDIA_EXPORT_BYTES,
+} from "@/lib/domain/multimedia";
 
 /**
  * Run media validation against a doc and return ONLY the media-category
@@ -69,5 +75,59 @@ export async function collectMediaValidationErrors(
 	const mediaAssets = new Map(rows.map((row) => [row.id as string, row]));
 
 	const errors = runValidation(doc, { mediaAssets });
-	return errors.filter(isMediaValidationError);
+	const mediaErrors = errors.filter(isMediaValidationError);
+
+	// Append the aggregate export-budget error. It's computed from the row
+	// sizes here rather than as a per-ref validator rule, because the limit
+	// is a property of the SUM of referenced media (the in-memory manifest),
+	// not of any single reference. Surfacing it through this gate puts it on
+	// the same actionable-400 path as the per-ref media errors, and — since
+	// this runs before `resolveMediaManifest` on every media-ON entry point
+	// — it rejects an over-budget app before a single byte leaves GCS.
+	const budgetError = exportBudgetError(rows);
+	return budgetError ? [...mediaErrors, budgetError] : mediaErrors;
+}
+
+/**
+ * Aggregate export-budget guard. The media-ON paths download every
+ * referenced READY media asset's bytes into one in-memory manifest (the
+ * `.ccz` ZIP buffer, the HQ per-file upload), so the work scales with the
+ * SUM of referenced media — a total the per-asset size caps don't bound.
+ * Sum the rows `resolveMediaManifest` will actually pull (ready + media
+ * kind, mirroring its filter) and, if either the count or the total bytes
+ * exceeds its ceiling, return the actionable error. Returns `null` when
+ * the app is within budget.
+ */
+function exportBudgetError(rows: MediaAssetRecord[]): ValidationError | null {
+	// Only ready media rows reach the byte download — the manifest filters
+	// pending rows out, and documents never wire-emit — so the budget counts
+	// exactly what would be loaded.
+	const exportable = rows.filter(
+		(row) => row.status === "ready" && isMediaKind(row.kind),
+	);
+	const totalBytes = exportable.reduce((sum, row) => sum + row.sizeBytes, 0);
+	const overCount = exportable.length > MAX_MEDIA_EXPORT_ASSETS;
+	const overBytes = totalBytes > MAX_MEDIA_EXPORT_BYTES;
+	if (!overCount && !overBytes) return null;
+
+	const capMb = Math.round(MAX_MEDIA_EXPORT_BYTES / 1024 / 1024);
+	const reasons: string[] = [];
+	if (overCount) {
+		reasons.push(
+			`${exportable.length} attachments (the limit is ${MAX_MEDIA_EXPORT_ASSETS})`,
+		);
+	}
+	if (overBytes) {
+		reasons.push(
+			`${(totalBytes / 1024 / 1024).toFixed(0)} MB of media (the limit is ${capMb} MB)`,
+		);
+	}
+	return validationError(
+		"MEDIA_EXPORT_TOO_LARGE",
+		"app",
+		`This app bundles too much media to export — ${reasons.join(
+			" and ",
+		)}. Remove or shrink some attachments, then export again.`,
+		{},
+	);
 }

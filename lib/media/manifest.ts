@@ -27,6 +27,15 @@ import {
 	type MediaKind,
 } from "@/lib/domain/multimedia";
 import { downloadAssetBytes } from "@/lib/storage/media";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
+
+/**
+ * Max GCS object downloads in flight at once when resolving a manifest's
+ * bytes. Small on purpose — the total volume is already bounded by the
+ * validator's aggregate-byte ceiling, so this only smooths the peak
+ * (concurrent open streams + bytes held simultaneously), not the total.
+ */
+const MEDIA_DOWNLOAD_CONCURRENCY = 6;
 
 export interface ResolveManifestOptions {
 	/**
@@ -83,14 +92,19 @@ export async function resolveMediaManifest(
 		(row): row is MediaAssetRecord & { kind: MediaKind } =>
 			row.status === "ready" && isMediaKind(row.kind),
 	);
-	// Bytes (when requested) come from GCS — fetch in parallel. Compile
-	// is interactive (the user clicked "Compile to CCZ"); serializing
-	// the awaits inside a `for` loop would stretch the round-trip from
-	// max(per-asset latency) to sum(per-asset latency). `Promise.all` is
-	// fine for typical app-sized N; if rate limiting ever becomes a
-	// concern, gate concurrency with a small limit helper.
-	const entries = await Promise.all(
-		rows.map(async (row) => {
+	// Bytes (when requested) stream from GCS. Compile is interactive (the
+	// user clicked "Compile to CCZ"), so serializing the awaits in a `for`
+	// loop would stretch the round-trip to sum(per-asset latency) — but
+	// firing ALL downloads at once (`Promise.all`) opens one GCS read
+	// stream per asset and holds every asset's bytes in memory at the same
+	// peak. Bound the in-flight count instead: the aggregate-byte ceiling
+	// (enforced upstream in the media validator) caps the TOTAL, and this
+	// caps how much arrives at once. Order is preserved, so the manifest
+	// map key order is stable.
+	const entries = await mapWithConcurrency(
+		rows,
+		MEDIA_DOWNLOAD_CONCURRENCY,
+		async (row) => {
 			const bytes = options.withBytes
 				? await downloadAssetBytes(
 						row.gcsObjectKey,
@@ -110,7 +124,7 @@ export async function resolveMediaManifest(
 					...(bytes !== undefined && { bytes }),
 				} satisfies ResolvedMediaAsset,
 			] as const;
-		}),
+		},
 	);
 	return new Map(entries);
 }

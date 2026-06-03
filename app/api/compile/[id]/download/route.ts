@@ -6,9 +6,12 @@ export async function GET(
 	req: NextRequest,
 	{ params }: { params: Promise<{ id: string }> },
 ) {
-	await requireSession(req);
+	const session = await requireSession(req);
 	const { id } = await params;
-	const buffer = await getCcz(id);
+	// Owner-scoped read: the archive is bound to the user who compiled it,
+	// so a foreign id resolves under THIS caller's namespace and isn't found
+	// — the random UUID is no longer the only thing gating a cross-user read.
+	const buffer = await getCcz(id, session.user.id);
 
 	if (!buffer) {
 		return new Response("CCZ not found or expired", { status: 404 });
