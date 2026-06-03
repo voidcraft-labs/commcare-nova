@@ -21,11 +21,31 @@
  * the test red — without it the test would pass for the wrong reason.
  */
 import { Timestamp } from "@google-cloud/firestore";
+import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import {
+	ACTUAL_COST_BACKSTOP_USD,
+	CREDITS_PER_BUILD,
+	CREDITS_PER_DOLLAR,
+	CREDITS_PER_EDIT,
+	chargeAmount,
+	creditBalance,
+	isChargeableTurn,
+	MONTHLY_CREDIT_ALLOWANCE,
+} from "@/lib/db/creditPolicy";
 import { creditGrantDocSchema, creditMonthDocSchema } from "@/lib/db/types";
 
 /** A fixed read-shape timestamp so each parse fails (or passes) for its own field. */
 const ts = Timestamp.fromDate(new Date("2026-06-03T00:00:00Z"));
+
+/**
+ * Build a minimal `UIMessage` of a given role for the `isChargeableTurn` cases.
+ * Only `role` is load-bearing for the charge signal — the helper reads the last
+ * message's role and nothing else — so `id`/`parts` are filler that just satisfy
+ * the shape the route passes in from the raw request body.
+ */
+const u = (role: "user" | "assistant"): UIMessage =>
+	({ id: "m", role, parts: [{ type: "text", text: "x" }] }) as UIMessage;
 
 describe("creditMonthDocSchema", () => {
 	it("defaults consumed and bonus to 0 when only allowance is supplied", () => {
@@ -171,5 +191,83 @@ describe("creditGrantDocSchema", () => {
 				created_at: ts,
 			}),
 		).toThrow();
+	});
+});
+
+/**
+ * Pure credit-policy tests — the constants and the three pure helpers
+ * (`creditBalance`, `chargeAmount`, `isChargeableTurn`) that `lib/db/creditPolicy.ts`
+ * exports. This module is the single source of truth for the credit amounts and
+ * is deliberately dependency-free (type-only imports) so the same `chargeAmount`
+ * runs in the server gate and in the client send-button indicator; these tests
+ * pin the arithmetic those surfaces depend on.
+ *
+ * Note: client-safety (no runtime Firestore/server import) is a *static* property
+ * of the module's import lines, not something a Node test can observe — the
+ * guarantee is enforced by the `import type`-only imports in `creditPolicy.ts`,
+ * not asserted here.
+ */
+describe("credit policy — pure helpers and constants", () => {
+	it("locks the five exported credit amounts to their decided values", () => {
+		// Every exported constant is pinned, not a representative subset: a silent
+		// edit to any single amount (e.g. an edit re-priced to 10) must turn this
+		// red. The order mirrors the declaration order in `creditPolicy.ts`.
+		expect([
+			CREDITS_PER_DOLLAR,
+			CREDITS_PER_BUILD,
+			CREDITS_PER_EDIT,
+			MONTHLY_CREDIT_ALLOWANCE,
+			ACTUAL_COST_BACKSTOP_USD,
+		]).toEqual([100, 100, 5, 2000, 50]);
+	});
+
+	it("computes balance as allowance + bonus − consumed", () => {
+		// A debited mid-period doc: 2000 allowance, 105 consumed (one build + one
+		// edit), no bonus → 1895 spendable.
+		expect(creditBalance({ allowance: 2000, consumed: 105, bonus: 0 })).toBe(
+			1895,
+		);
+		// A bonus is additive on top of the allowance.
+		expect(creditBalance({ allowance: 2000, consumed: 105, bonus: 500 })).toBe(
+			2395,
+		);
+	});
+
+	it("reads an absent credit doc as a full monthly allowance", () => {
+		// The gate and the dashboard treat a never-written period as a fresh
+		// 2000/2000 — no pre-seeding write is required for a correct day-one read.
+		expect(creditBalance(undefined)).toBe(MONTHLY_CREDIT_ALLOWANCE);
+	});
+
+	it("charges the build amount when no app exists yet", () => {
+		// appReady === false → a new-app generation → the full build unit.
+		expect(chargeAmount(false)).toBe(CREDITS_PER_BUILD);
+		expect(chargeAmount(false)).toBe(100);
+	});
+
+	it("charges the cheap edit amount once an app exists", () => {
+		// appReady === true → an edit to an existing app → kept cheap so iterating
+		// feels nearly free.
+		expect(chargeAmount(true)).toBe(CREDITS_PER_EDIT);
+		expect(chargeAmount(true)).toBe(5);
+	});
+
+	it("charges a turn whose last RAW message is from the user", () => {
+		// A fresh user instruction always appends a `user` message — that is the
+		// server-observable signal that a new generation is starting.
+		expect(isChargeableTurn([u("assistant"), u("user")])).toBe(true);
+	});
+
+	it("treats a turn ending in an assistant message as a free continuation", () => {
+		// An answered-askQuestions auto-resend ends with the SA's `assistant`
+		// message; it belongs to the generation already charged when the user's
+		// instruction kicked it off, so it must not charge again.
+		expect(isChargeableTurn([u("user"), u("assistant")])).toBe(false);
+	});
+
+	it("treats an empty message list as non-chargeable", () => {
+		// No last message → `undefined?.role` → never charges. Guards the
+		// degenerate input rather than letting `.at(-1)` throw downstream.
+		expect(isChargeableTurn([])).toBe(false);
 	});
 });
