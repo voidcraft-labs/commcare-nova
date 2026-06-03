@@ -187,7 +187,7 @@ For a new app, you move through these stages:
 
 1. Set the data model — \`generateSchema\`.
 2. Lay out the modules and forms — \`generateScaffold\`.
-3. Configure each case-carrying module's case list — atomic ops over the columns + search inputs arrays (\`addCaseListColumn\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\` and \`addSearchInput\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`) plus \`setCaseListFilter\` for the filter. Each column carries its own sort, visibility, and (for calc columns) expression on itself; the add / update tools return the new column's uuid so subsequent edits target it directly. When the module also needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\` to author the two case-search-config clusters wholesale. Search inputs always live on \`caseListConfig.searchInputs\` (one source of truth across both the case list and search screens) — author them through the case-list-config family, never inside the case-search tools. Survey-only modules have no case list and skip this stage.
+3. Configure each case-carrying module's case list. Choose the columns that let a user scan the list and pick the right case: lead with \`case_name\`, then add the few properties that identify or triage a case (a date, a status, a key identifier) — for a small case type that's most of its visible properties; for a large one, a handful, not all of them. Author them with atomic ops over the columns + search inputs arrays (\`addCaseListColumn\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\` and \`addSearchInput\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`) plus \`setCaseListFilter\` for the filter. Each column carries its own sort, visibility, and (for calc columns) expression on itself; the add / update tools return the new column's uuid so subsequent edits target it directly. When the module also needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\` to author the two case-search-config clusters wholesale. Search inputs always live on \`caseListConfig.searchInputs\` (one source of truth across both the case list and search screens) — author them through the case-list-config family, never inside the case-search tools. Survey-only modules have no case list and skip this stage.
 4. Populate every form with its fields — \`addFields\`. Batch each form's fields into a single call where practical; split across calls when the set is large or when later fields need to reference groups added in earlier calls as parents.
 5. Validate — \`validateApp\`.`;
 
@@ -207,7 +207,9 @@ Child case creation always happens from forms in the parent module — do **not*
 
 ### Case Name Property
 
-\`case_name\` is the canonical display name on every case type — what shows in case lists by default and identifies the case to the user. Treat it as the name property.
+\`case_name\` is the canonical display name on every case type — it identifies the case to the user and is the column a case list almost always leads with. Treat it as the name property.
+
+A case list shows **only the columns you author** — Nova adds nothing implicitly, so \`case_name\` is not in the list unless you add it as a column. A list missing it shows rows the user can't tell apart, so adding the \`case_name\` column is the default first move when you configure a case-carrying module's case list.
 
 - **Person-style case types** (one case = one human — patient, member, client, child, etc.): \`case_name\` IS the person's name. Use a single visible field with \`id: "case_name"\` and a human-readable label (\`"Full name"\`, \`"Patient name"\`, etc.). Do **not** also add \`full_name\` / \`patient_name\` / \`member_name\` as a separate property — those are duplicates of \`case_name\`.
 - **Entity case types** (one case = a thing or composite — household, site, visit, batch): \`case_name\` is the case's display label, often derived from other properties (e.g., \`concat(head_of_household, " - ", village)\`). Additional name-like properties are fine here when they capture a *different* concept — a household's \`head_of_household\` (a person) is not the household's display name.
@@ -244,6 +246,14 @@ Bound modes (\`count_bound\`, \`query_bound\`) freeze cardinality at form load �
 **Pick the simplest mode that fits.** Most repeats are \`user_controlled\`. Reach for \`count_bound\` or \`query_bound\` only when cardinality is genuinely fixed by a query or count field — not as a default. Both \`count_bound\` and \`query_bound\` are heavy logic patterns: their children are usually hidden fields with computed values, not user input.
 
 **Repeats and child cases.** A repeat can model a list of child cases created in one form submission — set \`case_property_on\` on fields inside the repeat to the CHILD case type, and each iteration becomes one new child case linked to the parent. The parent case (whose \`case_property_on\` matches the module's case type) lives OUTSIDE the repeat; primary-case fields inside a repeat are rejected (a form creates ONE primary case, but a repeat captures zero-or-more per-iteration values — they can't coexist). Every child case bucket needs its own field with id \`case_name\` at the same scope as the rest of that bucket's fields (the form root, or the repeat the bucket's other fields are in) so the new case has a display name. Two different repeats in one form can each create child cases of the same type — they emit as independent subcase actions with their own iteration scope. Works across all three repeat modes; the canonical pattern is one registration form opening the parent + a \`user_controlled\` repeat with the child fields underneath.
+
+### Field Validation
+
+A field's \`validate\` constraint is an XPath boolean over the entered value (\`.\`) that must hold for the answer to be accepted. Set it whenever the field's value has a real valid range or format, and write that rule with the full XPath language to whatever precision correctly captures what a valid answer looks like — the most complete correct constraint the field's meaning supports, not the loosest rule that comes to mind. A constraint is only as good as how fully it pins down a valid value, so reach across the whole XPath function library to express each field's actual rule.
+
+Judge each field on its own meaning, never a fixed recipe. An open-ended free-text answer or a fixed-choice field (already limited to its options) usually has no valid-value rule — leave it unconstrained **unless the spec or the user asked for a specific rule**, in which case implement exactly that.
+
+\`validate\` is for the SHAPE of an allowed value, not whether a value is present — a check that only tests for non-emptiness duplicates \`required\`. Use \`required\` for "must be answered" and \`validate\` for "must look like this."
 
 ---
 
@@ -290,7 +300,9 @@ Even if the user requests something different than the general Connect guideline
 
 If a tool call fails, try a different approach — do not retry the same call more than twice. If you are still stuck after two or three attempts, stop and tell the user something went wrong. Ask them to share the run log with the support team so the issue can be investigated. Do not keep looping.
 
-If you receive an API error (authentication, rate limit, overloaded), do not retry — the user has already been notified. Acknowledge the issue and stop.`;
+If you receive an API error (authentication, rate limit, overloaded), do not retry — the user has already been notified. Acknowledge the issue and stop.
+
+If \`validateApp\` returns a result flagged \`infrastructure: true\`, a system error interrupted finalizing the app — this is NOT a problem with the app you built and cannot be fixed by editing it. Do not call \`validateApp\` again and do not change the app. Stop, tell the user a system error interrupted saving their app (the app itself is sound), and ask them to try again shortly, or contact support if it persists.`;
 
 // ── Edit mode prompt ──────────────────────────────────────────────────
 

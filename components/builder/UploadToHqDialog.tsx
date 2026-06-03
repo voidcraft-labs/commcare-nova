@@ -6,11 +6,10 @@
  * FloatingTreeStore. An HQ API key can reach several project spaces, and THIS
  * dialog is where the upload target is chosen (the Settings card is
  * display-only): a single-space key shows a static verified card; a
- * multi-space key shows a picker (the shadcn `Select`, Base-UI-backed),
- * pre-selecting the saved default when one exists. The Select portals into
- * this dialog (`SelectContent` `container`) so its dropdown opens above the
- * modal. The selected space is sent to the upload route, which re-authorizes
- * it against the key's reachable set.
+ * multi-space key shows a picker (the shadcn `Select`, Base-UI-backed) that
+ * starts unselected — there is no stored default, so the target is chosen here
+ * per upload. The selected space is sent to the upload route, which
+ * re-authorizes it against the key's reachable set.
  */
 
 "use client";
@@ -49,8 +48,6 @@ interface UploadToHqDialogProps {
 	 *  Called when the user clicks Upload. The server converts the doc
 	 *  to CommCare's wire format at the upload boundary. */
 	getDoc: () => PersistableDoc;
-	/** The user's default upload space, or null when none chosen (multi-space). */
-	activeDomain: Domain | null;
 	/** Every space the key can upload to. Empty ⇒ HQ not configured. */
 	availableDomains: Domain[];
 }
@@ -79,7 +76,6 @@ export function UploadToHqDialog({
 	open,
 	onClose,
 	getDoc,
-	activeDomain,
 	availableDomains,
 }: UploadToHqDialogProps) {
 	/* Self-subscribe to the app name from the doc store — no prop drilling
@@ -89,13 +85,8 @@ export function UploadToHqDialog({
 		type: "idle",
 	});
 	const [appName, setAppName] = useState(storeAppName);
-	/* The chosen target space (a domain slug). Seeded from the default on open. */
+	/* The chosen target space (a domain slug). Seeded on open. */
 	const [selectedDomain, setSelectedDomain] = useState("");
-	/* The dialog's popup element. The Select portals into it (see SelectContent
-	 * `container`) so its dropdown shares the modal's stacking context and opens
-	 * ABOVE the dialog — a body-portaled dropdown sits at `--z-popover` (50),
-	 * behind the dialog's `--z-modal` (100). */
-	const [dialogPopup, setDialogPopup] = useState<HTMLElement | null>(null);
 
 	const notConfigured = availableDomains.length === 0;
 	const isMultiSpace = availableDomains.length > 1;
@@ -122,14 +113,13 @@ export function UploadToHqDialog({
 		if (!justOpened) return;
 		setUploadStatus({ type: "idle" });
 		setAppName(storeAppName);
-		/* Seed the picker with the default; for a single-space key the sole
-		 * space is the only choice. Empty string leaves the picker unselected
-		 * (a multi-space key with no default), gating Upload until chosen. */
+		/* Seed the picker: a single-space key has exactly one choice; a
+		 * multi-space key starts unselected (there is no stored default), gating
+		 * Upload until the user picks a target. */
 		setSelectedDomain(
-			activeDomain?.name ??
-				(availableDomains.length === 1 ? availableDomains[0].name : ""),
+			availableDomains.length === 1 ? availableDomains[0].name : "",
 		);
-	}, [open, storeAppName, activeDomain, availableDomains]);
+	}, [open, storeAppName, availableDomains]);
 
 	/* ── Upload handler ────────────────────────────────────────────── */
 	const handleUpload = useCallback(async () => {
@@ -190,7 +180,7 @@ export function UploadToHqDialog({
 		<Dialog.Root open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
 			<Dialog.Portal>
 				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup ref={setDialogPopup} className={POPUP_CLS}>
+				<Dialog.Popup className={POPUP_CLS}>
 					{/* ── Header ───────────────────────────────────── */}
 					<div className="flex items-center justify-between px-5 pt-5 pb-0">
 						<Dialog.Title className="text-base font-display font-semibold text-nova-text">
@@ -238,7 +228,7 @@ export function UploadToHqDialog({
 													>
 														<SelectValue placeholder="Choose a project space…" />
 													</SelectTrigger>
-													<SelectContent container={dialogPopup}>
+													<SelectContent>
 														{availableDomains.map((d) => (
 															<SelectItem key={d.name} value={d.name}>
 																{d.displayName}

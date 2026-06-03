@@ -16,11 +16,13 @@
  * `lib/commcare` emission boundary. Callers (which DO speak `CommCareDomain`)
  * get their concrete type back through the generic.
  *
- * The load-bearing rule: a multi-space key with no explicit request and no
- * chosen default is **ambiguous, never defaulted**. Silently picking the
- * first space is exactly the bug (nova-plugin #12) — Nova bound to the wrong
- * space without telling the operator. Callers turn `ambiguous` into an error
- * that names the spaces; they never paper over it.
+ * The load-bearing rule: a multi-space key with no explicit request is
+ * **ambiguous, never defaulted**. Silently picking the first space binds the
+ * upload to the wrong space without telling the operator — the exact failure
+ * this resolver exists to prevent. Callers turn `ambiguous` into an error that
+ * names the spaces; they never paper over it. There is deliberately no stored
+ * "default space": a multi-space key exists to operate across spaces, so the
+ * target is a per-upload choice, never a remembered one.
  */
 
 /** Minimal shape the resolver needs: anything identified by a `name`. */
@@ -34,9 +36,8 @@ export interface NamedSpace {
  * - `ok` — exactly one space was determined; `domain` is it.
  * - `not_authorized` — the caller asked for a space the key can't reach;
  *   `available` lists the spaces it can, so the caller's message can be specific.
- * - `ambiguous` — no explicit ask, multiple reachable spaces, and no chosen
- *   default; the caller must force a choice rather than guess. `available`
- *   lists the candidates.
+ * - `ambiguous` — no explicit ask and multiple reachable spaces; the caller
+ *   must force a choice rather than guess. `available` lists the candidates.
  */
 export type ResolveUploadDomainResult<T extends NamedSpace> =
 	| { ok: true; domain: T }
@@ -47,15 +48,13 @@ export type ResolveUploadDomainResult<T extends NamedSpace> =
 export interface ResolveUploadDomainArgs<T extends NamedSpace> {
 	/** Every space the key can actually upload to (already access-probed). */
 	availableDomains: T[];
-	/** The user's persisted default space `name`, if they chose one. */
-	activeDomainName: string | undefined;
-	/** An explicit per-call/per-request space `name` that overrides the default. */
+	/** An explicit per-call/per-request space `name`. */
 	requested?: string;
 }
 
 /**
- * Decide the upload target from the reachable set, the chosen default, and an
- * optional explicit request.
+ * Decide the upload target from the reachable set and an optional explicit
+ * request.
  *
  * Precedence:
  *   1. An explicit `requested` space wins — it's `ok` if reachable, else
@@ -63,13 +62,14 @@ export interface ResolveUploadDomainArgs<T extends NamedSpace> {
  *      error, not something to silently redirect).
  *   2. With no request and a single reachable space, that space is the answer
  *      (single-space keys upload with zero friction).
- *   3. With no request and a valid chosen default, the default wins.
- *   4. Otherwise — multiple reachable spaces, no default — `ambiguous`.
+ *   3. Otherwise — multiple reachable spaces, no request — `ambiguous`. There
+ *      is no stored default to fall back on by design; the caller forces a
+ *      per-upload choice rather than guess.
  */
 export function resolveUploadDomain<T extends NamedSpace>(
 	args: ResolveUploadDomainArgs<T>,
 ): ResolveUploadDomainResult<T> {
-	const { availableDomains, activeDomainName } = args;
+	const { availableDomains } = args;
 	/* Normalize: treat whitespace-only / empty requests as "no request" so a
 	 * blank arg can't masquerade as a deliberate (and failing) ask. */
 	const requested = args.requested?.trim() || undefined;
@@ -84,11 +84,6 @@ export function resolveUploadDomain<T extends NamedSpace>(
 	if (availableDomains.length === 1) {
 		return { ok: true, domain: availableDomains[0] };
 	}
-
-	const active = activeDomainName
-		? availableDomains.find((d) => d.name === activeDomainName)
-		: undefined;
-	if (active) return { ok: true, domain: active };
 
 	return { ok: false, reason: "ambiguous", available: availableDomains };
 }

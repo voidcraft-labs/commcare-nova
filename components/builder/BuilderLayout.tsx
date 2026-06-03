@@ -96,13 +96,10 @@ export function BuilderLayout({
 	const inReplayMode = useInReplayMode();
 
 	/* CommCare settings — server-resolved, passed through to BuilderSubheader.
-	 * `commcareSettings` is a discriminated union; narrow on `configured`
-	 * to access the active default `domain` (nullable on a multi-space key
-	 * with no chosen default) and the full reachable set `availableDomains`. */
+	 * `commcareSettings` is a discriminated union; narrow on `configured` to
+	 * read the full reachable set `availableDomains` (the upload dialog picks
+	 * the target from it per upload). */
 	const commcareConfigured = commcareSettings?.configured ?? false;
-	const commcareDomain = commcareSettings?.configured
-		? commcareSettings.domain
-		: null;
 	const commcareAvailableDomains = commcareSettings?.configured
 		? commcareSettings.availableDomains
 		: EMPTY_DOMAINS;
@@ -394,7 +391,6 @@ export function BuilderLayout({
 						>
 							<BuilderSubheader
 								commcareConfigured={commcareConfigured}
-								commcareDomain={commcareDomain}
 								commcareAvailableDomains={commcareAvailableDomains}
 							/>
 						</motion.div>

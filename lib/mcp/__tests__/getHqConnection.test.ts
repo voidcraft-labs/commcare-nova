@@ -2,13 +2,12 @@
  * `registerGetHqConnection` unit tests.
  *
  * Wire-contract invariants the suite locks:
- *   - Configured → `{configured: true, domain, available_domains}`.
- *     `available_domains` lists every reachable space; `domain` is the
- *     active default. Username and any key material stay out of the wire.
- *   - Multi-space, no default → `domain: null` with the full
- *     `available_domains` set, signalling the caller to pick one.
- *   - Unconfigured → `{configured: false}` with NO `domain` key.
- *     Callers branch on the discriminant shape.
+ *   - Configured → `{configured: true, available_domains}`. `available_domains`
+ *     lists every reachable space (length 1 ⇒ single-space key). Username and
+ *     any key material stay out of the wire. There is deliberately NO `domain`
+ *     field — a multi-space key's target is chosen per upload (the caller asks
+ *     the user), never returned here as a default.
+ *   - Unconfigured → `{configured: false}`. Callers branch on the discriminant.
  *   - A `getCommCareSettings` throw surfaces as an MCP `isError: true`
  *     envelope via the shared classifier, never as an unhandled
  *     rejection.
@@ -44,12 +43,11 @@ beforeEach(() => {
 });
 
 describe("registerGetHqConnection — configured", () => {
-	it("returns {configured, domain, available_domains} and forwards the caller userId to the DB layer", async () => {
+	it("returns {configured, available_domains} (no domain) and forwards the caller userId to the DB layer", async () => {
 		const acme = { name: "acme-research", displayName: "ACME Research" };
 		vi.mocked(getCommCareSettings).mockResolvedValueOnce({
 			configured: true,
 			username: "alice@example.com",
-			domain: acme,
 			availableDomains: [acme],
 		});
 
@@ -66,23 +64,22 @@ describe("registerGetHqConnection — configured", () => {
 		>;
 		expect(parsed).toEqual({
 			configured: true,
-			domain: acme,
 			available_domains: [acme],
 		});
-		/* Regression lock — the username and any key material MUST NOT
-		 * leak onto the wire. */
+		/* Regression locks — neither the username/key material nor any stored
+		 * "default space" leaks onto the wire. */
 		expect("username" in parsed).toBe(false);
+		expect("domain" in parsed).toBe(false);
 		/* Owner filter uses the authenticated caller, not a client arg. */
 		expect(getCommCareSettings).toHaveBeenCalledWith("u1");
 	});
 
-	it("returns domain: null with the full reachable set for a multi-space key with no default", async () => {
+	it("returns the full reachable set with no domain field for a multi-space key", async () => {
 		const prod = { name: "connect-ace-prod", displayName: "ACE Prod" };
 		const crispr = { name: "ace-crispr-connect", displayName: "CRISPR" };
 		vi.mocked(getCommCareSettings).mockResolvedValueOnce({
 			configured: true,
 			username: "alice@example.com",
-			domain: null,
 			availableDomains: [prod, crispr],
 		});
 
@@ -98,14 +95,16 @@ describe("registerGetHqConnection — configured", () => {
 		>;
 		expect(parsed).toEqual({
 			configured: true,
-			domain: null,
 			available_domains: [prod, crispr],
 		});
+		/* No default is ever returned — a multi-space key's target is the
+		 * user's per-upload choice; the caller asks them which space. */
+		expect("domain" in parsed).toBe(false);
 	});
 });
 
 describe("registerGetHqConnection — not configured", () => {
-	it("returns {configured: false} with no domain key", async () => {
+	it("returns {configured: false} with no reachable-set fields", async () => {
 		vi.mocked(getCommCareSettings).mockResolvedValueOnce({
 			configured: false,
 		});
@@ -122,10 +121,9 @@ describe("registerGetHqConnection — not configured", () => {
 			unknown
 		>;
 		expect(parsed).toEqual({ configured: false });
-		/* Discriminant shape: absence of `domain` is the positive signal
-		 * that the user has not connected HQ. A present-but-null `domain`
-		 * would force clients to check both fields. */
-		expect("domain" in parsed).toBe(false);
+		/* Callers branch on the `configured` discriminant; an unconfigured
+		 * row carries no `available_domains` to read. */
+		expect("available_domains" in parsed).toBe(false);
 	});
 });
 

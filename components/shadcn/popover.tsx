@@ -26,13 +26,17 @@ function PopoverContent({
 		"align" | "alignOffset" | "side" | "sideOffset"
 	>) {
 	return (
+		// Portals to document.body (Base UI default) and positions at `z-modal`,
+		// co-planar with dialogs. A popover opened from inside a Dialog stacks on
+		// top because its portal mounts after the dialog's; a page-level popover is
+		// still covered when a dialog opens afterward, by the same portal ordering.
 		<PopoverPrimitive.Portal>
 			<PopoverPrimitive.Positioner
 				align={align}
 				alignOffset={alignOffset}
 				side={side}
 				sideOffset={sideOffset}
-				className="isolate z-50"
+				className="isolate z-modal"
 			>
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"

@@ -34,15 +34,12 @@ const noop = () => {};
 interface BuilderSubheaderProps {
 	/** Whether CommCare HQ credentials are configured. */
 	commcareConfigured: boolean;
-	/** The active default upload space, or null when none is chosen yet. */
-	commcareDomain: { name: string; displayName: string } | null;
 	/** Every project space the key can upload to (drives the dialog picker). */
 	commcareAvailableDomains: { name: string; displayName: string }[];
 }
 
 export function BuilderSubheader({
 	commcareConfigured,
-	commcareDomain,
 	commcareAvailableDomains,
 }: BuilderSubheaderProps) {
 	const hasData = useDocHasData();
@@ -133,7 +130,6 @@ export function BuilderSubheader({
 					</Tooltip>
 					<ExportPanel
 						commcareConfigured={commcareConfigured}
-						commcareDomain={commcareDomain}
 						commcareAvailableDomains={commcareAvailableDomains}
 					/>
 				</div>

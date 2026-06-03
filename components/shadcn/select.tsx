@@ -11,7 +11,7 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
 	return (
 		<SelectPrimitive.Group
 			data-slot="select-group"
-			className={cn("scroll-my-1 p-1", className)}
+			className={cn("scroll-my-1", className)}
 			{...props}
 		/>
 	);
@@ -63,28 +63,29 @@ function SelectContent({
 	align = "center",
 	alignOffset = 0,
 	alignItemWithTrigger = true,
-	container,
 	...props
 }: SelectPrimitive.Popup.Props &
 	Pick<
 		SelectPrimitive.Positioner.Props,
 		"align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
-	> &
-	// `container` portals the popup into a specific element instead of
-	// document.body. The popup defaults to body (z `--z-popover`, 50), which
-	// renders BEHIND a Dialog (`--z-modal`, 100); passing the dialog's popup
-	// element here makes the Select share the modal's stacking context so it
-	// opens above the modal content.
-	Pick<SelectPrimitive.Portal.Props, "container">) {
+	>) {
 	return (
-		<SelectPrimitive.Portal container={container}>
+		// The popup portals to document.body (Base UI's default) — escaping
+		// ancestor stacking/overflow is the whole point, so a Select opened from
+		// inside a Dialog floats above it with no per-call wiring. The positioner
+		// sits at `z-modal`, co-planar with dialogs, and wins by portal order: its
+		// portal mounts after the dialog's, so it stacks on top. Do NOT portal this
+		// into a dialog panel — a fixed-position popup inside a transformed panel
+		// (a centered dialog uses `translate(-50%,-50%)`) anchors to the panel
+		// rather than the viewport and lands in the wrong place.
+		<SelectPrimitive.Portal>
 			<SelectPrimitive.Positioner
 				side={side}
 				sideOffset={sideOffset}
 				align={align}
 				alignOffset={alignOffset}
 				alignItemWithTrigger={alignItemWithTrigger}
-				className="isolate z-50"
+				className="isolate z-modal"
 			>
 				<SelectPrimitive.Popup
 					data-slot="select-content"
@@ -96,7 +97,13 @@ function SelectContent({
 					{...props}
 				>
 					<SelectScrollUpButton />
-					<SelectPrimitive.List>{children}</SelectPrimitive.List>
+					{/* `p-1` insets the items from the popup edges so the rounded
+					 * focus highlight reads as a clean pill (the shadcn viewport
+					 * pattern), not a full-bleed rect that notches against the
+					 * popup's own rounded corners. */}
+					<SelectPrimitive.List className="p-1">
+						{children}
+					</SelectPrimitive.List>
 					<SelectScrollDownButton />
 				</SelectPrimitive.Popup>
 			</SelectPrimitive.Positioner>
@@ -111,7 +118,7 @@ function SelectLabel({
 	return (
 		<SelectPrimitive.GroupLabel
 			data-slot="select-label"
-			className={cn("px-1.5 py-1 text-xs text-muted-foreground", className)}
+			className={cn("px-2 py-1.5 text-xs text-muted-foreground", className)}
 			{...props}
 		/>
 	);
@@ -126,7 +133,7 @@ function SelectItem({
 		<SelectPrimitive.Item
 			data-slot="select-item"
 			className={cn(
-				"relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+				"relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
 				className,
 			)}
 			{...props}
