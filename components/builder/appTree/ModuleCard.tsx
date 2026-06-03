@@ -22,6 +22,7 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
 import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
@@ -89,14 +90,24 @@ export const ModuleCard = memo(function ModuleCard({
 						}}
 						hidden={locked}
 					/>
-					<div className="w-8 h-8 rounded-lg bg-nova-violet/10 flex items-center justify-center">
-						<Icon
-							icon={tablerGridDots}
-							width="16"
-							height="16"
-							className="text-nova-violet-bright"
+					{mod.icon ? (
+						// Module menu-tile icon, shown on the tree row too.
+						// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
+						<img
+							src={mediaSrc(mod.icon)}
+							alt=""
+							className="w-8 h-8 rounded-lg object-cover"
 						/>
-					</div>
+					) : (
+						<div className="w-8 h-8 rounded-lg bg-nova-violet/10 flex items-center justify-center">
+							<Icon
+								icon={tablerGridDots}
+								width="16"
+								height="16"
+								className="text-nova-violet-bright"
+							/>
+						</div>
+					)}
 					<div>
 						<h3 className="font-medium text-sm">
 							{nameIndices ? (

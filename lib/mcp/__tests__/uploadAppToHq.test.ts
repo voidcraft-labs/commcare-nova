@@ -25,12 +25,16 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { importApp } from "@/lib/commcare/client";
+import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import type { HqApplication } from "@/lib/commcare/types";
+import { validationError } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { SCOPES } from "../scopes";
@@ -54,9 +58,24 @@ vi.mock("@/lib/db/settings", () => ({
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	importApp: vi.fn(),
+	uploadAppMediaBundle: vi.fn(),
+}));
+// The bulk-zip builder needs real bytes; the tool only checks the manifest
+// is non-empty before calling it, so a stub buffer keeps it network-free.
+vi.mock("@/lib/commcare/multimedia/bulkUploadZip", () => ({
+	buildMediaBulkUploadZip: vi.fn(() => Buffer.from("zip")),
 }));
 vi.mock("@/lib/commcare/expander", () => ({
 	expandDoc: vi.fn(),
+}));
+vi.mock("@/lib/media/manifest", () => ({
+	resolveMediaManifest: vi.fn(),
+}));
+/* The media-validation gate reads Firestore; mock it so the unit suite
+ * stays hermetic. Default `[]` = no media issues = proceed past the gate;
+ * the media-rejection test overrides per-call. */
+vi.mock("@/lib/media/mediaValidation", () => ({
+	collectMediaValidationErrors: vi.fn(),
 }));
 vi.mock("../loadApp", () => ({
 	loadAppBlueprint: vi.fn(),
@@ -163,6 +182,9 @@ beforeEach(() => {
 	vi.mocked(getCredentialsForUpload).mockReset();
 	vi.mocked(importApp).mockReset();
 	vi.mocked(expandDoc).mockReset();
+	vi.mocked(resolveMediaManifest).mockReset();
+	vi.mocked(uploadAppMediaBundle).mockReset();
+	vi.mocked(collectMediaValidationErrors).mockReset();
 	LogWriterMock.instances = [];
 
 	/* Default happy-path mocks — individual tests override via
@@ -171,6 +193,18 @@ beforeEach(() => {
 	vi.mocked(getCredentialsForUpload).mockResolvedValue(FIXTURE_CREDS);
 	vi.mocked(loadAppBlueprint).mockResolvedValue(fixtureLoadedApp());
 	vi.mocked(expandDoc).mockReturnValue(FAKE_HQ_JSON);
+	/* Media-free defaults: empty manifest → the tool skips the upload.
+	 * Media-flow tests override the manifest + the bundle result. */
+	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
+	vi.mocked(uploadAppMediaBundle).mockResolvedValue({
+		matched: 0,
+		unmatched: 0,
+		errors: [],
+		timedOut: false,
+	});
+	/* Media gate transparent by default — no stale references. The
+	 * media-rejection test overrides with `mockResolvedValueOnce`. */
+	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -248,6 +282,120 @@ describe("registerUploadAppToHq — happy path", () => {
 			"Vaccine Tracker",
 			FAKE_HQ_JSON,
 		);
+	});
+});
+
+describe("registerUploadAppToHq — media upload ordering", () => {
+	/** A manifest stand-in — its contents don't matter because
+	 *  `buildMediaBulkUploadZip` is mocked; only that it's threaded from
+	 *  `resolveMediaManifest` → `expandDoc` does. */
+	const FAKE_MANIFEST: AssetManifest = new Map();
+
+	it("imports the app first, then uploads media against the returned app id", async () => {
+		const order: string[] = [];
+		// Non-empty manifest so the tool reaches the media upload.
+		vi.mocked(resolveMediaManifest).mockImplementation(async () => {
+			order.push("resolve");
+			return new Map([["a1", {} as never]]) as never;
+		});
+		vi.mocked(importApp).mockImplementation(async () => {
+			order.push("import");
+			return {
+				success: true,
+				appId: "hq-789",
+				appUrl: "https://hq.example/app",
+				warnings: [],
+			};
+		});
+		vi.mocked(uploadAppMediaBundle).mockImplementation(async () => {
+			order.push("upload");
+			return { matched: 1, unmatched: 0, errors: [], timedOut: false };
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		await capture()({ app_id: "a1" }, {});
+
+		/* Strict sequence: resolve manifest → import app → upload media.
+		 * Import must precede upload because the upload URL embeds the
+		 * app id `importApp` returns. */
+		expect(order).toEqual(["resolve", "import", "upload"]);
+
+		/* The bundle is uploaded against the id `importApp` returned, to the
+		 * stored domain, as the ZIP `buildMediaBulkUploadZip` produced from
+		 * the resolved manifest. */
+		expect(uploadAppMediaBundle).toHaveBeenCalledWith(
+			FIXTURE_CREDS.creds,
+			"acme-research",
+			"hq-789",
+			Buffer.from("zip"),
+		);
+	});
+
+	it("expands media-ON with the resolved manifest threaded into expandDoc", async () => {
+		vi.mocked(resolveMediaManifest).mockResolvedValue(FAKE_MANIFEST);
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-1",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		await capture()({ app_id: "a1" }, {});
+
+		/* expandDoc receives `{ assets: manifest }` — this is the media-ON
+		 * flip: the emitted forms carry the jr:// itext references the
+		 * subsequent byte upload resolves. */
+		expect(expandDoc).toHaveBeenCalledWith(fixtureBlueprint(), {
+			assets: FAKE_MANIFEST,
+		});
+		/* The manifest is resolved WITH bytes — the upload needs them. */
+		expect(resolveMediaManifest).toHaveBeenCalledWith(
+			fixtureBlueprint(),
+			"u1",
+			{
+				withBytes: true,
+			},
+		);
+	});
+
+	it("surfaces partial media failure as a warning without failing the upload", async () => {
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-1",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+		// Non-empty manifest so the upload runs; HQ leaves one file unmatched.
+		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
+			new Map([["a1", {} as never]]) as never,
+		);
+		vi.mocked(uploadAppMediaBundle).mockResolvedValueOnce({
+			matched: 1,
+			unmatched: 1,
+			errors: [],
+			timedOut: false,
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			stage: string;
+			hq_app_id: string;
+			warnings: string[];
+		};
+		/* Still a success envelope — the app was created. */
+		expect(parsed.stage).toBe("upload_complete");
+		expect(parsed.hq_app_id).toBe("hq-1");
+		/* The unmatched file becomes a single user-facing warning. */
+		expect(parsed.warnings).toHaveLength(1);
+		expect(parsed.warnings[0]).toContain("1 media file");
 	});
 });
 
@@ -432,6 +580,74 @@ describe("registerUploadAppToHq — gate 3: HQ upload failed", () => {
 		 * flushed — the `finally` block drains even on non-success return. */
 		expect(LogWriterMock.instances).toHaveLength(1);
 		expect(LogWriterMock.instances[0]?.flush).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("registerUploadAppToHq — media validation gate", () => {
+	it("returns invalid_input (not an opaque internal error) when a media ref is stale", async () => {
+		/* A stale media ref — the kind of issue that would otherwise make
+		 * the media-ON `expandDoc` throw `requireAssetRef`, surfacing as a
+		 * generic `internal` error. The gate surfaces the rule's
+		 * actionable message as `invalid_input` instead. */
+		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+			validationError(
+				"MEDIA_ASSET_NOT_FOUND",
+				"field",
+				"At the label on field 'photo' in form 'Intake', the referenced media asset no longer exists. Re-attach an asset or remove the reference.",
+				{ formName: "Intake", fieldId: "photo" },
+			),
+		]);
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			isError: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			app_id: string;
+			message: string;
+		};
+		/* Routed through `McpInvalidInputError` → `invalid_input`. */
+		expect(payload.error_type).toBe("invalid_input");
+		expect(payload.app_id).toBe("a1");
+		expect(payload.message).toContain("no longer exists");
+
+		/* The gate fires BEFORE import + the LogWriter ctor — a
+		 * media-invalid doc never reaches HQ and never allocates a writer. */
+		expect(importApp).not.toHaveBeenCalled();
+		expect(LogWriterMock.instances).toHaveLength(0);
+	});
+
+	it("proceeds to import + upload when media validation is clean", async () => {
+		/* `collectMediaValidationErrors` defaults to `[]` (beforeEach) —
+		 * the gate is transparent and the normal flow runs. */
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-clean",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+
+		const { server, capture } = makeFakeServer();
+		registerUploadAppToHq(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+			stage: string;
+			hq_app_id: string;
+		};
+		expect(parsed.stage).toBe("upload_complete");
+		expect(parsed.hq_app_id).toBe("hq-clean");
+		expect(collectMediaValidationErrors).toHaveBeenCalledTimes(1);
+		expect(importApp).toHaveBeenCalledTimes(1);
 	});
 });
 

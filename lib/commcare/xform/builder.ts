@@ -51,10 +51,11 @@ import {
 	expandHashtagsInContext,
 	type FormHashtagContext,
 } from "@/lib/commcare/hashtags/formContext";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { buildMetaBlock } from "@/lib/commcare/xform/metaBlock";
-import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Field, FieldKind, Media, Uuid } from "@/lib/domain";
 
 /**
  * Bare-hashtag pattern for label / hint prose.
@@ -335,6 +336,15 @@ function buildConnectBlocks(
 export interface BuildXFormOptions {
 	xmlns: string;
 	connect?: ResolvedConnectConfig;
+	/**
+	 * Resolved media assets for this emission run. When present, the
+	 * itext entries gain `<value form="image|audio|video">` siblings for
+	 * any field/option media slot, and leaf controls gain a `<help>` ref.
+	 * When `undefined`, media emission is off (the validation loop and
+	 * any preview that doesn't load assets) and the XForm carries no
+	 * media references — structurally valid, just media-free.
+	 */
+	assets?: AssetManifest;
 }
 
 /**
@@ -356,19 +366,15 @@ export function buildXForm(
 	const bodyElements: Element[] = [];
 	const itextEntries: Element[] = [];
 
-	// OpenRosa <meta> block — `<deviceID>`, `<timeStart>`, `<timeEnd>`,
-	// `<username>`, `<userID>`, `<instanceID>`, `<appVersion>`, `<drift>`
-	// plus the eight setvalues that populate them at form load and the
-	// two `<bind type="xsd:dateTime">` elements that type `timeStart` and
-	// `timeEnd`. Always emitted; receiving systems (CCHQ, FormPlayer
-	// reports, mobile sync) rely on it for audit + integrity. The
-	// setvalues reference `instance('commcaresession')/session/context/...`
-	// so the form inherently requires the session instance.
-	const meta = buildMetaBlock();
-	dataElements.push(meta.dataElement);
-	setvalues.push(...meta.setvalues);
-	binds.push(...meta.binds);
-	instances.require("commcaresession");
+	// The OpenRosa `<meta>` block is NOT emitted here. It is a CCHQ build-time
+	// artifact (`xform.py::_add_meta_2`): the HQ-upload source omits it and CCHQ
+	// regenerates it on render, while the local `.ccz` path injects it via
+	// `xform/metaBlock.ts::addMetaBlock` (same split as the case transaction
+	// blocks). A meta block in the uploaded source can't be opened in CCHQ's form
+	// builder, so it belongs only on the `.ccz` where bytes ship without a render
+	// step. This emitter therefore requires `commcaresession` only when a field
+	// XPath, case datum, or Connect expression actually references it — never
+	// unconditionally.
 
 	// Form-context-aware hashtag expander, captured once and threaded
 	// through every helper. On case-create (registration) forms,
@@ -387,12 +393,34 @@ export function buildXForm(
 	// text. Without the duplicate, `**bold**` renders as literal asterisks on
 	// device. `buildLabelNodes` is called ONCE PER `<value>` so each gets
 	// independent node instances (a domhandler node has a single parent).
-	const addItext = (id: string, label: string | undefined): void => {
-		if (!label) return;
+	//
+	// `media` appends `<value form="image|audio|video">jr://file/...` siblings
+	// after the text values (the CCHQ shape — see `multimedia/itextMedia.ts`).
+	// An entry with media but no text still emits — the text `<value>` is just
+	// empty (`buildLabelNodes("")` yields no children), matching CCHQ's
+	// media-only itext shape — so a hint/help slot can carry media without
+	// text. An entry with neither text nor media is skipped entirely UNLESS
+	// `force` is set: a leaf control's `<label>` is emitted unconditionally
+	// (every leaf carries one), so its itext entry must exist even for an
+	// empty label, or the `jr:itext('<id>-label')` ref dangles and JavaRosa's
+	// `verifyTextMappings` rejects the form at parse. Optional slots (hint /
+	// help / constraintMsg / options) and container labels stay skip-on-empty
+	// — their body ref is itself conditional, so a skipped entry leaves no
+	// dangling reference.
+	const addItext = (
+		id: string,
+		label: string | undefined,
+		media?: Media,
+		force = false,
+	): void => {
+		const mediaValues = itextMediaValues(media, opts.assets, "buildXForm");
+		if (!force && !label && mediaValues.length === 0) return;
+		const labelText = label ?? "";
 		itextEntries.push(
 			el("text", { id }, [
-				el("value", {}, buildLabelNodes(label, expand)),
-				el("value", { form: "markdown" }, buildLabelNodes(label, expand)),
+				el("value", {}, buildLabelNodes(labelText, expand)),
+				el("value", { form: "markdown" }, buildLabelNodes(labelText, expand)),
+				...mediaValues,
 			]),
 		);
 	};
@@ -420,6 +448,7 @@ export function buildXForm(
 			dataElements,
 			binds,
 			expand,
+			opts.assets,
 		);
 	}
 
@@ -463,6 +492,12 @@ export function buildXForm(
 		"h:html",
 		{
 			"xmlns:h": "http://www.w3.org/1999/xhtml",
+			// `orx:` declared on the root unconditionally, matching Vellum's own
+			// writer. This emitter's output uses no `orx:` element, but the `.ccz`
+			// path splices the `<orx:meta>` block in (`xform/metaBlock.ts`), and the
+			// prefix must already be in scope at the root or that block is malformed
+			// XML. Declaring it here keeps both paths' bytes well-formed.
+			"xmlns:orx": "http://openrosa.org/jr/xforms",
 			xmlns: "http://www.w3.org/2002/xforms",
 			"xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
 			"xmlns:jr": "http://openrosa.org/javarosa",
@@ -490,11 +525,49 @@ export function buildXForm(
  */
 function readOptions(
 	field: Field,
-): Array<{ value: string; label: string }> | undefined {
+): Array<{ value: string; label: string; media?: Media }> | undefined {
 	const value = (field as unknown as Record<string, unknown>).options;
 	return Array.isArray(value)
-		? (value as Array<{ value: string; label: string }>)
+		? (value as Array<{ value: string; label: string; media?: Media }>)
 		: undefined;
+}
+
+/**
+ * Read a field's `Media` slot (`label_media` / `hint_media` /
+ * `help_media` / `validate_msg_media`) regardless of which kind
+ * declares it — same untyped-lookup rationale as `readFieldString` /
+ * `readOptions`. Returns `undefined` for kinds that don't carry the
+ * slot (so the caller emits no media for it).
+ */
+function readFieldMedia(field: Field, key: string): Media | undefined {
+	const value = (field as unknown as Record<string, unknown>)[key];
+	return value as Media | undefined;
+}
+
+/**
+ * Will `addItext` register a `<text>` entry for this slot? The
+ * body-ref-iff-entry invariant the optional-message gates rely on:
+ * if this returns false, the entry won't emit, so no `<hint>`/`<help>`/
+ * `<label>` body ref or `jr:constraintMsg` bind attribute should
+ * reference it. Mirrors `addItext`'s skip rule exactly:
+ *
+ *   - text present → entry emits.
+ *   - text absent + media-OFF (no manifest) → no media values, skip.
+ *   - text absent + manifest present + no media slot set → skip.
+ *   - text absent + manifest present + at least one media slot set → emit.
+ *
+ * Keeps the check cheap (no manifest lookup), so a missing-from-manifest
+ * `AssetId` still throws from `requireAssetRef` at the actual registration
+ * site, not silently here.
+ */
+function hasItextContent(
+	text: string | undefined,
+	media: Media | undefined,
+	assets: AssetManifest | undefined,
+): boolean {
+	if (text) return true;
+	if (!media || !assets) return false;
+	return !!(media.image || media.audio || media.video);
 }
 
 /**
@@ -553,11 +626,17 @@ function buildFieldParts(
 	setvalues: Element[],
 	bodyElements: Element[],
 	insideRepeat: boolean,
-	addItext: (id: string, label: string | undefined) => void,
+	addItext: (
+		id: string,
+		label: string | undefined,
+		media?: Media,
+		force?: boolean,
+	) => void,
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
 	expand: (expr: string) => string,
+	assets: AssetManifest | undefined,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const nodePath = parentPath.child(field.id);
@@ -574,6 +653,24 @@ function buildFieldParts(
 	const required = readFieldString(field, "required");
 	const label = readFieldString(field, "label");
 	const hint = readFieldString(field, "hint");
+	const help = readFieldString(field, "help");
+
+	// Per-message media slots. Each registers `<value form="...">` siblings
+	// on its itext entry (via `addItext`), and `hint`/`help` body refs emit
+	// when the slot would actually produce an entry. This is the body-ref-
+	// iff-entry invariant: an optional ref must be predicated on the SAME
+	// condition `addItext` uses to register the entry, not just on raw
+	// media-slot presence — otherwise media-OFF (no manifest) with a media-
+	// only slot set would emit a body ref against a non-registered entry,
+	// silently failing for `<hint>`/`<help>` (oracle catches) AND for
+	// `jr:constraintMsg` (oracle's `ref`-attribute scan misses, so the
+	// dangle ships and detonates at JavaRosa parse on the device).
+	const labelMedia = readFieldMedia(field, "label_media");
+	const hintMedia = readFieldMedia(field, "hint_media");
+	const helpMedia = readFieldMedia(field, "help_media");
+	const validateMsgMedia = readFieldMedia(field, "validate_msg_media");
+	const hasHint = hasItextContent(hint, hintMedia, assets);
+	const hasHelp = hasItextContent(help, helpMedia, assets);
 
 	// Secondary-instance requirements: any XPath that mentions `#case/`,
 	// `#user/`, or a raw `instance('casedb')` / `instance('commcaresession')`
@@ -624,9 +721,13 @@ function buildFieldParts(
 
 	// `jr:constraintMsg` MUST be an itext reference — HQ's XForm parser only
 	// reads the attribute when it points at an itext id via `jr:itext(...)`, so
-	// inline text would vanish on upload. The matching `<text>` entry is
-	// registered below when `canValidate` holds.
-	if (canValidate && validateMsg) {
+	// inline text would vanish on upload. The bind-attribute gate uses the
+	// same predicate `addItext` uses to register the entry, so the attribute
+	// emits IFF an entry exists to back it. Media-OFF (no manifest) with only
+	// media set produces no entry — the gate skips the attribute in lockstep
+	// (a `jr:constraintMsg` ref against a non-registered entry is parse-fatal
+	// at JavaRosa install).
+	if (canValidate && hasItextContent(validateMsg, validateMsgMedia, assets)) {
 		bindAttribs["jr:constraintMsg"] = `jr:itext('${itextKey}-constraintMsg')`;
 	}
 
@@ -681,15 +782,30 @@ function buildFieldParts(
 	binds.push(el("bind", bindAttribs));
 
 	// itext. Hidden kinds have no body element, so no label to reference.
-	if (field.kind !== "hidden" && label) {
-		addItext(`${itextKey}-label`, label);
-		addItext(`${itextKey}-hint`, hint);
+	// Each `addItext` self-skips when its text AND media are both empty, so
+	// optional slots (hint / help) only register an entry when present. The
+	// `-help` entry is registered alongside its `<help>` body ref in
+	// `buildLeafControl` so the two emit IFF help text or media is present.
+	//
+	// The label is force-registered for LEAF kinds: `buildLeafControl` emits
+	// `<label>` unconditionally, so the entry must exist even for an empty
+	// label (else the ref dangles — JavaRosa rejects at parse). Containers
+	// (`group`/`repeat`) keep skip-on-empty because `buildContainer` gates
+	// the `<label>` element on `label || labelMedia`, so a skipped entry has
+	// no referencing element.
+	if (field.kind !== "hidden") {
+		const isContainerKind = field.kind === "group" || field.kind === "repeat";
+		addItext(`${itextKey}-label`, label, labelMedia, !isContainerKind);
+		addItext(`${itextKey}-hint`, hint, hintMedia);
+		addItext(`${itextKey}-help`, help, helpMedia);
 	}
 
 	// Validate message itext — paired with the `jr:constraintMsg` attribute
-	// above; never emit the entry without the reference, or vice versa.
+	// above; never emit the entry without the reference, or vice versa. The
+	// media slot rides the same entry so a validation message can carry an
+	// image/audio cue.
 	if (canValidate) {
-		addItext(`${itextKey}-constraintMsg`, validateMsg);
+		addItext(`${itextKey}-constraintMsg`, validateMsg, validateMsgMedia);
 	}
 
 	// Options (select kinds).
@@ -709,7 +825,12 @@ function buildFieldParts(
 	const options = readOptions(field);
 	if (options && options.length > 0) {
 		options.forEach((opt, index) => {
-			addItext(`${itextKey}-opt${index}-label`, opt.label);
+			// Force-register every option's `-label` entry: each `<item>`
+			// below emits an unconditional `<label ref="jr:itext(…-opt{i}-label)">`,
+			// so the body-ref-iff-entry invariant forbids skipping the
+			// registration even for an empty option label — a dangling ref
+			// is parse-fatal in `verifyTextMappings`.
+			addItext(`${itextKey}-opt${index}-label`, opt.label, opt.media, true);
 		});
 	}
 
@@ -726,6 +847,7 @@ function buildFieldParts(
 			nodePath,
 			itextKey,
 			label,
+			labelMedia,
 			relevant,
 			insideRepeat,
 			dataSlot,
@@ -739,14 +861,18 @@ function buildFieldParts(
 			topDataElements,
 			topBinds,
 			expand,
+			assets,
 		);
 		return;
 	}
 
 	// Leaf controls — every one carries a `<label>` referencing the field's
-	// itext id, plus an optional `<hint>`. The control element + any
-	// kind-specific attributes are decided by `buildLeafControl`.
-	bodyElements.push(buildLeafControl(field, nodePath, itextKey, hint));
+	// itext id, plus an optional `<hint>` and `<help>` (each emitted when its
+	// text or media slot is present). The control element + any kind-specific
+	// attributes are decided by `buildLeafControl`.
+	bodyElements.push(
+		buildLeafControl(field, nodePath, itextKey, hasHint, hasHelp),
+	);
 }
 
 /**
@@ -764,14 +890,18 @@ function buildLeafControl(
 	field: Field,
 	nodePath: FormPath,
 	itextKey: string,
-	hint: string | undefined,
+	hasHint: boolean,
+	hasHelp: boolean,
 ): Element {
 	// The shared head of every control: the label reference, then the optional
-	// hint reference. Built once and reused across the kind branches.
+	// hint and help references (in XForm body order: label → hint → help). A
+	// ref emits only when its itext entry was registered (text or media
+	// present), so no `<hint>`/`<help>` ever dangles against a missing entry.
 	const head: Element[] = [
 		el("label", { ref: `jr:itext('${itextKey}-label')` }),
 	];
-	if (hint) head.push(el("hint", { ref: `jr:itext('${itextKey}-hint')` }));
+	if (hasHint) head.push(el("hint", { ref: `jr:itext('${itextKey}-hint')` }));
+	if (hasHelp) head.push(el("help", { ref: `jr:itext('${itextKey}-help')` }));
 	const ref = nodePath.toXPath();
 
 	if (field.kind === "single_select" || field.kind === "multi_select") {
@@ -844,6 +974,7 @@ function buildContainer(
 	nodePath: FormPath,
 	itextKey: string,
 	label: string | undefined,
+	labelMedia: Media | undefined,
 	relevant: string | undefined,
 	insideRepeat: boolean,
 	dataSlot: number,
@@ -852,11 +983,17 @@ function buildContainer(
 	binds: Element[],
 	setvalues: Element[],
 	bodyElements: Element[],
-	addItext: (id: string, label: string | undefined) => void,
+	addItext: (
+		id: string,
+		label: string | undefined,
+		media?: Media,
+		force?: boolean,
+	) => void,
 	instances: InstanceTracker,
 	topDataElements: Element[],
 	topBinds: Element[],
 	expand: (expr: string) => string,
+	assets: AssetManifest | undefined,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -901,6 +1038,7 @@ function buildContainer(
 			topDataElements,
 			topBinds,
 			expand,
+			assets,
 		);
 	}
 
@@ -961,15 +1099,15 @@ function buildContainer(
 	}
 	binds.push(...childBinds);
 
-	// `<label>` is gated on a truthy `label`. Container kinds (`group`,
-	// `repeat`) extend `containerFieldBase` (label optional); when label is
-	// empty/absent, no itext entry is registered for it, so emitting an
-	// unconditional `<label ref="jr:itext('${id}-label')"/>` would produce a
-	// dangling reference the XForm oracle flags as `XFORM_MISSING_ITEXT`.
-	// Skipping the element entirely is also what CommCare expects for
-	// transparent structural containers — the runtime renders nothing for an
-	// unlabeled group/repeat header.
-	const labelEl = label
+	// `<label>` is gated on a truthy `label` OR `labelMedia`. Container kinds
+	// (`group`, `repeat`) extend `containerFieldBase` (label + label_media both
+	// optional); the `-label` itext entry is registered iff text or media is
+	// present, so the body ref must match that condition exactly — emitting an
+	// unconditional `<label ref="jr:itext('${id}-label')"/>` would dangle
+	// against a missing entry (`XFORM_MISSING_ITEXT`), and registering an entry
+	// (media-only) without a ref would orphan it. Both empty → no element,
+	// matching CommCare's transparent-container behavior.
+	const labelEl = hasItextContent(label, labelMedia, assets)
 		? el("label", { ref: `jr:itext('${itextKey}-label')` })
 		: undefined;
 
@@ -994,13 +1132,16 @@ function buildContainer(
 
 	// Group body: `<group ref>` wrapping the children. `appearance="field-list"`
 	// is a CommCare semantic that drives single-page rendering of the group's
-	// children. For a labelled group it's Nova's default; for an empty-label
-	// (transparent) group, dropping the attribute matches the "no visual
-	// impact" runtime semantic — there's no group chrome to anchor a field-list
-	// layout against, so leaving it on would assert a layout posture the author
-	// didn't ask for.
+	// children. A LABELLED group (text OR media) gets it as Nova's default; a
+	// transparent (no-label) group drops the attribute — there's no group
+	// chrome to anchor a field-list layout against, so leaving it on would
+	// assert a layout posture the author didn't ask for. Gated on the SAME
+	// predicate `labelEl` is computed from so a media-only group label still
+	// counts as labelled (the body emits `<label>` and the group renders as
+	// real chrome, not a transparent wrapper).
 	const groupAttribs: Record<string, string> = { ref: nodePath.toXPath() };
-	if (label) groupAttribs.appearance = "field-list";
+	if (hasItextContent(label, labelMedia, assets))
+		groupAttribs.appearance = "field-list";
 	const groupChildren: Element[] = labelEl
 		? [labelEl, ...childBody]
 		: childBody;

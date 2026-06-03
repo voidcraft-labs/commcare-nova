@@ -28,6 +28,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback } from "react";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { GroupField as GroupFieldEntity } from "@/lib/domain";
@@ -93,6 +94,8 @@ export function GroupField({ field, path, fieldPath, depth }: GroupFieldProps) {
 						collapsed ? "rounded-lg" : "rounded-t-lg border-b-0"
 					}`}
 				>
+					{/* Group label media — banner above the header row. */}
+					<MediaDisplay media={field.label_media} interactive />
 					<div className="flex items-center gap-2">
 						<button
 							type="button"

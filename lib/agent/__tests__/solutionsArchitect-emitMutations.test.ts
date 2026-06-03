@@ -796,9 +796,17 @@ vi.mock("@/lib/commcare/validator/fixes", () => ({
 }));
 
 vi.mock("@/lib/commcare/expander", () => ({
+	// `expandDoc` returns an `HqApplication`; the validationLoop's
+	// `validateHqJson` reads the app-level multimedia_map + logo_refs slots,
+	// so this stub must stamp them empty even though the test never
+	// exercises media — leaving them undefined would crash the oracle on
+	// `Object.entries(undefined)`. The empty-dict shape matches what the
+	// real `applicationShell` factory stamps on a media-free app.
 	expandDoc: vi.fn(() => ({
 		modules: [],
 		_attachments: {},
+		multimedia_map: {},
+		logo_refs: {},
 	})),
 }));
 

@@ -10,4 +10,5 @@ export * from "./fields";
 export * from "./forms";
 export * from "./kinds";
 export * from "./modules";
+export * from "./multimedia";
 export * from "./uuid";

@@ -4,8 +4,18 @@
  * Walks the normalized `BlueprintDoc` once, running scope-appropriate rules
  * at the app, module, form, and field levels, then runs deep XPath
  * validation. Returns structured `ValidationError[]` keyed by uuid.
+ *
+ * Asset-context media rules (existence / ready / kind-match) need data
+ * the doc alone can't carry: the resolved Firestore rows for the assets
+ * the doc references. Callers that have those (the SA validation loop)
+ * pass a manifest through `RunValidationOptions`; callers that don't
+ * (the bulk of tests, the test oracles, the fuzz harness) omit the
+ * options and the asset-context group is skipped. Doc-structural rules
+ * — including `imageMapValueUnique` — fire either way; they live in
+ * MODULE_RULES.
  */
 
+import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError } from "./errors";
 import { validationError } from "./errors";
@@ -13,13 +23,40 @@ import { validateBlueprintDeep } from "./index";
 import { APP_RULES } from "./rules/app";
 import { runFieldRules } from "./rules/field";
 import { runFormRules } from "./rules/form";
+import { MEDIA_ASSET_RULES } from "./rules/media";
 import { MODULE_RULES } from "./rules/module";
+
+/**
+ * Optional context the asset-context media rules consume. A single
+ * required slot — the resolved media-asset manifest — so "ran the
+ * media group" and "didn't" are the only two states. No half-supplied
+ * state is representable.
+ */
+export interface RunValidationOptions {
+	/**
+	 * Resolved media-asset manifest — every `AssetId` the doc
+	 * references that the loader was willing to return, mapped to its
+	 * loaded Firestore row. Built by the caller from
+	 * `collectAssetRefs(doc)` + `loadAssetsByIds(owner, ...)`. When
+	 * supplied, the asset-context media rules run; when omitted, the
+	 * rules are skipped silently.
+	 */
+	readonly mediaAssets: ReadonlyMap<string, MediaAssetRecord>;
+}
 
 /**
  * Run all validation rules on a `BlueprintDoc`.
  * Returns structured errors — `errorToString()` renders a human-readable form.
+ *
+ * When `options.mediaAssets` is supplied, the asset-context media
+ * rules run after the doc-structural rules. They surface only the
+ * issues the structural rules can't see (a referenced asset doesn't
+ * exist, is still uploading, or its kind doesn't match the slot).
  */
-export function runValidation(doc: BlueprintDoc): ValidationError[] {
+export function runValidation(
+	doc: BlueprintDoc,
+	options?: RunValidationOptions,
+): ValidationError[] {
 	const errors: ValidationError[] = [];
 
 	for (const rule of APP_RULES) {
@@ -46,6 +83,15 @@ export function runValidation(doc: BlueprintDoc): ValidationError[] {
 					}),
 				);
 			}
+		}
+	}
+
+	// Media asset-context rules — single-arm gate on the options
+	// payload. The manifest is the only thing the rules need; its
+	// presence both gates the group and provides the data.
+	if (options?.mediaAssets) {
+		for (const rule of MEDIA_ASSET_RULES) {
+			errors.push(...rule(doc, options.mediaAssets));
 		}
 	}
 

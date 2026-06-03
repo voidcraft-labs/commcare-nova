@@ -76,6 +76,90 @@ function describePopulateError(
 	}
 }
 
+/**
+ * Lifecycle status shared by the Generate (empty arm) and Reset
+ * (populated arm) sample-data affordances. Both actions return the
+ * same `PopulateSampleCasesResult` from the case-store, so both
+ * surfaces drive the same three-state machine: `idle` (no action in
+ * flight), `running` (action awaiting, button shows a spinner +
+ * disables), and `error` (a non-ok arm or a wire-level throw, message
+ * rendered inline below the affordance).
+ */
+export type SampleDataStatus =
+	| { kind: "idle" }
+	| { kind: "running" }
+	| { kind: "error"; message: string };
+
+/**
+ * State model behind the Reset confirmation flow. Owns the status
+ * machine + the dialog's controlled-open state so the reset behavior
+ * is testable without mounting the screen — the rendered AlertDialog
+ * is pure `f(state)` wiring (Playwright's surface), while the
+ * status transitions + reload-on-success are the load-bearing
+ * contract this hook isolates.
+ *
+ * Takes `reset` (the curried `useResetSampleCases` callback) and
+ * `reload` (the `useCases` reload trigger) as args rather than
+ * calling those hooks itself: confining the hook's responsibility to
+ * the status machine keeps it independent of the Server Action
+ * surface, so a test drives it with a fake `reset` + `reload` and no
+ * action mock.
+ */
+export function useResetController(deps: {
+	reset: () => Promise<PopulateSampleCasesResult>;
+	reload: () => void;
+}): {
+	status: SampleDataStatus;
+	confirmOpen: boolean;
+	setConfirmOpen: (open: boolean) => void;
+	confirmReset: () => Promise<void>;
+} {
+	const { reset, reload } = deps;
+	const [status, setStatus] = useState<SampleDataStatus>({ kind: "idle" });
+
+	/* Controlled-open state for the Reset confirmation. Base UI's
+	 * `AlertDialog.Close` (wrapped by `AlertDialogCancel`) auto-
+	 * dismisses, but `AlertDialogAction` is a plain Button with no
+	 * dismiss wiring — controlling `open` is the only way to close
+	 * the dialog the instant Reset is confirmed, so the user sees
+	 * the trigger button's pending spinner immediately rather than
+	 * a frozen dialog over a pending toolbar. */
+	const [confirmOpen, setConfirmOpen] = useState(false);
+
+	/* Confirmed-Reset handler. Closes the dialog before awaiting so
+	 * the trigger button's pending spinner surfaces immediately —
+	 * leaving the dialog open during the action would freeze the
+	 * confirm button against a backdrop that already accepted the
+	 * user's intent. Same `populate`-style fresh-per-render hook
+	 * shape, same try/catch for wire failures. */
+	const confirmReset = async () => {
+		setConfirmOpen(false);
+		setStatus({ kind: "running" });
+		try {
+			const result = await reset();
+			if (result.kind === "ok") {
+				setStatus({ kind: "idle" });
+				reload();
+				return;
+			}
+			setStatus({
+				kind: "error",
+				message: describePopulateError(result, "Reset"),
+			});
+		} catch {
+			/* Wire-level failures (RSC serialization, transport) bypass
+			 * the typed result arms; map to the same shape so the button
+			 * never sticks on "Resetting...". */
+			setStatus({
+				kind: "error",
+				message: "Could not reset sample data. Try again.",
+			});
+		}
+	};
+
+	return { status, confirmOpen, setConfirmOpen, confirmReset };
+}
+
 interface CaseListScreenProps {
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
@@ -168,26 +252,20 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		blueprint,
 	});
 
-	type PopulateStatus =
-		| { kind: "idle" }
-		| { kind: "running" }
-		| { kind: "error"; message: string };
+	/* The Reset confirmation's status machine + controlled-open state
+	 * live in `useResetController` so the reset behavior is testable
+	 * without mounting the screen; the rendered AlertDialog below is
+	 * pure `f(state)` wiring driven entirely by what this returns. */
+	const {
+		status: resetStatus,
+		confirmOpen: resetConfirmOpen,
+		setConfirmOpen: setResetConfirmOpen,
+		confirmReset,
+	} = useResetController({ reset, reload });
 
-	const [populateStatus, setPopulateStatus] = useState<PopulateStatus>({
+	const [populateStatus, setPopulateStatus] = useState<SampleDataStatus>({
 		kind: "idle",
 	});
-	const [resetStatus, setResetStatus] = useState<PopulateStatus>({
-		kind: "idle",
-	});
-
-	/* Controlled-open state for the Reset confirmation. Base UI's
-	 * `AlertDialog.Close` (wrapped by `AlertDialogCancel`) auto-
-	 * dismisses, but `AlertDialogAction` is a plain Button with no
-	 * dismiss wiring — controlling `open` is the only way to close
-	 * the dialog the instant Reset is confirmed, so the user sees
-	 * the trigger button's pending spinner immediately rather than
-	 * a frozen dialog over a pending toolbar. */
-	const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
 	/* NOT wrapped in `useCallback` — `populate` is fresh per render
 	 * (see `usePopulateSampleCases`), so memoization would be empty. */
@@ -211,34 +289,6 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			setPopulateStatus({
 				kind: "error",
 				message: "Could not generate sample data. Try again.",
-			});
-		}
-	};
-
-	/* Confirmed-Reset handler. Closes the dialog before awaiting so
-	 * the trigger button's pending spinner surfaces immediately —
-	 * leaving the dialog open during the action would freeze the
-	 * confirm button against a backdrop that already accepted the
-	 * user's intent. Same `populate`-style fresh-per-render hook
-	 * shape, same try/catch for wire failures. */
-	const handleResetConfirmed = async () => {
-		setResetConfirmOpen(false);
-		setResetStatus({ kind: "running" });
-		try {
-			const result = await reset();
-			if (result.kind === "ok") {
-				setResetStatus({ kind: "idle" });
-				reload();
-				return;
-			}
-			setResetStatus({
-				kind: "error",
-				message: describePopulateError(result, "Reset"),
-			});
-		} catch {
-			setResetStatus({
-				kind: "error",
-				message: "Could not reset sample data. Try again.",
 			});
 		}
 	};
@@ -389,10 +439,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 						</AlertDialogHeader>
 						<AlertDialogFooter>
 							<AlertDialogCancel>Cancel</AlertDialogCancel>
-							<AlertDialogAction
-								variant="destructive"
-								onClick={handleResetConfirmed}
-							>
+							<AlertDialogAction variant="destructive" onClick={confirmReset}>
 								Reset
 							</AlertDialogAction>
 						</AlertDialogFooter>

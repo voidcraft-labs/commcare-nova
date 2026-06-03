@@ -117,14 +117,74 @@ describe("compileCcz", () => {
 		expect(regXform).toContain(
 			`<setvalue ref="/data/case/@case_id" event="xforms-ready" value="instance(&apos;commcaresession&apos;)/session/data/case_id_new_patient_0"/>`,
 		);
-		// date_modified and user_id read from the always-on meta block;
-		// the meta block's own setvalues + binds were emitted upstream.
+		// date_modified and user_id read from the meta block, which the
+		// compiler injects right after the case block (see the dedicated
+		// meta-block test below); both `/data/meta/...` references resolve
+		// against it.
 		expect(regXform).toContain(
 			'<bind nodeset="/data/case/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>',
 		);
 		expect(regXform).toContain(
 			'<bind nodeset="/data/case/@user_id" calculate="/data/meta/userID"/>',
 		);
+	});
+
+	it("injects the OpenRosa meta block into the compiled XForm", () => {
+		// The HQ-upload source omits the meta block — CCHQ regenerates it at
+		// render time (`_add_meta_2`). The local .ccz has no render step, so the
+		// compiler injects it via `addMetaBlock`. Assert the full shape lands on
+		// the .ccz form: the `<orx:meta>` data node (prefixed children +
+		// `cc:appVersion`), the commcaresession instance the setvalues read from,
+		// the eight populating setvalues, and the two dateTime typing binds.
+		const hq = expandDoc(doc);
+		const buf = compileCcz(hq, "CHW App", doc);
+		const zip = new AdmZip(buf);
+		const regXform = zip.readAsText("modules-0/forms-0.xml");
+
+		expect(regXform).toContain(
+			'<orx:meta xmlns:cc="http://commcarehq.org/xforms">',
+		);
+		expect(regXform).toContain("<orx:deviceID/>");
+		expect(regXform).toContain("<orx:instanceID/>");
+		expect(regXform).toContain("<cc:appVersion/>");
+		expect(regXform).toContain("<orx:drift/>");
+		// commcaresession is declared because the meta setvalues read its
+		// context. Idempotent: the case-managed form already pulled it in, so
+		// exactly one declaration survives.
+		expect(regXform).toContain(
+			'<instance src="jr://instance/session" id="commcaresession"/>',
+		);
+		expect((regXform.match(/id="commcaresession"/g) ?? []).length).toBe(1);
+		// Setvalues populate the meta nodes; the unprefixed `/data/meta/...`
+		// refs resolve by local name against the namespaced elements at runtime.
+		// `instance('commcaresession')` serializes with `&apos;` (XML-spec
+		// escaping the parser decodes before evaluation).
+		expect(regXform).toContain(
+			`<setvalue ref="/data/meta/deviceID" value="instance(&apos;commcaresession&apos;)/session/context/deviceid" event="xforms-ready"/>`,
+		);
+		expect(regXform).toContain(
+			'<setvalue ref="/data/meta/instanceID" value="uuid()" event="xforms-ready"/>',
+		);
+		// The two dateTime typing binds — `<setvalue>` carries no type in
+		// XForms 1.x, so the datatype hint lives on a parallel bind.
+		expect(regXform).toContain(
+			'<bind nodeset="/data/meta/timeStart" type="xsd:dateTime"/>',
+		);
+		expect(regXform).toContain(
+			'<bind nodeset="/data/meta/timeEnd" type="xsd:dateTime"/>',
+		);
+	});
+
+	it("keeps the meta block out of the HQ-upload source", () => {
+		// The expander output is the form source CCHQ stores and Vellum edits.
+		// It must carry no meta block: CCHQ injects its own at render time, and a
+		// meta node in the source breaks CCHQ's form builder ("'meta' is not a
+		// valid Question ID"). The block appears only on the .ccz the compiler
+		// builds.
+		const hq = expandDoc(doc);
+		const source = hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
+		expect(source).not.toContain("<orx:meta");
+		expect(source).not.toContain('nodeset="/data/meta/timeStart"');
 	});
 
 	it("emits a case-create session datum for registration entries", () => {

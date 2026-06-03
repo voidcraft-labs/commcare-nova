@@ -34,15 +34,25 @@
  */
 
 import * as fc from "fast-check";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import type {
+	AssetManifest,
+	ResolvedMediaAsset,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import { blueprintDocArbitrary } from "./xformDocArbitrary";
+import type { AssetId } from "@/lib/domain/multimedia";
+import {
+	blueprintDocArbitrary,
+	type FuzzMediaAsset,
+	fuzzManifestFromDoc,
+	hasFormItextMedia,
+} from "./xformDocArbitrary";
 
 /** Fixed seed + run count so a failure reproduces exactly across runs + CI. */
 const SEED = 20260522;
@@ -76,57 +86,137 @@ function prepareAndGuard(doc: BlueprintDoc): void {
 	}
 }
 
+/**
+ * Lift the fuzz-synthesized manifest to the shape `expandDoc` / `compileCcz`
+ * expect. `withBytes: true` attaches a single shared empty buffer to every
+ * asset so the CCZ bundler completes without the byte-load contract throw
+ * — the fuzz doesn't validate archive bytes (the file gets sniffed at the
+ * upload route, not by the oracles), so empty placeholder bytes are fine.
+ */
+function toAssetManifest(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+	withBytes: boolean,
+): AssetManifest {
+	// All assets share one zero-byte buffer — the wire-path dedup in the
+	// bundler keys on `wirePath`, not on the buffer identity, and the
+	// archive bytes themselves aren't an oracle concern in this fuzz.
+	const placeholderBytes = withBytes ? Buffer.alloc(0) : undefined;
+	const m = new Map<AssetId, ResolvedMediaAsset>();
+	for (const [id, fuzz] of fuzzManifest) {
+		m.set(id, {
+			assetId: fuzz.assetId,
+			wirePath: fuzz.wirePath,
+			kind: fuzz.kind,
+			mimeType: fuzz.mimeType,
+			contentHash: fuzz.contentHash,
+			extension: fuzz.extension,
+			...(placeholderBytes !== undefined ? { bytes: placeholderBytes } : {}),
+		});
+	}
+	return m;
+}
+
+/** The set of wire paths the oracle's media-resolution check resolves against. */
+function wirePathSet(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): Set<string> {
+	return new Set(Array.from(fuzzManifest.values(), (asset) => asset.wirePath));
+}
+
 describe("XForm emitter totality (property-based fuzz)", () => {
-	it(
-		"every form of every schema-valid doc emits oracle-clean XForm",
-		() => {
-			fc.assert(
-				fc.property(blueprintDocArbitrary, (doc) => {
-					prepareAndGuard(doc);
+	// Census counters accumulated across the run; asserted after. The XForm
+	// oracle's `XFORM_DANGLING_MEDIA_REF` resolution path only fires on forms
+	// that actually emit a `<value form=...>jr://...` sibling — i.e. only on
+	// docs with field message-slot or option media. A drift in the field-media
+	// arbitrary toward all-empty slots would leave that path unexercised while
+	// every other assertion stayed green; the floor below catches it.
+	const census = { total: 0, formItextMedia: 0 };
 
-					// Emit + check every form's XForm. A non-empty oracle result is
-					// the property failure we're hunting (classify A vs B).
-					const hqJson = expandDoc(doc);
-					for (const [key, attachment] of Object.entries(hqJson._attachments)) {
-						if (!key.endsWith(".xml")) continue;
-						if (typeof attachment !== "string") continue;
-						const oracleErrors = validateXForm(attachment, key, "fuzz");
-						if (oracleErrors.length > 0) {
-							throw new Error(
-								`Oracle flagged emitted XForm "${key}":\n${oracleErrors
-									.map((e) => `  - [${e.code}] ${errorToString(e)}`)
-									.join("\n")}\n\n--- emitted XForm ---\n${attachment}`,
-							);
-						}
+	it("every form of every schema-valid doc emits oracle-clean XForm", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
+		fc.assert(
+			fc.property(blueprintDocArbitrary, (doc) => {
+				prepareAndGuard(doc);
+
+				// Census the doc shape before emitting: count docs carrying
+				// form-itext media (the population the media-resolution check
+				// below exercises).
+				census.total += 1;
+				if (hasFormItextMedia(doc)) census.formItextMedia += 1;
+
+				// Build the fuzz manifest covering every media reference the doc
+				// makes; thread it into `expandDoc` so the XForm emitter actually
+				// emits the `<value form="image|audio|video">jr://...` siblings the
+				// oracle's media-resolution check resolves. The set of wire paths
+				// drives the oracle's manifest gate.
+				const fuzzManifest = fuzzManifestFromDoc(doc);
+				// `expandDoc` is the path-only consumer — no bytes needed.
+				const manifest = toAssetManifest(fuzzManifest, false);
+				const manifestPaths = wirePathSet(fuzzManifest);
+
+				const hqJson = expandDoc(doc, { assets: manifest });
+				for (const [key, attachment] of Object.entries(hqJson._attachments)) {
+					if (!key.endsWith(".xml")) continue;
+					if (typeof attachment !== "string") continue;
+					const oracleErrors = validateXForm(
+						attachment,
+						key,
+						"fuzz",
+						manifestPaths,
+					);
+					if (oracleErrors.length > 0) {
+						throw new Error(
+							`Oracle flagged emitted XForm "${key}":\n${oracleErrors
+								.map((e) => `  - [${e.code}] ${errorToString(e)}`)
+								.join("\n")}\n\n--- emitted XForm ---\n${attachment}`,
+						);
 					}
-				}),
-				{ numRuns: NUM_RUNS, seed: SEED },
-			);
-		},
-		FUZZ_TIMEOUT_MS,
-	);
+				}
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED },
+		);
+	});
 
-	it(
-		"compileCcz never trips its post-case-block-injection oracle re-check",
-		() => {
-			// The SECOND oracle call site: `compiler.ts` splices <case>/<subcase>
-			// blocks into each case-bearing form's XForm, then re-runs `validateXForm`
-			// and THROWS if the spliced output is invalid. Driving compileCcz here
-			// fuzzes that injected-XForm shape — a throw is a finding (the case-block
-			// splice produced output the oracle rejects: classify A vs B from the
-			// thrown message). expandDoc-direct fuzzing above never reaches it.
-			fc.assert(
-				fc.property(blueprintDocArbitrary, (doc) => {
-					prepareAndGuard(doc);
-					const hqJson = expandDoc(doc);
-					// Throws on any post-injection oracle failure; surface it verbatim
-					// as the property failure (the message already names the form +
-					// the offending oracle codes).
-					compileCcz(hqJson, doc.appName, doc);
-				}),
-				{ numRuns: NUM_RUNS, seed: SEED },
-			);
-		},
-		FUZZ_TIMEOUT_MS,
-	);
+	it("compileCcz never trips its post-case-block-injection oracle re-check", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
+		// The SECOND oracle call site: `compiler.ts` splices <case>/<subcase>
+		// blocks into each case-bearing form's XForm, then re-runs `validateXForm`
+		// and THROWS if the spliced output is invalid. Driving compileCcz here
+		// fuzzes that injected-XForm shape — a throw is a finding (the case-block
+		// splice produced output the oracle rejects: classify A vs B from the
+		// thrown message). expandDoc-direct fuzzing above never reaches it.
+		//
+		// Media-on path: thread the same fuzz manifest through compile so the
+		// case-block splice runs against media-bearing forms too, exercising
+		// the media path through the second oracle invocation.
+		fc.assert(
+			fc.property(blueprintDocArbitrary, (doc) => {
+				prepareAndGuard(doc);
+				// `compileCcz` requires bytes per the buildMediaBundle contract —
+				// attach placeholder bytes to every asset.
+				const manifest = toAssetManifest(fuzzManifestFromDoc(doc), true);
+				const hqJson = expandDoc(doc, { assets: manifest });
+				// Throws on any post-injection oracle failure; surface it verbatim
+				// as the property failure (the message already names the form +
+				// the offending oracle codes).
+				compileCcz(hqJson, doc.appName, doc, { assets: manifest });
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED },
+		);
+	});
+
+	it("the run exercised the form-itext media-resolution path", () => {
+		// A floor, not a target: the media-resolution check
+		// (`XFORM_DANGLING_MEDIA_REF`) only runs on docs that emit a
+		// `<value form=...>jr://...` sibling, which only field message-slot
+		// and option media produce. If `FIELD_MEDIA_SPEC_ARB` drifts toward
+		// all-empty slots this ratio collapses and the check silently stops
+		// firing; failing here forces the generator drift to be noticed.
+		// Raising the floor is fine; lowering it to paper over a drift is the
+		// failure mode this guards against.
+		expect(census.total).toBeGreaterThan(0);
+		expect(census.formItextMedia / census.total).toBeGreaterThan(0.3);
+	});
 });

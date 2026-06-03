@@ -38,6 +38,7 @@
 
 "use client";
 import { memo } from "react";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
@@ -45,6 +46,7 @@ import { asUuid, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
@@ -172,13 +174,31 @@ const InteractiveField = memo(function InteractiveField({
 	// them; this transparency only applies to interactive/preview mode.
 	if (field.kind === "group" && !field.label) {
 		return (
-			<InteractiveFormRenderer
-				parentEntityId={field.uuid}
-				prefix={path}
-				parentPath={fieldPath}
-				depth={depth}
-				leadingGap={false}
-			/>
+			<>
+				{/* A label-less group is transparent in preview, but its
+				    `label_media` is authored content — without this it vanishes on
+				    the edit→preview flip (edit renders it in the GroupBracket
+				    "Untitled group" header). Render it depth-padded to the group's
+				    column, above the inline children, keeping the group otherwise
+				    transparent. */}
+				{field.label_media && (
+					<div
+						style={{
+							paddingLeft: depthPadding(depth),
+							paddingRight: depthPadding(depth),
+						}}
+					>
+						<MediaDisplay media={field.label_media} interactive />
+					</div>
+				)}
+				<InteractiveFormRenderer
+					parentEntityId={field.uuid}
+					prefix={path}
+					parentPath={fieldPath}
+					depth={depth}
+					leadingGap={false}
+				/>
+			</>
 		);
 	}
 
@@ -228,6 +248,11 @@ const InteractiveField = memo(function InteractiveField({
 					paddingRight: depthPadding(depth),
 				}}
 			>
+				{/* Label media — image above the prompt / audio / video, the way
+				    CommCare renders a question's `<value form="image">`. Live
+				    controls in preview mode; mounted at the same position as the
+				    edit-mode `FieldRow` so the flipbook doesn't drift. */}
+				<MediaDisplay media={field.label_media} interactive />
 				{field.label && (
 					<div className="flex items-center gap-1">
 						<div className="min-w-0 flex-1">
@@ -260,6 +285,20 @@ const InteractiveField = memo(function InteractiveField({
 						/>
 					</div>
 				)}
+				{/* Hint media — sits with the hint, above the input. `hint_media`
+				    is only on input-capable kinds, so guard the access. */}
+				<MediaDisplay
+					media={"hint_media" in field ? field.hint_media : undefined}
+					interactive
+				/>
+				{/* Help text + help media — shown inline in the builder preview
+				    (CommCare hides help behind a "?"); both slots are input-kind
+				    only, so guard the access. */}
+				<FieldHelp
+					help={"help" in field ? field.help : undefined}
+					helpMedia={"help_media" in field ? field.help_media : undefined}
+					interactive
+				/>
 				<FieldRenderer
 					field={field}
 					state={state}

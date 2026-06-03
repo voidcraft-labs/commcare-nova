@@ -23,6 +23,7 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import {
@@ -125,12 +126,22 @@ export const FormCard = memo(function FormCard({
 				)}
 				<div className="flex-1 min-w-0">
 					<div className="flex items-center gap-2">
-						<Icon
-							icon={formIcon}
-							width="14"
-							height="14"
-							className="text-nova-text-muted shrink-0"
-						/>
+						{form.icon ? (
+							// Form menu-tile icon, shown on the tree row too.
+							// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
+							<img
+								src={mediaSrc(form.icon)}
+								alt=""
+								className="size-3.5 rounded object-cover shrink-0"
+							/>
+						) : (
+							<Icon
+								icon={formIcon}
+								width="14"
+								height="14"
+								className="text-nova-text-muted shrink-0"
+							/>
+						)}
 						<span className="text-sm font-medium truncate">
 							{nameIndices ? (
 								<HighlightedText text={form.name} indices={nameIndices} />

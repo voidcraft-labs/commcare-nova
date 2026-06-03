@@ -2,6 +2,7 @@ import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
+	fieldKindDeclaresKey,
 	fieldSchema,
 	getConvertibleTypes,
 	pickFieldKeysForKind,
@@ -150,7 +151,8 @@ export function applyFieldMutation(
 				| "renameField"
 				| "duplicateField"
 				| "updateField"
-				| "convertField";
+				| "convertField"
+				| "setFieldMedia";
 		}
 	>,
 ): MoveFieldResult | FieldRenameMeta | undefined {
@@ -570,6 +572,36 @@ export function applyFieldMutation(
 			draft.fields[mut.uuid] = reconciled;
 			return;
 		}
+		case "setFieldMedia": {
+			// Set or clear one message slot's media bundle. The mutation
+			// carries an explicit `media: Media | null` (null survives JSON
+			// where `{ key: undefined }` would not), so both set and clear
+			// cross the SSE wire intact. The slot name maps to the
+			// `<slot>_media` field key.
+			const field = draft.fields[mut.fieldUuid];
+			if (!field) return;
+			const mediaKey = `${mut.slot}_media` as const;
+			// Guard slot-vs-kind against the schema key set (not `key in field`
+			// — an unset optional slot is absent as an own property even on a
+			// supporting kind). A slot the kind doesn't declare is skipped
+			// rather than written as a stray key the strict field schema would
+			// later reject. The SA tool rejects this up front; the reducer
+			// guard is the backstop for any other emitter.
+			if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
+				log.warn(
+					`setFieldMedia: ${field.kind} field has no ${mediaKey} slot — skipped.`,
+					{ uuid: mut.fieldUuid, slot: mut.slot },
+				);
+				return;
+			}
+			// Map `null → undefined` so a cleared slot drops off the field
+			// (the slot is `.optional()`, never a stored `null`). Cast through
+			// a record view: the four `<slot>_media` keys live on different
+			// arms of the discriminated `Field` union with no single common
+			// parent, so a structural write is the cleanest way to set one.
+			(field as Record<string, unknown>)[mediaKey] = mut.media ?? undefined;
+			return;
+		}
 	}
 }
 
@@ -834,12 +866,14 @@ function cascadeCasePropertyRename(
 		// cells, not modules, so a module with two stale column
 		// refs contributes two.
 		//
-		// Five of the six column kinds (`plain`, `date`, `phone`,
-		// `id-mapping`, `interval`) carry a `field` slot pointing at
-		// a case-property name; the rename rewrites those in place.
-		// `calculated` columns have no `field` slot — the
-		// expression is the source — and are skipped here; this
-		// loop is the property-name-as-string rewrite only.
+		// Six of the seven column kinds (`plain`, `date`, `phone`,
+		// `id-mapping`, `image-map`, `interval`) carry a `field` slot
+		// pointing at a case-property name; the rename rewrites those in
+		// place. `calculated` columns have no `field` slot — the
+		// expression is the source — and are skipped here; this loop is
+		// the property-name-as-string rewrite only. (`image-map`'s
+		// `mapping[].value` keys on the property's VALUE, not its name,
+		// so those rows need no rewrite — only its `field` does.)
 		const config = mod.caseListConfig;
 		if (config) {
 			for (const col of config.columns) {

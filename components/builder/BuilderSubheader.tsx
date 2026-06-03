@@ -13,7 +13,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import { useMemo } from "react";
-import { AppConnectSettings } from "@/components/builder/detail/AppConnectSettings";
+import { AppSettingsButton } from "@/components/builder/detail/appSettings/AppSettingsButton";
 import { ExportPanel } from "@/components/builder/ExportPanel";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
@@ -105,7 +105,7 @@ export function BuilderSubheader({
 			{showToolbar && (
 				<div className="flex items-center gap-1 shrink-0">
 					<SaveIndicator />
-					<AppConnectSettings />
+					<AppSettingsButton />
 					<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
 						<button
 							type="button"

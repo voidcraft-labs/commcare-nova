@@ -54,6 +54,8 @@ import {
 	type Form,
 	idMappingColumn,
 	idMappingEntry,
+	imageMapColumn,
+	imageMapEntry,
 	intervalColumn,
 	type Module,
 	phoneColumn,
@@ -64,6 +66,7 @@ import {
 	startsWithMode,
 	type Uuid,
 } from "@/lib/domain";
+import { asAssetId } from "@/lib/domain/multimedia";
 import {
 	concat,
 	eq,
@@ -78,6 +81,7 @@ import {
 	type FieldBuildCtx,
 	type FieldGenSpec,
 	fieldSpecArb,
+	hasFormItextMedia,
 	IdMinter,
 	pickSiblingId,
 } from "./xformDocArbitrary";
@@ -136,6 +140,7 @@ type ColumnGenSpec =
 	| { kind: "date"; field: string }
 	| { kind: "phone"; field: string }
 	| { kind: "id-mapping"; field: string }
+	| { kind: "image-map"; field: string }
 	| { kind: "interval"; field: string }
 	| { kind: "calculated" };
 
@@ -163,6 +168,16 @@ const columnSpecArb: fc.Arbitrary<ColumnGenSpec> = fc.oneof(
 	fc.constantFrom("status_code").map(
 		(field): ColumnGenSpec => ({
 			kind: "id-mapping",
+			field,
+		}),
+	),
+	// Image-map: same value-keyed lookup shape as id-mapping, but resolves
+	// each value to an image `AssetId`. The lowering mints two distinct
+	// values (`"a"` / `"i"`) so the imageMapValueUnique validator rule
+	// always passes; the assets themselves are minted at lowering time.
+	fc.constantFrom("status_code").map(
+		(field): ColumnGenSpec => ({
+			kind: "image-map",
 			field,
 		}),
 	),
@@ -214,6 +229,21 @@ function lowerColumn(
 				[idMappingEntry("a", "Active"), idMappingEntry("i", "Inactive")],
 				sortSlot,
 			);
+		case "image-map": {
+			// Two distinct value→asset entries — the `imageMapValueUnique`
+			// validator rule rejects duplicate `value` strings, so the keys
+			// MUST stay distinct. The assets are minted via the shared minter
+			// so each id is globally unique and conforms to `assetIdSchema`.
+			const assetA = asAssetId(minter.uuid("imageA"));
+			const assetB = asAssetId(minter.uuid("imageB"));
+			return imageMapColumn(
+				uuid,
+				spec.field,
+				spec.field,
+				[imageMapEntry("a", assetA), imageMapEntry("i", assetB)],
+				sortSlot,
+			);
+		}
 		case "interval":
 			// `intervalColumn(uuid, field, header, threshold, unit, display, text,
 			// slots)` — `display: "flag"` exercises the LateFlag wire arm, `text`
@@ -385,6 +415,10 @@ interface ModuleGenSpec {
 	readonly forms: ReadonlyArray<{
 		readonly type: "registration" | "followup" | "close" | "survey";
 		readonly fields: FieldGenSpec[];
+		/** Whether the form's command tile carries an icon. */
+		readonly hasIcon: boolean;
+		/** Whether the form's command tile carries an audio label. */
+		readonly hasAudioLabel: boolean;
 	}>;
 	readonly columns: ColumnGenSpec[];
 	readonly sortCount: number;
@@ -400,10 +434,16 @@ interface ModuleGenSpec {
 				excludedOwners: boolean;
 		  };
 	readonly isChild: boolean;
+	/** Whether the module's home tile carries an icon. */
+	readonly hasIcon: boolean;
+	/** Whether the module's home tile carries an audio label. */
+	readonly hasAudioLabel: boolean;
 }
 
 interface DocGenSpec {
 	readonly modules: ModuleGenSpec[];
+	/** Whether the app carries an app-level logo. */
+	readonly hasLogo: boolean;
 }
 
 const FORM_TYPE_ARB = fc.constantFrom(
@@ -421,6 +461,8 @@ const moduleGenSpecArb: fc.Arbitrary<ModuleGenSpec> = fc.record({
 			// a zero-field survey would trip `EMPTY_FORM`. Case-bearing forms always
 			// carry the injected `case_name` + `full_name` on top of these.
 			fields: fc.array(fieldSpecArb(2), { minLength: 1, maxLength: 3 }),
+			hasIcon: fc.boolean(),
+			hasAudioLabel: fc.boolean(),
 		}),
 		{ minLength: 1, maxLength: 2 },
 	),
@@ -441,10 +483,13 @@ const moduleGenSpecArb: fc.Arbitrary<ModuleGenSpec> = fc.record({
 		},
 	),
 	isChild: fc.boolean(),
+	hasIcon: fc.boolean(),
+	hasAudioLabel: fc.boolean(),
 });
 
 const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc.record({
 	modules: fc.array(moduleGenSpecArb, { minLength: 1, maxLength: 4 }),
+	hasLogo: fc.boolean(),
 });
 
 /**
@@ -545,6 +590,15 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				}
 			: undefined;
 
+		// Menu-tile media on the module. Each slot is independent and mints a
+		// fresh `AssetId` via the shared minter.
+		const moduleIcon = modSpec.hasIcon
+			? asAssetId(minter.uuid("modicon"))
+			: undefined;
+		const moduleAudio = modSpec.hasAudioLabel
+			? asAssetId(minter.uuid("modaud"))
+			: undefined;
+
 		modules[moduleUuid] = {
 			uuid: moduleUuid,
 			id: `m${mIdx}`,
@@ -552,6 +606,8 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			caseType: caseTypeName,
 			caseListConfig,
 			...(caseSearchConfig !== undefined ? { caseSearchConfig } : {}),
+			...(moduleIcon ? { icon: moduleIcon } : {}),
+			...(moduleAudio ? { audioLabel: moduleAudio } : {}),
 		};
 
 		// Forms. Case-bearing forms inject `case_name` + a saved property so they
@@ -561,11 +617,20 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			formOrder[moduleUuid].push(formUuid);
 			fieldOrder[formUuid] = [];
 
+			const formIcon = formSpec.hasIcon
+				? asAssetId(minter.uuid("frmicon"))
+				: undefined;
+			const formAudio = formSpec.hasAudioLabel
+				? asAssetId(minter.uuid("frmaud"))
+				: undefined;
+
 			forms[formUuid] = {
 				uuid: formUuid,
 				id: `f${mIdx}_${fIdx}`,
 				name: `Form ${mIdx}-${fIdx}`,
 				type: formSpec.type,
+				...(formIcon ? { icon: formIcon } : {}),
+				...(formAudio ? { audioLabel: formAudio } : {}),
 			};
 
 			const ctx: FieldBuildCtx = { minter, fields, fieldOrder };
@@ -606,6 +671,9 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		});
 	});
 
+	// App-level logo (web-apps banner) — minted only when the spec asks for it.
+	const logo = spec.hasLogo ? asAssetId(minter.uuid("logo")) : undefined;
+
 	return {
 		appId: "suite-fuzz-app",
 		appName: "Suite Fuzz App",
@@ -619,6 +687,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		fieldOrder,
 		// fieldParent is rebuilt by the caller via rebuildFieldParent.
 		fieldParent: {},
+		...(logo ? { logo } : {}),
 	};
 }
 
@@ -659,4 +728,41 @@ export function hasSort(doc: BlueprintDoc): boolean {
 	return Object.values(doc.modules).some((m) =>
 		(m.caseListConfig?.columns ?? []).some((c) => c.sort !== undefined),
 	);
+}
+
+/**
+ * Whether the doc carries media that lowers into the SUITE — a module/form
+ * menu `icon`/`audioLabel` (→ `<text form="image|audio"><locale>`) or an
+ * image-map column (→ `<template form="image">` with inlined `jr://` literals).
+ *
+ * This is exactly the population `suiteOracle::checkMediaResolution` walks, so
+ * the suite fuzz floors THIS ratio rather than the broader `hasMedia`: the app
+ * logo lowers into the profile and field-itext media into each form's XForm,
+ * neither of which the suite check touches. Flooring `hasMedia` would let a
+ * drift toward logo-only or field-itext-only media keep the census green while
+ * the suite media-resolution check stopped firing entirely — a silent no-op.
+ */
+export function hasSuiteMedia(doc: BlueprintDoc): boolean {
+	for (const module of Object.values(doc.modules)) {
+		if (module.icon !== undefined || module.audioLabel !== undefined)
+			return true;
+		for (const column of module.caseListConfig?.columns ?? []) {
+			if (column.kind === "image-map" && column.mapping.length > 0) return true;
+		}
+	}
+	for (const form of Object.values(doc.forms)) {
+		if (form.icon !== undefined || form.audioLabel !== undefined) return true;
+	}
+	return false;
+}
+
+/**
+ * Whether the doc carries ANY media reference — app logo, suite-borne media
+ * (`hasSuiteMedia`), or form-itext media (`hasFormItextMedia`). The union of
+ * the three disjoint populations the three oracles each check; the hqJson fuzz
+ * floors this because `multimedia_map` covers every referenced asset
+ * regardless of carrier.
+ */
+export function hasMedia(doc: BlueprintDoc): boolean {
+	return doc.logo !== undefined || hasSuiteMedia(doc) || hasFormItextMedia(doc);
 }

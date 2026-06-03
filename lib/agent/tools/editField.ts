@@ -102,6 +102,12 @@ function editPatchToFieldPatch(
 	const scalarKeys = [
 		"label",
 		"hint",
+		// `help` is plain text (tap-to-expand longer-form guidance), so
+		// it rides the plain-scalar path — no XPath unescape, unlike
+		// `relevant` / `calculate` / `default_value` / `required`. The
+		// media companion `help_media` is set through the dedicated
+		// media tools, never via this text patch.
+		"help",
 		"required",
 		"relevant",
 		"calculate",

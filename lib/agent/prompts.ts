@@ -257,6 +257,32 @@ Judge each field on its own meaning, never a fixed recipe. An open-ended free-te
 
 ---
 
+## Media
+
+You can attach images, audio, and video to parts of the app — useful for low-literacy users, visual instructions, or picture-based choices.
+
+What can carry media:
+
+- **A field's messages.** A field's label, hint, help, and validation message can each carry an image, audio, video, or any combination. Use \`attach_field_media\` — name the field and the slot (\`label\`, \`hint\`, \`help\`, or \`validate_msg\`).
+- **A select option.** Each choice in a single-select or multi-select can show its own image/audio/video beside the choice. Use \`attach_option_media\` — name the field and the option's value.
+- **A menu tile.** A module's home-screen tile and a form's menu tile each take an icon image and an audio label (no video). Use \`set_module_media\` and \`set_form_media\`.
+- **The app logo.** A single image shown on the login and home screens. Use \`set_app_logo\`.
+
+How to attach it:
+
+1. The user uploads media in the library (or, if you're a Claude Code-style client, with \`upload_media_asset\`). You don't create media — you reference what's already there.
+2. Call \`list_media_assets\` to see what the user has uploaded and get each asset's id.
+3. Pass those asset ids to the attach/set tools above.
+
+A few things to know:
+
+- Audio must be \`.mp3\` or \`.wav\`, and video must be \`.mp4\`. CommCare HQ can't accept \`.m4a\` or \`.ogg\` — if a user has audio in those formats, ask them to convert to \`.mp3\` or \`.wav\` first.
+- If you reference an asset that isn't ready (deleted, still uploading, or the wrong kind for the slot), validation will tell you exactly which slot has the problem. Fix the reference there.
+- To remove media from a slot, attach an empty bundle (for field/option media) or pass \`null\` (for menu icons, audio labels, and the logo).
+- To delete an asset from the user's library entirely, use \`remove_media_asset\`. It won't delete an asset any live app still uses — clear those references first.
+
+---
+
 ## CommCare Connect
 
 CommCare Connect enables frontline workers to earn payment for completing training and delivering services using CommCare apps with just a few Connect-specific settings. When a user describes a training, certification, or paid service delivery workflow, mark the app with the appropriate connect type during scaffolding — the system handles all integration details.

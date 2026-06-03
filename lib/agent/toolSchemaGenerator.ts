@@ -105,6 +105,10 @@ const FIELD_DOCS = {
 		"`single_select`, etc.), the label is required and must be a " +
 		"non-empty human-readable string.",
 	hint: "Help text rendered below the input.",
+	help:
+		"Longer-form help text the user taps to expand — for guidance too " +
+		"long to sit inline as a hint. Plain text (not an XPath expression). " +
+		"Supports hashtag references.",
 	required:
 		'XPath expression — "true()" for always-required, or a conditional ' +
 		'like "#form/age > 0". Omit for not required. Supports hashtag ' +
@@ -204,8 +208,17 @@ const calculateField = () =>
 	z.string().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
 	z.string().optional().describe(FIELD_DOCS.default_value);
+// The SA's option shape omits the `media` slot. `selectOptionSchema`
+// carries an optional per-option `media` reference, but the
+// field-mutation tools expose neither the asset library nor an upload
+// affordance, so the agent can't mint or validate an asset id here —
+// exposing the slot would only let the model write a dangling
+// reference into the doc. Option media is set through the dedicated
+// media tools, not the generic field-mutation tools.
+const saOptionSchema = selectOptionSchema.omit({ media: true });
+
 const optionsField = () =>
-	z.array(selectOptionSchema).optional().describe(FIELD_DOCS.options);
+	z.array(saOptionSchema).optional().describe(FIELD_DOCS.options);
 
 // Nested-object factories — return the bare object so callers wrap it
 // with `.optional()` (add tools) or `.nullable().optional()` (edit
@@ -251,11 +264,7 @@ const casePropertyOnField = () =>
 const nullableString = (doc: string) =>
 	z.string().nullable().optional().describe(doc);
 const nullableOptions = () =>
-	z
-		.array(selectOptionSchema)
-		.nullable()
-		.optional()
-		.describe(FIELD_DOCS.options);
+	z.array(saOptionSchema).nullable().optional().describe(FIELD_DOCS.options);
 
 /**
  * Batch-add item shape. Lives inside `z.array(...)` as the per-item
@@ -334,6 +343,14 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			kind: makeKindEnum(kinds).optional(),
 			label: nullableString(FIELD_DOCS.label),
 			hint: nullableString(FIELD_DOCS.hint),
+			// `help` lives on the edit schema only — the single-object edit
+			// patch isn't subject to the 8-optional array-item ceiling that
+			// constrains `addFields`. Adding it there would push the
+			// per-item optional count to 9 and time out the Anthropic
+			// compiler; the SA sets `help` on a follow-up edit instead.
+			// `help` is plain TEXT (the media companion `help_media` is set
+			// via the dedicated media tools, never here).
+			help: nullableString(FIELD_DOCS.help),
 			required: nullableString(FIELD_DOCS.required),
 			// Nested config objects (same shape as add tools). Passing
 			// `null` clears the whole config; passing the object

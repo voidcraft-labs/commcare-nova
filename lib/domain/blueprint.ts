@@ -15,6 +15,7 @@ import {
 import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
+import { assetIdSchema } from "./multimedia";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // Re-exports — `casePropertyDataTypes` / `CasePropertyDataType` /
@@ -95,6 +96,14 @@ export const blueprintDocSchema = z
 		moduleOrder: z.array(uuidSchema),
 		formOrder: z.record(z.string(), z.array(uuidSchema)),
 		fieldOrder: z.record(z.string(), z.array(uuidSchema)),
+
+		/**
+		 * App-level logo for the web-apps surface. A single image —
+		 * no audio, no per-language variants — shown on the login
+		 * and home screens. Android-only logo slots are out of scope
+		 * for Nova's web-apps target.
+		 */
+		logo: assetIdSchema.optional(),
 
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})

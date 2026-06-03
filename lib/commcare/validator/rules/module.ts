@@ -30,6 +30,7 @@ import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSea
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
+import { imageMapValueUnique } from "./media/imageMapValueUnique";
 
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
@@ -182,6 +183,7 @@ export const MODULE_RULES = [
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
 	idMappingValueRequired,
+	imageMapValueUnique,
 	matchModeWhitespaceInValue,
 	matchModeOnDeviceCompatibility,
 	ancestorExistsCannotNestSubcase,

@@ -123,11 +123,25 @@ export async function requireSession(req: Request): Promise<Session> {
 }
 
 /**
+ * Read the caller's admin status from `auth_users` directly, bypassing
+ * Better Auth's session-cookie cache (up to 5 minutes). Both the API gate
+ * (`requireAdmin`) and the RSC gate (`requireAdminAccess`) authorize on
+ * this fresh read so an admin demotion takes effect on the next request,
+ * not after the cache window elapses.
+ */
+async function readsFreshAsAdmin(userId: string): Promise<boolean> {
+	const snap = await getDb().collection("auth_users").doc(userId).get();
+	return snap.data()?.role === "admin";
+}
+
+/**
  * Require an admin session or throw a 403.
  *
- * Checks `session.user.role` from the admin plugin — the role lives on
- * `auth_users` and is included in the session by Better Auth. Used by
- * all admin API routes.
+ * Authorizes on the role read FRESH from `auth_users`, not the cached
+ * `session.user.role` — the session cookie caches for up to 5 minutes, so
+ * trusting the cached role would keep a just-demoted admin authorized for
+ * the cache window. This matches the RSC admin gate (`requireAdminAccess`),
+ * which already reads fresh. Used by all admin API routes.
  */
 export async function requireAdmin(req: Request): Promise<Session> {
 	const session = await requireSession(req);
@@ -137,7 +151,18 @@ export async function requireAdmin(req: Request): Promise<Session> {
 	if (session.session.impersonatedBy) {
 		throw new ApiError("Admin access denied during impersonation", 403);
 	}
-	if (session.user.role !== "admin") {
+	if (!(await readsFreshAsAdmin(session.user.id))) {
+		/* Demotion mid-session — cached role still says admin, the fresh
+		 * read disagrees: revoke the session server-side so the stale cookie
+		 * can't keep returning a session (live revocation, mirroring
+		 * `requireAdminAccess`). Best-effort — a sign-out failure must not
+		 * swallow the 403. A user who was NEVER an admin just gets the 403;
+		 * we don't sign them out for poking an admin endpoint. */
+		if (session.user.role === "admin") {
+			await getAuth()
+				.api.signOut({ headers: req.headers })
+				.catch(() => {});
+		}
 		throw new ApiError("Admin access required", 403);
 	}
 	return session;
@@ -219,13 +244,10 @@ export async function requireAdminAccess(): Promise<Session> {
 		redirect("/");
 	}
 
-	/* Bypass the cookie cache — read the role from auth_users directly so
-	 * admin demotions take effect on the next page load, not after 5 minutes. */
-	const authUserSnap = await getDb()
-		.collection("auth_users")
-		.doc(session.user.id)
-		.get();
-	if (authUserSnap.data()?.role !== "admin") {
+	/* Authorize on the fresh `auth_users` read (bypasses the cookie cache),
+	 * so admin demotions take effect on the next page load, not after the
+	 * 5-minute cache window. */
+	if (!(await readsFreshAsAdmin(session.user.id))) {
 		/* Live revocation — sign out clears the session from Firestore and
 		 * wipes auth cookies so stale role data can't linger. */
 		await getAuth().api.signOut({ headers: await headers() });

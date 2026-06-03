@@ -30,12 +30,21 @@ import { Parser } from "htmlparser2";
 import { describe, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import type {
+	AssetManifest,
+	ResolvedMediaAsset,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { validateBindingResolution } from "@/lib/commcare/validator/bindingResolutionOracle";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import { blueprintDocArbitrary } from "./xformDocArbitrary";
+import type { AssetId } from "@/lib/domain/multimedia";
+import {
+	blueprintDocArbitrary,
+	type FuzzMediaAsset,
+	fuzzManifestFromDoc,
+} from "./xformDocArbitrary";
 
 /** Fixed seed + run count for reproducibility across runs + CI. */
 const SEED = 20260522;
@@ -124,71 +133,107 @@ function parseSuite(suiteXml: string): {
 	return { resources, entries };
 }
 
+/**
+ * Lift the fuzz manifest to the shape `expandDoc` / `compileCcz` consume,
+ * attaching placeholder bytes so the CCZ bundler's byte-contract check
+ * passes (the fuzz doesn't validate archive bytes — empty buffers suffice).
+ */
+function toAssetManifest(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): AssetManifest {
+	const placeholderBytes = Buffer.alloc(0);
+	const m = new Map<AssetId, ResolvedMediaAsset>();
+	for (const [id, fuzz] of fuzzManifest) {
+		m.set(id, {
+			assetId: fuzz.assetId,
+			wirePath: fuzz.wirePath,
+			kind: fuzz.kind,
+			mimeType: fuzz.mimeType,
+			contentHash: fuzz.contentHash,
+			extension: fuzz.extension,
+			bytes: placeholderBytes,
+		});
+	}
+	return m;
+}
+
+/** Set of bundled wire paths for the binding-resolution media check. */
+function wirePathSet(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): Set<string> {
+	return new Set(Array.from(fuzzManifest.values(), (asset) => asset.wirePath));
+}
+
 describe("binding-resolution emitter totality (property-based fuzz)", () => {
-	it(
-		"every schema-valid doc compiles to a CCZ whose XPath references all resolve",
-		() => {
-			fc.assert(
-				fc.property(blueprintDocArbitrary, (doc) => {
-					prepareAndGuard(doc);
+	it("every schema-valid doc compiles to a CCZ whose XPath references all resolve", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
+		fc.assert(
+			fc.property(blueprintDocArbitrary, (doc) => {
+				prepareAndGuard(doc);
 
-					// Step 1: compileCcz must be total. A throw here is a
-					// compiler bug (either an `expandDoc` shape the emitter
-					// doesn't handle, or a parse-time / suite-oracle
-					// regression). `fc.assert` turns the throw into a
-					// shrunken counterexample.
-					const hq = expandDoc(doc);
-					const ccz = compileCcz(hq, doc.appName, doc);
+				// Step 1: compileCcz must be total. A throw here is a
+				// compiler bug (either an `expandDoc` shape the emitter
+				// doesn't handle, or a parse-time / suite-oracle
+				// regression). `fc.assert` turns the throw into a
+				// shrunken counterexample. Media-on path: thread the
+				// fuzz manifest through so case-block-injected forms
+				// carry media too.
+				const fuzzManifest = fuzzManifestFromDoc(doc);
+				const manifest = toAssetManifest(fuzzManifest);
+				const manifestPaths = wirePathSet(fuzzManifest);
+				const hq = expandDoc(doc, { assets: manifest });
+				const ccz = compileCcz(hq, doc.appName, doc, { assets: manifest });
 
-					// Step 2: for each form, run the binding-resolution
-					// oracle directly. `compileCcz` no longer invokes it
-					// (authoring rejection in `validator/rules/` is the
-					// user-visible gate); this fuzz proves the emitter is
-					// total — every accepted doc compiles to references the
-					// oracle is happy with.
-					const zip = new AdmZip(ccz);
-					const suiteEntry = zip.getEntry("suite.xml");
-					if (!suiteEntry) {
-						throw new Error("CCZ is missing suite.xml");
-					}
-					const suiteXml = suiteEntry.getData().toString("utf-8");
-					const { resources, entries } = parseSuite(suiteXml);
-					if (resources.length !== entries.length) {
+				// Step 2: for each form, run the binding-resolution
+				// oracle directly. `compileCcz` no longer invokes it
+				// (authoring rejection in `validator/rules/` is the
+				// user-visible gate); this fuzz proves the emitter is
+				// total — every accepted doc compiles to references the
+				// oracle is happy with. Threading the manifest exercises
+				// the install-time media-path resolution check.
+				const zip = new AdmZip(ccz);
+				const suiteEntry = zip.getEntry("suite.xml");
+				if (!suiteEntry) {
+					throw new Error("CCZ is missing suite.xml");
+				}
+				const suiteXml = suiteEntry.getData().toString("utf-8");
+				const { resources, entries } = parseSuite(suiteXml);
+				if (resources.length !== entries.length) {
+					throw new Error(
+						`suite.xml has ${resources.length} xform resources but ${entries.length} entries — expected lockstep`,
+					);
+				}
+
+				for (let i = 0; i < resources.length; i++) {
+					const formPath = resources[i];
+					const xformEntry = zip.getEntry(formPath);
+					if (!xformEntry) {
 						throw new Error(
-							`suite.xml has ${resources.length} xform resources but ${entries.length} entries — expected lockstep`,
+							`CCZ references form "${formPath}" but the file is missing`,
 						);
 					}
-
-					for (let i = 0; i < resources.length; i++) {
-						const formPath = resources[i];
-						const xformEntry = zip.getEntry(formPath);
-						if (!xformEntry) {
-							throw new Error(
-								`CCZ references form "${formPath}" but the file is missing`,
-							);
-						}
-						const xform = xformEntry.getData().toString("utf-8");
-						// Form / module names aren't structurally important for
-						// the oracle — they only appear in error messages that
-						// the throw below stringifies.
-						const errors = validateBindingResolution(
-							xform,
-							formPath,
-							doc.appName,
-							entries[i].datumIds,
+					const xform = xformEntry.getData().toString("utf-8");
+					// Form / module names aren't structurally important for
+					// the oracle — they only appear in error messages that
+					// the throw below stringifies.
+					const errors = validateBindingResolution(
+						xform,
+						formPath,
+						doc.appName,
+						entries[i].datumIds,
+						manifestPaths,
+					);
+					if (errors.length > 0) {
+						throw new Error(
+							`Binding resolution failed for "${formPath}":\n` +
+								errors.map((e) => `  - ${errorToString(e)}`).join("\n"),
 						);
-						if (errors.length > 0) {
-							throw new Error(
-								`Binding resolution failed for "${formPath}":\n` +
-									errors.map((e) => `  - ${errorToString(e)}`).join("\n"),
-							);
-						}
 					}
-					return true;
-				}),
-				{ seed: SEED, numRuns: NUM_RUNS, endOnFailure: true },
-			);
-		},
-		FUZZ_TIMEOUT_MS,
-	);
+				}
+				return true;
+			}),
+			{ seed: SEED, numRuns: NUM_RUNS, endOnFailure: true },
+		);
+	});
 });

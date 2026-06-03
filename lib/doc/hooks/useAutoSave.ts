@@ -56,10 +56,19 @@ const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
  * Project the doc slice that matters for save equality checks.
  *
  * A new reference on any of these fields implies at least one user-visible
- * mutation has landed. Fields excluded from the projection (e.g. `fieldParent`,
- * which is derived and never mutated directly) don't trigger unnecessary saves.
+ * mutation has landed. This MUST list every persisted, user-editable
+ * top-level field: a field omitted here is invisible to the save
+ * subscription, so a change touching ONLY that field never persists.
+ * `setAppLogo` mutates only `s.logo`, so `logo` belongs here; entity maps
+ * (`modules` / `forms` / `fields`) cover their nested media, so the standalone
+ * top-level slots are the ones to watch.
+ *
+ * Excluded by design: `fieldParent` (derived, stripped on save) and `appId`
+ * (bookkeeping — set once on load, never a user edit). The `projectSaveSlice`
+ * regression test holds these keys against the persisted schema so a
+ * newly-added field can't be dropped from saves unnoticed.
  */
-function projectSaveSlice(s: BlueprintDoc) {
+export function projectSaveSlice(s: BlueprintDoc) {
 	return {
 		modules: s.modules,
 		forms: s.forms,
@@ -70,6 +79,7 @@ function projectSaveSlice(s: BlueprintDoc) {
 		appName: s.appName,
 		connectType: s.connectType,
 		caseTypes: s.caseTypes,
+		logo: s.logo,
 	};
 }
 

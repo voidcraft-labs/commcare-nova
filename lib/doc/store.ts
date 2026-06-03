@@ -187,25 +187,17 @@ export function createBlueprintDocStore() {
 							// rebuildFieldParent below fills it in from fieldOrder atomically.
 							const next: BlueprintDoc = { ...doc, fieldParent: {} };
 							set((draft) => {
-								draft.appId = next.appId;
-								draft.appName = next.appName;
-								draft.connectType = next.connectType;
-								draft.caseTypes = next.caseTypes;
-								// `draft` is `WritableDraft<BlueprintDocState>`, where
-								// `BlueprintDocState = BlueprintDoc & { actions }`. Primitive
-								// fields assign fine, but Immer's draft wrapping on the
-								// Record-valued entity maps rejects direct assignment from
-								// plain objects (`next.modules` etc.) because the draft type
-								// is marked readonly in the intersection. The narrow cast
-								// to `BlueprintDoc` strips the action-type overlay so we can
-								// wholesale-swap the maps. Immer still produces the correct
-								// next state via its own structural sharing.
-								(draft as BlueprintDoc).modules = next.modules;
-								(draft as BlueprintDoc).forms = next.forms;
-								(draft as BlueprintDoc).fields = next.fields;
-								draft.moduleOrder = next.moduleOrder;
-								(draft as BlueprintDoc).formOrder = next.formOrder;
-								(draft as BlueprintDoc).fieldOrder = next.fieldOrder;
+								// Copy EVERY doc field onto the draft in one pass. A
+								// hand-listed field-by-field assignment silently drops any
+								// top-level slot it omits — omit `logo` and the saved logo
+								// blanks on the next load. `Object.assign` can't forget a
+								// field. The cast strips the action-overlay
+								// (`BlueprintDocState = BlueprintDoc & { actions }`) whose
+								// readonly Record maps otherwise reject the swap; the draft's
+								// own action methods aren't keys on `next`, so they survive.
+								// Immer records each assignment through its proxy and produces
+								// the next state with structural sharing.
+								Object.assign(draft as BlueprintDoc, next);
 								// Rebuild the reverse-parent index so hooks can read
 								// fieldParent immediately after load.
 								rebuildFieldParent(draft as unknown as BlueprintDoc);

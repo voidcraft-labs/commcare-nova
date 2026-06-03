@@ -10,7 +10,7 @@
 // `<sort>` block presence, `<template form="phone">` on long-only)
 // flow through the `CaseListEmitContext.detailKind` discriminator.
 //
-// The six Nova column kinds map to CCHQ formats as follows:
+// The seven Nova column kinds map to CCHQ formats as follows:
 //
 //   - `plain`             → CCHQ `detail_screen.py::Plain` format.
 //     Bare property reference; the runtime renders the case
@@ -48,6 +48,16 @@
 //     property value; the `replace(join(...), '\\s+', ' ')` collapse
 //     trims the leading whitespace from the join's empty-arm
 //     fall-throughs. Sort uses raw `{xpath}`.
+//
+//   - `image-map`         → CCHQ `detail_screen.py::EnumImage` format
+//     (`<template form="image">`). The id-mapping shape with image
+//     paths instead of text labels: a NESTED-`if` chain
+//     `if(selected({xpath}, 'value-1'), 'jr://file/commcare/<hash><ext>',
+//     if(...))` inlining the resolved `jr://` path literals. Nested-if
+//     (not id-mapping's `replace(join(...))`) because the join's
+//     empty-arm collapse would leave a trailing space inside a matched
+//     `jr://` path and break the reference. Degrades to a plain column
+//     (raw property value) when media emission is off (no manifest).
 //
 //   - `interval`          → merges CCHQ's `TimeAgo` + `LateFlag`
 //     formats under one Nova kind. The `display` discriminator
@@ -96,6 +106,10 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { Column } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
+import {
+	type AssetManifest,
+	requireAssetRef,
+} from "../../multimedia/assetWirePath";
 import { quoteLiteral } from "../../predicate/stringQuoting";
 import type { InstanceRoot } from "../../predicate/termEmitter";
 import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
@@ -500,6 +514,53 @@ function idMappingDisplayXpath(
 	return `replace(join(' ', ${arms.join(", ")}), '\\s+', ' ')`;
 }
 
+/**
+ * Image-map column display XPath — maps each case-property value to its
+ * `jr://file/commcare/...` image path; with `<template form="image">`
+ * (see `templateFormFor`) the runtime renders the resolved path as an
+ * image.
+ *
+ * Shape is a NESTED `if(...)` chain, NOT the `replace(join(' ', …))`
+ * wrapper `idMappingDisplayXpath` uses. This is load-bearing and is
+ * exactly where image-map diverges from id-mapping: CCHQ applies the
+ * `join` wrapper only to `format="enum"` (text id-mapping), while
+ * `format="enum-image"` takes the nested-`if` branch — verified at
+ * `commcare-hq/.../suite_xml/xml_models.py::XPathEnum.build` (the
+ * `type == "display" and format == "enum"` wrapper vs the `elif`) and
+ * `detail_screen.py::EnumImage._xpath_template` (`"if({cond}, {var}"`).
+ * The wrapper would also CORRUPT the result here: `join(' ', 'jr://x',
+ * '', '')` leaves a trailing space (`'jr://x '`), a malformed image
+ * path — harmless for a text label, fatal for a resource reference.
+ * The nested chain returns the single matching path verbatim.
+ *
+ * Nova inlines the jr:// literals (rather than CCHQ's app_strings
+ * locale variables) and uses `selected(field, value)` membership (the
+ * same predicate `idMappingDisplayXpath` uses) — both the single-
+ * language simplification Nova applies throughout. An empty mapping
+ * short-circuits to `''` (no image).
+ *
+ * Resolution requires the asset manifest; the media-OFF path degrades
+ * the column to plain in `propertyDisplayXpath`, so reaching here with
+ * a missing manifest entry is a compiler-bug via `requireAssetRef`.
+ */
+function imageMapDisplayXpath(
+	field: string,
+	mapping: ReadonlyArray<{ readonly value: string; readonly assetId: string }>,
+	assets: AssetManifest,
+): string {
+	// Fold right so the first entry is the outermost `if`, matching the
+	// runtime's first-match-wins walk: the empty-string base is the final
+	// else (no value matched => no image).
+	return mapping.reduceRight((elseArm, entry) => {
+		const value = quoteLiteral(entry.value, "case-list-filter");
+		const path = quoteLiteral(
+			requireAssetRef(entry.assetId, assets, "imageMapDisplayXpath"),
+			"case-list-filter",
+		);
+		return `if(selected(${field}, ${value}), ${path}, ${elseArm})`;
+	}, `''`);
+}
+
 // ============================================================
 // Per-Column dispatcher
 // ============================================================
@@ -511,6 +572,7 @@ function idMappingDisplayXpath(
  */
 function propertyDisplayXpath(
 	column: Exclude<Column, { kind: "calculated" }>,
+	assets: AssetManifest | undefined,
 ): string {
 	switch (column.kind) {
 		case "plain":
@@ -521,6 +583,14 @@ function propertyDisplayXpath(
 			return phoneDisplayXpath(column.field);
 		case "id-mapping":
 			return idMappingDisplayXpath(column.field, column.mapping);
+		case "image-map":
+			// Media-ON → the per-value image-path chain (rendered via
+			// `<template form="image">`). Media-OFF (no manifest) → degrade
+			// to the raw property value as a plain column; `templateFormFor`
+			// drops the `form="image"` in lockstep so the two never disagree.
+			return assets
+				? imageMapDisplayXpath(column.field, column.mapping, assets)
+				: plainDisplayXpath(column.field);
 		case "interval":
 			return column.display === "always"
 				? intervalAlwaysXpath({
@@ -547,15 +617,21 @@ function propertyDisplayXpath(
  * Today only `phone` on long detail surfaces a non-`undefined`
  * value — `'phone'` per
  * `commcare-hq/corehq/apps/app_manager/detail_screen.py::Phone.template_form`.
- * Other CCHQ `template_form` values (`address`, `image`, `audio`,
- * et al) belong to column kinds Nova does not author at this
- * layer.
+ * `phone` (long detail) and `image-map` (when media is on) are the two
+ * non-`undefined` cases. `image-map` → `'image'` per
+ * `commcare-hq/corehq/apps/app_manager/detail_screen.py::EnumImage.template_form`,
+ * so the runtime renders the display XPath's resolved jr:// path as an
+ * image. Media-OFF image-map drops to `undefined` (a plain template
+ * over the raw value), matching `propertyDisplayXpath`'s degradation —
+ * the form attribute and the display XPath must never disagree.
  */
 function templateFormFor(
 	column: Exclude<Column, { kind: "calculated" }>,
 	detailKind: DetailKind,
+	assets: AssetManifest | undefined,
 ): string | undefined {
 	if (column.kind === "phone" && detailKind === "long") return "phone";
+	if (column.kind === "image-map" && assets) return "image";
 	return undefined;
 }
 
@@ -653,7 +729,7 @@ export function buildColumnField(args: {
 		return buildCalculatedField({ column, position, ctx });
 	}
 
-	const displayXpath = propertyDisplayXpath(column);
+	const displayXpath = propertyDisplayXpath(column, ctx.assets);
 	const headerLocaleId = detailHeaderLocaleId(
 		ctx.target,
 		ctx.detailKind,
@@ -663,7 +739,10 @@ export function buildColumnField(args: {
 	);
 	const fieldChildren: Element[] = [
 		buildHeaderBlock(headerLocaleId),
-		buildTemplateBlock(displayXpath, templateFormFor(column, ctx.detailKind)),
+		buildTemplateBlock(
+			displayXpath,
+			templateFormFor(column, ctx.detailKind, ctx.assets),
+		),
 	];
 	const sortEl = resolveSortElement(column, ctx);
 	if (sortEl !== undefined) fieldChildren.push(sortEl);

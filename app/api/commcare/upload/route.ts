@@ -1,22 +1,37 @@
 /**
  * CommCare HQ app upload proxy — POST /api/commcare/upload.
  *
- * Accepts a blueprint, expands it to HQ JSON, and uploads it to
- * CommCare HQ's import API. The API key stays server-side.
+ * Accepts a blueprint and uploads it to CommCare HQ as a new app in the
+ * caller's chosen project space. The API key stays server-side, and each
+ * call creates a brand-new app — HQ has no atomic update API yet.
  *
- * Each call creates a brand-new app in the target project space —
- * there is no atomic update API in CommCare HQ yet.
+ * Media-ON, two-phase: media references are validated first (a stale,
+ * still-uploading, foreign-owned, or kind-mismatched ref returns an
+ * actionable 400, never an opaque 500), then the blueprint expands
+ * media-ON and imports. Once the app exists, each asset's bytes are
+ * uploaded per-file against the new app id so HQ's `create_mapping`
+ * resolves the references on the device. A media-byte failure never fails
+ * the upload — the app is already created, so it degrades to a warning on
+ * the response.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { importApp, isValidDomainSlug } from "@/lib/commcare/client";
+import {
+	importApp,
+	isValidDomainSlug,
+	uploadAppMediaBundle,
+} from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -79,17 +94,50 @@ export async function POST(req: NextRequest) {
 			 * space — but a malformed request with no space lands here. */
 			throw new ApiError("No project space selected for the upload.", 400);
 		}
+		const { creds } = credResult;
+		const domain = credResult.domain.name;
 
-		/* ── Expand domain doc to HQ JSON ────────────────────────────── */
-		const hqJson = expandDoc(docWithParent);
-
-		/* ── Upload to CommCare HQ ──────────────────────────────────── */
-		const result = await importApp(
-			credResult.creds,
-			credResult.domain.name,
-			body.appName.trim(),
-			hqJson,
+		/* ── Validate media references before media-ON expand ─────────── */
+		// This path is media-ON, so a stale media reference (deleted,
+		// still-uploading, foreign-owned, or kind-mismatched asset) would
+		// make `expandDoc` throw `requireAssetRef` → opaque 500. Run the
+		// media rules first and surface the actionable message with the
+		// carrier location instead.
+		const mediaErrors = await collectMediaValidationErrors(
+			docWithParent,
+			session.user.id,
 		);
+		if (mediaErrors.length > 0) {
+			throw new ApiError(
+				"This app references media that isn't ready to upload.",
+				400,
+				mediaErrors.map(errorToString),
+			);
+		}
+
+		/* ── Resolve media manifest (with bytes) ─────────────────────── */
+		// The upload path is media-ON: the imported app's forms carry the
+		// `jr://file/commcare/<hash><ext>` itext references, and the bytes
+		// follow via the multimedia upload below. One resolution pass with
+		// bytes feeds BOTH the expander (references + multimedia_map) and
+		// the byte upload, so the references emitted and the files sent
+		// come from the same source and cannot drift.
+		const manifest = await resolveMediaManifest(
+			docWithParent,
+			session.user.id,
+			{
+				withBytes: true,
+			},
+		);
+
+		/* ── Expand domain doc to HQ JSON (media-ON) ─────────────────── */
+		const hqJson = expandDoc(docWithParent, { assets: manifest });
+
+		/* ── Import the app first ───────────────────────────────────── */
+		// The app must exist before any media upload — the app id goes in
+		// the upload URL, and HQ records each uploaded file against this
+		// new app's `multimedia_map`.
+		const result = await importApp(creds, domain, body.appName.trim(), hqJson);
 
 		if (!result.success) {
 			/* Map HQ 5xx → 502 so our monitoring distinguishes upstream failures
@@ -104,7 +152,54 @@ export async function POST(req: NextRequest) {
 			userId: session.user.id,
 		});
 
-		return NextResponse.json(result, { status: 201 });
+		/* ── Upload media bytes against the new app ──────────────────── */
+		// The app is created; now ship its media as ONE bulk ZIP to HQ's
+		// api-key-authed `upload_multimedia_api`, which unzips and matches
+		// each `commcare/<hash><ext>` entry to the app's `jr://` references
+		// (the per-kind `uploaded/<kind>/` endpoints are session-only and
+		// reject the API key — see `uploadAppMediaBundle`). A media failure
+		// never invalidates the import (the app already exists) — it surfaces
+		// as a warning. A media-free app skips the upload entirely.
+		const warnings = [...result.warnings];
+		if (manifest.size > 0) {
+			const mediaResult = await uploadAppMediaBundle(
+				creds,
+				domain,
+				result.appId,
+				buildMediaBulkUploadZip(manifest),
+			);
+			if ("success" in mediaResult) {
+				// The ZIP itself was rejected (auth / transport) — the app
+				// exists but carries no media bytes.
+				warnings.push(
+					"Media upload could not be completed; the app was created but its media may not display.",
+				);
+				log.error("[commcare/upload] media bundle upload failed", {
+					domain: body.domain,
+					appId: result.appId,
+					status: mediaResult.status,
+				});
+			} else if (mediaResult.timedOut) {
+				// Accepted + queued, but HQ hadn't finished processing when we
+				// stopped polling — the media should appear shortly.
+				warnings.push(
+					"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",
+				);
+			} else if (mediaResult.unmatched > 0 || mediaResult.errors.length > 0) {
+				warnings.push(
+					mediaUploadWarning(mediaResult.unmatched + mediaResult.errors.length),
+				);
+				log.error("[commcare/upload] some media files did not attach", {
+					domain: body.domain,
+					appId: result.appId,
+					matched: mediaResult.matched,
+					unmatched: mediaResult.unmatched,
+					errors: mediaResult.errors,
+				});
+			}
+		}
+
+		return NextResponse.json({ ...result, warnings }, { status: 201 });
 	} catch (err) {
 		return handleApiError(
 			err instanceof Error ? err : new Error("Upload failed"),
@@ -112,7 +207,20 @@ export async function POST(req: NextRequest) {
 	}
 }
 
-// ── Error messages (upload context) ───────────────────────────────
+// ── Warnings + error messages (upload context) ────────────────────
+
+/**
+ * User-facing warning when one or more media assets failed to upload.
+ * The app was still created on HQ — the affected media just won't render
+ * until re-uploaded. Kept count-based (not per-asset paths) so the
+ * message stays readable; server logs hold the detail.
+ */
+function mediaUploadWarning(failedCount: number): string {
+	const noun = failedCount === 1 ? "file" : "files";
+	return `${failedCount} media ${noun} could not be uploaded — the app was created, but ${
+		failedCount === 1 ? "that file" : "those files"
+	} won't display until re-uploaded.`;
+}
 
 /** Map CommCare HQ status codes to messages appropriate for the upload dialog. */
 function uploadErrorMessage(status: number): string {

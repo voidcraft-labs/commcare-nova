@@ -72,7 +72,11 @@ import {
 	type ValidationLocation,
 	validationError,
 } from "./errors";
-import { buildXFormDataModel, type XFormDataModel } from "./xformDataModel";
+import {
+	buildXFormDataModel,
+	localName,
+	type XFormDataModel,
+} from "./xformDataModel";
 
 /**
  * The valid events an `<action>`/`<setvalue>` may declare. Mirrors
@@ -105,17 +109,6 @@ type XFormModel = XFormDataModel;
  */
 function targetsMainInstance(ref: string, rootPath: string): boolean {
 	return ref.startsWith(rootPath);
-}
-
-/**
- * The local (unprefixed) part of a parsed element name. htmlparser2 keeps the
- * namespace prefix in `Element.name` (`h:body`, not `body`), so matching the
- * XHTML body element requires comparing the local name rather than the raw
- * prefixed string the emitter chose.
- */
-function localName(name: string): string {
-	const colon = name.indexOf(":");
-	return colon === -1 ? name : name.slice(colon + 1);
 }
 
 // ── itext duplicate-definition detection (#10) ─────────────────────
@@ -921,6 +914,41 @@ function checkOutputs(
 
 // ── itext reference resolution (#21) ───────────────────────────────
 
+/**
+ * Pattern matching a complete `jr:itext('<id>')` reference. The body-element
+ * scan and the `<bind jr:constraintMsg>` scan both unwrap their attribute value
+ * through this — the resolution target is the captured id, identical across
+ * surfaces.
+ */
+const JR_ITEXT_REF_PATTERN = /^jr:itext\('([^']+)'\)$/;
+
+/**
+ * Resolution of every `jr:itext('X')` reference the form makes — across two
+ * surfaces JavaRosa treats DIFFERENTLY at parse time:
+ *
+ *   - **Body-element `ref` attributes.** `<label ref="jr:itext('X')">`,
+ *     `<hint ref="...">`, `<help ref="...">`, `<value ref="...">` on inline
+ *     `<item>`s. A dangling id here is parse-FATAL: `commcare-core
+ *     .../xform/parse/XFormParser.java::verifyTextMappings` throws
+ *     `XFormParseException` when the default locale has no matching `<text>`.
+ *   - **`<bind jr:constraintMsg>` attributes.** `commcare-core
+ *     .../xform/parse/XFormParser.java::parseBindAttributes` stores the
+ *     `jr:constraintMsg` value RAW on the binding — it never routes through
+ *     `verifyTextMappings`, so a dangling id there is NOT parse-fatal. The
+ *     runtime tolerates it: `Constraint.java::getConstraintMessage` resolves the
+ *     itext lazily at constraint-failure display time and falls back to the raw
+ *     string when the lookup misses. The bind-attribute scan is therefore a
+ *     regression guard STRICTER than Core (same posture as `XFORM_DANGLING_BIND`),
+ *     not a mirror of a runtime crash.
+ *
+ * Both surfaces share one check because the emit-time invariant is uniform: a
+ * `jr:itext('X')` reference — body ref or `jr:constraintMsg` — must exist iff its
+ * `<text id="X">` entry does. A media-only `validate_msg_media` whose
+ * registration gate ever drifts from the bind-attribute gate would emit a
+ * dangling `jr:constraintMsg` ref — caught here as a generator bug rather than
+ * shipped as a silently-degraded constraint message (the bare `jr:itext('X')`
+ * string surfacing to the user instead of the intended text).
+ */
 function checkItextReferences(
 	model: XFormModel,
 	formName: string,
@@ -929,29 +957,186 @@ function checkItextReferences(
 	const errors: ValidationError[] = [];
 	if (model.itextIds.size === 0) return errors;
 
-	const itextRefs = findAll((el) => {
+	const reportMissing = (textId: string): void => {
+		if (model.itextIds.has(textId)) return;
+		errors.push(
+			validationError(
+				"XFORM_MISSING_ITEXT",
+				"form",
+				`"${formName}" references itext ID "${textId}" but no <text id="${textId}"> exists in the translations. FormPlayer will fail to display this label. This is a bug in the form generator.`,
+				loc,
+			),
+		);
+	};
+
+	// Surface 1 — body element `ref` attributes that hold `jr:itext('X')`.
+	for (const el of findAll((el) => {
 		const ref = getAttributeValue(el, "ref");
 		return !!ref && ref.startsWith("jr:itext('");
-	}, model.doc.children);
-
-	for (const el of itextRefs) {
+	}, model.doc.children)) {
 		const ref = getAttributeValue(el, "ref");
 		if (!ref) continue;
-		const match = ref.match(/^jr:itext\('([^']+)'\)$/);
+		const match = ref.match(JR_ITEXT_REF_PATTERN);
 		if (!match) continue;
-		const textId = match[1];
-		if (!model.itextIds.has(textId)) {
-			errors.push(
-				validationError(
-					"XFORM_MISSING_ITEXT",
-					"form",
-					`"${formName}" references itext ID "${textId}" but no <text id="${textId}"> exists in the translations. FormPlayer will fail to display this label. This is a bug in the form generator.`,
-					loc,
-				),
-			);
-		}
+		reportMissing(match[1]);
 	}
 
+	// Surface 2 — `<bind jr:constraintMsg="jr:itext('X')">`. The bind-attribute
+	// scan ALWAYS runs against `<bind>` regardless of the attribute holding the
+	// reference, because the prefix predicate above can't reach attributes other
+	// than `ref` (it filters on `ref`'s value).
+	for (const bind of findAll((el) => el.name === "bind", model.doc.children)) {
+		const constraintMsg = getAttributeValue(bind, "jr:constraintMsg");
+		if (constraintMsg === undefined) continue;
+		const match = constraintMsg.match(JR_ITEXT_REF_PATTERN);
+		// A non-itext `jr:constraintMsg` is a separate validity concern (HQ's
+		// XForm parser only honors the `jr:itext(...)` shape), out of this
+		// oracle's scope — the emitter is constrained at the source to emit only
+		// the itext form (see `xform/builder.ts::buildLeafField`).
+		if (!match) continue;
+		reportMissing(match[1]);
+	}
+
+	return errors;
+}
+
+// ── Media-value resolution (jr:// path → manifest) ─────────────────
+
+/**
+ * The `jr://file/` prefix every CommCare media reference carries — Nova's
+ * emitters always emit the full reference, never a bare wire path. The media-
+ * value scan strips this prefix before comparing against the manifest, which
+ * carries wire paths (`commcare/<hash><ext>`).
+ */
+const JR_FILE_PREFIX = "jr://file/";
+
+/**
+ * Resolution of every `<value form="image|audio|video">jr://file/...</value>`
+ * itext sibling against the bundled-media manifest. The manifest carries the
+ * `commcare/<hash><ext>` wire paths the compiler wrote into the CCZ archive;
+ * an itext media value pointing at a path NOT in that set would render as a
+ * broken icon on device — the runtime resolves the reference against the
+ * media-suite descriptor (`media_suite.xml`) which derives from the same
+ * manifest, so the reference and the bundle must agree on every path.
+ *
+ * Skipped when `mediaManifest === undefined` — that's the media-OFF mode
+ * every existing caller still runs in (no media emission at all), where the
+ * form carries no media `<value>` siblings to resolve.
+ *
+ * `<value>` text content is read off the element's children: `domhandler`
+ * stores element text as a child `Text` node, and any whitespace/text
+ * concatenation is what `.children[*].data` collects.
+ */
+function checkMediaValues(
+	model: XFormModel,
+	mediaManifest: ReadonlySet<string> | undefined,
+	formName: string,
+	loc: ValidationLocation,
+): ValidationError[] {
+	if (mediaManifest === undefined) return [];
+	const errors: ValidationError[] = [];
+
+	for (const valueEl of findAll(
+		(el) => el.name === "value",
+		model.doc.children,
+	)) {
+		const form = getAttributeValue(valueEl, "form");
+		// Media values carry one of the three image/audio/video forms. The plain
+		// `<value>` (no form) is the text translation; markdown / vellum forms
+		// are non-media and out of scope here.
+		if (form !== "image" && form !== "audio" && form !== "video") continue;
+
+		const refText = readElementText(valueEl).trim();
+		if (refText === "") continue;
+		if (!refText.startsWith(JR_FILE_PREFIX)) continue;
+
+		const wirePath = refText.slice(JR_FILE_PREFIX.length);
+		if (mediaManifest.has(wirePath)) continue;
+
+		errors.push(
+			validationError(
+				"XFORM_DANGLING_MEDIA_REF",
+				"form",
+				`"${formName}" has a <value form="${form}"> referencing "${refText}", but the compile-time media manifest has no entry for "${wirePath}". The device resolves this jr:// reference against media_suite.xml's local resources, so a reference without a bundled file renders as a broken icon. This is a bug in the form generator.`,
+				loc,
+			),
+		);
+	}
+
+	return errors;
+}
+
+/**
+ * Concatenate every direct text-child of an element. Mirrors
+ * `XFormParser::parseTextOrLocale`'s `parser.nextText()` read — KXmlParser
+ * collapses contiguous text into one read; `domhandler` keeps them as
+ * adjacent `Text` nodes, so the equivalent here is a children sweep.
+ */
+function readElementText(el: Element): string {
+	let acc = "";
+	for (const child of getChildren(el)) {
+		if (isTag(child)) continue;
+		// `domhandler`'s `Text` nodes expose `.data`; the type isn't `Element` so
+		// the property access goes through a structural lookup.
+		const data = (child as { data?: string }).data;
+		if (typeof data === "string") acc += data;
+	}
+	return acc;
+}
+
+// ── Namespace declarations (#0 — malformedness) ────────────────────
+
+/** XML namespace prefixes that are always available without an explicit
+ *  `xmlns:` declaration. */
+const RESERVED_NS_PREFIXES = new Set(["xml"]);
+
+/**
+ * Every namespace prefix used on an element or attribute NAME must be
+ * declared somewhere via `xmlns:<prefix>`. An undeclared prefix makes the
+ * whole document malformed XML: CCHQ's namespace-aware parser rejects the
+ * form, and on the multimedia path `FormMediaMixin.all_media` then returns
+ * empty (the form never parses), so EVERY media reference silently fails to
+ * attach on upload.
+ *
+ * `fast-xml-parser`'s validator (the model's parse gate) does NOT check
+ * namespace declarations, so this is the check that catches an emitter that
+ * uses a prefix it forgot to declare (e.g. an `<orx:meta>` emitted without
+ * its `xmlns:orx` declaration). "Declared anywhere" counts as available — this flags
+ * never-declared prefixes, not strict per-element scoping, so a
+ * correctly-scoped prefix never trips it.
+ */
+function checkNamespacePrefixes(
+	doc: Document,
+	formName: string,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const declared = new Set<string>();
+	const used = new Set<string>();
+	for (const el of findAll(() => true, doc.children)) {
+		const nameColon = el.name.indexOf(":");
+		if (nameColon !== -1) used.add(el.name.slice(0, nameColon));
+		for (const attr of Object.keys(el.attribs)) {
+			if (attr === "xmlns") continue; // the default namespace carries no prefix
+			if (attr.startsWith("xmlns:")) {
+				declared.add(attr.slice("xmlns:".length));
+				continue;
+			}
+			const attrColon = attr.indexOf(":");
+			if (attrColon !== -1) used.add(attr.slice(0, attrColon));
+		}
+	}
+	const errors: ValidationError[] = [];
+	for (const prefix of used) {
+		if (RESERVED_NS_PREFIXES.has(prefix) || declared.has(prefix)) continue;
+		errors.push(
+			validationError(
+				"XFORM_PARSE_ERROR",
+				"form",
+				`"${formName}" uses the XML namespace prefix "${prefix}:" but never declares it (no matching xmlns:${prefix}). That makes the whole form malformed XML — CCHQ's parser rejects it, which silently breaks every media reference on upload. This is a bug in the form generator.`,
+				loc,
+			),
+		);
+	}
 	return errors;
 }
 
@@ -963,11 +1148,20 @@ function checkItextReferences(
  * `(xml, formName, moduleName) → ValidationError[]` shape feeds the existing
  * error pipeline directly; call sites in `lib/agent/validationLoop.ts` and
  * `lib/commcare/compiler.ts` consume it unchanged.
+ *
+ * `mediaManifest`, when supplied, is the closed set of `commcare/<hash><ext>`
+ * wire paths bundled into the CCZ archive (the same paths
+ * `media_suite.xml`'s `<location>` elements point at). The oracle then
+ * additionally proves every `<value form="image|audio|video">jr://file/...`
+ * itext sibling resolves into that set — an unresolved reference would render
+ * as a broken icon on device. Omit (or pass `undefined`) on the media-OFF
+ * path: the form then carries no media value siblings to resolve.
  */
 export function validateXForm(
 	xml: string,
 	formName: string,
 	moduleName: string,
+	mediaManifest?: ReadonlySet<string>,
 ): ValidationError[] {
 	const loc = { formName, moduleName };
 
@@ -983,6 +1177,7 @@ export function validateXForm(
 	// Run every invariant against the shared model. Order is cosmetic — errors
 	// accumulate into one flat array the caller renders.
 	return [
+		...checkNamespacePrefixes(doc, formName, loc),
 		...checkTranslations(doc, formName, loc),
 		...checkItextDefinitions(doc, formName, loc),
 		...checkBinds(model, formName, loc),
@@ -991,5 +1186,6 @@ export function validateXForm(
 		...checkSetValues(model, formName, loc),
 		...checkOutputs(model, formName, loc),
 		...checkItextReferences(model, formName, loc),
+		...checkMediaValues(model, mediaManifest, formName, loc),
 	];
 }

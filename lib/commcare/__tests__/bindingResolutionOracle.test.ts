@@ -290,4 +290,57 @@ describe("validateBindingResolution", () => {
 			).toBe(true);
 		});
 	});
+
+	describe("rule 4 — itext media values must resolve to manifest entries", () => {
+		const itextWithMedia = (mediaValue: string): string => `
+<itext><translation lang="en" default="">
+  <text id="q-label">
+    <value>Q</value>
+    <value form="image">${mediaValue}</value>
+  </text>
+</translation></itext>`;
+
+		it("passes when every itext media jr:// path resolves into the manifest", () => {
+			const xml = makeForm(
+				`<bind nodeset="/data/q"/>${itextWithMedia("jr://file/commcare/abc.png")}`,
+				`<q/>`,
+			);
+			const manifest = new Set(["commcare/abc.png"]);
+			expect(
+				validateBindingResolution(xml, "f", "m", new Set(), manifest),
+			).toEqual([]);
+		});
+
+		it("flags a media value whose path the manifest doesn't carry (BINDING_RESOLUTION_MEDIA_REF_UNDECLARED)", () => {
+			const xml = makeForm(
+				`<bind nodeset="/data/q"/>${itextWithMedia("jr://file/commcare/missing.png")}`,
+				`<q/>`,
+			);
+			const errors = validateBindingResolution(
+				xml,
+				"f",
+				"m",
+				new Set(),
+				new Set<string>(),
+			);
+			expect(
+				errors.some(
+					(e) =>
+						e.code === "BINDING_RESOLUTION_MEDIA_REF_UNDECLARED" &&
+						e.message.includes("missing.png"),
+				),
+			).toBe(true);
+		});
+
+		it("skips the media check when no manifest is supplied (media OFF)", () => {
+			const xml = makeForm(
+				// Media values would normally NOT be emitted under media-OFF, but
+				// the oracle still must not synthesize a finding when the caller
+				// has no manifest to resolve against.
+				`<bind nodeset="/data/q"/>${itextWithMedia("jr://file/commcare/whatever.png")}`,
+				`<q/>`,
+			);
+			expect(validateBindingResolution(xml, "f", "m", new Set())).toEqual([]);
+		});
+	});
 });

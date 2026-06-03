@@ -9,12 +9,14 @@
 // `ColumnKind` union without a parallel entry here is a compile-
 // time error, so the editor can never silently bypass a kind.
 //
-// Six kinds — `plain`, `date`, `phone`, `id-mapping`, `interval`,
-// `calculated`. The `interval` kind dispatches on its own
-// `display: "always" | "flag"` discriminator; one card body covers
-// both modes. The `calculated` kind has no `field` slot — the
-// expression IS the source — so its card body skips the field
-// picker and mounts `ExpressionCardEditor` directly.
+// Seven kinds — `plain`, `date`, `phone`, `id-mapping`, `image-map`,
+// `interval`, `calculated`. `image-map` mirrors `id-mapping`'s
+// value-lookup card with an image slot per row instead of a label. The
+// `interval` kind dispatches on its own `display: "always" | "flag"`
+// discriminator; one card body covers both modes. The `calculated`
+// kind has no `field` slot — the expression IS the source — so its
+// card body skips the field picker and mounts `ExpressionCardEditor`
+// directly.
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
@@ -22,6 +24,7 @@ import tablerHourglass from "@iconify-icons/tabler/hourglass";
 import tablerListNumbers from "@iconify-icons/tabler/list-numbers";
 import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPhone from "@iconify-icons/tabler/phone";
+import tablerPhoto from "@iconify-icons/tabler/photo";
 import tablerTextSize from "@iconify-icons/tabler/text-size";
 import type { ComponentType } from "react";
 import type { CaseProperty, CaseType } from "@/lib/domain";
@@ -32,6 +35,7 @@ import {
 	dateColumn,
 	effectiveDataType,
 	idMappingColumn,
+	imageMapColumn,
 	intervalColumn,
 	isDateTyped,
 	isTextShaped,
@@ -42,6 +46,7 @@ import { literal, term } from "@/lib/domain/predicate";
 import { CalculatedColumnCard } from "./cards/column/CalculatedColumnCard";
 import { DateColumnCard } from "./cards/column/DateColumnCard";
 import { IdMappingCard } from "./cards/column/IdMappingCard";
+import { ImageMapColumnCard } from "./cards/column/ImageMapColumnCard";
 import { IntervalCard } from "./cards/column/IntervalCard";
 import { PhoneColumnCard } from "./cards/column/PhoneColumnCard";
 import { PlainColumnCard } from "./cards/column/PlainColumnCard";
@@ -249,6 +254,16 @@ export const columnCardSchemas: {
 		component: IdMappingCard,
 		defaultValue: (ctx) =>
 			idMappingColumn(newUuid(), pickFirstAny(ctx), "", []),
+		applicableForProperty: applicableForAny,
+		applicabilityRequirement: null,
+	},
+	"image-map": {
+		kind: "image-map",
+		label: "Image map",
+		icon: tablerPhoto,
+		description: "Show an image for each property value",
+		component: ImageMapColumnCard,
+		defaultValue: (ctx) => imageMapColumn(newUuid(), pickFirstAny(ctx), "", []),
 		applicableForProperty: applicableForAny,
 		applicabilityRequirement: null,
 	},

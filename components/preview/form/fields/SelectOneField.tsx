@@ -1,7 +1,9 @@
 "use client";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { SingleSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { useEditMode } from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
 
 interface SelectOneFieldProps {
@@ -26,6 +28,7 @@ export function SelectOneField({
 }: SelectOneFieldProps) {
 	const options = field.options ?? [];
 	const showError = state.touched && !state.valid;
+	const isEditMode = useEditMode() === "edit";
 
 	return (
 		<fieldset className="m-0 border-none p-0" onBlur={onBlur}>
@@ -63,11 +66,24 @@ export function SelectOneField({
 						<span className="preview-markdown text-sm text-nova-text">
 							<PreviewMarkdown inline>{opt.label}</PreviewMarkdown>
 						</span>
+						{/* Per-option media (the image/audio that makes a visual
+						    choice concrete) — compact so a list of options stays
+						    scannable. */}
+						<MediaDisplay
+							media={opt.media}
+							interactive={!isEditMode}
+							imageClassName="max-h-24 max-w-full rounded object-contain"
+						/>
 					</label>
 				))}
 			</div>
 			{showError && state.errorMessage && (
-				<ValidationError message={state.errorMessage} />
+				<ValidationError
+					message={state.errorMessage}
+					media={
+						"validate_msg_media" in field ? field.validate_msg_media : undefined
+					}
+				/>
 			)}
 		</fieldset>
 	);

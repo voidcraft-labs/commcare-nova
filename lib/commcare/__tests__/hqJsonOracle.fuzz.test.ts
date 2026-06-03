@@ -33,18 +33,25 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { expandDoc } from "@/lib/commcare/expander";
+import type {
+	AssetManifest,
+	ResolvedMediaAsset,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { AssetId } from "@/lib/domain/multimedia";
 import {
 	hasCaseSearch,
 	hasChildCase,
+	hasMedia,
 	hasSort,
 	moduleCount,
 	suiteDocArbitrary,
 } from "./suiteDocArbitrary";
+import { type FuzzMediaAsset, fuzzManifestFromDoc } from "./xformDocArbitrary";
 
 /** Fixed seed + run count so a failure reproduces exactly across runs + CI. */
 const SEED = 20260522;
@@ -86,6 +93,29 @@ function hasActiveCaseAction(doc: BlueprintDoc): boolean {
 	return Object.values(doc.forms).some((f) => f.type !== "survey");
 }
 
+/**
+ * Lift the fuzz manifest to `AssetManifest` for `expandDoc({assets})`. The
+ * expander is the only consumer here — it doesn't need bytes (no archive
+ * write); `bytes` stays undefined so the manifest is the path-only shape
+ * the upload path also produces.
+ */
+function toAssetManifest(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): AssetManifest {
+	const m = new Map<AssetId, ResolvedMediaAsset>();
+	for (const [id, fuzz] of fuzzManifest) {
+		m.set(id, {
+			assetId: fuzz.assetId,
+			wirePath: fuzz.wirePath,
+			kind: fuzz.kind,
+			mimeType: fuzz.mimeType,
+			contentHash: fuzz.contentHash,
+			extension: fuzz.extension,
+		});
+	}
+	return m;
+}
+
 describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 	// Census counters accumulated across the run; asserted after.
 	const census = {
@@ -95,42 +125,50 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 		childCase: 0,
 		sort: 0,
 		activeCaseAction: 0,
+		// Media-bearing docs exercise the `multimedia_map` + nav-media +
+		// logo_refs shape checks; floored below so a generator drift can't
+		// silently skip them.
+		mediaBearing: 0,
 	};
 
-	it(
-		"every schema-valid doc expands to an oracle-clean HqApplication",
-		() => {
-			fc.assert(
-				fc.property(suiteDocArbitrary, (doc) => {
-					prepareAndGuard(doc);
+	it("every schema-valid doc expands to an oracle-clean HqApplication", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
+		fc.assert(
+			fc.property(suiteDocArbitrary, (doc) => {
+				prepareAndGuard(doc);
 
-					// Census the doc shape before emitting.
-					census.total += 1;
-					if (moduleCount(doc) > 1) census.multiModule += 1;
-					if (hasCaseSearch(doc)) census.caseSearch += 1;
-					if (hasChildCase(doc)) census.childCase += 1;
-					if (hasSort(doc)) census.sort += 1;
-					if (hasActiveCaseAction(doc)) census.activeCaseAction += 1;
+				// Census the doc shape before emitting.
+				census.total += 1;
+				if (moduleCount(doc) > 1) census.multiModule += 1;
+				if (hasCaseSearch(doc)) census.caseSearch += 1;
+				if (hasChildCase(doc)) census.childCase += 1;
+				if (hasSort(doc)) census.sort += 1;
+				if (hasActiveCaseAction(doc)) census.activeCaseAction += 1;
+				if (hasMedia(doc)) census.mediaBearing += 1;
 
-					const hqJson = expandDoc(doc);
-					const oracleErrors = validateHqJson(hqJson);
-					if (oracleErrors.length > 0) {
-						throw new Error(
-							`Oracle flagged expanded HqApplication:\n${oracleErrors
-								.map((e) => `  - [${e.code}] ${errorToString(e)}`)
-								.join("\n")}\n\n--- expanded modules ---\n${JSON.stringify(
-								hqJson.modules,
-								null,
-								2,
-							)}`,
-						);
-					}
-				}),
-				{ numRuns: NUM_RUNS, seed: SEED },
-			);
-		},
-		FUZZ_TIMEOUT_MS,
-	);
+				// Media-on path: thread the fuzz manifest through `expandDoc` so
+				// the multimedia_map + nav-media dicts + logo_refs land on the
+				// expanded application, which is what the oracle's
+				// `multimedia_map`/nav-media/logo shape checks resolve against.
+				const manifest = toAssetManifest(fuzzManifestFromDoc(doc));
+				const hqJson = expandDoc(doc, { assets: manifest });
+				const oracleErrors = validateHqJson(hqJson);
+				if (oracleErrors.length > 0) {
+					throw new Error(
+						`Oracle flagged expanded HqApplication:\n${oracleErrors
+							.map((e) => `  - [${e.code}] ${errorToString(e)}`)
+							.join("\n")}\n\n--- expanded modules ---\n${JSON.stringify(
+							hqJson.modules,
+							null,
+							2,
+						)}`,
+					);
+				}
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED },
+		);
+	});
 
 	it("the run hit minimum coverage thresholds for each import-fatal surface", () => {
 		// These ratios are floors, not targets — a generator that drifts below any
@@ -149,5 +187,9 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 		// number/format propagation onto the detail surfaces.
 		expect(census.caseSearch / census.total).toBeGreaterThan(0.25);
 		expect(census.sort / census.total).toBeGreaterThan(0.3);
+		// Media-bearing docs drive the multimedia_map + nav-media + logo_refs
+		// shape checks. The floor prevents a generator drift that drops media
+		// emission from silently waiving those checks.
+		expect(census.mediaBearing / census.total).toBeGreaterThan(0.3);
 	});
 });
