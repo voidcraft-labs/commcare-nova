@@ -59,39 +59,58 @@ import { creditGrantDocSchema, creditMonthDocSchema } from "@/lib/db/types";
  * `Reservation.period` is checked against the genuine value rather than a stub
  * that could drift from production.
  */
-const { txGet, txSet, runTransactionMock, ref, grantRef, creditMonthsGet } =
-	vi.hoisted(() => {
-		const runTransactionMock = vi.fn();
-		// The raw month ref the production code holds: its `.firestore.runTransaction`
-		// is the entry point shared by every transactional writer here (reserve,
-		// refund, reset, grant), and `ref` itself is the month-doc identity asserted
-		// below. reset/grant write a SECOND doc — the audit row — so a distinct
-		// `grantRef` stands in for `collections.creditGrants(userId).doc()`. The two
-		// `tx.set` calls reset/grant make are told apart by ref identity (month vs
-		// grant), never by call order, so a future reordering of the writes can't make
-		// an assertion silently pass against the wrong document.
-		const ref = { firestore: { runTransaction: runTransactionMock } };
-		const grantRef = { __kind: "grantRef" };
-		// `getCreditSummary` is a plain collection read, NOT a transaction — it calls
-		// `collections.creditMonths(userId).get()`. This spy stands in for that read so
-		// each summary case scripts the on-disk month set it sums over.
-		const creditMonthsGet = vi.fn();
-		return {
-			txGet: vi.fn(),
-			txSet: vi.fn(),
-			runTransactionMock,
-			ref,
-			grantRef,
-			creditMonthsGet,
-		};
-	});
+const {
+	txGet,
+	txSet,
+	runTransactionMock,
+	ref,
+	grantRef,
+	creditMonthsGet,
+	creditMonthGet,
+} = vi.hoisted(() => {
+	const runTransactionMock = vi.fn();
+	// The raw month ref the production code holds: its `.firestore.runTransaction`
+	// is the entry point shared by every transactional writer here (reserve,
+	// refund, reset, grant), and `ref` itself is the month-doc identity asserted
+	// below. reset/grant write a SECOND doc — the audit row — so a distinct
+	// `grantRef` stands in for `collections.creditGrants(userId).doc()`. The two
+	// `tx.set` calls reset/grant make are told apart by ref identity (month vs
+	// grant), never by call order, so a future reordering of the writes can't make
+	// an assertion silently pass against the wrong document.
+	const ref = { firestore: { runTransaction: runTransactionMock } };
+	const grantRef = { __kind: "grantRef" };
+	// `getCreditSummary` is a plain collection read, NOT a transaction — it calls
+	// `collections.creditMonths(userId).get()`. This spy stands in for that read so
+	// each summary case scripts the on-disk month set it sums over.
+	const creditMonthsGet = vi.fn();
+	// `getCurrentCreditBalance` reads ONE converter-applied doc, NOT the whole
+	// collection — it calls `docs.creditMonth(userId, period).get()`. This spy
+	// stands in for that single-doc read so each balance case scripts just the
+	// current-period snapshot, isolating the hot-path read from the summary's
+	// collection scan.
+	const creditMonthGet = vi.fn();
+	return {
+		txGet: vi.fn(),
+		txSet: vi.fn(),
+		runTransactionMock,
+		ref,
+		grantRef,
+		creditMonthsGet,
+		creditMonthGet,
+	};
+});
 
 vi.mock("../firestore", () => ({
 	// `docs.creditMonthRaw` resolves the converter-less month ref every
-	// transactional writer reads/writes; `collections.creditGrants(...).doc()`
-	// mints the append-only audit ref reset/grant write alongside it; and
-	// `collections.creditMonths(...).get()` is the summary's read of every month.
-	docs: { creditMonthRaw: () => ref },
+	// transactional writer reads/writes; `docs.creditMonth` is the converter-applied
+	// single-doc ref the hot-path balance read goes through;
+	// `collections.creditGrants(...).doc()` mints the append-only audit ref
+	// reset/grant write alongside it; and `collections.creditMonths(...).get()` is
+	// the summary's read of every month.
+	docs: {
+		creditMonthRaw: () => ref,
+		creditMonth: () => ({ get: creditMonthGet }),
+	},
 	collections: {
 		creditGrants: () => ({ doc: () => grantRef }),
 		creditMonths: () => ({ get: creditMonthsGet }),
@@ -865,5 +884,40 @@ describe("getCreditSummary", () => {
 			balance: MONTHLY_CREDIT_ALLOWANCE,
 			lifetimeConsumed: 0,
 		});
+	});
+});
+
+/**
+ * `getCurrentCreditBalance` — the chat gate's hot-path read. Distinct from
+ * `getCreditSummary` in two ways the tests pin: it reads ONE doc (the
+ * current-period balance) via `docs.creditMonth(...).get()`, not the whole
+ * collection, and it returns just the spendable number. A present doc yields
+ * `allowance + bonus − consumed`; an absent doc yields a full allowance (the
+ * same absent-doc = full-balance rule the gate and dashboard share), so a
+ * brand-new month gates correctly with no pre-seeding write.
+ */
+describe("getCurrentCreditBalance", () => {
+	const USER = "user-balance-test";
+
+	beforeEach(() => {
+		creditMonthGet.mockReset();
+	});
+
+	it("returns allowance + bonus − consumed for the present current-period doc", async () => {
+		creditMonthGet.mockResolvedValue({
+			exists: true,
+			data: () => ({ allowance: 2000, consumed: 105, bonus: 50 }),
+		});
+		const { getCurrentCreditBalance } = await import("../credits");
+
+		// 2000 + 50 − 105.
+		expect(await getCurrentCreditBalance(USER)).toBe(1945);
+	});
+
+	it("returns a full allowance when the current-period doc is absent (no pre-seeding write)", async () => {
+		creditMonthGet.mockResolvedValue({ exists: false });
+		const { getCurrentCreditBalance } = await import("../credits");
+
+		expect(await getCurrentCreditBalance(USER)).toBe(MONTHLY_CREDIT_ALLOWANCE);
 	});
 });

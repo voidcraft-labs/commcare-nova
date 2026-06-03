@@ -19,16 +19,20 @@ import {
 	hasActiveGeneration,
 	loadAppOwner,
 } from "@/lib/db/apps";
+import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import {
-	getMonthlyUsage,
-	MONTHLY_SPEND_CAP_USD,
-	UsageAccumulator,
-} from "@/lib/db/usage";
+	getCurrentCreditBalance,
+	OutOfCreditsError,
+	type Reservation,
+	reserveCredits,
+} from "@/lib/db/credits";
+import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { SA_MODEL } from "@/lib/models";
+import { creditGateDecision } from "./creditGate";
 import { CACHE_TTL_MS, chatRequestSchema } from "./schema";
 
 export const maxDuration = 300;
@@ -62,24 +66,61 @@ export async function POST(req: Request) {
 		});
 	}
 
-	// Spend cap check — fails closed on Firestore errors. If we can't verify
-	// the user's usage, we reject the request rather than risk uncapped spend.
+	const userId = keyResult.session.user.id;
+
+	/* The credit-gate decision for this POST. Computed from the RAW `messages`
+	 * array (straight off `body`) and the raw `body.appReady` — BEFORE the
+	 * message-strategy transform further down (the `editing && cacheExpired`
+	 * last-user-message-only path). That transform leaves a `user` message last
+	 * on every POST, so reading the transformed array here would charge every
+	 * clarification round-trip and break the free-continuation property. */
+	const { chargeable, cost } = creditGateDecision({
+		rawMessages: messages,
+		appReady: !!body.appReady,
+	});
+
+	/* Credit gate — fast-fail read. Sits where the dollar cap used to, at the top
+	 * of the handler, and FAILS CLOSED: any Firestore read error rejects with 503
+	 * rather than letting an ungated/uncharged generation through. This is the
+	 * cheap pre-flight read; the transactional reservation that actually books
+	 * the charge runs later, after every pre-stream rejection point.
+	 *
+	 * Two independent checks:
+	 *   (a) Actual-$ backstop — runs on EVERY POST (continuations included), so a
+	 *       user hammering a broken app on free continuations still trips it. The
+	 *       dollar threshold is never surfaced to the user (the message must not
+	 *       leak "$50").
+	 *   (b) Credit balance — only on CHARGEABLE POSTs. A continuation never
+	 *       reserves, so it has no balance to check; gating it here would also
+	 *       create an orphan app in the common out-of-credits case. */
 	try {
-		const usage = await getMonthlyUsage(keyResult.session.user.id);
-		if ((usage?.cost_estimate ?? 0) >= MONTHLY_SPEND_CAP_USD) {
+		const usage = await getMonthlyUsage(userId);
+		if ((usage?.cost_estimate ?? 0) >= ACTUAL_COST_BACKSTOP_USD) {
 			return Response.json(
 				{
-					error: MESSAGES.out_of_credits,
+					error:
+						"You've reached your monthly usage limit. It resets on the 1st.",
 					type: "out_of_credits",
 				},
 				{ status: 429 },
 			);
 		}
+
+		if (chargeable) {
+			const balance = await getCurrentCreditBalance(userId);
+			if (balance < cost) {
+				return Response.json(
+					{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
+					{ status: 429 },
+				);
+			}
+		}
 	} catch (err) {
-		log.error("[chat] spend cap check failed", err);
+		log.error("[chat] credit gate read failed", err);
 		return Response.json(
 			{
-				error: "Unable to verify usage. Please try again shortly.",
+				error:
+					"Unable to verify your credit balance. Please try again shortly.",
 				type: "internal",
 			},
 			{ status: 503 },
@@ -108,7 +149,7 @@ export async function POST(req: Request) {
 	let appCreated = false;
 	if (!appId) {
 		try {
-			appId = await createApp(keyResult.session.user.id, effectiveRunId);
+			appId = await createApp(userId, effectiveRunId);
 			appCreated = true;
 		} catch (err) {
 			log.error("[chat] app creation failed", err);
@@ -125,7 +166,7 @@ export async function POST(req: Request) {
 		 * longer scopes writes to the authenticated user. Without this check,
 		 * a crafted request with another user's appId would overwrite their app. */
 		const owner = await loadAppOwner(appId);
-		if (!owner || owner !== keyResult.session.user.id) {
+		if (!owner || owner !== userId) {
 			return Response.json(
 				{ error: "App not found", type: "not_found" },
 				{ status: 404 },
@@ -134,17 +175,14 @@ export async function POST(req: Request) {
 	}
 
 	// Concurrency guard — only one generation at a time per user. Prevents
-	// concurrent requests from blowing past the spend cap and works across
+	// concurrent requests from racing past the credit gate and works across
 	// Cloud Run instances because the check is Firestore-based.
 	//
 	// Runs AFTER createApp so the new doc acts as a lock. If another build
 	// is already in progress, we fail the just-created doc and return 429.
 	// Retries on the same app pass through (excludeAppId).
 	try {
-		const inFlight = await hasActiveGeneration(
-			keyResult.session.user.id,
-			appId,
-		);
+		const inFlight = await hasActiveGeneration(userId, appId);
 		if (inFlight) {
 			if (!parsed.data.appId) {
 				failApp(appId, "generation_in_progress");
@@ -160,16 +198,64 @@ export async function POST(req: Request) {
 	} catch (err) {
 		log.error("[chat] concurrency check failed", err);
 		// Fail open — if we can't check, let the request through rather than
-		// blocking users due to a transient Firestore read error. The spend
-		// cap check above already fails closed for budget protection.
+		// blocking users due to a transient Firestore read error. The credit
+		// gate's fast-fail read above already fails closed for budget protection,
+		// and the reservation transaction below is the true no-overshoot guard.
+	}
+
+	/* Reserve the credits for this run — the transactional no-overshoot guard.
+	 *
+	 * Placement is load-bearing: this runs AFTER every pre-stream rejection point
+	 * (createApp's 503, the ownership 404, the concurrency 429) and BEFORE the
+	 * accumulator/stream are constructed. So a successful reservation is never
+	 * followed by an early return that would leak the booked charge — the only
+	 * returns past this point are this block's own catch arms, which fire only
+	 * when the transaction THREW (rolled back, nothing booked). Everything else
+	 * runs inside the stream, where `flush()` refunds a failed or no-op run.
+	 *
+	 * Unlike the fast-fail balance read above (which can race a concurrent run),
+	 * the reservation reads-checks-debits atomically, closing the cross-app
+	 * concurrent-new-run race that `hasActiveGeneration` (per-app, fail-open)
+	 * does not. A free continuation never reserves. */
+	let reservation: Reservation | undefined;
+	if (chargeable) {
+		try {
+			reservation = await reserveCredits(userId, cost);
+		} catch (err) {
+			if (err instanceof OutOfCreditsError) {
+				// Lost the rare race: passed the fast-fail balance read, then a
+				// concurrent reservation depleted the balance before this debit. Fail
+				// the just-created build doc (a retry on an existing app must not) and
+				// surface the same out-of-credits 429 the fast-fail read returns.
+				if (appCreated) {
+					failApp(appId, "out_of_credits");
+				}
+				return Response.json(
+					{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
+					{ status: 429 },
+				);
+			}
+			// Any other failure is infrastructure (Firestore down / transaction
+			// contention exhausted). Fail closed — never silently skip the charge
+			// and let an uncharged generation through.
+			log.error("[chat] credit reservation failed", err);
+			return Response.json(
+				{
+					error: "Unable to reserve credits. Please try again shortly.",
+					type: "internal",
+				},
+				{ status: 503 },
+			);
+		}
 	}
 
 	/* Two collaborators replace the legacy EventLogger:
 	 *
 	 *  - `logWriter` batches durable event envelopes to Firestore (one doc per
 	 *    mutation/conversation event). Failures never throw.
-	 *  - `usage` accumulates per-call token counts for the monthly spend cap
-	 *    and per-run summary document. Flushed on every terminal path.
+	 *  - `usage` accumulates per-call token counts for the actual-$ ledger and
+	 *    the per-run summary document, and carries this run's credit reservation
+	 *    so a failed or no-op run can refund it. Flushed on every terminal path.
 	 *
 	 * Placeholder fields (`promptMode` / `freshEdit` / `appReady` / `cacheExpired`
 	 * / `moduleCount`) are rewritten via `usage.configureRun()` inside the
@@ -181,7 +267,7 @@ export async function POST(req: Request) {
 	const logWriter = new LogWriter(appId, "chat");
 	const usage = new UsageAccumulator({
 		appId,
-		userId: keyResult.session.user.id,
+		userId,
 		runId: effectiveRunId,
 		model: SA_MODEL,
 		promptMode: "build",
@@ -189,13 +275,28 @@ export async function POST(req: Request) {
 		appReady: false,
 		cacheExpired: false,
 		moduleCount: 0,
+		/* Reservation context for the refund branch in `flush()`. All three travel
+		 * together (a chargeable turn that reserved) or all absent (a free
+		 * continuation, which never reserves). `reservation` is set iff `chargeable`
+		 * succeeded above, so its `period` is present exactly when `didReserve` is. */
+		didReserve: chargeable,
+		reservedAmount: chargeable ? cost : undefined,
+		chargePeriod: reservation?.period,
 	});
 
-	/* Safety net on client disconnect — both flushes are idempotent, so this
-	 * is a no-op if the execute finally block already ran. Fire-and-forget is
-	 * correct: abort is asynchronous/out-of-band, no handler awaits it. */
+	/* Observability safety net on client disconnect. Deliberately flushes ONLY
+	 * the log writer, NOT the usage accumulator: `usage.flush()` makes the credit
+	 * decision (charge vs. refund) AND latches `_finalized`, and at disconnect the
+	 * accumulator holds a MID-FLIGHT snapshot — flushing it here would refund the
+	 * reservation against a `costEstimate` of 0 and then no-op the real flush, so a
+	 * run that kept accruing cost (the model call is now cancelled via `abortSignal`
+	 * below, but any already-streamed steps still count) would finalize as a
+	 * refunded, cost-invisible free build. The single authoritative credit/cost
+	 * flush is the execute `finally`, which runs after the agent stream reaches its
+	 * TRUE final state (completed, cancelled, or errored) — see that block. The log
+	 * flush makes no credit decision, so it is safe to fire here. Idempotent and
+	 * fire-and-forget (abort is out-of-band; no handler awaits it). */
 	req.signal.addEventListener("abort", () => {
-		void usage.flush();
 		void logWriter.flush();
 	});
 
@@ -275,7 +376,17 @@ export async function POST(req: Request) {
 					.filter(isTextUIPart)
 					.map((p) => p.text)
 					.join("\n");
-				ctx.emitConversation({ type: "user-message", text });
+				/* Guarded the way `GenerationContext.emitError` guards its own
+				 * conversation write: this call runs BEFORE the main try below, so an
+				 * escaping throw would skip the `finally` and leak the credit
+				 * reservation (no flush → no refund of a run that never started). A
+				 * failed user-message log is non-fatal to the request — log it and
+				 * proceed; the SA still runs and the reservation still finalizes. */
+				try {
+					ctx.emitConversation({ type: "user-message", text });
+				} catch (err) {
+					log.error("[chat] user-message conversation event failed", err);
+				}
 			} else if (lastMessage) {
 				/* Defensive — the useChat flow always ends with a user message, but
 				 * if a caller bypassed the client and sent a malformed history we
@@ -289,19 +400,54 @@ export async function POST(req: Request) {
 				);
 			}
 
+			/* Latch so the refund signal fires at most once per run. Both the
+			 * stream-error and init-error catches funnel through `handleRouteError`,
+			 * and a run could in principle hit it more than once; the user should see
+			 * exactly one refund toast, and the credits are refunded exactly once by
+			 * the (idempotent) `flush()` regardless. */
+			let refundSignalled = false;
+
 			/**
-			 * Classify, emit, and persist a generation error.
+			 * Classify, emit, and persist a generation error — the single failure
+			 * funnel both the stream and init catches flow through.
 			 *
 			 * Fire-and-forget — `failApp` is itself fire-and-forget (it swallows
 			 * Firestore errors internally), and the emit helpers never throw.
 			 * Returning `void` makes that contract explicit so a future
 			 * maintainer doesn't wrap the call in `await` expecting the
 			 * Firestore write to complete before continuing.
+			 *
+			 * Marks the run failed so `flush()` hands the reservation back (actual $
+			 * still accrues — the backstop must see retry-spam — but the user isn't
+			 * charged credits for a broken result). On a chargeable run it also emits
+			 * the transient `data-credit-refund` part so the client can toast the
+			 * refund. The signal is optimistic (emitted here, at failure detection);
+			 * the authoritative decrement lands later in `flush()`.
 			 */
 			const handleRouteError = (error: unknown, source: string): void => {
+				/* A client disconnect is NOT a generation failure. The AI SDK ends an
+				 * aborted stream cleanly (an `abort` chunk, then done — no throw), but
+				 * the reader can still surface a throw when `writer.write` hits the
+				 * torn-down stream, landing us here. On a true abort we must NOT mark
+				 * the run failed, fail the app, or refund-toast: that would log a false
+				 * error, flip a healthy app to `error`, and toast a refund the user
+				 * never sees. The execute `finally`'s `flush()` is the sole arbiter of
+				 * charge-vs-refund for an abort, deciding purely on the final
+				 * `costEstimate` (0 steps → refund; ≥1 step → keep the charge). */
+				if (req.signal.aborted) return;
+
 				const classified = classifyError(error);
 				ctx.emitError(classified, source);
 				failApp(appId, classified.type);
+				usage.markRunFailed();
+				if (chargeable && !refundSignalled) {
+					refundSignalled = true;
+					writer.write({
+						type: "data-credit-refund",
+						data: { amount: cost },
+						transient: true,
+					});
+				}
 			};
 
 			try {
@@ -382,9 +528,19 @@ export async function POST(req: Request) {
 								.filter((m): m is UIMessage => m !== undefined)
 					: messages;
 
+				/* Forward the request's abort signal into the agent so a client
+				 * disconnect actually CANCELS the model call. Without it, the SDK
+				 * keeps the SA running on the shared Anthropic key after the user is
+				 * gone (Cloud Run holds the function alive up to `maxDuration`),
+				 * burning real cost no one reads. With it, an abort cancels the call
+				 * and the stream reaches a genuine final state, so the `finally`
+				 * flush can decide charge-vs-refund on the TRUE cost: 0 steps → the
+				 * reserved credits are refunded; ≥1 step → the real cost is recorded
+				 * and the charge stands. */
 				const agentStream = await createAgentUIStream({
 					agent: sa,
 					uiMessages: effectiveMessages,
+					abortSignal: req.signal,
 				});
 
 				// Manual consumption instead of writer.merge() — lets us catch stream

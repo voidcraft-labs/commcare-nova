@@ -8,7 +8,7 @@
  * drift from the amount the gate and the dashboards quote.
  */
 import { FieldValue } from "@google-cloud/firestore";
-import { MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
+import { creditBalance, MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
 import { collections, docs } from "./firestore";
 import { getCurrentPeriod } from "./period";
 import type { CreditMonthDoc } from "./types";
@@ -322,4 +322,26 @@ export async function getCreditSummary(userId: string): Promise<CreditSummary> {
 		balance: allowance + bonus - consumed,
 		lifetimeConsumed,
 	};
+}
+
+/**
+ * Read ONLY the current period's spendable balance — the hot-path read the chat
+ * gate runs on every chargeable POST.
+ *
+ * Deliberately distinct from `getCreditSummary`: the summary reads the user's
+ * ENTIRE credit-months collection to sum `lifetimeConsumed`, which the gate
+ * never needs. This touches a single doc (the current-period balance) and
+ * returns just the number, so a chargeable request pays one O(1) read instead
+ * of an O(months) collection scan. The dashboards keep `getCreditSummary`.
+ *
+ * Reads through the CONVERTER ref (not the raw transaction ref): a settled,
+ * non-transactional doc is always complete — every writer here writes
+ * `allowance` explicitly — so the parse-on-read hazard that the reservation's
+ * mid-transaction raw read guards against doesn't apply. An absent doc reads as
+ * a full allowance via `creditBalance(undefined)`, the same absent-doc =
+ * full-balance rule the gate and dashboard share.
+ */
+export async function getCurrentCreditBalance(userId: string): Promise<number> {
+	const snap = await docs.creditMonth(userId, getCurrentPeriod()).get();
+	return creditBalance(snap.exists ? snap.data() : undefined);
 }
