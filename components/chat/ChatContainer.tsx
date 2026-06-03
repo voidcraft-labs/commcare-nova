@@ -18,7 +18,11 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Logo } from "@/components/ui/Logo";
 import { parseApiErrorMessage } from "@/lib/apiError";
-import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import {
+	type AttachmentRef,
+	messageMetadataSchema,
+	type NovaUIMessage,
+} from "@/lib/chat/attachmentRefs";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
 import {
@@ -71,6 +75,10 @@ function createChatInstance(
 	lastResponseAtRef: { current: string | undefined },
 ): Chat<NovaUIMessage> {
 	return new Chat<NovaUIMessage>({
+		// Validates any message metadata the SDK parses on the client. Outbound
+		// attachment metadata rides `sendMessage` regardless; this guards the
+		// (currently unused) inbound path where the server sets message metadata.
+		messageMetadataSchema,
 		transport: new DefaultChatTransport({
 			api: "/api/chat",
 			body: () => {

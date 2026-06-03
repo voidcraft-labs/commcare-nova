@@ -20,6 +20,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
+import tablerEye from "@iconify-icons/tabler/eye";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef, useState } from "react";
 import {
@@ -28,6 +29,10 @@ import {
 	isDocumentKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import {
+	AssetPreviewDialog,
+	type AssetPreviewTarget,
+} from "./AssetPreviewDialog";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
 import { ExtractionStatusBadge } from "./ExtractionStatusBadge";
@@ -120,6 +125,12 @@ function PickerBody({
 		onPick(asset);
 	};
 
+	// Preview a library asset WITHOUT picking it — so a user can check a
+	// document's "What the AI reads" extract before attaching. `null` = closed.
+	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
+		null,
+	);
+
 	return (
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
@@ -163,6 +174,13 @@ function PickerBody({
 						hasMore={hasMore}
 						loadMore={loadMore}
 						onPick={commit}
+						onPreview={(asset) =>
+							setPreviewTarget({
+								id: asset.id,
+								kind: asset.kind,
+								filename: asset.displayName ?? asset.originalFilename,
+							})
+						}
 						// The type filter only makes sense when more than one
 						// kind is browsable; a single-kind library is already
 						// narrowed by the fetch.
@@ -172,6 +190,15 @@ function PickerBody({
 					/>
 				)}
 			</div>
+
+			{/* Preview opens OVER the picker (its portal mounts after, so it
+			 *  stacks on top); closing it returns to the library. */}
+			<AssetPreviewDialog
+				target={previewTarget}
+				onOpenChange={(open) => {
+					if (!open) setPreviewTarget(null);
+				}}
+			/>
 		</>
 	);
 }
@@ -349,6 +376,7 @@ function LibraryTab({
 	hasMore,
 	loadMore,
 	onPick,
+	onPreview,
 	filter,
 	kinds,
 	onFilterChange,
@@ -359,6 +387,8 @@ function LibraryTab({
 	hasMore: boolean;
 	loadMore: () => void;
 	onPick: (asset: MediaAssetView) => void;
+	/** Open the preview for an asset without picking it. */
+	onPreview: (asset: MediaAssetView) => void;
 	/** Active browse filter, or `null` to hide the filter row (single-kind slot). */
 	filter: LibraryFilter | null;
 	kinds: readonly AssetKind[];
@@ -424,7 +454,7 @@ function LibraryTab({
 			) : (
 				<ul className="grid grid-cols-3 gap-2">
 					{filtered.map((asset) => (
-						<li key={asset.id} className="relative">
+						<li key={asset.id} className="group relative">
 							<button
 								type="button"
 								onClick={() => onPick(asset)}
@@ -432,6 +462,18 @@ function LibraryTab({
 								className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 							>
 								<LibraryThumb asset={asset} />
+							</button>
+							{/* Preview without picking — a sibling of the pick button (not
+							 *  nested), revealed on hover/focus. Lets a user check a
+							 *  document's "What the AI reads" extract before attaching. */}
+							<button
+								type="button"
+								onClick={() => onPreview(asset)}
+								title={`Preview ${asset.displayName ?? asset.originalFilename}`}
+								aria-label={`Preview ${asset.displayName ?? asset.originalFilename}`}
+								className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-text focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-violet-bright group-hover:opacity-100"
+							>
+								<Icon icon={tablerEye} className="size-3.5" />
 							</button>
 							{/* Extraction indicator for documents — a sibling of the pick
 							 *  button (not nested), so the failed-state retry control isn't
