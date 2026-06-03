@@ -2744,6 +2744,11 @@ describe("empty form expansion", () => {
 		// submission needs the OpenRosa metadata. The nodes are `orx:`-namespaced
 		// (so Vellum recognizes the standard metadata block), with `appVersion`
 		// in the CommCare `cc:` namespace.
+		// The `orx:` prefix MUST be declared on the root — without it the
+		// `<orx:meta>` prefix is undefined, the whole form is malformed XML,
+		// and CCHQ's parser rejects it (which silently breaks every media
+		// reference on upload). Assert the declaration so it can't go missing.
+		expect(xml).toContain('xmlns:orx="http://openrosa.org/jr/xforms"');
 		expect(xml).toContain('<orx:meta xmlns:cc="http://commcarehq.org/xforms">');
 		expect(xml).toContain("<orx:deviceID/>");
 		expect(xml).toContain("<orx:instanceID/>");

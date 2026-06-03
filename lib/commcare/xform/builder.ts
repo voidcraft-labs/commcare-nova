@@ -497,6 +497,11 @@ export function buildXForm(
 		"h:html",
 		{
 			"xmlns:h": "http://www.w3.org/1999/xhtml",
+			// `orx:` declared on the root because the `<orx:meta>` metadata block
+			// uses it (see `metaBlock.ts`). Without this declaration the prefix is
+			// undefined and the whole form is malformed XML — CCHQ's parser rejects
+			// it, so every media reference fails to resolve on upload.
+			"xmlns:orx": "http://openrosa.org/jr/xforms",
 			xmlns: "http://www.w3.org/2002/xforms",
 			"xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
 			"xmlns:jr": "http://openrosa.org/javarosa",
