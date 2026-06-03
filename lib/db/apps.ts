@@ -220,9 +220,6 @@ function denormalize(doc: PersistableDoc) {
 		connect_type: doc.connectType ?? null,
 		module_count: doc.moduleOrder.length,
 		form_count: formCount,
-		// The app logo's asset id, denormalized so the app list can show it
-		// without reading the whole blueprint. `null` when unset.
-		logo: doc.logo ?? null,
 	};
 }
 
@@ -599,7 +596,10 @@ const SUMMARY_FIELDS = [
 	"form_count",
 	"status",
 	"error_type",
-	"logo",
+	// The logo lives inside the blueprint; a dotted field path reads JUST that
+	// leaf (not the large blueprint map), so the app list shows it for every
+	// app — including ones saved before any denormalized copy existed.
+	"blueprint.logo",
 	"created_at",
 	"updated_at",
 ] as const;
@@ -757,7 +757,7 @@ function projectAppSummary(
 		error_type: isStale
 			? "internal"
 			: ((data.error_type as string | null) ?? null),
-		logo: (data.logo as string | null) ?? null,
+		logo: (data.blueprint as { logo?: string } | undefined)?.logo ?? null,
 		created_at: createdAt.toISOString(),
 		updated_at: updatedAt.toISOString(),
 	};
@@ -1086,7 +1086,7 @@ export async function listDeletedApps(
 			 * type admits both. */
 			status: data.status as AppDoc["status"],
 			error_type: (data.error_type as string | null) ?? null,
-			logo: (data.logo as string | null) ?? null,
+			logo: (data.blueprint as { logo?: string } | undefined)?.logo ?? null,
 			created_at: createdAt.toISOString(),
 			updated_at: updatedAt.toISOString(),
 			/* Both soft-delete fields are non-null on any row this query
