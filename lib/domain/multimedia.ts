@@ -390,6 +390,31 @@ export const MEDIA_ASSET_STATUSES = ["pending", "ready"] as const;
 export type MediaAssetStatus = (typeof MEDIA_ASSET_STATUSES)[number];
 
 /**
+ * Lifecycle of a DOCUMENT's requirements extract — the condensed text the
+ * Solutions Architect actually reads in place of the raw file (images carry
+ * no extract; they reach the model as pixels). Independent of the asset's own
+ * `status`: an asset can be `ready` (bytes validated, in the library) while
+ * its extract is still `extracting`. The chat resolve step waits on a
+ * referenced document's extract, and the file manager surfaces this state so
+ * the user can see that feature extraction is happening.
+ *
+ *  - `extracting` — the extract job is in flight (set before the model call,
+ *    so a concurrent library read reflects it).
+ *  - `ready`      — the extract text lives at `extractGcsObjectKeyFor(...)`
+ *    and `charCount` / `truncated` are recorded.
+ *  - `failed`     — extraction threw; `failureReason` records why. Unlike the
+ *    asset's own pipeline (which deletes the row on failure), a failed extract
+ *    keeps the asset — the bytes are valid, only the condense failed, and the
+ *    chat resolve step has a raw-inline fallback.
+ */
+export const MEDIA_EXTRACT_STATUSES = [
+	"extracting",
+	"ready",
+	"failed",
+] as const;
+export type MediaExtractStatus = (typeof MEDIA_EXTRACT_STATUSES)[number];
+
+/**
  * Final GCS object key derivation. Per-owner namespace gives us
  * (owner, hash) dedup at the storage layer once bytes have been
  * validated — same blob uploaded by two apps of the same user shares
@@ -404,6 +429,29 @@ export function gcsObjectKeyFor(
 	extension: string,
 ): string {
 	return `users/${owner}/${contentHash}${extension}`;
+}
+
+/**
+ * GCS object key for a document's requirements extract — a sibling of the
+ * bytes object under the same per-owner namespace. Keyed by the content hash
+ * AND the extractor `version`, so:
+ *
+ *  - the extract dedups exactly like the bytes (same document re-uploaded by
+ *    the same owner resolves to one extract), and
+ *  - bumping `EXTRACTOR_VERSION` (a prompt/model change) lands a NEW key, so
+ *    every stale extract is invalidated without a migration — the old object
+ *    simply stops being read and ages out, and the next reference re-extracts
+ *    at the current version.
+ *
+ * `.md` because the extractor emits GitHub-flavored markdown (tables for
+ * spreadsheets, bullet structure for prose).
+ */
+export function extractGcsObjectKeyFor(
+	owner: string,
+	contentHash: string,
+	version: number,
+): string {
+	return `users/${owner}/${contentHash}.extract.v${version}.md`;
 }
 
 /**

@@ -324,3 +324,41 @@ export async function downloadAssetBytes(
 export async function deleteAsset(gcsObjectKey: string): Promise<void> {
 	await getBucket().file(gcsObjectKey).delete({ ignoreNotFound: true });
 }
+
+/**
+ * Write a UTF-8 text object (a document's requirements extract). A thin
+ * wrapper over `uploadAssetBytes` so the extract sibling-object is stored
+ * the same way as the bytes, with a `charset=utf-8` content type so the
+ * proxy GET serves it readably. Server-side only — the browser never PUTs
+ * an extract.
+ */
+export async function writeTextObject(
+	gcsObjectKey: string,
+	text: string,
+): Promise<void> {
+	await uploadAssetBytes({
+		gcsObjectKey,
+		bytes: Buffer.from(text, "utf8"),
+		contentType: "text/markdown; charset=utf-8",
+	});
+}
+
+/**
+ * Read a UTF-8 text object back, or `null` if it doesn't exist (the common
+ * "not extracted yet / stale version key" case — the caller treats a miss as
+ * "no current extract"). Bounded by `maxBytes` like every other download:
+ * an extract is small, but the cap keeps a corrupted/oversized object from
+ * pulling unbounded bytes into the request's memory.
+ */
+export async function readTextObject(
+	gcsObjectKey: string,
+	maxBytes: number,
+): Promise<string | null> {
+	// Existence probe first: `downloadAssetBytes` streams and would surface a
+	// missing object as a stream error, not a clean null. The metadata HEAD is
+	// cheap and lets a not-extracted-yet read return null without a throw.
+	const size = await getStoredObjectSize(gcsObjectKey);
+	if (size === null) return null;
+	const bytes = await downloadAssetBytes(gcsObjectKey, maxBytes);
+	return bytes.toString("utf8");
+}

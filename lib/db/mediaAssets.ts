@@ -26,7 +26,7 @@ import {
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { collections, docs } from "./firestore";
-import type { MediaAssetDoc } from "./types";
+import type { MediaAssetDoc, MediaAssetExtract } from "./types";
 
 /**
  * The Firestore-shaped doc plus its id, returned by load helpers
@@ -58,6 +58,19 @@ export interface WireMediaAsset {
 	displayName?: string;
 	status: MediaAssetStatus;
 	createdAt: string;
+	/**
+	 * Document-extract status (absent on media + on not-yet-extracted docs).
+	 * Only the fields the UI needs to render the extraction indicator + gate
+	 * the "What the AI reads" preview — never the extract body (served by
+	 * `GET /api/media/[assetId]/extract`) or the internal `failureReason`
+	 * (the UI shows a generic failed state + retry).
+	 */
+	extract?: {
+		status: MediaAssetExtract["status"];
+		version: number;
+		truncated: boolean;
+		charCount: number;
+	};
 }
 
 /**
@@ -78,6 +91,16 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
 		displayName: record.displayName,
 		status: record.status,
 		createdAt: record.created_at.toDate().toISOString(),
+		// Project only the UI-facing extract fields; the Timestamp +
+		// failureReason stay server-side.
+		extract: record.extract
+			? {
+					status: record.extract.status,
+					version: record.extract.version,
+					truncated: record.extract.truncated,
+					charCount: record.extract.charCount,
+				}
+			: undefined,
 	};
 }
 
@@ -182,6 +205,28 @@ export async function confirmAssetReady(args: {
 		patch.durationMs = args.durationMs;
 	}
 	await docs.mediaAsset(args.assetId).update(patch);
+}
+
+/**
+ * Write the document-extract subobject in one shot, stamping `extractedAt`
+ * server-side. The extract is a self-contained nested object, so a plain
+ * `update({ extract })` replaces the whole subobject on every state
+ * transition (`extracting` → `ready`/`failed`) — no dot-path merge, no stale
+ * leftover field. `failureReason` is passed only on the `failed` transition;
+ * Firestore's `ignoreUndefinedProperties` drops it on the others. The extract
+ * TEXT is written to GCS separately (see `writeTextObject`); this only tracks
+ * status + the metadata the UI and chat resolve step read.
+ */
+export async function setAssetExtractStatus(
+	assetId: AssetId,
+	extract: Omit<MediaAssetExtract, "extractedAt">,
+): Promise<void> {
+	await docs.mediaAsset(assetId).update({
+		extract: {
+			...extract,
+			extractedAt: FieldValue.serverTimestamp() as unknown as Timestamp,
+		},
+	});
 }
 
 /**
