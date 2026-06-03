@@ -20,6 +20,13 @@ import {
 } from "@/lib/domain/multimedia";
 import { triggerAssetExtraction } from "./mediaClient";
 
+/** How often to re-check an extraction another request owns (saw a 202). */
+const POLL_INTERVAL_MS = 4000;
+/** Cap the poll loop so a job that never converges (abandoned mid-extraction)
+ *  stops spinning rather than polling forever — ~5 min, past the route's
+ *  `maxDuration`. The chat's lazy backstop re-reads the document on send. */
+const MAX_POLLS = 75;
+
 /** The minimal asset shape the hook reads — id, kind, and the persisted extract
  *  status (absent until extraction has run). Both `MediaAssetView` and a freshly
  *  uploaded asset satisfy it. */
@@ -44,37 +51,69 @@ export function useDocumentExtraction(
 		isDoc ? (asset.extract?.status ?? null) : null,
 	);
 
-	/** A single in-flight extraction, cancel-safe across unmount. */
+	// Cancel-safety: a long-running POST or a queued poll must not write state
+	// after unmount. The cleanup flips the flag and clears any pending poll.
 	const cancelledRef = useRef(false);
+	const pollTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+	const pollCountRef = useRef(0);
 	useEffect(() => {
 		cancelledRef.current = false;
 		return () => {
 			cancelledRef.current = true;
+			clearTimeout(pollTimerRef.current);
 		};
 	}, []);
 
-	const run = useCallback(() => {
-		setStatus("extracting");
+	/**
+	 * POST the extract route and reflect the result. The route runs extraction
+	 * to completion for the first caller (resolving `ready`/`failed`), but a
+	 * concurrent caller gets `extracting` (202) — so when WE see `extracting`,
+	 * another request owns the job and we must POLL to observe its terminal
+	 * state, or this instance is stuck on "Reading…" forever. Polling re-POSTs
+	 * (cheap: the route short-circuits an in-flight extraction with 202 and a
+	 * completed one with `ready`); capped so a never-converging job stops
+	 * spinning rather than polling indefinitely.
+	 */
+	const poll = useCallback(() => {
 		triggerAssetExtraction(asset.id).then((next) => {
-			// The POST persists server-side even if this component unmounted; we
-			// just don't write to dead state.
-			if (!cancelledRef.current) setStatus(next);
+			if (cancelledRef.current) return;
+			setStatus(next);
+			if (next === "extracting" && pollCountRef.current < MAX_POLLS) {
+				pollCountRef.current += 1;
+				pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+			}
 		});
 	}, [asset.id]);
 
-	// Kick off extraction once when a document isn't already read. The server is
-	// idempotent, so a redundant trigger (e.g. the same doc shown in two places)
-	// collapses to a 202 / ready rather than re-running the model.
+	const run = useCallback(() => {
+		clearTimeout(pollTimerRef.current);
+		pollCountRef.current = 0;
+		setStatus("extracting");
+		poll();
+	}, [poll]);
+
+	// Decide the once-per-mount action for a document. `ready`/`failed` are
+	// TERMINAL stored states — show them and do nothing (a failed doc must NOT
+	// silently re-run the model on every file-manager open; the badge's Retry is
+	// the only re-run path). An `extracting` stored state means a job is already
+	// in flight server-side, so converge on it via the poll WITHOUT starting a
+	// fresh run. Only a never-attempted document kicks off extraction here.
 	const triggeredRef = useRef(false);
 	useEffect(() => {
 		if (!isDoc || triggeredRef.current) return;
-		if (asset.extract?.status === "ready") {
-			setStatus("ready");
+		triggeredRef.current = true;
+		const stored = asset.extract?.status;
+		if (stored === "ready" || stored === "failed") {
+			setStatus(stored);
 			return;
 		}
-		triggeredRef.current = true;
+		if (stored === "extracting") {
+			setStatus("extracting");
+			pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+			return;
+		}
 		run();
-	}, [isDoc, asset.extract?.status, run]);
+	}, [isDoc, asset.extract?.status, run, poll]);
 
 	return { status, retry: run };
 }

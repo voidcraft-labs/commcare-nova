@@ -38,14 +38,18 @@ export function AttachmentChip({
 	trailing,
 }: AttachmentChipProps) {
 	const meta = ASSET_KIND_META[kind];
-	const body = (
+	// Only the glyph + filename go inside the preview button. `trailing` (the
+	// extraction badge — which can itself be a Retry BUTTON on failure) and the
+	// remove button are SIBLINGS of it: HTML forbids interactive content nested
+	// inside a `<button>`, and nesting would also bubble a Retry/remove click
+	// through to the preview handler.
+	const label = (
 		<>
 			<Icon
 				icon={meta.icon}
 				className="size-3.5 shrink-0 text-nova-text-muted"
 			/>
 			<span className="truncate">{filename}</span>
-			{trailing}
 		</>
 	);
 
@@ -58,11 +62,12 @@ export function AttachmentChip({
 					title={`Preview ${filename}`}
 					className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 				>
-					{body}
+					{label}
 				</button>
 			) : (
-				<span className="flex min-w-0 items-center gap-1.5">{body}</span>
+				<span className="flex min-w-0 items-center gap-1.5">{label}</span>
 			)}
+			{trailing}
 			{onRemove && (
 				<button
 					type="button"
