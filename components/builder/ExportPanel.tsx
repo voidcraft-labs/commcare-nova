@@ -123,10 +123,15 @@ export const ExportPanel = memo(function ExportPanel({
 				return;
 			}
 			const blob = await res.blob();
+			// The export is media-aware: a media-free app comes back as a
+			// plain JSON file; an app WITH media comes back as a `.zip`
+			// bundling the JSON + a CommCare-HQ-format multimedia zip + a
+			// README. Name the download from the response type.
+			const ext = blob.type.includes("zip") ? "zip" : "json";
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");
 			a.href = url;
-			a.download = `${s.appName || "app"}.json`;
+			a.download = `${s.appName || "app"}.${ext}`;
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch {
