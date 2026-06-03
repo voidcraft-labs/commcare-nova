@@ -1,9 +1,10 @@
 /**
  * CommCare HQ REST API client — server-side only.
  *
- * Handles authenticated requests to CommCare HQ for listing project spaces
- * and importing apps. All calls go through our API routes (never from the
- * client browser) so the user's API key stays server-side.
+ * Handles authenticated requests to CommCare HQ for listing project spaces,
+ * importing apps, and uploading an imported app's media bytes. All calls go
+ * through our API routes (never from the client browser) so the user's API
+ * key stays server-side.
  *
  * Error handling: the client returns `{ success: false, status }` on failure.
  * It does NOT compose user-facing messages — callers know their own context
@@ -11,11 +12,18 @@
  * debugging only.
  *
  * API reference (from dimagi/commcare-hq#37559):
- *   - User domains: GET  /api/user_domains/v1/
- *   - App import:   POST /a/{domain}/apps/api/import_app/
+ *   - User domains:   GET  /api/user_domains/v1/
+ *   - App import:     POST /a/{domain}/apps/api/import_app/
+ *   - Media upload:   POST /a/{domain}/apps/api/{app_id}/multimedia/        (bulk ZIP)
+ *   - Media status:   GET  /a/{domain}/apps/api/{app_id}/multimedia/status/{processing_id}/
  *
  * Authentication uses CommCare's API key format:
  *   Authorization: ApiKey {username}:{api_key}
+ *
+ * The media upload uses the bulk `upload_multimedia_api` endpoint (same
+ * `@api_auth()` gate as import) — NOT the per-kind `multimedia/uploaded/{kind}/`
+ * endpoints, which are session-only and reject the API key. See
+ * `uploadAppMediaBundle`.
  */
 
 import { log } from "@/lib/logger";
@@ -388,4 +396,161 @@ export async function importApp(
 		appUrl: `${COMMCARE_HQ_URL}/a/${domain}/apps/view/${data.app_id}/`,
 		warnings: data.warnings ?? [],
 	};
+}
+
+// ── Multimedia upload (bulk API) ───────────────────────────────────
+
+/**
+ * Outcome of a bulk media upload. `matched` / `unmatched` come from HQ's
+ * async processing of the ZIP (files matched to the app's references vs
+ * files the app doesn't reference); `errors` carries any processing errors
+ * HQ reported. `timedOut` means we stopped polling before HQ finished — the
+ * ZIP was accepted and is still processing server-side, so the media will
+ * appear shortly even though we didn't confirm the match.
+ */
+export interface MediaBundleUploadResult {
+	readonly matched: number;
+	readonly unmatched: number;
+	readonly errors: readonly string[];
+	readonly timedOut: boolean;
+}
+
+/* Poll cadence + ceiling for the async bulk-upload processing. The bytes
+ * are already accepted when polling starts, so this only confirms the match
+ * result — bounded so a slow/stuck task can't hold the request open. */
+const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
+const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
+
+/**
+ * Upload an app's media as one bulk ZIP to CommCare HQ's
+ * `upload_multimedia_api` (`POST /a/{domain}/apps/api/{app_id}/multimedia/`).
+ *
+ * This is the API-key-authenticated media path — the SAME `@api_auth()`
+ * gate as `import_app_api`. The per-kind `multimedia/uploaded/<kind>/`
+ * endpoints are `login_and_domain_required` (session/cookie auth that
+ * ignores the `ApiKey` header), so an API-key client gets HQ's HTML login
+ * page back instead of JSON — they can't be used here. Verified against
+ * `commcare-hq/.../app_manager/views/app_import_api.py` (the `@api_auth()`
+ * decorator) and `hqmedia/views.py` (the session-only per-kind views).
+ *
+ * HQ unzips the bundle and matches each `commcare/<hash><ext>` entry against
+ * the app's FORM/MENU media paths — `process_bulk_upload_zip` keeps only
+ * entries whose path is in `app.get_all_paths_of_type(...)`, and HQ's
+ * `ApplicationMediaMixin.all_media` EXCLUDES app-level media (logos). So a
+ * file referenced anywhere in the forms/menus attaches; an image used ONLY
+ * as the web-apps logo is reported `unmatched` here (its only HQ home is the
+ * session-auth per-logo endpoint, unreachable by API key, or the bundled
+ * `.ccz`). A logo image that's ALSO form/menu media still attaches — the
+ * file matches via that reference and the logo resolves to the same path.
+ * Processing is asynchronous: the POST returns a `processing_id` once the
+ * ZIP is accepted, and the match runs in a background task we poll to a
+ * bounded deadline.
+ *
+ * Auth mirrors `importApp`: `ApiKey` header + a CSRF token (these endpoints
+ * are not `@csrf_exempt`). No 16KB WAF padding — the body is a binary ZIP,
+ * not the XForms-tag-bearing JSON the WAF rule trips on.
+ */
+export async function uploadAppMediaBundle(
+	creds: CommCareCredentials,
+	domain: string,
+	appId: string,
+	zipBytes: Buffer,
+): Promise<MediaBundleUploadResult | CommCareApiError> {
+	if (!isValidDomainSlug(domain)) {
+		return { success: false, status: 400 };
+	}
+	const base = `${COMMCARE_HQ_URL}/a/${domain}/apps/api/${appId}/multimedia`;
+	const uploadUrl = `${base}/`;
+
+	/* Obtain a CSRF token before the POST — see fetchCsrfToken(). */
+	const csrfToken = await fetchCsrfToken();
+	const formData = new FormData();
+	formData.append(
+		"bulk_upload_file",
+		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
+		"multimedia.zip",
+	);
+	const headers: Record<string, string> = { Authorization: authHeader(creds) };
+	if (csrfToken) {
+		headers["X-CSRFToken"] = csrfToken;
+		headers.Cookie = `csrftoken=${csrfToken}`;
+		headers.Referer = uploadUrl;
+	}
+
+	const res = await fetch(uploadUrl, {
+		method: "POST",
+		headers,
+		body: formData,
+	});
+	if (!res.ok) {
+		return logAndReturnError("media bundle upload failed", res);
+	}
+
+	const started = (await res.json()) as {
+		success?: boolean;
+		processing_id?: string;
+		error?: string;
+	};
+	if (!started.success || !started.processing_id) {
+		log.error("[commcare] media bundle upload rejected by HQ", {
+			domain,
+			appId,
+			error: started.error,
+		});
+		return { success: false, status: 422 };
+	}
+
+	return pollMediaBundleStatus(creds, base, started.processing_id);
+}
+
+/**
+ * Poll HQ's `multimedia_status_api` until the bulk upload finishes or the
+ * deadline passes. The bytes are already accepted, so a transient status
+ * read (a non-200 between processing steps) is retried until the deadline
+ * rather than failed. On timeout, `timedOut` signals the work is still
+ * queued server-side. Status shape verified against
+ * `commcare-hq/.../hqmedia/cache.py::BulkMultimediaStatusCache.get_response`
+ * (`complete` / `errors` / `matched_count` / `unmatched_count`).
+ */
+async function pollMediaBundleStatus(
+	creds: CommCareCredentials,
+	base: string,
+	processingId: string,
+): Promise<MediaBundleUploadResult> {
+	const statusUrl = `${base}/status/${processingId}/`;
+	const deadline = Date.now() + MEDIA_BUNDLE_POLL_TIMEOUT_MS;
+	const statusHeaders = { Authorization: authHeader(creds) };
+
+	// Check first, then sleep between checks — so a fast task (or, in tests,
+	// a mocked status) returns with no mandatory delay, and a transient 404
+	// right after the POST (processing_id not yet registered) just retries.
+	while (Date.now() < deadline) {
+		const res = await fetch(statusUrl, {
+			method: "GET",
+			headers: statusHeaders,
+		});
+		if (res.ok) {
+			const status = (await res.json()) as {
+				complete?: boolean;
+				errors?: string[];
+				matched_count?: number;
+				unmatched_count?: number;
+			};
+			if (status.complete) {
+				return {
+					matched: status.matched_count ?? 0,
+					unmatched: status.unmatched_count ?? 0,
+					errors: status.errors ?? [],
+					timedOut: false,
+				};
+			}
+		}
+		await delay(MEDIA_BUNDLE_POLL_INTERVAL_MS);
+	}
+	return { matched: 0, unmatched: 0, errors: [], timedOut: true };
+}
+
+/** Promise-returning sleep for the bounded status poll. */
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }

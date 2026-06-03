@@ -42,6 +42,7 @@ describe("columnCardSchemas — registry exhaustivity", () => {
 			"date",
 			"phone",
 			"id-mapping",
+			"image-map",
 			"interval",
 			"calculated",
 		]);

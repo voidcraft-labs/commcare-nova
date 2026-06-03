@@ -16,11 +16,15 @@
  *     default is Haiku 4.5 (cheap + fast — tool-input acceptance is the
  *     same across models).
  *   - Pass a schema name to test only that schema; omit to test every
- *     registered schema. Known names: `addFields`, `addCaseListColumn`,
- *     `updateCaseListColumn`, `removeCaseListColumn`,
- *     `reorderCaseListColumns`, `setCaseListFilter`, `addSearchInput`,
- *     `updateSearchInput`, `removeSearchInput`, `reorderSearchInputs`,
- *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`.
+ *     registered schema. Known names: `addFields`,
+ *     `addCaseListColumn`, `updateCaseListColumn`,
+ *     `removeCaseListColumn`, `reorderCaseListColumns`,
+ *     `setCaseListFilter`, `addSearchInput`, `updateSearchInput`,
+ *     `removeSearchInput`, `reorderSearchInputs`,
+ *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
+ *     `attachFieldMedia`, `attachOptionMedia`, `setModuleMedia`,
+ *     `setFormMedia`, `setAppLogo`, `listMediaAssets`,
+ *     `removeMediaAsset`, `uploadMediaAsset`.
  */
 import "dotenv/config";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -38,6 +42,15 @@ import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/up
 import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import { editFieldTool } from "../lib/agent/tools/editField";
+import { attachFieldMediaTool } from "../lib/agent/tools/media/attachFieldMedia";
+import { attachOptionMediaTool } from "../lib/agent/tools/media/attachOptionMedia";
+import { listMediaAssetsTool } from "../lib/agent/tools/media/listMediaAssets";
+import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset";
+import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
+import { setFormMediaTool } from "../lib/agent/tools/media/setFormMedia";
+import { setModuleMediaTool } from "../lib/agent/tools/media/setModuleMedia";
+import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
 import { SA_MODEL } from "../lib/models";
 
 /**
@@ -137,6 +150,77 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: setCaseSearchDisplayTool.inputSchema,
 		prompt:
 			"Use setCaseSearchDisplay on module 0 to set the searchScreenTitle to 'Find a patient' and clear every other display slot (null).",
+	},
+	/* `editField` carries the new `help` slot — re-tested here to confirm
+	 * the edit-patch schema still compiles within the tool-input limits
+	 * after the addition. The `addFields` structured-output test above
+	 * stays at 8 optionals (help is edit-only), so it's the ceiling
+	 * canary; this is the regression guard for the schema that grew. */
+	{
+		name: "editField",
+		description: editFieldTool.description,
+		schema: editFieldTool.inputSchema,
+		prompt:
+			"Use editField on module 0, form 0, field patient_name to set its help text to 'Enter the patient's full legal name.'",
+	},
+	/* Media tools — each new tool's input schema, exercised against the
+	 * compiler. The `Media` bundle is three optionals on a non-array
+	 * object, so the 8-optional array-item ceiling doesn't apply, but we
+	 * test anyway per the segment's gate. */
+	{
+		name: "attachFieldMedia",
+		description: attachFieldMediaTool.description,
+		schema: attachFieldMediaTool.inputSchema,
+		prompt:
+			"Use attachFieldMedia on module 0, form 0, field patient_name to set its label media image to asset 11111111-1111-1111-1111-111111111111.",
+	},
+	{
+		name: "attachOptionMedia",
+		description: attachOptionMediaTool.description,
+		schema: attachOptionMediaTool.inputSchema,
+		prompt:
+			"Use attachOptionMedia on module 0, form 0, field symptom, option fever, to set its image to asset 11111111-1111-1111-1111-111111111111.",
+	},
+	{
+		name: "setModuleMedia",
+		description: setModuleMediaTool.description,
+		schema: setModuleMediaTool.inputSchema,
+		prompt:
+			"Use setModuleMedia on module 0 to set its icon to asset 11111111-1111-1111-1111-111111111111 and clear its audio label (null).",
+	},
+	{
+		name: "setFormMedia",
+		description: setFormMediaTool.description,
+		schema: setFormMediaTool.inputSchema,
+		prompt:
+			"Use setFormMedia on module 0, form 0 to set its icon to asset 11111111-1111-1111-1111-111111111111 and clear its audio label (null).",
+	},
+	{
+		name: "setAppLogo",
+		description: setAppLogoTool.description,
+		schema: setAppLogoTool.inputSchema,
+		prompt:
+			"Use setAppLogo to set the app logo to asset 11111111-1111-1111-1111-111111111111.",
+	},
+	{
+		name: "listMediaAssets",
+		description: listMediaAssetsTool.description,
+		schema: listMediaAssetsTool.inputSchema,
+		prompt: "Use listMediaAssets to list every image asset.",
+	},
+	{
+		name: "removeMediaAsset",
+		description: removeMediaAssetTool.description,
+		schema: removeMediaAssetTool.inputSchema,
+		prompt:
+			"Use removeMediaAsset to delete asset 11111111-1111-1111-1111-111111111111.",
+	},
+	{
+		name: "uploadMediaAsset",
+		description: "Upload a media file to the library from inline base64 bytes.",
+		schema: uploadMediaAssetInputSchema,
+		prompt:
+			"Use uploadMediaAsset to upload logo.png (image/png) with the base64 contents aGVsbG8=.",
 	},
 ];
 

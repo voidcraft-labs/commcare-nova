@@ -25,6 +25,7 @@
 //     reference) — every other byte is identical.
 
 import type { Uuid } from "@/lib/domain";
+import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ResolvedSortDirective } from "./sortKeys";
 
 /**
@@ -145,4 +146,11 @@ export interface CaseListEmitContext {
 	readonly sortByUuid: ReadonlyMap<Uuid, ResolvedSortDirective>;
 	readonly detailKind: DetailKind;
 	readonly target: DetailTarget;
+	/**
+	 * Resolved media manifest, for image-map columns to resolve their
+	 * per-value `AssetId` → `jr://file/...` path. `undefined` when media
+	 * emission is off — image-map columns then degrade to plain (raw
+	 * value) columns.
+	 */
+	readonly assets?: AssetManifest;
 }

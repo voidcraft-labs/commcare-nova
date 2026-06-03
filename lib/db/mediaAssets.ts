@@ -1,0 +1,456 @@
+/**
+ * Media asset CRUD against Firestore.
+ *
+ * Thin wrappers over the typed collection helpers in
+ * `lib/db/firestore.ts`. The asset record lives at
+ * `mediaAssets/{assetId}` — root collection keyed by the asset's
+ * UUID; `owner` gates every read site.
+ *
+ * `loadAssetForOwner` enforces ownership and throws on a mismatch
+ * rather than leaking the row; callers map that throw to a 404.
+ *
+ * `update()` (not `set({merge:true})`) is the write path — this
+ * codebase had a real bug where merge silently preserved a cleared
+ * nested field, so the convention here is "update for changes,
+ * create for new rows."
+ */
+
+import { randomUUID } from "node:crypto";
+import { FieldPath, FieldValue, Timestamp } from "@google-cloud/firestore";
+import {
+	type AssetId,
+	type AssetKind,
+	type AssetMimeType,
+	asAssetId,
+	type MediaAssetStatus,
+	pendingGcsObjectKeyFor,
+} from "@/lib/domain/multimedia";
+import { collections, docs } from "./firestore";
+import type { MediaAssetDoc } from "./types";
+
+/**
+ * The Firestore-shaped doc plus its id, returned by load helpers
+ * for caller convenience. The doc body never carries `id` (lives
+ * in the doc ref), so reattaching here saves every caller from
+ * threading the id through.
+ */
+export type MediaAssetRecord = MediaAssetDoc & { id: AssetId };
+
+/**
+ * The JSON-safe shape both the confirm route and the library route
+ * return for an asset. One serializer, one wire shape — so the
+ * client writes a single parser, and Firestore internals
+ * (`Timestamp`, `gcsObjectKey`, `owner`) never leak across the
+ * wire. `createdAt` is an ISO-8601 string; `owner` and
+ * `gcsObjectKey` are intentionally dropped (the caller already
+ * knows they own it; the storage key is a server-only detail).
+ */
+export interface WireMediaAsset {
+	id: AssetId;
+	contentHash: string;
+	mimeType: string;
+	kind: AssetKind;
+	extension: string;
+	sizeBytes: number;
+	dimensions?: { width: number; height: number };
+	durationMs?: number;
+	originalFilename: string;
+	displayName?: string;
+	status: MediaAssetStatus;
+	createdAt: string;
+}
+
+/**
+ * Project a stored record to its wire shape. Both media routes
+ * funnel through this so their response shapes can't drift.
+ */
+export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
+	return {
+		id: record.id,
+		contentHash: record.contentHash,
+		mimeType: record.mimeType,
+		kind: record.kind,
+		extension: record.extension,
+		sizeBytes: record.sizeBytes,
+		dimensions: record.dimensions,
+		durationMs: record.durationMs,
+		originalFilename: record.originalFilename,
+		displayName: record.displayName,
+		status: record.status,
+		createdAt: record.created_at.toDate().toISOString(),
+	};
+}
+
+/**
+ * Create a `pending` asset row. Returns the assigned `assetId` plus
+ * the GCS object key the caller should write bytes to. The signed PUT
+ * URL is minted separately (in `lib/storage/media.ts`) after this row
+ * exists, so the row is the durable handle the confirm step looks up.
+ *
+ * Browser uploads leave `gcsObjectKey` absent and get a per-attempt
+ * pending key (`pending/<owner>/<assetId>.<ext>`). Confirm-time
+ * validation promotes clean bytes to the content-hash final key. MCP
+ * uploads may pass a final `gcsObjectKey` because their bytes are
+ * already validated before storage.
+ *
+ * Failure between this call and the eventual confirm leaves a `pending`
+ * row behind. It is harmless: the library list filters pending rows
+ * out, and the validator gate rejects any blueprint that references one.
+ */
+export async function createPendingAsset(args: {
+	owner: string;
+	contentHash: string;
+	mimeType: AssetMimeType;
+	kind: AssetKind;
+	extension: string;
+	sizeBytes: number;
+	gcsObjectKey?: string;
+	originalFilename: string;
+}): Promise<{ assetId: AssetId; gcsObjectKey: string }> {
+	const assetId = asAssetId(randomUUID());
+	const gcsObjectKey =
+		args.gcsObjectKey ??
+		pendingGcsObjectKeyFor(args.owner, assetId, args.extension);
+	await docs.mediaAsset(assetId).create({
+		owner: args.owner,
+		contentHash: args.contentHash,
+		mimeType: args.mimeType,
+		kind: args.kind,
+		extension: args.extension,
+		sizeBytes: args.sizeBytes,
+		gcsObjectKey,
+		originalFilename: args.originalFilename,
+		// Seed `displayName` to the upload filename so the library UI
+		// always has a non-empty label; the user can rename later
+		// without touching the bytes.
+		displayName: args.originalFilename,
+		status: "pending",
+		// `FieldValue.serverTimestamp()` is the canonical "now"
+		// across our doc schemas (mirrors `appDocSchema`). Firestore
+		// resolves it server-side, so two clients writing at the same
+		// wall-clock millisecond get monotonic timestamps anyway.
+		created_at: FieldValue.serverTimestamp() as unknown as Timestamp,
+	});
+	return { assetId, gcsObjectKey };
+}
+
+/**
+ * Flip a `pending` asset to `ready`, writing the metadata the validator
+ * settled: the promoted final `gcsObjectKey`, the authoritative
+ * `mimeType` + `extension`, and the kind-specific `dimensions` (image,
+ * via sharp) or `durationMs` (audio/video, via music-metadata).
+ *
+ * `mimeType`/`extension` are written because the validator can REFINE the
+ * pending row's create-time guess: a document's browser `Content-Type` is
+ * unreliable (a `.md` is often initiated as `text/plain`), so the
+ * validator derives the canonical pair from the bytes / filename and that
+ * is what must be stored. For media they simply match the create-time
+ * values, so the write is a harmless no-op. `sizeBytes` is the one field
+ * that can't change — the validator hard-rejects any byte-length mismatch
+ * against the claim before this runs.
+ */
+export async function confirmAssetReady(args: {
+	assetId: AssetId;
+	gcsObjectKey?: string;
+	mimeType?: AssetMimeType;
+	extension?: string;
+	dimensions?: { width: number; height: number };
+	durationMs?: number;
+}): Promise<void> {
+	const patch: Partial<MediaAssetDoc> & { status: "ready" } = {
+		status: "ready",
+	};
+	if (args.gcsObjectKey !== undefined) {
+		patch.gcsObjectKey = args.gcsObjectKey;
+	}
+	if (args.mimeType !== undefined) {
+		patch.mimeType = args.mimeType;
+	}
+	if (args.extension !== undefined) {
+		patch.extension = args.extension;
+	}
+	// Assign each kind-specific slot only when the validator produced it: an
+	// image confirm carries `dimensions` (sharp) and no `durationMs`; an
+	// audio/video confirm carries `durationMs` (music-metadata) and no
+	// `dimensions`; a document carries neither. This is a first-time set on
+	// the `pending → ready` flip, never a clear — a slot the kind doesn't
+	// carry is simply absent from the patch.
+	if (args.dimensions) {
+		patch.dimensions = args.dimensions;
+	}
+	if (args.durationMs !== undefined) {
+		patch.durationMs = args.durationMs;
+	}
+	await docs.mediaAsset(args.assetId).update(patch);
+}
+
+/**
+ * True when another row owned by the same user points at the same GCS
+ * object. Used before deleting bytes: duplicate-ready races and legacy
+ * content-hash-keyed rows can share storage, so a row delete must not
+ * blindly remove the object out from under a sibling.
+ *
+ * This closes the common shared-bytes case, not a transactional one: a
+ * same-owner delete racing a same-bytes re-upload that promotes to the final
+ * key AFTER this check can still leave the new row pointing at deleted bytes
+ * (no Firestore↔GCS transaction spans the two layers). The window is narrow
+ * and the broken reference is recoverable by re-upload; callers fail closed —
+ * a query throw is treated as "shared" so bytes are retained — which keeps the
+ * conservative choice the default.
+ */
+export async function hasOtherAssetForGcsObjectKey(
+	owner: string,
+	gcsObjectKey: string,
+	excludeAssetId: AssetId,
+): Promise<boolean> {
+	const snap = await collections
+		.mediaAssets()
+		.where("owner", "==", owner)
+		.where("gcsObjectKey", "==", gcsObjectKey)
+		.limit(2)
+		.get();
+	return snap.docs.some((doc) => doc.id !== excludeAssetId);
+}
+
+/**
+ * Owner-and-hash dedup probe. Used at upload-initiate: if the
+ * caller's claimed hash already exists for this owner AND the
+ * row is `ready`, the route returns the existing assetId and
+ * tells the browser to skip the bytes-PUT step entirely.
+ *
+ * Returns the matching record, or `null` if no row matches.
+ * A `pending` row of the same (owner, hash) is treated as no match — the
+ * caller goes ahead and creates a fresh pending row with its own
+ * per-attempt object. Confirm collapses to an existing ready sibling when
+ * one appears.
+ */
+export async function findReadyAssetByOwnerAndHash(
+	owner: string,
+	contentHash: string,
+): Promise<MediaAssetRecord | null> {
+	const snap = await collections
+		.mediaAssets()
+		.where("owner", "==", owner)
+		.where("contentHash", "==", contentHash)
+		.where("status", "==", "ready")
+		.limit(1)
+		.get();
+	const first = snap.docs[0];
+	if (!first) return null;
+	return { ...first.data(), id: asAssetId(first.id) };
+}
+
+/**
+ * Load one asset, enforcing ownership. Returns `null` if the row
+ * doesn't exist; throws `MediaAssetOwnershipError` if the row
+ * exists but belongs to someone else. Every current caller (the
+ * proxy GET route, the confirm route) catches that error and maps
+ * it to a 404 — the same status as "not found" — so a foreign
+ * caller can't distinguish "doesn't exist" from "exists but isn't
+ * yours" and therefore can't enumerate other users' asset ids.
+ */
+export async function loadAssetForOwner(
+	owner: string,
+	assetId: AssetId,
+): Promise<MediaAssetRecord | null> {
+	const snap = await docs.mediaAsset(assetId).get();
+	const data = snap.data();
+	if (!data) return null;
+	if (data.owner !== owner) {
+		throw new MediaAssetOwnershipError(assetId, owner, data.owner);
+	}
+	return { ...data, id: asAssetId(snap.id) };
+}
+
+/** Firestore caps a `documentId() in [...]` query at 30 values, so the
+ *  bulk loader chunks the id list into batches of this size. */
+const ID_BATCH_SIZE = 30;
+
+/**
+ * Bulk-load the owner's assets among a set of ids — the
+ * compile / upload manifest loader's primary call. Used to resolve
+ * every `AssetId` a blueprint references (from
+ * `lib/domain/mediaRefs::collectAssetRefs`) into rows in one pass.
+ *
+ * Owner filtering is done in memory after a `documentId() in` query
+ * (which needs no composite index): an id that belongs to another
+ * owner OR doesn't exist is silently omitted — never leaked, so a
+ * malicious doc can't enumerate other users' assets through validator
+ * errors. `pending` rows are included: the validator's
+ * `mediaAssetReady` rule reports them with an actionable "still
+ * uploading" message keyed off the manifest hit. A foreign-owned
+ * reference reads as a manifest miss and surfaces as
+ * `mediaAssetExists`'s `MEDIA_ASSET_NOT_FOUND` — the same message
+ * the user sees for a deleted asset, which is the right UX (privacy
+ * keeps the foreign-owner distinction below the surface).
+ */
+export async function loadAssetsByIds(
+	owner: string,
+	ids: readonly string[],
+): Promise<MediaAssetRecord[]> {
+	const unique = [...new Set(ids)];
+	const out: MediaAssetRecord[] = [];
+	for (let i = 0; i < unique.length; i += ID_BATCH_SIZE) {
+		const chunk = unique.slice(i, i + ID_BATCH_SIZE);
+		const snap = await collections
+			.mediaAssets()
+			.where(FieldPath.documentId(), "in", chunk)
+			.get();
+		for (const d of snap.docs) {
+			const data = d.data();
+			if (data.owner === owner) {
+				out.push({ ...data, id: asAssetId(d.id) });
+			}
+		}
+	}
+	return out;
+}
+
+/** Page size for the library list — matches the apps route's `JSON_LIST_PAGE_SIZE`. */
+const LIBRARY_PAGE_SIZE = 50;
+
+/**
+ * Cursor-paginated list of an owner's `ready` assets, newest
+ * first. Optionally filtered to one `kind` via a server-side
+ * equality query (backed by a composite index) — not an in-memory
+ * page filter, so every returned page is full up to the page size
+ * regardless of how sparse a kind is.
+ *
+ * Pagination orders by `(created_at desc, documentId desc)` and
+ * the cursor carries BOTH so two assets sharing an identical
+ * server timestamp can't straddle a page boundary and get skipped.
+ * The cursor is an opaque base64 token; callers round-trip it
+ * without interpreting it.
+ */
+export async function listReadyAssetsForOwner(
+	owner: string,
+	options: { kind?: AssetKind; cursor?: string } = {},
+): Promise<{ assets: MediaAssetRecord[]; nextCursor: string | null }> {
+	let query = collections
+		.mediaAssets()
+		.where("owner", "==", owner)
+		.where("status", "==", "ready");
+	if (options.kind) {
+		query = query.where("kind", "==", options.kind);
+	}
+	query = query
+		.orderBy("created_at", "desc")
+		.orderBy(FieldPath.documentId(), "desc")
+		.limit(LIBRARY_PAGE_SIZE);
+	if (options.cursor) {
+		const { boundary, id } = decodeLibraryCursor(options.cursor);
+		query = query.startAfter(boundary, id);
+	}
+	const snap = await query.get();
+	const assets: MediaAssetRecord[] = snap.docs.map((d) => ({
+		...d.data(),
+		id: asAssetId(d.id),
+	}));
+	const last = snap.docs[snap.docs.length - 1];
+	const nextCursor =
+		snap.docs.length === LIBRARY_PAGE_SIZE && last
+			? encodeLibraryCursor(last.data().created_at, last.id)
+			: null;
+	return { assets, nextCursor };
+}
+
+/**
+ * Encode/decode the opaque library pagination cursor. The cursor
+ * pins both the boundary timestamp AND the document id so the
+ * `(created_at, documentId)` ordering resumes deterministically
+ * across pages even when timestamps tie. Base64 of a small JSON
+ * object — opaque to clients, who just echo it back.
+ *
+ * The timestamp is encoded as its raw `{seconds, nanoseconds}`
+ * components, NOT an ISO string. Server timestamps carry
+ * sub-millisecond nanoseconds; an ISO round-trip
+ * (`Timestamp → Date → ISO → Date → Timestamp`) truncates to
+ * millisecond precision, which would shift the boundary earlier and
+ * silently skip any asset whose `created_at` shares the boundary's
+ * millisecond but not its exact nanos — defeating the very tie-break
+ * the compound cursor exists to provide.
+ */
+export function encodeLibraryCursor(createdAt: Timestamp, id: string): string {
+	return Buffer.from(
+		JSON.stringify({
+			seconds: createdAt.seconds,
+			nanoseconds: createdAt.nanoseconds,
+			id,
+		}),
+	).toString("base64url");
+}
+
+export function decodeLibraryCursor(cursor: string): {
+	boundary: Timestamp;
+	id: string;
+} {
+	try {
+		const parsed = JSON.parse(
+			Buffer.from(cursor, "base64url").toString("utf8"),
+		);
+		if (
+			Number.isInteger(parsed?.seconds) &&
+			Number.isInteger(parsed?.nanoseconds) &&
+			typeof parsed?.id === "string"
+		) {
+			// Construct the boundary INSIDE the try: the `Timestamp`
+			// constructor validates the seconds range + nanos bounds and
+			// throws on a crafted out-of-range value, so any bad cursor
+			// — malformed base64, wrong shape, or out-of-range numbers —
+			// converges on `MalformedCursorError` (→ 400) rather than a
+			// constructor throw escaping as a 500.
+			const boundary = new Timestamp(parsed.seconds, parsed.nanoseconds);
+			return { boundary, id: parsed.id };
+		}
+	} catch {
+		/* malformed cursor falls through to the throw below */
+	}
+	throw new MalformedCursorError();
+}
+
+/**
+ * Thrown when the library cursor can't be decoded. A client error
+ * (the caller sent a token we didn't mint), so the library route
+ * maps it to a 400 — distinct from the generic 500 a plain `Error`
+ * would collapse to.
+ */
+export class MalformedCursorError extends Error {
+	constructor() {
+		super(
+			"Couldn't read the media-library page cursor — it should be the opaque token the previous page returned. Drop the cursor to start from the first page.",
+		);
+		this.name = "MalformedCursorError";
+	}
+}
+
+/**
+ * Hard-delete an asset row. Caller is responsible for the GCS
+ * object cleanup AND for ensuring no live blueprint references
+ * the asset — the deletion MCP tool refuses to call this if any
+ * reference is found.
+ */
+export async function deleteAsset(assetId: AssetId): Promise<void> {
+	await docs.mediaAsset(assetId).delete();
+}
+
+/**
+ * Surfaced when the caller asked for an asset they don't own.
+ * Every route that can hit it (proxy GET, confirm) maps it to a
+ * 404 — the same response as "not found" — so a foreign caller
+ * can't tell "doesn't exist" from "exists but isn't yours" and
+ * therefore can't enumerate other users' asset ids.
+ */
+export class MediaAssetOwnershipError extends Error {
+	readonly assetId: AssetId;
+	readonly requestedBy: string;
+	readonly actualOwner: string;
+	constructor(assetId: AssetId, requestedBy: string, actualOwner: string) {
+		super(
+			`MediaAsset ${assetId} is owned by a different user — the request can't proceed.`,
+		);
+		this.name = "MediaAssetOwnershipError";
+		this.assetId = assetId;
+		this.requestedBy = requestedBy;
+		this.actualOwner = actualOwner;
+	}
+}

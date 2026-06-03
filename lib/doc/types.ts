@@ -13,15 +13,31 @@ export { asUuid } from "@/lib/domain";
 
 import { z } from "zod";
 import {
+	assetIdSchema,
 	CONNECT_TYPES,
 	caseTypeSchema,
 	fieldKinds,
 	fieldPatchSchemaByKind,
 	fieldSchema,
 	formSchema,
+	mediaSchema,
 	moduleSchema,
 	uuidSchema,
 } from "@/lib/domain";
+
+/**
+ * The four field message slots a `Media` bundle attaches to. The
+ * `setFieldMedia` mutation carries the slot name (`label` / `hint` /
+ * `help` / `validate_msg`); the reducer maps it to the `<slot>_media`
+ * field key. Kept as a literal tuple in the doc layer so it owns its own
+ * wire vocabulary without depending on `lib/agent`.
+ */
+export const FIELD_MEDIA_SLOTS = [
+	"label",
+	"hint",
+	"help",
+	"validate_msg",
+] as const;
 
 // ─── Mutation union ────────────────────────────────────────────────────
 //
@@ -195,9 +211,55 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("setConnectType"),
 		connectType: z.enum(CONNECT_TYPES).nullable(),
 	}),
+	// `logo` is `assetIdSchema.optional()` on the doc — there is no
+	// stored `null`. The payload is `.nullable()` (not optional) so the
+	// mutation always carries an explicit intent: an asset id sets the
+	// logo, `null` clears it. The reducer maps `null → undefined` so the
+	// cleared key drops off the doc rather than persisting as a literal
+	// `null` the schema would reject. Distinct from `setConnectType`,
+	// whose `connectType` slot is genuinely `.nullable()` and stores the
+	// `null` verbatim.
+	z.object({
+		kind: z.literal("setAppLogo"),
+		logo: assetIdSchema.nullable(),
+	}),
 	z.object({
 		kind: z.literal("setCaseTypes"),
 		caseTypes: z.array(caseTypeSchema).nullable(),
+	}),
+	// ─── Media slots — dedicated clear-safe kinds ────────────────────────
+	//
+	// Media slots can't ride the generic `updateField` / `updateModule` /
+	// `updateForm` patch reducers for a CLEAR. A clear is `{ key: undefined }`,
+	// and the SA streams mutations to the client as JSON — `JSON.stringify`
+	// DROPS keys whose value is `undefined`, so a clear patch arrives at
+	// `applyMany` as `{}` and the reducer's `Object.assign` no-ops, leaving
+	// the stale asset ref in the client doc (which then auto-saves back over
+	// the SA's correct clear). These kinds carry an explicit on-wire `null`
+	// (which survives JSON) and map it to `undefined` INSIDE the reducer, so
+	// both set and clear cross the wire intact. Mirrors `setAppLogo`.
+	//
+	// They are NOT folded into the generic reducers with a "null-means-clear"
+	// rule: `setConnectType`'s slot is genuinely `.nullable()` and stores
+	// `null` as a real value, so a generic null-as-clear rule would corrupt
+	// it. The clear-safe behavior stays scoped to these media-only kinds.
+	z.object({
+		kind: z.literal("setFieldMedia"),
+		fieldUuid: uuidSchema,
+		slot: z.enum(FIELD_MEDIA_SLOTS),
+		media: mediaSchema.nullable(),
+	}),
+	z.object({
+		kind: z.literal("setModuleMedia"),
+		uuid: uuidSchema,
+		icon: assetIdSchema.nullable(),
+		audioLabel: assetIdSchema.nullable(),
+	}),
+	z.object({
+		kind: z.literal("setFormMedia"),
+		uuid: uuidSchema,
+		icon: assetIdSchema.nullable(),
+		audioLabel: assetIdSchema.nullable(),
 	}),
 ]);
 

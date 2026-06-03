@@ -28,6 +28,7 @@
 
 import { z } from "zod";
 import type { CasePropertyDataType } from "./casePropertyTypes";
+import { assetIdSchema } from "./multimedia";
 import type {
 	Predicate,
 	RelationPath,
@@ -154,7 +155,7 @@ const columnBase = z
 
 // ── Column kinds ─────────────────────────────────────────────────
 //
-// Six discriminated arms. The `kind` discriminant routes the column
+// Seven discriminated arms. The `kind` discriminant routes the column
 // through the matching wire emitter and editor body. Calculated
 // columns have no `field` slot — the expression is the source.
 
@@ -247,6 +248,48 @@ const idMappingColumnSchema = columnBase.extend({
 });
 
 /**
+ * Single image-map entry — pairs a case-property value with the image
+ * `AssetId` shown for that value. The image-map analogue of
+ * `idMappingEntrySchema`: same whitespace-free `value` token (matched
+ * on the wire via XPath's space-tokenized `selected()` predicate), but
+ * the cell renders the mapped IMAGE instead of a text label.
+ */
+const imageMapEntrySchema = z
+	.object({
+		// Same whitespace-free constraint + rationale as the id-mapping
+		// entry's `value`: the wire emits `selected(field, '<value>')`,
+		// which splits on whitespace before testing membership, so a value
+		// carrying whitespace would never match any case row.
+		value: z
+			.string()
+			.regex(
+				/^\S*$/,
+				"Image-map value must be a single whitespace-free token — the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would render no image.",
+			),
+		assetId: assetIdSchema,
+	})
+	.strict();
+const imageMapColumnSchema = columnBase.extend({
+	kind: z.literal("image-map"),
+	field: z.string(),
+	header: z.string(),
+	// Mapping values must be unique within a column — same rationale as
+	// id-mapping: the wire emits one `if(selected(field, '<value>'), …)`
+	// arm per entry, so two entries sharing a value both match the same
+	// row and the cell concatenates their image paths into one
+	// unrenderable string.
+	mapping: z
+		.array(imageMapEntrySchema)
+		.refine(
+			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
+			{
+				message:
+					"Mapping values are not unique within this image-map column — two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would concatenate each matching image path into one unrenderable cell. Keep one entry per value.",
+			},
+		),
+});
+
+/**
  * Interval column — renders a relative interval against the
  * property's date value. The `display` slot dispatches the cell
  * shape:
@@ -298,6 +341,7 @@ export const columnSchema = z.discriminatedUnion("kind", [
 	dateColumnSchema,
 	phoneColumnSchema,
 	idMappingColumnSchema,
+	imageMapColumnSchema,
 	intervalColumnSchema,
 	calculatedColumnSchema,
 ]);
@@ -441,6 +485,37 @@ export function idMappingColumn(
  */
 export function idMappingEntry(value: string, label: string): IdMappingEntry {
 	return { value, label };
+}
+
+/** Single image-map entry — value-to-image-`AssetId` pair surfaced by
+ *  an image-map column's lookup. Constructing through the matching
+ *  builder pins the key order against schema drift. */
+export type ImageMapEntry = z.infer<typeof imageMapEntrySchema>;
+
+/**
+ * Constructs an image-map column. `mapping` is the lookup table from
+ * raw property value to image `AssetId`; the runtime renders the
+ * matched image (no image when no entry matches). Mirrors
+ * `idMappingColumn` — same value-keyed lookup shape, image instead of
+ * a text label.
+ */
+export function imageMapColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	mapping: readonly ImageMapEntry[],
+	slots: ColumnCommonSlots = {},
+): Extract<Column, { kind: "image-map" }> {
+	return withCommonSlots(
+		{ uuid, kind: "image-map" as const, field, header, mapping: [...mapping] },
+		slots,
+	);
+}
+
+/** Constructs a single image-map entry. Routes every entry through one
+ *  helper so ad-hoc literals can't drift out of the schema shape. */
+export function imageMapEntry(value: string, assetId: string): ImageMapEntry {
+	return { value, assetId };
 }
 
 /**
@@ -1022,6 +1097,25 @@ export const caseListConfigSchema = z
 		columns: z.array(columnSchema),
 		filter: predicateSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
+		/**
+		 * Image for the "Open case list" affordance — the menu link from
+		 * the module's home screen that opens the case list. Emits ONLY on
+		 * `caseListOnly` modules: that's the one shape where a standalone
+		 * case-list command exists to host the icon (the local `.ccz`
+		 * command `<display>`, the HQ `case_list.media_image` dict). On a
+		 * module with forms there's no standalone case-list command, so the
+		 * slot is a no-op there. The bytes are collected by the
+		 * `mediaRefs.ts` walk under the same `caseListOnly` gate.
+		 */
+		icon: assetIdSchema.optional(),
+		/**
+		 * Audio prompt for the case-list link. Same `caseListOnly`-only
+		 * emission shape as `icon` above (local command `<display>` +
+		 * HQ `case_list.media_audio`). Menu affordances carry image +
+		 * audio only — there is no video slot (unlike a question
+		 * message, which can carry all three).
+		 */
+		audioLabel: assetIdSchema.optional(),
 	})
 	.strict();
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
@@ -1101,6 +1195,15 @@ export const moduleSchema = z
 		purpose: z.string().optional(),
 		caseListConfig: caseListConfigSchema.optional(),
 		caseSearchConfig: caseSearchConfigSchema.optional(),
+		/** Image shown on the module's home-screen tile. */
+		icon: assetIdSchema.optional(),
+		/**
+		 * Audio version of the module's home-screen label, played by
+		 * audio-prompt mode — an accessibility affordance for
+		 * low-literacy field workers. Menu affordances carry image +
+		 * audio only; there is no video slot here.
+		 */
+		audioLabel: assetIdSchema.optional(),
 	})
 	.strict();
 export type Module = z.infer<typeof moduleSchema>;

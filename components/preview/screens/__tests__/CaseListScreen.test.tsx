@@ -23,18 +23,23 @@
 //      bag (debounced 300 ms by the form). Clearing reverts the
 //      filter-only result set. Zero search inputs skips the form
 //      entirely so the `<search>` landmark is absent from the DOM.
-//   5. Reset surfaces on the populated arm only and gates behind a
-//      confirmation dialog. Confirming invokes `resetSampleCasesAction`
-//      and triggers a re-query; canceling leaves the action unfired
-//      and dismisses the dialog. Pending UX swaps the trigger icon
-//      to a spinner and disables the button while the action runs.
-//      Error arms surface inline below the table; success refreshes
-//      the rows via the screen's reload key.
+//   5. Reset behavior is pinned at the state-model layer via
+//      `useResetController` (not by mounting the dialog): confirming
+//      drives the status machine idle→running→idle and fires the
+//      `reload` trigger on the `ok` arm; a non-ok arm transitions to
+//      `error` with the action's message and does NOT reload; and
+//      `confirmReset` closes the confirmation immediately. The
+//      AlertDialog's open/confirm/cancel DOM wiring and the
+//      arm-disjoint trigger rendering are `f(state)` browser
+//      contracts owned by Playwright, not RTL. The action-forwarding
+//      contract (`resetSampleCasesAction` receives `(appId, caseType,
+//      blueprint)`) lives in `useResetSampleCases`'s own unit tests.
 
 import {
 	act,
 	fireEvent,
 	render,
+	renderHook,
 	screen,
 	waitFor,
 } from "@testing-library/react";
@@ -48,7 +53,10 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
-import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import type {
+	CaseRowWithCalculated,
+	PopulateSampleCasesResult,
+} from "@/lib/preview/engine/caseDataBindingTypes";
 import type { Location } from "@/lib/routing/types";
 
 // ── Mocks ────────────────────────────────────────────────────────
@@ -114,11 +122,12 @@ vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 	loadFilterPreviewAction: vi.fn(),
 }));
 
+import { loadCasesAction } from "@/lib/preview/engine/caseDataBinding";
 import {
-	loadCasesAction,
-	resetSampleCasesAction,
-} from "@/lib/preview/engine/caseDataBinding";
-import { CaseListScreen } from "../CaseListScreen";
+	CaseListScreen,
+	type SampleDataStatus,
+	useResetController,
+} from "../CaseListScreen";
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
@@ -234,14 +243,6 @@ function renderCaseListScreen(opts: {
 
 beforeEach(() => {
 	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
-	/* Default the Reset action to the success arm; tests asserting
-	 *  pending / error UX override this per-test. The shared default
-	 *  keeps tests that don't touch Reset from accidentally landing
-	 *  in an undefined-mock state. */
-	vi.mocked(resetSampleCasesAction).mockResolvedValue({
-		kind: "ok",
-		inserted: 30,
-	});
 });
 
 /* No `afterEach(mockReset)` — clearing the action mock's
@@ -578,240 +579,150 @@ describe("CaseListScreen — search-input form", () => {
 
 // ── Reset sample data ────────────────────────────────────────────
 
-/** Convenience: a one-row populated fixture used by every Reset
- *  test. The trigger button only mounts on the populated arm, so
- *  the action mock must resolve to `rows` before any Reset
- *  assertion runs. */
-const RESET_ONE_ROW = makeRow("11111111-1111-1111-1111-111111111111", {
-	name: "Alice",
-});
-
-/** The trigger button label combines the refresh icon + the text
- *  "Reset sample data"; the dialog's confirm button is labeled
- *  just "Reset" (no "sample data" suffix). Using exact-match `name`
- *  + `regex` discriminates the two without false matches when
- *  both buttons are in the DOM mid-flow. */
-const TRIGGER_RE = /reset sample data/i;
-const CONFIRM_RE = /^reset$/i;
-
 /**
- * Generous wait for the Reset confirmation dialog to open. The dialog
- * opens in milliseconds under a normal `npm test`, but the pre-push
- * async-leak gate runs the whole suite under `--detect-async-leaks` —
- * `node:async_hooks` instrumentation plus full file-parallelism can
- * starve a worker of CPU long enough that the default 1s `findBy` window
- * lapses before the click's open commits. This wider window absorbs that
- * scheduling jitter; it never lengthens a normal run because the dialog
- * is already present well before the timeout. See the "Testing —
- * async-resource leaks" section in CLAUDE.md.
+ * Reset behavior is pinned at the state-model layer via the
+ * `useResetController` hook the screen extracts. The rendered
+ * AlertDialog (open/confirm/cancel) and the arm-disjoint trigger
+ * rendering are `f(state)` browser contracts owned by Playwright,
+ * not RTL — driving them through happy-dom + `waitFor` polling was
+ * the source of the contention-induced `Timeout` leak the async-leak
+ * gate flagged. `useResetController` carries the load-bearing logic
+ * (status machine + reload-on-success + dialog-closes-on-confirm)
+ * with no DOM tree to mount and no polling timer to leak.
+ *
+ * The hook takes `reset` (the curried `useResetSampleCases` callback)
+ * and `reload` (the `useCases` reload trigger) as args, so each test
+ * drives it with a `vi.fn` for `reload` and a fake `reset` resolving
+ * the result arm under test — no Server Action mock needed. The
+ * action-forwarding contract (`resetSampleCasesAction` receives
+ * `(appId, caseType, blueprint)`) is covered by `useResetSampleCases`'s
+ * own unit tests in `lib/preview/hooks/__tests__/useCaseDataBinding.test.tsx`.
  */
-const DIALOG_OPEN_TIMEOUT_MS = 5_000;
-
-/**
- * Click the Reset trigger and wait for the confirmation dialog to mount,
- * returning the dialog element. Centralized so every reset test opens the
- * dialog the same way and inherits the contention-tolerant wait above.
- */
-async function openResetDialog(): Promise<HTMLElement> {
-	fireEvent.click(await screen.findByRole("button", { name: TRIGGER_RE }));
-	return screen.findByRole(
-		"alertdialog",
-		{},
-		{ timeout: DIALOG_OPEN_TIMEOUT_MS },
-	);
-}
-
-describe("CaseListScreen — Reset sample data", () => {
-	it("surfaces the Reset trigger on the populated arm only", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "rows",
-			rows: [RESET_ONE_ROW],
-		});
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-		});
-		await waitFor(() => {
-			expect(screen.getByText("Alice")).toBeDefined();
-		});
-		expect(screen.getByRole("button", { name: TRIGGER_RE })).toBeDefined();
-		// Inversion check: the Generate button (empty-arm affordance)
-		// must not be in the DOM on the populated arm. The buttons are
-		// arm-disjoint; a regression that mounts both would break the
-		// "one button per arm" rule.
-		expect(
-			screen.queryByRole("button", { name: /generate sample data/i }),
-		).toBeNull();
-	});
-
-	it("hides the Reset trigger on the empty arm (Generate-only surface)", async () => {
-		// Default `beforeEach` already resolves `loadCasesAction` to
-		// `empty`, so no per-test override is needed.
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-		});
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /generate sample data/i }),
-			).toBeDefined();
-		});
-		expect(screen.queryByRole("button", { name: TRIGGER_RE })).toBeNull();
-	});
-
-	it("opens the confirmation dialog when the Reset trigger is clicked", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "rows",
-			rows: [RESET_ONE_ROW],
-		});
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-		});
-		// Base UI's `AlertDialog.Root` stamps `role="alertdialog"` on
-		// the popup; the title + description landmarks confirm the
-		// content rendered, not just the role marker.
-		const dialog = await openResetDialog();
-		expect(dialog).toBeDefined();
-		expect(screen.getByText("Reset sample data?")).toBeDefined();
-		expect(
-			screen.getByText(
-				/This will delete every case in this case type and replace it with fresh sample data/i,
-			),
-		).toBeDefined();
-	});
-
-	it("invokes resetSampleCasesAction when the confirm button is clicked", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "rows",
-			rows: [RESET_ONE_ROW],
-		});
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-		});
-		await openResetDialog();
-		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
-		await waitFor(() => {
-			expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledTimes(1);
-		});
-		// The action receives `(appId, caseType, blueprint)`; the first
-		// two positional args are the load-bearing identity for the
-		// case-store's owner-scoped delete. Blueprint shape is covered
-		// by `useResetSampleCases`'s unit tests.
-		const [appIdArg, caseTypeArg] = vi.mocked(resetSampleCasesAction).mock
-			.calls[0];
-		expect(appIdArg).toBe(APP_ID);
-		expect(caseTypeArg).toBe("patient");
-	});
-
-	it("leaves the action unfired when the user cancels", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "rows",
-			rows: [RESET_ONE_ROW],
-		});
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-		});
-		await openResetDialog();
-		// Cancel button wraps `AlertDialog.Close`, which dismisses the
-		// dialog without invoking the action.
-		fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
-		await waitFor(() => {
-			expect(screen.queryByRole("alertdialog")).toBeNull();
-		});
-		expect(vi.mocked(resetSampleCasesAction)).not.toHaveBeenCalled();
-	});
-
-	it("disables the Reset trigger and swaps the icon for a spinner while in flight", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "rows",
-			rows: [RESET_ONE_ROW],
-		});
-		// Stall the action via a controllable deferred so the screen sits
-		// in the `running` state long enough to assert the pending UX, then
-		// resolve it after the assertion. A never-resolving `new Promise`
-		// would never be destroyed — async_hooks reports it as a permanent
-		// leak under `--detectAsyncLeaks` — so the deferred is resolved
-		// before teardown to drain the in-flight action + its awaiters.
-		let resolveReset!: (value: { kind: "ok"; inserted: number }) => void;
-		vi.mocked(resetSampleCasesAction).mockImplementation(
-			() =>
-				new Promise<{ kind: "ok"; inserted: number }>((resolve) => {
+describe("useResetController — reset state model", () => {
+	it("runs idle → running → idle and fires reload on the ok arm", async () => {
+		// Controllable deferred so the test can observe the in-flight
+		// `running` state before settling the action. A never-resolving
+		// promise would leak under `--detect-async-leaks`; this one is
+		// resolved inside `act` before the test ends, draining the
+		// awaiter.
+		let resolveReset!: (value: PopulateSampleCasesResult) => void;
+		const reset = vi.fn(
+			(): Promise<PopulateSampleCasesResult> =>
+				new Promise<PopulateSampleCasesResult>((resolve) => {
 					resolveReset = resolve;
 				}),
 		);
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+		const reload = vi.fn();
+
+		const { result } = renderHook(() => useResetController({ reset, reload }));
+
+		// Idle before any confirm.
+		expect(result.current.status).toEqual<SampleDataStatus>({ kind: "idle" });
+
+		// Confirm without awaiting so the assertion lands while the
+		// deferred is still pending — the observable `running` window.
+		let confirmReturn: Promise<void>;
+		act(() => {
+			confirmReturn = result.current.confirmReset();
 		});
-		await openResetDialog();
-		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
-		// `Resetting...` text replaces `Reset sample data` while the
-		// action is in flight; the trigger button is also disabled so
-		// a re-click can't queue a second reset.
-		const pendingTrigger = await screen.findByRole("button", {
-			name: /resetting/i,
+		expect(result.current.status).toEqual<SampleDataStatus>({
+			kind: "running",
 		});
-		expect((pendingTrigger as HTMLButtonElement).disabled).toBe(true);
-		// Settle the action with its success arm so the screen leaves the
-		// `running` state and re-fires its case-list reload (already mocked
-		// to resolve), draining every pending promise inside `act`.
+		// The confirmation closes the instant Reset is confirmed — the
+		// state-level remnant of "dialog dismisses on confirm".
+		expect(result.current.confirmOpen).toBe(false);
+		// reload only fires on the resolved ok arm, never up-front.
+		expect(reload).not.toHaveBeenCalled();
+
+		// Settle the action's ok arm and let the handler's follow-on run
+		// inside `act`, flushing every pending state update.
 		await act(async () => {
 			resolveReset({ kind: "ok", inserted: 30 });
+			await confirmReturn;
 		});
-		// The trigger returns to its idle label once the reload settles —
-		// the observable signal that all follow-on async has flushed.
-		await waitFor(() => {
-			expect(screen.getByRole("button", { name: TRIGGER_RE })).toBeDefined();
-		});
+
+		expect(result.current.status).toEqual<SampleDataStatus>({ kind: "idle" });
+		expect(reload).toHaveBeenCalledTimes(1);
 	});
 
-	it("re-fires the case-list load on the success arm", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "rows",
-			rows: [RESET_ONE_ROW],
-		});
-		// `beforeEach` already defaults the success arm to
-		// `{ kind: "ok", inserted: 30 }`. The screen's `reload`
-		// callback bumps the `useCases` reload key on success, which
-		// re-fires `loadCasesAction` — observable via the action's
-		// call count.
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-		});
-		await screen.findByText("Alice");
-		const initialLoadCalls = vi.mocked(loadCasesAction).mock.calls.length;
-		await openResetDialog();
-		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
-		await waitFor(() => {
-			expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledTimes(1);
-		});
-		// At least one additional `loadCasesAction` call lands after
-		// the success arm — that's the screen's reload-key effect
-		// firing. The exact count varies with effect coalescing; the
-		// load-bearing signal is "fires more than the initial load".
-		await waitFor(() => {
-			expect(vi.mocked(loadCasesAction).mock.calls.length).toBeGreaterThan(
-				initialLoadCalls,
-			);
-		});
-	});
+	it("transitions to the error arm with the action's message and does not reload", async () => {
+		// The plain `error` arm carries a verbatim message — the screen
+		// surfaces `result.message` 1:1 via `describePopulateError`, so
+		// the controller's `error` status holds the same string the
+		// case-store / wire failure produced.
+		const reset = vi.fn(
+			(): Promise<PopulateSampleCasesResult> =>
+				Promise.resolve({
+					kind: "error",
+					message: "Could not reach the case store.",
+				}),
+		);
+		const reload = vi.fn();
 
-	it("renders the inline error message when the action returns the error arm", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "rows",
-			rows: [RESET_ONE_ROW],
+		const { result } = renderHook(() => useResetController({ reset, reload }));
+
+		await act(async () => {
+			await result.current.confirmReset();
 		});
-		vi.mocked(resetSampleCasesAction).mockResolvedValue({
+
+		expect(result.current.status).toEqual<SampleDataStatus>({
 			kind: "error",
 			message: "Could not reach the case store.",
 		});
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+		// A failed reset must NOT bump the case-list reload key — there's
+		// no fresh population to re-query.
+		expect(reload).not.toHaveBeenCalled();
+	});
+
+	it("maps a thrown action to the wire-failure error message and does not reload", async () => {
+		// Wire-level failures (RSC serialization, transport) bypass the
+		// typed result arms entirely; the handler's catch maps them to a
+		// fixed user-facing string so the button never sticks on
+		// "Resetting...".
+		const reset = vi.fn(
+			(): Promise<PopulateSampleCasesResult> =>
+				Promise.reject(new Error("network down")),
+		);
+		const reload = vi.fn();
+
+		const { result } = renderHook(() => useResetController({ reset, reload }));
+
+		await act(async () => {
+			await result.current.confirmReset();
 		});
-		await openResetDialog();
-		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
-		// The screen surfaces the action's `message` slot verbatim
-		// for the `error` arm — the user-facing string maps 1:1 to
-		// the case-store / wire failure mode.
-		await waitFor(() => {
-			expect(screen.getByText("Could not reach the case store.")).toBeDefined();
+
+		expect(result.current.status).toEqual<SampleDataStatus>({
+			kind: "error",
+			message: "Could not reset sample data. Try again.",
 		});
+		expect(reload).not.toHaveBeenCalled();
+	});
+
+	it("closes the confirmation when setConfirmOpen toggles it", () => {
+		// The dialog's open state is controlled by the hook so the
+		// component's AlertDialog is pure `f(state)`. `confirmReset`
+		// closes it (asserted above); the explicit setter covers the
+		// cancel path — Base UI's `AlertDialogCancel` calls
+		// `onOpenChange(false)`, which the hook threads to `setConfirmOpen`.
+		const reset = vi.fn(
+			(): Promise<PopulateSampleCasesResult> =>
+				Promise.resolve({ kind: "ok", inserted: 0 }),
+		);
+		const reload = vi.fn();
+
+		const { result } = renderHook(() => useResetController({ reset, reload }));
+
+		act(() => {
+			result.current.setConfirmOpen(true);
+		});
+		expect(result.current.confirmOpen).toBe(true);
+
+		act(() => {
+			result.current.setConfirmOpen(false);
+		});
+		expect(result.current.confirmOpen).toBe(false);
+		// Toggling open state never touches the action or the reload.
+		expect(reset).not.toHaveBeenCalled();
+		expect(reload).not.toHaveBeenCalled();
 	});
 });

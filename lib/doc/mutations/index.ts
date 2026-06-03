@@ -45,6 +45,7 @@ function dispatchMutation(
 		case "setAppName":
 		case "setConnectType":
 		case "setCaseTypes":
+		case "setAppLogo":
 			applyAppMutation(draft, mut);
 			return;
 		case "addModule":
@@ -52,6 +53,7 @@ function dispatchMutation(
 		case "moveModule":
 		case "renameModule":
 		case "updateModule":
+		case "setModuleMedia":
 			applyModuleMutation(draft, mut);
 			return;
 		case "addForm":
@@ -59,6 +61,7 @@ function dispatchMutation(
 		case "moveForm":
 		case "renameForm":
 		case "updateForm":
+		case "setFormMedia":
 			applyFormMutation(draft, mut);
 			return;
 		case "addField":
@@ -68,6 +71,7 @@ function dispatchMutation(
 		case "duplicateField":
 		case "updateField":
 		case "convertField":
+		case "setFieldMedia":
 			return applyFieldMutation(draft, mut);
 		default:
 			assertNever(mut, "applyMutation");

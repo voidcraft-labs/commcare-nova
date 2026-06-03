@@ -3,9 +3,12 @@ import { type NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-utils";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { saveCcz } from "@/lib/store";
 
 /**
@@ -19,7 +22,7 @@ import { saveCcz } from "@/lib/store";
  */
 export async function POST(req: NextRequest) {
 	try {
-		await requireSession(req);
+		const session = await requireSession(req);
 		const body = await req.json();
 		const { doc } = body;
 
@@ -46,14 +49,44 @@ export async function POST(req: NextRequest) {
 		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
 		rebuildFieldParent(docWithParent);
 
-		// Expand domain doc to HQ JSON.
-		const hqJson = expandDoc(docWithParent);
+		// This path is media-ON (the archive bundles media bytes), so a
+		// stale media reference (deleted, still-uploading, foreign-owned,
+		// or kind-mismatched asset) would make `expandDoc` throw
+		// `requireAssetRef` → opaque 500. Run the media rules first and
+		// surface the actionable message instead. Scoped to media-category
+		// errors so a previously-working non-media compile isn't newly
+		// blocked (this path historically ran only schema parse).
+		const mediaErrors = await collectMediaValidationErrors(
+			docWithParent,
+			session.user.id,
+		);
+		if (mediaErrors.length > 0) {
+			return NextResponse.json(
+				{
+					error: "This app references media that isn't ready to compile.",
+					details: mediaErrors.map(errorToString),
+				},
+				{ status: 400 },
+			);
+		}
 
-		const buffer = compileCcz(hqJson, doc.appName, docWithParent);
+		// Resolve the media manifest (rows + bytes) for this owner, then
+		// expand + compile with it so the XForms, suite, and profile carry
+		// the media references and the archive bundles the files. A
+		// media-free doc resolves to an empty manifest (no I/O) and the
+		// archive carries no media artifacts.
+		const assets = await resolveMediaManifest(docWithParent, session.user.id, {
+			withBytes: true,
+		});
+		const hqJson = expandDoc(docWithParent, { assets });
 
-		// Store buffer for download.
+		const buffer = compileCcz(hqJson, doc.appName, docWithParent, { assets });
+
+		// Store buffer for download, owner-scoped so the download route can
+		// bind access to this user — the archive bundles the app structure
+		// and media bytes, so it must not be readable by id alone.
 		const compileId = randomUUID();
-		await saveCcz(compileId, buffer);
+		await saveCcz(compileId, buffer, session.user.id);
 
 		return NextResponse.json({
 			success: true,

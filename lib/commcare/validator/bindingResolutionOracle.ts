@@ -59,7 +59,7 @@
  */
 
 import type { SyntaxNode } from "@lezer/common";
-import { findAll, getAttributeValue } from "domutils";
+import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
 import { parser } from "@/lib/commcare/xpath";
 import {
 	type ValidationError,
@@ -93,6 +93,14 @@ const SESSION_CONTEXT_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The `jr://file/` prefix every CommCare media reference carries inside an
+ * itext `<value form="image|audio|video">` sibling. The media-resolution check
+ * strips this prefix before comparing against the manifest, which carries the
+ * `commcare/<hash><ext>` wire paths the compiler bundled into the CCZ.
+ */
+const JR_FILE_PREFIX = "jr://file/";
+
+/**
  * The XPath surfaces JavaRosa evaluates at install / form-init time. Each
  * lives on the form's `<model>` block (binds + setvalues) or in the body
  * (`<output>`). The XForm oracle's PATH/ANY classifiers gate which attrs
@@ -115,6 +123,13 @@ interface XPathSurface {
  *   - `sessionDatumIds`: the `id` of every `<datum>` declared on the
  *     form's `<entry>` in `suite.xml`. Built by walking the entry the
  *     compiler has already derived for this form.
+ *   - `mediaManifest`, optional: the closed set of `commcare/<hash><ext>`
+ *     wire paths bundled into the CCZ archive. When supplied, the oracle
+ *     additionally proves every `<value form="image|audio|video">jr://...`
+ *     itext sibling resolves into that set. Defense-in-depth alongside
+ *     the parse-time check `xformOracle::validateXForm` runs on the
+ *     same surface — same install-fatal contract from two angles:
+ *     parse-time totality + install-time resolution.
  *
  * Returns an empty array on a clean form; one `ValidationError` per
  * unresolved reference otherwise. Each error code names what kind of
@@ -125,6 +140,7 @@ export function validateBindingResolution(
 	formName: string,
 	moduleName: string,
 	sessionDatumIds: ReadonlySet<string>,
+	mediaManifest?: ReadonlySet<string>,
 ): ValidationError[] {
 	const built = buildXFormDataModel(xml, formName, moduleName);
 	if ("fatal" in built) return [built.fatal];
@@ -191,7 +207,82 @@ export function validateBindingResolution(
 		// coverage.
 	}
 
+	// Rule 4 (optional) — every itext `<value form="image|audio|video">jr://...`
+	// path must resolve to a bundled wire path in the manifest. The check is
+	// install-time-fatal: at form-init JavaRosa walks the itext entries and
+	// resolves each media value through the media-suite installer; a
+	// reference without a corresponding installed file falls back to the
+	// localization default (empty) and renders as a broken icon. Mirrors the
+	// parse-time check `xformOracle::checkMediaValues` runs on the same
+	// surface — both fire; both are correct boundaries.
+	for (const err of checkItextMediaValues(
+		model,
+		mediaManifest,
+		formName,
+		loc,
+	)) {
+		errors.push(err);
+	}
+
 	return errors;
+}
+
+/**
+ * Walk every `<value form="image|audio|video">` sibling inside the form's
+ * itext block(s) and resolve its `jr://file/...` text content against the
+ * supplied manifest. Skipped when `mediaManifest === undefined` — the
+ * media-OFF path emits no media values and has nothing to resolve.
+ */
+function checkItextMediaValues(
+	model: XFormDataModel,
+	mediaManifest: ReadonlySet<string> | undefined,
+	formName: string,
+	loc: ValidationLocation,
+): ValidationError[] {
+	if (mediaManifest === undefined) return [];
+	const errors: ValidationError[] = [];
+
+	for (const valueEl of findAll(
+		(el) => el.name === "value",
+		model.doc.children,
+	)) {
+		const form = getAttributeValue(valueEl, "form");
+		if (form !== "image" && form !== "audio" && form !== "video") continue;
+
+		const refText = readElementText(valueEl).trim();
+		if (refText === "") continue;
+		if (!refText.startsWith(JR_FILE_PREFIX)) continue;
+
+		const wirePath = refText.slice(JR_FILE_PREFIX.length);
+		if (mediaManifest.has(wirePath)) continue;
+
+		errors.push(
+			validationError(
+				"BINDING_RESOLUTION_MEDIA_REF_UNDECLARED",
+				"form",
+				`"${formName}" carries an itext <value form="${form}"> referencing "${refText}", but the install-time media manifest has no entry for "${wirePath}". CommCare resolves this jr:// reference against media_suite.xml's local resources at install; an unresolved reference renders as a broken icon. This is a bug in the form generator.`,
+				loc,
+			),
+		);
+	}
+
+	return errors;
+}
+
+/**
+ * Concatenate every direct text-child of an element. Mirrors `domhandler`'s
+ * `Text` node layout — adjacent text segments stay as sibling children, and
+ * the equivalent of `parser.nextText()` is a children sweep with `.data`
+ * concatenation.
+ */
+function readElementText(el: import("domhandler").Element): string {
+	let acc = "";
+	for (const child of getChildren(el)) {
+		if (isTag(child)) continue;
+		const data = (child as { data?: string }).data;
+		if (typeof data === "string") acc += data;
+	}
+	return acc;
 }
 
 /**

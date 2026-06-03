@@ -6,9 +6,10 @@
 // `expandDoc`) and the source `BlueprintDoc`, and produces a .ccz ZIP
 // archive ready for CommCare Mobile. The archive contains:
 //
-//   - profile.ccpr                : app profile (name + suite descriptors)
+//   - profile.ccpr                : app profile (name + suite descriptors + logo)
 //   - suite.xml                   : menus, commands, case details, entries, locales
-//   - media_suite.xml             : empty media suite (multimedia is unused)
+//   - media_suite.xml             : media resource descriptor (empty when no media)
+//   - commcare/<hash>.<ext>       : one bundled file per referenced media asset
 //   - {lang}/app_strings.txt      : per-language localized string tables
 //   - modules-{m}/forms-{f}.xml   : one XForm per form, with case blocks injected
 //
@@ -36,18 +37,35 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import type { HqApplication } from "@/lib/commcare";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
+import { buildMediaBundle } from "@/lib/commcare/multimedia/bundle";
+import { buildLogoProfileProperty } from "@/lib/commcare/multimedia/logoEntry";
+import { buildNavMenuNode } from "@/lib/commcare/multimedia/navMenuMedia";
 import {
 	buildEntryElement,
+	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
 } from "@/lib/commcare/session";
 import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
+import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
+
+/** Compile-time options. `assets` is the resolved media manifest; when
+ *  present the archive bundles the referenced files + media_suite.xml +
+ *  logo property + menu/command media. Absent = media-free archive
+ *  (empty `media_suite.xml`, no logo property, no bundled media bytes,
+ *  bare `<text>` nav nodes — the same archive shape with no media
+ *  artifacts). */
+export interface CompileOptions {
+	assets?: AssetManifest;
+}
 
 /**
  * Compile an HQ application JSON (already expanded from a domain doc)
@@ -57,20 +75,46 @@ import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
  * walk mirrors `hqJson.modules` / `hqJson.modules[m].forms` exactly,
  * which lets us resolve the form-type metadata (absent from the HQ
  * wire shape) while producing the session entry for each form.
+ *
+ * `opts.assets` is the resolved media manifest. It MUST be built from
+ * the SAME manifest passed to `expandDoc` (so the jr:// references the
+ * XForms + shells carry resolve to bundled files); the route that loads
+ * assets passes one manifest to both. Absent = media-free archive.
  */
 export function compileCcz(
 	hqJson: HqApplication,
 	appName: string,
 	doc: BlueprintDoc,
+	opts: CompileOptions = {},
 ): Buffer {
 	const hqModules = hqJson.modules;
 	const attachments = hqJson._attachments;
+	const assets = opts.assets;
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
 
-	files["profile.ccpr"] = generateProfile(appName);
-	files["media_suite.xml"] = '<?xml version="1.0"?>\n<suite version="1"/>';
+	// Media bundle: media_suite.xml descriptor, the multimedia_map (already
+	// stamped on `hqJson` by the expander), and the CCZ byte entries. With no
+	// manifest the bundle is empty and `mediaSuiteXml` is the byte-identical
+	// empty placeholder, so a media-free app's archive is unchanged.
+	const mediaBundle = buildMediaBundle(assets ?? new Map(), "compileCcz");
+
+	// The set of `commcare/<hash><ext>` wire paths bundled into the archive
+	// — derived from the SAME asset manifest the expander stamped jr://
+	// references against. Both the XForm and suite oracle invocations below
+	// receive this set so a generator drift between "what gets emitted as a
+	// jr:// reference" and "what gets bundled" surfaces as an oracle finding
+	// at compile time instead of as a broken-icon symptom on device.
+	const bundledWirePaths = new Set(
+		mediaBundle.cczEntries.map((entry) => entry.path),
+	);
+
+	files["profile.ccpr"] = generateProfile(
+		appName,
+		buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
+	);
+	files["media_suite.xml"] = mediaBundle.mediaSuiteXml;
 
 	// `appStrings` is populated as we walk modules/forms; flushed once
 	// per language at the end.
@@ -111,6 +155,18 @@ export function compileCcz(
 		const hqForms = hqMod.forms;
 
 		appStrings[`modules.m${mIdx}`] = modName;
+
+		// Every calc-column expression on this module's case-list short /
+		// long detail. Module-invariant (it depends only on
+		// `caseListConfig.columns`), so it's computed once here and reused
+		// by both case-loading entry paths below — the per-form entry and
+		// the `caseListOnly` browse entry — each of which references the
+		// `m{N}_case_short` / `m{N}_case_long` details these expressions
+		// land on, and so must declare every `<instance>` they reach.
+		const caseListColumnExpressions =
+			mod.caseListConfig?.columns
+				.filter((c) => c.kind === "calculated")
+				.map((c) => c.expression) ?? [];
 
 		// Case detail definitions — emitted only when the module has a case
 		// type. Short + long details are always paired.
@@ -183,6 +239,7 @@ export function compileCcz(
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
+				...(assets && { assets }),
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
@@ -201,6 +258,7 @@ export function compileCcz(
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
+				...(assets && { assets }),
 			});
 			suiteDetails.push(longEmission.element);
 			Object.assign(appStrings, longEmission.strings);
@@ -220,6 +278,7 @@ export function compileCcz(
 					moduleIndex: mIdx,
 					doc,
 					target: "search",
+					...(assets && { assets }),
 				});
 				suiteDetails.push(searchShort.element);
 				Object.assign(appStrings, searchShort.strings);
@@ -229,6 +288,7 @@ export function compileCcz(
 					moduleIndex: mIdx,
 					doc,
 					target: "search",
+					...(assets && { assets }),
 				});
 				suiteDetails.push(searchLong.element);
 				Object.assign(appStrings, searchLong.strings);
@@ -259,13 +319,21 @@ export function compileCcz(
 
 			appStrings[`forms.m${mIdx}f${fIdx}`] = formName;
 
-			// Case-block injection: the emitter produces a clean XForm; the
-			// compiler splices in <case>/<subcase> elements based on the
-			// form's derived actions so the mobile runtime can read/write
-			// the case database.
+			// Build-time injection. The emitter produces a clean XForm (no case
+			// blocks, no meta — those are CCHQ render-time artifacts the HQ-upload
+			// source omits and CCHQ regenerates). The local .ccz has no CCHQ render
+			// step, so the compiler mirrors `xform.py::add_case_and_meta` here:
+			// `addCaseBlocks` splices the <case>/<subcase> transaction blocks from
+			// the form's derived actions, then `addMetaBlock` appends the OpenRosa
+			// <meta> block. Case-then-meta order matches CCHQ's instance layout.
+			// `addMetaBlock` is unconditional — every form carries meta, surveys
+			// included — while case blocks only emit on case-managed modules.
 			let xform = attachments[`${uniqueId}.xml`];
 			if (xform && caseType) {
 				xform = addCaseBlocks(xform, hqForm.actions, caseType);
+			}
+			if (xform) {
+				xform = addMetaBlock(xform);
 			}
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
@@ -300,11 +368,8 @@ export function compileCcz(
 			// Built BEFORE the validation gates so the binding-resolution
 			// oracle has the entry's session datums to cross-check the
 			// XForm's `instance('commcaresession')/session/data/<X>`
-			// references against.
-			const caseListColumnExpressions =
-				mod.caseListConfig?.columns
-					.filter((c) => c.kind === "calculated")
-					.map((c) => c.expression) ?? [];
+			// references against. `caseListColumnExpressions` is the
+			// module-scoped accumulation hoisted above the form loop.
 			const entryDef = deriveEntryDefinition(
 				xmlns,
 				mIdx,
@@ -336,7 +401,12 @@ export function compileCcz(
 			// validator accepts compiles to a CCZ whose XPath references
 			// all resolve — and is not invoked here.
 			if (xform) {
-				const xformErrors = validateXForm(xform, formName, modName);
+				const xformErrors = validateXForm(
+					xform,
+					formName,
+					modName,
+					bundledWirePaths,
+				);
 				if (xformErrors.length > 0) {
 					throw new Error(
 						`XForm validation failed for "${formName}" in "${modName}" after case block injection:\n` +
@@ -358,15 +428,97 @@ export function compileCcz(
 				]),
 			);
 
-			suiteEntries.push(buildEntryElement(entryDef));
+			// Form menu-command media: the entry's `<command>` display gains
+			// `<text form="image|audio">` media locales (icon / audio label)
+			// when the form carries them. The nav node is a bare `<text>` when
+			// it doesn't, so the no-media shape is unchanged. Its app_strings
+			// (the jr:// path locales) merge into the table the suite oracle
+			// resolves `<locale id>` against.
+			const formNav = buildNavMenuNode(
+				`forms.m${mIdx}f${fIdx}`,
+				form.icon,
+				form.audioLabel,
+				assets,
+				"compileCcz form command",
+			);
+			Object.assign(appStrings, formNav.strings);
+			suiteEntries.push(buildEntryElement(entryDef, formNav.node));
 			menuCommands.push(el("command", { id: cmdId }));
 		}
 
+		// Case-list-browse command for a `caseListOnly` module. CCHQ emits
+		// a standalone case-list command + entry from its
+		// `if module.case_list.show:` block (`entries.py`) when a module
+		// shows its case list without an attached form — the shape Nova's
+		// expander stamps as `case_list.show = true`. The local `.ccz`
+		// compiler emits the matching command + entry so a directly-installed
+		// archive reaches the case list (without this, a `caseListOnly`
+		// module's `<menu>` carries zero commands and the case list is
+		// unreachable on-device, diverging from the HQ-regenerated suite).
+		//
+		// Guarded on a present case type the same way the per-form case
+		// path is — a `caseListOnly` module with no case type has no case
+		// list to browse (and the validator's `caseListOnlyNoCaseType` rule
+		// rejects that state upstream).
+		if (mod.caseListOnly && caseType) {
+			// The case-list command's display node. A bare
+			// `<text><locale id="case_lists.m{N}"/></text>` when the module
+			// carries no case-list menu media, or a `<display>` wrapping the
+			// text + `<text form="image|audio">` media locales when it does
+			// — the same builder the form / module nav nodes use, here fed
+			// the case-list link's `icon` / `audioLabel` slots. This is the
+			// render target the expander's `case_list.media_*` stamping
+			// always implied but the local path previously had nowhere to
+			// land.
+			const caseListNav = buildNavMenuNode(
+				`case_lists.m${mIdx}`,
+				mod.caseListConfig?.icon,
+				mod.caseListConfig?.audioLabel,
+				assets,
+				"compileCcz case-list command",
+			);
+			// The command's base label resolves to the module name —
+			// matching CCHQ's `case_list.label = { en: mod.name }` shell
+			// stamping in `expander.ts`. Its media locales (when present)
+			// merge in alongside.
+			appStrings[`case_lists.m${mIdx}`] = modName;
+			Object.assign(appStrings, caseListNav.strings);
+
+			// The browse entry: no `<form>`, a `case_id` datum carrying both
+			// detail-select + detail-confirm, and the same instance
+			// accumulation the form entry uses (the browse entry is the sole
+			// loader of `m{N}_case_short` / `m{N}_case_long` in a formless
+			// module). Calc-column expressions + the case-list filter +
+			// any search-button display condition are read from the module
+			// exactly as the per-form path reads them.
+			const caseListEntryDef = deriveCaseListEntryDefinition(
+				mIdx,
+				caseType,
+				mod.caseListConfig?.filter,
+				mod.caseSearchConfig?.searchButtonDisplayCondition,
+				caseListColumnExpressions.length > 0
+					? caseListColumnExpressions
+					: undefined,
+			);
+			suiteEntries.push(buildEntryElement(caseListEntryDef, caseListNav.node));
+			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));
+		}
+
+		// Module home-tile media: the `<menu>`'s display gains the icon /
+		// audio-label media locales when the module carries them; an
+		// un-mediafied menu emits the bare `<text><locale id="modules.m{N}"/></text>`
+		// child.
+		const moduleNav = buildNavMenuNode(
+			`modules.m${mIdx}`,
+			mod.icon,
+			mod.audioLabel,
+			assets,
+			"compileCcz module menu",
+		);
+		Object.assign(appStrings, moduleNav.strings);
+
 		suiteMenus.push(
-			el("menu", { id: `m${mIdx}` }, [
-				el("text", {}, [el("locale", { id: `modules.m${mIdx}` })]),
-				...menuCommands,
-			]),
+			el("menu", { id: `m${mIdx}` }, [moduleNav.node, ...menuCommands]),
 		);
 	}
 
@@ -427,10 +579,40 @@ export function compileCcz(
 	// key set is the complete locale registry the oracle resolves `<locale id>`
 	// references against. (The oracle's own strict `XMLValidator.validate`
 	// subsumes the well-formedness parse-check this replaced.)
-	const suiteErrors = validateSuite(suiteXml, new Set(Object.keys(appStrings)));
+	// The suite oracle's media-resolution check resolves menu-borne locales +
+	// image-map XPath literals against the bundled wire paths. Threading the
+	// app_strings table (key→value) AND the manifest closes the loop the
+	// fuzz already exercises: a divergence between the suite emitter's jr://
+	// references and what the bundler wrote into the CCZ surfaces at compile
+	// time rather than as a broken-icon on device.
+	const suiteErrors = validateSuite(
+		suiteXml,
+		new Set(Object.keys(appStrings)),
+		{
+			appStringValues: new Map(Object.entries(appStrings)),
+			manifest: bundledWirePaths,
+		},
+	);
 	if (suiteErrors.length > 0) {
 		throw new Error(
 			`Generated suite.xml failed the suite oracle:\n${suiteErrors
+				.map((e) => `  - ${errorToString(e)}`)
+				.join("\n")}`,
+		);
+	}
+
+	// The `media_suite.xml` oracle. Catches a generator slip in the
+	// `mediaSuiteXml` builder before the archive ships — duplicate resource
+	// ids, missing authority, locations pointing at zip entries that aren't
+	// bundled, etc. Same generator-totality posture as the suite oracle: a
+	// failing media suite here is a compiler bug, never an authoring state.
+	const mediaSuiteErrors = validateMediaSuite(
+		mediaBundle.mediaSuiteXml,
+		bundledWirePaths,
+	);
+	if (mediaSuiteErrors.length > 0) {
+		throw new Error(
+			`Generated media_suite.xml failed the media-suite oracle:\n${mediaSuiteErrors
 				.map((e) => `  - ${errorToString(e)}`)
 				.join("\n")}`,
 		);
@@ -448,7 +630,7 @@ export function compileCcz(
 		files[`${dir}/app_strings.txt`] = langStrings;
 	}
 
-	return packageCcz(files);
+	return packageCcz(files, mediaBundle.cczEntries);
 }
 
 /**
@@ -464,8 +646,13 @@ export function compileCcz(
  * The `appName` flows raw through the `name` attribute and the
  * `CommCare App Name` property value; the serializer XML-escapes both
  * once at render time (`&` / `<` / `>` / `"` / `'`).
+ *
+ * `logoProperty`, when present, is the web-apps banner
+ * `<property key="brand-banner-web-apps" value="jr://file/..." force="true"/>`
+ * built from `doc.logo`; it's appended to the property list. Absent =
+ * no logo property (media off, or no logo set).
  */
-function generateProfile(appName: string): string {
+function generateProfile(appName: string, logoProperty?: Element): string {
 	const profileEl = el(
 		"profile",
 		{
@@ -479,6 +666,7 @@ function generateProfile(appName: string): string {
 			el("property", { key: "CommCare App Name", value: appName }),
 			el("property", { key: "cc-content-version", value: "1" }),
 			el("property", { key: "cc-app-version", value: "1" }),
+			...(logoProperty ? [logoProperty] : []),
 			el("features", {}, [el("users", { active: "true" })]),
 			el("suite", {}, [
 				el(
@@ -504,13 +692,21 @@ function generateProfile(appName: string): string {
 }
 
 /**
- * Pack the collected file map into a ZIP archive and return the
- * in-memory buffer.
+ * Pack the collected files into a ZIP archive and return the in-memory
+ * buffer. Text files (`files`) are UTF-8 encoded; media files
+ * (`mediaEntries`) are added as their raw bytes — routing binary media
+ * through the UTF-8 text map would corrupt it.
  */
-function packageCcz(files: Record<string, string>): Buffer {
+function packageCcz(
+	files: Record<string, string>,
+	mediaEntries: readonly { path: string; bytes: Buffer }[] = [],
+): Buffer {
 	const zip = new AdmZip();
 	for (const [filePath, content] of Object.entries(files)) {
 		zip.addFile(filePath, Buffer.from(content, "utf-8"));
+	}
+	for (const entry of mediaEntries) {
+		zip.addFile(entry.path, entry.bytes);
 	}
 	return zip.toBuffer();
 }

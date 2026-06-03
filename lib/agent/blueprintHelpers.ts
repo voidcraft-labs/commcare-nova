@@ -24,6 +24,7 @@ import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type {
+	AssetId,
 	BlueprintDoc,
 	CaseType,
 	Column,
@@ -33,6 +34,7 @@ import type {
 	FieldPatchFor,
 	Form,
 	FormType,
+	Media,
 	Module,
 	PostSubmitDestination,
 	SearchInputDef,
@@ -279,6 +281,71 @@ export function updateModuleMutations(
 	patch: Partial<Omit<Module, "uuid">>,
 ): Mutation[] {
 	return [{ kind: "updateModule", uuid: mod.uuid, patch }];
+}
+
+/**
+ * Set or clear the blueprint-root `logo` (the app-level login/home-screen
+ * image). The app has no other app-level setter — this is the only writer
+ * for `doc.logo`. Passing an asset id sets it; passing `null` clears it.
+ * The `setAppLogo` reducer maps `null → undefined` so the cleared key
+ * drops off the doc rather than persisting as a literal `null`. */
+export function setAppLogoMutations(logo: AssetId | null): Mutation[] {
+	return [{ kind: "setAppLogo", logo }];
+}
+
+/**
+ * The four field message slots a media bundle attaches to, sourced from
+ * the `setFieldMedia` mutation arm so the builder signature can't drift
+ * from the wire schema.
+ */
+export type FieldMediaSlot = Extract<
+	Mutation,
+	{ kind: "setFieldMedia" }
+>["slot"];
+
+/**
+ * Set or clear one of a field's message-slot media bundles
+ * (`label`/`hint`/`help`/`validate_msg`). Emits the dedicated
+ * `setFieldMedia` mutation — NOT an `updateField` patch — because a clear
+ * must cross the SSE wire as an explicit `null` (the reducer maps it to
+ * `undefined`). A clear encoded as `{ <slot>_media: undefined }` on an
+ * `updateField` patch would be dropped by `JSON.stringify`, silently
+ * leaving the stale asset ref on the client. Passing a `Media` bundle
+ * sets the slot; passing `null` clears it. The reducer guards slot-vs-kind
+ * (the SA tool also rejects an unsupported slot up front). */
+export function setFieldMediaMutations(
+	fieldUuid: Uuid,
+	slot: FieldMediaSlot,
+	media: Media | null,
+): Mutation[] {
+	return [{ kind: "setFieldMedia", fieldUuid, slot, media }];
+}
+
+/**
+ * Set or clear a module's menu media (home-screen tile `icon` +
+ * `audioLabel`). Emits the dedicated `setModuleMedia` mutation rather than
+ * an `updateModule` patch, for the same wire-survival reason as
+ * `setFieldMediaMutations`: a clear rides as explicit `null` (mapped to
+ * `undefined` in the reducer) so it isn't dropped by `JSON.stringify`.
+ * Both slots are set in one call — pass `null` on either to clear it. */
+export function setModuleMediaMutations(
+	moduleUuid: Uuid,
+	icon: AssetId | null,
+	audioLabel: AssetId | null,
+): Mutation[] {
+	return [{ kind: "setModuleMedia", uuid: moduleUuid, icon, audioLabel }];
+}
+
+/**
+ * Set or clear a form's menu media (tile `icon` + `audioLabel`). Mirrors
+ * `setModuleMediaMutations` one level down — dedicated `setFormMedia`
+ * mutation so a clear survives the SSE wire as an explicit `null`. */
+export function setFormMediaMutations(
+	formUuid: Uuid,
+	icon: AssetId | null,
+	audioLabel: AssetId | null,
+): Mutation[] {
+	return [{ kind: "setFormMedia", uuid: formUuid, icon, audioLabel }];
 }
 
 // ── Mutation builders — case list config ────────────────────────────────
@@ -586,9 +653,9 @@ export function removeFormMutations(
  * (the reducer stores `undefined`), passing an object replaces it, and
  * omitting the key leaves it untouched.
  *
- * `connect` additionally runs through `normalizeConnectConfig` so empty
- * sub-configs don't get written — matches legacy behavior where an
- * explicit `{ connect: {} }` patch was treated as "clear".
+ * `connect` additionally runs through `normalizeConnectConfig` so an
+ * empty / all-empty connect config is stripped — it lands as absent
+ * rather than as an empty `{ connect: {} }` marker.
  */
 export function updateFormMutations(
 	doc: BlueprintDoc,

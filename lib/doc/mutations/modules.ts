@@ -21,7 +21,8 @@ export function applyModuleMutation(
 				| "removeModule"
 				| "moveModule"
 				| "renameModule"
-				| "updateModule";
+				| "updateModule"
+				| "setModuleMedia";
 		}
 	>,
 ): void {
@@ -68,6 +69,20 @@ export function applyModuleMutation(
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
 			Object.assign(mod, mut.patch);
+			return;
+		}
+		case "setModuleMedia": {
+			// Set or clear the module's menu media (home-screen tile `icon` +
+			// `audioLabel`). The mutation carries explicit `AssetId | null`
+			// slots so a clear survives JSON over the SSE wire — a generic
+			// `updateModule` patch would encode the clear as `{ key: undefined }`,
+			// which `JSON.stringify` drops, leaving the stale ref on the client.
+			// Each `null` maps to `undefined` here so the cleared slot drops off
+			// the module (both slots are `.optional()`, never a stored `null`).
+			const mod = draft.modules[mut.uuid];
+			if (!mod) return;
+			mod.icon = mut.icon ?? undefined;
+			mod.audioLabel = mut.audioLabel ?? undefined;
 			return;
 		}
 	}

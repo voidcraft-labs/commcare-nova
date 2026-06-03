@@ -1,7 +1,9 @@
 "use client";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { MultiSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { useEditMode } from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
 
 interface SelectMultiFieldProps {
@@ -28,6 +30,7 @@ export function SelectMultiField({
 	const options = field.options ?? [];
 	const selected = new Set(state.value ? state.value.split(" ") : []);
 	const showError = state.touched && !state.valid;
+	const isEditMode = useEditMode() === "edit";
 
 	const toggle = (optValue: string) => {
 		const next = new Set(selected);
@@ -91,12 +94,23 @@ export function SelectMultiField({
 							<span className="preview-markdown text-sm text-nova-text">
 								<PreviewMarkdown inline>{opt.label}</PreviewMarkdown>
 							</span>
+							{/* Per-option media — compact, same as the single-select. */}
+							<MediaDisplay
+								media={opt.media}
+								interactive={!isEditMode}
+								imageClassName="max-h-24 max-w-full rounded object-contain"
+							/>
 						</label>
 					);
 				})}
 			</div>
 			{showError && state.errorMessage && (
-				<ValidationError message={state.errorMessage} />
+				<ValidationError
+					message={state.errorMessage}
+					media={
+						"validate_msg_media" in field ? field.validate_msg_media : undefined
+					}
+				/>
 			)}
 		</fieldset>
 	);

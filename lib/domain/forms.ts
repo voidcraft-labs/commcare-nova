@@ -1,5 +1,6 @@
 // lib/domain/forms.ts
 import { z } from "zod";
+import { assetIdSchema } from "./multimedia";
 import { uuidSchema } from "./uuid";
 
 export const FORM_TYPES = [
@@ -171,6 +172,13 @@ export const formSchema = z
 		connect: connectConfigSchema.nullable().optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 		formLinks: z.array(formLinkSchema).optional(),
+		/**
+		 * Image shown on the form's menu tile — the per-form
+		 * affordance within a module's menu.
+		 */
+		icon: assetIdSchema.optional(),
+		/** Audio version of the form's menu label, for audio-prompt playback. */
+		audioLabel: assetIdSchema.optional(),
 	})
 	.strict();
 export type Form = z.infer<typeof formSchema>;

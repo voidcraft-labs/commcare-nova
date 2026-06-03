@@ -54,6 +54,13 @@ import { generateSchemaTool } from "./tools/generateSchema";
 import { getFieldTool } from "./tools/getField";
 import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
+import { attachFieldMediaTool } from "./tools/media/attachFieldMedia";
+import { attachOptionMediaTool } from "./tools/media/attachOptionMedia";
+import { listMediaAssetsTool } from "./tools/media/listMediaAssets";
+import { removeMediaAssetTool } from "./tools/media/removeMediaAsset";
+import { setAppLogoTool } from "./tools/media/setAppLogo";
+import { setFormMediaTool } from "./tools/media/setFormMedia";
+import { setModuleMediaTool } from "./tools/media/setModuleMedia";
 import { removeFieldTool } from "./tools/removeField";
 import { removeFormTool } from "./tools/removeForm";
 import { removeModuleTool } from "./tools/removeModule";
@@ -86,6 +93,43 @@ export const BUILD_ONLY_TOOL_NAMES = [
 ] as const;
 
 type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
+
+/**
+ * Result the chat-side `validateApp` wrapper hands the model. Distinct
+ * from the shared `ValidateAppResult` (`kind: "validate"`) that the MCP
+ * adapter consumes — the chat wrapper collapses validation to a flat
+ * success/failure and layers on the chat-only completion side effects
+ * (materialize → data-done → completeApp). Three arms, and the
+ * discriminator between the two failure arms is load-bearing:
+ *
+ *  - `{ success: true }` — validated AND the case-store schema
+ *    materialized; the celebration handoff has fired.
+ *  - `{ success: false; errors }` — the app has remaining authoring
+ *    errors the SA can fix by mutating the doc. `errors` enumerates them;
+ *    re-running `validateApp` after a fix is the intended loop.
+ *  - `{ success: false; infrastructure: true; errors }` — validation
+ *    PASSED, but a system fault (case-store Postgres outage) interrupted
+ *    finalizing the app. The SA cannot repair this by editing the doc and
+ *    re-running hits the same fault, so the arm is tagged
+ *    `infrastructure: true`. Without the tag this is byte-identical to a
+ *    validation failure, and the SA spends its `stopWhen` budget
+ *    "fixing" an app that was never broken. The prompt's Error Recovery
+ *    section keys off the tag to stop and surface a system error instead.
+ */
+type ChatValidateAppResult =
+	| { success: true }
+	| { success: false; errors: string[] }
+	| { success: false; infrastructure: true; errors: string[] };
+
+/**
+ * The model-facing instruction returned in `validateApp`'s
+ * infrastructure-failure arm. Distinct from the user-facing
+ * `classified.message` that `emitError` ships — this text tells the SA what
+ * to *do* (stop, don't retry, report a system error). Named so the arm and
+ * its test assert one source of truth rather than each restating the prose.
+ */
+export const INFRA_FAILURE_SA_INSTRUCTION =
+	"A system error interrupted finalizing the app — this is an infrastructure problem on our end, not a problem with the app you built. Editing the app will not fix it, and re-running validateApp will hit the same error. Stop now: tell the user a system error interrupted saving their app (the app itself is sound) and to try again in a moment or contact support. Do not call validateApp again.";
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -343,6 +387,26 @@ export function createSolutionsArchitect(
 		setCaseSearchAdvanced: wrapMutating(setCaseSearchAdvancedTool),
 		setCaseSearchDisplay: wrapMutating(setCaseSearchDisplayTool),
 
+		// ── Media authoring ───────────────────────────────────────────
+		// The dedicated surface for attaching asset ids to carriers — the
+		// generic mutation tools (`addFields`, `editField`,
+		// case-list-config) omit every media slot, so the SA can neither
+		// mint nor reference an asset id there. Five doc-mutation tools
+		// (field message slots / select option / module + form menu /
+		// app logo) plus two library tools: `listMediaAssets` discovers
+		// the asset ids the others need (read), `removeMediaAsset` deletes
+		// one with a live-reference guard (read-shaped — its side effect
+		// is on the library, not the doc). The MCP-only `uploadMediaAsset`
+		// is not here: the browser uploads through the library UI.
+
+		attachFieldMedia: wrapMutating(attachFieldMediaTool),
+		attachOptionMedia: wrapMutating(attachOptionMediaTool),
+		setModuleMedia: wrapMutating(setModuleMediaTool),
+		setFormMedia: wrapMutating(setFormMediaTool),
+		setAppLogo: wrapMutating(setAppLogoTool),
+		listMediaAssets: wrapRead(listMediaAssetsTool),
+		removeMediaAsset: wrapRead(removeMediaAssetTool),
+
 		// ── Validation ────────────────────────────────────────────────
 
 		/* `validateApp` stays bespoke because its wrapper layers three
@@ -397,7 +461,7 @@ export function createSolutionsArchitect(
 			description: validateAppTool.description,
 			inputSchema: validateAppTool.inputSchema,
 			execute: (input) =>
-				serial(async () => {
+				serial(async (): Promise<ChatValidateAppResult> => {
 					const result = await validateAppTool.execute(input, ctx, doc);
 					// Advance the working doc unconditionally — `validateAndFix`
 					// returns the post-loop doc even on failure so later tool
@@ -433,9 +497,16 @@ export function createSolutionsArchitect(
 							 * swallows Firestore errors internally) — match
 							 * the route's `handleRouteError` shape exactly. */
 							failApp(ctx.appId, classified.type);
+							/* Tag `infrastructure: true` so the SA can tell this
+							 * apart from a validation failure (the app validated
+							 * clean; the fault is a system outage no doc mutation
+							 * repairs), and return the model-facing instruction —
+							 * NOT `classified.message`, whose user-facing
+							 * translation already shipped via `emitError` above. */
 							return {
-								success: false as const,
-								errors: [classified.message],
+								success: false,
+								infrastructure: true,
+								errors: [INFRA_FAILURE_SA_INSTRUCTION],
 							};
 						}
 						ctx.emit("data-done", {
@@ -453,10 +524,10 @@ export function createSolutionsArchitect(
 						completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
 							log.error("[validateApp] app update failed", err),
 						);
-						return { success: true as const };
+						return { success: true };
 					}
 					return {
-						success: false as const,
+						success: false,
 						errors: result.errors ?? [],
 					};
 				}),

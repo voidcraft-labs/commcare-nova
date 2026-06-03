@@ -59,11 +59,16 @@ export { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 // `Iterable<ZodObject>.map(...)` form drops the per-arm narrowing into
 // a non-callable union TS can't dispatch through `omit`.
 
+// Positional destructure of the domain `columnSchema` arms — the order
+// MUST track `columnSchema`'s `z.discriminatedUnion([...])` member order
+// in `lib/domain/modules.ts`. Adding a column kind there requires adding
+// it here (and to `columnInputSchema` below) in the same position.
 const [
 	plainColumnArm,
 	dateColumnArm,
 	phoneColumnArm,
 	idMappingColumnArm,
+	imageMapColumnArm,
 	intervalColumnArm,
 	calculatedColumnArm,
 ] = columnSchema.options;
@@ -78,6 +83,7 @@ export const columnInputSchema = z.discriminatedUnion("kind", [
 	dateColumnArm.omit({ uuid: true }),
 	phoneColumnArm.omit({ uuid: true }),
 	idMappingColumnArm.omit({ uuid: true }),
+	imageMapColumnArm.omit({ uuid: true }),
 	intervalColumnArm.omit({ uuid: true }),
 	calculatedColumnArm.omit({ uuid: true }),
 ]);

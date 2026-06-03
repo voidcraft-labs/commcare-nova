@@ -37,6 +37,38 @@ export class ApiError extends Error {
 }
 
 /**
+ * Read a small JSON request body, rejecting a declared-oversized one
+ * BEFORE materializing it. Routes whose body is a fixed-shape metadata
+ * object (not a blueprint or chat transcript) pass a tight `maxBytes` so a
+ * single authenticated request can't make the server buffer and parse an
+ * arbitrarily large payload (CWE-400) ahead of the schema's own checks.
+ *
+ * `Content-Length` is the cheap gate: a request that DECLARES a body over
+ * the cap is rejected without touching the stream. A chunked request that
+ * omits `Content-Length` falls through to `req.json()` — the platform's
+ * request-body limit (Cloud Run caps inbound bodies) is the backstop
+ * there; this helper rejects the common declared-large case, it doesn't
+ * re-implement a streaming byte counter.
+ *
+ * Mirrors the route's existing lenient parse: a non-JSON body resolves to
+ * `null` (let the caller's Zod schema produce the field-level message),
+ * while an over-cap body throws `ApiError(413)`.
+ */
+export async function readJsonBody(
+	req: Request,
+	maxBytes: number,
+): Promise<unknown> {
+	const declared = Number(req.headers.get("content-length"));
+	if (Number.isFinite(declared) && declared > maxBytes) {
+		throw new ApiError(
+			`Request body is too large — this endpoint accepts at most ${maxBytes} bytes of JSON.`,
+			413,
+		);
+	}
+	return req.json().catch(() => null);
+}
+
+/**
  * Converts an error into a consistent JSON error response.
  *
  * - `ApiError`  -> uses its status and details directly

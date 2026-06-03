@@ -42,7 +42,10 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
-import { createSolutionsArchitect } from "../solutionsArchitect";
+import {
+	createSolutionsArchitect,
+	INFRA_FAILURE_SA_INSTRUCTION,
+} from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
 
 // ── Forbidden legacy events ──────────────────────────────────────────────
@@ -759,13 +762,18 @@ describe("solutionsArchitect — validateApp", () => {
 		expect(vi.mocked(failApp)).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(failApp).mock.calls[0]).toEqual(["test-app", "internal"]);
 
-		// The tool returns the canonical failure shape with one
-		// human-readable error string sourced from the classified
-		// error's `message` (the user-facing translation, not the
-		// raw `simulated postgres outage`).
+		// The tool tags the failure `infrastructure: true` so the SA can
+		// tell a system outage (validation passed; finalize threw) apart
+		// from a fixable validation failure — without the tag the two
+		// returns are byte-identical and the SA burns its `stopWhen`
+		// budget "fixing" an app that was never broken. `errors` carries
+		// the SA-facing stop-and-report instruction, NOT the raw
+		// `simulated postgres outage` (that user-facing translation went
+		// out via `emitError`).
 		expect(result).toMatchObject({
 			success: false,
-			errors: expect.arrayContaining([expect.any(String)]),
+			infrastructure: true,
+			errors: [INFRA_FAILURE_SA_INSTRUCTION],
 		});
 	});
 });
@@ -788,9 +796,17 @@ vi.mock("@/lib/commcare/validator/fixes", () => ({
 }));
 
 vi.mock("@/lib/commcare/expander", () => ({
+	// `expandDoc` returns an `HqApplication`; the validationLoop's
+	// `validateHqJson` reads the app-level multimedia_map + logo_refs slots,
+	// so this stub must stamp them empty even though the test never
+	// exercises media — leaving them undefined would crash the oracle on
+	// `Object.entries(undefined)`. The empty-dict shape matches what the
+	// real `applicationShell` factory stamps on a media-free app.
 	expandDoc: vi.fn(() => ({
 		modules: [],
 		_attachments: {},
+		multimedia_map: {},
+		logo_refs: {},
 	})),
 }));
 

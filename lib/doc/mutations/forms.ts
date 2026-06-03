@@ -20,7 +20,13 @@ export function applyFormMutation(
 	mut: Extract<
 		Mutation,
 		{
-			kind: "addForm" | "removeForm" | "moveForm" | "renameForm" | "updateForm";
+			kind:
+				| "addForm"
+				| "removeForm"
+				| "moveForm"
+				| "renameForm"
+				| "updateForm"
+				| "setFormMedia";
 		}
 	>,
 ): void {
@@ -79,6 +85,19 @@ export function applyFormMutation(
 			const form = draft.forms[mut.uuid];
 			if (!form) return;
 			Object.assign(form, mut.patch);
+			return;
+		}
+		case "setFormMedia": {
+			// Set or clear the form's menu media (tile `icon` + `audioLabel`).
+			// Mirrors `setModuleMedia` one level down: explicit `AssetId | null`
+			// slots so a clear survives JSON over the SSE wire (a generic
+			// `updateForm` patch would encode it as `{ key: undefined }`, which
+			// `JSON.stringify` drops). Each `null` maps to `undefined` so the
+			// cleared slot drops off the form.
+			const form = draft.forms[mut.uuid];
+			if (!form) return;
+			form.icon = mut.icon ?? undefined;
+			form.audioLabel = mut.audioLabel ?? undefined;
 			return;
 		}
 	}

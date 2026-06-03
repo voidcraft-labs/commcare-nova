@@ -19,7 +19,9 @@ import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/clos
 import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
+import { FieldHelp } from "@/components/preview/form/FieldHelp";
 import { FieldRenderer } from "@/components/preview/form/FieldRenderer";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { HiddenField } from "@/components/preview/form/fields/HiddenField";
@@ -128,6 +130,10 @@ export const FieldRow = memo(function FieldRow({
 			<HiddenField field={q} />
 		) : q.kind === "group" || q.kind === "repeat" ? null : (
 			<div className="block space-y-1.5">
+				{/* Label media (image above the prompt / audio / video), the way
+				    CommCare renders a question's `<value form="image">`. Visual-only
+				    in edit mode — the click selects the field. */}
+				<MediaDisplay media={q.label_media} interactive={false} />
 				{q.label && (
 					<div className="flex items-center gap-1">
 						<div className="min-w-0 flex-1">
@@ -163,6 +169,20 @@ export const FieldRow = memo(function FieldRow({
 						/>
 					</TextEditable>
 				)}
+				{/* Hint media — sits with the hint, above the input. `hint_media`
+				    is only on input-capable kinds, so guard the access. */}
+				<MediaDisplay
+					media={"hint_media" in q ? q.hint_media : undefined}
+					interactive={false}
+				/>
+				{/* Help text + help media. Nova's preview shows help inline
+				    (CommCare hides it behind a "?"); both slots are input-kind
+				    only, so guard the access. */}
+				<FieldHelp
+					help={"help" in q ? q.help : undefined}
+					helpMedia={"help_media" in q ? q.help_media : undefined}
+					interactive={false}
+				/>
 				<FieldRenderer
 					field={q}
 					state={displayState}

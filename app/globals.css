@@ -684,6 +684,19 @@ body {
 	cursor: pointer;
 }
 
+/* Tailwind v4 dropped the user-agent default `cursor: pointer` on
+ * <button>, so a plain styled button reads as not-clickable. We always
+ * want clickable things to look clickable — restore the pointer for every
+ * enabled button (and role="button") that doesn't set its OWN cursor. The
+ * `:not([class*="cursor-"])` guard leaves explicit cursors untouched:
+ * drag handles (`cursor-grab`), disabled affordances (`cursor-not-allowed`),
+ * inline text editors (`cursor-text`) keep theirs. This is the global
+ * default so no individual button has to remember `cursor-pointer`. */
+button:not(:disabled):not([class*="cursor-"]),
+[role="button"]:not([aria-disabled="true"]):not([class*="cursor-"]) {
+	cursor: pointer;
+}
+
 /* ── Field rendering performance ───────────────────────────────────────
  * Skip layout/paint for off-screen fields. The browser restores full
  * layout as elements scroll into view. `auto` in contain-intrinsic-size

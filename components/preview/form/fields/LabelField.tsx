@@ -1,5 +1,6 @@
 "use client";
 import { useMemo } from "react";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type {
 	FieldPatchFor,
@@ -51,6 +52,9 @@ export function LabelField({
 
 	return (
 		<div className="py-1">
+			{/* Label media above the text — same `MediaDisplay` the input fields
+			    use, so a display-only label shows its image/audio/video too. */}
+			<MediaDisplay media={field.label_media} interactive={!isEditMode} />
 			<TextEditable
 				value={field.label ?? ""}
 				onSave={saveField ? (v) => saveField("label", v) : undefined}
