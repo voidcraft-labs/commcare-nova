@@ -381,8 +381,9 @@ git commit -m "feat(credits): transactional reserveCredits + period leaf (unit +
   - `grantCredits` — `tx.set` on month ref with `bonus` incremented by `amount` (allowance seeded) AND a grant row `{type:"grant", amount}`.
   - `getCreditSummary` — over a scripted set of month docs: returns `{period, allowance, consumed, bonus, balance, lifetimeConsumed}`; missing current-period doc → full balance; `lifetimeConsumed` = Σ `consumed` across months.
 - [ ] **Step 1b: INTEGRATION tests** (`credits.integration.test.ts`, emulator, auto-skip) — real round-trips:
-  - reset/grant actually commit BOTH the month-doc mutation and the grant audit row (read both back); atomicity holds.
+  - reset/grant land BOTH the month-doc mutation and the grant audit row in ONE committed transaction (read both back). (Proves committed-together, not both-or-neither-under-failure — no failure injection.)
   - **`resetCredits` on a user with NO current-period doc writes a COMPLETE doc** (allowance present), and a subsequent `getCreditSummary` parses without throwing + returns a full balance. (Guards the no-default-`allowance` × converter-read hazard — only real Firestore + the real converter proves this.)
+  - **`grantCredits` on a user with NO current-period doc** writes `{allowance, bonus}` with `consumed` landing only via `creditMonthDocSchema.consumed`'s `.default(0)` (grant never writes consumed), and `getCreditSummary` parses + reports `balance === MONTHLY_CREDIT_ALLOWANCE + amount`. (Pins the grant path's converter-safety so a future removal of `consumed`'s default breaks this test.)
   - `refundCredits` round-trip decrements then a re-read reflects it.
 
 - [ ] **Step 2: Run — expect FAIL.**
