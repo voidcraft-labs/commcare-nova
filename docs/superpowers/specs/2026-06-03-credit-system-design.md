@@ -1,10 +1,10 @@
 # Credit System — Design Spec
 
 **Date:** 2026-06-03
-**Status:** Approved design (rev 3); pending written-spec sign-off → implementation plan.
+**Status:** Approved design (rev 4); implementation plan written; pending final go.
 **Branch/worktree:** `worktree-credit-system`
 
-> **Rev history.** Rev 1 → a 5-lens adversarial review found 2 critical + 12 major issues; the biggest was that "charge once per `runId`" is wrong because a `runId` spans an entire mounted *sitting*. **Rev 2** re-based the charge on a per-POST, server-observable **last-message-role** signal and reworked reservation/migration/constants (see "Review resolutions" appendix). **Rev 3** (this rev) — after surfacing to the user that rev 2 had silently drifted from their picked charging unit — adopts **tiered per-instruction pricing: build = 100 credits, edit = 5**, so iterating feels nearly free while builds remain the meaningful unit. The amount keys off `appReady` (already the build-vs-edit signal); everything else from rev 2 stands.
+> **Rev history.** Rev 1 → a 5-lens adversarial review found 2 critical + 12 major issues; the biggest was that "charge once per `runId`" is wrong because a `runId` spans an entire mounted *sitting*. **Rev 2** re-based the charge on a per-POST, server-observable **last-message-role** signal and reworked reservation/migration/constants (see "Review resolutions" appendix). **Rev 3** — after surfacing to the user that rev 2 had silently drifted from their picked charging unit — adopts **tiered per-instruction pricing: build = 100 credits, edit = 5**, so iterating feels nearly free while builds remain the meaningful unit. The amount keys off `appReady` (already the build-vs-edit signal). **Rev 4** (this rev, per user direction): (a) **refund a failed run** — a build that fails to validate or an edit that breaks the app refunds its reserved credits (the primary support fix; actual $ still accrues so the $50 backstop guards retry-spam), with a **refund toast**; (b) the migration **explicitly seeds** credits create-only rather than relying on permanent runtime lazy-init. Everything else from rev 2–3 stands.
 
 ## 1. Why
 
@@ -108,8 +108,16 @@ A chargeable turn (§2a) reserves `cost = appReady ? CREDITS_PER_EDIT : CREDITS_
 
 The transaction closes the cross-app concurrent-new-run race (`hasActiveGeneration` locks per-app and fails *open*, so it does not). The reservation records on the accumulator seed: `didReserve = true`, the **reserved amount** (so the refund returns exactly what was taken), and the **charge period**.
 
-### 5c. Refund (hard-failure only)
-A reserved turn that produces **zero billable cost** (the SA didn't run — same condition under which `flush()` skips the usage increment today) returns its reservation: `flush()` refunds **iff `didReserve && costEstimate === 0`**, decrementing `consumed` by the **reserved amount** (5 or 100, captured at reservation) on the **charge period captured at reservation** (not `getCurrentPeriod()` at flush time — a post-UTC-midnight flush would otherwise refund the wrong month). Because `didReserve` is per-POST, a free continuation (which never reserved) cannot refund anything, and a reserved-then-refunded turn never writes a "paid" marker that a later turn could misread (there is no cross-turn marker at all).
+### 5c. Refund (failed run OR zero-cost no-op)
+A reserved turn is refunded when the run **fails** — it ended in error / the app failed to validate / the app was left in an error state — **or** produced zero billable cost. `flush()` refunds **iff `didReserve && (runFailed || costEstimate === 0)`**, decrementing `consumed` by the **reserved amount** (5 or 100, captured at reservation) on the **charge period captured at reservation** (not `getCurrentPeriod()` at flush — a post-UTC-midnight flush would refund the wrong month).
+
+`runFailed` is set by the route's single failure funnel `app/api/chat/route.ts::handleRouteError` (every stream/init error + `failApp` path flows through it). This is the **primary support fix**: ~half of reset requests were users who hit an error and retried — so a build that fails to validate refunds its 100, and an edit that breaks the app refunds its 5. The user retries on a fresh (re-charged, possibly re-refunded) run.
+
+Two deliberate properties:
+- **Actual $ still accrues on a failed run** (the SA ran; `cost_estimate` increments as today) — so the **$50 backstop still sees retry-spam** and is the guard against farming refunds (which is also self-defeating: forcing an app into error loses access to that app).
+- **`didReserve` gates the refund**, so a free continuation (which never reserved) cannot phantom-refund; there is no cross-turn marker at all.
+
+**Refund toast.** When a run is refunded, the route emits a transient `data-credit-refund` part (`{ amount }`) from inside `handleRouteError` (guarded to fire once, only when the run reserved); the client shows a toast: *"This generation ran into an error, so you weren't charged — your N credits were refunded."* The toast is optimistic (emitted at failure-detection inside the stream); the actual decrement lands in `flush()` (its write catches its own error — a rare refund-write failure is logged, not surfaced).
 
 ### 5d. Reset / grant (admin, comp pattern)
 Both are a **single transaction/batch** spanning the month doc **and** the new `CreditGrantDoc`, so balance and audit commit atomically:
@@ -132,7 +140,7 @@ Replaces the dollar-cap block. **Placement matters:** the credit *read* (fast-fa
 `errorClassifier.ts`'s `spend_cap_exceeded` member → `out_of_credits` (a closed union → `tsc` enforces full rename; `McpErrorType` inherits it; no persisted `error_type` carries the old literal). `app/api/user/usage/route.ts` returns credit balance/allowance/consumed.
 
 ## 7. Debit integration
-The **reserve** lives in the route gate (§6). The **refund** folds into the existing idempotent `flush()` (`_finalized`-guarded; first call wins → never double-refunds), gated on `didReserve && costEstimate === 0` against the captured charge period. No new finalize path.
+The **reserve** lives in the route gate (§6). The **refund** folds into the existing idempotent `flush()` (`_finalized`-guarded; first call wins → never double-refunds), gated on `didReserve && (runFailed || costEstimate === 0)` against the captured charge period. `runFailed` is a flag set via `usage.markRunFailed()`, called inside `handleRouteError` (the one place that already classifies the error + calls `failApp`). The same spot emits the transient `data-credit-refund` part (once, when the run reserved). No new finalize path; no new failure funnel.
 
 ## 8. Admin & user surface
 
@@ -151,6 +159,12 @@ No existing admin write route to mirror (all `app/api/admin/**` are `GET`; the o
 ### 8d. The user's own view (`components/ui/AccountMenu.tsx`)
 Convert the usage bar from `$cost / $cap` to **`credits remaining / 2,000`**: update its `UsageData` interface, `usageRatio` → `consumed/allowance`, and `getBarGradient` threshold to the credit balance. The dollar figure is removed from the user's view (it was the "feels like dollars" surface). `app/api/user/usage/route.ts` returns the credit shape; pick **one** response shape (credits), not a straddle.
 
+### 8e. Refund toast (chat surface — `components/chat/ChatContainer.tsx`)
+The client's existing `onData` handler (which already routes `data-run-id`, `data-app-id`, `data-error`, …) gains a `data-credit-refund` case that fires a toast via Nova's toast provider: *"This generation ran into an error, so you weren't charged — your N credits were refunded."* One toast per refunded run.
+
+### 8f. Send-button cost indicator (cost transparency before sending)
+Next to the chat send button, a subtle chip shows what the action about to be sent will cost — `chargeAmount(appReady)` from the **client-safe `creditPolicy`** (100 for a build, 5 for an edit) — with a hover tooltip: *"This build will use 100 credits"* / *"Edits use 5 credits — clarifying questions are free,"* plus *"You have N credits left this month"* (balance from the same usage fetch `AccountMenu` uses, via a shared `useCreditBalance` hook). `appReady` is read from the same client state the composer already puts on the request, so the displayed cost can never disagree with the actual charge. This is the single source of cost truth surfaced to the user before they commit.
+
 ## 9. Migration (one-off; scan + dry-run migrate; deleted after apply)
 
 Per memory: BOTH a read-only scan and a migrator (dry-run default, `--apply`); user owns the decision; deleted after the apply output is captured; runs **post-merge** against PROD (the worktree never touches PROD). Reuses the read-only `scripts/inspect-usage.ts` / collection-group patterns.
@@ -163,17 +177,19 @@ The rev-1 `max(run-ledger, usage, known)` rule is **unsafe** and is dropped: a `
 ### 9b. Delete the orphan — guarded, separate pass
 Only after the fold is **durably applied and confirmed in PROD**: a third run/commit asserts `restored cost_estimate >= live-read orphan value` as a precondition, then deletes `unadjusted_estimate` from `usage/w4KlwedcG1WijXOK0hVz/months/2026-04`. Never deleted in the same `--apply` that writes the fold.
 
-### 9c. Credits init — none (lazy)
-**Drop the seeding write.** The gate lazily creates period docs and a missing doc reads as full `2000/2000` everywhere (§4b), so the dashboard is clean on day one without a write that could clobber a live lazy-created doc. The reset users (mmaher, alohi) thus start the new system at a full balance; their dollar history is preserved in the cost ledger.
+### 9c. Credits init — explicit one-time seed in the migration
+The migration **explicitly seeds** every existing user's current-period credit doc (`{allowance: 2000, consumed: 0, bonus: 0}`) — a one-time script action, not permanent runtime lazy-init. To avoid clobbering a doc a user may have lazily created by generating in the gap between deploy and running the migration, the seed is **create-only** (writes only docs that do not already exist; via `create()` / a `tx.get`-then-create transaction). The reset users (mmaher, alohi) start the new system at a full balance; their dollar history stays in the cost ledger.
+
+This is distinct from two runtime behaviors that legitimately stay (not "lazy migration"): (1) the reserve transaction seeds *next* month's doc on first charge — the monthly refill with no cron, already approved; (2) `creditBalance(undefined)` returns a full balance on a **read** of an untouched month — a read-time default, no write. Neither is a migration mechanism.
 
 ### 9d. Sequencing & stopgap cleanup
 Scan → review with user → `--apply` cost-restore → capture output → (separately) `--apply` orphan-delete → `git rm` both migration scripts. Note: today's resets are **manual Firestore hand-edits** (there is no committed reset script to remove); a private uncommitted `scripts/reset-usage.ts` exists on the author's `main` working tree and is deleted there once the admin endpoint ships — it is not in version control and is out of this PR's scope. `.env.example`'s `MONTHLY_SPEND_CAP_USD` block is removed in this PR (no other config depends on it).
 
 ## 10. Tests (state model, not DOM — per memory)
-- **Credit ledger logic** (pure/transactional): balance math; lazy seed-in-transaction; reserve the right amount (build 100 / edit 5) below/at/above balance; refund the reserved amount only when `didReserve && cost===0`; charge-period binding across a month boundary; reset/grant atomicity (month doc + grant row together); concurrent reservation races (transaction serializes).
+- **Credit ledger logic** (pure/transactional): balance math; reserve-transaction seeds a missing period doc; reserve the right amount (build 100 / edit 5) below/at/above balance; refund the reserved amount when `didReserve && (runFailed || costEstimate===0)` — incl. a **failed run with cost>0 still refunds** (and the usage/cost increment still happens); a free continuation (didReserve false) never refunds; charge-period binding across a month boundary; reset/grant atomicity (month doc + grant row together); concurrent reservation races (transaction serializes).
 - **Charge-signal logic** (pure): `isChargeableTurn(rawMessages)` — last-role `user` vs answered-askQuestions `assistant`; the amount selector `appReady ? 5 : 100`; build-then-edit-then-clarify sequences (build 100, edit 5, clarify 0).
 - **Gate**: out-of-credits 429, backstop 429, continuation bypass, fail-closed 503 on every new read (balance, backstop, reservation).
-- **Migration reconciliation** (pure): conservative restore of the three known values; flag-not-apply on ledger>usage; orphan-delete precondition; on fixtures mirroring mmaher/alohi/andiaye/cross-month/soft-deleted shapes.
+- **Migration reconciliation** (pure): conservative restore of the three known values; flag-not-apply on ledger>usage; orphan-delete precondition; **create-only credit seed is idempotent** (re-running never overwrites an existing doc / never resets a generated user's consumed); on fixtures mirroring mmaher/alohi/andiaye/cross-month/soft-deleted shapes.
 - `scripts/test-schema.ts` if any schema changes (none to the SA tool surface expected). `npm run test:leaks` green before merge.
 
 ## 11. Docs
@@ -182,7 +198,7 @@ Scan → review with user → `--apply` cost-restore → capture output → (sep
 - Public docs site (`app/(docs)/`): audit during the `docs` skill pass for any user-facing $15-cap mention → credits.
 
 ## 12. Final verification (user-runnable acceptance)
-> Admin runs `npm run dev`, opens `/admin`, and sees per user: **credits used / remaining this month**, **lifetime credits used**, **actual $ this month**, and **lifetime $** — all as rendered figures. On a user's detail page the admin clicks **Reset credits**, confirms the dialog, and sees `consumed` drop to 0 / balance return to 2,000, a new audit row appear, **and both the actual-$ this-month and lifetime-$ figures unchanged**. As that user, the `AccountMenu` shows a **credits-remaining** bar (no dollars); a **build** debits **100**, each **edit** debits **5**, and answering a **clarification** mid-generation debits **0**; when the balance can't cover the next charge the request is blocked "out of credits."
+> Admin runs `npm run dev`, opens `/admin`, and sees per user: **credits used / remaining this month**, **lifetime credits used**, **actual $ this month**, and **lifetime $** — all as rendered figures. On a user's detail page the admin clicks **Reset credits**, confirms the dialog, and sees `consumed` drop to 0 / balance return to 2,000, a new audit row appear, **and both the actual-$ this-month and lifetime-$ figures unchanged**. As that user, the `AccountMenu` shows a **credits-remaining** bar (no dollars); a **build** debits **100**, each **edit** debits **5**, and answering a **clarification** mid-generation debits **0**; when the balance can't cover the next charge the request is blocked "out of credits." A generation that **fails / produces a broken app** shows a **refund toast** and leaves the balance unchanged (debited then refunded), while the admin's **actual-$ figures still increase** for that failed run.
 
 ## 13. Risks
 - **Flat-credit cost tail.** 20 generations is ~$4 (cheap builds) to a theoretical ~$360 (max-cost edits). Accepted; the $50 backstop caps the disaster, the cost ledger gives tuning data.
