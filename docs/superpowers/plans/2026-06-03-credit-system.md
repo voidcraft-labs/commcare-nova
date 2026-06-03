@@ -164,10 +164,12 @@ creditMonth: (userId: string, period: string): DocumentReference<CreditMonthDoc>
  * A `withConverter` `tx.get()` routes through `schema.parse` and would throw on
  * a partially-initialized existing doc inside the transaction (same hazard the
  * run-summary writer documents); the reservation reads/writes raw data and
- * supplies defaults in code.
+ * supplies defaults in code. Composes off the single-sourced `collections`
+ * path via `withConverter(null)` (which yields the identical untyped
+ * `DocumentReference<DocumentData>`) rather than re-hardcoding the path chain.
  */
 creditMonthRaw: (userId: string, period: string): DocumentReference =>
-  getDb().collection("credits").doc(userId).collection("months").doc(period),
+  collections.creditMonths(userId).doc(period).withConverter(null),
 ```
 
 - [ ] **Step 5: Run — expect PASS**
@@ -361,6 +363,7 @@ git commit -m "feat(credits): transactional reserveCredits with OutOfCreditsErro
 - [ ] **Step 1: Write failing tests** (emulator). Cases:
   - `refundCredits(userId, period, amount)` decrements `consumed` by `amount` on that period (clamped at 0).
   - `resetCredits(userId, actor, actorEmail, reason)` sets current period `consumed = 0` **and** appends one `credits/{userId}/grants` row `{type:"reset"}` — both committed (read both back); a thrown grant write must not leave consumed zeroed (atomic).
+  - **`resetCredits` on a user with NO current-period doc writes a COMPLETE doc** (allowance seeded, not a partial `{consumed}`), so a subsequent `getCreditSummary` (converter-applied read) parses without throwing and returns a full balance. (Guards the no-default-`allowance` × converter-read hazard.)
   - `grantCredits(userId, amount, actor, actorEmail, reason)` increments `bonus` by `amount` + appends `{type:"grant", amount}`.
   - `getCreditSummary(userId)` returns `{ period, allowance, consumed, bonus, balance, lifetimeConsumed }` with a missing current-period doc reading as full balance and `lifetimeConsumed` = sum of `consumed` across all credit months.
 
@@ -389,7 +392,23 @@ export async function resetCredits(userId: string, who: AdminActor): Promise<voi
   const monthRef = docs.creditMonthRaw(userId, period);
   const grantRef = collections.creditGrants(userId).doc();
   await monthRef.firestore.runTransaction(async (tx) => {
-    tx.set(monthRef, { consumed: 0, updated_at: FieldValue.serverTimestamp() }, { merge: true });
+    // Read-then-seed: a reset on a user with no current-period doc must still
+    // write a COMPLETE doc (allowance present). allowance has no Zod default by
+    // design, so a partial {consumed} merge would make the next converter-applied
+    // read (getCreditSummary / admin dashboard) throw on parse. Seed allowance,
+    // preserve any prior bonus, zero consumed.
+    const snap = await tx.get(monthRef);
+    const data = snap.exists ? (snap.data() as Partial<CreditMonthDoc>) : undefined;
+    tx.set(
+      monthRef,
+      {
+        allowance: data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
+        consumed: 0,
+        bonus: data?.bonus ?? 0,
+        updated_at: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
     tx.set(grantRef, {
       amount: 0, type: "reset", actor: who.actor, actor_email: who.actorEmail,
       reason: who.reason, period, created_at: FieldValue.serverTimestamp(),
