@@ -38,6 +38,7 @@
 
 "use client";
 import { memo } from "react";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
@@ -228,6 +229,11 @@ const InteractiveField = memo(function InteractiveField({
 					paddingRight: depthPadding(depth),
 				}}
 			>
+				{/* Label media — image above the prompt / audio / video, the way
+				    CommCare renders a question's `<value form="image">`. Live
+				    controls in preview mode; mounted at the same position as the
+				    edit-mode `FieldRow` so the flipbook doesn't drift. */}
+				<MediaDisplay media={field.label_media} interactive />
 				{field.label && (
 					<div className="flex items-center gap-1">
 						<div className="min-w-0 flex-1">

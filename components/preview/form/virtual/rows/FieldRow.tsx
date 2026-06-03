@@ -19,6 +19,7 @@ import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/clos
 import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
 import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FieldRenderer } from "@/components/preview/form/FieldRenderer";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
@@ -128,6 +129,10 @@ export const FieldRow = memo(function FieldRow({
 			<HiddenField field={q} />
 		) : q.kind === "group" || q.kind === "repeat" ? null : (
 			<div className="block space-y-1.5">
+				{/* Label media (image above the prompt / audio / video), the way
+				    CommCare renders a question's `<value form="image">`. Visual-only
+				    in edit mode — the click selects the field. */}
+				<MediaDisplay media={q.label_media} interactive={false} />
 				{q.label && (
 					<div className="flex items-center gap-1">
 						<div className="min-w-0 flex-1">
