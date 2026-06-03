@@ -266,6 +266,12 @@ const InteractiveField = memo(function InteractiveField({
 						/>
 					</div>
 				)}
+				{/* Hint media — sits with the hint, above the input. `hint_media`
+				    is only on input-capable kinds, so guard the access. */}
+				<MediaDisplay
+					media={"hint_media" in field ? field.hint_media : undefined}
+					interactive
+				/>
 				<FieldRenderer
 					field={field}
 					state={state}

@@ -27,10 +27,14 @@ export function MediaDisplay({
 	media,
 	interactive,
 	className,
+	imageClassName = "max-h-40 max-w-full rounded-md object-contain",
 }: {
 	media: Media | undefined;
 	interactive: boolean;
 	className?: string;
+	/** Override the image's size box — compact contexts (a select option,
+	 *  a dense list) pass a smaller cap than the default label size. */
+	imageClassName?: string;
 }) {
 	if (!media || (!media.image && !media.audio && !media.video)) return null;
 	return (
@@ -43,11 +47,7 @@ export function MediaDisplay({
 		>
 			{media.image && (
 				// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-				<img
-					src={mediaSrc(media.image)}
-					alt=""
-					className="max-h-40 max-w-full rounded-md object-contain"
-				/>
+				<img src={mediaSrc(media.image)} alt="" className={imageClassName} />
 			)}
 			{media.audio && (
 				// Definite width — a native `<audio>` has no intrinsic width and
