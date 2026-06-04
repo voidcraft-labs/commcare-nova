@@ -1,10 +1,10 @@
 /**
- * Account menu — avatar-triggered dropdown with profile, usage, settings link,
- * and sign-out.
+ * Account menu — avatar-triggered dropdown with profile, credit balance,
+ * settings link, and sign-out.
  *
- * Usage data is fetched eagerly on mount so the dropdown opens instantly
- * with no loading state. Re-fetched on every subsequent open to stay
- * current after generations.
+ * The credit summary is fetched eagerly on mount so the dropdown opens
+ * instantly with no loading state. Re-fetched on every subsequent open to
+ * stay current after generations spend credits.
  */
 
 "use client";
@@ -16,16 +16,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
+// GET /api/user/usage returns `getCreditSummary`'s `CreditSummary` verbatim, so
+// the client tracks that shared type rather than re-declaring it. The bar reads
+// `balance` (spendable now) and `consumed`; their sum is the effective monthly
+// total (allowance + bonus). Must be `import type` — the value side of
+// `lib/db/credits` pulls in `@google-cloud/firestore`, and only the erased
+// `type` form keeps that server dependency out of the client bundle.
+import type { CreditSummary } from "@/lib/db/credits";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
-import { formatCurrency } from "@/lib/utils/format";
-
-/** Response shape from GET /api/user/usage. */
-interface UsageData {
-	cost_estimate: number;
-	request_count: number;
-	cap: number;
-	period: string;
-}
 
 /**
  * Extract up to two initials from a display name.
@@ -38,11 +36,13 @@ function getInitials(name: string): string {
 }
 
 /**
- * Progress bar gradient — violet→cyan by default, shifts to amber→rose
- * when usage exceeds 80% of the cap to signal proximity to the limit.
+ * Credit-gauge gradient. The argument is the fraction of the month's credits
+ * still available, so the bar is healthy violet while credits remain and shifts
+ * to the amber→rose warning once the balance runs low — under 20% of the
+ * month's credits left.
  */
-function getBarGradient(ratio: number): string {
-	if (ratio > 0.8) return "from-nova-amber to-nova-rose";
+function getBarGradient(remainingRatio: number): string {
+	if (remainingRatio < 0.2) return "from-nova-amber to-nova-rose";
 	return "from-nova-violet to-nova-violet-bright";
 }
 
@@ -97,14 +97,14 @@ function UserAvatar({
 
 export function AccountMenu() {
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
-	const [usage, setUsage] = useState<UsageData | null>(null);
+	const [usage, setUsage] = useState<CreditSummary | null>(null);
 	const [open, setOpen] = useState(false);
 
 	/** Fetch usage from the API and update state. Best-effort — failures are silent.
 	 * Accepts an AbortSignal so callers can cancel in-flight requests on cleanup. */
 	const refreshUsage = useCallback((signal?: AbortSignal) => {
 		fetch("/api/user/usage", { signal })
-			.then((res) => (res.ok ? (res.json() as Promise<UsageData>) : null))
+			.then((res) => (res.ok ? (res.json() as Promise<CreditSummary>) : null))
 			.then((data) => {
 				if (data) setUsage(data);
 			})
@@ -137,7 +137,14 @@ export function AccountMenu() {
 	/* Session still loading or somehow unauthenticated — nothing to render */
 	if (!isAuthenticated || !user) return null;
 
-	const usageRatio = usage ? Math.min(usage.cost_estimate / usage.cap, 1) : 0;
+	/* The bar is a fuel gauge: full when fresh, depleting as credits are spent.
+	 * Its denominator is the effective monthly total — allowance + bonus, recovered
+	 * as `balance + consumed` (equal by definition) so a bonused user's extra credits
+	 * count toward the total. The ratio is the fraction still available; clamped to
+	 * [0, 1] and guarding divide-by-zero. */
+	const total = usage ? usage.balance + usage.consumed : 0;
+	const remainingRatio =
+		usage && total > 0 ? Math.min(Math.max(usage.balance / total, 0), 1) : 0;
 
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
@@ -172,22 +179,25 @@ export function AccountMenu() {
 								</div>
 							</div>
 
-							{/* ── Usage bar ──────────────────────────────────── */}
+							{/* ── Credit bar ─────────────────────────────────── */}
 							{usage && (
 								<div className="px-4 pb-3">
 									<div className="flex items-baseline justify-between mb-1.5">
 										<span className="text-[11px] text-nova-text-muted">
-											Usage this month
+											Credits this month
 										</span>
+										{/* Remaining over the effective monthly total (allowance + bonus).
+										 * Using the bonus-inclusive total — not the bare allowance — keeps the
+										 * figure honest for users who've been granted extra credits. */}
 										<span className="text-[11px] text-nova-text-secondary">
-											{formatCurrency(usage.cost_estimate)} /{" "}
-											{formatCurrency(usage.cap)}
+											{usage.balance.toLocaleString()} /{" "}
+											{total.toLocaleString()} credits
 										</span>
 									</div>
 									<div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
 										<div
-											className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(usageRatio)} transition-all duration-500`}
-											style={{ width: `${Math.max(usageRatio * 100, 1)}%` }}
+											className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(remainingRatio)} transition-all duration-500`}
+											style={{ width: `${remainingRatio * 100}%` }}
 										/>
 									</div>
 								</div>
