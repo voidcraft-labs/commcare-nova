@@ -623,17 +623,24 @@ git commit -m "feat(credits): credit gate replaces dollar cap in /api/chat"
 
 **Files:** Modify `components/chat/ChatContainer.tsx`. *(No test — UI; verified in Final Verification. Pure-state extraction not warranted for a single toast dispatch.)*
 
-- [ ] **Step 1:** Find Nova's toast API (the `(app)` layout mounts a toast provider — locate the `toast(...)` / `useToast` it exposes; reuse it, do not add a new toast lib). Find the existing `onData` handler in `ChatContainer.tsx` that already switches on `type` for `data-run-id` / `data-app-id`.
-- [ ] **Step 2:** Add a `data-credit-refund` case to `onData`:
+- [ ] **Step 1:** Nova's toast API is the imperative singleton `showToast(severity, title, message?)` from `@/lib/ui/toastStore` (`severity: "error" | "warning" | "info"`), rendered by `ToastContainer`. The existing `onData` handler in `ChatContainer.tsx::useNovaChat` already switches on `type` for `data-run-id` / `data-app-id` (each `return`s after handling its part) before falling through to `applyStreamEvent`.
+- [ ] **Step 2:** Add a `data-credit-refund` case to `onData`, placed with the other early-return cases (it must `return` so the refund part never reaches `applyStreamEvent`). The part is `transient` (server-side `transient: true`) so it fires `onData` but never persists to message history — handling it here is correct:
 ```ts
 if (type === "data-credit-refund") {
   const amount = (data as { amount?: number }).amount ?? 0;
-  toast(`This generation ran into an error, so you weren't charged — your ${amount} credits were refunded.`);
+  // Reassurance, not an error — the failure itself is surfaced separately as a
+  // data-error. "info" severity (neutral, auto-dismissing); the error toast is
+  // the one that persists. Refund is server-authoritative + once-latched.
+  showToast(
+    "info",
+    "You weren't charged",
+    `This run hit an error, so your ${amount} credits were refunded.`,
+  );
   return;
 }
 ```
-Match the surrounding cases' style (the exact `toast` call shape comes from Step 1's provider). Keep it `transient`-driven (the part is transient; nothing persists in message history).
-- [ ] **Step 3:** `npx tsc --noEmit`. **Commit** `git commit -am "feat(credits): toast the user when a failed run is refunded"`
+`showToast` is already the module-level singleton (no provider/context needed) — add the `import { showToast } from "@/lib/ui/toastStore";` if `ChatContainer.tsx` doesn't already have it (it does — used elsewhere in the file).
+- [ ] **Step 3:** `npx tsc --noEmit` (clean) + `npx biome check components/chat/ChatContainer.tsx`. **Commit** `git commit -am "feat(credits): toast the user when a failed run is refunded"`
 
 ---
 
