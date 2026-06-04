@@ -83,9 +83,12 @@ export function ChatInput({
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
-	/** Live length of the typed text — PromptInput owns the textarea value; we
-	 *  mirror only its length, to drive the counter + the over-limit send gate. */
+	/** Live shadow of the typed text — PromptInput owns the textarea value; we
+	 *  mirror only what the footer needs: its length (counter + over-limit gate)
+	 *  and whether it holds any non-whitespace (`hasText`, the require-text send
+	 *  gate — so a staged attachment alone can't send an empty turn). */
 	const [textLength, setTextLength] = useState(0);
+	const [hasText, setHasText] = useState(false);
 	const overLimit = textLength > MAX_CHAT_MESSAGE_CHARS;
 
 	const addPicked = (asset: MediaAssetView) =>
@@ -118,16 +121,22 @@ export function ChatInput({
 
 	const handleSubmit = (message: PromptInputMessage) => {
 		// PromptInput resets the textarea on every submit it processes; mirror that
-		// in the length shadow. (Over-limit submits never reach here — they're
-		// blocked at the keydown + the disabled button, so their text isn't reset.)
+		// in the text shadow (form.reset() doesn't fire onChange). (Over-limit
+		// submits never reach here — they're blocked at the keydown + the disabled
+		// button, so their text isn't reset.)
 		setTextLength(0);
+		setHasText(false);
 		const text = (message.text ?? "").trim();
-		if ((!text && picked.length === 0) || disabled) return;
+		// Require typed text to send — a staged attachment alone never sends an
+		// empty turn (the SA reads an attachment as context for a request, not as
+		// the request itself). The disabled submit button covers the click path;
+		// this guards every other submit route.
+		if (!text || disabled) return;
 		if (answerPending) {
-			// This send answers a waiting question card (text-only). Forward just
-			// the text and KEEP the staged attachments — they're not part of an
-			// answer, but they shouldn't vanish; they ride the next normal turn.
-			if (text) onSend({ text });
+			// This send answers a waiting question card (text-only). Forward the
+			// text and KEEP the staged attachments — they're not part of an answer,
+			// but they shouldn't vanish; they ride the next normal turn.
+			onSend({ text });
 			return;
 		}
 		const attachments = picked.map(toAttachmentRef);
@@ -167,7 +176,11 @@ export function ChatInput({
 				<PromptInputBody>
 					<PromptInputTextarea
 						disabled={disabled}
-						onChange={(e) => setTextLength(e.target.value.length)}
+						onChange={(e) => {
+							const { value } = e.target;
+							setTextLength(value.length);
+							setHasText(value.trim().length > 0);
+						}}
 						onKeyDown={handleTextareaKeyDown}
 						placeholder={
 							openingPrompt
@@ -194,14 +207,15 @@ export function ChatInput({
 						</button>
 					</PromptInputTools>
 					{/* Counter + submit grouped on the right. The counter is hidden until
-					 *  the text nears the limit; the submit is gated over it (the text is
-					 *  never truncated — only sending is blocked). While a turn is in
-					 *  flight the whole input is disabled (Nova shows progress on the
+					 *  the text nears the limit; the submit is disabled when the text is
+					 *  empty (a staged attachment alone can't send) or over the limit (the
+					 *  text is never truncated — only sending is blocked). While a turn is
+					 *  in flight the whole input is disabled (Nova shows progress on the
 					 *  signal grid, not a stop button), so the submit shows the spinner. */}
 					<div className="flex items-center gap-2">
 						<CharCounter length={textLength} max={MAX_CHAT_MESSAGE_CHARS} />
 						<PromptInputSubmit
-							disabled={disabled || overLimit}
+							disabled={disabled || overLimit || !hasText}
 							status={disabled ? "submitted" : "ready"}
 						/>
 					</div>
