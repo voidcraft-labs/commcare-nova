@@ -155,7 +155,13 @@ const runsTableOnly =
  */
 async function loadEvents(): Promise<Event[]> {
 	if (runFilter) {
-		return readEvents(appId, runFilter);
+		const { events, skipped } = await readEvents(appId, runFilter);
+		if (skipped > 0) {
+			console.warn(
+				`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload).`,
+			);
+		}
+		return events;
 	}
 	const snap = await collections.events(appId).get();
 	// Drop-and-warn on any event that fails schema validation (forward-version

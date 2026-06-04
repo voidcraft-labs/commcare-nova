@@ -60,15 +60,23 @@ export function decodeEventsLenient(
 }
 
 /**
- * Load every event for a specific generation run, sorted by `ts` then
- * `seq`. Each doc is validated via `eventSchema` (the Firestore converter);
- * a doc that fails (schema drift / forward-version payload) is dropped and
- * counted rather than aborting the read — see `decodeEventsLenient`.
+ * Load every event for a specific generation run, sorted by `ts` then `seq`,
+ * alongside a `skipped` count of docs dropped for failing `eventSchema`
+ * (schema drift / forward-version payload — see `decodeEventsLenient`).
+ *
+ * `skipped` is part of the return, not just a server log, ON PURPOSE: a
+ * dropped event makes the returned stream PARTIAL, and a consumer that
+ * reconstructs from it (replay applies mutations in order — a missing
+ * mutation can land a state that never existed) must be able to tell the
+ * stream is incomplete. Forcing callers to read `{ events, skipped }` keeps
+ * that partiality impossible to ignore. `skipped` is normally 0; it goes
+ * positive only when the reading code's schema is older than what wrote the
+ * events (a transient cross-version-read window).
  */
 export async function readEvents(
 	appId: string,
 	runId: string,
-): Promise<Event[]> {
+): Promise<{ events: Event[]; skipped: number }> {
 	const snap = await collections
 		.events(appId)
 		.where("runId", "==", runId)
@@ -81,7 +89,7 @@ export async function readEvents(
 			`[readEvents] dropped ${skipped} unparseable event(s) for app=${appId} run=${runId} (schema drift / forward-version payload). First: ${sample}`,
 		);
 	}
-	return events;
+	return { events, skipped };
 }
 
 /**

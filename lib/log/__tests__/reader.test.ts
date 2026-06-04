@@ -124,16 +124,17 @@ describe("readEvents", () => {
 		const { readEvents } = await import("../reader");
 		const result = await readEvents("app-1", "r");
 
-		expect(result).toEqual(events);
+		expect(result.events).toEqual(events);
+		expect(result.skipped).toBe(0);
 		expect(mockWhere).toHaveBeenCalledWith("runId", "==", "r");
 		expect(mockOrderBy).toHaveBeenCalledWith("ts");
 		expect(mockOrderBy).toHaveBeenCalledWith("seq");
 	});
 
-	it("returns [] on empty query", async () => {
+	it("returns empty events + zero skipped on empty query", async () => {
 		mockGet.mockResolvedValue({ empty: true, docs: [] });
 		const { readEvents } = await import("../reader");
-		expect(await readEvents("app-1", "r")).toEqual([]);
+		expect(await readEvents("app-1", "r")).toEqual({ events: [], skipped: 0 });
 	});
 });
 
@@ -164,6 +165,22 @@ describe("readLatestRunId", () => {
 		const { readLatestRunId } = await import("../reader");
 		expect(await readLatestRunId("app-1")).toBeNull();
 	});
+
+	it("returns the runId of a drifted newest event (raw envelope read)", async () => {
+		// A forward-version newest event whose payload `eventSchema` would
+		// reject — only the `runId` envelope field is present. `readLatestRunId`
+		// reads raw (no converter), so it must still return the runId instead of
+		// throwing and stranding replay/admin on "no recent run". (The mock's
+		// `data()` returns the object directly without parsing, so it documents
+		// the resilience contract rather than mechanically proving the converter
+		// is absent.)
+		mockGet.mockResolvedValue({
+			empty: false,
+			docs: [{ data: () => ({ runId: "latest" }) }],
+		});
+		const { readLatestRunId } = await import("../reader");
+		expect(await readLatestRunId("app-1")).toBe("latest");
+	});
 });
 
 describe("decodeEventsLenient", () => {
@@ -191,15 +208,23 @@ describe("decodeEventsLenient", () => {
 				throw new Error("Unrecognized payload type 'attachment-prep'");
 			},
 		};
+		const secondBadDoc = {
+			data: () => {
+				throw new Error("some later, different failure");
+			},
+		};
 		const { decodeEventsLenient } = await import("../reader");
 		const { events, skipped, sample } = decodeEventsLenient([
 			goodDoc,
 			badDoc,
 			goodDoc,
+			secondBadDoc,
 			// biome-ignore lint/suspicious/noExplicitAny: structural snapshot stub
 		] as any);
 		expect(events).toEqual([goodEvent, goodEvent]);
-		expect(skipped).toBe(1);
+		expect(skipped).toBe(2);
+		// `sample` captures the FIRST failure, not the last (one representative
+		// message is enough; the count carries the rest).
 		expect(sample).toContain("attachment-prep");
 	});
 });

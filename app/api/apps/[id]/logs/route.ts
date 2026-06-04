@@ -27,8 +27,10 @@ export async function GET(
 		const runId = searchParams.get("runId") ?? (await readLatestRunId(appId));
 		if (!runId) return Response.json({ events: [], runId: null });
 
-		const events = await readEvents(appId, runId);
-		return Response.json({ events, runId });
+		// `skipped` surfaces a partial stream (events dropped for schema drift)
+		// so the forensic caller knows the log isn't complete.
+		const { events, skipped } = await readEvents(appId, runId);
+		return Response.json({ events, runId, skipped });
 	} catch (err) {
 		return handleApiError(
 			err instanceof Error ? err : new ApiError("Failed to load logs", 500),
