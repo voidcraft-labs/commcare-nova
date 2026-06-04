@@ -650,9 +650,9 @@ if (type === "data-credit-refund") {
 
 **Files:** Modify `app/api/user/usage/route.ts`.
 
-- [ ] **Step 1:** Change the GET handler to return `getCreditSummary(session.user.id)` shape: `{ balance, allowance, consumed, lifetimeConsumed }` (drop `cost`/`cap`). Keep `requireAuth`/session pattern unchanged.
-- [ ] **Step 2:** Update/replace any test of this route to assert the credit shape.
-- [ ] **Step 3:** `npx tsc --noEmit`; `npx vitest run app/api/user`.
+- [ ] **Step 1:** Change the GET handler to return the full `CreditSummary` from `getCreditSummary(session.user.id)` — `{ period, allowance, consumed, bonus, balance, lifetimeConsumed }` (its JSDoc: "the shape the user-facing usage endpoint and the admin dashboard both render"). Drop the old `{ cost_estimate, request_count, cap }` dollar shape and the now-unused `getMonthlyUsage` + `MONTHLY_SPEND_CAP_USD` + `getCurrentPeriod` imports (`getCreditSummary` carries `period` itself). Keep the `requireSession` + `handleApiError` pattern unchanged. Refresh the file's top JSDoc to describe the credit shape, not "cost estimate, request count, spend cap".
+- [ ] **Step 2: No new route test.** This route is a thin serialization shim (`requireSession → getCreditSummary → Response.json`) with no branching logic; its logic lives in `getCreditSummary`, already unit-tested in Task 4. The repo's own convention is to test logic, not serialization shims (see `app/api/mcp/__tests__/route.test.ts`'s rationale for not testing its 5-line shim). There is no existing test of this route to update.
+- [ ] **Step 3:** `npx tsc --noEmit` (clean — note: the `AccountMenu.tsx` consumer casts the fetch to its own local `UsageData` type, so reshaping the JSON does NOT break tsc; it drifts at runtime until Task 14 re-anchors AccountMenu to the credit shape — expected, sequenced). `npx vitest run lib/db` (the `getCreditSummary` tests still pass).
 - [ ] **Step 4: Commit** `git commit -am "feat(credits): /api/user/usage returns credit balance"`
 
 ---
