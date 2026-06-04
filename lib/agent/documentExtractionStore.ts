@@ -231,27 +231,31 @@ async function claimAndExtract(opts: {
 			asset.gcsObjectKey,
 			ASSET_SIZE_CAPS_BYTES[asset.kind],
 		);
-		const { text, truncated } = await extractDocument({
+		const { extract, truncated, title, summary } = await extractDocument({
 			bytes,
 			mimeType: asset.mimeType,
 			kind: documentKind,
 			filename: asset.originalFilename,
 			condenser,
 		});
-		await writeTextObject(key, text);
+		// The extract TEXT is the source of truth (GCS); title/summary are small
+		// best-effort metadata persisted on the asset doc for a future browse tool.
+		await writeTextObject(key, extract);
 		await setAssetExtractStatus(asset.id, {
 			status: "ready",
 			version: EXTRACTOR_VERSION,
 			model: CONDENSER_MODEL,
 			truncated,
-			charCount: text.length,
+			charCount: extract.length,
+			title,
+			summary,
 		}).catch((err: unknown) =>
 			log.warn("[extract-store] ready write failed", {
 				assetId: asset.id,
 				err,
 			}),
 		);
-		return readyResult(text, truncated);
+		return readyResult(extract, truncated);
 	} catch (err) {
 		const reason = err instanceof Error ? err.message : String(err);
 		await setAssetExtractStatus(asset.id, {

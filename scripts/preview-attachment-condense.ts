@@ -43,6 +43,7 @@ import {
 } from "../lib/agent/documentExtraction";
 import {
 	extractFromContentWith,
+	generateObjectWith,
 	generatePlainTextWith,
 	type SubGenerationProviderOptions,
 	type SubGenerationResult,
@@ -183,6 +184,23 @@ function makeCondenser(
 			track(r);
 			return { text: r.text, truncated: r.finishReason === "length" };
 		},
+		async generateStructured(opts) {
+			// The title/summary pass passes no providerOptions (default thinking);
+			// substitute this run's model + record usage like the text passes.
+			const r = await generateObjectWith({
+				model,
+				system: opts.system,
+				prompt: opts.prompt,
+				schema: opts.schema,
+				maxOutputTokens: opts.maxOutputTokens,
+				providerOptions: opts.providerOptions ?? providerOptions,
+			});
+			stats.calls += 1;
+			stats.inputTokens += r.usage?.inputTokens ?? 0;
+			stats.outputTokens += r.usage?.outputTokens ?? 0;
+			if (r.finishReason === "length") stats.truncated = true;
+			return r.object;
+		},
 	};
 }
 
@@ -228,21 +246,21 @@ async function runModel(spec: ModelSpec, path: string): Promise<void> {
 		calls: 0,
 		truncated: false,
 	};
-	let extract: string;
+	let result: Awaited<ReturnType<typeof extractDocument>>;
 	try {
-		const result = await extractDocument({
+		result = await extractDocument({
 			bytes: readFileSync(path),
 			mimeType: MIME_BY_EXT[ext] ?? "application/octet-stream",
 			kind,
 			filename: basename(path),
 			condenser: makeCondenser(resolved.model, stats, spec.providerOptions),
 		});
-		extract = result.text;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		console.log(`  ⚠️  extraction failed — ${msg}`);
 		return;
 	}
+	const { extract, title, summary } = result;
 
 	const cost = estimateCost(stats, spec.pricing);
 	console.log(
@@ -253,6 +271,9 @@ async function runModel(spec: ModelSpec, path: string): Promise<void> {
 			"  ⚠️  hit the output ceiling — extract is truncated; the SA gets a note saying so.",
 		);
 	}
+	// Title/summary come from the separate structured pass (absent if it failed).
+	console.log(`  title:   ${title ?? "—"}`);
+	console.log(`  summary: ${summary ?? "—"}`);
 	console.log(`  extract: ${extract.length.toLocaleString()} chars\n`);
 	console.log(extract);
 }

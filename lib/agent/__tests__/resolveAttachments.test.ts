@@ -60,6 +60,12 @@ function stubCondenser(text = "LAZY EXTRACT"): AttachmentCondenser {
 	return {
 		generatePlainText: vi.fn(async () => ({ text, truncated: false })),
 		extractFromContent: vi.fn(async () => ({ text, truncated: false })),
+		// These tests assert on the EXTRACT resolution, not title/summary; the
+		// structured pass returns null (metadata simply absent). Cast because
+		// `vi.fn` can't express the generic method signature.
+		generateStructured: vi.fn(
+			async () => null,
+		) as unknown as AttachmentCondenser["generateStructured"],
 	};
 }
 

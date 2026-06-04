@@ -63,10 +63,14 @@ import type {
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
-import type { CondenseResult } from "./documentExtraction";
+import type {
+	CondenseResult,
+	GenerateStructuredOpts,
+} from "./documentExtraction";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
 import {
 	extractFromContentWith,
+	generateObjectWith,
 	generatePlainTextWith,
 	type SubGenerationProviderOptions,
 } from "./subGeneration";
@@ -757,6 +761,43 @@ export class GenerationContext implements ToolExecutionContext {
 				);
 			}
 			throw error;
+		}
+	}
+
+	/**
+	 * Structured pass over an already-produced extract — the decoupled
+	 * `{ title, summary }` for `extractDocument`. Routes via `resolveModel` (the
+	 * Gemini summarizer) and the provider's controlled generation
+	 * (`generateObjectWith`), NOT the Anthropic `Output.object` path `generate`
+	 * uses — title/summary run on the document summarizer, not the SA's model.
+	 *
+	 * Best-effort by contract: returns `null` (never throws) on any failure — a
+	 * malformed/truncated object OR a transport error. The extract it summarizes
+	 * already succeeded, so a missing title/summary must not fail the turn or
+	 * surface a user-facing error; it's logged and dropped. Usage is still tracked
+	 * when the call reports it.
+	 */
+	async generateStructured<T>(
+		opts: GenerateStructuredOpts<T>,
+	): Promise<T | null> {
+		try {
+			const result = await generateObjectWith<T>({
+				model: this.resolveModel(opts.model ?? MODEL_DEFAULT),
+				system: opts.system,
+				prompt: opts.prompt,
+				schema: opts.schema,
+				maxOutputTokens: opts.maxOutputTokens,
+				providerOptions: opts.providerOptions,
+			});
+			logWarnings(`generateStructured:${opts.label}`, result.warnings);
+			if (result.usage) this.trackSubGeneration(result.usage);
+			return result.object;
+		} catch (error) {
+			log.warn(
+				`generateStructured:${opts.label} failed; title/summary dropped`,
+				{ error: error instanceof Error ? error.message : String(error) },
+			);
+			return null;
 		}
 	}
 

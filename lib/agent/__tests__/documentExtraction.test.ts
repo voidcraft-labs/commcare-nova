@@ -12,6 +12,7 @@ import * as XLSX from "xlsx";
 import {
 	type AttachmentCondenser,
 	type CondenseResult,
+	type ExtractMeta,
 	extractDocument,
 } from "@/lib/agent/documentExtraction";
 
@@ -30,6 +31,7 @@ vi.mock("mammoth", () => ({
  *  (and reads cleanly under `noUncheckedIndexedAccess`). */
 function recordingCondenser(
 	result: CondenseResult = { text: "EXTRACT", truncated: false },
+	meta: ExtractMeta | null = { title: "A Title", summary: "A summary." },
 ) {
 	const plainText = vi.fn<AttachmentCondenser["generatePlainText"]>(
 		async () => result,
@@ -37,11 +39,17 @@ function recordingCondenser(
 	const fromContent = vi.fn<AttachmentCondenser["extractFromContent"]>(
 		async () => result,
 	);
+	// The title/summary pass. `vi.fn` can't express the generic method signature
+	// directly, so the slot is cast; the returned `structured` ref stays typed
+	// for `mock.calls` assertions.
+	const structured = vi.fn(async () => meta);
 	const condenser: AttachmentCondenser = {
 		generatePlainText: plainText,
 		extractFromContent: fromContent,
+		generateStructured:
+			structured as unknown as AttachmentCondenser["generateStructured"],
 	};
-	return { condenser, plainText, fromContent };
+	return { condenser, plainText, fromContent, structured };
 }
 
 /** The `prompt` of the first `generatePlainText` call, or a clear failure. */
@@ -63,7 +71,12 @@ describe("extractDocument", () => {
 			filename: "notes.md",
 			condenser,
 		});
-		expect(result).toEqual({ text: "EXTRACT", truncated: false });
+		expect(result).toEqual({
+			extract: "EXTRACT",
+			truncated: false,
+			title: "A Title",
+			summary: "A summary.",
+		});
 		expect(fromContent).not.toHaveBeenCalled();
 		expect(plainText).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -153,5 +166,43 @@ describe("extractDocument", () => {
 			condenser,
 		});
 		expect(result.truncated).toBe(true);
+	});
+
+	it("adds title + summary from the structured pass over the extract", async () => {
+		const { condenser, structured } = recordingCondenser(
+			{ text: "THE EXTRACT BODY", truncated: false },
+			{ title: "ANC Requirements", summary: "What it covers." },
+		);
+		const result = await extractDocument({
+			bytes: Buffer.from("x"),
+			mimeType: "text/plain",
+			kind: "text",
+			filename: "spec.txt",
+			condenser,
+		});
+		expect(result.title).toBe("ANC Requirements");
+		expect(result.summary).toBe("What it covers.");
+		// The structured pass runs over the EXTRACT just produced, not the raw doc.
+		expect(structured).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: "THE EXTRACT BODY" }),
+		);
+	});
+
+	it("leaves title/summary absent when the structured pass yields null", async () => {
+		const { condenser } = recordingCondenser(
+			{ text: "EXTRACT", truncated: false },
+			null,
+		);
+		const result = await extractDocument({
+			bytes: Buffer.from("x"),
+			mimeType: "text/plain",
+			kind: "text",
+			filename: "spec.txt",
+			condenser,
+		});
+		// The extract is never lost; title/summary are simply undefined.
+		expect(result.extract).toBe("EXTRACT");
+		expect(result.title).toBeUndefined();
+		expect(result.summary).toBeUndefined();
 	});
 });

@@ -20,7 +20,14 @@
  */
 
 import type { FinishReason, LanguageModelUsage } from "ai";
-import { type CallWarning, generateText, type LanguageModel } from "ai";
+import {
+	type CallWarning,
+	generateObject,
+	generateText,
+	type LanguageModel,
+	NoObjectGeneratedError,
+} from "ai";
+import type { ZodType } from "zod";
 
 /** The provider-options shape `generateText` accepts (e.g. a provider's
  *  reasoning/thinking depth). `ai` declares this type internally but doesn't
@@ -69,6 +76,71 @@ export async function generatePlainTextWith(opts: {
 		warnings: result.warnings,
 		finishReason: result.finishReason,
 	};
+}
+
+/** What a structured sub-generation returns: the parsed object, or `null` when
+ *  the model couldn't produce a valid one (truncation past `maxOutputTokens`, or
+ *  a malformed response — the AI SDK throws `NoObjectGeneratedError`, which we
+ *  catch). `usage`/`finishReason` are surfaced even on that failure (the error
+ *  carries them) so the caller still meters the tokens it spent. */
+export interface SubGenerationObjectResult<T> {
+	object: T | null;
+	usage: LanguageModelUsage | undefined;
+	warnings: CallWarning[] | undefined;
+	finishReason: FinishReason | undefined;
+}
+
+/**
+ * Text-in, STRUCTURED-out single generation: the model fills `schema` via the
+ * provider's controlled generation (guaranteed-valid JSON, modulo truncation).
+ *
+ * Used for the small `{ title, summary }` over an ALREADY-produced extract — not
+ * for the extract itself, which stays free-form so constrained decoding can't
+ * degrade it and a huge document only loses its tail (with a note) rather than
+ * the whole object. Returns `object: null` (rather than throwing) when the model
+ * can't yield a valid object, so the caller treats the structured part as simply
+ * unavailable and proceeds — the extract is independent and already in hand. A
+ * non-object error (network/auth) still throws, for the condenser layer to emit.
+ */
+export async function generateObjectWith<T>(opts: {
+	model: LanguageModel;
+	system: string;
+	prompt: string;
+	schema: ZodType<T>;
+	maxOutputTokens?: number;
+	providerOptions?: SubGenerationProviderOptions;
+}): Promise<SubGenerationObjectResult<T>> {
+	try {
+		const result = await generateObject({
+			model: opts.model,
+			system: opts.system,
+			prompt: opts.prompt,
+			schema: opts.schema,
+			maxOutputTokens: opts.maxOutputTokens,
+			providerOptions: opts.providerOptions,
+		});
+		return {
+			object: result.object,
+			usage: result.usage,
+			warnings: result.warnings,
+			finishReason: result.finishReason,
+		};
+	} catch (err) {
+		// `generateObject` throws `NoObjectGeneratedError` when it can't produce a
+		// valid object — truncation past `maxOutputTokens`, or a malformed
+		// response. Treat that as "structured part unavailable" (null), surfacing
+		// the usage so the caller meters the spent tokens. Any other error (a real
+		// network/auth/server failure) propagates.
+		if (NoObjectGeneratedError.isInstance(err)) {
+			return {
+				object: null,
+				usage: err.usage,
+				warnings: undefined,
+				finishReason: err.finishReason,
+			};
+		}
+		throw err;
+	}
 }
 
 /**

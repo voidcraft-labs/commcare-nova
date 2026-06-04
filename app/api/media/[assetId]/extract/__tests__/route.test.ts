@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { MediaAssetOwnershipError } from "@/lib/db/mediaAssets";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { asAssetId, EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { readTextObject } from "@/lib/storage/media";
 import { GET, POST } from "../route";
 
@@ -98,7 +98,7 @@ describe("POST extract (wrapper mapping)", () => {
 		expect(res.status).toBe(200);
 		expect((await res.json()).extract).toEqual({
 			status: "ready",
-			version: 1,
+			version: EXTRACTOR_VERSION,
 			truncated: false,
 			charCount: 12,
 		});
@@ -171,7 +171,7 @@ describe("GET extract", () => {
 			docAsset({
 				extract: {
 					status: "ready",
-					version: 1,
+					version: EXTRACTOR_VERSION,
 					model: "gemini-3.5-flash",
 					truncated: false,
 					charCount: 5,

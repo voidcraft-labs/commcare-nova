@@ -395,6 +395,11 @@ export const mediaAssetDocSchema = z.object({
 	 *  - `truncated` flags an extract that hit the model's output ceiling.
 	 *  - `charCount` is the extract length (for a "long document" hint in UI).
 	 *  - `failureReason` is set only when `status === "failed"`.
+	 *  - `title` / `summary` are a short label + a few-sentence précis of the
+	 *    document, produced by a separate structured pass over the extract. Both
+	 *    are optional/best-effort (absent when that pass failed, or on an older
+	 *    extractor version). They exist for a future "browse my attachments" tool
+	 *    to scan attachments without opening each extract — not read by the SA.
 	 */
 	extract: z
 		.object({
@@ -405,6 +410,8 @@ export const mediaAssetDocSchema = z.object({
 			charCount: z.number().int().nonnegative(),
 			extractedAt: timestamp,
 			failureReason: z.string().optional(),
+			title: z.string().optional(),
+			summary: z.string().optional(),
 		})
 		.optional(),
 	created_at: timestamp,

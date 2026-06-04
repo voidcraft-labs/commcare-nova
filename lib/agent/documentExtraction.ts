@@ -24,9 +24,11 @@ import {
 } from "@ai-sdk/google";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
+import { z } from "zod";
 import type { DocumentKind } from "@/lib/domain/multimedia";
 import {
 	extractFromContentWith,
+	generateObjectWith,
 	generatePlainTextWith,
 	type SubGenerationProviderOptions,
 } from "./subGeneration";
@@ -51,12 +53,45 @@ export interface CondenseResult {
 }
 
 /**
- * The slice of generation capability extraction needs: the two condensing
- * sub-generations. Narrowing to this interface (rather than the full
- * `GenerationContext`) is what lets BOTH the standalone Gemini condenser (the
- * upload route) and the live `GenerationContext` (the chat lazy backstop) drive
- * the exact same orchestration. `GenerationContext` satisfies this structurally;
- * `createGeminiCondenser` builds a tiny backend over `subGeneration.ts`.
+ * What `extractDocument` returns: the faithful `extract` (the text the SA reads)
+ * and whether it was `truncated`, plus an OPTIONAL `title` / `summary` from a
+ * separate structured pass over the extract. Title/summary are best-effort —
+ * absent when that pass fails — and exist for a future "browse my attachments"
+ * tool to scan attachments without opening each one; the SA reading path uses
+ * only `extract`.
+ */
+export interface ExtractResult {
+	extract: string;
+	truncated: boolean;
+	title?: string;
+	summary?: string;
+}
+
+/** Options for the structured pass (`generateStructured`): a system prompt, the
+ *  text `prompt` (the already-produced extract), and the Zod `schema` to fill. */
+export interface GenerateStructuredOpts<T> {
+	system: string;
+	prompt: string;
+	schema: z.ZodType<T>;
+	label: string;
+	model?: string;
+	maxOutputTokens?: number;
+	providerOptions?: SubGenerationProviderOptions;
+}
+
+/**
+ * The slice of generation capability extraction needs. Narrowing to this
+ * interface (rather than the full `GenerationContext`) is what lets BOTH the
+ * standalone Gemini condenser (the upload route) and the live `GenerationContext`
+ * (the chat lazy backstop) drive the exact same orchestration.
+ * `GenerationContext` satisfies this structurally; `createGeminiCondenser` builds
+ * a tiny backend over `subGeneration.ts`.
+ *
+ * `generatePlainText` / `extractFromContent` produce the (free-form) extract;
+ * `generateStructured` produces the small `{ title, summary }` over that extract
+ * — a SEPARATE method so the extract is never routed through constrained
+ * decoding, which both risks a weaker extract and, on a large document,
+ * truncates the whole object into something unparseable.
  */
 export interface AttachmentCondenser {
 	generatePlainText(opts: {
@@ -78,6 +113,9 @@ export interface AttachmentCondenser {
 		providerOptions?: SubGenerationProviderOptions;
 		emitErrors?: boolean;
 	}): Promise<CondenseResult>;
+	/** Structured pass over an extract. Returns `null` when the model can't
+	 *  produce a valid object — the caller treats the fields as unavailable. */
+	generateStructured<T>(opts: GenerateStructuredOpts<T>): Promise<T | null>;
 }
 
 // ── Tuning constants (not user-configurable) ────────────────────────────
@@ -219,12 +257,58 @@ DON'T INVENT:
 - Do not upgrade required/optional status the document doesn't give: "record whether…" is
   not "required". If unstated, leave it [OPEN].
 
-OUTPUT:
+OUTPUT — Markdown, structured by SECTIONS rather than per-line tags:
 - Begin with one line: \`Document type: <type> | Source: <filename>\`.
-- Compact bullets grouped by source section, form, or case type.
-- Tag where useful: [FIELD] [OPTIONS] [VALIDATION] [CALC] [SKIP] [CASE] [WORKFLOW]
-  [ROLE] [NFR] [REPORT] [EXCLUDE] [DEFER] [CONFLICT] [GAP] [OPEN] [INFERRED].
+- Group everything under \`##\` headings that follow the document's own structure
+  (each form, each case type, app-level requirements, out-of-scope, annexes).
+  Put MANY items under one heading — never a heading per item.
+- Under each heading, one compact bullet per requirement, carrying its full
+  detail: label, every option enumerated in full, ranges/limits, required vs
+  optional, and any rule. The bullet's own words say what it is.
+- Do NOT label the TYPE of each line — no [FIELD] / [OPTIONS] / [VALIDATION] /
+  [CALC] / [SKIP] / [CASE] / [WORKFLOW] / [ROLE] / [NFR] / [REPORT]. The heading
+  plus the bullet's wording already convey that; a tag on every line wastes space
+  and tells the reader nothing new. Put out-of-scope and deferred items under an
+  "Out of scope" / "Deferred" heading instead of tagging each one.
+- DO keep these SEMANTIC flags inline, ONLY on the items they apply to — they are
+  sparse and load-bearing: [CONFLICT] (two parts of the document disagree), [GAP]
+  (one part needs what another never supplies), [OPEN] (an unfilled / TBD value),
+  [INFERRED] (implied but not stated). Never drop these.
 - No preamble, no closing summary.`;
+
+// ── Title + summary (the decoupled structured pass) ──────────────────────────
+
+/**
+ * The structured `{ title, summary }` produced by a SECOND small call over the
+ * already-produced extract. Decoupled from the extract on purpose: the extract
+ * stays free-form (so constrained decoding can't weaken it, and a huge document
+ * only loses its tail), while title/summary — which a future "browse my
+ * attachments" tool reads to scan attachments without opening each extract —
+ * come from a structured call rather than by parsing the extract's markdown.
+ */
+export const extractMetaSchema = z.object({
+	title: z
+		.string()
+		.describe(
+			'A short, human title for the document — what it IS, in roughly ten words or fewer (e.g. "ANC Program — Data Collection Requirements"). No filename, no surrounding quotes.',
+		),
+	summary: z
+		.string()
+		.describe(
+			"Two to four sentences in plain prose (no markdown): what this document is and what it covers, enough for someone to judge whether it's the one they need WITHOUT opening the full extract.",
+		),
+});
+export type ExtractMeta = z.infer<typeof extractMetaSchema>;
+
+/** System prompt for the title/summary pass. It runs over the EXTRACT, not the
+ *  raw document, so it's cheap and can't truncate the way a giant raw file can.
+ *  Triage, not re-extraction — and faithful to the extract (invent no scope). */
+export const EXTRACT_META_SYSTEM = `You are labeling a requirements extract for a CommCare app builder so it can be browsed without being opened. Given the extract, produce a short title and a brief summary of what the document contains. Be faithful to the extract — never invent scope it doesn't mention. The summary is for triage ("is this the document I need?"), not a re-extraction.`;
+
+/** Output ceiling for the title/summary pass. A title plus a few sentences sits
+ *  far under this even with the model's thinking tokens, so — unlike the extract
+ *  — it does not truncate; a failure here just leaves title/summary absent. */
+const EXTRACT_META_MAX_OUTPUT_TOKENS = 8_000;
 
 // ── Pure conversion helpers ────────────────────────────────────────────────
 
@@ -295,18 +379,23 @@ export function xlsxToMarkdown(buffer: Buffer): string {
 // ── Extraction entry point ────────────────────────────────────────────────
 
 /**
- * Faithfully extract ONE document's requirements with the summarizer, returning
- * the RAW extract text (no chat-context framing — the resolve step wraps it with
- * the `<<Attachment: …>>` marker + any truncation note). Dispatches on kind:
+ * Extract ONE document into an `ExtractResult` — the faithful `extract` text the
+ * SA reads (no chat-context framing; the resolve step wraps it with the
+ * `<<Attachment: …>>` marker + any truncation note) PLUS a best-effort
+ * `{ title, summary }`. Two passes:
  *
- *   - PDF → a NATIVE document block (the model reads the original, preserving
- *     layout/structure a flat text decode would lose).
- *   - text/docx/xlsx → decode to markdown (docx via mammoth, xlsx via SheetJS,
- *     text verbatim), then condense the markdown.
+ *   1. The extract (FREE-FORM). PDF → a NATIVE document block (the model reads
+ *      the original, preserving layout a flat decode would lose); text/docx/xlsx
+ *      → decode to markdown (docx via mammoth, xlsx via SheetJS, text verbatim),
+ *      then condense.
+ *   2. Title + summary — a separate small STRUCTURED pass over the extract. It's
+ *      decoupled so the extract is never routed through constrained decoding; a
+ *      failure there leaves title/summary absent (the extract is already in hand).
  *
- * Throws on a model failure — the caller decides how to handle it: the upload
- * route records a `failed` extract status; the chat lazy backstop falls back to
- * inlining the raw document so the requirement detail still reaches the SA.
+ * Throws only if the EXTRACT pass fails — the caller decides how to handle it:
+ * the upload route records a `failed` status; the chat lazy backstop falls back
+ * to inlining the raw document so the requirement detail still reaches the SA.
+ * The title/summary pass never throws out of here (it resolves to `null`).
  */
 export async function extractDocument(opts: {
 	bytes: Buffer;
@@ -314,11 +403,13 @@ export async function extractDocument(opts: {
 	kind: DocumentKind;
 	filename: string;
 	condenser: AttachmentCondenser;
-}): Promise<CondenseResult> {
+}): Promise<ExtractResult> {
 	const { bytes, mimeType, kind, filename, condenser } = opts;
 
+	// 1. The faithful extract — free-form (see the JSDoc).
+	let condensed: CondenseResult;
 	if (kind === "pdf") {
-		return condenser.extractFromContent({
+		condensed = await condenser.extractFromContent({
 			system: EXTRACT_SYSTEM,
 			instruction: `Extract every requirement from this document. Filename: ${filename}.`,
 			file: {
@@ -333,29 +424,46 @@ export async function extractDocument(opts: {
 			// user-facing generation error from inside the condenser.
 			emitErrors: false,
 		});
+	} else {
+		const body =
+			kind === "docx"
+				? await docxToMarkdown(bytes)
+				: kind === "xlsx"
+					? xlsxToMarkdown(bytes)
+					: bytes.toString("utf-8");
+		condensed = await condenser.generatePlainText({
+			system: EXTRACT_SYSTEM,
+			// The filename leads the user turn (separated from the body by a blank
+			// line so it reads as metadata, not a requirement) — it's the only way
+			// the model can fill the prompt's `Source:` line without violating the
+			// same prompt's "never invent a value" rule. The body follows verbatim.
+			prompt: `Filename: ${filename}\n\n${body}`,
+			label: `extract:${filename}`,
+			model: CONDENSER_MODEL,
+			providerOptions: CONDENSER_PROVIDER_OPTIONS,
+			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
+			emitErrors: false,
+		});
 	}
 
-	// text/docx/xlsx → markdown body, then condense.
-	const body =
-		kind === "docx"
-			? await docxToMarkdown(bytes)
-			: kind === "xlsx"
-				? xlsxToMarkdown(bytes)
-				: bytes.toString("utf-8");
-
-	return condenser.generatePlainText({
-		system: EXTRACT_SYSTEM,
-		// The filename leads the user turn (separated from the body by a blank
-		// line so it reads as metadata, not a requirement) — it's the only way the
-		// model can fill the prompt's `Source:` line without violating the same
-		// prompt's "never invent a value" rule. The body follows verbatim.
-		prompt: `Filename: ${filename}\n\n${body}`,
-		label: `extract:${filename}`,
+	// 2. Title + summary — a separate small structured pass over the extract just
+	//    produced. Best-effort: `null` (the model couldn't produce a valid object)
+	//    leaves them absent; the extract is never blocked on it.
+	const meta = await condenser.generateStructured<ExtractMeta>({
+		system: EXTRACT_META_SYSTEM,
+		prompt: condensed.text,
+		schema: extractMetaSchema,
+		label: `extract-meta:${filename}`,
 		model: CONDENSER_MODEL,
-		providerOptions: CONDENSER_PROVIDER_OPTIONS,
-		maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
-		emitErrors: false,
+		maxOutputTokens: EXTRACT_META_MAX_OUTPUT_TOKENS,
 	});
+
+	return {
+		extract: condensed.text,
+		truncated: condensed.truncated,
+		title: meta?.title,
+		summary: meta?.summary,
+	};
 }
 
 /**
@@ -399,6 +507,19 @@ export function createGeminiCondenser(): AttachmentCondenser {
 				providerOptions: args.providerOptions,
 			});
 			return { text: r.text, truncated: r.finishReason === "length" };
+		},
+		async generateStructured<T>(
+			args: GenerateStructuredOpts<T>,
+		): Promise<T | null> {
+			const r = await generateObjectWith<T>({
+				model,
+				system: args.system,
+				prompt: args.prompt,
+				schema: args.schema,
+				maxOutputTokens: args.maxOutputTokens,
+				providerOptions: args.providerOptions,
+			});
+			return r.object;
 		},
 	};
 }

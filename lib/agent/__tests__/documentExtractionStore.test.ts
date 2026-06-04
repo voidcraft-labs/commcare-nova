@@ -86,7 +86,13 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
  *  (its `extractedAt` only needs `toMillis`). */
 function extractRecord(
 	status: "extracting" | "ready" | "failed",
-	{ version = 1, ageMs = 0 }: { version?: number; ageMs?: number } = {},
+	{
+		version = EXTRACTOR_VERSION,
+		ageMs = 0,
+	}: {
+		version?: number;
+		ageMs?: number;
+	} = {},
 ): MediaAssetRecord["extract"] {
 	return {
 		status,
@@ -107,7 +113,7 @@ beforeEach(() => {
 	downloadAssetBytesMock.mockResolvedValue(Buffer.from("bytes"));
 	writeTextObjectMock.mockResolvedValue(undefined);
 	extractDocumentMock.mockResolvedValue({
-		text: "FRESH EXTRACT",
+		extract: "FRESH EXTRACT",
 		truncated: false,
 	});
 });
@@ -214,7 +220,10 @@ describe("ensureStoredExtract (orchestration)", () => {
 		expect(setAssetExtractStatus).toHaveBeenNthCalledWith(
 			1,
 			"asset-1",
-			expect.objectContaining({ status: "extracting", version: 1 }),
+			expect.objectContaining({
+				status: "extracting",
+				version: EXTRACTOR_VERSION,
+			}),
 		);
 		expect(setAssetExtractStatus).toHaveBeenNthCalledWith(
 			2,
@@ -222,7 +231,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 			expect.objectContaining({ status: "ready", charCount: 13 }),
 		);
 		expect(writeTextObject).toHaveBeenCalledWith(
-			expect.stringContaining(".extract.v1.md"),
+			expect.stringContaining(`.extract.v${EXTRACTOR_VERSION}.md`),
 			"FRESH EXTRACT",
 		);
 	});

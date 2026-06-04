@@ -469,7 +469,7 @@ export function extractGcsObjectKeyFor(
  * helper must never drag the office-parsing libraries (mammoth/xlsx) into a
  * caller's import graph; keeping the constant here is what makes that possible.
  */
-export const EXTRACTOR_VERSION = 1;
+export const EXTRACTOR_VERSION = 2;
 
 /**
  * The GCS object key of a document's stored extract at the current version, or

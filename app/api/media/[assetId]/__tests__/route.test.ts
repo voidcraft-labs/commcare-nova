@@ -86,7 +86,7 @@ describe("DELETE media asset", () => {
 		// from the asset's content hash + the current extractor version).
 		expect(purgeAssetStorage).toHaveBeenCalledWith(
 			expect.objectContaining({ id: "asset-1" }),
-			{ alsoDelete: [expect.stringContaining(".extract.v1.md")] },
+			{ alsoDelete: [expect.stringContaining(".extract.v")] },
 		);
 	});
 
