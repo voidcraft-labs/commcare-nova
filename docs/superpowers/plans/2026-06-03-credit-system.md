@@ -769,6 +769,8 @@ if (type === "data-credit-refund") {
 - [ ] **Step 4: Run read-only against PROD** (post-merge, with the user): `npx tsx scripts/inspect-credit-migration.ts`. Capture output — this is the data the re-baseline apply is decided on.
 - [ ] **Step 5: Commit** `git commit -am "chore(credits): read-only migration scan + pure reconcile"`
 
+*(Landed `c99466c1`. 8 pure-reconcile tests (single-period / cross-month / soft-deleted / over-$50 / delta-0 / empty / multi-owner-sort). Wrapper is strictly read-only (only `Map.set`), chunks `getAll` at 300, skips+counts missing-field + orphan runs. Review hardened two display-accuracy edges: the non-zero-delta filter uses `Math.abs(delta) >= 0.00005` (float-noise can't show a phantom `$0.0000` move), and the cost guard uses `Number.isFinite` so a non-finite cost can't silently un-flag an over-backstop cell.)*
+
 ---
 
 ## Task 16: Migrator — re-baseline cost + credit seed (dry-run default, --apply)
