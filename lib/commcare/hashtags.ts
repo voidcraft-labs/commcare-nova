@@ -23,11 +23,26 @@ const T = (() => {
 	};
 })();
 
+// ── Case-loading selector primitives ─────────────────────────────────
+// Single source of truth for the casedb `<case>` selector. Both the
+// `#case/` transforms-metadata prefix below and `expandCaseHashtag`'s
+// relationship walk compose from these, so the loaded-case shape cannot
+// drift between the metadata string and the emitted XPath.
+const CASEDB_CASE = "instance('casedb')/casedb/case";
+const CURRENT_CASE_ID = "instance('commcaresession')/session/data/case_id";
+
+/** A casedb `<case>` selected by its `@case_id` expression. */
+function caseById(idExpr: string): string {
+	return `${CASEDB_CASE}[@case_id = ${idExpr}]`;
+}
+
 /** HQ-shaped transforms metadata — serialized to vellum:hashtagTransforms on binds. */
 export const VELLUM_HASHTAG_TRANSFORMS = {
 	prefixes: {
-		"#case/":
-			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/",
+		// The loaded case (`#case/<prop>`) — composed from the selector
+		// primitives so it stays identical to `expandCaseHashtag`'s zero-hop
+		// output by construction.
+		"#case/": `${caseById(CURRENT_CASE_ID)}/`,
 		"#user/":
 			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/",
 	},
@@ -51,56 +66,42 @@ const HQ_HASHTAG_TYPES = new Set(["case", "user"]);
 // ── Case relationship traversal ──────────────────────────────────────
 
 /**
- * Case-index relationship segments and the number of `index/parent` hops
- * each resolves to. `#case/parent/<prop>` reads a property off the loaded
- * case's parent; `#case/grandparent/<prop>` off the parent's parent.
- * CommCare resolves these through the case INDEX — not as a literal `parent`
- * child element of `<case>` — matching commcare-hq's `#parent`/`#grandparent`
- * hashtags (`app_manager/xpath.py`: `CaseIDXPath(case + '/index/parent').case()`)
- * and Vellum's data-source tree. A `parent/parent` chain reaches the same
- * case as `grandparent`, so both spellings are accepted.
+ * The one case-index relationship Nova models in hashtags. A leading
+ * `#case/parent/...` segment walks to the loaded case's parent through the
+ * case INDEX (`/index/parent`) — NOT a literal `parent` child element of
+ * `<case>` — matching commcare-hq's `#parent` hashtag (`app_manager/xpath.py`:
+ * `CaseIDXPath(case + '/index/parent').case()`).
+ *
+ * `parent` is a CommCare-reserved case property (`RESERVED_CASE_PROPERTIES`),
+ * so the field-authoring guard rejects it as a real property name — which is
+ * what makes a leading `parent` segment unambiguously a relationship walk and
+ * not a property read. Deeper ancestry chains the segment: `#case/parent/parent/<prop>`
+ * is the grandparent. We deliberately do NOT add a `grandparent` keyword:
+ * CommCare reserves no such word (so a property COULD be named `grandparent`,
+ * and a keyword would silently shadow it), and chaining `parent` covers every
+ * depth. `host` and other index relationships aren't modeled yet.
  */
-const CASE_RELATIONSHIP_HOPS = new Map<string, number>([
-	["parent", 1],
-	["grandparent", 2],
-]);
-
-// Pieces of the case-loading selector, kept in lockstep with
-// `VELLUM_HASHTAG_TRANSFORMS.prefixes["#case/"]` — that prefix IS
-// `${caseById(CURRENT_CASE_ID)}/`. The zero-hop expansion reuses the prefix
-// verbatim (byte-identical to the historical output, guarded by test);
-// each relationship hop nests one more `caseById(...)/index/parent` walk.
-const CASEDB_CASE = "instance('casedb')/casedb/case";
-const CURRENT_CASE_ID = "instance('commcaresession')/session/data/case_id";
-
-/** A casedb `<case>` selected by its `@case_id`. */
-function caseById(idExpr: string): string {
-	return `${CASEDB_CASE}[@case_id = ${idExpr}]`;
-}
+const CASE_PARENT_SEGMENT = "parent";
 
 /**
- * Expand a `#case/...` hashtag's segments to full casedb XPath, resolving
- * any leading relationship segments (`parent`, `grandparent`) through the
- * case index. Zero relationship segments → the plain case-loading shape,
- * byte-identical to the historical flat-prefix expansion. N hops → N nested
- * `caseById(...)/index/parent` walks from the current case to the target
- * case, then the remaining property path read off that case.
+ * Expand a `#case/...` hashtag's segments to full casedb XPath, resolving any
+ * leading `parent` relationship segments through the case index. Zero parent
+ * segments → the plain loaded-case selector (the same shape the `#case/`
+ * transforms prefix carries, since both compose from `caseById`). N parents →
+ * N nested `caseById(...)/index/parent` walks from the current case to the
+ * target ancestor case, then the remaining property path read off that case.
  */
 function expandCaseHashtag(segments: string[]): string {
-	let hops = 0;
 	let firstProp = 0;
-	while (firstProp < segments.length) {
-		const segmentHops = CASE_RELATIONSHIP_HOPS.get(segments[firstProp]);
-		if (segmentHops === undefined) break;
-		hops += segmentHops;
-		firstProp++;
-	}
+	while (segments[firstProp] === CASE_PARENT_SEGMENT) firstProp++;
+	const hops = firstProp;
 	const propPath = segments.slice(firstProp).join("/");
 
-	if (hops === 0) {
-		return VELLUM_HASHTAG_TRANSFORMS.prefixes["#case/"] + propPath;
-	}
-
+	// Walk to the target case's id — one `/index/parent` per parent hop; zero
+	// hops leaves it at the current case. Everything flows through `caseById`,
+	// so the zero-hop output is byte-for-byte the loaded-case prefix, which the
+	// `#case/<prop>` regression test pins — transitively guarding these
+	// selector primitives against drift.
 	let idExpr = CURRENT_CASE_ID;
 	for (let h = 0; h < hops; h++) {
 		idExpr = `${caseById(idExpr)}/index/parent`;

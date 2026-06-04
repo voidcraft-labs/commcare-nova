@@ -127,12 +127,21 @@ describe("hashtag expansion", () => {
 		expect(result).not.toContain("#case/");
 	});
 
-	it("expandHashtags resolves #case/grandparent via two index/parent hops", () => {
-		const grandparent = expandHashtags("#case/grandparent/address");
-		expect(grandparent.split("/index/parent").length - 1).toBe(2);
-		expect(grandparent.endsWith("]/address")).toBe(true);
-		// A `parent/parent` chain reaches the same case as `grandparent`.
-		expect(expandHashtags("#case/parent/parent/address")).toBe(grandparent);
+	it("resolves chained #case/parent/parent via two index/parent hops", () => {
+		const result = expandHashtags("#case/parent/parent/address");
+		expect(result.split("/index/parent").length - 1).toBe(2);
+		expect(result.endsWith("]/address")).toBe(true);
+		expect(result).not.toContain("#case/");
+	});
+
+	it("treats #case/grandparent as a property, not a relationship keyword", () => {
+		// Only `parent` is a relationship segment (and it's CommCare-reserved,
+		// so it can't be a real property). `grandparent` is NOT reserved, so it
+		// must read as an ordinary property — depth is expressed by chaining
+		// `parent/parent`, never a `grandparent` keyword that would shadow it.
+		const result = expandHashtags("#case/grandparent");
+		expect(result).not.toContain("/index/parent");
+		expect(result.endsWith("]/grandparent")).toBe(true);
 	});
 
 	it("expandHashtags replaces #user/ with full XPath", () => {
