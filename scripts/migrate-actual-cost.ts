@@ -1,13 +1,18 @@
 /**
  * ⚠️  WRITES TO PRODUCTION under --apply — Credit-system migration writer.
  *
- * Two independent, opt-in actions run the post-merge cut-over (with the user):
+ * Three independent, opt-in actions run the post-merge cut-over (with the user):
  *
  *   --rebaseline-cost  Re-baseline `usage/{owner}/months/{period}.cost_estimate`
  *                      from the authoritative run-ledger (the truer source the
  *                      usage docs historically under-count).
  *   --seed-credits     Seed every existing user's CURRENT-period credit doc so
  *                      the gate reads a real balance from day one.
+ *   --delete-orphan    Delete the stashed `unadjusted_estimate` orphan key from
+ *                      mmaher's April usage doc. A SEPARATE guarded pass run only
+ *                      AFTER the April cost re-baseline is durably applied and
+ *                      confirmed in PROD — its precondition refuses to delete
+ *                      until April's `cost_estimate` has absorbed the stash.
  *
  * ## The decisive safety rule (re-baseline)
  *
@@ -29,8 +34,8 @@
  * "skipped — already active"; any other error rethrows (a real write failure
  * must never masquerade as a benign skip).
  *
- * Dry run is the DEFAULT and performs ZERO writes — every `.set`/`.create` is
- * reachable only under `--apply`. Run with `--help` for flags.
+ * Dry run is the DEFAULT and performs ZERO writes — every `.set`/`.create`/
+ * `.update` is reachable only under `--apply`. Run with `--help` for flags.
  */
 import { FieldValue } from "@google-cloud/firestore";
 import { Command } from "commander";
@@ -53,6 +58,7 @@ interface MigrateOptions {
 	apply?: boolean;
 	rebaselineCost?: boolean;
 	seedCredits?: boolean;
+	deleteOrphan?: boolean;
 	/** Accumulated `--current-user` emails (commander `collect` into an array). */
 	currentUser: string[];
 }
@@ -69,7 +75,7 @@ const program = new Command();
 program
 	.name("migrate-actual-cost")
 	.description(
-		"Credit-system migration writer. Defaults to a dry run — pass --apply to write. Re-baselines closed-month cost automatically; current-month cost only for --current-user opt-ins. Seeds current-period credit docs create-only.",
+		"Credit-system migration writer. Defaults to a dry run — pass --apply to write. Re-baselines closed-month cost automatically; current-month cost only for --current-user opt-ins. Seeds current-period credit docs create-only. Deletes the stashed unadjusted_estimate orphan (a separate guarded pass run AFTER the re-baseline is confirmed).",
 	)
 	.option("--apply", "actually write (default: dry run, writes nothing)")
 	.option(
@@ -77,6 +83,10 @@ program
 		"re-baseline usage cost_estimate from the ledger",
 	)
 	.option("--seed-credits", "seed every user's current-period credit doc")
+	.option(
+		"--delete-orphan",
+		"delete the stashed unadjusted_estimate orphan (run AFTER the re-baseline is confirmed)",
+	)
 	.option(
 		"--current-user <email>",
 		"opt a user IN to a current-month cost re-baseline (repeatable)",
@@ -90,7 +100,9 @@ program
 			"  $ npx tsx scripts/migrate-actual-cost.ts --rebaseline-cost --current-user a@x.com # preview a's current month too\n" +
 			"  $ npx tsx scripts/migrate-actual-cost.ts --rebaseline-cost --apply               # write closed months\n" +
 			"  $ npx tsx scripts/migrate-actual-cost.ts --seed-credits                          # dry run\n" +
-			"  $ npx tsx scripts/migrate-actual-cost.ts --seed-credits --apply                  # create-only seed\n",
+			"  $ npx tsx scripts/migrate-actual-cost.ts --seed-credits --apply                  # create-only seed\n" +
+			"  $ npx tsx scripts/migrate-actual-cost.ts --delete-orphan                         # dry run\n" +
+			"  $ npx tsx scripts/migrate-actual-cost.ts --delete-orphan --apply                 # delete orphan (after re-baseline confirmed)\n",
 	);
 
 program.parse();
@@ -99,6 +111,7 @@ const opts = program.opts<MigrateOptions>();
 const apply = opts.apply === true;
 const doRebaseline = opts.rebaselineCost === true;
 const doSeed = opts.seedCredits === true;
+const doDeleteOrphan = opts.deleteOrphan === true;
 /* Normalize opt-in emails (trim + lowercase) so an operator's casing/whitespace
  * can't silently miss a current-month cell at the live apply. The empty filter
  * is a PROD-write safety guard: a `--current-user "$VAR"` with an unset shell
@@ -326,6 +339,130 @@ async function seedCredits(): Promise<void> {
 	}
 }
 
+// ── Action: delete the stashed unadjusted_estimate orphan ───────────
+
+/* The ONE known orphan this action exists to remove. During an operational
+ * reset an off-schema `unadjusted_estimate` key was hand-stashed into mmaher's
+ * April usage doc as the only PROD record of his pre-reset April actual-cost.
+ * These constants pin the action to that single, specific cell — this is a
+ * one-shot cleanup of a known artifact, not a general-purpose key remover. */
+const ORPHAN_USER = "w4KlwedcG1WijXOK0hVz"; // mmaher
+const ORPHAN_PERIOD = "2026-04"; // a CLOSED month
+const ORPHAN_KEY = "unadjusted_estimate";
+
+/**
+ * Delete the stashed `unadjusted_estimate` orphan key from mmaher's April
+ * usage doc — a SEPARATE, idempotent pass run AFTER the April cost re-baseline
+ * is durably applied and confirmed in PROD.
+ *
+ * ## Why a distinct action (not folded into --rebaseline-cost)
+ *
+ * The orphan is the only surviving record of the under-counted pre-reset April
+ * cost. `--rebaseline-cost --apply` overwrites April's `cost_estimate` with the
+ * truer ledger sum (which is ≥ the stash) — that fold is what makes the orphan
+ * safe to drop. Deleting it is therefore strictly downstream of the fold, and
+ * keeping it a separate flag lets us confirm the fold landed in PROD *first*,
+ * then delete in a second, deliberate pass rather than racing both in one run.
+ *
+ * ## Why the precondition guard
+ *
+ * We refuse to delete unless April's live `cost_estimate` is a finite number
+ * `>= orphan`. That is the proof the fold already absorbed the stashed value;
+ * deleting before the fold would discard the only record of cost the ledger
+ * baseline hadn't yet replaced. The guard throws (via `runMain` → exit 1) so a
+ * premature run fails loudly and writes nothing.
+ *
+ * ## Why idempotent
+ *
+ * The cleanup may be re-run for confirmation. A missing doc or an
+ * already-removed key is a clean no-op, not an error — so a second `--apply`
+ * (after a successful delete) reports "already deleted" and exits 0.
+ */
+async function deleteOrphan(): Promise<void> {
+	console.log(
+		`── Delete orphan key \`${ORPHAN_KEY}\` (usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD}) ──\n`,
+	);
+
+	const ref = db
+		.collection("usage")
+		.doc(ORPHAN_USER)
+		.collection("months")
+		.doc(ORPHAN_PERIOD);
+	const snap = await ref.get();
+
+	// Idempotent: a missing doc means there is nothing to clean up. Not an error.
+	if (!snap.exists) {
+		console.log(
+			`  usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD} doesn't exist — nothing to delete.`,
+		);
+		return;
+	}
+
+	// Type the read to the two keys this action reasons about. The orphan key is
+	// spelled literally here (TS can't use the `ORPHAN_KEY` value as a type key);
+	// it MUST stay in sync with the `ORPHAN_KEY` const above.
+	const data = (snap.data() ?? {}) as {
+		cost_estimate?: number;
+		unadjusted_estimate?: number;
+	};
+	const orphan = data[ORPHAN_KEY];
+
+	// Idempotent: an already-removed (or never-present) key is a clean no-op, so a
+	// second --apply after a successful delete reports done and exits 0.
+	if (orphan === undefined) {
+		console.log(
+			`  no \`${ORPHAN_KEY}\` key present — already deleted (or never existed); nothing to do.`,
+		);
+		return;
+	}
+
+	// The precondition: April's live cost must be a finite number that has already
+	// absorbed the stashed value (`>= orphan`). That is the proof the re-baseline
+	// fold ran first; without it, deleting would discard the only record of the
+	// pre-reset cost. Refuse (throw → exit 1) and write nothing if it fails.
+	const cost = data.cost_estimate;
+	if (!(typeof cost === "number" && Number.isFinite(cost) && cost >= orphan)) {
+		throw new Error(
+			`cost_estimate (${cost}) is below the stashed unadjusted_estimate (${orphan}) ` +
+				`for usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD}. The April cost re-baseline ` +
+				"must run first so the true cost is folded in before the orphan is removed — " +
+				"run `--rebaseline-cost --apply`, confirm it, then re-run `--delete-orphan`.",
+		);
+	}
+
+	// Dry run is the default and deletes nothing — only describe the planned write.
+	if (!apply) {
+		console.log(
+			`  would delete \`${ORPHAN_KEY}\`=${orphan} from ` +
+				`usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD} ` +
+				`(cost_estimate=${cost} ≥ ${orphan}, fold confirmed). Add --apply to delete.`,
+		);
+		return;
+	}
+
+	// Remove ONLY the orphan key — a field delete sentinel leaves cost_estimate
+	// and every sibling usage field untouched.
+	await ref.update({ [ORPHAN_KEY]: FieldValue.delete() });
+
+	// Re-read and confirm the key is actually gone before claiming success — a
+	// silent failed delete must not print the green check (mirrors the
+	// re-baseline's read-back confirm). Confirm failure sets a non-zero exit code
+	// rather than throwing: the write was attempted, so this is a "did not land"
+	// diagnostic, not the pre-write refusal the precondition throw signals.
+	const reread = await ref.get();
+	const stillPresent = ORPHAN_KEY in (reread.data() ?? {});
+	if (stillPresent) {
+		process.exitCode = 1;
+		console.error(
+			`  ✗ \`${ORPHAN_KEY}\` is still present after the delete — re-run or investigate.`,
+		);
+		return;
+	}
+	console.log(
+		`  ✓ deleted \`${ORPHAN_KEY}\` from usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD}.`,
+	);
+}
+
 // ── Main ────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -334,12 +471,12 @@ async function main(): Promise<void> {
 		: "CREDIT MIGRATION — dry run (writes nothing)";
 	console.log(`${header}\n`);
 
-	// At least one action is required. Running with neither flag is a usage
+	// At least one action is required. Running with no action flag is a usage
 	// error (not a silent no-op) — the operator clearly meant to do something, so
 	// surface the help on stderr and exit non-zero rather than appear to succeed.
-	if (!doRebaseline && !doSeed) {
+	if (!doRebaseline && !doSeed && !doDeleteOrphan) {
 		console.error(
-			"Nothing to do. Pass --rebaseline-cost and/or --seed-credits.\n",
+			"Nothing to do. Pass --rebaseline-cost, --seed-credits, and/or --delete-orphan.\n",
 		);
 		program.help({ error: true }); // prints usage to stderr, exits 1
 	}
@@ -348,6 +485,13 @@ async function main(): Promise<void> {
 	if (doSeed) {
 		if (doRebaseline) console.log("");
 		await seedCredits();
+	}
+	// Delete LAST so a combined `--rebaseline-cost --delete-orphan --apply` folds
+	// April's true cost into cost_estimate before the precondition reads it — the
+	// guard then sees the post-fold value and the combined path stays consistent.
+	if (doDeleteOrphan) {
+		if (doRebaseline || doSeed) console.log("");
+		await deleteOrphan();
 	}
 }
 
