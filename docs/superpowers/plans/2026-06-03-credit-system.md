@@ -695,7 +695,7 @@ if (type === "data-credit-refund") {
 
 **Files:** Modify `app/(app)/admin/user-table.tsx`.
 
-- [ ] **Step 1:** Replace the single `cost` column with: **Credits** (`{credits_used} / {credits_allowance}` with remaining emphasized), **Lifetime cr** (`credits_used_lifetime`), **$ this mo** (`cost`), **$ lifetime** (`cost_lifetime`). Keep `generations`, `last_active_at`. Use the existing number/date formatting helpers in this file; do not introduce new ones.
+- [ ] **Step 1:** Replace the single `cost` column with: **Credits** (a `CreditsCell` — bold `credits_remaining` emphasized + muted `{credits_used} / {credits_used + credits_remaining} used`; the denominator is derived as `used + remaining` = the effective `allowance + bonus`, so the row reconciles with the bold remaining even after a bonus grant — sorted on `credits_remaining`), **Lifetime cr** (`credits_used_lifetime`), **$ this mo** (`cost`), **$ lifetime** (`cost_lifetime`). Keep `generations`, `last_active_at`. Credits use built-in `.toLocaleString()`; `formatCurrency` for the two dollar columns; do not introduce new helpers. Emphasis by weight, not colour (semantic hues reserved for real states). *(Side effect: `AdminUserRow.credits_allowance` is no longer read by the cell after the derived-denominator fix — kept as a wired, meaningful DTO field; flagged for the final whole-branch review.)*
 - [ ] **Step 2:** `npx tsc --noEmit`. Verify columns render with the new `AdminUserRow` fields (no test — UI; verified in Final Verification).
 - [ ] **Step 3: Commit** `git commit -am "feat(credits): admin table shows credits + lifetime figures"`
 
