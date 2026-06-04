@@ -76,8 +76,33 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		),
 	},
 	{
+		// Sort on `credits_remaining` — the figure an admin scans to find
+		// low-balance users — while the cell renders the full standing.
+		accessorKey: "credits_remaining",
+		header: "Credits",
+		cell: ({ row }) => <CreditsCell user={row.original} />,
+	},
+	{
+		accessorKey: "credits_used_lifetime",
+		header: "Lifetime cr",
+		cell: ({ getValue }) => (
+			<span className="tabular-nums">
+				{getValue<number>().toLocaleString()}
+			</span>
+		),
+	},
+	{
+		// This month's true dollar cost — tracked for tuning + backstop, no
+		// longer the user-facing gate (the credit columns are the gate now).
 		accessorKey: "cost",
-		header: "Spend",
+		header: "$ this mo",
+		cell: ({ getValue }) => (
+			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
+		),
+	},
+	{
+		accessorKey: "cost_lifetime",
+		header: "$ lifetime",
 		cell: ({ getValue }) => (
 			<span className="tabular-nums">{formatCurrency(getValue<number>())}</span>
 		),
@@ -89,6 +114,45 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		sortingFn: "datetime",
 	},
 ];
+
+// ── Credits Cell ─────────────────────────────────────────────────
+
+/**
+ * Renders a user's current-period credit standing in one compact line.
+ *
+ * `credits_remaining` is the load-bearing number — the figure an admin scans
+ * to spot who's running low — so it leads with `font-semibold`. The
+ * `used / total` context follows in a muted token, kept inline (not stacked)
+ * so the cell stays single-line and the row height matches its siblings.
+ *
+ * The denominator is the EFFECTIVE monthly total, derived as
+ * `credits_used + credits_remaining` rather than the bare `credits_allowance`.
+ * Once an admin grants bonus credits, `remaining = allowance + bonus − used`,
+ * so the bare allowance no longer reconciles with the bold remaining and the
+ * bonus would be invisible on the row. The row doesn't carry `bonus`, but
+ * `used + remaining === allowance + bonus` by definition — so `used + remaining`
+ * recovers the effective allowance+bonus and keeps the muted context consistent
+ * with the bold remaining for granted and ungranted users alike.
+ *
+ * Emphasis is carried by weight, not colour: success/warning hues are reserved
+ * for real semantic states, and "low balance" is surfaced by sorting on this
+ * column, not by tinting the number.
+ */
+function CreditsCell({ user }: { user: AdminUserRow }) {
+	// Effective monthly total = allowance + bonus, recovered from the two
+	// figures the row carries (a bonus grant inflates `credits_remaining`).
+	const total = user.credits_used + user.credits_remaining;
+	return (
+		<span className="flex items-baseline gap-1.5 tabular-nums whitespace-nowrap">
+			<span className="font-semibold">
+				{user.credits_remaining.toLocaleString()}
+			</span>
+			<span className="text-xs text-nova-text-muted">
+				{user.credits_used.toLocaleString()} / {total.toLocaleString()} used
+			</span>
+		</span>
+	);
+}
 
 // ── Sort Indicator ───────────────────────────────────────────────
 
