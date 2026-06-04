@@ -55,9 +55,42 @@ function buildRequest(body: string): Request {
 	});
 }
 
-/** Invoke the handler with the async-params shape Next.js passes. */
-function callRoute(body: string): Promise<Response> {
-	return POST(buildRequest(body), { params: Promise.resolve({ id: "u1" }) });
+/**
+ * Invoke the handler with the async-params shape Next.js passes, and ALWAYS
+ * drain BOTH body streams — returning the status plus the parsed response JSON.
+ *
+ * Draining is load-bearing, not a convenience: an unconsumed body stream (on the
+ * `Request` or the `Response`) leaves its underlying promise pending, which the
+ * async-leak detector (the pre-push `--detect-async-leaks` gate) flags as a
+ * leaked PROMISE and fails the push on. Two distinct streams must be settled:
+ *
+ *   - The RESPONSE body — always read here via `res.json()`, so a case that only
+ *     asserts on the status (and ignores `json`) still settles that stream.
+ *   - The REQUEST body — read by the route's own `req.json()` on every path
+ *     EXCEPT the ones that short-circuit before parsing (e.g. the 403 case, where
+ *     `requireAdmin` rejects first). On those paths the request stream is never
+ *     consumed, so we drain it here, guarded on `bodyUsed`: every other case has
+ *     already consumed it inside the route, and re-reading a used body throws.
+ */
+async function callRoute(
+	body: string,
+): Promise<{ status: number; json: unknown }> {
+	const req = buildRequest(body);
+	const res = await POST(req, { params: Promise.resolve({ id: "u1" }) });
+	const json = await res.json();
+	if (!req.bodyUsed) await req.text();
+	return { status: res.status, json };
+}
+
+/**
+ * The error-path response envelope `handleApiError` emits (`{ error, details? }`).
+ * The body-asserting cases read `json` (typed `unknown` from `callRoute`) through
+ * this shape so property access on the parsed JSON is type-checked, not cast to
+ * `any`.
+ */
+interface ErrorBody {
+	error: string;
+	details?: string[];
 }
 
 beforeEach(() => {
@@ -73,20 +106,20 @@ describe("POST /api/admin/users/[id]/credits", () => {
 			new ApiError("Admin access required", 403),
 		);
 
-		const res = await callRoute(JSON.stringify({ action: "reset" }));
+		const { status } = await callRoute(JSON.stringify({ action: "reset" }));
 
-		expect(res.status).toBe(403);
+		expect(status).toBe(403);
 		expect(resetCredits).not.toHaveBeenCalled();
 		expect(grantCredits).not.toHaveBeenCalled();
 	});
 
 	it("resets with a reason: passes the reason through on the AdminActor", async () => {
-		const res = await callRoute(
+		const { status, json } = await callRoute(
 			JSON.stringify({ action: "reset", reason: "comping March outage" }),
 		);
 
-		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ ok: true });
+		expect(status).toBe(200);
+		expect(json).toEqual({ ok: true });
 		expect(resetCredits).toHaveBeenCalledTimes(1);
 		expect(resetCredits).toHaveBeenCalledWith("u1", {
 			actor: "admin-1",
@@ -97,9 +130,9 @@ describe("POST /api/admin/users/[id]/credits", () => {
 	});
 
 	it("resets with no reason: passes reason as null", async () => {
-		const res = await callRoute(JSON.stringify({ action: "reset" }));
+		const { status } = await callRoute(JSON.stringify({ action: "reset" }));
 
-		expect(res.status).toBe(200);
+		expect(status).toBe(200);
 		expect(resetCredits).toHaveBeenCalledWith("u1", {
 			actor: "admin-1",
 			actorEmail: "admin@x.com",
@@ -108,12 +141,12 @@ describe("POST /api/admin/users/[id]/credits", () => {
 	});
 
 	it("grants a positive amount with reason: passes amount + AdminActor through", async () => {
-		const res = await callRoute(
+		const { status, json } = await callRoute(
 			JSON.stringify({ action: "grant", amount: 500, reason: "loyalty" }),
 		);
 
-		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ ok: true });
+		expect(status).toBe(200);
+		expect(json).toEqual({ ok: true });
 		expect(grantCredits).toHaveBeenCalledTimes(1);
 		expect(grantCredits).toHaveBeenCalledWith("u1", 500, {
 			actor: "admin-1",
@@ -124,10 +157,12 @@ describe("POST /api/admin/users/[id]/credits", () => {
 	});
 
 	it("rejects a grant with no amount as 400 carrying the grant-amount message in details", async () => {
-		const res = await callRoute(JSON.stringify({ action: "grant" }));
-		const body = await res.json();
+		const { status, json } = await callRoute(
+			JSON.stringify({ action: "grant" }),
+		);
+		const body = json as ErrorBody;
 
-		expect(res.status).toBe(400);
+		expect(status).toBe(400);
 		// The bespoke top-line credit-action guidance — not a generic Zod string.
 		expect(body.error).toMatch(/action "grant"/);
 		// The grant-amount message must survive the validation path and reach the
@@ -146,12 +181,12 @@ describe("POST /api/admin/users/[id]/credits", () => {
 	});
 
 	it("rejects a negative grant amount as 400 carrying the grant-amount message in details", async () => {
-		const res = await callRoute(
+		const { status, json } = await callRoute(
 			JSON.stringify({ action: "grant", amount: -5 }),
 		);
-		const body = await res.json();
+		const body = json as ErrorBody;
 
-		expect(res.status).toBe(400);
+		expect(status).toBe(400);
 		// Pins the custom message on the `.positive()` check specifically — without
 		// it, a negative amount regresses to Zod's default "Too small" while the
 		// status stays 400 and this test would otherwise pass blind.
@@ -164,12 +199,12 @@ describe("POST /api/admin/users/[id]/credits", () => {
 	});
 
 	it("rejects a fractional grant amount as 400 carrying the grant-amount message in details", async () => {
-		const res = await callRoute(
+		const { status, json } = await callRoute(
 			JSON.stringify({ action: "grant", amount: 1.5 }),
 		);
-		const body = await res.json();
+		const body = json as ErrorBody;
 
-		expect(res.status).toBe(400);
+		expect(status).toBe(400);
 		// Pins the custom message on the `.int()` check specifically — without it, a
 		// fractional amount regresses to Zod's default "expected int" while the
 		// status stays 400 and this test would otherwise pass blind.
@@ -182,18 +217,18 @@ describe("POST /api/admin/users/[id]/credits", () => {
 	});
 
 	it("rejects an unknown action as 400", async () => {
-		const res = await callRoute(JSON.stringify({ action: "delete" }));
+		const { status } = await callRoute(JSON.stringify({ action: "delete" }));
 
-		expect(res.status).toBe(400);
+		expect(status).toBe(400);
 		expect(resetCredits).not.toHaveBeenCalled();
 		expect(grantCredits).not.toHaveBeenCalled();
 	});
 
 	it("rejects malformed JSON as 400 with the JSON-guidance copy, not 500", async () => {
-		const res = await callRoute("{not json");
-		const body = await res.json();
+		const { status, json } = await callRoute("{not json");
+		const body = json as ErrorBody;
 
-		expect(res.status).toBe(400);
+		expect(status).toBe(400);
 		// The JSON-parse path's bespoke message — proves a malformed body is
 		// diagnosed for the client, not collapsed into a generic 500.
 		expect(body.error).toContain("valid JSON");
