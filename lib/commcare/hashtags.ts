@@ -34,18 +34,81 @@ export const VELLUM_HASHTAG_TRANSFORMS = {
 } as const;
 
 /**
- * Expansion prefix by hashtag type.
- * #form/ is a trivial /data/ expansion (not in HQ transforms, hardcoded in Vellum).
- * #case/ and #user/ expand to full instance() XPath.
+ * Flat-prefix expansion by hashtag type, for the types whose expansion is a
+ * simple prefix + property path. `#form/` is a trivial `/data/` expansion;
+ * `#user/` resolves to the commcare-user case. `#case/` is NOT here — it can
+ * carry leading relationship segments (`parent`/`grandparent`) that nest the
+ * selector, so it routes through `expandCaseHashtag` instead.
  */
 const EXPANSIONS = new Map<string, string>([
 	["form", "/data/"],
-	["case", VELLUM_HASHTAG_TRANSFORMS.prefixes["#case/"]],
 	["user", VELLUM_HASHTAG_TRANSFORMS.prefixes["#user/"]],
 ]);
 
 /** Hashtag types that need HQ-side vellum:hashtags metadata (non-trivial expansions). */
 const HQ_HASHTAG_TYPES = new Set(["case", "user"]);
+
+// ── Case relationship traversal ──────────────────────────────────────
+
+/**
+ * Case-index relationship segments and the number of `index/parent` hops
+ * each resolves to. `#case/parent/<prop>` reads a property off the loaded
+ * case's parent; `#case/grandparent/<prop>` off the parent's parent.
+ * CommCare resolves these through the case INDEX — not as a literal `parent`
+ * child element of `<case>` — matching commcare-hq's `#parent`/`#grandparent`
+ * hashtags (`app_manager/xpath.py`: `CaseIDXPath(case + '/index/parent').case()`)
+ * and Vellum's data-source tree. A `parent/parent` chain reaches the same
+ * case as `grandparent`, so both spellings are accepted.
+ */
+const CASE_RELATIONSHIP_HOPS = new Map<string, number>([
+	["parent", 1],
+	["grandparent", 2],
+]);
+
+// Pieces of the case-loading selector, kept in lockstep with
+// `VELLUM_HASHTAG_TRANSFORMS.prefixes["#case/"]` — that prefix IS
+// `${caseById(CURRENT_CASE_ID)}/`. The zero-hop expansion reuses the prefix
+// verbatim (byte-identical to the historical output, guarded by test);
+// each relationship hop nests one more `caseById(...)/index/parent` walk.
+const CASEDB_CASE = "instance('casedb')/casedb/case";
+const CURRENT_CASE_ID = "instance('commcaresession')/session/data/case_id";
+
+/** A casedb `<case>` selected by its `@case_id`. */
+function caseById(idExpr: string): string {
+	return `${CASEDB_CASE}[@case_id = ${idExpr}]`;
+}
+
+/**
+ * Expand a `#case/...` hashtag's segments to full casedb XPath, resolving
+ * any leading relationship segments (`parent`, `grandparent`) through the
+ * case index. Zero relationship segments → the plain case-loading shape,
+ * byte-identical to the historical flat-prefix expansion. N hops → N nested
+ * `caseById(...)/index/parent` walks from the current case to the target
+ * case, then the remaining property path read off that case.
+ */
+function expandCaseHashtag(segments: string[]): string {
+	let hops = 0;
+	let firstProp = 0;
+	while (firstProp < segments.length) {
+		const segmentHops = CASE_RELATIONSHIP_HOPS.get(segments[firstProp]);
+		if (segmentHops === undefined) break;
+		hops += segmentHops;
+		firstProp++;
+	}
+	const propPath = segments.slice(firstProp).join("/");
+
+	if (hops === 0) {
+		return VELLUM_HASHTAG_TRANSFORMS.prefixes["#case/"] + propPath;
+	}
+
+	let idExpr = CURRENT_CASE_ID;
+	for (let h = 0; h < hops; h++) {
+		idExpr = `${caseById(idExpr)}/index/parent`;
+	}
+	// A bare `#case/parent` (relationship with no trailing property) resolves
+	// to the related case node itself.
+	return propPath ? `${caseById(idExpr)}/${propPath}` : caseById(idExpr);
+}
 
 /** Apply edits in reverse order to preserve source offsets. */
 function applyEdits(
@@ -77,10 +140,18 @@ export function expandHashtags(expr: string): string {
 				if (!type) return;
 				const segments = ref.getChildren(T.HashtagSegment.id);
 				const typeName = expr.slice(type.from, type.to);
-				const path = segments.map((s) => expr.slice(s.from, s.to)).join("/");
-				const prefix = EXPANSIONS.get(typeName);
-				if (prefix) {
-					edits.push({ from: node.from, to: node.to, text: prefix + path });
+				const segmentStrings = segments.map((s) => expr.slice(s.from, s.to));
+				// `case` routes through the relationship-aware expander; `form`
+				// and `user` are flat prefix + path.
+				let text: string | undefined;
+				if (typeName === "case") {
+					text = expandCaseHashtag(segmentStrings);
+				} else {
+					const prefix = EXPANSIONS.get(typeName);
+					if (prefix !== undefined) text = prefix + segmentStrings.join("/");
+				}
+				if (text !== undefined) {
+					edits.push({ from: node.from, to: node.to, text });
 				}
 				return false; // don't descend into children
 			}
