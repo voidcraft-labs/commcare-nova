@@ -10,15 +10,16 @@
 // Raw-document rendering is native-where-it's-free + safe: a PDF renders in an
 // <iframe> (the browser's out-of-process viewer — a malicious PDF can't reach
 // this page), images/audio/video use the native elements, and office/text files
-// offer "Open original" (download) rather than an in-app office renderer. The
-// bytes are served by the ownership-gated proxy, which stamps a `sandbox` CSP on
-// the response, so the embedded document is sandboxed by the server too.
+// have no in-browser preview, so they offer a download of the original rather
+// than pretending to render it in-app. The bytes are served by the
+// ownership-gated proxy, which stamps a `sandbox` CSP on the response, so the
+// embedded document is sandboxed by the server too.
 
 "use client";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
-import tablerExternalLink from "@iconify-icons/tabler/external-link";
+import tablerDownload from "@iconify-icons/tabler/download";
 import tablerX from "@iconify-icons/tabler/x";
 import { useEffect, useState } from "react";
 import {
@@ -148,14 +149,29 @@ function DocumentView({ target }: { target: AssetPreviewTarget }) {
 				/>
 			);
 		default:
-			// docx / xlsx / text — no in-app office renderer (by design); open the
-			// original file in a new tab (the browser downloads or renders it).
-			return <OpenOriginal src={src} kind={target.kind} />;
+			// docx / xlsx / text — no in-app office renderer (by design). These have
+			// no in-browser preview, so we don't pretend: offer a download of the
+			// original rather than implying it'll display.
+			return <DownloadOriginal src={src} name={name} kind={target.kind} />;
 	}
 }
 
-/** Fallback for documents Nova doesn't render in-app: a clean "open original". */
-function OpenOriginal({ src, kind }: { src: string; kind: AssetKind }) {
+/**
+ * Fallback for documents Nova doesn't render in-app (Word / Excel / text). There
+ * is no in-browser preview for these formats, so this is honest about it: it
+ * DOWNLOADS the original (the `download` attribute, so every format behaves the
+ * same instead of office files silently downloading while text files display).
+ * The "What the AI reads" tab is where the content actually shows.
+ */
+function DownloadOriginal({
+	src,
+	name,
+	kind,
+}: {
+	src: string;
+	name: string;
+	kind: AssetKind;
+}) {
 	return (
 		<div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-nova-border px-6 py-12 text-center">
 			<Icon
@@ -163,18 +179,18 @@ function OpenOriginal({ src, kind }: { src: string; kind: AssetKind }) {
 				className="size-10 text-nova-text-muted"
 			/>
 			<p className="text-sm text-nova-text-secondary">
-				{ASSET_KIND_META[kind].label} files open in a new tab. Switch to{" "}
+				Nova doesn't preview {ASSET_KIND_META[kind].label} files here — download
+				the original to open it, or switch to{" "}
 				<span className="text-nova-text">What the AI reads</span> to see what
 				the assistant extracted.
 			</p>
 			<a
 				href={src}
-				target="_blank"
-				rel="noopener noreferrer"
+				download={name}
 				className="inline-flex items-center gap-1.5 rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright"
 			>
-				<Icon icon={tablerExternalLink} className="size-4" />
-				Open original
+				<Icon icon={tablerDownload} className="size-4" />
+				Download original
 			</a>
 		</div>
 	);
