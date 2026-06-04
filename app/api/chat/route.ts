@@ -528,6 +528,17 @@ export async function POST(req: Request) {
 								.filter((m): m is UIMessage => m !== undefined)
 					: messages;
 
+				/* Record the input-context composition for the per-run finalize
+				 * log: how many messages were actually sent (after the cache-expiry
+				 * last-message-only trim) and their serialized size. The system
+				 * prompt is ~constant, so this is the variable part of the
+				 * per-request input cost — the lever the cost investigation needs
+				 * visibility into. */
+				usage.configureRun({
+					sentMessageCount: effectiveMessages.length,
+					sentMessageChars: JSON.stringify(effectiveMessages).length,
+				});
+
 				/* Forward the request's abort signal into the agent so a client
 				 * disconnect actually CANCELS the model call. Without it, the SDK
 				 * keeps the SA running on the shared Anthropic key after the user is

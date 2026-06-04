@@ -49,6 +49,9 @@ vi.mock("../firestore", () => ({
 	},
 }));
 
+// Real logger — `flush()` emits the `[run-finalize]` line through it; the
+// finalize-log tests spy on `log.info` to assert the payload.
+import { log } from "@/lib/logger";
 import { UsageAccumulator } from "../usage";
 
 describe("UsageAccumulator", () => {
@@ -330,6 +333,86 @@ describe("UsageAccumulator", () => {
 			await acc.flush();
 
 			expect(refundCreditsMock).toHaveBeenCalledWith("u", "2026-05", 100);
+		});
+	});
+
+	/**
+	 * The `[run-finalize]` line is the per-request finalization record: one
+	 * entry per `flush()` carrying what this turn recorded versus dropped. Its
+	 * value is making three otherwise-invisible failures searchable — an
+	 * all-zero count on a run that did work, a `summaryAction: "overwritten"`
+	 * clobber, and a `refundReason: "zero-cost"` that refunds a build whose
+	 * flush saw no cost. These tests pin that payload.
+	 */
+	describe("finalize log", () => {
+		const reservedSeed = {
+			appId: "a",
+			userId: "u",
+			runId: "r",
+			model: "claude-opus-4-7",
+			promptMode: "build" as const,
+			freshEdit: false,
+			appReady: false,
+			cacheExpired: false,
+			moduleCount: 0,
+			didReserve: true,
+			reservedAmount: 100,
+			chargePeriod: "2026-06",
+		};
+
+		it("carries the summaryAction, the zero-cost refund reason, and the input composition", async () => {
+			writeRunSummaryMock.mockReset();
+			// A clobbered prior doc — the silent-undercount path we most want to see.
+			writeRunSummaryMock.mockResolvedValue("overwritten");
+			refundCreditsMock.mockReset();
+			const infoSpy = vi.spyOn(log, "info").mockImplementation(() => {});
+
+			// No track() → zero cost. Reserved + zero-cost = the wrong-refund signature.
+			const acc = new UsageAccumulator(reservedSeed);
+			acc.configureRun({ sentMessageCount: 4, sentMessageChars: 1234 });
+			await acc.flush();
+
+			expect(infoSpy).toHaveBeenCalledTimes(1);
+			expect(infoSpy).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({
+					runId: "r",
+					summaryAction: "overwritten",
+					stepCount: 0,
+					toolCallCount: 0,
+					costEstimate: 0,
+					accruedActual: false,
+					didReserve: true,
+					reservedAmount: 100,
+					refunded: true,
+					refundReason: "zero-cost",
+					sentMessageCount: 4,
+					sentMessageChars: 1234,
+				}),
+			);
+			infoSpy.mockRestore();
+		});
+
+		it("logs refundReason null + accruedActual true on a healthy paid run", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue("incremented");
+			refundCreditsMock.mockReset();
+			const infoSpy = vi.spyOn(log, "info").mockImplementation(() => {});
+
+			const acc = new UsageAccumulator(reservedSeed);
+			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
+			await acc.flush();
+
+			expect(infoSpy).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({
+					summaryAction: "incremented",
+					refunded: false,
+					refundReason: null,
+					accruedActual: true,
+				}),
+			);
+			infoSpy.mockRestore();
 		});
 	});
 });

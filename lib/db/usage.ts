@@ -140,6 +140,18 @@ export interface AccumulatorSeed {
 	appReady: boolean;
 	cacheExpired: boolean;
 	moduleCount: number;
+	/**
+	 * Input-context composition for the per-run finalize log (observability
+	 * only — NOT persisted to the run summary). The system prompt is roughly
+	 * constant (the CORE prompt plus a one-line-per-field blueprint summary),
+	 * so the variable input cost is the conversation history actually sent to
+	 * the model this request — captured here as the message count and their
+	 * serialized byte size, after the cache-expiry last-message-only trim.
+	 * Set via `configureRun` once the route has assembled the effective
+	 * messages; absent on a run that finalized before that point.
+	 */
+	sentMessageCount?: number;
+	sentMessageChars?: number;
 	/** ISO timestamp. Defaults to "now" at construction. */
 	startedAt?: string;
 	/**
@@ -168,6 +180,9 @@ interface AccumulatorRunConfig {
 	appReady: boolean;
 	cacheExpired: boolean;
 	moduleCount: number;
+	/** Input-context composition for the finalize log — see `AccumulatorSeed`. */
+	sentMessageCount: number;
+	sentMessageChars: number;
 }
 
 /**
@@ -310,8 +325,14 @@ export class UsageAccumulator {
 
 		/* Awaited so Cloud Run's cold-kill after response resolution can't
 		 * truncate the summary write. `writeRunSummary` catches its own
-		 * errors, so we don't wrap in try/catch here. */
-		await writeRunSummary(this.seed.appId, this.seed.runId, summary);
+		 * errors, so we don't wrap in try/catch here. The returned action
+		 * (created / incremented / overwritten / failed) feeds the finalize
+		 * log below — an `overwritten` is a silent clobber worth seeing. */
+		const summaryAction = await writeRunSummary(
+			this.seed.appId,
+			this.seed.runId,
+			summary,
+		);
 
 		// Branch 1 — actual spend. Accrues whenever the SA ran (including a
 		// failed run, so the $50 backstop counts retry spam). Independent of the
@@ -334,11 +355,25 @@ export class UsageAccumulator {
 		// (`didReserve`, with its amount + period) AND the run earned nothing
 		// chargeable — it failed or produced zero cost. The `didReserve` gate
 		// stops a free continuation (which never reserved) from phantom-refunding.
-		if (
+		// `refundReason` is computed (not just a boolean) so the finalize log can
+		// distinguish a legitimate failed-run refund from a `zero-cost` refund,
+		// which on a run that actually did work is the wrong-refund symptom of a
+		// flush that captured an empty accumulator.
+		const reservationBooked =
 			this.seed.didReserve &&
-			this.seed.reservedAmount &&
+			!!this.seed.reservedAmount &&
+			!!this.seed.chargePeriod;
+		const refundReason: "run-failed" | "zero-cost" | null = !reservationBooked
+			? null
+			: this._runFailed
+				? "run-failed"
+				: summary.costEstimate === 0
+					? "zero-cost"
+					: null;
+		if (
+			refundReason !== null &&
 			this.seed.chargePeriod &&
-			(this._runFailed || summary.costEstimate === 0)
+			this.seed.reservedAmount
 		) {
 			try {
 				await refundCredits(
@@ -352,5 +387,37 @@ export class UsageAccumulator {
 				});
 			}
 		}
+
+		/* One structured line per request finalization — the single place to
+		 * read, per POST of a thread, what this flush recorded versus dropped.
+		 * It makes three otherwise-invisible failures self-evident from one log
+		 * search: an all-zero `stepCount`/`toolCallCount` on a run that did real
+		 * work, a `summaryAction: "overwritten"` clobber, and a
+		 * `refundReason: "zero-cost"` that handed a build's credits back because
+		 * the flush saw no cost. Info level — it fires once per finalize and the
+		 * payload is numeric counters + identifiers, no user content. */
+		log.info("[run-finalize]", {
+			appId: this.seed.appId,
+			runId: this.seed.runId,
+			userId: this.seed.userId,
+			promptMode: this.seed.promptMode,
+			freshEdit: this.seed.freshEdit,
+			cacheExpired: this.seed.cacheExpired,
+			stepCount: summary.stepCount,
+			toolCallCount: summary.toolCallCount,
+			inputTokens: summary.inputTokens,
+			outputTokens: summary.outputTokens,
+			cacheReadTokens: summary.cacheReadTokens,
+			cacheWriteTokens: summary.cacheWriteTokens,
+			costEstimate: summary.costEstimate,
+			summaryAction,
+			didReserve: this.seed.didReserve ?? false,
+			reservedAmount: this.seed.reservedAmount ?? 0,
+			refunded: refundReason !== null,
+			refundReason,
+			accruedActual: summary.costEstimate > 0,
+			sentMessageCount: this.seed.sentMessageCount,
+			sentMessageChars: this.seed.sentMessageChars,
+		});
 	}
 }
