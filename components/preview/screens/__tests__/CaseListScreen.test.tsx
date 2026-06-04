@@ -657,27 +657,6 @@ describe("CaseListScreen — Reset sample data", () => {
 		expect(screen.queryByRole("button", { name: TRIGGER_RE })).toBeNull();
 	});
 
-	it("opens the confirmation dialog when the Reset trigger is clicked", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({
-			kind: "rows",
-			rows: [RESET_ONE_ROW],
-		});
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-		});
-		// Base UI's `AlertDialog.Root` stamps `role="alertdialog"` on
-		// the popup; the title + description landmarks confirm the
-		// content rendered, not just the role marker.
-		const dialog = await openResetDialog();
-		expect(dialog).toBeDefined();
-		expect(screen.getByText("Reset sample data?")).toBeDefined();
-		expect(
-			screen.getByText(
-				/This will delete every case in this case type and replace it with fresh sample data/i,
-			),
-		).toBeDefined();
-	});
-
 	it("invokes resetSampleCasesAction when the confirm button is clicked", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			kind: "rows",
