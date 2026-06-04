@@ -799,6 +799,8 @@ if (type === "data-credit-refund") {
 - [ ] **Step 2:** Run AFTER Task 16's `--apply` is confirmed in PROD: dry-run → `--apply --delete-orphan` with the user; capture output.
 - [ ] **Step 3: Commit** `git commit -am "chore(credits): guarded delete of the unadjusted_estimate orphan"`
 
+*(Landed `df643aa2`. `--delete-orphan` action on the migrator: precondition refuses unless `cost_estimate` is finite AND `>= unadjusted_estimate` (so the orphan is never the sole record of its magnitude when deleted — throws otherwise, before any write). Idempotent (missing doc / already-deleted key → clean no-op exit 0). Delete gated under `--apply`; re-read confirms the key is gone (`process.exitCode=1` if not). Dispatched LAST so a combined `--rebaseline-cost --delete-orphan --apply` folds April first. Review APPROVED, no findings.)*
+
 *(After the migration apply output is captured and signed off, a follow-up commit `git rm`s both migration scripts per the delete-one-off-scripts rule. The uncommitted `scripts/reset-usage.ts` stopgap on the author's `main` working tree is deleted there once this ships — out of this PR's scope.)*
 
 ---
