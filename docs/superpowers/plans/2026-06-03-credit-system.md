@@ -815,6 +815,8 @@ if (type === "data-credit-refund") {
 - [ ] **Step 4: Docs — verified no-op.** `content/docs/` has no `$15`/cap/usage/credit mention (confirmed by grep); the credit gate is builder-only (MCP/plugin doesn't charge), so the claude-code/MCP docs need no change. Nothing to convert — do not invent new credit docs (out of scope).
 - [ ] **Step 5: Commit** `git commit -am "chore(credits): two-ledger lib/db/CLAUDE.md, drop dead spend-cap constant + env var"`
 
+*(Landed `b35a448e`. `MONTHLY_SPEND_CAP_USD` removed (grep zero, tsc clean); the stale "spend cap" comments in `usage.ts` rewritten to name `ACTUAL_COST_BACKSTOP_USD`. `lib/db/CLAUDE.md` created (two-ledger model, reserve-before-run, client/server split, abort invariant, period-leaf cycle-break). Root `CLAUDE.md` gained a two-ledger Firestore bullet. Docs no-op confirmed. The implementer caught a spec inaccuracy — `reserveCredits` seeds the CURRENT month only (not "next month"); §9c corrected to match shipped code.)*
+
 ---
 
 ## Final Verification (user-runnable acceptance)
