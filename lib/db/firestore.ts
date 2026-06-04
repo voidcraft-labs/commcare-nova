@@ -105,10 +105,59 @@ function zodConverter<T>(schema: ZodType<T>): FirestoreDataConverter<T> {
 	 * as DocumentData, and the SDK handles FieldValue resolution.
 	 */
 	return {
-		toFirestore: (data: WithFieldValue<T>) => data as unknown as DocumentData,
+		toFirestore: (data: WithFieldValue<T>) =>
+			sanitizeForFirestore(data) as DocumentData,
 		fromFirestore: (snapshot: QueryDocumentSnapshot) =>
 			schema.parse(snapshot.data()),
 	} as FirestoreDataConverter<T>;
+}
+
+export function sanitizeForFirestore(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map((item) => sanitizeForFirestore(item));
+	}
+	if (isLongLike(value)) {
+		const asNumber = value.toNumber?.();
+		if (typeof asNumber === "number" && Number.isSafeInteger(asNumber)) {
+			return asNumber;
+		}
+		return value.toString();
+	}
+	if (!isPlainObject(value)) {
+		return value;
+	}
+	return Object.fromEntries(
+		Object.entries(value).map(([key, item]) => [
+			key,
+			sanitizeForFirestore(item),
+		]),
+	);
+}
+
+interface LongLike {
+	low: number;
+	high: number;
+	unsigned?: boolean;
+	toNumber?: () => number;
+	toString: () => string;
+}
+
+function isLongLike(value: unknown): value is LongLike {
+	if (value === null || typeof value !== "object") return false;
+	const candidate = value as Partial<LongLike>;
+	return (
+		typeof candidate.low === "number" &&
+		typeof candidate.high === "number" &&
+		(candidate.unsigned === undefined ||
+			typeof candidate.unsigned === "boolean") &&
+		typeof candidate.toString === "function"
+	);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	if (value === null || typeof value !== "object") return false;
+	const proto = Object.getPrototypeOf(value);
+	return proto === Object.prototype || proto === null;
 }
 
 const usageConverter = zodConverter(usageDocSchema);
