@@ -758,23 +758,35 @@ if (type === "data-credit-refund") {
 
 **Files:** Create `scripts/inspect-credit-migration.ts`. Mirror `scripts/inspect-usage.ts` conventions (commander, `scripts/lib/firestore` `db`, `scripts/lib/format`, `runMain`). **Never writes.**
 
-- [ ] **Step 1: Implement** a read-only report:
-  - `collectionGroup("runs")` → attribute `costEstimate` to `apps.owner` (batched app-doc `owner`+`deleted_at` join), grouped by **`finishedAt`'s yyyy-mm** (state the field explicitly; flag any run whose `startedAt` and `finishedAt` straddle a month boundary as **CROSS-MONTH — manual review**).
-  - For each `(user, period)`: print current `usage.cost_estimate`, run-ledger-sum, and the live-read known values (mmaher April `unadjusted_estimate`, the recorded mmaher/alohi June figures), and **flag every `(user,period)` where ledger-sum > current usage** (the hand-blanked candidates) — do NOT compute a "restore" automatically.
-  - Print the orphan key's live value if present.
+> **This scan is the search strategy — build + run it FIRST, before finalizing the migrator (Task 16).** Per the advisor: every open question (real deltas, how many cross-month threads, who would re-block on the current month) is answered by this output, not by argument. It is read-only + decision-agnostic; it does NOT restore anything.
+
+- [ ] **Step 1: Implement** a read-only report. For each `(user, period)`, build a row from two sources and print the comparison:
+  - **Ledger-sum:** `collectionGroup("runs")` → attribute each run's `costEstimate` to `apps.owner` (batched app-doc `owner`+`deleted_at` join), grouped by **`finishedAt`'s yyyy-mm** (state the field explicitly). One run doc = one whole thread (cost accumulated via `FieldValue.increment`), so summing never double-counts a thread; `recover-app` clones no app/runs, so the owner-join can't double-count either (both verified in source).
+  - **Current:** `usage/{user}/{period}.cost_estimate`.
+  - **Columns per row:** `current`, `ledger_sum`, **`delta = ledger_sum − current`**, a **CURRENT-MONTH** marker (period === current `yyyy-mm`), and the **soft-deleted contribution** (how much of `ledger_sum` came from `deleted_at != null` apps — noted, NOT excluded; those costs were really incurred + counted by usage at the time).
+  - **Flags (surface prominently — these drive the apply decision):**
+    - **CROSS-MONTH:** any run whose `startedAt`/`finishedAt` straddle a month boundary (its whole cost lands in `finishedAt`'s month) → list the run + both timestamps → manual review.
+    - **CURRENT-MONTH OVER-$50:** any `(user, current-period)` whose `ledger_sum >= ACTUAL_COST_BACKSTOP_USD` ($50) → re-baselining it would trip the invisible backstop and **re-block that user** (incl. the ones I just reset). Flag LOUDLY.
+    - **DELTA:** every `(user, period)` where `delta != 0` (the re-baseline preview — the cells that would change).
+  - Print the recorded cross-checks (mmaher April `unadjusted_estimate` live value, the recorded mmaher/alohi June figures from memory) next to their ledger-sums so the user can sanity-check the ledger against what was hand-recorded. Print the orphan key's live value if present.
 - [ ] **Step 2: Run read-only against PROD** (post-merge, with the user): `npx tsx scripts/inspect-credit-migration.ts`. Capture output.
 - [ ] **Step 3: Commit** `git commit -am "chore(credits): read-only migration scan"`
 
 ---
 
-## Task 16: Migrator — cost-restore + credit seed (dry-run default, --apply)
+## Task 16: Migrator — re-baseline cost + credit seed (dry-run default, --apply)
 
-**Files:** Create `scripts/migrate-actual-cost.ts`. Guarded writer (mirror `scripts/recover-app.ts` `--confirm`/dry-run). Multi-action: `--restore-cost`, `--seed-credits` (this task), `--delete-orphan` (Task 17). Default dry-run; `--apply` writes.
+**Files:** Create `scripts/migrate-actual-cost.ts`. Guarded writer (mirror `scripts/recover-app.ts` `--confirm`/dry-run). Multi-action: `--rebaseline-cost`, `--seed-credits` (this task), `--delete-orphan` (Task 17). Default dry-run; `--apply` writes. **Build AFTER Task 15's scan exists** (the scan is the search strategy; this migrator encodes "closed-month auto, current-month opt-in" as the only applyable shapes).
 
-- [ ] **Step 1: Cost-restore action** — writes ONLY to `usage/{userId}/months/{period}.cost_estimate`. Restore ONLY the verified values (read live, never hardcode the orphan): mmaher 2026-06 `= 15.015480`, mmaher 2026-04 `= max(current, unadjusted_estimate live-read)`, alohi 2026-06 `= 18.767942`. Other flagged `(user,period)` from Task 15 are printed as "restore manually with `--user <email> --period <p> --to <usd>`" — applied only when explicitly named (never bulk-maxed). Dry-run prints before/after; `--apply` writes; re-reads + confirms.
+- [ ] **Step 1: Re-baseline-cost action** (`--rebaseline-cost`) — writes ONLY `usage/{userId}/months/{period}.cost_estimate`, recomputing it from the same per-`(user,period)` run-ledger-sum the Task 15 scan prints (re-derive it here from `collectionGroup("runs")` — do NOT trust a value passed in). **The closed-month vs current-month split is load-bearing (advisor):**
+  - **CLOSED months** (`period < current yyyy-mm`): re-baseline freely — set `cost_estimate = ledger_sum`. (Reporting accuracy is about closed months; they don't touch the live gate.)
+  - **CURRENT month** (`period === current yyyy-mm`): **never silent-write** — it feeds the live `$50` backstop and can re-block a user. Print each current-month cell as "would set `cost_estimate = X` (Δ …, OVER-$50? …) — confirm with `--current-user <email>`", and write it ONLY for users named via repeatable `--current-user`. So the default `--apply` re-baselines all closed months + skips the current month until the user, looking at the scan, opts specific users in.
+  - **CROSS-MONTH** runs were flagged by the scan + reviewed before `--apply`; the re-baseline attributes by `finishedAt` (the figure the scan showed) — no separate per-run exclusion logic.
+  - Dry-run (default) prints before/after for every cell; `--apply` writes (closed auto, current per-`--current-user`); re-reads + confirms each write. **No hardcoded magic numbers** — mmaher/alohi's true costs come from the ledger (my reset never touched it); the recorded figures are scan cross-checks only.
+  - *(Provisional: the exact current-month write SET is decided at apply-time with the user reading the Task 15 scan — the script's job is to make "closed auto, current opt-in-per-user" the only shapes it can apply.)*
 - [ ] **Step 2: Credit-seed action** (`--seed-credits`) — **create-only** seed of every existing user's current-period `credits/{userId}/months/{period}`. For each `auth_users` doc, `create({ allowance: 2000, consumed: 0, bonus: 0, updated_at })` — `.create()` THROWS if the doc exists, so a user who already generated (lazily created their doc in the deploy→migrate gap) is **skipped, never clobbered** (catch the `ALREADY_EXISTS` and report "skipped — already active"). Idempotent: re-running seeds only the still-missing docs. Dry-run lists who would be seeded vs skipped; `--apply` writes.
 - [ ] **Step 3:** Dry-run both actions, then `--apply` against PROD with the user; capture output.
-- [ ] **Step 4: Commit** `git commit -am "chore(credits): migrator — cost-restore (verified) + create-only credit seed"`
+- [ ] **Step 4: Commit** `git commit -am "chore(credits): migrator — re-baseline cost (closed auto / current opt-in) + create-only credit seed"`
 
 ---
 
@@ -782,7 +794,7 @@ if (type === "data-credit-refund") {
 
 **Files:** Modify `scripts/migrate-actual-cost.ts` (add a `--delete-orphan` action).
 
-- [ ] **Step 1: Implement** `--delete-orphan`: live-read `usage/w4KlwedcG1WijXOK0hVz/months/2026-04`; **assert `cost_estimate >= unadjusted_estimate`** (fold confirmed) — refuse otherwise; then `FieldValue.delete()` the `unadjusted_estimate` key. Dry-run default; `--apply` writes; re-read confirms key gone.
+- [ ] **Step 1: Implement** `--delete-orphan`: live-read `usage/w4KlwedcG1WijXOK0hVz/months/2026-04`; **assert `cost_estimate >= unadjusted_estimate`** (April is a closed month, so Task 16's `--apply` already re-baselined its `cost_estimate` to the ledger sum ≥ the under-counted orphan stash) — refuse otherwise; then `FieldValue.delete()` the `unadjusted_estimate` key. Dry-run default; `--apply` writes; re-read confirms key gone.
 - [ ] **Step 2:** Run AFTER Task 16's `--apply` is confirmed in PROD: dry-run → `--apply --delete-orphan` with the user; capture output.
 - [ ] **Step 3: Commit** `git commit -am "chore(credits): guarded delete of the unadjusted_estimate orphan"`
 
