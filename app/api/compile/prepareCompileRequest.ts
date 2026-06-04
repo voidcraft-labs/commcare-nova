@@ -9,12 +9,11 @@ import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 
 /**
  * Everything the two CommCare export routes need once their shared front half
- * has run: the authenticated owner, the validated blueprint, and its resolved
- * media manifest.
+ * has run: the validated blueprint and its resolved media manifest. (The owner
+ * id stays internal — it scopes the media gate and manifest here, and neither
+ * route needs it again, so it isn't surfaced.)
  */
 export interface PreparedCompileRequest {
-	/** The authenticated caller's user id — the owner all media is scoped to. */
-	ownerId: string;
 	/** The validated blueprint with its derived `fieldParent` index rebuilt. */
 	doc: BlueprintDoc;
 	/**
@@ -90,5 +89,5 @@ export async function prepareCompileRequest(
 		withBytes: true,
 	});
 
-	return { ownerId: session.user.id, doc: docWithParent, assets };
+	return { doc: docWithParent, assets };
 }
