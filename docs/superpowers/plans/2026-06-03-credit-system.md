@@ -661,16 +661,18 @@ if (type === "data-credit-refund") {
 
 **Files:** Modify `lib/admin/types.ts`, `lib/db/admin.ts`.
 
-- [ ] **Step 1:** Extend `lib/admin/types.ts`:
-  - `AdminUserRow` += `credits_used: number; credits_remaining: number; credits_allowance: number; credits_used_lifetime: number; cost_lifetime: number;` (keep `cost` = this-month actual $, relabel its doc-comment "true cost, no longer the gate").
-  - `AdminStats` += `totalCreditsConsumed: number;`.
-  - `UsagePeriod` += `credits_consumed?: number; credits_bonus?: number;` (per-period credit columns).
-  - `AdminUserDetailResponse` += `credits: CreditSummary` and `grants: Array<{ amount; type; actor_email; reason; period; created_at: string }>`.
-- [ ] **Step 2:** In `lib/db/admin.ts`:
-  - `getAdminUsersWithStats`: batch-read each user's current `credits/{id}/months/{period}` (alongside the existing usage `getAll`), compute `credits_used/remaining/allowance` via `creditBalance`; compute `credits_used_lifetime` (Σ credit-month consumed) and `cost_lifetime` (Σ usage-month cost_estimate). Add `totalCreditsConsumed` to stats. *(Lifetime sums are O(users) extra subcollection reads; acceptable at current scale — same shape as the existing per-user app-count `Promise.all`.)*
-  - `getAdminUserDetail`/a new `getAdminUserCredits`: return `getCreditSummary(userId)` + map `collections.creditGrants(userId).orderBy("created_at","desc")` to the audit array.
-  - `getAdminUserUsage`: join per-period `credits_consumed`/`credits_bonus` onto each `UsagePeriod`.
-- [ ] **Step 3:** `npx tsc --noEmit`; run `npx vitest run lib/db` (and any admin test).
+- [ ] **Step 1:** Extend `lib/admin/types.ts` (type-only `import type { CreditSummary } from "@/lib/db/credits";` — consistent with the existing `AppSummary` type-import):
+  - `AdminUserRow` += `credits_used: number; credits_remaining: number; credits_allowance: number; credits_used_lifetime: number; cost_lifetime: number;`. Keep `cost` (this-month actual $) but relabel its doc-comment to "this month's true dollar cost — tracked for tuning/backstop, no longer the user-facing gate".
+  - `AdminStats` += `totalCreditsConsumed: number;` (current-period sum, matching the period scope of `totalGenerations`/`totalSpend`).
+  - `UsagePeriod` += `credits_consumed?: number; credits_bonus?: number;` (optional — a usage period may predate the credit system or lack a credit doc).
+  - Add a named, exported `CreditGrantAudit` interface — `{ amount: number; type: "reset" | "grant"; actor_email: string; reason: string | null; period: string; created_at: string }` (ISO string; `actor` uid intentionally omitted — `actor_email` is the human-readable identity the audit list renders). The Task 12 detail UI imports it.
+  - `AdminUserDetailResponse` += `credits: CreditSummary;` and `grants: CreditGrantAudit[];`.
+- [ ] **Step 2:** In `lib/db/admin.ts` (import `getCreditSummary` + `CreditSummary` from `@/lib/db/credits`, `CreditGrantAudit` from `@/lib/admin/types`):
+  - `getAdminUsersWithStats`: the lifetime figures force a full per-user subcollection read anyway, so **replace the single current-period usage `getAll`** with one parallel per-user pass (keep the existing app-count `Promise.all` shape). Per user, read in parallel: (a) `getCreditSummary(u.id)` — gives `credits_allowance`=`allowance`, `credits_used`=`consumed`, `credits_remaining`=`balance`, `credits_used_lifetime`=`lifetimeConsumed` in ONE subcollection read (don't re-implement `creditBalance` — `getCreditSummary` already applies it); (b) `collections.usage(u.id).get()` (all months) → find the current-period doc for `generations`+`cost` (this month) and Σ `cost_estimate` across all months for `cost_lifetime`; (c) the existing app-count aggregation. Add `totalCreditsConsumed` = Σ `credits_used` (current-period consumed) to stats. *(Lifetime sums are O(users) subcollection reads; accepted at current scale — same shape as the existing per-user app-count `Promise.all`. Dropping the `getAll` avoids reading the current usage doc twice.)*
+  - New `getAdminUserCredits(userId): Promise<{ credits: CreditSummary; grants: CreditGrantAudit[] }>`: `getCreditSummary(userId)` for `credits`; `collections.creditGrants(userId).orderBy("created_at","desc").get()` mapped to `CreditGrantAudit` (`created_at` Timestamp→ISO via the file's existing `toISOString`; pick `amount`/`type`/`actor_email`/`reason`/`period`, drop `actor`).
+  - `getAdminUserDetail`: add `getAdminUserCredits(userId)` to the parallel `Promise.all`, spread its `credits` + `grants` into the response.
+  - `getAdminUserUsage`: also read `collections.creditMonths(userId).get()`, build a `Map<period, {consumed, bonus}>`, and attach `credits_consumed`/`credits_bonus` to each `UsagePeriod` row (left undefined when a period has no credit doc).
+- [ ] **Step 3: No new test.** These are Firestore read-and-aggregate functions composing already-tested primitives (`getCreditSummary` unit+integration-tested in Tasks 3/4); the aggregation is a Σ + a `Map` join + a field-rename map, and the admin layer has no existing test harness. A hand-mocked Firestore unit test would be tautological (`feedback_tautological_mocks`); an emulator integration test would mostly re-exercise `getCreditSummary`. Verify by reading + `npx tsc --noEmit` + `npx vitest run lib/db` (credit primitives still green).
 - [ ] **Step 4: Commit** `git commit -am "feat(credits): admin data layer surfaces credits + lifetime + audit"`
 
 ---
