@@ -1,26 +1,22 @@
 /**
- * GET /api/user/usage — current month's usage for the authenticated user.
+ * GET /api/user/usage — current month's credit summary for the authenticated user.
  *
- * Returns the cost estimate, request count, spend cap, and period string
- * so the client can render a usage bar without knowing the cap value.
+ * Returns the full credit picture: how many credits the user has been granted
+ * this month (allowance + any admin bonus), how many they have spent (consumed),
+ * what they have left (balance), and their total spend across all time
+ * (lifetimeConsumed). The client uses this to render a usage bar and balance
+ * display without knowing any internal dollar amounts.
  * Authenticated-only.
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { getCurrentPeriod } from "@/lib/db/period";
-import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
+import { getCreditSummary } from "@/lib/db/credits";
 
 export async function GET(req: Request) {
 	try {
 		const session = await requireSession(req);
-		const usage = await getMonthlyUsage(session.user.id);
-		return Response.json({
-			cost_estimate: usage?.cost_estimate ?? 0,
-			request_count: usage?.request_count ?? 0,
-			cap: MONTHLY_SPEND_CAP_USD,
-			period: getCurrentPeriod(),
-		});
+		return Response.json(await getCreditSummary(session.user.id));
 	} catch (err) {
 		return handleApiError(
 			err instanceof Error ? err : new ApiError("Failed to load usage", 500),
