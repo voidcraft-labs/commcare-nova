@@ -53,6 +53,20 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Server source maps. Turbopack emits a `.map` next to every server chunk
+# (and a `//# sourceMappingURL=` comment inside each `.js`), but Next's
+# standalone file tracer never copies `.map` files — they're not `require`d at
+# runtime, so the tracer can't see them. Without them present, the `node
+# --enable-source-maps` in the CMD below has nothing to map against and
+# production stack traces stay minified (`_1indqvu._.js:369:165515`).
+#
+# We copy only the chunk maps: the server code that actually throws is bundled
+# into `chunks/`, so those are the frames worth symbolicating. They're
+# server-side only (never shipped to a browser — no source-leak concern) and
+# add ~110 MB to the image, paid once on a cold image pull, not per request —
+# an acceptable trade for readable production traces.
+COPY --from=builder --chown=nextjs:nodejs /app/.next/server/chunks/*.map ./.next/server/chunks/
+
 # Atlas binary + migration assets. The atlas binary lives on PATH
 # so the CMD invocation reads as a normal command. The migrations
 # directory + atlas.hcl land at the working directory's repo-
@@ -88,4 +102,10 @@ EXPOSE 8080
 # from Cloud Run reaches Node directly — without `exec`, the
 # shell would intercept the signal and Node would never get a
 # graceful-shutdown opportunity.
-CMD ["sh", "-c", "atlas migrate apply --env prod --allow-dirty && exec node server.js"]
+#
+# `--enable-source-maps` makes Node apply the `.map` files copied above when
+# formatting `Error.stack`, so thrown errors log with original `file.ts:line`
+# positions instead of minified chunk offsets. It costs nothing in steady
+# state — Node only loads a map lazily when a stack is actually formatted
+# (i.e. on a throw), never on the request hot path.
+CMD ["sh", "-c", "atlas migrate apply --env prod --allow-dirty && exec node --enable-source-maps server.js"]
