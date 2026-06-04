@@ -723,7 +723,7 @@ if (type === "data-credit-refund") {
 
 **Files:** Modify `app/(app)/admin/admin-content.tsx`.
 
-- [ ] **Step 1:** Add a stat card for `stats.totalCreditsConsumed` (this period) beside the existing total-generations/total-spend cards. Match the existing stat-card markup. `totalSpend` stays (now "actual $ this month").
+- [ ] **Step 1:** Add a `StatCard label="Credits Used" value={stats.totalCreditsConsumed.toLocaleString()} subtitle="this month"` to the headline grid (place it before the dollar card so credits read as the primary gate metric). Relabel the dollar card "Total Spend" → **"Actual Spend"** (keeps `formatCurrency(stats.totalSpend)`, subtitle "this month") so it reads as the true $ cost, no longer the gate. Widen the grid `sm:grid-cols-3` → `grid-cols-1 sm:grid-cols-2 lg:grid-cols-4` for the 4 cards. Match the existing `StatCard` chrome; neutral cards (no decorative colour). *(Landed `0ed163f0`.)*
 - [ ] **Step 2:** `npx tsc --noEmit`. **Commit** `git commit -am "feat(credits): admin headline shows fleet credits consumed"`
 
 ---
@@ -734,7 +734,7 @@ if (type === "data-credit-refund") {
 
 **Files:** Modify `components/ui/AccountMenu.tsx`.
 
-- [ ] **Step 1:** Change its `UsageData` interface + fetch to the Task 8 credit shape; convert the bar `usageRatio` to `consumed / allowance` (or `1 - balance/allowance`); update `getBarGradient` thresholds to fire near depletion; render "**{balance} / {allowance} credits**" (no dollar figure). Keep the existing bar/markup structure; just re-anchor the numbers.
+- [ ] **Step 1:** Change its `UsageData` interface + fetch to the Task 8 credit shape (the endpoint returns the full `CreditSummary` — `{ period, allowance, consumed, bonus, balance, lifetimeConsumed }`; type the fields the bar uses: `balance`, `consumed`, and `allowance`). Re-anchor the bar to the **effective monthly total** `total = balance + consumed` (= `allowance + bonus`) — NOT the bare allowance — so it reconciles for bonused users, matching the admin-table `CreditsCell` fix: the fill `usageRatio = total > 0 ? consumed / total : 0` (bar fills as credits are consumed; guard divide-by-zero), and the label renders "**{balance} / {total} credits**" via `.toLocaleString()` (no dollar figure; a no-bonus user reads "1,900 / 2,000 credits", a bonused user "2,400 / 2,500 credits"). Keep `getBarGradient(usageRatio)` shifting to the amber→rose warning near depletion (high `consumed` ratio = low balance; keep the `>0.8` threshold or nudge it). Relabel "Usage this month" → "Credits this month". **Remove the now-unused `formatCurrency` import** + the `cost_estimate`/`cap`/`request_count` fields. Keep the existing bar/markup structure + the `refreshUsage`/`AbortController` fetch lifecycle (just re-anchor the numbers).
 - [ ] **Step 2:** `npx tsc --noEmit`. **Commit** `git commit -am "feat(credits): account menu shows credit balance instead of dollars"`
 
 ---
