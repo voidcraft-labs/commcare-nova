@@ -1,4 +1,5 @@
 "use client";
+import { PromptInputHeader } from "@/components/ai-elements/prompt-input";
 import { ExtractionInfoPopover } from "@/components/builder/media/ExtractionInfoPopover";
 import { ExtractionStatusBadge } from "@/components/builder/media/ExtractionStatusBadge";
 import type { MediaAssetView } from "@/components/builder/media/mediaClient";
@@ -29,8 +30,12 @@ export function ChatAttachmentBar({
 	// The "what does the assistant read?" affordance only makes sense once a
 	// document is staged (images are read directly, so they have no extract).
 	const hasDocument = assets.some((a) => isDocumentKind(a.kind));
+	// Render through PromptInputHeader (the InputGroup's block-start addon slot):
+	// it lands the chip row ABOVE the textarea, full-width + left-aligned, with
+	// the right padding. A bare div would fall into the InputGroup's centered
+	// inline flow instead. Returns null when empty so no empty gutter shows.
 	return (
-		<div className="flex flex-wrap items-center gap-1.5 px-1 pb-2">
+		<PromptInputHeader className="gap-1.5">
 			{assets.map((asset) => (
 				<AttachmentChip
 					key={asset.id}
@@ -42,6 +47,6 @@ export function ChatAttachmentBar({
 				/>
 			))}
 			{hasDocument && <ExtractionInfoPopover />}
-		</div>
+		</PromptInputHeader>
 	);
 }
