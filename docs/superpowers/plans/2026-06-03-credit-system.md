@@ -627,10 +627,12 @@ git commit -m "feat(credits): credit gate replaces dollar cap in /api/chat"
 - [ ] **Step 2:** Add a `data-credit-refund` case to `onData`, placed with the other early-return cases (it must `return` so the refund part never reaches `applyStreamEvent`). The part is `transient` (server-side `transient: true`) so it fires `onData` but never persists to message history — handling it here is correct:
 ```ts
 if (type === "data-credit-refund") {
-  const amount = (data as { amount?: number }).amount ?? 0;
-  // Reassurance, not an error — the failure itself is surfaced separately as a
-  // data-error. "info" severity (neutral, auto-dismissing); the error toast is
-  // the one that persists. Refund is server-authoritative + once-latched.
+  const amount = data.amount as number;
+  // Reassurance, not an error — the failure itself is surfaced separately as
+  // the generation-error toast (a data-conversation-event with an error
+  // payload). Use "info" (neutral, auto-dismissing); the error toast is the
+  // one that persists. The refund is server-authoritative and once-latched,
+  // so this only fires once per failed run.
   showToast(
     "info",
     "You weren't charged",
@@ -639,7 +641,7 @@ if (type === "data-credit-refund") {
   return;
 }
 ```
-`showToast` is already the module-level singleton (no provider/context needed) — add the `import { showToast } from "@/lib/ui/toastStore";` if `ChatContainer.tsx` doesn't already have it (it does — used elsewhere in the file).
+`amount` is cast directly (`data.amount as number`), matching the sibling `data-run-id` case — the part comes from our own server, which always sends a positive integer (5 or 100) only on chargeable runs, so a `?? 0` fallback would guard an impossible input and only ever render "0 credits". `showToast` is the module-level singleton (no provider/context needed) and is already imported in `ChatContainer.tsx` (used elsewhere). The comment names the **real** failure channel: generation errors reach the client as a `data-conversation-event` with an error payload (`lib/agent/generationContext.ts::emitError` → `emitConversation`), not a (non-existent) `data-error` part.
 - [ ] **Step 3:** `npx tsc --noEmit` (clean) + `npx biome check components/chat/ChatContainer.tsx`. **Commit** `git commit -am "feat(credits): toast the user when a failed run is refunded"`
 
 ---
