@@ -2,9 +2,10 @@
  * Account menu — avatar-triggered dropdown with profile, credit balance,
  * settings link, and sign-out.
  *
- * The credit summary is fetched eagerly on mount so the dropdown opens
- * instantly with no loading state. Re-fetched on every subsequent open to
- * stay current after generations spend credits.
+ * The credit summary comes from the shared `useCreditBalance` hook, which
+ * fetches eagerly on mount so the dropdown opens instantly with no loading
+ * state. The menu re-fetches on every subsequent open (via the hook's
+ * `refresh`) to stay current after generations spend credits.
  */
 
 "use client";
@@ -14,15 +15,9 @@ import tablerLogout from "@iconify-icons/tabler/logout";
 import tablerSettings from "@iconify-icons/tabler/settings";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
-// GET /api/user/usage returns `getCreditSummary`'s `CreditSummary` verbatim, so
-// the client tracks that shared type rather than re-declaring it. The bar reads
-// `balance` (spendable now) and `consumed`; their sum is the effective monthly
-// total (allowance + bonus). Must be `import type` — the value side of
-// `lib/db/credits` pulls in `@google-cloud/firestore`, and only the erased
-// `type` form keeps that server dependency out of the client bundle.
-import type { CreditSummary } from "@/lib/db/credits";
+import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 /**
@@ -97,35 +92,23 @@ function UserAvatar({
 
 export function AccountMenu() {
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
-	const [usage, setUsage] = useState<CreditSummary | null>(null);
 	const [open, setOpen] = useState(false);
 
-	/** Fetch usage from the API and update state. Best-effort — failures are silent.
-	 * Accepts an AbortSignal so callers can cancel in-flight requests on cleanup. */
-	const refreshUsage = useCallback((signal?: AbortSignal) => {
-		fetch("/api/user/usage", { signal })
-			.then((res) => (res.ok ? (res.json() as Promise<CreditSummary>) : null))
-			.then((data) => {
-				if (data) setUsage(data);
-			})
-			.catch(() => {});
-	}, []);
+	/* Credit summary via the shared hook. It owns the on-mount fetch — gated by
+	 * `isAuthenticated` so it doesn't fire a 401 before sign-in resolves — so the
+	 * dropdown opens instantly with no loading state. `refresh` re-fetches on
+	 * demand for the on-open effect below. */
+	const { summary: usage, refresh } = useCreditBalance(isAuthenticated);
 
-	/* Pre-cache on mount so the first dropdown open shows data instantly. */
-	useEffect(() => {
-		if (!isAuthenticated) return;
-		const controller = new AbortController();
-		refreshUsage(controller.signal);
-		return () => controller.abort();
-	}, [isAuthenticated, refreshUsage]);
-
-	/* Re-fetch on each dropdown open to stay current after generations. */
+	/* Re-fetch on each dropdown open to stay current after generations spend
+	 * credits. The on-mount fetch lives in the hook; this is the only fetch the
+	 * menu drives itself. */
 	useEffect(() => {
 		if (!open || !isAuthenticated) return;
 		const controller = new AbortController();
-		refreshUsage(controller.signal);
+		refresh(controller.signal);
 		return () => controller.abort();
-	}, [open, isAuthenticated, refreshUsage]);
+	}, [open, isAuthenticated, refresh]);
 
 	/* ── Loading placeholder while session check is in flight ────── */
 	if (isPending) {
