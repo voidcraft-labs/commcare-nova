@@ -787,6 +787,8 @@ if (type === "data-credit-refund") {
 - [ ] **Step 3:** Dry-run both actions, then `--apply` against PROD with the user; capture output.
 - [ ] **Step 4: Commit** `git commit -am "chore(credits): migrator — re-baseline cost (closed auto / current opt-in) + create-only credit seed"`
 
+*(Landed `8bf27097`. Pure `planRebaseline(rows, currentUserEmails, emailOf)` partitions into closed/current-opted-in/current-skipped; shared `loadReconciliationData()` loader so scan-preview and apply read PROD identically; create-only seed catches gRPC `ALREADY_EXISTS` (6) and rethrows else. Review hardened the current-month fail-safe: the `--current-user` opt-in set filters empties AND `planRebaseline` refuses an empty resolved email (so an unset `--current-user "$VAR"` can't silently re-baseline every unresolved-email current-month cell), `emailOf` is a real-email-only map (id fallback at display only) so the documented "no real email ⇒ never opted in" invariant is literally true, and the re-read confirmation now sets `process.exitCode=1` + a failure banner on a write that doesn't land. 14 pure tests incl. the fail-safe branch.)*
+
 ---
 
 ## Task 17: Guarded orphan delete (separate pass)
