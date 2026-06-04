@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
-import { useState } from "react";
+import { type KeyboardEvent, useState } from "react";
 import {
 	PromptInput,
 	PromptInputBody,
@@ -17,11 +17,14 @@ import {
 } from "@/components/builder/media/AssetPreviewDialog";
 import { MediaPickerDialog } from "@/components/builder/media/MediaPickerDialog";
 import type { MediaAssetView } from "@/components/builder/media/mediaClient";
+import { CharCounter } from "@/components/chat/CharCounter";
 import { ChatAttachmentBar } from "@/components/chat/ChatAttachmentBar";
 import {
 	type AttachmentRef,
 	CHAT_ATTACHMENT_KINDS,
 } from "@/lib/chat/attachmentRefs";
+import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
 
 /** Map a picked library asset to the wire ref the chat sends. The bytes never
@@ -80,6 +83,10 @@ export function ChatInput({
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
+	/** Live length of the typed text — PromptInput owns the textarea value; we
+	 *  mirror only its length, to drive the counter + the over-limit send gate. */
+	const [textLength, setTextLength] = useState(0);
+	const overLimit = textLength > MAX_CHAT_MESSAGE_CHARS;
 
 	const addPicked = (asset: MediaAssetView) =>
 		setPicked((cur) =>
@@ -88,7 +95,32 @@ export function ChatInput({
 	const removePicked = (assetId: string) =>
 		setPicked((cur) => cur.filter((a) => a.id !== assetId));
 
+	// Block the Enter-to-send when over the limit BEFORE PromptInput's submit
+	// runs (it resets the textarea immediately) — otherwise the over-limit paste
+	// the user needs to trim would be wiped, the exact UX we're avoiding. The
+	// disabled submit button covers the click path; this covers the keyboard one.
+	// Shift+Enter (newline) and IME composition are never blocked.
+	const handleTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+		if (
+			e.key === "Enter" &&
+			!e.shiftKey &&
+			!e.nativeEvent.isComposing &&
+			overLimit
+		) {
+			e.preventDefault();
+			showToast(
+				"warning",
+				"Message too long",
+				`Trim to ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()} characters to send.`,
+			);
+		}
+	};
+
 	const handleSubmit = (message: PromptInputMessage) => {
+		// PromptInput resets the textarea on every submit it processes; mirror that
+		// in the length shadow. (Over-limit submits never reach here — they're
+		// blocked at the keydown + the disabled button, so their text isn't reset.)
+		setTextLength(0);
 		const text = (message.text ?? "").trim();
 		if ((!text && picked.length === 0) || disabled) return;
 		if (answerPending) {
@@ -135,6 +167,8 @@ export function ChatInput({
 				<PromptInputBody>
 					<PromptInputTextarea
 						disabled={disabled}
+						onChange={(e) => setTextLength(e.target.value.length)}
+						onKeyDown={handleTextareaKeyDown}
 						placeholder={
 							openingPrompt
 								? "Tell me about the app you want to build..."
@@ -159,13 +193,18 @@ export function ChatInput({
 							<Icon icon={tablerPaperclip} className="size-4" />
 						</button>
 					</PromptInputTools>
-					{/* While a turn is in flight the whole input is disabled (Nova shows
-					 *  progress on the signal grid, not a stop button), so the submit
-					 *  reflects that as the in-flight spinner. */}
-					<PromptInputSubmit
-						disabled={disabled}
-						status={disabled ? "submitted" : "ready"}
-					/>
+					{/* Counter + submit grouped on the right. The counter is hidden until
+					 *  the text nears the limit; the submit is gated over it (the text is
+					 *  never truncated — only sending is blocked). While a turn is in
+					 *  flight the whole input is disabled (Nova shows progress on the
+					 *  signal grid, not a stop button), so the submit shows the spinner. */}
+					<div className="flex items-center gap-2">
+						<CharCounter length={textLength} max={MAX_CHAT_MESSAGE_CHARS} />
+						<PromptInputSubmit
+							disabled={disabled || overLimit}
+							status={disabled ? "submitted" : "ready"}
+						/>
+					</div>
 				</PromptInputFooter>
 			</PromptInput>
 

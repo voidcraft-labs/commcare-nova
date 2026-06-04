@@ -16,6 +16,7 @@ import {
 } from "@/lib/agent";
 import { resolveAnthropicKey } from "@/lib/auth-utils";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import {
 	createApp,
 	failApp,
@@ -57,6 +58,26 @@ export async function POST(req: Request) {
 		return new Response(JSON.stringify({ error: "Invalid request body" }), {
 			status: 400,
 		});
+	}
+
+	// Reject an over-length typed message — defense in depth behind the
+	// composer's own send gate (both read MAX_CHAT_MESSAGE_CHARS, so they can't
+	// disagree). Only the new turn's typed text counts; attachments ride as
+	// metadata refs, not inline text, so they're never part of this length.
+	const newTurn = messages.at(-1);
+	if (newTurn?.role === "user") {
+		const typedLength = newTurn.parts
+			.filter(isTextUIPart)
+			.reduce((n, p) => n + p.text.length, 0);
+		if (typedLength > MAX_CHAT_MESSAGE_CHARS) {
+			return Response.json(
+				{
+					error: `That message is ${typedLength.toLocaleString()} characters, over the ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()}-character limit. Trim it — or attach long content as a file — and send again.`,
+					type: "message_too_long",
+				},
+				{ status: 400 },
+			);
+		}
 	}
 
 	// Require authenticated session + server API key
