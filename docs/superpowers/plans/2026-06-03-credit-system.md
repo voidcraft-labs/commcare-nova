@@ -17,7 +17,7 @@ Spec: `docs/superpowers/specs/2026-06-03-credit-system-design.md`.
 **Create:**
 - `lib/db/period.ts` — leaf module holding `getCurrentPeriod` (moved out of `usage.ts` to break the `usage ↔ credits` import cycle). Owns: Task 3.
 - `lib/db/creditPolicy.ts` — **pure, client-safe** (type-only imports): the constants (`CREDITS_PER_BUILD` etc.) + pure helpers `creditBalance`/`chargeAmount`/`isChargeableTurn`. One source of truth for the amounts, imported by the server ledger, the gate, and the client cost indicator. Owns: Task 2. *Constants are gate/quota policy in the credit family — not `lib/models.ts` (model-keyed rates).*
-- `lib/db/credits.ts` — **server** credit ledger (Firestore transactions): `reserveCredits`, `refundCredits`, `resetCredits`, `grantCredits`, `getCreditSummary`, `OutOfCreditsError`. Imports `creditPolicy` + `period` + `firestore`. Owns: Tasks 3,4.
+- `lib/db/credits.ts` — **server** credit ledger (Firestore transactions): `reserveCredits`, `refundCredits`, `resetCredits`, `grantCredits`, `getCreditSummary`, `getCurrentCreditBalance` (single current-period doc read for the gate's fast-fail balance check), `OutOfCreditsError`. Imports `creditPolicy` + `period` + `firestore`. Owns: Tasks 3,4,7.
 - `lib/db/__tests__/credits.test.ts` — pure + transactional ledger tests (Tasks 2,3,4).
 - `app/api/admin/users/[id]/credits/route.ts` — first admin **write** route: POST reset/grant (Task 10).
 - `app/api/admin/users/[id]/credits/__tests__/route.test.ts` — endpoint guard + transaction tests (Task 10).
@@ -549,7 +549,9 @@ git commit -m "refactor(credits): rename spend_cap_exceeded -> out_of_credits er
 
 **Files:** Modify `app/api/chat/route.ts`; Test: extract gate decision into a pure helper and test that (no route/RTL test).
 
-**Design recap (spec §6):** (1) compute `chargeable`/`cost` from RAW `body.messages` + `body.appReady`; (2) fast-fail read at the top (backstop on every POST; balance on chargeable POSTs) — fail-closed → 503; (3) resolve appId/ownership/concurrency; (4) **reserve** (chargeable only) after all those rejection points; (5) thread `didReserve/reservedAmount/chargePeriod` into the accumulator.
+**Design recap (spec §6):** (1) compute `chargeable`/`cost` from RAW `body.messages` + `body.appReady`; (2) fast-fail read at the top (backstop on every POST; balance on chargeable POSTs via `getCurrentCreditBalance`) — fail-closed → 503; (3) resolve appId/ownership/concurrency; (4) **reserve** (chargeable only) after all those rejection points; (5) thread `didReserve/reservedAmount/chargePeriod` into the accumulator.
+
+**Abort-finalization invariant (landed; found in review — see Step 5 abort wiring):** a client disconnect must NOT refund a real in-flight run NOR erase its actual-$ cost. The model call is cancelled by threading `abortSignal: req.signal` into the stream, but already-streamed steps still accrue cost. So: the execute `finally`'s `usage.flush()` is the **sole authoritative** charge-vs-refund decision (it runs once the stream reaches its true final state); the `req.signal` abort listener flushes **only the log writer**, never the accumulator (a mid-flight snapshot has `costEstimate === 0`, which would refund-and-erase a real run); and `handleRouteError` **short-circuits on `req.signal.aborted`** so a disconnect is never treated as a generation failure (no `markRunFailed`/`failApp`/refund-toast). On a genuine abort the `finally` flush decides purely on the final `costEstimate` (0 steps → refund, ≥1 step → keep the charge).
 
 - [ ] **Step 1: Write a failing pure-helper test.** Create `app/api/chat/__tests__/creditGate.test.ts`. The helper `creditGateDecision({ rawMessages, appReady })` returns `{ chargeable: boolean; cost: number }`:
 ```ts
@@ -579,13 +581,18 @@ export function creditGateDecision(input: { rawMessages: readonly UIMessage[]; a
 
 - [ ] **Step 5: Edit `app/api/chat/route.ts`** — replace the dollar-cap block (the current `getMonthlyUsage` / `MONTHLY_SPEND_CAP_USD` try/catch) with:
   - Near the top, after `parsed`: `const { chargeable, cost } = creditGateDecision({ rawMessages: messages, appReady: !!body.appReady });` (uses RAW `messages` from `body`, before any transform).
-  - **Fast-fail read** (replacing the old cap block, fail-closed → 503): read `getMonthlyUsage(userId)` for the backstop (`cost_estimate >= ACTUAL_COST_BACKSTOP_USD` → 429 generic) and, if `chargeable`, `getCreditSummary(userId)` (`balance < cost` → 429 `out_of_credits`, `type: "out_of_credits"`, message `MESSAGES.out_of_credits`).
+  - **Fast-fail read** (replacing the old cap block, fail-closed → 503 with `type: "internal"`): read `getMonthlyUsage(userId)` for the backstop (`cost_estimate >= ACTUAL_COST_BACKSTOP_USD` → 429, `type: "out_of_credits"`, message "You've reached your monthly usage limit. It resets on the 1st." — never leaks "$50") and, if `chargeable`, `getCurrentCreditBalance(userId)` — a single current-period doc read, lighter than `getCreditSummary` since the gate only needs the scalar balance — (`balance < cost` → 429 `out_of_credits`, `type: "out_of_credits"`, message `MESSAGES.out_of_credits`).
   - **Reserve** after `appId`/ownership/`hasActiveGeneration` resolution and before constructing the accumulator: if `chargeable`, `const reservation = await reserveCredits(userId, cost);` wrapped so `OutOfCreditsError` → `failApp` (if a build app was created) + 429 `out_of_credits`, and any other error → fail-closed 503 (never silently skip the charge).
   - Pass into `new UsageAccumulator({ ... })`: `didReserve: chargeable, reservedAmount: chargeable ? cost : undefined, chargePeriod: reservation?.period`.
-  - **Refund-on-failure hook:** inside `handleRouteError` (the single failure funnel that already classifies + calls `failApp`), add `usage.markRunFailed();` and — once, only when `chargeable` — emit the refund signal so the client can toast:
+  - **Refund-on-failure hook:** inside `handleRouteError` (the single failure funnel that already classifies + calls `failApp`), add `usage.markRunFailed();` and — once, only when `chargeable` — emit the refund signal so the client can toast. The funnel **short-circuits on `req.signal.aborted`** (a client disconnect is not a generation failure — see the abort-finalization invariant above):
 ```ts
 let refundSignalled = false;
 const handleRouteError = (error: unknown, source: string): void => {
+  // A client disconnect ends the stream cleanly, but the reader can still throw
+  // when writer.write hits the torn-down stream and land us here. On a true abort
+  // we must NOT mark failed / fail the app / refund-toast — the finally's flush()
+  // is the sole arbiter of charge-vs-refund for an abort (decides on costEstimate).
+  if (req.signal.aborted) return;
   const classified = classifyError(error);
   ctx.emitError(classified, source);
   failApp(appId, classified.type);
@@ -596,15 +603,19 @@ const handleRouteError = (error: unknown, source: string): void => {
   }
 };
 ```
-  - Remove the now-unused `MONTHLY_SPEND_CAP_USD` import; keep `getMonthlyUsage`.
+  - **Abort wiring (the anti-abuse fix):** thread `abortSignal: req.signal` into `createAgentUIStream` so a disconnect cancels the model call. The execute `finally` is the **sole authoritative** `await usage.flush()` (`onFinish` keeps a fire-and-forget fallback `void usage.flush()`; both idempotent). The `req.signal` `"abort"` listener flushes **only `logWriter`**, never `usage` — flushing a mid-flight accumulator (`costEstimate === 0`) would refund the reservation AND no-op the real flush, finalizing a cost-accruing run as a free refunded build.
+  - Guard `ctx.emitConversation(...)` (the user-message echo) in a try/catch so an emit throw can't escape the stream scope and skip the `finally` (which would leak the reservation).
+  - Remove the now-unused `MONTHLY_SPEND_CAP_USD` import; keep `getMonthlyUsage`. Add `getCurrentCreditBalance` + `reserveCredits` + `ACTUAL_COST_BACKSTOP_USD` imports.
 
 - [ ] **Step 6: Verify** — `npx tsc --noEmit` (no errors), `npx vitest run app/api/chat` + `npx vitest run lib/db` (PASS). Manual reasoning check against spec §6 ordering: enumerate every `return`/throw after the reservation line and confirm each is inside the stream scope (so `flush()` refunds) — there should be none before the stream.
 
 - [ ] **Step 7: Commit**
 ```bash
-git add app/api/chat/route.ts app/api/chat/creditGate.ts app/api/chat/__tests__/creditGate.test.ts
+git add app/api/chat/route.ts app/api/chat/creditGate.ts app/api/chat/__tests__/creditGate.test.ts \
+        lib/db/credits.ts lib/db/__tests__/credits.test.ts
 git commit -m "feat(credits): credit gate replaces dollar cap in /api/chat"
 ```
+*(Landed at `21664bb6`. The `getCurrentCreditBalance` helper + its unit test landed in `lib/db` as part of this task — the fast-fail balance read needed a single-doc scalar read, lighter than `getCreditSummary`.)*
 
 ---
 
