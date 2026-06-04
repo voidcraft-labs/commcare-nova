@@ -30,10 +30,15 @@ const mockGenerateText = () =>
 
 describe("GenerationContext.extractFromContent", () => {
 	let ctx: GenerationContext;
+	// The real accumulator + the SSE writer stub — so we can assert the usage
+	// fan-in (the method returns only { text, truncated }, so the snapshot is the
+	// only place to observe trackSubGeneration) and the error-event emission.
+	let usage: ReturnType<typeof makeTestContext>["usage"];
+	let writer: ReturnType<typeof makeTestContext>["writer"];
 
 	beforeEach(() => {
 		mockGenerateText().mockReset();
-		ctx = makeTestContext().ctx;
+		({ ctx, usage, writer } = makeTestContext());
 	});
 
 	it("sends a multimodal user message and tracks usage", async () => {
@@ -77,6 +82,12 @@ describe("GenerationContext.extractFromContent", () => {
 		// System prompt + output cap are passed through verbatim.
 		expect(call.system).toBe("extract");
 		expect(call.maxOutputTokens).toBe(4096);
+
+		// The mocked usage fans into the shared accumulator — verifying the
+		// trackSubGeneration plumbing end-to-end (would still pass if the tracking
+		// call were silently dropped, were this not asserted).
+		expect(usage.snapshot().inputTokens).toBe(10);
+		expect(usage.snapshot().outputTokens).toBe(5);
 	});
 
 	it("flags truncation when the model hits the output ceiling", async () => {
@@ -118,5 +129,17 @@ describe("GenerationContext.extractFromContent", () => {
 				label: "attachment-pdf",
 			}),
 		).rejects.toThrow("haiku down");
+
+		// It also emits the error as a conversation event on the stream (the call
+		// omits `emitErrors: false`, so the default-on emission path runs) — the
+		// behavior the test name promises beyond the bare re-throw.
+		expect(writer.write).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "data-conversation-event",
+				data: expect.objectContaining({
+					payload: expect.objectContaining({ type: "error" }),
+				}),
+			}),
+		);
 	});
 });

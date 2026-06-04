@@ -16,9 +16,12 @@ export function CharCounter({ length, max }: { length: number; max: number }) {
 	const ratio = max > 0 ? length / max : 0;
 	if (ratio < CHAR_COUNTER_VISIBLE_AT) return null;
 
-	// At or over the limit reads as an error (rose); below it, a warning (amber)
+	// OVER the limit reads as an error (rose); at-or-below is a warning (amber)
 	// that's fully opaque once past the danger threshold and fades in before it.
-	const over = ratio >= 1;
+	// Strictly `> max` to match the send gate (ChatInput's `overLimit` + the server
+	// both reject only PAST the limit) — so a message exactly at the limit, which
+	// IS sendable, never shows the rose "trim to send" state.
+	const over = length > max;
 	const opacity = over
 		? 1
 		: Math.min(

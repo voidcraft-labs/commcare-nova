@@ -447,16 +447,27 @@ export async function extractDocument(opts: {
 	}
 
 	// 2. Title + summary — a separate small structured pass over the extract just
-	//    produced. Best-effort: `null` (the model couldn't produce a valid object)
-	//    leaves them absent; the extract is never blocked on it.
-	const meta = await condenser.generateStructured<ExtractMeta>({
-		system: EXTRACT_META_SYSTEM,
-		prompt: condensed.text,
-		schema: extractMetaSchema,
-		label: `extract-meta:${filename}`,
-		model: CONDENSER_MODEL,
-		maxOutputTokens: EXTRACT_META_MAX_OUTPUT_TOKENS,
-	});
+	//    produced. Best-effort: a `null` object (the model couldn't produce a valid
+	//    one) OR a thrown transport error both leave title/summary absent. The
+	//    extract is already in hand and must never be discarded over a metadata
+	//    failure. The guard lives HERE, not only inside a condenser, so the JSDoc's
+	//    "never throws out of here" contract holds for EVERY `AttachmentCondenser`:
+	//    `GenerationContext`'s swallows its own errors, but the Gemini condenser
+	//    surfaces the non-`NoObjectGenerated` re-throw that `generateObjectWith`
+	//    deliberately propagates (a transient network/auth/5xx on the meta call).
+	let meta: ExtractMeta | null = null;
+	try {
+		meta = await condenser.generateStructured<ExtractMeta>({
+			system: EXTRACT_META_SYSTEM,
+			prompt: condensed.text,
+			schema: extractMetaSchema,
+			label: `extract-meta:${filename}`,
+			model: CONDENSER_MODEL,
+			maxOutputTokens: EXTRACT_META_MAX_OUTPUT_TOKENS,
+		});
+	} catch {
+		// Swallowed deliberately: the extract succeeded; title/summary stay absent.
+	}
 
 	return {
 		extract: condensed.text,

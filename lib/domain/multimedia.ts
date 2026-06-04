@@ -472,20 +472,29 @@ export function extractGcsObjectKeyFor(
 export const EXTRACTOR_VERSION = 2;
 
 /**
- * The GCS object key of a document's stored extract at the current version, or
- * `null` for a media kind (image/audio/video), which has no extract. Asset
- * deletion uses this to purge the extract sibling alongside the bytes. Pure — no
- * I/O, no heavy imports — so any layer (the delete route, the SA tool) can call
- * it without pulling in the extraction machinery.
+ * The GCS object key of a document's stored extract, or `null` for a media kind
+ * (image/audio/video), which has no extract. Asset deletion uses this to purge
+ * the extract sibling alongside the bytes. Pure — no I/O, no heavy imports — so
+ * any layer (the delete route, the SA tool) can call it without pulling in the
+ * extraction machinery.
+ *
+ * Keyed off the version the extract was ACTUALLY produced at (`extract.version`),
+ * NOT the current `EXTRACTOR_VERSION`. After a version bump, a document extracted
+ * at the prior version still has its real object at the prior key; computing the
+ * current key would purge a key that was never written and orphan the live object
+ * in GCS forever (no lifecycle rule reaps `…extract.v*.md`). Falls back to the
+ * current version only when no extract has been recorded yet — then there is no
+ * stored object and the purge is a harmless no-op.
  */
 export function extractObjectKeyForAsset(asset: {
 	kind: AssetKind;
 	owner: string;
 	contentHash: string;
+	extract?: { version: number } | null;
 }): string | null {
-	return isDocumentKind(asset.kind)
-		? extractGcsObjectKeyFor(asset.owner, asset.contentHash, EXTRACTOR_VERSION)
-		: null;
+	if (!isDocumentKind(asset.kind)) return null;
+	const version = asset.extract?.version ?? EXTRACTOR_VERSION;
+	return extractGcsObjectKeyFor(asset.owner, asset.contentHash, version);
 }
 
 /**

@@ -22,10 +22,13 @@ const mockGenerateText = () =>
 
 describe("GenerationContext.generatePlainText", () => {
 	let ctx: GenerationContext;
+	// The real accumulator — the method returns only { text, truncated }, so its
+	// snapshot is the only place to observe the trackSubGeneration fan-in.
+	let usage: ReturnType<typeof makeTestContext>["usage"];
 
 	beforeEach(() => {
 		mockGenerateText().mockReset();
-		ctx = makeTestContext().ctx;
+		({ ctx, usage } = makeTestContext());
 	});
 
 	it("passes the text prompt through and reports a clean finish as not truncated", async () => {
@@ -52,6 +55,11 @@ describe("GenerationContext.generatePlainText", () => {
 		expect(call.system).toBe("extract");
 		expect(call.prompt).toBe("the document body");
 		expect(call.maxOutputTokens).toBe(4096);
+
+		// The mocked usage fans into the shared accumulator — verifying the
+		// trackSubGeneration plumbing end-to-end.
+		expect(usage.snapshot().inputTokens).toBe(10);
+		expect(usage.snapshot().outputTokens).toBe(5);
 	});
 
 	it("flags truncation when the model hits the output ceiling", async () => {

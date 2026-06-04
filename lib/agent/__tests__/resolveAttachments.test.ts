@@ -172,6 +172,10 @@ describe("resolveAttachments", () => {
 		expect(filePart).toMatchObject({
 			type: "file",
 			mediaType: "image/png",
+			// The image rides as an inline base64 data URL for the vision pass —
+			// not a GCS path. Assert the url the test name promises (a regression
+			// emitting an empty/path url would otherwise still pass).
+			url: expect.stringContaining("data:image/png;base64,"),
 		});
 		expect(readTextObject).not.toHaveBeenCalled();
 	});
@@ -253,7 +257,10 @@ describe("resolveAttachments", () => {
 			parts: [{ type: "text", text: "no files here" }],
 		} as NovaUIMessage;
 		const result = await resolveAttachments([plain], "user-1", stubCondenser());
-		expect(result).toBe(result); // returns array
+		// Pass-through by reference: a ref-free message is returned as the SAME
+		// object, never cloned (source short-circuits with `return messages` when
+		// there are no attachment ids to resolve).
+		expect(result[0]).toBe(plain);
 		expect(result[0].parts).toHaveLength(1);
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
 	});

@@ -5,11 +5,12 @@
 // registry, so without this `import mammoth from "mammoth"` resolves to `any`,
 // which both fails strict mode and violates the no-`any` rule.
 //
-// We declare ONLY the narrow surface `attachments.ts` consumes — the single
+// We declare ONLY the narrow surface our docx→markdown helper
+// (`documentExtraction.ts::docxToMarkdown`) consumes — the single
 // `convertToMarkdown` entry point and its result shape — rather than the full
 // API. A tighter declaration is the better guard: it matches exactly what we
-// call and lets the compiler reject a typo or a misremembered signature
-// against the real runtime contract verified in attachments.test.ts.
+// call and lets the compiler reject a typo or a misremembered signature against
+// the real runtime contract.
 
 declare module "mammoth" {
 	/** A messages-and-value result. `value` is the converted output (markdown
