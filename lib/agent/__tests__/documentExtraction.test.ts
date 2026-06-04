@@ -1,9 +1,11 @@
 // lib/agent/__tests__/documentExtraction.test.ts
 //
 // Unit tests for the extraction CORE: the `extractDocument` dispatch (PDF →
-// native file block; text/docx/xlsx → markdown body → text condense) and the
-// pure converters. Driven against a stubbed `AttachmentCondenser` so we assert
-// the routing + the exact model input WITHOUT a network call. The xlsx path
+// native file block; text/docx/xlsx → markdown body → text prompt) and the
+// pure converters. ONE structured call produces { extract, title, summary }, so
+// each test asserts which input shape fired (prompt vs file) and that the call's
+// result maps straight through. Driven against a stubbed `AttachmentCondenser` so
+// we assert routing + the exact model input WITHOUT a network call. The xlsx path
 // round-trips through the real SheetJS encoder so we verify the actual library
 // contract, not a hand-rolled mock of its output shape.
 
@@ -11,8 +13,8 @@ import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
 	type AttachmentCondenser,
-	type CondenseResult,
-	type ExtractMeta,
+	type ExtractDocumentResult,
+	type ExtractDocumentStructuredOpts,
 	extractDocument,
 } from "@/lib/agent/documentExtraction";
 
@@ -25,45 +27,41 @@ vi.mock("mammoth", () => ({
 	},
 }));
 
-/** A condenser that records the single call it received and returns a fixed
- *  result, so each test asserts which branch fired and with what input. The
- *  mocks are typed to the interface's methods so `mock.calls` carries the opts
- *  (and reads cleanly under `noUncheckedIndexedAccess`). */
+/** A condenser that records the single structured call it received and returns a
+ *  fixed `{ object, truncated }`, so each test asserts which input shape fired and
+ *  with what. `vi.fn` can't express the generic method signature directly, so the
+ *  slot is cast; the returned `call` ref stays typed for `mock.calls` assertions. */
 function recordingCondenser(
-	result: CondenseResult = { text: "EXTRACT", truncated: false },
-	meta: ExtractMeta | null = { title: "A Title", summary: "A summary." },
+	object: ExtractDocumentResult | null = {
+		extract: "EXTRACT",
+		title: "A Title",
+		summary: "A summary.",
+	},
+	truncated = false,
 ) {
-	const plainText = vi.fn<AttachmentCondenser["generatePlainText"]>(
-		async () => result,
+	const call = vi.fn(
+		async (_opts: ExtractDocumentStructuredOpts<ExtractDocumentResult>) => ({
+			object,
+			truncated,
+		}),
 	);
-	const fromContent = vi.fn<AttachmentCondenser["extractFromContent"]>(
-		async () => result,
-	);
-	// The title/summary pass. `vi.fn` can't express the generic method signature
-	// directly, so the slot is cast; the returned `structured` ref stays typed
-	// for `mock.calls` assertions.
-	const structured = vi.fn(async () => meta);
 	const condenser: AttachmentCondenser = {
-		generatePlainText: plainText,
-		extractFromContent: fromContent,
-		generateStructured:
-			structured as unknown as AttachmentCondenser["generateStructured"],
+		extractDocumentStructured:
+			call as unknown as AttachmentCondenser["extractDocumentStructured"],
 	};
-	return { condenser, plainText, fromContent, structured };
+	return { condenser, call };
 }
 
-/** The `prompt` of the first `generatePlainText` call, or a clear failure. */
-function plainTextPrompt(
-	plainText: ReturnType<typeof recordingCondenser>["plainText"],
-): string {
-	const call = plainText.mock.calls.at(0);
-	if (!call) throw new Error("generatePlainText was not called");
-	return call[0].prompt;
+/** The opts of the single `extractDocumentStructured` call, or a clear failure. */
+function extractCallOpts(call: ReturnType<typeof recordingCondenser>["call"]) {
+	const c = call.mock.calls.at(0);
+	if (!c) throw new Error("extractDocumentStructured was not called");
+	return c[0];
 }
 
 describe("extractDocument", () => {
-	it("routes a text document through generatePlainText with the filename + body", async () => {
-		const { condenser, plainText, fromContent } = recordingCondenser();
+	it("routes a text document through one structured call with the filename + body", async () => {
+		const { condenser, call } = recordingCondenser();
 		const result = await extractDocument({
 			bytes: Buffer.from("danger signs: bleeding, fever", "utf-8"),
 			mimeType: "text/markdown",
@@ -71,23 +69,19 @@ describe("extractDocument", () => {
 			filename: "notes.md",
 			condenser,
 		});
+		// The single call's object maps straight through to the result.
 		expect(result).toEqual({
 			extract: "EXTRACT",
 			truncated: false,
 			title: "A Title",
 			summary: "A summary.",
 		});
-		expect(fromContent).not.toHaveBeenCalled();
-		expect(plainText).toHaveBeenCalledWith(
-			expect.objectContaining({
-				prompt: expect.stringContaining("Filename: notes.md"),
-			}),
-		);
-		expect(plainText).toHaveBeenCalledWith(
-			expect.objectContaining({
-				prompt: expect.stringContaining("danger signs: bleeding, fever"),
-			}),
-		);
+		expect(call).toHaveBeenCalledTimes(1);
+		const opts = extractCallOpts(call);
+		// Text path: a `prompt` (no `file`) carrying the filename then the body.
+		expect(opts.file).toBeUndefined();
+		expect(opts.prompt).toContain("Filename: notes.md");
+		expect(opts.prompt).toContain("danger signs: bleeding, fever");
 	});
 
 	it("converts an xlsx document to a markdown table before condensing", async () => {
@@ -102,7 +96,7 @@ describe("extractDocument", () => {
 			bookType: "xlsx",
 		}) as Buffer;
 
-		const { condenser, plainText } = recordingCondenser();
+		const { condenser, call } = recordingCondenser();
 		await extractDocument({
 			bytes,
 			mimeType:
@@ -111,14 +105,14 @@ describe("extractDocument", () => {
 			filename: "dict.xlsx",
 			condenser,
 		});
-		const prompt = plainTextPrompt(plainText);
+		const prompt = extractCallOpts(call).prompt ?? "";
 		expect(prompt).toContain("Dictionary");
 		expect(prompt).toContain("| field | type |");
 		expect(prompt).toContain("| mother_name | text |");
 	});
 
 	it("converts a docx document via mammoth before condensing", async () => {
-		const { condenser, plainText } = recordingCondenser();
+		const { condenser, call } = recordingCondenser();
 		await extractDocument({
 			bytes: Buffer.from("PK-docx-bytes"),
 			mimeType:
@@ -127,14 +121,14 @@ describe("extractDocument", () => {
 			filename: "sow.docx",
 			condenser,
 		});
-		const prompt = plainTextPrompt(plainText);
+		const prompt = extractCallOpts(call).prompt ?? "";
 		expect(prompt).toContain("Filename: sow.docx");
 		expect(prompt).toContain("# Doc heading");
 	});
 
-	it("routes a PDF through extractFromContent as a native data-URL file block", async () => {
+	it("routes a PDF through one structured call as a native data-URL file block", async () => {
 		const bytes = Buffer.from("%PDF-1.7 fake", "utf-8");
-		const { condenser, plainText, fromContent } = recordingCondenser();
+		const { condenser, call } = recordingCondenser();
 		await extractDocument({
 			bytes,
 			mimeType: "application/pdf",
@@ -142,37 +136,21 @@ describe("extractDocument", () => {
 			filename: "form.pdf",
 			condenser,
 		});
-		expect(plainText).not.toHaveBeenCalled();
-		expect(fromContent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				file: {
-					mediaType: "application/pdf",
-					data: `data:application/pdf;base64,${bytes.toString("base64")}`,
-				},
-			}),
-		);
+		const opts = extractCallOpts(call);
+		// PDF path: a native `file` block (no decoded `prompt`).
+		expect(opts.prompt).toBeUndefined();
+		expect(opts.file).toEqual({
+			mediaType: "application/pdf",
+			data: `data:application/pdf;base64,${bytes.toString("base64")}`,
+		});
 	});
 
-	it("propagates the truncated flag from the condenser", async () => {
+	it("carries title + summary from the single structured call", async () => {
 		const { condenser } = recordingCondenser({
-			text: "PARTIAL",
-			truncated: true,
+			extract: "THE EXTRACT BODY",
+			title: "ANC Requirements",
+			summary: "What it covers.",
 		});
-		const result = await extractDocument({
-			bytes: Buffer.from("x"),
-			mimeType: "text/plain",
-			kind: "text",
-			filename: "big.txt",
-			condenser,
-		});
-		expect(result.truncated).toBe(true);
-	});
-
-	it("adds title + summary from the structured pass over the extract", async () => {
-		const { condenser, structured } = recordingCondenser(
-			{ text: "THE EXTRACT BODY", truncated: false },
-			{ title: "ANC Requirements", summary: "What it covers." },
-		);
 		const result = await extractDocument({
 			bytes: Buffer.from("x"),
 			mimeType: "text/plain",
@@ -180,29 +158,34 @@ describe("extractDocument", () => {
 			filename: "spec.txt",
 			condenser,
 		});
+		expect(result.extract).toBe("THE EXTRACT BODY");
 		expect(result.title).toBe("ANC Requirements");
 		expect(result.summary).toBe("What it covers.");
-		// The structured pass runs over the EXTRACT just produced, not the raw doc.
-		expect(structured).toHaveBeenCalledWith(
-			expect.objectContaining({ prompt: "THE EXTRACT BODY" }),
-		);
 	});
 
-	it("leaves title/summary absent when the structured pass yields null", async () => {
-		const { condenser } = recordingCondenser(
-			{ text: "EXTRACT", truncated: false },
-			null,
-		);
-		const result = await extractDocument({
-			bytes: Buffer.from("x"),
-			mimeType: "text/plain",
-			kind: "text",
-			filename: "spec.txt",
-			condenser,
-		});
-		// The extract is never lost; title/summary are simply undefined.
-		expect(result.extract).toBe("EXTRACT");
-		expect(result.title).toBeUndefined();
-		expect(result.summary).toBeUndefined();
+	it("fails the extraction (output-ceiling message) when a truncated call yields no object", async () => {
+		const { condenser } = recordingCondenser(null, true);
+		await expect(
+			extractDocument({
+				bytes: Buffer.from("x"),
+				mimeType: "text/plain",
+				kind: "text",
+				filename: "big.txt",
+				condenser,
+			}),
+		).rejects.toThrow(/output ceiling/);
+	});
+
+	it("fails the extraction (no-parseable-result message) when a non-truncated call yields no object", async () => {
+		const { condenser } = recordingCondenser(null, false);
+		await expect(
+			extractDocument({
+				bytes: Buffer.from("x"),
+				mimeType: "text/plain",
+				kind: "text",
+				filename: "spec.txt",
+				condenser,
+			}),
+		).rejects.toThrow(/no parseable result/);
 	});
 });

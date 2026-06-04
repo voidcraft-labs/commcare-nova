@@ -27,9 +27,7 @@ import * as XLSX from "xlsx";
 import { z } from "zod";
 import type { DocumentKind } from "@/lib/domain/multimedia";
 import {
-	extractFromContentWith,
 	generateObjectWith,
-	generatePlainTextWith,
 	type SubGenerationProviderOptions,
 } from "./subGeneration";
 
@@ -40,25 +38,15 @@ import {
 // change here.
 
 /**
- * One condensing sub-generation's result: the extracted `text`, and whether the
- * model hit its output ceiling (`truncated`). Truncation is an extreme edge —
- * only a document whose faithful extract exceeds the model's max output (64k
- * tokens) — but it must not pass silently: the chat resolve step appends a note
- * so the SA knows the extract is incomplete rather than treating a cut-off as
- * the whole document (and retrying the same doc to the same dead end).
- */
-export interface CondenseResult {
-	text: string;
-	truncated: boolean;
-}
-
-/**
- * What `extractDocument` returns: the faithful `extract` (the text the SA reads)
- * and whether it was `truncated`, plus an OPTIONAL `title` / `summary` from a
- * separate structured pass over the extract. Title/summary are best-effort —
- * absent when that pass fails — and exist for a future "browse my attachments"
- * tool to scan attachments without opening each one; the SA reading path uses
- * only `extract`.
+ * What `extractDocument` returns: the faithful `extract` (the text the SA reads),
+ * plus a `title` and `summary` describing it. All three come from ONE structured
+ * call (see `extractDocument`). `title`/`summary` are typed optional only because
+ * older stored extracts (produced before they existed) lack them and a failed
+ * extraction has none; a fresh successful extract always carries both. `truncated`
+ * is retained for the stored shape but is always `false` on a fresh extract — a
+ * structured result is complete by construction (a truncated one is unparseable,
+ * so extraction fails rather than returning a partial). `title`/`summary` feed a
+ * future "browse my attachments" tool; the SA reading path uses only `extract`.
  */
 export interface ExtractResult {
 	extract: string;
@@ -67,55 +55,52 @@ export interface ExtractResult {
 	summary?: string;
 }
 
-/** Options for the structured pass (`generateStructured`): a system prompt, the
- *  text `prompt` (the already-produced extract), and the Zod `schema` to fill. */
-export interface GenerateStructuredOpts<T> {
+/**
+ * Options for the one structured extraction call. The document arrives either as
+ * decoded text (`prompt`, for text/docx/xlsx) or as a native file block (`file` +
+ * `instruction`, for a PDF the model reads directly). `schema` is the
+ * `{ extract, title, summary }` shape the model fills.
+ */
+export interface ExtractDocumentStructuredOpts<T> {
 	system: string;
-	prompt: string;
+	prompt?: string;
+	file?: { mediaType: string; data: string };
+	instruction?: string;
 	schema: z.ZodType<T>;
 	label: string;
 	model?: string;
 	maxOutputTokens?: number;
 	providerOptions?: SubGenerationProviderOptions;
+	/** When false, a failure is logged but NOT surfaced as a user-facing generation
+	 *  error — extraction's callers (the upload route, the chat backstop) own the
+	 *  failure path. The error is still thrown so the caller's catch runs. */
+	emitErrors?: boolean;
+}
+
+/** The one structured call's result: the filled `object` (or `null` when the
+ *  model couldn't produce a valid one — truncation or a malformed response) and
+ *  whether it hit the output ceiling. */
+export interface StructuredExtractResult<T> {
+	object: T | null;
+	truncated: boolean;
 }
 
 /**
  * The slice of generation capability extraction needs. Narrowing to this
  * interface (rather than the full `GenerationContext`) is what lets BOTH the
  * standalone Gemini condenser (the upload route) and the live `GenerationContext`
- * (the chat lazy backstop) drive the exact same orchestration.
- * `GenerationContext` satisfies this structurally; `createGeminiCondenser` builds
- * a tiny backend over `subGeneration.ts`.
+ * (the chat lazy backstop) drive the exact same orchestration. `GenerationContext`
+ * satisfies this structurally; `createGeminiCondenser` builds a tiny backend over
+ * `subGeneration.ts`.
  *
- * `generatePlainText` / `extractFromContent` produce the (free-form) extract;
- * `generateStructured` produces the small `{ title, summary }` over that extract
- * — a SEPARATE method so the extract is never routed through constrained
- * decoding, which both risks a weaker extract and, on a large document,
- * truncates the whole object into something unparseable.
+ * ONE method, ONE model call: it fills `{ extract, title, summary }` from the
+ * document in a single structured generation — the model writes the extract first
+ * (schema field order), then names + summarizes what it just produced.
  */
 export interface AttachmentCondenser {
-	generatePlainText(opts: {
-		system: string;
-		prompt: string;
-		label: string;
-		model?: string;
-		maxOutputTokens?: number;
-		providerOptions?: SubGenerationProviderOptions;
-		emitErrors?: boolean;
-	}): Promise<CondenseResult>;
-	extractFromContent(opts: {
-		system: string;
-		instruction: string;
-		file: { mediaType: string; data: string };
-		label: string;
-		model?: string;
-		maxOutputTokens?: number;
-		providerOptions?: SubGenerationProviderOptions;
-		emitErrors?: boolean;
-	}): Promise<CondenseResult>;
-	/** Structured pass over an extract. Returns `null` when the model can't
-	 *  produce a valid object — the caller treats the fields as unavailable. */
-	generateStructured<T>(opts: GenerateStructuredOpts<T>): Promise<T | null>;
+	extractDocumentStructured<T>(
+		opts: ExtractDocumentStructuredOpts<T>,
+	): Promise<StructuredExtractResult<T>>;
 }
 
 // ── Tuning constants (not user-configurable) ────────────────────────────
@@ -257,7 +242,7 @@ DON'T INVENT:
 - Do not upgrade required/optional status the document doesn't give: "record whether…" is
   not "required". If unstated, leave it [OPEN].
 
-OUTPUT — Markdown, structured by SECTIONS rather than per-line tags:
+The \`extract\` FIELD — Markdown, structured by SECTIONS rather than per-line tags:
 - Begin with one line: \`Document type: <type> | Source: <filename>\`.
 - Group everything under \`##\` headings that follow the document's own structure
   (each form, each case type, app-level requirements, out-of-scope, annexes).
@@ -274,19 +259,33 @@ OUTPUT — Markdown, structured by SECTIONS rather than per-line tags:
   sparse and load-bearing: [CONFLICT] (two parts of the document disagree), [GAP]
   (one part needs what another never supplies), [OPEN] (an unfilled / TBD value),
   [INFERRED] (implied but not stated). Never drop these.
-- No preamble, no closing summary.`;
+- No preamble, no closing summary.
 
-// ── Title + summary (the decoupled structured pass) ──────────────────────────
+After the \`extract\`, fill the \`title\` and \`summary\` fields — written AFTER, from
+the extract you just produced: \`title\` is a short human name for the document
+(what it IS, ~ten words or fewer, no filename); \`summary\` is two to four
+plain-prose sentences (no markdown) for triage — enough to judge whether this is
+the document someone needs. Both describe the extract faithfully; invent no scope
+it doesn't contain.`;
+
+// ── The structured extraction result ─────────────────────────────────────────
 
 /**
- * The structured `{ title, summary }` produced by a SECOND small call over the
- * already-produced extract. Decoupled from the extract on purpose: the extract
- * stays free-form (so constrained decoding can't weaken it, and a huge document
- * only loses its tail), while title/summary — which a future "browse my
- * attachments" tool reads to scan attachments without opening each extract —
- * come from a structured call rather than by parsing the extract's markdown.
+ * The ONE structured object the extraction call fills. Field ORDER is
+ * load-bearing: a provider's controlled generation emits properties in schema
+ * order, so `extract` FIRST means the model does the bulk of the work — the
+ * faithful extract — and only THEN writes `title`/`summary` from what it just
+ * produced. That yields a better title/summary than guessing up front, and means
+ * any output-ceiling truncation lands in the trailing title/summary (the least
+ * costly place to lose) rather than mid-extract. The extract's content rules live
+ * in `EXTRACT_SYSTEM`; the per-field `.describe()`s carry the title/summary guidance.
  */
-export const extractMetaSchema = z.object({
+export const extractDocumentSchema = z.object({
+	extract: z
+		.string()
+		.describe(
+			"The faithful requirements extract as GitHub-flavored Markdown, following the OUTPUT rules in the system instructions exactly: sectioned under ## headings, every label / option / rule reproduced verbatim and enumerated in full, with the sparse [CONFLICT] / [GAP] / [OPEN] / [INFERRED] flags kept inline.",
+		),
 	title: z
 		.string()
 		.describe(
@@ -298,17 +297,7 @@ export const extractMetaSchema = z.object({
 			"Two to four sentences in plain prose (no markdown): what this document is and what it covers, enough for someone to judge whether it's the one they need WITHOUT opening the full extract.",
 		),
 });
-export type ExtractMeta = z.infer<typeof extractMetaSchema>;
-
-/** System prompt for the title/summary pass. It runs over the EXTRACT, not the
- *  raw document, so it's cheap and can't truncate the way a giant raw file can.
- *  Triage, not re-extraction — and faithful to the extract (invent no scope). */
-export const EXTRACT_META_SYSTEM = `You are labeling a requirements extract for a CommCare app builder so it can be browsed without being opened. Given the extract, produce a short title and a brief summary of what the document contains. Be faithful to the extract — never invent scope it doesn't mention. The summary is for triage ("is this the document I need?"), not a re-extraction.`;
-
-/** Output ceiling for the title/summary pass. A title plus a few sentences sits
- *  far under this even with the model's thinking tokens, so — unlike the extract
- *  — it does not truncate; a failure here just leaves title/summary absent. */
-const EXTRACT_META_MAX_OUTPUT_TOKENS = 8_000;
+export type ExtractDocumentResult = z.infer<typeof extractDocumentSchema>;
 
 // ── Pure conversion helpers ────────────────────────────────────────────────
 
@@ -381,21 +370,21 @@ export function xlsxToMarkdown(buffer: Buffer): string {
 /**
  * Extract ONE document into an `ExtractResult` — the faithful `extract` text the
  * SA reads (no chat-context framing; the resolve step wraps it with the
- * `<<Attachment: …>>` marker + any truncation note) PLUS a best-effort
- * `{ title, summary }`. Two passes:
+ * `<<Attachment: …>>` marker), plus a `title` and `summary`, all from a SINGLE
+ * structured model call:
  *
- *   1. The extract (FREE-FORM). PDF → a NATIVE document block (the model reads
- *      the original, preserving layout a flat decode would lose); text/docx/xlsx
- *      → decode to markdown (docx via mammoth, xlsx via SheetJS, text verbatim),
- *      then condense.
- *   2. Title + summary — a separate small STRUCTURED pass over the extract. It's
- *      decoupled so the extract is never routed through constrained decoding; a
- *      failure there leaves title/summary absent (the extract is already in hand).
+ *   - PDF → a NATIVE document block (the model reads the original, preserving
+ *     layout a flat decode would lose); text/docx/xlsx → decode to markdown
+ *     (docx via mammoth, xlsx via SheetJS, text verbatim), then condense.
+ *   - The model fills `extractDocumentSchema` in field order — `extract` first
+ *     (the bulk of the work), then `title`/`summary` from what it just produced.
  *
- * Throws only if the EXTRACT pass fails — the caller decides how to handle it:
- * the upload route records a `failed` status; the chat lazy backstop falls back
- * to inlining the raw document so the requirement detail still reaches the SA.
- * The title/summary pass never throws out of here (it resolves to `null`).
+ * Throws when the call yields no parseable object (a transport error propagates;
+ * a `null` object — truncation past the output ceiling, or a malformed response —
+ * is turned into a thrown error here). There's no partial extract to salvage from
+ * a structured call, so the caller treats this as a failed extraction: the upload
+ * route records a `failed` status; the chat lazy backstop falls back to inlining
+ * the raw document so the requirement detail still reaches the SA.
  */
 export async function extractDocument(opts: {
 	bytes: Buffer;
@@ -406,22 +395,24 @@ export async function extractDocument(opts: {
 }): Promise<ExtractResult> {
 	const { bytes, mimeType, kind, filename, condenser } = opts;
 
-	// 1. The faithful extract — free-form (see the JSDoc).
-	let condensed: CondenseResult;
+	// ONE structured call produces { extract, title, summary } together. A PDF
+	// rides as a native document block; text/docx/xlsx decode to markdown first.
+	// The caller (route / backstop) owns the failure path, so `emitErrors: false`
+	// keeps a generation error from surfacing to the user from in here.
+	let result: StructuredExtractResult<ExtractDocumentResult>;
 	if (kind === "pdf") {
-		condensed = await condenser.extractFromContent({
+		result = await condenser.extractDocumentStructured({
 			system: EXTRACT_SYSTEM,
-			instruction: `Extract every requirement from this document. Filename: ${filename}.`,
 			file: {
 				mediaType: mimeType,
 				data: `data:${mimeType};base64,${bytes.toString("base64")}`,
 			},
+			instruction: `Extract every requirement from this document. Filename: ${filename}.`,
+			schema: extractDocumentSchema,
 			label: `extract:${filename}`,
 			model: CONDENSER_MODEL,
 			providerOptions: CONDENSER_PROVIDER_OPTIONS,
 			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
-			// The caller (route / backstop) owns the failure path; don't surface a
-			// user-facing generation error from inside the condenser.
 			emitErrors: false,
 		});
 	} else {
@@ -431,13 +422,14 @@ export async function extractDocument(opts: {
 				: kind === "xlsx"
 					? xlsxToMarkdown(bytes)
 					: bytes.toString("utf-8");
-		condensed = await condenser.generatePlainText({
+		result = await condenser.extractDocumentStructured({
 			system: EXTRACT_SYSTEM,
 			// The filename leads the user turn (separated from the body by a blank
 			// line so it reads as metadata, not a requirement) — it's the only way
 			// the model can fill the prompt's `Source:` line without violating the
 			// same prompt's "never invent a value" rule. The body follows verbatim.
 			prompt: `Filename: ${filename}\n\n${body}`,
+			schema: extractDocumentSchema,
 			label: `extract:${filename}`,
 			model: CONDENSER_MODEL,
 			providerOptions: CONDENSER_PROVIDER_OPTIONS,
@@ -446,34 +438,26 @@ export async function extractDocument(opts: {
 		});
 	}
 
-	// 2. Title + summary — a separate small structured pass over the extract just
-	//    produced. Best-effort: a `null` object (the model couldn't produce a valid
-	//    one) OR a thrown transport error both leave title/summary absent. The
-	//    extract is already in hand and must never be discarded over a metadata
-	//    failure. The guard lives HERE, not only inside a condenser, so the JSDoc's
-	//    "never throws out of here" contract holds for EVERY `AttachmentCondenser`:
-	//    `GenerationContext`'s swallows its own errors, but the Gemini condenser
-	//    surfaces the non-`NoObjectGenerated` re-throw that `generateObjectWith`
-	//    deliberately propagates (a transient network/auth/5xx on the meta call).
-	let meta: ExtractMeta | null = null;
-	try {
-		meta = await condenser.generateStructured<ExtractMeta>({
-			system: EXTRACT_META_SYSTEM,
-			prompt: condensed.text,
-			schema: extractMetaSchema,
-			label: `extract-meta:${filename}`,
-			model: CONDENSER_MODEL,
-			maxOutputTokens: EXTRACT_META_MAX_OUTPUT_TOKENS,
-		});
-	} catch {
-		// Swallowed deliberately: the extract succeeded; title/summary stay absent.
+	// A `null` object means no parseable result. The common cause is truncation —
+	// the extract + title + summary together overran the output ceiling, leaving
+	// the JSON cut off. A structured call has no partial to salvage, so this is a
+	// failed extraction: throw, and the caller records `failed` / inlines the raw
+	// document.
+	if (!result.object) {
+		throw new Error(
+			result.truncated
+				? `Extraction of "${filename}" hit the summarizer's output ceiling before it could finish — the document is too large to extract in one pass. Ask the user to split it into smaller documents.`
+				: `Extraction of "${filename}" produced no parseable result from the summarizer. Retry, or ask the user to re-save the document in a supported format.`,
+		);
 	}
 
 	return {
-		extract: condensed.text,
-		truncated: condensed.truncated,
-		title: meta?.title,
-		summary: meta?.summary,
+		extract: result.object.extract,
+		title: result.object.title,
+		summary: result.object.summary,
+		// A parsed structured object is complete by construction (a truncated one is
+		// unparseable → thrown above), so a successful extract is never partial.
+		truncated: false,
 	};
 }
 
@@ -484,10 +468,11 @@ export async function extractDocument(opts: {
  * chat `GenerationContext` and so needs its own provider-bound backend.
  *
  * Fails loud if `GOOGLE_GENERATIVE_AI_API_KEY` is unset — extraction is a
- * platform feature, not something to silently skip. It ignores the `model`/
- * `label`/`emitErrors` opts (those are `GenerationContext`-isms): the model is
- * pre-bound here, there's no SSE to emit to, and `truncated` is derived from the
- * sub-generation's `finishReason`.
+ * platform feature, not something to silently skip. It ignores the `model` /
+ * `label` / `emitErrors` opts (those are `GenerationContext`-isms): the model is
+ * pre-bound here and there's no SSE to emit to, so a transport error simply
+ * propagates to the route's catch. `truncated` is derived from the structured
+ * call's `finishReason`.
  */
 export function createGeminiCondenser(): AttachmentCondenser {
 	const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -498,39 +483,18 @@ export function createGeminiCondenser(): AttachmentCondenser {
 	}
 	const model = createGoogleGenerativeAI({ apiKey })(CONDENSER_MODEL);
 	return {
-		async generatePlainText(args) {
-			const r = await generatePlainTextWith({
+		async extractDocumentStructured(args) {
+			const r = await generateObjectWith({
 				model,
 				system: args.system,
-				prompt: args.prompt,
-				maxOutputTokens: args.maxOutputTokens,
-				providerOptions: args.providerOptions,
-			});
-			return { text: r.text, truncated: r.finishReason === "length" };
-		},
-		async extractFromContent(args) {
-			const r = await extractFromContentWith({
-				model,
-				system: args.system,
-				instruction: args.instruction,
-				file: args.file,
-				maxOutputTokens: args.maxOutputTokens,
-				providerOptions: args.providerOptions,
-			});
-			return { text: r.text, truncated: r.finishReason === "length" };
-		},
-		async generateStructured<T>(
-			args: GenerateStructuredOpts<T>,
-		): Promise<T | null> {
-			const r = await generateObjectWith<T>({
-				model,
-				system: args.system,
-				prompt: args.prompt,
 				schema: args.schema,
+				prompt: args.prompt,
+				file: args.file,
+				instruction: args.instruction,
 				maxOutputTokens: args.maxOutputTokens,
 				providerOptions: args.providerOptions,
 			});
-			return r.object;
+			return { object: r.object, truncated: r.finishReason === "length" };
 		},
 	};
 }

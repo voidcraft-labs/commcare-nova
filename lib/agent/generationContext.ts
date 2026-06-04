@@ -64,16 +64,11 @@ import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
 import type {
-	CondenseResult,
-	GenerateStructuredOpts,
+	ExtractDocumentStructuredOpts,
+	StructuredExtractResult,
 } from "./documentExtraction";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
-import {
-	extractFromContentWith,
-	generateObjectWith,
-	generatePlainTextWith,
-	type SubGenerationProviderOptions,
-} from "./subGeneration";
+import { generateObjectWith } from "./subGeneration";
 import type { ToolExecutionContext } from "./toolExecutionContext";
 
 /** Log AI SDK warnings to the console if present. */
@@ -640,164 +635,57 @@ export class GenerationContext implements ToolExecutionContext {
 		});
 	}
 
-	/** Text-only generation (no schema) with automatic usage tracking. */
-	async generatePlainText(opts: {
-		system: string;
-		prompt: string;
-		label: string;
-		model?: string;
-		maxOutputTokens?: number;
-		/** Provider options for the resolved model — e.g. Gemini's thinking level
-		 *  and media resolution for the document summarizer. Provider-neutral here;
-		 *  the value is built by the caller (see `attachments.ts`). */
-		providerOptions?: SubGenerationProviderOptions;
-		/** When false, a failure is logged but NOT surfaced as a user-facing
-		 *  generation error — for callers that recover from the failure themselves
-		 *  (e.g. attachment extraction falling back to the raw document text). The
-		 *  error is still thrown so the caller's catch runs. Defaults to emitting. */
-		emitErrors?: boolean;
-	}): Promise<CondenseResult> {
-		try {
-			const model = opts.model ?? MODEL_DEFAULT;
-			// `resolveModel` routes the id to its provider (Gemini → Google for the
-			// summarizer, otherwise Anthropic). `generatePlainTextWith` is the
-			// shared core the attachment-preview script also drives.
-			const result = await generatePlainTextWith({
-				model: this.resolveModel(model),
-				system: opts.system,
-				prompt: opts.prompt,
-				maxOutputTokens: opts.maxOutputTokens,
-				providerOptions: opts.providerOptions,
-			});
-			logWarnings(`generatePlainText:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage);
-			// `"length"` = the model hit the output cap; surface it so the
-			// attachment pipeline can note the extract is incomplete.
-			return {
-				text: result.text,
-				truncated: result.finishReason === "length",
-			};
-		} catch (error) {
-			if (opts.emitErrors === false) {
-				log.warn(
-					`generatePlainText:${opts.label} failed; caller will recover`,
-					{
-						error: error instanceof Error ? error.message : String(error),
-					},
-				);
-			} else {
-				this.emitError(classifyError(error), `generatePlainText:${opts.label}`);
-			}
-			throw error;
-		}
-	}
-
 	/**
-	 * Multimodal sibling of `generatePlainText`: sends a text instruction plus a
-	 * single file content block — a native document/image block the provider
-	 * hands to the model intact — and returns the model's text plus whether it hit
-	 * the output cap (`truncated`).
-	 *
-	 * The distinction from `generatePlainText` is the input shape, not the
-	 * output: `generatePlainText` carries an already-decoded text `prompt`,
-	 * whereas this method carries the file's raw payload (a `data:` URL or
-	 * base64) so the model reads the original document directly. That matters
-	 * for PDFs, where decoding to text on our side would lose layout and embedded
-	 * structure the model can otherwise use.
-	 *
-	 * `data` is a `DataContent` string (typically a `data:` URL); the Anthropic
-	 * provider detects the media type and emits the matching native block.
-	 *
-	 * Usage tracks through the same accumulator as every other sub-generation,
-	 * so an extraction call shows up on the per-run cost summary alongside the
-	 * main agent loop.
-	 */
-	async extractFromContent(opts: {
-		system: string;
-		instruction: string;
-		file: { mediaType: string; data: string };
-		label: string;
-		model?: string;
-		maxOutputTokens?: number;
-		/** Provider options for the resolved model — e.g. Gemini's thinking level
-		 *  and media resolution (the latter governs how a PDF is rasterized before
-		 *  the model reads it). See `generatePlainText`. */
-		providerOptions?: SubGenerationProviderOptions;
-		/** See `generatePlainText` — false logs but does not surface a user-facing
-		 *  error, for callers that recover (attachment extraction → native PDF). */
-		emitErrors?: boolean;
-	}): Promise<CondenseResult> {
-		try {
-			const model = opts.model ?? MODEL_DEFAULT;
-			// `resolveModel` routes to the provider (Gemini → Google for the
-			// summarizer). The native file block reaches the model through the
-			// identical content shape regardless of provider.
-			const result = await extractFromContentWith({
-				model: this.resolveModel(model),
-				system: opts.system,
-				instruction: opts.instruction,
-				file: opts.file,
-				maxOutputTokens: opts.maxOutputTokens,
-				providerOptions: opts.providerOptions,
-			});
-			logWarnings(`extractFromContent:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage);
-			return {
-				text: result.text,
-				truncated: result.finishReason === "length",
-			};
-		} catch (error) {
-			if (opts.emitErrors === false) {
-				log.warn(
-					`extractFromContent:${opts.label} failed; caller will recover`,
-					{
-						error: error instanceof Error ? error.message : String(error),
-					},
-				);
-			} else {
-				this.emitError(
-					classifyError(error),
-					`extractFromContent:${opts.label}`,
-				);
-			}
-			throw error;
-		}
-	}
-
-	/**
-	 * Structured pass over an already-produced extract — the decoupled
-	 * `{ title, summary }` for `extractDocument`. Routes via `resolveModel` (the
-	 * Gemini summarizer) and the provider's controlled generation
+	 * The ONE document-extraction call: fills `{ extract, title, summary }` from a
+	 * document (decoded text as `prompt`, or a native `file` block for a PDF) in a
+	 * single structured generation. Routes via `resolveModel` (Gemini → Google for
+	 * the summarizer) and the provider's controlled generation
 	 * (`generateObjectWith`), NOT the Anthropic `Output.object` path `generate`
-	 * uses — title/summary run on the document summarizer, not the SA's model.
+	 * uses — extraction runs on the document summarizer, not the SA's model. Usage
+	 * tracks through the same accumulator as every other sub-generation, so an
+	 * extraction shows up on the per-run cost summary alongside the main agent loop.
 	 *
-	 * Best-effort by contract: returns `null` (never throws) on any failure — a
-	 * malformed/truncated object OR a transport error. The extract it summarizes
-	 * already succeeded, so a missing title/summary must not fail the turn or
-	 * surface a user-facing error; it's logged and dropped. Usage is still tracked
-	 * when the call reports it.
+	 * Returns `{ object, truncated }`. `object` is `null` when the model couldn't
+	 * produce a valid object — truncation past `maxOutputTokens` (`truncated: true`)
+	 * or a malformed response — which the caller treats as a failed extraction (a
+	 * structured call has no partial to salvage). `emitErrors: false` logs a
+	 * transport error rather than surfacing it as a user-facing generation error
+	 * (the attachment pipeline recovers by inlining the raw document); the error is
+	 * still re-thrown so the caller's catch runs.
 	 */
-	async generateStructured<T>(
-		opts: GenerateStructuredOpts<T>,
-	): Promise<T | null> {
+	async extractDocumentStructured<T>(
+		opts: ExtractDocumentStructuredOpts<T>,
+	): Promise<StructuredExtractResult<T>> {
 		try {
+			// `resolveModel` routes the id to its provider (Gemini → Google for the
+			// summarizer). `generateObjectWith` is the shared structured-generation
+			// core the attachment-preview script also drives; a PDF rides as a native
+			// `file` block, text/docx/xlsx as a decoded `prompt`.
 			const result = await generateObjectWith<T>({
 				model: this.resolveModel(opts.model ?? MODEL_DEFAULT),
 				system: opts.system,
-				prompt: opts.prompt,
 				schema: opts.schema,
+				prompt: opts.prompt,
+				file: opts.file,
+				instruction: opts.instruction,
 				maxOutputTokens: opts.maxOutputTokens,
 				providerOptions: opts.providerOptions,
 			});
-			logWarnings(`generateStructured:${opts.label}`, result.warnings);
+			logWarnings(`extractDocument:${opts.label}`, result.warnings);
 			if (result.usage) this.trackSubGeneration(result.usage);
-			return result.object;
+			return {
+				object: result.object,
+				truncated: result.finishReason === "length",
+			};
 		} catch (error) {
-			log.warn(
-				`generateStructured:${opts.label} failed; title/summary dropped`,
-				{ error: error instanceof Error ? error.message : String(error) },
-			);
-			return null;
+			if (opts.emitErrors === false) {
+				log.warn(`extractDocument:${opts.label} failed; caller will recover`, {
+					error: error instanceof Error ? error.message : String(error),
+				});
+			} else {
+				this.emitError(classifyError(error), `extractDocument:${opts.label}`);
+			}
+			throw error;
 		}
 	}
 

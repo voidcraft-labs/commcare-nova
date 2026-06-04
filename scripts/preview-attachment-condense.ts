@@ -42,11 +42,8 @@ import {
 	extractDocument,
 } from "../lib/agent/documentExtraction";
 import {
-	extractFromContentWith,
 	generateObjectWith,
-	generatePlainTextWith,
 	type SubGenerationProviderOptions,
-	type SubGenerationResult,
 } from "../lib/agent/subGeneration";
 import {
 	assetKindForExtension,
@@ -141,7 +138,6 @@ interface RunStats {
 	inputTokens: number;
 	outputTokens: number;
 	calls: number;
-	truncated: boolean;
 }
 
 /**
@@ -154,52 +150,25 @@ function makeCondenser(
 	stats: RunStats,
 	providerOptions?: SubGenerationProviderOptions,
 ): AttachmentCondenser {
-	const track = (result: SubGenerationResult) => {
-		stats.calls += 1;
-		stats.inputTokens += result.usage?.inputTokens ?? 0;
-		stats.outputTokens += result.usage?.outputTokens ?? 0;
-		if (result.finishReason === "length") stats.truncated = true;
-	};
 	return {
-		async generatePlainText(opts) {
-			const r = await generatePlainTextWith({
-				model,
-				system: opts.system,
-				prompt: opts.prompt,
-				maxOutputTokens: opts.maxOutputTokens,
-				providerOptions,
-			});
-			track(r);
-			return { text: r.text, truncated: r.finishReason === "length" };
-		},
-		async extractFromContent(opts) {
-			const r = await extractFromContentWith({
-				model,
-				system: opts.system,
-				instruction: opts.instruction,
-				file: opts.file,
-				maxOutputTokens: opts.maxOutputTokens,
-				providerOptions,
-			});
-			track(r);
-			return { text: r.text, truncated: r.finishReason === "length" };
-		},
-		async generateStructured(opts) {
-			// The title/summary pass passes no providerOptions (default thinking);
-			// substitute this run's model + record usage like the text passes.
+		// The one structured extraction call. Substitutes THIS run's model for the
+		// id extractDocument passes (production's Gemini) — the whole point of the
+		// swap — and records usage for the cost print.
+		async extractDocumentStructured(opts) {
 			const r = await generateObjectWith({
 				model,
 				system: opts.system,
-				prompt: opts.prompt,
 				schema: opts.schema,
+				prompt: opts.prompt,
+				file: opts.file,
+				instruction: opts.instruction,
 				maxOutputTokens: opts.maxOutputTokens,
 				providerOptions: opts.providerOptions ?? providerOptions,
 			});
 			stats.calls += 1;
 			stats.inputTokens += r.usage?.inputTokens ?? 0;
 			stats.outputTokens += r.usage?.outputTokens ?? 0;
-			if (r.finishReason === "length") stats.truncated = true;
-			return r.object;
+			return { object: r.object, truncated: r.finishReason === "length" };
 		},
 	};
 }
@@ -244,7 +213,6 @@ async function runModel(spec: ModelSpec, path: string): Promise<void> {
 		inputTokens: 0,
 		outputTokens: 0,
 		calls: 0,
-		truncated: false,
 	};
 	let result: Awaited<ReturnType<typeof extractDocument>>;
 	try {
@@ -266,12 +234,8 @@ async function runModel(spec: ModelSpec, path: string): Promise<void> {
 	console.log(
 		`  tokens: ${stats.inputTokens.toLocaleString()} in → ${stats.outputTokens.toLocaleString()} out  ·  est. cost ${DOLLARS(cost)}  ·  ${stats.calls} call(s)`,
 	);
-	if (stats.truncated) {
-		console.log(
-			"  ⚠️  hit the output ceiling — extract is truncated; the SA gets a note saying so.",
-		);
-	}
-	// Title/summary come from the separate structured pass (absent if it failed).
+	// Title/summary come from the same single structured call as the extract
+	// (truncation surfaces as a thrown "extraction failed" above, not a partial).
 	console.log(`  title:   ${title ?? "—"}`);
 	console.log(`  summary: ${summary ?? "—"}`);
 	console.log(`  extract: ${extract.length.toLocaleString()} chars\n`);

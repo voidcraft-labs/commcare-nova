@@ -55,17 +55,15 @@ vi.mock("@/lib/storage/media", () => ({
 	writeTextObject: writeTextObjectMock,
 }));
 
-/** A condenser whose lazy-backstop extraction returns a fixed result. */
+/** A condenser whose lazy-backstop extraction returns a fixed result from the
+ *  one structured call. Title/summary are irrelevant to these resolve-path
+ *  assertions; cast because `vi.fn` can't express the generic method signature. */
 function stubCondenser(text = "LAZY EXTRACT"): AttachmentCondenser {
 	return {
-		generatePlainText: vi.fn(async () => ({ text, truncated: false })),
-		extractFromContent: vi.fn(async () => ({ text, truncated: false })),
-		// These tests assert on the EXTRACT resolution, not title/summary; the
-		// structured pass returns null (metadata simply absent). Cast because
-		// `vi.fn` can't express the generic method signature.
-		generateStructured: vi.fn(
-			async () => null,
-		) as unknown as AttachmentCondenser["generateStructured"],
+		extractDocumentStructured: vi.fn(async () => ({
+			object: { extract: text, title: "T", summary: "S" },
+			truncated: false,
+		})) as unknown as AttachmentCondenser["extractDocumentStructured"],
 	};
 }
 
@@ -127,7 +125,7 @@ describe("resolveAttachments", () => {
 		expect(texts.some((t) => t.includes("STORED EXTRACT BODY"))).toBe(true);
 		expect(texts.some((t) => t.includes("spec.md"))).toBe(true);
 		// Reused the stored extract — no lazy extraction.
-		expect(condenser.generatePlainText).not.toHaveBeenCalled();
+		expect(condenser.extractDocumentStructured).not.toHaveBeenCalled();
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});
 
@@ -143,7 +141,7 @@ describe("resolveAttachments", () => {
 		);
 		const texts = msg.parts.filter((p) => p.type === "text").map((p) => p.text);
 		expect(texts.some((t) => t.includes("FRESH EXTRACT"))).toBe(true);
-		expect(condenser.generatePlainText).toHaveBeenCalledOnce();
+		expect(condenser.extractDocumentStructured).toHaveBeenCalledOnce();
 		// Persisted for reuse next turn.
 		expect(writeTextObject).toHaveBeenCalledOnce();
 		expect(setAssetExtractStatus).toHaveBeenCalledWith(
