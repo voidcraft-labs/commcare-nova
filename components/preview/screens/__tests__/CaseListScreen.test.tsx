@@ -595,17 +595,20 @@ const TRIGGER_RE = /reset sample data/i;
 const CONFIRM_RE = /^reset$/i;
 
 /**
- * Generous wait for the Reset confirmation dialog to open. The dialog
- * opens in milliseconds under a normal `npm test`, but the pre-push
- * async-leak gate runs the whole suite under `--detect-async-leaks` —
- * `node:async_hooks` instrumentation plus full file-parallelism can
- * starve a worker of CPU long enough that the default 1s `findBy` window
- * lapses before the click's open commits. This wider window absorbs that
- * scheduling jitter; it never lengthens a normal run because the dialog
- * is already present well before the timeout. See the "Testing —
- * async-resource leaks" section in CLAUDE.md.
+ * Generous wait window for any assertion that depends on an async round-trip
+ * completing — the Reset confirmation dialog mounting, or an action's resolved
+ * `error` arm re-rendering into the DOM. Under a normal `npm test` these land
+ * in milliseconds, but the pre-push async-leak gate runs the whole suite under
+ * `--detect-async-leaks` — `node:async_hooks` instrumentation plus full
+ * file-parallelism can starve a worker of CPU long enough that the default 1s
+ * `findBy`/`waitFor` window lapses before the update commits. When that
+ * happens the test fails AND ends before the screen's in-flight effects
+ * settle, so their timers dangle as a reported leak. This wider window absorbs
+ * that scheduling jitter; it never lengthens a normal run because the awaited
+ * content is present well before the timeout. See the "Testing — async-resource
+ * leaks" section in CLAUDE.md.
  */
-const DIALOG_OPEN_TIMEOUT_MS = 5_000;
+const CONTENTION_TOLERANT_TIMEOUT_MS = 5_000;
 
 /**
  * Click the Reset trigger and wait for the confirmation dialog to mount,
@@ -617,7 +620,7 @@ async function openResetDialog(): Promise<HTMLElement> {
 	return screen.findByRole(
 		"alertdialog",
 		{},
-		{ timeout: DIALOG_OPEN_TIMEOUT_MS },
+		{ timeout: CONTENTION_TOLERANT_TIMEOUT_MS },
 	);
 }
 
@@ -788,9 +791,18 @@ describe("CaseListScreen — Reset sample data", () => {
 		fireEvent.click(screen.getByRole("button", { name: CONFIRM_RE }));
 		// The screen surfaces the action's `message` slot verbatim
 		// for the `error` arm — the user-facing string maps 1:1 to
-		// the case-store / wire failure mode.
-		await waitFor(() => {
-			expect(screen.getByText("Could not reach the case store.")).toBeDefined();
-		});
+		// the case-store / wire failure mode. The error text only appears
+		// after the action promise resolves and the screen re-renders, so the
+		// wait needs the contention-tolerant window: under the leak detector
+		// that async round-trip can outlast the default 1s, which would fail
+		// the test and leave its in-flight effects' timers dangling.
+		await waitFor(
+			() => {
+				expect(
+					screen.getByText("Could not reach the case store."),
+				).toBeDefined();
+			},
+			{ timeout: CONTENTION_TOLERANT_TIMEOUT_MS },
+		);
 	});
 });
