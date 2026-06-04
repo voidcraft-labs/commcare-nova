@@ -34,6 +34,11 @@ function reqWith(query: string) {
 	} as Parameters<typeof GET>[0];
 }
 
+/** Drain a handler response's body. An unread `NextResponse.json` body leaves a
+ *  pending promise the async-leak gate flags, so status-only assertions still
+ *  consume it. */
+const drainBody = (res: Response): Promise<string> => res.text();
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -51,6 +56,7 @@ describe("GET /api/media/library kind filter", () => {
 			kind: "pdf",
 			cursor: undefined,
 		});
+		await drainBody(res);
 	});
 
 	it("accepts every document kind", async () => {
@@ -67,6 +73,7 @@ describe("GET /api/media/library kind filter", () => {
 				kind,
 				cursor: undefined,
 			});
+			await drainBody(res);
 		}
 	});
 
@@ -74,5 +81,6 @@ describe("GET /api/media/library kind filter", () => {
 		const res = await GET(reqWith("?kind=exe"));
 		expect(res.status).toBe(400);
 		expect(listReadyAssetsForOwner).not.toHaveBeenCalled();
+		await drainBody(res);
 	});
 });

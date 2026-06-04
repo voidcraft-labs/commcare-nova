@@ -3,66 +3,52 @@
  *
  * Documents (pdf/text/docx/xlsx) are condensed ONCE into the structured extract
  * the Solutions Architect actually reads, stored as a GCS sibling object keyed
- * by content hash + extractor version. This route owns producing and serving it:
+ * by content hash + extractor version. This route is the HTTP face of that:
  *
- *   - `POST` runs the extraction (Gemini), writes the text to GCS, and records
- *     the status/metadata on the asset doc. Triggered eagerly by the file
- *     manager after a document upload (so the extraction indicator can show),
- *     and as the chat resolve step's lazy backstop. Idempotent: a current
- *     ready extract is returned without re-running the model.
+ *   - `POST` resolves the extract through `ensureStoredExtract` — the shared
+ *     single-flight store that BOTH this eager route and the chat resolve step's
+ *     lazy backstop go through (so the lock lives in one place). Triggered
+ *     eagerly by the file manager after a document upload, so the extraction
+ *     indicator can show. Idempotent: a current ready extract returns without
+ *     re-running the model; a current job already in flight short-circuits with
+ *     202 (`onInflight: "report"`) so this request doesn't hold open behind it.
  *   - `GET` returns the stored extract text for the "What the AI reads" preview
  *     tab; 404 when no current-version extract exists yet (the client reads the
  *     `extracting`/`failed` status off the asset itself).
  *
  * Owner-gated on every path (a foreign asset reads as 404, never enumerable).
- * Not on a chat run, so it uses the standalone Gemini condenser rather than a
+ * Not on a chat run, so it passes the standalone Gemini condenser rather than a
  * `GenerationContext`; the extraction is a cheap Flash call, deliberately not
  * metered against the chat spend cap (the media subsystem has no usage
- * accumulator). POST is best-effort single-flight: a current-version `ready`
- * extract is returned without re-running, and a current-version `extracting`
- * record short-circuits with 202 so the eager file-manager trigger and the lazy
- * chat backstop don't both bill the model. This is not a transactional lock —
- * two requests that both read the doc before either marks `extracting` can still
- * both run — but it collapses the common staggered race; the GCS key is
- * content-addressed so even a true double-run converges on identical bytes.
+ * accumulator).
  */
 
 import { type NextRequest, NextResponse } from "next/server";
 import {
-	CONDENSER_MODEL,
 	createGeminiCondenser,
 	EXTRACT_MAX_BYTES,
 	EXTRACTOR_VERSION,
-	extractDocument,
 } from "@/lib/agent/documentExtraction";
+import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import {
 	loadAssetForOwner,
 	MediaAssetOwnershipError,
-	setAssetExtractStatus,
 } from "@/lib/db/mediaAssets";
 import {
-	ASSET_SIZE_CAPS_BYTES,
 	asAssetId,
 	extractGcsObjectKeyFor,
 	isDocumentKind,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import {
-	downloadAssetBytes,
-	readTextObject,
-	writeTextObject,
-} from "@/lib/storage/media";
+import { readTextObject } from "@/lib/storage/media";
 
 /** Gemini high-reasoning over a large PDF runs for tens of seconds; give the
- *  extraction the same ceiling the chat run gets rather than the route default. */
+ *  extraction the same ceiling the chat run gets rather than the route default.
+ *  This also bounds how long a `POST` can run as the claiming caller (the store
+ *  treats an `extracting` record older than this as a dead job). */
 export const maxDuration = 300;
-
-/** An `extracting` record older than this is treated as a hung/crashed job (the
- *  process was reclaimed past `maxDuration` before it could record ready/failed)
- *  and re-extracted rather than blocking forever behind a dead in-flight marker. */
-const EXTRACTING_STALE_MS = maxDuration * 1000;
 
 /**
  * Load the asset, owner-gated, rejecting anything that can't be extracted: a
@@ -104,11 +90,12 @@ async function loadExtractableDocument(req: NextRequest, rawAssetId: string) {
 }
 
 /**
- * Produce (or refresh) the document's extract. Marks `extracting` before the
- * model call so a concurrent library read reflects it, runs the extractor,
- * stores the text in GCS, and records `ready`. On failure records `failed` with
- * the reason and surfaces a 502 — the bytes are fine, only the condense failed,
- * so the asset is kept and the chat resolve step's raw-inline fallback covers it.
+ * Produce (or fetch) the document's extract via the shared store, then map its
+ * result to the wire envelope. The store owns the single-flight + persistence;
+ * here we only translate: `ready` → 200 with metadata, `extracting` → 202 (a
+ * concurrent job owns it — don't hold this request open), `failed` → 502 (the
+ * bytes are fine, only the condense failed; the asset is kept so the chat
+ * resolve step's inline fallback or a retry can still cover it).
  */
 export async function POST(
 	req: NextRequest,
@@ -116,39 +103,21 @@ export async function POST(
 ) {
 	const { assetId: rawAssetId } = await params;
 	try {
-		const { assetId, asset, documentKind } = await loadExtractableDocument(
+		const { asset, documentKind } = await loadExtractableDocument(
 			req,
 			rawAssetId,
 		);
 
-		// Idempotent: a current-version ready extract needs no re-run. A stale
-		// version (a prompt/model bump) or a prior `failed`/`extracting` falls
-		// through and re-extracts.
-		if (
-			asset.extract?.status === "ready" &&
-			asset.extract.version === EXTRACTOR_VERSION
-		) {
-			return NextResponse.json({
-				ok: true,
-				extract: {
-					status: "ready" as const,
-					version: asset.extract.version,
-					truncated: asset.extract.truncated,
-					charCount: asset.extract.charCount,
-				},
-			});
-		}
+		const result = await ensureStoredExtract({
+			asset,
+			documentKind,
+			condenser: createGeminiCondenser(),
+			// Eager fan-out surface: report an in-flight job rather than waiting,
+			// so the badge's poll gets a fast 202 instead of a held-open request.
+			onInflight: "report",
+		});
 
-		// A current-version extraction already in flight: short-circuit with 202
-		// rather than re-running + double-billing the model (the eager file-manager
-		// trigger can race the lazy chat backstop). A stale `extracting` record —
-		// a job whose process died past `maxDuration` before recording a result —
-		// falls through and re-extracts so a dead marker can't wedge the document.
-		if (
-			asset.extract?.status === "extracting" &&
-			asset.extract.version === EXTRACTOR_VERSION &&
-			Date.now() - asset.extract.extractedAt.toMillis() < EXTRACTING_STALE_MS
-		) {
+		if (result.status === "extracting") {
 			return NextResponse.json(
 				{
 					ok: true,
@@ -163,71 +132,22 @@ export async function POST(
 			);
 		}
 
-		await setAssetExtractStatus(assetId, {
-			status: "extracting",
-			version: EXTRACTOR_VERSION,
-			model: CONDENSER_MODEL,
-			truncated: false,
-			charCount: 0,
-		});
-
-		try {
-			const bytes = await downloadAssetBytes(
-				asset.gcsObjectKey,
-				ASSET_SIZE_CAPS_BYTES[asset.kind],
-			);
-			const { text, truncated } = await extractDocument({
-				bytes,
-				mimeType: asset.mimeType,
-				kind: documentKind,
-				filename: asset.originalFilename,
-				condenser: createGeminiCondenser(),
-			});
-			await writeTextObject(
-				extractGcsObjectKeyFor(
-					asset.owner,
-					asset.contentHash,
-					EXTRACTOR_VERSION,
-				),
-				text,
-			);
-			await setAssetExtractStatus(assetId, {
-				status: "ready",
-				version: EXTRACTOR_VERSION,
-				model: CONDENSER_MODEL,
-				truncated,
-				charCount: text.length,
-			});
-			return NextResponse.json({
-				ok: true,
-				extract: {
-					status: "ready" as const,
-					version: EXTRACTOR_VERSION,
-					truncated,
-					charCount: text.length,
-				},
-			});
-		} catch (extractErr) {
-			const failureReason =
-				extractErr instanceof Error ? extractErr.message : String(extractErr);
-			await setAssetExtractStatus(assetId, {
-				status: "failed",
-				version: EXTRACTOR_VERSION,
-				model: CONDENSER_MODEL,
-				truncated: false,
-				charCount: 0,
-				failureReason,
-			}).catch((statusErr: unknown) => {
-				log.error("[media:extract] failed-status write failed", {
-					assetId,
-					statusErr,
-				});
-			});
+		if (result.status === "failed") {
 			throw new ApiError(
 				"We couldn't read the features out of this document. The file is saved — you can try extracting again, or paste the key details into the chat.",
 				502,
 			);
 		}
+
+		return NextResponse.json({
+			ok: true,
+			extract: {
+				status: "ready" as const,
+				version: EXTRACTOR_VERSION,
+				truncated: result.truncated,
+				charCount: result.charCount,
+			},
+		});
 	} catch (err) {
 		if (!(err instanceof ApiError)) {
 			log.error("[media:extract] unhandled POST", err);

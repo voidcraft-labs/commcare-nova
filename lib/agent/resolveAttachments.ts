@@ -6,9 +6,11 @@
 // (not just the last) and appends, per ref:
 //
 //   - document (pdf/text/docx/xlsx) → the stored requirements EXTRACT as a text
-//     part. The extract is normally produced eagerly at upload; if it isn't
-//     ready (or is a stale version), a lazy backstop extracts it inline here and
-//     persists it for reuse — so a turn never blocks on a missing extract.
+//     part, resolved through the shared single-flight store. The extract is
+//     normally produced eagerly when the document is attached; if it isn't ready
+//     yet, the store either waits on that in-flight job and reuses its result,
+//     or (when none is running) extracts inline — so a turn never blocks on a
+//     missing extract and never double-runs the model.
 //   - image → the bytes as a data-URL file part for the model's vision pass.
 //
 // Walking all messages is what fixes the multi-turn crash: history carries refs
@@ -25,39 +27,25 @@
 // byte-identical prefixes — the prompt-cache the chat route engineers for stays
 // hit.
 //
-// The lazy backstop extracts through the chat run's own `GenerationContext` (an
-// `AttachmentCondenser`), so a backstop extraction is usage-tracked like any
-// other sub-generation; the eager upload route uses the standalone Gemini
-// condenser instead. Both call the one `extractDocument` core.
+// When the store runs the extraction here (no eager job to reuse), it does so
+// through the chat run's own `GenerationContext` (an `AttachmentCondenser`), so
+// that inline run is usage-tracked like any other sub-generation; the eager
+// route passes the standalone Gemini condenser instead. Reusing an in-flight
+// job's result meters nothing — only an actual inline run does.
 
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
-import {
-	loadAssetsByIds,
-	type MediaAssetRecord,
-	setAssetExtractStatus,
-} from "@/lib/db/mediaAssets";
+import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
 	ASSET_SIZE_CAPS_BYTES,
 	type AssetId,
 	asAssetId,
 	type DocumentKind,
-	extractGcsObjectKeyFor,
 	isDocumentKind,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import {
-	downloadAssetBytes,
-	readTextObject,
-	writeTextObject,
-} from "@/lib/storage/media";
-import {
-	type AttachmentCondenser,
-	CONDENSER_MODEL,
-	EXTRACT_MAX_BYTES,
-	EXTRACTOR_VERSION,
-	extractDocument,
-	wrapAttachment,
-} from "./documentExtraction";
+import { downloadAssetBytes } from "@/lib/storage/media";
+import { type AttachmentCondenser, wrapAttachment } from "./documentExtraction";
+import { ensureStoredExtract } from "./documentExtractionStore";
 
 type Part = NovaUIMessage["parts"][number];
 
@@ -81,51 +69,35 @@ export function countAttachments(messages: NovaUIMessage[]): number {
 }
 
 /**
- * The document's requirements extract: the stored text if a current-version
- * extract exists, else a lazy inline extraction (persisted best-effort for the
- * next turn). Throws on a hard failure — the caller turns that into a placeholder
- * so the attachment is never silently dropped.
+ * The document's requirements extract for the SA, resolved through the shared
+ * single-flight store with `onInflight: "wait"`: a send that races an in-flight
+ * eager extraction REUSES that job's result instead of launching a second model
+ * call — and is never slower, since the eager job started when the document was
+ * attached, before this send. The store returns the ready extract, or a `failed`
+ * result when the document genuinely can't be condensed; we throw on failure so
+ * `resolveRef` falls back to a human-readable placeholder and the attachment is
+ * never silently dropped.
  */
 async function ensureExtract(
 	asset: MediaAssetRecord,
 	documentKind: DocumentKind,
 	condenser: AttachmentCondenser,
 ): Promise<{ text: string; truncated: boolean }> {
-	const key = extractGcsObjectKeyFor(
-		asset.owner,
-		asset.contentHash,
-		EXTRACTOR_VERSION,
-	);
-	const stored = await readTextObject(key, EXTRACT_MAX_BYTES);
-	if (stored !== null) {
-		return { text: stored, truncated: asset.extract?.truncated ?? false };
-	}
-
-	// Backstop: no current-version extract (the eager upload-time job hasn't run,
-	// is still running, failed, or is a stale version). Extract inline so the SA
-	// gets the content THIS turn, and persist it so later turns reuse it.
-	const bytes = await downloadAssetBytes(
-		asset.gcsObjectKey,
-		ASSET_SIZE_CAPS_BYTES[asset.kind],
-	);
-	const { text, truncated } = await extractDocument({
-		bytes,
-		mimeType: asset.mimeType,
-		kind: documentKind,
-		filename: asset.originalFilename,
+	const result = await ensureStoredExtract({
+		asset,
+		documentKind,
 		condenser,
+		onInflight: "wait",
 	});
-	// Best-effort persistence — a write failure must not fail the turn (we already
-	// have the text the SA needs). The eager route owns the durable path.
-	await writeTextObject(key, text).catch(() => undefined);
-	await setAssetExtractStatus(asset.id, {
-		status: "ready",
-		version: EXTRACTOR_VERSION,
-		model: CONDENSER_MODEL,
-		truncated,
-		charCount: text.length,
-	}).catch(() => undefined);
-	return { text, truncated };
+	if (result.status === "ready") {
+		return { text: result.text, truncated: result.truncated };
+	}
+	// "wait" never returns "extracting"; "failed" is a genuine condense failure.
+	throw new Error(
+		result.status === "failed"
+			? result.reason
+			: "extraction did not resolve to a ready extract",
+	);
 }
 
 /**

@@ -26,21 +26,28 @@ vi.mock("mammoth", () => ({
 
 const {
 	loadAssetsByIdsMock,
+	loadAssetForOwnerMock,
 	setAssetExtractStatusMock,
 	downloadAssetBytesMock,
 	readTextObjectMock,
 	writeTextObjectMock,
 } = vi.hoisted(() => ({
 	loadAssetsByIdsMock: vi.fn(),
+	loadAssetForOwnerMock: vi.fn(),
 	setAssetExtractStatusMock: vi.fn(),
 	downloadAssetBytesMock: vi.fn(),
 	readTextObjectMock: vi.fn(),
 	writeTextObjectMock: vi.fn(),
 }));
 
+// `loadAssetForOwner` + `MediaAssetOwnershipError` are pulled in transitively via
+// the shared extract store (the backstop delegates to it); the store re-reads
+// status fresh on a GCS miss before deciding whether to claim or wait.
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetsByIds: loadAssetsByIdsMock,
+	loadAssetForOwner: loadAssetForOwnerMock,
 	setAssetExtractStatus: setAssetExtractStatusMock,
+	MediaAssetOwnershipError: class MediaAssetOwnershipError extends Error {},
 }));
 vi.mock("@/lib/storage/media", () => ({
 	downloadAssetBytes: downloadAssetBytesMock,
@@ -94,6 +101,9 @@ beforeEach(() => {
 	setAssetExtractStatusMock.mockResolvedValue(undefined);
 	downloadAssetBytesMock.mockResolvedValue(Buffer.from("raw bytes"));
 	writeTextObjectMock.mockResolvedValue(undefined);
+	// Default fresh status read: an asset with no extract record yet, so the
+	// store's miss path decides "extract now" (no in-flight job to wait on).
+	loadAssetForOwnerMock.mockResolvedValue(asset());
 });
 
 describe("resolveAttachments", () => {
