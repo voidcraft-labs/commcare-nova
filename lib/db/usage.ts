@@ -192,8 +192,11 @@ interface AccumulatorRunConfig {
  * contracts they own.
  */
 export class UsageAccumulator {
-	/* `configureRun` replaces this field with a fresh object rather than
-	 * mutating in place, which lets us mark it `readonly` honestly. */
+	/* `readonly` marks the seed REFERENCE as never reassigned — it does NOT
+	 * freeze the contents. `configureRun` backfills individual fields in place
+	 * via `Object.assign(this.seed, ...)` (which `readonly` does not prevent)
+	 * once the route resolves the prompt-mode / cache / message-composition
+	 * signals that aren't known at construction time. */
 	private readonly seed: AccumulatorSeed;
 	private readonly startedAt: string;
 	private inputTokens = 0;

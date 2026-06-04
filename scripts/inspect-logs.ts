@@ -417,7 +417,13 @@ function printToolsView(events: Event[]): void {
 		return;
 	}
 
-	const estTok = (bytes: number) => tok(Math.round(bytes / 4));
+	/* Rough bytes-per-token ratio for the `~tok` display columns only — a
+	 * back-of-envelope ≈4-bytes-per-token estimate to make output SIZES
+	 * legible alongside the run summary's real token totals. Never used for
+	 * billing or the cost backstop; the `~` in the headers flags it as approximate. */
+	const BYTES_PER_TOKEN_ESTIMATE = 4;
+	const estTok = (bytes: number) =>
+		tok(Math.round(bytes / BYTES_PER_TOKEN_ESTIMATE));
 	printSection(
 		"Tool Usage — calls + result-output size (per-tool context-cost driver)",
 	);

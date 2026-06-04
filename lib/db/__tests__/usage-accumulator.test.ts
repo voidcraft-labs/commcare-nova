@@ -49,8 +49,9 @@ vi.mock("../firestore", () => ({
 	},
 }));
 
-// Real logger — `flush()` emits the `[run-finalize]` line through it; the
-// finalize-log tests spy on `log.info` to assert the payload.
+// `@/lib/logger` is globally stubbed in vitest.setup.ts and `clearMocks: true`
+// wipes each stub's call history between tests, so the finalize-log tests
+// assert on the `log.info` stub directly (no per-test re-spy needed).
 import { log } from "@/lib/logger";
 import { UsageAccumulator } from "../usage";
 
@@ -365,15 +366,14 @@ describe("UsageAccumulator", () => {
 			// A clobbered prior doc — the silent-undercount path we most want to see.
 			writeRunSummaryMock.mockResolvedValue("overwritten");
 			refundCreditsMock.mockReset();
-			const infoSpy = vi.spyOn(log, "info").mockImplementation(() => {});
 
 			// No track() → zero cost. Reserved + zero-cost = the wrong-refund signature.
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.configureRun({ sentMessageCount: 4, sentMessageChars: 1234 });
 			await acc.flush();
 
-			expect(infoSpy).toHaveBeenCalledTimes(1);
-			expect(infoSpy).toHaveBeenCalledWith(
+			expect(log.info).toHaveBeenCalledTimes(1);
+			expect(log.info).toHaveBeenCalledWith(
 				"[run-finalize]",
 				expect.objectContaining({
 					runId: "r",
@@ -390,20 +390,45 @@ describe("UsageAccumulator", () => {
 					sentMessageChars: 1234,
 				}),
 			);
-			infoSpy.mockRestore();
+		});
+
+		it("labels a FAILED run with real cost as run-failed (the legit-refund leg, not the zero-cost alarm)", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue("incremented");
+			refundCreditsMock.mockReset();
+
+			// Real cost + markRunFailed → the third leg of the refundReason ternary.
+			// This is the discriminator the log exists for: a legitimate failed-run
+			// refund must read "run-failed", never the "zero-cost" wrong-refund alarm.
+			// `accruedActual: true` confirms costEstimate > 0 (they are equivalent by
+			// construction), so both the failed-refund AND the still-accrues-cost
+			// invariants are pinned in one assertion.
+			const acc = new UsageAccumulator(reservedSeed);
+			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
+			acc.markRunFailed();
+			await acc.flush();
+
+			expect(log.info).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({
+					summaryAction: "incremented",
+					refunded: true,
+					refundReason: "run-failed",
+					accruedActual: true,
+				}),
+			);
 		});
 
 		it("logs refundReason null + accruedActual true on a healthy paid run", async () => {
 			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("incremented");
 			refundCreditsMock.mockReset();
-			const infoSpy = vi.spyOn(log, "info").mockImplementation(() => {});
 
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
 			await acc.flush();
 
-			expect(infoSpy).toHaveBeenCalledWith(
+			expect(log.info).toHaveBeenCalledWith(
 				"[run-finalize]",
 				expect.objectContaining({
 					summaryAction: "incremented",
@@ -412,7 +437,27 @@ describe("UsageAccumulator", () => {
 					accruedActual: true,
 				}),
 			);
-			infoSpy.mockRestore();
+		});
+
+		it("carries undefined composition when the run finalizes before configureRun", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue("created");
+			refundCreditsMock.mockReset();
+
+			// No configureRun() — the early-finalize shape: a flush that lands
+			// before the route assembles the effective messages. Pinning the
+			// undefined composition documents that the log degrades gracefully
+			// (this is exactly the empty-flush case the line exists to expose).
+			const acc = new UsageAccumulator(reservedSeed);
+			await acc.flush();
+
+			expect(log.info).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({
+					sentMessageCount: undefined,
+					sentMessageChars: undefined,
+				}),
+			);
 		});
 	});
 });

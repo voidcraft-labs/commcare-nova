@@ -605,8 +605,7 @@ const CONFIRM_RE = /^reset$/i;
  * happens the test fails AND ends before the screen's in-flight effects
  * settle, so their timers dangle as a reported leak. This wider window absorbs
  * that scheduling jitter; it never lengthens a normal run because the awaited
- * content is present well before the timeout. See the "Testing — async-resource
- * leaks" section in CLAUDE.md.
+ * content is present well before the timeout.
  */
 const CONTENTION_TOLERANT_TIMEOUT_MS = 5_000;
 
