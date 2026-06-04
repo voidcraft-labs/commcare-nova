@@ -126,13 +126,14 @@ const columns: ColumnDef<AdminUserRow>[] = [
  * so the cell stays single-line and the row height matches its siblings.
  *
  * The denominator is the EFFECTIVE monthly total, derived as
- * `credits_used + credits_remaining` rather than the bare `credits_allowance`.
- * Once an admin grants bonus credits, `remaining = allowance + bonus − used`,
- * so the bare allowance no longer reconciles with the bold remaining and the
- * bonus would be invisible on the row. The row doesn't carry `bonus`, but
- * `used + remaining === allowance + bonus` by definition — so `used + remaining`
- * recovers the effective allowance+bonus and keeps the muted context consistent
- * with the bold remaining for granted and ungranted users alike.
+ * `credits_used + credits_remaining` — deliberately NOT a bare per-month
+ * allowance. Once an admin grants bonus credits, `remaining = allowance + bonus
+ * − used`, so a bare allowance would no longer reconcile with the bold remaining
+ * and the bonus would be invisible on the row. The row doesn't carry `bonus`,
+ * but `used + remaining === allowance + bonus` by definition — so
+ * `used + remaining` recovers the effective allowance+bonus and keeps the muted
+ * context consistent with the bold remaining for granted and ungranted users
+ * alike.
  *
  * Emphasis is carried by weight, not colour: success/warning hues are reserved
  * for real semantic states, and "low balance" is surfaced by sorting on this

@@ -72,6 +72,16 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 								>
 									Cost
 								</th>
+								{/* The four credit columns, in canonical order:
+								    allowance → credits used → bonus → balance. Balance is
+								    derived per row (allowance + bonus − consumed), never
+								    stored. */}
+								<th
+									scope="col"
+									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+								>
+									Allowance
+								</th>
 								<th
 									scope="col"
 									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
@@ -83,6 +93,12 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
 								>
 									Bonus
+								</th>
+								<th
+									scope="col"
+									className="px-4 py-3 text-left text-xs font-display font-semibold uppercase tracking-wide text-nova-text-secondary"
+								>
+									Balance
 								</th>
 							</tr>
 						</thead>
@@ -106,17 +122,33 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 										{formatCurrency(period.cost_estimate)}
 									</td>
 									<td className="px-4 py-3 text-sm tabular-nums">
+										{(period.credits_allowance ?? 0).toLocaleString()}
+									</td>
+									<td className="px-4 py-3 text-sm tabular-nums">
 										{(period.credits_consumed ?? 0).toLocaleString()}
 									</td>
 									<td className="px-4 py-3 text-sm tabular-nums">
 										{(period.credits_bonus ?? 0).toLocaleString()}
+									</td>
+									{/* Balance = allowance + bonus − consumed, derived here (not
+									    stored). A period that predates the credit system has all
+									    three absent, so the `?? 0` coalescing yields 0 — accurate
+									    for a month with no credit doc. */}
+									<td className="px-4 py-3 text-sm tabular-nums">
+										{(
+											(period.credits_allowance ?? 0) +
+											(period.credits_bonus ?? 0) -
+											(period.credits_consumed ?? 0)
+										).toLocaleString()}
 									</td>
 								</tr>
 							))}
 							{/* Totals row — visually set apart by a heavier top border +
 							    medium weight. Only the two figures with a meaningful
 							    lifetime sum (credits used, cost) carry a value; the other
-							    cells stay blank so the columns still line up. */}
+							    cells stay blank so the columns still line up. Allowance is a
+							    per-month constant and balance doesn't sum meaningfully across
+							    months, so both of their total cells stay blank too. */}
 							<tr className="border-t-2 border-nova-border font-medium">
 								<td className="px-4 py-3 text-sm">Total</td>
 								<td className="px-4 py-3 text-sm" />
@@ -124,9 +156,11 @@ export async function UserUsageSection({ userId }: UserUsageSectionProps) {
 								<td className="px-4 py-3 text-sm tabular-nums">
 									{formatCurrency(totalCost)}
 								</td>
+								<td className="px-4 py-3 text-sm" />
 								<td className="px-4 py-3 text-sm tabular-nums">
 									{totalCreditsConsumed.toLocaleString()}
 								</td>
+								<td className="px-4 py-3 text-sm" />
 								<td className="px-4 py-3 text-sm" />
 							</tr>
 						</tbody>

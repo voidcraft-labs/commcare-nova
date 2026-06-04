@@ -29,8 +29,6 @@ export interface AdminUserRow {
 	credits_used: number;
 	/** Spendable credits remaining in the current period (allowance + bonus − consumed). */
 	credits_remaining: number;
-	/** Monthly credit grant for the current period. */
-	credits_allowance: number;
 	/** Total credits debited across every period the user has ever had a credit doc for. */
 	credits_used_lifetime: number;
 	/** Sum of `cost_estimate` across every usage period (all time). */
@@ -61,6 +59,8 @@ export interface UsagePeriod {
 	input_tokens: number;
 	output_tokens: number;
 	cost_estimate: number;
+	/** Monthly credit allowance granted for this period — absent when the period predates the credit system. */
+	credits_allowance?: number;
 	/** Credits debited in this period — absent when the period predates the credit system. */
 	credits_consumed?: number;
 	/** Admin bonus credits applied in this period — absent when the period predates the credit system. */

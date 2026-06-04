@@ -118,7 +118,6 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 				app_count: appCountSnap.data().count,
 				credits_used: creditSummary.consumed,
 				credits_remaining: creditSummary.balance,
-				credits_allowance: creditSummary.allowance,
 				credits_used_lifetime: creditSummary.lifetimeConsumed,
 				cost_lifetime,
 			};
@@ -203,8 +202,8 @@ export async function getAdminUserCredits(
  * Reads both the usage subcollection and the credit-months subcollection in
  * parallel, then joins them by period id so each `UsagePeriod` carries the
  * matching credit figures when they exist. Periods that predate the credit
- * system have no credit doc and will have `credits_consumed`/`credits_bonus`
- * left undefined.
+ * system have no credit doc and will have
+ * `credits_allowance`/`credits_consumed`/`credits_bonus` left undefined.
  *
  * Separated so the usage table can stream independently via Suspense.
  */
@@ -217,11 +216,21 @@ export async function getAdminUserUsage(
 	]);
 
 	/* Build a lookup map: period string → credit figures. Keyed by document id
-	 * (which equals the "yyyy-mm" period string) for an O(1) join below. */
-	const creditByPeriod = new Map<string, { consumed: number; bonus: number }>(
+	 * (which equals the "yyyy-mm" period string) for an O(1) join below.
+	 * `allowance` rides along so the detail table can show the full credit
+	 * standing (allowance / consumed / bonus / balance) per period — balance is
+	 * derived in the render from these three, never stored. */
+	const creditByPeriod = new Map<
+		string,
+		{ allowance: number; consumed: number; bonus: number }
+	>(
 		creditMonthsSnap.docs.map((doc) => [
 			doc.id,
-			{ consumed: doc.data().consumed, bonus: doc.data().bonus },
+			{
+				allowance: doc.data().allowance,
+				consumed: doc.data().consumed,
+				bonus: doc.data().bonus,
+			},
 		]),
 	);
 
@@ -237,6 +246,7 @@ export async function getAdminUserUsage(
 			/* Only present when a credit doc exists for this period. */
 			...(creditEntry !== undefined
 				? {
+						credits_allowance: creditEntry.allowance,
 						credits_consumed: creditEntry.consumed,
 						credits_bonus: creditEntry.bonus,
 					}
