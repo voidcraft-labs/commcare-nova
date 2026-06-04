@@ -17,10 +17,12 @@
 
 "use client";
 
+import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerEye from "@iconify-icons/tabler/eye";
+import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef, useState } from "react";
 import {
@@ -29,6 +31,7 @@ import {
 	isDocumentKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { showToast } from "@/lib/ui/toastStore";
 import {
 	AssetPreviewDialog,
 	type AssetPreviewTarget,
@@ -36,8 +39,7 @@ import {
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
 import { ExtractionStatusBadge } from "./ExtractionStatusBadge";
-import type { MediaAssetView } from "./mediaClient";
-import { mediaSrc } from "./mediaClient";
+import { deleteMediaAsset, type MediaAssetView, mediaSrc } from "./mediaClient";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
 
 const BACKDROP_CLS =
@@ -117,8 +119,15 @@ function PickerBody({
 	// "all" → fetch every kind (the library route treats an absent kind
 	// as unfiltered); a specific kind narrows the page.
 	const libraryKind = filter === "all" ? undefined : filter;
-	const { assets, isLoading, error, hasMore, loadMore, addUploaded } =
-		useMediaLibrary(libraryKind);
+	const {
+		assets,
+		isLoading,
+		error,
+		hasMore,
+		loadMore,
+		addUploaded,
+		removeAsset,
+	} = useMediaLibrary(libraryKind);
 
 	const commit = (asset: MediaAssetView) => {
 		addUploaded(asset);
@@ -130,6 +139,36 @@ function PickerBody({
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
+
+	// Delete a library asset, with confirmation. `deleteTarget` holds the asset
+	// awaiting confirmation (`null` = no dialog); `deleting` disables the dialog's
+	// controls while the request is in flight.
+	const [deleteTarget, setDeleteTarget] = useState<MediaAssetView | null>(null);
+	const [deleting, setDeleting] = useState(false);
+
+	const confirmDelete = async () => {
+		if (!deleteTarget) return;
+		const asset = deleteTarget;
+		const name = asset.displayName ?? asset.originalFilename;
+		setDeleting(true);
+		try {
+			await deleteMediaAsset(asset.id);
+			removeAsset(asset.id);
+			showToast("info", "File deleted", name);
+			setDeleteTarget(null);
+		} catch (err) {
+			// A 409 (still referenced by one of your apps) or any failure: tell the
+			// user WHY — the message names the carriers — and leave the asset.
+			showToast(
+				"warning",
+				"Couldn't delete file",
+				err instanceof Error ? err.message : "Please try again.",
+			);
+			setDeleteTarget(null);
+		} finally {
+			setDeleting(false);
+		}
+	};
 
 	return (
 		<>
@@ -181,6 +220,7 @@ function PickerBody({
 								filename: asset.displayName ?? asset.originalFilename,
 							})
 						}
+						onDelete={setDeleteTarget}
 						// The type filter only makes sense when more than one
 						// kind is browsable; a single-kind library is already
 						// narrowed by the fetch.
@@ -197,6 +237,17 @@ function PickerBody({
 				target={previewTarget}
 				onOpenChange={(open) => {
 					if (!open) setPreviewTarget(null);
+				}}
+			/>
+
+			{/* Delete confirmation — also portals after the picker, so it stacks
+			 *  on top at the same z-modal tier. */}
+			<MediaDeleteConfirmDialog
+				target={deleteTarget}
+				deleting={deleting}
+				onConfirm={confirmDelete}
+				onCancel={() => {
+					if (!deleting) setDeleteTarget(null);
 				}}
 			/>
 		</>
@@ -377,6 +428,7 @@ function LibraryTab({
 	loadMore,
 	onPick,
 	onPreview,
+	onDelete,
 	filter,
 	kinds,
 	onFilterChange,
@@ -389,6 +441,8 @@ function LibraryTab({
 	onPick: (asset: MediaAssetView) => void;
 	/** Open the preview for an asset without picking it. */
 	onPreview: (asset: MediaAssetView) => void;
+	/** Request deletion of an asset (opens the confirmation dialog). */
+	onDelete: (asset: MediaAssetView) => void;
 	/** Active browse filter, or `null` to hide the filter row (single-kind slot). */
 	filter: LibraryFilter | null;
 	kinds: readonly AssetKind[];
@@ -475,6 +529,18 @@ function LibraryTab({
 							>
 								<Icon icon={tablerEye} className="size-3.5" />
 							</button>
+							{/* Delete — a sibling of the pick button (not nested), top-left so
+							 *  it doesn't collide with the preview affordance. Opens a
+							 *  confirmation before removing the asset from the library. */}
+							<button
+								type="button"
+								onClick={() => onDelete(asset)}
+								title={`Delete ${asset.displayName ?? asset.originalFilename}`}
+								aria-label={`Delete ${asset.displayName ?? asset.originalFilename}`}
+								className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-rose focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-rose group-hover:opacity-100"
+							>
+								<Icon icon={tablerTrash} className="size-3.5" />
+							</button>
 							{/* Extraction indicator for documents — a sibling of the pick
 							 *  button (not nested), so the failed-state retry control isn't
 							 *  interactive content inside a button. Renders nothing for
@@ -526,6 +592,68 @@ function FilterChip({
 		>
 			{children}
 		</button>
+	);
+}
+
+/**
+ * Confirm-before-delete dialog for a library asset. Built on Base UI's
+ * alert-dialog rather than the shadcn `AlertDialog` because that component is
+ * pinned to the z-popover tier and would render BEHIND this z-modal picker; this
+ * matches the picker + preview dialogs in the same file (z-modal, nova-themed,
+ * stacking over the picker by portal order). Alert semantics — no outside-press
+ * dismissal, Cancel / Delete only — which is right for a destructive action.
+ */
+function MediaDeleteConfirmDialog({
+	target,
+	deleting,
+	onConfirm,
+	onCancel,
+}: {
+	/** The asset awaiting confirmation, or `null` when the dialog is closed. */
+	target: MediaAssetView | null;
+	/** True while the delete request is in flight (locks the controls). */
+	deleting: boolean;
+	onConfirm: () => void;
+	onCancel: () => void;
+}) {
+	const name = target ? (target.displayName ?? target.originalFilename) : "";
+	return (
+		<AlertDialog.Root
+			open={target !== null}
+			onOpenChange={(open) => {
+				// Ignore close attempts (e.g. Escape) while the delete is in flight.
+				if (!open && !deleting) onCancel();
+			}}
+		>
+			<AlertDialog.Portal>
+				<AlertDialog.Backdrop className="fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+				<AlertDialog.Popup className="fixed top-1/2 left-1/2 z-modal w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-nova-border bg-nova-deep p-5 shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
+					<AlertDialog.Title className="font-display text-base font-semibold text-nova-text">
+						Delete file?
+					</AlertDialog.Title>
+					<AlertDialog.Description className="mt-1.5 text-sm text-nova-text-muted">
+						<span className="font-medium text-nova-text-secondary">{name}</span>{" "}
+						will be removed from your library. This can't be undone.
+					</AlertDialog.Description>
+					<div className="mt-4 flex justify-end gap-2">
+						<AlertDialog.Close
+							disabled={deleting}
+							className="rounded-md border border-nova-border px-3 py-1.5 text-sm text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+						>
+							Cancel
+						</AlertDialog.Close>
+						<button
+							type="button"
+							onClick={onConfirm}
+							disabled={deleting}
+							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-50"
+						>
+							{deleting ? "Deleting…" : "Delete"}
+						</button>
+					</div>
+				</AlertDialog.Popup>
+			</AlertDialog.Portal>
+		</AlertDialog.Root>
 	);
 }
 

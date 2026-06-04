@@ -31,16 +31,11 @@ import {
 	type SubGenerationProviderOptions,
 } from "./subGeneration";
 
-/**
- * Extractor version. Bump on ANY change that alters the extract a given
- * document produces — the prompt below, the summarizer model, or the
- * office→markdown conversion. The GCS extract key embeds this
- * (`extractGcsObjectKeyFor`), and the asset doc records the version it was
- * produced at, so a bump invalidates every stored extract without a migration:
- * the old key simply stops being read and the next reference re-extracts at the
- * new version.
- */
-export const EXTRACTOR_VERSION = 1;
+// `EXTRACTOR_VERSION` lives in `@/lib/domain/multimedia` (beside the extract key
+// + status it versions) so the pure key helper `extractObjectKeyForAsset` can be
+// imported without dragging this module's office-parsing libraries (mammoth/
+// xlsx) into a caller's graph. Bump it there on any prompt/model/conversion
+// change here.
 
 /**
  * One condensing sub-generation's result: the extracted `text`, and whether the

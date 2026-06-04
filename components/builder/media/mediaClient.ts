@@ -229,6 +229,20 @@ export async function fetchMediaLibrary(
 	return res.json();
 }
 
+/**
+ * Delete an asset from the owner's library. Resolves on success (the route
+ * returns 204); throws with the server's message on a refusal — a 409 when the
+ * asset is still referenced by one of the user's apps (the message names the
+ * carriers) — or any other failure, so the caller can tell the user WHY a delete
+ * was blocked rather than failing silently.
+ */
+export async function deleteMediaAsset(assetId: string): Promise<void> {
+	const res = await fetch(`/api/media/${assetId}`, { method: "DELETE" });
+	if (!res.ok) {
+		throw await errorFromResponse(res, "Couldn't delete this file. Try again.");
+	}
+}
+
 /** POST JSON (or an empty body) and parse the JSON response, mapping a non-2xx to the server's message. */
 async function postJson<T>(url: string, body: unknown): Promise<T> {
 	const res = await fetch(url, {

@@ -46,7 +46,6 @@ vi.mock("@/lib/agent/documentExtractionStore", () => ({
 // module (mammoth + the Google provider) never loads.
 vi.mock("@/lib/agent/documentExtraction", () => ({
 	createGeminiCondenser: vi.fn(() => ({})),
-	EXTRACTOR_VERSION: 1,
 	EXTRACT_MAX_BYTES: 4 * 1024 * 1024,
 }));
 vi.mock("@/lib/storage/media", () => ({ readTextObject: readTextObjectMock }));

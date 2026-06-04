@@ -27,7 +27,6 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
 	createGeminiCondenser,
 	EXTRACT_MAX_BYTES,
-	EXTRACTOR_VERSION,
 } from "@/lib/agent/documentExtraction";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import { ApiError, handleApiError } from "@/lib/apiError";
@@ -38,6 +37,7 @@ import {
 } from "@/lib/db/mediaAssets";
 import {
 	asAssetId,
+	EXTRACTOR_VERSION,
 	extractGcsObjectKeyFor,
 	isDocumentKind,
 } from "@/lib/domain/multimedia";

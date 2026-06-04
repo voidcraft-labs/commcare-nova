@@ -64,6 +64,8 @@ export interface UseMediaLibrary {
 	loadMore: () => void;
 	/** Prepend a just-uploaded asset so it shows immediately (deduped by id). */
 	addUploaded: (asset: MediaAssetView) => void;
+	/** Drop a just-deleted asset from the list so it disappears immediately. */
+	removeAsset: (assetId: string) => void;
 }
 
 /**
@@ -152,6 +154,10 @@ export function useMediaLibrary(kind?: AssetKind): UseMediaLibrary {
 		);
 	}, []);
 
+	const removeAsset = useCallback((assetId: string) => {
+		setAssets((prev) => prev.filter((a) => a.id !== assetId));
+	}, []);
+
 	return {
 		assets,
 		isLoading,
@@ -159,5 +165,6 @@ export function useMediaLibrary(kind?: AssetKind): UseMediaLibrary {
 		hasMore: nextCursor !== null,
 		loadMore,
 		addUploaded,
+		removeAsset,
 	};
 }

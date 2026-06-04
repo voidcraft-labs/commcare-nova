@@ -18,7 +18,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
-import { EXTRACTOR_VERSION } from "@/lib/agent/documentExtraction";
 import {
 	decideExtractAction,
 	EXTRACTING_STALE_MS,
@@ -26,6 +25,7 @@ import {
 } from "@/lib/agent/documentExtractionStore";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { setAssetExtractStatus } from "@/lib/db/mediaAssets";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { writeTextObject } from "@/lib/storage/media";
 
 const {
@@ -60,7 +60,6 @@ vi.mock("@/lib/storage/media", () => ({
 vi.mock("@/lib/agent/documentExtraction", () => ({
 	extractDocument: extractDocumentMock,
 	CONDENSER_MODEL: "gemini-3.5-flash",
-	EXTRACTOR_VERSION: 1,
 	EXTRACT_MAX_BYTES: 4 * 1024 * 1024,
 }));
 

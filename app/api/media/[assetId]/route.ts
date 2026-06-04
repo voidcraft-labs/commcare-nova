@@ -24,7 +24,11 @@ import {
 	loadAssetForOwner,
 	MediaAssetOwnershipError,
 } from "@/lib/db/mediaAssets";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { asAssetId, extractObjectKeyForAsset } from "@/lib/domain/multimedia";
+import {
+	findAppReferencesToAsset,
+	purgeAssetStorage,
+} from "@/lib/media/assetDeletion";
 import { streamAsset } from "@/lib/storage/media";
 
 export async function GET(
@@ -81,6 +85,64 @@ export async function GET(
 	} catch (err) {
 		return handleApiError(
 			err instanceof Error ? err : new ApiError("Media read failed", 500),
+		);
+	}
+}
+
+/**
+ * DELETE /api/media/[assetId] — remove an asset from the owner's library.
+ *
+ * Owner-gated (404 on missing OR foreign, so ids stay non-enumerable). Refuses
+ * with a 409 — naming the carriers — if any of the owner's live apps still
+ * reference the asset, so a delete can't silently orphan a reference the
+ * media-validation gate would later reject. On success it purges the Firestore
+ * row, the GCS bytes, and the document-extract sibling (keeping shared bytes
+ * intact), then returns 204. The deletion mechanics are shared with the SA's
+ * `remove_media_asset` tool via `lib/media/assetDeletion`.
+ *
+ * Chat-attachment references live in thread history, not in an app doc, so they
+ * are intentionally NOT a blocker: a deleted attachment degrades to a "couldn't
+ * be loaded" placeholder on re-resolve rather than wedging the delete.
+ */
+export async function DELETE(
+	req: NextRequest,
+	{ params }: { params: Promise<{ assetId: string }> },
+) {
+	try {
+		const session = await requireSession(req);
+		const { assetId: rawAssetId } = await params;
+		const assetId = asAssetId(rawAssetId);
+
+		const asset = await loadAssetForOwner(session.user.id, assetId).catch(
+			(err: unknown) => {
+				if (err instanceof MediaAssetOwnershipError) return null;
+				throw err;
+			},
+		);
+		if (!asset) {
+			throw new ApiError(
+				"We couldn't find that file — it may already have been deleted, or it isn't yours.",
+				404,
+			);
+		}
+
+		// Reference guard: refuse if any of the owner's live apps still uses it.
+		const references = await findAppReferencesToAsset(session.user.id, assetId);
+		if (references.length > 0) {
+			throw new ApiError(
+				`Can't delete this file — it's still used by ${references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,
+				409,
+			);
+		}
+
+		await purgeAssetStorage(asset, {
+			alsoDelete: [extractObjectKeyForAsset(asset)],
+		});
+
+		return new Response(null, { status: 204 });
+	} catch (err) {
+		return handleApiError(
+			err instanceof Error ? err : new ApiError("Media delete failed", 500),
 		);
 	}
 }

@@ -455,6 +455,40 @@ export function extractGcsObjectKeyFor(
 }
 
 /**
+ * Current extractor version. Bump on ANY change that alters the extract a given
+ * document produces — the extraction prompt, the summarizer model, or the
+ * office→markdown conversion (all in `lib/agent/documentExtraction`). The GCS
+ * extract key embeds this (`extractGcsObjectKeyFor`) and the asset doc records
+ * the version it was produced at, so a bump invalidates every stored extract
+ * with no migration: the old key stops being read and the next reference
+ * re-extracts at the new version.
+ *
+ * It lives here — beside the key + status it versions — rather than in the
+ * extraction module, so that computing an extract's storage key
+ * (`extractObjectKeyForAsset`) stays a pure domain operation. Importing that key
+ * helper must never drag the office-parsing libraries (mammoth/xlsx) into a
+ * caller's import graph; keeping the constant here is what makes that possible.
+ */
+export const EXTRACTOR_VERSION = 1;
+
+/**
+ * The GCS object key of a document's stored extract at the current version, or
+ * `null` for a media kind (image/audio/video), which has no extract. Asset
+ * deletion uses this to purge the extract sibling alongside the bytes. Pure — no
+ * I/O, no heavy imports — so any layer (the delete route, the SA tool) can call
+ * it without pulling in the extraction machinery.
+ */
+export function extractObjectKeyForAsset(asset: {
+	kind: AssetKind;
+	owner: string;
+	contentHash: string;
+}): string | null {
+	return isDocumentKind(asset.kind)
+		? extractGcsObjectKeyFor(asset.owner, asset.contentHash, EXTRACTOR_VERSION)
+		: null;
+}
+
+/**
  * Top-level prefix every signed-PUT pending object lives under. Shared so
  * the bucket lifecycle rule that reaps abandoned / oversized pending
  * uploads (`applyPendingObjectLifecycle` in `lib/storage/media`) matches

@@ -31,6 +31,7 @@ import {
 	ASSET_SIZE_CAPS_BYTES,
 	type AssetId,
 	type DocumentKind,
+	EXTRACTOR_VERSION,
 	extractGcsObjectKeyFor,
 	type MediaExtractStatus,
 } from "@/lib/domain/multimedia";
@@ -44,7 +45,6 @@ import {
 	type AttachmentCondenser,
 	CONDENSER_MODEL,
 	EXTRACT_MAX_BYTES,
-	EXTRACTOR_VERSION,
 	extractDocument,
 } from "./documentExtraction";
 
