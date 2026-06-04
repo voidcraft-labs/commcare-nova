@@ -28,7 +28,7 @@ import type { z } from "zod";
 import type { CaseType, Field, FieldKind, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey, fieldKinds, fieldSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
-import type { addFieldsItemSchema } from "./toolSchemas";
+import type { wideFlatItemSchema } from "./toolSchemas";
 
 /** Narrow a possibly-unknown kind string to a `FieldKind` before asking the
  *  per-kind key sets about it — an SA-supplied bad kind would otherwise blow
@@ -90,16 +90,17 @@ export function unescapeXPath(s: string): string {
 // ── Flat input shape ─────────────────────────────────────────────────
 
 /**
- * The flat field shape the SA emits inside an `addFields` batch item.
- * Derived directly from `addFieldsItemSchema` so the interface can't
- * drift from the tool's input contract. Only `label` is required-with-
- * sentinel ("" = no label); `stripEmpty` normalizes it — and any other
- * empty value — to absence before the handler assembles a domain `Field`.
- * `parentId` is an optional semantic field id (omitted = "insert at the
- * form's top level"); the handler resolves a present value to a UUID when
- * building the `addField` mutation.
+ * The WIDE flat field shape this pipeline operates on — every key any kind
+ * might carry, all optional but `id`/`kind`. Derived from `wideFlatItemSchema`
+ * (the generator's wide processing-type source), NOT from the per-kind
+ * discriminated-union tool inputs: a validated tool item (one union arm) is
+ * a structural subset of this shape, so it flows through `stripEmpty` /
+ * `applyDefaults` / `flatFieldToField` without per-kind narrowing. `parentId`
+ * is an optional semantic field id (omitted = "insert at the form's top
+ * level"); the handler resolves a present value to a UUID when building the
+ * `addField` mutation.
  */
-export type FlatField = z.infer<typeof addFieldsItemSchema>;
+export type FlatField = z.infer<typeof wideFlatItemSchema>;
 
 // ── Sentinel collapse ────────────────────────────────────────────────
 

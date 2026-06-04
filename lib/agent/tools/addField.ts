@@ -38,7 +38,11 @@ import {
 	findFieldByBareId,
 	resolveFormContext,
 } from "../blueprintHelpers";
-import { applyDefaults, flatFieldToField } from "../contentProcessing";
+import {
+	applyDefaults,
+	type FlatField,
+	flatFieldToField,
+} from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldSchema } from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
@@ -150,7 +154,11 @@ export const addFieldTool = {
 			// `addFieldSchema` uses plain optionals, so `stripEmpty`'s
 			// sentinel collapse isn't needed here — that's the one place the
 			// two tool pipelines diverge.
-			const processed = applyDefaults(fieldInput, doc.caseTypes);
+			// `fieldInput` is one validated per-kind union arm; TS infers an
+			// arm's conditionally-present keys as `unknown`, so the bridge cast
+			// to the wide `FlatField` is needed (and sound — the arm is a
+			// structural subset of it).
+			const processed = applyDefaults(fieldInput as FlatField, doc.caseTypes);
 
 			// Mint a uuid and assemble the validated domain `Field` shape.
 			// A failure here means the declared kind requires a key the

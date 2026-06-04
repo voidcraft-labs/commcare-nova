@@ -1,216 +1,258 @@
 // Behavioral tests for the SA tool schema generator.
 //
-// The generator is the single source of truth for `addFields`,
-// `addField`, and `editField` tool input shapes. These tests pin down
-// the contract consumers rely on:
-//
-//   - Every kind the registry declares shows up in the `kind` enum.
-//   - The batch-item schema requires only `id` / `kind` / `label`;
-//     `parentId` and `required` are optional (the tool runs on tool-use,
-//     not grammar-constrained structured output, so the old 8-optional
-//     cap never bound it).
-//   - Clearable edit-patch fields accept `null`.
-//   - Per-kind `saDocs` lines flow through into the `kind` enum's
-//     description (the SA reads the description when picking a kind).
-//   - A representative per-kind payload parses successfully (smoke test
-//     that the shape is usable end-to-end).
+// The generator is the single source of truth for the `addFields`,
+// `addField`, and `editField` tool inputs. Each is a per-kind
+// `discriminatedUnion("kind", …)`: an arm exposes ONLY the properties its
+// kind's domain schema declares, so a "wrong property for this kind" input
+// (e.g. `calculate` on a `single_select`) is rejected at the tool boundary
+// rather than dropped downstream. These tests pin that contract
+// behaviorally (via `safeParse`) rather than introspecting the emitted JSON
+// schema shape, which keeps them robust to Zod's serialization choices.
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { fieldKinds, fieldRegistry } from "@/lib/domain";
 import { generateToolSchemas } from "../toolSchemaGenerator";
 
-describe("toolSchemaGenerator", () => {
-	const generated = generateToolSchemas();
+const generated = generateToolSchemas();
 
-	it("exposes the three expected field-mutation schemas", () => {
+/**
+ * A minimal VALID add payload for a kind, respecting that kind's required
+ * properties: visible/media/label kinds need a non-empty `label`; `hidden`
+ * needs a value (`calculate`) and carries no label; selects need ≥2
+ * `options`; `repeat` needs a `repeat` config; `group` takes an optional
+ * label.
+ */
+function validAddPayload(kind: string): Record<string, unknown> {
+	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
+	if (kind === "hidden") {
+		p.calculate = "today()";
+	} else if (kind === "repeat") {
+		p.label = "Repeat";
+		p.repeat = { mode: "user_controlled" };
+	} else if (kind === "group") {
+		p.label = "Group";
+	} else {
+		// text / int / decimal / date / time / datetime / select / multi /
+		// geopoint / barcode / secret / image / audio / video / signature /
+		// label — all carry a required non-empty label.
+		p.label = "Label";
+	}
+	if (kind === "single_select" || kind === "multi_select") {
+		p.options = [
+			{ value: "a", label: "A" },
+			{ value: "b", label: "B" },
+		];
+	}
+	return p;
+}
+
+describe("toolSchemaGenerator", () => {
+	it("exposes the three tool inputs plus the two wide processing-type sources", () => {
 		expect(generated.addFieldsItemSchema).toBeDefined();
 		expect(generated.addFieldSchema).toBeDefined();
 		expect(generated.editFieldUpdatesSchema).toBeDefined();
+		expect(generated.wideFlatItemSchema).toBeDefined();
+		expect(generated.wideEditUpdatesSchema).toBeDefined();
 	});
 
-	it("includes every kind from the registry in the addFields `kind` enum", () => {
-		const jsonSchema = z.toJSONSchema(
-			generated.addFieldsItemSchema,
-		) as unknown as { properties: { kind: { enum: string[] } } };
-		expect(new Set(jsonSchema.properties.kind.enum)).toEqual(
-			new Set(fieldKinds),
-		);
-	});
-
-	it("renders per-kind saDocs in the kind enum description", () => {
-		// The SA reads the enum description when picking a kind — every
-		// `fieldRegistry[kind].saDocs` line should appear in that text,
-		// otherwise a new kind's guidance won't surface to the model.
-		const jsonSchema = z.toJSONSchema(
-			generated.addFieldsItemSchema,
-		) as unknown as { properties: { kind: { description?: string } } };
-		const description = jsonSchema.properties.kind.description ?? "";
+	it("has an arm for every registry kind on each add tool", () => {
 		for (const kind of fieldKinds) {
-			expect(description).toContain(fieldRegistry[kind].saDocs);
+			const payload = validAddPayload(kind);
+			expect(
+				generated.addFieldsItemSchema.safeParse(payload).success,
+				`addFields arm for ${kind}`,
+			).toBe(true);
+			expect(
+				generated.addFieldSchema.safeParse(payload).success,
+				`addField arm for ${kind}`,
+			).toBe(true);
 		}
 	});
 
-	it("keeps the batch-item schema at 10 optional fields", () => {
-		// The addFields tool runs on tool-use input, which isn't grammar-
-		// constrained, so the structured-output 8-optional compile ceiling
-		// never bound it. `parentId` + `required` are optional alongside
-		// the six flat optionals and the two nested-config objects
-		// (`validate`, `repeat`) — ten in total. This test flags any
-		// accidental addition or removal.
-		const jsonSchema = z.toJSONSchema(
-			generated.addFieldsItemSchema,
-		) as unknown as {
-			properties: Record<string, unknown>;
-			required: string[];
-		};
-		const allKeys = Object.keys(jsonSchema.properties);
-		const optionalCount = allKeys.filter(
-			(k) => !jsonSchema.required.includes(k),
-		).length;
-		expect(optionalCount).toBe(10);
-	});
-
-	it("requires only id, kind, and label on batch items", () => {
-		// `label` is required-with-sentinel ("" = no label) as a conscious-
-		// choice guard for the empty-label kinds. `parentId` and `required`
-		// are optional — the SA omits them (handler defaults parent →
-		// form-level, absent required → not required). Repeat/validation
-		// config live nested under their optional objects, contributing no
-		// top-level required keys.
-		const jsonSchema = z.toJSONSchema(
-			generated.addFieldsItemSchema,
-		) as unknown as { required: string[] };
-		expect(new Set(jsonSchema.required)).toEqual(
-			new Set(["id", "kind", "label"]),
-		);
-	});
-
-	it("parses a batch item that omits parentId and required", () => {
-		// The fix that made these optional: a flat field with neither
-		// `parentId` nor `required` must parse cleanly (it used to be a
-		// hard tool-input rejection that forced the SA to retry with ""
-		// sentinels). `label` is still required.
-		const result = generated.addFieldsItemSchema.safeParse({
-			id: "patient_name",
-			kind: "text",
-			label: "Patient name",
-		});
-		expect(result.success).toBe(true);
-	});
-
-	it("makes clearable edit-patch fields nullable", () => {
-		// `relevant` / `calculate` / `default_value` / `options` /
-		// `case_property_on` accept `null` to explicitly clear the value;
-		// the tool handler maps null → undefined so the reducer's
-		// Object.assign drops the key.
-		const jsonSchema = z.toJSONSchema(
-			generated.editFieldUpdatesSchema,
-		) as unknown as {
-			properties: Record<string, { type?: string | string[] }>;
-		};
-		for (const key of [
-			"relevant",
-			"calculate",
-			"default_value",
-			"options",
-			"case_property_on",
-		]) {
-			const prop = jsonSchema.properties[key];
-			expect(prop, `expected ${key} in schema`).toBeDefined();
-			// Zod's JSON Schema output may use anyOf or an array-typed
-			// `type` for nullable — either form is acceptable as long as
-			// `null` is a valid value.
-			const serialized = JSON.stringify(prop);
-			expect(serialized).toContain("null");
-		}
-	});
-
-	it("parses a representative payload for every field kind", () => {
-		// Smoke test: each kind parses with the minimum acceptable
-		// shape. Repeat-mode config lives in the optional nested
-		// `repeat` object — non-repeat kinds simply omit it.
-		for (const kind of fieldKinds) {
-			const payload: Record<string, unknown> = {
-				id: `test_${kind}`,
-				kind,
-				parentId: "",
-				label: "Test Field",
-				required: "",
-			};
-			// Repeat needs the `repeat` config object (with at least a
-			// `mode`) for the discriminated union to find a variant.
-			if (kind === "repeat") {
-				payload.repeat = { mode: "user_controlled" };
+	it("surfaces each kind's saDocs in the schema the model sees", () => {
+		// Per-kind guidance now rides each arm's `kind` literal description
+		// (rather than one umbrella enum). Collect every `description` in the
+		// emitted JSON schema (deep-walking the OBJECT, not the stringified
+		// form — saDocs contain quotes that JSON-escaping would mangle) and
+		// assert each kind's saDocs is one of them.
+		const descriptions: string[] = [];
+		const walk = (node: unknown): void => {
+			if (!node || typeof node !== "object") return;
+			for (const [key, value] of Object.entries(node)) {
+				if (key === "description" && typeof value === "string") {
+					descriptions.push(value);
+				} else {
+					walk(value);
+				}
 			}
-			const result = generated.addFieldsItemSchema.safeParse(payload);
+		};
+		walk(z.toJSONSchema(generated.addFieldsItemSchema));
+		for (const kind of fieldKinds) {
+			expect(
+				descriptions.some((d) => d.includes(fieldRegistry[kind].saDocs)),
+				`saDocs for ${kind}`,
+			).toBe(true);
+		}
+	});
+
+	// ── The structural win: per-kind property scoping ───────────────────
+
+	it("rejects `calculate` on a visible kind (the slot isn't on its arm)", () => {
+		const base = validAddPayload("single_select");
+		expect(generated.addFieldsItemSchema.safeParse(base).success).toBe(true);
+		// Adding `calculate` (a hidden-only slot) makes the single_select arm
+		// reject the whole input — the SA can't express it.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				...base,
+				calculate: "if(1, 'a', 'b')",
+			}).success,
+		).toBe(false);
+		// Same for a text field.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "t",
+				kind: "text",
+				label: "T",
+				calculate: "x",
+			}).success,
+		).toBe(false);
+	});
+
+	it("accepts `default_value` on selects + barcode (now a declared slot)", () => {
+		for (const kind of ["single_select", "multi_select", "barcode"] as const) {
+			const payload = { ...validAddPayload(kind), default_value: "#case/x" };
+			expect(
+				generated.addFieldsItemSchema.safeParse(payload).success,
+				`default_value on ${kind}`,
+			).toBe(true);
+		}
+	});
+
+	it("rejects label/options on a hidden field but accepts calculate or default_value", () => {
+		// hidden carries no label and no options slot.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "h",
+				kind: "hidden",
+				calculate: "today()",
+				label: "nope",
+			}).success,
+		).toBe(false);
+		// calculate-only and default_value-only hidden fields both parse.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "h",
+				kind: "hidden",
+				calculate: "today()",
+			}).success,
+		).toBe(true);
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "h",
+				kind: "hidden",
+				default_value: "today()",
+			}).success,
+		).toBe(true);
+	});
+
+	it("requires a non-empty label on visible kinds, none on hidden", () => {
+		// Visible kind with empty label → rejected (min(1)).
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "t",
+				kind: "text",
+				label: "",
+			}).success,
+		).toBe(false);
+		// hidden with a label key → rejected (no label slot).
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "h",
+				kind: "hidden",
+				calculate: "1",
+				label: "",
+			}).success,
+		).toBe(false);
+	});
+
+	it("parses a representative valid payload for every field kind", () => {
+		for (const kind of fieldKinds) {
+			const result = generated.addFieldsItemSchema.safeParse(
+				validAddPayload(kind),
+			);
 			expect(result.success, `kind ${kind} failed to parse`).toBe(true);
 		}
 	});
 
-	it("accepts optional values on the batch-item schema (nested validate)", () => {
-		// Validation lives under nested `validate: { expr, msg? }`. The
-		// outer object consumes a single optional slot regardless of
-		// whether `msg` is set.
-		const result = generated.addFieldsItemSchema.safeParse({
-			id: "f1",
-			kind: "text",
-			parentId: "",
-			label: "Full name",
-			required: "true()",
-			hint: "Enter legal name",
-			validate: {
-				expr: "string-length(.) > 1",
-				msg: "Must not be empty",
-			},
-			relevant: "#form/collect_name = 'yes'",
-			calculate: "",
-			default_value: "",
-			options: [],
-			case_property_on: "patient",
+	// ── Repeat config (discriminated on mode) ────────────────────────────
+
+	it("enforces mode-specific repeat fields at the tool boundary", () => {
+		const repeatPayload = (repeat: unknown) => ({
+			id: "r",
+			kind: "repeat",
+			label: "R",
+			repeat,
 		});
-		expect(result.success).toBe(true);
+		// user_controlled needs nothing extra.
+		expect(
+			generated.addFieldSchema.safeParse(
+				repeatPayload({ mode: "user_controlled" }),
+			).success,
+		).toBe(true);
+		// count_bound REQUIRES count; query_bound REQUIRES ids_query.
+		expect(
+			generated.addFieldSchema.safeParse(
+				repeatPayload({ mode: "count_bound", count: "#form/n" }),
+			).success,
+		).toBe(true);
+		expect(
+			generated.addFieldSchema.safeParse(repeatPayload({ mode: "count_bound" }))
+				.success,
+		).toBe(false);
+		expect(
+			generated.addFieldSchema.safeParse(
+				repeatPayload({ mode: "query_bound", ids_query: "#form/ids" }),
+			).success,
+		).toBe(true);
+		expect(
+			generated.addFieldSchema.safeParse(repeatPayload({ mode: "query_bound" }))
+				.success,
+		).toBe(false);
 	});
 
-	it("accepts a query_bound repeat with nested config on the single-add schema", () => {
-		// SA picks `mode` and provides the matching mode-specific field
-		// (`ids_query` for query_bound) inside the nested `repeat` object.
-		const result = generated.addFieldSchema.safeParse({
-			id: "service_cases",
-			kind: "repeat",
-			label: "Service cases",
-			repeat: {
-				mode: "query_bound",
-				ids_query: "#form/service_case_ids",
-			},
-		});
-		expect(result.success).toBe(true);
+	// ── editField (per-kind, kind required as discriminator) ─────────────
+
+	it("requires `kind` on the edit patch (it's the union discriminator)", () => {
+		// Without `kind`, the discriminated union can't pick an arm.
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({ label: "x" }).success,
+		).toBe(false);
+		// With `kind`, an in-place patch validates against that kind's props.
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "text",
+				label: "x",
+			}).success,
+		).toBe(true);
 	});
 
-	it("accepts a count_bound repeat with nested config on the single-add schema", () => {
-		const result = generated.addFieldSchema.safeParse({
-			id: "iterations",
-			kind: "repeat",
-			label: "Iterations",
-			repeat: {
-				mode: "count_bound",
-				count: "#form/desired_count",
-			},
-		});
-		expect(result.success).toBe(true);
-	});
-
-	it("requires `mode` inside the nested repeat config (no silent default)", () => {
-		// A `repeat` object without `mode` should fail to parse — the
-		// schema-level enforcement is what makes the `flatFieldToField`
-		// reshape safe. SA omitting mode surfaces as a parse error
-		// rather than a silent fallback to user_controlled.
-		const result = generated.addFieldSchema.safeParse({
-			id: "iterations",
-			kind: "repeat",
-			label: "Iterations",
-			repeat: { count: "#form/desired_count" },
-		});
-		expect(result.success).toBe(false);
+	it("scopes edit-patch props per kind and keeps clearable keys nullable", () => {
+		// `calculate` isn't on the single_select edit arm.
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "single_select",
+				calculate: "x",
+			}).success,
+		).toBe(false);
+		// Clearable keys accept `null` to reset.
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "text",
+				relevant: null,
+				default_value: null,
+			}).success,
+		).toBe(true);
 	});
 });

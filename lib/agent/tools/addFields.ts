@@ -32,6 +32,7 @@ import { asUuid } from "@/lib/domain";
 import { findFieldByBareId, resolveFormContext } from "../blueprintHelpers";
 import {
 	applyDefaults,
+	type FlatField,
 	flatFieldToField,
 	stripEmpty,
 } from "../contentProcessing";
@@ -98,11 +99,18 @@ export const addFieldsTool = {
 			const skippedIds: string[] = [];
 
 			for (const raw of fields) {
-				// `stripEmpty` narrows the input to carry `parentId?: string | null`
-				// explicitly (sentinel-empty-string → null), and the generic
-				// `applyDefaults` preserves that narrowing on the way out, so
-				// the `parentId` read below is well-typed without a cast.
-				const processed = applyDefaults(stripEmpty(raw), doc.caseTypes);
+				// `raw` is a per-kind union arm (the tool input is a
+				// `discriminatedUnion("kind", …)`). TS infers a union arm's
+				// conditionally-present keys as `unknown`, so it isn't directly
+				// assignable to the wide `FlatField` the pipeline operates on —
+				// but the arm IS a validated structural subset of `FlatField`,
+				// so the bridge cast is sound. `stripEmpty` then narrows
+				// `parentId?: string | null` (sentinel-empty-string → null), and
+				// `applyDefaults` preserves that narrowing.
+				const processed = applyDefaults(
+					stripEmpty(raw as FlatField),
+					doc.caseTypes,
+				);
 
 				// Resolve parentUuid: empty/undefined → form; otherwise find
 				// the uuid of a newly-added parent or an existing field.
