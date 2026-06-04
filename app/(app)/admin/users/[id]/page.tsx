@@ -2,8 +2,14 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import Link from "next/link";
 import { Suspense } from "react";
-import { AppsSkeleton, ProfileSkeleton, UsageSkeleton } from "./skeletons";
+import {
+	AppsSkeleton,
+	CreditsSkeleton,
+	ProfileSkeleton,
+	UsageSkeleton,
+} from "./skeletons";
 import { UserAppsSection } from "./user-apps";
+import { UserCreditsSection } from "./user-credits";
 import { UserProfileSection } from "./user-profile";
 import { UserUsageSection } from "./user-usage";
 
@@ -38,9 +44,15 @@ export default async function AdminUserDetailPage({
 				<span className="text-nova-text-secondary">User</span>
 			</nav>
 
-			{/* ── Content — three independent Suspense streams ─── */}
+			{/* ── Content — four independent Suspense streams ─── */}
 			<Suspense fallback={<ProfileSkeleton />}>
 				<UserProfileSection userId={userId} />
+			</Suspense>
+
+			{/* Credits sit above usage: balance + reset/grant actions up top,
+			    per-period detail (including credit columns) in the table below. */}
+			<Suspense fallback={<CreditsSkeleton />}>
+				<UserCreditsSection userId={userId} />
 			</Suspense>
 
 			<Suspense fallback={<UsageSkeleton />}>
