@@ -211,7 +211,6 @@ const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 		),
 		xpathEntry<TextField, "relevant">("relevant", "Show When"),
 		xpathEntry<TextField, "default_value">("default_value", "Default Value"),
-		xpathEntry<TextField, "calculate">("calculate", "Calculate"),
 	],
 	ui: [
 		mediaEntry<TextField, "label_media">("label_media", "Label Media"),
@@ -233,7 +232,6 @@ const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 		),
 		xpathEntry<IntField, "relevant">("relevant", "Show When"),
 		xpathEntry<IntField, "default_value">("default_value", "Default Value"),
-		xpathEntry<IntField, "calculate">("calculate", "Calculate"),
 	],
 	ui: [
 		mediaEntry<IntField, "label_media">("label_media", "Label Media"),
@@ -255,7 +253,6 @@ const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 		),
 		xpathEntry<DecimalField, "relevant">("relevant", "Show When"),
 		xpathEntry<DecimalField, "default_value">("default_value", "Default Value"),
-		xpathEntry<DecimalField, "calculate">("calculate", "Calculate"),
 	],
 	ui: [
 		mediaEntry<DecimalField, "label_media">("label_media", "Label Media"),
@@ -277,7 +274,6 @@ const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 		),
 		xpathEntry<DateField, "relevant">("relevant", "Show When"),
 		xpathEntry<DateField, "default_value">("default_value", "Default Value"),
-		xpathEntry<DateField, "calculate">("calculate", "Calculate"),
 	],
 	ui: [
 		mediaEntry<DateField, "label_media">("label_media", "Label Media"),
@@ -299,7 +295,6 @@ const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 		),
 		xpathEntry<TimeField, "relevant">("relevant", "Show When"),
 		xpathEntry<TimeField, "default_value">("default_value", "Default Value"),
-		xpathEntry<TimeField, "calculate">("calculate", "Calculate"),
 	],
 	ui: [
 		mediaEntry<TimeField, "label_media">("label_media", "Label Media"),
@@ -324,7 +319,6 @@ const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 			"default_value",
 			"Default Value",
 		),
-		xpathEntry<DatetimeField, "calculate">("calculate", "Calculate"),
 	],
 	ui: [
 		mediaEntry<DatetimeField, "label_media">("label_media", "Label Media"),
@@ -366,7 +360,7 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 			"Validation Message Media",
 		),
 		xpathEntry<BarcodeField, "relevant">("relevant", "Show When"),
-		xpathEntry<BarcodeField, "calculate">("calculate", "Calculate"),
+		xpathEntry<BarcodeField, "default_value">("default_value", "Default Value"),
 	],
 	ui: [
 		mediaEntry<BarcodeField, "label_media">("label_media", "Label Media"),
@@ -388,7 +382,6 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 			"default_value",
 			"Default Value",
 		),
-		xpathEntry<GeopointField, "calculate">("calculate", "Calculate"),
 	],
 	ui: [
 		mediaEntry<GeopointField, "label_media">("label_media", "Label Media"),
@@ -412,7 +405,10 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 			"Validation Message Media",
 		),
 		xpathEntry<SingleSelectField, "relevant">("relevant", "Show When"),
-		xpathEntry<SingleSelectField, "calculate">("calculate", "Calculate"),
+		xpathEntry<SingleSelectField, "default_value">(
+			"default_value",
+			"Default Value",
+		),
 	],
 	ui: [
 		mediaEntry<SingleSelectField, "label_media">("label_media", "Label Media"),
@@ -436,7 +432,10 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 			"Validation Message Media",
 		),
 		xpathEntry<MultiSelectField, "relevant">("relevant", "Show When"),
-		xpathEntry<MultiSelectField, "calculate">("calculate", "Calculate"),
+		xpathEntry<MultiSelectField, "default_value">(
+			"default_value",
+			"Default Value",
+		),
 	],
 	ui: [
 		mediaEntry<MultiSelectField, "label_media">("label_media", "Label Media"),
@@ -498,14 +497,14 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	],
 };
 
-// Hidden's `calculate` is required-by-schema — always-visible, never
-// addable, never collapses. The other logic keys follow the standard
-// optional pattern. No `ui` section (hidden fields have no label, no
-// label media, and never render to the user).
+// Hidden's value comes from `calculate` OR `default_value` — both optional,
+// both addable (the `HIDDEN_NO_VALUE` validator enforces at least one). No
+// `ui` section (hidden fields have no label, no label media, and never render
+// to the user).
 const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	data: [casePropertyEntry<HiddenField>()],
 	logic: [
-		{ key: "calculate", component: XPathEditor, label: "Calculate" },
+		xpathEntry<HiddenField, "calculate">("calculate", "Calculate"),
 		xpathEntry<HiddenField, "default_value">("default_value", "Default Value"),
 		requiredEntry<HiddenField>(),
 		xpathEntry<HiddenField, "relevant">("relevant", "Show When"),

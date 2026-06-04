@@ -1,10 +1,12 @@
 // lib/domain/fields/hidden.ts
 //
-// Hidden computed field. Never shown to the user — it exists purely to
-// carry a calculated value through the form instance. `calculate` is
-// REQUIRED (not optional) because a hidden field with no expression would
-// always be empty and is meaningless. Maps to CommCare <input> with
-// xsd:string; the value is set entirely by the XPath calculate expression.
+// Hidden value field. Never shown to the user — it exists purely to carry a
+// value through the form instance, set EITHER by a `calculate` (a computed,
+// continuously-recomputed value) OR a `default_value` (a one-shot `<setvalue>`
+// seed nothing later overwrites). Both are optional here; the
+// `HIDDEN_NO_VALUE` validator requires at least one, since a hidden field with
+// neither is always blank and pointless. Maps to CommCare <input> with
+// xsd:string.
 //
 // Extends `structuralFieldBase` (uuid + id), NOT `fieldBaseSchema` —
 // hidden fields have no `label` (nothing to display) and no `hint`.
@@ -19,9 +21,10 @@ import { structuralFieldBase } from "./base";
 
 export const hiddenFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("hidden"),
-	// calculate is required — a hidden field must have a compute expression;
-	// without one it would always be blank and serve no purpose.
-	calculate: z.string(),
+	// A hidden field's value comes from `calculate` (computed) OR
+	// `default_value` (a one-shot seed) — both optional; the `HIDDEN_NO_VALUE`
+	// validator enforces that at least one is present.
+	calculate: z.string().optional(),
 	default_value: z.string().optional(),
 	required: z.string().optional(),
 	relevant: z.string().optional(),
@@ -39,6 +42,6 @@ export const hiddenFieldMetadata: FieldKindMetadata<"hidden"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs:
-		"Computed value that the user never sees. Must have a calculate expression.",
+		"Value the user never sees — set by a calculate expression or a default value.",
 	convertTargets: [],
 };

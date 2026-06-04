@@ -72,14 +72,27 @@ describe("fieldSchema", () => {
 		expect(parsed.success).toBe(false);
 	});
 
-	it("rejects a hidden field missing calculate (required)", () => {
-		expect(() =>
-			fieldSchema.parse({
+	it("accepts a hidden field set by either calculate or default_value (both optional)", () => {
+		// A hidden field's value comes from `calculate` (computed) OR
+		// `default_value` (a one-shot seed) — both optional at the schema
+		// level. The "must have at least one" rule is the HIDDEN_NO_VALUE
+		// validator's job, not the schema's.
+		expect(
+			fieldSchema.safeParse({
 				kind: "hidden",
 				uuid: asUuid("abc"),
-				id: "x",
-			}),
-		).toThrow();
+				id: "computed",
+				calculate: "today()",
+			}).success,
+		).toBe(true);
+		expect(
+			fieldSchema.safeParse({
+				kind: "hidden",
+				uuid: asUuid("abc"),
+				id: "seeded",
+				default_value: "today()",
+			}).success,
+		).toBe(true);
 	});
 
 	it("accepts a group with absent label (transparent structural container)", () => {

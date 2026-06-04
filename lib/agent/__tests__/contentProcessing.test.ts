@@ -87,6 +87,44 @@ describe("applyDefaults", () => {
 		]);
 	});
 
+	// Kind-aware seeding: a catalog default is applied only when the resolved
+	// kind's schema DECLARES the slot. Without this gate, writing a computed
+	// field to a property declared as a select would inherit the select's
+	// `options` (or `label`), and the strict per-kind schema would then reject
+	// the whole field in `flatFieldToField`.
+	it("does NOT seed select-only options/label onto a hidden field", () => {
+		const result = applyDefaults(
+			// A hidden computed field writing to the select-typed `gender`.
+			{ id: "gender", kind: "hidden", case_property_on: "patient" },
+			[testCaseType],
+		);
+		expect(result.options).toBeUndefined();
+		expect(result.label).toBeUndefined();
+		expect(result.kind).toBe("hidden");
+	});
+
+	it("does NOT seed validate onto a kind that doesn't declare it (geopoint)", () => {
+		const result = applyDefaults(
+			// geopoint has no `validate` slot, so the `age` property's
+			// `validation` must not be seeded — but `required`, which geopoint
+			// DOES declare, still is.
+			{ id: "age", kind: "geopoint", case_property_on: "patient" },
+			[testCaseType],
+		);
+		expect(result.validate).toBeUndefined();
+		expect(result.required).toBe("true()");
+	});
+
+	it("treats an explicit empty-string label as unset and seeds from the catalog", () => {
+		// The single-add path doesn't run `stripEmpty`, so an explicit `""`
+		// must still be treated as unset here for single/batch parity.
+		const result = applyDefaults(
+			{ id: "case_name", kind: "text", label: "", case_property_on: "patient" },
+			[testCaseType],
+		);
+		expect(result.label).toBe("Full Name");
+	});
+
 	it("fills in hint from case type", () => {
 		const result = applyDefaults(
 			{ id: "phone", kind: "text", case_property_on: "patient" },

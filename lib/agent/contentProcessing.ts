@@ -25,10 +25,30 @@
  * their domain equivalents when seeding a field's defaults.
  */
 import type { z } from "zod";
-import type { CaseType, Field, Uuid } from "@/lib/domain";
-import { fieldSchema } from "@/lib/domain";
+import type { CaseType, Field, FieldKind, Uuid } from "@/lib/domain";
+import { fieldKindDeclaresKey, fieldKinds, fieldSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { addFieldsItemSchema } from "./toolSchemas";
+
+/** Narrow a possibly-unknown kind string to a `FieldKind` before asking the
+ *  per-kind key sets about it — an SA-supplied bad kind would otherwise blow
+ *  up `fieldKindDeclaresKey`'s lookup (and is caught later by the field parse). */
+function isFieldKind(kind: unknown): kind is FieldKind {
+	return (
+		typeof kind === "string" && (fieldKinds as readonly string[]).includes(kind)
+	);
+}
+
+/** A catalog default should fill a slot the SA left unset — treating an empty
+ *  string or empty array as "unset" too, so an explicit `""` (which the batch
+ *  path's `stripEmpty` already collapses) is seeded the same on both add paths. */
+function isUnset(value: unknown): boolean {
+	return (
+		value === undefined ||
+		value === "" ||
+		(Array.isArray(value) && value.length === 0)
+	);
+}
 
 type CaseTypes = CaseType[] | null;
 
@@ -164,28 +184,48 @@ export function applyDefaults<E extends object = object>(
 		const ct = caseTypes.find((c) => c.name === result.case_property_on);
 		const prop = ct?.properties.find((p) => p.name === result.id);
 		if (prop) {
+			// Seed the kind first — every other default depends on knowing it.
 			result.kind ??= prop.data_type ?? "text";
-			result.label ??= prop.label;
-			result.hint ??= prop.hint;
-			result.required ??= prop.required;
+			const kind = result.kind;
+
+			// A catalog default applies only when (a) the field left the slot
+			// unset — and `""` / `[]` count as unset, so the single- and
+			// batch-add paths (the latter pre-collapses empties via
+			// `stripEmpty`) seed IDENTICALLY — AND (b) the resolved kind's
+			// schema actually DECLARES the slot. Without (b), a computed
+			// `hidden` field that writes to a property declared as a select
+			// would inherit that property's `options` / `label`, and the
+			// strict per-kind schema in `flatFieldToField` would then reject
+			// the whole field (the kind doesn't carry those keys).
+			const declares = (key: string): boolean =>
+				isFieldKind(kind) ? fieldKindDeclaresKey(kind, key) : true;
+
+			if (declares("label") && isUnset(result.label)) {
+				result.label = prop.label;
+			}
+			if (declares("hint") && isUnset(result.hint)) {
+				result.hint = prop.hint;
+			}
+			if (declares("required") && isUnset(result.required)) {
+				result.required = prop.required;
+			}
 			// Case-type → field vocabulary translation. CaseProperty uses
 			// CommCare-flavored `validation` / `validation_msg` because the
 			// case-type record directly models the CommCare data layer; the
 			// field's SA tool surface uses a nested `validate: { expr, msg }`
-			// object (the domain entity layer flattens back to `validate` +
-			// `validate_msg`). This block is the one point in the agent
-			// module where the two vocabularies meet — seed the nested
-			// object when the SA didn't provide a usable one. An SA stub
-			// like `validate: { expr: "" }` should not suppress the
-			// catalog default, so the predicate checks for a truthy
-			// `expr` rather than the object's mere presence.
-			if (prop.validation && !result.validate?.expr) {
+			// object. Seed it only when the kind supports validation and the
+			// SA didn't provide a usable `expr` (an SA stub like
+			// `validate: { expr: "" }` must not suppress the catalog default,
+			// so we check for a truthy `expr`, not the object's presence).
+			if (declares("validate") && prop.validation && !result.validate?.expr) {
 				result.validate = {
 					expr: prop.validation,
 					...(prop.validation_msg && { msg: prop.validation_msg }),
 				};
 			}
-			result.options ??= prop.options;
+			if (declares("options") && isUnset(result.options)) {
+				result.options = prop.options;
+			}
 		}
 	}
 
