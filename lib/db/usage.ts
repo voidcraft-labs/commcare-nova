@@ -1,15 +1,18 @@
 /**
- * Usage tracking — per-user monthly spend aggregation.
+ * Usage tracking — per-user monthly ACTUAL-dollar cost aggregation.
  *
- * Reads and writes to `usage/{userId}/months/{yyyy-mm}` documents.
- * Spend cap checks are a single document read (period string = doc ID).
- * Increments are atomic via FieldValue.increment() — safe for concurrent
- * requests from the same user.
+ * Reads and writes `usage/{userId}/months/{yyyy-mm}` documents (period string
+ * = doc ID, so a read is a single document fetch). This is the accumulate-only
+ * cost record: increments are atomic via FieldValue.increment(), and nothing
+ * ever resets it — an admin credit reset/grant touches the parallel `credits/`
+ * ledger, never this one. Its sole gate consumer is the invisible
+ * `ACTUAL_COST_BACKSTOP_USD` ($50) runaway guard, which reads the running
+ * `cost_estimate` via `getMonthlyUsage`. The user-facing quota is credits,
+ * not dollars — see `./credits`.
  *
- * Fail-closed: the pre-request getMonthlyUsage() read is wrapped in a
- * try/catch by the route — if Firestore is down, the read fails → 503,
- * which blocks the user from continuing. No separate retry or pending
- * mechanism needed — a Firestore outage that blocks writes also blocks reads.
+ * Fail-closed: the route wraps the pre-request `getMonthlyUsage` read in a
+ * try/catch — if Firestore is down, the read fails → 503. No separate retry or
+ * pending mechanism: a Firestore outage that blocks writes also blocks reads.
  */
 import { FieldValue } from "@google-cloud/firestore";
 import { log } from "@/lib/logger";
@@ -20,20 +23,6 @@ import { getCurrentPeriod } from "./period";
 import { writeRunSummary } from "./runSummary";
 import type { RunSummaryDoc, UsageDoc } from "./types";
 
-// ── Configuration ─────────────────────────────────────────────────
-
-/**
- * Monthly per-user spend cap in USD. Authenticated users whose cumulative
- * monthly cost reaches this threshold are blocked from further requests
- * until the next calendar month.
- *
- * Set via MONTHLY_SPEND_CAP_USD env var. Default $15 — enough for
- * real work (~7-30 full builds/month), tight enough to prevent
- * runaway costs on the shared Anthropic key.
- */
-export const MONTHLY_SPEND_CAP_USD =
-	Number(process.env.MONTHLY_SPEND_CAP_USD) || 15;
-
 // ── Read ──────────────────────────────────────────────────────────
 
 /**
@@ -41,7 +30,7 @@ export const MONTHLY_SPEND_CAP_USD =
  * document exists yet (first request of the month). The Zod converter
  * validates the read and fills defaults (all counters default to 0).
  *
- * This is a blocking read — used for the pre-request spend cap check.
+ * This is a blocking read — used for the pre-request actual-$ backstop check.
  */
 export async function getMonthlyUsage(
 	userId: string,
@@ -62,7 +51,7 @@ interface UsageIncrement {
 /**
  * Atomically increment the current month's usage counters for a user.
  * Single attempt, throws on failure — consistent with every other
- * Firestore write in the codebase. The pre-request cap check (read)
+ * Firestore write in the codebase. The pre-request backstop check (read)
  * is the fail-closed gate; if Firestore is down for writes, it's down
  * for reads too, and the route returns 503.
  *
@@ -99,7 +88,7 @@ export async function incrementUsage(
  *
  * `uncachedInput` is floored at zero: if a caller mis-reports cache tokens
  * such that the sum exceeds `inputTokens`, a negative uncached count would
- * flow into `FieldValue.increment` and corrupt the monthly spend counter
+ * flow into `FieldValue.increment` and corrupt the monthly actual-$ counter
  * (and misreport the run summary). Clamp here rather than trust the source.
  *
  * Exported so admin inspect scripts can recompute costs from stored run
@@ -183,8 +172,9 @@ interface AccumulatorRunConfig {
 
 /**
  * Per-request LLM usage accumulator. `flush()` fans out to the monthly
- * spend-cap document and the per-run summary doc — see the two methods
- * for the contracts they own.
+ * actual-$ document and the per-run summary doc (and refunds the credit
+ * reservation on a no-op/failed run) — see the two methods for the
+ * contracts they own.
  */
 export class UsageAccumulator {
 	/* `configureRun` replaces this field with a fresh object rather than
