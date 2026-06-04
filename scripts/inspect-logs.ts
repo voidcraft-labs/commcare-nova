@@ -19,7 +19,11 @@ import "dotenv/config";
 import { Command, InvalidArgumentError } from "commander";
 import { collections } from "@/lib/db/firestore";
 import type { RunSummaryDoc } from "@/lib/db/types";
-import { readEvents, readRunSummary } from "@/lib/log/reader";
+import {
+	decodeEventsLenient,
+	readEvents,
+	readRunSummary,
+} from "@/lib/log/reader";
 import {
 	duration,
 	pct,
@@ -154,7 +158,15 @@ async function loadEvents(): Promise<Event[]> {
 		return readEvents(appId, runFilter);
 	}
 	const snap = await collections.events(appId).get();
-	const events = snap.docs.map((d) => d.data());
+	// Drop-and-warn on any event that fails schema validation (forward-version
+	// payload / schema drift) instead of letting one bad doc abort the whole
+	// scan — the failure that made this script crash on attachment-prep events.
+	const { events, skipped, sample } = decodeEventsLenient(snap.docs);
+	if (skipped > 0) {
+		console.warn(
+			`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload). First: ${sample}`,
+		);
+	}
 	events.sort((a, b) => a.ts - b.ts || a.seq - b.seq);
 	return events;
 }

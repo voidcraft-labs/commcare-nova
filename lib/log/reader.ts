@@ -14,14 +14,56 @@
  * admin/replay surfaces (one-time loads) or diagnostic scripts (manual
  * invocation), so cache complexity isn't justified.
  */
-import { collections, docs } from "@/lib/db/firestore";
+import type { QueryDocumentSnapshot } from "@google-cloud/firestore";
+import { collections, docs, getDb } from "@/lib/db/firestore";
 import type { RunSummaryDoc } from "@/lib/db/types";
+import { log } from "@/lib/logger";
 import type { Event } from "./types";
 
 /**
+ * Decode a page of event docs, DROPPING any that fail schema validation
+ * rather than letting one bad doc abort the whole read.
+ *
+ * The event stream is supplemental (the AppDoc snapshot is authoritative),
+ * and a forward-version deploy can write a payload type an older reader
+ * doesn't know — the strict Zod converter throws on `.data()` for such a
+ * doc. Without this, a single unrecognized event makes EVERY reader (replay,
+ * admin log inspection, diagnostic scripts) fail to load the entire app's
+ * stream. Per-doc try/catch isolates the failure: known events still load,
+ * the unknown ones are counted (caller logs), and the run stays inspectable.
+ *
+ * The throw is caught HERE (not surfaced) because there is no recovery a
+ * caller could perform — the doc is undecodable under this build's schema,
+ * and the only useful action is to skip it and report the count.
+ */
+export function decodeEventsLenient(
+	eventDocs: QueryDocumentSnapshot<Event>[],
+): {
+	events: Event[];
+	skipped: number;
+	sample?: string;
+} {
+	const events: Event[] = [];
+	let skipped = 0;
+	let sample: string | undefined;
+	for (const doc of eventDocs) {
+		try {
+			events.push(doc.data());
+		} catch (err) {
+			skipped++;
+			if (sample === undefined) {
+				sample = err instanceof Error ? err.message.slice(0, 200) : String(err);
+			}
+		}
+	}
+	return { events, skipped, sample };
+}
+
+/**
  * Load every event for a specific generation run, sorted by `ts` then
- * `seq`. The Firestore converter validates each doc via `eventSchema`;
- * malformed entries surface as a parse error at this boundary.
+ * `seq`. Each doc is validated via `eventSchema` (the Firestore converter);
+ * a doc that fails (schema drift / forward-version payload) is dropped and
+ * counted rather than aborting the read — see `decodeEventsLenient`.
  */
 export async function readEvents(
 	appId: string,
@@ -33,7 +75,13 @@ export async function readEvents(
 		.orderBy("ts")
 		.orderBy("seq")
 		.get();
-	return snap.docs.map((doc) => doc.data());
+	const { events, skipped, sample } = decodeEventsLenient(snap.docs);
+	if (skipped > 0) {
+		log.warn(
+			`[readEvents] dropped ${skipped} unparseable event(s) for app=${appId} run=${runId} (schema drift / forward-version payload). First: ${sample}`,
+		);
+	}
+	return events;
 }
 
 /**
@@ -45,13 +93,21 @@ export async function readEvents(
  * full-collection scan.
  */
 export async function readLatestRunId(appId: string): Promise<string | null> {
-	const snap = await collections
-		.events(appId)
+	// Raw read (no Zod converter): `runId` is an envelope field present on
+	// EVERY event regardless of payload validity, so a drifted/forward-version
+	// latest event still yields the correct most-recent run. Going through the
+	// converter here would throw on exactly that case and strand replay/admin
+	// on "no recent run" for an app whose newest event is undecodable.
+	const snap = await getDb()
+		.collection("apps")
+		.doc(appId)
+		.collection("events")
 		.orderBy("ts", "desc")
 		.limit(1)
 		.get();
 	if (snap.empty) return null;
-	return snap.docs[0].data().runId;
+	const runId = (snap.docs[0].data() as { runId?: unknown }).runId;
+	return typeof runId === "string" ? runId : null;
 }
 
 /**

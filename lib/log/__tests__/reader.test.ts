@@ -6,8 +6,9 @@
  * Two mock surfaces are stubbed:
  *
  *   - `collections.events(appId)` — chainable query builder
- *     (`where` / `orderBy` / `limit` / `get`). Used by `readEvents` and
- *     `readLatestRunId`.
+ *     (`where` / `orderBy` / `limit` / `get`). Used by `readEvents`.
+ *   - `getDb()` — raw (un-converter'd) handle, used by `readLatestRunId`
+ *     to read `runId` off the newest event without the strict converter.
  *   - `docs.run(appId, runId)` — document reference with `get()`. Used by
  *     `readRunSummary`.
  *
@@ -35,6 +36,17 @@ vi.mock("@/lib/db/firestore", () => ({
 			orderBy: mockOrderBy,
 		})),
 	},
+	// `readLatestRunId` reads raw (no converter): getDb().collection("apps")
+	// .doc(id).collection("events").orderBy(...).limit(1).get(). The inner
+	// `collection()` returns the shared `{ orderBy: mockOrderBy }` chain so
+	// the orderBy → limit → get path resolves to the same `mockGet`.
+	getDb: vi.fn(() => ({
+		collection: vi.fn(() => ({
+			doc: vi.fn(() => ({
+				collection: vi.fn(() => ({ orderBy: mockOrderBy })),
+			})),
+		})),
+	})),
 	docs: {
 		run: vi.fn(() => ({
 			get: mockRunDocGet,
@@ -151,6 +163,44 @@ describe("readLatestRunId", () => {
 		mockGet.mockResolvedValue({ empty: true, docs: [] });
 		const { readLatestRunId } = await import("../reader");
 		expect(await readLatestRunId("app-1")).toBeNull();
+	});
+});
+
+describe("decodeEventsLenient", () => {
+	/**
+	 * The core resilience contract: a doc whose converter `.data()` throws
+	 * (forward-version payload / schema drift) is dropped and counted, while
+	 * the valid docs around it still load. Before this, one bad doc aborted
+	 * the entire stream read (the failure that crashed `inspect-logs` on
+	 * `attachment-prep` events).
+	 */
+	it("drops docs whose data() throws and keeps the valid ones", async () => {
+		const goodEvent: Event = {
+			kind: "mutation",
+			runId: "r",
+			ts: 1,
+			seq: 0,
+			source: "chat",
+			actor: "agent",
+			mutation: { kind: "setAppName", name: "a" },
+		};
+		// QueryDocumentSnapshot is structurally just `{ data(): Event }` here.
+		const goodDoc = { data: () => goodEvent };
+		const badDoc = {
+			data: () => {
+				throw new Error("Unrecognized payload type 'attachment-prep'");
+			},
+		};
+		const { decodeEventsLenient } = await import("../reader");
+		const { events, skipped, sample } = decodeEventsLenient([
+			goodDoc,
+			badDoc,
+			goodDoc,
+			// biome-ignore lint/suspicious/noExplicitAny: structural snapshot stub
+		] as any);
+		expect(events).toEqual([goodEvent, goodEvent]);
+		expect(skipped).toBe(1);
+		expect(sample).toContain("attachment-prep");
 	});
 });
 
