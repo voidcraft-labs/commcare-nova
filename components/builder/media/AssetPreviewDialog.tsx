@@ -118,10 +118,20 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 	);
 }
 
-/** The raw-file view, dispatched by kind. */
+/**
+ * The raw-file view, dispatched by kind. A referenced asset can be deleted from
+ * the library while a transcript message still shows its chip, so the media
+ * elements fall back to a clear "no longer available" tile on a load error
+ * (the proxy 404s a deleted/foreign asset) rather than a broken image / frame.
+ */
 function DocumentView({ target }: { target: AssetPreviewTarget }) {
 	const src = mediaSrc(target.id);
 	const name = target.filename;
+	// A deleted (or foreign) asset 404s on the bytes proxy; the media element's
+	// onError flips this so we show an honest fallback, not a broken tile.
+	const [unavailable, setUnavailable] = useState(false);
+	if (unavailable) return <AssetUnavailable kind={target.kind} />;
+	const onError = () => setUnavailable(true);
 	switch (target.kind) {
 		case "image":
 			return (
@@ -129,22 +139,34 @@ function DocumentView({ target }: { target: AssetPreviewTarget }) {
 				<img
 					src={src}
 					alt={name}
+					onError={onError}
 					className="mx-auto max-h-[65vh] rounded-md object-contain"
 				/>
 			);
 		case "audio":
 			// biome-ignore lint/a11y/useMediaCaption: user-uploaded media has no caption track
-			return <audio controls src={src} className="w-full" />;
+			return <audio controls src={src} onError={onError} className="w-full" />;
 		case "video":
-			// biome-ignore lint/a11y/useMediaCaption: user-uploaded media has no caption track
-			return <video controls src={src} className="max-h-[65vh] w-full" />;
+			return (
+				// biome-ignore lint/a11y/useMediaCaption: user-uploaded media has no caption track
+				<video
+					controls
+					src={src}
+					onError={onError}
+					className="max-h-[65vh] w-full"
+				/>
+			);
 		case "pdf":
 			// The browser's native PDF viewer renders out-of-process; the proxy's
-			// `sandbox` CSP sandboxes the document as defense-in-depth.
+			// `sandbox` CSP sandboxes the document as defense-in-depth. (An <iframe>
+			// won't reliably fire onError for an HTTP 404 — it renders the browser's
+			// own error page instead — so a deleted PDF shows that rather than the
+			// tile; not misleading, just less polished than the image case.)
 			return (
 				<iframe
 					src={src}
 					title={name}
+					onError={onError}
 					className="h-[65vh] w-full rounded-md border border-nova-border bg-white"
 				/>
 			);
@@ -196,6 +218,25 @@ function DownloadOriginal({
 	);
 }
 
+/** Shown when an asset's bytes can't be loaded — typically because it was
+ *  deleted from the library while a transcript message still references it.
+ *  Honest about the state instead of a broken image or a misleading "not yet
+ *  read". */
+function AssetUnavailable({ kind }: { kind: AssetKind }) {
+	return (
+		<div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-nova-border px-6 py-12 text-center">
+			<Icon
+				icon={ASSET_KIND_META[kind].icon}
+				className="size-10 text-nova-text-muted/60"
+			/>
+			<p className="text-sm text-nova-text-secondary">
+				This file is no longer available — it may have been deleted from your
+				library.
+			</p>
+		</div>
+	);
+}
+
 type ExtractState =
 	| { state: "loading" }
 	| { state: "ready"; text: string }
@@ -237,10 +278,14 @@ function ExtractView({ assetId }: { assetId: string }) {
 		);
 	}
 	if (extract.state === "absent") {
+		// The extract endpoint 404s both for a doc that hasn't finished extracting
+		// AND for one whose asset is gone (deleted) — the client can't tell them
+		// apart, so the copy honestly covers both rather than asserting "not read
+		// yet" over a file that no longer exists.
 		return (
 			<p className="py-8 text-center text-sm text-nova-text-muted">
-				This document hasn't been read yet. Once feature extraction finishes,
-				its extract appears here.
+				No extract to show — the document may still be processing, or it's no
+				longer in your library.
 			</p>
 		);
 	}
