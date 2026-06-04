@@ -133,8 +133,12 @@ export const Reasoning = memo(
 
 		return (
 			<ReasoningContext.Provider value={contextValue}>
+				{/* `my-4` (not `mb-4`): a reasoning burst is a distinct collapsible that
+				 *  sits between prose parts of an assistant turn, so it needs symmetric
+				 *  breathing room. Bottom-only margin left the "Thought for Ns" trigger
+				 *  cramped against the text immediately above it. */}
 				<Collapsible
-					className={cn("not-prose mb-4", className)}
+					className={cn("not-prose my-4", className)}
 					onOpenChange={handleOpenChange}
 					open={isOpen}
 					{...props}
