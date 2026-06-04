@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type CellRow,
 	creditReconcile,
+	planRebaseline,
 	type RunInput,
 } from "@/scripts/lib/creditReconcile";
 
@@ -183,5 +184,193 @@ describe("creditReconcile", () => {
 			"A/2026-06",
 			"Z/2026-05",
 		]);
+	});
+});
+
+describe("planRebaseline", () => {
+	// Build a CellRow fixture with just the fields the planner reads.
+	function cell(over: Partial<CellRow> & Pick<CellRow, "ownerId">): CellRow {
+		return {
+			period: "2026-04",
+			current: 0,
+			ledgerSum: 0,
+			delta: 0,
+			isCurrentMonth: false,
+			softDeletedContribution: 0,
+			crossMonthRuns: [],
+			overBackstopCurrentMonth: false,
+			...over,
+		};
+	}
+
+	it("routes a closed-month material delta to closedWrites", () => {
+		// Owner A, a closed month (isCurrentMonth false): $2 → $3 always applies.
+		const rows = [
+			cell({
+				ownerId: "A",
+				period: "2026-04",
+				current: 2,
+				ledgerSum: 3,
+				delta: 1,
+				isCurrentMonth: false,
+			}),
+		];
+
+		const plan = planRebaseline(rows, new Set(), new Map([["A", "a@x.com"]]));
+
+		expect(plan.closedWrites).toEqual([
+			{ ownerId: "A", period: "2026-04", from: 2, to: 3 },
+		]);
+		expect(plan.currentWrites).toEqual([]);
+		expect(plan.currentSkipped).toEqual([]);
+	});
+
+	it("holds a current-month delta NOT opted-in as currentSkipped, propagating overBackstop", () => {
+		// Owner B, current month, NOT in the opt-in set, and over the backstop:
+		// must be surfaced (never written) with overBackstop carried through.
+		const rows = [
+			cell({
+				ownerId: "B",
+				period: "2026-06",
+				current: 10,
+				ledgerSum: 60,
+				delta: 50,
+				isCurrentMonth: true,
+				overBackstopCurrentMonth: true,
+			}),
+		];
+
+		const plan = planRebaseline(rows, new Set(), new Map([["B", "b@x.com"]]));
+
+		expect(plan.closedWrites).toEqual([]);
+		expect(plan.currentWrites).toEqual([]);
+		expect(plan.currentSkipped).toEqual([
+			{
+				ownerId: "B",
+				period: "2026-06",
+				from: 10,
+				to: 60,
+				overBackstop: true,
+			},
+		]);
+	});
+
+	it("applies the SAME current-month delta when the owner's email is opted in", () => {
+		// Identical cell to the prior test, but b@x.com is now in the opt-in set
+		// (matched via emailOf): it moves from skipped to currentWrites.
+		const rows = [
+			cell({
+				ownerId: "B",
+				period: "2026-06",
+				current: 10,
+				ledgerSum: 60,
+				delta: 50,
+				isCurrentMonth: true,
+				overBackstopCurrentMonth: true,
+			}),
+		];
+
+		const plan = planRebaseline(
+			rows,
+			new Set(["b@x.com"]),
+			new Map([["B", "b@x.com"]]),
+		);
+
+		expect(plan.currentWrites).toEqual([
+			{ ownerId: "B", period: "2026-06", from: 10, to: 60 },
+		]);
+		expect(plan.currentSkipped).toEqual([]);
+		expect(plan.closedWrites).toEqual([]);
+	});
+
+	it("matches an opt-in case/whitespace-insensitively (stored mixed-case email)", () => {
+		// Stored email is mixed-case `Alice@X.com`; the operator's pre-normalized
+		// opt-in set holds `alice@x.com`. The planner folds the resolved email the
+		// same way, so this EXACT-but-differently-cased opt-in must still apply —
+		// not silently fall into currentSkipped.
+		const rows = [
+			cell({
+				ownerId: "A",
+				period: "2026-06",
+				current: 10,
+				ledgerSum: 30,
+				delta: 20,
+				isCurrentMonth: true,
+			}),
+		];
+
+		const plan = planRebaseline(
+			rows,
+			new Set(["alice@x.com"]),
+			new Map([["A", "  Alice@X.com  "]]),
+		);
+
+		expect(plan.currentWrites).toEqual([
+			{ ownerId: "A", period: "2026-06", from: 10, to: 30 },
+		]);
+		expect(plan.currentSkipped).toEqual([]);
+	});
+
+	it("NEVER opts in an unresolved-email owner — empty resolved email can't match (fail-safe)", () => {
+		// Owner U is NOT in emailOf, so its resolved email folds to "". The
+		// documented invariant: an owner with no resolvable email can never be
+		// opted in, regardless of the opt-in set's contents. The dangerous input
+		// is a STRAY "" in the set (an unset `--current-user "$VAR"`): with a naive
+		// `set.has(resolved)` that would route EVERY unresolved-email current-month
+		// cell into currentWrites and silently re-baseline (re-block) the user.
+		const rows = [
+			cell({
+				ownerId: "U",
+				period: "2026-06",
+				current: 10,
+				ledgerSum: 60,
+				delta: 50,
+				isCurrentMonth: true,
+				overBackstopCurrentMonth: true,
+			}),
+		];
+
+		// (a) Stray "" in the opt-in set: must NOT opt the unresolved owner in.
+		const withEmptyEntry = planRebaseline(
+			rows,
+			new Set([""]),
+			new Map(), // U absent → resolved email ""
+		);
+		expect(withEmptyEntry.currentWrites).toEqual([]);
+		expect(withEmptyEntry.currentSkipped).toEqual([
+			{ ownerId: "U", period: "2026-06", from: 10, to: 60, overBackstop: true },
+		]);
+
+		// (b) Empty opt-in set: same fail-safe — surfaced, never written.
+		const withEmptySet = planRebaseline(rows, new Set(), new Map());
+		expect(withEmptySet.currentWrites).toEqual([]);
+		expect(withEmptySet.currentSkipped).toEqual([
+			{ ownerId: "U", period: "2026-06", from: 10, to: 60, overBackstop: true },
+		]);
+	});
+
+	it("plans nothing for a zero-delta current-month cell, even when opted in", () => {
+		// Owner C, current month, opted in, but delta below the material threshold
+		// (float noise) → no write of any kind.
+		const rows = [
+			cell({
+				ownerId: "C",
+				period: "2026-06",
+				current: 10,
+				ledgerSum: 10 + 1e-12,
+				delta: 1e-12,
+				isCurrentMonth: true,
+			}),
+		];
+
+		const plan = planRebaseline(
+			rows,
+			new Set(["c@x.com"]),
+			new Map([["C", "c@x.com"]]),
+		);
+
+		expect(plan.closedWrites).toEqual([]);
+		expect(plan.currentWrites).toEqual([]);
+		expect(plan.currentSkipped).toEqual([]);
 	});
 });

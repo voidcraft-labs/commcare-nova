@@ -173,3 +173,133 @@ export function creditReconcile(
 	);
 	return rows;
 }
+
+// ── Re-baseline planning (the migrator's pure decision core) ─────────
+
+/**
+ * Half the last-displayed (4-dp) digit. A cell whose TRUE delta is zero can
+ * still carry float-addition noise (`ledgerSum` and `current` are the same
+ * multiset summed in different orders, and float `+` is non-associative), so a
+ * `!== 0` test would plan a misleading `+$0.0000` write. Below this magnitude a
+ * cell is treated as already-baselined — no write planned.
+ *
+ * Exported so the scan's "would move" preview filter and the migrator's planner
+ * share ONE cut — the preview can never list a cell the apply skips, or vice
+ * versa.
+ */
+export const MATERIAL_DELTA_USD = 0.00005;
+
+/** One planned re-baseline write: overwrite this cell's `cost_estimate`. */
+export interface RebaselineWrite {
+	ownerId: string;
+	period: string;
+	/** The cell's current usage `cost_estimate` (what the write replaces). */
+	from: number;
+	/** The authoritative ledger sum (what the write sets `cost_estimate` to). */
+	to: number;
+}
+
+/**
+ * The migrator's full re-baseline plan, partitioned by the decisive safety rule.
+ *
+ * Re-baselining a CLOSED month is reporting-only and safe, so every closed-month
+ * write applies automatically. The CURRENT month's `cost_estimate` feeds the
+ * live actual-cost backstop (`cost_estimate >= backstop` → the chat gate 429s
+ * every POST), so a current-month re-baseline can re-block a user a manual reset
+ * just unblocked. Current-month writes therefore apply ONLY for explicitly
+ * opted-in owners; the rest are surfaced as `currentSkipped` (never silently
+ * written), with `overBackstop` marked loudly so the operator sees exactly which
+ * skips would have re-blocked.
+ */
+export interface RebaselinePlan {
+	/** Closed-month writes — always applied (reporting-only, safe). */
+	closedWrites: RebaselineWrite[];
+	/** Current-month writes for opted-in owners — applied. */
+	currentWrites: RebaselineWrite[];
+	/** Current-month cells NOT opted in — surfaced, never written. */
+	currentSkipped: (RebaselineWrite & {
+		/** Whether applying this write would trip the live backstop (re-block). */
+		overBackstop: boolean;
+	})[];
+}
+
+/**
+ * Partition reconciled cells into the writes the migrator may apply versus the
+ * current-month cells it must hold back.
+ *
+ * Pure and total: it reads the explicit `isCurrentMonth` / `overBackstopCurrentMonth`
+ * flags the reconciliation already computed (no clock here) and the explicit
+ * opt-in set (no Firestore here). A cell with no material delta produces nothing.
+ *
+ * `currentUserEmails` is matched against `emailOf.get(ownerId)` — the opt-in is
+ * expressed by EMAIL (operator-facing) but routed by `ownerId` (the doc key).
+ * `emailOf` holds ONLY owners with a real email, so an owner with no resolvable
+ * email (missing `auth_users` doc, or present but email-less) is simply absent:
+ * `emailOf.get(ownerId)` is `undefined` and folds to the empty string. The match
+ * then explicitly refuses the empty string (rather than relying on it being
+ * absent from the set — a stray "" from an unset `--current-user "$VAR"` would
+ * otherwise opt in every unresolvable owner at once). This fails safe: no
+ * current-month write for an owner whose email can't be resolved.
+ *
+ * Email matching is case/whitespace-insensitive: `currentUserEmails` is expected
+ * pre-normalized (trimmed + lowercased) by the caller, and the resolved email is
+ * normalized the same way HERE before the lookup. Normalizing only one side
+ * would drop an exact-but-mixed-case opt-in (stored `Alice@X.com`, typed
+ * `alice@x.com`) into the skipped bucket — silently failing a correct opt-in at
+ * the live apply. Only this comparison key is folded; the operator-facing display
+ * label (with its `?? ownerId` fallback) is the caller's concern at the print site.
+ */
+export function planRebaseline(
+	rows: CellRow[],
+	currentUserEmails: Set<string>,
+	emailOf: Map<string, string>,
+): RebaselinePlan {
+	const plan: RebaselinePlan = {
+		closedWrites: [],
+		currentWrites: [],
+		currentSkipped: [],
+	};
+
+	for (const row of rows) {
+		/* Only cells whose cost would actually move are written — a sub-cent
+		 * float-noise delta is not a real re-baseline. */
+		if (Math.abs(row.delta) < MATERIAL_DELTA_USD) continue;
+
+		const write: RebaselineWrite = {
+			ownerId: row.ownerId,
+			period: row.period,
+			from: row.current,
+			to: row.ledgerSum,
+		};
+
+		/* Closed months are reporting-only — always safe to re-baseline. */
+		if (!row.isCurrentMonth) {
+			plan.closedWrites.push(write);
+			continue;
+		}
+
+		/* Current month: write only when the owner is explicitly opted in;
+		 * otherwise surface (never silently write) with the backstop marker so
+		 * the operator can see which holds would have re-blocked the user. The
+		 * resolved email is folded (trim + lowercase) to match the pre-normalized
+		 * opt-in set. The `resolvedEmail !== ""` guard is the fail-safe the JSDoc
+		 * promises: an owner with no resolvable email folds to "", and were a
+		 * stray "" ever in the opt-in set (e.g. an unset `--current-user "$VAR"`),
+		 * `has("")` would be true and silently opt in EVERY unresolved-email cell.
+		 * Refusing "" here means an unresolved owner can never be opted in,
+		 * regardless of the set's contents. */
+		const resolvedEmail = (emailOf.get(row.ownerId) ?? "").trim().toLowerCase();
+		const optedIn =
+			resolvedEmail !== "" && currentUserEmails.has(resolvedEmail);
+		if (optedIn) {
+			plan.currentWrites.push(write);
+		} else {
+			plan.currentSkipped.push({
+				...write,
+				overBackstop: row.overBackstopCurrentMonth,
+			});
+		}
+	}
+
+	return plan;
+}

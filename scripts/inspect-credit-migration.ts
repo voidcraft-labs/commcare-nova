@@ -17,7 +17,11 @@
  */
 import { Command } from "commander";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
-import { creditReconcile, type RunInput } from "./lib/creditReconcile";
+import {
+	loadReconciliationData,
+	type UsageDocFields,
+} from "./lib/creditMigrationData";
+import { creditReconcile, MATERIAL_DELTA_USD } from "./lib/creditReconcile";
 import { db } from "./lib/firestore";
 import { printHeader, printSection, printTable, usd } from "./lib/format";
 import { runMain } from "./lib/main";
@@ -79,171 +83,26 @@ const ORPHAN = {
 	field: "unadjusted_estimate",
 } as const;
 
-// ── Firestore read shapes ───────────────────────────────────────────
-
-/** The run-summary fields this scan reads, typed off a raw `.data()`. */
-interface RunDocFields {
-	runId?: string;
-	costEstimate?: number;
-	startedAt?: string;
-	finishedAt?: string;
-}
-
-/** The app fields the owner/soft-delete join reads. */
-interface AppDocFields {
-	owner?: string;
-	deleted_at?: string | null;
-}
-
-/** The usage fields the scan reads — including the off-schema orphan. */
-interface UsageDocFields {
-	cost_estimate?: number;
-	unadjusted_estimate?: number;
-}
-
-/** A run doc paired with the appId resolved from its document path. */
-interface RawRun {
-	appId: string;
-	runId: string;
-	costEstimate: number;
-	startedPeriod: string;
-	finishedPeriod: string;
-}
-
-// ── Batch-read helpers (guard the empty case) ───────────────────────
-
-/**
- * Chunked `getAll` over a list of refs. `db.getAll([])` THROWS ("At least one
- * document reference is required"), so the empty case short-circuits to `[]`.
- * Firestore caps `getAll` at 1000 refs per call; chunk to stay under it.
- */
-async function getAllChunked(
-	refs: FirebaseFirestore.DocumentReference[],
-): Promise<FirebaseFirestore.DocumentSnapshot[]> {
-	if (refs.length === 0) return [];
-	const CHUNK = 300;
-	const out: FirebaseFirestore.DocumentSnapshot[] = [];
-	for (let i = 0; i < refs.length; i += CHUNK) {
-		const snaps = await db.getAll(...refs.slice(i, i + CHUNK));
-		out.push(...snaps);
-	}
-	return out;
-}
-
 // ── Main ────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
 	printHeader("CREDIT RE-BASELINE SCAN (read-only)");
 
-	// ── 1. Read every run doc across all apps (collection group) ──────
-	const runsSnap = await db.collectionGroup("runs").get();
+	// ── 1. Load the fleet (shared with the migrator's apply path) ─────
+	// Every PROD read lives in the loader so the scan PREVIEW and the migrator
+	// APPLY reconcile the exact same data — they can never diverge.
+	const {
+		runs,
+		currentUsage,
+		currentPeriod,
+		emailOf,
+		runDocsScanned,
+		missingFieldSkips,
+		orphanRunSkips,
+		distinctApps,
+	} = await loadReconciliationData();
 
-	let missingFieldSkips = 0;
-	const rawRuns: RawRun[] = [];
-	const appIds = new Set<string>();
-
-	for (const doc of runsSnap.docs) {
-		// `apps/{appId}/runs/{runId}` — the appId is the grandparent doc id.
-		const appId = doc.ref.parent?.parent?.id;
-		const data = doc.data() as RunDocFields;
-		const cost = data.costEstimate;
-		// Old or partial run docs may lack the fields we read. A missing
-		// `startedAt`/`finishedAt` would crash `.slice(0, 7)` and take down the
-		// whole scan, so skip-and-count rather than throw. The cost check is
-		// `Number.isFinite` (not `typeof "number"`) because NaN/Infinity are
-		// both numbers: a non-finite cost would render `$NaN` and, since
-		// `NaN >= backstop` is false, silently leave a genuinely over-backstop
-		// current-month cell UNFLAGGED — the one outcome this scan must never
-		// miss. Unreachable from the normal pipeline (Zod rejects non-finite on
-		// read), but free and matches the file's rigor. The `typeof` arm does the
-		// TS narrowing (`Number.isFinite`'s lib signature takes `unknown` and
-		// returns a plain `boolean`, so it can't narrow on its own); the
-		// `isFinite` arm adds the NaN/Infinity rejection.
-		if (
-			appId === undefined ||
-			typeof cost !== "number" ||
-			!Number.isFinite(cost) ||
-			typeof data.startedAt !== "string" ||
-			typeof data.finishedAt !== "string"
-		) {
-			missingFieldSkips++;
-			continue;
-		}
-		appIds.add(appId);
-		rawRuns.push({
-			appId,
-			runId: data.runId ?? doc.id,
-			costEstimate: cost,
-			// A period is the yyyy-mm prefix of the ISO timestamp.
-			startedPeriod: data.startedAt.slice(0, 7),
-			finishedPeriod: data.finishedAt.slice(0, 7),
-		});
-	}
-
-	// ── 2. Join each run to its app (owner + soft-delete signal) ──────
-	const appRefs = [...appIds].map((id) => db.collection("apps").doc(id));
-	const appSnaps = await getAllChunked(appRefs);
-	const appMeta = new Map<string, { ownerId: string; deleted: boolean }>();
-	for (const snap of appSnaps) {
-		if (!snap.exists) continue;
-		const a = snap.data() as AppDocFields;
-		if (typeof a.owner !== "string") continue;
-		appMeta.set(snap.id, {
-			ownerId: a.owner,
-			// Soft-deleted apps' runs were real cost — included, just flagged.
-			deleted: a.deleted_at != null,
-		});
-	}
-
-	let orphanRunSkips = 0;
-	const runs: RunInput[] = [];
-	for (const r of rawRuns) {
-		const meta = appMeta.get(r.appId);
-		// A run whose app doc is missing (or owner-less) can't be attributed to
-		// a user — skip and count it as an orphan.
-		if (!meta) {
-			orphanRunSkips++;
-			continue;
-		}
-		runs.push({
-			runId: r.runId,
-			appId: r.appId,
-			ownerId: meta.ownerId,
-			deleted: meta.deleted,
-			costEstimate: r.costEstimate,
-			startedPeriod: r.startedPeriod,
-			finishedPeriod: r.finishedPeriod,
-		});
-	}
-
-	// ── 3. Read current usage for exactly the cells the ledger touches ─
-	// Derive the distinct (owner, finishedPeriod) cell keys from the runs and
-	// read usage for only those — never enumerate "all periods".
-	const cellPairs = new Map<string, { ownerId: string; period: string }>();
-	for (const r of runs) {
-		cellPairs.set(`${r.ownerId}/${r.finishedPeriod}`, {
-			ownerId: r.ownerId,
-			period: r.finishedPeriod,
-		});
-	}
-	const usageRefs = [...cellPairs.values()].map((c) =>
-		db.collection("usage").doc(c.ownerId).collection("months").doc(c.period),
-	);
-	const usageSnaps = await getAllChunked(usageRefs);
-	const currentUsage = new Map<string, number>();
-	for (const snap of usageSnaps) {
-		if (!snap.exists) continue;
-		const u = snap.data() as UsageDocFields;
-		// `getAll` preserves request order, so the Nth snapshot maps to the Nth
-		// ref/cellPair — but re-deriving the key from the snapshot's path is
-		// order-independent and self-documenting: `usage/{owner}/months/{period}`.
-		const ownerId = snap.ref.parent?.parent?.id;
-		if (ownerId === undefined) continue;
-		currentUsage.set(`${ownerId}/${snap.id}`, u.cost_estimate ?? 0);
-	}
-
-	// ── 4. Reconcile (pure) ───────────────────────────────────────────
-	const currentPeriod = new Date().toISOString().slice(0, 7);
+	// ── 2. Reconcile (pure) ───────────────────────────────────────────
 	const rows = creditReconcile(
 		runs,
 		currentUsage,
@@ -251,29 +110,19 @@ async function main(): Promise<void> {
 		ACTUAL_COST_BACKSTOP_USD,
 	);
 
-	// ── 5. Resolve owner ids → emails for display ─────────────────────
-	const ownerIds = [...new Set(rows.map((r) => r.ownerId))];
-	const userRefs = ownerIds.map((id) => db.collection("auth_users").doc(id));
-	const userSnaps = await getAllChunked(userRefs);
-	const emailOf = new Map<string, string>();
-	for (const snap of userSnaps) {
-		if (!snap.exists) continue;
-		const email = (snap.data() as { email?: string }).email;
-		// Fall back to the id when a user record is missing/email-less.
-		emailOf.set(snap.id, email ?? snap.id);
-	}
+	// Resolve an owner id to its email for display, falling back to the id.
 	const email = (ownerId: string): string => emailOf.get(ownerId) ?? ownerId;
 
-	// ── 6. Print scan summary ─────────────────────────────────────────
-	console.log(`  Run docs scanned:        ${runsSnap.size}`);
+	// ── 3. Print scan summary ─────────────────────────────────────────
+	console.log(`  Run docs scanned:        ${runDocsScanned}`);
 	console.log(`  Skipped (missing field): ${missingFieldSkips}`);
 	console.log(`  Skipped (orphan run):    ${orphanRunSkips}`);
-	console.log(`  Distinct apps:           ${appIds.size}`);
+	console.log(`  Distinct apps:           ${distinctApps}`);
 	console.log(`  (owner, period) cells:   ${rows.length}`);
 	console.log(`  Current period:          ${currentPeriod}`);
 	console.log(`  Backstop:                ${usd(ACTUAL_COST_BACKSTOP_USD)}\n`);
 
-	// 6a. Per-cell table — the full reconciliation.
+	// 3a. Per-cell table — the full reconciliation.
 	printSection("Per-(owner, period) reconciliation");
 	printTable(
 		[
@@ -296,7 +145,7 @@ async function main(): Promise<void> {
 		]),
 	);
 
-	// 6b. Cross-month runs — these mis-attribute a thread's whole cost to the
+	// 3b. Cross-month runs — these mis-attribute a thread's whole cost to the
 	// finished month. Reviewed manually before any apply.
 	printSection("CROSS-MONTH runs — manual review");
 	const crossMonth = rows.flatMap((r) =>
@@ -323,7 +172,7 @@ async function main(): Promise<void> {
 		);
 	}
 
-	// 6c. Current-month cells whose re-baseline would trip the live $50
+	// 3c. Current-month cells whose re-baseline would trip the live $50
 	// backstop — loud, because it re-blocks the very users a reset unblocked.
 	printSection("CURRENT-MONTH over $50 — would re-block");
 	const reblock = rows.filter((r) => r.overBackstopCurrentMonth);
@@ -346,15 +195,15 @@ async function main(): Promise<void> {
 		);
 	}
 
-	// 6d. The re-baseline preview — every cell whose cost would actually move.
-	// Threshold at half the last displayed (4-dp) digit, NOT `!== 0`:
-	// `ledgerSum` (summed in collection-group order) and `current`
-	// (server-accumulated via FieldValue.increment in completion order) are the
-	// same multiset added in different orders, and float addition is
-	// non-associative — so a cell whose TRUE delta is zero can carry ~1e-14
-	// noise that survives `!== 0` and renders as a misleading `+$0.0000` move.
+	// 3d. The re-baseline preview — every cell whose cost would actually move.
+	// Filtered at the SAME `MATERIAL_DELTA_USD` cut the migrator's planner uses
+	// (NOT `!== 0`): `ledgerSum` and `current` are the same multiset summed in
+	// different orders, and float addition is non-associative — so a cell whose
+	// TRUE delta is zero can carry ~1e-14 noise that survives `!== 0` and renders
+	// as a misleading `+$0.0000` move. Sharing the constant makes the preview and
+	// the apply list the exact same moved cells.
 	printSection("Non-zero deltas — the re-baseline preview");
-	const moved = rows.filter((r) => Math.abs(r.delta) >= 0.00005);
+	const moved = rows.filter((r) => Math.abs(r.delta) >= MATERIAL_DELTA_USD);
 	if (moved.length === 0) {
 		console.log("  (none)");
 	} else {
@@ -376,7 +225,7 @@ async function main(): Promise<void> {
 		);
 	}
 
-	// ── 7. Recorded cross-checks ──────────────────────────────────────
+	// ── 4. Recorded cross-checks ──────────────────────────────────────
 	// Live-read the recorded users' usage fields and print them next to the
 	// ledger sum THIS scan computed for the same cell — the sums come from the
 	// pipeline's own `rows`, so a match validates the whole read→reconcile path.
