@@ -149,7 +149,14 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	if (toolName(part) === "validateApp" && toolStatus(part) === "done") {
 		return "App successfully validated.";
 	}
-	if (part.state === "output-error") return part.errorText ?? "Failed.";
+	// A tool that threw, or whose input the schema rejected, surfaces as
+	// `output-error` with the AI SDK's raw `errorText` (e.g. an
+	// "AI_ToolExecutionError: …"). That text is recorded server-side — the run's
+	// event log plus a warn line, see `generationContext.ts`'s
+	// `handleAgentStep` — but must never face the user, so show a friendly line.
+	// (Tools that catch their own failures return a friendly `{ error }` string,
+	// handled just below — that path is intentionally preserved.)
+	if (part.state === "output-error") return "This change couldn't be applied.";
 
 	const out = part.output;
 	if (typeof out === "object" && out !== null && "error" in out) {

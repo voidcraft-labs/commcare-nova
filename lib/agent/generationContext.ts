@@ -567,8 +567,24 @@ export class GenerationContext implements ToolExecutionContext {
 		// a present result always wins.
 		for (const te of step.toolErrors ?? []) {
 			if (resultByCallId.has(te.toolCallId)) continue;
-			resultByCallId.set(te.toolCallId, {
-				error: te.error instanceof Error ? te.error.message : String(te.error),
+			const message =
+				te.error instanceof Error ? te.error.message : String(te.error);
+			resultByCallId.set(te.toolCallId, { error: message });
+			// Surface it in Cloud Logging too — the fold above only records it in
+			// the per-run event log (Firestore). A tool call reaching the SDK's
+			// error path (invalid input, or an execution throw) is abnormal: tool
+			// bodies normally catch and return a friendly `{ error }`, so an
+			// `output-error` means something escaped and is worth a greppable line.
+			// `warn`, not `error`: the model occasionally mis-calls a tool then
+			// self-corrects on retry, which shouldn't page anyone — but it must not
+			// vanish, and it must not reach the user raw (the chat UI shows a
+			// friendly line in its place).
+			log.warn("[agent] tool call errored", {
+				label,
+				toolCallId: te.toolCallId,
+				toolName: step.toolCalls?.find((c) => c.toolCallId === te.toolCallId)
+					?.toolName,
+				error: message,
 			});
 		}
 		for (const tc of step.toolCalls ?? []) {
