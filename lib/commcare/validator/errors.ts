@@ -92,6 +92,7 @@ export type ValidationErrorCode =
 	// Field-level
 	| "SELECT_NO_OPTIONS"
 	| "HIDDEN_NO_VALUE"
+	| "REQUIRED_ON_HIDDEN"
 	| "UNQUOTED_STRING_LITERAL"
 	| "INVALID_FIELD_ID"
 	| "RESERVED_FIELD_ID_PREFIX"

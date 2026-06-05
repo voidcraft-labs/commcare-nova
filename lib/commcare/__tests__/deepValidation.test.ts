@@ -506,12 +506,15 @@ function treeFromFields(fields: FieldSpec[]) {
 }
 
 describe("TriggerDag.reportCycles", () => {
+	// A field that carries `calculate` is a computed field, which in the
+	// domain is the `hidden` kind (visible inputs don't carry `calculate`).
+	// The leaf the others read (`a`) is a plain user input — a visible `int`.
 	it("returns empty for acyclic graph", () => {
 		const dag = new TriggerDag();
 		const cycles = dag.reportCycles(
 			treeFromFields([
 				f({ kind: "int", id: "a", label: "A" }),
-				f({ kind: "int", id: "b", label: "B", calculate: "/data/a + 1" }),
+				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
 			]),
 		);
 		expect(cycles).toEqual([]);
@@ -521,8 +524,8 @@ describe("TriggerDag.reportCycles", () => {
 		const dag = new TriggerDag();
 		const cycles = dag.reportCycles(
 			treeFromFields([
-				f({ kind: "int", id: "a", label: "A", calculate: "/data/b + 1" }),
-				f({ kind: "int", id: "b", label: "B", calculate: "/data/a + 1" }),
+				f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
+				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
 			]),
 		);
 		expect(cycles.length).toBeGreaterThan(0);
@@ -533,12 +536,11 @@ describe("TriggerDag.reportCycles", () => {
 		const cycles = dag.reportCycles(
 			treeFromFields([
 				f({ kind: "int", id: "a", label: "A" }),
-				f({ kind: "int", id: "b", label: "B", calculate: "/data/a + 1" }),
-				f({ kind: "int", id: "c", label: "C", calculate: "/data/a + 2" }),
+				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
+				f({ kind: "hidden", id: "c", calculate: "/data/a + 2" }),
 				f({
-					kind: "int",
+					kind: "hidden",
 					id: "d",
-					label: "D",
 					calculate: "/data/b + /data/c",
 				}),
 			]),

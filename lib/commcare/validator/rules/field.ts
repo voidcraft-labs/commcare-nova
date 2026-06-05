@@ -144,6 +144,37 @@ function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
 	];
 }
 
+/**
+ * `required` makes no sense on a hidden field. The field is never shown, so
+ * the user can't fill it — if its computed / default value ever resolves
+ * empty while marked required, the form blocks submission with no visible
+ * input to remedy. CommCare's authoring model forbids it outright: Vellum's
+ * DataBindOnly (the Hidden Value type) sets `requiredAttr: notallowed`. The
+ * field schema already drops `required` from `hidden`; this rule is the
+ * backstop for a value that reaches the doc through a lenient path, so the
+ * mistake surfaces as a clear message instead of a silently-dropped bind.
+ */
+function requiredOnHidden(field: Field, ctx: FieldContext): ValidationError[] {
+	if (field.kind !== "hidden") return [];
+	const required = readString(field, "required");
+	if (!required) return [];
+	return [
+		validationError(
+			"REQUIRED_ON_HIDDEN",
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" is a hidden field with \`required\` set, but a hidden field is never shown to the user — if its value ever comes out empty the form can't be submitted and there's no input on screen to fix it. Hidden fields can't be required. Clear \`required\`; if someone really must answer this, make it a visible field (change its kind).`,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+			},
+		),
+	];
+}
+
 function unquotedStringLiteral(
 	field: Field,
 	ctx: FieldContext,
@@ -482,6 +513,7 @@ function fixtureReferenceNotModeled(
 const FIELD_RULES = [
 	selectNoOptions,
 	hiddenNoValue,
+	requiredOnHidden,
 	unquotedStringLiteral,
 	invalidFieldId,
 	reservedFieldIdPrefix,

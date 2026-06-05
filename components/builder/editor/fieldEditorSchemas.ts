@@ -499,14 +499,15 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 
 // Hidden's value comes from `calculate` OR `default_value` — both optional,
 // both addable (the `HIDDEN_NO_VALUE` validator enforces at least one). No
-// `ui` section (hidden fields have no label, no label media, and never render
-// to the user).
+// `required` entry: a hidden field is never shown, so it can't be required
+// (the `requiredOnHidden` validator enforces this, mirroring Vellum's
+// DataBindOnly). No `ui` section (hidden fields have no label, no label
+// media, and never render to the user).
 const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	data: [casePropertyEntry<HiddenField>()],
 	logic: [
 		xpathEntry<HiddenField, "calculate">("calculate", "Calculate"),
 		xpathEntry<HiddenField, "default_value">("default_value", "Default Value"),
-		requiredEntry<HiddenField>(),
 		xpathEntry<HiddenField, "relevant">("relevant", "Show When"),
 	],
 	ui: [],

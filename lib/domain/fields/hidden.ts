@@ -10,9 +10,16 @@
 //
 // Extends `structuralFieldBase` (uuid + id), NOT `fieldBaseSchema` —
 // hidden fields have no `label` (nothing to display) and no `hint`.
-// `required` is kept for edge-case constraint enforcement. Sharing a
-// common base with the other kinds means any code that assumes "every
-// field has uuid + id" stays correct for hidden fields.
+// Sharing a common base with the other kinds means any code that assumes
+// "every field has uuid + id" stays correct for hidden fields.
+//
+// A hidden field carries NO `required`: it's never shown, so a user can't
+// fill it — if its value came out empty while required, the form would be
+// unsubmittable with no visible input to remedy. CommCare's authoring model
+// agrees: Vellum's DataBindOnly (the Hidden Value type) sets
+// `requiredAttr: { presence: "notallowed" }`. The `requiredOnHidden`
+// validator backstops the schema for any value that reaches the doc through
+// a lenient path.
 
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { z } from "zod";
@@ -26,7 +33,6 @@ export const hiddenFieldSchema = structuralFieldBase.extend({
 	// validator enforces that at least one is present.
 	calculate: z.string().optional(),
 	default_value: z.string().optional(),
-	required: z.string().optional(),
 	relevant: z.string().optional(),
 	case_property_on: z.string().optional(),
 });
