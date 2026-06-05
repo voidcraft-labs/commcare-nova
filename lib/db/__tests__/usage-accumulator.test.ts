@@ -421,6 +421,32 @@ describe("UsageAccumulator", () => {
 			);
 		});
 
+		it("logs refunded:false + refundFailed:true when the owed refund's transaction throws", async () => {
+			writeRunSummaryMock.mockReset();
+			writeRunSummaryMock.mockResolvedValue("incremented");
+			refundReservationMock.mockReset();
+			// The refund was owed (failed run, reservation booked) but its cross-doc
+			// transaction threw. The log reports the OUTCOME, not the intent: a refund
+			// that did not commit logs refunded:false + refundFailed:true, so the cost
+			// investigation is never told credits were handed back when they weren't.
+			refundReservationMock.mockRejectedValue(
+				new Error("firestore contention"),
+			);
+			const acc = new UsageAccumulator(reservedSeed);
+			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
+			acc.markRunFailed();
+			await acc.flush();
+
+			expect(log.info).toHaveBeenCalledWith(
+				"[run-finalize]",
+				expect.objectContaining({
+					refundReason: "run-failed",
+					refunded: false,
+					refundFailed: true,
+				}),
+			);
+		});
+
 		it("logs refundReason null + accruedActual true on a healthy paid run", async () => {
 			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("incremented");

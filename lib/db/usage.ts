@@ -257,16 +257,6 @@ export class UsageAccumulator {
 	}
 
 	/**
-	 * Whether a credit refund was owed this run but its transaction did not
-	 * commit. Meaningful only after `flush()`. The route reads it to keep a
-	 * stranded refund's app row reapable (it must NOT flip to a status the reaper
-	 * skips) — mirroring `reapStaleGenerating`'s refund-before-flip discipline.
-	 */
-	refundFailed(): boolean {
-		return this._refundFailed;
-	}
-
-	/**
 	 * Update seed fields mid-request. The chat route constructs the
 	 * accumulator before it has finished resolving the prompt-mode /
 	 * editing flags (those depend on an app-existence check that follows

@@ -27,6 +27,7 @@ import {
 	getCurrentCreditBalance,
 	OutOfCreditsError,
 	type Reservation,
+	refundReservation,
 	reserveCredits,
 } from "@/lib/db/credits";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
@@ -425,15 +426,31 @@ export async function POST(req: Request) {
 				if (finalized) return;
 				finalized = true;
 				if (failure) usage.markRunFailed();
-				/* Flush (which runs the refund) BEFORE the status flip, so a stranded
-				 * refund leaves a failed BUILD reapable: the reaper only revisits
-				 * `generating` rows, so flipping to `error` on a refund that did not
-				 * commit would close the only window to retry it (mirroring
-				 * `reapStaleGenerating`'s refund-before-flip discipline). */
 				await usage.flush();
 				await logWriter.flush();
-				if (failure && !usage.refundFailed()) {
-					failApp(appId, failure.type);
+				if (failure) {
+					/* Settle the run's reservation off the durable marker, THEN flip to
+					 * `error`. `flush` above refunds a hold THIS POST booked, but a
+					 * multi-POST run's hold may have been booked by an EARLIER POST
+					 * (askQuestions: an earlier chargeable POST reserves, then a free
+					 * continuation fails here), and `refundReservation` reads the hold off
+					 * the marker so it settles it no matter which POST booked it.
+					 * Idempotent: a no-op when flush already settled it or there is nothing
+					 * to settle. Flip to `error` only once the hold is settled; a refund
+					 * that did not commit leaves the build `generating` for the reaper to
+					 * retry (mirroring `reapStaleGenerating`'s refund-before-flip). */
+					let refundSettled = true;
+					try {
+						await refundReservation(appId);
+					} catch (err) {
+						refundSettled = false;
+						log.error("[chat] failed-run reservation refund failed", err, {
+							appId,
+						});
+					}
+					if (refundSettled) {
+						failApp(appId, failure.type);
+					}
 				}
 			};
 
