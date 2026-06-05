@@ -519,6 +519,30 @@ describe("field rules", () => {
 		expect(errors.some((e) => e.code === "REQUIRED_ON_HIDDEN")).toBe(false);
 	});
 
+	// `calculate` is the read-only-but-looks-editable footgun on a visible
+	// input — only a hidden field carries one. The schema drops `calculate`
+	// from every visible kind; this rule backstops the lenient path. `f()` is
+	// an identity builder, so it can stand in that pre-schema shape.
+	it("flags calculate on a visible input field", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({ kind: "text", id: "score", label: "Score", calculate: "1 + 1" }),
+			]),
+		);
+		expect(errors.some((e) => e.code === "CALCULATE_ON_VISIBLE_INPUT")).toBe(
+			true,
+		);
+	});
+
+	it("does not flag a calculate on a hidden field (its legitimate home)", () => {
+		const errors = runValidation(
+			surveyDoc([f({ kind: "hidden", id: "score", calculate: "1 + 1" })]),
+		);
+		expect(errors.some((e) => e.code === "CALCULATE_ON_VISIBLE_INPUT")).toBe(
+			false,
+		);
+	});
+
 	it("flags validate on label fields", () => {
 		const errors = runValidation(
 			surveyDoc([
