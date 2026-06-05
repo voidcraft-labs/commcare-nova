@@ -12,7 +12,7 @@ import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryC
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
-import { type Field, type FieldKind, fieldRegistry } from "@/lib/domain";
+import { type FieldKind, fieldRegistry } from "@/lib/domain";
 import { useSelect } from "@/lib/routing/hooks";
 import { useMarkNewField } from "@/lib/session/hooks";
 import {
@@ -21,6 +21,7 @@ import {
 	MENU_POSITIONER_CLS,
 	MENU_SUBMENU_POSITIONER_CLS,
 } from "@/lib/styles";
+import { NEW_FIELD_BUILDERS } from "./newFieldDefaults";
 
 /* ── Insertion menu organization ────────────────────────────────────────
  * Menu-layout-only concern: which kinds group into submenus, which kinds
@@ -128,26 +129,16 @@ export function FieldTypePickerPopup({
 				newId = `new_${kind}_${counter}`;
 			}
 
-			const isSelect = kind === "single_select" || kind === "multi_select";
-			const defaultOptions = isSelect
-				? [
-						{ value: "option_1", label: "Option 1" },
-						{ value: "option_2", label: "Option 2" },
-					]
-				: undefined;
-
-			// Build a partial Field in the domain shape. We cast through the
-			// no-uuid partial the hook accepts — the union narrows on `kind`,
-			// so each variant's allowed properties are enforced at dispatch.
-			// Label mirrors the kind's human-readable name from the registry
-			// (e.g. "New Text", "New Single Select") so a freshly-added field
-			// is self-describing without forcing the user to retype the obvious.
-			const newField = {
-				id: newId,
-				kind,
-				label: `New ${fieldRegistry[kind].label}`,
-				...(defaultOptions ? { options: defaultOptions } : {}),
-			} as unknown as Omit<Field, "uuid">;
+			// Build the kind's starter field through the typed per-kind builder
+			// map — each kind's shape is checked against its own schema, so an
+			// invalid default (e.g. a `label` on `hidden`) can't be minted. The
+			// label mirrors the kind's human-readable name (e.g. "New Text",
+			// "New Single Select") so a freshly-added field is self-describing;
+			// kinds with no label slot ignore it.
+			const newField = NEW_FIELD_BUILDERS[kind](
+				newId,
+				`New ${fieldRegistry[kind].label}`,
+			);
 
 			const newUuid = addField(parentUuid, newField, { atIndex });
 
