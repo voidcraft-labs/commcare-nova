@@ -43,6 +43,17 @@ export const addFieldsInputSchema = z
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
 		fields: z.array(addFieldsItemSchema),
+		// Default parent for the whole batch: the id of a group/repeat to
+		// nest every field under. A field's OWN `parentId` overrides this.
+		// Accepting it top-level mirrors single `addField` (which takes a
+		// top-level `parentId`), so the same intent works the same way on
+		// both tools instead of hard-erroring as an unrecognized key.
+		parentId: z
+			.string()
+			.optional()
+			.describe(
+				"Default parent for the batch: id of a group/repeat to nest every field under. A field's own parentId overrides this. Omit to add at the form's top level.",
+			),
 	})
 	.strict();
 
@@ -58,14 +69,14 @@ export type AddFieldsResult = string | { error: string };
 
 export const addFieldsTool = {
 	description:
-		"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Groups added in one batch can be referenced as parentId in later batches.",
+		"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Pass a top-level parentId to nest the whole batch under a group/repeat, or set parentId on individual fields to place them precisely (a field's own parentId wins). Groups added in one batch can be referenced as parentId in later batches.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddFieldsResult>> {
-		const { moduleIndex, formIndex, fields } = input;
+		const { moduleIndex, formIndex, fields, parentId: batchParentId } = input;
 		try {
 			// Shared positional resolver — fails closed with a single error
 			// message when either index is out of range. Tool-specific
@@ -110,10 +121,13 @@ export const addFieldsTool = {
 					doc.caseTypes,
 				);
 
-				// Resolve parentUuid: empty/undefined → form; otherwise find
-				// the uuid of a newly-added parent or an existing field.
+				// Resolve parentUuid: the field's OWN `parentId` wins; if it
+				// didn't set one, fall back to the batch-level `parentId`; if
+				// neither is set, the field lands at the form's top level.
+				// `stripEmpty` normalizes an unset per-item parentId to `null`,
+				// so `?? batchParentId` correctly applies the batch default.
 				let parentUuid: Uuid = formUuid;
-				const parentId = processed.parentId;
+				const parentId = processed.parentId ?? batchParentId;
 				if (parentId && typeof parentId === "string") {
 					const minted = mintedByBareId.get(parentId);
 					if (minted) {
