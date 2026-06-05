@@ -430,7 +430,10 @@ export class UsageAccumulator {
 			/* `refunded` is the OUTCOME (the refund actually committed), not the
 			 * intent — a refund that was owed (`refundReason`) but whose transaction
 			 * threw logs `refunded: false` + `refundFailed: true`, so the cost
-			 * investigation can't be misled into thinking credits were handed back. */
+			 * investigation can't be misled into thinking credits were handed back. (Scope: this is FLUSH's
+			 * this-POST refund; a multi-POST hold refunded by the route's post-flush
+			 * `refundReservation` — e.g. a free continuation failing — settles on the
+			 * marker + the credit doc and is not reflected in this line.) */
 			refunded: refundReason !== null && !this._refundFailed,
 			refundReason,
 			refundFailed: this._refundFailed,

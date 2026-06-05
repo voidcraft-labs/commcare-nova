@@ -448,7 +448,14 @@ export async function POST(req: Request) {
 							appId,
 						});
 					}
-					if (refundSettled) {
+					/* Flip to `error` only for a BUILD (the app is `generating`). A failed
+					 * EDIT must NOT flip its already-`complete` app to `error`: that would
+					 * brick a working app over a transient model error (the build page
+					 * redirects non-`complete` apps; the list hides the open-link for
+					 * `error`), leaving the user no path back to a blueprint that is fine on
+					 * disk. The failed edit still refunds its hold (above) and surfaces the
+					 * error via the conversation event (`failRun`); the app stays open. */
+					if (refundSettled && !appReady) {
 						failApp(appId, failure.type);
 					}
 				}
