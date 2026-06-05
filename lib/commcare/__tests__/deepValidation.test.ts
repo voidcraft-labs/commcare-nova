@@ -591,8 +591,13 @@ describe("validateBlueprintDeep", () => {
 			f({ kind: "text", id: "name", label: "Name" }),
 			f({ kind: "hidden", id: "val", calculate: "foobar(1)" }),
 		]);
+		// Typed assertion — the discriminant + the underlying `XPathError.code`
+		// travel structured, so the test reads the classification directly
+		// instead of substring-matching a humanized message.
 		expect(
-			validateBlueprintDeep(doc).some((e) => e.includes("Unknown function")),
+			validateBlueprintDeep(doc).some(
+				(e) => e.kind === "field-xpath" && e.error.code === "UNKNOWN_FUNCTION",
+			),
 		).toBe(true);
 	});
 
@@ -601,9 +606,14 @@ describe("validateBlueprintDeep", () => {
 			f({ kind: "text", id: "name", label: "Name" }),
 			f({ kind: "hidden", id: "val", calculate: "round(3.14, 2)" }),
 		]);
-		expect(validateBlueprintDeep(doc).some((e) => e.includes("round()"))).toBe(
-			true,
-		);
+		expect(
+			validateBlueprintDeep(doc).some(
+				(e) =>
+					e.kind === "field-xpath" &&
+					e.error.code === "WRONG_ARITY" &&
+					e.error.message.includes("round"),
+			),
+		).toBe(true);
 	});
 
 	it("catches circular dependencies", () => {
@@ -611,9 +621,16 @@ describe("validateBlueprintDeep", () => {
 			f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
 			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
 		]);
-		expect(
-			validateBlueprintDeep(doc).some((e) => e.includes("circular dependency")),
-		).toBe(true);
+		// The cycle is its own typed shape (carrying the loop as a list of
+		// `/data/...` paths), not a string that has to win a regex race against
+		// the form-label pattern.
+		const cycleErr = validateBlueprintDeep(doc).find((e) => e.kind === "cycle");
+		expect(cycleErr).toBeDefined();
+		// The cycle path names both fields in the loop.
+		if (cycleErr?.kind === "cycle") {
+			expect(cycleErr.cycle).toContain("/data/a");
+			expect(cycleErr.cycle).toContain("/data/b");
+		}
 	});
 
 	it("catches unknown case property in #case/ ref", () => {
@@ -630,8 +647,8 @@ describe("validateBlueprintDeep", () => {
 			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
 		);
 		expect(
-			validateBlueprintDeep(doc).some((e) =>
-				e.includes("Unknown case property"),
+			validateBlueprintDeep(doc).some(
+				(e) => e.kind === "field-xpath" && e.error.code === "INVALID_CASE_REF",
 			),
 		).toBe(true);
 	});

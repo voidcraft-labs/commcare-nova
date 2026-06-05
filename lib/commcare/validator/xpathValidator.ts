@@ -18,7 +18,15 @@ import {
 } from "./functionRegistry";
 import { checkTypes } from "./typeChecker";
 
-interface XPathError {
+/**
+ * One XPath-level diagnostic. `code` is the typed classification (no
+ * downstream consumer re-derives it from `message`); `message` is the
+ * terse human detail; `position` is the character offset into the
+ * expression when known. Consumers that render a user-facing string
+ * (the validation runner) switch on `code` and embed `message` as the
+ * detail — they never parse `message` to recover structure.
+ */
+export interface XPathError {
 	code:
 		| "XPATH_SYNTAX"
 		| "UNKNOWN_FUNCTION"
