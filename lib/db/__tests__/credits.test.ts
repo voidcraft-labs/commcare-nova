@@ -64,6 +64,7 @@ const {
 	txSet,
 	runTransactionMock,
 	ref,
+	appRef,
 	grantRef,
 	creditMonthsGet,
 	creditMonthGet,
@@ -78,6 +79,10 @@ const {
 	// grant), never by call order, so a future reordering of the writes can't make
 	// an assertion silently pass against the wrong document.
 	const ref = { firestore: { runTransaction: runTransactionMock } };
+	// The raw APP ref: the reservation co-writes the marker onto it, and the
+	// refund reconciliation reads/writes it. Its `firestore.runTransaction` is the
+	// same hoisted mock, since `refundReservation` runs the transaction off it.
+	const appRef = { firestore: { runTransaction: runTransactionMock } };
 	const grantRef = { __kind: "grantRef" };
 	// `getCreditSummary` is a plain collection read, NOT a transaction — it calls
 	// `collections.creditMonths(userId).get()`. This spy stands in for that read so
@@ -94,6 +99,7 @@ const {
 		txSet: vi.fn(),
 		runTransactionMock,
 		ref,
+		appRef,
 		grantRef,
 		creditMonthsGet,
 		creditMonthGet,
@@ -110,6 +116,7 @@ vi.mock("../firestore", () => ({
 	docs: {
 		creditMonthRaw: () => ref,
 		creditMonth: () => ({ get: creditMonthGet }),
+		appRaw: () => appRef,
 	},
 	collections: {
 		creditGrants: () => ({ doc: () => grantRef }),
@@ -371,6 +378,7 @@ describe("credit policy — pure helpers and constants", () => {
  */
 describe("reserveCredits", () => {
 	const USER = "user-reserve-test";
+	const APP = "app-reserve-test";
 
 	beforeEach(() => {
 		txGet.mockReset();
@@ -396,10 +404,16 @@ describe("reserveCredits", () => {
 	 * shows up as a failed test, not a silent wrong-doc write.
 	 */
 	function setPayload(): Record<string, unknown> {
-		expect(txSet).toHaveBeenCalledTimes(1);
-		const [setRef, payload] = txSet.mock.calls[0];
-		expect(setRef).toBe(ref);
-		return payload as Record<string, unknown>;
+		const call = txSet.mock.calls.find(([setRef]) => setRef === ref);
+		expect(call).toBeDefined();
+		return (call as unknown[])[1] as Record<string, unknown>;
+	}
+
+	/** The reservation MARKER payload reserve co-writes onto the app doc. */
+	function markerPayload(): Record<string, unknown> {
+		const call = txSet.mock.calls.find(([setRef]) => setRef === appRef);
+		expect(call).toBeDefined();
+		return (call as unknown[])[1] as Record<string, unknown>;
 	}
 
 	it("seeds a full allowance and books the cost on a missing doc", async () => {
@@ -409,7 +423,7 @@ describe("reserveCredits", () => {
 		txGet.mockResolvedValue({ exists: false, data: () => undefined });
 		const { reserveCredits } = await import("../credits");
 
-		const result = await reserveCredits(USER, CREDITS_PER_BUILD);
+		const result = await reserveCredits(USER, CREDITS_PER_BUILD, APP);
 
 		expect(setPayload()).toEqual({
 			allowance: MONTHLY_CREDIT_ALLOWANCE,
@@ -417,7 +431,15 @@ describe("reserveCredits", () => {
 			consumed: CREDITS_PER_BUILD,
 			updated_at: FieldValue.serverTimestamp(),
 		});
-		expect(txSet.mock.calls[0][2]).toEqual({ merge: true });
+		// The marker is co-written onto the app doc in the same transaction, so a
+		// committed charge always carries the record the reaper refunds against.
+		expect(markerPayload()).toEqual({
+			reservation: {
+				period: getCurrentPeriod(),
+				reserved: CREDITS_PER_BUILD,
+				settled: false,
+			},
+		});
 		// The booked period is the genuine current period; reserved echoes cost.
 		expect(result).toEqual({
 			period: getCurrentPeriod(),
@@ -437,7 +459,7 @@ describe("reserveCredits", () => {
 		});
 		const { reserveCredits } = await import("../credits");
 
-		const result = await reserveCredits(USER, CREDITS_PER_BUILD);
+		const result = await reserveCredits(USER, CREDITS_PER_BUILD, APP);
 
 		expect(setPayload()).toEqual({
 			allowance: 2000,
@@ -463,7 +485,7 @@ describe("reserveCredits", () => {
 		});
 		const { reserveCredits } = await import("../credits");
 
-		await reserveCredits(USER, CREDITS_PER_BUILD);
+		await reserveCredits(USER, CREDITS_PER_BUILD, APP);
 
 		expect(setPayload()).toMatchObject({ consumed: 2000 });
 	});
@@ -479,7 +501,7 @@ describe("reserveCredits", () => {
 		const { OutOfCreditsError, reserveCredits } = await import("../credits");
 
 		await expect(
-			reserveCredits(USER, CREDITS_PER_BUILD),
+			reserveCredits(USER, CREDITS_PER_BUILD, APP),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 		expect(txSet).not.toHaveBeenCalled();
 	});
@@ -531,21 +553,23 @@ describe("reserveCredits", () => {
 		const { OutOfCreditsError, reserveCredits } = await import("../credits");
 
 		await expect(
-			reserveCredits(USER, CREDITS_PER_BUILD),
+			reserveCredits(USER, CREDITS_PER_BUILD, APP),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
-		// Attempt 1 booked the charge; attempt 2 re-read the depleted balance and
-		// rejected before writing. Under Firestore's real abort-retry the attempt-1
-		// write never commits (it was on the aborted attempt) — the test asserts
-		// the LOGIC each attempt runs, and that the final outcome is a rejection.
-		expect(txSet).toHaveBeenCalledTimes(1);
+		// Attempt 1 booked the charge AND co-wrote the marker (two sets); attempt 2
+		// re-read the depleted balance and rejected before writing. Under Firestore's
+		// real abort-retry the attempt-1 writes never commit (they were on the aborted
+		// attempt) — the test asserts the LOGIC each attempt runs and the rejection.
+		expect(txSet).toHaveBeenCalledTimes(2);
 	});
 });
 
 /**
- * Shared driver for the transactional credit writers (`refundCredits`,
- * `resetCredits`, `grantCredits`). Each runs over `ref.firestore.runTransaction`
- * exactly as the reservation does, so this resets the spies and drives the
- * closure once with the spy-backed `tx`. The `runSummary.test.ts` pattern.
+ * Shared driver for the transactional credit writers (`refundReservation`,
+ * `resetCredits`, `grantCredits`). Each runs `runTransaction` off a raw ref —
+ * `refundReservation` off `appRef.firestore`, the others off `ref.firestore`,
+ * both wired to the same hoisted `runTransactionMock` — so this resets the spies
+ * and drives the closure once with the spy-backed `tx`. The `runSummary.test.ts`
+ * pattern.
  */
 function installTransactionDriver(): void {
 	txGet.mockReset();
@@ -573,64 +597,131 @@ function payloadForRef(target: unknown): Record<string, unknown> {
 	return (call as unknown[])[1] as Record<string, unknown>;
 }
 
-describe("refundCredits", () => {
-	const USER = "user-refund-test";
+describe("refundReservation", () => {
+	const APP = "app-refund-test";
+	const OWNER = "user-refund-test";
 	const PERIOD = "2026-06";
 
 	beforeEach(installTransactionDriver);
 
-	it("decrements consumed by the refunded amount on an existing doc", async () => {
-		// A mid-period doc with 250 consumed; refunding a 100-credit build's
-		// reservation must walk consumed back to 150 and leave allowance/bonus
-		// untouched (the refund only un-books the charge, never re-grants).
-		txGet.mockResolvedValue({
-			exists: true,
-			data: () => ({ allowance: 2000, consumed: 250, bonus: 0 }),
-		});
-		const { refundCredits } = await import("../credits");
+	/* `refundReservation` reads the APP doc first (for the marker + owner), then the
+	 * credit doc — so the scripted `txGet` returns them in that order. The credit
+	 * write targets `ref`, the marker-settle write targets `appRef`. */
+	function scriptMarkerThenCredit(
+		marker: unknown,
+		credit: { exists: boolean; data: () => unknown },
+	): void {
+		txGet
+			.mockResolvedValueOnce({
+				exists: true,
+				data: () => ({ owner: OWNER, reservation: marker }),
+			})
+			.mockResolvedValueOnce(credit);
+	}
 
-		await refundCredits(USER, PERIOD, CREDITS_PER_BUILD);
+	it("un-books the reserved amount and settles the marker in one cross-doc transaction", async () => {
+		// An unsettled 100-credit hold on an owner with 250 consumed: the refund
+		// walks consumed back to 150 AND flips the marker settled, committed together
+		// so the live flush and the reaper can never double-refund the same hold.
+		scriptMarkerThenCredit(
+			{ period: PERIOD, reserved: CREDITS_PER_BUILD, settled: false },
+			{
+				exists: true,
+				data: () => ({ allowance: 2000, consumed: 250, bonus: 0 }),
+			},
+		);
+		const { refundReservation } = await import("../credits");
 
-		expect(txSet).toHaveBeenCalledTimes(1);
-		const [setRef, payload, options] = txSet.mock.calls[0];
-		expect(setRef).toBe(ref);
-		expect(payload).toEqual({
+		await refundReservation(APP);
+
+		expect(payloadForRef(ref)).toEqual({
 			consumed: 250 - CREDITS_PER_BUILD,
 			updated_at: FieldValue.serverTimestamp(),
 		});
-		expect(options).toEqual({ merge: true });
+		expect(payloadForRef(appRef)).toEqual({
+			reservation: {
+				period: PERIOD,
+				reserved: CREDITS_PER_BUILD,
+				settled: true,
+			},
+		});
 	});
 
 	it("clamps consumed at zero rather than booking a negative balance", async () => {
-		// A doc whose consumed (40) is below the refund amount (100) — possible if
-		// a prior partial accounting under-counted. The floor is 0: a refund can
-		// never drive consumed negative (which `creditMonthDocSchema` would reject
-		// on the next read anyway). consumed lands at 0, not −60.
-		txGet.mockResolvedValue({
-			exists: true,
-			data: () => ({ allowance: 2000, consumed: 40, bonus: 0 }),
-		});
-		const { refundCredits } = await import("../credits");
+		// A doc whose consumed (40) is below the refund amount (100). The floor is 0
+		// — a refund can never drive consumed negative (the schema would reject it on
+		// the next read). consumed lands at 0, not −60.
+		scriptMarkerThenCredit(
+			{ period: PERIOD, reserved: CREDITS_PER_BUILD, settled: false },
+			{
+				exists: true,
+				data: () => ({ allowance: 2000, consumed: 40, bonus: 0 }),
+			},
+		);
+		const { refundReservation } = await import("../credits");
 
-		await refundCredits(USER, PERIOD, CREDITS_PER_BUILD);
+		await refundReservation(APP);
 
-		expect(payloadForRef(ref)).toEqual({
-			consumed: 0,
-			updated_at: FieldValue.serverTimestamp(),
-		});
+		expect(payloadForRef(ref)).toMatchObject({ consumed: 0 });
 	});
 
-	it("is a no-op when the period has no doc to refund against", async () => {
-		// A refund booked against a period that was never debited (no doc) has
-		// nothing to un-book. It must NOT seed a doc — seeding here would
-		// materialize a phantom month with a negative-looking history. The
-		// transaction reads, sees nothing, and returns without writing.
-		txGet.mockResolvedValue({ exists: false, data: () => undefined });
-		const { refundCredits } = await import("../credits");
+	it("is idempotent — an already-settled marker refunds nothing and writes nothing", async () => {
+		// `settled` is the once-guard shared by the live flush and the reaper: a
+		// second refund reads settled:true and no-ops, so a hold is never handed back
+		// twice. This is what makes the live-and-reaper refund paths collision-safe.
+		txGet.mockResolvedValueOnce({
+			exists: true,
+			data: () => ({
+				owner: OWNER,
+				reservation: {
+					period: PERIOD,
+					reserved: CREDITS_PER_BUILD,
+					settled: true,
+				},
+			}),
+		});
+		const { refundReservation } = await import("../credits");
 
-		await refundCredits(USER, PERIOD, CREDITS_PER_BUILD);
+		await refundReservation(APP);
 
 		expect(txSet).not.toHaveBeenCalled();
+	});
+
+	it("no-ops on an app with no reservation marker (a free turn / pre-reservation app)", async () => {
+		// Marker-less generating apps (created before reservations shipped, or whose
+		// turn never reserved) carry no hold to refund — the refund is a clean no-op,
+		// leaving the reaper to flip status only.
+		txGet.mockResolvedValueOnce({
+			exists: true,
+			data: () => ({ owner: OWNER }),
+		});
+		const { refundReservation } = await import("../credits");
+
+		await refundReservation(APP);
+
+		expect(txSet).not.toHaveBeenCalled();
+	});
+
+	it("settles the marker even when the debited month doc is gone (nothing to un-book)", async () => {
+		// A never-debited (or already-reset) month has no credit doc — there is
+		// nothing to un-book, but the marker is still settled so the reaper stops
+		// revisiting the row on every subsequent list scan.
+		scriptMarkerThenCredit(
+			{ period: PERIOD, reserved: CREDITS_PER_BUILD, settled: false },
+			{ exists: false, data: () => undefined },
+		);
+		const { refundReservation } = await import("../credits");
+
+		await refundReservation(APP);
+
+		expect(txSet.mock.calls.find(([setRef]) => setRef === ref)).toBeUndefined();
+		expect(payloadForRef(appRef)).toEqual({
+			reservation: {
+				period: PERIOD,
+				reserved: CREDITS_PER_BUILD,
+				settled: true,
+			},
+		});
 	});
 });
 

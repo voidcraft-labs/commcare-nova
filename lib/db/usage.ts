@@ -17,7 +17,7 @@
 import { FieldValue } from "@google-cloud/firestore";
 import { log } from "@/lib/logger";
 import { DEFAULT_PRICING, MODEL_PRICING } from "@/lib/models";
-import { refundCredits } from "./credits";
+import { refundReservation } from "./credits";
 import { docs } from "./firestore";
 import { getCurrentPeriod } from "./period";
 import { writeRunSummary } from "./runSummary";
@@ -379,11 +379,11 @@ export class UsageAccumulator {
 			this.seed.reservedAmount
 		) {
 			try {
-				await refundCredits(
-					this.seed.userId,
-					this.seed.chargePeriod,
-					this.seed.reservedAmount,
-				);
+				// The marker (period + amount) lives on the app doc, co-committed with
+				// the debit at reserve time, so the refund reads it from there — and
+				// settles it atomically, so the reaper can never double-refund a hold
+				// this live flush already returned.
+				await refundReservation(this.seed.appId);
 			} catch (err) {
 				log.error("[UsageAccumulator] credit refund failed", err, {
 					userId: this.seed.userId,

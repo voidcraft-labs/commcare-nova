@@ -259,6 +259,30 @@ export const appDocSchema = z.object({
 	recoverable_until: z.string().nullable().default(null),
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
+	/**
+	 * Durable credit-reservation marker for the refunding reaper.
+	 *
+	 * Written ATOMICALLY with the credit debit when a chargeable turn reserves
+	 * (same `reserveCredits` transaction), so a committed charge always carries
+	 * the marker its refund needs. `settled` flips true the instant the
+	 * reservation reaches a terminal credit decision — handed back by the live
+	 * finalize path or by the reaper. A stale `generating` app with an UNSETTLED
+	 * marker is a build the process never finished (hard kill / OOM / scale-in);
+	 * `reapStaleGenerating` refunds the stranded hold. `reserved` is the exact
+	 * amount to return; `period` is the month the hold actually hit (the reaper
+	 * refunds that month, not whatever month it happens to run in).
+	 *
+	 * Absent on apps created before this field shipped and on turns that never
+	 * reserved (free continuations) — `refundReservation` treats an absent marker
+	 * as a clean no-op, so those rows reap to `error` with no refund.
+	 */
+	reservation: z
+		.object({
+			period: z.string(),
+			reserved: z.number(),
+			settled: z.boolean(),
+		})
+		.optional(),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */
 	created_at: timestamp,
 	/** Updated on every save via FieldValue.serverTimestamp(). */

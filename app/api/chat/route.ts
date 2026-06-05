@@ -1,14 +1,17 @@
 import {
-	createAgentUIStream,
+	convertToModelMessages,
 	createUIMessageStream,
 	createUIMessageStreamResponse,
+	type InferAgentUIMessage,
 	isTextUIPart,
 	type UIMessage,
+	validateUIMessages,
 } from "ai";
 import {
 	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
 	createSolutionsArchitect,
+	type ErrorType,
 	GenerationContext,
 	MESSAGES,
 } from "@/lib/agent";
@@ -35,6 +38,10 @@ import { SA_MODEL } from "@/lib/models";
 import { creditGateDecision } from "./creditGate";
 import { CACHE_TTL_MS, chatRequestSchema } from "./schema";
 
+/* Advisory only. The real per-request ceiling is the Cloud Run service's
+ * `timeoutSeconds` (3600s); on the Next `standalone` server this export is a
+ * Vercel-platform hint the runtime does not enforce. Kept so the value isn't
+ * misread as a 5-minute cap that does not exist here. */
 export const maxDuration = 300;
 
 // ── Route Handler ──────────────────────────────────────────────────────
@@ -220,7 +227,7 @@ export async function POST(req: Request) {
 	let reservation: Reservation | undefined;
 	if (chargeable) {
 		try {
-			reservation = await reserveCredits(userId, cost);
+			reservation = await reserveCredits(userId, cost, appId);
 		} catch (err) {
 			if (err instanceof OutOfCreditsError) {
 				// Lost the rare race: passed the fast-fail balance read, then a
@@ -284,22 +291,12 @@ export async function POST(req: Request) {
 		chargePeriod: reservation?.period,
 	});
 
-	/* Observability safety net on client disconnect. Deliberately flushes ONLY
-	 * the log writer, NOT the usage accumulator: `usage.flush()` makes the credit
-	 * decision (charge vs. refund) AND latches `_finalized`, and at disconnect the
-	 * accumulator holds a MID-FLIGHT snapshot — flushing it here would refund the
-	 * reservation against a `costEstimate` of 0 and then no-op the real flush, so a
-	 * run that kept accruing cost (the model call is now cancelled via `abortSignal`
-	 * below, but any already-streamed steps still count) would finalize as a
-	 * refunded, cost-invisible free build. The single authoritative credit/cost
-	 * flush is the execute `finally`, which runs after the agent stream reaches its
-	 * TRUE final state (completed, cancelled, or errored) — see that block. The log
-	 * flush makes no credit decision, so it is safe to fire here. Idempotent and
-	 * fire-and-forget (abort is out-of-band; no handler awaits it). */
-	req.signal.addEventListener("abort", () => {
-		void logWriter.flush();
-	});
-
+	/* No `req.signal` disconnect handling: the run is no longer tied to the
+	 * browser connection. The agent loop is drained server-side (see the execute
+	 * block), so a closed tab neither cancels the run nor finalizes it — `flush()`
+	 * runs once on the run's true terminal state regardless of whether anyone is
+	 * still reading. A run the process can't finish (hard kill) is settled by the
+	 * stale-`generating` reaper. */
 	const stream = createUIMessageStream({
 		execute: async ({ writer }) => {
 			// Send runId to client so it can send it back on subsequent requests
@@ -400,46 +397,49 @@ export async function POST(req: Request) {
 				);
 			}
 
-			/* Latch so the refund signal fires at most once per run. Both the
-			 * stream-error and init-error catches funnel through `handleRouteError`,
-			 * and a run could in principle hit it more than once; the user should see
-			 * exactly one refund toast, and the credits are refunded exactly once by
-			 * the (idempotent) `flush()` regardless. */
+			/* Latch so the refund toast fires at most once per run. */
 			let refundSignalled = false;
+			/* Finalize-once guard — see `finalizeRun`. */
+			let finalized = false;
 
 			/**
-			 * Classify, emit, and persist a generation error — the single failure
-			 * funnel both the stream and init catches flow through.
+			 * The single authoritative finalization — the charge-vs-refund credit
+			 * decision plus persistence — run exactly once on the run's TRUE terminal
+			 * state.
 			 *
-			 * Fire-and-forget — `failApp` is itself fire-and-forget (it swallows
-			 * Firestore errors internally), and the emit helpers never throw.
-			 * Returning `void` makes that contract explicit so a future
-			 * maintainer doesn't wrap the call in `await` expecting the
-			 * Firestore write to complete before continuing.
-			 *
-			 * Marks the run failed so `flush()` hands the reservation back (actual $
-			 * still accrues — the backstop must see retry-spam — but the user isn't
-			 * charged credits for a broken result). On a chargeable run it also emits
-			 * the transient `data-credit-refund` part so the client can toast the
-			 * refund. The signal is optimistic (emitted here, at failure detection);
-			 * the authoritative decrement lands later in `flush()`.
+			 * Driven by the agent drain completing (below), NOT by an SDK callback: a
+			 * model error surfaces as a UIMessage error chunk rather than a thrown
+			 * rejection, and a zero-step error fires no agent callback at all, so
+			 * keying finalize on the drain is what guarantees it runs — and the
+			 * request never hangs waiting on a callback that never fires. A failed run
+			 * marks itself failed and fails the app BEFORE flushing, so `flush()` hands
+			 * the reservation back (actual $ still accrues — the backstop must see
+			 * retry-spam). Idempotent via this guard and the accumulator's own
+			 * `_finalized` latch.
 			 */
-			const handleRouteError = (error: unknown, source: string): void => {
-				/* A client disconnect is NOT a generation failure. The AI SDK ends an
-				 * aborted stream cleanly (an `abort` chunk, then done — no throw), but
-				 * the reader can still surface a throw when `writer.write` hits the
-				 * torn-down stream, landing us here. On a true abort we must NOT mark
-				 * the run failed, fail the app, or refund-toast: that would log a false
-				 * error, flip a healthy app to `error`, and toast a refund the user
-				 * never sees. The execute `finally`'s `flush()` is the sole arbiter of
-				 * charge-vs-refund for an abort, deciding purely on the final
-				 * `costEstimate` (0 steps → refund; ≥1 step → keep the charge). */
-				if (req.signal.aborted) return;
+			const finalizeRun = async (failure?: {
+				type: ErrorType;
+			}): Promise<void> => {
+				if (finalized) return;
+				finalized = true;
+				if (failure) {
+					usage.markRunFailed();
+					failApp(appId, failure.type);
+				}
+				await usage.flush();
+				await logWriter.flush();
+			};
 
+			/**
+			 * Classify + surface a generation error, then finalize the run as failed —
+			 * the single failure funnel for both an init/build throw and a streamed
+			 * model error. Emits the classified error as a conversation event and, on a
+			 * chargeable run, the optimistic `data-credit-refund` toast (the
+			 * authoritative decrement lands in `flush()` inside `finalizeRun`).
+			 */
+			const failRun = async (error: unknown, source: string): Promise<void> => {
 				const classified = classifyError(error);
 				ctx.emitError(classified, source);
-				failApp(appId, classified.type);
-				usage.markRunFailed();
 				if (chargeable && !refundSignalled) {
 					refundSignalled = true;
 					writer.write({
@@ -448,6 +448,7 @@ export async function POST(req: Request) {
 						transient: true,
 					});
 				}
+				await finalizeRun(classified);
 			};
 
 			try {
@@ -539,53 +540,94 @@ export async function POST(req: Request) {
 					sentMessageChars: JSON.stringify(effectiveMessages).length,
 				});
 
-				/* Forward the request's abort signal into the agent so a client
-				 * disconnect actually CANCELS the model call. Without it, the SDK
-				 * keeps the SA running on the shared Anthropic key after the user is
-				 * gone (Cloud Run holds the function alive up to `maxDuration`),
-				 * burning real cost no one reads. With it, an abort cancels the call
-				 * and the stream reaches a genuine final state, so the `finally`
-				 * flush can decide charge-vs-refund on the TRUE cost: 0 steps → the
-				 * reserved credits are refunded; ≥1 step → the real cost is recorded
-				 * and the charge stands. */
-				const agentStream = await createAgentUIStream({
-					agent: sa,
-					uiMessages: effectiveMessages,
-					abortSignal: req.signal,
+				/* Run the agent to completion SERVER-SIDE, decoupled from the browser.
+				 * We use `agent.stream` + its primitives rather than `createAgentUIStream`
+				 * so we hold the `StreamTextResult`: `consumeStream()` drains the tool
+				 * loop to its terminal state even with no reader, so a closed tab no
+				 * longer stalls the build via response backpressure and finalization keys
+				 * off the drain rather than the browser connection. The UIMessage handling
+				 * replicates `createAgentUIStream` exactly — validate against the SA's
+				 * tools, convert to ModelMessages, and thread the validated set back as
+				 * `originalMessages` (the response-message-id continuity the client
+				 * relies on). */
+				// The explicit `InferAgentUIMessage<typeof sa>` type arg is what
+				// `createAgentUIStream` gets for free from being generic over the
+				// agent's tools: it gives `validateUIMessages` the SA's exact tool
+				// set (incl. client-side tools with no `execute`, like
+				// `askQuestions`), which the route's base `UIMessage[]` doesn't carry.
+				const validated = await validateUIMessages<
+					InferAgentUIMessage<typeof sa>
+				>({
+					messages: effectiveMessages,
+					tools: sa.tools,
 				});
+				const modelMessages = await convertToModelMessages(validated, {
+					tools: sa.tools,
+				});
+				const result = await sa.stream({ prompt: modelMessages });
 
-				// Manual consumption instead of writer.merge() — lets us catch stream
-				// errors and emit data-error before the stream closes.
-				const reader = agentStream.getReader();
-				try {
-					while (true) {
-						const { done, value } = await reader.read();
-						if (done) break;
-						writer.write(value);
+				/* Drive the drain UN-awaited so the loop advances to its terminal state
+				 * even when the forward loop below stalls (client gone). Awaiting it
+				 * before forwarding would buffer the whole run and kill live streaming.
+				 * Swallow its rejection — a failure surfaces as the UI error chunk below,
+				 * not as a thrown drain. */
+				const drained = Promise.resolve(result.consumeStream()).catch(() => {});
+
+				/* Forward model chunks to the client AND detect failure in one pass. The
+				 * SDK delivers a model error as a `{ type: "error" }` chunk (captured by
+				 * `onError`), never a throw — so this callback is the only reliable
+				 * failure signal. Nova surfaces the error through `ctx.emitError` (a
+				 * conversation event), so the raw error chunk is dropped here. A
+				 * `writer.write` throw means the client is gone — stop forwarding
+				 * (releasing the tee branch) but let the drain finish server-side. */
+				let streamError: unknown;
+				for await (const chunk of result.toUIMessageStream({
+					originalMessages: validated,
+					onError: (error) => {
+						streamError = error;
+						return error instanceof Error ? error.message : String(error);
+					},
+				})) {
+					if (chunk.type === "error") continue;
+					try {
+						writer.write(chunk);
+					} catch {
+						break;
 					}
-				} catch (streamError) {
-					handleRouteError(streamError, "route:stream");
+				}
+
+				/* Block on the drain so finalization runs on the run's TRUE terminal
+				 * state even if forwarding broke off early when the client left. */
+				await drained;
+
+				if (streamError !== undefined) {
+					await failRun(streamError, "route:stream");
 				}
 			} catch (error) {
-				handleRouteError(error, "route:init");
+				/* Init/build error around the stream setup (a bad message shape, an
+				 * SA-construction throw). Same funnel as a streamed failure. */
+				await failRun(error, "route:init");
 			} finally {
-				/* Primary flush path. Await both so the response doesn't
-				 * resolve before persistence lands — matters on Cloud Run,
-				 * where the container can be killed right after the final
-				 * byte is written. Both flushes are idempotent. */
-				await usage.flush();
-				await logWriter.flush();
+				/* The single finalize call for the CLEAN path (the charge stands;
+				 * `flush()` still refunds a zero-cost run on its own gating). On a failed
+				 * run this is a no-op — `failRun` already finalized. Awaited so the
+				 * response can't resolve before persistence lands; Cloud Run can kill the
+				 * container the instant the final byte is written. */
+				await finalizeRun();
 			}
 		},
 		onFinish() {
-			/* Fallback flush — the execute finally block is the primary
-			 * path. Fire-and-forget: the stream is already closed and
-			 * nothing awaits this callback. Idempotent. */
+			/* Last-resort safety net for a throw in the execute prelude (before the
+			 * try) that skips `finalizeRun`. The execute block's awaited `finally`
+			 * is the primary finalize path; this fire-and-forget flush only matters
+			 * if the prelude itself threw. Idempotent. */
 			void usage.flush();
 			void logWriter.flush();
 		},
 		onError: (error) => {
-			// Safety net — most errors are now caught above and emitted as data-error.
+			// Safety net — a model error is surfaced to the user as an error
+			// conversation event via `ctx.emitError` in the execute block; this only
+			// catches an unexpected throw out of `execute` itself.
 			log.error("[chat] stream error", error);
 			return error instanceof Error ? error.message : String(error);
 		},

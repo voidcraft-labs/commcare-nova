@@ -48,6 +48,7 @@ const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 
 const TEST_PROJECT_ID = "demo-test";
 const TEST_USER_ID = "user-credit-integration";
+const TEST_APP_ID = "app-credit-integration";
 
 /**
  * Read the raw credit-month doc for the test user's current period. Reads via
@@ -162,6 +163,34 @@ async function seedCreditMonth(
 		.set({ ...doc, updated_at: new Date() });
 }
 
+/**
+ * Seed the test app doc with an owner + reservation marker, so the cross-doc
+ * `refundReservation` has a hold to reconcile. Overwrites the whole doc (no
+ * merge) so each case starts from a known marker state.
+ */
+async function seedAppReservation(
+	db: Firestore,
+	reservation: { period: string; reserved: number; settled: boolean },
+): Promise<void> {
+	await db
+		.collection("apps")
+		.doc(TEST_APP_ID)
+		.set({ owner: TEST_USER_ID, reservation }, { merge: false });
+}
+
+/** Read the reservation marker back off the test app doc. */
+async function readAppReservation(
+	db: Firestore,
+): Promise<{ period: string; reserved: number; settled: boolean } | undefined> {
+	const snap = await db.collection("apps").doc(TEST_APP_ID).get();
+	if (!snap.exists) return undefined;
+	return (
+		snap.data() as {
+			reservation?: { period: string; reserved: number; settled: boolean };
+		}
+	).reservation;
+}
+
 describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 	let db: Firestore;
 	const period = getCurrentPeriod();
@@ -186,7 +215,11 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 	it("creates the month doc with a full allowance and the booked cost on a first reservation", async () => {
 		const { reserveCredits } = await import("../credits");
 
-		const result = await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD);
+		const result = await reserveCredits(
+			TEST_USER_ID,
+			CREDITS_PER_BUILD,
+			TEST_APP_ID,
+		);
 		expect(result).toEqual({ period, reserved: CREDITS_PER_BUILD });
 
 		// A complete doc must land — explicit allowance (it has no Zod default),
@@ -203,8 +236,8 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 		const { OutOfCreditsError, reserveCredits } = await import("../credits");
 
 		// Two affordable builds in sequence: consumed walks 100 → 200.
-		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD);
-		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD);
+		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID);
+		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID);
 		expect((await readCreditMonth(db, period))?.consumed).toBe(
 			2 * CREDITS_PER_BUILD,
 		);
@@ -216,7 +249,7 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 			bonus: 0,
 		});
 		await expect(
-			reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD),
+			reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 
 		// The rejected reservation booked nothing — the doc is exactly as seeded.
@@ -247,8 +280,9 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
  *     fill the gap on read. `allowance` has no Zod default on either path, so
  *     only a real converter read over a real on-disk doc proves the seed parses.
  *     A spied read can't.
- *   - `refundCredits` actually decrements `consumed` on disk and a re-read
- *     reflects it.
+ *   - `refundReservation` decrements `consumed` on disk AND settles the app-doc
+ *     marker in one cross-doc transaction, and a second pass over a settled
+ *     marker is a no-op — the idempotency the live-flush/reaper collision needs.
  *
  * The production `getDb()` inside the writers/summary connects to the same
  * emulator as our `db` client via `FIRESTORE_EMULATOR_HOST`.
@@ -417,24 +451,39 @@ describe.skipIf(!emulatorAvailable)("credit writers integration", () => {
 		expect(grants[0]).toMatchObject({ type: "grant", amount: GRANT });
 	});
 
-	it("refunds by decrementing consumed on disk, and is a no-op against a missing period", async () => {
-		const { refundCredits } = await import("../credits");
+	it("refunds the hold and settles the marker atomically, and is idempotent on a second pass", async () => {
+		const { refundReservation } = await import("../credits");
 
-		// A doc that booked two builds; refunding one walks consumed 200 → 100.
+		// A doc that booked two builds, plus an app carrying an unsettled
+		// 100-credit hold owned by the test user.
 		await seedCreditMonth(db, period, {
 			allowance: MONTHLY_CREDIT_ALLOWANCE,
 			consumed: 2 * CREDITS_PER_BUILD,
 			bonus: 0,
 		});
+		await seedAppReservation(db, {
+			period,
+			reserved: CREDITS_PER_BUILD,
+			settled: false,
+		});
 
-		await refundCredits(TEST_USER_ID, period, CREDITS_PER_BUILD);
+		// The refund walks consumed 200 → 100 AND flips the marker settled, both
+		// committed in one cross-doc transaction.
+		await refundReservation(TEST_APP_ID);
 		expect((await readCreditMonth(db, period))?.consumed).toBe(
 			CREDITS_PER_BUILD,
 		);
+		expect(await readAppReservation(db)).toEqual({
+			period,
+			reserved: CREDITS_PER_BUILD,
+			settled: true,
+		});
 
-		// A refund against a period with no doc seeds nothing — it stays absent.
-		const otherPeriod = "1999-01";
-		await refundCredits(TEST_USER_ID, otherPeriod, CREDITS_PER_BUILD);
-		expect(await readCreditMonth(db, otherPeriod)).toBeUndefined();
+		// A second refund reads the settled marker and changes nothing — the
+		// once-guard the live-flush/reaper collision relies on.
+		await refundReservation(TEST_APP_ID);
+		expect((await readCreditMonth(db, period))?.consumed).toBe(
+			CREDITS_PER_BUILD,
+		);
 	});
 });

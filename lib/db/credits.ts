@@ -11,7 +11,7 @@ import { FieldValue } from "@google-cloud/firestore";
 import { creditBalance, MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
 import { collections, docs } from "./firestore";
 import { getCurrentPeriod } from "./period";
-import type { CreditMonthDoc } from "./types";
+import type { AppDoc, CreditMonthDoc } from "./types";
 
 /**
  * Thrown by `reserveCredits` when the user's remaining balance can't cover the
@@ -68,13 +68,23 @@ export interface Reservation {
  *      it is the value the balance was checked against, so the gate can reject
  *      over-budget atomically; an `increment` sentinel would commit blindly and
  *      defeat the cap under contention.
+ *
+ * The same transaction also stamps the DURABLE RESERVATION MARKER onto the app
+ * doc (`reservation: { period, reserved, settled:false }`). Co-committing the
+ * marker with the debit is load-bearing: it guarantees a charge can never land
+ * without the marker the refunding reaper needs, so a hard kill after the debit
+ * still has a durable record to refund. The app doc is written over its raw ref
+ * for the same parse-on-read reason the credit doc is. The app doc always exists
+ * here — `createApp` (build) or the existing app (edit) precedes the reservation.
  */
 export async function reserveCredits(
 	userId: string,
 	cost: number,
+	appId: string,
 ): Promise<Reservation> {
 	const period = getCurrentPeriod();
 	const ref = docs.creditMonthRaw(userId, period);
+	const appRef = docs.appRaw(appId);
 
 	await ref.firestore.runTransaction(async (tx) => {
 		const snap = await tx.get(ref);
@@ -103,46 +113,70 @@ export async function reserveCredits(
 			},
 			{ merge: true },
 		);
+
+		// Durable reservation marker, committed atomically with the debit above.
+		tx.set(
+			appRef,
+			{ reservation: { period, reserved: cost, settled: false } },
+			{ merge: true },
+		);
 	});
 
 	return { period, reserved: cost };
 }
 
 /**
- * Hand back the credits a reservation booked for a run that did no billable
- * work — a hard failure that broke the app, or a turn that produced nothing.
+ * Refund the credits a reservation booked AND atomically settle its durable
+ * marker, so the same hold can never be handed back twice.
  *
- * Refunds against the period the reservation was BOOKED to (passed in, not
- * re-derived from `getCurrentPeriod()`): a flush that crosses midnight into a
- * new month must still un-book the month that was actually debited.
+ * One cross-document transaction over the app doc and the credit-month doc:
+ * un-books `consumed` and flips `reservation.settled` together. That atomicity
+ * is what lets the two refund callers — the live finalize path (`flush`) and the
+ * stale-`generating` reaper — both invoke this without racing a double refund:
+ * whichever lands first settles the marker; the other reads `settled` and
+ * no-ops. Idempotent and self-describing — it reads owner, period, and amount
+ * off the marker, so callers pass only `appId`.
  *
- * The decrement is clamped at 0 so a refund can never drive `consumed` negative
- * — `creditMonthDocSchema` rejects a negative quantity, so an under-clamp would
- * write a doc the next read can't parse. A period with no doc has nothing to
- * un-book, so the transaction reads, finds nothing, and returns WITHOUT seeding
- * one: seeding here would materialize a phantom month. Runs over the raw ref for
- * the same parse-on-read reason the reservation does.
+ * No-ops cleanly when there is nothing to do: an absent marker (a free
+ * continuation, or an app created before reservations shipped), an
+ * already-`settled` marker, or a missing owner. The `consumed` decrement is
+ * clamped at 0 (`creditMonthDocSchema` rejects negatives); a never-debited month
+ * has no credit doc to un-book, but the marker is still settled so the reaper
+ * stops revisiting it. Runs over the raw refs for the same parse-on-read reason
+ * the reservation does.
  */
-export async function refundCredits(
-	userId: string,
-	period: string,
-	amount: number,
-): Promise<void> {
-	const ref = docs.creditMonthRaw(userId, period);
+export async function refundReservation(appId: string): Promise<void> {
+	const appRef = docs.appRaw(appId);
 
-	await ref.firestore.runTransaction(async (tx) => {
-		const snap = await tx.get(ref);
-		// A never-debited period has no doc — nothing to refund, and seeding one
-		// would invent a month the user never spent in. Leave it untouched.
-		if (!snap.exists) return;
+	await appRef.firestore.runTransaction(async (tx) => {
+		// All reads precede all writes (Firestore's transaction rule): read the
+		// marker, then — only if there is something to refund — the credit doc.
+		const appSnap = await tx.get(appRef);
+		if (!appSnap.exists) return;
+		const appData = appSnap.data() as Partial<AppDoc>;
+		const reservation = appData.reservation;
+		const owner = appData.owner;
+		if (!reservation || reservation.settled || !owner) return;
 
-		const consumed = (snap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
+		const creditRef = docs.creditMonthRaw(owner, reservation.period);
+		const creditSnap = await tx.get(creditRef);
+
+		if (creditSnap.exists) {
+			const consumed =
+				(creditSnap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
+			tx.set(
+				creditRef,
+				{
+					consumed: Math.max(0, consumed - reservation.reserved),
+					updated_at: FieldValue.serverTimestamp(),
+				},
+				{ merge: true },
+			);
+		}
+
 		tx.set(
-			ref,
-			{
-				consumed: Math.max(0, consumed - amount),
-				updated_at: FieldValue.serverTimestamp(),
-			},
+			appRef,
+			{ reservation: { ...reservation, settled: true } },
 			{ merge: true },
 		);
 	});

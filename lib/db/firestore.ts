@@ -242,6 +242,17 @@ export const docs = {
 	app: (appId: string): DocumentReference<AppDoc> =>
 		collections.apps().doc(appId),
 
+	/**
+	 * RAW (converter-less) reference to an app doc, for transactions that read or
+	 * write the credit-reservation marker. A `withConverter` `tx.get()` parses the
+	 * snapshot through `appDocSchema`, which throws inside a transaction on any
+	 * partial or legacy doc; the reservation reconciliation reads raw data and
+	 * merges back, exactly as the credit-month reservation does over
+	 * `creditMonthRaw`. Single-sources the app path off `collections.apps`.
+	 */
+	appRaw: (appId: string): DocumentReference =>
+		collections.apps().doc(appId).withConverter(null),
+
 	/** Direct reference: `apps/{appId}/runs/{runId}` */
 	run: (appId: string, runId: string): DocumentReference<RunSummaryDoc> =>
 		collections.runs(appId).doc(runId),
