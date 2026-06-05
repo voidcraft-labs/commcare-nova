@@ -7,7 +7,9 @@
 // Stored value is a space-separated string of selected option values, which is
 // the CommCare/XForms convention for multi-select bindings.
 //
-// Note: no `default_value` — same rationale as singleSelect.
+// Carries `default_value` (a pre-selected set via `<setvalue>`) but never
+// `calculate` — same rationale as singleSelect: a computed value is a hidden
+// field's job, not a read-only-looking select.
 
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import { z } from "zod";
@@ -20,7 +22,7 @@ export const multiSelectFieldSchema = inputFieldBaseSchema.extend({
 	validate: z.string().optional(),
 	validate_msg: z.string().optional(),
 	validate_msg_media: mediaSchema.optional(),
-	calculate: z.string().optional(),
+	default_value: z.string().optional(),
 });
 
 export type MultiSelectField = z.infer<typeof multiSelectFieldSchema>;

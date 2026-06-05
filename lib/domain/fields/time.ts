@@ -1,7 +1,8 @@
 // lib/domain/fields/time.ts
 //
 // Time-only picker field. Maps to CommCare <input> control with xsd:time type.
-// Supports XPath validation and calculation.
+// Supports XPath validation and a `default_value` seed (a computed value
+// belongs on a `hidden` field, not a `calculate` on this visible control).
 
 import tablerClock from "@iconify-icons/tabler/clock";
 import { z } from "zod";
@@ -13,7 +14,6 @@ export const timeFieldSchema = inputFieldBaseSchema.extend({
 	validate: z.string().optional(),
 	validate_msg: z.string().optional(),
 	validate_msg_media: mediaSchema.optional(),
-	calculate: z.string().optional(),
 	default_value: z.string().optional(),
 });
 

@@ -35,15 +35,18 @@
  *   1. Run this script against production Firestore (live, not --dry-run).
  *   2. THEN deploy the app version that enforces `source` on the schema.
  *
- * The reverse order breaks reads of historical events: `readEvents` and
- * `readLatestRunId` parse each event via the Zod converter, which now
- * rejects docs missing `source`. `/build/replay/[id]`,
- * `/api/apps/[id]/logs`, and admin tooling go down for every pre-MCP
- * app until the backfill completes.
+ * The reverse order makes reads of historical events SILENTLY PARTIAL: the
+ * readers no longer hard-fail on a doc that violates the schema —
+ * `readEvents` drops the unparseable (pre-`source`) docs and returns the
+ * survivors with a `skipped` count, and `readLatestRunId` reads the envelope
+ * raw — so `/build/replay/[id]`, `/api/apps/[id]/logs`, and admin tooling
+ * keep loading, but a pre-MCP app's stream comes back incomplete (replay
+ * reconstructs a partial state) until the backfill runs. That makes running
+ * this FIRST more important, not less: the failure is now invisible, not a
+ * loud outage.
  *
  * If you deployed first by accident: run this script with no flags; reads
- * self-heal as soon as each app's events subcollection is backfilled.
- *   Rollback option: redeploy the pre-source-enforcement app version.
+ * return the full stream again as soon as each app's events are backfilled.
  * ──────────────────────────────────────────────────────────────────
  */
 

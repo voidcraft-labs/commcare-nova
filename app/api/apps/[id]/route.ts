@@ -79,6 +79,15 @@ export async function PUT(
 			(body as Record<string, unknown>)?.blueprint,
 		);
 		if (!parsed.success) {
+			/* The client only sees a generic 400. Log the Zod issues server-side
+			 * (dev console + Cloud Logging) so a rejected auto-save is debuggable
+			 * from WHICH field + key failed — a swallowed error here is exactly
+			 * why a bad save (e.g. a field carrying a property its kind doesn't
+			 * allow) surfaced as a bare "Invalid blueprint" with no cause. */
+			log.warn("[apps] invalid blueprint on save", {
+				appId: id,
+				issues: parsed.error.issues,
+			});
 			throw new ApiError("Invalid blueprint", 400);
 		}
 

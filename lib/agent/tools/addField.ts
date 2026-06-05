@@ -3,15 +3,17 @@
  *
  * Finer-grained sibling of `addFields`: accepts one field payload with
  * optional `beforeFieldId` / `afterFieldId` / `parentId` anchors so the
- * SA can target a specific insertion slot. Both tools share the same
+ * SA can target a specific insertion slot. Both tools take the same
+ * per-kind union payload (`addFieldSchema` here, `addFieldsItemSchema`
+ * for the batch — see `toolSchemaGenerator.ts`) and share the same
  * add-path pipeline — `applyDefaults` (XPath unescape + case-type
- * defaulting + `#case/{id}` preload) then `flatFieldToField` (per-kind
- * schema validation + domain `Field` assembly) — so a given field
- * payload normalizes identically through either entry point. The only
- * difference is input shape: `addField` takes `addFieldSchema` with
- * plain optionals; `addFields` takes `addFieldsItemSchema` with
- * sentinel-padded optionals (and runs `stripEmpty` first to collapse
- * the sentinels).
+ * defaulting) then `flatFieldToField` (per-kind schema validation +
+ * domain `Field` assembly) — so a given field payload normalizes
+ * identically through either entry point. The batch tool additionally
+ * runs `stripEmpty` first (it normalizes the in-batch `parentId` and
+ * defensively collapses empties on the wide processing type); the
+ * single-add path skips it because it has no in-batch parent to
+ * resolve.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface.
@@ -38,7 +40,11 @@ import {
 	findFieldByBareId,
 	resolveFormContext,
 } from "../blueprintHelpers";
-import { applyDefaults, flatFieldToField } from "../contentProcessing";
+import {
+	applyDefaults,
+	type FlatField,
+	flatFieldToField,
+} from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldSchema } from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
@@ -147,10 +153,14 @@ export const addFieldTool = {
 			// Case preload is not seeded here — it's emitted structurally at the
 			// wire layer (`xform/caseBlocks.ts` lowers the derived `case_preload`
 			// action to casedb `<setvalue>` reads).
-			// `addFieldSchema` uses plain optionals, so `stripEmpty`'s
-			// sentinel collapse isn't needed here — that's the one place the
-			// two tool pipelines diverge.
-			const processed = applyDefaults(fieldInput, doc.caseTypes);
+			// The single-add path skips `stripEmpty` — it has no in-batch
+			// `parentId` to normalize — which is the one place the two tool
+			// pipelines diverge.
+			// `fieldInput` is one validated per-kind union arm; TS infers an
+			// arm's conditionally-present keys as `unknown`, so the bridge cast
+			// to the wide `FlatField` is needed (and sound — the arm is a
+			// structural subset of it).
+			const processed = applyDefaults(fieldInput as FlatField, doc.caseTypes);
 
 			// Mint a uuid and assemble the validated domain `Field` shape.
 			// A failure here means the declared kind requires a key the
@@ -159,17 +169,18 @@ export const addFieldTool = {
 			// inside `flatFieldToField` is the one place per-kind validity is
 			// enforced.
 			const uuid = asUuid(crypto.randomUUID());
-			const field = flatFieldToField(processed, uuid);
-			if (!field) {
+			const assembled = flatFieldToField(processed, uuid);
+			if (!assembled.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Field "${fieldInput.id}" (kind=${fieldInput.kind}) failed schema validation — likely a missing required property for the kind (e.g. options on a select, or a non-empty label on a visible kind).`,
+						error: `Couldn't add field "${fieldInput.id}" (kind=${fieldInput.kind}): ${assembled.reason}.`,
 					},
 				};
 			}
+			const field = assembled.field;
 			const mutations = addFieldMutations(doc, {
 				parentUuid,
 				field,

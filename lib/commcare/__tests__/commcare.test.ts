@@ -109,6 +109,41 @@ describe("hashtag expansion", () => {
 		expect(result).not.toContain("#case/");
 	});
 
+	it("expandHashtags leaves a plain #case/<prop> byte-identical (regression)", () => {
+		// The relationship-aware case expander must reproduce the historical
+		// flat-prefix output exactly for the zero-relationship case.
+		expect(expandHashtags("#case/edd")).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/edd",
+		);
+	});
+
+	it("expandHashtags resolves #case/parent/<prop> through index/parent", () => {
+		const result = expandHashtags("#case/parent/edd");
+		// One index-walk to the parent case, property read off it, no literal
+		// `parent` child element, and the hashtag fully consumed.
+		expect(result.split("/index/parent").length - 1).toBe(1);
+		expect(result).not.toContain("/parent/edd"); // not a literal child step
+		expect(result.endsWith("]/edd")).toBe(true);
+		expect(result).not.toContain("#case/");
+	});
+
+	it("resolves chained #case/parent/parent via two index/parent hops", () => {
+		const result = expandHashtags("#case/parent/parent/address");
+		expect(result.split("/index/parent").length - 1).toBe(2);
+		expect(result.endsWith("]/address")).toBe(true);
+		expect(result).not.toContain("#case/");
+	});
+
+	it("treats #case/grandparent as a property, not a relationship keyword", () => {
+		// Only `parent` is a relationship segment (and it's CommCare-reserved,
+		// so it can't be a real property). `grandparent` is NOT reserved, so it
+		// must read as an ordinary property — depth is expressed by chaining
+		// `parent/parent`, never a `grandparent` keyword that would shadow it.
+		const result = expandHashtags("#case/grandparent");
+		expect(result).not.toContain("/index/parent");
+		expect(result.endsWith("]/grandparent")).toBe(true);
+	});
+
 	it("expandHashtags replaces #user/ with full XPath", () => {
 		const result = expandHashtags("#user/role");
 		expect(result).toContain("instance('casedb')");

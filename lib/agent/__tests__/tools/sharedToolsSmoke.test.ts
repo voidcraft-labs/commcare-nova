@@ -227,26 +227,17 @@ describe("addField and addFields share the same add-path pipeline", () => {
 				formIndex: 0,
 				fields: [
 					{
-						/* Full sentinel-padded shape — `addFieldsItemSchema`
-						 * makes `parentId`, `label`, `required` required-with-
-						 * sentinel, and eight other optionals (including the
-						 * nested `validate` and `repeat` config objects) fill
-						 * the 8-slot ceiling. `""` / `[]` are the absent
-						 * sentinels the batch-path `stripEmpty` collapses
-						 * before `applyDefaults` runs; `validate` and
-						 * `repeat` are simply omitted when not in use. */
+						// The `int` arm of the per-kind union: only the keys
+						// `int` declares (no `calculate` — that's hidden-only).
+						// The batch path still runs `stripEmpty`, but with the
+						// per-kind arms there are no sentinels to collapse here;
+						// what this asserts is that the nested `validate.expr`
+						// gets the same XPath-entity unescape the single tool
+						// applies.
 						id,
 						kind: "int",
-						parentId: "",
 						label: "Age",
-						required: "",
-						hint: "",
 						validate: { expr: escapedValidate },
-						relevant: "",
-						calculate: "",
-						default_value: "",
-						options: [],
-						case_property_on: "",
 					},
 				],
 			},
@@ -260,6 +251,69 @@ describe("addField and addFields share the same add-path pipeline", () => {
 
 		expect(addedSingle?.field).toMatchObject({ validate: expectedValidate });
 		expect(addedBatch?.field).toMatchObject({ validate: expectedValidate });
+	});
+
+	it("applies a batch-level parentId, with a field's own parentId overriding it", async () => {
+		// A5: `addFields` accepts a top-level `parentId` (the batch default
+		// parent), mirroring single `addField`'s top-level `parentId`, so the
+		// SA's natural usage nests the batch instead of hard-erroring on an
+		// unrecognized key. A field's OWN parentId still wins.
+		const doc = makeFixtureDoc();
+
+		// Seed two groups to nest under.
+		const seedCtx = makeTestContext().ctx;
+		const { newDoc: docWithGroups, mutations: groupMuts } =
+			await addFieldsTool.execute(
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					fields: [
+						{ id: "vitals", kind: "group", label: "Vitals" },
+						{ id: "history", kind: "group", label: "History" },
+					],
+				},
+				seedCtx,
+				doc,
+			);
+		const groupUuid = (id: string): string => {
+			const m = groupMuts.find(
+				(mut): mut is Extract<Mutation, { kind: "addField" }> =>
+					mut.kind === "addField" && mut.field.id === id,
+			);
+			if (!m) throw new Error(`group "${id}" not added`);
+			return m.field.uuid;
+		};
+
+		const ctx = makeTestContext().ctx;
+		const { mutations } = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				parentId: "vitals", // batch default parent
+				fields: [
+					// No own parentId → inherits the batch default ("vitals").
+					{ id: "height", kind: "decimal", label: "Height" },
+					// Own parentId → overrides the batch default ("history").
+					{
+						id: "weight",
+						kind: "decimal",
+						label: "Weight",
+						parentId: "history",
+					},
+				],
+			},
+			ctx,
+			docWithGroups,
+		);
+
+		const addedUnder = (id: string): string | undefined =>
+			mutations.find(
+				(m): m is Extract<Mutation, { kind: "addField" }> =>
+					m.kind === "addField" && m.field.id === id,
+			)?.parentUuid;
+
+		expect(addedUnder("height")).toBe(groupUuid("vitals"));
+		expect(addedUnder("weight")).toBe(groupUuid("history"));
 	});
 });
 

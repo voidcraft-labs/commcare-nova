@@ -4,17 +4,19 @@
  * Both `addFields` (batch) and `addField` (single) walk this pipeline
  * before emitting `addField` mutations:
  *
- *   1. **`stripEmpty`** — batch-only. `addFieldsItemSchema` carries one
- *      required-with-sentinel field (`label`, where "" = no label);
- *      `stripEmpty` collapses that "" — and any other empty string / empty
- *      array the SA happens to send — to absence. The single-field
- *      `addFieldSchema` uses plain optionals and skips this step.
- *   2. **`applyDefaults`** — both surfaces. XPath HTML-entity unescape,
- *      case-type property defaulting (seed `kind` / `label` / etc.
- *      from the catalog), and preload auto-default (`default_value =
- *      "#case/{id}"` on case-loading forms).
+ *   1. **`stripEmpty`** — batch-only. Normalizes the in-batch `parentId`
+ *      (absent → `null`, the "insert at form level" sentinel the batch
+ *      handler reads) and defensively collapses any empty string / empty
+ *      array the SA sends to absence. The single-field `addField` path has
+ *      no in-batch parent to resolve and skips this step.
+ *   2. **`applyDefaults`** — both surfaces. XPath HTML-entity unescape and
+ *      case-type property defaulting (seed `kind` / `label` / `hint` /
+ *      `required` / `validate` / `options` from the catalog wherever the
+ *      payload left them unset). Case preload is NOT seeded here — it's
+ *      emitted structurally at the wire layer (`xform/caseBlocks.ts`).
  *   3. **`flatFieldToField`** — both surfaces. Per-kind
- *      `fieldSchema.safeParse` validation + domain `Field` assembly.
+ *      `fieldSchema.safeParse` validation + domain `Field` assembly,
+ *      returning a tagged success/reason result.
  *
  * Vocabulary is domain-side (`kind`, `validate`, `validate_msg`,
  * `case_property_on`); there is no CommCare → domain translation inside
@@ -25,10 +27,35 @@
  * their domain equivalents when seeding a field's defaults.
  */
 import type { z } from "zod";
-import type { CaseType, Field, Uuid } from "@/lib/domain";
-import { fieldSchema } from "@/lib/domain";
+import type { CaseType, Field, FieldKind, Uuid } from "@/lib/domain";
+import {
+	fieldKindDeclaresKey,
+	fieldKinds,
+	fieldSchema,
+	pickFieldKeysForKind,
+} from "@/lib/domain";
 import { log } from "@/lib/logger";
-import type { addFieldsItemSchema } from "./toolSchemas";
+import type { wideFlatItemSchema } from "./toolSchemas";
+
+/** Narrow a possibly-unknown kind string to a `FieldKind` before asking the
+ *  per-kind key sets about it — an SA-supplied bad kind would otherwise blow
+ *  up `fieldKindDeclaresKey`'s lookup (and is caught later by the field parse). */
+function isFieldKind(kind: unknown): kind is FieldKind {
+	return (
+		typeof kind === "string" && (fieldKinds as readonly string[]).includes(kind)
+	);
+}
+
+/** A catalog default should fill a slot the SA left unset — treating an empty
+ *  string or empty array as "unset" too, so an explicit `""` (which the batch
+ *  path's `stripEmpty` already collapses) is seeded the same on both add paths. */
+function isUnset(value: unknown): boolean {
+	return (
+		value === undefined ||
+		value === "" ||
+		(Array.isArray(value) && value.length === 0)
+	);
+}
 
 type CaseTypes = CaseType[] | null;
 
@@ -70,16 +97,17 @@ export function unescapeXPath(s: string): string {
 // ── Flat input shape ─────────────────────────────────────────────────
 
 /**
- * The flat field shape the SA emits inside an `addFields` batch item.
- * Derived directly from `addFieldsItemSchema` so the interface can't
- * drift from the tool's input contract. Only `label` is required-with-
- * sentinel ("" = no label); `stripEmpty` normalizes it — and any other
- * empty value — to absence before the handler assembles a domain `Field`.
- * `parentId` is an optional semantic field id (omitted = "insert at the
- * form's top level"); the handler resolves a present value to a UUID when
- * building the `addField` mutation.
+ * The WIDE flat field shape this pipeline operates on — every key any kind
+ * might carry, all optional but `id`/`kind`. Derived from `wideFlatItemSchema`
+ * (the generator's wide processing-type source), NOT from the per-kind
+ * discriminated-union tool inputs: a validated tool item (one union arm) is
+ * a structural subset of this shape, so it flows through `stripEmpty` /
+ * `applyDefaults` / `flatFieldToField` without per-kind narrowing. `parentId`
+ * is an optional semantic field id (omitted = "insert at the form's top
+ * level"); the handler resolves a present value to a UUID when building the
+ * `addField` mutation.
  */
-export type FlatField = z.infer<typeof addFieldsItemSchema>;
+export type FlatField = z.infer<typeof wideFlatItemSchema>;
 
 // ── Sentinel collapse ────────────────────────────────────────────────
 
@@ -88,23 +116,24 @@ export type FlatField = z.infer<typeof addFieldsItemSchema>;
  *   - empty string → drop the key entirely
  *   - empty array  → drop
  *
- * The one value this matters for by contract is `label: ""` (the
- * required-with-sentinel "no label" case); it also defensively drops any
- * other empty string the SA sends for a now-optional field rather than
- * omitting it.
+ * The per-kind tool arms can't even surface a label sentinel (a visible
+ * kind requires a non-empty label, `hidden` has no label slot), so this
+ * is purely defensive: it drops any stray empty string / empty array the
+ * SA sends for an optional slot rather than letting it through as a
+ * meaningless "" value.
  *
  * `parentId` is special-cased: missing or empty becomes `null` (rather
  * than just being dropped) so the downstream "no parent = form level"
- * logic reads an explicit value. Now that `parentId` is optional the SA
- * usually omits it, which lands here as `undefined` → `null`.
+ * logic reads an explicit value. The SA usually omits `parentId`, which
+ * lands here as `undefined` → `null`.
  *
  * Batch-path only — the `addFields` tool runs its input through this
  * before `applyDefaults`. `addField` (single) feeds `applyDefaults`
  * directly.
  *
- * Input is typed as `FlatField` (the Zod-validated batch-item shape);
- * output is `Partial<FlatField>` because any non-required key may be
- * absent after the collapse.
+ * Input is typed as `FlatField` (the wide processing shape); output is
+ * `Partial<FlatField>` because any non-required key may be absent after
+ * the collapse.
  */
 export function stripEmpty(q: FlatField): Partial<FlatField> & {
 	parentId?: string | null;
@@ -164,28 +193,48 @@ export function applyDefaults<E extends object = object>(
 		const ct = caseTypes.find((c) => c.name === result.case_property_on);
 		const prop = ct?.properties.find((p) => p.name === result.id);
 		if (prop) {
+			// Seed the kind first — every other default depends on knowing it.
 			result.kind ??= prop.data_type ?? "text";
-			result.label ??= prop.label;
-			result.hint ??= prop.hint;
-			result.required ??= prop.required;
+			const kind = result.kind;
+
+			// A catalog default applies only when (a) the field left the slot
+			// unset — and `""` / `[]` count as unset, so the single- and
+			// batch-add paths (the latter pre-collapses empties via
+			// `stripEmpty`) seed IDENTICALLY — AND (b) the resolved kind's
+			// schema actually DECLARES the slot. Without (b), a computed
+			// `hidden` field that writes to a property declared as a select
+			// would inherit that property's `options` / `label`, and the
+			// strict per-kind schema in `flatFieldToField` would then reject
+			// the whole field (the kind doesn't carry those keys).
+			const declares = (key: string): boolean =>
+				isFieldKind(kind) ? fieldKindDeclaresKey(kind, key) : true;
+
+			if (declares("label") && isUnset(result.label)) {
+				result.label = prop.label;
+			}
+			if (declares("hint") && isUnset(result.hint)) {
+				result.hint = prop.hint;
+			}
+			if (declares("required") && isUnset(result.required)) {
+				result.required = prop.required;
+			}
 			// Case-type → field vocabulary translation. CaseProperty uses
 			// CommCare-flavored `validation` / `validation_msg` because the
 			// case-type record directly models the CommCare data layer; the
 			// field's SA tool surface uses a nested `validate: { expr, msg }`
-			// object (the domain entity layer flattens back to `validate` +
-			// `validate_msg`). This block is the one point in the agent
-			// module where the two vocabularies meet — seed the nested
-			// object when the SA didn't provide a usable one. An SA stub
-			// like `validate: { expr: "" }` should not suppress the
-			// catalog default, so the predicate checks for a truthy
-			// `expr` rather than the object's mere presence.
-			if (prop.validation && !result.validate?.expr) {
+			// object. Seed it only when the kind supports validation and the
+			// SA didn't provide a usable `expr` (an SA stub like
+			// `validate: { expr: "" }` must not suppress the catalog default,
+			// so we check for a truthy `expr`, not the object's presence).
+			if (declares("validate") && prop.validation && !result.validate?.expr) {
 				result.validate = {
 					expr: prop.validation,
 					...(prop.validation_msg && { msg: prop.validation_msg }),
 				};
 			}
-			result.options ??= prop.options;
+			if (declares("options") && isUnset(result.options)) {
+				result.options = prop.options;
+			}
 		}
 	}
 
@@ -195,31 +244,80 @@ export function applyDefaults<E extends object = object>(
 // ── Flat → Field assembly ────────────────────────────────────────────
 
 /**
+ * Outcome of assembling a flat payload into a domain `Field`: the built
+ * field, or a human-readable `reason` the assembly failed. Callers surface
+ * the reason (single-add error, batch skip note) so a failure is
+ * diagnosable rather than a generic "missing a required property".
+ */
+export type FlatFieldResult =
+	| { ok: true; field: Field }
+	| { ok: false; reason: string };
+
+/**
+ * Reduce a `fieldSchema` parse error to the specific reason(s) it failed,
+ * digging through the union machinery. `fieldSchema` is a union of two
+ * discriminated unions, so the genuinely-useful issue is nested inside an
+ * `invalid_union`'s per-branch `errors`; the top-level issue is just a
+ * generic "Invalid input" and the wrong-branch attempts say "No matching
+ * discriminator". Skip that noise and surface the real leaf messages.
+ */
+function describeFieldFailure(
+	error: z.ZodError,
+	kind: string | undefined,
+): string {
+	type Issue = {
+		code?: string;
+		message: string;
+		path: PropertyKey[];
+		errors?: Issue[][];
+	};
+	const leaves: string[] = [];
+	const visit = (issues: readonly Issue[]): void => {
+		for (const issue of issues) {
+			if (issue.code === "invalid_union" && Array.isArray(issue.errors)) {
+				for (const branch of issue.errors) visit(branch);
+				continue;
+			}
+			if (/no matching discriminator|invalid input/i.test(issue.message)) {
+				continue;
+			}
+			const path = issue.path.map(String).join(".");
+			leaves.push(path ? `${path}: ${issue.message}` : issue.message);
+		}
+	};
+	visit(error.issues as unknown as Issue[]);
+	const detail = [...new Set(leaves)].join("; ");
+	return detail || `the supplied values don't form a valid "${kind}" field`;
+}
+
+/**
  * Build a validated domain `Field` from an add-path flat payload.
  *
- * The SA can in principle emit any combination of optional keys for any
- * `kind` — there's no per-kind Zod validation on the tool input because
- * the flat schema is a union across all kinds. Per-kind validity is
- * enforced HERE: the assembled candidate runs through `fieldSchema`
- * (the discriminated union) so Zod strips keys the target kind doesn't
- * declare (e.g. `label` on `hidden`, `case_property_on` on media kinds)
- * and rejects invalid values. Returns `undefined` when the shape can't
- * be salvaged into a valid `Field`; callers skip and log.
+ * Two steps: reshape the SA-authoring shape into the domain shape (nested
+ * `validate`/`repeat` → flat keys, XPath-entity unescape), then validate.
+ * Before validating we FILTER the candidate to the kind's schema-declared
+ * keys via `pickFieldKeysForKind` — the same projection `reconcileFieldForKind`
+ * and the `updateField` reducer use. The per-kind schemas are `.strict()`,
+ * so a stray key the kind doesn't declare would otherwise make the WHOLE
+ * field fail to parse; filtering drops the stray key and keeps the field as
+ * its valid subset. (The per-kind tool inputs already reject stray keys at
+ * the boundary, so this is defense-in-depth for non-tool paths — catalog
+ * seeding, or schema drift.)
  *
- * `label`, `hint`, etc. are included only when they carry a non-empty
- * value. The batch schema's required-with-sentinel `label` is already
- * collapsed to absent by `stripEmpty` when "", and the other fields are
- * plain optionals, so the extra guard here is defensive but cheap.
+ * Returns `{ ok: true, field }`, or `{ ok: false, reason }` naming the
+ * specific parse failure. After the per-kind tool input + kind-aware
+ * `applyDefaults`, a valid payload always assembles — a failure here means
+ * the generator and the domain schema have drifted (a code bug), which the
+ * reason makes diagnosable. The `__tests__` fuzz over every kind asserts
+ * this totality.
  *
- * Lives alongside `stripEmpty` + `applyDefaults` because the three
- * helpers form the shared add-path pipeline — empty-value collapse
- * (batch only), defaults merge, then assembly — that both `addFields`
- * and `addField` walk in order.
+ * Lives alongside `stripEmpty` + `applyDefaults` because the three helpers
+ * form the shared add-path pipeline both `addFields` and `addField` walk.
  */
 export function flatFieldToField(
 	q: Partial<FlatField>,
 	uuid: Uuid,
-): Field | undefined {
+): FlatFieldResult {
 	const candidate: Record<string, unknown> = {
 		kind: q.kind,
 		uuid,
@@ -293,12 +391,19 @@ export function flatFieldToField(
 					}),
 			}),
 	};
-	const result = fieldSchema.safeParse(candidate);
+	// Filter to the kind's declared keys before the strict parse, so a stray
+	// key drops out rather than failing the whole field (see the doc comment).
+	const kind = candidate.kind;
+	const filtered = isFieldKind(kind)
+		? pickFieldKeysForKind(candidate, kind)
+		: candidate;
+	const result = fieldSchema.safeParse(filtered);
 	if (!result.success) {
+		const reason = describeFieldFailure(result.error, q.kind);
 		log.warn(
-			`[addFields] dropped invalid field candidate id=${q.id} kind=${q.kind}: ${result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+			`[flatFieldToField] could not assemble field id=${q.id} kind=${q.kind}: ${reason}`,
 		);
-		return undefined;
+		return { ok: false, reason };
 	}
-	return result.data;
+	return { ok: true, field: result.data };
 }

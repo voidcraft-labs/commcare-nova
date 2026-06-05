@@ -5,8 +5,11 @@
  * expression on every field via a Lezer tree walk (syntax + semantics),
  * detects dependency cycles, and checks case-property references.
  *
- * Called by `runner.ts`, which wraps the string output into structured
- * `ValidationError` objects.
+ * Called by `runner.ts`, which maps the TYPED `DeepValidationError` union
+ * below into the user-facing `ValidationError` shape. The two modules share
+ * a typed contract — there is no prose serialization between them, so the
+ * runner never re-parses a message to recover a code, a location, or which
+ * surface failed.
  */
 
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
@@ -15,7 +18,67 @@ import {
 	type FieldTreeNode,
 } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import { validateXPath } from "./xpathValidator";
+import { validateXPath, type XPathError } from "./xpathValidator";
+
+/**
+ * The XPath-bearing surfaces deep validation walks on a field. Each maps to
+ * a user-facing label at render time (`runner.ts::SURFACE_LABELS`). Keeping
+ * this a closed union (not a bare string) means a new surface can't be added
+ * to the walk without the runner being forced to give it a label.
+ */
+export type XPathSurface =
+	| "relevant"
+	| "validate"
+	| "calculate"
+	| "default_value"
+	| "required"
+	| "repeat_count"
+	| "ids_query";
+
+/**
+ * The Connect-block XPath slots (Connect mode only). A closed union for the
+ * same reason as `XPathSurface` — the runner owns the display label.
+ */
+export type ConnectXPathSlot =
+	| "assessment_user_score"
+	| "deliver_entity_id"
+	| "deliver_entity_name";
+
+/**
+ * The location every deep error carries — resolved DURING the walk from the
+ * uuid-indexed doc, never re-derived afterward by matching a name. Both the
+ * module/form uuids AND their display names travel together so the runner
+ * needs no second lookup.
+ */
+interface DeepLocation {
+	moduleUuid: Uuid;
+	moduleName: string;
+	formUuid: Uuid;
+	formName: string;
+}
+
+/**
+ * A single deep-validation finding, fully typed. Three shapes:
+ *   - `field-xpath` — an XPath error on a specific field surface; carries the
+ *     field's uuid + id, the `surface`, and the underlying typed `XPathError`.
+ *   - `connect-xpath` — an XPath error in a Connect-block slot.
+ *   - `cycle` — a dependency cycle among calculated fields in one form.
+ * The runner switches on `kind` and projects each into a `ValidationError`.
+ */
+export type DeepValidationError =
+	| (DeepLocation & {
+			kind: "field-xpath";
+			fieldUuid: Uuid;
+			fieldId: string;
+			surface: XPathSurface;
+			error: XPathError;
+	  })
+	| (DeepLocation & {
+			kind: "connect-xpath";
+			slot: ConnectXPathSlot;
+			error: XPathError;
+	  })
+	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
 
 /**
  * Keys on a `Field` that hold XPath expressions. Narrowed to known string
@@ -123,11 +186,14 @@ function collectFromTree(
 /**
  * Deep validation: walks every form, builds the valid path set + case
  * property set per form, validates every XPath expression, and runs cycle
- * detection via `TriggerDag`. Returns a flat array of human-readable error
- * strings — `runner.ts` parses these back into structured `ValidationError`s.
+ * detection via `TriggerDag`. Returns a flat array of TYPED
+ * `DeepValidationError`s — `runner.ts` projects each into the user-facing
+ * `ValidationError` shape by switching on `kind`, never by parsing prose.
  */
-export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
-	const errors: string[] = [];
+export function validateBlueprintDeep(
+	doc: BlueprintDoc,
+): DeepValidationError[] {
+	const errors: DeepValidationError[] = [];
 
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
@@ -137,6 +203,16 @@ export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 			const form = doc.forms[formUuid];
 			const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
 			if (tree.length === 0) continue;
+
+			// The uuid-anchored location every finding in this form carries.
+			// Built once here from the indices we're already iterating, so no
+			// downstream code re-resolves a uuid from a name.
+			const loc: DeepLocation = {
+				moduleUuid,
+				moduleName: mod.name,
+				formUuid,
+				formName: form.name,
+			};
 
 			const validPaths = collectValidPaths(doc, formUuid);
 
@@ -177,50 +253,45 @@ export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 			}
 
 			// Per-field XPath validation — recursive walk over the tree.
-			validateTreeXPath(tree, validPaths, caseProps, form.name, errors);
+			validateTreeXPath(tree, validPaths, caseProps, loc, errors);
 
 			// Connect-block XPath expressions. The expressions themselves
 			// (`user_score`, `entity_id`, `entity_name`) are id-independent, so
 			// reading them off the resolved config matches the raw doc value.
+			// Each entry carries a TYPED `ConnectXPathSlot`, not a prose label.
 			if (connect) {
-				const connectXPaths: Array<[string, string]> = [];
+				const connectXPaths: Array<[ConnectXPathSlot, string]> = [];
 				if (connect.assessment?.user_score) {
 					connectXPaths.push([
-						"Connect assessment user_score",
+						"assessment_user_score",
 						connect.assessment.user_score,
 					]);
 				}
 				if (connect.deliver_unit?.entity_id) {
 					connectXPaths.push([
-						"Connect deliver entity_id",
+						"deliver_entity_id",
 						connect.deliver_unit.entity_id,
 					]);
 				}
 				if (connect.deliver_unit?.entity_name) {
 					connectXPaths.push([
-						"Connect deliver entity_name",
+						"deliver_entity_name",
 						connect.deliver_unit.entity_name,
 					]);
 				}
-				for (const [label, expr] of connectXPaths) {
-					const xpathErrors = validateXPath(expr, validPaths, caseProps);
-					for (const err of xpathErrors) {
-						errors.push(
-							`"${form.name}" in "${mod.name}" ${label}: ${err.message}`,
-						);
+				for (const [slot, expr] of connectXPaths) {
+					for (const error of validateXPath(expr, validPaths, caseProps)) {
+						errors.push({ ...loc, kind: "connect-xpath", slot, error });
 					}
 				}
 			}
 
 			// Cycle detection runs on the engine's `FieldTreeNode` shape — the
-			// same rose tree we already built.
+			// same rose tree we already built. The cycle (a list of field ids)
+			// travels structured; the runner formats it.
 			const dag = new TriggerDag();
-			const cycles = dag.reportCycles(tree);
-			for (const cycle of cycles) {
-				const cyclePath = cycle.join(" → ");
-				errors.push(
-					`"${form.name}" in "${mod.name}" has a circular dependency: ${cyclePath}`,
-				);
+			for (const cycle of dag.reportCycles(tree)) {
+				errors.push({ ...loc, kind: "cycle", cycle });
 			}
 		}
 	}
@@ -230,26 +301,40 @@ export function validateBlueprintDeep(doc: BlueprintDoc): string[] {
 
 /**
  * Recursively validate every XPath expression on every field in the
- * provided rose tree. Errors are formatted as the human-readable strings
- * the runner's regex-driven decoder expects — any format change here must
- * be mirrored in `runner.ts`'s parser.
+ * provided rose tree, pushing a TYPED `field-xpath` `DeepValidationError`
+ * per finding — the field's uuid + id, which `surface` failed, and the
+ * underlying `XPathError` all travel structured to the runner.
  */
 function validateTreeXPath(
 	nodes: FieldTreeNode[],
 	validPaths: Set<string>,
 	caseProperties: Set<string> | undefined,
-	formName: string,
-	errors: string[],
+	loc: DeepLocation,
+	errors: DeepValidationError[],
 ): void {
+	// Small helper so every push site reads the same: the surface + the
+	// field identity are the only things that vary per call.
+	const pushFieldError = (
+		field: Field,
+		surface: XPathSurface,
+		error: XPathError,
+	): void => {
+		errors.push({
+			...loc,
+			kind: "field-xpath",
+			fieldUuid: field.uuid,
+			fieldId: field.id,
+			surface,
+			error,
+		});
+	};
+
 	for (const node of nodes) {
 		for (const key of XPATH_FIELDS) {
 			const expr = readXPath(node.field, key);
 			if (!expr) continue;
-			const xpathErrors = validateXPath(expr, validPaths, caseProperties);
-			for (const err of xpathErrors) {
-				errors.push(
-					`Field "${node.field.id}" in "${formName}": ${key} expression error — ${err.message}`,
-				);
+			for (const error of validateXPath(expr, validPaths, caseProperties)) {
+				pushFieldError(node.field, key, error);
 			}
 		}
 		// Repeat-mode XPath fields. `repeat_count` lives only on the
@@ -260,9 +345,8 @@ function validateTreeXPath(
 		// values are caught by `EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY`
 		// at the field-rule layer; the length check here skips them so
 		// the SA doesn't see double-reporting on a single empty value.
-		// Error keys stay flat (`repeat_count`, `ids_query`) so the
-		// runner's `\w+` decode regex matches; the human-friendly key →
-		// label map in `runner.ts` translates them for the user.
+		// Each pushes its own typed `XPathSurface` (`repeat_count` /
+		// `ids_query`); the runner maps that to a user-facing label.
 		if (node.field.kind === "repeat") {
 			// Both branches use `typeof === "string" && trim().length > 0`
 			// to match the empty-rule layer's defensive shape exactly:
@@ -278,41 +362,29 @@ function validateTreeXPath(
 			if (node.field.repeat_mode === "count_bound") {
 				const repeatCount = node.field.repeat_count;
 				if (typeof repeatCount === "string" && repeatCount.trim().length > 0) {
-					const xpathErrors = validateXPath(
+					for (const error of validateXPath(
 						repeatCount,
 						validPaths,
 						caseProperties,
-					);
-					for (const err of xpathErrors) {
-						errors.push(
-							`Field "${node.field.id}" in "${formName}": repeat_count expression error — ${err.message}`,
-						);
+					)) {
+						pushFieldError(node.field, "repeat_count", error);
 					}
 				}
 			} else if (node.field.repeat_mode === "query_bound") {
 				const idsQuery = node.field.data_source?.ids_query;
 				if (typeof idsQuery === "string" && idsQuery.trim().length > 0) {
-					const xpathErrors = validateXPath(
+					for (const error of validateXPath(
 						idsQuery,
 						validPaths,
 						caseProperties,
-					);
-					for (const err of xpathErrors) {
-						errors.push(
-							`Field "${node.field.id}" in "${formName}": ids_query expression error — ${err.message}`,
-						);
+					)) {
+						pushFieldError(node.field, "ids_query", error);
 					}
 				}
 			}
 		}
 		if (node.children) {
-			validateTreeXPath(
-				node.children,
-				validPaths,
-				caseProperties,
-				formName,
-				errors,
-			);
+			validateTreeXPath(node.children, validPaths, caseProperties, loc, errors);
 		}
 	}
 }

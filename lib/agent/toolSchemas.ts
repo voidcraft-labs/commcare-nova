@@ -14,11 +14,22 @@ import { generateToolSchemas } from "./toolSchemaGenerator";
 
 const generated = generateToolSchemas();
 
-/** Per-item shape inside `z.array(...)` for the `addFields` batch tool. */
+/** Per-item shape inside `z.array(...)` for the `addFields` batch tool — a
+ *  per-kind discriminated union (each arm carries only its kind's props). */
 export const addFieldsItemSchema = generated.addFieldsItemSchema;
 
-/** Whole-input shape for the single-insert `addField` tool. */
+/** Whole-input shape for the single-insert `addField` tool (per-kind union). */
 export const addFieldSchema = generated.addFieldSchema;
 
-/** Patch shape for the `editField` tool. */
+/** Patch shape for the `editField` tool (per-kind union; `kind` required as
+ *  the discriminator). */
 export const editFieldUpdatesSchema = generated.editFieldUpdatesSchema;
+
+/**
+ * Wide processing-type sources — NOT tool inputs. The per-kind union arms
+ * above are structural subsets of these, so the add-path pipeline
+ * (`FlatField`) and the edit patch mapper type against one wide shape
+ * instead of a 19-way union.
+ */
+export const wideFlatItemSchema = generated.wideFlatItemSchema;
+export const wideEditUpdatesSchema = generated.wideEditUpdatesSchema;

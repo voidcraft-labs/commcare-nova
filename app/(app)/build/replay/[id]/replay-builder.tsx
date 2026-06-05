@@ -17,9 +17,21 @@ interface ReplayBuilderProps {
 	events: Event[];
 	/** Path to navigate to when the user exits replay mode. */
 	exitPath: string;
+	/**
+	 * How many events were dropped for failing schema validation before this
+	 * stream reached us. > 0 means the replay is reconstructed from a PARTIAL
+	 * log — mutations apply in order, so a dropped one can land a state that
+	 * never existed — so we surface a warning rather than letting the gap pass
+	 * silently as a faithful replay.
+	 */
+	skippedEventCount?: number;
 }
 
-export function ReplayBuilder({ events, exitPath }: ReplayBuilderProps) {
+export function ReplayBuilder({
+	events,
+	exitPath,
+	skippedEventCount = 0,
+}: ReplayBuilderProps) {
 	/* Derive chapters once — throws on empty log, caught by the error
 	 * boundary. The server page already filters out empty logs before
 	 * mounting us, so this guard is a last-resort invariant check. */
@@ -40,8 +52,21 @@ export function ReplayBuilder({ events, exitPath }: ReplayBuilderProps) {
 	});
 
 	return (
-		<BuilderProvider buildId="replay" replay={replay}>
-			<BuilderLayout />
-		</BuilderProvider>
+		<>
+			{skippedEventCount > 0 && (
+				<div
+					role="alert"
+					className="fixed inset-x-0 top-0 z-modal border-nova-amber/30 border-b bg-nova-amber/15 px-4 py-2 text-center text-nova-amber text-sm"
+				>
+					{skippedEventCount} event
+					{skippedEventCount === 1 ? "" : "s"} couldn't be read and{" "}
+					{skippedEventCount === 1 ? "was" : "were"} skipped — this replay is
+					reconstructed from a partial log and may be incomplete.
+				</div>
+			)}
+			<BuilderProvider buildId="replay" replay={replay}>
+				<BuilderLayout />
+			</BuilderProvider>
+		</>
 	);
 }

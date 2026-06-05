@@ -1,7 +1,8 @@
 // lib/domain/fields/decimal.ts
 //
-// Decimal-number field for fractional measurements. Supports XPath
-// validation + calculation. Maps to CommCare <input> control with
+// Decimal-number field for fractional measurements. Supports XPath validation
+// and a `default_value` seed (a computed value belongs on a `hidden` field,
+// not a `calculate` on this visible control). Maps to CommCare <input> with
 // xsd:decimal type. Suitable for weight, height, price, GPS coordinates.
 
 import tablerDecimal from "@iconify-icons/tabler/decimal";
@@ -14,7 +15,6 @@ export const decimalFieldSchema = inputFieldBaseSchema.extend({
 	validate: z.string().optional(),
 	validate_msg: z.string().optional(),
 	validate_msg_media: mediaSchema.optional(),
-	calculate: z.string().optional(),
 	default_value: z.string().optional(),
 });
 
