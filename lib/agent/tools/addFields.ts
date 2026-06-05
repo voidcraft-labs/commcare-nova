@@ -1,11 +1,9 @@
 /**
  * SA tool: `addFields` — bulk-add fields to an existing form.
  *
- * The SA emits a flat list of fields — `id` / `kind` / `label` required,
- * everything else (including `parentId` and `required`) optional and
- * simply omitted when unset (see `toolSchemaGenerator.ts` for why the
- * old required-with-sentinel form was dropped). This tool runs them
- * through the three-step pipeline in `contentProcessing.ts` —
+ * The SA emits a list of fields, each a per-kind union arm (the kind picks
+ * which properties exist — see `toolSchemaGenerator.ts`). This tool runs
+ * each through the three-step pipeline in `contentProcessing.ts` —
  * `stripEmpty` → `applyDefaults` → `flatFieldToField` — mints uuids,
  * resolves semantic parent ids (including parents added earlier in the
  * same batch), and emits one mutation batch tagged `form:M-F`.
@@ -96,7 +94,7 @@ export const addFieldsTool = {
 			// lookup.
 			const mintedByBareId = new Map<string, Uuid>();
 			const mutations: Mutation[] = [];
-			const skippedIds: string[] = [];
+			const skipped: Array<{ id: string; reason: string }> = [];
 
 			for (const raw of fields) {
 				// `raw` is a per-kind union arm (the tool input is a
@@ -129,19 +127,17 @@ export const addFieldsTool = {
 				}
 
 				const fieldUuid = asUuid(crypto.randomUUID());
-				const field = flatFieldToField(processed, fieldUuid);
-				if (!field) {
-					// The flat payload didn't assemble into a valid Field for its
-					// declared kind — e.g. a text field without label, or a
-					// multi_select without options. `flatFieldToField` logged the
-					// specific schema issues; surface a generic failure to the SA
-					// so it can diagnose via `validateApp` or retry. `raw.id` is
-					// the Zod-parsed original (always a string before
-					// `stripEmpty` might drop an empty sentinel), so no fallback
-					// is needed.
-					skippedIds.push(raw.id);
+				const assembled = flatFieldToField(processed, fieldUuid);
+				if (!assembled.ok) {
+					// The payload didn't assemble into a valid Field for its kind.
+					// Carry the specific reason into the skip note (below) so the
+					// SA sees WHY each field was skipped, not just that it was.
+					// `raw.id` is the Zod-parsed original (always a string), so no
+					// fallback is needed.
+					skipped.push({ id: raw.id, reason: assembled.reason });
 					continue;
 				}
+				const field = assembled.field;
 				mintedByBareId.set(field.id, fieldUuid);
 				mutations.push({ kind: "addField", parentUuid, field });
 			}
@@ -170,8 +166,10 @@ export const addFieldsTool = {
 				.map((m) => m.field.id)
 				.join(", ");
 			const skippedNote =
-				skippedIds.length > 0
-					? ` Skipped ${skippedIds.length} invalid field(s): ${skippedIds.join(", ")}.`
+				skipped.length > 0
+					? ` Skipped ${skipped.length} field(s): ${skipped
+							.map((s) => `${s.id} (${s.reason})`)
+							.join("; ")}.`
 					: "";
 			return {
 				kind: "mutate" as const,

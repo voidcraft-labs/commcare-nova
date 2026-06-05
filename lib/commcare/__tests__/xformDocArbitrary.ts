@@ -177,6 +177,11 @@ const DEFAULT_VALUE_BY_KIND: Record<string, string> = {
 	datetime: "now()",
 	single_select: "'a'",
 	multi_select: "'a'",
+	// barcode serializes as xsd:string (a scanned default the device can
+	// overwrite); geopoint takes a "lat lon alt accuracy" string. Both lower
+	// to a `<setvalue>` like the others — covering their setvalue path.
+	barcode: "'CODE-123'",
+	geopoint: "'0 0 0 0'",
 };
 
 /**

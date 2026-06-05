@@ -180,7 +180,7 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update properties on an existing field. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
+		"Update properties on an existing field. Pass the field's current kind to edit it in place — that selects the set of properties this kind actually has; passing a different kind requests a conversion to that kind. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
@@ -355,9 +355,9 @@ export const editFieldTool = {
 			const postField = workingDoc.fields[afterRename.field.uuid];
 			// `kind` is always present (it's the edit union's discriminator), so
 			// only list it as a change when it was an actual conversion.
-			const changedFields = Object.keys(updates)
-				.filter((k) => k !== "kind" || newKind !== resolved.field.kind)
-				.join(", ");
+			const changedKeys = Object.keys(updates).filter(
+				(k) => k !== "kind" || newKind !== resolved.field.kind,
+			);
 			const renameNote =
 				newId && newId !== fieldId ? ` (renamed from "${fieldId}")` : "";
 			// `afterRename` already carries the form's uuid — read the display
@@ -368,11 +368,18 @@ export const editFieldTool = {
 				`m${moduleIndex}-f${formIndex}`;
 			const label = postField && "label" in postField ? postField.label : "";
 			const kind = postField?.kind ?? "unknown";
+			// Report honestly when the call carried only the `kind` discriminator
+			// and no rename — nothing actually changed, so don't claim a change
+			// list ("Changed: .") the SA would read as a successful edit.
+			const changeNote =
+				changedKeys.length > 0
+					? `Changed: ${changedKeys.join(", ")}.`
+					: "No property values changed.";
 			return {
 				kind: "mutate" as const,
 				mutations: allMutations,
 				newDoc: workingDoc,
-				result: `Successfully updated "${finalId}"${renameNote} in "${formName}". Changed: ${changedFields}. Current label: "${label}", kind: ${kind}.`,
+				result: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.`,
 			};
 		} catch (err) {
 			return {

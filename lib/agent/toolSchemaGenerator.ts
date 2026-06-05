@@ -1,33 +1,35 @@
-// Generates the SA's field-mutation tool input schemas directly from the
-// domain's `fieldRegistry` + per-kind Zod schemas.
+// Generates the SA's field-mutation tool inputs directly from the domain's
+// `fieldRegistry` + per-kind Zod schemas.
 //
-// Three tools share this shape: addFields (batch), addField (single),
-// editField (patch). Each takes the same per-field property set — the
-// difference is wrapping (array vs object), optionality, and whether null
-// is accepted as "clear this property" (patch only).
+// ## Per-kind discriminated unions
 //
-// ## Why `parentId`/`required` are optional but `label` is required
+// All three tools (addFields batch, addField single, editField patch) take a
+// `discriminatedUnion("kind", …)`: an arm exposes ONLY the properties that
+// kind's domain schema declares (gated by `fieldKindDeclaresKey`) and is
+// `.strict()`. So a property the kind doesn't have — `calculate` on a
+// `single_select`, `options` on a `hidden` — isn't a slot on the arm, and an
+// explicit attempt is rejected at the tool boundary rather than silently
+// dropped or assembled into a broken field. This is the structural reason the
+// "wrong property for this kind" error class can't be expressed.
 //
-// Anthropic's GRAMMAR-CONSTRAINED decoding (the `Output.object` /
-// structured-output path) times out compiling array-item schemas with
-// more than ~8 optional fields on opus-4-7 and earlier ("Grammar
-// compilation timed out"); opus-4-8 raises that to at least 11. But these
-// three tools run as plain `tool_use`, never `Output.object` — and plain
-// tool use is NOT grammar-constrained, so there is no compilation step and
-// no such ceiling (opus-4-7 accepts 10 optionals in this shape in ~4s).
-// The earlier required-with-sentinel pattern was inherited from the
-// structured-output test path and never actually bound the production tool
-// surface, so `parentId` and `required` are plain optionals: the SA omits
-// them freely instead of eating a tool-input rejection + wasted retry when
-// it forgets to pass the sentinel.
+// Tool use is NOT grammar-constrained (that's `Output.object` only), so there
+// is no per-array-item optional-field compile ceiling here — the arms carry
+// as many optionals as the kind declares.
 //
-// `label` STAYS required-with-sentinel — as a conscious-choice guard, not
-// a compiler-budget hack: its valid-emptiness is kind-dependent (visible
-// kinds require a non-empty label; `hidden` / transparent `group` /
-// titleless `repeat` use ""), so forcing the SA to always supply a value
-// keeps that decision explicit. `contentProcessing.stripEmpty()` collapses
-// the "" sentinel — and any omitted optional — to `undefined` before the
-// mutation mapper builds a `Field`.
+// ## Per-kind label policy
+//
+// On the ADD arms `label` is per kind: omitted on `hidden` (no label slot),
+// optional on the containers (`group` / `repeat` — empty = transparent /
+// titleless), and required + non-empty (`min(1)`) on every visible kind. The
+// per-kind arm is what lets us require a real label without the old `""`
+// sentinel. (`required` and `parentId`, where declared, stay plain optionals
+// the SA omits when unset.)
+//
+// The WIDE processing-type sources below — `wideFlatItemSchema` /
+// `wideEditUpdatesSchema`, used only to infer `FlatField` / the edit-patch
+// type, never as a tool input — DO keep a required-with-sentinel `label`
+// (`labelSentinel()`); `contentProcessing.stripEmpty()` collapses that `""`
+// to absent. That sentinel lives on the wide type alone, not on any arm.
 //
 // ## Vocabulary
 //
@@ -40,11 +42,11 @@
 //
 // ## Per-kind docs
 //
-// The `kind` enum's description is composed from each kind's `saDocs`
-// (in `fieldRegistry[kind].saDocs`) so the SA reads a concise per-kind
-// summary instead of a single-line umbrella. Adding a new kind to
-// `fieldKinds` therefore propagates through the generator automatically
-// — no generator edits, no re-hand-rolling of documentation strings.
+// Each arm's `kind` literal carries that kind's `saDocs` (from
+// `fieldRegistry[kind].saDocs`) as its description, so the SA reads a concise
+// per-kind summary on the discriminant it's choosing. Adding a new kind to
+// `fieldKinds` therefore propagates through the generator automatically — no
+// generator edits, no re-hand-rolling of documentation strings.
 
 import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
