@@ -23,13 +23,17 @@ A Firestore transaction in `reserveCredits` debits credits up front (read-check-
 ## Client vs server split
 
 - `creditPolicy.ts` — **client-safe**: pure constants + rules (`chargeAmount`, `isChargeableTurn`, `creditBalance`), every import `import type` so no Firestore enters a bundle. Imported by the chat gate, the `ChatInput` send-button cost chip, and `AccountMenu`. Dropping a `type` keyword would drag `@google-cloud/firestore` client-side — keep every import type-only.
-- `credits.ts` — the **server** ledger: `reserveCredits` / `refundCredits` / `resetCredits` / `grantCredits` / `getCreditSummary` / `getCurrentCreditBalance`, all Firestore transactions.
+- `credits.ts` — the **server** ledger: `reserveCredits` / `refundReservation` / `resetCredits` / `grantCredits` / `getCreditSummary` / `getCurrentCreditBalance`, all Firestore transactions.
 
 The reservation/refund/reset/grant transactions read through `docs.creditMonthRaw` (the converter-less ref), not the converter ref: a `withConverter` `tx.get()` routes the snapshot through `schema.parse`, which throws inside the transaction on a partially-seeded doc. They read raw, supply the missing-doc defaults in code, and merge back. Settled non-transactional reads (`getCreditSummary`, `getCurrentCreditBalance`) use the converter ref — a settled doc is always complete.
 
-## Gate abort-finalization invariant
+## Finalization invariant — run-completion, not the request
 
-In `/api/chat`, the execute `finally`'s `usage.flush()` is the **sole authoritative** charge-vs-refund decision. The client-disconnect listener flushes only the log writer, **never the accumulator** — at disconnect the accumulator holds a mid-flight snapshot, so flushing it there would refund against a `costEstimate` of 0 and then latch `_finalized`, finalizing a run that kept accruing cost as a refunded, cost-invisible build. `handleRouteError` short-circuits on `req.signal.aborted`: a disconnect is not a generation failure, so it must not mark the run failed, flip the app to `error`, or refund-toast. The `finally` flush decides purely on the true final `costEstimate` (0 steps → refund; ≥1 step → keep the charge).
+In `/api/chat`, finalization (the charge-vs-refund credit decision + run summary + actual-$ accrual) runs **once, on the run's true terminal state**, server-side, via the route's `finalizeRun()`. It is driven by the agent drain COMPLETING (`consumeStream()` advancing the tool loop to its terminal state), NOT by the browser connection: a closed tab neither cancels the run (no `req.signal` is forwarded into the agent anymore) nor finalizes it. The drain reaching its end is what keys the flush, so a zero-step model error — which fires no agent callback at all — still finalizes and the request can't hang.
+
+A failure (a fatal `{type:"error"}` stream chunk, or an init throw) funnels through `failRun()` → `markRunFailed()` + `flush()` (refund; actual-$ still accrues so the `$50` backstop sees retry-spam) and only THEN `failApp()` — and only if the refund actually committed. A stranded refund leaves a failed build `generating` so the **reaper** retries it, mirroring `reapStaleGenerating`'s refund-before-flip discipline. A non-fatal `tool-error` chunk is NOT a run failure (the SA loop recovers from it); the route keys failure on the fatal chunk type, not on any `onError` firing.
+
+The one terminal state no in-process callback can reach — a hard process kill — is settled by the stale-`generating` reaper (`reapStaleGenerating`), which refunds the stranded build reservation off the durable `reservation` marker on the app doc. Edits stay `complete` (never `generating`), so a hard-killed edit's 5-credit hold is an accepted residual.
 
 ## Period leaf
 

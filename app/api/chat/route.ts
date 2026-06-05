@@ -37,6 +37,7 @@ import { log } from "@/lib/logger";
 import { SA_MODEL } from "@/lib/models";
 import { creditGateDecision } from "./creditGate";
 import { CACHE_TTL_MS, chatRequestSchema } from "./schema";
+import { isFatalStreamErrorChunk } from "./streamFailure";
 
 /* Advisory only. The real per-request ceiling is the Cloud Run service's
  * `timeoutSeconds` (3600s); on the Next `standalone` server this export is a
@@ -410,24 +411,30 @@ export async function POST(req: Request) {
 			 * Driven by the agent drain completing (below), NOT by an SDK callback: a
 			 * model error surfaces as a UIMessage error chunk rather than a thrown
 			 * rejection, and a zero-step error fires no agent callback at all, so
-			 * keying finalize on the drain is what guarantees it runs — and the
-			 * request never hangs waiting on a callback that never fires. A failed run
-			 * marks itself failed and fails the app BEFORE flushing, so `flush()` hands
-			 * the reservation back (actual $ still accrues — the backstop must see
-			 * retry-spam). Idempotent via this guard and the accumulator's own
-			 * `_finalized` latch.
+			 * keying finalize on the drain is what guarantees it runs (and the request
+			 * never hangs waiting on a callback that never fires). A failed run marks
+			 * itself failed and FLUSHES (handing the reservation back; actual $ still
+			 * accrues so the backstop sees retry-spam), and only THEN flips the app to
+			 * `error` — and only if the refund actually committed, so a stranded refund
+			 * leaves the build `generating` for the reaper to retry. Idempotent via this
+			 * guard and the accumulator's own `_finalized` latch.
 			 */
 			const finalizeRun = async (failure?: {
 				type: ErrorType;
 			}): Promise<void> => {
 				if (finalized) return;
 				finalized = true;
-				if (failure) {
-					usage.markRunFailed();
-					failApp(appId, failure.type);
-				}
+				if (failure) usage.markRunFailed();
+				/* Flush (which runs the refund) BEFORE the status flip, so a stranded
+				 * refund leaves a failed BUILD reapable: the reaper only revisits
+				 * `generating` rows, so flipping to `error` on a refund that did not
+				 * commit would close the only window to retry it (mirroring
+				 * `reapStaleGenerating`'s refund-before-flip discipline). */
 				await usage.flush();
 				await logWriter.flush();
+				if (failure && !usage.refundFailed()) {
+					failApp(appId, failure.type);
+				}
 			};
 
 			/**
@@ -573,22 +580,32 @@ export async function POST(req: Request) {
 				 * not as a thrown drain. */
 				const drained = Promise.resolve(result.consumeStream()).catch(() => {});
 
-				/* Forward model chunks to the client AND detect failure in one pass. The
-				 * SDK delivers a model error as a `{ type: "error" }` chunk (captured by
-				 * `onError`), never a throw — so this callback is the only reliable
-				 * failure signal. Nova surfaces the error through `ctx.emitError` (a
-				 * conversation event), so the raw error chunk is dropped here. A
-				 * `writer.write` throw means the client is gone — stop forwarding
-				 * (releasing the tee branch) but let the drain finish server-side. */
-				let streamError: unknown;
+				/* Forward model chunks to the client AND detect a FATAL run failure in
+				 * one pass. A model/stream error arrives as a `{ type: "error" }` chunk
+				 * (never a throw), so the failure signal is THAT chunk, not merely
+				 * `onError` firing. `onError` also fires for `tool-input-error` /
+				 * `tool-output-error` chunks (a bad tool call, or a tool `execute()` throw)
+				 * that the SA loop recovers from and the run completes past, so keying
+				 * failure on any `onError` would wrongly fail a successful run (see
+				 * `isFatalStreamErrorChunk`). We stash the latest `onError` value, then
+				 * commit it as the fatal error only when the terminal `"error"` chunk
+				 * arrives. Nova surfaces the error via `ctx.emitError`, so the raw fatal
+				 * chunk is dropped; tool-error chunks forward like any other. A failing
+				 * `writer.write` means the client is gone, so stop forwarding (releasing
+				 * the tee branch) but let the drain finish server-side. */
+				let pendingError: unknown;
+				let sawFatalError = false;
 				for await (const chunk of result.toUIMessageStream({
 					originalMessages: validated,
 					onError: (error) => {
-						streamError = error;
+						pendingError = error;
 						return error instanceof Error ? error.message : String(error);
 					},
 				})) {
-					if (chunk.type === "error") continue;
+					if (isFatalStreamErrorChunk(chunk.type)) {
+						sawFatalError = true;
+						continue;
+					}
 					try {
 						writer.write(chunk);
 					} catch {
@@ -600,8 +617,12 @@ export async function POST(req: Request) {
 				 * state even if forwarding broke off early when the client left. */
 				await drained;
 
-				if (streamError !== undefined) {
-					await failRun(streamError, "route:stream");
+				if (sawFatalError) {
+					await failRun(
+						pendingError ??
+							new Error("The generation stream ended in an error."),
+						"route:stream",
+					);
 				}
 			} catch (error) {
 				/* Init/build error around the stream setup (a bad message shape, an

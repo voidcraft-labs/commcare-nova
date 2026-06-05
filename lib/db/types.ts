@@ -264,10 +264,12 @@ export const appDocSchema = z.object({
 	 *
 	 * Written ATOMICALLY with the credit debit when a chargeable turn reserves
 	 * (same `reserveCredits` transaction), so a committed charge always carries
-	 * the marker its refund needs. `settled` flips true the instant the
-	 * reservation reaches a terminal credit decision — handed back by the live
-	 * finalize path or by the reaper. A stale `generating` app with an UNSETTLED
-	 * marker is a build the process never finished (hard kill / OOM / scale-in);
+	 * the marker its refund needs. `settled` means the hold was REFUNDED (handed
+	 * back) — set by the live finalize path or by the reaper. A KEPT charge (a
+	 * successful or otherwise-paid run) intentionally leaves the marker unsettled;
+	 * that is harmless because the reaper only ever reaps `generating` rows, never a
+	 * `complete` charged app. So a stale `generating` app with an UNSETTLED marker
+	 * is a build the process never finished (hard kill / OOM / scale-in);
 	 * `reapStaleGenerating` refunds the stranded hold. `reserved` is the exact
 	 * amount to return; `period` is the month the hold actually hit (the reaper
 	 * refunds that month, not whatever month it happens to run in).

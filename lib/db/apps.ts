@@ -453,6 +453,12 @@ export function failApp(appId: string, errorType: ErrorType): void {
  * reserved) reaps to `error` with no refund — `refundReservation` no-ops on the
  * absent marker. Fire-and-forget at the call sites, like `failApp`: a transient
  * failure self-heals on the next scan.
+ *
+ * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only
+ * `createApp` writes (a new build). A chargeable EDIT reserves credits but keeps
+ * its app `complete`, so a hard-killed edit's 5-credit hold is never reaped — an
+ * accepted residual (small and rare). Builds are the high-value case (100
+ * credits) this reaper exists for.
  */
 export async function reapStaleGenerating(appId: string): Promise<void> {
 	try {

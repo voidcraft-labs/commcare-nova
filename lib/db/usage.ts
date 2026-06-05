@@ -210,6 +210,13 @@ export class UsageAccumulator {
 	 * accrues its actual $ cost (the $50 backstop must see retry spam) but hands
 	 * the reserved credits back — the user isn't charged for a broken result. */
 	private _runFailed = false;
+	/* Set true iff a credit refund was owed this run AND its (cross-document)
+	 * transaction did NOT commit. The route reads this after `flush()` to decide
+	 * whether it's safe to flip a failed build to `error`: a stranded refund must
+	 * leave the row reapable so the reaper retries it, never flip it to a status
+	 * the reaper skips. Also keeps the `[run-finalize]` log's `refunded` honest
+	 * (the outcome, not just the intent). */
+	private _refundFailed = false;
 
 	constructor(seed: AccumulatorSeed) {
 		this.seed = { ...seed };
@@ -247,6 +254,16 @@ export class UsageAccumulator {
 	 */
 	markRunFailed(): void {
 		this._runFailed = true;
+	}
+
+	/**
+	 * Whether a credit refund was owed this run but its transaction did not
+	 * commit. Meaningful only after `flush()`. The route reads it to keep a
+	 * stranded refund's app row reapable (it must NOT flip to a status the reaper
+	 * skips) — mirroring `reapStaleGenerating`'s refund-before-flip discipline.
+	 */
+	refundFailed(): boolean {
+		return this._refundFailed;
 	}
 
 	/**
@@ -385,6 +402,10 @@ export class UsageAccumulator {
 				// this live flush already returned.
 				await refundReservation(this.seed.appId);
 			} catch (err) {
+				/* The refund was owed but its transaction did not commit. Record it so
+				 * the route leaves the row reapable (rather than flipping to a status the
+				 * reaper skips) and the finalize log reports the true outcome. */
+				this._refundFailed = true;
 				log.error("[UsageAccumulator] credit refund failed", err, {
 					userId: this.seed.userId,
 				});
@@ -416,8 +437,13 @@ export class UsageAccumulator {
 			summaryAction,
 			didReserve: this.seed.didReserve ?? false,
 			reservedAmount: this.seed.reservedAmount ?? 0,
-			refunded: refundReason !== null,
+			/* `refunded` is the OUTCOME (the refund actually committed), not the
+			 * intent — a refund that was owed (`refundReason`) but whose transaction
+			 * threw logs `refunded: false` + `refundFailed: true`, so the cost
+			 * investigation can't be misled into thinking credits were handed back. */
+			refunded: refundReason !== null && !this._refundFailed,
 			refundReason,
+			refundFailed: this._refundFailed,
 			accruedActual: summary.costEstimate > 0,
 			sentMessageCount: this.seed.sentMessageCount,
 			sentMessageChars: this.seed.sentMessageChars,
