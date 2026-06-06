@@ -20,6 +20,7 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
+import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerTrash from "@iconify-icons/tabler/trash";
@@ -42,7 +43,6 @@ import {
 	type AssetPreviewTarget,
 } from "./AssetPreviewDialog";
 import { ASSET_KIND_META } from "./assetKindMeta";
-import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
 import { ExtractionStatusBadge } from "./ExtractionStatusBadge";
 import { deleteMediaAsset, type MediaAssetView, mediaSrc } from "./mediaClient";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
@@ -178,14 +178,9 @@ function PickerBody({
 	return (
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
-				<div className="flex items-center gap-1.5">
-					<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-						{title}
-					</Dialog.Title>
-					{/* Documents are read into an extract the assistant uses — explain
-					 *  that here, where they're uploaded, not just on the chip later. */}
-					{kinds.some(isDocumentKind) && <ExtractionInfoPopover />}
-				</div>
+				<Dialog.Title className="text-base font-display font-semibold text-nova-text">
+					{title}
+				</Dialog.Title>
 				<Dialog.Close
 					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 					aria-label="Close"
@@ -355,74 +350,96 @@ function UploadTab({
 	};
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: drop zone wraps a real file input + button for keyboard/AT access
-		<div
-			onDragOver={(e) => {
-				e.preventDefault();
-				setDragging(true);
-			}}
-			onDragLeave={() => setDragging(false)}
-			onDrop={(e) => {
-				e.preventDefault();
-				setDragging(false);
-				void handleFile(e.dataTransfer.files[0]);
-			}}
-			className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors ${
-				dragging
-					? "border-nova-violet bg-nova-violet/[0.06]"
-					: "border-nova-border"
-			}`}
-		>
-			<Icon icon={tablerCloudUpload} className="size-8 text-nova-text-muted" />
-			<p className="text-sm text-nova-text-muted">Drag {nounPhrase} here, or</p>
-			<button
-				type="button"
-				onClick={() => inputRef.current?.click()}
-				disabled={status.state === "uploading"}
-				className="rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+		<div className="flex flex-col gap-3">
+			{/* PHI guardrail — documents are read by AI and their extract is stored,
+			 *  so real patient data must not ride along. Shown only where documents
+			 *  are accepted (the chat file manager), not on media-only carriers. */}
+			{kinds.some(isDocumentKind) && (
+				<p className="flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
+					<Icon
+						icon={tablerAlertTriangle}
+						className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
+					/>
+					<span>
+						Don't upload real patient data (PHI). Use sample or de-identified
+						documents — Nova reads them with AI and stores the extract.
+					</span>
+				</p>
+			)}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: drop zone wraps a real file input + button for keyboard/AT access */}
+			<div
+				onDragOver={(e) => {
+					e.preventDefault();
+					setDragging(true);
+				}}
+				onDragLeave={() => setDragging(false)}
+				onDrop={(e) => {
+					e.preventDefault();
+					setDragging(false);
+					void handleFile(e.dataTransfer.files[0]);
+				}}
+				className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors ${
+					dragging
+						? "border-nova-violet bg-nova-violet/[0.06]"
+						: "border-nova-border"
+				}`}
 			>
-				{status.state === "uploading" ? "Uploading…" : "Browse files"}
-			</button>
-			<input
-				ref={inputRef}
-				type="file"
-				accept={accept}
-				autoComplete="off"
-				data-1p-ignore
-				className="hidden"
-				onChange={(e) => void handleFile(e.target.files?.[0])}
-			/>
-			{/* Spell out exactly what this slot takes — one row per allowed
+				<Icon
+					icon={tablerCloudUpload}
+					className="size-8 text-nova-text-muted"
+				/>
+				<p className="text-sm text-nova-text-muted">
+					Drag {nounPhrase} here, or
+				</p>
+				<button
+					type="button"
+					onClick={() => inputRef.current?.click()}
+					disabled={status.state === "uploading"}
+					className="rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+				>
+					{status.state === "uploading" ? "Uploading…" : "Browse files"}
+				</button>
+				<input
+					ref={inputRef}
+					type="file"
+					accept={accept}
+					autoComplete="off"
+					data-1p-ignore
+					className="hidden"
+					onChange={(e) => void handleFile(e.target.files?.[0])}
+				/>
+				{/* Spell out exactly what this slot takes — one row per allowed
 			    kind with its extensions — so the user knows before they
 			    browse, not after a rejection. This is the only set the slot
 			    accepts; anything else is filtered out here and in the
 			    library. */}
-			<div className="flex flex-col gap-1 pt-1">
-				<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted/70">
-					{kinds.length === 1 ? "Supported format" : "Supported formats"}
-				</span>
-				{kinds.map((kind) => {
-					const meta = ASSET_KIND_META[kind];
-					return (
-						<div
-							key={kind}
-							className="flex items-center justify-center gap-1.5 text-xs"
-						>
-							<Icon
-								icon={meta.icon}
-								className="size-3.5 shrink-0 text-nova-text-muted"
-							/>
-							<span className="text-nova-text-secondary">{meta.label}</span>
-							<span className="text-nova-text-muted">{meta.extLabel}</span>
-						</div>
-					);
-				})}
+				<div className="flex flex-col gap-1 pt-1">
+					<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted/70">
+						{kinds.length === 1 ? "Supported format" : "Supported formats"}
+					</span>
+					{kinds.map((kind) => {
+						const meta = ASSET_KIND_META[kind];
+						return (
+							<div
+								key={kind}
+								className="flex items-center justify-center gap-1.5 text-xs"
+							>
+								<Icon
+									icon={meta.icon}
+									className="size-3.5 shrink-0 text-nova-text-muted"
+								/>
+								<span className="text-nova-text-secondary">{meta.label}</span>
+								<span className="text-nova-text-muted">{meta.extLabel}</span>
+							</div>
+						);
+					})}
+				</div>
+				{(kindError ?? (status.state === "error" ? status.message : null)) && (
+					<p className="text-xs text-nova-rose">
+						{kindError ?? (status.state === "error" ? status.message : "")}
+					</p>
+				)}
 			</div>
-			{(kindError ?? (status.state === "error" ? status.message : null)) && (
-				<p className="text-xs text-nova-rose">
-					{kindError ?? (status.state === "error" ? status.message : "")}
-				</p>
-			)}
 		</div>
 	);
 }

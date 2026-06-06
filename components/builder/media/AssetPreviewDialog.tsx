@@ -35,6 +35,7 @@ import {
 } from "@/components/shadcn/tooltip";
 import { type AssetKind, isDocumentKind } from "@/lib/domain/multimedia";
 import { ASSET_KIND_META } from "./assetKindMeta";
+import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
 import { fetchAssetExtract, mediaSrc } from "./mediaClient";
 
 /**
@@ -141,6 +142,12 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					<TabsList variant="line" className="mb-3">
 						<TabsTrigger value="document">Document</TabsTrigger>
 						<TabsTrigger value="extract">What the AI reads</TabsTrigger>
+						{/* The "what the assistant reads" explainer sits beside the tab
+						 *  it describes, not in the picker header — it's about the
+						 *  extract, which is what this tab shows. */}
+						<span className="ml-1 flex items-center">
+							<ExtractionInfoPopover />
+						</span>
 					</TabsList>
 					<TabsContent value="document" className="min-h-0 overflow-auto">
 						<DocumentView target={target} />

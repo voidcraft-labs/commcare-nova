@@ -41,7 +41,7 @@ export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
 					}
 				/>
 				<TooltipContent>
-					Reading this document into the extract the assistant uses
+					Reading this into the assistant's extract…
 				</TooltipContent>
 			</Tooltip>
 		);
@@ -64,9 +64,7 @@ export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
 						/>
 					}
 				/>
-				<TooltipContent>
-					Couldn't read this document — click to try again
-				</TooltipContent>
+				<TooltipContent>Couldn't read this — click to retry</TooltipContent>
 			</Tooltip>
 		);
 	}
@@ -82,9 +80,7 @@ export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
 					</Badge>
 				}
 			/>
-			<TooltipContent>
-				The assistant has read this document into its extract
-			</TooltipContent>
+			<TooltipContent>Read into the assistant's extract</TooltipContent>
 		</Tooltip>
 	);
 }
