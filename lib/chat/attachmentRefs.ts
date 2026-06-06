@@ -22,15 +22,21 @@ import { ASSET_KINDS, DOCUMENT_KINDS } from "@/lib/domain/multimedia";
  * A reference to one attached asset. `assetId` is the durable pointer (the
  * bytes live at `/api/media/{assetId}`, the extract at
  * `/api/media/{assetId}/extract`); `kind` drives how the server resolves it and
- * how the chip renders; `filename` + `mimeType` are display/labeling only. No
- * URL is stored — it's derived from `assetId`, so the ref can't drift from the
- * route layout.
+ * how the chip renders; `filename` + `mimeType` + `title` + `summary` are
+ * display-only. No URL is stored — it's derived from `assetId`, so the ref can't
+ * drift from the route layout.
  */
 export const attachmentRefSchema = z.object({
 	assetId: z.string().min(1),
 	kind: z.enum(ASSET_KINDS),
 	filename: z.string().min(1),
 	mimeType: z.string().min(1),
+	/** A document's extracted title/summary, snapshotted at attach time so the
+	 *  transcript chip's preview header has them the instant it opens — no fetch.
+	 *  Display-only (the server re-derives what it needs from `assetId`); absent
+	 *  for media and for a document not yet extracted when it was attached. */
+	title: z.string().optional(),
+	summary: z.string().optional(),
 });
 export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
 

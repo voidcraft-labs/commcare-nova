@@ -1,7 +1,7 @@
 // components/builder/media/ExtractionStatusBadge.tsx
 //
 // The feature-extraction indicator shown on a document in the file manager and
-// the composer: "Reading…" while the extract is being produced, "AI-ready" once
+// the composer: "Reading…" while the extract is being produced, "Extracted" once
 // the assistant can read it, "Couldn't read" (with retry) on failure. Nothing
 // for a non-document (images reach the model directly). This is the surface that
 // answers "is feature extraction happening?" — so a user understands the
@@ -59,7 +59,7 @@ export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
 			title="The assistant has read this document into its extract"
 		>
 			<Icon icon={tablerSparkles} />
-			AI-ready
+			Extracted
 		</Badge>
 	);
 }

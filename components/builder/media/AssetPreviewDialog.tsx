@@ -43,6 +43,12 @@ export interface AssetPreviewTarget {
 	id: string;
 	kind: AssetKind;
 	filename: string;
+	/** A document's AI-extracted title + summary, shown in the preview header so
+	 *  they're present the instant the dialog opens — carried in-band by the
+	 *  caller (the composer's asset view, the message ref), never re-fetched.
+	 *  Absent for media kinds and documents not yet extracted. */
+	title?: string;
+	summary?: string;
 }
 
 const BACKDROP_CLS =
@@ -80,16 +86,35 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 
 	return (
 		<>
-			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
-				<Dialog.Title className="flex min-w-0 items-center gap-2 text-base font-display font-semibold text-nova-text">
-					<Icon
-						icon={ASSET_KIND_META[target.kind].icon}
-						className="size-4 shrink-0 text-nova-text-muted"
-					/>
-					<span className="truncate">{name}</span>
-				</Dialog.Title>
+			<header className="flex items-start justify-between gap-3 border-b border-nova-border px-4 py-3">
+				<div className="flex min-w-0 flex-col gap-0.5">
+					{/* The human title leads (the meaningful name); the raw filename
+					 *  drops to a small subline aligned under it. Without an extracted
+					 *  title (media, or a not-yet-extracted doc) the filename IS the
+					 *  title, and the subline is omitted so nothing repeats. */}
+					<Dialog.Title className="flex min-w-0 items-center gap-2 text-base font-display font-semibold text-nova-text">
+						<Icon
+							icon={ASSET_KIND_META[target.kind].icon}
+							className="size-4 shrink-0 text-nova-text-muted"
+						/>
+						<span className="truncate">{target.title ?? name}</span>
+					</Dialog.Title>
+					{target.title && (
+						<p
+							className="truncate pl-6 text-xs text-nova-text-muted"
+							title={name}
+						>
+							{name}
+						</p>
+					)}
+					{target.summary && (
+						<p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-nova-text-secondary">
+							{target.summary}
+						</p>
+					)}
+				</div>
 				<Dialog.Close
-					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+					className="shrink-0 rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />

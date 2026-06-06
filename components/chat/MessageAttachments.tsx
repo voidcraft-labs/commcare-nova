@@ -34,6 +34,8 @@ export function MessageAttachments({
 							id: ref.assetId,
 							kind: ref.kind,
 							filename: ref.filename,
+							title: ref.title,
+							summary: ref.summary,
 						})
 					}
 				/>

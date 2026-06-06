@@ -59,15 +59,15 @@ export interface WireMediaAsset {
 	status: MediaAssetStatus;
 	createdAt: string;
 	/**
-	 * Document-extract status + label (absent on media + on not-yet-extracted
-	 * docs). The fields the UI needs to render the extraction indicator, gate
-	 * the "What the AI reads" preview, and LABEL the asset in the library —
-	 * never the extract body (served by `GET /api/media/[assetId]/extract`),
-	 * the few-sentence `summary`, or the internal `failureReason` (the UI shows
-	 * a generic failed state + retry). `title` is the document's short human
-	 * name; it is best-effort (absent until a successful extract produces one,
-	 * or on an older extractor version), so the library falls back to the
-	 * filename when it's missing.
+	 * Document-extract status + the human title/summary (absent on media + on
+	 * not-yet-extracted docs). The fields the UI needs to render the extraction
+	 * indicator, gate the "What the AI reads" preview, LABEL the asset in the
+	 * library, and head the preview dialog — never the extract body (served by
+	 * `GET /api/media/[assetId]/extract`) or the internal `failureReason`/`model`
+	 * (the UI shows a generic failed state + retry). `title` + `summary` are
+	 * best-effort (absent until a successful extract produces them, or on an
+	 * older extractor version), so the UI falls back to the filename alone when
+	 * they're missing.
 	 */
 	extract?: {
 		status: MediaAssetExtract["status"];
@@ -75,6 +75,7 @@ export interface WireMediaAsset {
 		truncated: boolean;
 		charCount: number;
 		title?: string;
+		summary?: string;
 	};
 }
 
@@ -96,10 +97,10 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
 		displayName: record.displayName,
 		status: record.status,
 		createdAt: record.created_at.toDate().toISOString(),
-		// Project only the UI-facing extract fields; the Timestamp,
-		// failureReason, model, and the longer `summary` stay server-side.
-		// `title` rides along so the library can label the asset by its
-		// human name rather than the raw upload filename.
+		// Project the UI-facing extract fields; the Timestamp, failureReason,
+		// and model stay server-side. `title` + `summary` ride along so the
+		// library can label the asset and the preview header can show them the
+		// instant it opens — no second fetch.
 		extract: record.extract
 			? {
 					status: record.extract.status,
@@ -107,6 +108,7 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
 					truncated: record.extract.truncated,
 					charCount: record.extract.charCount,
 					title: record.extract.title,
+					summary: record.extract.summary,
 				}
 			: undefined,
 	};

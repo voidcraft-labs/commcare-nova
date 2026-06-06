@@ -72,11 +72,11 @@ describe("listMediaAssets", () => {
 		expect(result.data.nextCursor).toBe("cursor-2");
 	});
 
-	it("projects a document's extract title to the wire but keeps summary, failureReason, and model server-side", async () => {
+	it("projects a document's extract title + summary to the wire but keeps failureReason and model server-side", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		// A document record whose extract carries the human title (wanted on the
-		// wire so the library can label it) alongside the longer summary + the
-		// internal failureReason/model (which must NOT leak to the client/SA).
+		// A document record whose extract carries the human title + summary (both
+		// wanted on the wire — the library labels the asset, the preview header
+		// shows them) alongside the internal failureReason/model (must NOT leak).
 		const record = {
 			...readyRecord("d1"),
 			kind: "pdf",
@@ -95,7 +95,7 @@ describe("listMediaAssets", () => {
 				},
 				failureReason: "internal detail that must stay server-side",
 				title: "ANC Program — Data Collection Requirements",
-				summary: "A few-sentence précis that stays server-side.",
+				summary: "A few-sentence précis the preview header shows.",
 			},
 		} as unknown as MediaAssetRecord;
 		listReadyAssetsForOwner.mockResolvedValue({
@@ -109,7 +109,9 @@ describe("listMediaAssets", () => {
 		expect(wire.extract?.title).toBe(
 			"ANC Program — Data Collection Requirements",
 		);
-		expect(wire.extract).not.toHaveProperty("summary");
+		expect(wire.extract?.summary).toBe(
+			"A few-sentence précis the preview header shows.",
+		);
 		expect(wire.extract).not.toHaveProperty("failureReason");
 		expect(wire.extract).not.toHaveProperty("model");
 	});

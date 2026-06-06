@@ -36,6 +36,10 @@ function toAttachmentRef(asset: MediaAssetView): AttachmentRef {
 		kind: asset.kind,
 		filename: asset.displayName ?? asset.originalFilename,
 		mimeType: asset.mimeType,
+		// Snapshot the extract's header metadata so the transcript chip's preview
+		// has it in-band (no fetch). Absent when the doc wasn't extracted yet.
+		...(asset.extract?.title && { title: asset.extract.title }),
+		...(asset.extract?.summary && { summary: asset.extract.summary }),
 	};
 }
 
@@ -170,6 +174,8 @@ export function ChatInput({
 							id: asset.id,
 							kind: asset.kind,
 							filename: asset.displayName ?? asset.originalFilename,
+							title: asset.extract?.title,
+							summary: asset.extract?.summary,
 						})
 					}
 				/>
