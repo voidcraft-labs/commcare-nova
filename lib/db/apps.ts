@@ -258,6 +258,11 @@ export async function hasActiveGeneration(
 
 	for (const doc of snap.docs) {
 		if (doc.id === excludeAppId) continue;
+		/* A build paused on an `askQuestions` round is alive but process-less (it
+		 * resumes on a later POST). It must NOT be reaped (its hold is live) and must
+		 * NOT block a new build — an abandoned-at-questions build would otherwise lock
+		 * the user out of generating forever. Skip it on both counts. */
+		if (doc.data().awaiting_input) continue;
 		const updatedAt = (doc.data().updated_at as Timestamp)?.toDate();
 		if (!updatedAt) {
 			/* No updated_at means a corrupt or very old doc — definitively dead. */
@@ -428,6 +433,25 @@ export function failApp(appId: string, errorType: ErrorType): void {
 			{ merge: true },
 		)
 		.catch((err) => log.error("[failApp] Firestore write failed", err));
+}
+
+/**
+ * Set or clear a build's `awaiting_input` pause flag.
+ *
+ * `true` when the SA pauses on an `askQuestions` round (so the staleness reaper
+ * skips the live paused build); `false` when a POST resumes the run (so a resume
+ * that then hard-kills is reapable again). Fire-and-forget — a stale write must
+ * never block the response, and the reaper/list inference is the backstop if it
+ * races; the flag lands in milliseconds, far inside the 10-minute staleness
+ * window it guards.
+ */
+export function setAwaitingInput(appId: string, awaiting: boolean): void {
+	docs
+		.app(appId)
+		.set({ awaiting_input: awaiting }, { merge: true })
+		.catch((err) =>
+			log.error("[setAwaitingInput] Firestore write failed", err),
+		);
 }
 
 /**
@@ -639,6 +663,9 @@ const SUMMARY_FIELDS = [
 	"module_count",
 	"form_count",
 	"status",
+	// Projected so `projectAppSummary`'s staleness reaper can exclude a live build
+	// paused on an `askQuestions` round (it must not refund a paused hold).
+	"awaiting_input",
 	"error_type",
 	"created_at",
 	"updated_at",
@@ -783,7 +810,11 @@ function projectAppSummary(
 	 * reflects the inferred `error` state immediately so the caller never sees
 	 * stale data even though the reap transaction settles asynchronously. */
 	const isStale =
-		data.status === "generating" && now - updatedAt.getTime() > maxAgeMs;
+		data.status === "generating" &&
+		// A build paused on an `askQuestions` round is alive (awaiting the user), not
+		// dead — exclude it so the reaper never refunds a live paused hold.
+		!data.awaiting_input &&
+		now - updatedAt.getTime() > maxAgeMs;
 	if (isStale) {
 		void reapStaleGenerating(doc.id);
 	}

@@ -239,6 +239,17 @@ export const appDocSchema = z.object({
 	status: z
 		.enum(["generating", "complete", "error", "deleted"])
 		.default("complete"),
+	/**
+	 * True while a build is PAUSED on an `askQuestions` round — the SA halted the
+	 * agent loop to await the user's answer, so the run is alive (a later POST will
+	 * resume it) even though no process is currently running and `updated_at` has
+	 * stopped advancing. The staleness reaper excludes `awaiting_input` rows so it
+	 * never mistakes a user taking their time on a clarification for a hard-killed
+	 * build and refunds its live hold. Set when the run pauses, cleared when a POST
+	 * resumes it; absent on apps that never paused (and on pre-field rows, which
+	 * read as not-awaiting and so stay reapable).
+	 */
+	awaiting_input: z.boolean().optional(),
 	/** Error classification — set when status is 'error'. Null for non-error apps. */
 	error_type: z.string().nullable().default(null),
 	/**

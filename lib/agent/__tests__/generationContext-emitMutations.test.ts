@@ -407,6 +407,35 @@ describe("GenerationContext.handleAgentStep", () => {
 		},
 	} as unknown as LanguageModelUsage;
 
+	it("flags pausedOnInput when a step emits an askQuestions tool-call", () => {
+		const { ctx } = makeTestContext();
+		expect(ctx.pausedOnInput()).toBe(false);
+
+		ctx.handleAgentStep(
+			{
+				usage: MINIMAL_USAGE,
+				toolCalls: [{ toolCallId: "q-1", toolName: "askQuestions", input: {} }],
+			},
+			"Solutions Architect",
+		);
+
+		// askQuestions halts the loop to await the user — the route reads this to
+		// mark the app `awaiting_input` so the reaper skips the live paused build.
+		expect(ctx.pausedOnInput()).toBe(true);
+	});
+
+	it("does NOT flag pausedOnInput for an ordinary mutation tool-call", () => {
+		const { ctx } = makeTestContext();
+		ctx.handleAgentStep(
+			{
+				usage: MINIMAL_USAGE,
+				toolCalls: [{ toolCallId: "tc-1", toolName: "addFields", input: {} }],
+			},
+			"Solutions Architect",
+		);
+		expect(ctx.pausedOnInput()).toBe(false);
+	});
+
 	it("emits reasoning + text + tool-call + tool-result events in order for a full step", () => {
 		const { ctx, logWriter, usage } = makeTestContext();
 

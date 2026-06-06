@@ -21,6 +21,7 @@ import {
 	failApp,
 	hasActiveGeneration,
 	loadAppOwner,
+	setAwaitingInput,
 } from "@/lib/db/apps";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import {
@@ -181,6 +182,12 @@ export async function POST(req: Request) {
 				{ status: 404 },
 			);
 		}
+		/* This POST runs against an existing app — if it's resuming a build that
+		 * paused on an `askQuestions` round, clear the pause flag now (before the
+		 * stream) so a resume that then hard-kills becomes reapable again. A no-op
+		 * for an ordinary edit (the field is absent). The run re-sets it below if it
+		 * pauses on a question again. */
+		setAwaitingInput(appId, false);
 	}
 
 	// Concurrency guard — only one generation at a time per user. Prevents
@@ -647,6 +654,14 @@ export async function POST(req: Request) {
 							new Error("The generation stream ended in an error."),
 						"route:stream",
 					);
+				} else if (ctx.pausedOnInput()) {
+					/* The run paused on an `askQuestions` round (awaiting the user's
+					 * answer) rather than finishing. Mark the build `awaiting_input` so the
+					 * staleness reaper skips it — it's alive, not hard-killed, and a later
+					 * POST will resume it. The charge stands (the clean finally's
+					 * `finalizeRun()` flushes it); the flag is cleared when that POST
+					 * resumes the run. */
+					setAwaitingInput(appId, true);
 				}
 			} catch (error) {
 				/* Init/build error around the stream setup (a bad message shape, an

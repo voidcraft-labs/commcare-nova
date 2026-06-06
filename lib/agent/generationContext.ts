@@ -171,6 +171,12 @@ export class GenerationContext implements ToolExecutionContext {
 	 * uniqueness is needed.
 	 */
 	private seq = 0;
+	/* Flipped true when the SA emits an `askQuestions` tool-call — the client-side
+	 * tool with no `execute` that HALTS the agent loop to await the user's answer.
+	 * The chat route reads this after the drain to mark the app `awaiting_input`,
+	 * so the refunding reaper doesn't mistake a live build paused on a question for
+	 * a hard-killed one and refund its still-live hold. */
+	private _pausedOnInput = false;
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
@@ -467,6 +473,16 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
+	 * Whether the run paused on an `askQuestions` round (the SA emitted the
+	 * client-side `askQuestions` tool, halting the loop to await the user). The
+	 * route reads this after the drain to mark the app `awaiting_input` so the
+	 * reaper skips the live paused build.
+	 */
+	pausedOnInput(): boolean {
+		return this._pausedOnInput;
+	}
+
+	/**
 	 * Process one completed agent step: track usage, emit conversation
 	 * events (reasoning, text, tool-call + tool-result pairs), and note
 	 * tool-call counts.
@@ -531,6 +547,11 @@ export class GenerationContext implements ToolExecutionContext {
 		}
 		for (const tc of step.toolCalls ?? []) {
 			this.usage.noteToolCall();
+			/* `askQuestions` (the tool key in `solutionsArchitect.ts`'s tool set) has
+			 * no `execute` and halts the loop to await the user, so seeing it means
+			 * the run is PAUSING for input, not finishing — the signal the route needs
+			 * to mark the app `awaiting_input`. */
+			if (tc.toolName === "askQuestions") this._pausedOnInput = true;
 			this.emitConversation({
 				type: "tool-call",
 				toolCallId: tc.toolCallId,
