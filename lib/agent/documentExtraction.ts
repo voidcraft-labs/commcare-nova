@@ -295,7 +295,7 @@ If your Open questions section lists something as unsettled, no fact section may
 
 ## Privacy — keep the schema, not the person
 
-Field labels, format patterns, and option sets are requirements — keep them. The *contents* of an individual's record are not: never reproduce a person's name, contact number, or other identifying value, even to make a finding concrete. Localize a finding by row position ("the row at line 11"), by column, or by value pattern — never by who the row is about. Where a value's shape matters, describe the pattern (a ten-digit number; an \`LLL-NN-NNN\` code) rather than copying a real one.
+Field labels, format patterns, and option sets are requirements — keep them. The *contents* of an individual's record are not: never copy a person's name, contact number, identifier, or any other value that identifies an individual (PHI) into the extract, even to make a finding concrete. When a value's shape is itself the requirement, do not drop it — anonymize it, replacing its content with placeholder characters that preserve the exact shape (segment structure, character classes, separators, and any fixed prefix). Localize a finding by row position, by column, or by that anonymized shape — never by who the row is about.
 
 ## Verbatim fidelity — preserve the exact form
 
