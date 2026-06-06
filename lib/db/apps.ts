@@ -439,16 +439,31 @@ export function failApp(appId: string, errorType: ErrorType): void {
  * Set or clear a build's `awaiting_input` pause flag.
  *
  * `true` when the SA pauses on an `askQuestions` round (so the staleness reaper
- * skips the live paused build); `false` when a POST resumes the run (so a resume
- * that then hard-kills is reapable again). Fire-and-forget — a stale write must
- * never block the response, and the reaper/list inference is the backstop if it
- * races; the flag lands in milliseconds, far inside the 10-minute staleness
- * window it guards.
+ * skips the live paused build); `false` when a POST resumes the run.
+ *
+ * Clearing ALSO re-arms `updated_at`. The flag — not a fresh timestamp — is what
+ * spared the row from staleness during the pause, so removing it must hand the
+ * resuming run a fresh staleness window. Otherwise the run is born STALE (its
+ * `updated_at` is still the pre-pause value, already past the window) and a
+ * concurrent `listApps` scan — whose reaper excludes no appId — could refund the
+ * still-LIVE hold and flip the row to `error` before the resume's first mutation
+ * advances the clock. A genuinely-dead resume still reaps, just one window later.
+ * The SET path must NOT bump the clock (the flag, not the timestamp, protects a
+ * pause; bumping there would only blur a real hard-kill's staleness).
+ *
+ * Fire-and-forget — a stale write must never block the response, and the
+ * reaper/list inference is the backstop if it races; the write lands in
+ * milliseconds, far inside the 10-minute staleness window it guards.
  */
 export function setAwaitingInput(appId: string, awaiting: boolean): void {
 	docs
 		.app(appId)
-		.set({ awaiting_input: awaiting }, { merge: true })
+		.set(
+			awaiting
+				? { awaiting_input: true }
+				: { awaiting_input: false, updated_at: FieldValue.serverTimestamp() },
+			{ merge: true },
+		)
 		.catch((err) =>
 			log.error("[setAwaitingInput] Firestore write failed", err),
 		);

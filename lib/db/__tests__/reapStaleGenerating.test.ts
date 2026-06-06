@@ -73,3 +73,34 @@ describe("reapStaleGenerating", () => {
 		expect(appSetMock).not.toHaveBeenCalled();
 	});
 });
+
+describe("setAwaitingInput", () => {
+	beforeEach(() => {
+		appSetMock.mockClear().mockResolvedValue(undefined);
+		appMock.mockClear().mockReturnValue({ set: appSetMock });
+	});
+
+	it("clearing (resume) re-arms updated_at so the resuming run gets a fresh staleness window", async () => {
+		// The flag — not the timestamp — is what spared the paused row, so clearing
+		// it must re-arm the clock. Otherwise the resuming run is born stale and a
+		// concurrent list scan (whose reaper excludes no appId) could refund its
+		// still-live hold before its first mutation advances `updated_at`.
+		const { setAwaitingInput } = await import("../apps");
+		setAwaitingInput("app-1", false);
+
+		expect(appSetMock).toHaveBeenCalledTimes(1);
+		const [payload, options] = appSetMock.mock.calls[0];
+		expect(payload).toMatchObject({ awaiting_input: false });
+		expect(payload).toHaveProperty("updated_at");
+		expect(options).toEqual({ merge: true });
+	});
+
+	it("setting (pause) does NOT bump updated_at — the flag, not the clock, protects a pause", async () => {
+		const { setAwaitingInput } = await import("../apps");
+		setAwaitingInput("app-1", true);
+
+		expect(appSetMock).toHaveBeenCalledTimes(1);
+		const [payload] = appSetMock.mock.calls[0];
+		expect(payload).toEqual({ awaiting_input: true });
+	});
+});
