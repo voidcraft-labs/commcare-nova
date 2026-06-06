@@ -344,15 +344,47 @@ export async function docxToMarkdown(buffer: Buffer): Promise<string> {
 }
 
 /**
- * xlsx buffer → one markdown table per sheet, each prefixed with the sheet
- * name as a heading. `sheet_to_json` with `header: 1` returns each row as an
- * array of cell values; `raw: false` formats cells as display strings and
- * `defval: ""` fills gaps so ragged rows still align into a table.
+ * Pull the formula cells from a worksheet, in reading order (row-major). Returns
+ * one `{ addr, formula }` per cell carrying a formula (`cell.f`, which SheetJS
+ * stores without the leading `=`); value-only cells are skipped. `sheet_to_json`
+ * reports only the COMPUTED value, so without this pass the calculation logic —
+ * totals, scores, unit conversions, derived dates — is dropped on the floor, and
+ * that logic is exactly what the SA should rebuild as CommCare calculated fields.
+ */
+function collectSheetFormulae(
+	ws: XLSX.WorkSheet,
+): { addr: string; formula: string }[] {
+	const ref = ws["!ref"];
+	if (!ref) return [];
+	const range = XLSX.utils.decode_range(ref);
+	const formulae: { addr: string; formula: string }[] = [];
+	for (let r = range.s.r; r <= range.e.r; r++) {
+		for (let c = range.s.c; c <= range.e.c; c++) {
+			const addr = XLSX.utils.encode_cell({ r, c });
+			const cell = ws[addr] as XLSX.CellObject | undefined;
+			if (cell?.f) formulae.push({ addr, formula: cell.f });
+		}
+	}
+	return formulae;
+}
+
+/**
+ * xlsx buffer → one markdown section per sheet: the sheet name as a heading, the
+ * cell VALUES as a table, and — when the sheet has any — a `#### Calculations`
+ * block listing each formula cell (`<addr> = <formula>`). `sheet_to_json` with
+ * `header: 1` returns each row as an array of cell values; `raw: false` formats
+ * cells as display strings and `defval: ""` fills gaps so ragged rows still
+ * align into a table. The values table carries only computed results, so the
+ * Calculations block is what preserves the derivation logic for the SA; the
+ * table directly above it grounds each formula's A1 cell references.
+ * `cellFormula: true` (SheetJS's read default, set explicitly) is what keeps the
+ * formulas on `cell.f` for `collectSheetFormulae` to read.
  */
 export function xlsxToMarkdown(buffer: Buffer): string {
-	const workbook = XLSX.read(buffer, { type: "buffer" });
+	const workbook = XLSX.read(buffer, { type: "buffer", cellFormula: true });
 	return workbook.SheetNames.map((name) => {
-		const rows = XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[name], {
+		const ws = workbook.Sheets[name];
+		const rows = XLSX.utils.sheet_to_json<string[]>(ws, {
 			header: 1,
 			blankrows: false,
 			defval: "",
@@ -361,7 +393,15 @@ export function xlsxToMarkdown(buffer: Buffer): string {
 		// Cells come through typed as the worksheet's stored values; coerce each
 		// to a string so the markdown renderer receives a uniform 2D string grid.
 		const grid = rows.map((row) => row.map((cell) => String(cell)));
-		return `### ${name}\n\n${rowsToMarkdownTable(grid)}`;
+		// Append the formula list only when the sheet has one, so value-only
+		// sheets stay clean. The h4 nests under the sheet's h3 heading.
+		const formulae = collectSheetFormulae(ws);
+		const calculations = formulae.length
+			? `\n\n#### Calculations\n\n${formulae
+					.map(({ addr, formula }) => `- ${addr} = ${formula}`)
+					.join("\n")}`
+			: "";
+		return `### ${name}\n\n${rowsToMarkdownTable(grid)}${calculations}`;
 	}).join("\n\n");
 }
 
