@@ -1,5 +1,7 @@
 # AI Elements Chat Refit + Attachment Extraction — Implementation Plan
 
+> **SUPERSEDED.** The attachment-extraction parts of this plan (Haiku summarizer, base64 file-parts) were replaced during implementation by the media-store design — Gemini 3.5 Flash, asset-id refs, `documentExtraction*`. See `docs/superpowers/specs/2026-06-03-chat-attachments-via-media-store.md`. Kept for lineage only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Nova's hand-rolled chat input + message rendering with Vercel AI Elements, wire file attachments through, and add server-side Haiku faithful-extraction of large documents so they never inflate the Opus context.

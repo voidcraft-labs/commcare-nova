@@ -1,5 +1,7 @@
 # AI Elements Chat Refit + Attachment Extraction — Design
 
+> **SUPERSEDED.** The attachment-extraction architecture here (Haiku summarizer, `prepareAttachments`, base64 file-parts) was replaced during implementation by the media-store design — Gemini 3.5 Flash, asset-id refs, `documentExtraction*`. See `docs/superpowers/specs/2026-06-03-chat-attachments-via-media-store.md` for what shipped. Kept for lineage only.
+
 **Status:** Draft (v1)
 **Date:** 2026-05-30
 **Authors:** Braxton Perry, Claude
