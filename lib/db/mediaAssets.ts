@@ -59,17 +59,22 @@ export interface WireMediaAsset {
 	status: MediaAssetStatus;
 	createdAt: string;
 	/**
-	 * Document-extract status (absent on media + on not-yet-extracted docs).
-	 * Only the fields the UI needs to render the extraction indicator + gate
-	 * the "What the AI reads" preview — never the extract body (served by
-	 * `GET /api/media/[assetId]/extract`) or the internal `failureReason`
-	 * (the UI shows a generic failed state + retry).
+	 * Document-extract status + label (absent on media + on not-yet-extracted
+	 * docs). The fields the UI needs to render the extraction indicator, gate
+	 * the "What the AI reads" preview, and LABEL the asset in the library —
+	 * never the extract body (served by `GET /api/media/[assetId]/extract`),
+	 * the few-sentence `summary`, or the internal `failureReason` (the UI shows
+	 * a generic failed state + retry). `title` is the document's short human
+	 * name; it is best-effort (absent until a successful extract produces one,
+	 * or on an older extractor version), so the library falls back to the
+	 * filename when it's missing.
 	 */
 	extract?: {
 		status: MediaAssetExtract["status"];
 		version: number;
 		truncated: boolean;
 		charCount: number;
+		title?: string;
 	};
 }
 
@@ -91,14 +96,17 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
 		displayName: record.displayName,
 		status: record.status,
 		createdAt: record.created_at.toDate().toISOString(),
-		// Project only the UI-facing extract fields; the Timestamp +
-		// failureReason stay server-side.
+		// Project only the UI-facing extract fields; the Timestamp,
+		// failureReason, model, and the longer `summary` stay server-side.
+		// `title` rides along so the library can label the asset by its
+		// human name rather than the raw upload filename.
 		extract: record.extract
 			? {
 					status: record.extract.status,
 					version: record.extract.version,
 					truncated: record.extract.truncated,
 					charCount: record.extract.charCount,
+					title: record.extract.title,
 				}
 			: undefined,
 	};

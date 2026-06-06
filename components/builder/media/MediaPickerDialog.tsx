@@ -507,51 +507,89 @@ function LibraryTab({
 				</p>
 			) : (
 				<ul className="grid grid-cols-3 gap-2">
-					{filtered.map((asset) => (
-						<li key={asset.id} className="group relative">
-							<button
-								type="button"
-								onClick={() => onPick(asset)}
-								title={asset.displayName ?? asset.originalFilename}
-								className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
-							>
-								<LibraryThumb asset={asset} />
-							</button>
-							{/* Preview without picking — a sibling of the pick button (not
-							 *  nested), revealed on hover/focus. Lets a user check a
-							 *  document's "What the AI reads" extract before attaching. */}
-							<button
-								type="button"
-								onClick={() => onPreview(asset)}
-								title={`Preview ${asset.displayName ?? asset.originalFilename}`}
-								aria-label={`Preview ${asset.displayName ?? asset.originalFilename}`}
-								className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-text focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-violet-bright group-hover:opacity-100"
-							>
-								<Icon icon={tablerEye} className="size-3.5" />
-							</button>
-							{/* Delete — a sibling of the pick button (not nested), top-left so
-							 *  it doesn't collide with the preview affordance. Opens a
-							 *  confirmation before removing the asset from the library. */}
-							<button
-								type="button"
-								onClick={() => onDelete(asset)}
-								title={`Delete ${asset.displayName ?? asset.originalFilename}`}
-								aria-label={`Delete ${asset.displayName ?? asset.originalFilename}`}
-								className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-rose focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-rose group-hover:opacity-100"
-							>
-								<Icon icon={tablerTrash} className="size-3.5" />
-							</button>
-							{/* Extraction indicator for documents — a sibling of the pick
-							 *  button (not nested), so the failed-state retry control isn't
-							 *  interactive content inside a button. Renders nothing for
-							 *  media kinds. */}
-							{isDocumentKind(asset.kind) && (
-								<div className="pointer-events-none absolute inset-x-1 bottom-1 flex justify-center [&>*]:pointer-events-auto">
-									<ExtractionStatusBadge asset={asset} />
+					{filtered.map((asset) => {
+						const fileName = asset.displayName ?? asset.originalFilename;
+						// Documents gain an AI-extracted title once extraction succeeds;
+						// show it as a subtitle so the library reads as human names. Skip
+						// it when it just echoes the filename (no signal added).
+						const extractedTitle = asset.extract?.title;
+						const docTitle =
+							extractedTitle && extractedTitle !== fileName
+								? extractedTitle
+								: undefined;
+						return (
+							<li key={asset.id} className="group">
+								{/* The thumbnail + its hover affordances form their own
+								 *  positioning context, so the absolute overlays anchor to
+								 *  the square and not to the taller li (which now also holds
+								 *  the caption below). */}
+								<div className="relative">
+									<button
+										type="button"
+										onClick={() => onPick(asset)}
+										title={fileName}
+										className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+									>
+										<LibraryThumb asset={asset} />
+									</button>
+									{/* Preview without picking — a sibling of the pick button
+									 *  (not nested), revealed on hover/focus. Lets a user check
+									 *  a document's "What the AI reads" extract before attaching. */}
+									<button
+										type="button"
+										onClick={() => onPreview(asset)}
+										title={`Preview ${fileName}`}
+										aria-label={`Preview ${fileName}`}
+										className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-text focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-violet-bright group-hover:opacity-100"
+									>
+										<Icon icon={tablerEye} className="size-3.5" />
+									</button>
+									{/* Delete — a sibling of the pick button (not nested),
+									 *  top-left so it doesn't collide with the preview
+									 *  affordance. Opens a confirmation before removing the
+									 *  asset from the library. */}
+									<button
+										type="button"
+										onClick={() => onDelete(asset)}
+										title={`Delete ${fileName}`}
+										aria-label={`Delete ${fileName}`}
+										className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-rose focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-rose group-hover:opacity-100"
+									>
+										<Icon icon={tablerTrash} className="size-3.5" />
+									</button>
+									{/* Extraction indicator for documents — a sibling of the
+									 *  pick button (not nested), so the failed-state retry
+									 *  control isn't interactive content inside a button.
+									 *  Renders nothing for media kinds. */}
+									{isDocumentKind(asset.kind) && (
+										<div className="pointer-events-none absolute inset-x-1 bottom-1 flex justify-center [&>*]:pointer-events-auto">
+											<ExtractionStatusBadge asset={asset} />
+										</div>
+									)}
 								</div>
-							)}
-						</li>
-					))}
+								{/* Caption — the filename is now always visible (it used to
+								 *  live only in the hover `title`), with the AI title beneath
+								 *  it for documents. Both single-line-clamp; the full value
+								 *  stays in the hover tooltip. */}
+								<div className="mt-1.5 space-y-0.5">
+									<p
+										className="truncate text-xs leading-tight text-nova-text"
+										title={fileName}
+									>
+										{fileName}
+									</p>
+									{docTitle && (
+										<p
+											className="truncate text-[11px] leading-tight text-nova-text-muted"
+											title={docTitle}
+										>
+											{docTitle}
+										</p>
+									)}
+								</div>
+							</li>
+						);
+					})}
 				</ul>
 			)}
 			{hasMore && (
