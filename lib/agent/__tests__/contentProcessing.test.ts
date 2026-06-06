@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { CaseType } from "@/lib/domain";
-import { applyDefaults } from "../contentProcessing";
+import { asUuid, type CaseType, fieldKinds } from "@/lib/domain";
+import {
+	applyDefaults,
+	type FlatField,
+	flatFieldToField,
+	stripEmpty,
+} from "../contentProcessing";
 
 // Fixture: case types model the CommCare case data layer, so their
 // property metadata uses CommCare-flavored `validation` / `validation_msg`.
@@ -85,6 +90,44 @@ describe("applyDefaults", () => {
 			{ value: "male", label: "Male" },
 			{ value: "female", label: "Female" },
 		]);
+	});
+
+	// Kind-aware seeding: a catalog default is applied only when the resolved
+	// kind's schema DECLARES the slot. Without this gate, writing a computed
+	// field to a property declared as a select would inherit the select's
+	// `options` (or `label`), and the strict per-kind schema would then reject
+	// the whole field in `flatFieldToField`.
+	it("does NOT seed select-only options/label onto a hidden field", () => {
+		const result = applyDefaults(
+			// A hidden computed field writing to the select-typed `gender`.
+			{ id: "gender", kind: "hidden", case_property_on: "patient" },
+			[testCaseType],
+		);
+		expect(result.options).toBeUndefined();
+		expect(result.label).toBeUndefined();
+		expect(result.kind).toBe("hidden");
+	});
+
+	it("does NOT seed validate onto a kind that doesn't declare it (geopoint)", () => {
+		const result = applyDefaults(
+			// geopoint has no `validate` slot, so the `age` property's
+			// `validation` must not be seeded — but `required`, which geopoint
+			// DOES declare, still is.
+			{ id: "age", kind: "geopoint", case_property_on: "patient" },
+			[testCaseType],
+		);
+		expect(result.validate).toBeUndefined();
+		expect(result.required).toBe("true()");
+	});
+
+	it("treats an explicit empty-string label as unset and seeds from the catalog", () => {
+		// The single-add path doesn't run `stripEmpty`, so an explicit `""`
+		// must still be treated as unset here for single/batch parity.
+		const result = applyDefaults(
+			{ id: "case_name", kind: "text", label: "", case_property_on: "patient" },
+			[testCaseType],
+		);
+		expect(result.label).toBe("Full Name");
 	});
 
 	it("fills in hint from case type", () => {
@@ -179,5 +222,104 @@ describe("applyDefaults", () => {
 			[testCaseType],
 		);
 		expect(result.default_value).toBe("today()");
+	});
+});
+
+// A valid SA-authoring payload per kind — the kind the per-kind tool union
+// would accept. `hidden` carries a value but no label; containers take an
+// optional label; selects need ≥2 options; repeat needs a mode.
+function validFlatPayload(kind: string): FlatField {
+	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
+	if (kind === "hidden") p.calculate = "today()";
+	else if (kind === "repeat") {
+		p.label = "Items";
+		p.repeat = { mode: "user_controlled" };
+	} else if (kind === "group") p.label = "Section";
+	else p.label = "Label";
+	if (kind === "single_select" || kind === "multi_select") {
+		p.options = [
+			{ value: "a", label: "A" },
+			{ value: "b", label: "B" },
+		];
+	}
+	return p as FlatField;
+}
+
+const TEST_UUID = asUuid("00000000-0000-4000-8000-000000000000");
+
+describe("flatFieldToField — totality + failure reasons", () => {
+	// The totality proof: after the per-kind tool inputs + kind-aware
+	// `applyDefaults`, a valid payload for EVERY kind assembles into a Field.
+	// A failure here means the generator and the domain schema have drifted.
+	it("assembles a valid Field for every kind", () => {
+		for (const kind of fieldKinds) {
+			const processed = applyDefaults(stripEmpty(validFlatPayload(kind)), null);
+			const result = flatFieldToField(processed, TEST_UUID);
+			expect(result.ok, `kind ${kind} did not assemble`).toBe(true);
+		}
+	});
+
+	it("assembles the nested validate + each repeat mode", () => {
+		const cases: FlatField[] = [
+			{
+				id: "t",
+				kind: "text",
+				label: "T",
+				validate: { expr: ". != ''", msg: "Required" },
+			} as FlatField,
+			{
+				id: "r1",
+				kind: "repeat",
+				label: "R",
+				repeat: { mode: "count_bound", count: "#form/n" },
+			} as FlatField,
+			{
+				id: "r2",
+				kind: "repeat",
+				label: "R",
+				repeat: { mode: "query_bound", ids_query: "#form/ids" },
+			} as FlatField,
+		];
+		for (const c of cases) {
+			const result = flatFieldToField(
+				applyDefaults(stripEmpty(c), null),
+				TEST_UUID,
+			);
+			expect(result.ok, `${c.id} did not assemble`).toBe(true);
+		}
+	});
+
+	it("drops a stray undeclared key rather than failing the whole field", () => {
+		// A `calculate` on a `text` field (the boundary normally rejects this,
+		// but a non-tool path could carry it) is filtered out — the field
+		// survives as a plain text field, not dropped wholesale.
+		const result = flatFieldToField(
+			{ id: "t", kind: "text", label: "T", calculate: "today()" } as FlatField,
+			TEST_UUID,
+		);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect("calculate" in result.field).toBe(false);
+		}
+	});
+
+	it("returns the specific reason — not union noise — when a payload can't assemble", () => {
+		// A single_select with one option fails the domain schema's min(2).
+		const result = flatFieldToField(
+			{
+				id: "s",
+				kind: "single_select",
+				label: "S",
+				options: [{ value: "a", label: "A" }],
+			} as FlatField,
+			TEST_UUID,
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.reason).toContain("options");
+			expect(result.reason.toLowerCase()).not.toContain(
+				"no matching discriminator",
+			);
+		}
 	});
 });

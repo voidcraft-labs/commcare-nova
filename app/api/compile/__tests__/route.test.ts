@@ -1,15 +1,16 @@
 /**
- * `POST /api/compile` (.ccz download) — media-validation gate tests.
+ * `POST /api/compile` (.ccz compile) — media-validation gate + inline-return tests.
  *
  * This route is media-ON (the archive bundles media bytes): a stale
  * media reference would make `expandDoc` throw `requireAssetRef` → 500.
  * The gate runs media validation first and returns an actionable 400
  * instead. Tests prove the gate fires AND that the handler returns on it
- * (no fall-through into expand/compile).
+ * (no fall-through into expand/compile), and that a clean compile returns
+ * the archive bytes inline (octet-stream) rather than a download URL.
  *
  * Boundaries mocked: `requireSession`, the media gate, manifest, expand,
- * compile, and the ccz store. The route runs the REAL `blueprintDocSchema`
- * (fixture built via `buildDoc`).
+ * and compile. The route runs the REAL `blueprintDocSchema` (fixture built
+ * via `buildDoc`).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +21,6 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
-import { saveCcz } from "@/lib/store";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
@@ -30,7 +30,6 @@ vi.mock("@/lib/media/mediaValidation", () => ({
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
 vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
 vi.mock("@/lib/commcare/compiler", () => ({ compileCcz: vi.fn() }));
-vi.mock("@/lib/store", () => ({ saveCcz: vi.fn() }));
 
 const SESSION = { user: { id: "u1" } };
 
@@ -79,14 +78,12 @@ beforeEach(() => {
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
-	vi.mocked(saveCcz).mockReset();
 
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 	vi.mocked(expandDoc).mockReturnValue({} as never);
-	vi.mocked(compileCcz).mockReturnValue(Buffer.from("ccz"));
-	vi.mocked(saveCcz).mockResolvedValue(undefined as never);
+	vi.mocked(compileCcz).mockReturnValue(Buffer.from("ccz-bytes"));
 });
 
 describe("POST /api/compile — media validation gate", () => {
@@ -110,27 +107,27 @@ describe("POST /api/compile — media validation gate", () => {
 		expect(expandDoc).not.toHaveBeenCalled();
 		expect(compileCcz).not.toHaveBeenCalled();
 	});
+});
 
-	it("proceeds to expand + compile when media validation is clean", async () => {
+describe("POST /api/compile — inline archive return", () => {
+	it("returns the compiled .ccz bytes inline (octet-stream) when media validation is clean", async () => {
 		const res = await POST(reqWith({ doc: validDoc() }));
-		const body = (await res.json()) as {
-			success?: boolean;
-			compileId?: string;
-		};
 
 		expect(res.status).toBe(200);
-		expect(body.success).toBe(true);
+		expect(res.headers.get("content-type")).toBe("application/octet-stream");
+		// Filename derives from the (sanitized) app name; the bytes ARE the
+		// compiled archive — there is no storage round-trip or download URL.
+		expect(res.headers.get("content-disposition")).toBe(
+			'attachment; filename="Vaccine Tracker.ccz"',
+		);
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString()).toBe("ccz-bytes");
+		expect(res.headers.get("content-length")).toBe(String(bytes.length));
+
 		expect(collectMediaValidationErrors).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
 			"u1",
 		);
 		expect(compileCcz).toHaveBeenCalledTimes(1);
-		// The archive is stored owner-scoped (the session user), so the
-		// download route can bind access to its compiler.
-		expect(saveCcz).toHaveBeenCalledWith(
-			body.compileId,
-			expect.anything(),
-			"u1",
-		);
 	});
 });

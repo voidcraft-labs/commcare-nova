@@ -1,11 +1,9 @@
 /**
  * SA tool: `addFields` — bulk-add fields to an existing form.
  *
- * The SA emits a flat list of fields — `id` / `kind` / `label` required,
- * everything else (including `parentId` and `required`) optional and
- * simply omitted when unset (see `toolSchemaGenerator.ts` for why the
- * old required-with-sentinel form was dropped). This tool runs them
- * through the three-step pipeline in `contentProcessing.ts` —
+ * The SA emits a list of fields, each a per-kind union arm (the kind picks
+ * which properties exist — see `toolSchemaGenerator.ts`). This tool runs
+ * each through the three-step pipeline in `contentProcessing.ts` —
  * `stripEmpty` → `applyDefaults` → `flatFieldToField` — mints uuids,
  * resolves semantic parent ids (including parents added earlier in the
  * same batch), and emits one mutation batch tagged `form:M-F`.
@@ -32,6 +30,7 @@ import { asUuid } from "@/lib/domain";
 import { findFieldByBareId, resolveFormContext } from "../blueprintHelpers";
 import {
 	applyDefaults,
+	type FlatField,
 	flatFieldToField,
 	stripEmpty,
 } from "../contentProcessing";
@@ -48,6 +47,17 @@ export const addFieldsInputSchema = z
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
 		fields: z.array(addFieldsItemSchema),
+		// Default parent for the whole batch: the id of a group/repeat to
+		// nest every field under. A field's OWN `parentId` overrides this.
+		// Accepting it top-level mirrors single `addField` (which takes a
+		// top-level `parentId`), so the same intent works the same way on
+		// both tools instead of hard-erroring as an unrecognized key.
+		parentId: z
+			.string()
+			.optional()
+			.describe(
+				"Default parent for the batch: id of a group/repeat to nest every field under. A field's own parentId overrides this. Omit to add at the form's top level.",
+			),
 	})
 	.strict();
 
@@ -63,14 +73,14 @@ export type AddFieldsResult = MutationSuccess | { error: string };
 
 export const addFieldsTool = {
 	description:
-		"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Groups added in one batch can be referenced as parentId in later batches.",
+		"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Pass a top-level parentId to nest the whole batch under a group/repeat, or set parentId on individual fields to place them precisely (a field's own parentId wins). Groups added in one batch can be referenced as parentId in later batches.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddFieldsResult>> {
-		const { moduleIndex, formIndex, fields } = input;
+		const { moduleIndex, formIndex, fields, parentId: batchParentId } = input;
 		try {
 			// Shared positional resolver — fails closed with a single error
 			// message when either index is out of range. Tool-specific
@@ -99,19 +109,29 @@ export const addFieldsTool = {
 			// lookup.
 			const mintedByBareId = new Map<string, Uuid>();
 			const mutations: Mutation[] = [];
-			const skippedIds: string[] = [];
+			const skipped: Array<{ id: string; reason: string }> = [];
 
 			for (const raw of fields) {
-				// `stripEmpty` narrows the input to carry `parentId?: string | null`
-				// explicitly (sentinel-empty-string → null), and the generic
-				// `applyDefaults` preserves that narrowing on the way out, so
-				// the `parentId` read below is well-typed without a cast.
-				const processed = applyDefaults(stripEmpty(raw), doc.caseTypes);
+				// `raw` is a per-kind union arm (the tool input is a
+				// `discriminatedUnion("kind", …)`). TS infers a union arm's
+				// conditionally-present keys as `unknown`, so it isn't directly
+				// assignable to the wide `FlatField` the pipeline operates on —
+				// but the arm IS a validated structural subset of `FlatField`,
+				// so the bridge cast is sound. `stripEmpty` then narrows
+				// `parentId?: string | null` (sentinel-empty-string → null), and
+				// `applyDefaults` preserves that narrowing.
+				const processed = applyDefaults(
+					stripEmpty(raw as FlatField),
+					doc.caseTypes,
+				);
 
-				// Resolve parentUuid: empty/undefined → form; otherwise find
-				// the uuid of a newly-added parent or an existing field.
+				// Resolve parentUuid: the field's OWN `parentId` wins; if it
+				// didn't set one, fall back to the batch-level `parentId`; if
+				// neither is set, the field lands at the form's top level.
+				// `stripEmpty` normalizes an unset per-item parentId to `null`,
+				// so `?? batchParentId` correctly applies the batch default.
 				let parentUuid: Uuid = formUuid;
-				const parentId = processed.parentId;
+				const parentId = processed.parentId ?? batchParentId;
 				if (parentId && typeof parentId === "string") {
 					const minted = mintedByBareId.get(parentId);
 					if (minted) {
@@ -125,19 +145,17 @@ export const addFieldsTool = {
 				}
 
 				const fieldUuid = asUuid(crypto.randomUUID());
-				const field = flatFieldToField(processed, fieldUuid);
-				if (!field) {
-					// The flat payload didn't assemble into a valid Field for its
-					// declared kind — e.g. a text field without label, or a
-					// multi_select without options. `flatFieldToField` logged the
-					// specific schema issues; surface a generic failure to the SA
-					// so it can diagnose via `validateApp` or retry. `raw.id` is
-					// the Zod-parsed original (always a string before
-					// `stripEmpty` might drop an empty sentinel), so no fallback
-					// is needed.
-					skippedIds.push(raw.id);
+				const assembled = flatFieldToField(processed, fieldUuid);
+				if (!assembled.ok) {
+					// The payload didn't assemble into a valid Field for its kind.
+					// Carry the specific reason into the skip note (below) so the
+					// SA sees WHY each field was skipped, not just that it was.
+					// `raw.id` is the Zod-parsed original (always a string), so no
+					// fallback is needed.
+					skipped.push({ id: raw.id, reason: assembled.reason });
 					continue;
 				}
+				const field = assembled.field;
 				mintedByBareId.set(field.id, fieldUuid);
 				mutations.push({ kind: "addField", parentUuid, field });
 			}
@@ -166,8 +184,10 @@ export const addFieldsTool = {
 				.map((m) => m.field.id)
 				.join(", ");
 			const skippedNote =
-				skippedIds.length > 0
-					? ` Skipped ${skippedIds.length} invalid field(s): ${skippedIds.join(", ")}.`
+				skipped.length > 0
+					? ` Skipped ${skipped.length} field(s): ${skipped
+							.map((s) => `${s.id} (${s.reason})`)
+							.join("; ")}.`
 					: "";
 			return {
 				kind: "mutate" as const,

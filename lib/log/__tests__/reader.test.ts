@@ -6,8 +6,9 @@
  * Two mock surfaces are stubbed:
  *
  *   - `collections.events(appId)` — chainable query builder
- *     (`where` / `orderBy` / `limit` / `get`). Used by `readEvents` and
- *     `readLatestRunId`.
+ *     (`where` / `orderBy` / `limit` / `get`). Used by `readEvents`.
+ *   - `getDb()` — raw (un-converter'd) handle, used by `readLatestRunId`
+ *     to read `runId` off the newest event without the strict converter.
  *   - `docs.run(appId, runId)` — document reference with `get()`. Used by
  *     `readRunSummary`.
  *
@@ -35,6 +36,17 @@ vi.mock("@/lib/db/firestore", () => ({
 			orderBy: mockOrderBy,
 		})),
 	},
+	// `readLatestRunId` reads raw (no converter): getDb().collection("apps")
+	// .doc(id).collection("events").orderBy(...).limit(1).get(). The inner
+	// `collection()` returns the shared `{ orderBy: mockOrderBy }` chain so
+	// the orderBy → limit → get path resolves to the same `mockGet`.
+	getDb: vi.fn(() => ({
+		collection: vi.fn(() => ({
+			doc: vi.fn(() => ({
+				collection: vi.fn(() => ({ orderBy: mockOrderBy })),
+			})),
+		})),
+	})),
 	docs: {
 		run: vi.fn(() => ({
 			get: mockRunDocGet,
@@ -112,16 +124,17 @@ describe("readEvents", () => {
 		const { readEvents } = await import("../reader");
 		const result = await readEvents("app-1", "r");
 
-		expect(result).toEqual(events);
+		expect(result.events).toEqual(events);
+		expect(result.skipped).toBe(0);
 		expect(mockWhere).toHaveBeenCalledWith("runId", "==", "r");
 		expect(mockOrderBy).toHaveBeenCalledWith("ts");
 		expect(mockOrderBy).toHaveBeenCalledWith("seq");
 	});
 
-	it("returns [] on empty query", async () => {
+	it("returns empty events + zero skipped on empty query", async () => {
 		mockGet.mockResolvedValue({ empty: true, docs: [] });
 		const { readEvents } = await import("../reader");
-		expect(await readEvents("app-1", "r")).toEqual([]);
+		expect(await readEvents("app-1", "r")).toEqual({ events: [], skipped: 0 });
 	});
 });
 
@@ -151,6 +164,68 @@ describe("readLatestRunId", () => {
 		mockGet.mockResolvedValue({ empty: true, docs: [] });
 		const { readLatestRunId } = await import("../reader");
 		expect(await readLatestRunId("app-1")).toBeNull();
+	});
+
+	it("returns the runId of a drifted newest event (raw envelope read)", async () => {
+		// A forward-version newest event whose payload `eventSchema` would
+		// reject — only the `runId` envelope field is present. `readLatestRunId`
+		// reads raw (no converter), so it must still return the runId instead of
+		// throwing and stranding replay/admin on "no recent run". (The mock's
+		// `data()` returns the object directly without parsing, so it documents
+		// the resilience contract rather than mechanically proving the converter
+		// is absent.)
+		mockGet.mockResolvedValue({
+			empty: false,
+			docs: [{ data: () => ({ runId: "latest" }) }],
+		});
+		const { readLatestRunId } = await import("../reader");
+		expect(await readLatestRunId("app-1")).toBe("latest");
+	});
+});
+
+describe("decodeEventsLenient", () => {
+	/**
+	 * The core resilience contract: a doc whose converter `.data()` throws
+	 * (forward-version payload / schema drift) is dropped and counted, while
+	 * the valid docs around it still load. Before this, one bad doc aborted
+	 * the entire stream read (the failure that crashed `inspect-logs` on
+	 * `attachment-prep` events).
+	 */
+	it("drops docs whose data() throws and keeps the valid ones", async () => {
+		const goodEvent: Event = {
+			kind: "mutation",
+			runId: "r",
+			ts: 1,
+			seq: 0,
+			source: "chat",
+			actor: "agent",
+			mutation: { kind: "setAppName", name: "a" },
+		};
+		// QueryDocumentSnapshot is structurally just `{ data(): Event }` here.
+		const goodDoc = { data: () => goodEvent };
+		const badDoc = {
+			data: () => {
+				throw new Error("Unrecognized payload type 'attachment-prep'");
+			},
+		};
+		const secondBadDoc = {
+			data: () => {
+				throw new Error("some later, different failure");
+			},
+		};
+		const { decodeEventsLenient } = await import("../reader");
+		const { events, skipped, sample } = decodeEventsLenient([
+			goodDoc,
+			badDoc,
+			goodDoc,
+			secondBadDoc,
+			// biome-ignore lint/suspicious/noExplicitAny: structural snapshot stub
+		] as any);
+		expect(events).toEqual([goodEvent, goodEvent]);
+		expect(skipped).toBe(2);
+		// `sample` captures the FIRST failure, not the last (one representative
+		// message is enough; the count carries the rest).
+		expect(sample).toContain("attachment-prep");
 	});
 });
 

@@ -48,7 +48,10 @@ import {
 } from "../blueprintHelpers";
 import { unescapeXPath } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { editFieldUpdatesSchema } from "../toolSchemas";
+import {
+	editFieldUpdatesSchema,
+	type wideEditUpdatesSchema,
+} from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
@@ -88,8 +91,18 @@ export type EditFieldResult = MutationSuccess | { error: string };
  * absent, the edit path reserves `null` for "clear" so the SA has an
  * unambiguous way to remove a property a user explicitly unset.
  */
+/**
+ * The WIDE edit-patch shape minus identity/discriminant. The per-kind edit
+ * union tool input narrows this per arm; the mapper reads against the wide
+ * shape so it touches any declared key without narrowing on `kind`.
+ */
+type EditUpdatesPatch = Omit<
+	z.infer<typeof wideEditUpdatesSchema>,
+	"id" | "kind"
+>;
+
 function editPatchToFieldPatch(
-	updates: Omit<z.infer<typeof editFieldUpdatesSchema>, "id" | "kind">,
+	updates: EditUpdatesPatch,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
 	// Plain scalars: SA passes a new value, `null` to clear, or omits to
@@ -172,7 +185,7 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update properties on an existing field. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
+		"Update properties on an existing field. Pass the field's current kind to edit it in place — that selects the set of properties this kind actually has; passing a different kind requests a conversion to that kind. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
@@ -219,12 +232,22 @@ export const editFieldTool = {
 				const fromKind = resolved.field.kind;
 				const allowed = getConvertibleTypes(fromKind);
 				if (!allowed.includes(newKind)) {
+					// The passed `kind` is neither the field's actual kind nor a
+					// legal conversion target. Name the ACTUAL kind so the agent
+					// can correct in one turn — most often it meant to edit in
+					// place and passed the wrong kind, so lead with the right one,
+					// then compose the convert hint to read naturally whether or
+					// not this kind has any conversion targets.
+					const convertHint =
+						allowed.length > 0
+							? ` To convert it to a different kind, pass one of: ${allowed.join(", ")}.`
+							: ` A "${fromKind}" field can't be converted to another kind.`;
 					return {
 						kind: "mutate" as const,
 						mutations: [],
 						newDoc: doc,
 						result: {
-							error: `Cannot convert ${fromKind} to ${newKind}. Valid targets: ${allowed.length > 0 ? allowed.join(", ") : "(none)"}.`,
+							error: `Field "${fieldId}" is a "${fromKind}" field, but you passed kind="${newKind}". To edit it in place, pass kind="${fromKind}".${convertHint}`,
 						},
 					};
 				}
@@ -306,7 +329,11 @@ export const editFieldTool = {
 			// so anything slipping through here that doesn't fit the
 			// (possibly just-converted) kind is logged and no-ops safely.
 			if (Object.keys(fieldUpdates).length > 0) {
-				const patch = editPatchToFieldPatch(fieldUpdates);
+				// `fieldUpdates` is one validated per-kind union arm's rest; TS
+				// infers its conditionally-present keys as `unknown`, so bridge
+				// to the wide patch shape (sound — the arm is a structural
+				// subset).
+				const patch = editPatchToFieldPatch(fieldUpdates as EditUpdatesPatch);
 				if (Object.keys(patch).length > 0) {
 					// `afterRename.field.kind` is the kind after any
 					// just-applied conversion — pass it as `targetKind` so
@@ -331,7 +358,11 @@ export const editFieldTool = {
 			}
 
 			const postField = workingDoc.fields[afterRename.field.uuid];
-			const changedFields = Object.keys(updates).join(", ");
+			// `kind` is always present (it's the edit union's discriminator), so
+			// only list it as a change when it was an actual conversion.
+			const changedKeys = Object.keys(updates).filter(
+				(k) => k !== "kind" || newKind !== resolved.field.kind,
+			);
 			const renameNote =
 				newId && newId !== fieldId ? ` (renamed from "${fieldId}")` : "";
 			// `afterRename` already carries the form's uuid — read the display
@@ -342,12 +373,19 @@ export const editFieldTool = {
 				`m${moduleIndex}-f${formIndex}`;
 			const label = postField && "label" in postField ? postField.label : "";
 			const kind = postField?.kind ?? "unknown";
+			// Report honestly when the call carried only the `kind` discriminator
+			// and no rename — nothing actually changed, so don't claim a change
+			// list ("Changed: .") the SA would read as a successful edit.
+			const changeNote =
+				changedKeys.length > 0
+					? `Changed: ${changedKeys.join(", ")}.`
+					: "No property values changed.";
 			return {
 				kind: "mutate" as const,
 				mutations: allMutations,
 				newDoc: workingDoc,
 				result: {
-					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". Changed: ${changedFields}. Current label: "${label}", kind: ${kind}.`,
+					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.`,
 					summary: {
 						location: formName,
 						subject: label || finalId,

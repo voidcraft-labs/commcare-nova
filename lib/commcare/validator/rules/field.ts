@@ -144,6 +144,72 @@ function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
 	];
 }
 
+/**
+ * `required` makes no sense on a hidden field. The field is never shown, so
+ * the user can't fill it — if its computed / default value ever resolves
+ * empty while marked required, the form blocks submission with no visible
+ * input to remedy. CommCare's authoring model forbids it outright: Vellum's
+ * DataBindOnly (the Hidden Value type) sets `requiredAttr: notallowed`. The
+ * field schema already drops `required` from `hidden`; this rule is the
+ * backstop for a value that reaches the doc through a lenient path, so the
+ * mistake surfaces as a clear message instead of a silently-dropped bind.
+ */
+function requiredOnHidden(field: Field, ctx: FieldContext): ValidationError[] {
+	if (field.kind !== "hidden") return [];
+	const required = readString(field, "required");
+	if (!required) return [];
+	return [
+		validationError(
+			"REQUIRED_ON_HIDDEN",
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" is a hidden field with \`required\` set, but a hidden field is never shown to the user — if its value ever comes out empty the form can't be submitted and there's no input on screen to fix it. Hidden fields can't be required. Clear \`required\`; if someone really must answer this, make it a visible field (change its kind).`,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+			},
+		),
+	];
+}
+
+/**
+ * `calculate` belongs ONLY on a hidden field. On a visible input it's the
+ * read-only-but-looks-editable footgun: the control still renders, but its
+ * value is silently overwritten by the recompute, so the user types into a
+ * field that ignores them. CommCare's authoring model agrees — Vellum shows
+ * the calculate widget only on hidden nodes (`calculateAttr: visible_if_present`,
+ * "highly discouraged" on data inputs). The sibling of `requiredOnHidden`:
+ * the field schema drops `calculate` from every visible kind, and this rule
+ * backstops a value that reaches the doc through a lenient path with a clear
+ * message rather than a silently-mishandled bind.
+ */
+function calculateOnVisibleInput(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (field.kind === "hidden") return [];
+	const calculate = readString(field, "calculate");
+	if (!calculate) return [];
+	return [
+		validationError(
+			"CALCULATE_ON_VISIBLE_INPUT",
+			"field",
+			`Field "${field.id}" (kind "${field.kind}") in "${ctx.formName}" has a \`calculate\` set, but only a hidden field can carry one. On a visible field a \`calculate\` makes it read-only — the user sees an editable control whose value is silently replaced by the computed result, so their input is ignored. Move the computed value to a hidden field and reference it, or clear \`calculate\` to let the user enter the value.`,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+			},
+		),
+	];
+}
+
 function unquotedStringLiteral(
 	field: Field,
 	ctx: FieldContext,
@@ -482,6 +548,8 @@ function fixtureReferenceNotModeled(
 const FIELD_RULES = [
 	selectNoOptions,
 	hiddenNoValue,
+	requiredOnHidden,
+	calculateOnVisibleInput,
 	unquotedStringLiteral,
 	invalidFieldId,
 	reservedFieldIdPrefix,

@@ -366,7 +366,7 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  *      needed.
  *   3. Filter the candidate to the destination kind's known keys via
  *      `pickFieldKeysForKind`, dropping any property the destination
- *      schema doesn't declare (e.g. `calculate` when going text→secret,
+ *      schema doesn't declare (e.g. `validate` when going text→geopoint,
  *      `repeat_mode` when going repeat→group).
  *   4. Validate the filtered candidate against `fieldSchema`. A failure
  *      means the source was missing a key the destination requires
@@ -394,11 +394,12 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  *
  * Special cases:
  *   - `single_select` ↔ `multi_select`: `options` transfers verbatim.
- *   - `text` ↔ `secret`: no options, no calculate on secret — validate/
- *     relevant/required/hint/case_property_on carry over.
+ *   - `text` ↔ `secret`: no options on either — validate / relevant /
+ *     required / hint / default_value / case_property_on carry over
+ *     (neither carries `calculate`; that's a `hidden`-only slot).
  *   - Media subkinds (image/audio/video/signature): identity + label +
- *     hint + required + relevant carry over; no calculate, no
- *     case_property_on, no validate (not in media schemas today).
+ *     hint + required + relevant carry over; no case_property_on, no
+ *     validate (not in media schemas today).
  *   - `group` ↔ `repeat`: container; only identity + label + relevant
  *     carry over. Children are untouched — they stay in `fieldOrder`
  *     under the same parent uuid, which is still a valid container after

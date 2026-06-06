@@ -6,7 +6,6 @@
  * admin check needed here.
  */
 import { readEvents, readLatestRunId } from "@/lib/log/reader";
-import type { Event } from "@/lib/log/types";
 import { ReplayBuilder } from "./replay-builder";
 
 interface ReplayPageProps {
@@ -35,8 +34,18 @@ export default async function ReplayPage({ params }: ReplayPageProps) {
 	const runId = await readLatestRunId(id);
 	if (!runId) return <EmptyState />;
 
-	const events: Event[] = await readEvents(id, runId);
+	// `skipped` > 0 means some events failed schema validation and were
+	// dropped — the replay reconstructs from mutations in order, so a missing
+	// mutation can render a state that never existed during the real run.
+	// Pass it through so the viewer is warned the replay may be incomplete.
+	const { events, skipped } = await readEvents(id, runId);
 	if (events.length === 0) return <EmptyState />;
 
-	return <ReplayBuilder events={events} exitPath="/admin" />;
+	return (
+		<ReplayBuilder
+			events={events}
+			exitPath="/admin"
+			skippedEventCount={skipped}
+		/>
+	);
 }
