@@ -20,6 +20,11 @@ import type { MediaAssetView } from "@/components/builder/media/mediaClient";
 import { CharCounter } from "@/components/chat/CharCounter";
 import { ChatAttachmentBar } from "@/components/chat/ChatAttachmentBar";
 import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
+import {
 	type AttachmentRef,
 	CHAT_ATTACHMENT_KINDS,
 } from "@/lib/chat/attachmentRefs";
@@ -201,16 +206,22 @@ export function ChatInput({
 						 *  flight (staging something you can't yet send reads as broken)
 						 *  AND while a question card is awaiting a reply — that send is a
 						 *  text-only answer, so an attachment couldn't ride it anyway. */}
-						<button
-							type="button"
-							onClick={() => setPickerOpen(true)}
-							disabled={disabled || answerPending}
-							aria-label="Attach a file"
-							title="Attach a file"
-							className="flex size-8 cursor-pointer items-center justify-center rounded-md text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:cursor-default disabled:opacity-50"
-						>
-							<Icon icon={tablerPaperclip} className="size-4" />
-						</button>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<button
+										type="button"
+										onClick={() => setPickerOpen(true)}
+										disabled={disabled || answerPending}
+										aria-label="Attach a file"
+										className="flex size-8 cursor-pointer items-center justify-center rounded-md text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:cursor-default disabled:opacity-50"
+									>
+										<Icon icon={tablerPaperclip} className="size-4" />
+									</button>
+								}
+							/>
+							<TooltipContent>Attach a file</TooltipContent>
+						</Tooltip>
 					</PromptInputTools>
 					{/* Counter + submit grouped on the right. The counter is hidden until
 					 *  the text nears the limit; the submit is disabled when the text is

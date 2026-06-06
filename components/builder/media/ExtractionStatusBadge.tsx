@@ -15,6 +15,11 @@ import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { Badge } from "@/components/shadcn/badge";
 import { Spinner } from "@/components/shadcn/spinner";
 import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
+import {
 	type ExtractableAsset,
 	useDocumentExtraction,
 } from "./useDocumentExtraction";
@@ -26,40 +31,60 @@ export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
 
 	if (status === "extracting") {
 		return (
-			<Badge
-				variant="secondary"
-				title="Reading this document into the extract the assistant uses"
-			>
-				<Spinner className="size-3" />
-				Reading…
-			</Badge>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Badge variant="secondary">
+							<Spinner className="size-3" />
+							Reading…
+						</Badge>
+					}
+				/>
+				<TooltipContent>
+					Reading this document into the extract the assistant uses
+				</TooltipContent>
+			</Tooltip>
 		);
 	}
 
 	if (status === "failed") {
 		// Render the badge as a button so a failed extract is one click to retry.
 		return (
-			<Badge
-				variant="destructive"
-				title="Couldn't read this document — click to try again"
-				render={
-					<button type="button" onClick={retry}>
-						<Icon icon={tablerAlertTriangle} />
-						Retry
-					</button>
-				}
-			/>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Badge
+							variant="destructive"
+							render={
+								<button type="button" onClick={retry}>
+									<Icon icon={tablerAlertTriangle} />
+									Retry
+								</button>
+							}
+						/>
+					}
+				/>
+				<TooltipContent>
+					Couldn't read this document — click to try again
+				</TooltipContent>
+			</Tooltip>
 		);
 	}
 
 	// ready
 	return (
-		<Badge
-			variant="outline"
-			title="The assistant has read this document into its extract"
-		>
-			<Icon icon={tablerSparkles} />
-			Extracted
-		</Badge>
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<Badge variant="outline">
+						<Icon icon={tablerSparkles} />
+						Extracted
+					</Badge>
+				}
+			/>
+			<TooltipContent>
+				The assistant has read this document into its extract
+			</TooltipContent>
+		</Tooltip>
 	);
 }

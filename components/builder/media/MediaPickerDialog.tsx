@@ -26,6 +26,11 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef, useState } from "react";
 import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
+import {
 	type AssetKind,
 	assetKindForMimeType,
 	isDocumentKind,
@@ -529,36 +534,49 @@ function LibraryTab({
 									<button
 										type="button"
 										onClick={() => onPick(asset)}
-										title={fileName}
 										className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 									>
 										<LibraryThumb asset={asset} />
 									</button>
 									{/* Preview without picking — a sibling of the pick button
 									 *  (not nested), revealed on hover/focus. Lets a user check
-									 *  a document's "What the AI reads" extract before attaching. */}
-									<button
-										type="button"
-										onClick={() => onPreview(asset)}
-										title={`Preview ${fileName}`}
-										aria-label={`Preview ${fileName}`}
-										className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-text focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-violet-bright group-hover:opacity-100"
-									>
-										<Icon icon={tablerEye} className="size-3.5" />
-									</button>
+									 *  a document's "What the AI reads" extract before attaching.
+									 *  Tooltip.Root emits no DOM, so the button stays an absolute
+									 *  sibling anchored to the relative wrapper. */}
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<button
+													type="button"
+													onClick={() => onPreview(asset)}
+													aria-label={`Preview ${fileName}`}
+													className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-text focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-violet-bright group-hover:opacity-100"
+												>
+													<Icon icon={tablerEye} className="size-3.5" />
+												</button>
+											}
+										/>
+										<TooltipContent>Preview</TooltipContent>
+									</Tooltip>
 									{/* Delete — a sibling of the pick button (not nested),
 									 *  top-left so it doesn't collide with the preview
 									 *  affordance. Opens a confirmation before removing the
 									 *  asset from the library. */}
-									<button
-										type="button"
-										onClick={() => onDelete(asset)}
-										title={`Delete ${fileName}`}
-										aria-label={`Delete ${fileName}`}
-										className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-rose focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-rose group-hover:opacity-100"
-									>
-										<Icon icon={tablerTrash} className="size-3.5" />
-									</button>
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<button
+													type="button"
+													onClick={() => onDelete(asset)}
+													aria-label={`Delete ${fileName}`}
+													className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-rose focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-rose group-hover:opacity-100"
+												>
+													<Icon icon={tablerTrash} className="size-3.5" />
+												</button>
+											}
+										/>
+										<TooltipContent>Delete</TooltipContent>
+									</Tooltip>
 									{/* Extraction indicator for documents — a sibling of the
 									 *  pick button (not nested), so the failed-state retry
 									 *  control isn't interactive content inside a button.
@@ -569,24 +587,31 @@ function LibraryTab({
 										</div>
 									)}
 								</div>
-								{/* Caption — the filename is now always visible (it used to
-								 *  live only in the hover `title`), with the AI title beneath
-								 *  it for documents. Both single-line-clamp; the full value
-								 *  stays in the hover tooltip. */}
+								{/* Caption — the filename is always visible, with the AI title
+								 *  beneath it for documents. Both single-line-clamp; a hover
+								 *  tooltip reveals the full value when it's truncated. */}
 								<div className="mt-1.5 space-y-0.5">
-									<p
-										className="truncate text-xs leading-tight text-nova-text"
-										title={fileName}
-									>
-										{fileName}
-									</p>
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<p className="truncate text-xs leading-tight text-nova-text">
+													{fileName}
+												</p>
+											}
+										/>
+										<TooltipContent>{fileName}</TooltipContent>
+									</Tooltip>
 									{docTitle && (
-										<p
-											className="truncate text-[11px] leading-tight text-nova-text-muted"
-											title={docTitle}
-										>
-											{docTitle}
-										</p>
+										<Tooltip>
+											<TooltipTrigger
+												render={
+													<p className="truncate text-[11px] leading-tight text-nova-text-muted">
+														{docTitle}
+													</p>
+												}
+											/>
+											<TooltipContent>{docTitle}</TooltipContent>
+										</Tooltip>
 									)}
 								</div>
 							</li>

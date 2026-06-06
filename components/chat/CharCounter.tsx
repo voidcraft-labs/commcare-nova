@@ -1,5 +1,10 @@
 "use client";
 import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
+import {
 	CHAR_COUNTER_DANGER_AT,
 	CHAR_COUNTER_VISIBLE_AT,
 } from "@/lib/chat/limits";
@@ -30,7 +35,7 @@ export function CharCounter({ length, max }: { length: number; max: number }) {
 					(CHAR_COUNTER_DANGER_AT - CHAR_COUNTER_VISIBLE_AT),
 			);
 
-	return (
+	const counter = (
 		<span
 			className="select-none text-[11px] tabular-nums tracking-tight"
 			style={{
@@ -38,13 +43,20 @@ export function CharCounter({ length, max }: { length: number; max: number }) {
 				color: over ? "var(--nova-rose)" : "var(--nova-amber)",
 			}}
 			aria-live="polite"
-			title={
-				over
-					? `Over the ${max.toLocaleString()}-character limit — trim to send`
-					: undefined
-			}
 		>
 			{length.toLocaleString()}/{max.toLocaleString()}
 		</span>
+	);
+
+	// Over the limit, a tooltip spells out why send is blocked; below it there's
+	// nothing to add, so the bare counter renders without one.
+	if (!over) return counter;
+	return (
+		<Tooltip>
+			<TooltipTrigger render={counter} />
+			<TooltipContent>
+				Over the {max.toLocaleString()}-character limit — trim to send
+			</TooltipContent>
+		</Tooltip>
 	);
 }

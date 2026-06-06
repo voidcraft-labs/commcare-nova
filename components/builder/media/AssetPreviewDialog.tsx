@@ -28,6 +28,11 @@ import {
 	TabsList,
 	TabsTrigger,
 } from "@/components/shadcn/tabs";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
 import { type AssetKind, isDocumentKind } from "@/lib/domain/multimedia";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { fetchAssetExtract, mediaSrc } from "./mediaClient";
@@ -100,12 +105,16 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 						<span className="truncate">{target.title ?? name}</span>
 					</Dialog.Title>
 					{target.title && (
-						<p
-							className="truncate pl-6 text-xs text-nova-text-muted"
-							title={name}
-						>
-							{name}
-						</p>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<p className="truncate pl-6 text-xs text-nova-text-muted">
+										{name}
+									</p>
+								}
+							/>
+							<TooltipContent>{name}</TooltipContent>
+						</Tooltip>
 					)}
 				</div>
 				<Dialog.Close

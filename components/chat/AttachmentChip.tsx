@@ -3,6 +3,11 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import type { ReactNode } from "react";
 import { ASSET_KIND_META } from "@/components/builder/media/assetKindMeta";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
 import type { AssetKind } from "@/lib/domain/multimedia";
 import { cn } from "@/lib/utils";
 
@@ -56,32 +61,44 @@ export function AttachmentChip({
 	return (
 		<div className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md border border-nova-border bg-nova-surface py-1 pr-1 pl-2 text-xs text-nova-text-secondary">
 			{onPreview ? (
-				<button
-					type="button"
-					onClick={onPreview}
-					title={`Preview ${filename}`}
-					className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
-				>
-					{label}
-				</button>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<button
+								type="button"
+								onClick={onPreview}
+								className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+							>
+								{label}
+							</button>
+						}
+					/>
+					<TooltipContent>Preview</TooltipContent>
+				</Tooltip>
 			) : (
 				<span className="flex min-w-0 items-center gap-1.5">{label}</span>
 			)}
 			{trailing}
 			{onRemove && (
-				<button
-					type="button"
-					onClick={onRemove}
-					title={`Remove ${filename}`}
-					className={cn(
-						"flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm",
-						"text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text",
-						"focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
-					)}
-					aria-label={`Remove ${filename}`}
-				>
-					<Icon icon={tablerX} className="size-3" />
-				</button>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<button
+								type="button"
+								onClick={onRemove}
+								className={cn(
+									"flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm",
+									"text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text",
+									"focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
+								)}
+								aria-label={`Remove ${filename}`}
+							>
+								<Icon icon={tablerX} className="size-3" />
+							</button>
+						}
+					/>
+					<TooltipContent>Remove</TooltipContent>
+				</Tooltip>
 			)}
 		</div>
 	);
