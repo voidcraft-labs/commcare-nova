@@ -187,7 +187,7 @@ export async function POST(req: Request) {
 		 * stream) so a resume that then hard-kills becomes reapable again. A no-op
 		 * for an ordinary edit (the field is absent). The run re-sets it below if it
 		 * pauses on a question again. */
-		setAwaitingInput(appId, false);
+		void setAwaitingInput(appId, false);
 	}
 
 	// Concurrency guard — only one generation at a time per user. Prevents
@@ -661,7 +661,7 @@ export async function POST(req: Request) {
 					 * POST will resume it. The charge stands (the clean finally's
 					 * `finalizeRun()` flushes it); the flag is cleared when that POST
 					 * resumes the run. */
-					setAwaitingInput(appId, true);
+					await setAwaitingInput(appId, true);
 				}
 			} catch (error) {
 				/* Init/build error around the stream setup (a bad message shape, an

@@ -86,7 +86,7 @@ describe("setAwaitingInput", () => {
 		// concurrent list scan (whose reaper excludes no appId) could refund its
 		// still-live hold before its first mutation advances `updated_at`.
 		const { setAwaitingInput } = await import("../apps");
-		setAwaitingInput("app-1", false);
+		void setAwaitingInput("app-1", false);
 
 		expect(appSetMock).toHaveBeenCalledTimes(1);
 		const [payload, options] = appSetMock.mock.calls[0];
@@ -97,7 +97,7 @@ describe("setAwaitingInput", () => {
 
 	it("setting (pause) does NOT bump updated_at — the flag, not the clock, protects a pause", async () => {
 		const { setAwaitingInput } = await import("../apps");
-		setAwaitingInput("app-1", true);
+		void setAwaitingInput("app-1", true);
 
 		expect(appSetMock).toHaveBeenCalledTimes(1);
 		const [payload] = appSetMock.mock.calls[0];

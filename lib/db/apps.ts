@@ -451,12 +451,18 @@ export function failApp(appId: string, errorType: ErrorType): void {
  * The SET path must NOT bump the clock (the flag, not the timestamp, protects a
  * pause; bumping there would only blur a real hard-kill's staleness).
  *
- * Fire-and-forget — a stale write must never block the response, and the
- * reaper/list inference is the backstop if it races; the write lands in
- * milliseconds, far inside the 10-minute staleness window it guards.
+ * Returns the (self-catching) write promise. The route AWAITS the pause SET so
+ * the flag is durably recorded before the response resolves — a container kill
+ * after that point can't drop it and leave a live paused build reapable. The
+ * resume CLEAR stays fire-and-forget (its rare write-failure degrades to the
+ * already-accepted "abandoned paused build keeps its charge"). Either way the
+ * write lands in milliseconds, far inside the 10-minute staleness window.
  */
-export function setAwaitingInput(appId: string, awaiting: boolean): void {
-	docs
+export function setAwaitingInput(
+	appId: string,
+	awaiting: boolean,
+): Promise<void> {
+	return docs
 		.app(appId)
 		.set(
 			awaiting
@@ -464,8 +470,14 @@ export function setAwaitingInput(appId: string, awaiting: boolean): void {
 				: { awaiting_input: false, updated_at: FieldValue.serverTimestamp() },
 			{ merge: true },
 		)
-		.catch((err) =>
-			log.error("[setAwaitingInput] Firestore write failed", err),
+		.then(
+			// Discard the WriteResult so the promise is `void`, and swallow errors
+			// (observability must never block the response) — the same fire-and-forget
+			// contract `failApp` has, just awaitable for the durable pause SET.
+			() => {},
+			(err) => {
+				log.error("[setAwaitingInput] Firestore write failed", err);
+			},
 		);
 }
 
