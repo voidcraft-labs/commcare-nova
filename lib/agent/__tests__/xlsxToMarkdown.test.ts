@@ -6,9 +6,20 @@
  * place that logic survives the office→markdown conversion.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import { xlsxToMarkdown } from "../documentExtraction";
+
+/* Importing `documentExtraction` pulls in mammoth, which pulls in bluebird —
+ * bluebird creates a module-level promise at import time that the async-leak
+ * detector flags (failing the pre-push gate). `xlsxToMarkdown` never touches
+ * mammoth, so mocking it at the import boundary keeps the real module (and
+ * bluebird) from loading; matches the sibling extraction tests. */
+vi.mock("mammoth", () => ({
+	default: {
+		convertToMarkdown: vi.fn(async () => ({ value: "" })),
+	},
+}));
 
 /** Build an .xlsx buffer from a map of sheet name → array-of-arrays. A cell may
  *  be a primitive (value) or a `CellObject` carrying a formula (`f`). Writing
