@@ -107,11 +107,6 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 							{name}
 						</p>
 					)}
-					{target.summary && (
-						<p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-nova-text-secondary">
-							{target.summary}
-						</p>
-					)}
 				</div>
 				<Dialog.Close
 					className="shrink-0 rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
@@ -120,6 +115,17 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					<Icon icon={tablerX} className="size-4" />
 				</Dialog.Close>
 			</header>
+
+			{/* The summary gets its own zone below the header — document-level
+			 *  orientation that reads against either tab — so the title row stays a
+			 *  tight identity line instead of carrying a multi-line blurb. */}
+			{target.summary && (
+				<div className="shrink-0 border-b border-nova-border px-4 py-3">
+					<p className="text-sm leading-relaxed text-nova-text-secondary">
+						{target.summary}
+					</p>
+				</div>
+			)}
 
 			{isDocument ? (
 				<Tabs defaultValue="document" className="min-h-0 flex-1 gap-0 p-4 pt-3">
