@@ -42,7 +42,6 @@ export function CharCounter({ length, max }: { length: number; max: number }) {
 				opacity,
 				color: over ? "var(--nova-rose)" : "var(--nova-amber)",
 			}}
-			aria-live="polite"
 		>
 			{length.toLocaleString()}/{max.toLocaleString()}
 		</span>
