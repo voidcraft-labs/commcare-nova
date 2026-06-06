@@ -73,7 +73,7 @@ export function AttachmentChip({
 							</button>
 						}
 					/>
-					<TooltipContent>Preview</TooltipContent>
+					<TooltipContent>{filename}</TooltipContent>
 				</Tooltip>
 			) : (
 				<span className="flex min-w-0 items-center gap-1.5">{label}</span>

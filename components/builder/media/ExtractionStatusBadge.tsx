@@ -11,7 +11,6 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
-import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { Badge } from "@/components/shadcn/badge";
 import { Spinner } from "@/components/shadcn/spinner";
 import {
@@ -19,6 +18,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
+import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
 import {
 	type ExtractableAsset,
 	useDocumentExtraction,
@@ -69,18 +69,13 @@ export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
 		);
 	}
 
-	// ready
+	// ready — the clickable info popover takes the decorative sparkles' place
+	// (sized to the badge's icon so the chip doesn't widen) and explains what the
+	// assistant reads on click; no hover tooltip, the one affordance is enough.
 	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Badge variant="outline">
-						<Icon icon={tablerSparkles} />
-						Extracted
-					</Badge>
-				}
-			/>
-			<TooltipContent>Read into the assistant's extract</TooltipContent>
-		</Tooltip>
+		<Badge variant="outline">
+			<ExtractionInfoPopover className="size-3" />
+			Extracted
+		</Badge>
 	);
 }

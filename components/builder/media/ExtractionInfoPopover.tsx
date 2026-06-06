@@ -17,15 +17,24 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
+import { cn } from "@/lib/utils";
 
-export function ExtractionInfoPopover() {
+/**
+ * `className` sizes the trigger (the icon fills it via `size-full`), so callers
+ * can shrink it to fit a tight host — e.g. `size-3` to sit inside a Badge
+ * without widening it. Defaults to `size-4`.
+ */
+export function ExtractionInfoPopover({ className }: { className?: string }) {
 	return (
 		<Popover>
 			<PopoverTrigger
-				className="inline-flex size-4 items-center justify-center rounded-full text-nova-text-muted transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+				className={cn(
+					"inline-flex size-4 items-center justify-center rounded-full text-nova-text-muted transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
+					className,
+				)}
 				aria-label="What does the assistant read from a document?"
 			>
-				<Icon icon={tablerInfoCircle} className="size-4" />
+				<Icon icon={tablerInfoCircle} className="size-full" />
 			</PopoverTrigger>
 			<PopoverContent className="w-80">
 				<PopoverHeader>
