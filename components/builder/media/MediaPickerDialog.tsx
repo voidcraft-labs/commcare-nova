@@ -218,6 +218,8 @@ function PickerBody({
 								id: asset.id,
 								kind: asset.kind,
 								filename: asset.displayName ?? asset.originalFilename,
+								title: asset.extract?.title,
+								summary: asset.extract?.summary,
 							})
 						}
 						onDelete={setDeleteTarget}
