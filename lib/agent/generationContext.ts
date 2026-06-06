@@ -16,8 +16,9 @@
  *    the blueprint snapshot on `AppDoc` is still authoritative.
  *  - **Usage (`UsageAccumulator`)** — per-request token + cost aggregation
  *    flushed once at request end. Outer agent steps carry `{ step: true }`;
- *    sub-gens (internal `generate` / `generatePlainText` / `streamGenerate`
- *    calls) accumulate tokens without stepping the counter.
+ *    sub-gens (internal `generate` / `streamGenerate` /
+ *    `extractDocumentStructured` calls) accumulate tokens without stepping
+ *    the counter.
  *
  * Implements `ToolExecutionContext` — the narrow interface extracted tool
  * modules consume. `recordMutations` + `recordConversation` are the
@@ -25,8 +26,8 @@
  * the chat-surface implementations (with SSE fan-out) that the interface
  * methods delegate to.
  *
- * Sub-generation prompts/outputs (from `generate`, `generatePlainText`,
- * `streamGenerate`) are intentionally NOT persisted in the event log — only
+ * Sub-generation prompts/outputs (from `generate`, `streamGenerate`,
+ * `extractDocumentStructured`) are intentionally NOT persisted in the event log — only
  * aggregate token usage. The log is supplemental and does not carry
  * per-tool payloads. Admin inspection surfaces should rely on per-run
  * summary docs and on agent-step-granularity conversation events.
@@ -609,8 +610,8 @@ export class GenerationContext implements ToolExecutionContext {
 	/**
 	 * Record token usage for a sub-generation LLM call.
 	 *
-	 * Sub-gens are the inner `generate` / `generatePlainText` /
-	 * `streamGenerate` calls the SA's tools issue. They count toward the
+	 * Sub-gens are the inner `generate` / `streamGenerate` /
+	 * `extractDocumentStructured` calls the SA's tools issue. They count toward the
 	 * run summary's token totals but NOT toward `stepCount` — only outer
 	 * agent steps (handled by `handleAgentStep`) produce "steps" in the
 	 * run-summary sense.

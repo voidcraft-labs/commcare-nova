@@ -172,9 +172,10 @@ export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
  * Open questions and never resolved — reconciling across documents is the
  * architect's job, done later with full context. This prompt governs the
  * `extract` only; `title`/`summary` are specified solely by their schema
- * `.describe()`s. The filename the model echoes in its `Source:` line is supplied
- * per call in the user turn (never in this cached system prefix); see
- * `extractDocument`.
+ * `.describe()`s. The document's filename is supplied per call in the user turn
+ * (never in this cached system prefix): it leads the turn as metadata so the
+ * model can ground the `title`/`summary` and name the document in its findings
+ * without fabricating one. See `extractDocument`.
  */
 export const EXTRACT_SYSTEM = `# Document Requirements Extractor
 
@@ -360,12 +361,12 @@ export const extractDocumentSchema = z.object({
 	title: z
 		.string()
 		.describe(
-			'A short, human title for the document — what it IS, in roughly ten words or fewer (e.g. "ANC Program — Data Collection Requirements"). No filename, no surrounding quotes.',
+			'A short, human title for the document — what it IS, in roughly ten words or fewer (e.g. "ANC Program — Data Collection Requirements"). No filename, no surrounding quotes. Never put PHI (a name, contact number, or identifier) in the title — name the document type generically instead.',
 		),
 	summary: z
 		.string()
 		.describe(
-			"Two to four sentences in plain prose (no markdown): what this document is and what it covers, enough for someone to judge whether it's the one they need without opening the full extract.",
+			"Two to four sentences in plain prose (no markdown): what this document is and what it covers, enough for someone to judge whether it's the one they need without opening the full extract. Never put PHI (names, contact numbers, identifiers) in the summary; describe the content generically.",
 		),
 	extract: z
 		.string()
@@ -541,9 +542,9 @@ export async function extractDocument(opts: {
 		result = await condenser.extractDocumentStructured({
 			system: EXTRACT_SYSTEM,
 			// The filename leads the user turn (separated from the body by a blank
-			// line so it reads as metadata, not a requirement) — it's the only way
-			// the model can fill the prompt's `Source:` line without violating the
-			// same prompt's "never invent a value" rule. The body follows verbatim.
+			// line so it reads as metadata, not a requirement) so the model can
+			// ground the `title`/`summary` and name the document in its findings
+			// without fabricating one. The body follows verbatim.
 			prompt: `Filename: ${filename}\n\n${body}`,
 			schema: extractDocumentSchema,
 			label: `extract:${filename}`,

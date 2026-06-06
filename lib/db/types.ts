@@ -396,8 +396,9 @@ export const mediaAssetDocSchema = z.object({
 	 *  - `charCount` is the extract length (for a "long document" hint in UI).
 	 *  - `failureReason` is set only when `status === "failed"`.
 	 *  - `title` / `summary` are a short label + a few-sentence précis of the
-	 *    document, produced by a separate structured pass over the extract. Both
-	 *    are optional/best-effort (absent when that pass failed, or on an older
+	 *    document, produced in the SAME single structured extraction call as the
+	 *    extract (the schema writes them before the extract body, in schema order).
+	 *    Both are optional/best-effort (absent when that call failed, or on an older
 	 *    extractor version). They exist for a future "browse my attachments" tool
 	 *    to scan attachments without opening each extract — not read by the SA.
 	 */
