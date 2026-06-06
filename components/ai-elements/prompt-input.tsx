@@ -2,12 +2,9 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
-import tablerPhoto from "@iconify-icons/tabler/photo";
 import tablerPlayerStopFilled from "@iconify-icons/tabler/player-stop-filled";
-import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from "ai";
-import { nanoid } from "nanoid";
 import type {
 	ChangeEvent,
 	ChangeEventHandler,
@@ -19,11 +16,9 @@ import type {
 	HTMLAttributes,
 	KeyboardEventHandler,
 	PropsWithChildren,
-	ReactNode,
 	RefObject,
 } from "react";
 import {
-	Children,
 	createContext,
 	useCallback,
 	useContext,
@@ -33,23 +28,12 @@ import {
 	useState,
 } from "react";
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/shadcn/dropdown-menu";
-import {
 	InputGroup,
 	InputGroupAddon,
 	InputGroupButton,
 	InputGroupTextarea,
 } from "@/components/shadcn/input-group";
 import { Spinner } from "@/components/shadcn/spinner";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/shadcn/tooltip";
 import { cn } from "@/lib/utils";
 
 // ============================================================================
@@ -179,7 +163,7 @@ export const PromptInputProvider = ({
 			...prev,
 			...incoming.map((file) => ({
 				filename: file.name,
-				id: nanoid(),
+				id: crypto.randomUUID(),
 				mediaType: file.type,
 				type: "file" as const,
 				url: URL.createObjectURL(file),
@@ -316,41 +300,6 @@ export const usePromptInputReferencedSources = () => {
 		);
 	}
 	return ctx;
-};
-
-export type PromptInputActionAddAttachmentsProps = ComponentProps<
-	typeof DropdownMenuItem
-> & {
-	label?: string;
-};
-
-export const PromptInputActionAddAttachments = ({
-	label = "Add photos or files",
-	...props
-}: PromptInputActionAddAttachmentsProps) => {
-	const attachments = usePromptInputAttachments();
-
-	// base-nova's DropdownMenuItem is Base UI's Menu.Item, which fires onClick on
-	// activation (mouse + keyboard). Radix's onSelect — what the upstream AI
-	// Elements used — binds the DOM text-selection event on a Base UI item and
-	// never fires on a click, so the picker never opened. Opening the hidden file
-	// input from this click is a user gesture (the picker is allowed); Base UI
-	// closes the menu afterward on its own.
-	const handleClick = useCallback(() => {
-		attachments.openFileDialog();
-	}, [attachments]);
-
-	return (
-		// Full-bleed row (no inset rounding, generous padding) so the highlight
-		// fills the padding-less popup edge-to-edge — matches Nova's MENU_ITEM_BASE.
-		<DropdownMenuItem
-			{...props}
-			className={cn("rounded-none px-3 py-2", props.className)}
-			onClick={handleClick}
-		>
-			<Icon icon={tablerPhoto} className="size-4" /> {label}
-		</DropdownMenuItem>
-	);
 };
 
 export interface PromptInputMessage {
@@ -536,7 +485,7 @@ export const PromptInput = ({
 
 			const next: (FileUIPart & { id: string })[] = capped.map((file) => ({
 				filename: file.name,
-				id: nanoid(),
+				id: crypto.randomUUID(),
 				mediaType: file.type,
 				type: "file" as const,
 				url: URL.createObjectURL(file),
@@ -766,7 +715,7 @@ export const PromptInput = ({
 				const array = Array.isArray(incoming) ? incoming : [incoming];
 				setReferencedSources((prev) => [
 					...prev,
-					...array.map((s) => ({ ...s, id: nanoid() })),
+					...array.map((s) => ({ ...s, id: crypto.randomUUID() })),
 				]);
 			},
 			clear: clearReferencedSources,
@@ -1098,112 +1047,6 @@ export const PromptInputTools = ({
 		{...props}
 	/>
 );
-
-export type PromptInputButtonTooltip =
-	| string
-	| {
-			content: ReactNode;
-			shortcut?: string;
-			side?: ComponentProps<typeof TooltipContent>["side"];
-	  };
-
-export type PromptInputButtonProps = ComponentProps<typeof InputGroupButton> & {
-	tooltip?: PromptInputButtonTooltip;
-};
-
-export const PromptInputButton = ({
-	variant = "ghost",
-	className,
-	size,
-	tooltip,
-	...props
-}: PromptInputButtonProps) => {
-	const newSize =
-		size ?? (Children.count(props.children) > 1 ? "sm" : "icon-sm");
-
-	const button = (
-		<InputGroupButton
-			className={cn(className)}
-			size={newSize}
-			type="button"
-			variant={variant}
-			{...props}
-		/>
-	);
-
-	if (!tooltip) {
-		return button;
-	}
-
-	const tooltipContent =
-		typeof tooltip === "string" ? tooltip : tooltip.content;
-	const shortcut = typeof tooltip === "string" ? undefined : tooltip.shortcut;
-	const side = typeof tooltip === "string" ? "top" : (tooltip.side ?? "top");
-
-	return (
-		<Tooltip>
-			<TooltipTrigger>{button}</TooltipTrigger>
-			<TooltipContent side={side}>
-				{tooltipContent}
-				{shortcut && (
-					<span className="ml-2 text-muted-foreground">{shortcut}</span>
-				)}
-			</TooltipContent>
-		</Tooltip>
-	);
-};
-
-export type PromptInputActionMenuProps = ComponentProps<typeof DropdownMenu>;
-export const PromptInputActionMenu = (props: PromptInputActionMenuProps) => (
-	<DropdownMenu {...props} />
-);
-
-export type PromptInputActionMenuTriggerProps = PromptInputButtonProps;
-
-export const PromptInputActionMenuTrigger = ({
-	className,
-	children,
-	...props
-}: PromptInputActionMenuTriggerProps) => (
-	<DropdownMenuTrigger
-		render={<PromptInputButton className={className} {...props} />}
-	>
-		{children ?? <Icon icon={tablerPlus} className="size-4" />}
-	</DropdownMenuTrigger>
-);
-
-export type PromptInputActionMenuContentProps = ComponentProps<
-	typeof DropdownMenuContent
->;
-export const PromptInputActionMenuContent = ({
-	className,
-	...props
-}: PromptInputActionMenuContentProps) => (
-	// Match Nova's proven menu shape (see lib/styles MENU_POPUP_CLS + the working
-	// SelectMenu): a FULL-BLEED highlight. The popup carries no padding and clips
-	// to its rounded corners (`p-0 overflow-hidden`); each item is `w-full` with
-	// its own padding, so the highlight fills the popup edge-to-edge with even
-	// margins — instead of the shim's inset rounded-pill, which left an uneven gap.
-	// `w-auto` sizes the popup to the widest item rather than the tiny "+" trigger.
-	<DropdownMenuContent
-		align="start"
-		className={cn("w-auto overflow-hidden p-0", className)}
-		{...props}
-	/>
-);
-
-export type PromptInputActionMenuItemProps = ComponentProps<
-	typeof DropdownMenuItem
->;
-export const PromptInputActionMenuItem = ({
-	className,
-	...props
-}: PromptInputActionMenuItemProps) => (
-	<DropdownMenuItem className={cn(className)} {...props} />
-);
-
-// Note: Actions that perform side-effects (like opening a file dialog)
-// are provided in opt-in modules (e.g., prompt-input-attachments).
 
 export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
 	status?: ChatStatus;
