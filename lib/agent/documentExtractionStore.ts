@@ -317,7 +317,21 @@ export async function ensureStoredExtract(opts: {
 	// 1. Fast path: a finished current-version extract already in storage.
 	const stored = await readTextObject(key, EXTRACT_MAX_BYTES);
 	if (stored !== null) {
-		return readyResult(stored, asset.extract?.truncated ?? false);
+		// `truncated` is authoritative on the asset doc only when its extract
+		// status is ready + current-version. The batch snapshot handed in can
+		// predate the eager job's ready-write — in that stale window it would
+		// understate truncation (dropping the wrapAttachment advisory note and,
+		// across turns, differing the cached prefix). Reload the status only in
+		// that case to read the true flag; the common fresh-snapshot path stays
+		// a single GCS read.
+		const truncated =
+			asset.extract?.status === "ready" &&
+			asset.extract.version === EXTRACTOR_VERSION
+				? asset.extract.truncated
+				: ((await reloadExtractStatus(asset.owner, asset.id))?.truncated ??
+					asset.extract?.truncated ??
+					false);
+		return readyResult(stored, truncated);
 	}
 
 	// 2. Miss → fresh status decides whether a live job owns this extraction.
