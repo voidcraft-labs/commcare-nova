@@ -18,6 +18,7 @@ import {
 	toolDetail,
 	toolLocation,
 	toolStatus,
+	validateErrors,
 } from "@/lib/chat/toolSummary";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +53,7 @@ function ToolCallRow({
 }) {
 	const status = toolStatus(part);
 	const location = toolLocation(part);
+	const errors = validateErrors(part);
 	const detail = toolDetail(part);
 
 	return (
@@ -74,18 +76,53 @@ function ToolCallRow({
 						<span className="truncate">{location}</span>
 					</div>
 				)}
-				{detail && (
-					<div
-						className={cn(
-							"mt-0.5 whitespace-pre-wrap break-words text-nova-text-muted",
-							status === "failed" && "text-nova-rose/90",
-						)}
-					>
-						{detail}
-					</div>
+				{/* A failed validateApp can carry many errors — tuck them behind a
+				 *  collapsed "N issues" disclosure (bulleted) instead of dumping the
+				 *  whole wall inline. Any other call's detail renders plainly. */}
+				{errors ? (
+					<ValidateErrors errors={errors} />
+				) : (
+					detail && (
+						<div
+							className={cn(
+								"mt-0.5 whitespace-pre-wrap break-words text-nova-text-muted",
+								status === "failed" && "text-nova-rose/90",
+							)}
+						>
+							{detail}
+						</div>
+					)
 				)}
 			</div>
 		</div>
+	);
+}
+
+/** The validateApp error list as a collapsed-by-default disclosure with bulleted
+ *  items, so a failing first pass doesn't flood the transcript with a wall of
+ *  rose text. No keyframe-animation classes on the panel (Base UI's Collapsible
+ *  warns + breaks when CSS animation and transition are both present). */
+function ValidateErrors({ errors }: { errors: string[] }) {
+	return (
+		<Collapsible className="mt-1">
+			<CollapsibleTrigger className="group flex cursor-pointer items-center gap-1 text-left text-nova-rose/90 text-xs">
+				<Icon
+					className="size-3.5 shrink-0 transition-transform group-data-[panel-open]:rotate-180"
+					icon={tablerChevronDown}
+				/>
+				{errors.length} {errors.length === 1 ? "issue" : "issues"} found
+			</CollapsibleTrigger>
+			<CollapsibleContent>
+				<ul className="mt-1 list-disc space-y-1 pl-4 text-nova-rose/90 text-xs marker:text-nova-rose/50">
+					{errors.map((error, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: static error list for one render; messages can legitimately repeat across forms
+						<li className="break-words" key={i}>
+							{error}
+						</li>
+					))}
+				</ul>
+			</CollapsibleContent>
+		</Collapsible>
 	);
 }
 

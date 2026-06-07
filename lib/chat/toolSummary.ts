@@ -94,8 +94,10 @@ const outputOf = (part: ToolUIPart): MutationOutput | null => {
 
 /** A failed `validateApp` OUTCOME: the call returns `{ success:false, errors }`.
  *  This is the one case where a completed tool call must read as a failure —
- *  the app didn't validate. Returns the error list, or null when not applicable. */
-const validateErrors = (part: ToolUIPart): string[] | null => {
+ *  the app didn't validate. Returns the error list, or null when not applicable.
+ *  Exported so the transcript can render the list as collapsed bullets rather
+ *  than dumping the joined string. */
+export const validateErrors = (part: ToolUIPart): string[] | null => {
 	if (toolName(part) !== "validateApp" || part.state !== "output-available") {
 		return null;
 	}
