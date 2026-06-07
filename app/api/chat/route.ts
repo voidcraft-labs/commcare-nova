@@ -8,7 +8,7 @@ import {
 import {
 	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
-	countAttachments,
+	countDocumentsNeedingRead,
 	createSolutionsArchitect,
 	GenerationContext,
 	MESSAGES,
@@ -330,15 +330,17 @@ export async function POST(req: Request) {
 			/* Bracket the resolve step with `attachment-prep` lifecycle events so
 			 * the signal grid can show a "reading documents" status: a turn with a
 			 * not-yet-extracted document blocks the first Opus token while the
-			 * backstop runs. Only emit when there's a document to read (images
-			 * resolve instantly; a doc-free turn does no narrate-worthy work). The
-			 * events also land in the run log (like `validation-attempt`). */
-			const attachmentCount = countAttachments(messagesToSend);
-			if (attachmentCount > 0) {
+			 * backstop runs. Emit ONLY when a document still needs reading — a
+			 * document already extracted resolves from its stored extract instantly,
+			 * so it must not flash the status (and an image / doc-free turn does no
+			 * narrate-worthy work either). The events also land in the run log (like
+			 * `validation-attempt`). */
+			const docsToReadCount = countDocumentsNeedingRead(messagesToSend);
+			if (docsToReadCount > 0) {
 				ctx.emitConversation({
 					type: "attachment-prep",
 					phase: "start",
-					count: attachmentCount,
+					count: docsToReadCount,
 				});
 			}
 			const preparedMessages = await resolveAttachments(
@@ -346,7 +348,7 @@ export async function POST(req: Request) {
 				keyResult.session.user.id,
 				ctx,
 			);
-			if (attachmentCount > 0) {
+			if (docsToReadCount > 0) {
 				ctx.emitConversation({ type: "attachment-prep", phase: "done" });
 			}
 

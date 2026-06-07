@@ -10,8 +10,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
-import { resolveAttachments } from "@/lib/agent/resolveAttachments";
-import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import {
+	countDocumentsNeedingRead,
+	resolveAttachments,
+} from "@/lib/agent/resolveAttachments";
+import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { loadAssetsByIds, setAssetExtractStatus } from "@/lib/db/mediaAssets";
 import { asAssetId } from "@/lib/domain/multimedia";
@@ -293,5 +296,88 @@ describe("resolveAttachments", () => {
 		expect(result[0]).toBe(plain);
 		expect(result[0].parts).toHaveLength(1);
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
+	});
+});
+
+/* The gate for the "Reading your documents" status: a document attachment counts
+ * only when its extract wasn't ready when attached (no `title` snapshot on the
+ * ref). An already-read document — or an image — resolves instantly and must not
+ * make the status flash. Pure function; no storage/db. */
+describe("countDocumentsNeedingRead", () => {
+	const ref = (over: Partial<AttachmentRef>): AttachmentRef => ({
+		assetId: "a",
+		kind: "text",
+		filename: "spec.md",
+		mimeType: "text/markdown",
+		...over,
+	});
+
+	const userMsgWith = (...refs: AttachmentRef[]): NovaUIMessage =>
+		({
+			id: "u",
+			role: "user",
+			parts: [{ type: "text", text: "build this" }],
+			metadata: { attachments: refs },
+		}) as NovaUIMessage;
+
+	it("counts a document whose extract wasn't ready (no title snapshot)", () => {
+		expect(countDocumentsNeedingRead([userMsgWith(ref({}))])).toBe(1);
+	});
+
+	it("does NOT count a document already read (title snapshot present)", () => {
+		expect(
+			countDocumentsNeedingRead([userMsgWith(ref({ title: "Spec" }))]),
+		).toBe(0);
+	});
+
+	it("does NOT count an image (read directly, never extracted)", () => {
+		expect(
+			countDocumentsNeedingRead([
+				userMsgWith(ref({ kind: "image", filename: "d.png" })),
+			]),
+		).toBe(0);
+	});
+
+	it("counts only the unread documents in a mixed batch", () => {
+		expect(
+			countDocumentsNeedingRead([
+				userMsgWith(
+					ref({ assetId: "read", title: "Done" }),
+					ref({ assetId: "unread1" }),
+					ref({ assetId: "unread2" }),
+					ref({ assetId: "img", kind: "image", filename: "d.png" }),
+				),
+			]),
+		).toBe(2);
+	});
+
+	it("returns 0 when the last message carries no attachments", () => {
+		const plain = {
+			id: "u",
+			role: "user",
+			parts: [{ type: "text", text: "no files" }],
+		} as NovaUIMessage;
+		expect(countDocumentsNeedingRead([plain])).toBe(0);
+	});
+
+	it("ignores attachments on anything but the LAST message", () => {
+		// A prior turn's unread doc must not re-trigger the status on a later turn —
+		// the status is for the new turn's docs only.
+		const prior = userMsgWith(ref({ assetId: "old" }));
+		const latest = {
+			id: "u2",
+			role: "user",
+			parts: [{ type: "text", text: "follow-up, no files" }],
+		} as NovaUIMessage;
+		expect(countDocumentsNeedingRead([prior, latest])).toBe(0);
+	});
+
+	it("returns 0 when the last message isn't a user message", () => {
+		const assistant = {
+			id: "a",
+			role: "assistant",
+			parts: [{ type: "text", text: "done" }],
+		} as NovaUIMessage;
+		expect(countDocumentsNeedingRead([assistant])).toBe(0);
 	});
 });

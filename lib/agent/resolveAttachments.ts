@@ -33,7 +33,11 @@
 // route passes the standalone Gemini condenser instead. Reusing an in-flight
 // job's result meters nothing — only an actual inline run does.
 
-import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import {
+	type AttachmentRef,
+	documentNeedsRead,
+	type NovaUIMessage,
+} from "@/lib/chat/attachmentRefs";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
 	ASSET_SIZE_CAPS_BYTES,
@@ -57,15 +61,19 @@ function refsOf(message: NovaUIMessage): AttachmentRef[] {
 }
 
 /**
- * Count the document attachments on the LAST user message — the new turn's docs.
+ * Count the document attachments on the LAST user message that still NEED reading
+ * — a document whose extract wasn't ready when it was attached (`documentNeedsRead`).
  * The chat route uses this to bracket the resolve step with the "Reading your
- * documents" status only when there's a document to read (images resolve
- * instantly; a turn with none does no narrate-worthy work).
+ * documents" status ONLY when a document will actually block the first Opus token
+ * on extraction. A document Nova already read resolves from its stored extract
+ * instantly, so it doesn't count — which is what stops every doc-bearing turn from
+ * flashing the status over already-read files. Images resolve instantly too and
+ * never count.
  */
-export function countAttachments(messages: NovaUIMessage[]): number {
+export function countDocumentsNeedingRead(messages: NovaUIMessage[]): number {
 	const last = messages.at(-1);
 	if (!last || last.role !== "user") return 0;
-	return refsOf(last).filter((r) => isDocumentKind(r.kind)).length;
+	return refsOf(last).filter(documentNeedsRead).length;
 }
 
 /**

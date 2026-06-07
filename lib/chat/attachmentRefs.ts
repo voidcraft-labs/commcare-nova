@@ -16,7 +16,11 @@
 
 import type { UIMessage } from "ai";
 import { z } from "zod";
-import { ASSET_KINDS, DOCUMENT_KINDS } from "@/lib/domain/multimedia";
+import {
+	ASSET_KINDS,
+	DOCUMENT_KINDS,
+	isDocumentKind,
+} from "@/lib/domain/multimedia";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "./limits";
 
 /**
@@ -47,6 +51,30 @@ export const attachmentRefSchema = z.object({
 	summary: z.string().max(2_000).optional(),
 });
 export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
+
+/**
+ * Whether a DOCUMENT attachment still needs reading (extraction) at send time —
+ * the gate for the "Reading your documents" status, so it shows ONLY for a real
+ * wait, never as a flash over a document Nova has already read.
+ *
+ * The readiness proxy is the ref's `title`: the composer snapshots a title onto
+ * the ref only from a `ready` extract, and the extraction store writes the GCS
+ * extract object BEFORE it marks the status ready — so a `ready` snapshot implies
+ * the extract object exists, which is exactly the condition that makes the
+ * send-time resolve a fast stored-extract read. A document ref WITHOUT a title is
+ * therefore the only case where the resolve can actually block on the summarizer.
+ * A document already read (title present), or any non-document, needs no reading.
+ *
+ * The one accepted decoupling is an `EXTRACTOR_VERSION` bump between attach and
+ * send (a deploy mid-composer-session): the ref carries an old-version title while
+ * the new-version extract object is absent, so the resolve re-extracts with no
+ * status shown. That degrades to the pre-signal baseline (no progress feedback
+ * during a rare re-extract), never worse — so the title proxy is the proportionate
+ * gate rather than a server round-trip per send.
+ */
+export function documentNeedsRead(ref: AttachmentRef): boolean {
+	return isDocumentKind(ref.kind) && !ref.title;
+}
 
 /**
  * Per-message metadata the composer attaches via `sendMessage({ text, metadata })`.

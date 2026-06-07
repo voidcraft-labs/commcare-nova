@@ -114,12 +114,14 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 	}),
 	/* Attachment-prep annotation — brackets the pre-Opus resolve step
 	 * (`resolveAttachments`), which reads each document ref's stored extract
-	 * (and lazily extracts one that has none yet). `phase: "start"` fires before
-	 * resolution begins, `"done"` after every ref is resolved; the window
-	 * between them is when the UI shows a "reading documents" status. `count`
-	 * (start only) is how many document attachments the turn read, so a log
-	 * reader can see how much document work it did. Logged like
-	 * `validation-attempt`: a run annotation, not chat-visible content. */
+	 * (and lazily extracts one that has none yet). It's emitted ONLY when a
+	 * document still needs extracting; a turn whose docs are already read does
+	 * the resolve silently. `phase: "start"` fires before resolution begins,
+	 * `"done"` after every ref is resolved; the window between them is when the UI
+	 * shows a "reading documents" status. `count` (start only) is how many
+	 * document attachments still needed reading, so a log reader can see how much
+	 * real extraction work the turn did. Logged like `validation-attempt`: a run
+	 * annotation, not chat-visible content. */
 	z.object({
 		type: z.literal("attachment-prep"),
 		phase: z.enum(["start", "done"]),

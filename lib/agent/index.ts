@@ -17,10 +17,11 @@ export {
 // composer sends asset-id refs in message metadata; the chat route calls
 // `resolveAttachments` to append each ref's stored requirements extract
 // (documents) or image bytes (vision) to the message before it reaches the
-// Solutions Architect, and `countAttachments` to decide whether to show the
-// "reading documents" status while that runs.
+// Solutions Architect, and `countDocumentsNeedingRead` to decide whether to show
+// the "reading documents" status — only when a document still needs extracting,
+// not for one already read.
 export {
-	countAttachments,
+	countDocumentsNeedingRead,
 	resolveAttachments,
 } from "./resolveAttachments";
 // solutionsArchitect — the one ToolLoopAgent factory. `validateAndFix` is
