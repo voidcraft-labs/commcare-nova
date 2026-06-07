@@ -45,10 +45,12 @@ export interface DocumentExtraction {
 
 export function useDocumentExtraction(
 	asset: ExtractableAsset,
-	/** Called once when extraction resolves to `ready`, with the fresh metadata
-	 *  (title/summary). Lets the owner of a STAGED snapshot (the composer's picked
-	 *  assets, the library list) reconcile it the instant extraction finishes, so
-	 *  the preview shows the title/summary without a re-fetch. */
+	/** Called once when extraction reaches a TERMINAL state (`ready` with the fresh
+	 *  title/summary, or `failed`), with that metadata. Lets the owner of a STAGED
+	 *  snapshot (the composer's picked assets, the library list) reconcile it the
+	 *  instant extraction settles — so the preview shows the title/summary without a
+	 *  re-fetch, and a "still reading?" signal derived from the snapshot can clear
+	 *  on failure too (not just success). */
 	onExtracted?: (extract: ExtractMeta) => void,
 ): DocumentExtraction {
 	const isDoc = isDocumentKind(asset.kind);
@@ -88,10 +90,13 @@ export function useDocumentExtraction(
 		triggerAssetExtraction(asset.id).then((extract) => {
 			if (cancelledRef.current) return;
 			setStatus(extract.status);
-			// Surface the fresh title/summary the moment extraction completes, so a
-			// staged snapshot can reconcile (fixes a chip preview opened right after
-			// upload showing no title/summary until a later library re-fetch).
-			if (extract.status === "ready") onExtractedRef.current?.(extract);
+			// Surface the result the moment extraction settles, so a staged snapshot
+			// can reconcile: on `ready` this carries the title/summary (fixes a chip
+			// preview that showed none until a later library re-fetch); on `failed` it
+			// lets a snapshot-derived "still reading?" signal clear too.
+			if (extract.status === "ready" || extract.status === "failed") {
+				onExtractedRef.current?.(extract);
+			}
 			if (extract.status === "extracting" && pollCountRef.current < MAX_POLLS) {
 				pollCountRef.current += 1;
 				pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);

@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
-import { type KeyboardEvent, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
 	PromptInput,
 	PromptInputBody,
@@ -32,6 +32,7 @@ import {
 	CHAT_ATTACHMENT_KINDS,
 } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import { isDocumentKind } from "@/lib/domain/multimedia";
 import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +70,11 @@ interface ChatInputProps {
 	 *  fits only before the first send — the instant the user sends, it flips to
 	 *  the "ask for changes" copy, well before the layout finishes docking. */
 	openingPrompt?: boolean;
+	/** Reports whether a staged DOCUMENT is still being read (extracted). The
+	 *  sidebar lifts this into the signal panel so the (up to ~1 min) pre-send wait
+	 *  shows the same "Reading your documents" status as the post-send resolve,
+	 *  instead of leaving the user staring at a lone "Reading…" chip. */
+	onReadingChange?: (reading: boolean) => void;
 }
 
 /**
@@ -86,6 +92,7 @@ export function ChatInput({
 	answerPending,
 	centered,
 	openingPrompt,
+	onReadingChange,
 }: ChatInputProps) {
 	/** Assets staged for the next send (picked from the file manager). */
 	const [picked, setPicked] = useState<MediaAssetView[]>([]);
@@ -118,6 +125,25 @@ export function ChatInput({
 		setPicked((cur) =>
 			cur.map((a) => (a.id === assetId ? { ...a, extract } : a)),
 		);
+
+	// A staged document is "reading" until its extract settles. Derived from
+	// `picked` (not the chip badges): a freshly staged doc has no extract yet, and
+	// the badge's `onExtracted` folds a ready OR failed terminal status back in via
+	// `reconcileExtract` — so once every staged doc is ready/failed, this clears.
+	// Reported up so the sidebar can show the "Reading your documents" signal.
+	const reading = picked.some(
+		(a) =>
+			isDocumentKind(a.kind) &&
+			a.extract?.status !== "ready" &&
+			a.extract?.status !== "failed",
+	);
+	const onReadingChangeRef = useRef(onReadingChange);
+	onReadingChangeRef.current = onReadingChange;
+	useEffect(() => {
+		onReadingChangeRef.current?.(reading);
+	}, [reading]);
+	// Reset the signal on unmount (e.g. switching to read-only) so it can't stick on.
+	useEffect(() => () => onReadingChangeRef.current?.(false), []);
 
 	// Block the Enter-to-send when over the limit BEFORE PromptInput's submit
 	// runs (it resets the textarea immediately) — otherwise the over-limit paste

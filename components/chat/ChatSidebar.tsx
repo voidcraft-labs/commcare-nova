@@ -155,6 +155,12 @@ export function ChatSidebar({
 		return () => clearTimeout(id);
 	}, []);
 
+	// True while the composer has a staged document still being read (extracted),
+	// reported up from ChatInput. Drives the same "Reading your documents" signal
+	// the post-send resolve shows (`attachmentPrep`), so the pre-send wait isn't a
+	// silent minute behind a lone "Reading…" chip.
+	const [composerReading, setComposerReading] = useState(false);
+
 	// ── Signal Grid — controller scoped to the builder instance ──────────
 	// ChatSidebar is always-mounted (width animated to 0 when "closed"), so
 	// refs persist across sidebar open/close. When the legacy store identity
@@ -233,12 +239,13 @@ export function ChatSidebar({
 		// LLM's wrap-up text keeps the stream open). Without this, the grid
 		// shows "Thinking" for 5–15s after generation is already complete.
 		if (phase === BuilderPhase.Completed) return "done";
-		// Condensing document attachments — a pre-Opus step that blocks the first
-		// model token. Reuse the reasoning animation (label set below). Placed
-		// after the error/generation/completed branches so a real run always
-		// wins, but before `streamOpen` — which would otherwise show the generic
-		// "Transmitting"/"Thinking" during the condense wait.
-		if (attachmentPrep) return "reasoning";
+		// Reading document attachments — a pre-Opus step. `attachmentPrep` is the
+		// SEND-time resolve (server waits on the extract); `composerReading` is the
+		// PRE-send eager extraction of a staged doc. Both reuse the reasoning
+		// animation (label set below) and sit after error/generation/completed so a
+		// real run always wins, but before `streamOpen` (which would otherwise show
+		// the generic "Transmitting"/"Thinking" during the read).
+		if (attachmentPrep || composerReading) return "reasoning";
 		if (streamOpen) {
 			// Keep the send wave looping until the server actually starts streaming.
 			// During 'submitted', no tokens are flowing so reasoning/editing would
@@ -258,11 +265,12 @@ export function ChatSidebar({
 		return "idle";
 	})();
 
-	const desiredLabel = attachmentPrep
-		? "Reading your documents"
-		: isGenerating && statusMessage
-			? statusMessage
-			: defaultLabel(desiredMode);
+	const desiredLabel =
+		attachmentPrep || composerReading
+			? "Reading your documents"
+			: isGenerating && statusMessage
+				? statusMessage
+				: defaultLabel(desiredMode);
 
 	useEffect(() => {
 		gridController.setMode(desiredMode, desiredLabel);
@@ -552,6 +560,8 @@ export function ChatSidebar({
 							// streaming) it becomes an edit conversation, so flip to the
 							// "ask for changes" copy then — not when the layout docks.
 							openingPrompt={centered && messages.length === 0}
+							// Lift "a staged doc is still being read" into the signal panel.
+							onReadingChange={setComposerReading}
 						/>
 					</div>
 				)}
