@@ -72,7 +72,7 @@ export function ChatMessage({
 	 */
 	const items: ReactNode[] = [];
 	/* Attachment chips lead the message — the files the user attached, each
-	 * opening the Document / What-the-AI-reads preview. Read off the message
+	 * opening the Document / What-Nova-reads preview. Read off the message
 	 * metadata (the one `AttachmentRef` shape live, replay, and thread history
 	 * all populate), so there's a single render path regardless of source. */
 	const attachments = message.metadata?.attachments;

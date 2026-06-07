@@ -61,7 +61,7 @@ export interface WireMediaAsset {
 	/**
 	 * Document-extract status + the human title/summary (absent on media + on
 	 * not-yet-extracted docs). The fields the UI needs to render the extraction
-	 * indicator, gate the "What the AI reads" preview, LABEL the asset in the
+	 * indicator, gate the "What Nova reads" preview, LABEL the asset in the
 	 * library, and head the preview dialog — never the extract body (served by
 	 * `GET /api/media/[assetId]/extract`) or the internal `failureReason`/`model`
 	 * (the UI shows a generic failed state + retry). `title` + `summary` are

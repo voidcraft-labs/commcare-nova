@@ -1,7 +1,7 @@
 // components/builder/media/AssetPreviewDialog.tsx
 //
 // Previews one stored asset. For a document it has two tabs — "Document" (the
-// raw file) and "What the AI reads" (the requirements extract the Solutions
+// raw file) and "What Nova reads" (the requirements extract the Solutions
 // Architect actually sees) — so a user can confirm what made it into the
 // extract and never hit the "but it's right there in the doc!" surprise. For an
 // image / audio / video it just shows the media (those reach the model directly,
@@ -49,7 +49,7 @@ export interface AssetPreviewTarget {
 	id: string;
 	kind: AssetKind;
 	filename: string;
-	/** A document's AI-extracted title + summary, shown in the preview header so
+	/** A document's extracted title + summary, shown in the preview header so
 	 *  they're present the instant the dialog opens — carried in-band by the
 	 *  caller (the composer's asset view, the message ref), never re-fetched.
 	 *  Absent for media kinds and documents not yet extracted. */
@@ -141,10 +141,10 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 				<Tabs defaultValue="document" className="min-h-0 flex-1 gap-0 p-4 pt-3">
 					<TabsList variant="line" className="mb-3">
 						<TabsTrigger value="document">Document</TabsTrigger>
-						<TabsTrigger value="extract">What the AI reads</TabsTrigger>
-						{/* The "what the assistant reads" explainer sits beside the tab
-						 *  it describes, not in the picker header — it's about the
-						 *  extract, which is what this tab shows. */}
+						<TabsTrigger value="extract">What Nova reads</TabsTrigger>
+						{/* The "What Nova reads" explainer sits beside the tab it
+						 *  describes, not in the picker header — it's about the extract,
+						 *  which is what this tab shows. */}
 						<span className="ml-1 flex items-center">
 							<ExtractionInfoPopover />
 						</span>
@@ -230,7 +230,7 @@ function DocumentView({ target }: { target: AssetPreviewTarget }) {
  * is no in-browser preview for these formats, so this is honest about it: it
  * DOWNLOADS the original (the `download` attribute, so every format behaves the
  * same instead of office files silently downloading while text files display).
- * The "What the AI reads" tab is where the content actually shows.
+ * The "What Nova reads" tab is where the content actually shows.
  */
 function DownloadOriginal({
 	src,
@@ -250,8 +250,8 @@ function DownloadOriginal({
 			<p className="text-sm text-nova-text-secondary">
 				Nova doesn't preview {ASSET_KIND_META[kind].label} files here — download
 				the original to open it, or switch to{" "}
-				<span className="text-nova-text">What the AI reads</span> to see what
-				the assistant extracted.
+				<span className="text-nova-text">What Nova reads</span> to see what Nova
+				extracted.
 			</p>
 			<a
 				href={src}
@@ -290,7 +290,7 @@ type ExtractState =
 	| { state: "absent" }
 	| { state: "error"; message: string };
 
-/** The "What the AI reads" panel — fetches the stored extract for the document. */
+/** The "What Nova reads" panel — fetches the stored extract for the document. */
 function ExtractView({ assetId }: { assetId: string }) {
 	const [extract, setExtract] = useState<ExtractState>({ state: "loading" });
 
@@ -320,7 +320,7 @@ function ExtractView({ assetId }: { assetId: string }) {
 	if (extract.state === "loading") {
 		return (
 			<p className="py-8 text-center text-sm text-nova-text-muted">
-				Loading what the assistant reads…
+				Loading what Nova reads…
 			</p>
 		);
 	}

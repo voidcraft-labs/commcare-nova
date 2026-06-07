@@ -161,8 +161,8 @@ export async function uploadMediaAsset(file: File): Promise<MediaAssetView> {
 }
 
 /**
- * Fetch a document's requirements extract — the text the assistant reads
- * ("What the AI reads"). Returns `null` when no current extract exists yet
+ * Fetch a document's requirements extract — the text Nova reads
+ * ("What Nova reads"). Returns `null` when no current extract exists yet
  * (the route 404s until extraction finishes), so the caller shows a
  * not-ready state rather than an error. Throws only on an unexpected failure.
  */
@@ -174,7 +174,7 @@ export async function fetchAssetExtract(
 	if (!res.ok) {
 		throw await errorFromResponse(
 			res,
-			"Couldn't load what the assistant reads from this document.",
+			"Couldn't load what Nova reads from this document.",
 		);
 	}
 	return res.text();

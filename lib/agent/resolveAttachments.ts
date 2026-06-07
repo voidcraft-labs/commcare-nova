@@ -125,7 +125,7 @@ async function resolveRef(
 	// not-yet-confirmed race, not the normal flow.
 	if (asset.status !== "ready") {
 		return textPart(
-			`<<Attachment ${ref.filename} is still being prepared — it isn't ready for the assistant to read yet. Try again once its upload finishes.>>`,
+			`<<Attachment ${ref.filename} is still being prepared — it isn't ready to read yet. Try again once its upload finishes.>>`,
 		);
 	}
 
@@ -166,7 +166,7 @@ async function resolveRef(
 	// audio/video aren't chat attachment kinds (CHAT_ATTACHMENT_KINDS excludes
 	// them); defensively note rather than drop if one ever arrives.
 	return textPart(
-		`<<Attachment ${ref.filename} (${asset.kind}) can't be read by the assistant.>>`,
+		`<<Attachment ${ref.filename} (${asset.kind}) can't be read as a document.>>`,
 	);
 }
 

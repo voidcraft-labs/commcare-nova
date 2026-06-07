@@ -74,8 +74,8 @@ interface ChatInputProps {
  * assets the user picks from the media library (file manager), not files staged
  * in the browser. The "+" opens the picker; picked assets show as chips above the
  * textarea and ride the next send as id refs. There is no raw-file path: every
- * attachment is a stored asset the assistant reads via its extract (or, for
- * images, its bytes).
+ * attachment is a stored asset Nova reads via its extract (or, for images, its
+ * bytes).
  */
 export function ChatInput({
 	onSend,

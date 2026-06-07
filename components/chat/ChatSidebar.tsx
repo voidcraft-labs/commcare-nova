@@ -606,11 +606,11 @@ function WelcomeIntro() {
 	}, []);
 
 	return (
-		// Render through the real assistant-message shell so the opening turn sits in
-		// the same column as every reply. Heading + subtitle are ONE unit, so they
-		// share a single wrapper child: the shell spaces SEPARATE turns at gap-4, and
-		// splitting the pair across two children would drop that 16px between a title
-		// and its own caption — the tight gap-1.5 here owns the pair's rhythm instead.
+		// Render through the same message shell every reply uses so the opening turn
+		// sits in the same column. Heading + subtitle are ONE unit, so they share a
+		// single wrapper child: the shell spaces SEPARATE turns at gap-4, and splitting
+		// the pair across two children would drop that 16px between a title and its own
+		// caption — the tight gap-1.5 here owns the pair's rhythm instead.
 		<Message from="assistant">
 			<MessageContent>
 				<div className="flex flex-col gap-1.5">

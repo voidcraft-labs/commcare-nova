@@ -12,7 +12,7 @@
  *     indicator can show. Idempotent: a current ready extract returns without
  *     re-running the model; a current job already in flight short-circuits with
  *     202 (`onInflight: "report"`) so this request doesn't hold open behind it.
- *   - `GET` returns the stored extract text for the "What the AI reads" preview
+ *   - `GET` returns the stored extract text for the "What Nova reads" preview
  *     tab; 404 when no current-version extract exists yet (the client reads the
  *     `extracting`/`failed` status off the asset itself).
  *
@@ -78,7 +78,7 @@ async function loadExtractableDocument(req: NextRequest, rawAssetId: string) {
 	const kind = asset.kind;
 	if (!isDocumentKind(kind)) {
 		throw new ApiError(
-			`Feature extraction only applies to documents (PDF, text, Word, Excel). This file is ${kind}, which the assistant reads directly.`,
+			`Feature extraction only applies to documents (PDF, text, Word, Excel). This file is ${kind}, which Nova reads directly.`,
 			400,
 		);
 	}
@@ -186,7 +186,7 @@ export async function POST(
 }
 
 /**
- * Serve the stored extract text for the "What the AI reads" preview tab. 404
+ * Serve the stored extract text for the "What Nova reads" preview tab. 404
  * when no current-version extract exists yet — the client reads the
  * `extracting`/`failed` status off the asset itself and only fetches the body
  * once it's `ready`. CSP `sandbox` + `nosniff` mirror the bytes route's

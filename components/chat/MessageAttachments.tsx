@@ -9,7 +9,7 @@ import { AttachmentChip } from "./AttachmentChip";
 
 /**
  * The attachment manifest shown on a message in the transcript — one chip per
- * file the user attached, each opening the preview ("Document" + "What the AI
+ * file the user attached, each opening the preview ("Document" + "What Nova
  * reads"). Reads the refs off the message's metadata, so the same render path
  * serves a live turn, a replayed turn, and a loaded thread (all populate
  * `metadata.attachments` with the one `AttachmentRef` shape). Owns its own

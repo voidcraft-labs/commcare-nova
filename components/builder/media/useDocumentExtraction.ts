@@ -1,7 +1,7 @@
 // components/builder/media/useDocumentExtraction.ts
 //
 // Drives the feature-extraction lifecycle for ONE asset, so the file-manager +
-// composer can show whether the assistant has read a document yet. Extraction
+// composer can show whether Nova has read a document yet. Extraction
 // runs server-side (POST /api/media/[id]/extract); this kicks it off when a
 // document has no current extract and tracks the resulting status.
 //

@@ -148,7 +148,7 @@ function PickerBody({
 	};
 
 	// Preview a library asset WITHOUT picking it — so a user can check a
-	// document's "What the AI reads" extract before attaching. `null` = closed.
+	// document's "What Nova reads" extract before attaching. `null` = closed.
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
@@ -364,9 +364,9 @@ function UploadTab({
 
 	return (
 		<div className="flex flex-col gap-3">
-			{/* PHI guardrail — documents are read by AI and their extract is stored,
-			 *  so real patient data must not ride along. Shown only where documents
-			 *  are accepted (the chat file manager), not on media-only carriers. */}
+			{/* PHI guardrail — Nova reads documents and stores the extract, so real
+			 *  patient data must not ride along. Shown only where documents are
+			 *  accepted (the chat file manager), not on media-only carriers. */}
 			{kinds.some(isDocumentKind) && (
 				<p className="flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
 					<Icon
@@ -375,7 +375,7 @@ function UploadTab({
 					/>
 					<span>
 						Don't upload real patient data (PHI). Use sample or de-identified
-						documents — Nova reads them with AI and stores the extract.
+						documents — Nova reads them and stores the extract.
 					</span>
 				</p>
 			)}
@@ -543,7 +543,7 @@ function LibraryTab({
 				<ul className="grid grid-cols-3 gap-2">
 					{filtered.map((asset) => {
 						const fileName = asset.displayName ?? asset.originalFilename;
-						// Documents gain an AI-extracted title once extraction succeeds;
+						// Documents gain an extracted title once extraction succeeds;
 						// show it as a subtitle so the library reads as human names. Skip
 						// it when it just echoes the filename (no signal added).
 						const extractedTitle = asset.extract?.title;
@@ -567,7 +567,7 @@ function LibraryTab({
 									</button>
 									{/* Preview without picking — a sibling of the pick button
 									 *  (not nested), revealed on hover/focus. Lets a user check
-									 *  a document's "What the AI reads" extract before attaching.
+									 *  a document's "What Nova reads" extract before attaching.
 									 *  Tooltip.Root emits no DOM, so the button stays an absolute
 									 *  sibling anchored to the relative wrapper. */}
 									<Tooltip>
@@ -614,8 +614,8 @@ function LibraryTab({
 										</div>
 									)}
 								</div>
-								{/* Caption — the filename is always visible, with the AI title
-								 *  beneath it for documents. Both single-line-clamp; a hover
+								{/* Caption — the filename is always visible, with the extracted
+								 *  title beneath it for documents. Both single-line-clamp; a hover
 								 *  tooltip reveals the full value when it's truncated. */}
 								<div className="mt-1.5 space-y-0.5">
 									<Tooltip>

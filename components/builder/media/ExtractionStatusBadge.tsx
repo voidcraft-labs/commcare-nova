@@ -2,10 +2,10 @@
 //
 // The feature-extraction indicator shown on a document in the file manager and
 // the composer: "Reading…" while the extract is being produced, "Extracted" once
-// the assistant can read it, "Couldn't read" (with retry) on failure. Nothing
-// for a non-document (images reach the model directly). This is the surface that
-// answers "is feature extraction happening?" — so a user understands the
-// assistant works from the extract, not the raw file.
+// Nova can read it, "Couldn't read" (with retry) on failure. Nothing for a
+// non-document (images reach the model directly). This is the surface that
+// answers "is feature extraction happening?" — so a user understands Nova works
+// from the extract, not the raw file.
 
 "use client";
 
@@ -40,9 +40,7 @@ export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
 						</Badge>
 					}
 				/>
-				<TooltipContent>
-					Reading this into the assistant's extract…
-				</TooltipContent>
+				<TooltipContent>Reading this into Nova's extract…</TooltipContent>
 			</Tooltip>
 		);
 	}
@@ -70,8 +68,8 @@ export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
 	}
 
 	// ready — the clickable info popover takes the decorative sparkles' place
-	// (sized to the badge's icon so the chip doesn't widen) and explains what the
-	// assistant reads on click; no hover tooltip, the one affordance is enough.
+	// (sized to the badge's icon so the chip doesn't widen) and explains what Nova
+	// reads on click; no hover tooltip, the one affordance is enough.
 	return (
 		<Badge variant="outline">
 			<ExtractionInfoPopover className="size-3" />

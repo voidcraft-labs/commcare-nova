@@ -1,6 +1,6 @@
 /**
  * Preview the EXACT requirements extract a document condenses to — the text the
- * Solutions Architect reads in place of the raw file ("What the AI reads"),
+ * Solutions Architect reads in place of the raw file ("What Nova reads"),
  * without paying for the SA's Opus tool loop.
  *
  * Drives the REAL extraction core (`extractDocument`: same prompt, same

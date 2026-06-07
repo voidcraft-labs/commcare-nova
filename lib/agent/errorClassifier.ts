@@ -30,12 +30,11 @@ export interface ClassifiedError {
 export const MESSAGES: Record<ErrorType, string> = {
 	api_auth: "Your API key is invalid or expired. Check Settings.",
 	api_rate_limit:
-		"Rate limited by the AI service. Wait a moment and try again.",
-	api_overloaded: "The AI service is currently overloaded. Try again shortly.",
+		"Nova is rate limited right now. Wait a moment and try again.",
+	api_overloaded: "Nova is overloaded right now. Try again shortly.",
 	api_timeout: "The request timed out. Please try again.",
-	api_server: "The AI service returned an error. Please try again.",
-	model_error:
-		"The AI model returned an unexpected response. Please try again.",
+	api_server: "Nova ran into a server error. Please try again.",
+	model_error: "Nova returned an unexpected response. Please try again.",
 	stream_broken: "The connection was interrupted. Please try again.",
 	spend_cap_exceeded:
 		"You've reached your monthly usage limit. Your allowance resets on the 1st of next month.",

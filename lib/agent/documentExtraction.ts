@@ -384,8 +384,8 @@ export type ExtractDocumentResult = z.infer<typeof extractDocumentSchema>;
  * cut off at the model's output ceiling, append a note so the SA treats it as
  * incomplete — and knows the recovery is to ask the user to split the document,
  * not to retry the same oversized file. Applied at chat-resolve time (not at
- * extraction time), so the STORED extract stays raw and the preview's "What the
- * AI reads" tab shows the requirements list without this delimiter.
+ * extraction time), so the STORED extract stays raw and the preview's "What Nova
+ * reads" tab shows the requirements list without this delimiter.
  */
 export function wrapAttachment(
 	filename: string,
@@ -648,7 +648,7 @@ export function createGeminiCondenser(): AttachmentCondenser {
 	const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 	if (!apiKey) {
 		throw new Error(
-			"GOOGLE_GENERATIVE_AI_API_KEY is unset — document feature extraction needs the Gemini summarizer key. Set it in the environment so uploaded documents can be condensed into the requirements extract the assistant reads.",
+			"GOOGLE_GENERATIVE_AI_API_KEY is unset — document feature extraction needs the Gemini summarizer key. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
 		);
 	}
 	const model = createGoogleGenerativeAI({ apiKey })(CONDENSER_MODEL);
