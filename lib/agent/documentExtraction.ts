@@ -366,7 +366,7 @@ export const extractDocumentSchema = z.object({
 	summary: z
 		.string()
 		.describe(
-			"Two to four sentences in plain prose (no markdown): what this document is and what it covers, enough for someone to judge whether it's the one they need without opening the full extract. Never put PHI (names, contact numbers, identifiers) in the summary; describe the content generically.",
+			"Two to four sentences in plain prose (no markdown) capturing what the document covers — dense enough to orient a reader scanning the library and to serve as standing context wherever the document is later referenced. The document is the established, implied subject (it's shown by its name and handed over as known context), so don't make it the grammatical subject of the summary: write the predicate directly — lead with the content rather than a demonstrative subject that points back at the document, which only restates what's already given. Never put PHI (names, contact numbers, identifiers) in the summary; describe the content generically.",
 		),
 	extract: z
 		.string()
