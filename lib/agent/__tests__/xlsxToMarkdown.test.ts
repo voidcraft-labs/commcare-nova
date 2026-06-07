@@ -69,4 +69,38 @@ describe("xlsxToMarkdown", () => {
 		expect(md).toContain("### PlainData");
 		expect(md).not.toContain("#### Calculations");
 	});
+
+	it("clamps the value table to a bounded window on a large/sparse range and still finds a formula via the populated-cell scan", () => {
+		// A worksheet declaring a 5000-row range but holding a handful of cells,
+		// one a formula far down the sheet. A malicious doc can declare a
+		// ~17-billion-cell `!ref`; the clamp (table read window) + the populated-
+		// cell formula scan are what keep that from walking the declared range.
+		// Built sparse (cells set directly) so the writer doesn't materialize the
+		// range. This asserts the clamp BEHAVIOR — the mechanism that prevents the
+		// DoS — which the old full-range walk would fail (no note, all rows).
+		const ws: XLSX.WorkSheet = {
+			"!ref": "A1:B5000",
+			A1: { t: "s", v: "label" },
+			A2: { t: "s", v: "row2" },
+			B2: { t: "n", v: 6, f: "A2*C2" },
+			A5000: { t: "s", v: "far-down" },
+		};
+		const wb = XLSX.utils.book_new();
+		XLSX.utils.book_append_sheet(wb, ws, "Sparse");
+		const buffer = XLSX.write(wb, {
+			type: "buffer",
+			bookType: "xlsx",
+		}) as Buffer;
+
+		const md = xlsxToMarkdown(buffer);
+
+		// The table is clamped + flagged (5000 rows > the 2000-row window).
+		expect(md).toContain("table truncated to the first 2000 rows");
+		// The formula is still found — the scan walks populated cells, not the
+		// declared range, so a cell anywhere in the sheet surfaces.
+		expect(md).toContain("#### Calculations");
+		expect(md).toContain("- B2 = A2*C2");
+		// Bounded output — not a dump of the full declared range.
+		expect(md.length).toBeLessThan(100_000);
+	});
 });

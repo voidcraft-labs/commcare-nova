@@ -420,6 +420,38 @@ export async function docxToMarkdown(buffer: Buffer): Promise<string> {
 	return value;
 }
 
+// Hard caps so a sparse or malicious workbook can't blow up extraction. A
+// few-KB `.xlsx` can declare `!ref = A1:XFD1048576` (~17 billion cells); walking
+// that declared range — `sheet_to_json` builds the grid, a naive formula scan
+// iterates it — would pin CPU / OOM the shared extraction worker, and the upload
+// file-byte cap does NOT bound a SPARSE range. These do: the value table is read
+// over a clamped window, the formula scan walks only POPULATED cells (bounded by
+// the byte-capped file content), and the sheet count is capped. The model reads
+// the requirements SHAPE (schema + sample values), not every record, so clamping
+// the table window loses nothing it needs.
+const MAX_XLSX_SHEETS = 32;
+const MAX_XLSX_TABLE_ROWS = 2_000;
+const MAX_XLSX_TABLE_COLS = 128;
+const MAX_XLSX_FORMULAE_PER_SHEET = 2_000;
+
+/** The worksheet range to read, clamped to the table window: the A1 range string
+ *  plus whether the clamp actually trimmed it (drives a truncation note), or
+ *  `null` when the sheet declares no `!ref`. Bounds the grid `sheet_to_json`
+ *  builds so a huge declared `!ref` can't balloon memory. */
+function clampedSheetRange(
+	ws: XLSX.WorkSheet,
+): { ref: string; truncated: boolean } | null {
+	const ref = ws["!ref"];
+	if (!ref) return null;
+	const range = XLSX.utils.decode_range(ref);
+	const maxR = range.s.r + MAX_XLSX_TABLE_ROWS - 1;
+	const maxC = range.s.c + MAX_XLSX_TABLE_COLS - 1;
+	const truncated = range.e.r > maxR || range.e.c > maxC;
+	range.e.r = Math.min(range.e.r, maxR);
+	range.e.c = Math.min(range.e.c, maxC);
+	return { ref: XLSX.utils.encode_range(range), truncated };
+}
+
 /**
  * Pull the formula cells from a worksheet, in reading order (row-major). Returns
  * one `{ addr, formula }` per cell carrying a formula (`cell.f`, which SheetJS
@@ -427,21 +459,32 @@ export async function docxToMarkdown(buffer: Buffer): Promise<string> {
  * reports only the COMPUTED value, so without this pass the calculation logic —
  * totals, scores, unit conversions, derived dates — is dropped on the floor, and
  * that logic is exactly what the SA should rebuild as CommCare calculated fields.
+ *
+ * Iterates the cells actually PRESENT (the worksheet's own address keys), NOT the
+ * declared `!ref` range — a sparse sheet can declare a billion-cell range while
+ * holding a handful of cells, and walking the range is the DoS. Populated-cell
+ * count is bounded by the byte-capped file content, and the formula list is
+ * capped besides.
  */
 function collectSheetFormulae(
 	ws: XLSX.WorkSheet,
 ): { addr: string; formula: string }[] {
-	const ref = ws["!ref"];
-	if (!ref) return [];
-	const range = XLSX.utils.decode_range(ref);
 	const formulae: { addr: string; formula: string }[] = [];
-	for (let r = range.s.r; r <= range.e.r; r++) {
-		for (let c = range.s.c; c <= range.e.c; c++) {
-			const addr = XLSX.utils.encode_cell({ r, c });
-			const cell = ws[addr] as XLSX.CellObject | undefined;
-			if (cell?.f) formulae.push({ addr, formula: cell.f });
+	for (const addr of Object.keys(ws)) {
+		if (addr.startsWith("!")) continue; // skip `!ref` / `!cols` / … metadata
+		const cell = ws[addr] as XLSX.CellObject | undefined;
+		if (cell?.f) {
+			formulae.push({ addr, formula: cell.f });
+			if (formulae.length >= MAX_XLSX_FORMULAE_PER_SHEET) break;
 		}
 	}
+	// Object key order isn't guaranteed row-major; sort to reading order so the
+	// Calculations list lines up with the value table above it.
+	formulae.sort((a, b) => {
+		const pa = XLSX.utils.decode_cell(a.addr);
+		const pb = XLSX.utils.decode_cell(b.addr);
+		return pa.r - pb.r || pa.c - pb.c;
+	});
 	return formulae;
 }
 
@@ -459,27 +502,37 @@ function collectSheetFormulae(
  */
 export function xlsxToMarkdown(buffer: Buffer): string {
 	const workbook = XLSX.read(buffer, { type: "buffer", cellFormula: true });
-	return workbook.SheetNames.map((name) => {
-		const ws = workbook.Sheets[name];
-		const rows = XLSX.utils.sheet_to_json<string[]>(ws, {
-			header: 1,
-			blankrows: false,
-			defval: "",
-			raw: false,
-		});
-		// Cells come through typed as the worksheet's stored values; coerce each
-		// to a string so the markdown renderer receives a uniform 2D string grid.
-		const grid = rows.map((row) => row.map((cell) => String(cell)));
-		// Append the formula list only when the sheet has one, so value-only
-		// sheets stay clean. The h4 nests under the sheet's h3 heading.
-		const formulae = collectSheetFormulae(ws);
-		const calculations = formulae.length
-			? `\n\n#### Calculations\n\n${formulae
-					.map(({ addr, formula }) => `- ${addr} = ${formula}`)
-					.join("\n")}`
-			: "";
-		return `### ${name}\n\n${rowsToMarkdownTable(grid)}${calculations}`;
-	}).join("\n\n");
+	// Cap the sheet count first — each sheet does bounded-but-real work.
+	return workbook.SheetNames.slice(0, MAX_XLSX_SHEETS)
+		.map((name) => {
+			const ws = workbook.Sheets[name];
+			// Read over the clamped window — `sheet_to_json` builds a grid across
+			// the DECLARED range, so a huge `!ref` would balloon memory without this.
+			const clamp = clampedSheetRange(ws);
+			const rows = XLSX.utils.sheet_to_json<string[]>(ws, {
+				header: 1,
+				blankrows: false,
+				defval: "",
+				raw: false,
+				...(clamp ? { range: clamp.ref } : {}),
+			});
+			// Cells come through typed as the worksheet's stored values; coerce each
+			// to a string so the markdown renderer receives a uniform 2D string grid.
+			const grid = rows.map((row) => row.map((cell) => String(cell)));
+			const truncationNote = clamp?.truncated
+				? `\n\n_(table truncated to the first ${MAX_XLSX_TABLE_ROWS} rows × ${MAX_XLSX_TABLE_COLS} columns)_`
+				: "";
+			// Append the formula list only when the sheet has one, so value-only
+			// sheets stay clean. The h4 nests under the sheet's h3 heading.
+			const formulae = collectSheetFormulae(ws);
+			const calculations = formulae.length
+				? `\n\n#### Calculations\n\n${formulae
+						.map(({ addr, formula }) => `- ${addr} = ${formula}`)
+						.join("\n")}`
+				: "";
+			return `### ${name}\n\n${rowsToMarkdownTable(grid)}${truncationNote}${calculations}`;
+		})
+		.join("\n\n");
 }
 
 // ── Extraction entry point ────────────────────────────────────────────────
