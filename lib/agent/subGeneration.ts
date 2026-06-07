@@ -165,6 +165,10 @@ export async function streamObjectWith<T>(opts: {
 	 *  caller maps to a progress signal (e.g. signal-grid energy). */
 	onProgress?: (deltaChars: number) => void;
 }): Promise<SubGenerationObjectResult<T>> {
+	// The four result promises are consumed on the happy path; tracked here so the
+	// catch can observe any it didn't await (a stream-stopping error jumps to the
+	// catch before they're awaited — see below).
+	let pending: Promise<unknown>[] = [];
 	try {
 		// Branch the call by input shape (same as `generateObjectWith`) so each
 		// `streamObject` overload type-checks cleanly.
@@ -198,11 +202,28 @@ export async function streamObjectWith<T>(opts: {
 					providerOptions: opts.providerOptions,
 				});
 
+		pending = [
+			result.object,
+			result.usage,
+			result.warnings,
+			result.finishReason,
+		];
+
 		// Draining `textStream` is what advances generation; the result promises
 		// (`object` / `usage` / …) resolve once it's done. Each chunk is JSON text
-		// being produced — its length is the progress delta.
+		// being produced — its length is the progress delta. `onProgress` is
+		// best-effort: a throwing callback (e.g. a write to a disconnected client)
+		// must NEVER break extraction — the model run persists regardless of whether
+		// anyone is still listening, so progress failures are swallowed here at the
+		// source rather than relied on at each call site.
 		for await (const chunk of result.textStream) {
-			if (chunk.length > 0) opts.onProgress?.(chunk.length);
+			if (chunk.length > 0) {
+				try {
+					opts.onProgress?.(chunk.length);
+				} catch {
+					// best-effort progress — never let it abort the drain
+				}
+			}
 		}
 
 		return {
@@ -213,7 +234,8 @@ export async function streamObjectWith<T>(opts: {
 		};
 	} catch (err) {
 		// `streamObject` rejects `object` with `NoObjectGeneratedError` on truncation
-		// / malformed output — same "no object" mapping as the blocking path.
+		// / malformed output — same "no object" mapping as the blocking path. (On this
+		// path the stream completed, so the other result promises resolve normally.)
 		if (NoObjectGeneratedError.isInstance(err)) {
 			return {
 				object: null,
@@ -222,6 +244,12 @@ export async function streamObjectWith<T>(opts: {
 				finishReason: err.finishReason,
 			};
 		}
+		// A stream-stopping error (transport failure) reaches here before we await the
+		// result promises, and may reject them too. Observe each — WITHOUT awaiting,
+		// since a failed stream could leave one unsettled — so an unawaited rejection
+		// can't escape as an unhandled rejection (which fails the suite). The original
+		// error is what the caller classifies.
+		for (const p of pending) void p.catch(() => {});
 		throw err;
 	}
 }

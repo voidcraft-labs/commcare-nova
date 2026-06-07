@@ -116,6 +116,56 @@ describe("streamObjectWith", () => {
 		expect(result.usage).toEqual({ inputTokens: 1, outputTokens: 0 });
 	});
 
+	it("re-throws a stream-stopping error and observes the (rejecting) result promises", async () => {
+		// A real transport failure: the text stream throws AND the result promises
+		// reject. streamObjectWith must re-throw the stream error; vitest fails the
+		// run on any unhandled rejection, so a clean pass proves all four rejecting
+		// promises were observed (not left dangling).
+		async function* boom(): AsyncGenerator<string> {
+			yield* [];
+			throw new Error("transport exploded");
+		}
+		streamObjectMock.mockReturnValue({
+			textStream: boom(),
+			object: Promise.reject(new Error("object rejected")),
+			usage: Promise.reject(new Error("usage rejected")),
+			warnings: Promise.reject(new Error("warnings rejected")),
+			finishReason: Promise.reject(new Error("finishReason rejected")),
+		});
+
+		await expect(
+			streamObjectWith({
+				model: MODEL,
+				system: "s",
+				schema: SCHEMA,
+				prompt: "p",
+			}),
+		).rejects.toThrow("transport exploded");
+	});
+
+	it("never lets a throwing onProgress break the drain (best-effort progress)", async () => {
+		streamObjectMock.mockReturnValue({
+			textStream: textChunks(["ab", "cd"]),
+			object: Promise.resolve({ x: 7 }),
+			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+			warnings: Promise.resolve([]),
+			finishReason: Promise.resolve("stop"),
+		});
+
+		const result = await streamObjectWith({
+			model: MODEL,
+			system: "s",
+			schema: SCHEMA,
+			prompt: "p",
+			onProgress: () => {
+				throw new Error("write to a disconnected client");
+			},
+		});
+
+		// The throwing callback is swallowed; the extraction still completes.
+		expect(result.object).toEqual({ x: 7 });
+	});
+
 	it("drives generation with no onProgress (drains the stream, returns the object)", async () => {
 		streamObjectMock.mockReturnValue({
 			textStream: textChunks(["x"]),
