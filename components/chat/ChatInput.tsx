@@ -75,6 +75,11 @@ interface ChatInputProps {
 	 *  shows the same "Reading your documents" status as the post-send resolve,
 	 *  instead of leaving the user staring at a lone "Reading…" chip. */
 	onReadingChange?: (reading: boolean) => void;
+	/** Build-scoped abort signal for staged docs' extraction reads. Owning the
+	 *  read at the build level (not the chip) keeps it streaming into the grid after
+	 *  the chip unmounts on send — so the read never goes dark mid-extraction —
+	 *  while still aborting when the build is torn down. */
+	extractionAbortSignal?: AbortSignal;
 }
 
 /**
@@ -93,6 +98,7 @@ export function ChatInput({
 	centered,
 	openingPrompt,
 	onReadingChange,
+	extractionAbortSignal,
 }: ChatInputProps) {
 	/** Assets staged for the next send (picked from the file manager). */
 	const [picked, setPicked] = useState<MediaAssetView[]>([]);
@@ -213,6 +219,7 @@ export function ChatInput({
 					assets={picked}
 					onRemove={removePicked}
 					onExtracted={reconcileExtract}
+					extractionAbortSignal={extractionAbortSignal}
 					onPreview={(asset) =>
 						setPreviewTarget({
 							id: asset.id,

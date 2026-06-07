@@ -57,6 +57,14 @@ export function useDocumentExtraction(
 	 *  real progress; the file-manager omits it (the chat grid shouldn't react to
 	 *  library browsing). */
 	onProgress?: (deltaChars: number) => void,
+	/** An EXTERNAL (build-scoped) abort signal that owns the in-flight read. The
+	 *  composer passes this so the read SURVIVES the chip unmounting the instant the
+	 *  user sends — the doc is still streaming into the grid, and only that original
+	 *  request carries the tokens — while still aborting when the whole build goes
+	 *  away (so one build's extraction can't bleed energy into another's grid). When
+	 *  absent, the hook owns a per-mount controller and aborts on unmount (the
+	 *  file-manager case, where the read should stop when its row goes). */
+	abortSignal?: AbortSignal,
 ): DocumentExtraction {
 	const isDoc = isDocumentKind(asset.kind);
 	const [status, setStatus] = useState<MediaExtractStatus | null>(
@@ -71,21 +79,25 @@ export function useDocumentExtraction(
 	onProgressRef.current = onProgress;
 
 	// Cancel-safety: a long-running streamed POST or a queued poll must not write
-	// state after unmount. The cleanup flips the flag, clears any pending poll, AND
-	// aborts the in-flight stream read so no reader is left live (the async-leak gate).
+	// state after unmount. The cleanup flips the flag and clears any pending poll.
 	const cancelledRef = useRef(false);
 	const pollTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const pollCountRef = useRef(0);
+	// Own an abort controller ONLY when no external (build-scoped) signal is given.
+	// With an external signal the read must OUTLIVE this component — a composer chip
+	// unmounts the moment the user sends, yet the doc is still streaming into the
+	// grid — so we never abort it here; the build owner aborts on teardown. Either
+	// way `cancelledRef` stops OUR state writes once this instance is gone.
 	const abortRef = useRef<AbortController | undefined>(undefined);
 	useEffect(() => {
 		cancelledRef.current = false;
-		abortRef.current = new AbortController();
+		if (!abortSignal) abortRef.current = new AbortController();
 		return () => {
 			cancelledRef.current = true;
 			abortRef.current?.abort();
 			clearTimeout(pollTimerRef.current);
 		};
-	}, []);
+	}, [abortSignal]);
 
 	/**
 	 * POST the extract route and reflect the result. The route runs extraction
@@ -99,7 +111,7 @@ export function useDocumentExtraction(
 	 */
 	const poll = useCallback(() => {
 		triggerAssetExtraction(asset.id, {
-			signal: abortRef.current?.signal,
+			signal: abortSignal ?? abortRef.current?.signal,
 			onProgress: (delta) => onProgressRef.current?.(delta),
 		}).then((extract) => {
 			if (cancelledRef.current) return;
@@ -116,7 +128,7 @@ export function useDocumentExtraction(
 				pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
 			}
 		});
-	}, [asset.id]);
+	}, [asset.id, abortSignal]);
 
 	const run = useCallback(() => {
 		clearTimeout(pollTimerRef.current);

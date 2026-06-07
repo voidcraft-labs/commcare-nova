@@ -174,8 +174,18 @@ export function ChatSidebar({
 	docStoreRef.current = docStore;
 	const sessionIdentityRef = useRef(sessionApi);
 	const gridControllerRef = useRef<SignalGridController | null>(null);
+	// Build-scoped abort for in-flight document reads. A composer chip's extraction
+	// stream must SURVIVE the chip unmounting on send — the doc is still streaming
+	// into the grid and only that original request carries the tokens — but must NOT
+	// outlive the build (one build's extraction must never feed another build's
+	// grid). So the read's lifetime is tied here, to the build, not to the chip:
+	// recreated + the prior one aborted whenever the store identity changes, exactly
+	// like the grid controller, and aborted on unmount below.
+	const extractionAbortRef = useRef<AbortController | null>(null);
 	if (sessionApi !== sessionIdentityRef.current || !gridControllerRef.current) {
 		gridControllerRef.current?.destroy();
+		extractionAbortRef.current?.abort();
+		extractionAbortRef.current = new AbortController();
 		sessionIdentityRef.current = sessionApi;
 		gridControllerRef.current = createGridController(
 			sessionApiRef,
@@ -183,11 +193,14 @@ export function ChatSidebar({
 		);
 	}
 	const gridController = gridControllerRef.current;
+	const extractionAbortSignal = extractionAbortRef.current?.signal;
 
-	// Destroy the controller's animation loop on unmount (page navigation away)
+	// Tear down on unmount (page navigation away): stop the controller's animation
+	// loop AND abort any still-running document read so it can't feed a stale grid.
 	useEffect(
 		() => () => {
 			gridControllerRef.current?.destroy();
+			extractionAbortRef.current?.abort();
 		},
 		[],
 	);
@@ -562,6 +575,9 @@ export function ChatSidebar({
 							openingPrompt={centered && messages.length === 0}
 							// Lift "a staged doc is still being read" into the signal panel.
 							onReadingChange={setComposerReading}
+							// Build-scoped abort so a staged doc's read keeps feeding the grid
+							// after the chip unmounts on send, until extraction finishes.
+							extractionAbortSignal={extractionAbortSignal}
 						/>
 					</div>
 				)}

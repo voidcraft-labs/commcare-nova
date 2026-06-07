@@ -9,6 +9,13 @@ import { useDocumentExtraction } from "@/components/builder/media/useDocumentExt
 import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
 import { AttachmentChip } from "./AttachmentChip";
 
+/** Pulse the signal grid with real read progress as a doc streams in — so the grid
+ *  shows tokens flowing, not an idle resting state, during the read. Module-level
+ *  (only touches the signal-grid singleton) so it stays valid after the chip
+ *  unmounts on send, while the build-scoped read keeps streaming. */
+const feedGridEnergy = (chars: number): void =>
+	signalGrid.injectThinkEnergy(chars * READ_ENERGY_PER_CHAR);
+
 interface ChatAttachmentBarProps {
 	/** The assets staged for the next send. */
 	assets: MediaAssetView[];
@@ -19,6 +26,9 @@ interface ChatAttachmentBarProps {
 	/** A staged document's extraction finished — reconcile its snapshot so the
 	 *  chip preview (and the eventual send ref) carry the fresh title/summary. */
 	onExtracted: (assetId: string, extract: ExtractMeta) => void;
+	/** Build-scoped abort signal for the extraction reads (see `ChatInput`). Keeps a
+	 *  read feeding the grid after its chip unmounts on send, until it completes. */
+	extractionAbortSignal?: AbortSignal;
 }
 
 /**
@@ -33,18 +43,21 @@ function StagedChip({
 	onRemove,
 	onPreview,
 	onExtracted,
+	extractionAbortSignal,
 }: {
 	asset: MediaAssetView;
 	onRemove: (assetId: string) => void;
 	onPreview: (asset: MediaAssetView) => void;
 	onExtracted: (assetId: string, extract: ExtractMeta) => void;
+	extractionAbortSignal?: AbortSignal;
 }) {
 	const { status, retry } = useDocumentExtraction(
 		asset,
 		(extract) => onExtracted(asset.id, extract),
-		// Pulse the signal grid with real read progress as the doc streams in — so
-		// the grid shows tokens flowing, not an idle resting state, during the read.
-		(chars) => signalGrid.injectThinkEnergy(chars * READ_ENERGY_PER_CHAR),
+		feedGridEnergy,
+		// Build-scoped, NOT chip-scoped: the read must keep feeding the grid after
+		// this chip unmounts on send, until extraction finishes.
+		extractionAbortSignal,
 	);
 	// A reading document persists to the library regardless of removal, so the ×
 	// is disabled (not a real "cancel") until extraction settles. ready / failed /
@@ -74,6 +87,7 @@ export function ChatAttachmentBar({
 	onRemove,
 	onPreview,
 	onExtracted,
+	extractionAbortSignal,
 }: ChatAttachmentBarProps) {
 	if (assets.length === 0) return null;
 	// Render through PromptInputHeader (the InputGroup's block-start addon slot):
@@ -89,6 +103,7 @@ export function ChatAttachmentBar({
 					onRemove={onRemove}
 					onPreview={onPreview}
 					onExtracted={onExtracted}
+					extractionAbortSignal={extractionAbortSignal}
 				/>
 			))}
 		</PromptInputHeader>
