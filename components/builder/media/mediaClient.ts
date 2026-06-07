@@ -186,6 +186,26 @@ export async function fetchAssetExtract(
 }
 
 /**
+ * Fetch just a document's extract HEADER metadata (title/summary), without the
+ * body. The preview uses this to fill its header when the in-band snapshot it
+ * was opened with lacks them — a message attachment sent before extraction
+ * finished froze its ref empty. Returns `null` on any failure (the caller falls
+ * back to the filename alone), and `{}`/partial when the doc isn't ready yet.
+ */
+export async function fetchAssetExtractMeta(
+	assetId: string,
+): Promise<{ title?: string; summary?: string } | null> {
+	try {
+		const res = await fetch(`/api/media/${assetId}/extract?meta=1`);
+		if (!res.ok) return null;
+		const body = (await res.json()) as { title?: string; summary?: string };
+		return { title: body.title, summary: body.summary };
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Trigger (or confirm) a document's feature extraction and resolve to its
  * resulting extract metadata (status + title/summary when ready). The route is
  * idempotent + best-effort single-flight: it returns `ready` immediately for a

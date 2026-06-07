@@ -36,7 +36,11 @@ import {
 import { type AssetKind, isDocumentKind } from "@/lib/domain/multimedia";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
-import { fetchAssetExtract, mediaSrc } from "./mediaClient";
+import {
+	fetchAssetExtract,
+	fetchAssetExtractMeta,
+	mediaSrc,
+} from "./mediaClient";
 
 /**
  * The minimal handle the preview needs: the asset id (for the bytes proxy +
@@ -90,6 +94,27 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 	const name = target.filename;
 	const isDocument = isDocumentKind(target.kind);
 
+	// Fill the header from the snapshot when it has the title/summary (composer +
+	// library snapshots are reconciled, so they do — instant, no fetch). A message
+	// attachment SENT before extraction finished froze its ref empty; for that
+	// case alone, fetch the header metadata so the preview is still correct.
+	const [fetched, setFetched] = useState<{
+		title?: string;
+		summary?: string;
+	} | null>(null);
+	useEffect(() => {
+		if (!isDocument || target.title || target.summary) return;
+		let cancelled = false;
+		fetchAssetExtractMeta(target.id).then((meta) => {
+			if (!cancelled && meta) setFetched(meta);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [isDocument, target.id, target.title, target.summary]);
+	const title = target.title ?? fetched?.title;
+	const summary = target.summary ?? fetched?.summary;
+
 	return (
 		<>
 			<header className="flex items-start justify-between gap-3 border-b border-nova-border px-4 py-3">
@@ -103,9 +128,9 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 							icon={ASSET_KIND_META[target.kind].icon}
 							className="size-4 shrink-0 text-nova-text-muted"
 						/>
-						<span className="truncate">{target.title ?? name}</span>
+						<span className="truncate">{title ?? name}</span>
 					</Dialog.Title>
-					{target.title && (
+					{title && (
 						<Tooltip>
 							<TooltipTrigger
 								render={
@@ -129,10 +154,10 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 			{/* The summary gets its own zone below the header — document-level
 			 *  orientation that reads against either tab — so the title row stays a
 			 *  tight identity line instead of carrying a multi-line blurb. */}
-			{target.summary && (
+			{summary && (
 				<div className="shrink-0 border-b border-nova-border px-4 py-3">
 					<p className="text-sm leading-relaxed text-nova-text-secondary">
-						{target.summary}
+						{summary}
 					</p>
 				</div>
 			)}

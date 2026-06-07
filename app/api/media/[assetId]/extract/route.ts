@@ -202,6 +202,12 @@ export async function POST(
  * `extracting`/`failed` status off the asset itself and only fetches the body
  * once it's `ready`. CSP `sandbox` + `nosniff` mirror the bytes route's
  * defense-in-depth even though markdown text is inert.
+ *
+ * `?meta=1` returns the extract's header metadata as JSON ({ status, title,
+ * summary }) instead of the body — a cheap asset-doc read, no GCS fetch. The
+ * preview uses it to fill its header when the in-band snapshot lacks the
+ * title/summary (a message attachment sent before extraction finished froze its
+ * ref empty), so the header is correct without re-resolving the whole extract.
  */
 export async function GET(
 	req: NextRequest,
@@ -210,6 +216,19 @@ export async function GET(
 	const { assetId: rawAssetId } = await params;
 	try {
 		const { asset } = await loadExtractableDocument(req, rawAssetId);
+
+		if (new URL(req.url).searchParams.get("meta") === "1") {
+			const ready =
+				asset.extract?.status === "ready" &&
+				asset.extract.version === EXTRACTOR_VERSION;
+			return NextResponse.json({
+				status: asset.extract?.status ?? null,
+				...(ready && asset.extract?.title && { title: asset.extract.title }),
+				...(ready &&
+					asset.extract?.summary && { summary: asset.extract.summary }),
+			});
+		}
+
 		if (
 			asset.extract?.status !== "ready" ||
 			asset.extract.version !== EXTRACTOR_VERSION

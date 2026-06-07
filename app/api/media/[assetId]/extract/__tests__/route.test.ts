@@ -80,7 +80,12 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 const ctx = (assetId = "asset-1") => ({
 	params: Promise.resolve({ assetId }),
 });
-const req = () => ({}) as Parameters<typeof POST>[0];
+// GET reads `req.url` (the `?meta` switch), so the stub carries a realistic URL;
+// pass a query (e.g. "?meta=1") to exercise the metadata branch.
+const req = (query = "") =>
+	({ url: `http://localhost/api/media/asset-1/extract${query}` }) as Parameters<
+		typeof POST
+	>[0];
 
 /** Drain a handler response's body. An unread `NextResponse.json` body leaves a
  *  pending promise the async-leak gate flags, so status-only assertions still
@@ -275,5 +280,41 @@ describe("GET extract", () => {
 		expect(res.status).toBe(404);
 		expect(readTextObject).not.toHaveBeenCalled();
 		await drainBody(res);
+	});
+
+	it("?meta=1 returns the header title/summary as JSON without reading the body", async () => {
+		// The preview's fallback for a frozen-ref message attachment: a cheap
+		// asset-doc read, never the GCS extract text.
+		loadAssetForOwnerMock.mockResolvedValue(
+			docAsset({
+				extract: {
+					status: "ready",
+					version: EXTRACTOR_VERSION,
+					model: "gemini-3.5-flash",
+					truncated: false,
+					charCount: 5,
+					title: "ANC Program Requirements",
+					summary: "A data-collection spec for antenatal care visits.",
+					// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant here
+					extractedAt: {} as any,
+				},
+			}),
+		);
+		const res = await GET(req("?meta=1"), ctx());
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			status: "ready",
+			title: "ANC Program Requirements",
+			summary: "A data-collection spec for antenatal care visits.",
+		});
+		// Metadata comes off the asset doc — the extract body is never fetched.
+		expect(readTextObject).not.toHaveBeenCalled();
+	});
+
+	it("?meta=1 omits title/summary for a not-yet-extracted document", async () => {
+		loadAssetForOwnerMock.mockResolvedValue(docAsset()); // no extract field
+		const res = await GET(req("?meta=1"), ctx());
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ status: null });
 	});
 });
