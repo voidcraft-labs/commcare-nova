@@ -17,6 +17,7 @@
 import type { UIMessage } from "ai";
 import { z } from "zod";
 import { ASSET_KINDS, DOCUMENT_KINDS } from "@/lib/domain/multimedia";
+import { MAX_ATTACHMENTS_PER_MESSAGE } from "./limits";
 
 /**
  * A reference to one attached asset. `assetId` is the durable pointer (the
@@ -25,18 +26,25 @@ import { ASSET_KINDS, DOCUMENT_KINDS } from "@/lib/domain/multimedia";
  * how the chip renders; `filename` + `mimeType` + `title` + `summary` are
  * display-only. No URL is stored — it's derived from `assetId`, so the ref can't
  * drift from the route layout.
+ *
+ * Every string field is length-capped. The metadata rides untrusted from the
+ * client and is re-resolved server-side every turn (and persisted into the event
+ * log), so the caps bound both the I/O each ref drives and the log bloat a
+ * crafted request could inject. The ceilings sit well above legitimate values:
+ * an asset id is a UUID (36 chars), filenames + MIME types are short, and an
+ * extracted title is ~ten words / a summary two-to-four sentences.
  */
 export const attachmentRefSchema = z.object({
-	assetId: z.string().min(1),
+	assetId: z.string().min(1).max(128),
 	kind: z.enum(ASSET_KINDS),
-	filename: z.string().min(1),
-	mimeType: z.string().min(1),
+	filename: z.string().min(1).max(255),
+	mimeType: z.string().min(1).max(255),
 	/** A document's extracted title/summary, snapshotted at attach time so the
 	 *  transcript chip's preview header has them the instant it opens — no fetch.
 	 *  Display-only (the server re-derives what it needs from `assetId`); absent
 	 *  for media and for a document not yet extracted when it was attached. */
-	title: z.string().optional(),
-	summary: z.string().optional(),
+	title: z.string().max(200).optional(),
+	summary: z.string().max(2_000).optional(),
 });
 export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
 
@@ -45,10 +53,15 @@ export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
  * The AI SDK rides it on the `UIMessage` and POSTs the whole message, so the
  * route reads `body.messages[i].metadata.attachments` and the refs persist in
  * history across turns — which is what lets the server re-resolve every turn's
- * attachments (not just the last), closing the multi-turn gap.
+ * attachments (not just the last), closing the multi-turn gap. The per-message
+ * array is capped (`MAX_ATTACHMENTS_PER_MESSAGE`); the request-wide total is the
+ * stronger bound, enforced by `validateChatMessages`.
  */
 export const messageMetadataSchema = z.object({
-	attachments: z.array(attachmentRefSchema).optional(),
+	attachments: z
+		.array(attachmentRefSchema)
+		.max(MAX_ATTACHMENTS_PER_MESSAGE)
+		.optional(),
 });
 export type NovaMessageMetadata = z.infer<typeof messageMetadataSchema>;
 

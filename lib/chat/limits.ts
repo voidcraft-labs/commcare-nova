@@ -25,3 +25,23 @@ export const CHAR_COUNTER_VISIBLE_AT = 0.7;
  *  fades in over `[VISIBLE_AT, DANGER_AT)` in nova-amber, sits full-opacity
  *  amber through the danger band, then flips to nova-rose at/over the limit. */
 export const CHAR_COUNTER_DANGER_AT = 0.85;
+
+/**
+ * Max messages the chat route accepts in one request. A long edit session is one
+ * user + one assistant message per turn, so this bounds the history the server
+ * walks and ships to the model at ~200 turns. Defense-in-depth: the client never
+ * sends near this; a crafted request that does is rejected before any I/O.
+ */
+export const MAX_CHAT_MESSAGES = 400;
+
+/**
+ * Max attachment refs across the WHOLE request — the meaningful DoS bound.
+ * `resolveAttachments` walks every message and batch-loads each unique asset, so
+ * the request total (not any single message) is what hits Firestore + GCS. A
+ * request over this is rejected before resolution runs.
+ */
+export const MAX_CHAT_ATTACHMENTS = 100;
+
+/** Max attachment refs on a single message — secondary to the request-total cap;
+ *  bounds one turn's chip row. Enforced by `messageMetadataSchema`. */
+export const MAX_ATTACHMENTS_PER_MESSAGE = 20;
