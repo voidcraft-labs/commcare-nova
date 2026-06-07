@@ -20,6 +20,12 @@ interface AttachmentChipProps {
 	onPreview?: () => void;
 	/** Renders a trailing × that removes the chip (composer only). */
 	onRemove?: () => void;
+	/** Disable the remove × (kept visible, not hidden) — used while the document is
+	 *  still reading, since extraction persists to the library regardless and a
+	 *  working × would be a false "cancel". The tooltip explains the wait. */
+	removeDisabled?: boolean;
+	/** Tooltip shown on the disabled × in place of "Remove". */
+	removeDisabledTooltip?: string;
 	/** Trailing status slot — the extraction indicator badge. */
 	trailing?: ReactNode;
 }
@@ -40,6 +46,8 @@ export function AttachmentChip({
 	filename,
 	onPreview,
 	onRemove,
+	removeDisabled,
+	removeDisabledTooltip,
 	trailing,
 }: AttachmentChipProps) {
 	const meta = ASSET_KIND_META[kind];
@@ -80,24 +88,39 @@ export function AttachmentChip({
 			)}
 			{trailing}
 			{onRemove && (
+				/* The × stays VISIBLE while disabled so the affordance doesn't flicker
+				 * in/out as a doc finishes reading. `aria-disabled` (not the native
+				 * `disabled` attribute) is deliberate: a truly-disabled button receives
+				 * no pointer events, so its tooltip — the one thing explaining WHY it's
+				 * disabled — would never open. We instead drop the click handler and
+				 * style it inert, keeping it hoverable/focusable for the explanation. */
 				<Tooltip>
 					<TooltipTrigger
 						render={
 							<button
 								type="button"
-								onClick={onRemove}
+								onClick={removeDisabled ? undefined : onRemove}
+								aria-disabled={removeDisabled || undefined}
 								className={cn(
-									"flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm",
-									"text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text",
+									"flex size-4 shrink-0 items-center justify-center rounded-sm",
 									"focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
+									removeDisabled
+										? "cursor-default text-nova-text-muted/40"
+										: "cursor-pointer text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text",
 								)}
-								aria-label={`Remove ${filename}`}
+								aria-label={
+									removeDisabled
+										? `${filename} can't be removed while it's being read`
+										: `Remove ${filename}`
+								}
 							>
 								<Icon icon={tablerX} className="size-3" />
 							</button>
 						}
 					/>
-					<TooltipContent>Remove</TooltipContent>
+					<TooltipContent>
+						{removeDisabled ? (removeDisabledTooltip ?? "Remove") : "Remove"}
+					</TooltipContent>
 				</Tooltip>
 			)}
 		</div>

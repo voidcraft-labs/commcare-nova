@@ -18,6 +18,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
+import type { MediaExtractStatus } from "@/lib/domain/multimedia";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
 import type { ExtractMeta } from "./mediaClient";
 import {
@@ -25,6 +26,13 @@ import {
 	useDocumentExtraction,
 } from "./useDocumentExtraction";
 
+/**
+ * Hook-driving wrapper: kicks off (and tracks) extraction for `asset`, then
+ * renders the indicator. Used where the badge is the sole consumer of the
+ * extraction status (the file manager). The composer drives the hook itself —
+ * it also needs the status to gate the chip's remove control — and renders
+ * `ExtractionStatusBadgeView` directly with the result.
+ */
 export function ExtractionStatusBadge({
 	asset,
 	onExtracted,
@@ -35,7 +43,22 @@ export function ExtractionStatusBadge({
 	onExtracted?: (extract: ExtractMeta) => void;
 }) {
 	const { status, retry } = useDocumentExtraction(asset, onExtracted);
+	return <ExtractionStatusBadgeView status={status} retry={retry} />;
+}
 
+/**
+ * Presentational indicator: "Reading…" / "Couldn't read" (retry) / "Extracted",
+ * or nothing for a non-document. Split from the hook so a caller that already
+ * holds the extraction status (the composer, which gates the chip's X on it) can
+ * render the same badge without triggering a second `useDocumentExtraction`.
+ */
+export function ExtractionStatusBadgeView({
+	status,
+	retry,
+}: {
+	status: MediaExtractStatus | null;
+	retry: () => void;
+}) {
 	if (status === null) return null;
 
 	if (status === "extracting") {
