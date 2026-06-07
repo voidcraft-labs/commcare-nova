@@ -118,6 +118,41 @@ describe("POST extract (wrapper mapping)", () => {
 		);
 	});
 
+	it("includes the persisted title/summary in a ready response", async () => {
+		// The store returns extract TEXT only; the route re-reads the asset doc for
+		// the title/summary it persisted, so the caller can refresh a staged
+		// snapshot the instant extraction finishes (chip preview shows them at once).
+		loadAssetForOwnerMock.mockResolvedValue(
+			docAsset({
+				extract: {
+					status: "ready",
+					version: EXTRACTOR_VERSION,
+					model: "gemini-3.5-flash",
+					truncated: false,
+					charCount: 12,
+					title: "ANC Program Requirements",
+					summary: "A data-collection spec for antenatal care visits.",
+					// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant here
+					extractedAt: {} as any,
+				},
+			}),
+		);
+		ensureStoredExtractMock.mockResolvedValue({
+			status: "ready",
+			text: "EXTRACT BODY",
+			truncated: false,
+			charCount: "EXTRACT BODY".length,
+		});
+
+		const res = await POST(req(), ctx());
+		expect(res.status).toBe(200);
+		expect((await res.json()).extract).toMatchObject({
+			status: "ready",
+			title: "ANC Program Requirements",
+			summary: "A data-collection spec for antenatal care visits.",
+		});
+	});
+
 	it("maps an in-flight result to 202", async () => {
 		loadAssetForOwnerMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockResolvedValue({ status: "extracting" });

@@ -13,14 +13,19 @@
 import type { WireMediaAsset } from "@/lib/db/mediaAssets";
 import {
 	type AssetKind,
+	EXTRACTOR_VERSION,
 	type Media,
-	type MediaExtractStatus,
 	type MediaKind,
 	resolveUploadMimeType,
 } from "@/lib/domain/multimedia";
 
 /** The asset shape the API returns and the UI renders. */
 export type MediaAssetView = WireMediaAsset;
+
+/** A completed extraction's metadata — the wire `extract` shape (status +
+ *  title/summary + counts). Returned by `triggerAssetExtraction` so a caller can
+ *  refresh a staged asset's snapshot the instant extraction finishes. */
+export type ExtractMeta = NonNullable<WireMediaAsset["extract"]>;
 
 /**
  * Set one kind's asset on a `Media` bundle, preserving the other
@@ -182,30 +187,36 @@ export async function fetchAssetExtract(
 
 /**
  * Trigger (or confirm) a document's feature extraction and resolve to its
- * resulting status. The route is idempotent + best-effort single-flight: it
- * returns `ready` immediately for a current extract, `extracting` (202) when a
- * job is already in flight, and otherwise runs the extraction to completion
- * before resolving — so this promise settles with the FINAL status, which the
- * file-manager indicator shows while it's pending. A failure server-side is
+ * resulting extract metadata (status + title/summary when ready). The route is
+ * idempotent + best-effort single-flight: it returns `ready` immediately for a
+ * current extract, `extracting` (202) when a job is already in flight, and
+ * otherwise runs the extraction to completion before resolving — so this promise
+ * settles with the FINAL state, which the indicator shows while pending AND the
+ * caller uses to refresh its staged snapshot (so the chip preview gets the
+ * title/summary the instant extraction finishes). A failure server-side is
  * recorded as `failed`; a transport error maps to `failed` too (the file is
  * saved — the chat's lazy backstop will re-read it on send).
  */
 export async function triggerAssetExtraction(
 	assetId: string,
-): Promise<MediaExtractStatus> {
+): Promise<ExtractMeta> {
+	const failed: ExtractMeta = {
+		status: "failed",
+		version: EXTRACTOR_VERSION,
+		truncated: false,
+		charCount: 0,
+	};
 	try {
 		const res = await fetch(`/api/media/${assetId}/extract`, {
 			method: "POST",
 		});
 		if (res.ok || res.status === 202) {
-			const body = (await res.json()) as {
-				extract?: { status?: MediaExtractStatus };
-			};
-			return body.extract?.status ?? "ready";
+			const body = (await res.json()) as { extract?: ExtractMeta };
+			return body.extract ?? failed;
 		}
-		return "failed";
+		return failed;
 	} catch {
-		return "failed";
+		return failed;
 	}
 }
 

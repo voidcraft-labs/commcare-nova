@@ -45,7 +45,12 @@ import {
 } from "./AssetPreviewDialog";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { ExtractionStatusBadge } from "./ExtractionStatusBadge";
-import { deleteMediaAsset, type MediaAssetView, mediaSrc } from "./mediaClient";
+import {
+	deleteMediaAsset,
+	type ExtractMeta,
+	type MediaAssetView,
+	mediaSrc,
+} from "./mediaClient";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
 
 const BACKDROP_CLS =
@@ -140,6 +145,7 @@ function PickerBody({
 		loadMore,
 		addUploaded,
 		removeAsset,
+		updateAsset,
 	} = useMediaLibrary(libraryKinds);
 
 	const commit = (asset: MediaAssetView) => {
@@ -231,6 +237,12 @@ function PickerBody({
 							})
 						}
 						onDelete={setDeleteTarget}
+						// Fold a freshly completed extract into the list so a preview
+						// opened right after upload shows its title/summary without
+						// waiting for a re-fetch.
+						onExtracted={(assetId, extract) =>
+							updateAsset(assetId, { extract })
+						}
 						// The type filter only makes sense when more than one
 						// kind is browsable; a single-kind library is already
 						// narrowed by the fetch.
@@ -466,6 +478,7 @@ function LibraryTab({
 	onPick,
 	onPreview,
 	onDelete,
+	onExtracted,
 	filter,
 	kinds,
 	onFilterChange,
@@ -480,6 +493,8 @@ function LibraryTab({
 	onPreview: (asset: MediaAssetView) => void;
 	/** Request deletion of an asset (opens the confirmation dialog). */
 	onDelete: (asset: MediaAssetView) => void;
+	/** A document's extraction completed — reconcile its snapshot in the list. */
+	onExtracted: (assetId: string, extract: ExtractMeta) => void;
 	/** Active browse filter, or `null` to hide the filter row (single-kind slot). */
 	filter: LibraryFilter | null;
 	kinds: readonly AssetKind[];
@@ -610,7 +625,12 @@ function LibraryTab({
 									 *  Renders nothing for media kinds. */}
 									{isDocumentKind(asset.kind) && (
 										<div className="pointer-events-none absolute inset-x-1 bottom-1 flex justify-center [&>*]:pointer-events-auto">
-											<ExtractionStatusBadge asset={asset} />
+											<ExtractionStatusBadge
+												asset={asset}
+												onExtracted={(extract) =>
+													onExtracted(asset.id, extract)
+												}
+											/>
 										</div>
 									)}
 								</div>

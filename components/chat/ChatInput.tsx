@@ -16,7 +16,10 @@ import {
 	type AssetPreviewTarget,
 } from "@/components/builder/media/AssetPreviewDialog";
 import { MediaPickerDialog } from "@/components/builder/media/MediaPickerDialog";
-import type { MediaAssetView } from "@/components/builder/media/mediaClient";
+import type {
+	ExtractMeta,
+	MediaAssetView,
+} from "@/components/builder/media/mediaClient";
 import { CharCounter } from "@/components/chat/CharCounter";
 import { ChatAttachmentBar } from "@/components/chat/ChatAttachmentBar";
 import {
@@ -106,6 +109,15 @@ export function ChatInput({
 		);
 	const removePicked = (assetId: string) =>
 		setPicked((cur) => cur.filter((a) => a.id !== assetId));
+	// Eager extraction finishes AFTER a document is staged, so the snapshot picked
+	// here has no title/summary yet. When the chip's badge reports completion, fold
+	// the fresh extract back in — so the chip preview shows the title/summary right
+	// away (not only after a library re-fetch) and the ref sent on submit carries
+	// them too (`toAttachmentRef` reads `asset.extract`).
+	const reconcileExtract = (assetId: string, extract: ExtractMeta) =>
+		setPicked((cur) =>
+			cur.map((a) => (a.id === assetId ? { ...a, extract } : a)),
+		);
 
 	// Block the Enter-to-send when over the limit BEFORE PromptInput's submit
 	// runs (it resets the textarea immediately) — otherwise the over-limit paste
@@ -174,6 +186,7 @@ export function ChatInput({
 				<ChatAttachmentBar
 					assets={picked}
 					onRemove={removePicked}
+					onExtracted={reconcileExtract}
 					onPreview={(asset) =>
 						setPreviewTarget({
 							id: asset.id,

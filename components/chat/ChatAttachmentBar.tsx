@@ -1,7 +1,10 @@
 "use client";
 import { PromptInputHeader } from "@/components/ai-elements/prompt-input";
 import { ExtractionStatusBadge } from "@/components/builder/media/ExtractionStatusBadge";
-import type { MediaAssetView } from "@/components/builder/media/mediaClient";
+import type {
+	ExtractMeta,
+	MediaAssetView,
+} from "@/components/builder/media/mediaClient";
 import { AttachmentChip } from "./AttachmentChip";
 
 interface ChatAttachmentBarProps {
@@ -11,6 +14,9 @@ interface ChatAttachmentBarProps {
 	onRemove: (assetId: string) => void;
 	/** Open the preview for an asset. */
 	onPreview: (asset: MediaAssetView) => void;
+	/** A staged document's extraction finished — reconcile its snapshot so the
+	 *  chip preview (and the eventual send ref) carry the fresh title/summary. */
+	onExtracted: (assetId: string, extract: ExtractMeta) => void;
 }
 
 /**
@@ -23,6 +29,7 @@ export function ChatAttachmentBar({
 	assets,
 	onRemove,
 	onPreview,
+	onExtracted,
 }: ChatAttachmentBarProps) {
 	if (assets.length === 0) return null;
 	// Render through PromptInputHeader (the InputGroup's block-start addon slot):
@@ -38,7 +45,12 @@ export function ChatAttachmentBar({
 					filename={asset.displayName ?? asset.originalFilename}
 					onPreview={() => onPreview(asset)}
 					onRemove={() => onRemove(asset.id)}
-					trailing={<ExtractionStatusBadge asset={asset} />}
+					trailing={
+						<ExtractionStatusBadge
+							asset={asset}
+							onExtracted={(extract) => onExtracted(asset.id, extract)}
+						/>
+					}
 				/>
 			))}
 		</PromptInputHeader>

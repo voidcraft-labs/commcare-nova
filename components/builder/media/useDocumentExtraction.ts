@@ -18,7 +18,7 @@ import {
 	isDocumentKind,
 	type MediaExtractStatus,
 } from "@/lib/domain/multimedia";
-import { triggerAssetExtraction } from "./mediaClient";
+import { type ExtractMeta, triggerAssetExtraction } from "./mediaClient";
 
 /** How often to re-check an extraction another request owns (saw a 202). */
 const POLL_INTERVAL_MS = 4000;
@@ -45,11 +45,21 @@ export interface DocumentExtraction {
 
 export function useDocumentExtraction(
 	asset: ExtractableAsset,
+	/** Called once when extraction resolves to `ready`, with the fresh metadata
+	 *  (title/summary). Lets the owner of a STAGED snapshot (the composer's picked
+	 *  assets, the library list) reconcile it the instant extraction finishes, so
+	 *  the preview shows the title/summary without a re-fetch. */
+	onExtracted?: (extract: ExtractMeta) => void,
 ): DocumentExtraction {
 	const isDoc = isDocumentKind(asset.kind);
 	const [status, setStatus] = useState<MediaExtractStatus | null>(
 		isDoc ? (asset.extract?.status ?? null) : null,
 	);
+
+	// Ref so the poll callback always sees the latest `onExtracted` without
+	// rebuilding (and re-firing) the extraction effect when the parent re-renders.
+	const onExtractedRef = useRef(onExtracted);
+	onExtractedRef.current = onExtracted;
 
 	// Cancel-safety: a long-running POST or a queued poll must not write state
 	// after unmount. The cleanup flips the flag and clears any pending poll.
@@ -75,10 +85,14 @@ export function useDocumentExtraction(
 	 * spinning rather than polling indefinitely.
 	 */
 	const poll = useCallback(() => {
-		triggerAssetExtraction(asset.id).then((next) => {
+		triggerAssetExtraction(asset.id).then((extract) => {
 			if (cancelledRef.current) return;
-			setStatus(next);
-			if (next === "extracting" && pollCountRef.current < MAX_POLLS) {
+			setStatus(extract.status);
+			// Surface the fresh title/summary the moment extraction completes, so a
+			// staged snapshot can reconcile (fixes a chip preview opened right after
+			// upload showing no title/summary until a later library re-fetch).
+			if (extract.status === "ready") onExtractedRef.current?.(extract);
+			if (extract.status === "extracting" && pollCountRef.current < MAX_POLLS) {
 				pollCountRef.current += 1;
 				pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
 			}

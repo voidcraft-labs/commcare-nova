@@ -66,6 +66,10 @@ export interface UseMediaLibrary {
 	addUploaded: (asset: MediaAssetView) => void;
 	/** Drop a just-deleted asset from the list so it disappears immediately. */
 	removeAsset: (assetId: string) => void;
+	/** Merge a partial update into a loaded asset in place — used to fold a freshly
+	 *  completed extract (title/summary) into the list without a re-fetch, so the
+	 *  preview opened from the library is current within the same session. */
+	updateAsset: (assetId: string, patch: Partial<MediaAssetView>) => void;
 }
 
 /**
@@ -178,6 +182,15 @@ export function useMediaLibrary(kinds?: readonly AssetKind[]): UseMediaLibrary {
 		setAssets((prev) => prev.filter((a) => a.id !== assetId));
 	}, []);
 
+	const updateAsset = useCallback(
+		(assetId: string, patch: Partial<MediaAssetView>) => {
+			setAssets((prev) =>
+				prev.map((a) => (a.id === assetId ? { ...a, ...patch } : a)),
+			);
+		},
+		[],
+	);
+
 	return {
 		assets,
 		isLoading,
@@ -186,5 +199,6 @@ export function useMediaLibrary(kinds?: readonly AssetKind[]): UseMediaLibrary {
 		loadMore,
 		addUploaded,
 		removeAsset,
+		updateAsset,
 	};
 }

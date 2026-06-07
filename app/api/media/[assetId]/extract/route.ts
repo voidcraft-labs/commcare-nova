@@ -166,6 +166,15 @@ export async function POST(
 			);
 		}
 
+		// Re-read the asset so the response carries the persisted title/summary.
+		// `ensureStoredExtract` returns the extract TEXT, not the metadata it wrote
+		// to the doc — and the caller (the file-manager / composer badge) needs the
+		// title + summary to refresh its staged snapshot the instant extraction
+		// finishes, so the chip preview shows them without a re-fetch. A failed
+		// re-read just omits them (the snapshot stays as-is, no worse than before).
+		const fresh = await loadAssetForOwner(session.user.id, asset.id).catch(
+			() => null,
+		);
 		return NextResponse.json({
 			ok: true,
 			extract: {
@@ -173,6 +182,8 @@ export async function POST(
 				version: EXTRACTOR_VERSION,
 				truncated: result.truncated,
 				charCount: result.charCount,
+				...(fresh?.extract?.title && { title: fresh.extract.title }),
+				...(fresh?.extract?.summary && { summary: fresh.extract.summary }),
 			},
 		});
 	} catch (err) {

@@ -19,13 +19,22 @@ import {
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
+import type { ExtractMeta } from "./mediaClient";
 import {
 	type ExtractableAsset,
 	useDocumentExtraction,
 } from "./useDocumentExtraction";
 
-export function ExtractionStatusBadge({ asset }: { asset: ExtractableAsset }) {
-	const { status, retry } = useDocumentExtraction(asset);
+export function ExtractionStatusBadge({
+	asset,
+	onExtracted,
+}: {
+	asset: ExtractableAsset;
+	/** Forwarded to `useDocumentExtraction`: fires with the fresh metadata when
+	 *  extraction completes, so a staged snapshot (composer / library) reconciles. */
+	onExtracted?: (extract: ExtractMeta) => void;
+}) {
+	const { status, retry } = useDocumentExtraction(asset, onExtracted);
 
 	if (status === null) return null;
 
