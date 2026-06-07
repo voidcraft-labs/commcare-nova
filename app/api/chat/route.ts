@@ -16,6 +16,7 @@ import {
 } from "@/lib/agent";
 import { resolveAnthropicKey } from "@/lib/auth-utils";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	createApp,
@@ -315,10 +316,10 @@ export async function POST(req: Request) {
 			 * history carries refs + resolved text rather than raw file parts — the SA
 			 * re-reads dense extracts (cheap) and the multi-turn crash (Anthropic
 			 * rejecting `text/markdown` file parts) can't recur. */
-			const messagesToSend =
-				editing && cacheExpired
-					? messages.filter((m) => m.role === "user").slice(-1)
-					: messages;
+			const messagesToSend = selectMessagesToSend(messages, {
+				editing,
+				cacheExpired,
+			});
 
 			/* Resolve attachment references into model-ready content BEFORE the SA.
 			 * The composer sends asset-id refs in message metadata; this appends, per
