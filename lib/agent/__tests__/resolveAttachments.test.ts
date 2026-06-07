@@ -28,6 +28,7 @@ const {
 	loadAssetsByIdsMock,
 	loadAssetForOwnerMock,
 	setAssetExtractStatusMock,
+	claimExtractionIfIdleMock,
 	downloadAssetBytesMock,
 	readTextObjectMock,
 	writeTextObjectMock,
@@ -35,18 +36,21 @@ const {
 	loadAssetsByIdsMock: vi.fn(),
 	loadAssetForOwnerMock: vi.fn(),
 	setAssetExtractStatusMock: vi.fn(),
+	claimExtractionIfIdleMock: vi.fn(),
 	downloadAssetBytesMock: vi.fn(),
 	readTextObjectMock: vi.fn(),
 	writeTextObjectMock: vi.fn(),
 }));
 
-// `loadAssetForOwner` + `MediaAssetOwnershipError` are pulled in transitively via
-// the shared extract store (the backstop delegates to it); the store re-reads
-// status fresh on a GCS miss before deciding whether to claim or wait.
+// `loadAssetForOwner`, `claimExtractionIfIdle`, + `MediaAssetOwnershipError` are
+// pulled in transitively via the shared extract store (the backstop delegates to
+// it); on a GCS miss the store re-reads status fresh, then atomically claims via
+// `claimExtractionIfIdle` before running the model.
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetsByIds: loadAssetsByIdsMock,
 	loadAssetForOwner: loadAssetForOwnerMock,
 	setAssetExtractStatus: setAssetExtractStatusMock,
+	claimExtractionIfIdle: claimExtractionIfIdleMock,
 	MediaAssetOwnershipError: class MediaAssetOwnershipError extends Error {},
 }));
 vi.mock("@/lib/storage/media", () => ({
@@ -103,6 +107,9 @@ function userMsg(
 beforeEach(() => {
 	vi.clearAllMocks();
 	setAssetExtractStatusMock.mockResolvedValue(undefined);
+	// The store atomically claims before extracting; the backstop's lazy path
+	// always wins the claim in these single-caller tests.
+	claimExtractionIfIdleMock.mockResolvedValue(true);
 	downloadAssetBytesMock.mockResolvedValue(Buffer.from("raw bytes"));
 	writeTextObjectMock.mockResolvedValue(undefined);
 	// Default fresh status read: an asset with no extract record yet, so the
