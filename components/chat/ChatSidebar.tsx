@@ -17,6 +17,7 @@ import {
 	ConversationEmptyState,
 	ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
+import { Message, MessageContent } from "@/components/ai-elements/message";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
@@ -605,24 +606,33 @@ function WelcomeIntro() {
 	}, []);
 
 	return (
-		<>
-			<motion.h1
-				initial={{ opacity: 0, y: 6 }}
-				animate={stage >= 1 ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
-				transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
-				className="text-xl font-display font-medium text-nova-text mb-1.5"
-			>
-				What do you want to build?
-			</motion.h1>
-			<motion.p
-				initial={{ opacity: 0, y: 8 }}
-				animate={stage >= 2 ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
-				transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
-				className="text-nova-text-secondary text-sm leading-relaxed"
-			>
-				Describe your CommCare app — workflows, data collection, and who will
-				use it.
-			</motion.p>
-		</>
+		// Render through the real assistant-message shell so the opening turn sits in
+		// the same column as every reply. Heading + subtitle are ONE unit, so they
+		// share a single wrapper child: the shell spaces SEPARATE turns at gap-4, and
+		// splitting the pair across two children would drop that 16px between a title
+		// and its own caption — the tight gap-1.5 here owns the pair's rhythm instead.
+		<Message from="assistant">
+			<MessageContent>
+				<div className="flex flex-col gap-1.5">
+					<motion.h1
+						initial={{ opacity: 0, y: 6 }}
+						animate={stage >= 1 ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+						transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+						className="text-lg font-display font-medium text-nova-text"
+					>
+						What do you want to build?
+					</motion.h1>
+					<motion.p
+						initial={{ opacity: 0, y: 8 }}
+						animate={stage >= 2 ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
+						transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+						className="text-nova-text-secondary text-sm leading-relaxed"
+					>
+						Describe your CommCare app — workflows, data collection, and who
+						will use it.
+					</motion.p>
+				</div>
+			</MessageContent>
+		</Message>
 	);
 }
