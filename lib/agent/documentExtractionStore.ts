@@ -22,6 +22,7 @@
 // single-flight policy — composed over it.
 
 import {
+	claimExtractionIfIdle,
 	loadAssetForOwner,
 	MediaAssetOwnershipError,
 	type MediaAssetRecord,
@@ -201,30 +202,21 @@ async function waitForInflight(
 }
 
 /**
- * Claim the extraction (mark `extracting` so a late trigger backs off), run the
- * model, and persist the result — GCS text first (the source of truth the fast
- * path reads), then the `ready`/`failed` status. Status writes are best-effort:
- * the extract TEXT in GCS is what the fast path and the SA actually read, so a
- * status-write hiccup must not fail the turn — it only weakens single-flight and
- * the UI indicator, both self-healing.
+ * Run the model and persist the result — GCS text first (the source of truth the
+ * fast path reads), then the `ready`/`failed` status. The caller has already
+ * acquired the lock (`claimExtractionIfIdle` wrote `extracting`); this only runs
+ * the model and records the outcome. Status writes are best-effort: the extract
+ * TEXT in GCS is what the fast path and the SA actually read, so a status-write
+ * hiccup must not fail the turn — it only weakens the UI indicator, which
+ * self-heals.
  */
-async function claimAndExtract(opts: {
+async function runExtraction(opts: {
 	asset: MediaAssetRecord;
 	documentKind: DocumentKind;
 	condenser: AttachmentCondenser;
 	key: string;
 }): Promise<StoredExtractResult> {
 	const { asset, documentKind, condenser, key } = opts;
-
-	await setAssetExtractStatus(asset.id, {
-		status: "extracting",
-		version: EXTRACTOR_VERSION,
-		model: CONDENSER_MODEL,
-		truncated: false,
-		charCount: 0,
-	}).catch((err: unknown) =>
-		log.warn("[extract-store] claim write failed", { assetId: asset.id, err }),
-	);
 
 	try {
 		const bytes = await downloadAssetBytes(
@@ -334,17 +326,37 @@ export async function ensureStoredExtract(opts: {
 		return readyResult(stored, truncated);
 	}
 
-	// 2. Miss → fresh status decides whether a live job owns this extraction.
+	// 2. Miss → fresh status decides whether to wait on a live job.
 	const fresh = await reloadExtractStatus(asset.owner, asset.id);
-	const decision = decideExtractAction(fresh?.snapshot ?? null, Date.now());
-
-	if (decision === "await-inflight") {
+	if (
+		decideExtractAction(fresh?.snapshot ?? null, Date.now()) ===
+		"await-inflight"
+	) {
 		if (onInflight === "report") return { status: "extracting" };
 		const waited = await waitForInflight(asset.owner, asset.id, key);
 		if (waited) return waited;
-		// 3. The in-flight job didn't yield a usable extract → fall through.
+		// The live job died without a usable extract → fall through to claim.
 	}
 
-	// We own it: claim, run, persist.
-	return claimAndExtract({ asset, documentKind, condenser, key });
+	// 3. Claim ATOMICALLY before running the model. The read→decide above is not
+	//    atomic with the claim, so two callers can both reach here; the
+	//    transaction writes `extracting` only if no live job holds it, so only one
+	//    runs the model. A transaction hiccup degrades to claiming (we extract) —
+	//    never breaking the turn.
+	const claimed = await claimExtractionIfIdle(asset.id, {
+		now: Date.now(),
+		staleMs: EXTRACTING_STALE_MS,
+		currentVersion: EXTRACTOR_VERSION,
+		model: CONDENSER_MODEL,
+	}).catch(() => true);
+	if (!claimed) {
+		// A concurrent caller won the claim in that window — behave as in-flight.
+		if (onInflight === "report") return { status: "extracting" };
+		const waited = await waitForInflight(asset.owner, asset.id, key);
+		if (waited) return waited;
+		// That winner also died → extract ourselves as the last-resort backstop.
+	}
+
+	// We hold the claim (or are the last-resort backstop): run + persist.
+	return runExtraction({ asset, documentKind, condenser, key });
 }

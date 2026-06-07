@@ -240,6 +240,46 @@ export async function setAssetExtractStatus(
 }
 
 /**
+ * Atomically claim a document's extraction. In ONE transaction, re-read the
+ * extract status and write `extracting` only if no LIVE current job already holds
+ * it — a job is live iff its status is `extracting`, at `currentVersion`, and
+ * younger than `staleMs` (a dead process leaves a stale `extracting` record that
+ * is reclaimable). Returns `true` when THIS caller acquired the claim (and should
+ * run the model), `false` when a live job already owns it (the caller should wait
+ * or report in-flight).
+ *
+ * This is the lock that stops two concurrent eager extractions from both running
+ * the model: the plain read-decide-then-write it backs let both pass the check
+ * before either wrote the claim, so both proceeded. The transaction closes that
+ * window — the second caller sees the first's `extracting` write and backs off.
+ */
+export async function claimExtractionIfIdle(
+	assetId: AssetId,
+	opts: { now: number; staleMs: number; currentVersion: number; model: string },
+): Promise<boolean> {
+	const ref = docs.mediaAsset(assetId);
+	return ref.firestore.runTransaction(async (tx) => {
+		const extract = (await tx.get(ref)).data()?.extract;
+		const liveJob =
+			extract?.status === "extracting" &&
+			extract.version === opts.currentVersion &&
+			opts.now - extract.extractedAt.toMillis() < opts.staleMs;
+		if (liveJob) return false;
+		tx.update(ref, {
+			extract: {
+				status: "extracting",
+				version: opts.currentVersion,
+				model: opts.model,
+				truncated: false,
+				charCount: 0,
+				extractedAt: FieldValue.serverTimestamp() as unknown as Timestamp,
+			},
+		});
+		return true;
+	});
+}
+
+/**
  * True when another row owned by the same user points at the same GCS
  * object. Used before deleting bytes: duplicate-ready races and legacy
  * content-hash-keyed rows can share storage, so a row delete must not

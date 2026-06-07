@@ -24,13 +24,17 @@ import {
 	ensureStoredExtract,
 } from "@/lib/agent/documentExtractionStore";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { setAssetExtractStatus } from "@/lib/db/mediaAssets";
+import {
+	claimExtractionIfIdle,
+	setAssetExtractStatus,
+} from "@/lib/db/mediaAssets";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { writeTextObject } from "@/lib/storage/media";
 
 const {
 	loadAssetForOwnerMock,
 	setAssetExtractStatusMock,
+	claimExtractionIfIdleMock,
 	extractDocumentMock,
 	downloadAssetBytesMock,
 	readTextObjectMock,
@@ -38,6 +42,7 @@ const {
 } = vi.hoisted(() => ({
 	loadAssetForOwnerMock: vi.fn(),
 	setAssetExtractStatusMock: vi.fn(),
+	claimExtractionIfIdleMock: vi.fn(),
 	extractDocumentMock: vi.fn(),
 	downloadAssetBytesMock: vi.fn(),
 	readTextObjectMock: vi.fn(),
@@ -47,6 +52,7 @@ const {
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetForOwner: loadAssetForOwnerMock,
 	setAssetExtractStatus: setAssetExtractStatusMock,
+	claimExtractionIfIdle: claimExtractionIfIdleMock,
 	MediaAssetOwnershipError: class MediaAssetOwnershipError extends Error {},
 }));
 vi.mock("@/lib/storage/media", () => ({
@@ -110,6 +116,10 @@ const stubCondenser = {} as AttachmentCondenser;
 beforeEach(() => {
 	vi.clearAllMocks();
 	setAssetExtractStatusMock.mockResolvedValue(undefined);
+	// Default: the atomic claim succeeds (no live job holds the field), so the
+	// store proceeds to run the model. Tests that exercise a lost race override
+	// this to resolve `false`.
+	claimExtractionIfIdleMock.mockResolvedValue(true);
 	downloadAssetBytesMock.mockResolvedValue(Buffer.from("bytes"));
 	writeTextObjectMock.mockResolvedValue(undefined);
 	extractDocumentMock.mockResolvedValue({
@@ -200,7 +210,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});
 
-	it("claims (extracting → ready) and persists when no extract exists", async () => {
+	it("atomically claims, then persists ready when no extract exists", async () => {
 		readTextObjectMock.mockResolvedValue(null); // GCS miss
 		loadAssetForOwnerMock.mockResolvedValue(docAsset()); // no extract record
 
@@ -217,16 +227,19 @@ describe("ensureStoredExtract (orchestration)", () => {
 			truncated: false,
 			charCount: "FRESH EXTRACT".length,
 		});
-		expect(setAssetExtractStatus).toHaveBeenNthCalledWith(
-			1,
+		// The `extracting` write is the atomic claim's job now — assert the store
+		// took the lock through it rather than via a plain status write.
+		expect(claimExtractionIfIdle).toHaveBeenCalledWith(
 			"asset-1",
 			expect.objectContaining({
-				status: "extracting",
-				version: EXTRACTOR_VERSION,
+				currentVersion: EXTRACTOR_VERSION,
+				staleMs: EXTRACTING_STALE_MS,
 			}),
 		);
-		expect(setAssetExtractStatus).toHaveBeenNthCalledWith(
-			2,
+		// setAssetExtractStatus now records ONLY the terminal `ready` (the claim
+		// owns the `extracting` write), so it fires exactly once.
+		expect(setAssetExtractStatus).toHaveBeenCalledTimes(1);
+		expect(setAssetExtractStatus).toHaveBeenCalledWith(
 			"asset-1",
 			expect.objectContaining({ status: "ready", charCount: 13 }),
 		);
@@ -234,6 +247,28 @@ describe("ensureStoredExtract (orchestration)", () => {
 			expect.stringContaining(`.extract.v${EXTRACTOR_VERSION}.md`),
 			"FRESH EXTRACT",
 		);
+	});
+
+	it("reports in-flight (no model call) when the atomic claim is lost", async () => {
+		// The pre-claim status read saw no live job, but a concurrent caller won
+		// the transaction in that window — `claimExtractionIfIdle` returns false.
+		// Under `onInflight: "report"` the store must defer to that winner: report
+		// `extracting`, never run a second model call.
+		readTextObjectMock.mockResolvedValue(null); // GCS miss
+		loadAssetForOwnerMock.mockResolvedValue(docAsset()); // no live job at read time
+		claimExtractionIfIdleMock.mockResolvedValue(false); // lost the claim race
+
+		const result = await ensureStoredExtract({
+			asset: docAsset(),
+			documentKind: "pdf",
+			condenser: stubCondenser,
+			onInflight: "report",
+		});
+
+		expect(result).toEqual({ status: "extracting" });
+		expect(extractDocumentMock).not.toHaveBeenCalled();
+		expect(setAssetExtractStatus).not.toHaveBeenCalled();
+		expect(writeTextObject).not.toHaveBeenCalled();
 	});
 
 	it("reports an in-flight job (no model call) under onInflight:'report'", async () => {
