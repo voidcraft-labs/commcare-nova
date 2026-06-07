@@ -117,6 +117,18 @@ async function resolveRef(
 		);
 	}
 
+	// A non-ready (still-uploading) asset hasn't passed confirm-time validation —
+	// its bytes may be unvalidated or not yet in storage. Treat it like a missing
+	// asset: a placeholder, never a download or extraction. Mirrors the bytes
+	// proxy (404 on non-ready) and the extract route (409). The picker only ever
+	// stages ready assets, so this guards a crafted/replayed ref or a
+	// not-yet-confirmed race, not the normal flow.
+	if (asset.status !== "ready") {
+		return textPart(
+			`<<Attachment ${ref.filename} is still being prepared — it isn't ready for the assistant to read yet. Try again once its upload finishes.>>`,
+		);
+	}
+
 	if (asset.kind === "image") {
 		try {
 			const bytes = await downloadAssetBytes(

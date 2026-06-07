@@ -205,6 +205,31 @@ describe("resolveAttachments", () => {
 		).toBe(true);
 	});
 
+	it("placeholders a still-pending asset without downloading bytes or extracting", async () => {
+		// A ref to an owned-but-pending (not-yet-confirmed) asset must NOT feed
+		// unvalidated bytes to the model or the extractor — it resolves to a
+		// placeholder, like the proxy GET (404) and extract route (409) do.
+		loadAssetsByIdsMock.mockResolvedValue([asset({ status: "pending" })]);
+		const condenser = stubCondenser();
+
+		const [msg] = await resolveAttachments(
+			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
+			"user-1",
+			condenser,
+		);
+
+		const texts = msg.parts.filter((p) => p.type === "text").map((p) => p.text);
+		expect(
+			texts.some(
+				(t) => t.includes("spec.md") && t.includes("still being prepared"),
+			),
+		).toBe(true);
+		// No bytes read, no extraction run.
+		expect(downloadAssetBytesMock).not.toHaveBeenCalled();
+		expect(readTextObjectMock).not.toHaveBeenCalled();
+		expect(condenser.extractDocumentStructured).not.toHaveBeenCalled();
+	});
+
 	it("resolves EVERY turn's attachments and dedups a repeated ref to one read", async () => {
 		loadAssetsByIdsMock.mockResolvedValue([asset()]);
 		readTextObjectMock.mockResolvedValue("SHARED EXTRACT");
