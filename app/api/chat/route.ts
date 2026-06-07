@@ -356,7 +356,7 @@ export async function POST(req: Request) {
 			 * conversation event of the run. Emitting through the context
 			 * (rather than directly via `logWriter.logEvent`) keeps seq
 			 * management inside a single counter — the context owns seq,
-			 * and every subsequent event (mutations, assistant text, tool
+			 * and every subsequent event (mutations, the SA's text, tool
 			 * calls) naturally follows from seq=1.
 			 *
 			 * `isTextUIPart` is the AI SDK's own type guard over `UIMessage.parts`,

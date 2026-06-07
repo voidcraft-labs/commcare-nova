@@ -3,7 +3,7 @@
  *
  * Single source of truth for all non-editor markdown surfaces. Two variants:
  * - **Chat** (`ChatMarkdown`) — allowlist security: strips links + images and
- *   renders raw HTML as inert text. Used for assistant + reasoning output, which
+ *   renders raw HTML as inert text. Used for the SA's chat + reasoning output, which
  *   is model-generated and must not produce clickable links, injected markup, or
  *   stray elements (the model's thinking routinely contains XML-ish tokens like
  *   `<mother>` — without `disableParsingRawHTML` those parse to unknown DOM

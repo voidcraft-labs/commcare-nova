@@ -135,7 +135,7 @@ export const Reasoning = memo(
 			<ReasoningContext.Provider value={contextValue}>
 				{/* No self-margin (the vendored default's `mb-4` was bottom-only, which
 				 *  left the trigger cramped above and out of rhythm with its neighbors).
-				 *  The assistant turn's MessageContent owns one uniform gap for every
+				 *  The SA reply's MessageContent owns one uniform gap for every
 				 *  block — reasoning, tool runs, prose, cards alike. */}
 				<Collapsible
 					className={cn("not-prose", className)}
@@ -220,7 +220,7 @@ export const ReasoningContent = memo(
 		>
 			{/* Nova's single markdown renderer enforces the chat security allowlist
 			 * (no raw links / images / HTML); reasoning text is model output and
-			 * must pass through the same gate as assistant messages. */}
+			 * must pass through the same gate as the SA's chat replies. */}
 			<ChatMarkdown>{children}</ChatMarkdown>
 		</CollapsibleContent>
 	),
