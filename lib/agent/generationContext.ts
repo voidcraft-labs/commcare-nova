@@ -69,7 +69,7 @@ import type {
 	StructuredExtractResult,
 } from "./documentExtraction";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
-import { generateObjectWith } from "./subGeneration";
+import { streamObjectWith } from "./subGeneration";
 import type { ToolExecutionContext } from "./toolExecutionContext";
 
 /** Log AI SDK warnings to the console if present. */
@@ -640,11 +640,11 @@ export class GenerationContext implements ToolExecutionContext {
 	 * The ONE document-extraction call: fills `{ extract, title, summary }` from a
 	 * document (decoded text as `prompt`, or a native `file` block for a PDF) in a
 	 * single structured generation. Routes via `resolveModel` (Gemini → Google for
-	 * the summarizer) and the provider's controlled generation
-	 * (`generateObjectWith`), NOT the Anthropic `Output.object` path `generate`
-	 * uses — extraction runs on the document summarizer, not the SA's model. Usage
-	 * tracks through the same accumulator as every other sub-generation, so an
-	 * extraction shows up on the per-run cost summary alongside the main agent loop.
+	 * the summarizer) and the provider's controlled generation (`streamObjectWith`,
+	 * streamed so `onProgress` can pulse the grid), NOT the Anthropic `Output.object`
+	 * path `generate` uses — extraction runs on the document summarizer, not the SA's
+	 * model. Usage tracks through the same accumulator as every other sub-generation,
+	 * so an extraction shows up on the per-run cost summary alongside the agent loop.
 	 *
 	 * Returns `{ object, truncated }`. `object` is `null` when the model couldn't
 	 * produce a valid object — truncation past `maxOutputTokens` (`truncated: true`)
@@ -659,10 +659,11 @@ export class GenerationContext implements ToolExecutionContext {
 	): Promise<StructuredExtractResult<T>> {
 		try {
 			// `resolveModel` routes the id to its provider (Gemini → Google for the
-			// summarizer). `generateObjectWith` is the shared structured-generation
-			// core the attachment-preview script also drives; a PDF rides as a native
-			// `file` block, text/docx/xlsx as a decoded `prompt`.
-			const result = await generateObjectWith<T>({
+			// summarizer). `streamObjectWith` is the shared structured-generation core;
+			// a PDF rides as a native `file` block, text/docx/xlsx as a decoded
+			// `prompt`. Streaming lets `onProgress` pulse the signal grid with real read
+			// progress during the send-time backstop; only the final object is used.
+			const result = await streamObjectWith<T>({
 				model: this.resolveModel(opts.model ?? MODEL_DEFAULT),
 				system: opts.system,
 				schema: opts.schema,
@@ -671,6 +672,7 @@ export class GenerationContext implements ToolExecutionContext {
 				instruction: opts.instruction,
 				maxOutputTokens: opts.maxOutputTokens,
 				providerOptions: opts.providerOptions,
+				onProgress: opts.onProgress,
 			});
 			logWarnings(`extractDocument:${opts.label}`, result.warnings);
 			if (result.usage) this.trackSubGeneration(result.usage);

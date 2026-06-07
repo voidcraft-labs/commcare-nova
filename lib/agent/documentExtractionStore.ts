@@ -215,8 +215,9 @@ async function runExtraction(opts: {
 	documentKind: DocumentKind;
 	condenser: AttachmentCondenser;
 	key: string;
+	onProgress?: (deltaChars: number) => void;
 }): Promise<StoredExtractResult> {
-	const { asset, documentKind, condenser, key } = opts;
+	const { asset, documentKind, condenser, key, onProgress } = opts;
 
 	try {
 		const bytes = await downloadAssetBytes(
@@ -229,6 +230,7 @@ async function runExtraction(opts: {
 			kind: documentKind,
 			filename: asset.originalFilename,
 			condenser,
+			onProgress,
 		});
 		// The extract TEXT is the source of truth (GCS); title/summary are small
 		// best-effort metadata persisted on the asset doc for a future browse tool.
@@ -298,8 +300,12 @@ export async function ensureStoredExtract(opts: {
 	documentKind: DocumentKind;
 	condenser: AttachmentCondenser;
 	onInflight: "wait" | "report";
+	/** Live read-progress (output char deltas) for a signal-grid pulse. Fires ONLY
+	 *  when THIS call runs the model (the claim path) — the fast-path/reuse/wait
+	 *  paths do no model work, so there are no tokens to report. */
+	onProgress?: (deltaChars: number) => void;
 }): Promise<StoredExtractResult> {
-	const { asset, documentKind, condenser, onInflight } = opts;
+	const { asset, documentKind, condenser, onInflight, onProgress } = opts;
 	const key = extractGcsObjectKeyFor(
 		asset.owner,
 		asset.contentHash,
@@ -358,5 +364,5 @@ export async function ensureStoredExtract(opts: {
 	}
 
 	// We hold the claim (or are the last-resort backstop): run + persist.
-	return runExtraction({ asset, documentKind, condenser, key });
+	return runExtraction({ asset, documentKind, condenser, key, onProgress });
 }

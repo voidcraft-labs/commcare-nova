@@ -36,7 +36,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 import type { ConversationEvent, MutationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
-import { signalGrid } from "@/lib/signalGrid/store";
+import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
 import { showToast } from "@/lib/ui/toastStore";
 
 // ── Signal grid energy table ────────────────────────────────────────────
@@ -76,6 +76,18 @@ export function applyStreamEvent(
 	sessionStore: BuilderSessionStoreApi,
 ): void {
 	injectSignalEnergy(type);
+
+	// ── Document-read progress (ephemeral) ───────────────────────────
+	//
+	// The send-time backstop streams its extraction; each `data-extract-progress`
+	// carries the output char delta. Map it to think energy so the grid pulses with
+	// real read progress during "Reading your documents", same feed the composer's
+	// eager read uses. Transient — no buffer/store state, energy only.
+	if (type === "data-extract-progress") {
+		const delta = typeof data.delta === "number" ? data.delta : 0;
+		if (delta > 0) signalGrid.injectThinkEnergy(delta * READ_ENERGY_PER_CHAR);
+		return;
+	}
 
 	// ── Doc mutation batch ───────────────────────────────────────────
 	//

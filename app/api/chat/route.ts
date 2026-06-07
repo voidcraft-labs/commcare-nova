@@ -347,6 +347,17 @@ export async function POST(req: Request) {
 				messagesToSend,
 				keyResult.session.user.id,
 				ctx,
+				// Pulse the signal grid with real read progress while a not-yet-extracted
+				// document is read here. `transient` keeps these frequent parts off the
+				// persisted thread + event log — they're energy, not content. Fires only
+				// when the backstop actually runs the model (a reused eager extraction
+				// emits nothing); the "Reading your documents" status still shows either way.
+				(delta) =>
+					writer.write({
+						type: "data-extract-progress",
+						data: { delta },
+						transient: true,
+					}),
 			);
 			if (docsToReadCount > 0) {
 				ctx.emitConversation({ type: "attachment-prep", phase: "done" });

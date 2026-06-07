@@ -27,8 +27,8 @@ import * as XLSX from "xlsx";
 import { z } from "zod";
 import type { DocumentKind } from "@/lib/domain/multimedia";
 import {
-	generateObjectWith,
 	type SubGenerationProviderOptions,
+	streamObjectWith,
 } from "./subGeneration";
 
 // `EXTRACTOR_VERSION` lives in `@/lib/domain/multimedia` (beside the extract key
@@ -75,6 +75,11 @@ export interface ExtractDocumentStructuredOpts<T> {
 	 *  error — extraction's callers (the upload route, the chat backstop) own the
 	 *  failure path. The error is still thrown so the caller's catch runs. */
 	emitErrors?: boolean;
+	/** Streamed-progress sink: fires per output text chunk with its character count
+	 *  so the caller can show live read progress (signal-grid energy). When set, the
+	 *  condenser streams the call; when absent it may run blocking. Correctness is
+	 *  unchanged — only the final validated object is used either way. */
+	onProgress?: (deltaChars: number) => void;
 }
 
 /** The one structured call's result: the filled `object` (or `null` when the
@@ -562,8 +567,11 @@ export async function extractDocument(opts: {
 	kind: DocumentKind;
 	filename: string;
 	condenser: AttachmentCondenser;
+	/** Forwarded to the condenser: live read-progress (output char deltas) for a
+	 *  signal-grid pulse. Absent → the condenser may run blocking. */
+	onProgress?: (deltaChars: number) => void;
 }): Promise<ExtractResult> {
-	const { bytes, mimeType, kind, filename, condenser } = opts;
+	const { bytes, mimeType, kind, filename, condenser, onProgress } = opts;
 
 	// ONE structured call produces { extract, title, summary } together. A PDF
 	// rides as a native document block; text/docx/xlsx decode to markdown first.
@@ -584,6 +592,7 @@ export async function extractDocument(opts: {
 			providerOptions: CONDENSER_PROVIDER_OPTIONS,
 			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 			emitErrors: false,
+			onProgress,
 		});
 	} else {
 		const body =
@@ -605,6 +614,7 @@ export async function extractDocument(opts: {
 			providerOptions: CONDENSER_PROVIDER_OPTIONS,
 			maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
 			emitErrors: false,
+			onProgress,
 		});
 	}
 
@@ -654,7 +664,7 @@ export function createGeminiCondenser(): AttachmentCondenser {
 	const model = createGoogleGenerativeAI({ apiKey })(CONDENSER_MODEL);
 	return {
 		async extractDocumentStructured(args) {
-			const r = await generateObjectWith({
+			const r = await streamObjectWith({
 				model,
 				system: args.system,
 				schema: args.schema,
@@ -663,6 +673,7 @@ export function createGeminiCondenser(): AttachmentCondenser {
 				instruction: args.instruction,
 				maxOutputTokens: args.maxOutputTokens,
 				providerOptions: args.providerOptions,
+				onProgress: args.onProgress,
 			});
 			return { object: r.object, truncated: r.finishReason === "length" };
 		},

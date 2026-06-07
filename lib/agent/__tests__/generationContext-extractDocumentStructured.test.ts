@@ -3,29 +3,30 @@
 // Unit tests for `GenerationContext.extractDocumentStructured` — the ONE
 // structured call the document extractor makes. It fills { extract, title,
 // summary } from either a decoded text `prompt` (text/docx/xlsx) or a native
-// `file` block (PDF). We mock `generateObject` at the module boundary to assert
-// the wrapper plumbing (input shape, schema pass-through, usage tracking, the
-// finishReason→truncated derivation, and the error-emission/re-throw contract)
-// WITHOUT a network call. The real `UsageAccumulator` is exercised so the
-// `trackSubGeneration` fan-in is verified end-to-end.
+// `file` block (PDF). The call STREAMS now (so read-progress can pulse the grid),
+// so we mock `streamObject` at the module boundary and assert the wrapper plumbing
+// (input shape, schema pass-through, usage tracking, the finishReason→truncated
+// derivation, and the error-emission/re-throw contract) WITHOUT a network call.
+// The real `UsageAccumulator` is exercised so the `trackSubGeneration` fan-in is
+// verified end-to-end.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { GenerationContext } from "../generationContext";
 import { makeTestContext } from "./fixtures";
 
-// Mock `generateObject` so we assert the wrapper plumbing, not the network.
+// Mock `streamObject` so we assert the wrapper plumbing, not the network.
 // `orig` preserves every other `ai` export the context module imports.
 vi.mock("ai", async (orig) => {
 	const actual = await orig<typeof import("ai")>();
-	return { ...actual, generateObject: vi.fn() };
+	return { ...actual, streamObject: vi.fn() };
 });
 
 import * as aiSdk from "ai";
 
-/** Narrow the module-level `generateObject` mock to the vi.fn surface. */
-const mockGenerateObject = () =>
-	aiSdk.generateObject as unknown as ReturnType<typeof vi.fn>;
+/** Narrow the module-level `streamObject` mock to the vi.fn surface. */
+const mockStreamObject = () =>
+	aiSdk.streamObject as unknown as ReturnType<typeof vi.fn>;
 
 /** The { extract, title, summary } schema the extractor fills — extract first. */
 const schema = z.object({
@@ -35,6 +36,37 @@ const schema = z.object({
 });
 const OBJECT = { extract: "EXTRACT", title: "Title", summary: "Summary." };
 
+/** A `streamObject` result: a text stream (drives generation + progress) plus the
+ *  finished-response promises. `streamObject` returns this synchronously. */
+function streamResult(
+	over: Partial<{
+		textStream: AsyncIterable<string>;
+		object: Promise<unknown>;
+		usage: Promise<unknown>;
+		warnings: Promise<unknown>;
+		finishReason: Promise<string>;
+	}> = {},
+) {
+	async function* oneChunk() {
+		yield "chunk";
+	}
+	return {
+		textStream: oneChunk(),
+		object: Promise.resolve(OBJECT),
+		usage: Promise.resolve({ inputTokens: 10, outputTokens: 5 }),
+		warnings: Promise.resolve([]),
+		finishReason: Promise.resolve("stop"),
+		...over,
+	};
+}
+
+/** A text stream that throws on consumption — a transport failure mid-stream.
+ *  `yield* []` makes it a real (empty) generator before the throw. */
+async function* throwingStream(): AsyncGenerator<string> {
+	yield* [];
+	throw new Error("gemini down");
+}
+
 describe("GenerationContext.extractDocumentStructured", () => {
 	let ctx: GenerationContext;
 	// The real accumulator + the SSE writer stub — to assert the usage fan-in and
@@ -43,17 +75,12 @@ describe("GenerationContext.extractDocumentStructured", () => {
 	let writer: ReturnType<typeof makeTestContext>["writer"];
 
 	beforeEach(() => {
-		mockGenerateObject().mockReset();
+		mockStreamObject().mockReset();
 		({ ctx, usage, writer } = makeTestContext());
 	});
 
 	it("sends a text prompt + schema and tracks usage (clean finish = not truncated)", async () => {
-		mockGenerateObject().mockResolvedValue({
-			object: OBJECT,
-			usage: { inputTokens: 10, outputTokens: 5 },
-			warnings: [],
-			finishReason: "stop",
-		});
+		mockStreamObject().mockReturnValue(streamResult());
 
 		const out = await ctx.extractDocumentStructured({
 			system: "extract",
@@ -68,7 +95,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 
 		// System prompt, the decoded text prompt, the schema, and the output cap
 		// pass through; no `messages` (that's the file path).
-		const call = mockGenerateObject().mock.calls[0][0];
+		const call = mockStreamObject().mock.calls[0][0];
 		expect(call.system).toBe("extract");
 		expect(call.prompt).toBe("the document body");
 		expect(call.schema).toBe(schema);
@@ -82,12 +109,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 	});
 
 	it("sends a PDF as a native file block in a user message (no text prompt)", async () => {
-		mockGenerateObject().mockResolvedValue({
-			object: OBJECT,
-			usage: { inputTokens: 10, outputTokens: 5 },
-			warnings: [],
-			finishReason: "stop",
-		});
+		mockStreamObject().mockReturnValue(streamResult());
 
 		await ctx.extractDocumentStructured({
 			system: "extract",
@@ -102,7 +124,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 
 		// The user turn carries the instruction text followed by the file block —
 		// the document block the provider turns into a native PDF block.
-		const call = mockGenerateObject().mock.calls[0][0];
+		const call = mockStreamObject().mock.calls[0][0];
 		expect(call.prompt).toBeUndefined();
 		expect(call.messages[0].role).toBe("user");
 		expect(call.messages[0].content).toEqual([
@@ -116,12 +138,12 @@ describe("GenerationContext.extractDocumentStructured", () => {
 	});
 
 	it("flags truncation when the model reports a length finish", async () => {
-		mockGenerateObject().mockResolvedValue({
-			object: OBJECT,
-			usage: { inputTokens: 10, outputTokens: 4096 },
-			warnings: [],
-			finishReason: "length",
-		});
+		mockStreamObject().mockReturnValue(
+			streamResult({
+				usage: Promise.resolve({ inputTokens: 10, outputTokens: 4096 }),
+				finishReason: Promise.resolve("length"),
+			}),
+		);
 
 		const out = await ctx.extractDocumentStructured({
 			system: "extract",
@@ -133,7 +155,11 @@ describe("GenerationContext.extractDocumentStructured", () => {
 	});
 
 	it("re-throws on model failure AND emits an error event by default", async () => {
-		mockGenerateObject().mockRejectedValue(new Error("gemini down"));
+		// A transport failure surfaces while consuming the stream; streamObjectWith
+		// re-throws it (not a NoObjectGeneratedError), and the method's catch emits.
+		mockStreamObject().mockReturnValue(
+			streamResult({ textStream: throwingStream() }),
+		);
 
 		await expect(
 			ctx.extractDocumentStructured({
@@ -157,7 +183,9 @@ describe("GenerationContext.extractDocumentStructured", () => {
 	});
 
 	it("re-throws but stays silent under emitErrors:false (the caller recovers)", async () => {
-		mockGenerateObject().mockRejectedValue(new Error("gemini down"));
+		mockStreamObject().mockReturnValue(
+			streamResult({ textStream: throwingStream() }),
+		);
 
 		await expect(
 			ctx.extractDocumentStructured({

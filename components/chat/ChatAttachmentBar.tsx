@@ -6,6 +6,7 @@ import type {
 	MediaAssetView,
 } from "@/components/builder/media/mediaClient";
 import { useDocumentExtraction } from "@/components/builder/media/useDocumentExtraction";
+import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
 import { AttachmentChip } from "./AttachmentChip";
 
 interface ChatAttachmentBarProps {
@@ -38,8 +39,12 @@ function StagedChip({
 	onPreview: (asset: MediaAssetView) => void;
 	onExtracted: (assetId: string, extract: ExtractMeta) => void;
 }) {
-	const { status, retry } = useDocumentExtraction(asset, (extract) =>
-		onExtracted(asset.id, extract),
+	const { status, retry } = useDocumentExtraction(
+		asset,
+		(extract) => onExtracted(asset.id, extract),
+		// Pulse the signal grid with real read progress as the doc streams in — so
+		// the grid shows tokens flowing, not an idle resting state, during the read.
+		(chars) => signalGrid.injectThinkEnergy(chars * READ_ENERGY_PER_CHAR),
 	);
 	// A reading document persists to the library regardless of removal, so the ×
 	// is disabled (not a real "cancel") until extraction settles. ready / failed /

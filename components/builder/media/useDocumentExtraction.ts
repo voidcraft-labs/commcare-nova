@@ -52,26 +52,37 @@ export function useDocumentExtraction(
 	 *  re-fetch, and a "still reading?" signal derived from the snapshot can clear
 	 *  on failure too (not just success). */
 	onExtracted?: (extract: ExtractMeta) => void,
+	/** Live read-progress: fires per streamed output chunk with its character count
+	 *  while the model runs. The composer passes this to pulse the signal grid with
+	 *  real progress; the file-manager omits it (the chat grid shouldn't react to
+	 *  library browsing). */
+	onProgress?: (deltaChars: number) => void,
 ): DocumentExtraction {
 	const isDoc = isDocumentKind(asset.kind);
 	const [status, setStatus] = useState<MediaExtractStatus | null>(
 		isDoc ? (asset.extract?.status ?? null) : null,
 	);
 
-	// Ref so the poll callback always sees the latest `onExtracted` without
-	// rebuilding (and re-firing) the extraction effect when the parent re-renders.
+	// Refs so the poll callback always sees the latest callbacks without rebuilding
+	// (and re-firing) the extraction effect when the parent re-renders.
 	const onExtractedRef = useRef(onExtracted);
 	onExtractedRef.current = onExtracted;
+	const onProgressRef = useRef(onProgress);
+	onProgressRef.current = onProgress;
 
-	// Cancel-safety: a long-running POST or a queued poll must not write state
-	// after unmount. The cleanup flips the flag and clears any pending poll.
+	// Cancel-safety: a long-running streamed POST or a queued poll must not write
+	// state after unmount. The cleanup flips the flag, clears any pending poll, AND
+	// aborts the in-flight stream read so no reader is left live (the async-leak gate).
 	const cancelledRef = useRef(false);
 	const pollTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const pollCountRef = useRef(0);
+	const abortRef = useRef<AbortController | undefined>(undefined);
 	useEffect(() => {
 		cancelledRef.current = false;
+		abortRef.current = new AbortController();
 		return () => {
 			cancelledRef.current = true;
+			abortRef.current?.abort();
 			clearTimeout(pollTimerRef.current);
 		};
 	}, []);
@@ -87,7 +98,10 @@ export function useDocumentExtraction(
 	 * spinning rather than polling indefinitely.
 	 */
 	const poll = useCallback(() => {
-		triggerAssetExtraction(asset.id).then((extract) => {
+		triggerAssetExtraction(asset.id, {
+			signal: abortRef.current?.signal,
+			onProgress: (delta) => onProgressRef.current?.(delta),
+		}).then((extract) => {
 			if (cancelledRef.current) return;
 			setStatus(extract.status);
 			// Surface the result the moment extraction settles, so a staged snapshot

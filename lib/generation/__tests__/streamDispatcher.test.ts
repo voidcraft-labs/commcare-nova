@@ -15,7 +15,7 @@ import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { asUuid, type PersistableDoc } from "@/lib/domain";
 import type { ConversationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
-import { signalGrid } from "@/lib/signalGrid/store";
+import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
 import { createWiredStores } from "./testHelpers";
 
@@ -213,6 +213,21 @@ describe("applyStreamEvent", () => {
 			);
 
 			expect(signalGrid.drainEnergy()).toBe(200);
+		});
+
+		it("injects THINK energy from a data-extract-progress char delta", () => {
+			// The send-time backstop's streamed read-progress pulses the grid's think
+			// channel (not the burst channel), scaled by READ_ENERGY_PER_CHAR.
+			applyStreamEvent(
+				"data-extract-progress",
+				{ delta: 10 },
+				docStore,
+				sessionStore,
+			);
+
+			expect(signalGrid.drainThinkEnergy()).toBe(10 * READ_ENERGY_PER_CHAR);
+			// It's the think channel — the burst channel stays untouched.
+			expect(signalGrid.drainEnergy()).toBe(0);
 		});
 	});
 

@@ -25,6 +25,7 @@ import {
 	generateObject,
 	type LanguageModel,
 	NoObjectGeneratedError,
+	streamObject,
 } from "ai";
 import type { ZodType } from "zod";
 
@@ -122,6 +123,97 @@ export async function generateObjectWith<T>(opts: {
 		// Treat that as "no object" (null), surfacing usage + finishReason so the
 		// caller can meter spent tokens and detect truncation. Any other error (a
 		// real network/auth/server failure) propagates.
+		if (NoObjectGeneratedError.isInstance(err)) {
+			return {
+				object: null,
+				usage: err.usage,
+				warnings: undefined,
+				finishReason: err.finishReason,
+			};
+		}
+		throw err;
+	}
+}
+
+/**
+ * STREAMING structured generation — same contract and result shape as
+ * `generateObjectWith`, but consumes the model output as it streams so a caller
+ * can surface live progress. `onProgress` fires per streamed text chunk with that
+ * chunk's character count (the JSON representation as it's produced), letting a
+ * caller pulse a progress indicator from real token flow.
+ *
+ * Correctness is identical to the blocking path: only the FINAL validated `object`
+ * is returned — the partial stream drives progress + generation, it is NEVER
+ * salvaged (a structured extract has no usable partial). A `null` object
+ * (truncation past `maxOutputTokens`, or a malformed response) surfaces with usage
+ * + `finishReason` so the caller meters spent tokens and detects truncation,
+ * exactly as `generateObjectWith` does.
+ */
+export async function streamObjectWith<T>(opts: {
+	model: LanguageModel;
+	system: string;
+	schema: ZodType<T>;
+	/** Decoded text body (text/docx/xlsx). Mutually exclusive with `file`. */
+	prompt?: string;
+	/** Native document block (PDF) the model reads directly. */
+	file?: { mediaType: string; data: string };
+	/** Instruction that accompanies a `file` input. */
+	instruction?: string;
+	maxOutputTokens?: number;
+	providerOptions?: SubGenerationProviderOptions;
+	/** Called per streamed text chunk with its character count — real token flow a
+	 *  caller maps to a progress signal (e.g. signal-grid energy). */
+	onProgress?: (deltaChars: number) => void;
+}): Promise<SubGenerationObjectResult<T>> {
+	try {
+		// Branch the call by input shape (same as `generateObjectWith`) so each
+		// `streamObject` overload type-checks cleanly.
+		const result = opts.file
+			? streamObject({
+					model: opts.model,
+					system: opts.system,
+					schema: opts.schema,
+					messages: [
+						{
+							role: "user",
+							content: [
+								{ type: "text", text: opts.instruction ?? "" },
+								{
+									type: "file",
+									data: opts.file.data,
+									mediaType: opts.file.mediaType,
+								},
+							],
+						},
+					],
+					maxOutputTokens: opts.maxOutputTokens,
+					providerOptions: opts.providerOptions,
+				})
+			: streamObject({
+					model: opts.model,
+					system: opts.system,
+					schema: opts.schema,
+					prompt: opts.prompt ?? "",
+					maxOutputTokens: opts.maxOutputTokens,
+					providerOptions: opts.providerOptions,
+				});
+
+		// Draining `textStream` is what advances generation; the result promises
+		// (`object` / `usage` / …) resolve once it's done. Each chunk is JSON text
+		// being produced — its length is the progress delta.
+		for await (const chunk of result.textStream) {
+			if (chunk.length > 0) opts.onProgress?.(chunk.length);
+		}
+
+		return {
+			object: await result.object,
+			usage: await result.usage,
+			warnings: await result.warnings,
+			finishReason: await result.finishReason,
+		};
+	} catch (err) {
+		// `streamObject` rejects `object` with `NoObjectGeneratedError` on truncation
+		// / malformed output — same "no object" mapping as the blocking path.
 		if (NoObjectGeneratedError.isInstance(err)) {
 			return {
 				object: null,

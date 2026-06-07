@@ -9,9 +9,15 @@
  *     single-flight store that BOTH this eager route and the chat resolve step's
  *     lazy backstop go through (so the lock lives in one place). Triggered
  *     eagerly by the file manager after a document upload, so the extraction
- *     indicator can show. Idempotent: a current ready extract returns without
- *     re-running the model; a current job already in flight short-circuits with
- *     202 (`onInflight: "report"`) so this request doesn't hold open behind it.
+ *     indicator can show. The response is a STREAM of NDJSON lines: `{type:"progress",
+ *     chars}` per output chunk while the model runs (the client pulses the signal
+ *     grid with real read progress), then one terminal `{type:"done", extract}`
+ *     carrying the final `ExtractMeta` (ready / extracting / failed). Idempotent: a
+ *     current ready extract emits `done` immediately with no progress; a job already
+ *     in flight emits `done` with status `extracting` (`onInflight: "report"`) so the
+ *     caller polls instead of this request holding open behind it. The model call
+ *     runs to completion and persists even if the client disconnects mid-stream —
+ *     progress writes are best-effort, the extract is not.
  *   - `GET` returns the stored extract text for the "What Nova reads" preview
  *     tab; 404 when no current-version extract exists yet (the client reads the
  *     `extracting`/`failed` status off the asset itself).
@@ -92,12 +98,15 @@ async function loadExtractableDocument(req: NextRequest, rawAssetId: string) {
 }
 
 /**
- * Produce (or fetch) the document's extract via the shared store, then map its
- * result to the wire envelope. The store owns the single-flight + persistence;
- * here we only translate: `ready` → 200 with metadata, `extracting` → 202 (a
- * concurrent job owns it — don't hold this request open), `failed` → 502 (the
- * bytes are fine, only the condense failed; the asset is kept so the chat
- * resolve step's inline fallback or a retry can still cover it).
+ * Produce (or fetch) the document's extract via the shared store and STREAM it as
+ * NDJSON: `{type:"progress",chars}` per output chunk while the model runs, then one
+ * `{type:"done",extract}` carrying the final `ExtractMeta`. Streaming is what lets
+ * the client pulse the signal grid with real read progress. The store owns the
+ * single-flight + persistence; a `failed` condense and a concurrent `extracting`
+ * job both surface as the `done` line's status (the bytes are fine — the asset is
+ * kept so a retry or the chat backstop can still cover it). Auth, kind/size, and
+ * the spend-cap gate are checked BEFORE the stream opens, so those still reject as
+ * normal JSON errors.
  */
 export async function POST(
 	req: NextRequest,
@@ -135,55 +144,90 @@ export async function POST(
 			);
 		}
 
-		const result = await ensureStoredExtract({
-			asset,
-			documentKind,
-			condenser: createGeminiCondenser(),
-			// Eager fan-out surface: report an in-flight job rather than waiting,
-			// so the badge's poll gets a fast 202 instead of a held-open request.
-			onInflight: "report",
+		// Stream NDJSON: progress lines while the model runs, then one `done` line
+		// with the final ExtractMeta. The model call persists inside the store
+		// regardless of client connection, so progress writes are best-effort — a
+		// thrown enqueue (client gone) must NOT bubble into `onProgress`, or it would
+		// abort the textStream loop and mark a fine extraction failed.
+		const encoder = new TextEncoder();
+		const stream = new ReadableStream<Uint8Array>({
+			async start(controller) {
+				const write = (line: unknown) => {
+					try {
+						controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+					} catch {
+						// Client disconnected — drop the line; extraction still persists.
+					}
+				};
+				try {
+					const result = await ensureStoredExtract({
+						asset,
+						documentKind,
+						condenser: createGeminiCondenser(),
+						// Eager fan-out surface: report an in-flight job rather than
+						// waiting, so a concurrent caller gets a fast `done`/extracting and
+						// polls instead of holding open behind the running job.
+						onInflight: "report",
+						onProgress: (chars) => write({ type: "progress", chars }),
+					});
+					if (result.status === "ready") {
+						// Re-read for the persisted title/summary so the caller can refresh
+						// its staged snapshot the instant extraction finishes (no re-fetch).
+						const fresh = await loadAssetForOwner(
+							session.user.id,
+							asset.id,
+						).catch(() => null);
+						write({
+							type: "done",
+							extract: {
+								status: "ready" as const,
+								version: EXTRACTOR_VERSION,
+								truncated: result.truncated,
+								charCount: result.charCount,
+								...(fresh?.extract?.title && { title: fresh.extract.title }),
+								...(fresh?.extract?.summary && {
+									summary: fresh.extract.summary,
+								}),
+							},
+						});
+					} else {
+						// `extracting` (a concurrent job owns it) / `failed` (condense
+						// failed) both ride the terminal line as the ExtractMeta status —
+						// the caller polls again on `extracting`, surfaces a retry on `failed`.
+						write({
+							type: "done",
+							extract: {
+								status: result.status,
+								version: EXTRACTOR_VERSION,
+								truncated: false,
+								charCount: 0,
+							},
+						});
+					}
+				} catch (err) {
+					log.error("[media:extract] stream extraction failed", err);
+					write({
+						type: "done",
+						extract: {
+							status: "failed" as const,
+							version: EXTRACTOR_VERSION,
+							truncated: false,
+							charCount: 0,
+						},
+					});
+				} finally {
+					try {
+						controller.close();
+					} catch {
+						// Already closed (client disconnected) — nothing to do.
+					}
+				}
+			},
 		});
-
-		if (result.status === "extracting") {
-			return NextResponse.json(
-				{
-					ok: true,
-					extract: {
-						status: "extracting" as const,
-						version: EXTRACTOR_VERSION,
-						truncated: false,
-						charCount: 0,
-					},
-				},
-				{ status: 202 },
-			);
-		}
-
-		if (result.status === "failed") {
-			throw new ApiError(
-				"We couldn't read the features out of this document. The file is saved — you can try extracting again, or paste the key details into the chat.",
-				502,
-			);
-		}
-
-		// Re-read the asset so the response carries the persisted title/summary.
-		// `ensureStoredExtract` returns the extract TEXT, not the metadata it wrote
-		// to the doc — and the caller (the file-manager / composer badge) needs the
-		// title + summary to refresh its staged snapshot the instant extraction
-		// finishes, so the chip preview shows them without a re-fetch. A failed
-		// re-read just omits them (the snapshot stays as-is, no worse than before).
-		const fresh = await loadAssetForOwner(session.user.id, asset.id).catch(
-			() => null,
-		);
-		return NextResponse.json({
-			ok: true,
-			extract: {
-				status: "ready" as const,
-				version: EXTRACTOR_VERSION,
-				truncated: result.truncated,
-				charCount: result.charCount,
-				...(fresh?.extract?.title && { title: fresh.extract.title }),
-				...(fresh?.extract?.summary && { summary: fresh.extract.summary }),
+		return new Response(stream, {
+			headers: {
+				"Content-Type": "application/x-ndjson; charset=utf-8",
+				"Cache-Control": "private, no-store",
 			},
 		});
 	} catch (err) {

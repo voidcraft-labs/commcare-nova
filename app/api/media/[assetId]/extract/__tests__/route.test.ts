@@ -2,13 +2,16 @@
  * `/api/media/[assetId]/extract` route tests.
  *
  * The route is a thin HTTP wrapper now: it owns auth + the extractable-document
- * guards (kind / upload-status / ownership), then delegates producing the
- * extract to the shared single-flight store (`ensureStoredExtract`) and maps its
- * result to the wire envelope. So these tests pin the WRAPPER: the result→status
- * mapping (ready → 200, extracting → 202, failed → 502), the request guards
- * (400/404/409, foreign → 404), and the GET that serves stored text. The
- * single-flight LIFECYCLE itself (claim/reuse/stale/in-flight) is covered at the
- * store level in `documentExtractionStore.test.ts`.
+ * guards (kind / upload-status / ownership), then delegates producing the extract
+ * to the shared single-flight store (`ensureStoredExtract`) and STREAMS the result
+ * as NDJSON: `{type:"progress",chars}` lines while the model runs, then one
+ * `{type:"done",extract}`. So these tests pin the WRAPPER: the streamed result
+ * shape (ready / extracting / failed all ride the terminal `done` line at HTTP
+ * 200; progress lines forward the store's `onProgress`), the request guards
+ * (400/404/409/429/503, foreign → 404) which still reject as plain JSON BEFORE the
+ * stream opens, and the GET that serves stored text. The single-flight LIFECYCLE
+ * itself (claim/reuse/stale/in-flight) is covered at the store level in
+ * `documentExtractionStore.test.ts`.
  *
  * The store, storage, db, and auth are mocked at the import boundary so no
  * Gemini call, GCS, or Firestore is touched.
@@ -92,6 +95,29 @@ const req = (query = "") =>
  *  consume the body. */
 const drainBody = (res: Response): Promise<string> => res.text();
 
+/** Read the POST's NDJSON stream into its parts: the progress char-deltas in
+ *  order, and the single terminal `done` line's extract. */
+async function readNdjson(res: Response): Promise<{
+	progress: number[];
+	done: { status: string; title?: string; summary?: string } | undefined;
+}> {
+	const lines = (await res.text())
+		.split("\n")
+		.filter(Boolean)
+		.map(
+			(l) =>
+				JSON.parse(l) as { type: string; chars?: number; extract?: unknown },
+		);
+	return {
+		progress: lines
+			.filter((l) => l.type === "progress")
+			.map((l) => l.chars as number),
+		done: lines.find((l) => l.type === "done")?.extract as
+			| { status: string; title?: string; summary?: string }
+			| undefined,
+	};
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -100,8 +126,8 @@ beforeEach(() => {
 	getMonthlyUsageMock.mockResolvedValue({ cost_estimate: 0 });
 });
 
-describe("POST extract (wrapper mapping)", () => {
-	it("maps a ready result to 200 with the extract metadata", async () => {
+describe("POST extract (streamed result)", () => {
+	it("ends a ready result with a `done` line carrying the extract metadata", async () => {
 		loadAssetForOwnerMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockResolvedValue({
 			status: "ready",
@@ -112,7 +138,9 @@ describe("POST extract (wrapper mapping)", () => {
 
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(200);
-		expect((await res.json()).extract).toEqual({
+		expect(res.headers.get("Content-Type")).toContain("application/x-ndjson");
+		const { done } = await readNdjson(res);
+		expect(done).toEqual({
 			status: "ready",
 			version: EXTRACTOR_VERSION,
 			truncated: false,
@@ -123,7 +151,29 @@ describe("POST extract (wrapper mapping)", () => {
 		);
 	});
 
-	it("includes the persisted title/summary in a ready response", async () => {
+	it("streams the store's onProgress as `progress` lines before the `done` line", async () => {
+		// The whole point of streaming: the store's per-chunk `onProgress` becomes
+		// `progress` wire lines the client maps to signal-grid energy.
+		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		ensureStoredExtractMock.mockImplementation(
+			async (opts: { onProgress?: (n: number) => void }) => {
+				opts.onProgress?.(5);
+				opts.onProgress?.(7);
+				return {
+					status: "ready",
+					text: "EXTRACT BODY",
+					truncated: false,
+					charCount: 12,
+				};
+			},
+		);
+
+		const { progress, done } = await readNdjson(await POST(req(), ctx()));
+		expect(progress).toEqual([5, 7]);
+		expect(done?.status).toBe("ready");
+	});
+
+	it("includes the persisted title/summary in the ready `done` line", async () => {
 		// The store returns extract TEXT only; the route re-reads the asset doc for
 		// the title/summary it persisted, so the caller can refresh a staged
 		// snapshot the instant extraction finishes (chip preview shows them at once).
@@ -149,34 +199,33 @@ describe("POST extract (wrapper mapping)", () => {
 			charCount: "EXTRACT BODY".length,
 		});
 
-		const res = await POST(req(), ctx());
-		expect(res.status).toBe(200);
-		expect((await res.json()).extract).toMatchObject({
+		const { done } = await readNdjson(await POST(req(), ctx()));
+		expect(done).toMatchObject({
 			status: "ready",
 			title: "ANC Program Requirements",
 			summary: "A data-collection spec for antenatal care visits.",
 		});
 	});
 
-	it("maps an in-flight result to 202", async () => {
+	it("ends an in-flight result with a `done` line at status extracting", async () => {
 		loadAssetForOwnerMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockResolvedValue({ status: "extracting" });
 
 		const res = await POST(req(), ctx());
-		expect(res.status).toBe(202);
-		expect((await res.json()).extract.status).toBe("extracting");
+		expect(res.status).toBe(200);
+		const { done } = await readNdjson(res);
+		expect(done?.status).toBe("extracting");
 	});
 
-	it("maps a failed result to 502 (the bytes are kept)", async () => {
+	it("ends a failed result with a `done` line at status failed (the bytes are kept)", async () => {
 		loadAssetForOwnerMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockResolvedValue({
 			status: "failed",
 			reason: "model exploded",
 		});
 
-		const res = await POST(req(), ctx());
-		expect(res.status).toBe(502);
-		await drainBody(res);
+		const { done } = await readNdjson(await POST(req(), ctx()));
+		expect(done?.status).toBe("failed");
 	});
 
 	it("rejects a non-document kind with 400 (no extraction attempted)", async () => {

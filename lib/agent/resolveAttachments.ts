@@ -90,12 +90,16 @@ async function ensureExtract(
 	asset: MediaAssetRecord,
 	documentKind: DocumentKind,
 	condenser: AttachmentCondenser,
+	onProgress?: (deltaChars: number) => void,
 ): Promise<{ text: string; truncated: boolean }> {
 	const result = await ensureStoredExtract({
 		asset,
 		documentKind,
 		condenser,
 		onInflight: "wait",
+		// Live read-progress (signal grid) — fires only when the backstop actually
+		// runs the model here; the common reuse/wait-on-eager-job path emits nothing.
+		onProgress,
 	});
 	if (result.status === "ready") {
 		return { text: result.text, truncated: result.truncated };
@@ -118,6 +122,7 @@ async function resolveRef(
 	ref: AttachmentRef,
 	asset: MediaAssetRecord | undefined,
 	condenser: AttachmentCondenser,
+	onProgress?: (deltaChars: number) => void,
 ): Promise<Part> {
 	if (!asset) {
 		return textPart(
@@ -162,6 +167,7 @@ async function resolveRef(
 				asset,
 				asset.kind,
 				condenser,
+				onProgress,
 			);
 			return textPart(wrapAttachment(ref.filename, text, truncated));
 		} catch {
@@ -189,6 +195,11 @@ export async function resolveAttachments(
 	messages: NovaUIMessage[],
 	ownerId: string,
 	condenser: AttachmentCondenser,
+	/** Live read-progress (output char deltas) forwarded to each document's
+	 *  extraction, so the chat route can pulse the signal grid while the SEND-time
+	 *  backstop reads a not-yet-extracted document. Fires only when the backstop
+	 *  runs the model — a reused/awaited eager extraction emits nothing here. */
+	onProgress?: (deltaChars: number) => void,
 ): Promise<NovaUIMessage[]> {
 	// Unique asset ids across the whole history.
 	const ids = new Set<string>();
@@ -224,7 +235,12 @@ export async function resolveAttachments(
 	const partFor = (ref: AttachmentRef): Promise<Part> => {
 		let p = resolvedById.get(ref.assetId);
 		if (!p) {
-			p = resolveRef(ref, assetById.get(asAssetId(ref.assetId)), condenser);
+			p = resolveRef(
+				ref,
+				assetById.get(asAssetId(ref.assetId)),
+				condenser,
+				onProgress,
+			);
 			resolvedById.set(ref.assetId, p);
 		}
 		return p;

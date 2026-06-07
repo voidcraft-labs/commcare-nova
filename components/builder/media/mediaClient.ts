@@ -206,19 +206,27 @@ export async function fetchAssetExtractMeta(
 }
 
 /**
- * Trigger (or confirm) a document's feature extraction and resolve to its
- * resulting extract metadata (status + title/summary when ready). The route is
- * idempotent + best-effort single-flight: it returns `ready` immediately for a
- * current extract, `extracting` (202) when a job is already in flight, and
- * otherwise runs the extraction to completion before resolving — so this promise
- * settles with the FINAL state, which the indicator shows while pending AND the
- * caller uses to refresh its staged snapshot (so the chip preview gets the
- * title/summary the instant extraction finishes). A failure server-side is
- * recorded as `failed`; a transport error maps to `failed` too (the file is
- * saved — the chat's lazy backstop will re-read it on send).
+ * Trigger (or confirm) a document's feature extraction and resolve to its FINAL
+ * extract metadata (status + title/summary when ready). The route STREAMS NDJSON:
+ * `{type:"progress",chars}` lines while the model runs, then one `{type:"done",
+ * extract}`. `onProgress` fires per progress line with that chunk's character
+ * count — real read progress the caller pulses onto the signal grid. The promise
+ * settles with the `done` line's `ExtractMeta` (the indicator shows it while
+ * pending AND the caller uses it to refresh its staged snapshot, so the chip
+ * preview gets the title/summary the instant extraction finishes).
+ *
+ * Best-effort single-flight: a concurrent job rides the `done` line as
+ * `extracting` (poll again); a server-side condense failure as `failed`. A
+ * transport error — or an `abort` (the caller unmounted) — maps to `failed` too;
+ * the file is saved and the chat's lazy backstop re-reads it on send. Pass
+ * `signal` so an unmount aborts the in-flight read (no dangling stream reader).
  */
 export async function triggerAssetExtraction(
 	assetId: string,
+	opts: {
+		onProgress?: (deltaChars: number) => void;
+		signal?: AbortSignal;
+	} = {},
 ): Promise<ExtractMeta> {
 	const failed: ExtractMeta = {
 		status: "failed",
@@ -229,12 +237,43 @@ export async function triggerAssetExtraction(
 	try {
 		const res = await fetch(`/api/media/${assetId}/extract`, {
 			method: "POST",
+			signal: opts.signal,
 		});
-		if (res.ok || res.status === 202) {
-			const body = (await res.json()) as { extract?: ExtractMeta };
-			return body.extract ?? failed;
+		if (!res.ok || !res.body) return failed;
+
+		// Parse the NDJSON line stream. `progress` → pulse; `done` → the final
+		// ExtractMeta. The reader is released in `finally` so an abort mid-read
+		// leaves no live stream handle (the async-leak gate).
+		const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+		let buffer = "";
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += value;
+				let nl = buffer.indexOf("\n");
+				while (nl >= 0) {
+					const line = buffer.slice(0, nl).trim();
+					buffer = buffer.slice(nl + 1);
+					if (line) {
+						const msg = JSON.parse(line) as {
+							type?: string;
+							chars?: number;
+							extract?: ExtractMeta;
+						};
+						if (msg.type === "progress" && typeof msg.chars === "number") {
+							opts.onProgress?.(msg.chars);
+						} else if (msg.type === "done" && msg.extract) {
+							return msg.extract;
+						}
+					}
+					nl = buffer.indexOf("\n");
+				}
+			}
+			return failed; // stream ended without a `done` line
+		} finally {
+			reader.releaseLock();
 		}
-		return failed;
 	} catch {
 		return failed;
 	}
