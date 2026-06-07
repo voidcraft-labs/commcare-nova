@@ -11,11 +11,12 @@
 // runtime (Firestore SDK) into the browser bundle.
 
 import type { WireMediaAsset } from "@/lib/db/mediaAssets";
-import type {
-	AssetKind,
-	Media,
-	MediaExtractStatus,
-	MediaKind,
+import {
+	type AssetKind,
+	type Media,
+	type MediaExtractStatus,
+	type MediaKind,
+	resolveUploadMimeType,
 } from "@/lib/domain/multimedia";
 
 /** The asset shape the API returns and the UI renders. */
@@ -114,7 +115,11 @@ export async function uploadMediaAsset(file: File): Promise<MediaAssetView> {
 	const contentHash = await sha256Hex(file);
 	const initiate = await postJson<InitiateResponse>("/api/media/upload", {
 		filename: file.name,
-		mimeType: file.type,
+		// Browsers set `File.type` unreliably (empty / `application/octet-stream`
+		// for `.md` and some office files), and the initiate route validates the
+		// claim — so derive a usable MIME from the extension when the browser's is
+		// missing. Confirm re-derives the authoritative type from the bytes anyway.
+		mimeType: resolveUploadMimeType(file.type, file.name),
 		sizeBytes: file.size,
 		contentHash,
 	});
@@ -212,15 +217,16 @@ export interface MediaLibraryPage {
 
 /**
  * Fetch one page of the owner's `ready` assets, newest first.
- * Optionally filtered to a `kind` (any `AssetKind` — the chat file
- * manager filters by document kinds, the carrier pickers by media
- * kinds); `cursor` resumes from a prior page's `nextCursor`.
+ * Optionally filtered to a SET of `kinds` (repeated `?kind=` on the
+ * wire) — a picker passes its carrier's allowed kinds so the server
+ * returns only attachable assets; `cursor` resumes from a prior
+ * page's `nextCursor`. An empty/omitted `kinds` fetches every kind.
  */
 export async function fetchMediaLibrary(
-	options: { kind?: AssetKind; cursor?: string } = {},
+	options: { kinds?: readonly AssetKind[]; cursor?: string } = {},
 ): Promise<MediaLibraryPage> {
 	const params = new URLSearchParams();
-	if (options.kind) params.set("kind", options.kind);
+	for (const kind of options.kinds ?? []) params.append("kind", kind);
 	if (options.cursor) params.set("cursor", options.cursor);
 	const res = await fetch(`/api/media/library?${params.toString()}`);
 	if (!res.ok) {

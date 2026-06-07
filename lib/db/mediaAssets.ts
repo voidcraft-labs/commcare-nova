@@ -406,27 +406,43 @@ const LIBRARY_PAGE_SIZE = 50;
 
 /**
  * Cursor-paginated list of an owner's `ready` assets, newest
- * first. Optionally filtered to one `kind` via a server-side
- * equality query (backed by a composite index) — not an in-memory
- * page filter, so every returned page is full up to the page size
- * regardless of how sparse a kind is.
+ * first. Optionally filtered to a SET of `kinds` via a server-side
+ * query (backed by a composite index) — not an in-memory page
+ * filter, so every returned page is full up to the page size
+ * regardless of how sparse the filtered kinds are. This matters for
+ * the picker's "All" view, which allows only its carrier's kinds
+ * (e.g. the chat file manager allows images + documents, never
+ * audio/video): filtering server-side keeps a page of irrelevant
+ * kinds from burying the few attachable ones behind "Load more".
  *
- * Pagination orders by `(created_at desc, documentId desc)` and
- * the cursor carries BOTH so two assets sharing an identical
- * server timestamp can't straddle a page boundary and get skipped.
- * The cursor is an opaque base64 token; callers round-trip it
- * without interpreting it.
+ * A single kind uses an equality (`==`); several use a disjunction
+ * (`in`, ≤30 values). Both reuse the `(owner, status, kind,
+ * created_at, documentId)` composite index; the `in` is executed as
+ * a merge of per-kind streams, and the cursor pushes into each, so
+ * pagination stays skip/dupe-free (verified against real Firestore).
+ *
+ * Pagination orders by `(created_at desc, documentId desc)` and the
+ * cursor carries BOTH so two assets sharing an identical server
+ * timestamp can't straddle a page boundary and get skipped. The
+ * cursor is an opaque base64 token; callers round-trip it without
+ * interpreting it.
  */
 export async function listReadyAssetsForOwner(
 	owner: string,
-	options: { kind?: AssetKind; cursor?: string } = {},
+	options: { kinds?: readonly AssetKind[]; cursor?: string } = {},
 ): Promise<{ assets: MediaAssetRecord[]; nextCursor: string | null }> {
 	let query = collections
 		.mediaAssets()
 		.where("owner", "==", owner)
 		.where("status", "==", "ready");
-	if (options.kind) {
-		query = query.where("kind", "==", options.kind);
+	// An empty `kinds` array means "no kind filter" — never `in []`, which
+	// Firestore rejects. One kind narrows with an equality; several with a
+	// disjunction.
+	if (options.kinds && options.kinds.length > 0) {
+		query =
+			options.kinds.length === 1
+				? query.where("kind", "==", options.kinds[0])
+				: query.where("kind", "in", [...options.kinds]);
 	}
 	query = query
 		.orderBy("created_at", "desc")

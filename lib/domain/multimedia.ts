@@ -241,32 +241,9 @@ export function assetKindForMimeType(mimeType: string): AssetKind | undefined {
 	return undefined;
 }
 
-/**
- * Asset kind for a (lowercased) file extension. The fallback the
- * validator uses when the browser sends no usable `Content-Type` — empty
- * or `application/octet-stream`, common for `.md` and sometimes office
- * files — to pick the size cap + the per-kind validation arm. The
- * extension is only a HINT for routing; the magic-bytes sniff (or the
- * UTF-8 check for text) is still the authoritative format gate.
- */
-const KIND_FOR_EXTENSION: Record<string, AssetKind> = {
-	".png": "image",
-	".jpg": "image",
-	".jpeg": "image",
-	".gif": "image",
-	".webp": "image",
-	".mp3": "audio",
-	".wav": "audio",
-	".mp4": "video",
-	".pdf": "pdf",
-	".txt": "text",
-	".md": "text",
-	".docx": "docx",
-	".xlsx": "xlsx",
-};
-export function assetKindForExtension(ext: string): AssetKind | undefined {
-	return KIND_FOR_EXTENSION[ext.toLowerCase()];
-}
+// The extension → kind / extension → MIME fallbacks (used when the browser sends
+// no usable Content-Type) are defined below, AFTER `EXTENSION_FOR_MIME_TYPE` —
+// they derive from it so there's one source of truth for the extension↔MIME map.
 
 /**
  * Aliases a raw MIME string can take for an accepted format, when a
@@ -332,6 +309,85 @@ export const EXTENSION_FOR_MIME_TYPE: Record<AssetMimeType, string> = {
 		".docx",
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
 };
+
+/**
+ * Canonical accepted MIME type for a (lowercased) file extension — the inverse of
+ * `EXTENSION_FOR_MIME_TYPE`, plus the `.jpeg` spelling (which `EXTENSION_FOR_MIME_TYPE`
+ * collapses to `.jpg`). Derived from that one map so the extension↔MIME pairing
+ * has a single source and the two directions can't drift.
+ *
+ * The fallback for when the browser sends no usable `Content-Type` — empty or
+ * `application/octet-stream`, common for `.md` and some office files: the client
+ * upload path picks the MIME to claim from the filename, and the validator picks
+ * the kind. The extension is only a routing HINT; the magic-bytes sniff (or the
+ * UTF-8 check for text) is still the authoritative format gate at confirm time.
+ */
+const MIME_FOR_EXTENSION: Record<string, AssetMimeType> = {
+	...Object.fromEntries(
+		(Object.entries(EXTENSION_FOR_MIME_TYPE) as [AssetMimeType, string][]).map(
+			([mime, ext]) => [ext, mime] as const,
+		),
+	),
+	".jpeg": "image/jpeg",
+};
+
+/** Canonical accepted MIME for a (lowercased) file extension, or `undefined`. */
+export function mimeTypeForExtension(ext: string): AssetMimeType | undefined {
+	return MIME_FOR_EXTENSION[ext.toLowerCase()];
+}
+
+/**
+ * Asset kind for a (lowercased) file extension, derived THROUGH the MIME map +
+ * `assetKindForMimeType` so the kind and the MIME a given extension implies stay
+ * consistent (no second hand-maintained extension→kind table to drift). The
+ * fallback the validator uses when the browser sends no usable `Content-Type`.
+ */
+export function assetKindForExtension(ext: string): AssetKind | undefined {
+	const mime = MIME_FOR_EXTENSION[ext.toLowerCase()];
+	return mime ? assetKindForMimeType(mime) : undefined;
+}
+
+/** The lowercased extension (including the dot) of a filename, or `undefined`
+ *  when it has none. `"Form.PDF"` → `".pdf"`. */
+export function extensionOf(filename: string): string | undefined {
+	const dot = filename.lastIndexOf(".");
+	return dot === -1 ? undefined : filename.slice(dot).toLowerCase();
+}
+
+/** Asset kind implied by a filename's extension — the routing fallback the
+ *  upload preflight uses when the browser's `File.type` isn't a recognized
+ *  media type. */
+export function assetKindForFilename(filename: string): AssetKind | undefined {
+	const ext = extensionOf(filename);
+	return ext ? assetKindForExtension(ext) : undefined;
+}
+
+/** Canonical accepted MIME implied by a filename's extension, or `undefined`. */
+export function mimeTypeForFilename(
+	filename: string,
+): AssetMimeType | undefined {
+	const ext = extensionOf(filename);
+	return ext ? mimeTypeForExtension(ext) : undefined;
+}
+
+/**
+ * The MIME type the client should CLAIM when initiating an upload. Browsers set
+ * `File.type` unreliably — empty or `application/octet-stream` for `.md` and some
+ * office files — and the initiate route validates the claim, so a bad claim is
+ * rejected before the bytes ever flow. Prefer the browser's claim when it
+ * normalizes to an accepted type; otherwise fall back to the filename extension's
+ * canonical MIME; as a last resort return the raw claim so the server produces a
+ * clear rejection rather than a silent empty string. The confirm-time validator
+ * re-derives the authoritative MIME/extension from the bytes + filename
+ * regardless, so this only needs to be good enough to pass initiate + bind the
+ * signed PUT URL's `Content-Type`.
+ */
+export function resolveUploadMimeType(
+	rawType: string,
+	filename: string,
+): string {
+	return normalizeMimeType(rawType) ?? mimeTypeForFilename(filename) ?? rawType;
+}
 
 /**
  * Carrier-side slot bundle. Each slot is independent: a question

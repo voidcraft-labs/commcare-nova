@@ -33,6 +33,7 @@ import {
 } from "@/components/shadcn/tooltip";
 import {
 	type AssetKind,
+	assetKindForFilename,
 	assetKindForMimeType,
 	isDocumentKind,
 	normalizeMimeType,
@@ -121,9 +122,16 @@ function PickerBody({
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
-	// "all" → fetch every kind (the library route treats an absent kind
-	// as unfiltered); a specific kind narrows the page.
-	const libraryKind = filter === "all" ? undefined : filter;
+	// "All" → fetch exactly THIS picker's allowed kinds, so the server returns
+	// only attachable assets rather than a page of irrelevant kinds (e.g. a chat
+	// picker's audio/video) the client would then have to hide — which buried the
+	// few attachable docs behind "Load more". A specific filter narrows to one
+	// kind. Memoized so it isn't a fresh array each render (the hook keys off the
+	// contents, but a stable reference keeps the dependency honest).
+	const libraryKinds = useMemo<readonly AssetKind[]>(
+		() => (filter === "all" ? kinds : [filter]),
+		[filter, kinds],
+	);
 	const {
 		assets,
 		isLoading,
@@ -132,7 +140,7 @@ function PickerBody({
 		loadMore,
 		addUploaded,
 		removeAsset,
-	} = useMediaLibrary(libraryKind);
+	} = useMediaLibrary(libraryKinds);
 
 	const commit = (asset: MediaAssetView) => {
 		addUploaded(asset);
@@ -323,12 +331,17 @@ function UploadTab({
 	const handleFile = async (file: File | undefined) => {
 		if (!file) return;
 		// The native input's `accept` filter only guards the browse
-		// dialog, not drag-drop. Reject a file whose sniffed kind isn't
-		// one this slot allows (after normalizing aliases like
-		// `image/apng`) so the user gets an instant answer instead of
-		// hashing the bytes + a server round trip just to be rejected.
+		// dialog, not drag-drop. Reject a file whose kind isn't one this
+		// slot allows so the user gets an instant answer instead of hashing
+		// the bytes + a server round trip just to be rejected. Resolve the
+		// kind from the browser's MIME (after normalizing aliases like
+		// `image/apng`), falling back to the filename extension — browsers
+		// set `File.type` to "" or `application/octet-stream` for `.md` and
+		// some office files, which would otherwise reject a valid document.
 		const dropped = normalizeMimeType(file.type);
-		const kind = dropped ? assetKindForMimeType(dropped) : undefined;
+		const kind =
+			(dropped ? assetKindForMimeType(dropped) : undefined) ??
+			assetKindForFilename(file.name);
 		// `kind` is the wider `AssetKind`; `some` (not `includes`) lets us
 		// compare it against this picker's narrower allowed set without a
 		// cast. A kind outside the set (e.g. a document on a media carrier)
@@ -474,19 +487,16 @@ function LibraryTab({
 }) {
 	const [query, setQuery] = useState("");
 	const filtered = useMemo(() => {
-		// Scope to this picker's allowed kinds first: the library list can
-		// hold documents, but a carrier picker (media-only) must never
-		// surface one — a document can't attach to a CommCare carrier, so it
-		// can't be offered there. (`some`, since `a.kind` is the wider
-		// `AssetKind`.) The Files library passes every kind, so nothing is
-		// dropped there.
-		const inScope = assets.filter((a) => kinds.some((k) => k === a.kind));
+		// Kind scoping now happens server-side: the fetch requests exactly this
+		// picker's allowed kinds (see `libraryKinds`), so every loaded asset is
+		// already attachable here — no client-side kind filter needed. Only the
+		// name search narrows the in-hand page.
 		const q = query.trim().toLowerCase();
-		if (!q) return inScope;
-		return inScope.filter((a) =>
+		if (!q) return assets;
+		return assets.filter((a) =>
 			(a.displayName ?? a.originalFilename).toLowerCase().includes(q),
 		);
-	}, [assets, query, kinds]);
+	}, [assets, query]);
 
 	return (
 		<div className="flex flex-col gap-3">

@@ -4,11 +4,12 @@
  * Cursor-paginated, newest first. Backs the asset-library picker.
  *
  * Optional query parameters:
- *   - `kind` — filter to any one asset kind. Media kinds (image/audio/video)
- *     back the carrier pickers; document kinds (pdf/text/docx/xlsx) back the
- *     chat file manager, which surfaces library-only documents. The
- *     `(owner, kind, created_at)` composite index is kind-generic, so a
- *     document filter is the same server-side equality query as a media one.
+ *   - `kind` — filter to a SET of asset kinds; repeat the param to allow
+ *     several (`?kind=image&kind=pdf`). Media kinds (image/audio/video) back
+ *     the carrier pickers; document kinds (pdf/text/docx/xlsx) back the chat
+ *     file manager. A picker's "All" view passes exactly its carrier's allowed
+ *     kinds, so the server returns only attachable assets rather than a page of
+ *     irrelevant kinds the client would then hide. Omit it for every kind.
  *   - `cursor` — the opaque token the previous page returned in
  *     `nextCursor`; pass it back verbatim to fetch the next page.
  *     Omit it for the first page.
@@ -27,7 +28,9 @@ import { ASSET_KINDS } from "@/lib/domain/multimedia";
 
 const querySchema = z
 	.object({
-		kind: z.enum(ASSET_KINDS).optional(),
+		// Repeated `?kind=` collects into an array; each must be an accepted kind.
+		// `[]` (no param) means "every kind" — passed through as no filter.
+		kinds: z.array(z.enum(ASSET_KINDS)),
 		cursor: z.string().optional(),
 	})
 	.strict();
@@ -37,12 +40,12 @@ export async function GET(req: NextRequest) {
 		const session = await requireSession(req);
 		const url = new URL(req.url);
 		const parsed = querySchema.safeParse({
-			kind: url.searchParams.get("kind") ?? undefined,
+			kinds: url.searchParams.getAll("kind"),
 			cursor: url.searchParams.get("cursor") ?? undefined,
 		});
 		if (!parsed.success) {
 			throw new ApiError(
-				"Library query couldn't be parsed — `kind` must be one of image/audio/video/pdf/text/docx/xlsx and `cursor` must be the opaque token a prior page returned.",
+				"Library query couldn't be parsed — each `kind` must be one of image/audio/video/pdf/text/docx/xlsx and `cursor` must be the opaque token a prior page returned.",
 				400,
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);

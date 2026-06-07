@@ -127,7 +127,8 @@ describe("listMediaAssets", () => {
 		);
 
 		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
-			kind: "audio",
+			// The tool's single-kind input is wrapped into the DB layer's kind SET.
+			kinds: ["audio"],
 			cursor: "page-1",
 		});
 	});

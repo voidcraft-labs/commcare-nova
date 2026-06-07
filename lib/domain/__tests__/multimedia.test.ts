@@ -14,14 +14,20 @@ import {
 	ASSET_KINDS,
 	ASSET_SIZE_CAPS_BYTES,
 	AUDIO_MIME_TYPES,
+	assetKindForExtension,
+	assetKindForFilename,
 	assetKindForMimeType,
 	DOCUMENT_KINDS,
 	EXTENSION_FOR_MIME_TYPE,
+	extensionOf,
 	gcsObjectKeyFor,
 	IMAGE_MIME_TYPES,
 	MEDIA_KINDS,
 	mediaSchema,
+	mimeTypeForExtension,
+	mimeTypeForFilename,
 	normalizeMimeType,
+	resolveUploadMimeType,
 	VIDEO_MIME_TYPES,
 } from "../multimedia";
 
@@ -220,5 +226,118 @@ describe("normalizeMimeType", () => {
 		expect(normalizeMimeType("image/svg+xml")).toBeUndefined();
 		expect(normalizeMimeType("application/zip")).toBeUndefined();
 		expect(normalizeMimeType("")).toBeUndefined();
+	});
+});
+
+// The extension-based fallbacks (used when the browser sends no usable
+// Content-Type) derive from the single `EXTENSION_FOR_MIME_TYPE` map, so kind
+// and MIME for a given extension can't drift. These pin the derivation +
+// the `.jpeg`-alias coverage gap that the inverse would otherwise miss.
+
+describe("extensionOf", () => {
+	it("lowercases and includes the dot", () => {
+		expect(extensionOf("Form.PDF")).toBe(".pdf");
+		expect(extensionOf("notes.md")).toBe(".md");
+		expect(extensionOf("a.b.docx")).toBe(".docx"); // last segment only
+	});
+
+	it("returns undefined for an extension-less name", () => {
+		expect(extensionOf("README")).toBeUndefined();
+	});
+});
+
+const DOCX_MIME =
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const XLSX_MIME =
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+describe("mimeTypeForExtension / assetKindForExtension", () => {
+	/** The accepted extension → (kind, canonical MIME) spec. */
+	const CASES: ReadonlyArray<[string, string, string]> = [
+		[".png", "image", "image/png"],
+		[".jpg", "image", "image/jpeg"],
+		[".jpeg", "image", "image/jpeg"], // alias EXTENSION_FOR_MIME_TYPE collapses
+		[".gif", "image", "image/gif"],
+		[".webp", "image", "image/webp"],
+		[".mp3", "audio", "audio/mpeg"],
+		[".wav", "audio", "audio/wav"],
+		[".mp4", "video", "video/mp4"],
+		[".pdf", "pdf", "application/pdf"],
+		[".txt", "text", "text/plain"],
+		[".md", "text", "text/markdown"],
+		[".docx", "docx", DOCX_MIME],
+		[".xlsx", "xlsx", XLSX_MIME],
+	];
+
+	it("maps every accepted extension to its kind + canonical MIME", () => {
+		for (const [ext, kind, mime] of CASES) {
+			expect(mimeTypeForExtension(ext)).toBe(mime);
+			expect(assetKindForExtension(ext)).toBe(kind);
+		}
+	});
+
+	it("is case-insensitive", () => {
+		expect(assetKindForExtension(".PDF")).toBe("pdf");
+		expect(mimeTypeForExtension(".MD")).toBe("text/markdown");
+	});
+
+	it("returns undefined for an unaccepted extension", () => {
+		expect(mimeTypeForExtension(".exe")).toBeUndefined();
+		expect(assetKindForExtension(".exe")).toBeUndefined();
+	});
+
+	it("stays consistent with assetKindForMimeType (single source)", () => {
+		// The whole point of deriving through the MIME map: the kind an extension
+		// implies equals the kind its MIME implies, for every accepted extension.
+		for (const [ext] of CASES) {
+			const mime = mimeTypeForExtension(ext);
+			expect(mime).toBeDefined();
+			expect(assetKindForExtension(ext)).toBe(
+				assetKindForMimeType(mime as string),
+			);
+		}
+	});
+});
+
+describe("assetKindForFilename / mimeTypeForFilename", () => {
+	it("resolves through the filename's extension", () => {
+		expect(assetKindForFilename("requirements.md")).toBe("text");
+		expect(mimeTypeForFilename("requirements.md")).toBe("text/markdown");
+		expect(assetKindForFilename("photo.JPEG")).toBe("image");
+	});
+
+	it("returns undefined for an unknown/absent extension", () => {
+		expect(assetKindForFilename("mystery")).toBeUndefined();
+		expect(mimeTypeForFilename("archive.zip")).toBeUndefined();
+	});
+});
+
+describe("resolveUploadMimeType (client upload claim)", () => {
+	it("keeps the browser's claim when it's an accepted type", () => {
+		expect(resolveUploadMimeType("image/png", "logo.png")).toBe("image/png");
+		// A `.md` the browser typed as text/plain: claim wins (accepted); confirm
+		// re-derives text/markdown from the filename later.
+		expect(resolveUploadMimeType("text/plain", "notes.md")).toBe("text/plain");
+	});
+
+	it("normalizes a browser alias to its canonical form", () => {
+		expect(resolveUploadMimeType("image/apng", "anim.png")).toBe("image/png");
+	});
+
+	it("falls back to the extension when the browser sends no usable type", () => {
+		// The bug F5 fixes: empty / octet-stream for `.md` and office files.
+		expect(resolveUploadMimeType("", "notes.md")).toBe("text/markdown");
+		expect(resolveUploadMimeType("application/octet-stream", "notes.md")).toBe(
+			"text/markdown",
+		);
+		expect(resolveUploadMimeType("", "sheet.xlsx")).toBe(XLSX_MIME);
+	});
+
+	it("returns the raw claim as a last resort (server then rejects clearly)", () => {
+		// No usable browser type AND an unknown extension → pass the raw value so
+		// the initiate route produces a clear rejection rather than an empty string.
+		expect(resolveUploadMimeType("application/x-weird", "mystery.zip")).toBe(
+			"application/x-weird",
+		);
 	});
 });

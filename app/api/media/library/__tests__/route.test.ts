@@ -1,12 +1,13 @@
 /**
  * `GET /api/media/library` — kind-filter acceptance tests.
  *
- * The library backs both the carrier pickers (media kinds) and the chat
- * file manager (document kinds), so the `kind` query param must accept any
- * `AssetKind` — including `pdf`/`text`/`docx`/`xlsx`. This pins that the
- * document kinds pass validation and reach the owner-scoped query, and that
- * a kind outside the accepted set is rejected as a 400 client error rather
- * than collapsing to a 500.
+ * The library backs both the carrier pickers (media kinds) and the chat file
+ * manager (document kinds), so the repeated `kind` query param must accept any
+ * `AssetKind` — including `pdf`/`text`/`docx`/`xlsx` — and collect SEVERAL into
+ * a kind set (`?kind=image&kind=pdf`) for a picker's "All" view. This pins that
+ * the kinds reach the owner-scoped query as a set, that no `kind` param means
+ * "every kind" (an empty set, never an `in []`), and that a kind outside the
+ * accepted set is rejected as a 400 client error rather than collapsing to a 500.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,11 +50,11 @@ beforeEach(() => {
 });
 
 describe("GET /api/media/library kind filter", () => {
-	it("accepts a document kind and passes it to the owner-scoped query", async () => {
+	it("accepts a single document kind and passes it as a one-element set", async () => {
 		const res = await GET(reqWith("?kind=pdf"));
 		expect(res.status).toBe(200);
 		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
-			kind: "pdf",
+			kinds: ["pdf"],
 			cursor: undefined,
 		});
 		await drainBody(res);
@@ -70,15 +71,44 @@ describe("GET /api/media/library kind filter", () => {
 			const res = await GET(reqWith(`?kind=${kind}`));
 			expect(res.status).toBe(200);
 			expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
-				kind,
+				kinds: [kind],
 				cursor: undefined,
 			});
 			await drainBody(res);
 		}
 	});
 
+	it("collects several repeated kinds into a set (the picker's 'All' view)", async () => {
+		const res = await GET(reqWith("?kind=image&kind=pdf&kind=docx"));
+		expect(res.status).toBe(200);
+		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
+			kinds: ["image", "pdf", "docx"],
+			cursor: undefined,
+		});
+		await drainBody(res);
+	});
+
+	it("passes an empty set (every kind) when no kind param is present", async () => {
+		// No `?kind=` → `getAll` returns `[]` → must reach the DB as "no filter",
+		// never as `in []` (which Firestore rejects).
+		const res = await GET(reqWith(""));
+		expect(res.status).toBe(200);
+		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
+			kinds: [],
+			cursor: undefined,
+		});
+		await drainBody(res);
+	});
+
 	it("rejects a kind outside the accepted set as a 400", async () => {
 		const res = await GET(reqWith("?kind=exe"));
+		expect(res.status).toBe(400);
+		expect(listReadyAssetsForOwner).not.toHaveBeenCalled();
+		await drainBody(res);
+	});
+
+	it("rejects when ANY repeated kind is invalid", async () => {
+		const res = await GET(reqWith("?kind=image&kind=exe"));
 		expect(res.status).toBe(400);
 		expect(listReadyAssetsForOwner).not.toHaveBeenCalled();
 		await drainBody(res);
