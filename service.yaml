@@ -1,0 +1,112 @@
+# Multi-container Cloud Run service: nginx h2c ingress + Next app sidecar.
+#
+# Deployed by cloudbuild.yaml via `gcloud run services replace` (the __*_IMAGE__
+# placeholders are substituted per build). This file is the source of truth for
+# the ENTIRE service spec — env, secrets, VPC, scaling — so change config here,
+# not in the console (a console edit is reverted on the next deploy).
+#
+# Shape (per Cloud Run's documented HTTP/2-end-to-end pattern): Cloud Run
+# terminates TLS and forwards h2c to the `nginx` container (its port is named
+# `h2c`), lifting the 32 MiB HTTP/1 request cap. nginx proxies HTTP/1.1 over
+# the loopback to the `app` container. `container-dependencies` starts `app`
+# first, so nginx never fronts a not-yet-listening backend.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: commcare-nova
+  labels:
+    cloud.googleapis.com/location: us-central1
+  annotations:
+    run.googleapis.com/ingress: all
+    # The default *.run.app URL stays disabled — the service is reachable only
+    # through the three custom-domain mappings.
+    run.googleapis.com/default-url-disabled: "true"
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: "5"
+        run.googleapis.com/startup-cpu-boost: "true"
+        run.googleapis.com/vpc-access-egress: private-ranges-only
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        # nginx depends on app → Cloud Run starts app first and waits for its
+        # startup probe before starting nginx (no cold-start 502 race).
+        run.googleapis.com/container-dependencies: '{"nginx":["app"]}'
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 3600
+      serviceAccountName: 51003905459-compute@developer.gserviceaccount.com
+      containers:
+        # Ingress container: holds the externally routed port. `h2c` is what
+        # makes the Cloud Run→container hop HTTP/2.
+        - name: nginx
+          image: __NGINX_IMAGE__
+          ports:
+            - name: h2c
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            tcpSocket:
+              port: 8080
+            timeoutSeconds: 240
+            periodSeconds: 240
+            failureThreshold: 1
+        # App sidecar: no `ports` block (only the ingress container is routed).
+        # Listens on the loopback at PORT=8888, where nginx proxies.
+        - name: app
+          image: __APP_IMAGE__
+          env:
+            - name: PORT
+              value: "8888"
+            - name: GOOGLE_CLIENT_ID
+              value: 51003905459-b5q9q2qm6a72g19eu18se1nppg1egg5t.apps.googleusercontent.com
+            - name: BETTER_AUTH_URL
+              value: https://commcare.app
+            - name: GOOGLE_CLOUD_PROJECT
+              value: commcare-nova
+            - name: NOVA_DB_NAME
+              value: nova_cases
+            - name: NOVA_DB_USER
+              value: 51003905459-compute@developer
+            - name: NOVA_DB_INSTANCE_CONNECTION_NAME
+              value: commcare-nova:us-central1:nova-cases
+            - name: NOVA_DB_HOST
+              value: 10.9.160.3
+            - name: NOVA_MEDIA_BUCKET
+              value: nova-multimedia-prod
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: nova-google_oauth_secret
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: nova-anthropic_api_key_mine
+            - name: BETTER_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: nova-better_auth_secret
+            - name: GOOGLE_GENERATIVE_AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: nova-google_generative_api_key
+          resources:
+            limits:
+              cpu: 1500m
+              memory: 2Gi
+          startupProbe:
+            tcpSocket:
+              port: 8888
+            timeoutSeconds: 240
+            periodSeconds: 240
+            failureThreshold: 1
+  traffic:
+    - latestRevision: true
+      percent: 100

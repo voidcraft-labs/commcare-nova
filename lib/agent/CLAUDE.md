@@ -88,7 +88,7 @@ The generic mutation tools deliberately omit every media slot (`toolSchemaGenera
 
 Asset existence is NOT checked at attach time: the validation loop runs `collectMediaValidationErrors` post-mutation and surfaces a bad ref (deleted / pending / foreign-owned / kind-mismatched) with its carrier location. The doc-mutation media tools persist and let the loop adjudicate.
 
-The MCP-only `upload_media_asset` (`lib/mcp/tools/uploadMediaAsset.ts`, hand-registered — neither doc- nor app-scoped, so it can't ride the shared adapter) is the bytes-inline upload path for MCP clients that can't run the browser's hash → signed-PUT → confirm flow; it runs the same `validateMediaBytes` pipeline and stores via `uploadAssetBytes`. The shared media tools register in BOTH `lib/mcp/server.ts`'s `SHARED_TOOLS` and `lib/agent/solutionsArchitect.ts`'s `sharedTools` (the chat surface keeps its own parallel list).
+The MCP-only `upload_media_asset` (`lib/mcp/tools/uploadMediaAsset.ts`, hand-registered — neither doc- nor app-scoped, so it can't ride the shared adapter) is the bytes-inline upload path for MCP clients that can't run the browser's hash → PUT → confirm flow; it runs the same `validateMediaBytes` pipeline and stores via `uploadAssetBytes`. The shared media tools register in BOTH `lib/mcp/server.ts`'s `SHARED_TOOLS` and `lib/agent/solutionsArchitect.ts`'s `sharedTools` (the chat surface keeps its own parallel list).
 
 ## Shared-tool return contract
 

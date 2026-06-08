@@ -116,8 +116,8 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
 
 /**
  * Create a `pending` asset row. Returns the assigned `assetId` plus
- * the GCS object key the caller should write bytes to. The signed PUT
- * URL is minted separately (in `lib/storage/media.ts`) after this row
+ * the GCS object key the caller should write bytes to. The byte-PUT
+ * URL is built separately (by the initiate route) after this row
  * exists, so the row is the durable handle the confirm step looks up.
  *
  * Browser uploads leave `gcsObjectKey` absent and get a per-attempt
