@@ -147,8 +147,8 @@ export const EXTRACT_MAX_BYTES = 4 * 1024 * 1024;
 export const CONDENSER_MODEL = "gemini-3.5-flash";
 
 /**
- * Gemini provider options for the summarizer, both dialed to maximum:
- *   - `thinkingLevel: "high"` — deepest reasoning for the extraction.
+ * Gemini provider options for the summarizer:
+ *   - `thinkingLevel: "medium"` — reasoning depth for the extraction.
  *   - `includeThoughts: true` — stream the model's thought summaries as
  *     `reasoning-delta` parts. Extraction is mostly silent thinking before any
  *     output token, so without this the live-progress feed (`streamObjectWith`)
@@ -158,12 +158,12 @@ export const CONDENSER_MODEL = "gemini-3.5-flash";
  *     rasterized to image tiles before the model reads it; HIGH preserves small
  *     print, dense tables, and checkbox glyphs in scanned/typeset forms (no
  *     effect on text/office docs, which reach the model as text).
- * Output billing on Gemini includes thinking tokens, so high reasoning is the
- * cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
+ * Output billing on Gemini includes thinking tokens, so the reasoning level is
+ * the cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
  */
 export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
 	google: {
-		thinkingConfig: { thinkingLevel: "high", includeThoughts: true },
+		thinkingConfig: { thinkingLevel: "medium", includeThoughts: true },
 		mediaResolution: "MEDIA_RESOLUTION_HIGH",
 	} satisfies GoogleLanguageModelOptions,
 };
