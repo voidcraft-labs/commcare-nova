@@ -11,7 +11,7 @@
  * for an unrelated rename would silently flatten it back to plain.
  *
  * Both fields are gone now; case list authoring lives exclusively on
- * the case-list-config tools (`addCaseListColumn`,
+ * the case-list-config tools (`addCaseListColumns`,
  * `updateCaseListColumn`, `removeCaseListColumn`,
  * `reorderCaseListColumns`, `setCaseListFilter`, and the search-input
  * parallels). These tests pin that the module-scoped tools' input
@@ -84,7 +84,7 @@ describe("createModule legacy column field rejection", () => {
 		// Same strict-mode rejection as `updateModule`: the legacy field
 		// fails the schema and the tool body never sees it. Case list
 		// authoring goes through the dedicated case-list-config tools
-		// (`addCaseListColumn` et al.) after the module is created.
+		// (`addCaseListColumns` et al.) after the module is created.
 		const result = createModuleInputSchema.safeParse({
 			name: "Patients",
 			case_type: "patient",

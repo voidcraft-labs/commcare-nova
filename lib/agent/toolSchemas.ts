@@ -14,12 +14,11 @@ import { generateToolSchemas } from "./toolSchemaGenerator";
 
 const generated = generateToolSchemas();
 
-/** Per-item shape inside `z.array(...)` for the `addFields` batch tool — a
- *  per-kind discriminated union (each arm carries only its kind's props). */
+/** Per-item shape inside `z.array(...)` for the `addFields` tool — a
+ *  per-kind discriminated union (each arm carries only its kind's props).
+ *  `addFields` is the sole field-add tool (one field = a length-1 array),
+ *  so this item shape is the whole add surface. */
 export const addFieldsItemSchema = generated.addFieldsItemSchema;
-
-/** Whole-input shape for the single-insert `addField` tool (per-kind union). */
-export const addFieldSchema = generated.addFieldSchema;
 
 /** Patch shape for the `editField` tool (per-kind union; `kind` required as
  *  the discriminator). */

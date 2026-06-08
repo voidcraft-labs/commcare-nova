@@ -1,15 +1,18 @@
 /**
- * Behavioral tests for `addSearchInput`.
+ * Behavioral tests for `addSearchInputs` (the plural, list-taking tool —
+ * there is no singular search-input-add tool; one input is a length-1 array).
  *
  * Coverage:
  *
- *   1. Effect on the doc — the supplied search input is appended to
- *      `caseListConfig.searchInputs` with a freshly minted uuid.
- *   2. Surfaces uuid in result.uuid + the message.
- *   3. Both `simple` and `advanced` arms round-trip cleanly.
- *   4. Surrounding columns + filter survive.
- *   5. Module-not-found surfaces an Elm-style error.
- *   6. Initializes the caseListConfig when the module has none.
+ *   1. Effect on the doc — the supplied inputs are appended to
+ *      `caseListConfig.searchInputs` (in order) with a freshly minted uuid
+ *      each.
+ *   2. A multi-input call lands all inputs in one mutation batch.
+ *   3. Surfaces uuids in result.uuids + the message.
+ *   4. Both `simple` and `advanced` arms round-trip cleanly.
+ *   5. Surrounding columns + filter survive.
+ *   6. Module-not-found surfaces an Elm-style error.
+ *   7. Initializes the caseListConfig when the module has none.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +23,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
-import { addSearchInputTool } from "../addSearchInput";
+import { addSearchInputsTool } from "../addSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -37,19 +40,21 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-describe("addSearchInput", () => {
+describe("addSearchInputs", () => {
 	it("appends a simple-arm search input with a freshly minted uuid", async () => {
 		const { doc, ctx } = makeCaseListFixture();
-		const result = await addSearchInputTool.execute(
+		const result = await addSearchInputsTool.execute(
 			{
 				moduleIndex: 0,
-				searchInput: {
-					kind: "simple",
-					name: "name_search",
-					label: "Name",
-					type: "text",
-					property: "case_name",
-				},
+				searchInputs: [
+					{
+						kind: "simple",
+						name: "name_search",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
+				],
 			},
 			ctx,
 			doc,
@@ -66,19 +71,55 @@ describe("addSearchInput", () => {
 		}
 	});
 
+	it("adds multiple inputs in one call, in order, in a single mutation", async () => {
+		const { doc, ctx } = makeCaseListFixture();
+		const result = await addSearchInputsTool.execute(
+			{
+				moduleIndex: 0,
+				searchInputs: [
+					{
+						kind: "simple",
+						name: "name_search",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
+					{
+						kind: "advanced",
+						name: "active_only",
+						label: "Active only",
+						type: "select",
+						predicate: matchAll(),
+					},
+				],
+			},
+			ctx,
+			doc,
+		);
+
+		expect(result.mutations).toHaveLength(1);
+		const inputs =
+			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+		expect(inputs.map((i) => i.kind)).toEqual(["simple", "advanced"]);
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.result.uuids).toEqual(inputs.map((i) => i.uuid));
+	});
+
 	it("appends an advanced-arm search input with a freshly minted uuid", async () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const predicate = matchAll();
-		const result = await addSearchInputTool.execute(
+		const result = await addSearchInputsTool.execute(
 			{
 				moduleIndex: 0,
-				searchInput: {
-					kind: "advanced",
-					name: "active_only",
-					label: "Active only",
-					type: "select",
-					predicate,
-				},
+				searchInputs: [
+					{
+						kind: "advanced",
+						name: "active_only",
+						label: "Active only",
+						type: "select",
+						predicate,
+					},
+				],
 			},
 			ctx,
 			doc,
@@ -94,18 +135,20 @@ describe("addSearchInput", () => {
 		}
 	});
 
-	it("surfaces the new uuid in the structured result and the message", async () => {
+	it("surfaces each new uuid in the structured result and the message", async () => {
 		const { doc, ctx } = makeCaseListFixture();
-		const result = await addSearchInputTool.execute(
+		const result = await addSearchInputsTool.execute(
 			{
 				moduleIndex: 0,
-				searchInput: {
-					kind: "simple",
-					name: "name_search",
-					label: "Name",
-					type: "text",
-					property: "case_name",
-				},
+				searchInputs: [
+					{
+						kind: "simple",
+						name: "name_search",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
+				],
 			},
 			ctx,
 			doc,
@@ -115,8 +158,8 @@ describe("addSearchInput", () => {
 		}
 		const newInput =
 			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs[0];
-		expect(result.result.uuid).toBe(newInput?.uuid);
-		expect(result.result.message).toContain(String(newInput?.uuid));
+		expect(result.result.uuids[0]).toBe(newInput?.uuid);
+		expect(result.result.message).toContain("Name");
 	});
 
 	it("preserves columns and filter when adding a search input", async () => {
@@ -141,16 +184,18 @@ describe("addSearchInput", () => {
 			},
 		};
 
-		const result = await addSearchInputTool.execute(
+		const result = await addSearchInputsTool.execute(
 			{
 				moduleIndex: 0,
-				searchInput: {
-					kind: "simple",
-					name: "name_search",
-					label: "Name",
-					type: "text",
-					property: "case_name",
-				},
+				searchInputs: [
+					{
+						kind: "simple",
+						name: "name_search",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
+				],
 			},
 			ctx,
 			docWithConfig,
@@ -163,16 +208,18 @@ describe("addSearchInput", () => {
 
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
 		const { doc, ctx } = makeCaseListFixture();
-		const result = await addSearchInputTool.execute(
+		const result = await addSearchInputsTool.execute(
 			{
 				moduleIndex: 99,
-				searchInput: {
-					kind: "simple",
-					name: "name_search",
-					label: "Name",
-					type: "text",
-					property: "case_name",
-				},
+				searchInputs: [
+					{
+						kind: "simple",
+						name: "name_search",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
+				],
 			},
 			ctx,
 			doc,
@@ -196,16 +243,18 @@ describe("addSearchInput", () => {
 			},
 		};
 
-		const result = await addSearchInputTool.execute(
+		const result = await addSearchInputsTool.execute(
 			{
 				moduleIndex: 0,
-				searchInput: {
-					kind: "simple",
-					name: "name_search",
-					label: "Name",
-					type: "text",
-					property: "case_name",
-				},
+				searchInputs: [
+					{
+						kind: "simple",
+						name: "name_search",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
+				],
 			},
 			ctx,
 			docWithoutConfig,

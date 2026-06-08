@@ -34,8 +34,8 @@ import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { makeTestContext } from "@/lib/agent/__tests__/fixtures";
-import { addCaseListColumnTool } from "@/lib/agent/tools/case-list-config/addCaseListColumn";
-import { addSearchInputTool } from "@/lib/agent/tools/case-list-config/addSearchInput";
+import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCaseListColumns";
+import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
 import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
 import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
@@ -368,7 +368,7 @@ describe("SA tool path — column atomic ops", () => {
 		// Single case-typed module — every SA tool invocation here
 		// targets `moduleIndex: 0`. The `f` helper auto-stamps field
 		// uuids; explicit case-list slot is omitted so the first
-		// `addCaseListColumn` initializes it.
+		// `addCaseListColumns` initializes it.
 		const startDoc = buildDoc({
 			appId: APP_ID,
 			appName: "SA Tool Path",
@@ -410,10 +410,10 @@ describe("SA tool path — column atomic ops", () => {
 		});
 
 		// 1. Add the first column — capture the uuid the tool mints.
-		const addNameResult = await addCaseListColumnTool.execute(
+		const addNameResult = await addCaseListColumnsTool.execute(
 			{
 				moduleIndex: 0,
-				column: { kind: "plain", field: "case_name", header: "Patient" },
+				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
 			startDoc,
@@ -423,17 +423,17 @@ describe("SA tool path — column atomic ops", () => {
 				`add patient column failed: ${addNameResult.result.error}`,
 			);
 		}
-		const nameUuid = addNameResult.result.uuid;
-		// The success message echoes the uuid; the `result.uuid`
-		// surfaces it structurally so the SA can reference it
-		// directly without parsing the string.
-		expect(addNameResult.result.message).toContain(String(nameUuid));
+		const nameUuid = addNameResult.result.uuids[0];
+		// The success message echoes the header; the `result.uuids`
+		// surface the minted uuids structurally so the SA can reference
+		// them directly without parsing the string.
+		expect(addNameResult.result.message).toContain("Patient");
 
 		// 2. Add a second column on the post-add doc.
-		const addAgeResult = await addCaseListColumnTool.execute(
+		const addAgeResult = await addCaseListColumnsTool.execute(
 			{
 				moduleIndex: 0,
-				column: { kind: "plain", field: "age", header: "Age" },
+				columns: [{ kind: "plain", field: "age", header: "Age" }],
 			},
 			ctx,
 			addNameResult.newDoc,
@@ -441,7 +441,7 @@ describe("SA tool path — column atomic ops", () => {
 		if ("error" in addAgeResult.result) {
 			throw new Error(`add age column failed: ${addAgeResult.result.error}`);
 		}
-		const ageUuid = addAgeResult.result.uuid;
+		const ageUuid = addAgeResult.result.uuids[0];
 		expect(ageUuid).not.toBe(nameUuid);
 
 		// 3. Update the second column — flip on a sort directive.
@@ -789,17 +789,19 @@ describe("SearchInputDef discriminated round-trip", () => {
 		});
 
 		// Add a simple input — capture the uuid the tool mints.
-		const addResult = await addSearchInputTool.execute(
+		const addResult = await addSearchInputsTool.execute(
 			{
 				moduleIndex: 0,
-				searchInput: {
-					kind: "simple",
-					name: "patient_name",
-					label: "Patient name",
-					type: "text",
-					property: "name",
-					default: term(literal("Alice")),
-				},
+				searchInputs: [
+					{
+						kind: "simple",
+						name: "patient_name",
+						label: "Patient name",
+						type: "text",
+						property: "name",
+						default: term(literal("Alice")),
+					},
+				],
 			},
 			ctx,
 			baseDoc,
@@ -807,7 +809,7 @@ describe("SearchInputDef discriminated round-trip", () => {
 		if ("error" in addResult.result) {
 			throw new Error(`add input failed: ${addResult.result.error}`);
 		}
-		const inputUuid = addResult.result.uuid;
+		const inputUuid = addResult.result.uuids[0];
 		const afterAdd = collectSearchInputs(addResult.newDoc);
 		expect(afterAdd).toHaveLength(1);
 		expect(afterAdd[0]?.kind).toBe("simple");

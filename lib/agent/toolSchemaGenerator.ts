@@ -3,7 +3,7 @@
 //
 // ## Per-kind discriminated unions
 //
-// All three tools (addFields batch, addField single, editField patch) take a
+// Both field-mutation tools (addFields, editField patch) take a
 // `discriminatedUnion("kind", …)`: an arm exposes ONLY the properties that
 // kind's domain schema declares (gated by `fieldKindDeclaresKey`) and is
 // `.strict()`. So a property the kind doesn't have — `calculate` on a
@@ -134,15 +134,20 @@ const FIELD_DOCS = {
 		"XPath expression that conditionally shows/hides this field. " +
 		'Example: "#form/age >= 18". Supports hashtag references.',
 	calculate:
-		"XPath that computes a HIDDEN field's value — evaluated on form load and " +
-		"whenever its dependencies change. Only `hidden` fields carry a " +
-		"calculate; a computed value on a visible control would render read-only, " +
-		"so show a computed value with a `label` field that outputs it instead. " +
-		"Supports hashtag references.",
+		"XPath that recomputes a HIDDEN field's value whenever a field it " +
+		"references changes — it lives in the form's recalculation graph. Use it " +
+		"ONLY when the value must track other fields that can change during fill; " +
+		"for a value fixed at load (a constant, or a stamp like today()), use " +
+		"`default_value` instead so it isn't needlessly recomputed. Only `hidden` " +
+		"fields carry a calculate; a computed value on a visible control would " +
+		"render read-only, so show one with a `label` field that outputs it " +
+		"instead. Supports hashtag references.",
 	default_value:
-		"XPath expression evaluated once on form load to seed an initial " +
-		"value. Does not re-run on dependency change — use `calculate` for " +
-		"that. Supports hashtag references.",
+		"XPath evaluated ONCE when the form loads, seeding a value that never " +
+		"recomputes (not in the recalculation graph). Prefer this for any value " +
+		"fixed for the form's life — a literal constant, or a load-time stamp " +
+		"like today(). Use `calculate` instead only when the value must update as " +
+		"other fields change. Supports hashtag references.",
 	options:
 		"Choice list for single_select / multi_select — minimum 2 options. " +
 		"Omit entirely for other kinds.",
@@ -354,17 +359,17 @@ function addLabelField(kind: FieldKind) {
 }
 
 /**
- * One kind's arm for an add tool. `withParentId` is true for the batch
- * item (per-field parent id); the single `addField` tool carries `parentId`
- * as a separate top-level argument, so its arms omit it.
+ * One kind's arm for the `addFields` tool. Each arm carries the per-field
+ * `parentId` so a batch can place each field precisely (and reference a
+ * group added earlier in the same batch).
  */
-function buildAddArm(kind: FieldKind, withParentId: boolean) {
+function buildAddArm(kind: FieldKind) {
 	const has = (key: string): boolean => fieldKindDeclaresKey(kind, key);
 	return z
 		.object({
 			kind: z.literal(kind).describe(fieldRegistry[kind].saDocs),
 			id: idField(),
-			...(withParentId ? { parentId: parentIdField() } : {}),
+			parentId: parentIdField(),
 			...(has("label") ? { label: addLabelField(kind) } : {}),
 			...(has("hint") ? { hint: hintField() } : {}),
 			...(has("required") ? { required: requiredField() } : {}),
@@ -402,18 +407,7 @@ function buildAddArm(kind: FieldKind, withParentId: boolean) {
 type AddArm = ReturnType<typeof buildAddArm>;
 
 function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
-	const arms = kinds.map((k) => buildAddArm(k, true)) as [AddArm, ...AddArm[]];
-	return z.discriminatedUnion("kind", arms);
-}
-
-/**
- * Single-insert shape for the `addField` tool — the same per-kind arms as
- * the batch item, minus the per-field `parentId` (the single tool locates
- * the insertion point via separate top-level arguments: `parentId`,
- * `beforeFieldId`, `afterFieldId`).
- */
-function buildAddFieldSchema(kinds: readonly FieldKind[]) {
-	const arms = kinds.map((k) => buildAddArm(k, false)) as [AddArm, ...AddArm[]];
+	const arms = kinds.map((k) => buildAddArm(k)) as [AddArm, ...AddArm[]];
 	return z.discriminatedUnion("kind", arms);
 }
 
@@ -520,7 +514,6 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
  */
 export type GeneratedToolSchemas = {
 	addFieldsItemSchema: ReturnType<typeof buildAddFieldsItemSchema>;
-	addFieldSchema: ReturnType<typeof buildAddFieldSchema>;
 	editFieldUpdatesSchema: ReturnType<typeof buildEditFieldUpdatesSchema>;
 	/** Wide processing-type sources (NOT tool inputs) — see the builders. */
 	wideFlatItemSchema: ReturnType<typeof buildWideFlatItemSchema>;
@@ -540,7 +533,6 @@ export function generateToolSchemas(
 ): GeneratedToolSchemas {
 	return {
 		addFieldsItemSchema: buildAddFieldsItemSchema(kinds),
-		addFieldSchema: buildAddFieldSchema(kinds),
 		editFieldUpdatesSchema: buildEditFieldUpdatesSchema(kinds),
 		wideFlatItemSchema: buildWideFlatItemSchema(kinds),
 		wideEditUpdatesSchema: buildWideEditUpdatesSchema(kinds),

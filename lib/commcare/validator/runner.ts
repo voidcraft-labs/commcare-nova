@@ -202,6 +202,28 @@ const CONNECT_SLOT_LABELS: Record<ConnectXPathSlot, string> = {
 };
 
 /**
+ * Build the "did you mean" clause for an INVALID_REF that has leaf-matched
+ * suggestions. The validator resolves field paths as `/data/...`; the SA
+ * authors them as `#form/...`, so we present the suggestions in that
+ * vocabulary — directly copy-pasteable. One match reads as a single
+ * suggestion; several (cousins sharing a leaf id across groups) list all so
+ * the SA picks the right one. Returns `undefined` when there's nothing to
+ * suggest, so the caller falls back to the generic typo guidance.
+ */
+function suggestionHint(
+	suggestions: readonly string[] | undefined,
+): string | undefined {
+	if (!suggestions || suggestions.length === 0) return undefined;
+	const formPaths = suggestions.map(
+		(p) => `\`#form/${p.replace(/^\/data\//, "")}\``,
+	);
+	if (formPaths.length === 1) {
+		return `A field with that id exists at ${formPaths[0]} — did you mean that? A \`#form/...\` reference must include every group the field is nested in, not just the field's id.`;
+	}
+	return `Fields with that id exist at ${formPaths.join(", ")} — did you mean one of these? A \`#form/...\` reference must include every group the field is nested in, not just the field's id.`;
+}
+
+/**
  * Render a typed `XPathError` into a helpful, human-friendly message.
  * Dispatch is on the typed `code` — never on parsing `error.message`. The
  * terse `error.message` already carries the specific identifier (the bad
@@ -220,8 +242,19 @@ function humanizeXPathError(error: XPathError, where: string): string {
 		case "WRONG_ARITY":
 			return `${where} calls a function with the wrong number of arguments: ${error.message}.`;
 
-		case "INVALID_REF":
+		case "INVALID_REF": {
+			// When an existing field shares the unknown ref's leaf id, the SA
+			// almost certainly wrote the bare id and dropped the field's group
+			// path — point at the real path(s) in the SA's own `#form/...`
+			// vocabulary (the validator resolved them as `/data/...`). This is
+			// the dominant authoring mistake: `#form/consent` for a field that
+			// lives at `#form/consent_grp/consent`.
+			const hint = suggestionHint(error.suggestions);
+			if (hint) {
+				return `${where} has a reference that doesn't exist in this form: ${error.message}. ${hint}`;
+			}
 			return `${where} has a reference that doesn't exist in this form: ${error.message}. Check for a typo in the field id, or whether the field was renamed or removed.`;
+		}
 
 		case "INVALID_CASE_REF":
 			return `${where} references a case property that doesn't exist on this case type: ${error.message}. Check for a typo, or make sure a field saves to that property via \`case_property_on\`.`;

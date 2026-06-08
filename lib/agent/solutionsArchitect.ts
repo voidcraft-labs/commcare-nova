@@ -31,11 +31,10 @@ import { classifyError } from "./errorClassifier";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import type { ToolExecutionContext } from "./toolExecutionContext";
-import { addFieldTool } from "./tools/addField";
 import { addFieldsTool } from "./tools/addFields";
 import { askQuestionsTool } from "./tools/askQuestions";
-import { addCaseListColumnTool } from "./tools/case-list-config/addCaseListColumn";
-import { addSearchInputTool } from "./tools/case-list-config/addSearchInput";
+import { addCaseListColumnsTool } from "./tools/case-list-config/addCaseListColumns";
+import { addSearchInputsTool } from "./tools/case-list-config/addSearchInputs";
 import { removeCaseListColumnTool } from "./tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "./tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "./tools/case-list-config/reorderCaseListColumns";
@@ -341,7 +340,6 @@ export function createSolutionsArchitect(
 		// ── Field mutations ────────────────────────────────────────
 
 		editField: wrapMutating(editFieldTool),
-		addField: wrapMutating(addFieldTool),
 		removeField: wrapMutating(removeFieldTool),
 
 		// ── Structural mutations ──────────────────────────────────────
@@ -364,12 +362,12 @@ export function createSolutionsArchitect(
 		// `blueprintHelpers.ts`; SA-boundary input shapes live in
 		// `tools/case-list-config/shared.ts`.
 
-		addCaseListColumn: wrapMutating(addCaseListColumnTool),
+		addCaseListColumns: wrapMutating(addCaseListColumnsTool),
 		updateCaseListColumn: wrapMutating(updateCaseListColumnTool),
 		removeCaseListColumn: wrapMutating(removeCaseListColumnTool),
 		reorderCaseListColumns: wrapMutating(reorderCaseListColumnsTool),
 		setCaseListFilter: wrapMutating(setCaseListFilterTool),
-		addSearchInput: wrapMutating(addSearchInputTool),
+		addSearchInputs: wrapMutating(addSearchInputsTool),
 		updateSearchInput: wrapMutating(updateSearchInputTool),
 		removeSearchInput: wrapMutating(removeSearchInputTool),
 		reorderSearchInputs: wrapMutating(reorderSearchInputsTool),

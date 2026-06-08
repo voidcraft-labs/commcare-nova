@@ -1,7 +1,7 @@
 // Behavioral tests for the SA tool schema generator.
 //
-// The generator is the single source of truth for the `addFields`,
-// `addField`, and `editField` tool inputs. Each is a per-kind
+// The generator is the single source of truth for the `addFields` and
+// `editField` tool inputs. Each is a per-kind
 // `discriminatedUnion("kind", …)`: an arm exposes ONLY the properties its
 // kind's domain schema declares, so a "wrong property for this kind" input
 // (e.g. `calculate` on a `single_select`) is rejected at the tool boundary
@@ -48,24 +48,19 @@ function validAddPayload(kind: string): Record<string, unknown> {
 }
 
 describe("toolSchemaGenerator", () => {
-	it("exposes the three tool inputs plus the two wide processing-type sources", () => {
+	it("exposes the two tool inputs plus the two wide processing-type sources", () => {
 		expect(generated.addFieldsItemSchema).toBeDefined();
-		expect(generated.addFieldSchema).toBeDefined();
 		expect(generated.editFieldUpdatesSchema).toBeDefined();
 		expect(generated.wideFlatItemSchema).toBeDefined();
 		expect(generated.wideEditUpdatesSchema).toBeDefined();
 	});
 
-	it("has an arm for every registry kind on each add tool", () => {
+	it("has an arm for every registry kind on the add tool", () => {
 		for (const kind of fieldKinds) {
 			const payload = validAddPayload(kind);
 			expect(
 				generated.addFieldsItemSchema.safeParse(payload).success,
 				`addFields arm for ${kind}`,
-			).toBe(true);
-			expect(
-				generated.addFieldSchema.safeParse(payload).success,
-				`addField arm for ${kind}`,
 			).toBe(true);
 		}
 	});
@@ -197,28 +192,30 @@ describe("toolSchemaGenerator", () => {
 		});
 		// user_controlled needs nothing extra.
 		expect(
-			generated.addFieldSchema.safeParse(
+			generated.addFieldsItemSchema.safeParse(
 				repeatPayload({ mode: "user_controlled" }),
 			).success,
 		).toBe(true);
 		// count_bound REQUIRES count; query_bound REQUIRES ids_query.
 		expect(
-			generated.addFieldSchema.safeParse(
+			generated.addFieldsItemSchema.safeParse(
 				repeatPayload({ mode: "count_bound", count: "#form/n" }),
 			).success,
 		).toBe(true);
 		expect(
-			generated.addFieldSchema.safeParse(repeatPayload({ mode: "count_bound" }))
-				.success,
+			generated.addFieldsItemSchema.safeParse(
+				repeatPayload({ mode: "count_bound" }),
+			).success,
 		).toBe(false);
 		expect(
-			generated.addFieldSchema.safeParse(
+			generated.addFieldsItemSchema.safeParse(
 				repeatPayload({ mode: "query_bound", ids_query: "#form/ids" }),
 			).success,
 		).toBe(true);
 		expect(
-			generated.addFieldSchema.safeParse(repeatPayload({ mode: "query_bound" }))
-				.success,
+			generated.addFieldsItemSchema.safeParse(
+				repeatPayload({ mode: "query_bound" }),
+			).success,
 		).toBe(false);
 	});
 

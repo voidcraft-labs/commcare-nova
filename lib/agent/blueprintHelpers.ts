@@ -385,14 +385,18 @@ export type CaseListMutationResult =
 	| { error: string };
 
 /**
- * Append one column to a module's case-list `columns` array.
+ * Append one or more columns to a module's case-list `columns` array in a
+ * single patch (preserving order). There is no separate single-column
+ * builder: the SA tool surface is the plural `addCaseListColumns`, and one
+ * column is just a length-1 array — so the column-append path stays one
+ * function and one mutation regardless of count.
  *
  * Always succeeds — the input is the resolved `Module`, so module
  * existence is the caller's invariant.
  */
-export function addColumnMutation(
+export function addColumnsMutation(
 	mod: Module,
-	column: Column,
+	columns: readonly Column[],
 ): CaseListMutationResult {
 	const base = snapshotCaseListConfig(mod);
 	return {
@@ -402,7 +406,7 @@ export function addColumnMutation(
 				kind: "updateModule",
 				uuid: mod.uuid,
 				patch: {
-					caseListConfig: { ...base, columns: [...base.columns, column] },
+					caseListConfig: { ...base, columns: [...base.columns, ...columns] },
 				},
 			},
 		],
@@ -489,10 +493,11 @@ export function reorderColumnsMutation(
 	};
 }
 
-/** Search-input parallel of `addColumnMutation`. */
-export function addSearchInputMutation(
+/** Search-input parallel of `addColumnsMutation` — appends one or more
+ *  inputs (in order) in a single patch. */
+export function addSearchInputsMutation(
 	mod: Module,
-	searchInput: SearchInputDef,
+	searchInputs: readonly SearchInputDef[],
 ): CaseListMutationResult {
 	const base = snapshotCaseListConfig(mod);
 	return {
@@ -504,7 +509,7 @@ export function addSearchInputMutation(
 				patch: {
 					caseListConfig: {
 						...base,
-						searchInputs: [...base.searchInputs, searchInput],
+						searchInputs: [...base.searchInputs, ...searchInputs],
 					},
 				},
 			},

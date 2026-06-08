@@ -1,7 +1,7 @@
 // Friendly presentation of the SA's tool calls for the chat transcript.
 //
 // The Solutions Architect emits many fine-grained tool calls per turn
-// (addFields, addCaseListColumn, …). `ChatMessage` groups each consecutive RUN
+// (addFields, addCaseListColumns, …). `ChatMessage` groups each consecutive RUN
 // of edit-tool calls into a collapsed "N changes" summary; this module is the
 // vocabulary that summary speaks.
 //
@@ -20,7 +20,6 @@ import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
  *  as the bare verb+noun ("Added column" → `Added column "Age"`). */
 const TOOL_ACTIONS: Record<string, string> = {
 	addFields: "Added fields",
-	addField: "Added field",
 	editField: "Updated field",
 	removeField: "Removed field",
 	createForm: "Created form",
@@ -29,11 +28,11 @@ const TOOL_ACTIONS: Record<string, string> = {
 	createModule: "Created module",
 	updateModule: "Renamed module",
 	removeModule: "Removed module",
-	addCaseListColumn: "Added column",
+	addCaseListColumns: "Added columns",
 	updateCaseListColumn: "Updated column",
 	removeCaseListColumn: "Removed column",
 	reorderCaseListColumns: "Reordered columns",
-	addSearchInput: "Added search input",
+	addSearchInputs: "Added search inputs",
 	updateSearchInput: "Updated search input",
 	removeSearchInput: "Removed search input",
 	reorderSearchInputs: "Reordered search inputs",
@@ -53,6 +52,9 @@ const TOOL_ACTIONS: Record<string, string> = {
  *  the count is absent (e.g. a read tool, or a call not carrying a summary). */
 const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 	addFields: (n) => `Added ${n} ${n === 1 ? "field" : "fields"}`,
+	addCaseListColumns: (n) => `Added ${n} ${n === 1 ? "column" : "columns"}`,
+	addSearchInputs: (n) =>
+		`Added ${n} ${n === 1 ? "search input" : "search inputs"}`,
 	reorderCaseListColumns: (n) =>
 		`Reordered ${n} ${n === 1 ? "column" : "columns"}`,
 	reorderSearchInputs: (n) =>

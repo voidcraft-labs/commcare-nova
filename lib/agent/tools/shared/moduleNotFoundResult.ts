@@ -4,7 +4,7 @@
  * a uuid in `doc.moduleOrder` nor a module in `doc.modules`.
  *
  * Lives at `tools/shared/` because more than one tool family consumes
- * it. The case-list-config quartet (`addCaseListColumn`,
+ * it. The case-list-config family (`addCaseListColumns`,
  * `setCaseListFilter`, …) was the first family; the case-search-config
  * tools (`setCaseSearchDisplay`, `setCaseSearchAdvanced`) are the second.
  * Centralizing the shape keeps the SA-facing message uniform across

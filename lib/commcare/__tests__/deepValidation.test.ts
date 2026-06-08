@@ -135,6 +135,34 @@ describe("validateXPath", () => {
 			const errors = validateXPath("/data/nonexistent != ''", validPaths);
 			expect(errors.some((e) => e.code === "INVALID_REF")).toBe(true);
 		});
+
+		it("suggests the group-qualified path when only the bare id was used", () => {
+			// `#form/child1` → `/data/child1` is unknown, but the field lives at
+			// `/data/group1/child1`. The leaf (`child1`) matches, so the error
+			// carries it as a suggestion — the dominant bare-id authoring bug.
+			const errors = validateXPath("/data/child1 = 'x'", validPaths);
+			const refError = errors.find((e) => e.code === "INVALID_REF");
+			expect(refError?.suggestions).toEqual(["/data/group1/child1"]);
+		});
+
+		it("lists every cousin sharing the leaf id as a suggestion", () => {
+			const cousins = new Set([
+				"/data/group_a/first_name",
+				"/data/group_b/first_name",
+			]);
+			const errors = validateXPath("/data/first_name", cousins);
+			const refError = errors.find((e) => e.code === "INVALID_REF");
+			expect(refError?.suggestions).toEqual([
+				"/data/group_a/first_name",
+				"/data/group_b/first_name",
+			]);
+		});
+
+		it("omits suggestions for a genuine typo with no leaf match", () => {
+			const errors = validateXPath("/data/zzz_typo", validPaths);
+			const refError = errors.find((e) => e.code === "INVALID_REF");
+			expect(refError?.suggestions).toBeUndefined();
+		});
 	});
 
 	describe("case property reference validation", () => {
@@ -1144,5 +1172,60 @@ describe("runValidation deep XPath on repeat fields", () => {
 		);
 		expect(syntaxErr).toBeDefined();
 		expect(syntaxErr?.message).toContain("repeat count");
+	});
+});
+
+describe("runValidation — bare-id reference suggestion (group-path DX)", () => {
+	// The dominant authoring mistake (build WVbl8blwAsy6CCjBFaJ0: 29 of 30
+	// edit calls were this): the SA references a field by its bare id when
+	// the field lives inside a group, dropping the group from the path. The
+	// humanized error must point at the real `#form/...` path so the SA fixes
+	// it in one shot instead of guessing.
+	it("suggests the group-qualified #form/ path in the message", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "Register Mother",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									id: "consent_grp",
+									label: "Consent",
+									children: [
+										f({
+											kind: "single_select",
+											id: "consent",
+											label: "Consent given?",
+											options: [
+												{ value: "yes", label: "Yes" },
+												{ value: "no", label: "No" },
+											],
+										}),
+									],
+								}),
+								// Sibling at the form root references the bare id.
+								f({
+									kind: "label",
+									id: "consent_stop",
+									label: "Enrollment stopped.",
+									relevant: "#form/consent = 'no'",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const refErr = runValidation(doc).find(
+			(e) => e.code === "INVALID_REF" && e.location.fieldId === "consent_stop",
+		);
+		expect(refErr).toBeDefined();
+		expect(refErr?.message).toContain("`#form/consent_grp/consent`");
+		expect(refErr?.message).toContain("did you mean");
 	});
 });

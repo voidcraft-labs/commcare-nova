@@ -381,7 +381,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expect(addFormMut?.form.postSubmit).toBe("module");
 	});
 
-	it("addCaseListColumn emits data-mutations tagged module:M:caseList:column:add", async () => {
+	it("addCaseListColumns emits data-mutations tagged module:M:caseList:column:add", async () => {
 		// Pin the case-list-config write surface emits through the same
 		// `data-mutations` path as every other shared tool — case list
 		// authoring is the typed-AST replacement for the deleted
@@ -389,9 +389,9 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// `Column` mutation at the same staging granularity.
 		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), false);
 
-		await runTool(sa, "addCaseListColumn", {
+		await runTool(sa, "addCaseListColumns", {
 			moduleIndex: 0,
-			column: { kind: "plain", field: "case_name", header: "Name" },
+			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
 		});
 
 		const muts = mutationEvents(writer);
@@ -519,9 +519,9 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// Case-list-config write tool — covers the typed-AST surface that
 		// replaced the deleted `addModule` SA tool. Walking it here keeps
 		// the safety-net's coverage of column-mutation events.
-		await runTool(sa, "addCaseListColumn", {
+		await runTool(sa, "addCaseListColumns", {
 			moduleIndex: 0,
-			column: { kind: "plain", field: "case_name", header: "Name" },
+			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
 		});
 
 		// Shared tools: read + mutation + structural.
@@ -534,14 +534,16 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			fieldId: "case_name",
 		});
 
-		await runTool(sa, "addField", {
+		await runTool(sa, "addFields", {
 			moduleIndex: 0,
 			formIndex: 0,
-			field: {
-				id: "dob",
-				kind: "date",
-				label: "Date of birth",
-			},
+			fields: [
+				{
+					id: "dob",
+					kind: "date",
+					label: "Date of birth",
+				},
+			],
 		});
 		await runTool(sa, "editField", {
 			moduleIndex: 0,

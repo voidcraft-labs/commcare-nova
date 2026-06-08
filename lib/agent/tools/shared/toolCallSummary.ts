@@ -47,7 +47,7 @@ export interface ToolCallSummary {
  * Standard success shape for a mutating tool: the prose `message` for the
  * model, plus the `summary` the transcript renders. Tools that also hand the
  * SA a freshly-minted identifier (so it can target a follow-up edit without a
- * re-read) extend this with that field — see `addCaseListColumn`'s `uuid`.
+ * re-read) extend this with that field — see `addCaseListColumns`'s `uuids`.
  */
 export interface MutationSuccess {
 	message: string;

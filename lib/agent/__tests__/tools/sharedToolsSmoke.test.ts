@@ -7,7 +7,7 @@
  * for the chat route, `McpContext` for the MCP adapter. If the two
  * contexts ever diverged on how the tool's mutations are computed,
  * replay + downstream persistence would drift. This file locks that
- * invariant in against one representative tool (`addFieldTool`); Phase
+ * invariant in against one representative tool (`addFieldsTool`); Phase
  * E will add per-adapter coverage.
  *
  * Also covers the `updateForm` partial-connect-config regression: a
@@ -21,7 +21,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
-import { addFieldTool } from "../../tools/addField";
 import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
 import { makeMcpTestContext, makeTestContext } from "../fixtures";
@@ -53,7 +52,7 @@ const FORM_A = asUuid("33333333-3333-3333-3333-333333333333");
 
 /**
  * Minimal `BlueprintDoc` with one case-carrying module and one
- * registration form. Enough state for `addFieldTool` to resolve its
+ * registration form. Enough state for `addFieldsTool` to resolve its
  * positional `(moduleIndex, formIndex)` lookup against; no existing
  * fields so the insert lands at index 0 deterministically.
  */
@@ -120,17 +119,19 @@ function makeDocWithFullConnect(): BlueprintDoc {
 	};
 }
 
-/** Zod-compatible minimal `addField` input for the cross-surface test.
+/** Zod-compatible minimal `addFields` input for the cross-surface test.
  *  `kind` is narrowed to the literal `"date"` so the input type-checks
- *  against the tool's `kind` enum — the schema rejects bare strings. */
-const ADD_FIELD_INPUT = {
+ *  against the tool's per-kind union — the schema rejects bare strings. */
+const ADD_FIELDS_INPUT = {
 	moduleIndex: 0,
 	formIndex: 0,
-	field: {
-		id: "dob",
-		kind: "date" as const,
-		label: "Date of birth",
-	},
+	fields: [
+		{
+			id: "dob",
+			kind: "date" as const,
+			label: "Date of birth",
+		},
+	],
 };
 
 beforeEach(() => {
@@ -140,7 +141,7 @@ beforeEach(() => {
 // ── Cross-surface shared-tool smoke test ────────────────────────────────
 
 describe("shared tool modules drive uniform behavior across surfaces", () => {
-	it("addFieldTool produces identical mutations on chat and MCP contexts", async () => {
+	it("addFieldsTool produces identical mutations on chat and MCP contexts", async () => {
 		/* Driving the same input through both contexts should produce
 		 * byte-identical mutation batches — the mutations are pure output
 		 * of the shared tool module, independent of the surface's
@@ -150,14 +151,18 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 		const doc = makeFixtureDoc();
 
 		const { ctx: chatCtx } = makeTestContext();
-		const chatResult = await addFieldTool.execute(
-			ADD_FIELD_INPUT,
+		const chatResult = await addFieldsTool.execute(
+			ADD_FIELDS_INPUT,
 			chatCtx,
 			doc,
 		);
 
 		const { ctx: mcpCtx } = makeMcpTestContext();
-		const mcpResult = await addFieldTool.execute(ADD_FIELD_INPUT, mcpCtx, doc);
+		const mcpResult = await addFieldsTool.execute(
+			ADD_FIELDS_INPUT,
+			mcpCtx,
+			doc,
+		);
 
 		/* Strip the minted field uuid — it's a fresh `crypto.randomUUID()`
 		 * per call, so two sequential calls won't match byte-for-byte on
@@ -181,44 +186,22 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 	});
 });
 
-// ── addField / addFields pipeline parity ────────────────────────────────
+// ── addFields add-path pipeline ──────────────────────────────────────────
 
-describe("addField and addFields share the same add-path pipeline", () => {
-	it("both unescape XPath HTML entities in validate expressions", async () => {
-		/* Regression guard for the divergence where `addField` only ran
-		 * `flatFieldToField` and skipped `applyDefaults` — LLM-emitted
-		 * `&gt;` / `&lt;` sequences on XPath-valued keys survived into
-		 * the stored field and XForm validation rejected them at
-		 * generation time. Both tools must now run the same pipeline so a
-		 * given payload normalizes identically regardless of entry point.
-		 *
-		 * The mutation's `addField.field` is the assembled domain Field —
-		 * the final post-pipeline shape — so comparing `field.validate`
-		 * across both tools directly asserts pipeline parity. */
+describe("addFields add-path pipeline", () => {
+	it("unescapes XPath HTML entities in validate expressions", async () => {
+		/* `addFields` runs the shared `stripEmpty` → `applyDefaults` →
+		 * `flatFieldToField` pipeline; `applyDefaults` is what unescapes
+		 * LLM-emitted `&gt;` / `&lt;` sequences on XPath-valued keys. Without
+		 * it those entities survive into the stored field and XForm
+		 * validation rejects them at generation time. The mutation's
+		 * `addField.field` is the assembled domain Field — the final
+		 * post-pipeline shape — so comparing `field.validate` directly
+		 * asserts the unescape ran. */
 		const doc = makeFixtureDoc();
 		const id = "age";
 		const escapedValidate = ". &gt; 0 and . &lt; 150";
 		const expectedValidate = ". > 0 and . < 150";
-
-		const singleCtx = makeTestContext().ctx;
-		const { mutations: singleMuts } = await addFieldTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				field: {
-					id,
-					kind: "int",
-					label: "Age",
-					validate: { expr: escapedValidate },
-				},
-			},
-			singleCtx,
-			doc,
-		);
-		const addedSingle = singleMuts.find(
-			(m): m is Extract<Mutation, { kind: "addField" }> =>
-				m.kind === "addField",
-		);
 
 		const batchCtx = makeTestContext().ctx;
 		const { mutations: batchMuts } = await addFieldsTool.execute(
@@ -227,13 +210,6 @@ describe("addField and addFields share the same add-path pipeline", () => {
 				formIndex: 0,
 				fields: [
 					{
-						// The `int` arm of the per-kind union: only the keys
-						// `int` declares (no `calculate` — that's hidden-only).
-						// The batch path still runs `stripEmpty`, but with the
-						// per-kind arms there are no sentinels to collapse here;
-						// what this asserts is that the nested `validate.expr`
-						// gets the same XPath-entity unescape the single tool
-						// applies.
 						id,
 						kind: "int",
 						label: "Age",
@@ -249,8 +225,50 @@ describe("addField and addFields share the same add-path pipeline", () => {
 				m.kind === "addField",
 		);
 
-		expect(addedSingle?.field).toMatchObject({ validate: expectedValidate });
 		expect(addedBatch?.field).toMatchObject({ validate: expectedValidate });
+	});
+
+	it("inserts the batch's top-level fields at a `beforeFieldId` anchor", async () => {
+		/* The positional anchor folded in from the removed single `addField`
+		 * tool: the batch's top-level fields land as a contiguous block at
+		 * the anchor's index. Seed three fields, then insert two before the
+		 * middle one and assert the resulting order. */
+		const doc = makeFixtureDoc();
+		const seedCtx = makeTestContext().ctx;
+		const { newDoc: seeded } = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [
+					{ id: "first", kind: "text", label: "First" },
+					{ id: "middle", kind: "text", label: "Middle" },
+					{ id: "last", kind: "text", label: "Last" },
+				],
+			},
+			seedCtx,
+			doc,
+		);
+
+		const ctx = makeTestContext().ctx;
+		const { newDoc: final } = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				beforeFieldId: "middle",
+				fields: [
+					{ id: "ins_a", kind: "text", label: "A" },
+					{ id: "ins_b", kind: "text", label: "B" },
+				],
+			},
+			ctx,
+			seeded,
+		);
+
+		const formUuid = final.formOrder[MOD_A][0];
+		const order = (final.fieldOrder[formUuid] ?? []).map(
+			(u) => final.fields[u]?.id,
+		);
+		expect(order).toEqual(["first", "ins_a", "ins_b", "middle", "last"]);
 	});
 
 	it("applies a batch-level parentId, with a field's own parentId overriding it", async () => {

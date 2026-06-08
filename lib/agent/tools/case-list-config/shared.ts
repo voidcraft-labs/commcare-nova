@@ -7,13 +7,14 @@
  *
  *   - One wholesale tool for `filter` (`setCaseListFilter`) — a filter
  *     is one Predicate, so the wholesale shape fits.
- *   - Eight atomic-op tools for the two arrays — add / update / remove /
- *     reorder for each of `columns` and `searchInputs`. Atomic ops keep
- *     each call's payload small + the SA's working memory of authored
- *     uuids tractable.
+ *   - Op tools for the two arrays — a list-add (`addCaseListColumns` /
+ *     `addSearchInputs`) plus update / remove / reorder for each of
+ *     `columns` and `searchInputs`. The add tools take a list (one item is
+ *     a length-1 array); the rest keep each call's payload small + the SA's
+ *     working memory of authored uuids tractable.
  *
- * The atomic ops route their array-walk + error-shaping through the
- * `addColumnMutation` / `addSearchInputMutation` family in
+ * The ops route their array-walk + error-shaping through the
+ * `addColumnsMutation` / `addSearchInputsMutation` family in
  * `lib/agent/blueprintHelpers.ts` — the same builders any non-SA
  * caller (UI mutation) reuses. This file owns the SA-boundary inputs:
  *
@@ -48,7 +49,7 @@ export { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 
 // ── Tool input schemas — column + search-input shapes without uuid ──
 //
-// `addCaseListColumn` mints a fresh uuid; `updateCaseListColumn`
+// `addCaseListColumns` mints a fresh uuid per column; `updateCaseListColumn`
 // preserves the existing uuid keyed by `columnUuid`. Both accept the
 // same kind-discriminated body, so we reuse one input schema across
 // both surfaces. Same approach for the search-input tools.
@@ -121,7 +122,7 @@ export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
  * arm's discriminator + per-kind fields, all of which `column` already
  * supplies).
  *
- * Used by `addCaseListColumn` (uuid minted via `newUuid`) and
+ * Used by `addCaseListColumns` (uuid minted via `newUuid`) and
  * `updateCaseListColumn` (uuid carried through from `columnUuid`).
  */
 export function stampColumnUuid(column: ColumnInput, uuid: Uuid): Column {
@@ -134,7 +135,7 @@ export function stampColumnUuid(column: ColumnInput, uuid: Uuid): Column {
  * spread on a discriminated union widens to `Record<string, unknown>`
  * statically, and the cast funnels back through `SearchInputDef`.
  *
- * Used by `addSearchInput` (uuid minted via `newUuid`) and
+ * Used by `addSearchInputs` (uuid minted via `newUuid`) and
  * `updateSearchInput` (uuid carried through from `searchInputUuid`).
  */
 export function stampSearchInputUuid(
@@ -218,9 +219,9 @@ export function snapshotCaseListConfig(mod: Module): CaseListConfig {
 // ── Uuid-keyed array helpers ────────────────────────────────────────
 //
 // Pure generic primitives over `{ uuid: Uuid }[]` arrays — the same
-// shape every case-list-config slot's atomic op walks (columns,
-// search-inputs, any other case-list-shaped array). Reused by the
-// `addColumnMutation` / `addSearchInputMutation` family in
+// shape every case-list-config slot's op walks (columns, search-inputs,
+// any other case-list-shaped array). Reused by the
+// `addColumnsMutation` / `addSearchInputsMutation` family in
 // `lib/agent/blueprintHelpers.ts` and available to non-SA consumers
 // (UI mutations, test fixtures) that operate on the same `{ uuid }[]`
 // shape.

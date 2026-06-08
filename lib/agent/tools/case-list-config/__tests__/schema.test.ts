@@ -31,8 +31,8 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { addCaseListColumnTool } from "../addCaseListColumn";
-import { addSearchInputTool } from "../addSearchInput";
+import { addCaseListColumnsTool } from "../addCaseListColumns";
+import { addSearchInputsTool } from "../addSearchInputs";
 import { removeCaseListColumnTool } from "../removeCaseListColumn";
 import { removeSearchInputTool } from "../removeSearchInput";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
@@ -123,28 +123,34 @@ function assertArmOptionalCounts(
 }
 
 /* Tools whose input schema carries a discriminated-union slot. The
- * `unionKey` names the property whose item-arms drive the optional
- * count check. */
+ * `unionKey` names the property whose arms drive the optional-count
+ * check; `arrayItems` is true for the list-add tools whose slot is an
+ * array of the union (`columns` / `searchInputs`) — there the arms live
+ * under the slot's `items`, not the slot itself. */
 const UNION_TOOLS = [
 	{
-		name: "addCaseListColumn",
-		tool: addCaseListColumnTool,
-		unionKey: "column",
+		name: "addCaseListColumns",
+		tool: addCaseListColumnsTool,
+		unionKey: "columns",
+		arrayItems: true,
 	},
 	{
 		name: "updateCaseListColumn",
 		tool: updateCaseListColumnTool,
 		unionKey: "column",
+		arrayItems: false,
 	},
 	{
-		name: "addSearchInput",
-		tool: addSearchInputTool,
-		unionKey: "searchInput",
+		name: "addSearchInputs",
+		tool: addSearchInputsTool,
+		unionKey: "searchInputs",
+		arrayItems: true,
 	},
 	{
 		name: "updateSearchInput",
 		tool: updateSearchInputTool,
 		unionKey: "searchInput",
+		arrayItems: false,
 	},
 ] as const;
 
@@ -169,7 +175,7 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 		});
 	}
 
-	for (const { name, tool, unionKey } of UNION_TOOLS) {
+	for (const { name, tool, unionKey, arrayItems } of UNION_TOOLS) {
 		it(`${name}: per-arm optional count ≤8 (Anthropic compiler ceiling)`, () => {
 			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
 			const slot = json.properties?.[unionKey];
@@ -178,16 +184,27 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 					`expected \`${unionKey}\` to be a property on ${name}'s input schema`,
 				);
 			}
-			assertArmOptionalCounts(name, slot, json);
+			// List-add tools wrap the union in an array — the discriminated-union
+			// arms live under the slot's `items`. Descend before counting.
+			const armsContainer = arrayItems ? slot.items : slot;
+			if (!armsContainer) {
+				throw new Error(
+					`expected \`${unionKey}.items\` on ${name}'s array slot`,
+				);
+			}
+			assertArmOptionalCounts(name, armsContainer, json);
 		});
 	}
 
 	// ── Representative-payload smoke tests ────────────────────────────
 
-	it("addCaseListColumn: parses a representative payload", () => {
-		const result = addCaseListColumnTool.inputSchema.safeParse({
+	it("addCaseListColumns: parses a representative payload", () => {
+		const result = addCaseListColumnsTool.inputSchema.safeParse({
 			moduleIndex: 0,
-			column: { kind: "plain", field: "case_name", header: "Patient" },
+			columns: [
+				{ kind: "plain", field: "case_name", header: "Patient" },
+				{ kind: "phone", field: "phone", header: "Phone" },
+			],
 		});
 		expect(result.success).toBe(true);
 	});
@@ -272,30 +289,34 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 		expect(result.success).toBe(true);
 	});
 
-	it("addSearchInput: parses a representative simple payload", () => {
-		const result = addSearchInputTool.inputSchema.safeParse({
+	it("addSearchInputs: parses a representative simple payload", () => {
+		const result = addSearchInputsTool.inputSchema.safeParse({
 			moduleIndex: 0,
-			searchInput: {
-				kind: "simple",
-				name: "patient_name_input",
-				label: "Patient name",
-				type: "text",
-				property: "name",
-			},
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "patient_name_input",
+					label: "Patient name",
+					type: "text",
+					property: "name",
+				},
+			],
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it("addSearchInput: parses a representative advanced payload", () => {
-		const result = addSearchInputTool.inputSchema.safeParse({
+	it("addSearchInputs: parses a representative advanced payload", () => {
+		const result = addSearchInputsTool.inputSchema.safeParse({
 			moduleIndex: 0,
-			searchInput: {
-				kind: "advanced",
-				name: "active_only",
-				label: "Active only",
-				type: "select",
-				predicate: { kind: "match-all" },
-			},
+			searchInputs: [
+				{
+					kind: "advanced",
+					name: "active_only",
+					label: "Active only",
+					type: "select",
+					predicate: { kind: "match-all" },
+				},
+			],
 		});
 		expect(result.success).toBe(true);
 	});

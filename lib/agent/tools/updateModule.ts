@@ -2,9 +2,9 @@
  * SA tool: `updateModule` — patch module-level metadata.
  *
  * Module-scoped name patches only. Case list authoring lives on the
- * typed case-list-config tools (`addCaseListColumn` /
+ * typed case-list-config tools (`addCaseListColumns` /
  * `updateCaseListColumn` / `removeCaseListColumn` /
- * `reorderCaseListColumns`, the matching search-input quartet, and the
+ * `reorderCaseListColumns`, the matching search-input family, and the
  * wholesale `setCaseListFilter`) — those preserve the typed `Column`
  * and `SearchInputDef` discriminated unions end-to-end. Case-search
  * authoring lives on the parallel case-search-config family
