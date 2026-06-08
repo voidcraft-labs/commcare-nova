@@ -305,24 +305,18 @@ export async function loadCaseListPreviewAction(args: {
 		}
 
 		const store = await withOwnerContext(session.user.id);
-		// Convert the parsed `BlueprintDoc → ReadonlyMap<string, CaseType>`
-		// once at the request edge — `readCaseListPreview` accepts the
-		// case-store's actual schema-resolution dependency directly so
-		// the helper stays decoupled from the full blueprint shape. The
-		// `fieldParent` re-attach satisfies `buildCaseTypeMap`'s
-		// `BlueprintDoc` parameter type (the function reads only
-		// `caseTypes`, so the in-memory reverse-index is not load-
-		// bearing here, but the type contract requires the slot).
-		const fullBlueprint: BlueprintDoc = {
-			...parsedBlueprint.data,
-			fieldParent: args.blueprint.fieldParent ?? {},
-		};
+		// Resolve the `name → CaseType` map once at the request edge —
+		// `readCaseListPreview` accepts the case-store's schema-resolution
+		// dependency directly so the helper stays decoupled from the full
+		// blueprint shape. `buildCaseTypeMap` reads only `caseTypes`, so
+		// the parsed persistable shape is passed verbatim (the stripped
+		// `fieldParent` index is not load-bearing here).
 		return await readCaseListPreview(store, {
 			appId: args.appId,
 			caseType: args.caseType,
 			limit: args.limit,
 			caseListConfig: parsedConfig.data,
-			caseTypeSchemas: buildCaseTypeMap(fullBlueprint),
+			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
 		});
 	} catch (err) {
 		return mapCaseListPreviewError(err);
@@ -398,21 +392,15 @@ export async function loadFilterPreviewAction(args: {
 		}
 
 		const store = await withOwnerContext(session.user.id);
-		// `fieldParent` re-attach mirrors `loadCaseListPreviewAction`'s
-		// shape — the persisted schema doesn't declare the slot, but
-		// `buildCaseTypeMap`'s `BlueprintDoc` parameter type does. The
-		// re-attach lets the schema-map conversion run cleanly; the
-		// helper itself takes only the resolved `ReadonlyMap`.
-		const fullBlueprint: BlueprintDoc = {
-			...parsedBlueprint.data,
-			fieldParent: args.blueprint.fieldParent ?? {},
-		};
+		// `buildCaseTypeMap` reads only `caseTypes`, so the parsed
+		// persistable shape goes through directly — same as
+		// `loadCaseListPreviewAction`.
 		return await readFilterPreview(store, {
 			appId: args.appId,
 			caseType: args.caseType,
 			limit: args.limit,
 			caseListConfig: parsedConfig.data,
-			caseTypeSchemas: buildCaseTypeMap(fullBlueprint),
+			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
 		});
 	} catch (err) {
 		return mapFilterPreviewError(err);

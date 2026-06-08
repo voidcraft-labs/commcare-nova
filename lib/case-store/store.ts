@@ -20,10 +20,10 @@
 
 import type { Insertable, Selectable } from "kysely";
 import type {
-	BlueprintDoc,
 	CasePropertyDataType,
 	CaseType,
 	Column,
+	PersistableDoc,
 } from "@/lib/domain";
 import type {
 	Predicate,
@@ -512,12 +512,17 @@ export interface CaseStore {
  * Build the `name → CaseType` map every compiler in the stack reads
  * from `TermCompileContext.caseTypeSchemas`. The case-store's
  * `query` / `count` / `applySchemaChange` accept this map directly;
- * external callers pre-compute it from a `BlueprintDoc` at the
- * boundary so the case-store interface stays decoupled from the
- * full blueprint shape. A `null` `caseTypes` yields an empty map.
+ * external callers pre-compute it from a blueprint at the boundary so
+ * the case-store interface stays decoupled from the full blueprint
+ * shape. A `null` `caseTypes` yields an empty map.
+ *
+ * Reads `caseTypes` only — never the in-memory `fieldParent` index —
+ * so the parameter is the persisted shape (`PersistableDoc`). A caller
+ * holding the fuller in-memory `BlueprintDoc` passes it as-is (it's a
+ * subtype); a caller holding only the persisted shape needs no cast.
  */
 export function buildCaseTypeMap(
-	blueprint: BlueprintDoc | undefined,
+	blueprint: PersistableDoc | undefined,
 ): ReadonlyMap<string, CaseType> {
 	if (blueprint === undefined) {
 		return new Map();

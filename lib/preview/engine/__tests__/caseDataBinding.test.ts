@@ -122,6 +122,16 @@ const dbHandle = setupPerTestDatabase({
 });
 
 beforeEach(() => {
+	// The action tests queue per-call resolutions on the shared
+	// `getSession` / `withOwnerContext` module mocks via
+	// `mockResolvedValueOnce`. The `clearMocks` config runs `mockClear`
+	// (call history only) — it does NOT drain a `*Once` queue, so a test
+	// that short-circuits before consuming its queued value would leak it
+	// to the next test and misattribute that test's failure. Reset every
+	// mock's queue so each test is diagnostically independent. (Only the
+	// two module mocks are vi.fn()s at this point; in-test spies/stubs are
+	// created inside the bodies that follow.)
+	vi.resetAllMocks();
 	applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
 });
 
