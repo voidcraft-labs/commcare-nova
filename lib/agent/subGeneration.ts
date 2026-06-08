@@ -25,7 +25,8 @@ import {
 	generateObject,
 	type LanguageModel,
 	NoObjectGeneratedError,
-	streamObject,
+	Output,
+	streamText,
 } from "ai";
 import type { ZodType } from "zod";
 
@@ -137,17 +138,22 @@ export async function generateObjectWith<T>(opts: {
 
 /**
  * STREAMING structured generation — same contract and result shape as
- * `generateObjectWith`, but consumes the model output as it streams so a caller
- * can surface live progress. `onProgress` fires per streamed text chunk with that
- * chunk's character count (the JSON representation as it's produced), letting a
- * caller pulse a progress indicator from real token flow.
+ * `generateObjectWith`, but streamed so a caller can surface live progress.
+ * `onProgress` fires per streamed chunk with its character count.
+ *
+ * Built on `streamText` + `Output.object`, NOT `streamObject`, on purpose: the
+ * summarizer runs at high thinking, where MOST of the wall-clock is silent
+ * reasoning before any output token — `streamObject` exposes only the output text,
+ * so progress wouldn't start until the very end. `streamText`'s `fullStream`
+ * carries `reasoning-delta` parts too (with Gemini `includeThoughts`), so progress
+ * tracks the thinking phase as well — which is where the time actually goes.
  *
  * Correctness is identical to the blocking path: only the FINAL validated `object`
- * is returned — the partial stream drives progress + generation, it is NEVER
- * salvaged (a structured extract has no usable partial). A `null` object
- * (truncation past `maxOutputTokens`, or a malformed response) surfaces with usage
- * + `finishReason` so the caller meters spent tokens and detects truncation,
- * exactly as `generateObjectWith` does.
+ * (`result.output`) is returned — the partial stream drives progress + generation,
+ * never salvaged (a structured extract has no usable partial). Any output failure
+ * (truncation past `maxOutputTokens`, malformed/invalid object) resolves to a
+ * `null` object with usage + `finishReason` so the caller meters tokens and detects
+ * truncation, exactly as `generateObjectWith` does.
  */
 export async function streamObjectWith<T>(opts: {
 	model: LanguageModel;
@@ -161,22 +167,22 @@ export async function streamObjectWith<T>(opts: {
 	instruction?: string;
 	maxOutputTokens?: number;
 	providerOptions?: SubGenerationProviderOptions;
-	/** Called per streamed text chunk with its character count — real token flow a
-	 *  caller maps to a progress signal (e.g. signal-grid energy). */
+	/** Called per streamed chunk (reasoning OR output) with its character count —
+	 *  real token flow a caller maps to a progress signal (e.g. signal-grid energy). */
 	onProgress?: (deltaChars: number) => void;
 }): Promise<SubGenerationObjectResult<T>> {
-	// The four result promises are consumed on the happy path; tracked here so the
-	// catch can observe any it didn't await (a stream-stopping error jumps to the
-	// catch before they're awaited — see below).
-	let pending: Promise<unknown>[] = [];
+	// The result promises are consumed on the happy path; tracked here so the catch
+	// can observe any it didn't await (a stream-stopping error jumps to the catch
+	// before they're awaited — see below). PromiseLike, so wrap to attach a handler.
+	let pending: PromiseLike<unknown>[] = [];
 	try {
 		// Branch the call by input shape (same as `generateObjectWith`) so each
-		// `streamObject` overload type-checks cleanly.
+		// `streamText` overload type-checks cleanly.
 		const result = opts.file
-			? streamObject({
+			? streamText({
 					model: opts.model,
 					system: opts.system,
-					schema: opts.schema,
+					output: Output.object({ schema: opts.schema }),
 					messages: [
 						{
 							role: "user",
@@ -193,49 +199,61 @@ export async function streamObjectWith<T>(opts: {
 					maxOutputTokens: opts.maxOutputTokens,
 					providerOptions: opts.providerOptions,
 				})
-			: streamObject({
+			: streamText({
 					model: opts.model,
 					system: opts.system,
-					schema: opts.schema,
+					output: Output.object({ schema: opts.schema }),
 					prompt: opts.prompt ?? "",
 					maxOutputTokens: opts.maxOutputTokens,
 					providerOptions: opts.providerOptions,
 				});
 
 		pending = [
-			result.object,
+			result.output,
 			result.usage,
 			result.warnings,
 			result.finishReason,
 		];
 
-		// Draining `textStream` is what advances generation; the result promises
-		// (`object` / `usage` / …) resolve once it's done. Each chunk is JSON text
-		// being produced — its length is the progress delta. `onProgress` is
-		// best-effort: a throwing callback (e.g. a write to a disconnected client)
-		// must NEVER break extraction — the model run persists regardless of whether
-		// anyone is still listening, so progress failures are swallowed here at the
+		// Draining `fullStream` advances generation; the result promises resolve once
+		// it's done. Feed progress from BOTH reasoning and output deltas — reasoning
+		// is most of the work. `onProgress` is best-effort: a throwing callback (e.g.
+		// a write to a disconnected client) must NEVER break extraction — the model
+		// run persists regardless of who's listening — so it's swallowed here at the
 		// source rather than relied on at each call site.
-		for await (const chunk of result.textStream) {
-			if (chunk.length > 0) {
-				try {
-					opts.onProgress?.(chunk.length);
-				} catch {
-					// best-effort progress — never let it abort the drain
+		for await (const part of result.fullStream) {
+			if (part.type === "reasoning-delta" || part.type === "text-delta") {
+				if (part.text.length > 0) {
+					try {
+						opts.onProgress?.(part.text.length);
+					} catch {
+						// best-effort progress — never let it abort the drain
+					}
 				}
 			}
 		}
 
-		return {
-			object: await result.object,
-			usage: await result.usage,
-			warnings: await result.warnings,
-			finishReason: await result.finishReason,
-		};
+		// Stream drained → the result promises have settled.
+		const [usage, warnings, finishReason] = await Promise.all([
+			result.usage,
+			result.warnings,
+			result.finishReason,
+		]);
+		// Any output failure (truncation / malformed / type-mismatch) → null object:
+		// same "no partial salvage" contract as the blocking path; the caller treats
+		// null as a failed extraction. Two-arg `then` because `output` is a PromiseLike.
+		const object = await result.output.then(
+			(o) => o as T,
+			() => null,
+		);
+		return { object, usage, warnings, finishReason };
 	} catch (err) {
-		// `streamObject` rejects `object` with `NoObjectGeneratedError` on truncation
-		// / malformed output — same "no object" mapping as the blocking path. (On this
-		// path the stream completed, so the other result promises resolve normally.)
+		// A stream-stopping error (transport failure) reaches here before the result
+		// promises are awaited and may reject them too. Observe each (wrapped, since
+		// they're PromiseLike) WITHOUT awaiting — a failed stream could leave one
+		// unsettled — so an unawaited rejection can't escape as an unhandled rejection
+		// (which fails the suite). The original error is what the caller classifies.
+		for (const p of pending) void Promise.resolve(p).catch(() => {});
 		if (NoObjectGeneratedError.isInstance(err)) {
 			return {
 				object: null,
@@ -244,12 +262,6 @@ export async function streamObjectWith<T>(opts: {
 				finishReason: err.finishReason,
 			};
 		}
-		// A stream-stopping error (transport failure) reaches here before we await the
-		// result promises, and may reject them too. Observe each — WITHOUT awaiting,
-		// since a failed stream could leave one unsettled — so an unawaited rejection
-		// can't escape as an unhandled rejection (which fails the suite). The original
-		// error is what the caller classifies.
-		for (const p of pending) void p.catch(() => {});
 		throw err;
 	}
 }

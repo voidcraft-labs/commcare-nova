@@ -149,6 +149,11 @@ export const CONDENSER_MODEL = "gemini-3.5-flash";
 /**
  * Gemini provider options for the summarizer, both dialed to maximum:
  *   - `thinkingLevel: "high"` — deepest reasoning for the extraction.
+ *   - `includeThoughts: true` — stream the model's thought summaries as
+ *     `reasoning-delta` parts. Extraction is mostly silent thinking before any
+ *     output token, so without this the live-progress feed (`streamObjectWith`)
+ *     stays dark for the whole think phase; the thoughts are the progress. No
+ *     extra cost — thinking tokens bill the same whether or not summaries surface.
  *   - `mediaResolution: "MEDIA_RESOLUTION_HIGH"` — governs how a PDF is
  *     rasterized to image tiles before the model reads it; HIGH preserves small
  *     print, dense tables, and checkbox glyphs in scanned/typeset forms (no
@@ -158,7 +163,7 @@ export const CONDENSER_MODEL = "gemini-3.5-flash";
  */
 export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
 	google: {
-		thinkingConfig: { thinkingLevel: "high" },
+		thinkingConfig: { thinkingLevel: "high", includeThoughts: true },
 		mediaResolution: "MEDIA_RESOLUTION_HIGH",
 	} satisfies GoogleLanguageModelOptions,
 };
