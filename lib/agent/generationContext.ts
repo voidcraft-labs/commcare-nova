@@ -16,8 +16,9 @@
  *    the blueprint snapshot on `AppDoc` is still authoritative.
  *  - **Usage (`UsageAccumulator`)** — per-request token + cost aggregation
  *    flushed once at request end. Outer agent steps carry `{ step: true }`;
- *    sub-gens (internal `generate` / `generatePlainText` / `streamGenerate`
- *    calls) accumulate tokens without stepping the counter.
+ *    sub-gens (internal `generate` / `streamGenerate` /
+ *    `extractDocumentStructured` calls) accumulate tokens without stepping
+ *    the counter.
  *
  * Implements `ToolExecutionContext` — the narrow interface extracted tool
  * modules consume. `recordMutations` + `recordConversation` are the
@@ -25,8 +26,8 @@
  * the chat-surface implementations (with SSE fan-out) that the interface
  * methods delegate to.
  *
- * Sub-generation prompts/outputs (from `generate`, `generatePlainText`,
- * `streamGenerate`) are intentionally NOT persisted in the event log — only
+ * Sub-generation prompts/outputs (from `generate`, `streamGenerate`,
+ * `extractDocumentStructured`) are intentionally NOT persisted in the event log — only
  * aggregate token usage. The log is supplemental and does not carry
  * per-tool payloads. Admin inspection surfaces should rely on per-run
  * summary docs and on agent-step-granularity conversation events.
@@ -40,6 +41,7 @@ import {
 	type AnthropicProviderOptions,
 	createAnthropic,
 } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type {
 	CallWarning,
 	LanguageModelUsage,
@@ -62,7 +64,12 @@ import type {
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
+import type {
+	ExtractDocumentStructuredOpts,
+	StructuredExtractResult,
+} from "./documentExtraction";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
+import { streamObjectWith } from "./subGeneration";
 import type { ToolExecutionContext } from "./toolExecutionContext";
 
 /** Log AI SDK warnings to the console if present. */
@@ -157,6 +164,10 @@ export interface AgentStep {
 
 export class GenerationContext implements ToolExecutionContext {
 	private anthropic: ReturnType<typeof createAnthropic>;
+	/** Google provider for the document summarizer (Gemini). `null` when
+	 *  `GOOGLE_GENERATIVE_AI_API_KEY` is unset — `resolveModel` then fails loud
+	 *  on a Gemini call and the condenser falls back to raw inlining. */
+	private google: ReturnType<typeof createGoogleGenerativeAI> | null;
 	readonly writer: UIMessageStreamWriter;
 	readonly logWriter: LogWriter;
 	readonly usage: UsageAccumulator;
@@ -174,6 +185,14 @@ export class GenerationContext implements ToolExecutionContext {
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
+		/* The Google key is a platform env var (the document summarizer is a
+		 * platform feature, not BYOK) — distinct from the shared Anthropic key
+		 * threaded in via `opts.apiKey`. Built once per request; null-when-unset
+		 * so `resolveModel` can fail loud rather than construct a broken client. */
+		const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+		this.google = googleKey
+			? createGoogleGenerativeAI({ apiKey: googleKey })
+			: null;
 		this.writer = opts.writer;
 		this.logWriter = opts.logWriter;
 		this.usage = opts.usage;
@@ -181,8 +200,31 @@ export class GenerationContext implements ToolExecutionContext {
 		this.appId = opts.appId;
 	}
 
-	/** Get the Anthropic model provider for a given model ID. */
+	/** Get the Anthropic model provider for a given model ID. The SA always
+	 *  runs on Anthropic (Opus), so its factory uses this directly. */
 	model(id: string) {
+		return this.anthropic(id);
+	}
+
+	/**
+	 * Resolve a model id to a provider-bound `LanguageModel`. Gemini ids route to
+	 * the Google provider (the document summarizer); every other id to Anthropic
+	 * (the SA and its structured sub-gens). The Google provider is built from
+	 * `GOOGLE_GENERATIVE_AI_API_KEY`; when that's unset a Gemini call fails loud
+	 * at ERROR level — so a missing key surfaces in Error Reporting instead of
+	 * silently degrading — and the condenser's own catch inlines the raw document
+	 * (still never-drop, but slower and far more expensive at the Opus rate).
+	 */
+	private resolveModel(id: string) {
+		if (id.startsWith("gemini")) {
+			if (!this.google) {
+				log.error(
+					"[generation] GOOGLE_GENERATIVE_AI_API_KEY is not set — the Gemini document summarizer cannot run; attachments fall back to raw inlining (slower + far more expensive). Set the key in the environment to restore condensing.",
+				);
+				throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set");
+			}
+			return this.google(id);
+		}
 		return this.anthropic(id);
 	}
 
@@ -525,8 +567,24 @@ export class GenerationContext implements ToolExecutionContext {
 		// a present result always wins.
 		for (const te of step.toolErrors ?? []) {
 			if (resultByCallId.has(te.toolCallId)) continue;
-			resultByCallId.set(te.toolCallId, {
-				error: te.error instanceof Error ? te.error.message : String(te.error),
+			const message =
+				te.error instanceof Error ? te.error.message : String(te.error);
+			resultByCallId.set(te.toolCallId, { error: message });
+			// Surface it in Cloud Logging too — the fold above only records it in
+			// the per-run event log (Firestore). A tool call reaching the SDK's
+			// error path (invalid input, or an execution throw) is abnormal: tool
+			// bodies normally catch and return a friendly `{ error }`, so an
+			// `output-error` means something escaped and is worth a greppable line.
+			// `warn`, not `error`: the model occasionally mis-calls a tool then
+			// self-corrects on retry, which shouldn't page anyone — but it must not
+			// vanish, and it must not reach the user raw (the chat UI shows a
+			// friendly line in its place).
+			log.warn("[agent] tool call errored", {
+				label,
+				toolCallId: te.toolCallId,
+				toolName: step.toolCalls?.find((c) => c.toolCallId === te.toolCallId)
+					?.toolName,
+				error: message,
 			});
 		}
 		for (const tc of step.toolCalls ?? []) {
@@ -552,8 +610,8 @@ export class GenerationContext implements ToolExecutionContext {
 	/**
 	 * Record token usage for a sub-generation LLM call.
 	 *
-	 * Sub-gens are the inner `generate` / `generatePlainText` /
-	 * `streamGenerate` calls the SA's tools issue. They count toward the
+	 * Sub-gens are the inner `generate` / `streamGenerate` /
+	 * `extractDocumentStructured` calls the SA's tools issue. They count toward the
 	 * run summary's token totals but NOT toward `stepCount` — only outer
 	 * agent steps (handled by `handleAgentStep`) produce "steps" in the
 	 * run-summary sense.
@@ -578,27 +636,58 @@ export class GenerationContext implements ToolExecutionContext {
 		});
 	}
 
-	/** Text-only generation (no schema) with automatic usage tracking. */
-	async generatePlainText(opts: {
-		system: string;
-		prompt: string;
-		label: string;
-		model?: string;
-		maxOutputTokens?: number;
-	}): Promise<string> {
+	/**
+	 * The ONE document-extraction call: fills `{ extract, title, summary }` from a
+	 * document (decoded text as `prompt`, or a native `file` block for a PDF) in a
+	 * single structured generation. Routes via `resolveModel` (Gemini → Google for
+	 * the summarizer) and the provider's controlled generation (`streamObjectWith`,
+	 * streamed so `onProgress` can pulse the grid), NOT the Anthropic `Output.object`
+	 * path `generate` uses — extraction runs on the document summarizer, not the SA's
+	 * model. Usage tracks through the same accumulator as every other sub-generation,
+	 * so an extraction shows up on the per-run cost summary alongside the agent loop.
+	 *
+	 * Returns `{ object, truncated }`. `object` is `null` when the model couldn't
+	 * produce a valid object — truncation past `maxOutputTokens` (`truncated: true`)
+	 * or a malformed response — which the caller treats as a failed extraction (a
+	 * structured call has no partial to salvage). `emitErrors: false` logs a
+	 * transport error rather than surfacing it as a user-facing generation error
+	 * (the attachment pipeline recovers by inlining the raw document); the error is
+	 * still re-thrown so the caller's catch runs.
+	 */
+	async extractDocumentStructured<T>(
+		opts: ExtractDocumentStructuredOpts<T>,
+	): Promise<StructuredExtractResult<T>> {
 		try {
-			const model = opts.model ?? MODEL_DEFAULT;
-			const result = await generateText({
-				model: this.anthropic(model),
+			// `resolveModel` routes the id to its provider (Gemini → Google for the
+			// summarizer). `streamObjectWith` is the shared structured-generation core;
+			// a PDF rides as a native `file` block, text/docx/xlsx as a decoded
+			// `prompt`. Streaming lets `onProgress` pulse the signal grid with real read
+			// progress during the send-time backstop; only the final object is used.
+			const result = await streamObjectWith<T>({
+				model: this.resolveModel(opts.model ?? MODEL_DEFAULT),
 				system: opts.system,
+				schema: opts.schema,
 				prompt: opts.prompt,
+				file: opts.file,
+				instruction: opts.instruction,
 				maxOutputTokens: opts.maxOutputTokens,
+				providerOptions: opts.providerOptions,
+				onProgress: opts.onProgress,
 			});
-			logWarnings(`generatePlainText:${opts.label}`, result.warnings);
+			logWarnings(`extractDocument:${opts.label}`, result.warnings);
 			if (result.usage) this.trackSubGeneration(result.usage);
-			return result.text;
+			return {
+				object: result.object,
+				truncated: result.finishReason === "length",
+			};
 		} catch (error) {
-			this.emitError(classifyError(error), `generatePlainText:${opts.label}`);
+			if (opts.emitErrors === false) {
+				log.warn(`extractDocument:${opts.label} failed; caller will recover`, {
+					error: error instanceof Error ? error.message : String(error),
+				});
+			} else {
+				this.emitError(classifyError(error), `extractDocument:${opts.label}`);
+			}
 			throw error;
 		}
 	}

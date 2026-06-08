@@ -72,6 +72,50 @@ describe("listMediaAssets", () => {
 		expect(result.data.nextCursor).toBe("cursor-2");
 	});
 
+	it("projects a document's extract title + summary to the wire but keeps failureReason and model server-side", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		// A document record whose extract carries the human title + summary (both
+		// wanted on the wire — the library labels the asset, the preview header
+		// shows them) alongside the internal failureReason/model (must NOT leak).
+		const record = {
+			...readyRecord("d1"),
+			kind: "pdf",
+			mimeType: "application/pdf",
+			extension: ".pdf",
+			originalFilename: "anc.pdf",
+			displayName: "anc.pdf",
+			extract: {
+				status: "ready",
+				version: 3,
+				model: "gemini-3.5-flash",
+				truncated: false,
+				charCount: 1234,
+				extractedAt: {
+					toDate: () => new Date("2026-01-02T00:00:00Z"),
+				},
+				failureReason: "internal detail that must stay server-side",
+				title: "ANC Program — Data Collection Requirements",
+				summary: "A few-sentence précis the preview header shows.",
+			},
+		} as unknown as MediaAssetRecord;
+		listReadyAssetsForOwner.mockResolvedValue({
+			assets: [record],
+			nextCursor: null,
+		});
+
+		const result = await listMediaAssetsTool.execute({}, ctx, doc);
+		const wire = result.data.assets[0];
+
+		expect(wire.extract?.title).toBe(
+			"ANC Program — Data Collection Requirements",
+		);
+		expect(wire.extract?.summary).toBe(
+			"A few-sentence précis the preview header shows.",
+		);
+		expect(wire.extract).not.toHaveProperty("failureReason");
+		expect(wire.extract).not.toHaveProperty("model");
+	});
+
 	it("passes the owner and the kind/cursor filters through", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		listReadyAssetsForOwner.mockResolvedValue({ assets: [], nextCursor: null });
@@ -83,7 +127,8 @@ describe("listMediaAssets", () => {
 		);
 
 		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
-			kind: "audio",
+			// The tool's single-kind input is wrapped into the DB layer's kind SET.
+			kinds: ["audio"],
 			cursor: "page-1",
 		});
 	});

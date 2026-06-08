@@ -172,7 +172,13 @@ function buildCsp(isDev: boolean): { csp: string; nonce: string } {
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' blob: data: *.googleusercontent.com",
 		"font-src 'self'",
-		"connect-src 'self'",
+		/* `blob:` is required so the chat composer can `fetch()` the object URL
+		 * of a staged attachment to read it back as a data URL before sending
+		 * (AI Elements `PromptInput` stages files as `URL.createObjectURL` blobs).
+		 * Without it the fetch is CSP-blocked, the conversion silently fails, and
+		 * the raw `blob:` URL ships to the server as unreadable binary. blob: URLs
+		 * are same-origin and page-created, so allowing them to be fetched is safe. */
+		"connect-src 'self' blob:",
 		"object-src 'none'",
 		"base-uri 'self'",
 		"form-action 'self'",

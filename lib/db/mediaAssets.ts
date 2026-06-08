@@ -26,7 +26,7 @@ import {
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { collections, docs } from "./firestore";
-import type { MediaAssetDoc } from "./types";
+import type { MediaAssetDoc, MediaAssetExtract } from "./types";
 
 /**
  * The Firestore-shaped doc plus its id, returned by load helpers
@@ -58,6 +58,25 @@ export interface WireMediaAsset {
 	displayName?: string;
 	status: MediaAssetStatus;
 	createdAt: string;
+	/**
+	 * Document-extract status + the human title/summary (absent on media + on
+	 * not-yet-extracted docs). The fields the UI needs to render the extraction
+	 * indicator, gate the "What Nova reads" preview, LABEL the asset in the
+	 * library, and head the preview dialog — never the extract body (served by
+	 * `GET /api/media/[assetId]/extract`) or the internal `failureReason`/`model`
+	 * (the UI shows a generic failed state + retry). `title` + `summary` are
+	 * best-effort (absent until a successful extract produces them, or on an
+	 * older extractor version), so the UI falls back to the filename alone when
+	 * they're missing.
+	 */
+	extract?: {
+		status: MediaAssetExtract["status"];
+		version: number;
+		truncated: boolean;
+		charCount: number;
+		title?: string;
+		summary?: string;
+	};
 }
 
 /**
@@ -78,6 +97,20 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
 		displayName: record.displayName,
 		status: record.status,
 		createdAt: record.created_at.toDate().toISOString(),
+		// Project the UI-facing extract fields; the Timestamp, failureReason,
+		// and model stay server-side. `title` + `summary` ride along so the
+		// library can label the asset and the preview header can show them the
+		// instant it opens — no second fetch.
+		extract: record.extract
+			? {
+					status: record.extract.status,
+					version: record.extract.version,
+					truncated: record.extract.truncated,
+					charCount: record.extract.charCount,
+					title: record.extract.title,
+					summary: record.extract.summary,
+				}
+			: undefined,
 	};
 }
 
@@ -182,6 +215,68 @@ export async function confirmAssetReady(args: {
 		patch.durationMs = args.durationMs;
 	}
 	await docs.mediaAsset(args.assetId).update(patch);
+}
+
+/**
+ * Write the document-extract subobject in one shot, stamping `extractedAt`
+ * server-side. The extract is a self-contained nested object, so a plain
+ * `update({ extract })` replaces the whole subobject on every state
+ * transition (`extracting` → `ready`/`failed`) — no dot-path merge, no stale
+ * leftover field. `failureReason` is passed only on the `failed` transition;
+ * Firestore's `ignoreUndefinedProperties` drops it on the others. The extract
+ * TEXT is written to GCS separately (see `writeTextObject`); this only tracks
+ * status + the metadata the UI and chat resolve step read.
+ */
+export async function setAssetExtractStatus(
+	assetId: AssetId,
+	extract: Omit<MediaAssetExtract, "extractedAt">,
+): Promise<void> {
+	await docs.mediaAsset(assetId).update({
+		extract: {
+			...extract,
+			extractedAt: FieldValue.serverTimestamp() as unknown as Timestamp,
+		},
+	});
+}
+
+/**
+ * Atomically claim a document's extraction. In ONE transaction, re-read the
+ * extract status and write `extracting` only if no LIVE current job already holds
+ * it — a job is live iff its status is `extracting`, at `currentVersion`, and
+ * younger than `staleMs` (a dead process leaves a stale `extracting` record that
+ * is reclaimable). Returns `true` when THIS caller acquired the claim (and should
+ * run the model), `false` when a live job already owns it (the caller should wait
+ * or report in-flight).
+ *
+ * This is the lock that stops two concurrent eager extractions from both running
+ * the model: the plain read-decide-then-write it backs let both pass the check
+ * before either wrote the claim, so both proceeded. The transaction closes that
+ * window — the second caller sees the first's `extracting` write and backs off.
+ */
+export async function claimExtractionIfIdle(
+	assetId: AssetId,
+	opts: { now: number; staleMs: number; currentVersion: number; model: string },
+): Promise<boolean> {
+	const ref = docs.mediaAsset(assetId);
+	return ref.firestore.runTransaction(async (tx) => {
+		const extract = (await tx.get(ref)).data()?.extract;
+		const liveJob =
+			extract?.status === "extracting" &&
+			extract.version === opts.currentVersion &&
+			opts.now - extract.extractedAt.toMillis() < opts.staleMs;
+		if (liveJob) return false;
+		tx.update(ref, {
+			extract: {
+				status: "extracting",
+				version: opts.currentVersion,
+				model: opts.model,
+				truncated: false,
+				charCount: 0,
+				extractedAt: FieldValue.serverTimestamp() as unknown as Timestamp,
+			},
+		});
+		return true;
+	});
 }
 
 /**
@@ -311,27 +406,43 @@ const LIBRARY_PAGE_SIZE = 50;
 
 /**
  * Cursor-paginated list of an owner's `ready` assets, newest
- * first. Optionally filtered to one `kind` via a server-side
- * equality query (backed by a composite index) — not an in-memory
- * page filter, so every returned page is full up to the page size
- * regardless of how sparse a kind is.
+ * first. Optionally filtered to a SET of `kinds` via a server-side
+ * query (backed by a composite index) — not an in-memory page
+ * filter, so every returned page is full up to the page size
+ * regardless of how sparse the filtered kinds are. This matters for
+ * the picker's "All" view, which allows only its carrier's kinds
+ * (e.g. the chat file manager allows images + documents, never
+ * audio/video): filtering server-side keeps a page of irrelevant
+ * kinds from burying the few attachable ones behind "Load more".
  *
- * Pagination orders by `(created_at desc, documentId desc)` and
- * the cursor carries BOTH so two assets sharing an identical
- * server timestamp can't straddle a page boundary and get skipped.
- * The cursor is an opaque base64 token; callers round-trip it
- * without interpreting it.
+ * A single kind uses an equality (`==`); several use a disjunction
+ * (`in`, ≤30 values). Both reuse the `(owner, status, kind,
+ * created_at, documentId)` composite index; the `in` is executed as
+ * a merge of per-kind streams, and the cursor pushes into each, so
+ * pagination stays skip/dupe-free (verified against real Firestore).
+ *
+ * Pagination orders by `(created_at desc, documentId desc)` and the
+ * cursor carries BOTH so two assets sharing an identical server
+ * timestamp can't straddle a page boundary and get skipped. The
+ * cursor is an opaque base64 token; callers round-trip it without
+ * interpreting it.
  */
 export async function listReadyAssetsForOwner(
 	owner: string,
-	options: { kind?: AssetKind; cursor?: string } = {},
+	options: { kinds?: readonly AssetKind[]; cursor?: string } = {},
 ): Promise<{ assets: MediaAssetRecord[]; nextCursor: string | null }> {
 	let query = collections
 		.mediaAssets()
 		.where("owner", "==", owner)
 		.where("status", "==", "ready");
-	if (options.kind) {
-		query = query.where("kind", "==", options.kind);
+	// An empty `kinds` array means "no kind filter" — never `in []`, which
+	// Firestore rejects. One kind narrows with an equality; several with a
+	// disjunction.
+	if (options.kinds && options.kinds.length > 0) {
+		query =
+			options.kinds.length === 1
+				? query.where("kind", "==", options.kinds[0])
+				: query.where("kind", "in", [...options.kinds]);
 	}
 	query = query
 		.orderBy("created_at", "desc")

@@ -23,6 +23,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { reorderColumnsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const reorderCaseListColumnsInputSchema = z
@@ -45,6 +46,7 @@ export type ReorderCaseListColumnsInput = z.infer<
 export interface ReorderCaseListColumnsSuccess {
 	message: string;
 	order: Uuid[];
+	summary: ToolCallSummary;
 }
 
 export type ReorderCaseListColumnsResult =
@@ -102,6 +104,7 @@ export const reorderCaseListColumnsTool = {
 				result: {
 					message: `Reordered ${columnUuids.length} case list column${columnUuids.length === 1 ? "" : "s"} on module "${mod.name}".`,
 					order: [...columnUuids],
+					summary: { location: mod.name, count: columnUuids.length },
 				},
 			};
 		} catch (err) {

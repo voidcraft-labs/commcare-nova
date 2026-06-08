@@ -19,6 +19,7 @@ import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	applyClusterPatch,
 	DISPLAY_SLOT_NAMES,
@@ -53,6 +54,7 @@ export type SetCaseSearchDisplayInput = z.infer<
 export interface SetCaseSearchDisplaySuccess {
 	message: string;
 	displaySlotsSet: readonly DisplaySlotName[];
+	summary: ToolCallSummary;
 }
 
 export type SetCaseSearchDisplayResult =
@@ -119,6 +121,7 @@ export const setCaseSearchDisplayTool = {
 							? `Cleared every case-search display slot on module "${mod.name}" (index ${moduleIndex}).`
 							: `Set case-search display on module "${mod.name}" (index ${moduleIndex}): ${displaySlotsSet.join(", ")}.`,
 					displaySlotsSet,
+					summary: { location: mod.name },
 				},
 			};
 		} catch (err) {

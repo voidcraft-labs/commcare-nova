@@ -18,6 +18,11 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Logo } from "@/components/ui/Logo";
 import { parseApiErrorMessage } from "@/lib/apiError";
+import {
+	type AttachmentRef,
+	messageMetadataSchema,
+	type NovaUIMessage,
+} from "@/lib/chat/attachmentRefs";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
 import {
@@ -68,8 +73,12 @@ function createChatInstance(
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
 	lastResponseAtRef: { current: string | undefined },
-): Chat<UIMessage> {
-	return new Chat<UIMessage>({
+): Chat<NovaUIMessage> {
+	return new Chat<NovaUIMessage>({
+		// Validates any message metadata the SDK parses on the client. Outbound
+		// attachment metadata rides `sendMessage` regardless; this guards the
+		// (currently unused) inbound path where the server sets message metadata.
+		messageMetadataSchema,
 		transport: new DefaultChatTransport({
 			api: "/api/chat",
 			body: () => {
@@ -330,9 +339,22 @@ export function ChatContainer({
 	// ── Derived values ───────────────────────────────────────────────────
 
 	const handleSend = useCallback(
-		(text: string) => {
-			if (!text.trim()) return;
-			sendMessage({ text });
+		({
+			text,
+			attachments,
+		}: {
+			text: string;
+			attachments?: AttachmentRef[];
+		}) => {
+			if (!text.trim() && !attachments?.length) return;
+			// Attachments ride as asset-id refs in message METADATA, not file parts.
+			// The route's resolveAttachments expands each ref into the stored extract
+			// (documents) or image bytes (vision) before the SA. A turn with no
+			// attachments sends plain text, with no metadata, exactly as before.
+			sendMessage({
+				text,
+				metadata: attachments?.length ? { attachments } : undefined,
+			});
 		},
 		[sendMessage],
 	);

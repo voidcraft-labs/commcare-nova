@@ -104,6 +104,25 @@ export function deriveValidationAttempt(
 }
 
 /**
+ * Whether the run is reading document attachments right now — true between the
+ * `attachment-prep` `start` and `done` annotations (latest-wins). This is the
+ * pre-Opus `resolveAttachments` window (resolving asset refs to their stored
+ * extracts, lazily extracting any document without one), which can block the
+ * first model token for several seconds; the signal grid shows a "reading
+ * documents" status during it. Returns false once `done` lands (or the buffer
+ * clears at run end), so it never bleeds into the generation stages that follow.
+ */
+export function deriveAttachmentPrep(events: readonly Event[]): boolean {
+	for (let i = events.length - 1; i >= 0; i--) {
+		const e = events[i];
+		if (e.kind !== "conversation") continue;
+		if (e.payload.type !== "attachment-prep") continue;
+		return e.payload.phase === "start";
+	}
+	return false;
+}
+
+/**
  * Whether the buffer contains a `schema` or `scaffold` mutation —
  * the foundational stages of an initial build. Used to distinguish
  * "initial build in progress" from "post-build edit in progress",

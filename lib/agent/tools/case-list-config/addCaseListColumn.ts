@@ -22,6 +22,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { addColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	columnInputSchema,
 	moduleNotFoundResult,
@@ -47,10 +48,10 @@ export type AddCaseListColumnInput = z.infer<
 /**
  * Success result — the new column's uuid surfaced both as a structured
  * field and in the human-readable message so the SA can reference it on
- * a subsequent atomic op without re-reading the module.
+ * a subsequent atomic op without re-reading the module. `summary` carries
+ * the same names for the chat transcript to render cleanly.
  */
-export interface AddCaseListColumnSuccess {
-	message: string;
+export interface AddCaseListColumnSuccess extends MutationSuccess {
 	uuid: Uuid;
 }
 
@@ -112,6 +113,7 @@ export const addCaseListColumnTool = {
 				result: {
 					message: `Added ${column.kind} column "${column.header}" (uuid ${uuid}) at index ${finalCount - 1} on module "${mod.name}".`,
 					uuid,
+					summary: { location: mod.name, subject: column.header },
 				},
 			};
 		} catch (err) {

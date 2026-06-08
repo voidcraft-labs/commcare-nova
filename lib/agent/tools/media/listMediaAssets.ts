@@ -73,7 +73,8 @@ export const listMediaAssetsTool = {
 		_doc: BlueprintDoc,
 	): Promise<ReadToolResult<ListMediaAssetsResult>> {
 		const { assets, nextCursor } = await listReadyAssetsForOwner(ctx.userId, {
-			...(input.kind !== undefined && { kind: input.kind }),
+			// The tool filters by a single kind; the DB layer takes a set, so wrap it.
+			...(input.kind !== undefined && { kinds: [input.kind] }),
 			...(input.cursor !== undefined && { cursor: input.cursor }),
 		});
 		return {

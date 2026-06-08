@@ -8,11 +8,16 @@ import {
 import {
 	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
+	countDocumentsNeedingRead,
 	createSolutionsArchitect,
 	GenerationContext,
 	MESSAGES,
+	resolveAttachments,
 } from "@/lib/agent";
 import { resolveAnthropicKey } from "@/lib/auth-utils";
+import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
+import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	createApp,
 	failApp,
@@ -38,13 +43,20 @@ export const maxDuration = 300;
 export async function POST(req: Request) {
 	const body = await req.json();
 
-	// Messages come from the AI SDK's useChat — typed but not schema-validated
-	const messages: UIMessage[] = body.messages;
-	if (!Array.isArray(messages)) {
-		return new Response(JSON.stringify({ error: "Missing messages array" }), {
-			status: 400,
-		});
+	// Messages come from the AI SDK's useChat. The route owns the SECURITY gate on
+	// them: the untrusted attachment metadata is re-resolved every turn (each ref
+	// → a Firestore load + a GCS/extract read) and persisted into the event log,
+	// so `validateChatMessages` bounds the message count + the request-wide
+	// attachment total and enforces the per-ref field caps. It deliberately does
+	// NOT re-parse the SDK-owned message `parts` — that shape is the SDK's contract.
+	const messagesResult = validateChatMessages(body.messages);
+	if (!messagesResult.ok) {
+		return Response.json(
+			{ error: messagesResult.error, type: "invalid_request" },
+			{ status: 400 },
+		);
 	}
+	const messages = messagesResult.messages;
 
 	// Validate our fields (apiKey, blueprint, etc.)
 	const parsed = chatRequestSchema.safeParse(body);
@@ -52,6 +64,26 @@ export async function POST(req: Request) {
 		return new Response(JSON.stringify({ error: "Invalid request body" }), {
 			status: 400,
 		});
+	}
+
+	// Reject an over-length typed message — defense in depth behind the
+	// composer's own send gate (both read MAX_CHAT_MESSAGE_CHARS, so they can't
+	// disagree). Only the new turn's typed text counts; attachments ride as
+	// metadata refs, not inline text, so they're never part of this length.
+	const newTurn = messages.at(-1);
+	if (newTurn?.role === "user") {
+		const typedLength = newTurn.parts
+			.filter(isTextUIPart)
+			.reduce((n, p) => n + p.text.length, 0);
+		if (typedLength > MAX_CHAT_MESSAGE_CHARS) {
+			return Response.json(
+				{
+					error: `That message is ${typedLength.toLocaleString()} characters, over the ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()}-character limit. Trim it — or attach long content as a file — and send again.`,
+					type: "message_too_long",
+				},
+				{ status: 400 },
+			);
+		}
 	}
 
 	// Require authenticated session + server API key
@@ -257,11 +289,85 @@ export async function POST(req: Request) {
 				appId,
 			});
 
+			/* Two orthogonal decisions, computed up front because they decide WHICH
+			 * messages we resolve below — resolving is I/O (a load + extract per ref),
+			 * so it must not run over history we're about to discard:
+			 *
+			 * 1. **Editing vs. build** — `appReady` alone. An existing app always gets
+			 *    the editing prompt + blueprint summary + shared tools only, for the
+			 *    whole session (including askQuestions follow-ups). `appReady` is
+			 *    false during initial generation even after modules exist, so
+			 *    generation tools are never stripped mid-build.
+			 * 2. **Message strategy** — cache expiry. After the Anthropic prompt cache
+			 *    TTL (>5 min since the last response) an edit is delivered one-shot:
+			 *    only the last user message is sent (the system prompt already carries
+			 *    a compact blueprint summary, so prior turns would just burn tokens
+			 *    against a dead cache). Within the window, full history is sent. */
+			const editing = !!appReady;
+			const cacheExpired =
+				!lastResponseAt ||
+				Date.now() - new Date(lastResponseAt).getTime() > CACHE_TTL_MS;
+
+			/* The exact messages we'll send the SA — resolve over these, not the full
+			 * history. In one-shot (expired-cache edit) mode that's only the last user
+			 * message, so we never pay to download/extract history attachments that the
+			 * delivery would then trim away. In every other mode it's the full history:
+			 * EVERY message is resolved (not just the last), so a follow-up turn's
+			 * history carries refs + resolved text rather than raw file parts — the SA
+			 * re-reads dense extracts (cheap) and the multi-turn crash (Anthropic
+			 * rejecting `text/markdown` file parts) can't recur. */
+			const messagesToSend = selectMessagesToSend(messages, {
+				editing,
+				cacheExpired,
+			});
+
+			/* Resolve attachment references into model-ready content BEFORE the SA.
+			 * The composer sends asset-id refs in message metadata; this appends, per
+			 * ref, the stored requirements extract (documents, read once at upload and
+			 * reused every turn) or the image bytes (vision). The lazy backstop
+			 * extracts through `ctx` (usage-tracked) when a referenced document has no
+			 * current extract yet. */
+			/* Bracket the resolve step with `attachment-prep` lifecycle events so
+			 * the signal grid can show a "reading documents" status: a turn with a
+			 * not-yet-extracted document blocks the first Opus token while the
+			 * backstop runs. Emit ONLY when a document still needs reading — a
+			 * document already extracted resolves from its stored extract instantly,
+			 * so it must not flash the status (and an image / doc-free turn does no
+			 * narrate-worthy work either). The events also land in the run log (like
+			 * `validation-attempt`). */
+			const docsToReadCount = countDocumentsNeedingRead(messagesToSend);
+			if (docsToReadCount > 0) {
+				ctx.emitConversation({
+					type: "attachment-prep",
+					phase: "start",
+					count: docsToReadCount,
+				});
+			}
+			const preparedMessages = await resolveAttachments(
+				messagesToSend,
+				keyResult.session.user.id,
+				ctx,
+				// Pulse the signal grid with real read progress while a not-yet-extracted
+				// document is read here. `transient` keeps these frequent parts off the
+				// persisted thread + event log — they're energy, not content. Fires only
+				// when the backstop actually runs the model (a reused eager extraction
+				// emits nothing); the "Reading your documents" status still shows either way.
+				(delta) =>
+					writer.write({
+						type: "data-extract-progress",
+						data: { delta },
+						transient: true,
+					}),
+			);
+			if (docsToReadCount > 0) {
+				ctx.emitConversation({ type: "attachment-prep", phase: "done" });
+			}
+
 			/* Persist the current request's user message as the first
 			 * conversation event of the run. Emitting through the context
 			 * (rather than directly via `logWriter.logEvent`) keeps seq
 			 * management inside a single counter — the context owns seq,
-			 * and every subsequent event (mutations, assistant text, tool
+			 * and every subsequent event (mutations, the SA's text, tool
 			 * calls) naturally follows from seq=1.
 			 *
 			 * `isTextUIPart` is the AI SDK's own type guard over `UIMessage.parts`,
@@ -269,13 +375,21 @@ export async function POST(req: Request) {
 			 * required, not optional). Using the guard replaces inline
 			 * structural types with a single source of truth that tracks
 			 * SDK updates automatically. */
+			// Log the user's TYPED text + attachment manifest from the ORIGINAL
+			// message (pre-resolve): the resolved extract bodies are large and live
+			// durably on the asset, so re-inlining them in the log adds bloat, not value.
 			const lastMessage = messages.at(-1);
 			if (lastMessage?.role === "user") {
 				const text = lastMessage.parts
 					.filter(isTextUIPart)
 					.map((p) => p.text)
 					.join("\n");
-				ctx.emitConversation({ type: "user-message", text });
+				const attachments = lastMessage.metadata?.attachments;
+				ctx.emitConversation({
+					type: "user-message",
+					text,
+					...(attachments && attachments.length > 0 ? { attachments } : {}),
+				});
 			} else if (lastMessage) {
 				/* Defensive — the useChat flow always ends with a user message, but
 				 * if a caller bypassed the client and sent a malformed history we
@@ -305,30 +419,9 @@ export async function POST(req: Request) {
 			};
 
 			try {
-				/* Two orthogonal decisions:
-				 *
-				 * 1. **Editing vs. build** — determined by appReady alone. If the app
-				 *    exists (builder phase Ready/Completed), the SA always gets the
-				 *    editing prompt + blueprint summary and only shared tools. This
-				 *    holds for the entire edit session, including follow-up requests
-				 *    after askQuestions rounds.
-				 *
-				 * 2. **Message strategy** — determined by cache expiry. When the
-				 *    Anthropic prompt cache has expired (>5 min since last response),
-				 *    only the last user message is sent (one-shot). Within the cache
-				 *    window, full conversation history is sent so the SA can iterate
-				 *    with context from prior turns (e.g. askQuestions answers).
-				 *
-				 * appReady is false during initial generation even after modules
-				 * exist, so generation tools are never stripped mid-build. */
-				const editing = !!appReady;
-				const cacheExpired =
-					!lastResponseAt ||
-					Date.now() - new Date(lastResponseAt).getTime() > CACHE_TTL_MS;
-
-				/* Backfill the accumulator seed now that we know the real
-				 * editing/cache signals. These fields land on the per-run
-				 * summary doc via `usage.flush()` — replaces the deleted
+				/* Backfill the accumulator seed now that the SA is about to run, from
+				 * the editing/cache signals computed above. These fields land on the
+				 * per-run summary doc via `usage.flush()` — replaces the deleted
 				 * `logger.logConfig` call (ConfigEvent removed in T3). */
 				usage.configureRun({
 					promptMode: editing ? "edit" : "build",
@@ -340,27 +433,22 @@ export async function POST(req: Request) {
 
 				const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
 
-				/* Two message-strategy knobs, both driven by `editing`:
+				/* The one-shot trim (expired-cache edit → only the last user message)
+				 * already happened up front via `messagesToSend`, so `preparedMessages`
+				 * is exactly that single message here — nothing more to drop.
 				 *
-				 * 1. **Cache-expired edits get one-shot delivery.** The SA's system
-				 *    prompt already carries a compact blueprint summary, so past
-				 *    turns would just waste tokens against a dead cache.
-				 *
-				 * 2. **Live-cache edits get full history, but with build-only tool
-				 *    parts stripped.** Edit mode excludes `generateSchema` and
-				 *    `generateScaffold` from the tool set; any lingering tool-use
-				 *    parts from the original build would make Anthropic reject
-				 *    the request ("tool not found in tools array"). Stripping
-				 *    them by `tool-${name}` part type removes
-				 *    both the call and its output in one step — AI SDK v5 keeps
-				 *    both sides of a tool invocation on the same part — so the
-				 *    converted Anthropic messages come out with matched
-				 *    `tool_use` / `tool_result` pairs for the tools that remain.
-				 *    Assistant messages that collapse to zero parts after the
-				 *    strip are dropped so the wire doesn't carry empty turns.
-				 *    The filter is deterministic in its inputs, so successive
-				 *    edit requests produce identical prefixes and hit the
-				 *    prompt cache as intended. */
+				 * The remaining knob is for LIVE-cache edits: full history, but with
+				 * build-only tool parts stripped. Edit mode excludes `generateSchema`
+				 * and `generateScaffold` from the tool set; any lingering tool-use parts
+				 * from the original build would make Anthropic reject the request ("tool
+				 * not found in tools array"). Stripping them by `tool-${name}` part type
+				 * removes both the call and its output in one step — AI SDK v5 keeps both
+				 * sides of a tool invocation on the same part — so the converted
+				 * Anthropic messages come out with matched `tool_use` / `tool_result`
+				 * pairs for the tools that remain. Assistant messages that collapse to
+				 * zero parts after the strip are dropped so the wire doesn't carry empty
+				 * turns. The filter is deterministic in its inputs, so successive edit
+				 * requests produce identical prefixes and hit the prompt cache. */
 				const buildOnlyPartTypes = new Set<string>(
 					BUILD_ONLY_TOOL_NAMES.map((name) => `tool-${name}`),
 				);
@@ -374,13 +462,12 @@ export async function POST(req: Request) {
 						? m
 						: { ...m, parts: nextParts };
 				};
-				const effectiveMessages = editing
-					? cacheExpired
-						? messages.filter((m) => m.role === "user").slice(-1)
-						: messages
+				const effectiveMessages =
+					editing && !cacheExpired
+						? preparedMessages
 								.map(stripBuildOnlyParts)
 								.filter((m): m is UIMessage => m !== undefined)
-					: messages;
+						: preparedMessages;
 
 				const agentStream = await createAgentUIStream({
 					agent: sa,

@@ -36,8 +36,8 @@
 	--z-raised: 20; /* Slightly elevated UI: insertion points, settings buttons, sidebar overlays */
 	--z-popover: 50; /* Floating menus: dropdowns, pickers, popovers, confirm dialogs */
 	--z-popover-top: 60; /* Popovers above other popovers: type picker over field inspector */
-	--z-tooltip: 70; /* Tooltips — above all popovers so they're never occluded */
 	--z-modal: 100; /* Modal backdrops and dialogs */
+	--z-tooltip: 110; /* Tooltips — above popovers AND modals (a tooltip on a control inside a dialog must never be occluded by it) */
 	--z-system: 9999; /* System overlays: noise texture */
 
 	/* Preview theme defaults (overridden by .preview-theme) */

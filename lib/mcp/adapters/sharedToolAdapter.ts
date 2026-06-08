@@ -303,8 +303,26 @@ export function projectResult(
 	app: { id: string; name: string },
 ): unknown {
 	switch (raw.kind) {
-		case "mutate":
-			return raw.result;
+		case "mutate": {
+			/* `result.summary` is UI-only presentation captured for the chat
+			 * transcript (a friendly action + a location breadcrumb). MCP clients
+			 * read the prose `message`, so strip the summary from the wire — in
+			 * their context it would be noise, not signal. A success object that's
+			 * then just `{ message }` (a tool whose result was a bare prose string
+			 * before `summary` rode along) projects back to that bare string, so
+			 * the MCP wire shape is byte-identical to before; objects carrying more
+			 * (a minted `uuid`) keep their object shape. */
+			const r = raw.result;
+			if (r !== null && typeof r === "object") {
+				const { summary: _summary, ...rest } = r as Record<string, unknown>;
+				const keys = Object.keys(rest);
+				if (keys.length === 1 && typeof rest.message === "string") {
+					return rest.message;
+				}
+				return rest;
+			}
+			return r;
+		}
 		case "validate":
 			if (raw.success)
 				return { success: true, app_id: app.id, app_name: app.name };

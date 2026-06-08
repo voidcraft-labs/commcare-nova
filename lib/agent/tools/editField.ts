@@ -28,8 +28,8 @@
  *      mutations already persisted.
  *   4. Rename left the field not found (shouldn't happen in practice) →
  *      `{ error }`.
- *   5. Success → human-readable summary string referencing the final
- *      id + changes.
+ *   5. Success → a human-readable `message` referencing the final id +
+ *      changes, plus a UI `summary` for the chat transcript.
  */
 
 import { z } from "zod";
@@ -53,6 +53,10 @@ import {
 	type wideEditUpdatesSchema,
 } from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const editFieldInputSchema = z
 	.object({
@@ -65,8 +69,9 @@ export const editFieldInputSchema = z
 
 export type EditFieldInput = z.infer<typeof editFieldInputSchema>;
 
-/** Either a human-readable summary string or an error record. */
-export type EditFieldResult = string | { error: string };
+/** Success carries the LLM-facing `message` + a UI-only `summary` for the chat
+ *  transcript; failure is an error record. */
+export type EditFieldResult = MutationSuccess | { error: string };
 
 /**
  * Coerce the scalar-patch portion of an `editField` call into the
@@ -379,7 +384,13 @@ export const editFieldTool = {
 				kind: "mutate" as const,
 				mutations: allMutations,
 				newDoc: workingDoc,
-				result: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.`,
+				result: {
+					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.`,
+					summary: {
+						location: formName,
+						subject: label || finalId,
+					} satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

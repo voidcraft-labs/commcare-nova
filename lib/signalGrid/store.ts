@@ -51,3 +51,11 @@ class SignalGridStore {
 
 /** Module-level singleton -- import and call directly from any context. */
 export const signalGrid = new SignalGridStore();
+
+/** Think-energy injected per streamed output character while a document is read
+ *  (feature extraction). One source of truth for both read-progress feeds — the
+ *  eager upload-time stream (composer chip) and the send-time backstop's SSE
+ *  progress — so the grid pulses with the same intensity on either path. Tuned
+ *  near the SA reasoning feed (content-length delta × 2) but a touch gentler:
+ *  extraction streams dense JSON, so a lower factor stays lively without pegging. */
+export const READ_ENERGY_PER_CHAR = 1.5;

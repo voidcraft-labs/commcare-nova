@@ -21,6 +21,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { reorderSearchInputsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const reorderSearchInputsInputSchema = z
@@ -45,6 +46,7 @@ export type ReorderSearchInputsInput = z.infer<
 export interface ReorderSearchInputsSuccess {
 	message: string;
 	order: Uuid[];
+	summary: ToolCallSummary;
 }
 
 export type ReorderSearchInputsResult =
@@ -102,6 +104,7 @@ export const reorderSearchInputsTool = {
 				result: {
 					message: `Reordered ${searchInputUuids.length} search input${searchInputUuids.length === 1 ? "" : "s"} on module "${mod.name}".`,
 					order: [...searchInputUuids],
+					summary: { location: mod.name, count: searchInputUuids.length },
 				},
 			};
 		} catch (err) {

@@ -23,7 +23,8 @@
  *   1. Form index out of range → `{ error }`, no mutations.
  *   2. The payload fails `flatFieldToField` assembly (missing required
  *      property for the declared kind) → `{ error }`, no mutations.
- *   3. Success → a human-readable summary string tagged `form:M-F`.
+ *   3. Success → a human-readable `message` (+ a UI `summary`) tagged
+ *      `form:M-F`.
  *
  * `parentId` resolution is best-effort: an id that doesn't exist or
  * names a non-container falls through to form-level insertion rather
@@ -48,6 +49,10 @@ import {
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldSchema } from "../toolSchemas";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const addFieldInputSchema = z
 	.object({
@@ -74,12 +79,11 @@ export const addFieldInputSchema = z
 export type AddFieldInput = z.infer<typeof addFieldInputSchema>;
 
 /**
- * Either a human-readable success string (the SA reads it back to the
- * user without re-querying the doc) or an error record naming the
- * specific failure. Matches the LLM-facing return the SA wrapper has
- * always exposed — byte-identical call sites across the two surfaces.
+ * Success carries the LLM-facing `message` (the SA reads it back without
+ * re-querying the doc) plus a UI-only `summary` for the chat transcript;
+ * failure is an error record naming the specific issue.
  */
-export type AddFieldResult = string | { error: string };
+export type AddFieldResult = MutationSuccess | { error: string };
 
 export const addFieldTool = {
 	description:
@@ -207,7 +211,17 @@ export const addFieldTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully added field "${fieldInput.id}" (${fieldInput.label ?? ""}) to "${formName}" ${posDesc}${parentDesc}. Form now has ${totalCount} field${totalCount === 1 ? "" : "s"}.`,
+				result: {
+					message: `Successfully added field "${fieldInput.id}" (${fieldInput.label ?? ""}) to "${formName}" ${posDesc}${parentDesc}. Form now has ${totalCount} field${totalCount === 1 ? "" : "s"}.`,
+					// Prefer the human label for the transcript subject, falling back
+					// to the id for label-less kinds. Read off the assembled domain
+					// `field` (whose id/label are typed strings) rather than the raw
+					// schema union, whose per-kind-optional `label` widens to `{}`.
+					summary: {
+						location: formName,
+						subject: "label" in field && field.label ? field.label : field.id,
+					} satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

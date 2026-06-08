@@ -17,19 +17,40 @@
 
 "use client";
 
+import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
+import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
+import tablerEye from "@iconify-icons/tabler/eye";
+import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef, useState } from "react";
 import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
+import {
+	type AssetKind,
+	assetKindForFilename,
 	assetKindForMimeType,
-	type MediaKind,
+	isDocumentKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { showToast } from "@/lib/ui/toastStore";
+import {
+	AssetPreviewDialog,
+	type AssetPreviewTarget,
+} from "./AssetPreviewDialog";
 import { ASSET_KIND_META } from "./assetKindMeta";
-import type { MediaAssetView } from "./mediaClient";
-import { mediaSrc } from "./mediaClient";
+import { ExtractionStatusBadge } from "./ExtractionStatusBadge";
+import {
+	deleteMediaAsset,
+	type ExtractMeta,
+	type MediaAssetView,
+	mediaSrc,
+} from "./mediaClient";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
 
 const BACKDROP_CLS =
@@ -39,7 +60,7 @@ const POPUP_CLS =
 
 type Tab = "upload" | "library";
 /** Library browse filter: one allowed kind, or "all" of them. */
-type LibraryFilter = MediaKind | "all";
+type LibraryFilter = AssetKind | "all";
 
 export interface MediaPickerDialogProps {
 	open: boolean;
@@ -49,7 +70,7 @@ export interface MediaPickerDialogProps {
 	 * (no filter). Several → the Library tab shows a type filter and
 	 * Upload accepts any of them. Order is the carrier's canonical order.
 	 */
-	kinds: readonly MediaKind[];
+	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
 }
 
@@ -90,7 +111,7 @@ function PickerBody({
 	kinds,
 	onPick,
 }: {
-	kinds: readonly MediaKind[];
+	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
 }) {
 	const [tab, setTab] = useState<Tab>("upload");
@@ -106,15 +127,66 @@ function PickerBody({
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
-	// "all" → fetch every kind (the library route treats an absent kind
-	// as unfiltered); a specific kind narrows the page.
-	const libraryKind = filter === "all" ? undefined : filter;
-	const { assets, isLoading, error, hasMore, loadMore, addUploaded } =
-		useMediaLibrary(libraryKind);
+	// "All" → fetch exactly THIS picker's allowed kinds, so the server returns
+	// only attachable assets rather than a page of irrelevant kinds (e.g. a chat
+	// picker's audio/video) the client would then have to hide — which buried the
+	// few attachable docs behind "Load more". A specific filter narrows to one
+	// kind. Memoized so it isn't a fresh array each render (the hook keys off the
+	// contents, but a stable reference keeps the dependency honest).
+	const libraryKinds = useMemo<readonly AssetKind[]>(
+		() => (filter === "all" ? kinds : [filter]),
+		[filter, kinds],
+	);
+	const {
+		assets,
+		isLoading,
+		error,
+		hasMore,
+		loadMore,
+		addUploaded,
+		removeAsset,
+		updateAsset,
+	} = useMediaLibrary(libraryKinds);
 
 	const commit = (asset: MediaAssetView) => {
 		addUploaded(asset);
 		onPick(asset);
+	};
+
+	// Preview a library asset WITHOUT picking it — so a user can check a
+	// document's "What Nova reads" extract before attaching. `null` = closed.
+	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
+		null,
+	);
+
+	// Delete a library asset, with confirmation. `deleteTarget` holds the asset
+	// awaiting confirmation (`null` = no dialog); `deleting` disables the dialog's
+	// controls while the request is in flight.
+	const [deleteTarget, setDeleteTarget] = useState<MediaAssetView | null>(null);
+	const [deleting, setDeleting] = useState(false);
+
+	const confirmDelete = async () => {
+		if (!deleteTarget) return;
+		const asset = deleteTarget;
+		const name = asset.displayName ?? asset.originalFilename;
+		setDeleting(true);
+		try {
+			await deleteMediaAsset(asset.id);
+			removeAsset(asset.id);
+			showToast("info", "File deleted", name);
+			setDeleteTarget(null);
+		} catch (err) {
+			// A 409 (still referenced by one of your apps) or any failure: tell the
+			// user WHY — the message names the carriers — and leave the asset.
+			showToast(
+				"warning",
+				"Couldn't delete file",
+				err instanceof Error ? err.message : "Please try again.",
+			);
+			setDeleteTarget(null);
+		} finally {
+			setDeleting(false);
+		}
 	};
 
 	return (
@@ -155,6 +227,22 @@ function PickerBody({
 						hasMore={hasMore}
 						loadMore={loadMore}
 						onPick={commit}
+						onPreview={(asset) =>
+							setPreviewTarget({
+								id: asset.id,
+								kind: asset.kind,
+								filename: asset.displayName ?? asset.originalFilename,
+								title: asset.extract?.title,
+								summary: asset.extract?.summary,
+							})
+						}
+						onDelete={setDeleteTarget}
+						// Fold a freshly completed extract into the list so a preview
+						// opened right after upload shows its title/summary without
+						// waiting for a re-fetch.
+						onExtracted={(assetId, extract) =>
+							updateAsset(assetId, { extract })
+						}
 						// The type filter only makes sense when more than one
 						// kind is browsable; a single-kind library is already
 						// narrowed by the fetch.
@@ -164,6 +252,26 @@ function PickerBody({
 					/>
 				)}
 			</div>
+
+			{/* Preview opens OVER the picker (its portal mounts after, so it
+			 *  stacks on top); closing it returns to the library. */}
+			<AssetPreviewDialog
+				target={previewTarget}
+				onOpenChange={(open) => {
+					if (!open) setPreviewTarget(null);
+				}}
+			/>
+
+			{/* Delete confirmation — also portals after the picker, so it stacks
+			 *  on top at the same z-modal tier. */}
+			<MediaDeleteConfirmDialog
+				target={deleteTarget}
+				deleting={deleting}
+				onConfirm={confirmDelete}
+				onCancel={() => {
+					if (!deleting) setDeleteTarget(null);
+				}}
+			/>
 		</>
 	);
 }
@@ -199,7 +307,7 @@ function TabButton({
  * MIME list, both derived from the allowed kinds so the upload-tab copy
  * and the wrong-kind rejection name exactly what the slot takes.
  */
-function describeKinds(kinds: readonly MediaKind[]): {
+function describeKinds(kinds: readonly AssetKind[]): {
 	nounPhrase: string;
 	accept: string;
 } {
@@ -223,7 +331,7 @@ function UploadTab({
 	kinds,
 	onUploaded,
 }: {
-	kinds: readonly MediaKind[];
+	kinds: readonly AssetKind[];
 	onUploaded: (asset: MediaAssetView) => void;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -235,12 +343,17 @@ function UploadTab({
 	const handleFile = async (file: File | undefined) => {
 		if (!file) return;
 		// The native input's `accept` filter only guards the browse
-		// dialog, not drag-drop. Reject a file whose sniffed kind isn't
-		// one this slot allows (after normalizing aliases like
-		// `image/apng`) so the user gets an instant answer instead of
-		// hashing the bytes + a server round trip just to be rejected.
+		// dialog, not drag-drop. Reject a file whose kind isn't one this
+		// slot allows so the user gets an instant answer instead of hashing
+		// the bytes + a server round trip just to be rejected. Resolve the
+		// kind from the browser's MIME (after normalizing aliases like
+		// `image/apng`), falling back to the filename extension — browsers
+		// set `File.type` to "" or `application/octet-stream` for `.md` and
+		// some office files, which would otherwise reject a valid document.
 		const dropped = normalizeMimeType(file.type);
-		const kind = dropped ? assetKindForMimeType(dropped) : undefined;
+		const kind =
+			(dropped ? assetKindForMimeType(dropped) : undefined) ??
+			assetKindForFilename(file.name);
 		// `kind` is the wider `AssetKind`; `some` (not `includes`) lets us
 		// compare it against this picker's narrower allowed set without a
 		// cast. A kind outside the set (e.g. a document on a media carrier)
@@ -262,74 +375,96 @@ function UploadTab({
 	};
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: drop zone wraps a real file input + button for keyboard/AT access
-		<div
-			onDragOver={(e) => {
-				e.preventDefault();
-				setDragging(true);
-			}}
-			onDragLeave={() => setDragging(false)}
-			onDrop={(e) => {
-				e.preventDefault();
-				setDragging(false);
-				void handleFile(e.dataTransfer.files[0]);
-			}}
-			className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors ${
-				dragging
-					? "border-nova-violet bg-nova-violet/[0.06]"
-					: "border-nova-border"
-			}`}
-		>
-			<Icon icon={tablerCloudUpload} className="size-8 text-nova-text-muted" />
-			<p className="text-sm text-nova-text-muted">Drag {nounPhrase} here, or</p>
-			<button
-				type="button"
-				onClick={() => inputRef.current?.click()}
-				disabled={status.state === "uploading"}
-				className="rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+		<div className="flex flex-col gap-3">
+			{/* PHI guardrail — Nova reads documents and stores the extract, so real
+			 *  patient data must not ride along. Shown only where documents are
+			 *  accepted (the chat file manager), not on media-only carriers. */}
+			{kinds.some(isDocumentKind) && (
+				<p className="flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
+					<Icon
+						icon={tablerAlertTriangle}
+						className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
+					/>
+					<span>
+						Don't upload real patient data (PHI). Use sample or de-identified
+						documents — Nova reads them and stores the extract.
+					</span>
+				</p>
+			)}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: drop zone wraps a real file input + button for keyboard/AT access */}
+			<div
+				onDragOver={(e) => {
+					e.preventDefault();
+					setDragging(true);
+				}}
+				onDragLeave={() => setDragging(false)}
+				onDrop={(e) => {
+					e.preventDefault();
+					setDragging(false);
+					void handleFile(e.dataTransfer.files[0]);
+				}}
+				className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors ${
+					dragging
+						? "border-nova-violet bg-nova-violet/[0.06]"
+						: "border-nova-border"
+				}`}
 			>
-				{status.state === "uploading" ? "Uploading…" : "Browse files"}
-			</button>
-			<input
-				ref={inputRef}
-				type="file"
-				accept={accept}
-				autoComplete="off"
-				data-1p-ignore
-				className="hidden"
-				onChange={(e) => void handleFile(e.target.files?.[0])}
-			/>
-			{/* Spell out exactly what this slot takes — one row per allowed
+				<Icon
+					icon={tablerCloudUpload}
+					className="size-8 text-nova-text-muted"
+				/>
+				<p className="text-sm text-nova-text-muted">
+					Drag {nounPhrase} here, or
+				</p>
+				<button
+					type="button"
+					onClick={() => inputRef.current?.click()}
+					disabled={status.state === "uploading"}
+					className="rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+				>
+					{status.state === "uploading" ? "Uploading…" : "Browse files"}
+				</button>
+				<input
+					ref={inputRef}
+					type="file"
+					accept={accept}
+					autoComplete="off"
+					data-1p-ignore
+					className="hidden"
+					onChange={(e) => void handleFile(e.target.files?.[0])}
+				/>
+				{/* Spell out exactly what this slot takes — one row per allowed
 			    kind with its extensions — so the user knows before they
 			    browse, not after a rejection. This is the only set the slot
 			    accepts; anything else is filtered out here and in the
 			    library. */}
-			<div className="flex flex-col gap-1 pt-1">
-				<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted/70">
-					{kinds.length === 1 ? "Supported format" : "Supported formats"}
-				</span>
-				{kinds.map((kind) => {
-					const meta = ASSET_KIND_META[kind];
-					return (
-						<div
-							key={kind}
-							className="flex items-center justify-center gap-1.5 text-xs"
-						>
-							<Icon
-								icon={meta.icon}
-								className="size-3.5 shrink-0 text-nova-text-muted"
-							/>
-							<span className="text-nova-text-secondary">{meta.label}</span>
-							<span className="text-nova-text-muted">{meta.extLabel}</span>
-						</div>
-					);
-				})}
+				<div className="flex flex-col gap-1 pt-1">
+					<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted/70">
+						{kinds.length === 1 ? "Supported format" : "Supported formats"}
+					</span>
+					{kinds.map((kind) => {
+						const meta = ASSET_KIND_META[kind];
+						return (
+							<div
+								key={kind}
+								className="flex items-center justify-center gap-1.5 text-xs"
+							>
+								<Icon
+									icon={meta.icon}
+									className="size-3.5 shrink-0 text-nova-text-muted"
+								/>
+								<span className="text-nova-text-secondary">{meta.label}</span>
+								<span className="text-nova-text-muted">{meta.extLabel}</span>
+							</div>
+						);
+					})}
+				</div>
+				{(kindError ?? (status.state === "error" ? status.message : null)) && (
+					<p className="text-xs text-nova-rose">
+						{kindError ?? (status.state === "error" ? status.message : "")}
+					</p>
+				)}
 			</div>
-			{(kindError ?? (status.state === "error" ? status.message : null)) && (
-				<p className="text-xs text-nova-rose">
-					{kindError ?? (status.state === "error" ? status.message : "")}
-				</p>
-			)}
 		</div>
 	);
 }
@@ -341,6 +476,9 @@ function LibraryTab({
 	hasMore,
 	loadMore,
 	onPick,
+	onPreview,
+	onDelete,
+	onExtracted,
 	filter,
 	kinds,
 	onFilterChange,
@@ -351,26 +489,29 @@ function LibraryTab({
 	hasMore: boolean;
 	loadMore: () => void;
 	onPick: (asset: MediaAssetView) => void;
+	/** Open the preview for an asset without picking it. */
+	onPreview: (asset: MediaAssetView) => void;
+	/** Request deletion of an asset (opens the confirmation dialog). */
+	onDelete: (asset: MediaAssetView) => void;
+	/** A document's extraction completed — reconcile its snapshot in the list. */
+	onExtracted: (assetId: string, extract: ExtractMeta) => void;
 	/** Active browse filter, or `null` to hide the filter row (single-kind slot). */
 	filter: LibraryFilter | null;
-	kinds: readonly MediaKind[];
+	kinds: readonly AssetKind[];
 	onFilterChange: (filter: LibraryFilter) => void;
 }) {
 	const [query, setQuery] = useState("");
 	const filtered = useMemo(() => {
-		// Scope to this picker's allowed kinds first: the library list can
-		// hold documents, but a carrier picker (media-only) must never
-		// surface one — a document can't attach to a CommCare carrier, so it
-		// can't be offered there. (`some`, since `a.kind` is the wider
-		// `AssetKind`.) The Files library passes every kind, so nothing is
-		// dropped there.
-		const inScope = assets.filter((a) => kinds.some((k) => k === a.kind));
+		// Kind scoping now happens server-side: the fetch requests exactly this
+		// picker's allowed kinds (see `libraryKinds`), so every loaded asset is
+		// already attachable here — no client-side kind filter needed. Only the
+		// name search narrows the in-hand page.
 		const q = query.trim().toLowerCase();
-		if (!q) return inScope;
-		return inScope.filter((a) =>
+		if (!q) return assets;
+		return assets.filter((a) =>
 			(a.displayName ?? a.originalFilename).toLowerCase().includes(q),
 		);
-	}, [assets, query, kinds]);
+	}, [assets, query]);
 
 	return (
 		<div className="flex flex-col gap-3">
@@ -415,18 +556,114 @@ function LibraryTab({
 				</p>
 			) : (
 				<ul className="grid grid-cols-3 gap-2">
-					{filtered.map((asset) => (
-						<li key={asset.id}>
-							<button
-								type="button"
-								onClick={() => onPick(asset)}
-								title={asset.displayName ?? asset.originalFilename}
-								className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
-							>
-								<LibraryThumb asset={asset} />
-							</button>
-						</li>
-					))}
+					{filtered.map((asset) => {
+						const fileName = asset.displayName ?? asset.originalFilename;
+						// Documents gain an extracted title once extraction succeeds;
+						// show it as a subtitle so the library reads as human names. Skip
+						// it when it just echoes the filename (no signal added).
+						const extractedTitle = asset.extract?.title;
+						const docTitle =
+							extractedTitle && extractedTitle !== fileName
+								? extractedTitle
+								: undefined;
+						return (
+							<li key={asset.id} className="group">
+								{/* The thumbnail + its hover affordances form their own
+								 *  positioning context, so the absolute overlays anchor to
+								 *  the square and not to the taller li (which now also holds
+								 *  the caption below). */}
+								<div className="relative">
+									<button
+										type="button"
+										onClick={() => onPick(asset)}
+										className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+									>
+										<LibraryThumb asset={asset} />
+									</button>
+									{/* Preview without picking — a sibling of the pick button
+									 *  (not nested), revealed on hover/focus. Lets a user check
+									 *  a document's "What Nova reads" extract before attaching.
+									 *  Tooltip.Root emits no DOM, so the button stays an absolute
+									 *  sibling anchored to the relative wrapper. */}
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<button
+													type="button"
+													onClick={() => onPreview(asset)}
+													aria-label={`Preview ${fileName}`}
+													className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-text focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-violet-bright group-hover:opacity-100"
+												>
+													<Icon icon={tablerEye} className="size-3.5" />
+												</button>
+											}
+										/>
+										<TooltipContent>Preview</TooltipContent>
+									</Tooltip>
+									{/* Delete — a sibling of the pick button (not nested),
+									 *  top-left so it doesn't collide with the preview
+									 *  affordance. Opens a confirmation before removing the
+									 *  asset from the library. */}
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<button
+													type="button"
+													onClick={() => onDelete(asset)}
+													aria-label={`Delete ${fileName}`}
+													className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-md bg-nova-deep/80 text-nova-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:text-nova-rose focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-nova-rose group-hover:opacity-100"
+												>
+													<Icon icon={tablerTrash} className="size-3.5" />
+												</button>
+											}
+										/>
+										<TooltipContent>Delete</TooltipContent>
+									</Tooltip>
+									{/* Extraction indicator for documents — a sibling of the
+									 *  pick button (not nested), so the failed-state retry
+									 *  control isn't interactive content inside a button.
+									 *  Renders nothing for media kinds. */}
+									{isDocumentKind(asset.kind) && (
+										<div className="pointer-events-none absolute inset-x-1 bottom-1 flex justify-center [&>*]:pointer-events-auto">
+											<ExtractionStatusBadge
+												asset={asset}
+												onExtracted={(extract) =>
+													onExtracted(asset.id, extract)
+												}
+											/>
+										</div>
+									)}
+								</div>
+								{/* Caption — the filename is always visible, with the extracted
+								 *  title beneath it for documents. Both single-line-clamp; a hover
+								 *  tooltip reveals the full value when it's truncated. */}
+								<div className="mt-1.5 space-y-0.5">
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<p className="truncate text-xs leading-tight text-nova-text">
+													{fileName}
+												</p>
+											}
+										/>
+										<TooltipContent>{fileName}</TooltipContent>
+									</Tooltip>
+									{docTitle && (
+										<Tooltip>
+											<TooltipTrigger
+												render={
+													<p className="truncate text-[11px] leading-tight text-nova-text-muted">
+														{docTitle}
+													</p>
+												}
+											/>
+											<TooltipContent>{docTitle}</TooltipContent>
+										</Tooltip>
+									)}
+								</div>
+							</li>
+						);
+					})}
 				</ul>
 			)}
 			{hasMore && (
@@ -467,6 +704,68 @@ function FilterChip({
 		>
 			{children}
 		</button>
+	);
+}
+
+/**
+ * Confirm-before-delete dialog for a library asset. Built on Base UI's
+ * alert-dialog rather than the shadcn `AlertDialog` because that component is
+ * pinned to the z-popover tier and would render BEHIND this z-modal picker; this
+ * matches the picker + preview dialogs in the same file (z-modal, nova-themed,
+ * stacking over the picker by portal order). Alert semantics — no outside-press
+ * dismissal, Cancel / Delete only — which is right for a destructive action.
+ */
+function MediaDeleteConfirmDialog({
+	target,
+	deleting,
+	onConfirm,
+	onCancel,
+}: {
+	/** The asset awaiting confirmation, or `null` when the dialog is closed. */
+	target: MediaAssetView | null;
+	/** True while the delete request is in flight (locks the controls). */
+	deleting: boolean;
+	onConfirm: () => void;
+	onCancel: () => void;
+}) {
+	const name = target ? (target.displayName ?? target.originalFilename) : "";
+	return (
+		<AlertDialog.Root
+			open={target !== null}
+			onOpenChange={(open) => {
+				// Ignore close attempts (e.g. Escape) while the delete is in flight.
+				if (!open && !deleting) onCancel();
+			}}
+		>
+			<AlertDialog.Portal>
+				<AlertDialog.Backdrop className="fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+				<AlertDialog.Popup className="fixed top-1/2 left-1/2 z-modal w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-nova-border bg-nova-deep p-5 shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
+					<AlertDialog.Title className="font-display text-base font-semibold text-nova-text">
+						Delete file?
+					</AlertDialog.Title>
+					<AlertDialog.Description className="mt-1.5 text-sm text-nova-text-muted">
+						<span className="font-medium text-nova-text-secondary">{name}</span>{" "}
+						will be removed from your library. This can't be undone.
+					</AlertDialog.Description>
+					<div className="mt-4 flex justify-end gap-2">
+						<AlertDialog.Close
+							disabled={deleting}
+							className="rounded-md border border-nova-border px-3 py-1.5 text-sm text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+						>
+							Cancel
+						</AlertDialog.Close>
+						<button
+							type="button"
+							onClick={onConfirm}
+							disabled={deleting}
+							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-50"
+						>
+							{deleting ? "Deleting…" : "Delete"}
+						</button>
+					</div>
+				</AlertDialog.Popup>
+			</AlertDialog.Portal>
+		</AlertDialog.Root>
 	);
 }
 

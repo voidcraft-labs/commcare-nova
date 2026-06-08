@@ -11,10 +11,21 @@
 // runtime (Firestore SDK) into the browser bundle.
 
 import type { WireMediaAsset } from "@/lib/db/mediaAssets";
-import type { Media, MediaKind } from "@/lib/domain/multimedia";
+import {
+	type AssetKind,
+	EXTRACTOR_VERSION,
+	type Media,
+	type MediaKind,
+	resolveUploadMimeType,
+} from "@/lib/domain/multimedia";
 
 /** The asset shape the API returns and the UI renders. */
 export type MediaAssetView = WireMediaAsset;
+
+/** A completed extraction's metadata — the wire `extract` shape (status +
+ *  title/summary + counts). Returned by `triggerAssetExtraction` so a caller can
+ *  refresh a staged asset's snapshot the instant extraction finishes. */
+export type ExtractMeta = NonNullable<WireMediaAsset["extract"]>;
 
 /**
  * Set one kind's asset on a `Media` bundle, preserving the other
@@ -109,7 +120,11 @@ export async function uploadMediaAsset(file: File): Promise<MediaAssetView> {
 	const contentHash = await sha256Hex(file);
 	const initiate = await postJson<InitiateResponse>("/api/media/upload", {
 		filename: file.name,
-		mimeType: file.type,
+		// Browsers set `File.type` unreliably (empty / `application/octet-stream`
+		// for `.md` and some office files), and the initiate route validates the
+		// claim — so derive a usable MIME from the extension when the browser's is
+		// missing. Confirm re-derives the authoritative type from the bytes anyway.
+		mimeType: resolveUploadMimeType(file.type, file.name),
 		sizeBytes: file.size,
 		contentHash,
 	});
@@ -150,6 +165,120 @@ export async function uploadMediaAsset(file: File): Promise<MediaAssetView> {
 	return confirmed.asset;
 }
 
+/**
+ * Fetch a document's requirements extract — the text Nova reads
+ * ("What Nova reads"). Returns `null` when no current extract exists yet
+ * (the route 404s until extraction finishes), so the caller shows a
+ * not-ready state rather than an error. Throws only on an unexpected failure.
+ */
+export async function fetchAssetExtract(
+	assetId: string,
+): Promise<string | null> {
+	const res = await fetch(`/api/media/${assetId}/extract`);
+	if (res.status === 404) return null;
+	if (!res.ok) {
+		throw await errorFromResponse(
+			res,
+			"Couldn't load what Nova reads from this document.",
+		);
+	}
+	return res.text();
+}
+
+/**
+ * Fetch just a document's extract HEADER metadata (title/summary), without the
+ * body. The preview uses this to fill its header when the in-band snapshot it
+ * was opened with lacks them — a message attachment sent before extraction
+ * finished froze its ref empty. Returns `null` on any failure (the caller falls
+ * back to the filename alone), and `{}`/partial when the doc isn't ready yet.
+ */
+export async function fetchAssetExtractMeta(
+	assetId: string,
+): Promise<{ title?: string; summary?: string } | null> {
+	try {
+		const res = await fetch(`/api/media/${assetId}/extract?meta=1`);
+		if (!res.ok) return null;
+		const body = (await res.json()) as { title?: string; summary?: string };
+		return { title: body.title, summary: body.summary };
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Trigger (or confirm) a document's feature extraction and resolve to its FINAL
+ * extract metadata (status + title/summary when ready). The route STREAMS NDJSON:
+ * `{type:"progress",chars}` lines while the model runs, then one `{type:"done",
+ * extract}`. `onProgress` fires per progress line with that chunk's character
+ * count — real read progress the caller pulses onto the signal grid. The promise
+ * settles with the `done` line's `ExtractMeta` (the indicator shows it while
+ * pending AND the caller uses it to refresh its staged snapshot, so the chip
+ * preview gets the title/summary the instant extraction finishes).
+ *
+ * Best-effort single-flight: a concurrent job rides the `done` line as
+ * `extracting` (poll again); a server-side condense failure as `failed`. A
+ * transport error — or an `abort` (the caller unmounted) — maps to `failed` too;
+ * the file is saved and the chat's lazy backstop re-reads it on send. Pass
+ * `signal` so an unmount aborts the in-flight read (no dangling stream reader).
+ */
+export async function triggerAssetExtraction(
+	assetId: string,
+	opts: {
+		onProgress?: (deltaChars: number) => void;
+		signal?: AbortSignal;
+	} = {},
+): Promise<ExtractMeta> {
+	const failed: ExtractMeta = {
+		status: "failed",
+		version: EXTRACTOR_VERSION,
+		truncated: false,
+		charCount: 0,
+	};
+	try {
+		const res = await fetch(`/api/media/${assetId}/extract`, {
+			method: "POST",
+			signal: opts.signal,
+		});
+		if (!res.ok || !res.body) return failed;
+
+		// Parse the NDJSON line stream. `progress` → pulse; `done` → the final
+		// ExtractMeta. The reader is released in `finally` so an abort mid-read
+		// leaves no live stream handle (the async-leak gate).
+		const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+		let buffer = "";
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += value;
+				let nl = buffer.indexOf("\n");
+				while (nl >= 0) {
+					const line = buffer.slice(0, nl).trim();
+					buffer = buffer.slice(nl + 1);
+					if (line) {
+						const msg = JSON.parse(line) as {
+							type?: string;
+							chars?: number;
+							extract?: ExtractMeta;
+						};
+						if (msg.type === "progress" && typeof msg.chars === "number") {
+							opts.onProgress?.(msg.chars);
+						} else if (msg.type === "done" && msg.extract) {
+							return msg.extract;
+						}
+					}
+					nl = buffer.indexOf("\n");
+				}
+			}
+			return failed; // stream ended without a `done` line
+		} finally {
+			reader.releaseLock();
+		}
+	} catch {
+		return failed;
+	}
+}
+
 /** A page of the owner's media library. */
 export interface MediaLibraryPage {
 	assets: MediaAssetView[];
@@ -158,20 +287,36 @@ export interface MediaLibraryPage {
 
 /**
  * Fetch one page of the owner's `ready` assets, newest first.
- * Optionally filtered to a `kind`; `cursor` resumes from a prior
- * page's `nextCursor`.
+ * Optionally filtered to a SET of `kinds` (repeated `?kind=` on the
+ * wire) — a picker passes its carrier's allowed kinds so the server
+ * returns only attachable assets; `cursor` resumes from a prior
+ * page's `nextCursor`. An empty/omitted `kinds` fetches every kind.
  */
 export async function fetchMediaLibrary(
-	options: { kind?: MediaKind; cursor?: string } = {},
+	options: { kinds?: readonly AssetKind[]; cursor?: string } = {},
 ): Promise<MediaLibraryPage> {
 	const params = new URLSearchParams();
-	if (options.kind) params.set("kind", options.kind);
+	for (const kind of options.kinds ?? []) params.append("kind", kind);
 	if (options.cursor) params.set("cursor", options.cursor);
 	const res = await fetch(`/api/media/library?${params.toString()}`);
 	if (!res.ok) {
 		throw await errorFromResponse(res, "Couldn't load your media library.");
 	}
 	return res.json();
+}
+
+/**
+ * Delete an asset from the owner's library. Resolves on success (the route
+ * returns 204); throws with the server's message on a refusal — a 409 when the
+ * asset is still referenced by one of the user's apps (the message names the
+ * carriers) — or any other failure, so the caller can tell the user WHY a delete
+ * was blocked rather than failing silently.
+ */
+export async function deleteMediaAsset(assetId: string): Promise<void> {
+	const res = await fetch(`/api/media/${assetId}`, { method: "DELETE" });
+	if (!res.ok) {
+		throw await errorFromResponse(res, "Couldn't delete this file. Try again.");
+	}
 }
 
 /** POST JSON (or an empty body) and parse the JSON response, mapping a non-2xx to the server's message. */

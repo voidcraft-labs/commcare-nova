@@ -44,6 +44,18 @@ describe("ChatMarkdown", () => {
 		expect(output).not.toContain("<script");
 	});
 
+	it("renders an unknown tag from model output as inert text, not an element", () => {
+		// The SA's reasoning routinely contains XML-ish tokens (e.g. discussing a
+		// <mother> case). Without disabling raw-HTML parsing these became unknown
+		// DOM elements and crashed the render — they must show as literal text.
+		const output = html(
+			<ChatMarkdown>{"closing the <mother> case"}</ChatMarkdown>,
+		);
+		expect(output).toContain("closing the");
+		expect(output).toContain("case");
+		expect(output).not.toContain("<mother");
+	});
+
 	it("renders bold, italic, and code", () => {
 		const output = html(
 			<ChatMarkdown>{"**bold** *italic* `code`"}</ChatMarkdown>,

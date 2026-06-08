@@ -241,32 +241,9 @@ export function assetKindForMimeType(mimeType: string): AssetKind | undefined {
 	return undefined;
 }
 
-/**
- * Asset kind for a (lowercased) file extension. The fallback the
- * validator uses when the browser sends no usable `Content-Type` — empty
- * or `application/octet-stream`, common for `.md` and sometimes office
- * files — to pick the size cap + the per-kind validation arm. The
- * extension is only a HINT for routing; the magic-bytes sniff (or the
- * UTF-8 check for text) is still the authoritative format gate.
- */
-const KIND_FOR_EXTENSION: Record<string, AssetKind> = {
-	".png": "image",
-	".jpg": "image",
-	".jpeg": "image",
-	".gif": "image",
-	".webp": "image",
-	".mp3": "audio",
-	".wav": "audio",
-	".mp4": "video",
-	".pdf": "pdf",
-	".txt": "text",
-	".md": "text",
-	".docx": "docx",
-	".xlsx": "xlsx",
-};
-export function assetKindForExtension(ext: string): AssetKind | undefined {
-	return KIND_FOR_EXTENSION[ext.toLowerCase()];
-}
+// The extension → kind / extension → MIME fallbacks (used when the browser sends
+// no usable Content-Type) are defined below, AFTER `EXTENSION_FOR_MIME_TYPE` —
+// they derive from it so there's one source of truth for the extension↔MIME map.
 
 /**
  * Aliases a raw MIME string can take for an accepted format, when a
@@ -334,6 +311,85 @@ export const EXTENSION_FOR_MIME_TYPE: Record<AssetMimeType, string> = {
 };
 
 /**
+ * Canonical accepted MIME type for a (lowercased) file extension — the inverse of
+ * `EXTENSION_FOR_MIME_TYPE`, plus the `.jpeg` spelling (which `EXTENSION_FOR_MIME_TYPE`
+ * collapses to `.jpg`). Derived from that one map so the extension↔MIME pairing
+ * has a single source and the two directions can't drift.
+ *
+ * The fallback for when the browser sends no usable `Content-Type` — empty or
+ * `application/octet-stream`, common for `.md` and some office files: the client
+ * upload path picks the MIME to claim from the filename, and the validator picks
+ * the kind. The extension is only a routing HINT; the magic-bytes sniff (or the
+ * UTF-8 check for text) is still the authoritative format gate at confirm time.
+ */
+const MIME_FOR_EXTENSION: Record<string, AssetMimeType> = {
+	...Object.fromEntries(
+		(Object.entries(EXTENSION_FOR_MIME_TYPE) as [AssetMimeType, string][]).map(
+			([mime, ext]) => [ext, mime] as const,
+		),
+	),
+	".jpeg": "image/jpeg",
+};
+
+/** Canonical accepted MIME for a (lowercased) file extension, or `undefined`. */
+export function mimeTypeForExtension(ext: string): AssetMimeType | undefined {
+	return MIME_FOR_EXTENSION[ext.toLowerCase()];
+}
+
+/**
+ * Asset kind for a (lowercased) file extension, derived THROUGH the MIME map +
+ * `assetKindForMimeType` so the kind and the MIME a given extension implies stay
+ * consistent (no second hand-maintained extension→kind table to drift). The
+ * fallback the validator uses when the browser sends no usable `Content-Type`.
+ */
+export function assetKindForExtension(ext: string): AssetKind | undefined {
+	const mime = MIME_FOR_EXTENSION[ext.toLowerCase()];
+	return mime ? assetKindForMimeType(mime) : undefined;
+}
+
+/** The lowercased extension (including the dot) of a filename, or `undefined`
+ *  when it has none. `"Form.PDF"` → `".pdf"`. */
+export function extensionOf(filename: string): string | undefined {
+	const dot = filename.lastIndexOf(".");
+	return dot === -1 ? undefined : filename.slice(dot).toLowerCase();
+}
+
+/** Asset kind implied by a filename's extension — the routing fallback the
+ *  upload preflight uses when the browser's `File.type` isn't a recognized
+ *  media type. */
+export function assetKindForFilename(filename: string): AssetKind | undefined {
+	const ext = extensionOf(filename);
+	return ext ? assetKindForExtension(ext) : undefined;
+}
+
+/** Canonical accepted MIME implied by a filename's extension, or `undefined`. */
+export function mimeTypeForFilename(
+	filename: string,
+): AssetMimeType | undefined {
+	const ext = extensionOf(filename);
+	return ext ? mimeTypeForExtension(ext) : undefined;
+}
+
+/**
+ * The MIME type the client should CLAIM when initiating an upload. Browsers set
+ * `File.type` unreliably — empty or `application/octet-stream` for `.md` and some
+ * office files — and the initiate route validates the claim, so a bad claim is
+ * rejected before the bytes ever flow. Prefer the browser's claim when it
+ * normalizes to an accepted type; otherwise fall back to the filename extension's
+ * canonical MIME; as a last resort return the raw claim so the server produces a
+ * clear rejection rather than a silent empty string. The confirm-time validator
+ * re-derives the authoritative MIME/extension from the bytes + filename
+ * regardless, so this only needs to be good enough to pass initiate + bind the
+ * signed PUT URL's `Content-Type`.
+ */
+export function resolveUploadMimeType(
+	rawType: string,
+	filename: string,
+): string {
+	return normalizeMimeType(rawType) ?? mimeTypeForFilename(filename) ?? rawType;
+}
+
+/**
  * Carrier-side slot bundle. Each slot is independent: a question
  * can have image+audio+video simultaneously, or any subset, or
  * none. Slot key encodes the kind; the value is the asset id, full
@@ -390,6 +446,31 @@ export const MEDIA_ASSET_STATUSES = ["pending", "ready"] as const;
 export type MediaAssetStatus = (typeof MEDIA_ASSET_STATUSES)[number];
 
 /**
+ * Lifecycle of a DOCUMENT's requirements extract — the condensed text the
+ * Solutions Architect actually reads in place of the raw file (images carry
+ * no extract; they reach the model as pixels). Independent of the asset's own
+ * `status`: an asset can be `ready` (bytes validated, in the library) while
+ * its extract is still `extracting`. The chat resolve step waits on a
+ * referenced document's extract, and the file manager surfaces this state so
+ * the user can see that feature extraction is happening.
+ *
+ *  - `extracting` — the extract job is in flight (set before the model call,
+ *    so a concurrent library read reflects it).
+ *  - `ready`      — the extract text lives at `extractGcsObjectKeyFor(...)`
+ *    and `charCount` / `truncated` are recorded.
+ *  - `failed`     — extraction threw; `failureReason` records why. Unlike the
+ *    asset's own pipeline (which deletes the row on failure), a failed extract
+ *    keeps the asset — the bytes are valid, only the condense failed, and the
+ *    chat resolve step has a raw-inline fallback.
+ */
+export const MEDIA_EXTRACT_STATUSES = [
+	"extracting",
+	"ready",
+	"failed",
+] as const;
+export type MediaExtractStatus = (typeof MEDIA_EXTRACT_STATUSES)[number];
+
+/**
  * Final GCS object key derivation. Per-owner namespace gives us
  * (owner, hash) dedup at the storage layer once bytes have been
  * validated — same blob uploaded by two apps of the same user shares
@@ -404,6 +485,72 @@ export function gcsObjectKeyFor(
 	extension: string,
 ): string {
 	return `users/${owner}/${contentHash}${extension}`;
+}
+
+/**
+ * GCS object key for a document's requirements extract — a sibling of the
+ * bytes object under the same per-owner namespace. Keyed by the content hash
+ * AND the extractor `version`, so:
+ *
+ *  - the extract dedups exactly like the bytes (same document re-uploaded by
+ *    the same owner resolves to one extract), and
+ *  - bumping `EXTRACTOR_VERSION` (a prompt/model change) lands a NEW key, so
+ *    every stale extract is invalidated without a migration — the old object
+ *    simply stops being read and ages out, and the next reference re-extracts
+ *    at the current version.
+ *
+ * `.md` because the extractor emits GitHub-flavored markdown (tables for
+ * spreadsheets, bullet structure for prose).
+ */
+export function extractGcsObjectKeyFor(
+	owner: string,
+	contentHash: string,
+	version: number,
+): string {
+	return `users/${owner}/${contentHash}.extract.v${version}.md`;
+}
+
+/**
+ * Current extractor version. Bump on ANY change that alters the extract a given
+ * document produces — the extraction prompt, the summarizer model, or the
+ * office→markdown conversion (all in `lib/agent/documentExtraction`). The GCS
+ * extract key embeds this (`extractGcsObjectKeyFor`) and the asset doc records
+ * the version it was produced at, so a bump invalidates every stored extract
+ * with no migration: the old key stops being read and the next reference
+ * re-extracts at the new version.
+ *
+ * It lives here — beside the key + status it versions — rather than in the
+ * extraction module, so that computing an extract's storage key
+ * (`extractObjectKeyForAsset`) stays a pure domain operation. Importing that key
+ * helper must never drag the office-parsing libraries (mammoth/xlsx) into a
+ * caller's import graph; keeping the constant here is what makes that possible.
+ */
+export const EXTRACTOR_VERSION = 1;
+
+/**
+ * The GCS object key of a document's stored extract, or `null` for a media kind
+ * (image/audio/video), which has no extract. Asset deletion uses this to purge
+ * the extract sibling alongside the bytes. Pure — no I/O, no heavy imports — so
+ * any layer (the delete route, the SA tool) can call it without pulling in the
+ * extraction machinery.
+ *
+ * Keyed off the version the extract was ACTUALLY produced at (`extract.version`),
+ * NOT the current `EXTRACTOR_VERSION`. After a version bump, a document extracted
+ * at the prior version still has its real object at the prior key; computing the
+ * current key would purge a key that was never written and orphan the live object
+ * in GCS forever (no lifecycle rule reaps `…extract.v*.md`). Falls back to the
+ * current version only when no extract has been recorded yet — then there is no
+ * stored object and the purge is a harmless no-op.
+ */
+export function extractObjectKeyForAsset(asset: {
+	kind: AssetKind;
+	owner: string;
+	contentHash: string;
+	extract?: { version: number } | null;
+}): string | null {
+	if (!isDocumentKind(asset.kind)) return null;
+	const version = asset.extract?.version ?? EXTRACTOR_VERSION;
+	return extractGcsObjectKeyFor(asset.owner, asset.contentHash, version);
 }
 
 /**

@@ -20,11 +20,13 @@
 
 import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
+import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
 import { blueprintDocSchema } from "../domain/blueprint";
 import {
 	ALL_MIME_TYPES,
 	ASSET_KINDS,
 	MEDIA_ASSET_STATUSES,
+	MEDIA_EXTRACT_STATUSES,
 } from "../domain/multimedia";
 
 // ── Shared ──────────────────────────────────────────────────────────
@@ -257,6 +259,10 @@ const storedThreadMessageSchema = z.object({
 	role: z.enum(["user", "assistant"]),
 	/** Visible parts only — text and answered askQuestions. */
 	parts: z.array(storedMessagePartSchema),
+	/** Attachment manifest for a user turn — the same `AttachmentRef` shape the
+	 *  live transcript + replay use, so loaded history renders the chips (and
+	 *  their previews) through the one render path. */
+	attachments: z.array(attachmentRefSchema).optional(),
 });
 export type StoredThreadMessage = z.infer<typeof storedThreadMessageSchema>;
 
@@ -373,6 +379,43 @@ export const mediaAssetDocSchema = z.object({
 	 * is no `failed` state to track.
 	 */
 	status: z.enum(MEDIA_ASSET_STATUSES),
+	/**
+	 * Requirements-extract metadata for a DOCUMENT (pdf/text/docx/xlsx).
+	 * Absent on media assets (image/audio/video carry no extract — they reach
+	 * the model as pixels) and on a document whose extraction hasn't been
+	 * triggered yet. The extract TEXT lives in GCS at
+	 * `extractGcsObjectKeyFor(owner, contentHash, version)`, NOT here — a
+	 * 64k-token extract would bloat every library-list read and flirt with
+	 * Firestore's 1 MB doc cap. This is only the status + the metadata the UI
+	 * and the chat resolve step need without fetching the body.
+	 *
+	 *  - `version` is the `EXTRACTOR_VERSION` the extract was produced at; a
+	 *    mismatch against the current version means the stored extract is
+	 *    stale and a fresh extraction is owed (the GCS key embeds it too).
+	 *  - `truncated` flags an extract that hit the model's output ceiling.
+	 *  - `charCount` is the extract length (for a "long document" hint in UI).
+	 *  - `failureReason` is set only when `status === "failed"`.
+	 *  - `title` / `summary` are a short label + a few-sentence précis of the
+	 *    document, produced in the SAME single structured extraction call as the
+	 *    extract (the schema writes them before the extract body, in schema order).
+	 *    Both are optional/best-effort (absent when that call failed, or on an older
+	 *    extractor version). They exist for a future "browse my attachments" tool
+	 *    to scan attachments without opening each extract — not read by the SA.
+	 */
+	extract: z
+		.object({
+			status: z.enum(MEDIA_EXTRACT_STATUSES),
+			version: z.number().int().positive(),
+			model: z.string().min(1),
+			truncated: z.boolean(),
+			charCount: z.number().int().nonnegative(),
+			extractedAt: timestamp,
+			failureReason: z.string().optional(),
+			title: z.string().optional(),
+			summary: z.string().optional(),
+		})
+		.optional(),
 	created_at: timestamp,
 });
 export type MediaAssetDoc = z.infer<typeof mediaAssetDocSchema>;
+export type MediaAssetExtract = NonNullable<MediaAssetDoc["extract"]>;

@@ -19,24 +19,23 @@
  * single run spans.
  */
 import { z } from "zod";
+import {
+	type AttachmentRef,
+	attachmentRefSchema,
+} from "@/lib/chat/attachmentRefs";
 import { mutationSchema } from "@/lib/doc/types";
 
 // ── Conversation payloads ──────────────────────────────────────────
 
 /**
- * Attachment metadata for user messages. Today the builder doesn't ship
- * attachments; the shape exists so we can add file/image uploads later
- * without breaking the event log schema.
+ * Attachment manifest for a user message — the same `AttachmentRef` shape the
+ * composer sends and the stored thread keeps, so replay + admin-inspect can show
+ * what was attached, and a reader can reach the bytes (`/api/media/{assetId}`)
+ * and extract (`/api/media/{assetId}/extract`) from the `assetId`. Only the
+ * manifest is logged, never the extract body — that lives durably on the asset.
  */
-export const conversationAttachmentSchema = z.object({
-	name: z.string(),
-	mimeType: z.string(),
-	/** Firestore Storage URI or data URL, depending on pipeline. */
-	uri: z.string(),
-});
-export type ConversationAttachment = z.infer<
-	typeof conversationAttachmentSchema
->;
+export const conversationAttachmentSchema = attachmentRefSchema;
+export type ConversationAttachment = AttachmentRef;
 
 /**
  * Classified error payload — a small subset of `ClassifiedError` shared on
@@ -112,6 +111,21 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		type: z.literal("validation-attempt"),
 		attempt: z.number().int().positive(),
 		errors: z.array(z.string()),
+	}),
+	/* Attachment-prep annotation — brackets the pre-Opus resolve step
+	 * (`resolveAttachments`), which reads each document ref's stored extract
+	 * (and lazily extracts one that has none yet). It's emitted ONLY when a
+	 * document still needs extracting; a turn whose docs are already read does
+	 * the resolve silently. `phase: "start"` fires before resolution begins,
+	 * `"done"` after every ref is resolved; the window between them is when the UI
+	 * shows a "reading documents" status. `count` (start only) is how many
+	 * document attachments still needed reading, so a log reader can see how much
+	 * real extraction work the turn did. Logged like `validation-attempt`: a run
+	 * annotation, not chat-visible content. */
+	z.object({
+		type: z.literal("attachment-prep"),
+		phase: z.enum(["start", "done"]),
+		count: z.number().int().positive().optional(),
 	}),
 ]);
 export type ConversationPayload = z.infer<typeof conversationPayloadSchema>;
