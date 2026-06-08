@@ -170,13 +170,13 @@ export function AccountMenu() {
 										<span className="text-[11px] text-nova-text-muted">
 											Credits this month
 										</span>
-										{/* Remaining over the effective monthly total (allowance + bonus).
-										 * Using the bonus-inclusive total — not the bare allowance — keeps the
-										 * figure honest for users who've been granted extra credits. */}
+										{/* Just the remaining balance — no "/ total", no "credits" word. A
+										 * countdown to zero reads fine without the denominator, and dropping the
+										 * trailing text keeps this on one line beside the "Credits this month"
+										 * label instead of wrapping. The bar below still conveys the proportion
+										 * remaining. */}
 										<CreditAmount
 											value={usage.balance}
-											total={total}
-											showLabel
 											className="text-nova-text-secondary"
 										/>
 									</div>
