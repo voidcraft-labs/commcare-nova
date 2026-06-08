@@ -128,9 +128,9 @@ Media assets (image/audio/video) attach to field message slots, select options, 
 
 The Firestore app doc is created **before** generation — Firestore down = 503, not an orphaned build. Every blueprint mutation advances `updated_at`. Two-layer failure detection: route catch blocks fail the app fire-and-forget; the list query infers failure when `updated_at` stalls >10 min. The second layer exists because Cloud Run can kill processes before catch blocks run.
 
-### Manual stream reader loop
+### Server-side drain — generation outlives the connection
 
-The chat route reads the model stream manually (not `writer.merge()`) so stream errors can be caught and emitted as error data parts before the stream closes.
+The chat route drains the agent loop server-side (`consumeStream()`) and forwards chunks via a manual `toUIMessageStream()` loop (not `writer.merge()`), so a closed browser tab neither cancels the run nor mis-finalizes it: finalization keys off the drain's terminal state, and a fatal model error surfaces as the `{type:"error"}` chunk rather than a throw. The charge/refund finalization invariant and the stale-`generating` reaper live in `lib/db/CLAUDE.md`.
 
 ### Firestore
 
