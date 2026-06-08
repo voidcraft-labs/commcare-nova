@@ -8,10 +8,14 @@
  *   - `apps/{appId}/runs/{runId}` — per-run cost/behavior summary
  *     (`RunSummaryDoc`). Read via `readRunSummary`.
  *
- * Cost analytics live on the per-run summary — the event log intentionally
- * carries no token usage (the log is supplemental and captures mutations +
- * conversation only). Scripts that want cost breakdowns read the summary
- * doc directly.
+ * Where cost data lives — read this before concluding "the log can't answer X":
+ * the per-run summary (`runs/{runId}`) carries the token TOTALS (input/output/
+ * cache read+write, aggregate per run). The event log carries no token COUNTS,
+ * but it DOES carry the full tool I/O — every `tool-result.output` verbatim —
+ * whose serialized SIZE is the per-TOOL context-cost proxy. So "how many tokens
+ * did this run cost" → the summary; "WHICH tool's results inflated it" → the
+ * event log (`--tools` reports per-tool result sizes). Don't mistake "no token
+ * counts in the log" for "no cost signal in the log."
  *
  * Never writes to Firestore. Run with `--help` for the flag reference.
  */
@@ -417,7 +421,15 @@ function printTimelineView(events: Event[]): void {
 	);
 }
 
-/** Render the --tools tool-call distribution table. */
+/**
+ * Render the --tools view: per-tool call count AND result-output SIZE.
+ *
+ * Result size (the serialized `tool-result.output` length, shown as ~tokens =
+ * bytes/4) is the per-tool proxy for context cost — a tool result re-rides the
+ * agent's context on every subsequent step, so the tool with the biggest
+ * `Max ~tok` / `Total out ~tok` is what inflates the cache read/write tokens
+ * the run summary only reports in aggregate. Sorted biggest-payload-first.
+ */
 function printToolsView(events: Event[]): void {
 	const tools = computeToolUsage(events);
 	if (tools.length === 0) {
@@ -425,10 +437,33 @@ function printToolsView(events: Event[]): void {
 		return;
 	}
 
-	printSection("Tool Usage");
+	/* Rough bytes-per-token ratio for the `~tok` display columns only — a
+	 * back-of-envelope ≈4-bytes-per-token estimate to make output SIZES
+	 * legible alongside the run summary's real token totals. Never used for
+	 * billing or the cost backstop; the `~` in the headers flags it as approximate. */
+	const BYTES_PER_TOKEN_ESTIMATE = 4;
+	const estTok = (bytes: number) =>
+		tok(Math.round(bytes / BYTES_PER_TOKEN_ESTIMATE));
+	printSection(
+		"Tool Usage — calls + result-output size (per-tool context-cost driver)",
+	);
 	printTable(
-		[{ header: "Tool" }, { header: "Calls", align: "right" }],
-		tools.map((t) => [t.tool, String(t.calls)]),
+		[
+			{ header: "Tool" },
+			{ header: "Calls", align: "right" },
+			{ header: "Results", align: "right" },
+			{ header: "Total out ~tok", align: "right" },
+			{ header: "Avg ~tok", align: "right" },
+			{ header: "Max ~tok", align: "right" },
+		],
+		tools.map((t) => [
+			t.tool,
+			String(t.calls),
+			String(t.results),
+			estTok(t.totalOutputBytes),
+			estTok(t.results > 0 ? t.totalOutputBytes / t.results : 0),
+			estTok(t.maxOutputBytes),
+		]),
 	);
 }
 

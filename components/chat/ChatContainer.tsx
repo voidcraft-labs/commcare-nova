@@ -136,6 +136,20 @@ function createChatInstance(
 				runIdRef.current = data.runId as string;
 				return;
 			}
+			if (type === "data-credit-refund") {
+				const amount = data.amount as number;
+				// Reassurance, not an error — the failure itself is surfaced separately as
+				// the generation-error toast (a data-conversation-event with an error
+				// payload). Use "info" (neutral, auto-dismissing); the error toast is the
+				// one that persists. The refund is server-authoritative and once-latched,
+				// so this only fires once per failed run.
+				showToast(
+					"info",
+					"You weren't charged",
+					`This run hit an error, so your ${amount} credits were refunded.`,
+				);
+				return;
+			}
 
 			const docApi = docStoreRef.current;
 			const sessionApi = sessionStoreRef.current;

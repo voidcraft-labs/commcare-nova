@@ -128,9 +128,9 @@ Media assets (image/audio/video) attach to field message slots, select options, 
 
 The Firestore app doc is created **before** generation — Firestore down = 503, not an orphaned build. Every blueprint mutation advances `updated_at`. Two-layer failure detection: route catch blocks fail the app fire-and-forget; the list query infers failure when `updated_at` stalls >10 min. The second layer exists because Cloud Run can kill processes before catch blocks run.
 
-### Manual stream reader loop
+### Server-side drain — generation outlives the connection
 
-The chat route reads the model stream manually (not `writer.merge()`) so stream errors can be caught and emitted as error data parts before the stream closes.
+The chat route drains the agent loop server-side (`consumeStream()`) and forwards chunks via a manual `toUIMessageStream()` loop (not `writer.merge()`), so a closed browser tab neither cancels the run nor mis-finalizes it: finalization keys off the drain's terminal state, and a fatal model error surfaces as the `{type:"error"}` chunk rather than a throw. The charge/refund finalization invariant and the stale-`generating` reaper live in `lib/db/CLAUDE.md`.
 
 ### Firestore
 
@@ -139,6 +139,8 @@ The chat route reads the model stream manually (not `writer.merge()`) so stream 
 **App ownership is explicit, not path-scoped.** Apps are root-level with an `owner` field; any route serving user data must verify ownership (admin routes skip).
 
 **Event log** at `apps/{appId}/events/` captures generation runs as a flat stream of MutationEvent + ConversationEvent; per-run cost/behavior summary at `apps/{appId}/runs/{runId}`. See `lib/log/CLAUDE.md`.
+
+**Two-ledger credit model.** `usage/{userId}/months/{period}` is the accumulate-only ACTUAL-dollar record (resets never touch it) feeding the invisible `$50` runaway backstop; `credits/{userId}/months/{period}` is the resettable user-facing gate (`allowance + bonus − consumed`), a missing doc reading as a full balance. A build costs 100 credits, an edit 5, reserved up front in a Firestore transaction and refunded on a no-op/failed run. See `lib/db/CLAUDE.md`.
 
 **Better Auth's user collection is the single source of truth for user identity.** The admin dashboard reads it directly via Firestore SDK because Better Auth's typed user omits `additionalFields` (present at runtime). Admin gating also reads Firestore directly to bypass the 5-min session-cookie cache.
 

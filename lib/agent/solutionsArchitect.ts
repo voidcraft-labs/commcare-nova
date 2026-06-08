@@ -448,7 +448,7 @@ export function createSolutionsArchitect(
 		 * ordering that emits before materializing. The catch arm
 		 * routes the failure through the canonical
 		 * `classifyError` + `ctx.emitError` + `failApp` path used by
-		 * `app/api/chat/route.ts`'s `handleRouteError`, so the client
+		 * `app/api/chat/route.ts`'s `failRun`, so the client
 		 * sees `data-error`, the app status flips to `error`
 		 * immediately, and the SA loop sees a clean `success: false`
 		 * return that doesn't invite another retry.
@@ -495,7 +495,7 @@ export function createSolutionsArchitect(
 							ctx.emitError(classified, "validateApp:materialize");
 							/* `failApp` is fire-and-forget by design (it
 							 * swallows Firestore errors internally) — match
-							 * the route's `handleRouteError` shape exactly. */
+							 * the route's `failRun` shape exactly. */
 							failApp(ctx.appId, classified.type);
 							/* Tag `infrastructure: true` so the SA can tell this
 							 * apart from a validation failure (the app validated

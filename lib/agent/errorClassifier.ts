@@ -14,7 +14,7 @@ export type ErrorType =
 	| "api_server"
 	| "model_error"
 	| "stream_broken"
-	| "spend_cap_exceeded"
+	| "out_of_credits"
 	| "generation_in_progress"
 	| "internal";
 
@@ -36,8 +36,8 @@ export const MESSAGES: Record<ErrorType, string> = {
 	api_server: "Nova ran into a server error. Please try again.",
 	model_error: "Nova returned an unexpected response. Please try again.",
 	stream_broken: "The connection was interrupted. Please try again.",
-	spend_cap_exceeded:
-		"You've reached your monthly usage limit. Your allowance resets on the 1st of next month.",
+	out_of_credits:
+		"You're out of credits for this month — they refresh on the 1st.",
 	generation_in_progress:
 		"You already have a build in progress. Please wait for it to finish before starting another.",
 	internal: "Something went wrong during generation.",

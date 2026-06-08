@@ -19,6 +19,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
+import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { MediaAssetOwnershipError } from "@/lib/db/mediaAssets";
 import { asAssetId, EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
@@ -47,11 +48,12 @@ vi.mock("@/lib/db/mediaAssets", () => ({
 vi.mock("@/lib/agent/documentExtractionStore", () => ({
 	ensureStoredExtract: ensureStoredExtractMock,
 }));
-// The spend gate reads the user's month-to-date usage and compares it to the
-// cap. Pin a known cap so the over/under-budget tests are deterministic.
+// The gate reads the user's month-to-date usage and compares it to the actual-
+// cost backstop (`ACTUAL_COST_BACKSTOP_USD`, the real client-safe constant the
+// route imports from creditPolicy — not mocked here). Only `getMonthlyUsage` is
+// stubbed so the over/under-budget tests are deterministic.
 vi.mock("@/lib/db/usage", () => ({
 	getMonthlyUsage: getMonthlyUsageMock,
-	MONTHLY_SPEND_CAP_USD: 15,
 }));
 // Keep the constants the route reads + a no-op condenser factory; the real
 // module (mammoth + the Google provider) never loads.
@@ -265,11 +267,13 @@ describe("POST extract (streamed result)", () => {
 	});
 
 	it("429s an over-budget user before running the model", async () => {
-		// A user at/over the monthly cap must not keep triggering paid extractions.
-		// The gate fires AFTER the document guards (the asset is fine) but BEFORE
-		// the store call, so no model work happens.
+		// A user at/over the monthly actual-cost backstop must not keep triggering
+		// paid extractions. The gate fires AFTER the document guards (the asset is
+		// fine) but BEFORE the store call, so no model work happens.
 		loadAssetForOwnerMock.mockResolvedValue(docAsset());
-		getMonthlyUsageMock.mockResolvedValue({ cost_estimate: 15 }); // == cap
+		getMonthlyUsageMock.mockResolvedValue({
+			cost_estimate: ACTUAL_COST_BACKSTOP_USD,
+		}); // at the backstop
 
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(429);

@@ -129,6 +129,42 @@ describe("listApps", () => {
 		expect(apps.map((a) => a.id)).toEqual(["a", "b", "c"]);
 	});
 
+	it("excludes an awaiting_input (paused) build from staleness reaping", async () => {
+		/* A build paused on an askQuestions round is generating + awaiting_input
+		 * with a stale updated_at, yet must stay 'generating' (NOT projected to
+		 * 'error'): a live paused build's hold must never be refunded by the reaper.
+		 * A stale generating build WITHOUT the flag is a hard kill, projected
+		 * 'error'. Both share the same stale timestamp, so the ONLY difference is the
+		 * flag — pinning that the flag, not the staleness, is what spares the row. */
+		const stale = Timestamp.fromDate(new Date("2020-01-01T00:00:00Z"));
+		const generatingDoc = (id: string, awaiting: boolean) =>
+			makeDoc(id, {
+				app_name: `App ${id}`,
+				connect_type: null,
+				module_count: 0,
+				form_count: 0,
+				status: "generating",
+				awaiting_input: awaiting,
+				error_type: null,
+				created_at: stale,
+				updated_at: stale,
+			});
+		getMock.mockResolvedValueOnce({
+			docs: [generatingDoc("paused", true), generatingDoc("killed", false)],
+			size: 2,
+		});
+
+		const { listApps } = await import("../apps");
+		const { apps } = await listApps("user-1", {
+			limit: 50,
+			sort: "updated_desc",
+		});
+
+		const statusById = Object.fromEntries(apps.map((a) => [a.id, a.status]));
+		expect(statusById.paused).toBe("generating"); // alive, skipped
+		expect(statusById.killed).toBe("error"); // hard kill, reaped
+	});
+
 	it("emits next_cursor when Firestore returns exactly `limit` rows — every returned row is visible, so the signal is accurate", async () => {
 		/* Server-side filtering means `apps.length === snap.size`, so
 		 * the "maybe more" signal is exact: a present cursor genuinely

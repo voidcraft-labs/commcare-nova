@@ -25,9 +25,9 @@
  * Owner-gated on every path (a foreign asset reads as 404, never enumerable).
  * Not on a chat run, so it passes the standalone Gemini condenser rather than a
  * `GenerationContext` — the Flash call's cost isn't folded into a run's usage
- * accumulator. It IS gated by the same monthly spend cap as the chat route,
- * though: a `POST` from a user already over budget 429s before any model work,
- * so eager extraction can't keep billing past the cap.
+ * accumulator. It IS gated by the same monthly actual-cost backstop as the chat
+ * route, though: a `POST` from a user already over budget 429s before any model
+ * work, so eager extraction can't keep billing past the backstop.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -38,11 +38,12 @@ import {
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import {
 	loadAssetForOwner,
 	MediaAssetOwnershipError,
 } from "@/lib/db/mediaAssets";
-import { getMonthlyUsage, MONTHLY_SPEND_CAP_USD } from "@/lib/db/usage";
+import { getMonthlyUsage } from "@/lib/db/usage";
 import {
 	asAssetId,
 	EXTRACTOR_VERSION,
@@ -119,7 +120,7 @@ export async function POST(
 			rawAssetId,
 		);
 
-		// Gate eager extraction by the same monthly spend cap as the chat route — a
+		// Gate eager extraction by the same monthly actual-cost backstop as the chat route — a
 		// user over budget shouldn't keep triggering paid model calls. (The
 		// content-hash cache already makes a repeat extraction of the same document
 		// free; this bounds the distinct-document and failed-retry cost.) Fails
@@ -128,7 +129,7 @@ export async function POST(
 		// transient read error pauses extraction rather than waving it through.
 		try {
 			const usage = await getMonthlyUsage(session.user.id);
-			if ((usage?.cost_estimate ?? 0) >= MONTHLY_SPEND_CAP_USD) {
+			if ((usage?.cost_estimate ?? 0) >= ACTUAL_COST_BACKSTOP_USD) {
 				throw new ApiError(
 					"You've reached this month's usage limit, so document extraction is paused until it resets. Your file is still saved.",
 					429,

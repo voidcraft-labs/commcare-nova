@@ -17,6 +17,10 @@
  */
 import { FieldValue } from "@google-cloud/firestore";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+/* Type-only — erased at runtime, so it does not import the real `runSummary`
+ * module before the Firestore mock is installed (the tests `await import` the
+ * writer itself for that reason). */
+import type { RunSummaryWriteAction } from "../runSummary";
 import { type RunSummaryDoc, runSummaryDocSchema } from "../types";
 
 /**
@@ -149,15 +153,18 @@ describe("writeRunSummary", () => {
 		txSet.mockReset();
 		runTransactionMock.mockReset();
 		/* Default: drive the closure exactly once with a tx object backed
-		 * by our spies. Tests that need retry behavior override this. */
+		 * by our spies, and RETURN its value so the writer's action result
+		 * (`created` / `incremented` / `overwritten`) propagates out of the
+		 * mocked transaction exactly as the real `runTransaction` would.
+		 * Tests that need retry behavior override this. */
 		runTransactionMock.mockImplementation(
 			async (
 				closure: (tx: {
 					get: typeof txGet;
 					set: typeof txSet;
-				}) => Promise<void>,
+				}) => Promise<RunSummaryWriteAction>,
 			) => {
-				await closure({ get: txGet, set: txSet });
+				return await closure({ get: txGet, set: txSet });
 			},
 		);
 	});
@@ -415,13 +422,51 @@ describe("writeRunSummary", () => {
 	/**
 	 * Firestore errors are swallowed inside `writeRunSummary` — observability
 	 * writes must never fail the request path. A rejected `runTransaction`
-	 * must still leave the returned promise resolved.
+	 * resolves to the `"failed"` action sentinel (not a throw), which the
+	 * finalize log records so a Firestore-outage run is distinguishable from a
+	 * clean write.
 	 */
-	it("swallows runTransaction failures so the caller's await resolves", async () => {
+	it("swallows runTransaction failures and resolves to the failed action", async () => {
 		runTransactionMock.mockRejectedValue(new Error("firestore down"));
 		const { writeRunSummary } = await import("../runSummary");
-		await expect(
-			writeRunSummary("app-1", "run-xyz", delta),
-		).resolves.toBeUndefined();
+		await expect(writeRunSummary("app-1", "run-xyz", delta)).resolves.toBe(
+			"failed",
+		);
+	});
+
+	/**
+	 * The action result drives the per-run finalize log's `summaryAction`
+	 * field. `created` (no prior doc) and `incremented` (prior doc parsed) are
+	 * healthy; `overwritten` is the silent-clobber signal — a prior doc existed
+	 * but failed schema parse, so its accumulated totals were just dropped.
+	 */
+	describe("write action result", () => {
+		it("returns 'created' when no prior doc exists", async () => {
+			txGet.mockResolvedValue({ exists: false, data: () => undefined });
+			const { writeRunSummary } = await import("../runSummary");
+			await expect(writeRunSummary("app-1", "run-xyz", delta)).resolves.toBe(
+				"created",
+			);
+		});
+
+		it("returns 'incremented' when a prior doc parses cleanly", async () => {
+			// `delta` is itself a valid RunSummaryDoc, so it doubles as a parseable prior.
+			txGet.mockResolvedValue({ exists: true, data: () => delta });
+			const { writeRunSummary } = await import("../runSummary");
+			await expect(writeRunSummary("app-1", "run-xyz", delta)).resolves.toBe(
+				"incremented",
+			);
+		});
+
+		it("returns 'overwritten' when a prior doc fails schema parse (silent clobber)", async () => {
+			txGet.mockResolvedValue({
+				exists: true,
+				data: () => ({ runId: "run-xyz", bogus: "unparseable" }),
+			});
+			const { writeRunSummary } = await import("../runSummary");
+			await expect(writeRunSummary("app-1", "run-xyz", delta)).resolves.toBe(
+				"overwritten",
+			);
+		});
 	});
 });

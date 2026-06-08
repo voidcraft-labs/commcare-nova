@@ -15,6 +15,7 @@ import type { ErrorType } from "@/lib/agent";
 import { log } from "@/lib/logger";
 import { toPersistableDoc } from "../doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "../domain/blueprint";
+import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
 import type { AppDoc } from "./types";
 
@@ -259,18 +260,24 @@ export async function hasActiveGeneration(
 
 	for (const doc of snap.docs) {
 		if (doc.id === excludeAppId) continue;
+		/* A build paused on an `askQuestions` round is alive but process-less (it
+		 * resumes on a later POST). It must NOT be reaped (its hold is live) and must
+		 * NOT block a new build — an abandoned-at-questions build would otherwise lock
+		 * the user out of generating forever. Skip it on both counts. */
+		if (doc.data().awaiting_input) continue;
 		const updatedAt = (doc.data().updated_at as Timestamp)?.toDate();
 		if (!updatedAt) {
 			/* No updated_at means a corrupt or very old doc — definitively dead. */
-			failApp(doc.id, "internal");
+			void reapStaleGenerating(doc.id);
 			continue;
 		}
 
 		/* Still within the generation window — a live build is in progress. */
 		if (now - updatedAt.getTime() <= maxAgeMs) return true;
 
-		/* Stale — infer failure so it won't block future checks. */
-		failApp(doc.id, "internal");
+		/* Stale — reap it (refund the stranded hold + flip to error) so a dead
+		 * build doesn't block future generations. */
+		void reapStaleGenerating(doc.id);
 	}
 
 	return false;
@@ -428,6 +435,96 @@ export function failApp(appId: string, errorType: ErrorType): void {
 			{ merge: true },
 		)
 		.catch((err) => log.error("[failApp] Firestore write failed", err));
+}
+
+/**
+ * Set or clear a build's `awaiting_input` pause flag.
+ *
+ * `true` when the SA pauses on an `askQuestions` round (so the staleness reaper
+ * skips the live paused build); `false` when a POST resumes the run.
+ *
+ * Clearing ALSO re-arms `updated_at`. The flag — not a fresh timestamp — is what
+ * spared the row from staleness during the pause, so removing it must hand the
+ * resuming run a fresh staleness window. Otherwise the run is born STALE (its
+ * `updated_at` is still the pre-pause value, already past the window) and a
+ * concurrent `listApps` scan — whose reaper excludes no appId — could refund the
+ * still-LIVE hold and flip the row to `error` before the resume's first mutation
+ * advances the clock. A genuinely-dead resume still reaps, just one window later.
+ * The SET path must NOT bump the clock (the flag, not the timestamp, protects a
+ * pause; bumping there would only blur a real hard-kill's staleness).
+ *
+ * Returns the (self-catching) write promise. The route AWAITS the pause SET so
+ * the flag is durably recorded before the response resolves — a container kill
+ * after that point can't drop it and leave a live paused build reapable. The
+ * resume CLEAR stays fire-and-forget (its rare write-failure degrades to the
+ * already-accepted "abandoned paused build keeps its charge"). Either way the
+ * write lands in milliseconds, far inside the 10-minute staleness window.
+ */
+export function setAwaitingInput(
+	appId: string,
+	awaiting: boolean,
+): Promise<void> {
+	return docs
+		.app(appId)
+		.set(
+			awaiting
+				? { awaiting_input: true }
+				: { awaiting_input: false, updated_at: FieldValue.serverTimestamp() },
+			{ merge: true },
+		)
+		.then(
+			// Discard the WriteResult so the promise is `void`, and swallow errors
+			// (observability must never block the response) — the same fire-and-forget
+			// contract `failApp` has, just awaitable for the durable pause SET.
+			() => {},
+			(err) => {
+				log.error("[setAwaitingInput] Firestore write failed", err);
+			},
+		);
+}
+
+/**
+ * Reap a stale `generating` app: refund its stranded credit reservation, THEN
+ * flip it to `error`.
+ *
+ * This is the dedicated reap path for a build the process never finished — a
+ * hard kill (deploy SIGTERM, OOM, scale-in) before any in-process finalize ran,
+ * which leaves the credit hold stranded because the live refund only runs from a
+ * flush. Plain `failApp` writes status only; this also returns the credits.
+ *
+ * The refund precedes the status flip ON PURPOSE: while the app is still
+ * `generating` it remains reapable, so if this process dies after the refund but
+ * before the flip, the next list/concurrency scan reaps it again —
+ * `refundReservation` is idempotent (the settled marker), so the retry settles
+ * nothing twice and `failApp` finishes the transition. Flipping first would close
+ * the `generating` window before the refund landed and strand the hold forever.
+ * A refund failure returns early (no status flip) for the same reason: leave the
+ * row reapable so the refund is retried, rather than marking it done with the
+ * hold still booked.
+ *
+ * An app with no marker (created before reservations shipped, or whose run never
+ * reserved) reaps to `error` with no refund — `refundReservation` no-ops on the
+ * absent marker. Fire-and-forget at the call sites, like `failApp`: a transient
+ * failure self-heals on the next scan.
+ *
+ * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only
+ * `createApp` writes (a new build). A chargeable EDIT reserves credits but keeps
+ * its app `complete`, so a hard-killed edit's 5-credit hold is never reaped — an
+ * accepted residual (small and rare). Builds are the high-value case (100
+ * credits) this reaper exists for.
+ */
+export async function reapStaleGenerating(appId: string): Promise<void> {
+	try {
+		await refundReservation(appId);
+	} catch (err) {
+		log.error("[reapStaleGenerating] reservation refund failed", err, {
+			appId,
+		});
+		// Leave the row `generating` so the next scan retries the refund before the
+		// status flip closes the reapable window.
+		return;
+	}
+	failApp(appId, "internal");
 }
 
 /**
@@ -595,6 +692,9 @@ const SUMMARY_FIELDS = [
 	"module_count",
 	"form_count",
 	"status",
+	// Projected so `projectAppSummary`'s staleness reaper can exclude a live build
+	// paused on an `askQuestions` round (it must not refund a paused hold).
+	"awaiting_input",
 	"error_type",
 	// The logo lives inside the blueprint; a dotted field path reads JUST that
 	// leaf (not the large blueprint map), so the app list shows it for every
@@ -738,13 +838,18 @@ function projectAppSummary(
 	/* Timeout inference — if an app's last Firestore write was longer ago
 	 * than the staleness window, the generation process is dead. Intermediate
 	 * saves advance `updated_at` during generation, so an actively-running
-	 * build always has a recent `updated_at`. The `failApp` write is fire-
-	 * and-forget; the projected row reflects the inferred state immediately
-	 * so the caller never sees stale data even if the write races. */
+	 * build always has a recent `updated_at`. The reap (refund the stranded
+	 * credit hold + flip to error) is fire-and-forget; the projected row below
+	 * reflects the inferred `error` state immediately so the caller never sees
+	 * stale data even though the reap transaction settles asynchronously. */
 	const isStale =
-		data.status === "generating" && now - updatedAt.getTime() > maxAgeMs;
+		data.status === "generating" &&
+		// A build paused on an `askQuestions` round is alive (awaiting the user), not
+		// dead — exclude it so the reaper never refunds a live paused hold.
+		!data.awaiting_input &&
+		now - updatedAt.getTime() > maxAgeMs;
 	if (isStale) {
-		failApp(doc.id, "internal");
+		void reapStaleGenerating(doc.id);
 	}
 
 	return {

@@ -2,10 +2,13 @@
  * Event-stream analytics for diagnostic scripts.
  *
  * Operates on the Phase-4 unified `Event[]` shape (mutation + conversation
- * events) as produced by the writer in `lib/log/writer.ts`. Cost analytics
- * are no longer derived here — they live on the per-run summary doc at
- * `apps/{appId}/runs/{runId}` (see `lib/db/runSummary.ts`). Scripts fetch
- * that doc directly when they need cost totals.
+ * events) as produced by the writer in `lib/log/writer.ts`. Token-cost TOTALS
+ * (input/output/cache) live on the per-run summary doc at
+ * `apps/{appId}/runs/{runId}` (see `lib/db/runSummary.ts`) — fetch that for
+ * "how much did this run cost." But per-TOOL result SIZES — the context-cost
+ * proxy for "which tool's output inflated it" — ARE derived here from the
+ * event log's `tool-result.output` (see `computeToolUsage`), because the
+ * summary's aggregates can't attribute cost to a specific tool.
  *
  * All functions are pure: they take event arrays and return computed
  * results. No Firestore access.
@@ -36,29 +39,68 @@ export function groupByRun(events: Event[]): Map<string, Event[]> {
 
 // ── Tool usage ──────────────────────────────────────────────────────
 
-/** A single row in the tool-usage distribution table. */
+/**
+ * A single row in the tool-usage distribution table.
+ *
+ * Carries both the call count AND the per-tool RESULT SIZE — the serialized
+ * length of every `tool-result` `output` this tool produced. Result size is
+ * the per-tool proxy for context cost: a tool result re-rides the agent's
+ * context on every subsequent step, so a tool that returns large payloads
+ * (a verbatim config dump, an unbounded match list) is what inflates the
+ * cache read/write tokens the run summary only shows in aggregate. The run
+ * summary has the token TOTALS; this is where you find WHICH tool owns them.
+ */
 export interface ToolUsageRow {
 	tool: string;
 	calls: number;
+	/** Number of `tool-result` events seen for this tool (≈ calls). */
+	results: number;
+	/** Σ serialized `output` bytes across this tool's results. */
+	totalOutputBytes: number;
+	/** Largest single result's serialized `output` bytes. */
+	maxOutputBytes: number;
 }
 
 /**
- * Count how many `tool-call` conversation events each tool produced.
- * Sorted by call count descending so the most active tools surface first.
- * Tool results are intentionally ignored — every call has exactly one
- * matching result, so counting both would double every row.
+ * Aggregate per-tool call counts AND result-output sizes from the event log.
+ * Counts come from `tool-call` events; sizes from the serialized `output` of
+ * the paired `tool-result` events. Sorted by total output bytes descending so
+ * the biggest context-cost contributor surfaces first (call count is a weak
+ * proxy — one verbose result outweighs ten terse ones).
  */
 export function computeToolUsage(events: Event[]): ToolUsageRow[] {
-	const counts = new Map<string, number>();
+	const rows = new Map<string, ToolUsageRow>();
+	const row = (tool: string): ToolUsageRow => {
+		let r = rows.get(tool);
+		if (!r) {
+			r = {
+				tool,
+				calls: 0,
+				results: 0,
+				totalOutputBytes: 0,
+				maxOutputBytes: 0,
+			};
+			rows.set(tool, r);
+		}
+		return r;
+	};
 	for (const event of events) {
 		if (event.kind !== "conversation") continue;
-		if (event.payload.type !== "tool-call") continue;
-		const prev = counts.get(event.payload.toolName) ?? 0;
-		counts.set(event.payload.toolName, prev + 1);
+		if (event.payload.type === "tool-call") {
+			row(event.payload.toolName).calls += 1;
+		} else if (event.payload.type === "tool-result") {
+			const r = row(event.payload.toolName);
+			// Serialized length is the size the model actually pays for when the
+			// result rides the context (close enough; JSON is the wire shape).
+			const bytes = JSON.stringify(event.payload.output ?? null).length;
+			r.results += 1;
+			r.totalOutputBytes += bytes;
+			if (bytes > r.maxOutputBytes) r.maxOutputBytes = bytes;
+		}
 	}
-	return [...counts.entries()]
-		.map(([tool, calls]) => ({ tool, calls }))
-		.sort((a, b) => b.calls - a.calls);
+	return [...rows.values()].sort(
+		(a, b) => b.totalOutputBytes - a.totalOutputBytes || b.calls - a.calls,
+	);
 }
 
 // ── Timeline ────────────────────────────────────────────────────────

@@ -11,6 +11,26 @@ import { getDb } from "./firestore";
 import { type RunSummaryDoc, runSummaryDocSchema } from "./types";
 
 /**
+ * What `writeRunSummary` did to the on-disk doc — surfaced so the per-run
+ * finalize log can show whether a flush *accumulated* onto the run's running
+ * totals or *replaced* them:
+ *
+ * - `"created"` — first write of this run; no prior doc existed.
+ * - `"incremented"` — a prior doc parsed cleanly and this turn's deltas were
+ *   added via `FieldValue.increment` (the healthy multi-turn path).
+ * - `"overwritten"` — a prior doc existed but FAILED schema parse, so it was
+ *   clobbered with this turn's totals only. This silently drops every earlier
+ *   turn's accumulated counts/cost and is the signal an operator needs when a
+ *   run summary undercounts — it is never a benign outcome.
+ * - `"failed"` — the Firestore transaction threw; nothing was written.
+ */
+export type RunSummaryWriteAction =
+	| "created"
+	| "incremented"
+	| "overwritten"
+	| "failed";
+
+/**
  * Persist the run summary for one request inside a chat thread.
  *
  * A `runId` spans every request in the same thread — initial build plus
@@ -82,7 +102,7 @@ export async function writeRunSummary(
 	appId: string,
 	runId: string,
 	summary: RunSummaryDoc,
-): Promise<void> {
+): Promise<RunSummaryWriteAction> {
 	try {
 		const db = getDb();
 		/* Raw doc ref (no converter) — transactions read and write
@@ -92,42 +112,52 @@ export async function writeRunSummary(
 		 * safe overwrite. */
 		const ref = db.collection("apps").doc(appId).collection("runs").doc(runId);
 
-		await db.runTransaction(async (tx) => {
-			const snap = await tx.get(ref);
-			const raw = snap.exists ? (snap.data() ?? null) : null;
-			const prev = raw ? parseExistingSummary(raw) : null;
+		return await db.runTransaction(
+			async (tx): Promise<RunSummaryWriteAction> => {
+				const snap = await tx.get(ref);
+				const raw = snap.exists ? (snap.data() ?? null) : null;
+				const prev = raw ? parseExistingSummary(raw) : null;
 
-			if (!prev) {
-				tx.set(ref, summary);
-				return;
-			}
+				if (!prev) {
+					tx.set(ref, summary);
+					/* No usable prior doc, so this is a full replace. Separate a
+					 * genuine first write (no doc existed) from a clobber of an
+					 * unparseable doc: `raw === null` means the run had no summary
+					 * yet; a non-null `raw` here means a doc existed but failed
+					 * `parseExistingSummary`, so its accumulated totals were just
+					 * dropped — the diagnostic an undercount investigation needs. */
+					return raw === null ? "created" : "overwritten";
+				}
 
-			/* Merge payload. Fields not included here retain their on-disk
-			 * values via Firestore's `{ merge: true }` semantics — that's
-			 * how the "pinned" bucket stays immutable across turns. */
-			tx.set(
-				ref,
-				{
-					finishedAt: summary.finishedAt,
-					moduleCount: summary.moduleCount,
-					freshEdit: prev.freshEdit || summary.freshEdit,
-					cacheExpired: prev.cacheExpired || summary.cacheExpired,
-					stepCount: FieldValue.increment(summary.stepCount),
-					toolCallCount: FieldValue.increment(summary.toolCallCount),
-					inputTokens: FieldValue.increment(summary.inputTokens),
-					outputTokens: FieldValue.increment(summary.outputTokens),
-					cacheReadTokens: FieldValue.increment(summary.cacheReadTokens),
-					cacheWriteTokens: FieldValue.increment(summary.cacheWriteTokens),
-					costEstimate: FieldValue.increment(summary.costEstimate),
-				},
-				{ merge: true },
-			);
-		});
+				/* Merge payload. Fields not included here retain their on-disk
+				 * values via Firestore's `{ merge: true }` semantics — that's
+				 * how the "pinned" bucket stays immutable across turns. */
+				tx.set(
+					ref,
+					{
+						finishedAt: summary.finishedAt,
+						moduleCount: summary.moduleCount,
+						freshEdit: prev.freshEdit || summary.freshEdit,
+						cacheExpired: prev.cacheExpired || summary.cacheExpired,
+						stepCount: FieldValue.increment(summary.stepCount),
+						toolCallCount: FieldValue.increment(summary.toolCallCount),
+						inputTokens: FieldValue.increment(summary.inputTokens),
+						outputTokens: FieldValue.increment(summary.outputTokens),
+						cacheReadTokens: FieldValue.increment(summary.cacheReadTokens),
+						cacheWriteTokens: FieldValue.increment(summary.cacheWriteTokens),
+						costEstimate: FieldValue.increment(summary.costEstimate),
+					},
+					{ merge: true },
+				);
+				return "incremented";
+			},
+		);
 	} catch (err) {
 		log.error("[writeRunSummary] Firestore write failed", err, {
 			appId,
 			runId,
 		});
+		return "failed";
 	}
 }
 

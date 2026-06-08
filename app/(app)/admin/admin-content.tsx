@@ -26,15 +26,24 @@ export async function AdminContent() {
 
 	return (
 		<div className="space-y-8">
-			<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 				<StatCard label="Total Users" value={String(stats.totalUsers)} />
 				<StatCard
 					label="Generations"
 					value={String(stats.totalGenerations)}
 					subtitle="this month"
 				/>
+				{/* Credits are the primary fleet gate metric, so this card sits
+				    ahead of the dollar spend in reading order. */}
 				<StatCard
-					label="Total Spend"
+					label="Credits Used"
+					value={stats.totalCreditsConsumed.toLocaleString()}
+					subtitle="this month"
+				/>
+				{/* Spend is the true dollar cost now, no longer the user-facing
+				    gate — "Actual Spend" disambiguates it from the credit metric. */}
+				<StatCard
+					label="Actual Spend"
 					value={formatCurrency(stats.totalSpend)}
 					subtitle="this month"
 				/>

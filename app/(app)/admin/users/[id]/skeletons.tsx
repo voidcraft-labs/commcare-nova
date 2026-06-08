@@ -6,12 +6,17 @@
  */
 import { Skeleton } from "@/components/ui/Skeleton";
 
-/** Header column widths for the usage table skeleton (date, count, model, cost). */
+/**
+ * Header column widths for the usage table skeleton — one per real column
+ * (period, generations, tokens, cost, credits used, bonus).
+ */
 const USAGE_HEADER_WIDTHS = [
 	{ id: "date", width: 48 },
 	{ id: "count", width: 72 },
 	{ id: "model", width: 96 },
 	{ id: "cost", width: 40 },
+	{ id: "credits", width: 72 },
+	{ id: "bonus", width: 48 },
 ] as const;
 
 /** Stable keys for usage table body rows. */
@@ -41,6 +46,42 @@ export function ProfileSkeleton() {
 	);
 }
 
+/** Stable keys for the credit balance summary skeleton lines. */
+const CREDIT_SUMMARY_KEYS = ["allowance", "used", "lifetime"] as const;
+
+/**
+ * Credits skeleton — section heading + card with a headline balance, a few
+ * supporting balance lines, and two action-button placeholders. Mirrors the
+ * `CreditControls` card chrome so the layout doesn't shift when it streams in.
+ */
+export function CreditsSkeleton() {
+	return (
+		<section className="space-y-4">
+			<Skeleton className="w-20 h-5" />
+			<div className="bg-nova-deep border border-nova-border rounded-xl p-6 space-y-6">
+				{/* Headline balance + supporting figures */}
+				<div className="flex flex-wrap items-end justify-between gap-6">
+					<div className="space-y-2">
+						<Skeleton className="w-32 h-3" />
+						<Skeleton className="w-20 h-9" />
+						<Skeleton className="w-24 h-4" />
+					</div>
+					<div className="space-y-2">
+						{CREDIT_SUMMARY_KEYS.map((key) => (
+							<Skeleton key={key} className="w-40 h-4" />
+						))}
+					</div>
+				</div>
+				{/* Two action-button placeholders */}
+				<div className="flex gap-3 border-t border-nova-border pt-5">
+					<Skeleton className="w-32 h-8 rounded-lg" />
+					<Skeleton className="w-32 h-8 rounded-lg" />
+				</div>
+			</div>
+		</section>
+	);
+}
+
 /** Usage history skeleton — section heading + table with 3 rows. */
 export function UsageSkeleton() {
 	return (
@@ -63,6 +104,8 @@ export function UsageSkeleton() {
 						<Skeleton className="w-8 h-4" />
 						<Skeleton className="w-24 h-4" />
 						<Skeleton className="w-12 h-4" />
+						<Skeleton className="w-12 h-4" />
+						<Skeleton className="w-8 h-4" />
 					</div>
 				))}
 			</div>
@@ -108,6 +151,7 @@ export function UserDetailPageSkeleton() {
 			</div>
 
 			<ProfileSkeleton />
+			<CreditsSkeleton />
 			<UsageSkeleton />
 			<AppsSkeleton />
 		</main>

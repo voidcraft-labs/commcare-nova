@@ -1,10 +1,11 @@
 /**
- * Account menu — avatar-triggered dropdown with profile, usage, settings link,
- * and sign-out.
+ * Account menu — avatar-triggered dropdown with profile, credit balance,
+ * settings link, and sign-out.
  *
- * Usage data is fetched eagerly on mount so the dropdown opens instantly
- * with no loading state. Re-fetched on every subsequent open to stay
- * current after generations.
+ * The credit summary comes from the shared `useCreditBalance` hook, which
+ * fetches eagerly on mount so the dropdown opens instantly with no loading
+ * state. The menu re-fetches on every subsequent open (via the hook's
+ * `refresh`) to stay current after generations spend credits.
  */
 
 "use client";
@@ -14,18 +15,11 @@ import tablerLogout from "@iconify-icons/tabler/logout";
 import tablerSettings from "@iconify-icons/tabler/settings";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { CreditAmount } from "@/components/ui/CreditAmount";
 import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
+import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
-import { formatCurrency } from "@/lib/utils/format";
-
-/** Response shape from GET /api/user/usage. */
-interface UsageData {
-	cost_estimate: number;
-	request_count: number;
-	cap: number;
-	period: string;
-}
 
 /**
  * Extract up to two initials from a display name.
@@ -38,11 +32,13 @@ function getInitials(name: string): string {
 }
 
 /**
- * Progress bar gradient — violet→cyan by default, shifts to amber→rose
- * when usage exceeds 80% of the cap to signal proximity to the limit.
+ * Credit-gauge gradient. The argument is the fraction of the month's credits
+ * still available, so the bar is healthy violet while credits remain and shifts
+ * to the amber→rose warning once the balance runs low — under 20% of the
+ * month's credits left.
  */
-function getBarGradient(ratio: number): string {
-	if (ratio > 0.8) return "from-nova-amber to-nova-rose";
+function getBarGradient(remainingRatio: number): string {
+	if (remainingRatio < 0.2) return "from-nova-amber to-nova-rose";
 	return "from-nova-violet to-nova-violet-bright";
 }
 
@@ -97,35 +93,23 @@ function UserAvatar({
 
 export function AccountMenu() {
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
-	const [usage, setUsage] = useState<UsageData | null>(null);
 	const [open, setOpen] = useState(false);
 
-	/** Fetch usage from the API and update state. Best-effort — failures are silent.
-	 * Accepts an AbortSignal so callers can cancel in-flight requests on cleanup. */
-	const refreshUsage = useCallback((signal?: AbortSignal) => {
-		fetch("/api/user/usage", { signal })
-			.then((res) => (res.ok ? (res.json() as Promise<UsageData>) : null))
-			.then((data) => {
-				if (data) setUsage(data);
-			})
-			.catch(() => {});
-	}, []);
+	/* Credit summary via the shared hook. It owns the on-mount fetch — gated by
+	 * `isAuthenticated` so it doesn't fire a 401 before sign-in resolves — so the
+	 * dropdown opens instantly with no loading state. `refresh` re-fetches on
+	 * demand for the on-open effect below. */
+	const { summary: usage, refresh } = useCreditBalance(isAuthenticated);
 
-	/* Pre-cache on mount so the first dropdown open shows data instantly. */
-	useEffect(() => {
-		if (!isAuthenticated) return;
-		const controller = new AbortController();
-		refreshUsage(controller.signal);
-		return () => controller.abort();
-	}, [isAuthenticated, refreshUsage]);
-
-	/* Re-fetch on each dropdown open to stay current after generations. */
+	/* Re-fetch on each dropdown open to stay current after generations spend
+	 * credits. The on-mount fetch lives in the hook; this is the only fetch the
+	 * menu drives itself. */
 	useEffect(() => {
 		if (!open || !isAuthenticated) return;
 		const controller = new AbortController();
-		refreshUsage(controller.signal);
+		refresh(controller.signal);
 		return () => controller.abort();
-	}, [open, isAuthenticated, refreshUsage]);
+	}, [open, isAuthenticated, refresh]);
 
 	/* ── Loading placeholder while session check is in flight ────── */
 	if (isPending) {
@@ -137,7 +121,14 @@ export function AccountMenu() {
 	/* Session still loading or somehow unauthenticated — nothing to render */
 	if (!isAuthenticated || !user) return null;
 
-	const usageRatio = usage ? Math.min(usage.cost_estimate / usage.cap, 1) : 0;
+	/* The bar is a fuel gauge: full when fresh, depleting as credits are spent.
+	 * Its denominator is the effective monthly total — allowance + bonus, recovered
+	 * as `balance + consumed` (equal by definition) so a bonused user's extra credits
+	 * count toward the total. The ratio is the fraction still available; clamped to
+	 * [0, 1] and guarding divide-by-zero. */
+	const total = usage ? usage.balance + usage.consumed : 0;
+	const remainingRatio =
+		usage && total > 0 ? Math.min(Math.max(usage.balance / total, 0), 1) : 0;
 
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
@@ -172,22 +163,27 @@ export function AccountMenu() {
 								</div>
 							</div>
 
-							{/* ── Usage bar ──────────────────────────────────── */}
+							{/* ── Credit bar ─────────────────────────────────── */}
 							{usage && (
 								<div className="px-4 pb-3">
 									<div className="flex items-baseline justify-between mb-1.5">
 										<span className="text-[11px] text-nova-text-muted">
-											Usage this month
+											Credits this month
 										</span>
-										<span className="text-[11px] text-nova-text-secondary">
-											{formatCurrency(usage.cost_estimate)} /{" "}
-											{formatCurrency(usage.cap)}
-										</span>
+										{/* Just the remaining balance — no "/ total", no "credits" word. A
+										 * countdown to zero reads fine without the denominator, and dropping the
+										 * trailing text keeps this on one line beside the "Credits this month"
+										 * label instead of wrapping. The bar below still conveys the proportion
+										 * remaining. */}
+										<CreditAmount
+											value={usage.balance}
+											className="text-nova-text-secondary"
+										/>
 									</div>
 									<div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
 										<div
-											className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(usageRatio)} transition-all duration-500`}
-											style={{ width: `${Math.max(usageRatio * 100, 1)}%` }}
+											className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(remainingRatio)} transition-all duration-500`}
+											style={{ width: `${remainingRatio * 100}%` }}
 										/>
 									</div>
 								</div>

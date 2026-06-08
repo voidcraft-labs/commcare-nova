@@ -27,12 +27,20 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
+import { CreditAmount } from "@/components/ui/CreditAmount";
 import {
 	type AttachmentRef,
 	CHAT_ATTACHMENT_KINDS,
 } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import { useCreditBalance } from "@/lib/credits/useCreditBalance";
+// `chargeAmount` is the single source of truth for what an action costs — the
+// same pure rule the server credit gate charges — so the chip can never display
+// a figure that disagrees with the real debit. Client-safe: every import in
+// `creditPolicy` is type-only, so it pulls no Firestore into the bundle.
+import { chargeAmount } from "@/lib/db/creditPolicy";
 import { isDocumentKind } from "@/lib/domain/multimedia";
+import { useBuilderIsReady } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +123,18 @@ export function ChatInput({
 	const [textLength, setTextLength] = useState(0);
 	const [hasText, setHasText] = useState(false);
 	const overLimit = textLength > MAX_CHAT_MESSAGE_CHARS;
+
+	/* Cost-chip data — mirror the server's charge exactly. `useBuilderIsReady` is
+	 * the same `appReady` flag `ChatContainer` puts on the /api/chat request body
+	 * (true once the blueprint is Ready/Completed → an edit; false during a fresh
+	 * build), so the number shown before sending equals what the server debits.
+	 * `chargeAmount` owns the amounts — never hardcode 100/5 here. */
+	const appReady = useBuilderIsReady();
+	const cost = chargeAmount(appReady);
+	/* Best-effort balance for the tooltip's "credits left this month" line; a null
+	 * summary simply omits that line. Default-enabled — the builder always renders
+	 * behind auth, so the fetch can't race sign-in here. */
+	const { summary } = useCreditBalance();
 
 	const addPicked = (asset: MediaAssetView) =>
 		setPicked((cur) =>
@@ -269,14 +289,32 @@ export function ChatInput({
 							<TooltipContent>Attach a file</TooltipContent>
 						</Tooltip>
 					</PromptInputTools>
-					{/* Counter + submit grouped on the right. The counter is hidden until
-					 *  the text nears the limit; the submit is disabled when the text is
-					 *  empty (a staged attachment alone can't send) or over the limit (the
-					 *  text is never truncated — only sending is blocked). While a turn is
-					 *  in flight the whole input is disabled (Nova shows progress on the
-					 *  signal grid, not a stop button), so the submit shows the spinner. */}
+					{/* Counter + cost chip + submit grouped on the right. The counter is
+					 *  hidden until the text nears the limit; the cost chip is a calm,
+					 *  informational hint of what this turn will spend (muted, not a
+					 *  semantic warning — it informs, it doesn't alarm; the number is
+					 *  `chargeAmount(appReady)`, so it tracks the real charge exactly).
+					 *  The submit is disabled when the text is empty (a staged attachment
+					 *  alone can't send) or over the limit (the text is never truncated —
+					 *  only sending is blocked). While a turn is in flight the whole input
+					 *  is disabled (Nova shows progress on the signal grid, not a stop
+					 *  button), so the submit shows the spinner. */}
 					<div className="flex items-center gap-2">
 						<CharCounter length={textLength} max={MAX_CHAT_MESSAGE_CHARS} />
+						<Tooltip>
+							<TooltipTrigger render={<CreditAmount value={cost} />} />
+							<TooltipContent>
+								{appReady
+									? `Edits use ${cost} credits — clarifying questions are free.`
+									: `This build will use ${cost} credits.`}
+								{summary && (
+									<span className="mt-0.5 block text-nova-text-muted">
+										You have {summary.balance.toLocaleString()} credits left
+										this month.
+									</span>
+								)}
+							</TooltipContent>
+						</Tooltip>
 						<PromptInputSubmit
 							disabled={disabled || overLimit || !hasText}
 							status={disabled ? "submitted" : "ready"}
