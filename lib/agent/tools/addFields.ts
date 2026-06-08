@@ -30,7 +30,7 @@ import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { asUuid, isContainer } from "@/lib/domain";
 import { findFieldByBareId, resolveFormContext } from "../blueprintHelpers";
 import {
 	applyDefaults,
@@ -138,7 +138,13 @@ export const addFieldsTool = {
 			let batchInsertParent: Uuid = formUuid;
 			if (batchParentId) {
 				const existing = findFieldByBareId(doc, formUuid, batchParentId);
-				if (existing) batchInsertParent = existing.field.uuid;
+				// Only a container can be a parent — a `parentId` naming a leaf
+				// field falls through to form-level (matching the per-field path
+				// below). Nesting under a leaf would make every batch field
+				// invisible to the emitter.
+				if (existing && isContainer(existing.field)) {
+					batchInsertParent = existing.field.uuid;
+				}
 			}
 			let topLevelNextIndex: number | undefined;
 			if (beforeFieldId || afterFieldId) {
@@ -157,9 +163,9 @@ export const addFieldsTool = {
 			// and assemble the domain `Field` shape. The SA emits flat items
 			// with semantic `parentId` — resolve each to a uuid by id lookup
 			// within the form's existing + newly-added fields. If the SA
-			// refers to a parent added earlier in this same batch, we find
-			// it in `mintedByBareId` before falling back to the doc-wide
-			// lookup.
+			// refers to a CONTAINER added earlier in this same batch, we find
+			// it in `mintedByBareId` (which records only containers) before
+			// falling back to the doc-wide lookup.
 			const mintedByBareId = new Map<string, Uuid>();
 			const mutations: Mutation[] = [];
 			const skipped: Array<{ id: string; reason: string }> = [];
@@ -191,9 +197,15 @@ export const addFieldsTool = {
 						parentUuid = minted;
 					} else {
 						const existing = findFieldByBareId(doc, formUuid, parentId);
-						if (existing) parentUuid = existing.field.uuid;
-						// If we can't resolve, fall through to form-level
-						// insert — better to land somewhere than to fail.
+						if (existing && isContainer(existing.field)) {
+							parentUuid = existing.field.uuid;
+						}
+						// A non-existent parentId, or one naming a non-container
+						// (a leaf field), falls through to form-level insert.
+						// Never nest under a leaf: the reducer would create a
+						// child order under it and the emitter — which only
+						// recurses into containers — would silently drop the
+						// field.
 					}
 				}
 
@@ -209,7 +221,10 @@ export const addFieldsTool = {
 					continue;
 				}
 				const field = assembled.field;
-				mintedByBareId.set(field.id, fieldUuid);
+				// Only containers can parent a later field in this batch;
+				// recording only them keeps the minted-parent lookup from
+				// resolving to a leaf.
+				if (isContainer(field)) mintedByBareId.set(field.id, fieldUuid);
 				// Top-level batch fields honor the anchor (a contiguous block at
 				// the resolved index, walking forward per field); everything else
 				// — fields nested under their own parentId, or any field when no

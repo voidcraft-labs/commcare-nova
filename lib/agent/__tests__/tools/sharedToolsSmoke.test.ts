@@ -333,6 +333,45 @@ describe("addFields add-path pipeline", () => {
 		expect(addedUnder("height")).toBe(groupUuid("vitals"));
 		expect(addedUnder("weight")).toBe(groupUuid("history"));
 	});
+
+	it("a parentId naming a leaf (non-container) field falls through to form-level", async () => {
+		// Regression guard for the isContainer check folded in from the
+		// deleted single `addField`. `findFieldByBareId` matches any field by
+		// id, so without the guard a parentId naming a leaf (`patient_name`,
+		// the seed text field) would nest the new field under it — the reducer
+		// admits any present field as a parent, and the emitter (which only
+		// recurses into containers) would then silently drop the field. The
+		// guard must land it at the form root instead.
+		const doc = makeFixtureDoc();
+		const seedCtx = makeTestContext().ctx;
+		const { newDoc: seeded } = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [{ id: "patient_name", kind: "text", label: "Name" }],
+			},
+			seedCtx,
+			doc,
+		);
+
+		const ctx = makeTestContext().ctx;
+		const { mutations } = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				parentId: "patient_name", // a leaf field — not a valid parent
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			},
+			ctx,
+			seeded,
+		);
+
+		const dobParent = mutations.find(
+			(m): m is Extract<Mutation, { kind: "addField" }> =>
+				m.kind === "addField" && m.field.id === "dob",
+		)?.parentUuid;
+		expect(dobParent).toBe(seeded.formOrder[MOD_A][0]); // the form, not patient_name
+	});
 });
 
 // ── updateForm partial-connect regression ───────────────────────────────

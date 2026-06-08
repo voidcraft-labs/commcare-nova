@@ -94,15 +94,9 @@ export const addCaseListColumnsTool = {
 
 			const uuids = columns.map(() => newUuid());
 			const stamped = columns.map((c, i) => stampColumnUuid(c, uuids[i]));
+			// `addColumnsMutation` can't fail on a resolved module — it returns
+			// `CaseListMutationOk` (no error arm), so there's no error branch here.
 			const result = addColumnsMutation(mod, stamped);
-			if ("error" in result) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: { error: result.error },
-				};
-			}
 
 			const newDoc = applyToDoc(doc, result.mutations);
 			await ctx.recordMutations(

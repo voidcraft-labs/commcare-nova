@@ -71,25 +71,18 @@ import { validateAppTool } from "./tools/validateApp";
 export { validateAndFix } from "./validationLoop";
 
 /**
- * Names of SA tools exposed only in build mode. Declared as string
- * literals so the array is module-scope (the concrete tool record lives
- * inside the factory closure, bound to `ctx` and `doc`).
+ * Names of SA tools exposed only in build mode. Declared as module-scope
+ * string literals so `BuildOnlyToolName` can pin them: the factory applies a
+ * matching `satisfies Record<BuildOnlyToolName, …>` to its generation-tool
+ * record, so adding/removing/renaming a generation tool without updating this
+ * list breaks compilation.
  *
- * The chat route uses this list to strip build-only tool-use parts from
- * message history on edit-mode requests — Anthropic rejects any tool
- * reference whose name isn't in the current tools array, and a
- * mid-session edit right after a build would otherwise carry these
- * references in its history.
- *
- * `BuildOnlyToolName` pins the list to its literal values; the factory
- * applies a matching `satisfies Record<BuildOnlyToolName, …>` to its
- * generation-tool record so a rename on either side breaks compilation
- * on the other.
+ * NOT used to strip message history — the chat route drops any tool-use part
+ * whose name isn't in the live tool set (`Object.keys(sa.tools)`), which
+ * covers build-only AND removed/renamed tools without a hand-kept list. So
+ * this const is purely the compile-time tie for the build/edit tool split.
  */
-export const BUILD_ONLY_TOOL_NAMES = [
-	"generateSchema",
-	"generateScaffold",
-] as const;
+const BUILD_ONLY_TOOL_NAMES = ["generateSchema", "generateScaffold"] as const;
 
 type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
 

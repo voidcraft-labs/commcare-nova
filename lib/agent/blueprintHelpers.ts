@@ -376,13 +376,23 @@ export function setFormMediaMutations(
 // agent-specific.
 
 /**
- * Tagged result of a case-list-config mutation builder. The success
- * arm carries the ready-to-record `Mutation[]`; the failure arm carries
- * a single human-readable error string.
+ * Success arm of a case-list-config mutation builder — the ready-to-record
+ * `Mutation[]`. The list-append builders (`addColumnsMutation` /
+ * `addSearchInputsMutation`) return ONLY this: a resolved `Module` can't
+ * fail to append, so they carry no error arm and their callers need no
+ * error branch.
  */
-export type CaseListMutationResult =
-	| { ok: true; mutations: Mutation[] }
-	| { error: string };
+export interface CaseListMutationOk {
+	ok: true;
+	mutations: Mutation[];
+}
+
+/**
+ * Tagged result of an addressed case-list-config mutation builder
+ * (update / remove / reorder), which CAN fail on an unknown uuid. The
+ * failure arm carries a single human-readable error string.
+ */
+export type CaseListMutationResult = CaseListMutationOk | { error: string };
 
 /**
  * Append one or more columns to a module's case-list `columns` array in a
@@ -397,7 +407,7 @@ export type CaseListMutationResult =
 export function addColumnsMutation(
 	mod: Module,
 	columns: readonly Column[],
-): CaseListMutationResult {
+): CaseListMutationOk {
 	const base = snapshotCaseListConfig(mod);
 	return {
 		ok: true,
@@ -494,11 +504,12 @@ export function reorderColumnsMutation(
 }
 
 /** Search-input parallel of `addColumnsMutation` — appends one or more
- *  inputs (in order) in a single patch. */
+ *  inputs (in order) in a single patch. Always succeeds (see
+ *  `CaseListMutationOk`). */
 export function addSearchInputsMutation(
 	mod: Module,
 	searchInputs: readonly SearchInputDef[],
-): CaseListMutationResult {
+): CaseListMutationOk {
 	const base = snapshotCaseListConfig(mod);
 	return {
 		ok: true,

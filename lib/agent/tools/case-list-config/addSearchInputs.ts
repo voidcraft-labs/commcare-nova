@@ -89,15 +89,10 @@ export const addSearchInputsTool = {
 			const stamped = searchInputs.map((s, i) =>
 				stampSearchInputUuid(s, uuids[i]),
 			);
+			// `addSearchInputsMutation` can't fail on a resolved module — it
+			// returns `CaseListMutationOk` (no error arm), so there's no error
+			// branch here.
 			const result = addSearchInputsMutation(mod, stamped);
-			if ("error" in result) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: { error: result.error },
-				};
-			}
 
 			const newDoc = applyToDoc(doc, result.mutations);
 			await ctx.recordMutations(
