@@ -17,6 +17,7 @@ import {
 	CaseTypeNotInBlueprintError,
 	withOwnerContext,
 } from "@/lib/case-store";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import { caseListConfigSchema } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
@@ -268,7 +269,15 @@ export async function loadCaseListPreviewAction(args: {
 					: "Case-list configuration is malformed.";
 			return { kind: "invalid-config", message };
 		}
-		const parsedBlueprint = blueprintDocSchema.safeParse(args.blueprint);
+		// `pickBlueprintDoc` ships the doc-store snapshot with the
+		// in-memory `fieldParent` reverse index attached; the persisted
+		// schema doesn't declare it and `blueprintDocSchema` is
+		// `.strict()`, so parsing the raw value rejects `fieldParent` as
+		// an unrecognized key. Strip it to the persistable shape first —
+		// the re-attach below restores it for `buildCaseTypeMap`'s type.
+		const parsedBlueprint = blueprintDocSchema.safeParse(
+			toPersistableDoc(args.blueprint),
+		);
 		if (!parsedBlueprint.success) {
 			const firstIssue = parsedBlueprint.error.issues[0];
 			const message =
@@ -355,7 +364,13 @@ export async function loadFilterPreviewAction(args: {
 					: "Case-list configuration is malformed.";
 			return { kind: "invalid-config", message };
 		}
-		const parsedBlueprint = blueprintDocSchema.safeParse(args.blueprint);
+		// Strip the in-memory `fieldParent` index before the strict
+		// parse — mirrors `loadCaseListPreviewAction`. `pickBlueprintDoc`
+		// ships it on the wire and `blueprintDocSchema` is `.strict()`,
+		// so the raw value would be rejected as an unrecognized key.
+		const parsedBlueprint = blueprintDocSchema.safeParse(
+			toPersistableDoc(args.blueprint),
+		);
 		if (!parsedBlueprint.success) {
 			const firstIssue = parsedBlueprint.error.issues[0];
 			const message =
