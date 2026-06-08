@@ -286,6 +286,10 @@ describe("proxy: commcare.app (main) routing", () => {
 		expect(csp).not.toBeNull();
 		/* The CSP must include a nonce-bearing script-src directive. */
 		expect(csp).toMatch(/script-src[^;]*'nonce-[^']+'/);
+		/* connect-src must permit the cross-origin V4 signed-URL PUT that
+		 * media uploads make straight to GCS; without it the upload is
+		 * CSP-blocked in prod (reads are proxied same-origin and need it not). */
+		expect(csp).toMatch(/connect-src[^;]*https:\/\/storage\.googleapis\.com/);
 	});
 
 	it("forwards CSP and x-nonce on the request so Next.js can auto-nonce framework scripts", () => {
@@ -320,6 +324,15 @@ describe("proxy: commcare.app (main) routing", () => {
 
 	it("passes through /api/chat (short-circuit, no CSP)", () => {
 		const res = proxy(req("commcare.app", "/api/chat"));
+		expectBypassPassthrough(res);
+	});
+
+	it("passes through /api/media/library (regression: was 404'd off-allowlist)", () => {
+		/* The media routes are on the main allowlist, so they reach the
+		 * API short-circuit instead of the off-allowlist 404. Direct guard
+		 * against the prod regression where every `/api/media/*` request
+		 * 404'd before reaching its handler. */
+		const res = proxy(req("commcare.app", "/api/media/library"));
 		expectBypassPassthrough(res);
 	});
 

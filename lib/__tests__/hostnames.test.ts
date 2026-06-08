@@ -70,6 +70,22 @@ describe("isPathAllowedOnHost", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/mcp")).toBe(false);
 		expect(isPathAllowedOnHost(HOSTNAMES.main, "/mcp")).toBe(false);
 	});
+	it("allows /api/media only on the main host", () => {
+		/* The media routes (library, upload, asset read/delete, extract)
+		 * are builder-app surfaces, so they live on the main host only —
+		 * never the MCP or docs subdomains. Regression guard: these routes
+		 * shipped in #45 without an allowlist entry and 404'd in prod for
+		 * every request until #58 made them a user-facing flow. */
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/media")).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/media/library")).toBe(
+			true,
+		);
+		expect(
+			isPathAllowedOnHost(HOSTNAMES.main, "/api/media/abc-123/extract"),
+		).toBe(true);
+		expect(isPathAllowedOnHost(HOSTNAMES.mcp, "/api/media")).toBe(false);
+		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/api/media")).toBe(false);
+	});
 	it("allows docs search only on the docs host", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.docs, "/api/search")).toBe(true);
 		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/search")).toBe(false);
