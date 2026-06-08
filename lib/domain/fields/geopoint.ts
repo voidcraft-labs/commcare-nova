@@ -6,8 +6,9 @@
 //
 // No validate/validate_msg — coordinate values from the GPS sensor are
 // structurally fixed and don't benefit from XPath constraint expressions.
-// calculate and default_value are still valid for pre-populating coordinates
-// (e.g. loading a saved location from a case property).
+// `default_value` is valid for pre-populating coordinates (e.g. loading a
+// saved location from a case property); a computed coordinate belongs on a
+// `hidden` field, not a `calculate` on this visible capture control.
 
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import { z } from "zod";
@@ -16,7 +17,6 @@ import { inputFieldBaseSchema } from "./base";
 
 export const geopointFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("geopoint"),
-	calculate: z.string().optional(),
 	default_value: z.string().optional(),
 });
 

@@ -20,7 +20,7 @@ describe("classifyError", () => {
 		const result = classifyError(err);
 		expect(result.type).toBe("api_server");
 		expect(result.message).toBe(
-			"The AI service returned an error. Please try again.",
+			"Nova ran into a server error. Please try again.",
 		);
 		// The raw body is preserved for server-side logging.
 		expect(result.raw).toContain("api_error");

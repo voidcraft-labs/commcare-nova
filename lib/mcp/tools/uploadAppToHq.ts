@@ -10,6 +10,12 @@
  * HQ has no atomic update API, so every call produces a brand-new app
  * in the target project — the returned `hq_app_id` is always fresh.
  *
+ * The upload is media-ON and two-phase: import the media-bearing HQ JSON
+ * first (forms carry `jr://file/commcare/...` itext references), then
+ * upload each asset's bytes against the new app so HQ maps them by path.
+ * A media failure leaves the created app intact and surfaces as a
+ * warning — it never fails the upload.
+ *
  * Target space — the optional `domain` argument:
  *   An HQ API key can reach several project spaces (an unscoped key reaches
  *   every space its owner belongs to). Omitting `domain` works only when the
@@ -33,9 +39,16 @@
  *   4. `domain_ambiguous`       — multi-space key with no `domain` supplied;
  *                                 the tool names the spaces and asks the
  *                                 caller to choose rather than guessing.
- *   5. `hq_upload_failed`       — `importApp` returned a non-success
- *                                 response (HQ rejected the upload, network
- *                                 fault, or 5xx from HQ).
+ *   5. `invalid_input`          — the app references media that isn't ready
+ *                                 to upload (a deleted, still-uploading,
+ *                                 foreign-owned, or kind-mismatched asset).
+ *                                 Fires after domain resolution, before the
+ *                                 HQ network call; the message carries the
+ *                                 media rule's Elm-shape text.
+ *   6. `hq_upload_failed`       — `importApp` returned a non-success
+ *                                 response (HQ rejected the upload or
+ *                                 returned 5xx). A thrown transport fault
+ *                                 goes through the shared MCP classifier.
  *
  * (`not_found` from the ownership pre-gate is also possible but not
  * actionable — it collapses cross-tenant probes to the same shape as
@@ -55,11 +68,17 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { importApp } from "@/lib/commcare/client";
+import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
+import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { log } from "@/lib/logger";
+import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { initMcpCall } from "../context";
 import {
+	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
@@ -214,6 +233,25 @@ export function registerUploadAppToHq(
 						appId,
 					);
 				}
+				/* Media gate — this upload is media-ON, so a stale media
+				 * reference (deleted, still-uploading, foreign-owned, or
+				 * kind-mismatched asset) would make `expandDoc` throw
+				 * `requireAssetRef`, surfacing as an opaque `internal`
+				 * error. Run the media rules first and throw the actionable
+				 * message as `McpInvalidInputError` so the outer catch's
+				 * `toMcpErrorResult` emits an `invalid_input` envelope with
+				 * the rule's Elm-shape text. Thrown before run-id derivation
+				 * + `initMcpCall` so a media-invalid doc never allocates a
+				 * LogWriter. */
+				const mediaErrors = await collectMediaValidationErrors(doc, ctx.userId);
+				if (mediaErrors.length > 0) {
+					throw new McpInvalidInputError(
+						`This app references media that isn't ready to upload: ${mediaErrors
+							.map(errorToString)
+							.join(" ")}`,
+					);
+				}
+
 				const targetDomain = credResult.domain.name;
 
 				/* Derive the run id from the app's own state (see
@@ -243,12 +281,26 @@ export function registerUploadAppToHq(
 						app_id: appId,
 					});
 
+					/* Media manifest, resolved once with bytes. The upload
+					 * path is media-ON: the expanded forms carry the
+					 * `jr://file/commcare/<hash><ext>` itext references and
+					 * the bytes follow via the multimedia upload below. One
+					 * resolution pass feeds both the expander (references +
+					 * `multimedia_map`) and the byte upload, so the
+					 * references emitted and the files sent come from the
+					 * same source. An empty manifest (media-free app) makes
+					 * the upload step a no-op. */
+					const manifest = await resolveMediaManifest(doc, ctx.userId, {
+						withBytes: true,
+					});
+
 					/* Gate 3 — the only network call. The SSRF boundary
 					 * lives inside `importApp` via the hardcoded
 					 * `COMMCARE_HQ_URL`. `expandDoc` materializes the
-					 * `HqApplication` JSON HQ's `/api/import_app/`
-					 * endpoint expects. */
-					const hqJson = expandDoc(doc);
+					 * media-ON `HqApplication` JSON HQ's `/api/import_app/`
+					 * endpoint expects; the app id it returns goes in the
+					 * media upload URL. */
+					const hqJson = expandDoc(doc, { assets: manifest });
 					/* App name defaulting: `?.trim() || app.app_name` maps
 					 * both omitted and whitespace-only inputs to the
 					 * blueprint's denormalized name — which is non-empty
@@ -271,6 +323,59 @@ export function registerUploadAppToHq(
 						);
 					}
 
+					/* App is created; ship its media as ONE bulk ZIP to HQ's
+					 * api-key-authed `upload_multimedia_api`, which unzips and
+					 * matches each entry to the app's `jr://` references (the
+					 * per-kind endpoints are session-only — see
+					 * `uploadAppMediaBundle`). A media failure never invalidates
+					 * the (already-created) app — it surfaces as a warning. A
+					 * media-free app skips the upload. */
+					const warnings = [...result.warnings];
+					if (manifest.size > 0) {
+						const mediaResult = await uploadAppMediaBundle(
+							credResult.creds,
+							targetDomain,
+							result.appId,
+							buildMediaBulkUploadZip(manifest),
+						);
+						if ("success" in mediaResult) {
+							warnings.push(
+								"Media upload could not be completed; the app was created but its media may not display.",
+							);
+							log.error("[mcp/upload_app_to_hq] media bundle upload failed", {
+								domain: targetDomain,
+								appId,
+								hqAppId: result.appId,
+								status: mediaResult.status,
+							});
+						} else if (mediaResult.timedOut) {
+							warnings.push(
+								"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",
+							);
+						} else if (
+							mediaResult.unmatched > 0 ||
+							mediaResult.errors.length > 0
+						) {
+							const n = mediaResult.unmatched + mediaResult.errors.length;
+							warnings.push(
+								`${n} media ${n === 1 ? "file" : "files"} could not be attached — the app was created, but ${
+									n === 1 ? "that file" : "those files"
+								} won't display until re-uploaded.`,
+							);
+							log.error(
+								"[mcp/upload_app_to_hq] some media files did not attach",
+								{
+									domain: targetDomain,
+									appId,
+									hqAppId: result.appId,
+									matched: mediaResult.matched,
+									unmatched: mediaResult.unmatched,
+									errors: mediaResult.errors,
+								},
+							);
+						}
+					}
+
 					progress.notify(
 						"upload_complete",
 						`Uploaded — HQ app id ${result.appId}`,
@@ -289,7 +394,7 @@ export function registerUploadAppToHq(
 						output: {
 							hq_app_id: result.appId,
 							url: result.appUrl,
-							warnings: result.warnings,
+							warnings,
 						},
 					});
 
@@ -302,7 +407,7 @@ export function registerUploadAppToHq(
 									app_id: appId,
 									hq_app_id: result.appId,
 									url: result.appUrl,
-									warnings: result.warnings,
+									warnings,
 								}),
 							},
 						],

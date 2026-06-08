@@ -26,6 +26,10 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { removeModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const removeModuleInputSchema = z
 	.object({
@@ -36,7 +40,7 @@ export const removeModuleInputSchema = z
 export type RemoveModuleInput = z.infer<typeof removeModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type RemoveModuleResult = string | { error: string };
+export type RemoveModuleResult = MutationSuccess | string | { error: string };
 
 export const removeModuleTool = {
 	description: "Remove a module from the app.",
@@ -82,7 +86,13 @@ export const removeModuleTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
+				result: {
+					message: `Successfully removed module "${name ?? `module ${moduleIndex}`}". App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
+					// `name` is snapshotted off the pre-mutation doc and can be
+					// absent if `moduleOrder`/`modules` ever diverge — omit the
+					// subject in that case rather than carrying a null.
+					summary: { subject: name ?? undefined } satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

@@ -19,6 +19,10 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { removeFieldMutations, resolveFieldByIndex } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const removeFieldInputSchema = z
 	.object({
@@ -31,7 +35,7 @@ export const removeFieldInputSchema = z
 export type RemoveFieldInput = z.infer<typeof removeFieldInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type RemoveFieldResult = string | { error: string };
+export type RemoveFieldResult = MutationSuccess | { error: string };
 
 export const removeFieldTool = {
 	description: "Remove a field from a form.",
@@ -63,6 +67,11 @@ export const removeFieldTool = {
 			// Counting against the post-mutation doc gives the new count for
 			// the "after" side — both values flow into the same summary string.
 			const formUuid = resolved.formUuid;
+			// Snapshot the human label off the pre-mutation field for the
+			// transcript subject (label-less kinds fall back to the id) — mirrors
+			// the friendly subject addField / editField surface.
+			const removedLabel =
+				"label" in resolved.field ? resolved.field.label : "";
 			const beforeCount = countFieldsUnder(doc, formUuid);
 			const mutations = removeFieldMutations(doc, resolved.field.uuid);
 			const newDoc = applyToDoc(doc, mutations);
@@ -77,7 +86,13 @@ export const removeFieldTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully removed field "${fieldId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`,
+				result: {
+					message: `Successfully removed field "${fieldId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`,
+					summary: {
+						location: formName,
+						subject: removedLabel || fieldId,
+					} satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

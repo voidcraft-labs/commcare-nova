@@ -2,12 +2,16 @@
  * Unified read-only markdown rendering via markdown-to-jsx.
  *
  * Single source of truth for all non-editor markdown surfaces. Two variants:
- * - **Chat** (`ChatMarkdown`) — allowlist security: strips links, images, and
- *   raw HTML. Used for assistant messages where untrusted content must not
- *   produce clickable links or injected markup.
- * - **Preview** (`PreviewMarkdown`) — full rendering with links (`target="_blank"`)
- *   and images. Used for form labels, validation errors, and
- *   select option labels.
+ * - **Chat** (`ChatMarkdown`) — allowlist security: strips links + images and
+ *   renders raw HTML as inert text. Used for the SA's chat + reasoning output, which
+ *   is model-generated and must not produce clickable links, injected markup, or
+ *   stray elements (the model's thinking routinely contains XML-ish tokens like
+ *   `<mother>` — without `disableParsingRawHTML` those parse to unknown DOM
+ *   elements and crash the render).
+ * - **Preview** (`PreviewMarkdown`) — links (`target="_blank"`) + images allowed,
+ *   raw HTML still rendered as inert text. Used for form labels, validation
+ *   errors, and select option labels (SA-authored, so the same raw-HTML guard
+ *   applies; markdown links/images come from markdown syntax, not raw tags).
  *
  * Both variants support `breaks: true` semantics (single newlines → `<br>`)
  * via a custom `renderRule`, since markdown-to-jsx has no native breaks option.
@@ -176,18 +180,24 @@ const PREVIEW_LINK_OVERRIDES: MarkdownToJSX.Overrides = {
 
 const noSlug = () => "";
 
-/** Options for chat messages — strips links, images, and raw HTML. */
+/** Options for chat messages — strips links + images; raw HTML is escaped to
+ *  text (`disableParsingRawHTML`) so model output like `<mother>` renders as the
+ *  literal text rather than parsing to an unknown DOM element that crashes. */
 export const CHAT_OPTIONS: MarkdownToJSX.Options = {
 	overrides: { ...TABLE_KEY_OVERRIDES, ...CHAT_SECURITY_OVERRIDES },
 	renderRule: breaksRenderRule,
 	slugify: noSlug,
+	disableParsingRawHTML: true,
 };
 
-/** Options for preview surfaces — links open in new tab, images allowed. */
+/** Options for preview surfaces — links open in new tab, images allowed (both
+ *  from markdown syntax); raw `<tag>` HTML is escaped to text, same guard as
+ *  chat (these labels are SA-authored). */
 export const PREVIEW_OPTIONS: MarkdownToJSX.Options = {
 	overrides: { ...TABLE_KEY_OVERRIDES, ...PREVIEW_LINK_OVERRIDES },
 	renderRule: breaksRenderRule,
 	slugify: noSlug,
+	disableParsingRawHTML: true,
 };
 
 /** Preview with forceInline — for rendering inside <span> contexts. */

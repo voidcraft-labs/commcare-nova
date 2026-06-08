@@ -67,6 +67,26 @@ describe("createBlueprintDocStore", () => {
 		expect(state.moduleOrder).toHaveLength(1);
 	});
 
+	it("load() preserves every field of the input doc, including the app logo", () => {
+		// `logo` is an optional top-level slot that lives outside the entity
+		// maps — exactly the kind of field a hand-listed hydration drops. Load
+		// a doc with every field set and assert the store reflects each one, so
+		// the hydration can't silently lose a slot (it lost `logo` before).
+		const store = createBlueprintDocStore();
+		const doc: BlueprintDoc = {
+			...makeEmptyDoc({ appName: "Loaded" }),
+			connectType: "learn",
+			logo: "asset-logo-id" as BlueprintDoc["logo"],
+		};
+		store.getState().load(doc);
+		const state = store.getState();
+
+		expect(state.logo).toBe("asset-logo-id");
+		for (const key of Object.keys(doc) as (keyof BlueprintDoc)[]) {
+			expect(state[key]).toEqual(doc[key]);
+		}
+	});
+
 	it("load() does NOT populate the undo stack", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc());

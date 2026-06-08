@@ -299,6 +299,23 @@ export function pickFieldKeysForKind(
 }
 
 /**
+ * Does the given field kind's schema declare `key`? Reads the precomputed
+ * per-kind key set, so it answers from the SCHEMA — not from a particular
+ * field instance, where an unset optional slot (e.g. an unattached
+ * `label_media`) is absent as an own property even though the kind
+ * supports it. That distinction is exactly why the media-attach tools
+ * can't use `key in field`: a field with no media yet would falsely read
+ * as "doesn't support this slot."
+ *
+ * For `repeat` it uses the umbrella key set (the union across all three
+ * modes), since the caller is asking about kind-level support, not a
+ * specific mode's variant keys.
+ */
+export function fieldKindDeclaresKey(kind: FieldKind, key: string): boolean {
+	return fieldKindKeySets[kind].has(key);
+}
+
+/**
  * Resolve a repeat key set from a (possibly-unknown) `repeat_mode` value.
  * Falls back to the umbrella set when the mode is missing or unknown so
  * the caller can still produce a candidate object — the subsequent parse
@@ -349,7 +366,7 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  *      needed.
  *   3. Filter the candidate to the destination kind's known keys via
  *      `pickFieldKeysForKind`, dropping any property the destination
- *      schema doesn't declare (e.g. `calculate` when going text→secret,
+ *      schema doesn't declare (e.g. `validate` when going text→geopoint,
  *      `repeat_mode` when going repeat→group).
  *   4. Validate the filtered candidate against `fieldSchema`. A failure
  *      means the source was missing a key the destination requires
@@ -377,11 +394,12 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  *
  * Special cases:
  *   - `single_select` ↔ `multi_select`: `options` transfers verbatim.
- *   - `text` ↔ `secret`: no options, no calculate on secret — validate/
- *     relevant/required/hint/case_property_on carry over.
+ *   - `text` ↔ `secret`: no options on either — validate / relevant /
+ *     required / hint / default_value / case_property_on carry over
+ *     (neither carries `calculate`; that's a `hidden`-only slot).
  *   - Media subkinds (image/audio/video/signature): identity + label +
- *     hint + required + relevant carry over; no calculate, no
- *     case_property_on, no validate (not in media schemas today).
+ *     hint + required + relevant carry over; no case_property_on, no
+ *     validate (not in media schemas today).
  *   - `group` ↔ `repeat`: container; only identity + label + relevant
  *     carry over. Children are untouched — they stay in `fieldOrder`
  *     under the same parent uuid, which is still a valid container after

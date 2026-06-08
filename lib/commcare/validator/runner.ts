@@ -4,22 +4,64 @@
  * Walks the normalized `BlueprintDoc` once, running scope-appropriate rules
  * at the app, module, form, and field levels, then runs deep XPath
  * validation. Returns structured `ValidationError[]` keyed by uuid.
+ *
+ * Asset-context media rules (existence / ready / kind-match) need data
+ * the doc alone can't carry: the resolved Firestore rows for the assets
+ * the doc references. Callers that have those (the SA validation loop)
+ * pass a manifest through `RunValidationOptions`; callers that don't
+ * (the bulk of tests, the test oracles, the fuzz harness) omit the
+ * options and the asset-context group is skipped. Doc-structural rules
+ * — including `imageMapValueUnique` — fire either way; they live in
+ * MODULE_RULES.
  */
 
+import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError } from "./errors";
 import { validationError } from "./errors";
-import { validateBlueprintDeep } from "./index";
+import {
+	type ConnectXPathSlot,
+	validateBlueprintDeep,
+	type XPathSurface,
+} from "./index";
 import { APP_RULES } from "./rules/app";
 import { runFieldRules } from "./rules/field";
 import { runFormRules } from "./rules/form";
+import { MEDIA_ASSET_RULES } from "./rules/media";
 import { MODULE_RULES } from "./rules/module";
+import type { XPathError } from "./xpathValidator";
+
+/**
+ * Optional context the asset-context media rules consume. A single
+ * required slot — the resolved media-asset manifest — so "ran the
+ * media group" and "didn't" are the only two states. No half-supplied
+ * state is representable.
+ */
+export interface RunValidationOptions {
+	/**
+	 * Resolved media-asset manifest — every `AssetId` the doc
+	 * references that the loader was willing to return, mapped to its
+	 * loaded Firestore row. Built by the caller from
+	 * `collectAssetRefs(doc)` + `loadAssetsByIds(owner, ...)`. When
+	 * supplied, the asset-context media rules run; when omitted, the
+	 * rules are skipped silently.
+	 */
+	readonly mediaAssets: ReadonlyMap<string, MediaAssetRecord>;
+}
 
 /**
  * Run all validation rules on a `BlueprintDoc`.
  * Returns structured errors — `errorToString()` renders a human-readable form.
+ *
+ * When `options.mediaAssets` is supplied, the asset-context media
+ * rules run after the doc-structural rules. They surface only the
+ * issues the structural rules can't see (a referenced asset doesn't
+ * exist, is still uploading, or its kind doesn't match the slot).
  */
-export function runValidation(doc: BlueprintDoc): ValidationError[] {
+export function runValidation(
+	doc: BlueprintDoc,
+	options?: RunValidationOptions,
+): ValidationError[] {
 	const errors: ValidationError[] = [];
 
 	for (const rule of APP_RULES) {
@@ -49,204 +91,142 @@ export function runValidation(doc: BlueprintDoc): ValidationError[] {
 		}
 	}
 
+	// Media asset-context rules — single-arm gate on the options
+	// payload. The manifest is the only thing the rules need; its
+	// presence both gates the group and provides the data.
+	if (options?.mediaAssets) {
+		for (const rule of MEDIA_ASSET_RULES) {
+			errors.push(...rule(doc, options.mediaAssets));
+		}
+	}
+
 	errors.push(...runDeepValidation(doc));
 
 	return errors;
 }
 
 /**
- * Wrap `validateBlueprintDeep` string output into structured
- * `ValidationError`s with human-friendly messages.
- *
- * The regex-driven parser below decodes the three formats emitted by
- * `validateBlueprintDeep`:
- *   - `Field "id" in "formName": key expression error — message`
- *   - `"formName" in "moduleName" label: message`
- *   - `"formName" in "moduleName" has a circular dependency: cycle`
- *
- * Any line that doesn't match falls through to a generic `XPATH_SYNTAX`
- * error carrying the raw message.
+ * Project the TYPED `DeepValidationError`s from `validateBlueprintDeep` into
+ * user-facing `ValidationError`s. A `switch` on the discriminant — every
+ * code, location, and surface arrives typed, so there is no prose to parse,
+ * no code to re-infer from a message, and no name→uuid lookup to redo. (The
+ * muddled cycle message this once produced came entirely from regex-decoding
+ * our own error strings: the cycle line matched the general form-label
+ * pattern first and got humanized as an XPath label error. With a typed
+ * union that whole failure mode is unrepresentable.)
  */
 function runDeepValidation(doc: BlueprintDoc): ValidationError[] {
-	const deepErrors = validateBlueprintDeep(doc);
-	const errors: ValidationError[] = [];
+	return validateBlueprintDeep(doc).map((deep): ValidationError => {
+		switch (deep.kind) {
+			case "field-xpath":
+				return validationError(
+					deep.error.code,
+					"field",
+					humanizeXPathError(
+						deep.error,
+						`Field "${deep.fieldId}" in "${deep.formName}" (${SURFACE_LABELS[deep.surface]})`,
+					),
+					{
+						moduleUuid: deep.moduleUuid,
+						moduleName: deep.moduleName,
+						formUuid: deep.formUuid,
+						formName: deep.formName,
+						fieldUuid: deep.fieldUuid,
+						fieldId: deep.fieldId,
+						field: deep.surface,
+					},
+				);
 
-	for (const errStr of deepErrors) {
-		const fieldMatch = errStr.match(
-			/^Field "([^"]+)" in "([^"]+)": (\w+) expression error — (.+)$/,
-		);
-		if (fieldMatch) {
-			const [, fieldId, formName, field, rawMessage] = fieldMatch;
-			const code = inferXPathErrorCode(rawMessage);
-			const message = humanizeXPathError(
-				code,
-				rawMessage,
-				fieldId,
-				formName,
-				field,
-			);
-			errors.push(
-				validationError(code, "field", message, {
-					formName,
-					fieldId,
-					field,
-					...findFormLocation(doc, formName),
-				}),
-			);
-			continue;
-		}
+			case "connect-xpath":
+				return validationError(
+					deep.error.code,
+					"form",
+					humanizeXPathError(
+						deep.error,
+						`"${deep.formName}" in "${deep.moduleName}" (${CONNECT_SLOT_LABELS[deep.slot]})`,
+					),
+					{
+						moduleUuid: deep.moduleUuid,
+						moduleName: deep.moduleName,
+						formUuid: deep.formUuid,
+						formName: deep.formName,
+					},
+				);
 
-		const formLabelMatch = errStr.match(/^"([^"]+)" in "([^"]+)" (.+): (.+)$/);
-		if (formLabelMatch) {
-			const [, formName, moduleName, label, rawMessage] = formLabelMatch;
-			const code = inferXPathErrorCode(rawMessage);
-			const message = humanizeXPathError(
-				code,
-				rawMessage,
-				undefined,
-				formName,
-				undefined,
-				label,
-			);
-			errors.push(
-				validationError(code, "form", message, {
-					formName,
-					moduleName,
-					...findFormLocation(doc, formName),
-				}),
-			);
-			continue;
-		}
-
-		const cycleMatch = errStr.match(
-			/^"([^"]+)" in "([^"]+)" has a circular dependency: (.+)$/,
-		);
-		if (cycleMatch) {
-			const [, formName, moduleName, cycle] = cycleMatch;
-			errors.push(
-				validationError(
+			case "cycle":
+				return validationError(
 					"CYCLE",
 					"form",
-					`"${formName}" in "${moduleName}" has a circular dependency: ${cycle}. These calculated fields reference each other in a loop, so none of them can ever finish computing. Break the cycle by removing one of the references.`,
-					{ formName, moduleName, ...findFormLocation(doc, formName) },
-				),
-			);
-			continue;
+					`"${deep.formName}" in "${deep.moduleName}" has a circular dependency: ${deep.cycle.join(" → ")}. These calculated fields reference each other in a loop, so none of them can ever finish computing. Break the cycle by removing one of the references.`,
+					{
+						moduleUuid: deep.moduleUuid,
+						moduleName: deep.moduleName,
+						formUuid: deep.formUuid,
+						formName: deep.formName,
+					},
+				);
+
+			default: {
+				// Exhaustiveness tripwire: if a new `DeepValidationError` kind is
+				// added, `deep` is no longer `never` here and this fails to
+				// compile — forcing a matching projection above.
+				const unreachable: never = deep;
+				throw new Error(
+					`Unhandled deep validation error: ${JSON.stringify(unreachable)}`,
+				);
+			}
 		}
-
-		errors.push(validationError("XPATH_SYNTAX", "app", errStr, {}));
-	}
-
-	return errors;
+	});
 }
 
-const FIELD_NAMES: Record<string, string> = {
+/**
+ * User-facing label for each XPath surface a field can carry. Typed as a
+ * total `Record<XPathSurface, …>`, so adding a surface to the deep walk
+ * forces a label here — the compiler is the reminder.
+ */
+const SURFACE_LABELS: Record<XPathSurface, string> = {
 	relevant: "display condition",
 	validate: "validation rule",
 	calculate: "calculated value",
 	default_value: "default value",
 	required: "required condition",
-	// Repeat-mode XPath fields validated by `validateTreeXPath` in
-	// `./index.ts`. The deep validator emits flat keys (`repeat_count`,
-	// `ids_query`) so the regex decoder above matches; this map
-	// translates them back into user-facing labels in the rendered
-	// error message.
 	repeat_count: "repeat count",
 	ids_query: "data source query",
 };
 
-/** Convert terse XPath error messages into helpful, human-friendly ones. */
-function humanizeXPathError(
-	code: ValidationError["code"],
-	rawMessage: string,
-	fieldId?: string,
-	formName?: string,
-	field?: string,
-	label?: string,
-): string {
-	const loc =
-		fieldId && formName
-			? `Field "${fieldId}" in "${formName}"${field ? ` (${FIELD_NAMES[field] || field})` : ""}`
-			: formName
-				? `"${formName}"${label ? ` ${label}` : ""}`
-				: "Expression";
-
-	switch (code) {
-		case "XPATH_SYNTAX":
-			return `${loc} has a syntax error: ${rawMessage}. Check for unbalanced parentheses, missing operators, or stray characters.`;
-
-		case "UNKNOWN_FUNCTION": {
-			const suggestion = rawMessage.match(/did you mean "([^"]+)"/)?.[1];
-			if (suggestion) {
-				return `${loc} calls a function that doesn't exist. ${rawMessage}. XPath function names are case-sensitive — use the lowercase version.`;
-			}
-			const funcName =
-				rawMessage.match(/Unknown function "([^"]+)"/)?.[1] || "unknown";
-			return `${loc} calls "${funcName}" which isn't a recognized CommCare function. Check the function name for typos, or consult the CommCare XPath reference for available functions.`;
-		}
-
-		case "WRONG_ARITY":
-			return `${loc} is calling a function with the wrong number of arguments. ${rawMessage}.`;
-
-		case "INVALID_REF": {
-			const path = rawMessage.match(/"([^"]+)"/)?.[1] || "";
-			return `${loc} references "${path}" which doesn't exist in this form. Check for typos in the field ID, or make sure the field hasn't been renamed or removed.`;
-		}
-
-		case "INVALID_CASE_REF": {
-			const prop = rawMessage.match(/"([^"]+)"/)?.[1] || "";
-			return `${loc} references case property "${prop}" which doesn't exist on this case type. Check for typos, or make sure a field saves to this property via \`case_property_on\`.`;
-		}
-
-		case "TYPE_ERROR":
-			return `${loc} has a type mismatch: ${rawMessage}. This will likely produce unexpected results at runtime.`;
-
-		default:
-			return `${loc}: ${rawMessage}`;
-	}
-}
-
-function inferXPathErrorCode(message: string): ValidationError["code"] {
-	if (message.includes("Syntax error")) return "XPATH_SYNTAX";
-	if (message.includes("Unknown function")) return "UNKNOWN_FUNCTION";
-	if (message.includes("requires") || message.includes("accepts at most"))
-		return "WRONG_ARITY";
-	if (message.includes("Unknown case property")) return "INVALID_CASE_REF";
-	if (
-		message.includes("unknown field path") ||
-		message.includes("References unknown")
-	)
-		return "INVALID_REF";
-	if (message.includes("Type mismatch")) return "TYPE_ERROR";
-	return "XPATH_SYNTAX";
-}
+/** User-facing label for each Connect-block XPath slot. */
+const CONNECT_SLOT_LABELS: Record<ConnectXPathSlot, string> = {
+	assessment_user_score: "Connect assessment user_score",
+	deliver_entity_id: "Connect deliver entity_id",
+	deliver_entity_name: "Connect deliver entity_name",
+};
 
 /**
- * Resolve a form-name match back to the doc's uuid-indexed location. Used
- * by `runDeepValidation` to enrich string-parsed errors with stable uuids.
- * First-match wins when names collide — collisions produce a separate
- * DUPLICATE validation error that points at both sites.
+ * Render a typed `XPathError` into a helpful, human-friendly message.
+ * Dispatch is on the typed `code` — never on parsing `error.message`. The
+ * terse `error.message` already carries the specific identifier (the bad
+ * path, the unknown function name), so embedding it as the detail keeps the
+ * message specific without re-extracting anything. `where` is the
+ * caller-built location prefix (`Field "x" in "Form" (display condition)`).
  */
-function findFormLocation(
-	doc: BlueprintDoc,
-	formName: string,
-): {
-	moduleUuid?: ValidationError["location"]["moduleUuid"];
-	moduleName?: string;
-	formUuid?: ValidationError["location"]["formUuid"];
-} {
-	for (const moduleUuid of doc.moduleOrder) {
-		const mod = doc.modules[moduleUuid];
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const form = doc.forms[formUuid];
-			if (form.name === formName) {
-				return {
-					moduleUuid,
-					moduleName: mod.name,
-					formUuid,
-				};
-			}
-		}
+function humanizeXPathError(error: XPathError, where: string): string {
+	switch (error.code) {
+		case "XPATH_SYNTAX":
+			return `${where} has a syntax error: ${error.message}. Check for unbalanced parentheses, missing operators, or stray characters.`;
+
+		case "UNKNOWN_FUNCTION":
+			return `${where} calls a function that isn't a recognized CommCare function: ${error.message}. Function names are case-sensitive — check for a typo or the wrong case.`;
+
+		case "WRONG_ARITY":
+			return `${where} calls a function with the wrong number of arguments: ${error.message}.`;
+
+		case "INVALID_REF":
+			return `${where} has a reference that doesn't exist in this form: ${error.message}. Check for a typo in the field id, or whether the field was renamed or removed.`;
+
+		case "INVALID_CASE_REF":
+			return `${where} references a case property that doesn't exist on this case type: ${error.message}. Check for a typo, or make sure a field saves to that property via \`case_property_on\`.`;
+
+		case "TYPE_ERROR":
+			return `${where} has a type mismatch: ${error.message}. This will likely produce unexpected results at runtime.`;
 	}
-	return {};
 }

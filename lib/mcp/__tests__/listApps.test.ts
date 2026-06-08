@@ -51,6 +51,7 @@ function makeSummary(overrides: Partial<AppSummary>): AppSummary {
 		form_count: 0,
 		status: "complete",
 		error_type: null,
+		logo: null,
 		created_at: "2026-04-01T00:00:00.000Z",
 		updated_at: "2026-04-01T00:00:00.000Z",
 		...overrides,

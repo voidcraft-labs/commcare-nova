@@ -32,6 +32,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback } from "react";
+import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
@@ -151,6 +152,9 @@ export function RepeatField({
 						collapsed ? "rounded-lg" : "rounded-t-lg border-b-0"
 					}`}
 				>
+					{/* Repeat label media — banner above the header row, matching
+					    the edit-mode `GroupBracket` position for flipbook parity. */}
+					<MediaDisplay media={field.label_media} interactive />
 					<div className="flex items-center gap-2">
 						<button
 							type="button"

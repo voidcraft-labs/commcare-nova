@@ -38,10 +38,13 @@ import {
 	type ConnectType,
 	type Field,
 	type Form,
+	type Media,
 	type Module,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { type AssetId, asAssetId } from "@/lib/domain/multimedia";
 
 // ── Stable id minting ──────────────────────────────────────────────
 
@@ -174,6 +177,11 @@ const DEFAULT_VALUE_BY_KIND: Record<string, string> = {
 	datetime: "now()",
 	single_select: "'a'",
 	multi_select: "'a'",
+	// barcode serializes as xsd:string (a scanned default the device can
+	// overwrite); geopoint takes a "lat lon alt accuracy" string. Both lower
+	// to a `<setvalue>` like the others — covering their setvalue path.
+	barcode: "'CODE-123'",
+	geopoint: "'0 0 0 0'",
 };
 
 /**
@@ -227,17 +235,26 @@ export function buildField(
 
 	if (spec.kind === "select") {
 		const kind = spec.single ? "single_select" : "multi_select";
+		const labelMedia = buildMediaSlot(ctx.minter, spec.media?.label);
+		// Selects don't carry the input-specific media slots (hint/help/
+		// validate_msg media live on the input-field base); only label_media.
+		// Per-option media is layered onto each option below.
+		const options = spec.options.map((opt, idx) => {
+			const optMedia = buildMediaSlot(ctx.minter, spec.optionMedia?.[idx]);
+			return optMedia ? { ...opt, media: optMedia } : opt;
+		});
 		ctx.fields[uuid] = {
 			uuid,
 			kind,
 			id,
 			label: spec.label,
-			options: spec.options,
+			options,
 			// Selects are validatable kinds; a type-matched `'a'` default exercises
 			// the setvalue path for the select shape too.
 			...(spec.wantsDefault
 				? { default_value: DEFAULT_VALUE_BY_KIND[kind] }
 				: {}),
+			...(labelMedia ? { label_media: labelMedia } : {}),
 		} as Field;
 		return;
 	}
@@ -312,6 +329,20 @@ export function buildField(
 	const typedDefault = spec.wantsDefault
 		? DEFAULT_VALUE_BY_KIND[spec.kind]
 		: undefined;
+
+	// Media-slot lowering. The schema only carries `validate_msg_media` on
+	// validatable kinds (via the `inputFieldBaseSchema` union), so the
+	// validate_msg-slot is gated on `validatable` just like `validate_msg`.
+	// The other slots (`label_media` / `hint_media` / `help_media`) live on
+	// every input field, so they attach uniformly.
+	const labelMedia = buildMediaSlot(ctx.minter, spec.media?.label);
+	const hintMedia = buildMediaSlot(ctx.minter, spec.media?.hint);
+	const helpMedia = buildMediaSlot(ctx.minter, spec.media?.help);
+	const validateMsgMedia =
+		validatable && spec.validate
+			? buildMediaSlot(ctx.minter, spec.media?.validateMsg)
+			: undefined;
+
 	ctx.fields[uuid] = {
 		uuid,
 		kind: spec.kind,
@@ -326,6 +357,10 @@ export function buildField(
 		// `default_value` is type-matched per kind (DEFAULT_VALUE_BY_KIND); a
 		// kind with no entry simply gets none.
 		...(typedDefault ? { default_value: typedDefault } : {}),
+		...(labelMedia ? { label_media: labelMedia } : {}),
+		...(hintMedia ? { hint_media: hintMedia } : {}),
+		...(helpMedia ? { help_media: helpMedia } : {}),
+		...(validateMsgMedia ? { validate_msg_media: validateMsgMedia } : {}),
 	} as Field;
 }
 
@@ -401,6 +436,28 @@ function injectSubcaseRepeat(
  * id minting + normalized-map insertion happen in one deterministic pass,
  * which is where sibling-id uniqueness is enforced.
  */
+/**
+ * Optional media populations the lowering attaches to a field. Each `1` slot
+ * means "emit a fresh `AssetId` here"; the lowering mints the id at build
+ * time via the shared `IdMinter`, so every asset id is globally unique and
+ * conforms to `uuidSchema`. Slots default to no media — leaving the doc
+ * media-free is the common shape.
+ */
+export interface FieldMediaSpec {
+	readonly label?: ReadonlyArray<"image" | "audio" | "video">;
+	readonly hint?: ReadonlyArray<"image" | "audio" | "video">;
+	readonly help?: ReadonlyArray<"image" | "audio" | "video">;
+	readonly validateMsg?: ReadonlyArray<"image" | "audio" | "video">;
+}
+
+/**
+ * Optional media population for each select option, parallel-indexed to
+ * the spec's `options` array. Each present entry mints the listed slots.
+ */
+export type OptionMediaSpec = ReadonlyArray<
+	ReadonlyArray<"image" | "audio" | "video"> | undefined
+>;
+
 export type FieldGenSpec =
 	| {
 			kind: (typeof LEAF_KINDS)[number];
@@ -412,6 +469,9 @@ export type FieldGenSpec =
 			validateMsg?: string;
 			/** When set, attach the kind's type-matched `default_value`. */
 			wantsDefault?: boolean;
+			/** Optional `label_media`/`hint_media`/`help_media`/`validate_msg_media`
+			 *  populations. Slot kinds drawn from `image`/`audio`/`video`. */
+			media?: FieldMediaSpec;
 	  }
 	| {
 			kind: "select";
@@ -420,6 +480,10 @@ export type FieldGenSpec =
 			options: ReadonlyArray<{ value: string; label: string }>;
 			/** When set, attach the select's type-matched `default_value`. */
 			wantsDefault?: boolean;
+			/** Optional `label_media` for the question itself. */
+			media?: FieldMediaSpec;
+			/** Per-option media, indexed parallel to `options`. */
+			optionMedia?: OptionMediaSpec;
 	  }
 	| { kind: "hidden"; calculate: string }
 	| { kind: "group"; label: string; children: FieldGenSpec[] }
@@ -448,6 +512,76 @@ export type FieldGenSpec =
 
 const labelArb = fc.constantFrom(...SPICY_LABELS);
 
+// ── Media spec generation ──────────────────────────────────────────
+
+/**
+ * Single-slot media kind palette. Each slot independently rolls "present
+ * with kind K" or "absent", so a field can carry any combination
+ * (image-only, image+audio, all three, none). The empty-slot result keeps
+ * the doc media-free at the field by leaving the slot undefined — the
+ * lowering only stamps a slot when at least one kind is present.
+ */
+const MEDIA_KIND_SET_ARB: fc.Arbitrary<
+	ReadonlyArray<"image" | "audio" | "video"> | undefined
+> = fc
+	.tuple(fc.boolean(), fc.boolean(), fc.boolean())
+	.map(([img, aud, vid]) => {
+		const kinds: Array<"image" | "audio" | "video"> = [];
+		if (img) kinds.push("image");
+		if (aud) kinds.push("audio");
+		if (vid) kinds.push("video");
+		return kinds.length === 0 ? undefined : kinds;
+	});
+
+/**
+ * Optional media population for a leaf field. Roughly half of leaves get
+ * NO media populated at all (`undefined`); the other half rolls each of
+ * the four message slots independently. Coverage skews to media-OFF docs
+ * because that's the baseline most existing tests assume — the media-ON
+ * mix is dense enough to exercise the manifest-resolution path in every
+ * fuzz run while staying under the 500-run budget.
+ */
+const FIELD_MEDIA_SPEC_ARB: fc.Arbitrary<FieldMediaSpec | undefined> = fc.oneof(
+	{ weight: 3, arbitrary: fc.constant(undefined) },
+	{
+		weight: 2,
+		arbitrary: fc
+			.record({
+				label: MEDIA_KIND_SET_ARB,
+				hint: MEDIA_KIND_SET_ARB,
+				help: MEDIA_KIND_SET_ARB,
+				validateMsg: MEDIA_KIND_SET_ARB,
+			})
+			.map((spec) => ({
+				...(spec.label ? { label: spec.label } : {}),
+				...(spec.hint ? { hint: spec.hint } : {}),
+				...(spec.help ? { help: spec.help } : {}),
+				...(spec.validateMsg ? { validateMsg: spec.validateMsg } : {}),
+			})),
+	},
+);
+
+/**
+ * Mint a `Media` slot bundle from the requested kinds, drawing each id from
+ * the shared `IdMinter`. Returns `undefined` when no kinds are requested so
+ * the caller can omit the slot entirely (the schema treats the absent and
+ * empty-object cases as identical, but undefined keeps the JSON shape clean).
+ */
+function buildMediaSlot(
+	minter: IdMinter,
+	kinds: ReadonlyArray<"image" | "audio" | "video"> | undefined,
+): Media | undefined {
+	if (!kinds || kinds.length === 0) return undefined;
+	const slot: { image?: AssetId; audio?: AssetId; video?: AssetId } = {};
+	for (const kind of kinds) {
+		// AssetId is a branded plain-string (`assetIdSchema = z.string().min(1)`);
+		// the minter emits ids of shape `<prefix>-<base36>` which satisfies the
+		// non-empty constraint and brands cleanly via `asAssetId`.
+		slot[kind] = asAssetId(minter.uuid(`media${kind[0]}`));
+	}
+	return slot;
+}
+
 const leafSpecArb: fc.Arbitrary<FieldGenSpec> = fc.record(
 	{
 		kind: fc.constantFrom(...LEAF_KINDS),
@@ -471,6 +605,10 @@ const leafSpecArb: fc.Arbitrary<FieldGenSpec> = fc.record(
 		// (DEFAULT_VALUE_BY_KIND) — exercising the `<setvalue>` path for every
 		// validatable kind, not just `text`.
 		wantsDefault: fc.boolean(),
+		// Optional media populations for the four message slots. `buildField`
+		// gates `validate_msg_media` on `validatable && validate` so the rolled
+		// slot is dropped on non-validatable kinds and absent-validate cases.
+		media: FIELD_MEDIA_SPEC_ARB,
 	},
 	{ requiredKeys: ["kind", "label"] },
 );
@@ -489,8 +627,25 @@ const selectSpecArb: fc.Arbitrary<FieldGenSpec> = fc
 			{ minLength: 2, maxLength: 4 },
 		),
 		wantsDefault: fc.boolean(),
+		media: FIELD_MEDIA_SPEC_ARB,
 	})
-	.map((r) => ({ kind: "select", ...r }));
+	.chain((r) =>
+		// Roll per-option media in lockstep with the options array — each option
+		// independently has a chance of carrying image/audio/video. Done in a
+		// `chain` so the rolled length matches the options length exactly.
+		fc
+			.tuple(...r.options.map(() => MEDIA_KIND_SET_ARB))
+			.map((perOption): FieldGenSpec => {
+				const optionMedia = perOption.some((p) => p !== undefined)
+					? perOption
+					: undefined;
+				return {
+					kind: "select",
+					...r,
+					...(optionMedia ? { optionMedia } : {}),
+				};
+			}),
+	);
 
 const hiddenSpecArb: fc.Arbitrary<FieldGenSpec> = fc
 	.constantFrom(...SAFE_VALUE_XPATH)
@@ -721,12 +876,23 @@ type SubcaseShapeSpec = {
 
 interface DocGenSpec {
 	connectType: ConnectType | null;
+	/** Whether the app carries an app-level logo. The id is minted at
+	 *  lowering time so it shares the global IdMinter sequence. */
+	hasLogo: boolean;
 	modules: Array<{
 		caseType: string;
 		caseListColumns: readonly string[];
+		/** Whether the module carries a menu-tile icon. */
+		hasIcon: boolean;
+		/** Whether the module carries an audio label for its menu tile. */
+		hasAudioLabel: boolean;
 		forms: Array<{
 			type: (typeof FORM_TYPES)[number];
 			fields: FieldGenSpec[];
+			/** Whether the form carries a command-tile icon. */
+			hasIcon: boolean;
+			/** Whether the form carries an audio label for its command tile. */
+			hasAudioLabel: boolean;
 			/** Present iff the app is Connect-typed; the sub-config selection
 			 *  for this form, always mode-matched to `connectType`. */
 			connect?: ConnectFormSpec;
@@ -768,6 +934,10 @@ const subcaseShapeArb: fc.Arbitrary<SubcaseShapeSpec | undefined> = fc.option(
 const formCoreArb = fc.record({
 	type: fc.constantFrom(...FORM_TYPES),
 	fields: fc.array(fieldSpecArb(2), { minLength: 1, maxLength: 4 }),
+	// Menu-tile media on a form's command. Independent booleans so the
+	// generator covers icon-only, audio-only, both, and neither.
+	hasIcon: fc.boolean(),
+	hasAudioLabel: fc.boolean(),
 	subcase: subcaseShapeArb,
 });
 
@@ -775,6 +945,10 @@ const moduleCoreArb = fc.record({
 	caseType: fc.constantFrom("patient", "household", "visit", "service"),
 	caseListColumns: fc.constant(["case_name"]),
 	forms: fc.array(formCoreArb, { minLength: 1, maxLength: 2 }),
+	// Menu-tile media on a module's home tile. Same independent-boolean
+	// shape as the form-level slots.
+	hasIcon: fc.boolean(),
+	hasAudioLabel: fc.boolean(),
 });
 
 /**
@@ -788,11 +962,16 @@ const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc
 	.record({
 		connectType: fc.constantFrom<ConnectType | null>(null, "learn", "deliver"),
 		modules: fc.array(moduleCoreArb, { minLength: 1, maxLength: 2 }),
+		hasLogo: fc.boolean(),
 	})
-	.chain(({ connectType, modules }) => {
+	.chain(({ connectType, modules, hasLogo }) => {
 		// Non-Connect app: no form carries a connect block.
 		if (connectType === null) {
-			return fc.constant<DocGenSpec>({ connectType: null, modules });
+			return fc.constant<DocGenSpec>({
+				connectType: null,
+				hasLogo,
+				modules,
+			});
 		}
 		// Connect app: draw one mode-matched selection per form. Collect every
 		// form's selection arbitrary in document order, sample them as one
@@ -808,7 +987,7 @@ const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc
 					connect: selections[cursor++],
 				})),
 			}));
-			return { connectType, modules: withConnect };
+			return { connectType, hasLogo, modules: withConnect };
 		});
 	});
 
@@ -843,6 +1022,16 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		formOrder[moduleUuid] = [];
 		caseTypeNames.add(modSpec.caseType);
 
+		// Menu-tile media on the module's home tile. Each slot is independent;
+		// the lowering mints an `AssetId` per requested slot via the shared
+		// minter so every id is globally unique.
+		const moduleIcon = modSpec.hasIcon
+			? asAssetId(minter.uuid("modicon"))
+			: undefined;
+		const moduleAudio = modSpec.hasAudioLabel
+			? asAssetId(minter.uuid("modaud"))
+			: undefined;
+
 		modules[moduleUuid] = {
 			uuid: moduleUuid,
 			id: `m${mIdx}`,
@@ -854,12 +1043,21 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				),
 				searchInputs: [],
 			},
+			...(moduleIcon ? { icon: moduleIcon } : {}),
+			...(moduleAudio ? { audioLabel: moduleAudio } : {}),
 		};
 
 		modSpec.forms.forEach((formSpec, fIdx) => {
 			const formUuid = minter.uuid("frm");
 			formOrder[moduleUuid].push(formUuid);
 			fieldOrder[formUuid] = [];
+
+			const formIcon = formSpec.hasIcon
+				? asAssetId(minter.uuid("frmicon"))
+				: undefined;
+			const formAudio = formSpec.hasAudioLabel
+				? asAssetId(minter.uuid("frmaud"))
+				: undefined;
 
 			forms[formUuid] = {
 				uuid: formUuid,
@@ -873,6 +1071,8 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				...(formSpec.connect
 					? { connect: buildConnectConfig(minter, formSpec.connect) }
 					: {}),
+				...(formIcon ? { icon: formIcon } : {}),
+				...(formAudio ? { audioLabel: formAudio } : {}),
 			};
 
 			const ctx: FieldBuildCtx = { minter, fields, fieldOrder };
@@ -952,6 +1152,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		properties: [{ name: "case_name", label: "Name" }],
 	}));
 
+	// App-level logo (web-apps banner). Single optional slot; minted late so
+	// it doesn't collide with field-mint id sequencing.
+	const logo = spec.hasLogo ? asAssetId(minter.uuid("logo")) : undefined;
+
 	return {
 		appId: "fuzz-app",
 		appName: "Fuzz App",
@@ -966,6 +1170,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		// fieldParent is rebuilt by the caller via rebuildFieldParent — the
 		// fuzz test owns that step so this stays a pure lowering.
 		fieldParent: {},
+		...(logo ? { logo } : {}),
 	};
 }
 
@@ -976,3 +1181,129 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
  */
 export const blueprintDocArbitrary: fc.Arbitrary<BlueprintDoc> =
 	docGenSpecArb.map(lowerToDoc);
+
+// ── Manifest synthesis ─────────────────────────────────────────────
+
+/**
+ * Per-slot conventions the fuzz manifest synthesizer follows. Image slots
+ * resolve to a .png file; audio to .mp3; video to .mp4. The choice is
+ * arbitrary (CommCare's installer is content-agnostic on extension; the
+ * sniffed mimeType is what the validator gates on), but the wire path
+ * carries the extension verbatim so the choice MUST be stable for the
+ * synthesizer + the oracles to agree on the manifest's wire-path set.
+ */
+const SLOT_EXTENSION_BY_KIND: Record<
+	"image" | "audio" | "video",
+	{ readonly extension: string; readonly mimeType: string }
+> = {
+	image: { extension: ".png", mimeType: "image/png" },
+	audio: { extension: ".mp3", mimeType: "audio/mpeg" },
+	video: { extension: ".mp4", mimeType: "video/mp4" },
+};
+
+/**
+ * The minimum manifest payload the wire emitters and oracles need.
+ * Kept narrower than `ResolvedMediaAsset` so the fuzz harness doesn't
+ * have to import + assemble the full storage shape.
+ */
+export interface FuzzMediaAsset {
+	readonly assetId: AssetId;
+	readonly wirePath: string;
+	readonly kind: "image" | "audio" | "video";
+	readonly mimeType: string;
+	readonly contentHash: string;
+	readonly extension: string;
+}
+
+/**
+ * True when the doc carries at least one media reference that lowers to
+ * an XForm `<value form="image|audio|video">jr://...` sibling — i.e. a
+ * field message-slot bundle (`label_media` / `hint_media` / `help_media`
+ * / `validate_msg_media`) or an option `media` bundle.
+ *
+ * This is the form-itext sub-population, deliberately NARROWER than
+ * `hasMedia`: menu-style carriers (app logo, module/form icon +
+ * audioLabel, image-map columns) emit into the suite + app_strings, not
+ * into any form's itext, so they never feed the XForm oracle's
+ * `XFORM_DANGLING_MEDIA_REF` resolution path. The XForm fuzz floors THIS
+ * ratio (not `hasMedia`'s) so a drift in `FIELD_MEDIA_SPEC_ARB` toward
+ * all-empty slots fails loud rather than turning the media-resolution
+ * check into a silent no-op while menu media keeps `hasMedia` true.
+ */
+export function hasFormItextMedia(doc: BlueprintDoc): boolean {
+	for (const ref of walkAssetRefs(doc)) {
+		if (
+			ref.location.kind === "field_media_bundle" ||
+			ref.location.kind === "option_media"
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Build a deterministic manifest covering every `AssetId` the doc
+ * references. Walks via `walkAssetRefs` (the same single-source-of-truth
+ * walker the validator + manifest loader consume) so the fuzz manifest
+ * matches the emitter's actual reference set 1:1.
+ *
+ * Each asset is assigned:
+ *   - A deterministic `contentHash` (sha256-like 64-hex prefix derived
+ *     from the asset id) so emit output is stable across runs.
+ *   - An extension + mimeType matching its slot kind (the schema only
+ *     gates `mediaKindMatches` when the validator is invoked WITH a
+ *     manifest; the fuzz tests don't run that rule, so any sane pairing
+ *     here is fine — the synthesizer just keeps the wire-path
+ *     extensions sensible).
+ *
+ * Same-asset-id collisions across slots use the FIRST seen slot's kind —
+ * one `AssetId` produces exactly one wire-path entry, which is the
+ * shape the dedup bundler relies on.
+ */
+export function fuzzManifestFromDoc(
+	doc: BlueprintDoc,
+): Map<AssetId, FuzzMediaAsset> {
+	const manifest = new Map<AssetId, FuzzMediaAsset>();
+	for (const ref of walkAssetRefs(doc)) {
+		const branded = asAssetId(ref.assetId);
+		if (manifest.has(branded)) continue;
+		const { extension, mimeType } = SLOT_EXTENSION_BY_KIND[ref.slotKind];
+		// Deterministic 64-hex content hash derived from the asset id — same id
+		// in two runs produces the same hash, which keeps emit output stable
+		// for fuzz seed reproducibility.
+		const contentHash = hashForAssetId(ref.assetId);
+		const wirePath = `commcare/${contentHash}${extension}`;
+		manifest.set(branded, {
+			assetId: branded,
+			wirePath,
+			kind: ref.slotKind,
+			mimeType,
+			contentHash,
+			extension,
+		});
+	}
+	return manifest;
+}
+
+/**
+ * Stable 64-hex hash for an asset id. Not a cryptographic hash — the
+ * synthesizer just needs a deterministic, collision-resistant string with
+ * the same shape as the real content hash so the emitter's wire path
+ * format check (`/^[a-f0-9]{64}$/` on the schema side) is irrelevant
+ * here (the validator doesn't run kind-matching during fuzz runs), but
+ * a clean shape keeps emit output legible in golden-style diffs.
+ */
+function hashForAssetId(assetId: string): string {
+	// Simple FNV-1a 32-bit hash folded out into 64 hex chars by repeating.
+	// Deterministic + collision-resistant enough for fuzz coverage — the
+	// per-asset uniqueness fast-check provides via the IdMinter is the actual
+	// guarantee, this just pads it into a 64-char display.
+	let h = 0x811c9dc5;
+	for (let i = 0; i < assetId.length; i++) {
+		h ^= assetId.charCodeAt(i);
+		h = Math.imul(h, 0x01000193);
+	}
+	const hex8 = (h >>> 0).toString(16).padStart(8, "0");
+	return hex8.repeat(8);
+}

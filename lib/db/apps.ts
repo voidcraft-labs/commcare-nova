@@ -29,6 +29,8 @@ export interface AppSummary {
 	module_count: number;
 	form_count: number;
 	status: AppDoc["status"];
+	/** App-logo asset id (denormalized from `blueprint.logo`); `null` when unset. */
+	logo: string | null;
 	/** Error classification string — present only when status is 'error'. */
 	error_type: string | null;
 	/** ISO 8601 string — Firestore Timestamp converted at the query boundary. */
@@ -694,6 +696,10 @@ const SUMMARY_FIELDS = [
 	// paused on an `askQuestions` round (it must not refund a paused hold).
 	"awaiting_input",
 	"error_type",
+	// The logo lives inside the blueprint; a dotted field path reads JUST that
+	// leaf (not the large blueprint map), so the app list shows it for every
+	// app — including ones saved before any denormalized copy existed.
+	"blueprint.logo",
 	"created_at",
 	"updated_at",
 ] as const;
@@ -856,6 +862,7 @@ function projectAppSummary(
 		error_type: isStale
 			? "internal"
 			: ((data.error_type as string | null) ?? null),
+		logo: (data.blueprint as { logo?: string } | undefined)?.logo ?? null,
 		created_at: createdAt.toISOString(),
 		updated_at: updatedAt.toISOString(),
 	};
@@ -1184,6 +1191,7 @@ export async function listDeletedApps(
 			 * type admits both. */
 			status: data.status as AppDoc["status"],
 			error_type: (data.error_type as string | null) ?? null,
+			logo: (data.blueprint as { logo?: string } | undefined)?.logo ?? null,
 			created_at: createdAt.toISOString(),
 			updated_at: updatedAt.toISOString(),
 			/* Both soft-delete fields are non-null on any row this query

@@ -42,6 +42,8 @@ import {
 	type CreditMonthDoc,
 	creditGrantDocSchema,
 	creditMonthDocSchema,
+	type MediaAssetDoc,
+	mediaAssetDocSchema,
 	type RunSummaryDoc,
 	runSummaryDocSchema,
 	type ThreadDoc,
@@ -123,6 +125,7 @@ const eventConverter = zodConverter(eventSchema);
 const runSummaryConverter = zodConverter(runSummaryDocSchema);
 const threadConverter = zodConverter(threadDocSchema);
 const userSettingsConverter = zodConverter(userSettingsDocSchema);
+const mediaAssetConverter = zodConverter(mediaAssetDocSchema);
 
 // ── Collection Helpers ─────────────────────────────────────────────
 
@@ -197,6 +200,18 @@ export const collections = {
 	/** User settings: `user_settings/{userId}` (single doc per user) */
 	settings: (): CollectionReference<UserSettingsDoc> =>
 		getDb().collection("user_settings").withConverter(userSettingsConverter),
+
+	/**
+	 * Root-level media assets: `mediaAssets/{assetId}`.
+	 *
+	 * Root collection rather than per-app subcollection because
+	 * dedup follows the owner: a logo reused across three apps is
+	 * one row, not three. The library picker shows the owner's
+	 * entire asset set in one query; per-app scoping would force
+	 * collection-group queries.
+	 */
+	mediaAssets: (): CollectionReference<MediaAssetDoc> =>
+		getDb().collection("mediaAssets").withConverter(mediaAssetConverter),
 };
 
 // ── Document Helpers ───────────────────────────────────────────────
@@ -264,4 +279,8 @@ export const docs = {
 	/** Direct reference: `user_settings/{userId}` */
 	settings: (userId: string): DocumentReference<UserSettingsDoc> =>
 		collections.settings().doc(userId),
+
+	/** Direct reference: `mediaAssets/{assetId}` */
+	mediaAsset: (assetId: string): DocumentReference<MediaAssetDoc> =>
+		collections.mediaAssets().doc(assetId),
 };

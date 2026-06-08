@@ -54,6 +54,13 @@ import { generateSchemaTool } from "./tools/generateSchema";
 import { getFieldTool } from "./tools/getField";
 import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
+import { attachFieldMediaTool } from "./tools/media/attachFieldMedia";
+import { attachOptionMediaTool } from "./tools/media/attachOptionMedia";
+import { listMediaAssetsTool } from "./tools/media/listMediaAssets";
+import { removeMediaAssetTool } from "./tools/media/removeMediaAsset";
+import { setAppLogoTool } from "./tools/media/setAppLogo";
+import { setFormMediaTool } from "./tools/media/setFormMedia";
+import { setModuleMediaTool } from "./tools/media/setModuleMedia";
 import { removeFieldTool } from "./tools/removeField";
 import { removeFormTool } from "./tools/removeForm";
 import { removeModuleTool } from "./tools/removeModule";
@@ -379,6 +386,26 @@ export function createSolutionsArchitect(
 
 		setCaseSearchAdvanced: wrapMutating(setCaseSearchAdvancedTool),
 		setCaseSearchDisplay: wrapMutating(setCaseSearchDisplayTool),
+
+		// ── Media authoring ───────────────────────────────────────────
+		// The dedicated surface for attaching asset ids to carriers — the
+		// generic mutation tools (`addFields`, `editField`,
+		// case-list-config) omit every media slot, so the SA can neither
+		// mint nor reference an asset id there. Five doc-mutation tools
+		// (field message slots / select option / module + form menu /
+		// app logo) plus two library tools: `listMediaAssets` discovers
+		// the asset ids the others need (read), `removeMediaAsset` deletes
+		// one with a live-reference guard (read-shaped — its side effect
+		// is on the library, not the doc). The MCP-only `uploadMediaAsset`
+		// is not here: the browser uploads through the library UI.
+
+		attachFieldMedia: wrapMutating(attachFieldMediaTool),
+		attachOptionMedia: wrapMutating(attachOptionMediaTool),
+		setModuleMedia: wrapMutating(setModuleMediaTool),
+		setFormMedia: wrapMutating(setFormMediaTool),
+		setAppLogo: wrapMutating(setAppLogoTool),
+		listMediaAssets: wrapRead(listMediaAssetsTool),
+		removeMediaAsset: wrapRead(removeMediaAssetTool),
 
 		// ── Validation ────────────────────────────────────────────────
 

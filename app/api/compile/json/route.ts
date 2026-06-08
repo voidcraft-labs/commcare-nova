@@ -1,50 +1,54 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { ApiError, handleApiError } from "@/lib/apiError";
-import { requireSession } from "@/lib/auth-utils";
+import { handleApiError } from "@/lib/apiError";
 import { expandDoc } from "@/lib/commcare/expander";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import { blueprintDocSchema } from "@/lib/domain";
+import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { sanitizeFilename } from "@/lib/utils/sanitize";
+import { prepareCompileRequest } from "../prepareCompileRequest";
 
 /**
- * HQ-JSON export endpoint.
+ * HQ-JSON export endpoint — the manual-import twin of the HQ-upload path,
+ * for users who import into CommCare HQ themselves rather than via an API key.
+ * Shares the auth + parse + media-gate + manifest preamble with the `.ccz` twin
+ * via `prepareCompileRequest`, then branches on whether the app has media:
  *
- * Accepts the normalized `BlueprintDoc` and emits the HQ import JSON
- * directly via `expandDoc`. The output is the HQ-expected JSON file for
- * upload to CommCare HQ — an external emission boundary analogous to
- * the XForm XML emitter.
+ *   - Media-free app → a plain `<app>.json` (import via HQ → Settings →
+ *     Import App from Another Server). Byte-identical to the pre-media output:
+ *     a media-free app expands media-OFF (no manifest) so its JSON never
+ *     depends on an empty manifest reducing to the same shape.
+ *   - App with media → a `<app>.zip` bundling the MEDIA-ON JSON + the HQ
+ *     bulk-upload `multimedia.zip` + a README, assembled by the shared
+ *     `buildHqJsonExportArchive` so this download and the MCP `compile_app`
+ *     json tool ship one format.
  */
 export async function POST(req: NextRequest) {
 	try {
-		await requireSession(req);
-		const body = await req.json();
-		const { doc } = body;
+		const { doc, assets } = await prepareCompileRequest(req, {
+			mediaErrorVerb: "export",
+		});
 
-		if (!doc) {
-			throw new ApiError("doc is required", 400);
+		// Only a media-bearing app passes the manifest to `expandDoc`; a
+		// media-free app expands media-OFF so its JSON stays byte-identical to
+		// the pre-media output.
+		const hasMedia = assets.size > 0;
+		const hqJson = expandDoc(doc, hasMedia ? { assets } : {});
+		const appName = sanitizeFilename(doc.appName);
+
+		if (!hasMedia) {
+			// Media-free: the plain JSON file.
+			return new NextResponse(JSON.stringify(hqJson, null, 2), {
+				headers: {
+					"Content-Type": "application/json",
+					"Content-Disposition": `attachment; filename="${appName}.json"`,
+				},
+			});
 		}
 
-		const parsedDoc = blueprintDocSchema.safeParse(doc);
-		if (!parsedDoc.success) {
-			throw new ApiError(
-				"Invalid doc",
-				400,
-				parsedDoc.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
-			);
-		}
-
-		// `fieldParent` is derived on load and not persisted; rebuild it
-		// here so the expander sees a fully usable doc.
-		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
-		rebuildFieldParent(docWithParent);
-
-		const hqJson = expandDoc(docWithParent);
-		const jsonStr = JSON.stringify(hqJson, null, 2);
-
-		return new NextResponse(jsonStr, {
+		// Media-ON: the json + HQ-format multimedia zip + import README bundle.
+		const archive = buildHqJsonExportArchive(appName, hqJson, assets);
+		return new NextResponse(new Uint8Array(archive), {
 			headers: {
-				"Content-Type": "application/json",
-				"Content-Disposition": `attachment; filename="${sanitizeFilename(docWithParent.appName)}.json"`,
+				"Content-Type": "application/zip",
+				"Content-Disposition": `attachment; filename="${appName}.zip"`,
 			},
 		});
 	} catch (err) {

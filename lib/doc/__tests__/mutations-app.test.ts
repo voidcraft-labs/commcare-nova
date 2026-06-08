@@ -85,3 +85,31 @@ describe("applyMutation: setCaseTypes", () => {
 		expect(next.caseTypes).toBeNull();
 	});
 });
+
+describe("applyMutation: setAppLogo", () => {
+	it("sets the logo to an asset id", () => {
+		const next = produce(emptyDoc(), (d) => {
+			applyMutation(d, { kind: "setAppLogo", logo: "asset-logo" });
+		});
+		expect(next.logo).toBe("asset-logo");
+	});
+
+	it("clears the logo by mapping null to undefined (not a literal null)", () => {
+		const withLogo: BlueprintDoc = { ...emptyDoc(), logo: "asset-logo" };
+		const next = produce(withLogo, (d) => {
+			applyMutation(d, { kind: "setAppLogo", logo: null });
+		});
+		// `logo` is `.optional()` on the doc schema — a cleared logo must
+		// drop to `undefined`, never persist as `null` (which the schema
+		// would reject on the next round-trip).
+		expect(next.logo).toBeUndefined();
+	});
+
+	it("does not mutate the input doc", () => {
+		const doc = emptyDoc();
+		produce(doc, (d) => {
+			applyMutation(d, { kind: "setAppLogo", logo: "asset-logo" });
+		});
+		expect(doc.logo).toBeUndefined();
+	});
+});

@@ -29,6 +29,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { updateColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	columnInputSchema,
 	moduleNotFoundResult,
@@ -45,7 +46,7 @@ export const updateCaseListColumnInputSchema = z
 			"Uuid of the existing column to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
 		column: columnInputSchema.describe(
-			"Replacement column body — pick a kind (`plain` / `date` / `phone` / `id-mapping` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The column's uuid carries through from the existing entry; do not supply one.",
+			"Replacement column body — pick a kind (`plain` / `date` / `phone` / `id-mapping` / `image-map` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The column's uuid carries through from the existing entry; do not supply one. An `image-map` column carries a `mapping: { value, assetId }[]` — each row maps a stored case-property value to an image asset id (use list_media_assets to find ids).",
 		),
 	})
 	.strict();
@@ -57,6 +58,7 @@ export type UpdateCaseListColumnInput = z.infer<
 export interface UpdateCaseListColumnSuccess {
 	message: string;
 	uuid: Uuid;
+	summary: ToolCallSummary;
 }
 
 export type UpdateCaseListColumnResult =
@@ -115,6 +117,7 @@ export const updateCaseListColumnTool = {
 				result: {
 					message: `Updated case list column ${columnUuid} on module "${mod.name}". New kind: ${column.kind}, header "${column.header}".`,
 					uuid: columnUuid,
+					summary: { location: mod.name, subject: column.header },
 				},
 			};
 		} catch (err) {

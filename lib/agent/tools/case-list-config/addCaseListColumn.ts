@@ -22,6 +22,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { addColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	columnInputSchema,
 	moduleNotFoundResult,
@@ -35,7 +36,7 @@ export const addCaseListColumnInputSchema = z
 			.number()
 			.describe("0-based module index whose case list to add a column to"),
 		column: columnInputSchema.describe(
-			"The column to append. Pick a kind (`plain` / `date` / `phone` / `id-mapping` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The tool mints the column's uuid; do not supply one. Calculated columns carry an `expression` instead of a `field` — the expression is the source.",
+			"The column to append. Pick a kind (`plain` / `date` / `phone` / `id-mapping` / `image-map` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The tool mints the column's uuid; do not supply one. Calculated columns carry an `expression` instead of a `field` — the expression is the source. An `image-map` column carries a `mapping: { value, assetId }[]` — each row maps a stored case-property value to an image asset id (use list_media_assets to find ids).",
 		),
 	})
 	.strict();
@@ -47,10 +48,10 @@ export type AddCaseListColumnInput = z.infer<
 /**
  * Success result — the new column's uuid surfaced both as a structured
  * field and in the human-readable message so the SA can reference it on
- * a subsequent atomic op without re-reading the module.
+ * a subsequent atomic op without re-reading the module. `summary` carries
+ * the same names for the chat transcript to render cleanly.
  */
-export interface AddCaseListColumnSuccess {
-	message: string;
+export interface AddCaseListColumnSuccess extends MutationSuccess {
 	uuid: Uuid;
 }
 
@@ -112,6 +113,7 @@ export const addCaseListColumnTool = {
 				result: {
 					message: `Added ${column.kind} column "${column.header}" (uuid ${uuid}) at index ${finalCount - 1} on module "${mod.name}".`,
 					uuid,
+					summary: { location: mod.name, subject: column.header },
 				},
 			};
 		} catch (err) {

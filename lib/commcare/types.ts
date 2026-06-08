@@ -1,5 +1,8 @@
 /** TypeScript interfaces for CommCare HQ import JSON structures. */
 
+import type { MultimediaMapItem } from "./multimedia/bundle";
+import type { LogoRef } from "./multimedia/logoEntry";
+
 export interface LocalizedString {
 	[lang: string]: string;
 }
@@ -92,6 +95,7 @@ export type DetailColumnFormat =
 	| "date"
 	| "phone"
 	| "enum"
+	| "enum-image"
 	| "time-ago"
 	| "late-flag"
 	| "calculate"
@@ -369,8 +373,8 @@ export interface HqForm {
 	form_filter: null;
 	post_form_workflow: string;
 	no_vellum: boolean;
-	media_image: Record<string, never>;
-	media_audio: Record<string, never>;
+	media_image: Record<string, string>;
+	media_audio: Record<string, string>;
 	custom_icons: unknown[];
 	custom_assertions: unknown[];
 	custom_instances: unknown[];
@@ -392,8 +396,8 @@ export interface HqModule {
 		doc_type: "CaseList";
 		show: boolean;
 		label: Record<string, string> | Record<string, never>;
-		media_image: Record<string, never>;
-		media_audio: Record<string, never>;
+		media_image: Record<string, string>;
+		media_audio: Record<string, string>;
 		custom_icons: unknown[];
 	};
 	case_list_form: {
@@ -403,8 +407,8 @@ export interface HqModule {
 	};
 	search_config: CaseSearchConfig;
 	display_style: string;
-	media_image: Record<string, never>;
-	media_audio: Record<string, never>;
+	media_image: Record<string, string>;
+	media_audio: Record<string, string>;
 	custom_icons: unknown[];
 	is_training_module: boolean;
 	module_filter: null;
@@ -432,7 +436,7 @@ export interface HqApplication {
 	cloudcare_enabled: boolean;
 	case_sharing: boolean;
 	secure_submissions: boolean;
-	multimedia_map: Record<string, never>;
+	multimedia_map: Record<string, MultimediaMapItem>;
 	translations: Record<string, never>;
 	/** Standard HQ app properties before _attachments (secondary WAF defense — see client.ts) */
 	admin_password: null;
@@ -475,7 +479,7 @@ export interface HqApplication {
 	last_modified: null;
 	last_released: null;
 	location_fixture_restore: string;
-	logo_refs: Record<string, never>;
+	logo_refs: Record<string, LogoRef>;
 	media_form_errors: boolean;
 	minimum_use_threshold: string;
 	mobile_ucr_restore_version: string;

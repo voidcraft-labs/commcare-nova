@@ -1,19 +1,22 @@
 // lib/domain/fields/barcode.ts
 //
 // Barcode/QR scan field. Maps to CommCare <input> control with xsd:string type.
-// Supports XPath validation and calculation. No default_value — the value is
-// always populated by the device scanner, not a user-supplied default.
+// Supports XPath validation. Carries `default_value` (a `<setvalue>` seed the
+// scanner can overwrite — `commcare-android BarcodeWidget` displays the
+// prepopulated value), but not `calculate`: a `calculate` bind makes the
+// control read-only, which is a hidden field's job, not a scan input's.
 
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { inputFieldBaseSchema } from "./base";
+import { inputFieldBaseSchema, mediaSchema } from "./base";
 
 export const barcodeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("barcode"),
 	validate: z.string().optional(),
 	validate_msg: z.string().optional(),
-	calculate: z.string().optional(),
+	validate_msg_media: mediaSchema.optional(),
+	default_value: z.string().optional(),
 });
 
 export type BarcodeField = z.infer<typeof barcodeFieldSchema>;

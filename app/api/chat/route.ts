@@ -4,18 +4,23 @@ import {
 	createUIMessageStreamResponse,
 	type InferAgentUIMessage,
 	isTextUIPart,
-	type UIMessage,
 	validateUIMessages,
 } from "ai";
 import {
 	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
+	countDocumentsNeedingRead,
 	createSolutionsArchitect,
 	type ErrorType,
 	GenerationContext,
 	MESSAGES,
+	resolveAttachments,
 } from "@/lib/agent";
 import { resolveAnthropicKey } from "@/lib/auth-utils";
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
+import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	createApp,
 	failApp,
@@ -52,13 +57,20 @@ export const maxDuration = 300;
 export async function POST(req: Request) {
 	const body = await req.json();
 
-	// Messages come from the AI SDK's useChat — typed but not schema-validated
-	const messages: UIMessage[] = body.messages;
-	if (!Array.isArray(messages)) {
-		return new Response(JSON.stringify({ error: "Missing messages array" }), {
-			status: 400,
-		});
+	// Messages come from the AI SDK's useChat. The route owns the SECURITY gate on
+	// them: the untrusted attachment metadata is re-resolved every turn (each ref
+	// → a Firestore load + a GCS/extract read) and persisted into the event log,
+	// so `validateChatMessages` bounds the message count + the request-wide
+	// attachment total and enforces the per-ref field caps. It deliberately does
+	// NOT re-parse the SDK-owned message `parts` — that shape is the SDK's contract.
+	const messagesResult = validateChatMessages(body.messages);
+	if (!messagesResult.ok) {
+		return Response.json(
+			{ error: messagesResult.error, type: "invalid_request" },
+			{ status: 400 },
+		);
 	}
+	const messages = messagesResult.messages;
 
 	// Validate our fields (apiKey, blueprint, etc.)
 	const parsed = chatRequestSchema.safeParse(body);
@@ -66,6 +78,26 @@ export async function POST(req: Request) {
 		return new Response(JSON.stringify({ error: "Invalid request body" }), {
 			status: 400,
 		});
+	}
+
+	// Reject an over-length typed message — defense in depth behind the
+	// composer's own send gate (both read MAX_CHAT_MESSAGE_CHARS, so they can't
+	// disagree). Only the new turn's typed text counts; attachments ride as
+	// metadata refs, not inline text, so they're never part of this length.
+	const newTurn = messages.at(-1);
+	if (newTurn?.role === "user") {
+		const typedLength = newTurn.parts
+			.filter(isTextUIPart)
+			.reduce((n, p) => n + p.text.length, 0);
+		if (typedLength > MAX_CHAT_MESSAGE_CHARS) {
+			return Response.json(
+				{
+					error: `That message is ${typedLength.toLocaleString()} characters, over the ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()}-character limit. Trim it — or attach long content as a file — and send again.`,
+					type: "message_too_long",
+				},
+				{ status: 400 },
+			);
+		}
 	}
 
 	// Require authenticated session + server API key
@@ -79,11 +111,13 @@ export async function POST(req: Request) {
 	const userId = keyResult.session.user.id;
 
 	/* The credit-gate decision for this POST. Computed from the RAW `messages`
-	 * array (straight off `body`) and the raw `body.appReady` — BEFORE the
-	 * message-strategy transform further down (the `editing && cacheExpired`
-	 * last-user-message-only path). That transform leaves a `user` message last
-	 * on every POST, so reading the transformed array here would charge every
-	 * clarification round-trip and break the free-continuation property. */
+	 * array (the validated-but-untransformed history) and the raw `body.appReady`
+	 * — BEFORE the message-strategy transform further down (the `editing &&
+	 * cacheExpired` last-user-message-only path). That transform leaves a `user`
+	 * message last on every POST, so reading the transformed array here would
+	 * charge every clarification round-trip and break the free-continuation
+	 * property. (`validateChatMessages` only validates + types the array; it does
+	 * not reorder or trim, so `messages` here is still the raw history.) */
 	const { chargeable, cost } = creditGateDecision({
 		rawMessages: messages,
 		appReady: !!body.appReady,
@@ -375,13 +409,19 @@ export async function POST(req: Request) {
 			 * which narrows each part to `TextUIPart` (with `text: string`
 			 * required, not optional). Using the guard replaces inline
 			 * structural types with a single source of truth that tracks
-			 * SDK updates automatically. */
+			 * SDK updates automatically.
+			 *
+			 * Log the user's TYPED text + the attachment manifest from the ORIGINAL
+			 * message (pre-resolve): the resolved extract bodies are large and live
+			 * durably on the asset, so re-inlining them in the log adds bloat, not
+			 * value. */
 			const lastMessage = messages.at(-1);
 			if (lastMessage?.role === "user") {
 				const text = lastMessage.parts
 					.filter(isTextUIPart)
 					.map((p) => p.text)
 					.join("\n");
+				const attachments = lastMessage.metadata?.attachments;
 				/* Guarded the way `GenerationContext.emitError` guards its own
 				 * conversation write: this call runs BEFORE the main try below, so an
 				 * escaping throw would skip the `finally` and leak the credit
@@ -389,7 +429,11 @@ export async function POST(req: Request) {
 				 * failed user-message log is non-fatal to the request — log it and
 				 * proceed; the SA still runs and the reservation still finalizes. */
 				try {
-					ctx.emitConversation({ type: "user-message", text });
+					ctx.emitConversation({
+						type: "user-message",
+						text,
+						...(attachments && attachments.length > 0 ? { attachments } : {}),
+					});
 				} catch (err) {
 					log.error("[chat] user-message conversation event failed", err);
 				}
@@ -525,31 +569,83 @@ export async function POST(req: Request) {
 
 				const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
 
-				/* Two message-strategy knobs, both driven by `editing`:
+				/* The messages to actually send the SA this turn. `selectMessagesToSend`
+				 * applies the one-shot trim (expired-cache edit → only the last user
+				 * message; its system prompt already carries a compact blueprint
+				 * summary, so prior turns would just burn tokens against a dead cache).
+				 * Selecting BEFORE the resolve below is what makes an expired-cache edit
+				 * avoid downloading/extracting history attachments it would then
+				 * discard — the resolve runs over exactly the messages that will be
+				 * sent. */
+				const messagesToSend = selectMessagesToSend(messages, {
+					editing,
+					cacheExpired,
+				});
+
+				/* Resolve attachment references into model-ready content BEFORE the SA.
+				 * The composer sends asset-id refs in message metadata; this appends,
+				 * per ref, the stored requirements extract (documents, read once at
+				 * upload and reused every turn) or the image bytes (vision). The lazy
+				 * backstop extracts through `ctx` (usage-tracked) when a referenced
+				 * document has no current extract yet. Kept INSIDE this try so a
+				 * resolution failure funnels through `failRun` (refunding the
+				 * reservation) rather than escaping as an unhandled stream error.
 				 *
-				 * 1. **Cache-expired edits get one-shot delivery.** The SA's system
-				 *    prompt already carries a compact blueprint summary, so past
-				 *    turns would just waste tokens against a dead cache.
-				 *
-				 * 2. **Live-cache edits get full history, but with build-only tool
-				 *    parts stripped.** Edit mode excludes `generateSchema` and
-				 *    `generateScaffold` from the tool set; any lingering tool-use
-				 *    parts from the original build would make Anthropic reject
-				 *    the request ("tool not found in tools array"). Stripping
-				 *    them by `tool-${name}` part type removes
-				 *    both the call and its output in one step — AI SDK v5 keeps
-				 *    both sides of a tool invocation on the same part — so the
-				 *    converted Anthropic messages come out with matched
-				 *    `tool_use` / `tool_result` pairs for the tools that remain.
-				 *    Assistant messages that collapse to zero parts after the
-				 *    strip are dropped so the wire doesn't carry empty turns.
-				 *    The filter is deterministic in its inputs, so successive
-				 *    edit requests produce identical prefixes and hit the
-				 *    prompt cache as intended. */
+				 * Bracket the resolve with `attachment-prep` lifecycle events so the
+				 * signal grid can show a "reading documents" status — but ONLY when a
+				 * document still needs reading: an already-extracted doc resolves from
+				 * its stored extract instantly and must not flash the status (an image /
+				 * doc-free turn does no narrate-worthy work either). The events also land
+				 * in the run log (like `validation-attempt`). */
+				const docsToReadCount = countDocumentsNeedingRead(messagesToSend);
+				if (docsToReadCount > 0) {
+					ctx.emitConversation({
+						type: "attachment-prep",
+						phase: "start",
+						count: docsToReadCount,
+					});
+				}
+				const preparedMessages = await resolveAttachments(
+					messagesToSend,
+					userId,
+					ctx,
+					// Pulse the signal grid with real read progress while a
+					// not-yet-extracted document is read here. `transient` keeps these
+					// frequent parts off the persisted thread + event log — they're
+					// energy, not content. Fires only when the backstop actually runs the
+					// model (a reused eager extraction emits nothing); the "Reading your
+					// documents" status still shows either way.
+					(delta) =>
+						writer.write({
+							type: "data-extract-progress",
+							data: { delta },
+							transient: true,
+						}),
+				);
+				if (docsToReadCount > 0) {
+					ctx.emitConversation({ type: "attachment-prep", phase: "done" });
+				}
+
+				/* Live-cache edits get full history, but with build-only tool parts
+				 * stripped. Edit mode excludes `generateSchema` and `generateScaffold`
+				 * from the tool set; any lingering tool-use parts from the original
+				 * build would make Anthropic reject the request ("tool not found in
+				 * tools array"). Stripping them by `tool-${name}` part type removes both
+				 * the call and its output in one step — AI SDK v5 keeps both sides of a
+				 * tool invocation on the same part — so the converted Anthropic messages
+				 * come out with matched `tool_use` / `tool_result` pairs for the tools
+				 * that remain. Assistant messages that collapse to zero parts after the
+				 * strip are dropped so the wire doesn't carry empty turns. The filter is
+				 * deterministic in its inputs, so successive edit requests produce
+				 * identical prefixes and hit the prompt cache as intended. (Expired-cache
+				 * edits already trimmed to the last user message above, so the strip is a
+				 * no-op for them — hence it runs only for the live-cache edit branch.) */
 				const buildOnlyPartTypes = new Set<string>(
 					BUILD_ONLY_TOOL_NAMES.map((name) => `tool-${name}`),
 				);
-				const stripBuildOnlyParts = (m: UIMessage): UIMessage | undefined => {
+				const stripBuildOnlyParts = (
+					m: NovaUIMessage,
+				): NovaUIMessage | undefined => {
 					if (m.role !== "assistant") return m;
 					const nextParts = m.parts.filter(
 						(p) => !buildOnlyPartTypes.has(p.type),
@@ -559,18 +655,17 @@ export async function POST(req: Request) {
 						? m
 						: { ...m, parts: nextParts };
 				};
-				const effectiveMessages = editing
-					? cacheExpired
-						? messages.filter((m) => m.role === "user").slice(-1)
-						: messages
+				const effectiveMessages =
+					editing && !cacheExpired
+						? preparedMessages
 								.map(stripBuildOnlyParts)
-								.filter((m): m is UIMessage => m !== undefined)
-					: messages;
+								.filter((m): m is NovaUIMessage => m !== undefined)
+						: preparedMessages;
 
 				/* Record the input-context composition for the per-run finalize
 				 * log: how many messages were actually sent (after the cache-expiry
-				 * last-message-only trim) and their serialized size. The system
-				 * prompt is ~constant, so this is the variable part of the
+				 * last-message-only trim + the resolve) and their serialized size. The
+				 * system prompt is ~constant, so this is the variable part of the
 				 * per-request input cost — the lever the cost investigation needs
 				 * visibility into. */
 				usage.configureRun({
@@ -665,7 +760,8 @@ export async function POST(req: Request) {
 				}
 			} catch (error) {
 				/* Init/build error around the stream setup (a bad message shape, an
-				 * SA-construction throw). Same funnel as a streamed failure. */
+				 * SA-construction throw, an attachment-resolution failure). Same funnel
+				 * as a streamed failure. */
 				await failRun(error, "route:init");
 			} finally {
 				/* The single finalize call for the CLEAN path (the charge stands;

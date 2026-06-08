@@ -39,6 +39,7 @@ import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult, snapshotCaseListConfig } from "./shared";
 
 export const setCaseListFilterInputSchema = z
@@ -77,6 +78,7 @@ export type SetCaseListFilterKind = Predicate["kind"] | "cleared";
 export interface SetCaseListFilterSuccess {
 	message: string;
 	kind: SetCaseListFilterKind;
+	summary: ToolCallSummary;
 }
 
 export type SetCaseListFilterResult =
@@ -139,10 +141,12 @@ export const setCaseListFilterTool = {
 						? {
 								message: `Cleared case list filter on module "${mod.name}" (index ${moduleIndex}).`,
 								kind: "cleared",
+								summary: { location: mod.name },
 							}
 						: {
 								message: `Set case list filter (kind: ${filter.kind}) on module "${mod.name}" (index ${moduleIndex}).`,
 								kind: filter.kind,
+								summary: { location: mod.name },
 							},
 			};
 		} catch (err) {

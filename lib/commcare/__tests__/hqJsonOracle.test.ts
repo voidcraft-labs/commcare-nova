@@ -336,3 +336,132 @@ describe("HQ-JSON oracle — column finite-number slots", () => {
 		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_TYPE");
 	});
 });
+
+// ── Multimedia map shape regression ─────────────────────────────────
+
+describe("HQ-JSON oracle — multimedia_map shape", () => {
+	it("flags a multimedia_map key missing the jr://file/ prefix", () => {
+		const app = baselineApp();
+		// A bare path with no `jr://file/` prefix — CCHQ's media_resources
+		// raises MediaResourceError on the next suite regeneration. This is
+		// exactly the shape an earlier Segment-3 emit bug produced before
+		// CR-4 caught it.
+		app.multimedia_map["commcare/aaa.png"] = {
+			multimedia_id: "aaa",
+			media_type: "CommCareImage",
+			version: 1,
+		};
+		expect(codes(validateHqJson(app))).toContain(
+			"HQJSON_BAD_MULTIMEDIA_MAP_KEY",
+		);
+	});
+
+	it("flags an unknown multimedia_map media_type", () => {
+		const app = baselineApp();
+		app.multimedia_map["jr://file/commcare/aaa.png"] = {
+			multimedia_id: "aaa",
+			media_type: "CommCareTypo",
+			version: 1,
+		};
+		expect(codes(validateHqJson(app))).toContain(
+			"HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE",
+		);
+	});
+
+	it("accepts every live CommCare media class name", () => {
+		const app = baselineApp();
+		app.multimedia_map["jr://file/commcare/img.png"] = {
+			multimedia_id: "1",
+			media_type: "CommCareImage",
+			version: 1,
+		};
+		app.multimedia_map["jr://file/commcare/aud.mp3"] = {
+			multimedia_id: "2",
+			media_type: "CommCareAudio",
+			version: 1,
+		};
+		app.multimedia_map["jr://file/commcare/vid.mp4"] = {
+			multimedia_id: "3",
+			media_type: "CommCareVideo",
+			version: 1,
+		};
+		expect(validateHqJson(app)).toEqual([]);
+	});
+});
+
+// ── Nav media dict shape ───────────────────────────────────────────
+
+describe("HQ-JSON oracle — nav media dict shape", () => {
+	it("flags a module media_image value missing the jr://file/ prefix", () => {
+		const app = baselineApp();
+		moduleOf(app).media_image = { en: "commcare/no-prefix.png" };
+		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_NAV_MEDIA_VALUE");
+	});
+
+	it("flags a module media_audio value missing the prefix", () => {
+		const app = baselineApp();
+		moduleOf(app).media_audio = { en: "/audio/no-prefix.mp3" };
+		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_NAV_MEDIA_VALUE");
+	});
+
+	it("flags a form media_image value missing the prefix", () => {
+		const app = baselineApp();
+		moduleOf(app).forms[0].media_image = { en: "no-prefix" };
+		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_NAV_MEDIA_VALUE");
+	});
+
+	it("flags a case-list media_image value missing the prefix", () => {
+		const app = baselineApp();
+		moduleOf(app).case_list.media_image = { en: "no-prefix" };
+		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_NAV_MEDIA_VALUE");
+	});
+
+	it("accepts well-formed jr://file/ media values across all carriers", () => {
+		const app = baselineApp();
+		moduleOf(app).media_image = { en: "jr://file/commcare/m-icon.png" };
+		moduleOf(app).media_audio = { en: "jr://file/commcare/m-audio.mp3" };
+		moduleOf(app).forms[0].media_image = {
+			en: "jr://file/commcare/f-icon.png",
+		};
+		moduleOf(app).case_list.media_image = {
+			en: "jr://file/commcare/cl-icon.png",
+		};
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("accepts an empty media dict (no carrier media)", () => {
+		// The baseline app already emits `media_image: {}` / `media_audio: {}` —
+		// the empty-dict shape every shell produces by default. The clean
+		// baseline test (above) proves this passes, but pin it explicitly so a
+		// future emitter change that drops the empty default is caught.
+		const app = baselineApp();
+		expect(moduleOf(app).media_image).toEqual({});
+		expect(validateHqJson(app)).toEqual([]);
+	});
+});
+
+// ── Logo refs shape ────────────────────────────────────────────────
+
+describe("HQ-JSON oracle — logo_refs shape", () => {
+	it("flags a logo_refs path missing the jr://file/ prefix", () => {
+		const app = baselineApp();
+		app.logo_refs = {
+			hq_logo_web_apps: { path: "commcare/no-prefix.png" },
+		};
+		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_LOGO_REF");
+	});
+
+	it("accepts a well-formed jr://file/ logo path", () => {
+		const app = baselineApp();
+		app.logo_refs = {
+			hq_logo_web_apps: { path: "jr://file/commcare/logo.png" },
+		};
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("accepts an empty logo_refs (no logo configured)", () => {
+		const app = baselineApp();
+		expect(app.logo_refs).toEqual({});
+		expect(validateHqJson(app)).toEqual([]);
+	});
+});

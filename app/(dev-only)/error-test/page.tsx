@@ -185,16 +185,16 @@ const errorScenarios: ErrorScenario[] = [
 					setGridMode("error-fatal");
 					setGenerationError({
 						message:
-							"Rate limited by the AI service. Wait a moment and try again.",
+							"Nova is rate limited right now. Wait a moment and try again.",
 						severity: "failed",
 					});
 					setStatusMessage(
-						"Rate limited by the AI service. Wait a moment and try again.",
+						"Nova is rate limited right now. Wait a moment and try again.",
 					);
 					showToast(
 						"error",
 						"Rate limited",
-						"Rate limited by the AI service. Wait a moment and try again.",
+						"Nova is rate limited right now. Wait a moment and try again.",
 					);
 				}, 2500),
 			);

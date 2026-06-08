@@ -39,11 +39,13 @@ import { FIX_REGISTRY } from "@/lib/commcare/validator/fixes";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { deriveConnectDefaults } from "@/lib/doc/connectConfig";
 import { iterForms } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { ToolExecutionContext } from "./toolExecutionContext";
 
 // ── Post-expansion validation ────────────────────────────────────────
@@ -143,7 +145,17 @@ export async function validateAndFix(
 
 	while (true) {
 		attempt++;
-		const errors = runValidation(workingDoc);
+		// Resolve the manifest before validation each iteration. The
+		// SA's mutations between iterations can rewrite which assets
+		// the doc references, so the manifest must reflect the current
+		// doc's references — a snapshot from before the loop would go
+		// stale on the first mutation that touches a media slot.
+		// `loadAssetsByIds` filters by owner (closes cross-tenant
+		// enumeration); pending rows are included so `mediaAssetReady`
+		// can fire with its actionable "still uploading" message
+		// instead of `mediaAssetExists`'s generic "not found."
+		const mediaAssets = await loadManifestForLoop(workingDoc, ctx.userId);
+		const errors = runValidation(workingDoc, { mediaAssets });
 
 		if (errors.length === 0) {
 			const hqJson = expandDoc(workingDoc);
@@ -236,6 +248,27 @@ export async function validateAndFix(
 			`fix:attempt-${attempt}`,
 		);
 	}
+}
+
+/**
+ * Resolve the manifest of media-asset rows for the doc's references,
+ * keyed by plain asset-id string (matching what `collectAssetRefs`
+ * returns). Used inside the validation loop to feed the asset-context
+ * media rules.
+ *
+ * Returns an empty map when the doc references zero assets — the
+ * runner gates the asset-context rules on the manifest's presence,
+ * not its size, so an empty map still runs the rules (which produce
+ * zero errors against zero refs).
+ */
+async function loadManifestForLoop(
+	doc: BlueprintDoc,
+	owner: string,
+): Promise<ReadonlyMap<string, MediaAssetRecord>> {
+	const ids = [...collectAssetRefs(doc)];
+	if (ids.length === 0) return new Map();
+	const rows = await loadAssetsByIds(owner, ids);
+	return new Map(rows.map((row) => [row.id as string, row]));
 }
 
 /**

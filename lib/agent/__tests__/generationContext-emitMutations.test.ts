@@ -375,7 +375,7 @@ describe("GenerationContext.emitError", () => {
 		ctx.emitError(
 			{
 				type: "api_rate_limit",
-				message: "Rate limited by the AI service.",
+				message: "Nova is rate limited right now.",
 				recoverable: false,
 				raw: "429 Too Many Requests",
 			},

@@ -30,6 +30,10 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "./common";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const updateModuleInputSchema = z
 	.object({
@@ -41,7 +45,7 @@ export const updateModuleInputSchema = z
 export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type UpdateModuleResult = string | { error: string };
+export type UpdateModuleResult = MutationSuccess | { error: string };
 
 export const updateModuleTool = {
 	description: "Update a module's display name.",
@@ -96,7 +100,10 @@ export const updateModuleTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully renamed module to "${newMod.name}" (index ${moduleIndex}).`,
+				result: {
+					message: `Successfully renamed module to "${newMod.name}" (index ${moduleIndex}).`,
+					summary: { subject: newMod.name } satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

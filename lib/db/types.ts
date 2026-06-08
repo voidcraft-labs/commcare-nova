@@ -22,7 +22,14 @@
 
 import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
+import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
 import { blueprintDocSchema } from "../domain/blueprint";
+import {
+	ALL_MIME_TYPES,
+	ASSET_KINDS,
+	MEDIA_ASSET_STATUSES,
+	MEDIA_EXTRACT_STATUSES,
+} from "../domain/multimedia";
 
 // ── Shared ──────────────────────────────────────────────────────────
 
@@ -352,6 +359,10 @@ const storedThreadMessageSchema = z.object({
 	role: z.enum(["user", "assistant"]),
 	/** Visible parts only — text and answered askQuestions. */
 	parts: z.array(storedMessagePartSchema),
+	/** Attachment manifest for a user turn — the same `AttachmentRef` shape the
+	 *  live transcript + replay use, so loaded history renders the chips (and
+	 *  their previews) through the one render path. */
+	attachments: z.array(attachmentRefSchema).optional(),
 });
 export type StoredThreadMessage = z.infer<typeof storedThreadMessageSchema>;
 
@@ -369,3 +380,142 @@ export const threadDocSchema = z.object({
 	messages: z.array(storedThreadMessageSchema),
 });
 export type ThreadDoc = z.infer<typeof threadDocSchema>;
+
+// ── Media Assets ───────────────────────────────────────────────────
+
+/**
+ * Per-owner content-hash-deduped media. Lives at root collection
+ * `mediaAssets/{assetId}` (the doc id is the asset's UUID; not
+ * mirrored in the body). `owner` gates every read site.
+ *
+ * Two reasons this is a root collection rather than a per-app
+ * subcollection:
+ *
+ *  1. Dedup follows the owner, not the app — a logo reused across
+ *     three apps is one row, not three. A subcollection scope
+ *     would force per-app copies.
+ *  2. The library picker shows all of a user's assets at once;
+ *     querying across apps from a subcollection requires a
+ *     collection-group query, which costs an additional index per
+ *     filter clause.
+ *
+ * Composite indexes (see `firestore.indexes.json`):
+ *
+ *   (owner ASC, contentHash ASC) — dedup probe at upload-initiate
+ *   (owner ASC, gcsObjectKey ASC) — shared-byte guard before deletion
+ *   (owner ASC, createdAt DESC)  — library pagination, newest first
+ */
+export const mediaAssetDocSchema = z.object({
+	/**
+	 * User id of the asset's owner. Every read site enforces
+	 * `asset.owner === session.user.id` before returning bytes
+	 * or metadata.
+	 */
+	owner: z.string().min(1),
+	/**
+	 * SHA-256 of the validated bytes, lowercase hex. Computed at
+	 * the validation gate from the actual stored bytes, NOT
+	 * trusted from the client. Dedup key paired with `owner`.
+	 */
+	contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+	/**
+	 * Sniffed MIME from `file-type`'s magic-bytes scan — NOT the
+	 * client's claim. Constrained to the shared accepted-types set.
+	 */
+	mimeType: z.enum(ALL_MIME_TYPES),
+	/**
+	 * Canonical extension derived from the sniffed MIME, leading
+	 * dot included. Forms the suffix of the GCS object key.
+	 */
+	extension: z.string().regex(/^\.[a-z0-9]+$/),
+	sizeBytes: z.number().int().positive(),
+	/** Image-only — width × height in pixels. Read by sharp at confirm time. */
+	dimensions: z
+		.object({
+			width: z.number().int().positive(),
+			height: z.number().int().positive(),
+		})
+		.optional(),
+	/**
+	 * Audio/video-only — duration in milliseconds, parsed from the
+	 * container at confirm time. Best-effort: absent when the container
+	 * exposes no duration (e.g. a video-only mp4 with no audio track),
+	 * so optional even on audio/video assets. Informational only.
+	 */
+	durationMs: z.number().int().positive().optional(),
+	/**
+	 * Coarse asset kind, denormalized so the library list can filter
+	 * "images only" with a server-side equality query instead of an
+	 * in-memory scan over a page (which returns lopsided page sizes when
+	 * one kind is sparse). One of image/audio/video (wire-attachable) or
+	 * pdf/text/docx/xlsx (library-only documents). Derived at upload from
+	 * the sniffed MIME (or the extension, for text); the kind is stable
+	 * across the confirm step.
+	 */
+	kind: z.enum(ASSET_KINDS),
+	/**
+	 * GCS object key (without the `gs://<bucket>/` prefix) the
+	 * bytes live at. Browser uploads start at a per-attempt pending key,
+	 * then confirm promotes validated bytes to the content-hash final key
+	 * (`users/<owner>/<contentHash>.<ext>`). Storing the key explicitly
+	 * anchors the bucket layout against schema drift if the layout ever
+	 * changes.
+	 */
+	gcsObjectKey: z.string().min(1),
+	/** Filename as supplied by the client at upload. Display only. */
+	originalFilename: z.string().min(1),
+	/**
+	 * User-editable display name, set to `originalFilename` at
+	 * upload. The library UI lets the user rename without affecting
+	 * the underlying bytes.
+	 */
+	displayName: z.string().min(1).optional(),
+	/**
+	 * Lifecycle status. `pending` rows are dropped by the
+	 * library-list endpoint; the validator gate rejects shipping
+	 * any blueprint that still references a `pending` asset. The
+	 * confirm step flips this to `ready` once the validator
+	 * approves the bytes; on failure the row is deleted, so there
+	 * is no `failed` state to track.
+	 */
+	status: z.enum(MEDIA_ASSET_STATUSES),
+	/**
+	 * Requirements-extract metadata for a DOCUMENT (pdf/text/docx/xlsx).
+	 * Absent on media assets (image/audio/video carry no extract — they reach
+	 * the model as pixels) and on a document whose extraction hasn't been
+	 * triggered yet. The extract TEXT lives in GCS at
+	 * `extractGcsObjectKeyFor(owner, contentHash, version)`, NOT here — a
+	 * 64k-token extract would bloat every library-list read and flirt with
+	 * Firestore's 1 MB doc cap. This is only the status + the metadata the UI
+	 * and the chat resolve step need without fetching the body.
+	 *
+	 *  - `version` is the `EXTRACTOR_VERSION` the extract was produced at; a
+	 *    mismatch against the current version means the stored extract is
+	 *    stale and a fresh extraction is owed (the GCS key embeds it too).
+	 *  - `truncated` flags an extract that hit the model's output ceiling.
+	 *  - `charCount` is the extract length (for a "long document" hint in UI).
+	 *  - `failureReason` is set only when `status === "failed"`.
+	 *  - `title` / `summary` are a short label + a few-sentence précis of the
+	 *    document, produced in the SAME single structured extraction call as the
+	 *    extract (the schema writes them before the extract body, in schema order).
+	 *    Both are optional/best-effort (absent when that call failed, or on an older
+	 *    extractor version). They exist for a future "browse my attachments" tool
+	 *    to scan attachments without opening each extract — not read by the SA.
+	 */
+	extract: z
+		.object({
+			status: z.enum(MEDIA_EXTRACT_STATUSES),
+			version: z.number().int().positive(),
+			model: z.string().min(1),
+			truncated: z.boolean(),
+			charCount: z.number().int().nonnegative(),
+			extractedAt: timestamp,
+			failureReason: z.string().optional(),
+			title: z.string().optional(),
+			summary: z.string().optional(),
+		})
+		.optional(),
+	created_at: timestamp,
+});
+export type MediaAssetDoc = z.infer<typeof mediaAssetDocSchema>;
+export type MediaAssetExtract = NonNullable<MediaAssetDoc["extract"]>;

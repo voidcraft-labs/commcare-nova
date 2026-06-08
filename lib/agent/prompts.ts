@@ -233,6 +233,8 @@ Both groups have a \`last_visit_date\` underneath, but at different paths — th
 
 An empty-label group renders invisibly at runtime (no header, no chrome) but still groups its children at the data-tree level. Use empty labels deliberately.
 
+**Place a field in its group as you add it.** A field nests inside a group or repeat when its \`parentId\` names that container's id — on \`addFields\`, set \`parentId\` on the field, or pass a batch-level \`parentId\` to nest the whole batch at once. A field with no parent lands at the form root. Give a field its parent up front; adding it loose and moving it afterward is wasted work.
+
 ### Repeat Modes
 
 When \`kind: "repeat"\`, you must include a \`repeat\` object with one of three \`mode\` values. The mode determines runtime cardinality and whether Add/Remove appears.
@@ -246,6 +248,42 @@ Bound modes (\`count_bound\`, \`query_bound\`) freeze cardinality at form load �
 **Pick the simplest mode that fits.** Most repeats are \`user_controlled\`. Reach for \`count_bound\` or \`query_bound\` only when cardinality is genuinely fixed by a query or count field — not as a default. Both \`count_bound\` and \`query_bound\` are heavy logic patterns: their children are usually hidden fields with computed values, not user input.
 
 **Repeats and child cases.** A repeat can model a list of child cases created in one form submission — set \`case_property_on\` on fields inside the repeat to the CHILD case type, and each iteration becomes one new child case linked to the parent. The parent case (whose \`case_property_on\` matches the module's case type) lives OUTSIDE the repeat; primary-case fields inside a repeat are rejected (a form creates ONE primary case, but a repeat captures zero-or-more per-iteration values — they can't coexist). Every child case bucket needs its own field with id \`case_name\` at the same scope as the rest of that bucket's fields (the form root, or the repeat the bucket's other fields are in) so the new case has a display name. Two different repeats in one form can each create child cases of the same type — they emit as independent subcase actions with their own iteration scope. Works across all three repeat modes; the canonical pattern is one registration form opening the parent + a \`user_controlled\` repeat with the child fields underneath.
+
+### Field Validation
+
+A field's \`validate\` constraint is an XPath boolean over the entered value (\`.\`) that must hold for the answer to be accepted. Set it whenever the field's value has a real valid range or format, and write that rule with the full XPath language to whatever precision correctly captures what a valid answer looks like — the most complete correct constraint the field's meaning supports, not the loosest rule that comes to mind. A constraint is only as good as how fully it pins down a valid value, so reach across the whole XPath function library to express each field's actual rule.
+
+Judge each field on its own meaning, never a fixed recipe. An open-ended free-text answer or a fixed-choice field (already limited to its options) usually has no valid-value rule — leave it unconstrained **unless the spec or the user asked for a specific rule**, in which case implement exactly that.
+
+\`validate\` is for the SHAPE of an allowed value, not whether a value is present — a check that only tests for non-emptiness duplicates \`required\`. Use \`required\` for "must be answered" and \`validate\` for "must look like this."
+
+**"Answer one of these two" is gated by a selector, not by the two fields pointing at each other.** When exactly one of two inputs must be answered (age *or* date of birth), making each field's \`required\` read the other's value makes the two fields depend on each other — a dependency cycle the validator rejects, because neither can resolve until the other does. Add a small selector ("which do you have?") and gate each field's \`required\` (and its \`relevant\`) on that selector instead, so the dependency flows one way.
+
+---
+
+## Media
+
+You can attach images, audio, and video to parts of the app — useful for low-literacy users, visual instructions, or picture-based choices.
+
+What can carry media:
+
+- **A field's messages.** A field's label, hint, help, and validation message can each carry an image, audio, video, or any combination. Use \`attach_field_media\` — name the field and the slot (\`label\`, \`hint\`, \`help\`, or \`validate_msg\`).
+- **A select option.** Each choice in a single-select or multi-select can show its own image/audio/video beside the choice. Use \`attach_option_media\` — name the field and the option's value.
+- **A menu tile.** A module's home-screen tile and a form's menu tile each take an icon image and an audio label (no video). Use \`set_module_media\` and \`set_form_media\`.
+- **The app logo.** A single image shown on the login and home screens. Use \`set_app_logo\`.
+
+How to attach it:
+
+1. The user uploads media in the library (or, if you're a Claude Code-style client, with \`upload_media_asset\`). You don't create media — you reference what's already there.
+2. Call \`list_media_assets\` to see what the user has uploaded and get each asset's id.
+3. Pass those asset ids to the attach/set tools above.
+
+A few things to know:
+
+- Audio must be \`.mp3\` or \`.wav\`, and video must be \`.mp4\`. CommCare HQ can't accept \`.m4a\` or \`.ogg\` — if a user has audio in those formats, ask them to convert to \`.mp3\` or \`.wav\` first.
+- If you reference an asset that isn't ready (deleted, still uploading, or the wrong kind for the slot), validation will tell you exactly which slot has the problem. Fix the reference there.
+- To remove media from a slot, attach an empty bundle (for field/option media) or pass \`null\` (for menu icons, audio labels, and the logo).
+- To delete an asset from the user's library entirely, use \`remove_media_asset\`. It won't delete an asset any live app still uses — clear those references first.
 
 ---
 

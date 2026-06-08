@@ -3,6 +3,7 @@ import type { Event } from "@/lib/log/types";
 import {
 	deriveAgentError,
 	deriveAgentStage,
+	deriveAttachmentPrep,
 	derivePostBuildEdit,
 	deriveStatusMessage,
 	deriveValidationAttempt,
@@ -47,6 +48,25 @@ function validationAttempt(attempt: number, errors: string[], seq = 0): Event {
 		seq,
 		source: "chat",
 		payload: { type: "validation-attempt", attempt, errors },
+	};
+}
+
+function attachmentPrep(
+	phase: "start" | "done",
+	seq = 0,
+	count?: number,
+): Event {
+	return {
+		kind: "conversation",
+		runId: "r",
+		ts: 0,
+		seq,
+		source: "chat",
+		payload: {
+			type: "attachment-prep",
+			phase,
+			...(count !== undefined && { count }),
+		},
 	};
 }
 
@@ -190,6 +210,49 @@ describe("deriveValidationAttempt", () => {
 				validationAttempt(3, ["a", "b", "c"], 2),
 			]),
 		).toEqual({ attempt: 3, errorCount: 3 });
+	});
+});
+
+// ── deriveAttachmentPrep ──────────────────────────────────────────────────
+
+describe("deriveAttachmentPrep", () => {
+	it("false on an empty buffer (no condensing in flight)", () => {
+		expect(deriveAttachmentPrep([])).toBe(false);
+	});
+
+	it("true after start, before done", () => {
+		expect(deriveAttachmentPrep([attachmentPrep("start", 0, 2)])).toBe(true);
+	});
+
+	it("false once done lands", () => {
+		expect(
+			deriveAttachmentPrep([
+				attachmentPrep("start", 0, 2),
+				attachmentPrep("done", 1),
+			]),
+		).toBe(false);
+	});
+
+	it("true again on a second start — latest wins", () => {
+		expect(
+			deriveAttachmentPrep([
+				attachmentPrep("start", 0, 1),
+				attachmentPrep("done", 1),
+				attachmentPrep("start", 2, 1),
+			]),
+		).toBe(true);
+	});
+
+	it("stays false when a later non-attachment event follows done", () => {
+		/* The derivation keys only off attachment-prep events; a mutation that
+		 * arrives after `done` must not re-open the reading-documents state. */
+		expect(
+			deriveAttachmentPrep([
+				attachmentPrep("start", 0, 1),
+				attachmentPrep("done", 1),
+				mut("schema", 2),
+			]),
+		).toBe(false);
 	});
 });
 

@@ -20,6 +20,7 @@ import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { removeColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { applyToDoc, type MutatingToolResult } from "../common";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const removeCaseListColumnInputSchema = z
@@ -41,6 +42,7 @@ export interface RemoveCaseListColumnSuccess {
 	message: string;
 	uuid: Uuid;
 	remaining: number;
+	summary: ToolCallSummary;
 }
 
 export type RemoveCaseListColumnResult =
@@ -101,6 +103,7 @@ export const removeCaseListColumnTool = {
 					message: `Removed case list column ${columnUuid} on module "${mod.name}". ${remaining} column${remaining === 1 ? "" : "s"} remain.`,
 					uuid: columnUuid,
 					remaining,
+					summary: { location: mod.name },
 				},
 			};
 		} catch (err) {

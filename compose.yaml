@@ -49,5 +49,41 @@ services:
       timeout: 3s
       retries: 30
 
+  # Local-dev Google Cloud Storage emulator for the multimedia subsystem.
+  # The app points at it via `NOVA_MEDIA_EMULATOR_HOST` (see `.env.example`), so
+  # local media upload / read / compile bundling needs NO real GCS bucket, no
+  # signed-URL signing, and no service-account impersonation — the emulator
+  # accepts unauthenticated reads/writes, and the `nova-multimedia-dev` bucket
+  # is created lazily on the first upload (`lib/storage/media.ts`).
+  #
+  # `latest` is acceptable for a dev-only emulator (not a prod / security
+  # surface); pin to a digest if reproducibility ever matters. Data persists
+  # in the `nova-media-data` named volume so uploaded media survives
+  # `docker compose down` and restarts, like the Postgres case data.
+  gcs:
+    image: fsouza/fake-gcs-server:latest
+    container_name: nova-media-gcs
+    command:
+      - "-scheme"
+      - "http"
+      - "-port"
+      - "4443"
+      # `-public-host` + `-external-url` make the object self/media links the
+      # client follows for reads point back at the reachable emulator
+      # (localhost:4443) instead of the default `storage.googleapis.com`.
+      - "-public-host"
+      - "localhost:4443"
+      - "-external-url"
+      - "http://localhost:4443"
+      - "-backend"
+      - "filesystem"
+      - "-data"
+      - "/data"
+    ports:
+      - "4443:4443"
+    volumes:
+      - nova-media-data:/data
+
 volumes:
   nova-cases-data:
+  nova-media-data:

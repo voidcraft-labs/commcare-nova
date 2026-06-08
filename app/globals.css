@@ -36,8 +36,8 @@
 	--z-raised: 20; /* Slightly elevated UI: insertion points, settings buttons, sidebar overlays */
 	--z-popover: 50; /* Floating menus: dropdowns, pickers, popovers, confirm dialogs */
 	--z-popover-top: 60; /* Popovers above other popovers: type picker over field inspector */
-	--z-tooltip: 70; /* Tooltips — above all popovers so they're never occluded */
 	--z-modal: 100; /* Modal backdrops and dialogs */
+	--z-tooltip: 110; /* Tooltips — above popovers AND modals (a tooltip on a control inside a dialog must never be occluded by it) */
 	--z-system: 9999; /* System overlays: noise texture */
 
 	/* Preview theme defaults (overridden by .preview-theme) */
@@ -681,6 +681,19 @@ body {
 /* Pointer cursor on idle text-editable buttons; active editors (div with
  * cursor-text) are left alone so the text cursor takes over. */
 [data-field-wrapper] button[data-text-editable] {
+	cursor: pointer;
+}
+
+/* Tailwind v4 dropped the user-agent default `cursor: pointer` on
+ * <button>, so a plain styled button reads as not-clickable. We always
+ * want clickable things to look clickable — restore the pointer for every
+ * enabled button (and role="button") that doesn't set its OWN cursor. The
+ * `:not([class*="cursor-"])` guard leaves explicit cursors untouched:
+ * drag handles (`cursor-grab`), disabled affordances (`cursor-not-allowed`),
+ * inline text editors (`cursor-text`) keep theirs. This is the global
+ * default so no individual button has to remember `cursor-pointer`. */
+button:not(:disabled):not([class*="cursor-"]),
+[role="button"]:not([aria-disabled="true"]):not([class*="cursor-"]) {
 	cursor: pointer;
 }
 

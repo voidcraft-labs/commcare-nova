@@ -90,7 +90,11 @@ import type {
 	HqModule,
 	OpenSubCaseAction,
 } from "@/lib/commcare";
-import { type ValidationError, validationError } from "./errors";
+import {
+	type ValidationError,
+	type ValidationLocation,
+	validationError,
+} from "./errors";
 
 // ── Wrap-fatal enum vocabularies (verified against models.py) ──────────
 
@@ -369,11 +373,26 @@ function checkSubcase(
 
 /**
  * Validate one `HqForm`: its `doc_type`, `requires` choice,
- * `post_form_workflow` choice, and its `FormActions` block.
+ * `post_form_workflow` choice, its `FormActions` block, and the shape of
+ * the menu media dicts (`media_image` / `media_audio`) the
+ * `NavMenuItemMediaMixin` shell carries.
  */
 function checkForm(form: HqForm, errors: ValidationError[]): void {
 	const formName = form.name.en ?? form.unique_id;
-	const loc = { formName };
+	const loc: ValidationLocation = { formName };
+
+	checkNavMediaDict(
+		form.media_image,
+		`Form "${formName}" media_image`,
+		loc,
+		errors,
+	);
+	checkNavMediaDict(
+		form.media_audio,
+		`Form "${formName}" media_audio`,
+		loc,
+		errors,
+	);
 
 	// `FormBase.wrap` dispatches on `doc_type` and raises for anything outside
 	// {Form, AdvancedForm, ShadowForm} — the mirror of the module dispatch
@@ -483,6 +502,135 @@ function checkColumnNumbers(
 	}
 }
 
+// ── Multimedia map + nav media + logo shape ────────────────────────────
+
+/**
+ * The `jr://file/` prefix every CommCare media reference carries. CCHQ's
+ * `suite_xml/generator.py::media_resources` RAISES `MediaResourceError` on
+ * any `multimedia_map` key that doesn't start with this prefix — the next
+ * suite regeneration (any "Make new version" click after the import) trips
+ * it. Nav media dict values and the web-apps logo ref carry the same
+ * prefix contract because the regenerated suite reads them through the
+ * same install-path machinery.
+ */
+const JR_FILE_PREFIX = "jr://file/";
+
+/**
+ * The closed set of `media_type` values `multimedia_map` accepts.
+ * `commcare-hq/.../hqmedia/models.py::ApplicationMediaMixin` resolves each
+ * map item's `media_type` to a `CommCareMultimedia` subclass via the
+ * `get_subclasses_dict` table — `CommCareImage` / `CommCareAudio` /
+ * `CommCareVideo` (the abstract `CommCareMultimedia` parent is in the
+ * dispatch table but never the live tag for an upload-bearing item).
+ */
+const VALID_MEDIA_TYPES: ReadonlySet<string> = new Set([
+	"CommCareImage",
+	"CommCareAudio",
+	"CommCareVideo",
+]);
+
+/**
+ * Validate one `(key, value)` pair of `multimedia_map`. Two contracts:
+ *
+ *   1. The key must start with `jr://file/` — verified against
+ *      `commcare-hq/.../suite_xml/generator.py::media_resources`, which
+ *      raises `MediaResourceError('<path> does not start with jr://file/')`
+ *      on any non-prefixed entry. CCHQ accepts the upload but the next
+ *      suite regeneration crashes.
+ *   2. The `media_type` must be one of the three live CommCare media
+ *      class names — verified against `commcare-hq/.../hqmedia/models.py::
+ *      ApplicationMediaMixin.update_mm_map` (the lookup it routes through
+ *      ignores unknown subclass names rather than raising, but the resulting
+ *      suite resource carries no installable bytes).
+ */
+function checkMultimediaMap(
+	map: Record<
+		string,
+		{ multimedia_id: string; media_type: string; version: number }
+	>,
+	errors: ValidationError[],
+): void {
+	for (const [key, item] of Object.entries(map)) {
+		if (!key.startsWith(JR_FILE_PREFIX)) {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_MULTIMEDIA_MAP_KEY",
+					"app",
+					`The generated multimedia_map has a key "${key}" that doesn't start with "${JR_FILE_PREFIX}". CommCare HQ's media_resources generator raises MediaResourceError on the next suite regeneration when a key is missing the prefix. This is a bug in the app generator.`,
+					{},
+				),
+			);
+		}
+		if (!VALID_MEDIA_TYPES.has(item.media_type)) {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE",
+					"app",
+					`The generated multimedia_map entry for "${key}" declares media_type="${item.media_type}", but CommCare's media classes are CommCareImage, CommCareAudio, and CommCareVideo. CommCare doesn't reject an unknown value — its media_resources generator falls back to a generic "Media" descriptor — so this is an emitter regression rather than an import failure: the media_type comes from a closed kind→class table, never user input, and a value outside the three means that mapping drifted. This is a bug in the app generator.`,
+					{},
+				),
+			);
+		}
+	}
+}
+
+/**
+ * Validate the values of a `media_image` / `media_audio` dict — the
+ * language-keyed map a `NavMenuItemMediaMixin` shell carries. CCHQ's
+ * `media_image = DictProperty(StringProperty)` only constrains the values
+ * structurally as strings, but the regenerated suite reads each value as
+ * a `jr://file/...` install path: a bare string with no prefix produces a
+ * suite resource pointing nowhere.
+ *
+ * `where` names the carrier the media dict belongs to so a finding points
+ * the generator at the right emit site (module, form, or case_list shell).
+ */
+function checkNavMediaDict(
+	media: Record<string, string>,
+	where: string,
+	loc: ValidationLocation,
+	errors: ValidationError[],
+): void {
+	for (const [lang, value] of Object.entries(media)) {
+		if (value.startsWith(JR_FILE_PREFIX)) continue;
+		errors.push(
+			validationError(
+				"HQJSON_BAD_NAV_MEDIA_VALUE",
+				"app",
+				`${where} declares a media reference for language "${lang}" with value "${value}" that doesn't start with "${JR_FILE_PREFIX}". CommCare regenerates the suite from these dicts; a missing prefix produces a suite resource pointing nowhere. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+}
+
+/**
+ * Validate every `logo_refs` entry on the application. CCHQ's
+ * `commcare-hq/.../app_manager/models.py::ANDROID_LOGO_PROPERTY_MAPPING`
+ * maps `hq_logo_web_apps` to the `brand-banner-web-apps` profile property,
+ * and CCHQ's `create_profile` reads `logo_refs[name]['path']` into that
+ * property's value. A missing `path`, or one that doesn't start with
+ * `jr://file/`, produces a profile property whose value the runtime can't
+ * resolve to a bundled file.
+ */
+function checkLogoRefs(
+	logoRefs: Record<string, { path: string }>,
+	errors: ValidationError[],
+): void {
+	for (const [slot, ref] of Object.entries(logoRefs)) {
+		const path = ref.path;
+		if (typeof path === "string" && path.startsWith(JR_FILE_PREFIX)) continue;
+		errors.push(
+			validationError(
+				"HQJSON_BAD_LOGO_REF",
+				"app",
+				`The generated logo_refs has a "${slot}" entry whose path "${path}" doesn't start with "${JR_FILE_PREFIX}". CommCare reads this value into a profile property the runtime resolves against bundled media; a missing prefix produces an unresolvable banner reference. This is a bug in the app generator.`,
+				{},
+			),
+		);
+	}
+}
+
 // ── Module checks ──────────────────────────────────────────────────────
 
 /**
@@ -498,6 +646,7 @@ function checkColumnNumbers(
  */
 function checkModule(module: HqModule, errors: ValidationError[]): void {
 	const moduleName = module.name.en ?? module.unique_id;
+	const loc: ValidationLocation = { moduleName };
 
 	if (!VALID_MODULE_DOC_TYPES.has(module.doc_type)) {
 		errors.push(
@@ -505,13 +654,43 @@ function checkModule(module: HqModule, errors: ValidationError[]): void {
 				"HQJSON_BAD_MODULE_DOC_TYPE",
 				"module",
 				`Module "${moduleName}" has doc_type="${module.doc_type}", but CommCare's importer dispatches on this value and only recognizes Module / AdvancedModule / ReportModule / ShadowModule, rejecting the whole app otherwise. This is a bug in the app generator.`,
-				{ moduleName },
+				loc,
 			),
 		);
 	}
 
 	checkDetail(module.case_details.short, moduleName, errors);
 	checkDetail(module.case_details.long, moduleName, errors);
+
+	// Module-level + case-list-level menu media. Each carrier emits a
+	// `media_image` / `media_audio` dict (NavMenuItemMediaMixin); when present,
+	// every value is a jr:// install path the regenerated suite resolves.
+	// Every slot is required on the typed shell — the emitter's shell
+	// factories always stamp them.
+	checkNavMediaDict(
+		module.media_image,
+		`Module "${moduleName}" media_image`,
+		loc,
+		errors,
+	);
+	checkNavMediaDict(
+		module.media_audio,
+		`Module "${moduleName}" media_audio`,
+		loc,
+		errors,
+	);
+	checkNavMediaDict(
+		module.case_list.media_image,
+		`Module "${moduleName}" case-list media_image`,
+		loc,
+		errors,
+	);
+	checkNavMediaDict(
+		module.case_list.media_audio,
+		`Module "${moduleName}" case-list media_audio`,
+		loc,
+		errors,
+	);
 
 	for (const form of module.forms) {
 		checkForm(form, errors);
@@ -568,6 +747,15 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 	for (const module of hqApp.modules) {
 		checkModule(module, errors);
 	}
+
+	// Application-level multimedia surfaces: the `multimedia_map` keys + the
+	// `logo_refs` paths. Both feed the suite regeneration on the next CCHQ
+	// build, so a malformed entry detonates at that point even though the
+	// initial import wraps clean. Both slots are required on `HqApplication`
+	// and always stamped by `expandDoc`'s shell factories — the type system
+	// gates a missing dict before this check runs.
+	checkMultimediaMap(hqApp.multimedia_map, errors);
+	checkLogoRefs(hqApp.logo_refs, errors);
 
 	return errors;
 }

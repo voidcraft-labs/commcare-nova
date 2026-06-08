@@ -35,18 +35,26 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import type {
+	AssetManifest,
+	ResolvedMediaAsset,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { AssetId } from "@/lib/domain/multimedia";
 import {
 	hasCaseSearch,
 	hasChildCase,
 	hasSort,
+	hasSuiteMedia,
 	moduleCount,
 	suiteDocArbitrary,
 } from "./suiteDocArbitrary";
+import { type FuzzMediaAsset, fuzzManifestFromDoc } from "./xformDocArbitrary";
 
 /** Fixed seed + run count so a failure reproduces exactly across runs + CI. */
 const SEED = 20260522;
@@ -79,14 +87,19 @@ function prepareAndGuard(doc: BlueprintDoc): void {
 }
 
 /**
- * Extract `suite.xml` and the default-locale app_strings key set from a
- * compiled `.ccz` buffer. The fuzzer mirrors the runtime's own read path:
- * the suite is one zip entry, and the locale ids it must resolve against live
- * in `default/app_strings.txt` as `key=value` lines.
+ * Extract `suite.xml`, the default-locale app_strings key→value map, and the
+ * `commcare/<file>` wire-path set from a compiled `.ccz` buffer. The fuzzer
+ * mirrors the runtime's own read path: the suite is one zip entry, the
+ * locale ids it must resolve against live in `default/app_strings.txt` as
+ * `key=value` lines, and the bundled-media set is every zip entry under the
+ * `commcare/` directory.
  */
 function extractSuite(ccz: Buffer): {
 	suiteXml: string;
+	mediaSuiteXml: string;
 	appStringKeys: Set<string>;
+	appStringValues: Map<string, string>;
+	bundledPaths: Set<string>;
 } {
 	const zip = new AdmZip(ccz);
 	const suiteEntry = zip.getEntry("suite.xml");
@@ -95,6 +108,14 @@ function extractSuite(ccz: Buffer): {
 	}
 	const suiteXml = suiteEntry.getData().toString("utf-8");
 
+	const mediaSuiteEntry = zip.getEntry("media_suite.xml");
+	if (mediaSuiteEntry === null) {
+		throw new Error(
+			"compileCcz produced a .ccz with no media_suite.xml entry.",
+		);
+	}
+	const mediaSuiteXml = mediaSuiteEntry.getData().toString("utf-8");
+
 	const stringsEntry = zip.getEntry("default/app_strings.txt");
 	if (stringsEntry === null) {
 		throw new Error(
@@ -102,13 +123,55 @@ function extractSuite(ccz: Buffer): {
 		);
 	}
 	const appStringKeys = new Set<string>();
+	const appStringValues = new Map<string, string>();
 	for (const line of stringsEntry.getData().toString("utf-8").split("\n")) {
 		const eq = line.indexOf("=");
 		if (eq === -1) continue;
-		appStringKeys.add(line.slice(0, eq));
+		const key = line.slice(0, eq);
+		const value = line.slice(eq + 1);
+		appStringKeys.add(key);
+		appStringValues.set(key, value);
 	}
 
-	return { suiteXml, appStringKeys };
+	const bundledPaths = new Set<string>();
+	for (const entry of zip.getEntries()) {
+		if (entry.entryName.startsWith("commcare/")) {
+			bundledPaths.add(entry.entryName);
+		}
+	}
+
+	return {
+		suiteXml,
+		mediaSuiteXml,
+		appStringKeys,
+		appStringValues,
+		bundledPaths,
+	};
+}
+
+/**
+ * Lift the fuzz-synthesized manifest to the `AssetManifest` shape the
+ * emitter and compiler consume, attaching placeholder bytes so the CCZ
+ * bundler's byte-contract throw doesn't fire (the archive bytes themselves
+ * aren't a suite-oracle concern — empty buffers are fine).
+ */
+function toAssetManifest(
+	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+): AssetManifest {
+	const placeholderBytes = Buffer.alloc(0);
+	const m = new Map<AssetId, ResolvedMediaAsset>();
+	for (const [id, fuzz] of fuzzManifest) {
+		m.set(id, {
+			assetId: fuzz.assetId,
+			wirePath: fuzz.wirePath,
+			kind: fuzz.kind,
+			mimeType: fuzz.mimeType,
+			contentHash: fuzz.contentHash,
+			extension: fuzz.extension,
+			bytes: placeholderBytes,
+		});
+	}
+	return m;
 }
 
 describe("suite emitter totality (property-based fuzz)", () => {
@@ -119,40 +182,81 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		caseSearch: 0,
 		childCase: 0,
 		sort: 0,
+		// The media-resolution checks (menu locales + image-map literals) only
+		// exercise on docs carrying SUITE-borne media — menu icon/audioLabel or
+		// an image-map column. A drift to zero of that population would silently
+		// weaken the suite oracle's media path; the assertion below floors it.
+		// (Deliberately NOT the broader `hasMedia`: logo + field-itext media
+		// lower elsewhere and wouldn't keep this check exercised.)
+		suiteMedia: 0,
 	};
 
-	it(
-		"every schema-valid doc emits an oracle-clean suite.xml",
-		() => {
-			fc.assert(
-				fc.property(suiteDocArbitrary, (doc) => {
-					prepareAndGuard(doc);
+	it("every schema-valid doc emits an oracle-clean suite.xml", {
+		timeout: FUZZ_TIMEOUT_MS,
+	}, () => {
+		fc.assert(
+			fc.property(suiteDocArbitrary, (doc) => {
+				prepareAndGuard(doc);
 
-					// Census the doc shape before emitting.
-					census.total += 1;
-					if (moduleCount(doc) > 1) census.multiModule += 1;
-					if (hasCaseSearch(doc)) census.caseSearch += 1;
-					if (hasChildCase(doc)) census.childCase += 1;
-					if (hasSort(doc)) census.sort += 1;
+				// Census the doc shape before emitting.
+				census.total += 1;
+				if (moduleCount(doc) > 1) census.multiModule += 1;
+				if (hasCaseSearch(doc)) census.caseSearch += 1;
+				if (hasChildCase(doc)) census.childCase += 1;
+				if (hasSort(doc)) census.sort += 1;
+				if (hasSuiteMedia(doc)) census.suiteMedia += 1;
 
-					const hqJson = expandDoc(doc);
-					const ccz = compileCcz(hqJson, doc.appName, doc);
-					const { suiteXml, appStringKeys } = extractSuite(ccz);
+				// Media-on path: thread the fuzz manifest through expand + compile
+				// so menu-icon locales + image-map XPath literals land in the
+				// emitted suite.xml; the suite oracle's media-resolution check
+				// then verifies every reference resolves against the bundled set.
+				const fuzzManifest = fuzzManifestFromDoc(doc);
+				const manifest = toAssetManifest(fuzzManifest);
+				const hqJson = expandDoc(doc, { assets: manifest });
+				const ccz = compileCcz(hqJson, doc.appName, doc, { assets: manifest });
+				const {
+					suiteXml,
+					mediaSuiteXml,
+					appStringKeys,
+					appStringValues,
+					bundledPaths,
+				} = extractSuite(ccz);
 
-					const oracleErrors = validateSuite(suiteXml, appStringKeys);
-					if (oracleErrors.length > 0) {
-						throw new Error(
-							`Oracle flagged emitted suite.xml:\n${oracleErrors
-								.map((e) => `  - [${e.code}] ${errorToString(e)}`)
-								.join("\n")}\n\n--- emitted suite.xml ---\n${suiteXml}`,
-						);
-					}
-				}),
-				{ numRuns: NUM_RUNS, seed: SEED },
-			);
-		},
-		FUZZ_TIMEOUT_MS,
-	);
+				const oracleErrors = validateSuite(suiteXml, appStringKeys, {
+					appStringValues,
+					manifest: new Set(
+						Array.from(fuzzManifest.values(), (a) => a.wirePath),
+					),
+				});
+				if (oracleErrors.length > 0) {
+					throw new Error(
+						`Oracle flagged emitted suite.xml:\n${oracleErrors
+							.map((e) => `  - [${e.code}] ${errorToString(e)}`)
+							.join("\n")}\n\n--- emitted suite.xml ---\n${suiteXml}`,
+					);
+				}
+
+				// Parallel media-suite oracle pass. The bundled-paths set from the
+				// CCZ entries IS the install-time resolution target; a divergence
+				// between the media-suite descriptor and the bundled files would
+				// surface here as a `MEDIA_LOCATION_PATH_NOT_BUNDLED` finding.
+				const mediaSuiteErrors = validateMediaSuite(
+					mediaSuiteXml,
+					bundledPaths,
+				);
+				if (mediaSuiteErrors.length > 0) {
+					throw new Error(
+						`Oracle flagged emitted media_suite.xml:\n${mediaSuiteErrors
+							.map((e) => `  - [${e.code}] ${errorToString(e)}`)
+							.join(
+								"\n",
+							)}\n\n--- emitted media_suite.xml ---\n${mediaSuiteXml}`,
+					);
+				}
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED },
+		);
+	});
 
 	it("the run hit minimum coverage thresholds for each cross-ref shape", () => {
 		// These ratios are floors, not targets — a generator that drifts below
@@ -164,5 +268,10 @@ describe("suite emitter totality (property-based fuzz)", () => {
 		expect(census.caseSearch / census.total).toBeGreaterThan(0.25);
 		expect(census.childCase / census.total).toBeGreaterThan(0.15);
 		expect(census.sort / census.total).toBeGreaterThan(0.3);
+		// Suite-borne-media docs exercise the menu-locale + image-map
+		// XPath-literal resolution paths. A drift below this floor stops
+		// exercising the media-OFF→media-ON contract and silently weakens the
+		// suite oracle's media-resolution check.
+		expect(census.suiteMedia / census.total).toBeGreaterThan(0.3);
 	});
 });

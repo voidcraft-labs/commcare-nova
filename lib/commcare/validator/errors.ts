@@ -35,6 +35,7 @@ export type ValidationErrorCode =
 	| "CASE_LIST_BARE_SEARCH_INPUT_REF"
 	| "CASE_LIST_DUPLICATE_SORT_PRIORITY"
 	| "CASE_LIST_ID_MAPPING_EMPTY_VALUE"
+	| "CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE"
 	| "CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE"
 	| "CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK"
 	| "CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE"
@@ -91,6 +92,8 @@ export type ValidationErrorCode =
 	// Field-level
 	| "SELECT_NO_OPTIONS"
 	| "HIDDEN_NO_VALUE"
+	| "REQUIRED_ON_HIDDEN"
+	| "CALCULATE_ON_VISIBLE_INPUT"
 	| "UNQUOTED_STRING_LITERAL"
 	| "INVALID_FIELD_ID"
 	| "RESERVED_FIELD_ID_PREFIX"
@@ -126,6 +129,7 @@ export type ValidationErrorCode =
 	| "XFORM_TRANSLATION_NO_LANG"
 	| "XFORM_TRANSLATION_DUPLICATE_LANG"
 	| "XFORM_TRANSLATION_MULTIPLE_DEFAULT"
+	| "XFORM_DANGLING_MEDIA_REF"
 	// suite.xml output (post-emit) — the suite-parse + session-runtime oracle.
 	// Category 1 (fatal at suite parse) and Category 2 (parse-clean,
 	// runtime-fatal cross-references) the device's SuiteParser / session
@@ -168,6 +172,13 @@ export type ValidationErrorCode =
 	| "SUITE_SORT_BAD_DIRECTION"
 	| "SUITE_SORT_BAD_TYPE"
 	| "SUITE_SORT_BAD_BLANKS"
+	// Media wire-path resolution against the bundled-media manifest. Fires on
+	// menu-borne locale media values (`<text form="image"><locale id>` →
+	// app_strings → jr://file/<path>) and image-map column templates
+	// (`<template form="image"><text><xpath function>` with inlined jr://
+	// literals). A dangling reference parses clean and renders as a broken
+	// icon on device.
+	| "SUITE_DANGLING_MEDIA_REF"
 	// HQ import JSON (post-expansion) — the deserialization (`Application.wrap`)
 	// contract. A violation here makes CCHQ's CouchDB `DocumentSchema` wrap raise
 	// `BadValueError` / `ValueError` and rejects the whole app at import. A
@@ -184,6 +195,19 @@ export type ValidationErrorCode =
 	| "HQJSON_BAD_SUBCASE_RELATIONSHIP"
 	| "HQJSON_BAD_DETAIL_DISPLAY"
 	| "HQJSON_BAD_TYPE"
+	// `multimedia_map` shape regression guard. CCHQ's
+	// `suite_xml/generator.py::media_resources` RAISES `MediaResourceError`
+	// when a `multimedia_map` key doesn't start with `jr://file/`, and the
+	// `media_type` value must be one of the closed CommCare media class
+	// names (`CommCareImage` / `CommCareAudio` / `CommCareVideo`). Menu
+	// media dicts (`media_image` / `media_audio`) and the web-apps logo
+	// (`logo_refs.hq_logo_web_apps.path`) carry the same `jr://file/`
+	// prefix contract — the suite the runtime parses from the upload is
+	// regenerated off these dicts.
+	| "HQJSON_BAD_MULTIMEDIA_MAP_KEY"
+	| "HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE"
+	| "HQJSON_BAD_NAV_MEDIA_VALUE"
+	| "HQJSON_BAD_LOGO_REF"
 	// Binding-resolution oracle (post-expansion) — JavaRosa's install-time XPath
 	// resolution contract. A reference an expression makes that can't be
 	// resolved against the form's symbol space crashes JavaRosa at form-init,
@@ -193,6 +217,40 @@ export type ValidationErrorCode =
 	| "BINDING_RESOLUTION_INSTANCE_UNDECLARED"
 	| "BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED"
 	| "BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN"
+	| "BINDING_RESOLUTION_MEDIA_REF_UNDECLARED"
+	// `media_suite.xml` parse contract. CommCare's runtime parses the file
+	// through the generic `SuiteParser` + `ResourceParser` machinery; each
+	// `<media>` block contributes one or more `<resource>` entries, and the
+	// installer (`BasicInstaller`) routes through the resource's
+	// `<location authority="local">` to read its bundled bytes. Category-1
+	// codes are fatal at parse (KXmlParser throws or `parseInt` fails);
+	// Category-2 codes parse clean but render the media unusable at install.
+	| "MEDIA_SUITE_PARSE_ERROR"
+	| "MEDIA_SUITE_NO_SUITE_ELEMENT"
+	| "MEDIA_SUITE_VERSION_NOT_INTEGER"
+	| "MEDIA_NO_PATH"
+	| "MEDIA_NO_RESOURCE"
+	| "MEDIA_RESOURCE_NO_ID"
+	| "MEDIA_RESOURCE_VERSION_NOT_INTEGER"
+	| "MEDIA_RESOURCE_NO_LOCATION"
+	| "MEDIA_LOCATION_NO_AUTHORITY"
+	| "MEDIA_LOCATION_NO_PATH"
+	| "MEDIA_LOCATION_UNKNOWN_AUTHORITY"
+	| "MEDIA_RESOURCE_DUPLICATE_ID"
+	| "MEDIA_LOCATION_PATH_NOT_BUNDLED"
+	// Media — the three asset-context rules under `rules/media/`. Each
+	// fires only when the validator runs with a resolved asset manifest
+	// (the SA validation loop's path); structural rules (e.g. image-map
+	// duplicate values) live alongside the case-list rules and fire
+	// regardless of manifest presence.
+	| "MEDIA_ASSET_NOT_FOUND"
+	| "MEDIA_ASSET_NOT_READY"
+	| "MEDIA_KIND_MISMATCH"
+	// Aggregate export-budget guard (not a per-ref rule): the media-ON
+	// compile / HQ-upload paths load every referenced ready asset into
+	// memory at once, so the total count + bytes are bounded before any
+	// download. Fires from `collectMediaValidationErrors`, not a rule file.
+	| "MEDIA_EXPORT_TOO_LARGE"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
 	| "UNKNOWN_FUNCTION"
@@ -256,4 +314,42 @@ export function validationError(
  */
 export function errorToString(err: ValidationError): string {
 	return err.message;
+}
+
+// ── Media error category ───────────────────────────────────────────
+
+/**
+ * The media-category validation codes — the union of every rule that
+ * fires on a media reference or a media-bearing case-list column. Two
+ * groups:
+ *
+ *   - the three asset-context rules under `rules/media/` (existence /
+ *     ready / kind-match), which fire only when `runValidation` runs
+ *     with a resolved asset manifest, and
+ *   - `imageMapValueUnique`, a doc-structural rule registered in
+ *     `MODULE_RULES` that fires regardless of manifest presence. Its
+ *     code carries the `CASE_LIST_` prefix (it's a case-list-column
+ *     rule by shape) — listed explicitly here because a prefix-based
+ *     filter would silently drop it.
+ *
+ * Single source of truth for the media-validation entry-point guard,
+ * which runs FULL `runValidation` but surfaces only the issues in this
+ * set. The full run is deliberate (a media rule like `imageMapValueUnique`
+ * lives in `MODULE_RULES`, so a subset run would re-implement runner
+ * internals); the filter keeps the guard from newly blocking
+ * previously-working non-media uploads on those entry points. A new
+ * media rule adds its code here beside its `ValidationErrorCode` entry.
+ */
+export const MEDIA_VALIDATION_CODES: ReadonlySet<ValidationErrorCode> = new Set(
+	[
+		"MEDIA_ASSET_NOT_FOUND",
+		"MEDIA_ASSET_NOT_READY",
+		"MEDIA_KIND_MISMATCH",
+		"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
+	],
+);
+
+/** Whether a validation error belongs to the media category. */
+export function isMediaValidationError(err: ValidationError): boolean {
+	return MEDIA_VALIDATION_CODES.has(err.code);
 }

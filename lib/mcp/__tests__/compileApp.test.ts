@@ -1,16 +1,22 @@
 /**
  * `registerCompileApp` unit tests.
  *
- * Covers the five paths the route handler has to care about:
+ * Covers the paths the tool handler has to care about:
  *
- *   - Happy path, `format: "json"` — the tool ownership-gates + loads
- *     the blueprint via a single `loadAppBlueprint` call, expands to HQ
- *     JSON, and returns the HQ JSON directly as content (no wrapper —
- *     the caller asked for JSON).
+ *   - Happy path, `format: "json"`, media-free — the tool ownership-gates +
+ *     loads the blueprint via a single `loadAppBlueprint` call, expands to
+ *     HQ JSON, and returns it directly as content (no wrapper — a media-free
+ *     app's JSON is byte-identical to the pre-media output).
+ *   - `format: "json"`, media-bearing — returns the same `<app>.zip` bundle
+ *     the HTTP export ships (app JSON + HQ bulk-upload `multimedia.zip` +
+ *     README), base64-encoded inside a `{ format: "zip", ... }` wrapper so
+ *     the references travel with their bytes.
  *   - Happy path, `format: "ccz"` — the same pipeline plus a
  *     `compileCcz` call; content is a JSON envelope with the
  *     base64-encoded archive under `data` and an `encoding: "base64"`
  *     tag inline.
+ *   - Media gate — both formats validate media before expand; a stale
+ *     reference returns `invalid_input`, not a 500 / broken bundle.
  *   - Ownership failure — IDOR hardening collapses `"not_owner"` to
  *     `"not_found"` on the wire and the tool never calls `compileCcz`.
  *   - App not found (`not_found`) — `loadAppBlueprint` throws, so the
@@ -24,12 +30,17 @@
  * `makeFakeServer` helper pattern used by sibling tool tests.
  */
 
+import AdmZip from "adm-zip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
+import { validationError } from "@/lib/commcare/validator/errors";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { asAssetId } from "@/lib/domain/multimedia";
+import { resolveMediaManifest } from "@/lib/media/manifest";
+import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { registerCompileApp } from "../tools/compileApp";
@@ -47,6 +58,18 @@ vi.mock("@/lib/commcare/expander", () => ({
 }));
 vi.mock("@/lib/commcare/compiler", () => ({
 	compileCcz: vi.fn(),
+}));
+/* The media-validation gate reads Firestore; mock it so the unit suite
+ * stays hermetic. Default `[]` = no media issues = proceed; the
+ * media-rejection test overrides per-call. */
+vi.mock("@/lib/media/mediaValidation", () => ({
+	collectMediaValidationErrors: vi.fn(),
+}));
+/* The manifest resolver reads Firestore + GCS; mock it so tests pin the
+ * media set. Default empty `Map` = media-free; the media-bearing json test
+ * overrides with a byte-carrying asset. */
+vi.mock("@/lib/media/manifest", () => ({
+	resolveMediaManifest: vi.fn(),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -125,6 +148,14 @@ beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
+	vi.mocked(collectMediaValidationErrors).mockReset();
+	vi.mocked(resolveMediaManifest).mockReset();
+	/* Default: no media issues → the gate is transparent. Tests that
+	 * exercise the rejection path override with `mockResolvedValueOnce`. */
+	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
+	/* Default: media-free → empty manifest. The media-bearing json test
+	 * overrides with a populated `Map`. */
+	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -184,12 +215,15 @@ describe("registerCompileApp — happy path, ccz format", () => {
 		const decoded = Buffer.from(payload.data, "base64");
 		expect(decoded.equals(fakeBytes)).toBe(true);
 		/* `compileCcz` receives the expanded JSON, the denormalized app
-		 * name (non-empty by `denormalize`'s invariant), and the source
-		 * blueprint — three args in that order, matching the signature. */
+		 * name (non-empty by `denormalize`'s invariant), the source
+		 * blueprint, and the resolved media manifest — four args in that
+		 * order, matching the signature. The fixture doc references no
+		 * media, so the manifest is an empty `Map`. */
 		expect(compileCcz).toHaveBeenCalledWith(
 			FAKE_HQ_JSON,
 			"Vaccine Tracker",
 			expect.objectContaining({ appId: "a1" }),
+			expect.objectContaining({ assets: expect.any(Map) }),
 		);
 	});
 });
@@ -279,6 +313,149 @@ describe("registerCompileApp — wire parity (IDOR regression lock)", () => {
 		/* Neither branch reached the expander — both short-circuited at
 		 * the ownership gate with identical envelopes. */
 		expect(expandDoc).not.toHaveBeenCalled();
+	});
+});
+
+describe("registerCompileApp — media validation gate", () => {
+	it("returns invalid_input (not a 500/compile) when ccz references a stale media asset", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
+		/* A stale media ref — the kind of issue that would otherwise make
+		 * `expandDoc`'s `requireAssetRef` throw an opaque internal error.
+		 * The gate surfaces the rule's actionable message instead. */
+		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+			validationError(
+				"MEDIA_ASSET_NOT_READY",
+				"field",
+				"At the icon on module 'Patients', the image is still uploading. Wait for it to finish, then try again.",
+				{ moduleName: "Patients" },
+			),
+		]);
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+			isError?: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+			message: string;
+			app_id: string;
+		};
+		/* Routed through `McpInvalidInputError` → `invalid_input`, NOT the
+		 * generic taxonomy a compile throw would land in. */
+		expect(payload.error_type).toBe("invalid_input");
+		expect(payload.message).toContain("still uploading");
+		expect(payload.app_id).toBe("a1");
+		/* The gate fires BEFORE expand + compile — neither runs on a
+		 * media-invalid doc. */
+		expect(expandDoc).not.toHaveBeenCalled();
+		expect(compileCcz).not.toHaveBeenCalled();
+	});
+
+	it("proceeds to compile when ccz media validation is clean", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
+		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
+		vi.mocked(compileCcz).mockReturnValueOnce(Buffer.from("ccz"));
+		/* `mockResolvedValue([])` from beforeEach — no media issues. */
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			format: string;
+		};
+		expect(payload.format).toBe("ccz");
+		expect(collectMediaValidationErrors).toHaveBeenCalledTimes(1);
+		expect(compileCcz).toHaveBeenCalledTimes(1);
+	});
+
+	it("runs the media gate for the json format too", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
+		/* A stale ref on a json compile would make the bundle emit
+		 * references to bytes the manifest can't supply — so the json path
+		 * runs the SAME gate as ccz and surfaces `invalid_input`. */
+		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+			validationError(
+				"MEDIA_ASSET_NOT_READY",
+				"field",
+				"At the icon on module 'Patients', the image is still uploading. Wait for it to finish, then try again.",
+				{ moduleName: "Patients" },
+			),
+		]);
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+			isError?: true;
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		expect(out.isError).toBe(true);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			error_type: string;
+		};
+		expect(payload.error_type).toBe("invalid_input");
+		expect(collectMediaValidationErrors).toHaveBeenCalledTimes(1);
+		/* Gate fires before expand — no broken bundle is built. */
+		expect(expandDoc).not.toHaveBeenCalled();
+	});
+
+	it("returns a base64 zip bundle when the json app has media", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
+		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
+		/* A media-bearing manifest (one ready image with bytes) flips the
+		 * json output from bare text to the shared `<app>.zip` bundle. */
+		const asset = {
+			assetId: asAssetId("a1"),
+			wirePath: "commcare/abc123def.png",
+			kind: "image" as const,
+			mimeType: "image/png",
+			contentHash: "abc123def",
+			extension: ".png",
+			bytes: Buffer.from("PNG-BYTES"),
+		};
+		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
+			new Map([[asset.assetId, asset]]),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+
+		/* Media-bearing json returns the `{ format: "zip", ... }` wrapper,
+		 * NOT bare JSON — the client decodes `data` to a zip. */
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			format: string;
+			encoding: string;
+			data: string;
+		};
+		expect(payload.format).toBe("zip");
+		expect(payload.encoding).toBe("base64");
+
+		/* The decoded archive is the same bundle the HTTP export ships:
+		 * the app JSON, the HQ-format multimedia zip, and the README —
+		 * proving the json path and the route share one builder. */
+		const bundle = new AdmZip(Buffer.from(payload.data, "base64"));
+		const names = bundle.getEntries().map((e) => e.entryName);
+		expect(names).toContain("Vaccine Tracker.json");
+		expect(names).toContain("multimedia.zip");
+		expect(names).toContain("README.txt");
+		const mediaZip = new AdmZip(bundle.getEntry("multimedia.zip")?.getData());
+		expect(mediaZip.getEntries().map((e) => e.entryName)).toEqual([
+			"commcare/abc123def.png",
+		]);
 	});
 });
 

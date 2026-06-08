@@ -7,12 +7,12 @@
  * step-start, etc.) is stripped — it's in the event log if needed.
  */
 
-import type { UIMessage } from "ai";
 import type {
 	StoredMessagePart,
 	StoredThreadMessage,
 	ThreadDoc,
 } from "@/lib/db/types";
+import type { NovaUIMessage } from "./attachmentRefs";
 
 /** Maximum length for the thread summary (first user message, truncated). */
 const SUMMARY_MAX_LENGTH = 200;
@@ -23,7 +23,7 @@ const SUMMARY_MAX_LENGTH = 200;
  * Returns null if the message has no display-relevant parts after filtering
  * (e.g. an assistant message that was entirely tool calls with no text).
  */
-function extractMessage(message: UIMessage): StoredThreadMessage | null {
+function extractMessage(message: NovaUIMessage): StoredThreadMessage | null {
 	const parts: StoredMessagePart[] = [];
 
 	for (const part of message.parts) {
@@ -71,12 +71,16 @@ function extractMessage(message: UIMessage): StoredThreadMessage | null {
 		 * in the chat UI and live in the event log for debugging. */
 	}
 
-	if (parts.length === 0) return null;
+	// A user turn can be attachment-only (a doc with no typed text), so keep the
+	// message when it has attachments even if no visible parts survived.
+	const attachments = message.metadata?.attachments;
+	if (parts.length === 0 && !attachments?.length) return null;
 
 	return {
 		id: message.id,
 		role: message.role as "user" | "assistant",
 		parts,
+		...(attachments && attachments.length > 0 ? { attachments } : {}),
 	};
 }
 
@@ -93,7 +97,7 @@ function extractMessage(message: UIMessage): StoredThreadMessage | null {
  * @param createdAt - ISO 8601 timestamp captured on first save (prevents drift on incremental overwrites)
  */
 export function extractThread(
-	messages: UIMessage[],
+	messages: NovaUIMessage[],
 	runId: string,
 	isEdit: boolean,
 	createdAt: string,

@@ -57,6 +57,7 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildColumnField } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
 import type {
@@ -109,6 +110,7 @@ export function buildLongDetail(args: {
 	readonly moduleIndex: number;
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
+	readonly assets?: AssetManifest;
 }): { readonly element: Element; readonly strings: Record<string, string> } {
 	const { module: mod, moduleIndex } = args;
 	const target: DetailTarget = args.target ?? "case";
@@ -129,6 +131,7 @@ export function buildLongDetail(args: {
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
 		target,
+		...(args.assets && { assets: args.assets }),
 	};
 
 	const fields: Element[] = [];

@@ -47,6 +47,10 @@ import {
 	collectConnectIdsExcept,
 	enforceConnectIds,
 } from "./shared/connectIds";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const updateFormInputSchema = z
 	.object({
@@ -162,7 +166,7 @@ export const updateFormInputSchema = z
 export type UpdateFormInput = z.infer<typeof updateFormInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type UpdateFormResult = string | { error: string };
+export type UpdateFormResult = MutationSuccess | { error: string };
 
 /**
  * Merge the SA's partial connect-config input into a full
@@ -332,7 +336,13 @@ export const updateFormTool = {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
-				result: `Successfully updated form "${formAfter.name}" (${formAfter.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`,
+				result: {
+					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`,
+					summary: {
+						location: doc.modules[doc.moduleOrder[moduleIndex]]?.name,
+						subject: formAfter.name,
+					} satisfies ToolCallSummary,
+				},
 			};
 		} catch (err) {
 			return {

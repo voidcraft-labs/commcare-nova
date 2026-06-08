@@ -26,6 +26,17 @@ import { parseDocument } from "htmlparser2";
 import { type ValidationError, validationError } from "./errors";
 
 /**
+ * The local (unprefixed) part of a parsed element name. htmlparser2 keeps
+ * the namespace prefix in `Element.name` (`orx:meta`, not `meta`), and
+ * JavaRosa resolves nodesets by local name, so paths in the data model are
+ * keyed by the local name. Shared with the XForm parse-time oracle.
+ */
+export function localName(name: string): string {
+	const colon = name.indexOf(":");
+	return colon === -1 ? name : name.slice(colon + 1);
+}
+
+/**
  * Direct `<instance>` element children of `<model>`. The XForm spec scopes
  * `<instance>` declarations to the model block; an element named `instance`
  * appearing deeper in the document is a data-tree node, not a declaration,
@@ -104,7 +115,13 @@ function walkInstance(
 ): void {
 	for (const child of getChildren(el)) {
 		if (!isTag(child)) continue;
-		const path = `${prefix}/${child.name}`;
+		// Path steps are LOCAL names: JavaRosa resolves a nodeset by local
+		// name (`TreeElement::getChild`), so a namespaced element like the
+		// `<orx:meta>` metadata block is addressed as `/data/meta/...`, not
+		// `/data/orx:meta/...`. Building the model with the local name keeps it
+		// in lockstep with the refs the emitter writes (and with how the
+		// canonical CCHQ form addresses its own `<orx:meta>`).
+		const path = `${prefix}/${localName(child.name)}`;
 		paths.add(path);
 		for (const attrName of Object.keys(child.attribs)) {
 			paths.add(`${path}/@${attrName}`);
@@ -196,7 +213,7 @@ export function buildXFormDataModel(
 		};
 	}
 
-	const rootPath = `/${dataEl.name}`;
+	const rootPath = `/${localName(dataEl.name)}`;
 	const instancePaths = new Set<string>([rootPath]);
 	const repeatablePaths = new Set<string>();
 	walkInstance(dataEl, rootPath, instancePaths, repeatablePaths);

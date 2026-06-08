@@ -23,7 +23,11 @@ import "dotenv/config";
 import { Command, InvalidArgumentError } from "commander";
 import { collections } from "@/lib/db/firestore";
 import type { RunSummaryDoc } from "@/lib/db/types";
-import { readEvents, readRunSummary } from "@/lib/log/reader";
+import {
+	decodeEventsLenient,
+	readEvents,
+	readRunSummary,
+} from "@/lib/log/reader";
 import {
 	duration,
 	pct,
@@ -155,10 +159,24 @@ const runsTableOnly =
  */
 async function loadEvents(): Promise<Event[]> {
 	if (runFilter) {
-		return readEvents(appId, runFilter);
+		const { events, skipped } = await readEvents(appId, runFilter);
+		if (skipped > 0) {
+			console.warn(
+				`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload).`,
+			);
+		}
+		return events;
 	}
 	const snap = await collections.events(appId).get();
-	const events = snap.docs.map((d) => d.data());
+	// Drop-and-warn on any event that fails schema validation (forward-version
+	// payload / schema drift) instead of letting one bad doc abort the whole
+	// scan — the failure that made this script crash on attachment-prep events.
+	const { events, skipped, sample } = decodeEventsLenient(snap.docs);
+	if (skipped > 0) {
+		console.warn(
+			`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload). First: ${sample}`,
+		);
+	}
 	events.sort((a, b) => a.ts - b.ts || a.seq - b.seq);
 	return events;
 }
@@ -212,6 +230,8 @@ function summarizeConversation(payload: ConversationPayload): string {
 			return `error [${payload.error.type}]${payload.error.fatal ? " FATAL" : ""}: ${truncate(payload.error.message, 80)}`;
 		case "validation-attempt":
 			return `validation-attempt #${payload.attempt}: ${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"}`;
+		case "attachment-prep":
+			return `attachment-prep ${payload.phase}${payload.count !== undefined ? ` (${payload.count} doc${payload.count === 1 ? "" : "s"})` : ""}`;
 	}
 }
 

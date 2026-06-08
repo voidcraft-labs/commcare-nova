@@ -490,6 +490,59 @@ describe("field rules", () => {
 		);
 	});
 
+	// `required` on a hidden field is unsatisfiable: the field is never shown,
+	// so if its computed value resolves empty the form can't be submitted and
+	// the user has no input to fix it. Vellum forbids it (DataBindOnly:
+	// requiredAttr notallowed); the schema drops it and this rule backstops a
+	// value reaching the doc through a lenient path. `f()` is an identity
+	// builder (no strict parse), so it can stand in that pre-schema shape.
+	it("flags required on hidden fields", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({
+					kind: "hidden",
+					id: "risk",
+					calculate: "if(/data/age > 65, 'high', 'low')",
+					required: "true()",
+				}),
+			]),
+		);
+		expect(errors.some((e) => e.code === "REQUIRED_ON_HIDDEN")).toBe(true);
+	});
+
+	it("does not flag a hidden field with no required", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({ kind: "hidden", id: "risk", calculate: "/data/age + 1" }),
+			]),
+		);
+		expect(errors.some((e) => e.code === "REQUIRED_ON_HIDDEN")).toBe(false);
+	});
+
+	// `calculate` is the read-only-but-looks-editable footgun on a visible
+	// input — only a hidden field carries one. The schema drops `calculate`
+	// from every visible kind; this rule backstops the lenient path. `f()` is
+	// an identity builder, so it can stand in that pre-schema shape.
+	it("flags calculate on a visible input field", () => {
+		const errors = runValidation(
+			surveyDoc([
+				f({ kind: "text", id: "score", label: "Score", calculate: "1 + 1" }),
+			]),
+		);
+		expect(errors.some((e) => e.code === "CALCULATE_ON_VISIBLE_INPUT")).toBe(
+			true,
+		);
+	});
+
+	it("does not flag a calculate on a hidden field (its legitimate home)", () => {
+		const errors = runValidation(
+			surveyDoc([f({ kind: "hidden", id: "score", calculate: "1 + 1" })]),
+		);
+		expect(errors.some((e) => e.code === "CALCULATE_ON_VISIBLE_INPUT")).toBe(
+			false,
+		);
+	});
+
 	it("flags validate on label fields", () => {
 		const errors = runValidation(
 			surveyDoc([
@@ -1189,9 +1242,10 @@ describe("FIXTURE_REFERENCE_NOT_MODELED", () => {
 	 */
 
 	function surveyWithFieldCalculate(expr: string): BlueprintDoc {
-		return surveyDoc([
-			f({ kind: "text", id: "q1", label: "Q", calculate: expr }),
-		]);
+		// A `calculate` lives on the computed (`hidden`) kind — visible inputs
+		// like `text` don't carry one — so the instance-reference rule under
+		// test is exercised on the kind that actually reaches this surface.
+		return surveyDoc([f({ kind: "hidden", id: "q1", calculate: expr })]);
 	}
 
 	it("rejects instance('item-list:lookup') in a calculate", () => {
@@ -1850,16 +1904,25 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 		kind?: "calculate" | "relevant" | "validate" | "default_value" | "required";
 		expr: string;
 	}): BlueprintDoc {
-		const fieldSpec: Parameters<typeof f>[0] = {
+		const surface = spec.kind ?? "calculate";
+		// The case-name source is always a visible text input — a registration
+		// form needs one. The scanned surface rides whichever kind actually
+		// carries it: `calculate` only lives on the computed `hidden` kind, so
+		// it gets its own hidden field; every other surface (relevant /
+		// validate / default_value / required) is valid on the visible input
+		// and is stamped there directly.
+		const caseNameField: Parameters<typeof f>[0] = {
 			kind: "text",
 			id: "case_name",
 			label: "Name",
 			case_property_on: "patient",
 		};
-		// Map the surface to its field property so we can drive every
-		// scanned surface in one fixture builder.
-		const surface = spec.kind ?? "calculate";
-		(fieldSpec as Record<string, unknown>)[surface] = spec.expr;
+		const fields: Parameters<typeof f>[0][] = [caseNameField];
+		if (surface === "calculate") {
+			fields.push({ kind: "hidden", id: "computed", calculate: spec.expr });
+		} else {
+			(caseNameField as Record<string, unknown>)[surface] = spec.expr;
+		}
 		return buildDoc({
 			appName: "T",
 			modules: [
@@ -1873,7 +1936,7 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 						{
 							name: "Register",
 							type: "registration",
-							fields: [fieldSpec],
+							fields,
 						},
 					],
 				},
@@ -1968,10 +2031,11 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 							name: "Followup",
 							type: "followup",
 							fields: [
+								// A computed field carries `calculate`, so it's the
+								// `hidden` kind (visible inputs don't carry one).
 								f({
-									kind: "int",
+									kind: "hidden",
 									id: "next_age",
-									label: "Next age",
 									calculate: "#case/age + 1",
 								}),
 							],

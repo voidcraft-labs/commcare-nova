@@ -80,6 +80,7 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { BlueprintDoc, Module } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate/types";
+import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../../predicate";
 import { buildColumnField } from "./columns";
 import { buildSortDirectives } from "./sortKeys";
@@ -161,6 +162,7 @@ export function buildShortDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
+	readonly assets?: AssetManifest;
 }): { readonly element: Element; readonly strings: Record<string, string> } {
 	const { module: mod, moduleIndex, doc } = args;
 	const target: DetailTarget = args.target ?? "case";
@@ -190,6 +192,7 @@ export function buildShortDetail(args: {
 		sortByUuid: buildSortDirectives(mod, doc),
 		detailKind: "short",
 		target,
+		...(args.assets && { assets: args.assets }),
 	};
 
 	const fields: Element[] = [];

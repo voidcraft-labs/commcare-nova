@@ -203,7 +203,7 @@ describe("updateField", () => {
 				// the runtime guard catches the parallel-batch race where a
 				// `convertField` lands between queue and dispatch.
 				targetKind: "text",
-				patch: { label: "oops", calculate: "2" },
+				patch: { label: "oops", default_value: "2" },
 			});
 		});
 		expect(warn).toHaveBeenCalled();
