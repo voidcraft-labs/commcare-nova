@@ -174,18 +174,8 @@ export function ChatSidebar({
 	docStoreRef.current = docStore;
 	const sessionIdentityRef = useRef(sessionApi);
 	const gridControllerRef = useRef<SignalGridController | null>(null);
-	// Build-scoped abort for in-flight document reads. A composer chip's extraction
-	// stream must SURVIVE the chip unmounting on send — the doc is still streaming
-	// into the grid and only that original request carries the tokens — but must NOT
-	// outlive the build (one build's extraction must never feed another build's
-	// grid). So the read's lifetime is tied here, to the build, not to the chip:
-	// recreated + the prior one aborted whenever the store identity changes, exactly
-	// like the grid controller, and aborted on unmount below.
-	const extractionAbortRef = useRef<AbortController | null>(null);
 	if (sessionApi !== sessionIdentityRef.current || !gridControllerRef.current) {
 		gridControllerRef.current?.destroy();
-		extractionAbortRef.current?.abort();
-		extractionAbortRef.current = new AbortController();
 		sessionIdentityRef.current = sessionApi;
 		gridControllerRef.current = createGridController(
 			sessionApiRef,
@@ -193,17 +183,34 @@ export function ChatSidebar({
 		);
 	}
 	const gridController = gridControllerRef.current;
-	const extractionAbortSignal = extractionAbortRef.current?.signal;
 
-	// Tear down on unmount (page navigation away): stop the controller's animation
-	// loop AND abort any still-running document read so it can't feed a stale grid.
+	// Destroy the controller's animation loop on unmount (page navigation away)
 	useEffect(
 		() => () => {
 			gridControllerRef.current?.destroy();
-			extractionAbortRef.current?.abort();
 		},
 		[],
 	);
+
+	// Build-scoped abort for in-flight document reads. A composer chip's extraction
+	// stream must SURVIVE the chip unmounting on send (the doc is still streaming
+	// into the grid, and only that original request carries the tokens) but must NOT
+	// outlive the build (one build's extraction feeding another build's grid). It is
+	// created in this effect and aborted in its cleanup — symmetric under React's
+	// mount→unmount→remount. A render-phase controller aborted by an unmount cleanup
+	// would stay dead (nothing re-creates it, and no re-render follows), and in dev
+	// Strict Mode that left EVERY read with an already-aborted signal → an instant
+	// "couldn't read". Created in the effect, the remount re-creates it and the
+	// `setState` re-renders with a live signal before any chip can mount.
+	const [extractionAbort, setExtractionAbort] =
+		useState<AbortController | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi is the dep on PURPOSE — recreate (+ abort the prior) build-scoped controller when the store identity changes, mirroring the grid controller, even though the body doesn't read it.
+	useEffect(() => {
+		const controller = new AbortController();
+		setExtractionAbort(controller);
+		return () => controller.abort();
+	}, [sessionApi]);
+	const extractionAbortSignal = extractionAbort?.signal;
 
 	// Initialize from the controller's live state so remounts don't flash
 	// from 'SYS:IDLE' to the real label. On first mount the controller is
