@@ -125,6 +125,7 @@ export const HOSTNAME_ALLOWLIST = {
 		"/api/compile",
 		"/api/commcare",
 		"/api/log",
+		"/api/media",
 		"/api/user",
 		"/api/admin",
 		"/.well-known/oauth-authorization-server",

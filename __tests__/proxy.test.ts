@@ -323,6 +323,15 @@ describe("proxy: commcare.app (main) routing", () => {
 		expectBypassPassthrough(res);
 	});
 
+	it("passes through /api/media/library (regression: was 404'd off-allowlist)", () => {
+		/* The media routes are on the main allowlist, so they reach the
+		 * API short-circuit instead of the off-allowlist 404. Direct guard
+		 * against the prod regression where every `/api/media/*` request
+		 * 404'd before reaching its handler. */
+		const res = proxy(req("commcare.app", "/api/media/library"));
+		expectBypassPassthrough(res);
+	});
+
 	it("passes through /api/auth/sign-in (short-circuit, no CSP, no auth redirect)", () => {
 		/* Better Auth's own endpoints must not be redirected to / when
 		 * the user is unauthenticated — that would loop sign-in itself. */
