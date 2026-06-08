@@ -127,9 +127,9 @@ export async function POST(req: NextRequest) {
 			});
 		}
 
-		// New blob. Reserve the row first (so the confirm step has something
-		// to look up), then hand back the byte-PUT URL for the row's
-		// per-attempt pending key. Confirm promotes validated bytes to the
+		// New blob. Reserve the row first (so the byte-PUT and confirm steps
+		// have something to look up), then hand back the byte-PUT URL keyed by
+		// the new `assetId`. Confirm promotes validated bytes to the
 		// content-hash final key; a late/duplicate PUT can only overwrite this
 		// attempt's pending object.
 		const extension = EXTENSION_FOR_MIME_TYPE[mimeType];
@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
 			originalFilename: filename,
 		});
 
-		const uploadUrl = `/api/media/upload/bytes?key=${encodeURIComponent(pending.gcsObjectKey)}`;
+		const uploadUrl = `/api/media/upload/bytes?assetId=${encodeURIComponent(pending.assetId)}`;
 
 		return NextResponse.json({
 			assetId: pending.assetId,

@@ -76,10 +76,8 @@ describe("POST /api/media/upload", () => {
 
 		expect(res.status).toBe(200);
 		expect(body.assetId).toBe("asset-1");
-		// Same-origin byte-PUT route carrying the pending key as `?key=`.
-		expect(body.uploadUrl).toBe(
-			"/api/media/upload/bytes?key=pending%2Fuser-1%2Fasset-1.png",
-		);
+		// Same-origin byte-PUT route carrying the reserved `assetId`.
+		expect(body.uploadUrl).toBe("/api/media/upload/bytes?assetId=asset-1");
 		expect(body.uploadContentType).toBe("image/png");
 		const pendingArgs = vi.mocked(createPendingAsset).mock.calls[0]?.[0];
 		expect(pendingArgs).toMatchObject({
