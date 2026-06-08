@@ -286,6 +286,10 @@ describe("proxy: commcare.app (main) routing", () => {
 		expect(csp).not.toBeNull();
 		/* The CSP must include a nonce-bearing script-src directive. */
 		expect(csp).toMatch(/script-src[^;]*'nonce-[^']+'/);
+		/* connect-src must permit the cross-origin V4 signed-URL PUT that
+		 * media uploads make straight to GCS; without it the upload is
+		 * CSP-blocked in prod (reads are proxied same-origin and need it not). */
+		expect(csp).toMatch(/connect-src[^;]*https:\/\/storage\.googleapis\.com/);
 	});
 
 	it("forwards CSP and x-nonce on the request so Next.js can auto-nonce framework scripts", () => {
