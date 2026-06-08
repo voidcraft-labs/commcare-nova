@@ -20,9 +20,9 @@
 "use client";
 
 import { Icon } from "@iconify/react/offline";
-import tablerCoinFilled from "@iconify-icons/tabler/coin-filled";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useState } from "react";
+import { tablerCredits } from "@/components/icons/tablerExtras";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -315,7 +315,7 @@ export function CreditControls({
 									type="button"
 									className="inline-flex items-center gap-1.5 rounded-lg border border-nova-border bg-nova-surface px-3 py-1.5 text-sm font-medium text-nova-text transition-all hover:border-nova-border-bright hover:bg-nova-elevated cursor-pointer"
 								>
-									<Icon icon={tablerCoinFilled} width="16" height="16" />
+									<Icon icon={tablerCredits} width="16" height="16" />
 									Grant credits
 								</button>
 							}

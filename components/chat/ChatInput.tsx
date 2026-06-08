@@ -1,6 +1,5 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerCoinFilled from "@iconify-icons/tabler/coin-filled";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
@@ -28,6 +27,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
+import { CreditAmount } from "@/components/ui/CreditAmount";
 import {
 	type AttachmentRef,
 	CHAT_ATTACHMENT_KINDS,
@@ -302,14 +302,7 @@ export function ChatInput({
 					<div className="flex items-center gap-2">
 						<CharCounter length={textLength} max={MAX_CHAT_MESSAGE_CHARS} />
 						<Tooltip>
-							<TooltipTrigger
-								render={
-									<span className="flex shrink-0 select-none items-center gap-1 text-[11px] text-nova-text-muted tabular-nums">
-										<Icon icon={tablerCoinFilled} className="size-3" />
-										{cost}
-									</span>
-								}
-							/>
+							<TooltipTrigger render={<CreditAmount value={cost} />} />
 							<TooltipContent>
 								{appReady
 									? `Edits use ${cost} credits — clarifying questions are free.`

@@ -16,6 +16,7 @@ import tablerSettings from "@iconify-icons/tabler/settings";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { CreditAmount } from "@/components/ui/CreditAmount";
 import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
@@ -172,10 +173,12 @@ export function AccountMenu() {
 										{/* Remaining over the effective monthly total (allowance + bonus).
 										 * Using the bonus-inclusive total — not the bare allowance — keeps the
 										 * figure honest for users who've been granted extra credits. */}
-										<span className="text-[11px] text-nova-text-secondary">
-											{usage.balance.toLocaleString()} /{" "}
-											{total.toLocaleString()} credits
-										</span>
+										<CreditAmount
+											value={usage.balance}
+											total={total}
+											showLabel
+											className="text-nova-text-secondary"
+										/>
 									</div>
 									<div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
 										<div
