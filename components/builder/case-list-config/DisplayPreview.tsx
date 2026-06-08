@@ -243,9 +243,11 @@ export function DisplayPreview({
 
 	if (state.kind === "invalid-blueprint") {
 		// Same trust-boundary shape as `invalid-config`, but for the
-		// blueprint AST. The doc store's `pickBlueprintDoc(...)`
-		// projection always produces a parseable shape; reaching
-		// this arm means a non-editor caller bypassed the projection.
+		// blueprint AST. The editor path can't reach here: the doc
+		// store's `pickBlueprintDoc(...)` snapshot carries only valid
+		// schema fields plus the in-memory `fieldParent` index, which
+		// the action strips before its strict parse. Reaching this arm
+		// means a non-editor caller sent a structurally invalid doc.
 		return (
 			<PreviewMessage
 				icon={tablerEye}

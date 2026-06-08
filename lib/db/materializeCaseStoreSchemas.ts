@@ -67,7 +67,7 @@
  */
 
 import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import type { PersistableDoc } from "@/lib/domain";
 
 /**
  * Arguments for `materializeCaseStoreSchemas`. The blueprint is
@@ -120,12 +120,10 @@ export async function materializeCaseStoreSchemas(
 	// failed.
 	// `applySchemaChange` accepts the case-type schema map every
 	// compiler in the case-store stack reads from; the boundary
-	// builds it once from the in-memory `BlueprintDoc` shape
-	// (`PersistableDoc & { fieldParent: ... }`). `buildCaseTypeMap`
-	// reads `caseTypes` only and never touches `fieldParent`, so
-	// passing the persistable shape via the cast matches the same
-	// pattern in `applyBlueprintChange.ts`.
-	const caseTypeSchemas = buildCaseTypeMap(args.blueprint as BlueprintDoc);
+	// builds it once from the persisted blueprint. `buildCaseTypeMap`
+	// reads `caseTypes` only, so the `PersistableDoc` goes through
+	// directly — no cast to the in-memory `BlueprintDoc` shape.
+	const caseTypeSchemas = buildCaseTypeMap(args.blueprint);
 	for (const caseType of caseTypes) {
 		await store.applySchemaChange({
 			appId: args.appId,

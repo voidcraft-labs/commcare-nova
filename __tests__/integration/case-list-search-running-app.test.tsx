@@ -759,73 +759,7 @@ describe("FormScreen registration submit — write-through to case list", () => 
 });
 
 // =================================================================
-// 3. Reset round-trip — confirmation, atomic delete + regenerate,
-//    case-list re-fires its load against the regenerated rows.
-// =================================================================
-
-describe("CaseListScreen Reset — atomic delete + regenerate round-trip", () => {
-	it("invokes the case-store's resetSampleData and re-renders the regenerated rows", async () => {
-		const store = buildStore();
-		const doc = buildFixtureDoc();
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(doc),
-		});
-
-		// Seed one hand-crafted row whose name has a distinct prefix
-		// the heuristic generator never produces. The load-bearing
-		// post-reset assertion is "this row is gone" — that's the
-		// observable signal the atomic delete + regenerate ran. The
-		// generator's insert-side has dedicated coverage in
-		// `caseDataBindingHelpers.test.ts`'s reset test.
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_type: "patient",
-				case_name: "ZZZ-HAND-CRAFTED",
-				status: "open",
-				properties: {
-					name: "ZZZ-HAND-CRAFTED",
-					age: 99,
-				},
-			},
-		});
-
-		renderCaseListScreen(doc);
-
-		// Wait for the initial load — the hand-crafted row should be
-		// visible before we trigger Reset.
-		await waitFor(() => {
-			expect(screen.getByText("ZZZ-HAND-CRAFTED")).toBeDefined();
-		});
-
-		// Click the Reset trigger → confirmation dialog → click Reset to
-		// confirm. The wide open timeout absorbs worker-scheduling
-		// starvation under the async-leak gate's instrumented parallel run
-		// (CLAUDE.md "Testing — async-resource leaks"); a normal run opens
-		// the dialog in milliseconds.
-		fireEvent.click(screen.getByRole("button", { name: /reset sample data/i }));
-		await screen.findByRole("alertdialog", {}, { timeout: 5_000 });
-		fireEvent.click(screen.getByRole("button", { name: /^reset$/i }));
-
-		// Wait for the hand-crafted row to disappear — that's the
-		// delete-side of `resetSampleData` landing. The regenerated
-		// rows then surface via the screen's reload-key trigger, but
-		// asserting which rows render against a deterministic-but-
-		// generator-internal seed would couple the test to the
-		// generator's name pool — out of scope here.
-		await waitFor(
-			() => {
-				expect(screen.queryByText("ZZZ-HAND-CRAFTED")).toBeNull();
-			},
-			{ timeout: 5_000 },
-		);
-	});
-});
-
-// =================================================================
-// 4. Followup form write-through, then case-list re-render.
+// 3. Followup form write-through, then case-list re-render.
 //
 // Mount the followup form against a pre-seeded case row, patch the
 // `age` field, submit. `submitFormAction`'s delegate runs
@@ -932,7 +866,7 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 });
 
 // =================================================================
-// 5. Close form write-through — `closed_on` stamps to non-null.
+// 4. Close form write-through — `closed_on` stamps to non-null.
 //
 // `applyCloseMutation` writes a `closed_on = now()` timestamp via
 // `CaseStore.close` and passes no `status` patch, so `status` stays

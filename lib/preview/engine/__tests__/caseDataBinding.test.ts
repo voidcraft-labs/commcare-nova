@@ -122,6 +122,16 @@ const dbHandle = setupPerTestDatabase({
 });
 
 beforeEach(() => {
+	// The action tests queue per-call resolutions on the shared
+	// `getSession` / `withOwnerContext` module mocks via
+	// `mockResolvedValueOnce`. The `clearMocks` config runs `mockClear`
+	// (call history only) — it does NOT drain a `*Once` queue, so a test
+	// that short-circuits before consuming its queued value would leak it
+	// to the next test and misattribute that test's failure. Reset every
+	// mock's queue so each test is diagnostically independent. (Only the
+	// two module mocks are vi.fn()s at this point; in-test spies/stubs are
+	// created inside the bodies that follow.)
+	vi.resetAllMocks();
 	applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
 });
 
@@ -1166,10 +1176,11 @@ describe("pickBlueprintDoc", () => {
 	it("preserves every BlueprintDoc data field including fieldParent", () => {
 		// `BlueprintDoc` extends `PersistableDoc` (the schema-defined
 		// shape) with `fieldParent` (in-memory only, derived from
-		// `fieldOrder`). The Zod parse path strips `fieldParent`
-		// because the schema doesn't declare it; the projection
-		// re-attaches it from the source state. Verify the
-		// reverse-index round-trips.
+		// `fieldOrder`). The projection re-attaches `fieldParent` from
+		// the source state so the running-app `loadCasesAction` (which
+		// never parses) can read it; the parsing preview actions strip
+		// it back off before their `.strict()` parse via
+		// `toPersistableDoc`. Verify the reverse-index round-trips here.
 		const blueprint = buildSimpleBlueprint([PATIENT_CASE_TYPE], APP_ID);
 		const withFieldParent = {
 			...blueprint,
@@ -2417,6 +2428,94 @@ describe("loadCaseListPreviewAction", () => {
 		});
 		expect(result).toEqual({ kind: "unauthenticated" });
 	});
+
+	it("parses a case-list-preview blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
+		// Regression for the live preview that never worked since the
+		// case-list/case-search feature landed. The authoring surface
+		// ships the doc-store snapshot through `pickBlueprintDoc`, which
+		// re-attaches the in-memory `fieldParent` reverse index.
+		// `blueprintDocSchema` is `.strict()` and doesn't declare
+		// `fieldParent`, so parsing the raw value rejected it with
+		// `Unrecognized key: "fieldParent"` and the preview rendered the
+		// "Blueprint is malformed" state. The action must strip the
+		// derived index before the trust-boundary parse so a real
+		// snapshot reaches the store rather than the `invalid-blueprint`
+		// arm. The other action tests in this block pass parse-failing
+		// shapes (`appId: 42`) whose type error masks the `fieldParent`
+		// key error — only a VALID-but-fieldParent-carrying doc exercises
+		// the strip.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withOwnerContext).mockResolvedValueOnce(stubStore);
+
+		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
+		const result = await loadCaseListPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: {
+				...buildBlueprint([PATIENT_CASE_TYPE]),
+				// The populated reverse index `pickBlueprintDoc` ships on
+				// every live-preview call. A populated map makes the
+				// regression unmistakable; even `{}` trips strict mode.
+				fieldParent: {
+					[asUuid("70000000-0000-0000-0000-000000000001")]: asUuid(
+						"70000000-0000-0000-0000-000000000002",
+					),
+				},
+			},
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+			}),
+		});
+		// Empty stub store → `empty`. The load-bearing assertion is the
+		// negative: the parse did NOT reject the fieldParent-carrying doc.
+		expect(result.kind).toBe("empty");
+		expect(stubStore.query).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {
+		// The strip runs BEFORE the trust-boundary parse, so it must not
+		// itself throw on a malformed wire payload — a `null`/`undefined`
+		// blueprint (a non-editor caller, the exact shape the parse exists
+		// to reject gracefully) must still land on the typed
+		// `invalid-blueprint` arm, not a raw destructure TypeError routed
+		// through the generic `error` arm. Session is mocked so the parse
+		// path is reachable; `withOwnerContext` must never be constructed
+		// because the parse fails first.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
+		const result = await loadCaseListPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: null as unknown as Parameters<
+				typeof loadCaseListPreviewAction
+			>[0]["blueprint"],
+			caseListConfig: makeCaseListConfig(),
+		});
+		expect(result.kind).toBe("invalid-blueprint");
+		expect(vi.mocked(withOwnerContext)).not.toHaveBeenCalled();
+	});
 });
 
 // ---------------------------------------------------------------
@@ -2699,5 +2798,77 @@ describe("loadFilterPreviewAction", () => {
 			>[0]["caseListConfig"],
 		});
 		expect(result).toEqual({ kind: "unauthenticated" });
+	});
+
+	it("parses a filter-preview blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
+		// Sibling of the `loadCaseListPreviewAction` regression — the
+		// Filters-section live preview ships the same `pickBlueprintDoc`
+		// snapshot (with `fieldParent` re-attached) and runs the same
+		// strict `blueprintDocSchema.safeParse`, so it carried the same
+		// "Blueprint is malformed" failure. The action must strip the
+		// derived index before the parse.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn().mockResolvedValueOnce(0),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withOwnerContext).mockResolvedValueOnce(stubStore);
+
+		const { loadFilterPreviewAction } = await import("../caseDataBinding");
+		const result = await loadFilterPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: {
+				...buildBlueprint([PATIENT_CASE_TYPE]),
+				fieldParent: {
+					[asUuid("70000000-0000-0000-0000-000000000001")]: asUuid(
+						"70000000-0000-0000-0000-000000000002",
+					),
+				},
+			},
+			caseListConfig: makeCaseListConfig({
+				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+			}),
+		});
+		// Filter preview returns a single `rows` arm even when empty. The
+		// load-bearing assertion is the negative: NOT `invalid-blueprint`.
+		expect(result).toEqual({ kind: "rows", rows: [], totalCount: 0 });
+	});
+
+	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {
+		// Sibling of the `loadCaseListPreviewAction` null-blueprint guard.
+		// The pre-parse strip must not throw on a `null` wire payload — it
+		// must reach the typed `invalid-blueprint` arm, not a raw
+		// destructure TypeError surfaced through the generic `error` arm.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const { loadFilterPreviewAction } = await import("../caseDataBinding");
+		const result = await loadFilterPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: null as unknown as Parameters<
+				typeof loadFilterPreviewAction
+			>[0]["blueprint"],
+			caseListConfig: makeCaseListConfig(),
+		});
+		expect(result.kind).toBe("invalid-blueprint");
+		expect(vi.mocked(withOwnerContext)).not.toHaveBeenCalled();
 	});
 });
