@@ -21,7 +21,7 @@
  *
  *   2. **Shared SA tools** (`lib/agent/tools/*`) — the blueprint
  *      readers + writers the chat-side Solutions Architect already uses
- *      (search, add_field, edit_field, create_form, validate_app, …).
+ *      (search, add_fields, edit_field, create_form, validate_app, …).
  *      Those modules share a uniform contract (input schema, `execute`
  *      against a `BlueprintDoc` + `ToolExecutionContext`) so the MCP
  *      surface funnels them through one adapter: `registerSharedTool`
@@ -44,10 +44,9 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { addFieldTool } from "@/lib/agent/tools/addField";
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
-import { addCaseListColumnTool } from "@/lib/agent/tools/case-list-config/addCaseListColumn";
-import { addSearchInputTool } from "@/lib/agent/tools/case-list-config/addSearchInput";
+import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCaseListColumns";
+import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
 import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "@/lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
@@ -117,7 +116,6 @@ import type { ToolContext } from "./types";
  * the result).
  */
 const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
-	{ name: "add_field", tool: addFieldTool },
 	{ name: "add_fields", tool: addFieldsTool },
 	{ name: "create_form", tool: createFormTool },
 	{ name: "create_module", tool: createModuleTool },
@@ -136,8 +134,8 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	 * `searchInputs`), plus the wholesale `filter` setter.
 	 * Snake_case MCP wire names mirror the camelCase TypeScript
 	 * exports per the wire-name convention above. */
-	{ name: "add_case_list_column", tool: addCaseListColumnTool },
-	{ name: "add_search_input", tool: addSearchInputTool },
+	{ name: "add_case_list_columns", tool: addCaseListColumnsTool },
+	{ name: "add_search_inputs", tool: addSearchInputsTool },
 	{ name: "remove_case_list_column", tool: removeCaseListColumnTool },
 	{ name: "remove_search_input", tool: removeSearchInputTool },
 	{ name: "reorder_case_list_columns", tool: reorderCaseListColumnsTool },

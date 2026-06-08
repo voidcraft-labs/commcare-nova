@@ -40,7 +40,7 @@ const FORM = asUuid("22222222-2222-2222-2222-222222222222");
 const SEED_FIELD = asUuid("33333333-3333-3333-3333-333333333333");
 
 /** A doc with one module + one registration form + one seed field, so
- *  the test's two new addField calls land on a real form. */
+ *  the test's two new addFields calls land on a real form. */
 function makeDoc(): BlueprintDoc {
 	const mod: Module = {
 		uuid: MOD,
@@ -106,27 +106,27 @@ describe("solutionsArchitect — tool execution serializer", () => {
 	it("serializes parallel mutating tools so neither write to the SA's working doc is lost", async () => {
 		const sa = createSolutionsArchitect(ctx, makeDoc(), false);
 
-		// Fire two `addField` execute callbacks without awaiting between
+		// Fire two `addFields` execute callbacks without awaiting between
 		// them — this matches what the AI SDK does when the model emits
 		// two tool_use blocks in one assistant turn. Without the
 		// serializer, both bodies read the same pre-batch `doc` snapshot
 		// inside the wrapper closure and the later resolver clobbers the
 		// earlier resolver's `doc = newDoc` write; with the serializer,
 		// the chain forces them to run end-to-end one after the other.
-		const inFlightA = runTool(sa, "addField", {
+		const inFlightA = runTool(sa, "addFields", {
 			moduleIndex: 0,
 			formIndex: 0,
-			field: { id: "dob", kind: "date", label: "Date of birth" },
+			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 		});
-		const inFlightB = runTool(sa, "addField", {
+		const inFlightB = runTool(sa, "addFields", {
 			moduleIndex: 0,
 			formIndex: 0,
-			field: { id: "phone", kind: "text", label: "Phone" },
+			fields: [{ id: "phone", kind: "text", label: "Phone" }],
 		});
 		await Promise.all([inFlightA, inFlightB]);
 
 		// `getForm` reads the SA's working doc. If either parallel
-		// addField was lost from the closure, this read will be missing
+		// addFields was lost from the closure, this read will be missing
 		// it — the seed field plus only one of the two new fields.
 		const formResult = (await runTool(sa, "getForm", {
 			moduleIndex: 0,
@@ -139,15 +139,15 @@ describe("solutionsArchitect — tool execution serializer", () => {
 
 	it("a read tool issued in parallel with a write observes the post-write state", async () => {
 		// Validates that `wrapRead` is also in the chain — a parallel
-		// [addField, getForm] would otherwise let `getForm` race past
-		// `addField` and report stale state, which is the read-side
+		// [addFields, getForm] would otherwise let `getForm` race past
+		// `addFields` and report stale state, which is the read-side
 		// equivalent of the write-side data-loss race.
 		const sa = createSolutionsArchitect(ctx, makeDoc(), false);
 
-		const inFlightWrite = runTool(sa, "addField", {
+		const inFlightWrite = runTool(sa, "addFields", {
 			moduleIndex: 0,
 			formIndex: 0,
-			field: { id: "dob", kind: "date", label: "Date of birth" },
+			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 		});
 		const inFlightRead = runTool(sa, "getForm", {
 			moduleIndex: 0,

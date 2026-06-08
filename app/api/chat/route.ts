@@ -7,7 +7,6 @@ import {
 	validateUIMessages,
 } from "ai";
 import {
-	BUILD_ONLY_TOOL_NAMES,
 	classifyError,
 	countDocumentsNeedingRead,
 	createSolutionsArchitect,
@@ -626,29 +625,36 @@ export async function POST(req: Request) {
 					ctx.emitConversation({ type: "attachment-prep", phase: "done" });
 				}
 
-				/* Live-cache edits get full history, but with build-only tool parts
-				 * stripped. Edit mode excludes `generateSchema` and `generateScaffold`
-				 * from the tool set; any lingering tool-use parts from the original
-				 * build would make Anthropic reject the request ("tool not found in
-				 * tools array"). Stripping them by `tool-${name}` part type removes both
-				 * the call and its output in one step — AI SDK v5 keeps both sides of a
-				 * tool invocation on the same part — so the converted Anthropic messages
-				 * come out with matched `tool_use` / `tool_result` pairs for the tools
-				 * that remain. Assistant messages that collapse to zero parts after the
-				 * strip are dropped so the wire doesn't carry empty turns. The filter is
-				 * deterministic in its inputs, so successive edit requests produce
-				 * identical prefixes and hit the prompt cache as intended. (Expired-cache
-				 * edits already trimmed to the last user message above, so the strip is a
+				/* Live-cache edits send full history. Any tool-use/result part that
+				 * names a tool absent from THIS request's tool set would make
+				 * Anthropic reject the request ("tool not found in tools array").
+				 * Two ways a historical part can name an absent tool: a build-only
+				 * generation tool (`generateSchema` / `generateScaffold`) carried into
+				 * an edit turn, or a tool that has since been removed or renamed (a
+				 * build thread predating a deploy that changed the tool surface — e.g.
+				 * the old singular `addCaseListColumn` / `addSearchInput` / `addField`).
+				 * Strip any `tool-<name>` part whose `<name>` isn't a currently-
+				 * registered tool, keyed on `sa.tools` so the filter never drifts from
+				 * the active set (more robust than a hardcoded legacy-name list).
+				 * Stripping by part type removes both the call and its output in one
+				 * step — the AI SDK keeps both sides of a tool invocation on the same
+				 * part — so the converted Anthropic messages keep matched
+				 * `tool_use` / `tool_result` pairs for the tools that remain.
+				 * Assistant turns that collapse to zero parts are dropped so the wire
+				 * carries no empty turns. Deterministic in its inputs, so successive
+				 * edit requests produce identical cacheable prefixes. (Expired-cache
+				 * edits already trimmed to the last user message above, so this is a
 				 * no-op for them — hence it runs only for the live-cache edit branch.) */
-				const buildOnlyPartTypes = new Set<string>(
-					BUILD_ONLY_TOOL_NAMES.map((name) => `tool-${name}`),
+				const activeToolPartTypes = new Set<string>(
+					Object.keys(sa.tools).map((name) => `tool-${name}`),
 				);
-				const stripBuildOnlyParts = (
+				const stripUnknownToolParts = (
 					m: NovaUIMessage,
 				): NovaUIMessage | undefined => {
 					if (m.role !== "assistant") return m;
 					const nextParts = m.parts.filter(
-						(p) => !buildOnlyPartTypes.has(p.type),
+						(p) =>
+							!(p.type.startsWith("tool-") && !activeToolPartTypes.has(p.type)),
 					);
 					if (nextParts.length === 0) return undefined;
 					return nextParts.length === m.parts.length
@@ -658,7 +664,7 @@ export async function POST(req: Request) {
 				const effectiveMessages =
 					editing && !cacheExpired
 						? preparedMessages
-								.map(stripBuildOnlyParts)
+								.map(stripUnknownToolParts)
 								.filter((m): m is NovaUIMessage => m !== undefined)
 						: preparedMessages;
 

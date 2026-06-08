@@ -9,8 +9,8 @@
  *
  * Case list authoring (columns + filter + search inputs) is a
  * separate step. After the new module is created, the SA calls the
- * typed case-list-config tools (`addCaseListColumn`,
- * `setCaseListFilter`, `addSearchInput`, etc.) with the fresh
+ * typed case-list-config tools (`addCaseListColumns`,
+ * `setCaseListFilter`, `addSearchInputs`, etc.) with the fresh
  * module's index. Those tools preserve the structured `Column` and
  * `SearchInputDef` discriminated unions end-to-end.
  *
@@ -57,7 +57,7 @@ export type CreateModuleResult = MutationSuccess | { error: string };
 
 export const createModuleTool = {
 	description:
-		"Add a new module to the app. Configure its case list separately via the case-list-config tools (addCaseListColumn / setCaseListFilter / addSearchInput) once the module exists.",
+		"Add a new module to the app. Configure its case list separately via the case-list-config tools (addCaseListColumns / setCaseListFilter / addSearchInputs) once the module exists.",
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,

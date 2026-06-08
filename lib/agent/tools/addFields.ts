@@ -8,8 +8,12 @@
  * resolves semantic parent ids (including parents added earlier in the
  * same batch), and emits one mutation batch tagged `form:M-F`.
  *
- * Appends to existing fields; does not replace. The SA relies on that
- * contract when it splits a large add across multiple calls.
+ * Appends to existing fields by default (the SA relies on that contract
+ * when it splits a large add across multiple calls); an optional
+ * `beforeFieldId` / `afterFieldId` anchor instead inserts the batch's
+ * top-level fields as a contiguous block at that position (fields nested
+ * under their own `parentId` are unaffected). This is the only field-add
+ * tool — one field is just a length-1 `fields` array.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Three legal exit branches
@@ -26,7 +30,7 @@ import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { asUuid, isContainer } from "@/lib/domain";
 import { findFieldByBareId, resolveFormContext } from "../blueprintHelpers";
 import {
 	applyDefaults,
@@ -49,14 +53,29 @@ export const addFieldsInputSchema = z
 		fields: z.array(addFieldsItemSchema),
 		// Default parent for the whole batch: the id of a group/repeat to
 		// nest every field under. A field's OWN `parentId` overrides this.
-		// Accepting it top-level mirrors single `addField` (which takes a
-		// top-level `parentId`), so the same intent works the same way on
-		// both tools instead of hard-erroring as an unrecognized key.
 		parentId: z
 			.string()
 			.optional()
 			.describe(
 				"Default parent for the batch: id of a group/repeat to nest every field under. A field's own parentId overrides this. Omit to add at the form's top level.",
+			),
+		// Optional insertion anchor for the batch's top-level block. The
+		// fields that land in the batch's insertion parent (the form root, or
+		// the batch `parentId`) are inserted as a contiguous block at the
+		// anchor; fields carrying their own `parentId` nest under it and are
+		// unaffected. Omit both to append at the end (the common case during
+		// a build).
+		afterFieldId: z
+			.string()
+			.optional()
+			.describe(
+				"Insert the batch's top-level fields after this existing field id. Omit to append at the end.",
+			),
+		beforeFieldId: z
+			.string()
+			.optional()
+			.describe(
+				"Insert the batch's top-level fields before this existing field id. Takes precedence over afterFieldId.",
 			),
 	})
 	.strict();
@@ -73,14 +92,21 @@ export type AddFieldsResult = MutationSuccess | { error: string };
 
 export const addFieldsTool = {
 	description:
-		"Add a batch of fields to an existing form. Appends to existing fields (does not replace). Pass a top-level parentId to nest the whole batch under a group/repeat, or set parentId on individual fields to place them precisely (a field's own parentId wins). Groups added in one batch can be referenced as parentId in later batches.",
+		"Add one or more fields to an existing form in a single call (one field is just a length-1 `fields` array). Appends to existing fields by default (does not replace); pass beforeFieldId/afterFieldId to insert the batch's top-level fields at a specific position instead. Pass a top-level parentId to nest the whole batch under a group/repeat, or set parentId on individual fields to place them precisely (a field's own parentId wins). Groups added in one batch can be referenced as parentId in later batches.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddFieldsResult>> {
-		const { moduleIndex, formIndex, fields, parentId: batchParentId } = input;
+		const {
+			moduleIndex,
+			formIndex,
+			fields,
+			parentId: batchParentId,
+			afterFieldId,
+			beforeFieldId,
+		} = input;
 		try {
 			// Shared positional resolver — fails closed with a single error
 			// message when either index is out of range. Tool-specific
@@ -99,14 +125,47 @@ export const addFieldsTool = {
 			}
 			const { formUuid, form } = resolved;
 
+			// Resolve the batch's insertion parent — the form root, or the
+			// batch-level `parentId` when it names an existing field (mirrors
+			// the per-field fallback in the loop, which resolves an unset
+			// per-item parentId to this same batch default). When an anchor
+			// (`beforeFieldId` / `afterFieldId`) is given, find the index in
+			// that parent's CURRENT order where the batch's top-level block
+			// should start; `topLevelNextIndex` then walks forward as each
+			// top-level field is placed, so the inserted fields land
+			// contiguously in batch order. A field carrying its OWN parentId
+			// nests under that parent and never consumes an anchor slot.
+			let batchInsertParent: Uuid = formUuid;
+			if (batchParentId) {
+				const existing = findFieldByBareId(doc, formUuid, batchParentId);
+				// Only a container can be a parent — a `parentId` naming a leaf
+				// field falls through to form-level (matching the per-field path
+				// below). Nesting under a leaf would make every batch field
+				// invisible to the emitter.
+				if (existing && isContainer(existing.field)) {
+					batchInsertParent = existing.field.uuid;
+				}
+			}
+			let topLevelNextIndex: number | undefined;
+			if (beforeFieldId || afterFieldId) {
+				const order = doc.fieldOrder[batchInsertParent] ?? [];
+				if (beforeFieldId) {
+					const i = order.findIndex((u) => doc.fields[u]?.id === beforeFieldId);
+					if (i !== -1) topLevelNextIndex = i;
+				} else if (afterFieldId) {
+					const i = order.findIndex((u) => doc.fields[u]?.id === afterFieldId);
+					if (i !== -1) topLevelNextIndex = i + 1;
+				}
+			}
+
 			// Process incoming flat SA-format fields: strip sentinels, apply
 			// case-property defaults from the data model, then mint a uuid
 			// and assemble the domain `Field` shape. The SA emits flat items
 			// with semantic `parentId` — resolve each to a uuid by id lookup
 			// within the form's existing + newly-added fields. If the SA
-			// refers to a parent added earlier in this same batch, we find
-			// it in `mintedByBareId` before falling back to the doc-wide
-			// lookup.
+			// refers to a CONTAINER added earlier in this same batch, we find
+			// it in `mintedByBareId` (which records only containers) before
+			// falling back to the doc-wide lookup.
 			const mintedByBareId = new Map<string, Uuid>();
 			const mutations: Mutation[] = [];
 			const skipped: Array<{ id: string; reason: string }> = [];
@@ -138,9 +197,15 @@ export const addFieldsTool = {
 						parentUuid = minted;
 					} else {
 						const existing = findFieldByBareId(doc, formUuid, parentId);
-						if (existing) parentUuid = existing.field.uuid;
-						// If we can't resolve, fall through to form-level
-						// insert — better to land somewhere than to fail.
+						if (existing && isContainer(existing.field)) {
+							parentUuid = existing.field.uuid;
+						}
+						// A non-existent parentId, or one naming a non-container
+						// (a leaf field), falls through to form-level insert.
+						// Never nest under a leaf: the reducer would create a
+						// child order under it and the emitter — which only
+						// recurses into containers — would silently drop the
+						// field.
 					}
 				}
 
@@ -156,8 +221,28 @@ export const addFieldsTool = {
 					continue;
 				}
 				const field = assembled.field;
-				mintedByBareId.set(field.id, fieldUuid);
-				mutations.push({ kind: "addField", parentUuid, field });
+				// Only containers can parent a later field in this batch;
+				// recording only them keeps the minted-parent lookup from
+				// resolving to a leaf.
+				if (isContainer(field)) mintedByBareId.set(field.id, fieldUuid);
+				// Top-level batch fields honor the anchor (a contiguous block at
+				// the resolved index, walking forward per field); everything else
+				// — fields nested under their own parentId, or any field when no
+				// anchor was given — appends.
+				if (
+					topLevelNextIndex !== undefined &&
+					parentUuid === batchInsertParent
+				) {
+					mutations.push({
+						kind: "addField",
+						parentUuid,
+						field,
+						index: topLevelNextIndex,
+					});
+					topLevelNextIndex += 1;
+				} else {
+					mutations.push({ kind: "addField", parentUuid, field });
+				}
 			}
 
 			// Compute the post-mutation doc once and persist via the shared

@@ -36,6 +36,16 @@ export interface XPathError {
 		| "TYPE_ERROR";
 	message: string;
 	position?: number;
+	/**
+	 * For `INVALID_REF` on a `/data/...` path: the existing field path(s)
+	 * whose leaf id matches the unknown reference's leaf — the classic
+	 * "you wrote the bare id, but the field lives inside a group" mistake.
+	 * Carried as the bare `/data/...` paths the walker resolved; the runner
+	 * renders them in the SA's `#form/...` authoring vocabulary. Empty/absent
+	 * when no field shares the leaf (a genuine typo, not a missing path
+	 * segment).
+	 */
+	suggestions?: string[];
 }
 
 // Pre-resolve node types for zero string comparisons at runtime
@@ -125,9 +135,11 @@ export function validateXPath(
 		const refs = extractPathRefs(expr);
 		for (const ref of refs) {
 			if (!validPaths.has(ref)) {
+				const suggestions = suggestPathsByLeaf(ref, validPaths);
 				errors.push({
 					code: "INVALID_REF",
 					message: `References unknown field path "${ref}"`,
+					...(suggestions.length > 0 && { suggestions }),
 				});
 			}
 		}
@@ -179,6 +191,32 @@ export function validateXPath(
 	}
 
 	return errors;
+}
+
+/** The trailing segment of a `/data/a/b/c` path (`c`). */
+function leafOf(path: string): string {
+	const idx = path.lastIndexOf("/");
+	return idx >= 0 ? path.slice(idx + 1) : path;
+}
+
+/**
+ * Find existing field paths whose leaf id matches the unknown ref's leaf.
+ * The common cause of an INVALID_REF is the SA writing a field's bare id
+ * (`#form/consent` → `/data/consent`) when the field actually lives inside a
+ * group (`/data/consent_grp/consent`) — the path must mirror the form's
+ * group nesting. When one or more existing fields share the unknown ref's
+ * leaf, those are exactly the paths the SA most likely meant; we return them
+ * so the error can say so. Returns the matches sorted for a deterministic
+ * message; an exact match of the unknown ref itself is excluded (it can't be
+ * unknown and present at once, but the guard keeps the suggestion honest).
+ */
+function suggestPathsByLeaf(ref: string, validPaths: Set<string>): string[] {
+	const leaf = leafOf(ref);
+	const matches: string[] = [];
+	for (const path of validPaths) {
+		if (path !== ref && leafOf(path) === leaf) matches.push(path);
+	}
+	return matches.sort();
 }
 
 /**

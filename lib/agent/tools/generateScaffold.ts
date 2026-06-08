@@ -9,7 +9,7 @@
  *
  * The LLM-facing return condenses the scaffold input into a structured
  * index-plus-name summary so the SA can call the case-list-config tools
- * (`addCaseListColumn`, `setCaseListFilter`, `addSearchInput`, etc.)
+ * (`addCaseListColumns`, `setCaseListFilter`, `addSearchInputs`, etc.)
  * immediately afterward with positional indices, without re-reading
  * the doc.
  */

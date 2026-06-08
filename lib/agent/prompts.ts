@@ -35,9 +35,11 @@ The details in this prompt are for your knowledge only — do not overexplain in
 String literals must be wrapped in quotes.
 
 In any XPath Expression or label-type field, use the correct hashtag reference with their full path to output a node's or property's value:
-1. \`#form/full/path/to/field\`
+1. \`#form/<group>/.../<field_id>\` — a form field, addressed by its path through the form's structure
 2. \`#case/case_property_name\`
 3. \`#user/user_property\`
+
+**A \`#form/\` path mirrors the form's group nesting — it is NOT the bare field id.** Build it from the chain of group/repeat ids that contain the field, ending in the field's own id. A field at the form's top level is \`#form/<field_id>\`; a field inside a group is \`#form/<group_id>/<field_id>\`; nested deeper, every container id appears in order. So a \`dob\` field inside an \`identity\` group is \`#form/identity/dob\`, never \`#form/dob\`. The same path applies on every surface that takes a \`#form/\` reference — \`relevant\`, \`required\`, \`calculate\`, \`validate\`, \`default_value\`, and label/hint output. (\`#case/\` and \`#user/\` are flat — just the property name, no nesting.) Use the field's full path the first time you reference it; a bare id that should have been group-qualified fails validation and forces you to repair every reference afterward.
 
 ### Direct Values (no arguments)
 
@@ -187,7 +189,7 @@ For a new app, you move through these stages:
 
 1. Set the data model — \`generateSchema\`.
 2. Lay out the modules and forms — \`generateScaffold\`.
-3. Configure each case-carrying module's case list. Choose the columns that let a user scan the list and pick the right case: lead with \`case_name\`, then add the few properties that identify or triage a case (a date, a status, a key identifier) — for a small case type that's most of its visible properties; for a large one, a handful, not all of them. Author them with atomic ops over the columns + search inputs arrays (\`addCaseListColumn\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\` and \`addSearchInput\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`) plus \`setCaseListFilter\` for the filter. Each column carries its own sort, visibility, and (for calc columns) expression on itself; the add / update tools return the new column's uuid so subsequent edits target it directly. When the module also needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\` to author the two case-search-config clusters wholesale. Search inputs always live on \`caseListConfig.searchInputs\` (one source of truth across both the case list and search screens) — author them through the case-list-config family, never inside the case-search tools. Survey-only modules have no case list and skip this stage.
+3. Configure each case-carrying module's case list. Choose the columns that let a user scan the list and pick the right case: lead with \`case_name\`, then add the few properties that identify or triage a case (a date, a status, a key identifier) — for a small case type that's most of its visible properties; for a large one, a handful, not all of them. Author them with ops over the columns + search inputs arrays (\`addCaseListColumns\` / \`updateCaseListColumn\` / \`removeCaseListColumn\` / \`reorderCaseListColumns\` and \`addSearchInputs\` / \`updateSearchInput\` / \`removeSearchInput\` / \`reorderSearchInputs\`) plus \`setCaseListFilter\` for the filter. \`addCaseListColumns\` and \`addSearchInputs\` each take a list — author a module's whole set of columns (and search inputs) in one call, in display order, rather than one at a time. Each column carries its own sort, visibility, and (for calc columns) expression on itself; the add / update tools return the new columns' uuids so subsequent edits target them directly. When the module also needs case-search behavior (search-screen labels, niche search-side filters), use \`setCaseSearchDisplay\` and \`setCaseSearchAdvanced\` to author the two case-search-config clusters wholesale. Search inputs always live on \`caseListConfig.searchInputs\` (one source of truth across both the case list and search screens) — author them through the case-list-config family, never inside the case-search tools. Survey-only modules have no case list and skip this stage.
 4. Populate every form with its fields — \`addFields\`. Batch each form's fields into a single call where practical; split across calls when the set is large or when later fields need to reference groups added in earlier calls as parents.
 5. Validate — \`validateApp\`.`;
 
@@ -201,7 +203,7 @@ const SHARED_TAIL = `## Architecture Principles
 Every case type in the app **must have its own module** — this is how CommCare registers that a case type exists.
 
 - **Standalone case types** need a module with a registration form.
-- **Child case types** need their own module too, even if there's no follow-up workflow. Create a case-list-only module (no forms, just a case list configured via \`addCaseListColumn\` / \`updateCaseListColumn\`) with \`case_list_only: true\` so users can view the child cases. The system handles the rest.
+- **Child case types** need their own module too, even if there's no follow-up workflow. Create a case-list-only module (no forms, just a case list configured via \`addCaseListColumns\`) with \`case_list_only: true\` so users can view the child cases. The system handles the rest.
 
 Child case creation always happens from forms in the parent module — do **not** place a registration form in a child case module.
 
@@ -258,6 +260,15 @@ Judge each field on its own meaning, never a fixed recipe. An open-ended free-te
 \`validate\` is for the SHAPE of an allowed value, not whether a value is present — a check that only tests for non-emptiness duplicates \`required\`. Use \`required\` for "must be answered" and \`validate\` for "must look like this."
 
 **"Answer one of these two" is gated by a selector, not by the two fields pointing at each other.** When exactly one of two inputs must be answered (age *or* date of birth), making each field's \`required\` read the other's value makes the two fields depend on each other — a dependency cycle the validator rejects, because neither can resolve until the other does. Add a small selector ("which do you have?") and gate each field's \`required\` (and its \`relevant\`) on that selector instead, so the dependency flows one way.
+
+### Hidden Values — \`calculate\` vs \`default_value\`
+
+A hidden field carries its value through one of two mechanisms, and they differ in *when* the value is computed — pick by what the value needs to do, not by habit.
+
+- **\`default_value\`** seeds the value ONCE when the form loads and never recomputes. It is not in the form's recalculation graph. Use it for a value that is fixed for the life of the form instance: a literal constant, or a load-time stamp like \`today()\` / \`now()\`.
+- **\`calculate\`** re-runs every time a field it references changes. Use it only when the value must track other fields that can change during fill.
+
+The test: the moment a hidden value must read another field that can change, it's a \`calculate\`; a fixed value or a load-stamp is a \`default_value\`. Reaching for \`calculate\` on a constant puts it in the recalculation graph for no reason — extra work the platform redoes on every change, on top of being the wrong semantic for a value that was never going to change.
 
 ---
 

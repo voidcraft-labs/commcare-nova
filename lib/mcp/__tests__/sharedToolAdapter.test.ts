@@ -91,7 +91,7 @@ function mockBlueprint(): Omit<BlueprintDoc, "fieldParent"> {
 }
 
 /**
- * Build a blueprint with one module + one form so `addFieldTool` can
+ * Build a blueprint with one module + one form so `addFieldsTool` can
  * reach its happy-path branch (resolveFormContext must find the form).
  * `fieldOrder[formUuid] = []` makes the form empty so the fake
  * `recordMutations` spy can observe a single successful insert without
@@ -547,18 +547,18 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 	});
 });
 
-describe("registerSharedTool — real mutating tool integration (addField)", () => {
+describe("registerSharedTool — real mutating tool integration (addFields)", () => {
 	it("projects MutatingToolResult → result on the error branch and does not re-persist", async () => {
 		/* Covers the projection + error-shape contract on a real
 		 * mutating tool, not the double-persistence invariant per se:
 		 * the empty blueprint has no module at index 0, so
-		 * `resolveFormContext` returns null and `addFieldTool` emits
+		 * `resolveFormContext` returns null and `addFieldsTool` emits
 		 * an empty mutations batch with a `{ error }` result. That
 		 * exercises projection (MutatingToolResult → `result`) without
 		 * needing a full module + form fixture. The happy-path sibling
 		 * test below covers the "adapter doesn't double-persist"
 		 * invariant against a real mutation that actually fires. */
-		const { addFieldTool } = await import("@/lib/agent/tools/addField");
+		const { addFieldsTool } = await import("@/lib/agent/tools/addFields");
 
 		/* Spy on `ctx.recordMutations` so any adapter-side re-persist
 		 * would surface. The tool itself returns early with zero
@@ -571,14 +571,14 @@ describe("registerSharedTool — real mutating tool integration (addField)", () 
 
 		try {
 			const { server, capture } = makeFakeServer();
-			registerSharedTool(server, "add_field", addFieldTool, toolCtx);
+			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx);
 
 			const out = (await capture()(
 				{
 					app_id: "a1",
 					moduleIndex: 0,
 					formIndex: 0,
-					field: { id: "q1", kind: "text", label: "Q1" },
+					fields: [{ id: "q1", kind: "text", label: "Q1" }],
 				},
 				{},
 			)) as { content: Array<{ type: "text"; text: string }> };
@@ -596,13 +596,13 @@ describe("registerSharedTool — real mutating tool integration (addField)", () 
 	});
 
 	it("happy path: fires the tool's own ctx.recordMutations exactly once; adapter stays hands-off", async () => {
-		/* Drives `addFieldTool` on a blueprint that has a module + form
+		/* Drives `addFieldsTool` on a blueprint that has a module + form
 		 * so `resolveFormContext` succeeds and the tool reaches its
 		 * mutation-emitting branch. `ctx.recordMutations` must fire
 		 * exactly once (from inside the tool body) — a second call
 		 * would mean the adapter is double-persisting, which is the
 		 * invariant the no-re-persist contract guards. */
-		const { addFieldTool } = await import("@/lib/agent/tools/addField");
+		const { addFieldsTool } = await import("@/lib/agent/tools/addFields");
 
 		/* Override the default empty-blueprint `loadApp` mock with a
 		 * one-module-one-form fixture. `fieldParent` is deliberately
@@ -635,14 +635,14 @@ describe("registerSharedTool — real mutating tool integration (addField)", () 
 
 		try {
 			const { server, capture } = makeFakeServer();
-			registerSharedTool(server, "add_field", addFieldTool, toolCtx);
+			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx);
 
 			const out = (await capture()(
 				{
 					app_id: "a1",
 					moduleIndex: 0,
 					formIndex: 0,
-					field: { id: "q1", kind: "text", label: "Q1" },
+					fields: [{ id: "q1", kind: "text", label: "Q1" }],
 				},
 				{},
 			)) as { content: Array<{ type: "text"; text: string }> };
@@ -651,7 +651,7 @@ describe("registerSharedTool — real mutating tool integration (addField)", () 
 			 * success string from the real tool. JSON.stringify of a
 			 * plain string round-trips to the quoted form. */
 			const text = out.content[0]?.text ?? "";
-			expect(text.startsWith('"Successfully added field')).toBe(true);
+			expect(text.startsWith('"Successfully added 1 field')).toBe(true);
 
 			/* The core contract: exactly one `recordMutations` call,
 			 * made by the tool body. If the adapter ever re-persisted,

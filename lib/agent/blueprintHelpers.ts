@@ -376,24 +376,38 @@ export function setFormMediaMutations(
 // agent-specific.
 
 /**
- * Tagged result of a case-list-config mutation builder. The success
- * arm carries the ready-to-record `Mutation[]`; the failure arm carries
- * a single human-readable error string.
+ * Success arm of a case-list-config mutation builder — the ready-to-record
+ * `Mutation[]`. The list-append builders (`addColumnsMutation` /
+ * `addSearchInputsMutation`) return ONLY this: a resolved `Module` can't
+ * fail to append, so they carry no error arm and their callers need no
+ * error branch.
  */
-export type CaseListMutationResult =
-	| { ok: true; mutations: Mutation[] }
-	| { error: string };
+export interface CaseListMutationOk {
+	ok: true;
+	mutations: Mutation[];
+}
 
 /**
- * Append one column to a module's case-list `columns` array.
+ * Tagged result of an addressed case-list-config mutation builder
+ * (update / remove / reorder), which CAN fail on an unknown uuid. The
+ * failure arm carries a single human-readable error string.
+ */
+export type CaseListMutationResult = CaseListMutationOk | { error: string };
+
+/**
+ * Append one or more columns to a module's case-list `columns` array in a
+ * single patch (preserving order). There is no separate single-column
+ * builder: the SA tool surface is the plural `addCaseListColumns`, and one
+ * column is just a length-1 array — so the column-append path stays one
+ * function and one mutation regardless of count.
  *
  * Always succeeds — the input is the resolved `Module`, so module
  * existence is the caller's invariant.
  */
-export function addColumnMutation(
+export function addColumnsMutation(
 	mod: Module,
-	column: Column,
-): CaseListMutationResult {
+	columns: readonly Column[],
+): CaseListMutationOk {
 	const base = snapshotCaseListConfig(mod);
 	return {
 		ok: true,
@@ -402,7 +416,7 @@ export function addColumnMutation(
 				kind: "updateModule",
 				uuid: mod.uuid,
 				patch: {
-					caseListConfig: { ...base, columns: [...base.columns, column] },
+					caseListConfig: { ...base, columns: [...base.columns, ...columns] },
 				},
 			},
 		],
@@ -489,11 +503,13 @@ export function reorderColumnsMutation(
 	};
 }
 
-/** Search-input parallel of `addColumnMutation`. */
-export function addSearchInputMutation(
+/** Search-input parallel of `addColumnsMutation` — appends one or more
+ *  inputs (in order) in a single patch. Always succeeds (see
+ *  `CaseListMutationOk`). */
+export function addSearchInputsMutation(
 	mod: Module,
-	searchInput: SearchInputDef,
-): CaseListMutationResult {
+	searchInputs: readonly SearchInputDef[],
+): CaseListMutationOk {
 	const base = snapshotCaseListConfig(mod);
 	return {
 		ok: true,
@@ -504,7 +520,7 @@ export function addSearchInputMutation(
 				patch: {
 					caseListConfig: {
 						...base,
-						searchInputs: [...base.searchInputs, searchInput],
+						searchInputs: [...base.searchInputs, ...searchInputs],
 					},
 				},
 			},

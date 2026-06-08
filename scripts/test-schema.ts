@@ -17,9 +17,9 @@
  *     same across models).
  *   - Pass a schema name to test only that schema; omit to test every
  *     registered schema. Known names: `addFields`,
- *     `addCaseListColumn`, `updateCaseListColumn`,
+ *     `addCaseListColumns`, `updateCaseListColumn`,
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
- *     `setCaseListFilter`, `addSearchInput`, `updateSearchInput`,
+ *     `setCaseListFilter`, `addSearchInputs`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setModuleMedia`,
@@ -31,8 +31,8 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
-import { addCaseListColumnTool } from "../lib/agent/tools/case-list-config/addCaseListColumn";
-import { addSearchInputTool } from "../lib/agent/tools/case-list-config/addSearchInput";
+import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
+import { addSearchInputsTool } from "../lib/agent/tools/case-list-config/addSearchInputs";
 import { removeCaseListColumnTool } from "../lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "../lib/agent/tools/case-list-config/reorderCaseListColumns";
@@ -75,11 +75,11 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 			"Use addFields on module 0, form 0 to add two fields: patient_name (a text field labeled 'Patient name') and age (an int field labeled 'Age').",
 	},
 	{
-		name: "addCaseListColumn",
-		description: addCaseListColumnTool.description,
-		schema: addCaseListColumnTool.inputSchema,
+		name: "addCaseListColumns",
+		description: addCaseListColumnsTool.description,
+		schema: addCaseListColumnsTool.inputSchema,
 		prompt:
-			"Use addCaseListColumn to add a plain column on module 0 for case_name with header Patient.",
+			"Use addCaseListColumns to add two plain columns on module 0: case_name with header Patient, and status with header Status.",
 	},
 	{
 		name: "updateCaseListColumn",
@@ -110,11 +110,11 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 			"Use setCaseListFilter to set the filter on module 0 to a comparison: the patient case status property equals the literal string active.",
 	},
 	{
-		name: "addSearchInput",
-		description: addSearchInputTool.description,
-		schema: addSearchInputTool.inputSchema,
+		name: "addSearchInputs",
+		description: addSearchInputsTool.description,
+		schema: addSearchInputsTool.inputSchema,
 		prompt:
-			"Use addSearchInput on module 0 to add a simple search input named patient_name_input labeled Patient name type text targeting case property name.",
+			"Use addSearchInputs on module 0 to add a simple search input named patient_name_input labeled Patient name type text targeting case property name.",
 	},
 	{
 		name: "updateSearchInput",

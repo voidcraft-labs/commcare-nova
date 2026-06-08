@@ -48,12 +48,12 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 | Tool | What it does |
 |---|---|
-| `add_case_list_column` | Add one column to the case list (plain / date / phone / id-mapping / image-map / interval / calculated). |
+| `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / calculated). Pass the whole set in one call. |
 | `update_case_list_column` | Replace a column's body, addressed by the column's uuid. |
 | `remove_case_list_column` | Remove one column by uuid. |
 | `reorder_case_list_columns` | Reorder columns by passing the desired uuid sequence. |
 | `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
-| `add_search_input` | Add one search input (simple property bind or advanced predicate). |
+| `add_search_inputs` | Add one or more search inputs (simple property bind or advanced predicate) in one call. |
 | `update_search_input` | Replace a search input's body, addressed by the input's uuid. |
 | `remove_search_input` | Remove one search input by uuid. |
 | `reorder_search_inputs` | Reorder search inputs by passing the desired uuid sequence. |
@@ -84,8 +84,7 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 
 | Tool | What it does |
 |---|---|
-| `add_field` | Insert one new field at a specific position. |
-| `add_fields` | Insert several fields in one call. Faster for bulk adds. |
+| `add_fields` | Insert one or more fields in one call. Use `beforeFieldId` / `afterFieldId` to control position; omit both to append. |
 | `edit_field` | Change a field's properties: label, validation, visibility, choices, case wiring. |
 | `remove_field` | Delete a field. |
 | `get_field` | Show one field's properties. |
