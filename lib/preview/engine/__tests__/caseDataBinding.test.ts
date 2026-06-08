@@ -2419,7 +2419,7 @@ describe("loadCaseListPreviewAction", () => {
 		expect(result).toEqual({ kind: "unauthenticated" });
 	});
 
-	it("parses a blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
+	it("parses a case-list-preview blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
 		// Regression for the live preview that never worked since the
 		// case-list/case-search feature landed. The authoring surface
 		// ships the doc-store snapshot through `pickBlueprintDoc`, which
@@ -2477,6 +2477,34 @@ describe("loadCaseListPreviewAction", () => {
 		// negative: the parse did NOT reject the fieldParent-carrying doc.
 		expect(result.kind).toBe("empty");
 		expect(stubStore.query).toHaveBeenCalledTimes(1);
+	});
+
+	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {
+		// The strip runs BEFORE the trust-boundary parse, so it must not
+		// itself throw on a malformed wire payload — a `null`/`undefined`
+		// blueprint (a non-editor caller, the exact shape the parse exists
+		// to reject gracefully) must still land on the typed
+		// `invalid-blueprint` arm, not a raw destructure TypeError routed
+		// through the generic `error` arm. Session is mocked so the parse
+		// path is reachable; `withOwnerContext` must never be constructed
+		// because the parse fails first.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
+		const result = await loadCaseListPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: null as unknown as Parameters<
+				typeof loadCaseListPreviewAction
+			>[0]["blueprint"],
+			caseListConfig: makeCaseListConfig(),
+		});
+		expect(result.kind).toBe("invalid-blueprint");
+		expect(vi.mocked(withOwnerContext)).not.toHaveBeenCalled();
 	});
 });
 
@@ -2762,7 +2790,7 @@ describe("loadFilterPreviewAction", () => {
 		expect(result).toEqual({ kind: "unauthenticated" });
 	});
 
-	it("parses a blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
+	it("parses a filter-preview blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
 		// Sibling of the `loadCaseListPreviewAction` regression — the
 		// Filters-section live preview ships the same `pickBlueprintDoc`
 		// snapshot (with `fieldParent` re-attached) and runs the same
@@ -2808,5 +2836,29 @@ describe("loadFilterPreviewAction", () => {
 		// Filter preview returns a single `rows` arm even when empty. The
 		// load-bearing assertion is the negative: NOT `invalid-blueprint`.
 		expect(result).toEqual({ kind: "rows", rows: [], totalCount: 0 });
+	});
+
+	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {
+		// Sibling of the `loadCaseListPreviewAction` null-blueprint guard.
+		// The pre-parse strip must not throw on a `null` wire payload — it
+		// must reach the typed `invalid-blueprint` arm, not a raw
+		// destructure TypeError surfaced through the generic `error` arm.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withOwnerContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const { loadFilterPreviewAction } = await import("../caseDataBinding");
+		const result = await loadFilterPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: null as unknown as Parameters<
+				typeof loadFilterPreviewAction
+			>[0]["blueprint"],
+			caseListConfig: makeCaseListConfig(),
+		});
+		expect(result.kind).toBe("invalid-blueprint");
+		expect(vi.mocked(withOwnerContext)).not.toHaveBeenCalled();
 	});
 });

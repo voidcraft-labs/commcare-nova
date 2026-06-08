@@ -56,6 +56,23 @@ import type { SearchInputValues } from "./runtimeBindings";
 // down Next's RSC tree.
 
 /**
+ * Strip the in-memory `fieldParent` reverse index a doc-store snapshot
+ * carries — `pickBlueprintDoc` re-attaches it on the wire, but the
+ * persisted `blueprintDocSchema` is `.strict()` and would reject the
+ * undeclared key. A non-object input (a malformed wire payload — `null`,
+ * `undefined`, a bare string) passes through untouched so the caller's
+ * strict `safeParse` reports it as the typed `invalid-blueprint` arm
+ * rather than `toPersistableDoc`'s destructure throwing on it. The
+ * action re-attaches `fieldParent` from the original value after a
+ * successful parse for `buildCaseTypeMap`'s type.
+ */
+function stripDerivedFieldParent(blueprint: unknown): unknown {
+	return typeof blueprint === "object" && blueprint !== null
+		? toPersistableDoc(blueprint as BlueprintDoc)
+		: blueprint;
+}
+
+/**
  * Load every case row of a case type for the running-app view.
  *
  * The running-app case list renders the module's authored
@@ -269,14 +286,14 @@ export async function loadCaseListPreviewAction(args: {
 					: "Case-list configuration is malformed.";
 			return { kind: "invalid-config", message };
 		}
-		// `pickBlueprintDoc` ships the doc-store snapshot with the
-		// in-memory `fieldParent` reverse index attached; the persisted
-		// schema doesn't declare it and `blueprintDocSchema` is
-		// `.strict()`, so parsing the raw value rejects `fieldParent` as
-		// an unrecognized key. Strip it to the persistable shape first —
-		// the re-attach below restores it for `buildCaseTypeMap`'s type.
+		// Strip the in-memory `fieldParent` index `pickBlueprintDoc`
+		// re-attaches before the strict parse — `blueprintDocSchema` is
+		// `.strict()` and would reject the undeclared key. The helper is
+		// null-safe so a malformed wire payload still surfaces as the
+		// typed `invalid-blueprint` arm; the re-attach below restores
+		// `fieldParent` for `buildCaseTypeMap`'s type.
 		const parsedBlueprint = blueprintDocSchema.safeParse(
-			toPersistableDoc(args.blueprint),
+			stripDerivedFieldParent(args.blueprint),
 		);
 		if (!parsedBlueprint.success) {
 			const firstIssue = parsedBlueprint.error.issues[0];
@@ -365,11 +382,11 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-config", message };
 		}
 		// Strip the in-memory `fieldParent` index before the strict
-		// parse — mirrors `loadCaseListPreviewAction`. `pickBlueprintDoc`
-		// ships it on the wire and `blueprintDocSchema` is `.strict()`,
-		// so the raw value would be rejected as an unrecognized key.
+		// parse — mirrors `loadCaseListPreviewAction`. The helper is
+		// null-safe so a malformed wire payload surfaces as the typed
+		// `invalid-blueprint` arm rather than a thrown destructure.
 		const parsedBlueprint = blueprintDocSchema.safeParse(
-			toPersistableDoc(args.blueprint),
+			stripDerivedFieldParent(args.blueprint),
 		);
 		if (!parsedBlueprint.success) {
 			const firstIssue = parsedBlueprint.error.issues[0];
