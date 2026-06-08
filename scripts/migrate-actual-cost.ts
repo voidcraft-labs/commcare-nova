@@ -59,6 +59,7 @@ interface MigrateOptions {
 	rebaselineCost?: boolean;
 	seedCredits?: boolean;
 	deleteOrphan?: boolean;
+	orphanAcceptLedger?: boolean;
 	/** Accumulated `--current-user` emails (commander `collect` into an array). */
 	currentUser: string[];
 }
@@ -88,6 +89,10 @@ program
 		"delete the stashed unadjusted_estimate orphan (run AFTER the re-baseline is confirmed)",
 	)
 	.option(
+		"--orphan-accept-ledger",
+		"delete the orphan even when the re-baselined cost_estimate lands slightly below the stash — accepts the run-ledger as the true cost (the stash over-counted). Bounded: a shortfall over $1 still refuses (proof the re-baseline never ran)",
+	)
+	.option(
 		"--current-user <email>",
 		"opt a user IN to a current-month cost re-baseline (repeatable)",
 		collect,
@@ -112,6 +117,7 @@ const apply = opts.apply === true;
 const doRebaseline = opts.rebaselineCost === true;
 const doSeed = opts.seedCredits === true;
 const doDeleteOrphan = opts.deleteOrphan === true;
+const orphanAcceptLedger = opts.orphanAcceptLedger === true;
 /* Normalize opt-in emails (trim + lowercase) so an operator's casing/whitespace
  * can't silently miss a current-month cell at the live apply. The empty filter
  * is a PROD-write safety guard: a `--current-user "$VAR"` with an unset shell
@@ -349,6 +355,13 @@ async function seedCredits(): Promise<void> {
 const ORPHAN_USER = "w4KlwedcG1WijXOK0hVz"; // mmaher
 const ORPHAN_PERIOD = "2026-04"; // a CLOSED month
 const ORPHAN_KEY = "unadjusted_estimate";
+/** Ledger-as-truth ceiling for `--orphan-accept-ledger`. The re-baseline writes
+ *  the run-ledger's true April cost; when the stash over-counted, that lands a few
+ *  cents BELOW the stash. Accept the ledger in that case — but only when the
+ *  shortfall is under this much. A forgotten re-baseline leaves cost at the
+ *  near-zero pre-reset value (a shortfall far over this), which still refuses, so
+ *  the override can never silently discard the real cost. */
+const MAX_ORPHAN_LEDGER_SHORTFALL_USD = 1;
 
 /**
  * Delete the stashed `unadjusted_estimate` orphan key from mmaher's April
@@ -416,17 +429,36 @@ async function deleteOrphan(): Promise<void> {
 		return;
 	}
 
-	// The precondition: April's live cost must be a finite number that has already
-	// absorbed the stashed value (`>= orphan`). That is the proof the re-baseline
-	// fold ran first; without it, deleting would discard the only record of the
-	// pre-reset cost. Refuse (throw → exit 1) and write nothing if it fails.
+	// The precondition: April's live cost must be a finite number that has absorbed
+	// the stashed value. Normally that means `cost >= orphan` — proof the re-baseline
+	// fold ran. But the run-ledger (the authoritative source the re-baseline writes)
+	// can land slightly BELOW the stash when the stash over-counted; `--orphan-accept-
+	// ledger` opts into deleting anyway, treating the ledger as truth — but ONLY when
+	// the shortfall is under the ceiling, so a forgotten re-baseline (cost still at the
+	// near-zero pre-reset value) still refuses rather than discard the real cost.
 	const cost = data.cost_estimate;
-	if (!(typeof cost === "number" && Number.isFinite(cost) && cost >= orphan)) {
+	if (!(typeof cost === "number" && Number.isFinite(cost))) {
 		throw new Error(
-			`cost_estimate (${cost}) is below the stashed unadjusted_estimate (${orphan}) ` +
-				`for usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD}. The April cost re-baseline ` +
-				"must run first so the true cost is folded in before the orphan is removed — " +
-				"run `--rebaseline-cost --apply`, confirm it, then re-run `--delete-orphan`.",
+			`cost_estimate (${cost}) is not a finite number for ` +
+				`usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD} — run \`--rebaseline-cost --apply\` first.`,
+		);
+	}
+	if (cost < orphan) {
+		const shortfall = orphan - cost;
+		if (!(orphanAcceptLedger && shortfall <= MAX_ORPHAN_LEDGER_SHORTFALL_USD)) {
+			throw new Error(
+				`cost_estimate (${cost}) is below the stashed unadjusted_estimate (${orphan}) ` +
+					`for usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD}. Run \`--rebaseline-cost --apply\`, ` +
+					"confirm it, then re-run `--delete-orphan`" +
+					(orphanAcceptLedger
+						? ` — the $${shortfall.toFixed(4)} shortfall exceeds the $${MAX_ORPHAN_LEDGER_SHORTFALL_USD} ` +
+							"ledger-acceptance ceiling, so the re-baseline hasn't landed yet."
+						: " (or pass `--orphan-accept-ledger` to accept the run-ledger as truth)."),
+			);
+		}
+		console.log(
+			`  ledger-as-truth: cost_estimate ${cost} is $${shortfall.toFixed(4)} under the ` +
+				`stash ${orphan} — accepting the ledger, discarding the over-count.`,
 		);
 	}
 
@@ -435,7 +467,7 @@ async function deleteOrphan(): Promise<void> {
 		console.log(
 			`  would delete \`${ORPHAN_KEY}\`=${orphan} from ` +
 				`usage/${ORPHAN_USER}/months/${ORPHAN_PERIOD} ` +
-				`(cost_estimate=${cost} ≥ ${orphan}, fold confirmed). Add --apply to delete.`,
+				`(cost_estimate=${cost}). Add --apply to delete.`,
 		);
 		return;
 	}
