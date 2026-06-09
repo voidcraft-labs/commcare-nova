@@ -1,3 +1,4 @@
+import { withSentryConfig } from "@sentry/nextjs";
 import { createMDX } from "fumadocs-mdx/next";
 import type { NextConfig } from "next";
 
@@ -60,4 +61,24 @@ const nextConfig: NextConfig = {
 	},
 };
 
-export default withMDX(nextConfig);
+export default withSentryConfig(withMDX(nextConfig), {
+	org: "dimagi-1l",
+	project: "nova",
+
+	/* Only print source-map upload logs in CI. */
+	silent: !process.env.CI,
+
+	/* Upload the widened source-map set so stack traces symbolicate beyond
+	 * the app's own frames. Uploading happens inside `next build` when
+	 * SENTRY_AUTH_TOKEN is set (Cloud Build passes it from Secret Manager
+	 * as a Docker build arg); without a token the plugin skips the upload
+	 * and the build still succeeds. */
+	widenClientFileUpload: true,
+
+	/* Browser events POST to this same-origin path and the server forwards
+	 * them to Sentry ingest, so ad-blockers can't drop them and the CSP
+	 * `connect-src 'self'` already covers it. Lives under `/api` so the
+	 * proxy's API short-circuit applies (no CSP assembly, no auth
+	 * redirect); the path is allowlisted per-host in `lib/hostnames.ts`. */
+	tunnelRoute: "/api/monitoring",
+});

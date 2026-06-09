@@ -70,7 +70,18 @@ export async function POST(req: Request) {
 	const errorObj = new Error(message);
 	if (fullStack) errorObj.stack = fullStack;
 
-	log.error(`[client] ${message}`, errorObj, { source, url, origin: "client" });
+	/* `{ sentry: false }`: every payload reaching this endpoint already
+	 * reached Sentry from the browser — the SDK's global handlers capture
+	 * window.onerror/unhandledrejection first-hand, and `reportClientError`
+	 * explicitly captures boundary/manual reports. Recapturing here would
+	 * duplicate each browser error as a second server-side issue with a
+	 * worse, string-rebuilt stack. */
+	log.error(
+		`[client] ${message}`,
+		errorObj,
+		{ source, url, origin: "client" },
+		{ sentry: false },
+	);
 
 	return new Response(null, { status: 204 });
 }

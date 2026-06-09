@@ -172,6 +172,10 @@ function buildCsp(isDev: boolean): { csp: string; nonce: string } {
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' blob: data: *.googleusercontent.com",
 		"font-src 'self'",
+		/* Sentry Session Replay compresses its payload in a Web Worker created
+		 * from a blob: URL; without an explicit worker-src the directive falls
+		 * back to default-src 'self', which blocks blob: workers. */
+		"worker-src 'self' blob:",
 		/* A media upload PUTs its bytes straight to a V4 signed GCS URL from the
 		 * browser — a cross-origin request the default `'self'` would block. Reads
 		 * stay same-origin (the `/api/media/[assetId]` route proxies them), so only
