@@ -30,10 +30,9 @@ import {
 } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain";
-import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import {
-	describeCarrier,
+	carriersForAsset,
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
@@ -89,14 +88,10 @@ export const removeMediaAssetTool = {
 		}
 
 		// Reference guard, part 1: the in-hand WORKING doc (current app, possibly
-		// carrying unsaved mutations the persisted copy lacks).
-		const inHandCarriers = [
-			...new Set(
-				[...walkAssetRefs(doc)]
-					.filter((ref) => ref.assetId === input.assetId)
-					.map(describeCarrier),
-			),
-		];
+		// carrying unsaved mutations the persisted copy lacks). Same carrier walk
+		// the persisted-doc guard uses, so the two refusals can't phrase a carrier
+		// differently.
+		const inHandCarriers = carriersForAsset(doc, input.assetId);
 		if (inHandCarriers.length > 0) {
 			return {
 				kind: "read" as const,
@@ -108,9 +103,12 @@ export const removeMediaAssetTool = {
 
 		// Reference guard, part 2: every OTHER live app's persisted doc. The
 		// current app is covered by the working-doc check above, so skip it here.
+		// `asset.referencingAppIds` is the reverse index — the guard re-walks only
+		// those candidates instead of loading every one of the owner's apps.
 		const otherAppReferences = await findAppReferencesToAsset(
 			ctx.userId,
 			input.assetId,
+			asset.referencingAppIds,
 			{ skipAppId: ctx.appId },
 		);
 		if (otherAppReferences.length > 0) {

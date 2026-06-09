@@ -127,7 +127,13 @@ export async function DELETE(
 		}
 
 		// Reference guard: refuse if any of the owner's live apps still uses it.
-		const references = await findAppReferencesToAsset(session.user.id, assetId);
+		// `asset.referencingAppIds` is the reverse index — the candidate set the
+		// guard re-walks, so it loads 0–2 apps instead of the owner's entire list.
+		const references = await findAppReferencesToAsset(
+			session.user.id,
+			assetId,
+			asset.referencingAppIds,
+		);
 		if (references.length > 0) {
 			throw new ApiError(
 				`Can't delete this file — it's still used by ${references.join("; ")}. Swap the media or clear the slot in those apps, then delete it.`,

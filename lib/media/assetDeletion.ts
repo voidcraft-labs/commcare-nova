@@ -5,10 +5,12 @@
 // there is ONE deletion implementation rather than two that drift.
 //
 // Two concerns live here:
-//   - `findAppReferencesToAsset` — scan the owner's live apps for carriers that
-//     still point at the asset, so a delete can refuse (and name the slots)
-//     rather than orphaning a live reference the media-validation gate would
-//     later reject far from where it could be fixed.
+//   - `findAppReferencesToAsset` — find the live apps whose carriers still point
+//     at the asset, so a delete can refuse (and name the slots) rather than
+//     orphaning a live reference the media-validation gate would later reject far
+//     from where it could be fixed. It re-walks the asset's `referencingAppIds`
+//     reverse index (the 0–2 candidate apps), NOT the owner's whole app list;
+//     the owner-wide scan survives only as the fallback for un-indexed rows.
 //   - `purgeAssetStorage` — drop the Firestore row, then the GCS bytes (and any
 //     content-addressed siblings, e.g. a document's extract) only when no other
 //     asset row shares the bytes.
@@ -24,30 +26,115 @@ import {
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
-import { type AssetRef, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import {
+	type AssetRef,
+	asWalkableDoc,
+	walkAssetRefs,
+} from "@/lib/domain/mediaRefs";
 import { log } from "@/lib/logger";
 import { deleteAsset as deleteGcsObject } from "@/lib/storage/media";
 
-/** Apps scanned per page when walking the owner's library for references. */
+/** Apps scanned per page in the full-scan fallback (un-backfilled assets). */
 const APP_SCAN_PAGE_SIZE = 50;
 /** Stop after this many referencing apps — the refusal only needs to name a few
  *  to be actionable, and an unbounded scan over a large account is wasteful. */
 const APP_REF_LIMIT = 5;
 
 /**
- * Scan the owner's live apps' PERSISTED docs for carriers that reference the
- * asset, returning a human-readable description per referencing app (capped at
- * `APP_REF_LIMIT`). An empty array means no persisted app uses it.
+ * The carriers in `doc` that reference `assetId`, each rendered as an
+ * authoring-layer phrase ("the app logo", "the icon on module X"), de-duplicated
+ * so one asset on two slots of the same form reads once. Empty when the doc
+ * doesn't reference the asset.
+ *
+ * The single carrier-walk both delete surfaces share: the SA tool's in-hand
+ * working-doc check (`removeMediaAsset`) and the guard's persisted-doc re-walk
+ * (`describeAppReference`). Keeping it one function is what stops the two refusal
+ * messages from drifting on how carriers are phrased or de-duplicated.
+ */
+export function carriersForAsset(doc: BlueprintDoc, assetId: string): string[] {
+	return [
+		...new Set(
+			[...walkAssetRefs(doc)]
+				.filter((ref) => ref.assetId === assetId)
+				.map(describeCarrier),
+		),
+	];
+}
+
+/**
+ * Resolve the carriers in ONE app's persisted doc that still reference the
+ * asset, as a human-readable refusal phrase — or `null` when the app is
+ * gone/foreign/deleted or no longer references it (a stale index candidate).
+ */
+async function describeAppReference(
+	appId: string,
+	ownerId: string,
+	assetId: string,
+): Promise<string | null> {
+	const app = await loadApp(appId);
+	// Guard against a deleted app or a list/load ownership skew — only a live,
+	// owner-held app's references should block a delete.
+	if (!app || app.owner !== ownerId || app.deleted_at !== null) return null;
+	const carriers = carriersForAsset(asWalkableDoc(app.blueprint), assetId);
+	if (carriers.length === 0) return null;
+	return `"${app.app_name}" (${appId}) on ${carriers.join("; ")}`;
+}
+
+/**
+ * Find which of the owner's live apps still reference the asset, returning a
+ * human-readable description per referencing app (capped at `APP_REF_LIMIT`). An
+ * empty array means no persisted app uses it — the asset is safe to delete.
+ *
+ * `candidateAppIds` is the asset's reverse index (`referencingAppIds`): the only
+ * apps whose persisted blueprint has EVER referenced it. Passing it turns the
+ * guard from "load every app the owner has" (measured 8s on an 83-app account)
+ * into "load only the 0–2 apps that might reference it". The index is
+ * append-only, so a candidate may be STALE — this re-walks each candidate's live
+ * doc to confirm a real reference and name the carrier, so a stale entry simply
+ * drops out (yields `null`).
+ *
+ * `undefined` candidates means the asset row predates the index and was never
+ * backfilled — there's no candidate set to trust, so this falls back to the full
+ * owner-wide scan (correct, just slow). After the backfill migration no live row
+ * is `undefined`, so the fallback is transitional.
  *
  * `skipAppId` omits one app the caller checks separately — the SA tool checks
  * its in-hand working doc (which may carry unsaved mutations the persisted copy
- * lacks) and passes its app id here so the same app isn't double-counted. The
- * browser route has no working doc, so it omits `skipAppId` and scans every app.
+ * lacks) and passes its app id here so the same app isn't double-counted.
  */
 export async function findAppReferencesToAsset(
 	ownerId: string,
 	assetId: string,
+	candidateAppIds: readonly string[] | undefined,
 	opts: { skipAppId?: string } = {},
+): Promise<string[]> {
+	if (candidateAppIds === undefined) {
+		return scanAllAppsForReferences(ownerId, assetId, opts);
+	}
+	const candidates = [...new Set(candidateAppIds)].filter(
+		(id) => id !== opts.skipAppId,
+	);
+	// The candidate set is tiny (sparse media references), so load them together
+	// and confirm each. Drop the nulls (gone / foreign / stale), cap to the few
+	// the refusal needs to be actionable.
+	const descriptions = await Promise.all(
+		candidates.map((id) => describeAppReference(id, ownerId, assetId)),
+	);
+	return descriptions
+		.filter((d): d is string => d !== null)
+		.slice(0, APP_REF_LIMIT);
+}
+
+/**
+ * Full owner-wide scan: page every live app, load its doc, walk its refs. The
+ * pre-index behavior, kept ONLY as the fallback for an un-backfilled asset row
+ * (`referencingAppIds` absent). Slow by construction — it loads every app's
+ * blueprint — which is exactly why the index path above exists.
+ */
+async function scanAllAppsForReferences(
+	ownerId: string,
+	assetId: string,
+	opts: { skipAppId?: string },
 ): Promise<string[]> {
 	const references: string[] = [];
 	let cursor: string | undefined;
@@ -59,18 +146,13 @@ export async function findAppReferencesToAsset(
 		});
 		for (const summary of page.apps) {
 			if (summary.id === opts.skipAppId) continue;
-			const app = await loadApp(summary.id);
-			// Guard against a deleted app or a list/load ownership skew — only a
-			// live, owner-held app's references should block a delete.
-			if (!app || app.owner !== ownerId || app.deleted_at !== null) continue;
-			const doc = { ...app.blueprint, fieldParent: {} } as BlueprintDoc;
-			const carriers = [...walkAssetRefs(doc)]
-				.filter((ref) => ref.assetId === assetId)
-				.map(describeCarrier);
-			if (carriers.length === 0) continue;
-			references.push(
-				`"${summary.app_name}" (${summary.id}) on ${[...new Set(carriers)].join("; ")}`,
+			const description = await describeAppReference(
+				summary.id,
+				ownerId,
+				assetId,
 			);
+			if (description === null) continue;
+			references.push(description);
 			if (references.length >= APP_REF_LIMIT) return references;
 		}
 		cursor = page.nextCursor;

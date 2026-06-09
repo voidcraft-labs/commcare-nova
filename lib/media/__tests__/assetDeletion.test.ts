@@ -2,8 +2,11 @@
 //
 // Tests for the shared media-asset deletion logic both the SA tool and the
 // browser DELETE route go through:
-//   - `findAppReferencesToAsset` — the owner-wide reference scan (names the
-//     referencing app + carrier; skips a given app; ignores deleted/foreign).
+//   - `findAppReferencesToAsset` — the reference guard. Given the asset's
+//     `referencingAppIds` index it re-walks ONLY those candidate apps (names the
+//     app + carrier; skips a given app; ignores deleted/foreign; drops stale
+//     candidates); given `undefined` (un-backfilled row) it falls back to the
+//     full owner-wide scan.
 //   - `purgeAssetStorage` — drop the row always, delete bytes + sibling keys
 //     only when the bytes are unshared, fail closed on a probe error.
 //
@@ -14,7 +17,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListAppsResult } from "@/lib/db/apps";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
+import type { BlueprintDoc } from "@/lib/domain";
 import {
+	carriersForAsset,
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
@@ -43,7 +48,12 @@ vi.mock("@/lib/db/mediaAssets", () => ({
 	hasOtherAssetForGcsObjectKey,
 }));
 vi.mock("@/lib/storage/media", () => ({ deleteAsset: deleteGcsObject }));
-vi.mock("@/lib/domain/mediaRefs", () => ({ walkAssetRefs }));
+vi.mock("@/lib/domain/mediaRefs", () => ({
+	walkAssetRefs,
+	// `carriersForAsset` calls `asWalkableDoc` before walking; the walk is mocked,
+	// so the adapter is a passthrough here.
+	asWalkableDoc: (doc: unknown) => doc,
+}));
 
 /** A ready document asset row, overridable per test. */
 function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
@@ -84,57 +94,156 @@ const logoRef = [
 ] as never;
 
 beforeEach(() => {
+	// `clearAllMocks` resets call history but NOT implementations, so a
+	// `mockResolvedValue` set in one test would leak into the next. Re-seed every
+	// mock's default impl here so each test starts from the same baseline
+	// regardless of order.
 	vi.clearAllMocks();
 	listApps.mockResolvedValue({ apps: [] });
+	loadApp.mockResolvedValue(null);
 	hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
 	walkAssetRefs.mockReturnValue([]);
 });
 
-describe("findAppReferencesToAsset", () => {
-	it("returns empty when no app references the asset", async () => {
-		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
-		loadApp.mockResolvedValue({
-			owner: "user-1",
-			deleted_at: null,
-			blueprint: {},
-		});
-		walkAssetRefs.mockReturnValue([]);
-		expect(await findAppReferencesToAsset("user-1", "asset-1")).toEqual([]);
+/** A persisted app doc as `loadApp` returns it (only the fields the guard reads). */
+function appDoc(over: Record<string, unknown> = {}) {
+	return {
+		owner: "user-1",
+		app_name: "App One",
+		deleted_at: null,
+		blueprint: {},
+		...over,
+	};
+}
+
+describe("carriersForAsset", () => {
+	const doc = {} as BlueprintDoc;
+
+	it("filters to the asset, maps to carrier phrases, and dedups", async () => {
+		// Two references to asset-1 (logo + module icon) plus one to asset-2.
+		walkAssetRefs.mockReturnValue([
+			{ assetId: "asset-1", location: { kind: "app_logo" } },
+			{
+				assetId: "asset-1",
+				slotKind: "image",
+				location: { kind: "module_icon", moduleName: "Clients" },
+			},
+			{ assetId: "asset-2", location: { kind: "app_logo" } },
+		] as never);
+		const carriers = carriersForAsset(doc, "asset-1");
+		expect(carriers).toContain("the app logo");
+		expect(carriers).toContain('the icon on module "Clients"');
+		// asset-2's carrier is excluded.
+		expect(carriers).not.toContain("the app logo the app logo");
+		expect(carriers).toHaveLength(2);
 	});
 
-	it("names the app and the carrier when an app references it", async () => {
-		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
-		loadApp.mockResolvedValue({
-			owner: "user-1",
-			deleted_at: null,
-			blueprint: {},
-		});
+	it("dedups identical carriers (same asset on two slots of one form reads once)", async () => {
+		walkAssetRefs.mockReturnValue([
+			{ assetId: "asset-1", location: { kind: "app_logo" } },
+			{ assetId: "asset-1", location: { kind: "app_logo" } },
+		] as never);
+		expect(carriersForAsset(doc, "asset-1")).toEqual(["the app logo"]);
+	});
+
+	it("returns empty when the doc doesn't reference the asset", async () => {
+		walkAssetRefs.mockReturnValue([
+			{ assetId: "other", location: { kind: "app_logo" } },
+		] as never);
+		expect(carriersForAsset(doc, "asset-1")).toEqual([]);
+	});
+});
+
+describe("findAppReferencesToAsset — index path (candidates given)", () => {
+	it("loads ONLY the candidate apps, never the owner's whole list", async () => {
+		loadApp.mockResolvedValue(appDoc());
 		walkAssetRefs.mockReturnValue(logoRef);
-		const refs = await findAppReferencesToAsset("user-1", "asset-1");
+		const refs = await findAppReferencesToAsset("user-1", "asset-1", ["app-1"]);
+		expect(refs).toHaveLength(1);
+		expect(refs[0]).toContain("App One");
+		expect(refs[0]).toContain("the app logo");
+		// The index path must not page the owner's apps — that's the slow scan it
+		// replaces.
+		expect(listApps).not.toHaveBeenCalled();
+		expect(loadApp).toHaveBeenCalledTimes(1);
+		expect(loadApp).toHaveBeenCalledWith("app-1");
+	});
+
+	it("returns empty for a STALE candidate that no longer references the asset", async () => {
+		loadApp.mockResolvedValue(appDoc());
+		walkAssetRefs.mockReturnValue([]); // app loaded, but no carrier points at it
+		expect(
+			await findAppReferencesToAsset("user-1", "asset-1", ["app-1"]),
+		).toEqual([]);
+	});
+
+	it("returns empty for an empty candidate set without touching Firestore", async () => {
+		expect(await findAppReferencesToAsset("user-1", "asset-1", [])).toEqual([]);
+		expect(loadApp).not.toHaveBeenCalled();
+		expect(listApps).not.toHaveBeenCalled();
+	});
+
+	it("skips the candidate named by skipAppId (without loading it)", async () => {
+		walkAssetRefs.mockReturnValue(logoRef);
+		const refs = await findAppReferencesToAsset(
+			"user-1",
+			"asset-1",
+			["current"],
+			{
+				skipAppId: "current",
+			},
+		);
+		expect(refs).toEqual([]);
+		expect(loadApp).not.toHaveBeenCalled();
+	});
+
+	it("ignores a foreign-owned or deleted candidate", async () => {
+		loadApp.mockResolvedValue(appDoc({ owner: "user-2" })); // not the caller
+		walkAssetRefs.mockReturnValue(logoRef);
+		expect(
+			await findAppReferencesToAsset("user-1", "asset-1", ["app-1"]),
+		).toEqual([]);
+	});
+});
+
+describe("findAppReferencesToAsset — full-scan fallback (candidates undefined)", () => {
+	it("pages the owner's apps when the asset row was never backfilled", async () => {
+		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
+		loadApp.mockResolvedValue(appDoc());
+		walkAssetRefs.mockReturnValue(logoRef);
+		const refs = await findAppReferencesToAsset("user-1", "asset-1", undefined);
+		expect(listApps).toHaveBeenCalled();
 		expect(refs).toHaveLength(1);
 		expect(refs[0]).toContain("App One");
 		expect(refs[0]).toContain("the app logo");
 	});
 
-	it("skips the app named by skipAppId (without even loading it)", async () => {
-		listApps.mockResolvedValue({ apps: [appSummary("current", "Current")] });
-		walkAssetRefs.mockReturnValue(logoRef);
-		const refs = await findAppReferencesToAsset("user-1", "asset-1", {
-			skipAppId: "current",
-		});
-		expect(refs).toEqual([]);
-		expect(loadApp).not.toHaveBeenCalled();
+	it("returns empty when no app in the scan references the asset", async () => {
+		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
+		loadApp.mockResolvedValue(appDoc());
+		walkAssetRefs.mockReturnValue([]);
+		expect(
+			await findAppReferencesToAsset("user-1", "asset-1", undefined),
+		).toEqual([]);
 	});
 
-	it("ignores a foreign-owned or deleted app", async () => {
-		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
-		loadApp.mockResolvedValue({
-			owner: "user-2", // not the caller
-			deleted_at: null,
-			blueprint: {},
-		});
+	it("skips the current app named by skipAppId during the scan", async () => {
+		// The SA tool checks its in-hand working doc separately, then scans every
+		// OTHER app — so a fallback scan must skip the current app even though
+		// listApps returns it.
+		listApps.mockResolvedValue({ apps: [appSummary("current", "Current")] });
+		loadApp.mockResolvedValue(appDoc({ app_name: "Current" }));
 		walkAssetRefs.mockReturnValue(logoRef);
-		expect(await findAppReferencesToAsset("user-1", "asset-1")).toEqual([]);
+		const refs = await findAppReferencesToAsset(
+			"user-1",
+			"asset-1",
+			undefined,
+			{
+				skipAppId: "current",
+			},
+		);
+		expect(refs).toEqual([]);
+		expect(loadApp).not.toHaveBeenCalled();
 	});
 });
 

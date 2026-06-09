@@ -46,7 +46,8 @@ vi.mock("@/lib/media/assetDeletion", () => ({
 // DELETE).
 vi.mock("@/lib/storage/media", () => ({ streamAsset: vi.fn() }));
 
-/** A ready document asset row, overridable per test. */
+/** A ready document asset row, overridable per test. `referencingAppIds` is the
+ *  reverse index the route must thread to the guard as its candidate set. */
 function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
 		id: "asset-1",
@@ -59,6 +60,7 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 		extension: ".pdf",
 		sizeBytes: 100,
 		status: "ready",
+		referencingAppIds: ["app-x"],
 		...over,
 	} as unknown as MediaAssetRecord;
 }
@@ -82,6 +84,12 @@ describe("DELETE media asset", () => {
 
 		const res = await DELETE(req(), ctx());
 		expect(res.status).toBe(204);
+		// The route must thread the asset's reverse index as the guard's candidate
+		// set — that's the whole index optimization on the browser side. A regression
+		// that dropped this 3rd arg (back to the ~8s owner-wide scan) is caught here.
+		expect(findAppReferencesToAsset).toHaveBeenCalledWith("user-1", "asset-1", [
+			"app-x",
+		]);
 		// alsoDelete carries the document's real extract-sibling key (computed
 		// from the asset's content hash + the current extractor version).
 		expect(purgeAssetStorage).toHaveBeenCalledWith(

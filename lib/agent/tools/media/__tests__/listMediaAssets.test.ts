@@ -45,6 +45,9 @@ function readyRecord(id: string): MediaAssetRecord {
 		displayName: `${id}.png`,
 		status: "ready",
 		gcsObjectKey: `users/user-1/abc.png`,
+		// Server-only reverse index — must never reach the wire (it would leak the
+		// owner's app ids to the client).
+		referencingAppIds: ["app-x"],
 		// `created_at` is a Firestore Timestamp at runtime; the wire
 		// projector calls `.toDate().toISOString()` on it.
 		created_at: {
@@ -66,9 +69,12 @@ describe("listMediaAssets", () => {
 		expect(result.kind).toBe("read");
 		expect(result.data.assets).toHaveLength(2);
 		expect(result.data.assets[0].id).toBe("a1");
-		// Wire shape drops `owner` + `gcsObjectKey`.
+		// Wire shape drops the server-only fields `owner` + `gcsObjectKey` +
+		// `referencingAppIds` (the reverse index must never leak the owner's app
+		// ids to the client).
 		expect(result.data.assets[0]).not.toHaveProperty("owner");
 		expect(result.data.assets[0]).not.toHaveProperty("gcsObjectKey");
+		expect(result.data.assets[0]).not.toHaveProperty("referencingAppIds");
 		expect(result.data.nextCursor).toBe("cursor-2");
 	});
 

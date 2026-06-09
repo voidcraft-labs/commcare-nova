@@ -15,8 +15,10 @@ import type { ErrorType } from "@/lib/agent";
 import { log } from "@/lib/logger";
 import { toPersistableDoc } from "../doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "../domain/blueprint";
+import { asWalkableDoc, collectAssetRefs } from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
+import { addReferencingApp } from "./mediaAssets";
 import type { AppDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -224,6 +226,45 @@ function denormalize(doc: PersistableDoc) {
 	};
 }
 
+/**
+ * Maintain the media reverse index for a saved blueprint: record `appId` against
+ * every media asset the doc references, so the delete reference guard reads an
+ * asset's `referencingAppIds` candidate set instead of loading every one of the
+ * owner's apps (a real, measured ~8s on an 83-app account). Reached ONLY through
+ * `persistBlueprintSnapshot`, so all three production writers carry it by
+ * construction — it IS denormalization, deriving an index field off the
+ * blueprint on write. (The one-off migration scripts under `scripts/` that write
+ * a blueprint directly do NOT sync; that is acceptable because they rewrite
+ * non-media structure — a media-rewriting migration would have to re-sync, and a
+ * stale edge it left behind is pruned-by-omission at delete time anyway.)
+ *
+ * Append-only (see `addReferencingApp`): the guard re-walks each candidate to
+ * confirm, so this never needs to REMOVE an app that dropped a reference. A
+ * no-media doc (the common case) collects an empty set and writes nothing.
+ *
+ * Best-effort: a failure here is logged, not thrown. The index is a guard
+ * optimization, not the correctness backstop (the media validator still rejects
+ * a truly-orphaned reference at export), and `arrayUnion` is idempotent — the
+ * next save of this app re-adds the dropped edge, so a transient miss self-heals
+ * rather than failing the user's blueprint write. The flip side: the guard is
+ * therefore best-effort, not authoritative — a never-re-saved missed edge can
+ * let a still-referenced asset be deleted, surfacing only at export (where it is
+ * re-uploadable). That is the accepted cost of not re-scanning every app.
+ */
+async function syncMediaReferences(
+	appId: string,
+	doc: PersistableDoc,
+): Promise<void> {
+	try {
+		const referenced = collectAssetRefs(asWalkableDoc(doc));
+		await addReferencingApp([...referenced], appId);
+	} catch (err) {
+		log.error("[syncMediaReferences] reverse-index update failed", err, {
+			appId,
+		});
+	}
+}
+
 // ── Concurrency Guard ─────────────────────────────────────────────
 
 /**
@@ -395,6 +436,41 @@ export async function createApp(
 //
 // Every call site is fronted by a `createApp` write that materializes
 // the row, so `update()`'s "doc must exist" precondition holds.
+//
+// All three route through `persistBlueprintSnapshot` — the ONE place the
+// blueprint + summary write and the media-index sync are coupled. That
+// coupling is load-bearing: the delete reference guard trusts the index, so a
+// blueprint write that doesn't sync would silently rot it. Funnelling the three
+// writers through one helper means a future writer physically can't persist a
+// blueprint without the sync (there is no other `update({ blueprint })` here to
+// copy). Each writer differs only in the extra top-level fields it sets
+// (`status` / `run_id`), passed via `extra`.
+
+/**
+ * The single blueprint-snapshot write: denormalized summary + `blueprint` +
+ * `updated_at`, the optional `status` / `run_id` a caller adds, and the media
+ * reverse-index sync — committed in that order. Private; the three exported
+ * writers are thin wrappers that name their `extra` field-set.
+ *
+ * The index sync runs AFTER the blueprint write and is best-effort (see
+ * `syncMediaReferences`): a missed edge self-heals on the next save and the
+ * media validator still rejects a truly-orphaned reference at export, so it must
+ * never fail the user's blueprint write.
+ */
+async function persistBlueprintSnapshot(
+	appId: string,
+	doc: PersistableDoc,
+	extra: { status?: AppDoc["status"]; runId?: string } = {},
+): Promise<void> {
+	await docs.app(appId).update({
+		...denormalize(doc),
+		blueprint: doc,
+		updated_at: FieldValue.serverTimestamp(),
+		...(extra.status !== undefined && { status: extra.status }),
+		...(extra.runId !== undefined && { run_id: extra.runId }),
+	});
+	await syncMediaReferences(appId, doc);
+}
 
 /**
  * Finalize an app on generation success.
@@ -408,12 +484,9 @@ export async function completeApp(
 	doc: PersistableDoc,
 	runId: string,
 ): Promise<void> {
-	await docs.app(appId).update({
-		...denormalize(doc),
-		blueprint: doc,
+	await persistBlueprintSnapshot(appId, doc, {
 		status: "complete",
-		run_id: runId,
-		updated_at: FieldValue.serverTimestamp(),
+		runId,
 	});
 }
 
@@ -543,11 +616,7 @@ export async function updateApp(
 	appId: string,
 	doc: PersistableDoc,
 ): Promise<void> {
-	await docs.app(appId).update({
-		...denormalize(doc),
-		blueprint: doc,
-		updated_at: FieldValue.serverTimestamp(),
-	});
+	await persistBlueprintSnapshot(appId, doc);
 }
 
 /**
@@ -568,12 +637,7 @@ export async function updateAppForRun(
 	doc: PersistableDoc,
 	runId: string,
 ): Promise<void> {
-	await docs.app(appId).update({
-		...denormalize(doc),
-		blueprint: doc,
-		run_id: runId,
-		updated_at: FieldValue.serverTimestamp(),
-	});
+	await persistBlueprintSnapshot(appId, doc, { runId });
 }
 
 /**
