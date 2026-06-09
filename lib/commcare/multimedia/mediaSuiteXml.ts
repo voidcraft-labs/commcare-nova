@@ -34,15 +34,6 @@ import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import type { ResolvedMediaAsset } from "./assetWirePath";
 
 /**
- * Empty-suite placeholder for a media-free app. The `descriptor`
- * attribute carries no semantics for an empty suite, so it is
- * dropped — both the descriptor-present and descriptor-absent forms
- * parse identically through commcare-core's `ResourceParser` (the
- * descriptor is a human-readable label the parser reads as optional).
- */
-const EMPTY_MEDIA_SUITE = '<?xml version="1.0"?>\n<suite version="1"/>';
-
-/**
  * The install directory the `<media path>` points at, relative to the
  * media-suite file. All Nova media lives flat under `commcare/`, so the
  * path is constant. (CCHQ varies it per media subdirectory; Nova has one.)
@@ -50,20 +41,30 @@ const EMPTY_MEDIA_SUITE = '<?xml version="1.0"?>\n<suite version="1"/>';
 const MEDIA_INSTALL_PATH = "../../commcare";
 
 /**
- * Build the complete `media_suite.xml` string for the referenced
- * assets. An empty list yields the byte-identical empty placeholder;
- * otherwise one `<media>` block per asset, ordered by wire path for
- * deterministic output (same inputs → same bytes).
+ * Render a `<suite>` element to the wire string. `dom-serializer` doesn't
+ * emit the XML declaration, so it's prepended here (as `compiler.ts` does);
+ * the serializer stays the sole escaping authority.
+ */
+function serializeSuite(suite: Element): string {
+	return `<?xml version="1.0"?>\n${render(suite, RENDER_OPTS)}`;
+}
+
+/**
+ * Build the complete `media_suite.xml` for the referenced assets. An empty
+ * list yields a bare `<suite version="1"/>`; otherwise one `<media>` block
+ * per asset, ordered by wire path for deterministic output (same inputs →
+ * same bytes).
  *
- * Constructed as a `domhandler` tree and serialized once — the
- * serializer is the sole escaping authority, matching every other
- * emitter in this package. The `<?xml?>` declaration is the one literal
- * the serializer doesn't emit, prepended here (as `compiler.ts` does).
+ * Both shapes are built through `el()` and serialized once — no XML rides as
+ * a string literal, matching every other emitter in this package.
  */
 export function buildMediaSuiteXml(
 	assets: readonly ResolvedMediaAsset[],
 ): string {
-	if (assets.length === 0) return EMPTY_MEDIA_SUITE;
+	// The empty suite drops `descriptor` (the populated case sets it): it's a
+	// human-readable label commcare-core's `ResourceParser` reads as optional,
+	// so the descriptor-present and -absent forms parse identically.
+	if (assets.length === 0) return serializeSuite(el("suite", { version: "1" }));
 
 	const ordered = [...assets].sort((a, b) =>
 		a.wirePath < b.wirePath ? -1 : a.wirePath > b.wirePath ? 1 : 0,
@@ -94,5 +95,5 @@ export function buildMediaSuiteXml(
 	const suite = el("suite", { version: "1", descriptor: "Media Suite File" }, [
 		...mediaBlocks,
 	]);
-	return `<?xml version="1.0"?>\n${render(suite, RENDER_OPTS)}`;
+	return serializeSuite(suite);
 }
