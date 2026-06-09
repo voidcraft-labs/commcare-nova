@@ -5,8 +5,9 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import type { DeletedAppSummary } from "@/lib/db/apps";
-import { formatRelativeDate, STATUS_STYLES } from "@/lib/utils/format";
+import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
+import { RelativeTime } from "./RelativeTime";
 
 /** Inline result shape; see the matching note in `AppCard.tsx`. */
 type RestoreResult = { success: true } | { success: false; error: string };
@@ -94,7 +95,7 @@ export function DeletedAppCard({ app, index, onRestore }: DeletedAppCardProps) {
 						<div className="mt-1 space-y-0.5 text-xs">
 							<p className="flex items-center gap-2 text-nova-text-muted">
 								<span className="truncate">
-									Deleted {formatRelativeDate(deletedAt)}
+									Deleted <RelativeTime date={deletedAt} />
 								</span>
 								{app.connect_type && <ConnectBadge type={app.connect_type} />}
 							</p>
