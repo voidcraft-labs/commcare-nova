@@ -379,8 +379,8 @@ export function mimeTypeForFilename(
  * canonical MIME; as a last resort return the raw claim so the server produces a
  * clear rejection rather than a silent empty string. The confirm-time validator
  * re-derives the authoritative MIME/extension from the bytes + filename
- * regardless, so this only needs to be good enough to pass initiate + set the
- * upload's `Content-Type`.
+ * regardless, so this only needs to be good enough to pass initiate + bind the
+ * signed PUT URL's `Content-Type`.
  */
 export function resolveUploadMimeType(
 	rawType: string,
@@ -554,23 +554,24 @@ export function extractObjectKeyForAsset(asset: {
 }
 
 /**
- * Top-level prefix every pending upload object lives under. Shared so
- * the bucket lifecycle rule that reaps abandoned pending uploads
- * (`applyPendingObjectLifecycle` in `lib/storage/media`) matches
+ * Top-level prefix every signed-PUT pending object lives under. Shared so
+ * the bucket lifecycle rule that reaps abandoned / oversized pending
+ * uploads (`applyPendingObjectLifecycle` in `lib/storage/media`) matches
  * the exact prefix `pendingGcsObjectKeyFor` writes — the rule and the key
  * builder can't drift to different prefixes.
  */
 export const PENDING_OBJECT_PREFIX = "pending/";
 
 /**
- * Pending GCS object key derivation for browser uploads.
+ * Pending GCS object key derivation for browser signed-PUT uploads.
  *
- * The key is handed back BEFORE the server has validated the bytes, so it
- * lands at a per-attempt key under a top-level `pending/` prefix — never the
- * final content-hash key. A late/duplicate PUT can only overwrite its own
- * pending object; the key still embeds the owner, so it also can't reach
- * another user's space. Confirm-time validation promotes clean bytes to
- * `gcsObjectKeyFor(...)`; rejection deletes this pending object and row.
+ * The browser's signed URL is minted BEFORE the server has validated the
+ * bytes, so it lands at a per-attempt key under a top-level `pending/`
+ * prefix — never the final content-hash key. A stale leaked URL can only
+ * overwrite its own pending object; the key still embeds the owner, so it
+ * also can't reach another user's space. Confirm-time validation promotes
+ * clean bytes to `gcsObjectKeyFor(...)`; rejection deletes this pending
+ * object and row.
  *
  * The prefix is top-level (not nested under `users/<owner>/`) so one bucket
  * lifecycle rule — delete objects under it past a short TTL — reaps uploads

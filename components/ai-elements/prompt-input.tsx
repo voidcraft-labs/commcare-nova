@@ -615,11 +615,11 @@ export const PromptInput = ({
 			}
 		};
 		const onDrop = (e: DragEvent) => {
+			// Raw-file drop staging is disabled: this app attaches assets from the
+			// media library, never PromptInput's in-browser blob staging. The
+			// preventDefault still stops the browser from navigating to a dropped file.
 			if (e.dataTransfer?.types?.includes("Files")) {
 				e.preventDefault();
-			}
-			if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-				add(e.dataTransfer.files);
 			}
 		};
 		form.addEventListener("dragover", onDragOver);
@@ -628,7 +628,7 @@ export const PromptInput = ({
 			form.removeEventListener("dragover", onDragOver);
 			form.removeEventListener("drop", onDrop);
 		};
-	}, [add, globalDrop]);
+	}, [globalDrop]);
 
 	useEffect(() => {
 		if (!globalDrop) {
@@ -641,11 +641,9 @@ export const PromptInput = ({
 			}
 		};
 		const onDrop = (e: DragEvent) => {
+			// Raw-file drop staging is disabled (see the form-level handler above).
 			if (e.dataTransfer?.types?.includes("Files")) {
 				e.preventDefault();
-			}
-			if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-				add(e.dataTransfer.files);
 			}
 		};
 		document.addEventListener("dragover", onDragOver);
@@ -654,7 +652,7 @@ export const PromptInput = ({
 			document.removeEventListener("dragover", onDragOver);
 			document.removeEventListener("drop", onDrop);
 		};
-	}, [add, globalDrop]);
+	}, [globalDrop]);
 
 	useEffect(
 		() => () => {
@@ -943,11 +941,12 @@ export const PromptInputTextarea = ({
 			}
 
 			if (files.length > 0) {
+				// Pasted-file staging is disabled (see the drop handlers): swallow the
+				// paste so a file never becomes an in-browser blob attachment.
 				event.preventDefault();
-				attachments.add(files);
 			}
 		},
-		[attachments],
+		[],
 	);
 
 	const handleCompositionEnd = useCallback(() => setIsComposing(false), []);

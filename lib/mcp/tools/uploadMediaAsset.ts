@@ -2,10 +2,9 @@
  * `nova.upload_media_asset` — upload a media file to the calling user's
  * library from inline base64 bytes (MCP-only).
  *
- * The browser uploads via the hash → PUT → confirm dance in
- * `app/api/media/upload` — it computes the sha256 client-side and PUTs the
- * bytes to a same-origin route. An MCP client (Claude Code et al) can't run
- * that flow,
+ * The browser uploads via the hash → signed-PUT → confirm dance in
+ * `app/api/media/upload` — it can compute the sha256 client-side and PUT
+ * straight to GCS. An MCP client (Claude Code et al) can't run that flow,
  * so it needs a bytes-inline path: the caller sends the file's base64 and
  * filename, the server decodes, validates, stores, and returns the asset
  * id the `attach*` / `set*` media tools then reference.
@@ -170,9 +169,9 @@ export function registerUploadMediaAsset(
 
 				/* New blob. Write the GCS object first, then the asset row,
 				 * then flip it `ready` with the validated dimensions /
-				 * duration. The HTTP flow splits store (the byte-PUT route)
-				 * from confirm (re-validate); here there's no client round
-				 * trip, so both collapse into one server-side pass against the
+				 * duration. The HTTP flow splits store (signed PUT) from
+				 * confirm (re-validate); here there's no client round trip,
+				 * so both collapse into one server-side pass against the
 				 * already-validated bytes. */
 				const gcsObjectKey = gcsObjectKeyFor(
 					ctx.userId,
