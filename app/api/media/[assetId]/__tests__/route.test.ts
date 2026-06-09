@@ -1,13 +1,20 @@
 /**
- * `DELETE /api/media/[assetId]` route tests.
+ * `GET` + `DELETE /api/media/[assetId]` route tests.
  *
- * The route is a thin wrapper: owner-gate → reference scan → purge. These pin
+ * GET pins the serve contract: the object's presence and size are resolved
+ * from storage BEFORE the response is constructed — a ready row whose object
+ * is gone returns a clean 404 (never a 200 that dies mid-stream and gets
+ * dropped as malformed downstream), and Content-Length reflects the stored
+ * bytes, not the row's recorded size.
+ *
+ * DELETE is a thin wrapper: owner-gate → reference scan → purge. These pin
  * the wrapper's mapping — 204 on a clean delete (purge called with the asset +
  * its extract-sibling key), 409 when an app still references it (purge NOT
  * called), 404 on missing/foreign — with the shared deletion logic + storage +
  * auth mocked at the boundary.
  */
 
+import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { MediaAssetOwnershipError } from "@/lib/db/mediaAssets";
@@ -16,18 +23,22 @@ import {
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
-import { DELETE } from "../route";
+import { DELETE, GET } from "../route";
 
 const {
 	requireSessionMock,
 	loadAssetForOwnerMock,
 	findAppReferencesToAssetMock,
 	purgeAssetStorageMock,
+	streamAssetMock,
+	getStoredObjectSizeMock,
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	loadAssetForOwnerMock: vi.fn(),
 	findAppReferencesToAssetMock: vi.fn(() => Promise.resolve([] as string[])),
 	purgeAssetStorageMock: vi.fn(() => Promise.resolve()),
+	streamAssetMock: vi.fn(),
+	getStoredObjectSizeMock: vi.fn(() => Promise.resolve<number | null>(null)),
 }));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
@@ -41,10 +52,12 @@ vi.mock("@/lib/media/assetDeletion", () => ({
 }));
 // `extractObjectKeyForAsset` comes from the real (pure, mammoth-free)
 // `@/lib/domain/multimedia`, so the route computes the actual extract-sibling
-// key — no need to mock it. The route imports `streamAsset` for its GET handler;
-// stub it so the real GCS storage module never loads (these tests only exercise
-// DELETE).
-vi.mock("@/lib/storage/media", () => ({ streamAsset: vi.fn() }));
+// key — no need to mock it. Storage is mocked at the boundary so the real GCS
+// module never loads.
+vi.mock("@/lib/storage/media", () => ({
+	streamAsset: streamAssetMock,
+	getStoredObjectSize: getStoredObjectSizeMock,
+}));
 
 /** A ready document asset row, overridable per test. `referencingAppIds` is the
  *  reverse index the route must thread to the guard as its candidate set. */
@@ -76,6 +89,59 @@ beforeEach(() => {
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
 	findAppReferencesToAssetMock.mockResolvedValue([]);
 	purgeAssetStorageMock.mockResolvedValue(undefined);
+	getStoredObjectSizeMock.mockResolvedValue(100);
+	streamAssetMock.mockImplementation(() => Readable.from(Buffer.from("bytes")));
+});
+
+/** GET needs an abort signal — the route wires client-disconnect cleanup. */
+const getReq = () =>
+	({ signal: new AbortController().signal }) as unknown as Parameters<
+		typeof GET
+	>[0];
+
+describe("GET media asset", () => {
+	it("streams the bytes with Content-Length from the stored object, not the row", async () => {
+		loadAssetForOwnerMock.mockResolvedValue(docAsset({ sizeBytes: 999 }));
+		getStoredObjectSizeMock.mockResolvedValue(5);
+
+		const res = await GET(getReq(), ctx());
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Length")).toBe("5");
+		expect(res.headers.get("Content-Type")).toBe("application/pdf");
+		expect(await drainBody(res)).toBe("bytes");
+	});
+
+	it("404s a ready row whose object is missing from storage — before any byte streams", async () => {
+		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		getStoredObjectSizeMock.mockResolvedValue(null);
+
+		const res = await GET(getReq(), ctx());
+		expect(res.status).toBe(404);
+		// The contract under test: the failure is decided before a stream (and
+		// therefore a 200 + Content-Length) ever starts.
+		expect(streamAssetMock).not.toHaveBeenCalled();
+		await drainBody(res);
+	});
+
+	it("404s a missing row without touching storage", async () => {
+		loadAssetForOwnerMock.mockResolvedValue(null);
+
+		const res = await GET(getReq(), ctx());
+		expect(res.status).toBe(404);
+		expect(getStoredObjectSizeMock).not.toHaveBeenCalled();
+		expect(streamAssetMock).not.toHaveBeenCalled();
+		await drainBody(res);
+	});
+
+	it("500s a metadata lookup failure before any byte streams", async () => {
+		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		getStoredObjectSizeMock.mockRejectedValue(new Error("GCS unavailable"));
+
+		const res = await GET(getReq(), ctx());
+		expect(res.status).toBe(500);
+		expect(streamAssetMock).not.toHaveBeenCalled();
+		await drainBody(res);
+	});
 });
 
 describe("DELETE media asset", () => {

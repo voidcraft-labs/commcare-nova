@@ -263,22 +263,36 @@ export function streamAsset(gcsObjectKey: string): Readable {
 
 /**
  * Read the stored object's size in bytes from GCS metadata,
- * without downloading the body. The confirm step calls this BEFORE
+ * without downloading the body. Returns `null` if the object
+ * doesn't exist.
+ *
+ * Callers use it for two jobs. Size-gating before a download: the
+ * confirm step (and `readTextObject`) checks BEFORE
  * `downloadAssetBytes` so an oversized object (a client that
  * initiated with a small claimed size, then PUT a huge body to the
  * signed URL) is rejected before we ever pull it into memory —
- * otherwise a single request could OOM the instance. Returns
- * `null` if the object doesn't exist.
+ * otherwise a single request could OOM the instance. And the
+ * pre-stream check on the serve route: a ready row whose object is
+ * gone becomes a clean 404 instead of a truncated 200, and
+ * Content-Length matches the bytes actually stored.
+ *
+ * One metadata request, with the not-found mapped from the error,
+ * rather than `exists()` followed by `getMetadata()` — `exists()`
+ * is itself a metadata fetch, and the serve route sits on the hot
+ * path of every inline media load.
  */
 export async function getStoredObjectSize(
 	gcsObjectKey: string,
 ): Promise<number | null> {
 	const file = getBucket().file(gcsObjectKey);
-	const [exists] = await file.exists();
-	if (!exists) return null;
-	const [metadata] = await file.getMetadata();
-	// GCS reports `size` as a string of bytes.
-	return metadata.size === undefined ? null : Number(metadata.size);
+	try {
+		const [metadata] = await file.getMetadata();
+		// GCS reports `size` as a string of bytes.
+		return metadata.size === undefined ? null : Number(metadata.size);
+	} catch (err) {
+		if ((err as { code?: number } | null)?.code === 404) return null;
+		throw err;
+	}
 }
 
 /**

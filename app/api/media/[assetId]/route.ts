@@ -25,11 +25,12 @@ import {
 	MediaAssetOwnershipError,
 } from "@/lib/db/mediaAssets";
 import { asAssetId, extractObjectKeyForAsset } from "@/lib/domain/multimedia";
+import { log } from "@/lib/logger";
 import {
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
-import { streamAsset } from "@/lib/storage/media";
+import { getStoredObjectSize, streamAsset } from "@/lib/storage/media";
 
 export async function GET(
 	req: NextRequest,
@@ -50,6 +51,25 @@ export async function GET(
 			throw new ApiError("Media asset not found.", 404);
 		}
 
+		// The response declares Content-Length before any byte streams, so a
+		// missing object discovered mid-stream cannot become a 404 — it
+		// truncates the body, Cloud Run's front end drops the malformed
+		// response as a 503, and that teardown takes the other responses
+		// multiplexed on the connection down with it. Resolve the size from
+		// storage up front instead: a missing object turns into a clean 404
+		// before headers go out, and Content-Length comes from the bytes
+		// we'll actually serve, so the response can't disagree with itself
+		// even if the row's recorded size drifts from the object.
+		const storedSize = await getStoredObjectSize(asset.gcsObjectKey);
+		if (storedSize === null) {
+			log.error(
+				"Media asset row says ready, but its object is missing from storage — returning 404. The row is stale and needs cleanup.",
+				undefined,
+				{ assetId, gcsObjectKey: asset.gcsObjectKey },
+			);
+			throw new ApiError("Media asset not found.", 404);
+		}
+
 		const nodeStream = streamAsset(asset.gcsObjectKey);
 		// Destroy the underlying GCS read stream if the client aborts
 		// mid-transfer (seek, navigate-away, tab close). Without this
@@ -62,7 +82,7 @@ export async function GET(
 		return new Response(webStream, {
 			headers: {
 				"Content-Type": asset.mimeType,
-				"Content-Length": asset.sizeBytes.toString(),
+				"Content-Length": storedSize.toString(),
 				// Bytes are content-hash addressed → immutable per
 				// assetId. The browser can cache for a day without
 				// risk of staleness.
