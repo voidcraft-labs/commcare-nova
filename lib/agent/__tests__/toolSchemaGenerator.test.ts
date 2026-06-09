@@ -117,7 +117,7 @@ describe("toolSchemaGenerator", () => {
 
 	it("accepts `default_value` on selects + barcode (now a declared slot)", () => {
 		for (const kind of ["single_select", "multi_select", "barcode"] as const) {
-			const payload = { ...validAddPayload(kind), default_value: "#case/x" };
+			const payload = { ...validAddPayload(kind), default_value: "#patient/x" };
 			expect(
 				generated.addFieldsItemSchema.safeParse(payload).success,
 				`default_value on ${kind}`,

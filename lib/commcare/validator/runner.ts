@@ -21,6 +21,7 @@ import type { ValidationError } from "./errors";
 import { validationError } from "./errors";
 import {
 	type ConnectXPathSlot,
+	type ProseSurface,
 	validateBlueprintDeep,
 	type XPathSurface,
 } from "./index";
@@ -137,6 +138,25 @@ function runDeepValidation(doc: BlueprintDoc): ValidationError[] {
 					},
 				);
 
+			case "field-prose":
+				return validationError(
+					deep.error.code,
+					"field",
+					humanizeXPathError(
+						deep.error,
+						`Field "${deep.fieldId}" in "${deep.formName}" (${PROSE_SURFACE_LABELS[deep.surface]})`,
+					),
+					{
+						moduleUuid: deep.moduleUuid,
+						moduleName: deep.moduleName,
+						formUuid: deep.formUuid,
+						formName: deep.formName,
+						fieldUuid: deep.fieldUuid,
+						fieldId: deep.fieldId,
+						field: deep.surface,
+					},
+				);
+
 			case "connect-xpath":
 				return validationError(
 					deep.error.code,
@@ -192,6 +212,19 @@ const SURFACE_LABELS: Record<XPathSurface, string> = {
 	required: "required condition",
 	repeat_count: "repeat count",
 	ids_query: "data source query",
+};
+
+/**
+ * User-facing label for each PROSE surface a field can carry. Typed as a
+ * total `Record<ProseSurface, …>`, so adding a prose surface to the deep
+ * scan forces a label here — the compiler is the reminder.
+ */
+const PROSE_SURFACE_LABELS: Record<ProseSurface, string> = {
+	label: "label",
+	hint: "hint",
+	help: "help text",
+	validate_msg: "validation message",
+	option_label: "answer option label",
 };
 
 /** User-facing label for each Connect-block XPath slot. */

@@ -197,7 +197,7 @@ describe("applyDefaults", () => {
 
 	// ── Case preload is structural, not a default_value autoset ──────────
 	//
-	// `applyDefaults` no longer seeds `default_value = "#case/{id}"` on
+	// `applyDefaults` no longer seeds a case-preload `default_value` on
 	// case-loading-form primary fields. Preload is emitted at the wire layer
 	// (`xform/caseBlocks.ts` lowers the derived `case_preload` action to
 	// casedb `<setvalue>` reads), so the agent layer leaves `default_value`

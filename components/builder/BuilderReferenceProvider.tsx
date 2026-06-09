@@ -23,6 +23,7 @@
 import { useCallback, useContext } from "react";
 import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { Uuid } from "@/lib/domain";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { useLocation } from "@/lib/routing/hooks";
 
@@ -36,15 +37,22 @@ export function BuilderReferenceProvider({
 	const docStore = useContext(BlueprintDocContext);
 	const loc = useLocation();
 
-	/** Build the `XPathLintContext` for whatever form the URL says the user
-	 *  is editing. Called by `ReferenceProvider` at edit time — reads the
-	 *  doc store imperatively so we don't subscribe to blueprint state
-	 *  here (cache invalidation is driven by `subscribeMutation` below). */
-	const getRefContext = useCallback(() => {
-		if (!docStore) return undefined;
-		if (loc.kind !== "form") return undefined;
-		return buildLintContext(docStore.getState(), loc.formUuid);
-	}, [docStore, loc]);
+	/** Build the `XPathLintContext` for any form by uuid. Called by
+	 *  `ReferenceProvider` whenever it resolves a ref — the active form for
+	 *  in-editor surfaces, each field's owning form for the sidebar. Reads the
+	 *  doc store imperatively so we don't subscribe to blueprint state here
+	 *  (cache invalidation is driven by `subscribeMutation` below). */
+	const getContextForForm = useCallback(
+		(formUuid: string) =>
+			docStore
+				? buildLintContext(docStore.getState(), formUuid as Uuid)
+				: undefined,
+		[docStore],
+	);
+
+	/** The form the user is currently editing, surfaced via `useCurrentFormUuid`
+	 *  so editor/canvas chip surfaces resolve without threading the uuid. */
+	const currentFormUuid = loc.kind === "form" ? loc.formUuid : undefined;
 
 	/** Subscribe to entity changes that invalidate the ReferenceProvider cache.
 	 *  Covers fields (field references, case_property_on), modules (case_type renames),
@@ -67,7 +75,8 @@ export function BuilderReferenceProvider({
 
 	return (
 		<ReferenceProviderWrapper
-			getContext={getRefContext}
+			getContextForForm={getContextForForm}
+			currentFormUuid={currentFormUuid}
 			subscribeMutation={subscribeMutation}
 		>
 			{children}

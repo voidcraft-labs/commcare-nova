@@ -185,6 +185,10 @@ export function expandDoc(
 
 			attachments[`${formUniqueId}.xml`] = buildXForm(doc, formUuid, {
 				xmlns,
+				// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
+				// reachable-case-type depth map matches the deep validator's accept
+				// map, which builds from `mod.caseType` directly.
+				...(mod.caseType && { moduleCaseType: mod.caseType }),
 				...(effectiveConnect && { connect: effectiveConnect }),
 				...(assets && { assets }),
 			});

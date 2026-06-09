@@ -2,24 +2,13 @@
  * Shared primitives used across the AppTree row components.
  *
  * Small stateless atoms (chevron button, tree-item wrapper,
- * highlighted-text renderer) and the per-form icon context live here so
- * FieldRow / FormCard / ModuleCard can import from a single module
- * without pulling in the full tree.
+ * highlighted-text renderer) live here so FieldRow / FormCard / ModuleCard
+ * can import from a single module without pulling in the full tree.
  */
 "use client";
-import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { createContext } from "react";
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
-
-/**
- * Per-form context carrying a field path → kind icon map. Lets FieldRow
- * render reference chips with correct field-kind icons without prop
- * drilling through the recursive tree or depending on ReferenceProvider.
- */
-export const FormIconContext = createContext<Map<string, IconifyIcon>>(
-	new Map(),
-);
 
 /** Collapsible-section chevron button used by module / form / group rows. */
 export function CollapseChevron({

@@ -994,6 +994,72 @@ describe("renameField case-property cascade", () => {
 		expect(asField(next.fields[Q("ref")])?.relevant).toBe("#case/age_1 > 0");
 	});
 
+	it("rewrites #<caseType>/<oldId> per-type refs app-wide, leaving other types alone", () => {
+		// Per-type refs name their case type explicitly, so a `#mother/age`
+		// ref resolves to mother from ANY form that can reach it — including a
+		// CHILD module's form reading mother as an ancestor. Renaming mother's
+		// `age` must rewrite it there too, while a `#pregnancy/age` ref to a
+		// different type that shares the property name stays untouched.
+		const start: BlueprintDoc = {
+			appId: "test",
+			appName: "A",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[M("X")]: {
+					uuid: M("X"),
+					id: "m_x",
+					name: "Mothers",
+					caseType: "mother",
+				} as Module,
+				[M("P")]: {
+					uuid: M("P"),
+					id: "m_p",
+					name: "Pregnancies",
+					caseType: "pregnancy",
+				} as Module,
+			},
+			forms: {
+				[F("1")]: { uuid: F("1"), name: "F1", type: "followup" } as Form,
+				[F("2")]: { uuid: F("2"), name: "F2", type: "followup" } as Form,
+			},
+			fields: {
+				// Authoritative holder of mother's `age` property.
+				[Q("src")]: field_(Q("src"), "age", { case_property_on: "mother" }),
+				// A field in the CHILD module's form references mother's `age`
+				// (an ancestor) and pregnancy's own `age` (same property name,
+				// different type).
+				[Q("ref")]: field_(Q("ref"), "adult_check", {
+					calculate: "#mother/age + #pregnancy/age",
+					label: "Mother age: #mother/age",
+				}),
+			},
+			moduleOrder: [M("X"), M("P")],
+			formOrder: { [M("X")]: [F("1")], [M("P")]: [F("2")] },
+			fieldOrder: { [F("1")]: [Q("src")], [F("2")]: [Q("ref")] },
+			fieldParent: {},
+		};
+
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "renameField",
+				uuid: Q("src"),
+				newId: "age_years",
+			});
+		});
+
+		expect(next.fields[Q("src")]?.id).toBe("age_years");
+		// `#mother/age` rewritten even though the ref lives in the CHILD
+		// module's form (app-wide scope); `#pregnancy/age` left verbatim.
+		expect(asField(next.fields[Q("ref")])?.calculate).toBe(
+			"#mother/age_years + #pregnancy/age",
+		);
+		// Prose ref rewritten the same way.
+		expect(asField(next.fields[Q("ref")])?.label).toBe(
+			"Mother age: #mother/age_years",
+		);
+	});
+
 	it("rewrites caseListConfig.columns on matching modules only", () => {
 		const base = docWithTwoModulesAndForms();
 		const start: BlueprintDoc = {

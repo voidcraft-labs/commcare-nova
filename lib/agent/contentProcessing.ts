@@ -173,7 +173,7 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
  * Case preload is NOT seeded here. A case-loading form's primary properties
  * are read back from the case at the wire layer — `xform/caseBlocks.ts`
  * lowers the derived `case_preload` action into `<setvalue>` reads from
- * `casedb`. Stamping a `default_value = "#case/{id}"` here was a redundant
+ * `casedb`. Stamping a case-preload `default_value` here was a redundant
  * second channel for the same effect; the structural preload owns it.
  */
 export function applyDefaults<E extends object = object>(

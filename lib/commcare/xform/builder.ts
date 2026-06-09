@@ -37,11 +37,11 @@ import render from "dom-serializer";
 import type { ChildNode, Element } from "domhandler";
 import { decodeXML } from "entities";
 import {
+	buildHashtagTransforms,
 	extractHashtags,
 	hasHashtags,
 	RESERVED_XFORM_NODE_PREFIX,
 	supportsValidation,
-	VELLUM_HASHTAG_TRANSFORMS,
 } from "@/lib/commcare";
 import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
@@ -53,19 +53,29 @@ import {
 } from "@/lib/commcare/hashtags/formContext";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
+import { BARE_HASHTAG_PATTERN } from "@/lib/commcare/proseHashtags";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import type { BlueprintDoc, Field, FieldKind, Media, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Field,
+	type FieldKind,
+	type Media,
+	reachableCaseTypes,
+	type Uuid,
+} from "@/lib/domain";
 
 /**
- * Bare-hashtag pattern for label / hint prose.
- *
- * Label text is natural language, NOT XPath — markdown syntax like `**`
- * around `#case/...` would parse as a multiplication operator under the
- * Lezer XPath grammar, so we match with a focused regex here and reserve
- * Lezer for actual XPath expressions.
+ * Bare-hashtag matcher for label / hint prose. The pattern is shared with the
+ * deep validator (`BARE_HASHTAG_PATTERN`) so emission and validation can't
+ * drift on what counts as a prose hashtag; this module owns its own global
+ * instance (the pattern is exported without `/g` to avoid shared `lastIndex`
+ * state). Lowering is resolution-gated: a match becomes an `<output>` only when
+ * `expand` actually resolves it, so an innocent prose token (`#N/A`) or an
+ * unreachable namespace folds back into literal text rather than shipping a
+ * broken reference.
  */
-const BARE_HASHTAG_RE = /#(case|form|user)(\/[a-zA-Z_][a-zA-Z0-9_-]*)+/g;
+const BARE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
 
 /**
  * Build the ordered itext-value node list for one label / hint string, letting
@@ -121,20 +131,30 @@ function buildLabelNodes(
 	let cursor = 0;
 	let match: RegExpExecArray | null = BARE_HASHTAG_RE.exec(label);
 	while (match !== null) {
-		// Prose before this hashtag → a Text node (decoded so the serializer
-		// escapes exactly once).
-		if (match.index > cursor) {
-			nodes.push(text(decodeXML(label.slice(cursor, match.index))));
-		}
-		// The hashtag → a constructed <output> element. `value` is the expanded
-		// XPath; `vellum:value` shadows the original shorthand only when
-		// expansion actually changed it (Vellum round-trip).
 		const original = match[0];
 		const expanded = expand(original);
-		const attribs: Record<string, string> = { value: expanded };
-		if (original !== expanded) attribs["vellum:value"] = original;
-		nodes.push(el("output", attribs));
-		cursor = match.index + original.length;
+		// Lower to `<output>` ONLY when the ref actually RESOLVED (expansion
+		// changed the string) — i.e. a `#form/` / `#user/` / reachable-case-type
+		// ref. The broad regex also matches innocent prose tokens (`#N/A`,
+		// `#priority/high`, a child-case-type write target absent from
+		// `caseTypeDepths`); for those `expand` returns the ref verbatim, and a
+		// verbatim `<output value="#N/A">` is broken XPath on the device. Leaving
+		// the cursor unmoved folds the unresolved token back into the surrounding
+		// prose run as literal escaped text — its pre-broadening behavior.
+		// (Flagging an unreachable per-type prose ref at authoring time is a
+		// separate validator job, not this emitter's.)
+		if (expanded !== original) {
+			// Prose before this hashtag → a Text node (decoded so the serializer
+			// escapes exactly once).
+			if (match.index > cursor) {
+				nodes.push(text(decodeXML(label.slice(cursor, match.index))));
+			}
+			// `value` is the expanded XPath; `vellum:value` shadows the original
+			// shorthand for the Vellum round-trip (always present here — a resolved
+			// ref always differs from its shorthand).
+			nodes.push(el("output", { value: expanded, "vellum:value": original }));
+			cursor = match.index + original.length;
+		}
 		match = BARE_HASHTAG_RE.exec(label);
 	}
 	// Trailing prose after the last hashtag (or the whole string when there
@@ -163,6 +183,16 @@ const INSTANCE_SOURCES: Record<InstanceId, string> = {
 class InstanceTracker {
 	private ids = new Set<InstanceId>();
 
+	/**
+	 * `caseTypeNames` is the form's reachable case-type namespaces (the keys of
+	 * `FormHashtagContext.caseTypeDepths`). A `#<case_type>/<prop>` ref expands
+	 * to a casedb walk exactly like `#case/`, so the scanners must force the
+	 * `casedb` `<instance>` for it too — otherwise a form whose ONLY case
+	 * reference is a per-type ref would emit a casedb lookup with no instance
+	 * declaration, an invalid form JavaRosa rejects at install.
+	 */
+	constructor(private caseTypeNames: ReadonlySet<string>) {}
+
 	require(id: InstanceId): void {
 		this.ids.add(id);
 		if (id === "casedb") this.ids.add("commcaresession");
@@ -173,7 +203,8 @@ class InstanceTracker {
 		if (
 			expr.includes("#case/") ||
 			expr.includes("#user/") ||
-			expr.includes("instance('casedb')")
+			expr.includes("instance('casedb')") ||
+			this.referencesCaseType(expr)
 		) {
 			this.require("casedb");
 		}
@@ -182,9 +213,20 @@ class InstanceTracker {
 		}
 	}
 
-	/** Scan label / hint prose for `#case/` or `#user/` hashtag references. */
+	/** Scan label / hint prose for a `#case/`, `#user/`, or per-case-type
+	 *  hashtag reference (all resolve to a casedb walk). */
 	scanLabel(label: string): void {
-		if (/#(case|user)\//.test(label)) this.require("casedb");
+		if (/#(case|user)\//.test(label) || this.referencesCaseType(label)) {
+			this.require("casedb");
+		}
+	}
+
+	/** Does `text` contain a `#<reachable_case_type>/` reference? */
+	private referencesCaseType(text: string): boolean {
+		for (const name of this.caseTypeNames) {
+			if (text.includes(`#${name}/`)) return true;
+		}
+		return false;
 	}
 
 	/** The `<instance>` elements for every accumulated id, in canonical order. */
@@ -337,6 +379,14 @@ export interface BuildXFormOptions {
 	xmlns: string;
 	connect?: ResolvedConnectConfig;
 	/**
+	 * The owning module's case type — the form's own loaded case. Drives the
+	 * reachable-case-type depth map so `#<case_type>/<prop>` refs resolve to the
+	 * right parent-index walk. `undefined` for survey-only / case-less modules:
+	 * the depth map is then empty and only `#form/` (and the transitional
+	 * `#case/` / `#user/`) refs resolve.
+	 */
+	moduleCaseType?: string;
+	/**
 	 * Resolved media assets for this emission run. When present, the
 	 * itext entries gain `<value form="image|audio|video">` siblings for
 	 * any field/option media slot, and leaf controls gain a `<help>` ref.
@@ -359,7 +409,22 @@ export function buildXForm(
 	opts: BuildXFormOptions,
 ): string {
 	const form = doc.forms[formUuid];
-	const instances = new InstanceTracker();
+
+	// The case types this form can READ, name → parent-index hop depth (own = 0,
+	// parent = 1, …). Built from the owning module's case type via
+	// `reachableCaseTypes` — the SAME source the deep validator's accept map
+	// reads — so a `#<type>/<prop>` ref the validator accepted resolves on the
+	// wire to the matching `…/index/parent × depth …/<prop>` walk. Empty when the
+	// module has no case type.
+	const caseTypeDepths: ReadonlyMap<string, number> = new Map(
+		reachableCaseTypes(opts.moduleCaseType, doc.caseTypes ?? []).map((t) => [
+			t.name,
+			t.depth,
+		]),
+	);
+	const caseTypeNames: ReadonlySet<string> = new Set(caseTypeDepths.keys());
+
+	const instances = new InstanceTracker(caseTypeNames);
 	const dataElements: Element[] = [];
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
@@ -376,16 +441,27 @@ export function buildXForm(
 	// XPath, case datum, or Connect expression actually references it — never
 	// unconditionally.
 
-	// Form-context-aware hashtag expander, captured once and threaded
-	// through every helper. On case-create (registration) forms,
-	// `#case/case_id` rewrites to `/data/case/@case_id` — populated by
-	// the case-create scaffolding's setvalue chain — and the
-	// case-loading lookup shape is reserved for forms that load an
-	// existing case. Every other form type expands identically to the
-	// context-free `expandHashtags`.
-	const formCtx: FormHashtagContext = { formType: form.type };
+	// Form-context-aware hashtag expander, captured once and threaded through
+	// every helper (binds, defaults, itext prose, connect exprs, repeat counts).
+	// It carries `caseTypeDepths`, so a `#<case_type>/<prop>` ref resolves to the
+	// right parent-index walk. On case-create (registration) forms,
+	// `#case/case_id` / `#<own_type>/case_id` rewrite to `/data/case/@case_id`
+	// (populated by the case-create scaffolding's setvalue chain); the
+	// case-loading lookup shape is reserved for forms that load an existing case.
+	const formCtx: FormHashtagContext = {
+		formType: form.type,
+		caseTypeDepths,
+	};
 	const expand = (expr: string): string =>
 		expandHashtagsInContext(expr, formCtx);
+
+	// Per-bind `vellum:hashtagTransforms` builder, captured here so `caseTypeDepths`
+	// stays out of the (already long) field-walk signatures — its only consumer is
+	// this one call, threaded like `expand`.
+	const transformsFor = (
+		refs: string[],
+	): { prefixes: Record<string, string> } =>
+		buildHashtagTransforms(refs, caseTypeDepths);
 
 	// Register an itext `<text>` entry. Every entry emits both the plain value
 	// AND a `<value form="markdown">` duplicate — CommCare only renders
@@ -413,6 +489,14 @@ export function buildXForm(
 		media?: Media,
 		force = false,
 	): void => {
+		// addItext is the SINGLE funnel for prose lowering — every label / hint /
+		// help / constraintMsg / option label routes through here into
+		// `buildLabelNodes`. Scanning for casedb refs HERE (rather than from a
+		// hand-maintained list of slots in the field walk) means the instance
+		// declaration can never drift from the set of prose that actually gets
+		// lowered: a `#<case_type>/<prop>` in a `validate_msg` or option label
+		// forces the `casedb` `<instance>` exactly as one in a `label` does.
+		if (label) instances.scanLabel(label);
 		const mediaValues = itextMediaValues(media, opts.assets, "buildXForm");
 		if (!force && !label && mediaValues.length === 0) return;
 		const labelText = label ?? "";
@@ -448,6 +532,7 @@ export function buildXForm(
 			dataElements,
 			binds,
 			expand,
+			transformsFor,
 			opts.assets,
 		);
 	}
@@ -636,6 +721,7 @@ function buildFieldParts(
 	topDataElements: Element[],
 	topBinds: Element[],
 	expand: (expr: string) => string,
+	transformsFor: (refs: string[]) => { prefixes: Record<string, string> },
 	assets: AssetManifest | undefined,
 ): void {
 	const field = doc.fields[fieldUuid];
@@ -674,12 +760,11 @@ function buildFieldParts(
 
 	// Secondary-instance requirements: any XPath that mentions `#case/`,
 	// `#user/`, or a raw `instance('casedb')` / `instance('commcaresession')`
-	// reference forces us to declare the matching `<instance>` later.
+	// reference forces us to declare the matching `<instance>` later. Prose
+	// surfaces (label / hint / help / validate_msg / option labels) are scanned
+	// inside `addItext`, the single place they're lowered, so the two can't drift.
 	for (const expr of [relevant, validate, calculate, defaultValue, required]) {
 		if (expr) instances.scanXPath(expr);
-	}
-	for (const labelText of [label, hint]) {
-		if (labelText) instances.scanLabel(labelText);
 	}
 
 	// One `<instance>` data node per field. Replaced IN PLACE for containers
@@ -771,7 +856,7 @@ function buildFieldParts(
 		const hashtagMap = Object.fromEntries(hashtags.map((h) => [h, null]));
 		bindAttribs["vellum:hashtags"] = JSON.stringify(hashtagMap);
 		bindAttribs["vellum:hashtagTransforms"] = JSON.stringify(
-			VELLUM_HASHTAG_TRANSFORMS,
+			transformsFor(hashtags),
 		);
 	}
 	// Record this leaf bind's slot so a container can rewrite it IN PLACE after
@@ -861,6 +946,7 @@ function buildFieldParts(
 			topDataElements,
 			topBinds,
 			expand,
+			transformsFor,
 			assets,
 		);
 		return;
@@ -993,6 +1079,7 @@ function buildContainer(
 	topDataElements: Element[],
 	topBinds: Element[],
 	expand: (expr: string) => string,
+	transformsFor: (refs: string[]) => { prefixes: Record<string, string> },
 	assets: AssetManifest | undefined,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
@@ -1038,6 +1125,7 @@ function buildContainer(
 			topDataElements,
 			topBinds,
 			expand,
+			transformsFor,
 			assets,
 		);
 	}

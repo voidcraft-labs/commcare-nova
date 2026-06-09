@@ -166,16 +166,68 @@ describe("validateXPath", () => {
 	});
 
 	describe("case property reference validation", () => {
-		const caseProps = new Set(["name", "age", "status"]);
+		// The per-type accept map: each reachable case-type name → its readable
+		// property names. A `#<type>/<prop>` ref resolves to exactly one type.
+		const caseTypeProps = new Map([
+			["patient", new Set(["name", "age", "status"])],
+		]);
 
-		it("passes for valid case refs", () => {
-			expect(validateXPath("#case/name", undefined, caseProps)).toEqual([]);
+		it("passes for a valid case ref", () => {
+			expect(validateXPath("#patient/name", undefined, caseTypeProps)).toEqual(
+				[],
+			);
 		});
 
-		it("catches invalid case property refs", () => {
-			const errors = validateXPath("#case/nonexistent", undefined, caseProps);
+		it("catches an unknown property on a reachable case type", () => {
+			const errors = validateXPath(
+				"#patient/nonexistent",
+				undefined,
+				caseTypeProps,
+			);
 			expect(errors).toHaveLength(1);
 			expect(errors[0].code).toBe("INVALID_CASE_REF");
+			expect(errors[0].message).toContain("has no property");
+		});
+
+		it("gives a registration-aware message for a narrowed-out property", () => {
+			// On a registration form the own type is narrowed to case_id, so a
+			// real property reads as "not available yet" — NOT "doesn't exist".
+			const regAccept = new Map([["patient", new Set(["case_id"])]]);
+			const errors = validateXPath("#patient/name", undefined, regAccept, true);
+			expect(errors).toHaveLength(1);
+			expect(errors[0].code).toBe("INVALID_CASE_REF");
+			expect(errors[0].message).toContain("creates a case");
+			expect(errors[0].message).not.toContain("has no property");
+		});
+
+		it("catches a reference to an unreachable case type", () => {
+			const errors = validateXPath("#mother/name", undefined, caseTypeProps);
+			expect(errors).toHaveLength(1);
+			expect(errors[0].code).toBe("INVALID_CASE_REF");
+			expect(errors[0].message).toContain("mother");
+		});
+
+		it("skips #form/, #user/, and the transitional #case/ namespaces", () => {
+			// `#case/` is resolved by the wire (transitional), so the validator
+			// must NOT reject it as an unknown case type — it would be stricter
+			// than the emitter.
+			for (const ref of ["#form/whatever", "#user/username", "#case/total"]) {
+				expect(
+					validateXPath(ref, undefined, caseTypeProps).filter(
+						(e) => e.code === "INVALID_CASE_REF",
+					),
+				).toEqual([]);
+			}
+		});
+
+		it("gives a survey-specific message when the accept map is empty", () => {
+			// A survey form yields an empty accept map (it loads no case), so an
+			// XPath case ref can't resolve there — the message says so rather than
+			// the misleading "check spelling / reachable as an ancestor".
+			const errors = validateXPath("#mother/age", undefined, new Map(), false);
+			expect(errors).toHaveLength(1);
+			expect(errors[0].code).toBe("INVALID_CASE_REF");
+			expect(errors[0].message).toContain("survey");
 		});
 	});
 
@@ -194,7 +246,10 @@ describe("validateXPath", () => {
 			"/data/group1",
 			"/data/group1/child1",
 		]);
-		const caseProps = new Set(["status", "owner"]);
+		// Per-type accept map; relative bare refs match a property on ANY
+		// reachable type (the bare ref carries no type), so a flat-across-types
+		// known-name set is what `validateXPath` builds from this.
+		const caseProps = new Map([["patient", new Set(["status", "owner"])]]);
 
 		it("flags a bare unknown name when context is provided", () => {
 			const errors = validateXPath("kldfnfkj", validPaths, caseProps);
@@ -244,11 +299,11 @@ describe("validateXPath", () => {
 		});
 
 		it("does not flag NameTests that are part of a HashtagRef", () => {
-			// `#case/nonexistent` is validated by the hashtag rule; its
+			// `#patient/nonexistent` is validated by the hashtag rule; its
 			// `nonexistent` segment is a HashtagSegment, not a NameTest, so
 			// it never reaches the bare-name walk — pin that contract.
 			const errors = validateXPath(
-				"#case/nonexistent",
+				"#patient/nonexistent",
 				validPaths,
 				caseProps,
 			).filter((e) => e.code === "INVALID_REF");
@@ -333,7 +388,7 @@ describe("validateXPath", () => {
 			const errors = validateXPath(
 				"instance('casedb')/casedb/case[@case_id = 'x']/case_name",
 				new Set(["/data/some_form_field"]),
-				new Set(["name"]),
+				new Map([["patient", new Set(["name"])]]),
 			);
 			expect(errors).toEqual([]);
 		});
@@ -661,7 +716,9 @@ describe("validateBlueprintDeep", () => {
 		}
 	});
 
-	it("catches unknown case property in #case/ ref", () => {
+	it("catches unknown case property in a #<type>/ ref", () => {
+		// `makeDoc`'s form is a registration form, so the own type narrows to
+		// `case_id` only — `#patient/nonexistent` is rejected as INVALID_CASE_REF.
 		const doc = makeDoc(
 			[
 				f({
@@ -670,7 +727,28 @@ describe("validateBlueprintDeep", () => {
 					label: "Name",
 					case_property_on: "patient",
 				}),
-				f({ kind: "hidden", id: "val", calculate: "#case/nonexistent + 1" }),
+				f({ kind: "hidden", id: "val", calculate: "#patient/nonexistent + 1" }),
+			],
+			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
+		);
+		expect(
+			validateBlueprintDeep(doc).some(
+				(e) => e.kind === "field-xpath" && e.error.code === "INVALID_CASE_REF",
+			),
+		).toBe(true);
+	});
+
+	it("catches a reference to an unreachable case type in a #<type>/ ref", () => {
+		// `#mother/x` on a patient form names a type that isn't reachable.
+		const doc = makeDoc(
+			[
+				f({
+					kind: "text",
+					id: "case_name",
+					label: "Name",
+					case_property_on: "patient",
+				}),
+				f({ kind: "hidden", id: "val", calculate: "#mother/code + 1" }),
 			],
 			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
 		);

@@ -12,13 +12,25 @@
  * surface failed.
  */
 
-import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	caseRefAcceptMap,
+	type Field,
+	reachableCaseTypes,
+	toReachableIndex,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	buildFieldTree,
 	type FieldTreeNode,
 } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import { validateXPath, type XPathError } from "./xpathValidator";
+import { BARE_HASHTAG_PATTERN } from "../proseHashtags";
+import {
+	checkCaseHashtag,
+	validateXPath,
+	type XPathError,
+} from "./xpathValidator";
 
 /**
  * The XPath-bearing surfaces deep validation walks on a field. Each maps to
@@ -43,6 +55,20 @@ export type ConnectXPathSlot =
 	| "assessment_user_score"
 	| "deliver_entity_id"
 	| "deliver_entity_name";
+
+/**
+ * The PROSE surfaces deep validation scans for embedded `#<type>/<prop>`
+ * hashtag refs. These aren't XPath — they're natural-language label / hint /
+ * help / validate-error text (plus per-option labels on selects) that lower
+ * their inline hashtags to `<output value>` at emit. A closed union for the
+ * same reason as `XPathSurface`: the runner owns the display label.
+ */
+export type ProseSurface =
+	| "label"
+	| "hint"
+	| "help"
+	| "validate_msg"
+	| "option_label";
 
 /**
  * The location every deep error carries — resolved DURING the walk from the
@@ -71,6 +97,13 @@ export type DeepValidationError =
 			fieldUuid: Uuid;
 			fieldId: string;
 			surface: XPathSurface;
+			error: XPathError;
+	  })
+	| (DeepLocation & {
+			kind: "field-prose";
+			fieldUuid: Uuid;
+			fieldId: string;
+			surface: ProseSurface;
 			error: XPathError;
 	  })
 	| (DeepLocation & {
@@ -184,8 +217,8 @@ function collectFromTree(
 }
 
 /**
- * Deep validation: walks every form, builds the valid path set + case
- * property set per form, validates every XPath expression, and runs cycle
+ * Deep validation: walks every form, builds the valid path set + per-case-type
+ * accept map per form, validates every XPath expression, and runs cycle
  * detection via `TriggerDag`. Returns a flat array of TYPED
  * `DeepValidationError`s — `runner.ts` projects each into the user-facing
  * `ValidationError` shape by switching on `kind`, never by parsing prose.
@@ -197,12 +230,28 @@ export function validateBlueprintDeep(
 
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
-		const caseProps = collectCaseProperties(doc, mod.caseType);
+		// The case types every form in this module can READ (own + ancestors),
+		// keyed by name. Built once per module from `doc.caseTypes`; the
+		// per-form accept map below narrows it by form type. Reads from the
+		// case-type records — the same authoritative source the editor's lint
+		// context uses — so authoring and deep validation agree on `#<type>/<prop>`.
+		const caseTypeIndex = mod.caseType
+			? toReachableIndex(reachableCaseTypes(mod.caseType, doc.caseTypes ?? []))
+			: undefined;
 
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
 			if (tree.length === 0) continue;
+
+			// Mirror `caseTypePropsForValidation`'s form-type-narrowing rule:
+			// a registration form exposes only the own type's `case_id`, a survey
+			// form exposes nothing (it loads no case), and followup / close forms
+			// expose each reachable type's full property set.
+			const isRegistrationForm = form.type === "registration";
+			const caseTypeProps = caseTypeIndex
+				? caseRefAcceptMap(caseTypeIndex, form.type)
+				: undefined;
 
 			// The uuid-anchored location every finding in this form carries.
 			// Built once here from the indices we're already iterating, so no
@@ -253,7 +302,27 @@ export function validateBlueprintDeep(
 			}
 
 			// Per-field XPath validation — recursive walk over the tree.
-			validateTreeXPath(tree, validPaths, caseProps, loc, errors);
+			validateTreeXPath(
+				tree,
+				validPaths,
+				caseTypeProps,
+				isRegistrationForm,
+				loc,
+				errors,
+			);
+
+			// Per-field PROSE validation — the deep validator's XPath walk
+			// never visits label / hint / help / validate_msg / option
+			// labels, so an unreachable or typo'd `#<type>/<prop>` ref in
+			// prose (`#mothre/code`, a child-type `#child/name`) ships
+			// unflagged — the emitter correctly leaves it as literal text
+			// (no wire break), but the author gets no signal. Reuse the SAME
+			// per-form accept map and `checkCaseHashtag` rule the XPath pass
+			// uses, so prose and XPath can never disagree on which refs are
+			// live. Skipped when the form has no reachable case type.
+			if (caseTypeProps) {
+				validateTreeProse(tree, caseTypeProps, isRegistrationForm, loc, errors);
+			}
 
 			// Connect-block XPath expressions. The expressions themselves
 			// (`user_score`, `entity_id`, `entity_name`) are id-independent, so
@@ -280,7 +349,12 @@ export function validateBlueprintDeep(
 					]);
 				}
 				for (const [slot, expr] of connectXPaths) {
-					for (const error of validateXPath(expr, validPaths, caseProps)) {
+					for (const error of validateXPath(
+						expr,
+						validPaths,
+						caseTypeProps,
+						isRegistrationForm,
+					)) {
 						errors.push({ ...loc, kind: "connect-xpath", slot, error });
 					}
 				}
@@ -308,7 +382,8 @@ export function validateBlueprintDeep(
 function validateTreeXPath(
 	nodes: FieldTreeNode[],
 	validPaths: Set<string>,
-	caseProperties: Set<string> | undefined,
+	caseTypeProps: Map<string, Set<string>> | undefined,
+	isRegistrationForm: boolean,
 	loc: DeepLocation,
 	errors: DeepValidationError[],
 ): void {
@@ -333,7 +408,12 @@ function validateTreeXPath(
 		for (const key of XPATH_FIELDS) {
 			const expr = readXPath(node.field, key);
 			if (!expr) continue;
-			for (const error of validateXPath(expr, validPaths, caseProperties)) {
+			for (const error of validateXPath(
+				expr,
+				validPaths,
+				caseTypeProps,
+				isRegistrationForm,
+			)) {
 				pushFieldError(node.field, key, error);
 			}
 		}
@@ -365,7 +445,8 @@ function validateTreeXPath(
 					for (const error of validateXPath(
 						repeatCount,
 						validPaths,
-						caseProperties,
+						caseTypeProps,
+						isRegistrationForm,
 					)) {
 						pushFieldError(node.field, "repeat_count", error);
 					}
@@ -376,7 +457,8 @@ function validateTreeXPath(
 					for (const error of validateXPath(
 						idsQuery,
 						validPaths,
-						caseProperties,
+						caseTypeProps,
+						isRegistrationForm,
 					)) {
 						pushFieldError(node.field, "ids_query", error);
 					}
@@ -384,7 +466,121 @@ function validateTreeXPath(
 			}
 		}
 		if (node.children) {
-			validateTreeXPath(node.children, validPaths, caseProperties, loc, errors);
+			validateTreeXPath(
+				node.children,
+				validPaths,
+				caseTypeProps,
+				isRegistrationForm,
+				loc,
+				errors,
+			);
+		}
+	}
+}
+
+/**
+ * The PROSE message surfaces deep validation reads off a field via a plain
+ * key. `option_label` (one field carries many) is scanned separately. Each
+ * maps to a user-facing label at render time
+ * (`runner.ts::PROSE_SURFACE_LABELS`).
+ */
+const PROSE_SURFACES = ["label", "hint", "help", "validate_msg"] as const;
+type ProseSurfaceKey = (typeof PROSE_SURFACES)[number];
+
+/**
+ * Match an embedded Nova hashtag ref inside PROSE using the SAME pattern the
+ * XForm builder's lowering pass consumes (`BARE_HASHTAG_PATTERN`), so emission
+ * and validation can't drift on what counts as a prose hashtag. Own global
+ * instance (the shared pattern carries no `/g`); `/g` is safe with `matchAll`
+ * (it clones, never mutating `lastIndex`).
+ */
+const PROSE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
+
+/**
+ * Safely read a PROSE message slot off a Field union member — mirrors
+ * `readXPath` for the message surfaces. Returns the string when the variant
+ * carries the key AND the value is non-empty, else `undefined`.
+ */
+function readProse(field: Field, key: ProseSurfaceKey): string | undefined {
+	const value = (field as unknown as Record<string, unknown>)[key];
+	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Recursively scan every PROSE surface (label / hint / help / validate_msg +
+ * per-option labels) for embedded `#<type>/<prop>` case refs, pushing a TYPED
+ * `field-prose` `DeepValidationError` per ref the form can't read. Runs the
+ * SAME `checkCaseHashtag` rule against the SAME per-form accept map the XPath
+ * pass uses, with the LENIENT `surface: "prose"` policy: a ref is flagged only
+ * when its namespace is a reachable case type AND the property is invalid on
+ * it. An unreachable / innocent prose token is left alone — exactly as the
+ * emitter ships it as literal text (`xform/builder.ts::buildLabelNodes`).
+ */
+function validateTreeProse(
+	nodes: FieldTreeNode[],
+	caseTypeProps: Map<string, Set<string>>,
+	isRegistrationForm: boolean,
+	loc: DeepLocation,
+	errors: DeepValidationError[],
+): void {
+	const scan = (
+		field: Field,
+		surface: ProseSurface,
+		text: string | undefined,
+	): void => {
+		if (!text) return;
+		for (const match of text.matchAll(PROSE_HASHTAG_RE)) {
+			const refText = match[0];
+			const slashIdx = refText.indexOf("/");
+			const ns = refText.slice(1, slashIdx);
+			const rest = refText.slice(slashIdx + 1);
+			const message = checkCaseHashtag(
+				refText,
+				ns,
+				rest,
+				caseTypeProps,
+				isRegistrationForm,
+				"prose",
+			);
+			if (message) {
+				errors.push({
+					...loc,
+					kind: "field-prose",
+					fieldUuid: field.uuid,
+					fieldId: field.id,
+					surface,
+					error: { code: "INVALID_CASE_REF", message, position: match.index },
+				});
+			}
+		}
+	};
+
+	for (const node of nodes) {
+		const field = node.field;
+		for (const key of PROSE_SURFACES) {
+			scan(field, key, readProse(field, key));
+		}
+		// Select-option labels — each option's display label lowers to itext
+		// just like a field label, so an embedded case ref there must resolve
+		// too. Read defensively: only select kinds carry `options`, and a
+		// hand-built / partial doc may bypass Zod.
+		const options = (field as { options?: unknown }).options;
+		if (Array.isArray(options)) {
+			for (const opt of options) {
+				const optLabel = (opt as { label?: unknown })?.label;
+				if (typeof optLabel === "string") {
+					scan(field, "option_label", optLabel);
+				}
+			}
+		}
+		if (node.children) {
+			validateTreeProse(
+				node.children,
+				caseTypeProps,
+				isRegistrationForm,
+				loc,
+				errors,
+			);
 		}
 	}
 }

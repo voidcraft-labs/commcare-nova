@@ -663,7 +663,7 @@ describe("updateFormTool deliver_unit", () => {
 		/* The schema exposes entity_id and entity_name as optional
 		 * inputs so the SA can override the wire defaults for
 		 * workflows that need a different dedup key — case-based
-		 * deliveries (`#case/case_id`), per-beneficiary deliveries,
+		 * deliveries (`#patient/case_id`), per-beneficiary deliveries,
 		 * site-keyed deliveries, etc. The SA's expression must reach
 		 * the doc verbatim; the wire emitter's `||` fallback only
 		 * activates on absence/empty, so a non-empty SA value wins. */
@@ -677,8 +677,8 @@ describe("updateFormTool deliver_unit", () => {
 				connect: {
 					deliver_unit: {
 						name: "Beneficiary visit",
-						entity_id: "#case/case_id",
-						entity_name: "#case/case_name",
+						entity_id: "#patient/case_id",
+						entity_name: "#patient/case_name",
 					},
 				},
 			},
@@ -690,8 +690,8 @@ describe("updateFormTool deliver_unit", () => {
 		expect(finalForm?.connect?.deliver_unit).toEqual({
 			id: "patient",
 			name: "Beneficiary visit",
-			entity_id: "#case/case_id",
-			entity_name: "#case/case_name",
+			entity_id: "#patient/case_id",
+			entity_name: "#patient/case_name",
 		});
 	});
 

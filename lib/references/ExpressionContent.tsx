@@ -1,12 +1,12 @@
 /**
- * Renders an XPath expression with hashtag references (#form/path, #case/path,
- * #user/path) as dimmed inline ReferenceChip components. Plain expression text
+ * Renders an XPath expression with hashtag references (#form/path,
+ * #<case_type>/path, #user/path) as dimmed inline ReferenceChip components. Plain expression text
  * is rendered as-is. Used by HiddenField for calculate/default_value display.
  */
 
 "use client";
 import { ReferenceChip } from "./ReferenceChip";
-import { useReferenceProvider } from "./ReferenceContext";
+import { useCurrentFormUuid, useReferenceProvider } from "./ReferenceContext";
 import { parseLabelSegments, resolveRefFromExpr } from "./renderLabel";
 
 interface ExpressionContentProps {
@@ -15,6 +15,7 @@ interface ExpressionContentProps {
 
 export function ExpressionContent({ expr }: ExpressionContentProps) {
 	const provider = useReferenceProvider();
+	const formUuid = useCurrentFormUuid();
 	const segments = parseLabelSegments(expr);
 
 	return (
@@ -22,7 +23,7 @@ export function ExpressionContent({ expr }: ExpressionContentProps) {
 			{segments.map((seg) => {
 				if (seg.kind === "text") return <span key={seg.key}>{seg.text}</span>;
 
-				const ref = resolveRefFromExpr(seg.value, provider);
+				const ref = resolveRefFromExpr(seg.value, provider, formUuid);
 				if (!ref) return <span key={seg.key}>{seg.value}</span>;
 
 				return (

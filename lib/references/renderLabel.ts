@@ -9,10 +9,8 @@
  * format.
  */
 
-import type { IconifyIcon } from "@iconify/react/offline";
-import type { FieldPath } from "@/lib/doc/fieldPath";
 import { HASHTAG_REF_PATTERN } from "./config";
-import { ReferenceProvider } from "./provider";
+import type { ReferenceProvider } from "./provider";
 import type { Reference } from "./types";
 
 /** A segment from splitting text on a reference-matching pattern.
@@ -92,31 +90,19 @@ export function parseLabelSegments(text: string): LabelSegment[] {
 }
 
 /**
- * Resolve a parsed expression string to a Reference. When a provider is
- * available, delegates to it for rich resolution (field label, type icon).
- * Returns null if the provider can't resolve — unresolvable refs render as
- * plain text on the canvas to avoid misleading chips for typos or stale refs.
- *
- * When no provider is passed (null), falls back to pattern-based parsing that
- * produces a basic Reference with the path as the label — used by surfaces
- * outside the ReferenceProvider context (e.g. structure sidebar). Optional
- * `iconOverrides` enriches form refs with field-kind icons in this mode.
+ * Resolve an expression string to a Reference, scoped to `formUuid`. Delegates
+ * entirely to the provider — there is no syntactic fallback: per the locked
+ * decision we never render a chip that doesn't resolve, so an unresolvable ref
+ * (typo, stale path, unreachable case type, or no provider yet) returns null
+ * and the caller renders plain text. `formUuid` scopes form/case resolution to
+ * the form the ref belongs to (the active form in-editor; the field's owning
+ * form in the sidebar).
  */
 export function resolveRefFromExpr(
 	expr: string,
 	provider: ReferenceProvider | null,
-	iconOverrides?: Map<string, IconifyIcon>,
+	formUuid?: string,
 ): Reference | null {
-	if (provider) return provider.resolve(expr);
-	const parsed = ReferenceProvider.parse(expr);
-	if (!parsed) return null;
-	return parsed.type === "form"
-		? {
-				type: "form",
-				path: parsed.path as FieldPath,
-				label: parsed.path,
-				raw: expr,
-				icon: iconOverrides?.get(parsed.path),
-			}
-		: { type: parsed.type, path: parsed.path, label: parsed.path, raw: expr };
+	if (!provider) return null;
+	return provider.resolve(expr, formUuid);
 }

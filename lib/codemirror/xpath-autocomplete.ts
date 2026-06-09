@@ -3,7 +3,7 @@
  *
  * Three completion sources:
  * 1. XPath functions — from FUNCTION_REGISTRY (~65 functions)
- * 2. Hashtag references — #case/property, #form/field, #user/property
+ * 2. Hashtag references — #form/field, #user/property, #<caseType>/property
  * 3. Data paths — /data/... paths from the current form
  *
  * All context detection uses Lezer syntax tree node types (HashtagRef, Child,
@@ -26,13 +26,14 @@ import type { Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import { FUNCTION_REGISTRY } from "@/lib/commcare/validator/functionRegistry";
+import { caseRefAcceptMap } from "@/lib/domain";
 import { USER_PROPERTIES } from "@/lib/references/provider";
 import type { XPathLintContext } from "./xpath-lint";
 
 // ── Static data ────────────────────────────────────────────────────────
 
-const NAMESPACE_OPTIONS: Completion[] = [
-	{ label: "#case/", type: "namespace", detail: "case property", boost: 2 },
+/** The fixed namespace prefixes — case-type prefixes are appended per-form. */
+const STATIC_NAMESPACE_OPTIONS: Completion[] = [
 	{ label: "#form/", type: "namespace", detail: "form field", boost: 1 },
 	{ label: "#user/", type: "namespace", detail: "user property", boost: 0 },
 ];
@@ -178,45 +179,41 @@ export function hashtagSource(
 			namespace = readHashtagNamespace(left.firstChild, state.doc);
 		}
 
-		// Namespace stage: inside HashtagRef but no "/" typed yet — show namespace prefixes
+		const lintCtx = getContext();
+		// The live case-type accept set — case-type name → readable property
+		// names — narrowed by form type in ONE place (`caseRefAcceptMap`). The
+		// namespace and property stages both read it so the editor offers
+		// exactly what the validator accepts (no offer-then-reject). On a
+		// registration form this is the own type's `case_id` only; a survey
+		// form gets an empty set (it loads no case); ancestor types aren't
+		// reachable until the case exists.
+		const accept = lintCtx?.reachableCaseTypes
+			? caseRefAcceptMap(lintCtx.reachableCaseTypes, lintCtx.formType)
+			: undefined;
+
+		// Namespace stage: inside HashtagRef but no "/" typed yet — show the
+		// fixed prefixes plus one per readable case type.
 		if (namespace === undefined) {
-			return { from, options: NAMESPACE_OPTIONS };
+			const options: Completion[] = [...STATIC_NAMESPACE_OPTIONS];
+			if (accept) {
+				for (const typeName of accept.keys()) {
+					options.push({
+						label: `#${typeName}/`,
+						type: "namespace",
+						detail: "case property",
+						boost: 2,
+					});
+				}
+			}
+			return { from, options };
 		}
 
 		// Reference stage: namespace known — show properties/fields. The lint
-		// context is pre-collected at the call site: `caseProperties` is a
-		// name→{label?} map, and `formEntries` already carries only the
-		// value-producing fields (callers filter before handing it in).
-		const lintCtx = getContext();
+		// context's `formEntries` already carries only value-producing fields
+		// (callers filter before handing it in).
 		let options: Completion[] = [];
 
-		if (namespace === "case" && lintCtx?.caseProperties) {
-			// On a registration form the case being created doesn't exist
-			// in casedb yet — only `#case/case_id` resolves at form-init
-			// (it points at the newly-allocated case id populated by the
-			// case-management scaffolding). Filter to that single
-			// completion so the editor mirrors the
-			// `CASE_HASHTAG_ON_CREATE_FORM` validator rule's accept set
-			// and the SA / user never sees a suggestion that would be
-			// rejected. On followup / close / survey forms the full
-			// property list remains available.
-			if (lintCtx.formType === "registration") {
-				const caseIdMeta = lintCtx.caseProperties.get("case_id");
-				options = [
-					{
-						label: "#case/case_id",
-						detail: caseIdMeta?.label ?? "case id (newly allocated)",
-						type: "property",
-					},
-				];
-			} else {
-				options = [...lintCtx.caseProperties.entries()].map(([name, meta]) => ({
-					label: `#case/${name}`,
-					detail: meta.label,
-					type: "property",
-				}));
-			}
-		} else if (namespace === "form" && lintCtx) {
+		if (namespace === "form" && lintCtx) {
 			options = lintCtx.formEntries.map(({ path, label }) => ({
 				label: `#form/${path}`,
 				detail: label,
@@ -226,6 +223,16 @@ export function hashtagSource(
 			options = USER_PROPERTIES.map((p) => ({
 				label: `#user/${p.name}`,
 				detail: p.label,
+				type: "property",
+			}));
+		} else if (accept?.has(namespace)) {
+			// A readable case type — offer exactly its accepted properties.
+			// `case_id` is seeded into every type's index (label "case id"), so
+			// every prop here has a label without a special case.
+			const typeEntry = lintCtx?.reachableCaseTypes?.get(namespace);
+			options = [...(accept.get(namespace) ?? [])].map((prop) => ({
+				label: `#${namespace}/${prop}`,
+				detail: typeEntry?.properties.get(prop)?.label,
 				type: "property",
 			}));
 		}

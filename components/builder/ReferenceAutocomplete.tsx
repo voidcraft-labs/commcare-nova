@@ -6,7 +6,8 @@
  * violet selection highlight, type-colored icons per reference type).
  *
  * Supports two stages:
- *   1. Namespace stage — shows #form/, #case/, #user/ options
+ *   1. Namespace stage — shows #form/, #user/, and one option per readable
+ *      case type (#mother/, …), supplied by the caller
  *   2. Reference stage — shows filtered references from ReferenceProvider
  */
 
@@ -16,23 +17,25 @@ import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { REF_TYPE_CONFIG } from "@/lib/references/config";
 import type { Reference, ReferenceType } from "@/lib/references/types";
 
-/** Namespace options shown in the namespace stage (before "/" is typed). */
-const NAMESPACE_OPTIONS: Array<{
+/** Human-readable description per coarse family, shown beside the prefix. */
+const NAMESPACE_DESCRIPTION: Record<ReferenceType, string> = {
+	form: "Form field",
+	case: "Case property",
+	user: "User property",
+};
+
+/** A namespace option to render in the namespace stage. `namespace` is the wire
+ *  token (form/user/case-type name); `type` is the coarse family for icon/color. */
+export interface NamespaceOption {
+	namespace: string;
 	type: ReferenceType;
 	label: string;
-	description: string;
-}> = [
-	{ type: "form", label: "#form/", description: "Form field" },
-	{ type: "case", label: "#case/", description: "Case property" },
-	{ type: "user", label: "#user/", description: "User property" },
-];
+}
 
 /** A namespace option for the namespace stage display. */
-interface NamespaceItem {
+interface NamespaceDisplayItem {
 	kind: "namespace";
-	type: ReferenceType;
-	label: string;
-	description: string;
+	option: NamespaceOption;
 }
 
 /** A reference option for the reference stage display. */
@@ -41,16 +44,18 @@ interface ReferenceItem {
 	reference: Reference;
 }
 
-type AutocompleteItem = NamespaceItem | ReferenceItem;
+type AutocompleteItem = NamespaceDisplayItem | ReferenceItem;
 
 export interface ReferenceAutocompleteProps {
-	/** Namespace stage: list is ignored (namespace options render instead).
-	 *  Reference stage: items from `provider.search()`. */
+	/** Namespace stage: the namespace prefixes to offer (form/user + case types). */
+	namespaceItems: NamespaceOption[];
+	/** Reference stage: items from `provider.search()`. */
 	items: Reference[];
 	/** Whether we're in the namespace stage (no "/" typed yet). */
 	showNamespaces: boolean;
-	/** Callback when user selects a namespace (namespace stage). */
-	onSelectNamespace?: (type: ReferenceType) => void;
+	/** Callback when user selects a namespace (namespace stage). Receives the
+	 *  wire namespace token. */
+	onSelectNamespace?: (namespace: string) => void;
 	/** Callback when user selects a reference (reference stage). */
 	onSelect?: (ref: Reference) => void;
 }
@@ -67,19 +72,21 @@ export const ReferenceAutocomplete = forwardRef<
 	ReferenceAutocompleteHandle,
 	ReferenceAutocompleteProps
 >(function ReferenceAutocomplete(
-	{ items, showNamespaces, onSelectNamespace, onSelect },
+	{ namespaceItems, items, showNamespaces, onSelectNamespace, onSelect },
 	ref,
 ) {
 	const [selectedIndex, setSelectedIndex] = useState(0);
 
 	const allItems: AutocompleteItem[] = showNamespaces
-		? NAMESPACE_OPTIONS.map((ns) => ({ kind: "namespace", ...ns }))
+		? namespaceItems.map((option) => ({ kind: "namespace", option }))
 		: items.map((r) => ({ kind: "reference", reference: r }));
 
 	// Reset selection when the list contents change (typing narrows results,
 	// namespace toggle swaps the entire list). Content key handles both cases.
 	const listKey = allItems
-		.map((item) => (item.kind === "namespace" ? item.type : item.reference.raw))
+		.map((item) =>
+			item.kind === "namespace" ? item.option.namespace : item.reference.raw,
+		)
 		.join("\0");
 	const prevListKeyRef = useRef(listKey);
 	if (prevListKeyRef.current !== listKey) {
@@ -109,7 +116,7 @@ export const ReferenceAutocomplete = forwardRef<
 		const item = allItems[index];
 		if (!item) return;
 		if (item.kind === "namespace") {
-			onSelectNamespace?.(item.type);
+			onSelectNamespace?.(item.option.namespace);
 		} else {
 			onSelect?.(item.reference);
 		}
@@ -130,10 +137,10 @@ export const ReferenceAutocomplete = forwardRef<
 				{allItems.map((item, index) => {
 					const isSelected = index === selectedIndex;
 					if (item.kind === "namespace") {
-						const config = REF_TYPE_CONFIG[item.type];
+						const config = REF_TYPE_CONFIG[item.option.type];
 						return (
 							<div
-								key={item.type}
+								key={item.option.namespace}
 								role="option"
 								tabIndex={-1}
 								aria-selected={isSelected}
@@ -153,9 +160,9 @@ export const ReferenceAutocomplete = forwardRef<
 									height="14"
 									className={config.textClass}
 								/>
-								<span className="text-nova-text">{item.label}</span>
+								<span className="text-nova-text">{item.option.label}</span>
 								<span className="ml-auto text-nova-text-muted">
-									{item.description}
+									{NAMESPACE_DESCRIPTION[item.option.type]}
 								</span>
 							</div>
 						);

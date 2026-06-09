@@ -10,14 +10,13 @@
  */
 
 "use client";
-import type { IconifyIcon } from "@iconify/react/offline";
 import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
 import { Fragment, type ReactNode, useMemo } from "react";
 import { PREVIEW_OPTIONS, withChipInjection } from "@/lib/markdown";
 import { HASHTAG_REF_PATTERN } from "./config";
 import type { ReferenceProvider } from "./provider";
 import { ReferenceChip } from "./ReferenceChip";
-import { useReferenceProvider } from "./ReferenceContext";
+import { useCurrentFormUuid, useReferenceProvider } from "./ReferenceContext";
 import { parseLabelSegments, resolveRefFromExpr } from "./renderLabel";
 
 interface LabelContentProps {
@@ -34,20 +33,21 @@ interface LabelContentProps {
 
 /**
  * Split a text node on ref patterns and render chips inline. Uses
- * parseLabelSegments (canonical regex split) so the pattern logic lives
- * in one place. Optional `iconOverrides` enriches form refs with
- * field-kind icons when rendering outside the ReferenceProvider context.
+ * parseLabelSegments (canonical regex split) so the pattern logic lives in one
+ * place. `formUuid` scopes form/case resolution to the form the text belongs to
+ * (the active form in-editor; the field's owning form in the sidebar);
+ * unresolvable refs render as their raw text.
  */
 export function textWithChips(
 	text: string,
 	provider: ReferenceProvider | null,
-	iconOverrides?: Map<string, IconifyIcon>,
+	formUuid?: string,
 ): ReactNode {
 	/* Fast path: skip regex work for the ~95% of labels with no refs. */
 	if (!text.includes("#")) return text;
 	return parseLabelSegments(text).map((seg) => {
 		if (seg.kind === "text") return seg.text;
-		const ref = resolveRefFromExpr(seg.value, provider, iconOverrides);
+		const ref = resolveRefFromExpr(seg.value, provider, formUuid);
 		return ref ? <ReferenceChip key={seg.key} reference={ref} /> : seg.value;
 	});
 }
@@ -59,12 +59,13 @@ export function textWithChips(
  */
 function chipRenderRule(
 	provider: ReferenceProvider | null,
+	formUuid: string | undefined,
 ): NonNullable<MarkdownToJSX.Options["renderRule"]> {
 	return (next, node, _renderChildren, state) => {
 		if (node.type === RuleType.text && HASHTAG_REF_PATTERN.test(node.text)) {
 			return (
 				<Fragment key={state.key}>
-					{textWithChips(node.text, provider)}
+					{textWithChips(node.text, provider, formUuid)}
 				</Fragment>
 			);
 		}
@@ -74,9 +75,11 @@ function chipRenderRule(
 
 function useMarkdownOptions(): MarkdownToJSX.Options {
 	const provider = useReferenceProvider();
+	const formUuid = useCurrentFormUuid();
 	return useMemo(
-		() => withChipInjection(PREVIEW_OPTIONS, chipRenderRule(provider)),
-		[provider],
+		() =>
+			withChipInjection(PREVIEW_OPTIONS, chipRenderRule(provider, formUuid)),
+		[provider, formUuid],
 	);
 }
 

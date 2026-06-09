@@ -6,7 +6,8 @@
  * through the Suggestion lifecycle callbacks (onStart, onUpdate, onKeyDown, onExit).
  *
  * Two-phase autocomplete:
- *   1. Bare "#" or "#f" → shows namespace options (#form/, #case/, #user/)
+ *   1. Bare "#" or "#f" → shows namespace options (#form/, #user/, and one
+ *      per readable case type — #mother/, …)
  *   2. After namespace "#form/pat" → shows filtered references
  */
 
@@ -22,13 +23,16 @@ import {
 	ReferenceAutocomplete,
 	type ReferenceAutocompleteHandle,
 } from "@/components/builder/ReferenceAutocomplete";
-import { REFERENCE_TYPES } from "@/lib/references/config";
+import { classifyNamespace, namespaceOf } from "@/lib/references/config";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import type { Reference, ReferenceType } from "@/lib/references/types";
 
-/** A namespace option for the namespace stage (before "/" is typed). */
-interface NamespaceItem {
+/** A namespace option for the namespace stage (before "/" is typed). `namespace`
+ *  is the wire token (`form`/`user`/case-type name); `type` is the coarse family
+ *  driving the icon + color. */
+export interface NamespaceItem {
 	kind: "namespace";
+	namespace: string;
 	type: ReferenceType;
 	label: string;
 }
@@ -37,22 +41,22 @@ interface NamespaceItem {
 type SuggestionItem = Reference | NamespaceItem;
 
 /**
- * Parse the suggestion query text into a namespace + partial path.
+ * Parse the suggestion query text into a namespace + partial path, validating
+ * the namespace against the live list (`form`/`user` + readable case types).
  * The query is everything after the trigger char "#".
  *   - "fo" → { namespace: null, partial: "fo" } (still typing namespace)
  *   - "form/" → { namespace: "form", partial: "" }
- *   - "form/pat" → { namespace: "form", partial: "pat" }
+ *   - "mother/hou" → { namespace: "mother", partial: "hou" }
  */
-function parseQuery(query: string): {
-	namespace: ReferenceType | null;
-	partial: string;
-} {
+function parseQuery(
+	query: string,
+	namespaces: string[],
+): { namespace: string | null; partial: string } {
 	const slashIdx = query.indexOf("/");
 	if (slashIdx < 0) return { namespace: null, partial: query };
 	const ns = query.slice(0, slashIdx);
-	if (!(REFERENCE_TYPES as readonly string[]).includes(ns))
-		return { namespace: null, partial: query };
-	return { namespace: ns as ReferenceType, partial: query.slice(slashIdx + 1) };
+	if (!namespaces.includes(ns)) return { namespace: null, partial: query };
+	return { namespace: ns, partial: query.slice(slashIdx + 1) };
 }
 
 /**
@@ -60,32 +64,37 @@ function parseQuery(query: string): {
  * The suggestion triggers on "#", shows namespace options first
  * (namespace stage), then filtered references after a namespace is
  * selected (reference stage). On selection, inserts a commcareRef node
- * (reference stage) or raw "#type/" text to re-trigger the namespace
- * stage.
+ * (reference stage) or raw "#<namespace>/" text to re-trigger the namespace
+ * stage. `getFormUuid` supplies the form whose readable namespaces + fields +
+ * case types the suggestion resolves against.
  */
 export function createRefSuggestion(
 	provider: ReferenceProvider,
+	getFormUuid: () => string | undefined,
 ): Omit<SuggestionOptions, "editor"> {
 	return {
 		char: "#",
 		allowSpaces: false,
 
 		items: ({ query }: { query: string }): SuggestionItem[] => {
-			const { namespace, partial } = parseQuery(query);
+			const formUuid = getFormUuid();
+			const namespaces = provider.namespaces(formUuid);
+			const { namespace, partial } = parseQuery(query, namespaces);
 
 			/* Namespace stage: no namespace yet — show namespace options filtered by partial. */
 			if (!namespace) {
-				return REFERENCE_TYPES.filter((ns) =>
-					ns.startsWith(partial.toLowerCase()),
-				).map((ns) => ({
-					kind: "namespace" as const,
-					type: ns,
-					label: `#${ns}/`,
-				}));
+				return namespaces
+					.filter((ns) => ns.startsWith(partial.toLowerCase()))
+					.map((ns) => ({
+						kind: "namespace" as const,
+						namespace: ns,
+						type: classifyNamespace(ns),
+						label: `#${ns}/`,
+					}));
 			}
 
 			/* Reference stage: namespace known — search references. */
-			return provider.search(namespace, partial);
+			return provider.search(namespace, partial, formUuid);
 		},
 
 		command: ({
@@ -98,17 +107,19 @@ export function createRefSuggestion(
 			props: SuggestionItem;
 		}) => {
 			if ("kind" in props && props.kind === "namespace") {
-				/* Namespace stage: replace the partial with "#type/" to re-trigger suggestion. */
+				/* Namespace stage: replace the partial with "#<namespace>/" to re-trigger suggestion. */
 				editor
 					.chain()
 					.focus()
 					.deleteRange(range)
-					.insertContent(`#${props.type}/`)
+					.insertContent(`#${props.namespace}/`)
 					.run();
 				return;
 			}
 
-			/* Reference stage: insert a commcareRef node with the selected reference's attributes. */
+			/* Reference stage: insert a commcareRef node. `refType` carries the
+			 * namespace (a case-type name for case refs), derived through
+			 * `namespaceOf` — never the literal coarse "case". */
 			const ref = props as Reference;
 			editor
 				.chain()
@@ -116,7 +127,11 @@ export function createRefSuggestion(
 				.deleteRange(range)
 				.insertContent({
 					type: "commcareRef",
-					attrs: { refType: ref.type, path: ref.path, label: ref.label },
+					attrs: {
+						refType: namespaceOf(ref),
+						path: ref.path,
+						label: ref.label,
+					},
 				})
 				.insertContent(" ")
 				.run();
@@ -159,8 +174,12 @@ export function createRefSuggestion(
 			/** Re-render the autocomplete dropdown with the current suggestion state. */
 			function updatePopup(props: SuggestionProps) {
 				if (!root) return;
-				const { namespace } = parseQuery(props.query);
+				const namespaces = provider.namespaces(getFormUuid());
+				const { namespace } = parseQuery(props.query, namespaces);
 				const showNamespaces = !namespace;
+				const namespaceItems = showNamespaces
+					? (props.items as NamespaceItem[])
+					: [];
 				const items: Reference[] = showNamespaces
 					? []
 					: (props.items as Reference[]);
@@ -168,10 +187,16 @@ export function createRefSuggestion(
 				root.render(
 					createElement(ReferenceAutocomplete, {
 						ref: componentRef,
+						namespaceItems,
 						items,
 						showNamespaces,
-						onSelectNamespace: (type: ReferenceType) => {
-							props.command({ kind: "namespace", type, label: `#${type}/` });
+						onSelectNamespace: (ns: string) => {
+							props.command({
+								kind: "namespace",
+								namespace: ns,
+								type: classifyNamespace(ns),
+								label: `#${ns}/`,
+							});
 						},
 						onSelect: (ref: Reference) => {
 							props.command(ref);

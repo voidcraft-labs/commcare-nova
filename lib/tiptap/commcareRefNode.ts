@@ -1,9 +1,11 @@
 /**
  * Custom TipTap node extension for CommCare hashtag references.
  *
- * Renders #form/, #case/, #user/ references as inline atom chips within
- * TipTap editors. The node stores three attributes:
- *   - refType: 'form' | 'case' | 'user' — determines color and icon
+ * Renders #form/, #user/, and per-case-type (#mother/, #pregnancy/) references
+ * as inline atom chips within TipTap editors. The node stores three attributes:
+ *   - refType: the namespace string — `form`/`user`, or a case-type name for
+ *     case refs (e.g. "mother"). Resolution maps it to a coarse family for
+ *     color/icon; the case-type name is what appears on the wire.
  *   - path: the property/field path (e.g. "patient_name", "group1/age")
  *   - label: human-readable display text (falls back to path)
  *
@@ -32,7 +34,7 @@ import { ReactNodeViewRenderer } from "@tiptap/react";
 import type MarkdownIt from "markdown-it";
 import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs";
 import type Token from "markdown-it/lib/token.mjs";
-import { HASHTAG_REF_PATTERN } from "@/lib/references/config";
+import { HASHTAG_REF_PATTERN, namespaceOf } from "@/lib/references/config";
 import { ReferenceProvider } from "@/lib/references/provider";
 import { CommcareRefView } from "./CommcareRefView";
 
@@ -56,8 +58,10 @@ const ANCHORED_HASHTAG_RE = new RegExp(`^${HASHTAG_REF_PATTERN.source}`);
 const SETUP_MARKER = "__novaCommcareRefSetup__" as const;
 
 /**
- * markdown-it inline rule: consume `#form/path`, `#case/path`, `#user/path` and
- * emit a single `commcare_ref` token. Registered before the `text` rule so
+ * markdown-it inline rule: consume `#<namespace>/path` hashtags (`#form/…`,
+ * `#user/…`, `#<caseType>/…`) and emit a single `commcare_ref` token. The
+ * shared `HASHTAG_REF_PATTERN` decides what counts as a namespace. Registered
+ * before the `text` rule so
  * hashtags never get absorbed into a plain-text run. Returning `false` yields
  * back to the ruler so other rules at the same position can try.
  *
@@ -110,7 +114,9 @@ function renderCommcareRef(
 	 * HASHTAG_REF_PATTERN, so `parse` should never fail here. Fall back to
 	 * escaped text if it does, to avoid injecting malformed HTML. */
 	if (!parsed) return escapeHtml(raw);
-	const refType = escapeHtml(parsed.type);
+	/* `data-ref-type` carries the namespace (a case-type name for case refs),
+	 * not the coarse "case" — `namespaceOf` derives it through one rule. */
+	const refType = escapeHtml(namespaceOf(parsed));
 	const path = escapeHtml(parsed.path);
 	return `<span data-commcare-ref data-ref-type="${refType}" data-path="${path}" data-label="${path}"></span>`;
 }
@@ -176,7 +182,7 @@ export const CommcareRef = Node.create({
 	/** Node attributes mapping to the Reference type's fields. */
 	addAttributes() {
 		return {
-			/** Reference namespace: 'form' | 'case' | 'user'. */
+			/** Reference namespace: 'form', 'user', or a case-type name. */
 			refType: { default: "form" },
 			/** Property/field path within the namespace. */
 			path: { default: "" },

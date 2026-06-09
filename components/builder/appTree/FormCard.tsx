@@ -7,9 +7,9 @@
  * this form's entity, its field-order array, and its field-count
  * derivation, so unrelated form edits do not re-render this card.
  *
- * Publishes a per-form icon map via `FormIconContext` so the nested
- * FieldRows can render inline reference chips with correct
- * field-kind icons without prop drilling.
+ * Field-label reference chips resolve through the shared `ReferenceProvider`
+ * (each FieldRow against its own form), so no per-form icon map is threaded
+ * down the tree.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -18,7 +18,6 @@ import { memo } from "react";
 import { FieldRow } from "@/components/builder/appTree/FieldRow";
 import {
 	CollapseChevron,
-	FormIconContext,
 	HighlightedText,
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
@@ -26,10 +25,7 @@ import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeS
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
-import {
-	useFieldIconMap,
-	useFormDescendantCount,
-} from "@/lib/doc/hooks/useFieldIconMap";
+import { useFormDescendantCount } from "@/lib/doc/hooks/useFieldIconMap";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import type { Uuid } from "@/lib/domain";
@@ -85,9 +81,6 @@ export const FormCard = memo(function FormCard({
 		: collapsed.has(collapseKey);
 	const hasFields = fieldUuids.length > 0;
 	const nameIndices = searchResult?.matchMap?.get(collapseKey);
-
-	/** Build icon map for reference chips in field labels. */
-	const fieldIcons = useFieldIconMap(formId);
 
 	if (!form) return null;
 
@@ -165,31 +158,29 @@ export const FormCard = memo(function FormCard({
 			</TreeItemRow>
 
 			{hasFields && !isCollapsed && (
-				<FormIconContext value={fieldIcons}>
-					<div className="pb-2">
-						<AnimatePresence mode="sync">
-							{fieldUuids.map((uuid, fieldIdx) => {
-								if (searchResult && !searchResult.visibleFieldUuids.has(uuid))
-									return null;
-								return (
-									<FieldRow
-										key={uuid}
-										uuid={uuid}
-										moduleUuid={moduleUuid}
-										formUuid={formId}
-										onSelect={onSelect}
-										depth={0}
-										delay={delay + fieldIdx * 0.02}
-										collapsed={collapsed}
-										toggle={toggle}
-										searchResult={searchResult}
-										locked={locked}
-									/>
-								);
-							})}
-						</AnimatePresence>
-					</div>
-				</FormIconContext>
+				<div className="pb-2">
+					<AnimatePresence mode="sync">
+						{fieldUuids.map((uuid, fieldIdx) => {
+							if (searchResult && !searchResult.visibleFieldUuids.has(uuid))
+								return null;
+							return (
+								<FieldRow
+									key={uuid}
+									uuid={uuid}
+									moduleUuid={moduleUuid}
+									formUuid={formId}
+									onSelect={onSelect}
+									depth={0}
+									delay={delay + fieldIdx * 0.02}
+									collapsed={collapsed}
+									toggle={toggle}
+									searchResult={searchResult}
+									locked={locked}
+								/>
+							);
+						})}
+					</AnimatePresence>
+				</div>
 			)}
 		</motion.div>
 	);

@@ -63,17 +63,21 @@ class ChipWidget extends WidgetType {
 
 /**
  * Build a ViewPlugin that scans the viewport for hashtag references and
- * decorates them with chip widgets. The provider resolves labels from
- * the live blueprint.
+ * decorates them with chip widgets. The provider resolves labels from the live
+ * blueprint, scoped to the editor's form via `getFormUuid` (form/case refs need
+ * a form scope to resolve).
  */
-function buildChipPlugin(provider: ReferenceProvider) {
+function buildChipPlugin(
+	provider: ReferenceProvider,
+	getFormUuid: () => string | undefined,
+) {
 	/** MatchDecorator requires a global regex for viewport scanning. */
 	const globalPattern = new RegExp(HASHTAG_REF_PATTERN, "g");
 	const matcher = new MatchDecorator({
 		regexp: globalPattern,
 		decoration: (match, _view, _pos) => {
 			const raw = match[0];
-			const ref = provider.resolve(raw);
+			const ref = provider.resolve(raw, getFormUuid());
 			/* Only decorate references that actually exist in the blueprint.
          Unknown refs (e.g. after backspace-to-revert removes the last char)
          stay as raw text so the user can see and edit them. */
@@ -174,9 +178,13 @@ const revertAutocomplete = ViewPlugin.fromClass(
 /**
  * Create a CodeMirror extension that renders hashtag references as inline
  * chips with atomic cursor behavior, backspace-to-revert, and drag/drop.
+ * `getFormUuid` scopes ref resolution to the editor's form.
  */
-export function xpathChips(provider: ReferenceProvider): Extension {
-	const plugin = buildChipPlugin(provider);
+export function xpathChips(
+	provider: ReferenceProvider,
+	getFormUuid: () => string | undefined,
+): Extension {
+	const plugin = buildChipPlugin(provider, getFormUuid);
 	return [
 		plugin,
 		buildAtomicRanges(plugin),

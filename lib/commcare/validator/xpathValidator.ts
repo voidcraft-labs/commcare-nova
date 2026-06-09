@@ -16,6 +16,7 @@ import {
 	FUNCTION_REGISTRY,
 	findCaseInsensitiveMatch,
 } from "./functionRegistry";
+import { RESOLVED_REFERENCE_NAMESPACES } from "./reservedNamespaces";
 import { checkTypes } from "./typeChecker";
 
 /**
@@ -78,12 +79,21 @@ const T = (() => {
  *
  * @param expr - The XPath expression string
  * @param validPaths - Optional set of valid /data/... paths for node ref checking
- * @param caseProperties - Optional set of valid case property names for #case/ ref checking
+ * @param caseTypeProps - Optional per-case-type accept map (case-type name →
+ *   the property names readable on it) for `#<type>/<prop>` ref checking. Built
+ *   by `caseTypePropsForValidation` / the deep validator from the form's
+ *   reachable case types; `undefined` skips case-ref checking entirely.
+ * @param isRegistrationForm - Whether the owning form creates its case. Only
+ *   changes the *message* when a case ref is rejected: on a registration form
+ *   the own type is narrowed to `case_id`, so a rejected property is "not yet
+ *   available" rather than "doesn't exist". The accept map already encodes the
+ *   narrowing; this just lets the message say why.
  */
 export function validateXPath(
 	expr: string,
 	validPaths?: Set<string>,
-	caseProperties?: Set<string>,
+	caseTypeProps?: Map<string, Set<string>>,
+	isRegistrationForm = false,
 ): XPathError[] {
 	if (!expr) return [];
 
@@ -113,15 +123,31 @@ export function validateXPath(
 				return;
 			}
 
-			// Phase 2b: Hashtag reference validation (#case/prop)
-			if (node.type === T.HashtagRef && caseProperties) {
+			// Phase 2b: Hashtag reference validation (#<type>/prop). The
+			// namespace is the token between `#` and the first `/`. `#form/`,
+			// `#user/`, and the transitional `#case/` are resolved by the wire,
+			// not case-type refs — `checkCaseHashtag` skips them; everything else
+			// names a case type. In an XPath expression a hashtag is a deliberate
+			// reference, so the strict `surface: "xpath"` rule applies (an
+			// unreachable namespace IS an error) — unlike the lenient prose rule.
+			if (node.type === T.HashtagRef && caseTypeProps) {
 				const text = expr.slice(node.from, node.to);
-				if (text.startsWith("#case/")) {
-					const prop = text.slice(6); // after "#case/"
-					if (!caseProperties.has(prop)) {
+				const slashIdx = text.indexOf("/");
+				if (slashIdx > 1) {
+					const ns = text.slice(1, slashIdx);
+					const rest = text.slice(slashIdx + 1);
+					const message = checkCaseHashtag(
+						text,
+						ns,
+						rest,
+						caseTypeProps,
+						isRegistrationForm,
+						"xpath",
+					);
+					if (message) {
 						errors.push({
 							code: "INVALID_CASE_REF",
-							message: `Unknown case property "${prop}" in ${text}`,
+							message,
 							position: node.from,
 						});
 					}
@@ -167,12 +193,12 @@ export function validateXPath(
 	// checker resolves names. No exclusion list to drift out of date —
 	// each node type explicitly declares which children are references.
 	//
-	// Without `validPaths` or `caseProperties` the check is a no-op:
+	// Without `validPaths` or `caseTypeProps` the check is a no-op:
 	// schema tooling and agent-prompt callers that don't supply context
 	// shouldn't get false positives. The editor always supplies context
 	// via useFormLintContext.
-	if (validPaths || caseProperties) {
-		const knownNames = collectKnownNames(validPaths, caseProperties);
+	if (validPaths || caseTypeProps) {
+		const knownNames = collectKnownNames(validPaths, caseTypeProps);
 		walkValuePositions(tree.topNode, expr, (name, position) => {
 			if (!knownNames.has(name)) {
 				errors.push({
@@ -220,14 +246,77 @@ function suggestPathsByLeaf(ref: string, validPaths: Set<string>): string[] {
 }
 
 /**
+ * Judge one `#<namespace>/<rest>` hashtag reference against a form's per-type
+ * accept map. The single home of the case-ref validity rule, shared by the
+ * XPath walker (Phase 2b above) and the deep validator's PROSE scan.
+ *
+ * The two surfaces are NOT judged identically — the validator must agree with
+ * the wire emitter, which treats them differently:
+ *
+ *   - In an XPATH expression a hashtag is a deliberate reference, so an
+ *     unreachable namespace is a real error (`surface: "xpath"`).
+ *   - In PROSE the emitter (`xform/builder.ts::buildLabelNodes`) lowers a
+ *     hashtag to `<output>` ONLY when it resolves (`#form/`, `#user/`, the
+ *     transitional `#case/`, or a REACHABLE case type) and leaves everything
+ *     else — innocent prose (`#N/A`, `#priority/high`), a typo'd type
+ *     (`#mothre/code`), a child-type write target (`#child/name`) — as literal
+ *     text with NO error. So in prose we flag a case ref ONLY when its
+ *     namespace IS a reachable case type (the emitter would lower it) AND the
+ *     property is invalid on that type; an unreachable namespace is innocent
+ *     prose, matching the emitter's leniency (`surface: "prose"`).
+ *
+ * `ns` / `rest` are the namespace and property path either side of the first
+ * `/`. `#form/`, `#user/`, and the transitional `#case/` are resolved by the
+ * wire before any per-type lookup (`RESOLVED_REFERENCE_NAMESPACES`), so they're
+ * never rejected as an unknown case type. Returns the rejection message, or
+ * `undefined` when accepted (the caller owns the error `code` + `position`).
+ *
+ * Survey forms get an empty accept map (`caseRefAcceptMap`), so on a survey no
+ * namespace is reachable — an empty map is the signal that the form loads no
+ * case, and an XPath case ref there gets a survey-specific message.
+ */
+export function checkCaseHashtag(
+	text: string,
+	ns: string,
+	rest: string,
+	caseTypeProps: Map<string, Set<string>>,
+	isRegistrationForm: boolean,
+	surface: "xpath" | "prose",
+): string | undefined {
+	if (RESOLVED_REFERENCE_NAMESPACES.has(ns)) return undefined;
+	const props = caseTypeProps.get(ns);
+	if (!props) {
+		// `ns` is not a reachable case type for this form.
+		// PROSE matches the emitter's leniency: it lowers a prose hashtag only
+		// when the namespace resolves, leaving an unreachable/innocent token as
+		// literal text — so there's nothing to flag here.
+		if (surface === "prose") return undefined;
+		// A survey form loads no case, so its accept map is empty — there's no
+		// case to read a reference from at all.
+		if (caseTypeProps.size === 0) {
+			return `Reference "${text}" can't resolve on a survey form. A survey form loads no case, so a case reference like "${text}" has nothing to read from here. Remove it, or change the form type to followup or close so the case is loaded.`;
+		}
+		return `Reference "${text}" points at case type "${ns}", which this form can't read. A form can reference its own case type or one of its ancestors (a parent in the case hierarchy). Check the case type's spelling, or whether it's actually reachable from this form.`;
+	}
+	if (!props.has(rest)) {
+		return isRegistrationForm
+			? `Reference "${text}" can't resolve on a form that creates a case. The "${ns}" case doesn't exist yet here, so only its newly-allocated id is available — not its other properties. Use "#${ns}/case_id" for the new case's id, or move this reference to a follow-up form where "${ns}" already exists.`
+			: `Case type "${ns}" has no property "${rest}" (referenced as "${text}"). Add that property to "${ns}", or reference a property it already declares.`;
+	}
+	return undefined;
+}
+
+/**
  * Build the set of identifiers that count as a valid relative reference.
  * The leaf segment of every absolute path resolves the relative-reference
  * case (a sibling field at any depth shares its name with the relative
- * `name` reference); case property names cover the case-side.
+ * `name` reference); case property names — flattened across every reachable
+ * case type — cover the case-side (a bare relative ref carries no type, so any
+ * type's property counts).
  */
 function collectKnownNames(
 	validPaths: Set<string> | undefined,
-	caseProperties: Set<string> | undefined,
+	caseTypeProps: Map<string, Set<string>> | undefined,
 ): Set<string> {
 	const names = new Set<string>();
 	if (validPaths) {
@@ -236,8 +325,10 @@ function collectKnownNames(
 			names.add(idx >= 0 ? path.slice(idx + 1) : path);
 		}
 	}
-	if (caseProperties) {
-		for (const prop of caseProperties) names.add(prop);
+	if (caseTypeProps) {
+		for (const props of caseTypeProps.values()) {
+			for (const prop of props) names.add(prop);
+		}
 	}
 	return names;
 }

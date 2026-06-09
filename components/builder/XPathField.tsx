@@ -16,6 +16,7 @@ import { xpathChips } from "@/lib/codemirror/xpath-chips";
 import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
 import { xpath } from "@/lib/codemirror/xpath-language";
 import {
+	caseTypePropsForValidation,
 	type XPathLintContext,
 	xpathLinter,
 } from "@/lib/codemirror/xpath-lint";
@@ -26,7 +27,10 @@ import {
 } from "@/lib/codemirror/xpath-theme";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
 import { ReferenceProvider } from "@/lib/references/provider";
-import { useReferenceProvider } from "@/lib/references/ReferenceContext";
+import {
+	useCurrentFormUuid,
+	useReferenceProvider,
+} from "@/lib/references/ReferenceContext";
 import { POPOVER_POPUP_CLS } from "@/lib/styles";
 
 // ── Read-only theme ────────────────────────────────────────────────────
@@ -132,6 +136,7 @@ export function XPathField({
 }: XPathFieldProps) {
 	const [editing, setEditing] = useState(autoEdit ?? false);
 	const provider = useReferenceProvider();
+	const currentFormUuid = useCurrentFormUuid();
 	/** Viewport coordinates of the activation click for cursor placement. */
 	const clickPosRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -144,8 +149,12 @@ export function XPathField({
 
 	const readOnlyExtensions = useMemo(() => {
 		if (!provider) return baseReadOnlyExtensions;
-		return [...baseReadOnlyExtensions, xpathChips(provider), novaChipTheme];
-	}, [provider]);
+		return [
+			...baseReadOnlyExtensions,
+			xpathChips(provider, () => currentFormUuid),
+			novaChipTheme,
+		];
+	}, [provider, currentFormUuid]);
 
 	// ── Read-only / idle states ────────────────────────────────────────
 
@@ -206,6 +215,7 @@ export function XPathField({
 			}}
 			getLintContext={getLintContext}
 			provider={provider}
+			currentFormUuid={currentFormUuid}
 			clickPosition={clickPosRef.current}
 		/>
 	);
@@ -220,6 +230,8 @@ interface InlineXPathEditorProps {
 	onCancel: () => void;
 	getLintContext?: () => XPathLintContext | undefined;
 	provider: ReferenceProvider | null;
+	/** The form being edited — scopes chip resolution. */
+	currentFormUuid: string | undefined;
 	clickPosition: { x: number; y: number } | null;
 }
 
@@ -248,6 +260,7 @@ function InlineXPathEditor({
 	onCancel,
 	getLintContext,
 	provider: _provider,
+	currentFormUuid,
 	clickPosition,
 }: InlineXPathEditorProps) {
 	const editorRef = useRef<ReactCodeMirrorRef>(null);
@@ -295,15 +308,17 @@ function InlineXPathEditor({
 		const draft = editorRef.current?.view?.state.doc.toString() ?? "";
 		if (!draft.trim()) return [];
 		const ctx = getLintContextRef.current?.();
-		// Convert the pre-collected case-property map (name→label) into the
-		// name-only Set that `validateXPath` consumes. Context-less validation
-		// is allowed — we just skip reference checks in that case.
-		const caseProperties = ctx?.caseProperties
-			? new Set(ctx.caseProperties.keys())
-			: undefined;
-		return validateXPath(draft, ctx?.validPaths, caseProperties).map(
-			(e) => e.message,
-		);
+		// Derive the per-case-type accept map from the context via the shared
+		// `caseTypePropsForValidation` (same registration-narrowing rule the
+		// inline linter uses), so the save gate and the diagnostics agree.
+		// Context-less validation is allowed — case-ref checks just skip.
+		const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
+		return validateXPath(
+			draft,
+			ctx?.validPaths,
+			caseTypeProps,
+			ctx?.formType === "registration",
+		).map((e) => e.message);
 	}, []);
 
 	/** Trigger the reject shake animation on the editor wrapper. The
@@ -469,14 +484,14 @@ function InlineXPathEditor({
 			tooltips({ parent: document.body }),
 			xpathLinter(() => getLintContextRef.current?.()),
 			xpathAutocomplete(() => getLintContextRef.current?.()),
-			xpathChips(chipProvider),
+			xpathChips(chipProvider, () => currentFormUuid),
 			novaAutocompleteTheme,
 			novaChipTheme,
 			saveKeymap,
 			escapeDom,
 			tooltipDismissExt,
 		],
-		[chipProvider, saveKeymap, escapeDom, tooltipDismissExt],
+		[chipProvider, currentFormUuid, saveKeymap, escapeDom, tooltipDismissExt],
 	);
 
 	return (

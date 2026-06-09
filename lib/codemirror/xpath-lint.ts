@@ -9,7 +9,12 @@
 
 import { type Diagnostic, linter } from "@codemirror/lint";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
-import type { FieldKind, FormType } from "@/lib/domain";
+import {
+	caseRefAcceptMap,
+	type FieldKind,
+	type FormType,
+	type ReachableCaseTypeIndex,
+} from "@/lib/domain";
 
 /**
  * Context snapshot used by the XPath linter and autocomplete sources.
@@ -21,14 +26,23 @@ import type { FieldKind, FormType } from "@/lib/domain";
  * anything that can produce these three sets is a valid source.
  */
 export interface XPathLintContext {
+	/** Uuid of the form this context describes. Identifies the context's
+	 *  scope so caches keyed on it (e.g. `ReferenceProvider`'s form-entry
+	 *  cache) rebuild when the active form changes — navigation swaps the
+	 *  context without mutating the doc, so an identity key is the only
+	 *  signal that the cached form is no longer the current one. */
+	formUuid: string;
 	/** Valid `/data/...` paths reachable in the current form. Used by lint
 	 *  reference checking and data-path autocomplete. */
 	validPaths: Set<string>;
-	/** Case properties reachable from this form's module. Keyed by name for
-	 *  O(1) autocomplete lookup; values carry the human-readable label shown
-	 *  as the completion `detail`. `undefined` when the module has no case
-	 *  type (survey-only) — matches the linter's "don't check #case refs". */
-	caseProperties: Map<string, { label?: string }> | undefined;
+	/** The case types this form can READ — its own loaded case (depth 0) plus
+	 *  its ancestor chain — each mapped to its `depth` and property metadata.
+	 *  Keyed by case-type name so a `#<type>/<prop>` ref resolves to exactly one
+	 *  type. `undefined` when the module has no case type (survey-only) — matches
+	 *  the linter's "don't check case refs". Child case types are intentionally
+	 *  absent: a child case is created fresh and never loaded, so its properties
+	 *  are unreadable at runtime (including them was a latent false-accept). */
+	reachableCaseTypes: ReachableCaseTypeIndex | undefined;
 	/** Value-producing fields in the current form, mapped to their XPath path
 	 *  + human label. Used by #form/x autocomplete (label as `detail`). The
 	 *  caller filters to value-producing kinds before handing the list in.
@@ -42,14 +56,29 @@ export interface XPathLintContext {
 	}>;
 	/**
 	 * The owning form's type. Drives surfaces that change behavior with
-	 * form-creates-case semantics — most notably `#case/` autocomplete on
-	 * registration forms, which surfaces only `#case/case_id` because no
-	 * other case property is resolvable at form-init (the case doesn't
-	 * exist in casedb yet). Mirrors the `CASE_HASHTAG_ON_CREATE_FORM`
-	 * validator rule so the editor's affordances agree with the rule's
-	 * rejection set.
+	 * form-creates-case semantics — most notably case-ref autocomplete and
+	 * linting on registration forms, where the own case type surfaces only
+	 * `case_id` (no other property is resolvable at form-init — the case
+	 * doesn't exist in casedb yet) and ancestor types are dropped entirely.
+	 * `caseRefAcceptMap` owns that rule so the editor's affordances agree with
+	 * the validator's rejection set.
 	 */
 	formType: FormType;
+}
+
+/**
+ * Derive the per-type accept structure (`case-type name → property names`) the
+ * XPath validator checks `#<type>/<prop>` refs against. Encodes the
+ * form-type-narrowing rule in ONE place via `caseRefAcceptMap` so the inline
+ * linter (here), `XPathField`'s save gate, and the deep validator never drift.
+ * `undefined` when the form has no case type — the validator then skips case-ref
+ * checking entirely.
+ */
+export function caseTypePropsForValidation(
+	ctx: XPathLintContext,
+): Map<string, Set<string>> | undefined {
+	if (!ctx.reachableCaseTypes) return undefined;
+	return caseRefAcceptMap(ctx.reachableCaseTypes, ctx.formType);
 }
 
 /** Create a CodeMirror lint extension that validates against the live context. */
@@ -59,29 +88,21 @@ export function xpathLinter(getContext: () => XPathLintContext | undefined) {
 		if (!expr.trim()) return [];
 
 		const ctx = getContext();
-		// Narrow the case-property accept set to mirror the
-		// CASE_HASHTAG_ON_CREATE_FORM rule + the autocomplete filter:
-		// on a registration form the case being created doesn't exist
-		// at form-init, so `#case/case_id` is the only resolvable
-		// reference. Hand-typed `#case/<other>` shows the same inline
-		// rejection the doc-layer rule and the autocomplete already
-		// agree on — three predicates, one accept set.
-		//
-		// `case_id` is unconditionally accepted (NOT gated on
-		// `caseProperties.has("case_id")`) because it is the form-
-		// allocated case id, not a user-authored case property — the
-		// case-type record on the doc rarely lists it, and the
-		// autocomplete surfaces it regardless of map membership. The
-		// three predicates must agree across that map shape too.
-		const caseProperties = (() => {
-			if (!ctx?.caseProperties) return undefined;
-			if (ctx.formType !== "registration") {
-				return new Set(ctx.caseProperties.keys());
-			}
-			return new Set(["case_id"]);
-		})();
+		// The per-type accept set comes from `caseTypePropsForValidation`, the
+		// single home of the registration-narrowing rule. On a registration form
+		// it narrows to the own type's `case_id` only (the case being created
+		// doesn't exist at form-init, ancestor reads aren't permitted on a create
+		// form); every other form type exposes each reachable type's full
+		// property set. The linter, the save gate, and the deep validator all
+		// read that one rule — three predicates, one accept set.
+		const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
 
-		const errors = validateXPath(expr, ctx?.validPaths, caseProperties);
+		const errors = validateXPath(
+			expr,
+			ctx?.validPaths,
+			caseTypeProps,
+			ctx?.formType === "registration",
+		);
 		const diagnostics: Diagnostic[] = [];
 
 		for (const err of errors) {

@@ -1,18 +1,22 @@
 /**
  * Shared types for the chip reference system.
  *
- * References are data source pointers (#form/, #case/, #user/) that appear
- * in XPath expressions and labels. The Reference type is a discriminated union
- * because the three namespaces have fundamentally different path semantics:
+ * References are data source pointers (#form/, #user/, and one namespace per
+ * readable case type — e.g. #mother/, #pregnancy/) that appear in XPath
+ * expressions and labels. The Reference type is a discriminated union because
+ * the namespace families have fundamentally different path semantics:
  *   - form: FieldPath (slash-delimited, potentially nested in groups)
- *   - case: bare case property name (flat identifier)
+ *   - case: bare case property name (flat identifier), scoped to a case type
  *   - user: bare user property name (flat identifier)
  */
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 
-/** The three hashtag reference namespaces in CommCare XPath. */
+/** The coarse reference families. `case` is one family covering every case
+ *  type — the concrete type lives on `CaseReference.caseType`. Styling keys on
+ *  this coarse type (every case type shares the db-icon/violet config); the
+ *  namespace that appears on the wire is `caseType`, not the literal "case". */
 export type ReferenceType = "form" | "case" | "user";
 
 /** Shared fields across all reference types. */
@@ -31,9 +35,13 @@ export interface FormReference extends BaseReference {
 	path: FieldPath;
 }
 
-/** A case property reference — always a bare identifier (e.g. "age"). */
+/** A case property reference — a bare property identifier (e.g. "age") scoped
+ *  to a specific addressable case type. `raw` is `#<caseType>/<path>`
+ *  (e.g. "#mother/household_code"); `caseType` names the type the property is
+ *  read from. The type must be the form's own case type or an ancestor. */
 export interface CaseReference extends BaseReference {
 	type: "case";
+	caseType: string;
 	path: string;
 }
 

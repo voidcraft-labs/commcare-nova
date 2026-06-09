@@ -756,7 +756,7 @@ function rewriteFieldExpressions(
  * Cross-form cascade triggered when a field with `case_property_on` is
  * renamed. Because `field.id` IS the case property name for fields that
  * save to a case, a rename is semantically a rename of the case property.
- * That property is referenced from three places outside the containing
+ * That property is referenced from several places outside the containing
  * form:
  *
  *   1. **Peer fields** — other input fields whose `id === oldId` AND
@@ -766,10 +766,10 @@ function rewriteFieldExpressions(
  *      property). Each peer is renamed + has its own form's local refs
  *      rewritten via `renameSingleField`.
  *
- *   2. **Hashtag references** — `#case/<oldId>` inside XPath expressions
- *      or prose labels on ANY field that lives in a form bound to a
- *      module whose `caseType === caseType`. `#case/` resolves to the
- *      containing module's case type, so refs in modules with a different
+ *   2. **Transitional `#case/` hashtag references** — `#case/<oldId>` inside
+ *      XPath expressions or prose labels on ANY field that lives in a form
+ *      bound to a module whose `caseType === caseType`. `#case/` resolves to
+ *      the containing module's case type, so refs in modules with a different
  *      caseType point at a different property and must NOT be rewritten.
  *
  *   3. **Case list / case detail columns** — module-level string arrays
@@ -778,16 +778,23 @@ function rewriteFieldExpressions(
  *
  *   4. **Case-type catalog** — `doc.caseTypes[<caseType>].properties[]` is
  *      the authoritative list of known case properties for a case type.
- *      Every builder-time consumer (XPath linter, `#case/` chip hydrator,
+ *      Every builder-time consumer (XPath linter, chip hydrator,
  *      validator, autocompleter) reads it via `buildLintContext`. If the
  *      catalog still advertises `age` after we've renamed to `age_1`, the
- *      linter rejects `#case/age_1` as an unknown property and the chip
+ *      linter rejects `#mother/age_1` as an unknown property and the chip
  *      decorator refuses to render a chip (hashtag name not recognized).
+ *
+ *   5. **Per-type hashtag references** — `#<caseType>/<oldId>` inside XPath
+ *      expressions or prose on ANY field APP-WIDE. Unlike `#case/`, a
+ *      per-type ref names its case type explicitly, so it resolves to the
+ *      same type from any form that can reach it (own or ancestor) — the
+ *      rewrite spans every module, matching the namespace exactly so a
+ *      `#<otherType>/<oldId>` ref to a different type is never touched.
  *
  * The cascade runs entirely on the Immer draft. `excludeUuid` is the
  * primary field's uuid — excluded from the peer-field rename walk so it
- * doesn't get renamed twice. The primary field IS included in the #case/
- * rewrite walk because it may reference its own old property name in a
+ * doesn't get renamed twice. The primary field IS included in the hashtag
+ * rewrite walks because it may reference its own old property name in a
  * label or calculate (unusual but legal).
  *
  * Returns counts for metadata surfacing; callers add them to any
@@ -850,33 +857,39 @@ function cascadeCasePropertyRename(
 		}
 	}
 
-	// ── (2) + (3) #case/ hashtag rewrites + column rewrites, scoped to
-	// modules whose `caseType` matches. A module whose caseType is
-	// different references a different case entity from `#case/`, so we
-	// must not touch it. ─────────────────────────────────────────────────
-	const hashtagRewriter = (expr: string) =>
+	// ── (2) + (3) + (5) Hashtag + column rewrites, in a SINGLE app-wide field
+	// walk. Two rewriters with different scopes:
+	//
+	//   - The per-type ref `#<caseType>/<oldId>` names its case type
+	//     explicitly, so it resolves to the SAME type from every form that can
+	//     reach it (own OR ancestor) — a child module's followup form can read
+	//     `#mother/<oldId>`. So it's rewritten APP-WIDE. The namespace match is
+	//     EXACT, so a `#<otherType>/<oldId>` ref to a different type that shares
+	//     the property name is untouched.
+	//   - The transitional `#case/<oldId>` ref means "this module's case type",
+	//     so it's rewritten ONLY in modules whose own caseType matches — a
+	//     module with a different caseType references a different case entity.
+	//   - Case-list columns hold a bare property name for the module's own case
+	//     type, so they too are rewritten only in matching-caseType modules.
+	const caseRewriter = (expr: string) =>
 		rewriteHashtagRefs(expr, "#case/", oldId, newId);
+	const perTypeRewriter = (expr: string) =>
+		rewriteHashtagRefs(expr, `#${caseType}/`, oldId, newId);
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
-		if (!mod || mod.caseType !== caseType) continue;
+		const matchesCaseType = mod?.caseType === caseType;
 
-		// Columns: the structured config carries display columns
-		// in a single `columns` array; the rewrite walks every
-		// entry in place on the draft. The count reflects column
-		// cells, not modules, so a module with two stale column
-		// refs contributes two.
-		//
-		// Six of the seven column kinds (`plain`, `date`, `phone`,
-		// `id-mapping`, `image-map`, `interval`) carry a `field` slot
-		// pointing at a case-property name; the rename rewrites those in
-		// place. `calculated` columns have no `field` slot — the
-		// expression is the source — and are skipped here; this loop is
-		// the property-name-as-string rewrite only. (`image-map`'s
-		// `mapping[].value` keys on the property's VALUE, not its name,
-		// so those rows need no rewrite — only its `field` does.)
-		const config = mod.caseListConfig;
-		if (config) {
-			for (const col of config.columns) {
+		// Columns: the structured config carries display columns in a single
+		// `columns` array; the rewrite walks every entry in place on the draft.
+		// The count reflects column cells, not modules. Six of the seven column
+		// kinds (`plain`, `date`, `phone`, `id-mapping`, `image-map`,
+		// `interval`) carry a `field` slot pointing at a case-property name;
+		// `calculated` columns have no `field` slot (the expression is the
+		// source) and are skipped — this is the property-name-as-string rewrite
+		// only. (`image-map`'s `mapping[].value` keys on the property's VALUE,
+		// not its name, so only its `field` is rewritten.)
+		if (matchesCaseType && mod?.caseListConfig) {
+			for (const col of mod.caseListConfig.columns) {
 				if (col.kind === "calculated") continue;
 				if (col.field === oldId) {
 					col.field = newId;
@@ -885,16 +898,20 @@ function cascadeCasePropertyRename(
 			}
 		}
 
-		// Forms in this module: every field's expressions + display text.
-		// A field touched here may also have been touched by a form-local
-		// pass earlier (peer renames walk their own forms). Adding to
-		// `touchedFields` dedupes — `xpathFieldsRewritten` counts each
-		// field once, not once per pass.
+		// Per-form field expressions + display text. In a matching-caseType
+		// module both rewriters run (the per-type AND the context-dependent
+		// `#case/`); elsewhere only the per-type one. A field touched here may
+		// also have been touched by a form-local pass earlier (peer renames walk
+		// their own forms); adding to `touchedFields` dedupes so
+		// `xpathFieldsRewritten` counts each field once, not once per pass.
+		const rewriter = matchesCaseType
+			? (expr: string) => caseRewriter(perTypeRewriter(expr))
+			: perTypeRewriter;
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			for (const fUuid of walkFormFieldUuids(doc, formUuid)) {
 				const field = doc.fields[fUuid];
 				if (!field) continue;
-				if (rewriteFieldExpressions(field, hashtagRewriter)) {
+				if (rewriteFieldExpressions(field, rewriter)) {
 					touchedFields.add(fUuid);
 					affectedForms.add(formUuid);
 				}

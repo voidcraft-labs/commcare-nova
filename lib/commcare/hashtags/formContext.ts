@@ -2,123 +2,104 @@
  * Form-context-aware hashtag expansion.
  *
  * The context-free expander at `lib/commcare/hashtags.ts::expandHashtags`
- * rewrites every `#case/<X>` to the canonical case-loading XPath shape
- * (`instance('casedb')/casedb/case[@case_id = instance('commcaresession')/
- * session/data/case_id]/<X>`). That shape is correct for forms that load
- * an existing case (followup / close) — `session/data/case_id` is bound
- * to the chosen case, and the lookup resolves to the case's properties
- * in casedb.
+ * resolves the flat namespaces (`#form/`, `#user/`) and the transitional
+ * literal `#case/<X>`. It CANNOT resolve a per-case-type namespace
+ * (`#<case_type>/<prop>`) — that needs to know which case the form loads and
+ * how far up the parent-index chain the named type sits. This module supplies
+ * that form context.
  *
- * On a case-create form (registration) the case-loading shape can't
- * resolve: the form's session has no `case_id` datum (case-create entries
- * declare `case_id_new_<casetype>_0` instead), and the case being created
- * isn't in casedb until after submission. Resolution policy on a
- * registration form: `#case/case_id` is the one `#case/` reference with a
- * defined meaning — it points at the form's own new case, populated at
- * `/data/case/@case_id` by the setvalue chain
- * `xform/caseBlocks.ts::addCaseBlocks` emits. Every other `#case/<X>`
- * stays un-rewritten so the doc-layer rule
- * `validator/rules/form.ts::caseHashtagOnCreateForm` can quote the
- * authored text verbatim when rejecting it at authoring time.
+ * Resolution by namespace:
  *
- * On followup / close / survey forms the expansion is identical to the
- * context-free version.
+ *   - `#form/` / `#user/` — flat prefixes, identical in every form context.
+ *   - `#case/<X>` — the loaded case, walking any leading `parent` segments
+ *     through the case index (`expandCaseHashtag`). Kept as a transitional
+ *     safety net for un-migrated references.
+ *   - `#<case_type>/<prop>` — looks the namespace up in `caseTypeDepths` (the
+ *     form's reachable case types, own = hop depth 0, parent = 1, …) and reuses
+ *     the SAME `…/index/parent × depth …/<prop>` walk via `expandCaseToWire`.
+ *     So `#<own_type>/<prop>` is byte-identical to `#case/<prop>` and
+ *     `#<ancestor>/<prop>` is byte-identical to the matching
+ *     `#case/parent…/<prop>`. A namespace absent from `caseTypeDepths` is
+ *     unreachable — left verbatim so the deep validator
+ *     (`validator/rules/form.ts`) can quote the authored text when rejecting it.
  *
- * Future direction: this resolver is the right home for case-type-
- * namespaced hashtags (`#patient/case_id`-style). When that authoring
- * surface lands, the in-scope-case-types resolution joins the form
- * context here without a structural change to call sites.
+ * Registration narrowing: on a case-create form the form's own new case isn't
+ * in `casedb` at form-init (the entry declares `case_id_new_<casetype>_0`, and
+ * the case lands in `casedb` only after submission). The one own-case reference
+ * with a defined meaning is `case_id` (own type, hop depth 0), populated at
+ * `/data/case/@case_id` by the setvalue chain `xform/caseBlocks.ts::addCaseBlocks`
+ * emits — so `#case/case_id` and `#<own_type>/case_id` both rewrite there. Every
+ * other own/ancestor case reference on a registration form expands to the
+ * case-loading shape just as the context-free expander would, so the
+ * binding-resolution oracle catches the missing `case_id` datum at compile time;
+ * the deep validator rejects it first at authoring time.
  */
 
-import { expandHashtags } from "@/lib/commcare/hashtags";
-import { parser } from "@/lib/commcare/xpath";
+import {
+	expandCaseToWire,
+	resolveFlatHashtag,
+	rewriteHashtags,
+	splitCaseSegments,
+} from "@/lib/commcare/hashtags";
 
 /**
- * The form-shape inputs the hashtag resolver needs. Today only
- * `formType` is consulted; the interface is named for the broader
- * direction (in-scope case types, multi-case scope) so future extensions
- * don't churn the callers.
+ * The form-shape inputs the hashtag resolver needs.
  */
 export interface FormHashtagContext {
 	readonly formType: "registration" | "followup" | "close" | "survey";
+	/**
+	 * Case-type name → parent-index hop count from the form's own loaded case
+	 * (own = 0, parent = 1, grandparent = 2, …). Built by the CALLER from
+	 * `lib/domain/caseTypes.ts::reachableCaseTypes`. A `#<type>/<prop>` ref
+	 * resolves by looking its namespace up here and reusing the parent-index
+	 * walk `#case/parent…` already emits. Empty when the form has no case type.
+	 */
+	readonly caseTypeDepths: ReadonlyMap<string, number>;
 }
 
-/** Pre-resolved parser node types used by the case-create rewriter. */
-const T = (() => {
-	const all = parser.nodeSet.types;
-	const one = (name: string) => {
-		const found = all.find((t) => t.name === name);
-		if (!found) throw new Error(`Missing parser node type: ${name}`);
-		return found;
-	};
-	return {
-		HashtagRef: one("HashtagRef"),
-		HashtagType: one("HashtagType"),
-		HashtagSegment: one("HashtagSegment"),
-	};
-})();
-
 /**
- * Expand the hashtag references in `expr` against the given form
- * context. On a registration form, rewrites `#case/case_id` to
- * `/data/case/@case_id` (which the case-create scaffolding populates at
- * `xforms-ready`); leaves every other `#case/<X>` un-rewritten so the
- * validator's rejection error can quote the original authored form.
- * On every other form type, delegates to the context-free
- * {@link expandHashtags}.
- *
- * Empty / whitespace-only input passes through unchanged.
+ * Expand the hashtag references in `expr` against the given form context. See
+ * the module header for the per-namespace resolution + registration narrowing
+ * rules. Empty / whitespace-only input passes through unchanged.
  */
 export function expandHashtagsInContext(
 	expr: string,
 	ctx: FormHashtagContext,
 ): string {
 	if (!expr) return expr;
-	if (ctx.formType !== "registration") return expandHashtags(expr);
+	const isRegistration = ctx.formType === "registration";
 
-	// Two-pass on a registration form: rewrite `#case/case_id` to the
-	// form-local path (the case-management scaffolding populates the
-	// target at xforms-ready), then run the context-free expander to
-	// handle every `#form/` and `#user/` reference. The context-free
-	// pass leaves `#case/<X>` for X !== "case_id" un-rewritten — the
-	// validator catches those.
-	const afterCaseRewrite = rewriteCaseIdRefs(expr);
-	return expandHashtags(afterCaseRewrite);
-}
+	return rewriteHashtags(expr, (typeName, segments) => {
+		// `#form/` / `#user/` resolve identically in every form context.
+		const flat = resolveFlatHashtag(typeName, segments);
+		if (flat !== undefined) return flat;
 
-/**
- * Replace every `#case/case_id` HashtagRef with `/data/case/@case_id`.
- * Walks the Lezer parse tree to find the exact (type=case, segments=
- * ["case_id"]) shape rather than substring-matching the literal
- * `#case/case_id` — a label-prose match would also catch `#case/case_id_x`
- * by prefix and break the round-trip. Other `#case/<X>` references are
- * left in place; the validator emits a targeted error pointing the
- * author at `#form/<question_id>`.
- */
-function rewriteCaseIdRefs(expr: string): string {
-	const tree = parser.parse(expr);
-	const edits: Array<{ from: number; to: number; text: string }> = [];
+		// Resolve the namespace to a parent-index hop count + the property path
+		// read off the target case. The transitional literal `#case/` counts
+		// leading `parent` index segments; a per-type namespace looks its depth up
+		// in the form context.
+		let hops: number;
+		let propPath: string;
+		if (typeName === "case") {
+			({ hops, propPath } = splitCaseSegments(segments));
+		} else {
+			const depth = ctx.caseTypeDepths.get(typeName);
+			// Unreachable namespace — not a case this form can load. Leave it
+			// verbatim; the deep validator rejects it by quoting the authored text.
+			if (depth === undefined) return undefined;
+			hops = depth;
+			propPath = segments.join("/");
+		}
 
-	tree.iterate({
-		enter(node) {
-			if (node.type !== T.HashtagRef) return;
-			const ref = node.node;
-			const type = ref.getChild(T.HashtagType.id);
-			if (!type) return;
-			if (expr.slice(type.from, type.to) !== "case") return;
-			const segments = ref.getChildren(T.HashtagSegment.id);
-			if (segments.length !== 1) return;
-			if (expr.slice(segments[0].from, segments[0].to) !== "case_id") return;
-			edits.push({ from: node.from, to: node.to, text: "/data/case/@case_id" });
-			return false;
-		},
+		// Registration narrowing — the form's own new case isn't in casedb yet, so
+		// only its allocated `case_id` (the loaded case, hop depth 0) resolves, to
+		// the form-local path the case-create scaffolding populates. The
+		// authoritative home of this rule is the read-side accept map
+		// `lib/domain/caseTypes.ts::caseRefAcceptMap`; keep the two in lockstep
+		// (the wire layer stays below references, so it can't import it).
+		if (isRegistration && hops === 0 && propPath === "case_id") {
+			return "/data/case/@case_id";
+		}
+		return expandCaseToWire(hops, propPath);
 	});
-
-	if (edits.length === 0) return expr;
-	let result = expr;
-	for (let i = edits.length - 1; i >= 0; i--) {
-		const { from, to, text } = edits[i];
-		result = result.slice(0, from) + text + result.slice(to);
-	}
-	return result;
 }

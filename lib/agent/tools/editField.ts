@@ -286,12 +286,11 @@ export const editFieldTool = {
 			}
 
 			// Id rename next as its own emitted batch. The `renameField`
-			// reducer handles the full cascade on its own — form-local path /
-			// hashtag rewrites, cross-form `#case/` hashtag rewrites scoped
-			// to modules with matching caseType, peer-field renames, and case
-			// list / detail column renames. The client runs the SAME reducer
-			// against `applyMany`, so the cascade reproduces on the client
-			// without needing a full blueprint snapshot.
+			// reducer handles the full cascade on its own — form-local rewrites,
+			// cross-form hashtag and case-list column rewrites for the renamed
+			// case property, and peer-field renames. The client runs the SAME
+			// reducer against `applyMany`, so the cascade reproduces on the
+			// client without needing a full blueprint snapshot.
 			if (newId && newId !== fieldId) {
 				const renameMuts = renameFieldMutations(workingDoc, fieldUuid, newId);
 				if (renameMuts.length > 0) {

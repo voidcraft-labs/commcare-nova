@@ -5,7 +5,7 @@ CodeMirror 6 extensions for editing CommCare XPath inside the builder: language 
 ## Files
 
 - `xpath-language.ts` — wraps the Lezer parser as a CodeMirror `LanguageSupport`.
-- `xpath-autocomplete.ts` — hashtag + function completions, scoped to the current form.
+- `xpath-autocomplete.ts` — hashtag + function completions, scoped to the current form. Per-case-type namespaces (`#<type>/`) and their properties come from the form's reachable case types via `lib/domain/caseTypes.ts::caseRefAcceptMap` — the SAME accept set the validator enforces, so the editor never offers a `#<type>/<prop>` it would then reject (no offer-then-reject).
 - `xpath-lint.ts` / `buildLintContext.ts` — surface validator diagnostics inline; the context object shuttles the doc + target field + function registry into the linter without pulling the validator into every editor mount.
 - `xpath-chips.ts` — replaces hashtag tokens with a pill widget backed by the parser's node positions.
 - `xpath-format.ts` — canonical-form whitespace normalizer used when committing an edit.

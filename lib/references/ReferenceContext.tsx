@@ -9,15 +9,32 @@
  */
 
 "use client";
-import { createContext, useContext, useEffect, useMemo, useRef } from "react";
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+} from "react";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { ReferenceProvider } from "./provider";
 
 const ReferenceCtx = createContext<ReferenceProvider | null>(null);
 
+/** The form the user is currently editing, if any. Lets in-editor chip surfaces
+ *  resolve refs against the active form without threading the uuid through every
+ *  component. `undefined` off a form (or outside the wrapper). */
+const CurrentFormUuidCtx = createContext<string | undefined>(undefined);
+
 interface ReferenceProviderWrapperProps {
-	/** Getter returning the current lint context (blueprint + form + moduleCaseType). */
-	getContext: () => XPathLintContext | undefined;
+	/** Resolve the lint context for a given form uuid (blueprint + form +
+	 *  reachable case types). The provider calls this with whatever form a ref
+	 *  is being resolved against — the active form for in-editor surfaces, each
+	 *  field's owning form for the sidebar. */
+	getContextForForm: (formUuid: string) => XPathLintContext | undefined;
+	/** The form currently being edited, exposed via `useCurrentFormUuid`. */
+	currentFormUuid: string | undefined;
 	/** Subscribe to external mutations that invalidate cached data.
 	 *  Follows the useSyncExternalStore contract: subscribe(listener) → unsubscribe.
 	 *  Fires when field entities change — not on UI state changes. */
@@ -31,15 +48,16 @@ interface ReferenceProviderWrapperProps {
  * from the builder — not by React render cycles or function identity changes.
  */
 export function ReferenceProviderWrapper({
-	getContext,
+	getContextForForm,
+	currentFormUuid,
 	subscribeMutation,
 	children,
 }: ReferenceProviderWrapperProps) {
-	const getContextRef = useRef(getContext);
-	getContextRef.current = getContext;
+	const getContextRef = useRef(getContextForForm);
+	getContextRef.current = getContextForForm;
 
 	const provider = useMemo(
-		() => new ReferenceProvider(() => getContextRef.current()),
+		() => new ReferenceProvider((formUuid) => getContextRef.current(formUuid)),
 		[],
 	);
 
@@ -52,11 +70,32 @@ export function ReferenceProviderWrapper({
 	);
 
 	return (
-		<ReferenceCtx.Provider value={provider}>{children}</ReferenceCtx.Provider>
+		<ReferenceCtx.Provider value={provider}>
+			<CurrentFormUuidCtx.Provider value={currentFormUuid}>
+				{children}
+			</CurrentFormUuidCtx.Provider>
+		</ReferenceCtx.Provider>
 	);
 }
 
 /** Access the nearest ReferenceProvider. Returns null if outside a wrapper. */
 export function useReferenceProvider(): ReferenceProvider | null {
 	return useContext(ReferenceCtx);
+}
+
+/** The form currently being edited, for in-editor chip resolution. `undefined`
+ *  when not on a form or outside a `ReferenceProviderWrapper`. */
+export function useCurrentFormUuid(): string | undefined {
+	return useContext(CurrentFormUuidCtx);
+}
+
+/** A stable getter that always reads the live current-form uuid. For TipTap
+ *  suggestion configs that are memoized once but must resolve against whatever
+ *  form is active at call time — the getter identity never changes, so the
+ *  config doesn't re-create on navigation. */
+export function useLiveFormUuidGetter(): () => string | undefined {
+	const currentFormUuid = useCurrentFormUuid();
+	const ref = useRef(currentFormUuid);
+	ref.current = currentFormUuid;
+	return useCallback(() => ref.current, []);
 }

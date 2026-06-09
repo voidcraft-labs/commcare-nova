@@ -46,7 +46,10 @@ import {
 	ToolbarGroup,
 	ToolbarSeparator,
 } from "@/components/tiptap-ui-primitive/toolbar";
-import { useReferenceProvider } from "@/lib/references/ReferenceContext";
+import {
+	useLiveFormUuidGetter,
+	useReferenceProvider,
+} from "@/lib/references/ReferenceContext";
 import { POPOVER_GLASS } from "@/lib/styles";
 import {
 	createInlineEditorExtensions,
@@ -234,6 +237,7 @@ export function InlineTextEditor({
 	clickPosition,
 }: InlineTextEditorProps) {
 	const provider = useReferenceProvider();
+	const getFormUuid = useLiveFormUuidGetter();
 	const savedRef = useRef(false);
 	const anchorRef = useRef<HTMLDivElement>(null);
 
@@ -299,8 +303,11 @@ export function InlineTextEditor({
 	);
 
 	const extensions = useMemo(
-		() => [...createInlineEditorExtensions(provider), keyboardExtension],
-		[provider, keyboardExtension],
+		() => [
+			...createInlineEditorExtensions(provider, getFormUuid),
+			keyboardExtension,
+		],
+		[provider, getFormUuid, keyboardExtension],
 	);
 
 	const editor = useEditor({

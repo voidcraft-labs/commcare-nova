@@ -11,16 +11,17 @@
  * recursion inside this file avoids an import cycle that would arise
  * if child rows lived in a different module importing back here.
  *
- * The component also reads the `FormIconContext` so inline reference
- * chips in labels render with the correct field-kind icon.
+ * Inline reference chips in labels resolve against the row's OWN form
+ * (`formUuid`) through the shared `ReferenceProvider` — the same gate the
+ * editor and canvas use, so the sidebar never renders a chip that doesn't
+ * resolve (e.g. a `#<type>/<prop>` ref to a type the form can't read).
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { motion } from "motion/react";
-import { memo, use } from "react";
+import { memo } from "react";
 import {
 	CollapseChevron,
-	FormIconContext,
 	HighlightedText,
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
@@ -31,6 +32,7 @@ import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import { fieldRegistry, type Uuid } from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
+import { useReferenceProvider } from "@/lib/references/ReferenceContext";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 
 export const FieldRow = memo(function FieldRow({
@@ -71,7 +73,8 @@ export const FieldRow = memo(function FieldRow({
 	 *  Only this field + the old selection re-render on change. */
 	const isSelected = useIsFieldSelected(uuid);
 
-	const iconOverrides = use(FormIconContext);
+	/** Shared provider — resolves label chips against this row's own form. */
+	const provider = useReferenceProvider();
 
 	if (!field) return null;
 
@@ -94,7 +97,7 @@ export const FieldRow = memo(function FieldRow({
 	const textIndices = labelIndices ?? (!fieldLabel ? idIndices : undefined);
 	const displayText = fieldLabel || field.id;
 	const chipContent = !textIndices
-		? textWithChips(displayText, null, iconOverrides)
+		? textWithChips(displayText, provider, formUuid)
 		: null;
 
 	return (

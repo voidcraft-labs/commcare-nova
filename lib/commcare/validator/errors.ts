@@ -14,6 +14,7 @@ export type ValidationErrorCode =
 	| "NO_MODULES"
 	| "DUPLICATE_MODULE_NAME"
 	| "MISSING_CHILD_CASE_MODULE"
+	| "RESERVED_CASE_TYPE_NAME"
 	// Module-level
 	| "NO_CASE_TYPE"
 	| "CASE_LIST_ONLY_HAS_FORMS"

@@ -2072,6 +2072,192 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 	});
 });
 
+// ── Prose case-ref validation (deep validator) ──────────────────────
+
+describe("prose case-ref validation", () => {
+	/**
+	 * Followup-form fixture over a "mother" case type, with one read-only
+	 * field whose chosen prose surface carries the supplied text. A followup
+	 * loads the case, so the per-type accept map exposes mother's full
+	 * property set.
+	 */
+	function followupWithProse(spec: {
+		surface: "label" | "validate_msg";
+		text: string;
+	}): BlueprintDoc {
+		const field: Parameters<typeof f>[0] = {
+			kind: "text",
+			id: "note",
+			label: "Note",
+		};
+		(field as Record<string, unknown>)[spec.surface] = spec.text;
+		return buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "M",
+					caseType: "mother",
+					caseListConfig: caseListConfig([
+						{ field: "household_code", header: "Code" },
+					]),
+					forms: [{ name: "Visit", type: "followup", fields: [field] }],
+				},
+			],
+			caseTypes: [
+				{
+					name: "mother",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "household_code", label: "Household code" },
+					],
+				},
+			],
+		});
+	}
+
+	it("flags a bad PROPERTY on a reachable type (#mother/typoprop)", () => {
+		// mother IS reachable, so the emitter lowers this to `<output>` — but
+		// `typoprop` doesn't exist on mother, so it resolves to empty at runtime.
+		// A real authoring typo: flag it.
+		const doc = followupWithProse({
+			surface: "label",
+			text: "Code: #mother/typoprop",
+		});
+		const errors = runValidation(doc);
+		const offender = errors.find(
+			(e) =>
+				e.code === "INVALID_CASE_REF" && e.message.includes("#mother/typoprop"),
+		);
+		expect(offender).toBeDefined();
+		expect(offender?.message).toContain("has no property");
+		// Reported on the field's label surface.
+		expect(offender?.location.field).toBe("label");
+	});
+
+	it("flags a bad property in a validate_msg too", () => {
+		const doc = followupWithProse({
+			surface: "validate_msg",
+			text: "Must match #mother/typoprop",
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.some(
+				(e) =>
+					e.code === "INVALID_CASE_REF" &&
+					e.message.includes("#mother/typoprop"),
+			),
+		).toBe(true);
+	});
+
+	it("accepts a valid per-type ref in a label (#mother/household_code)", () => {
+		const doc = followupWithProse({
+			surface: "label",
+			text: "Code: #mother/household_code",
+		});
+		const errors = runValidation(doc);
+		expect(errors.filter((e) => e.code === "INVALID_CASE_REF")).toEqual([]);
+	});
+
+	// The emitter (`xform/builder.ts::buildLabelNodes`) leaves an UNRESOLVED
+	// prose hashtag as literal text with no error. The validator must match that
+	// leniency: in prose, a namespace that isn't a reachable case type is
+	// innocent — NOT a case ref to flag.
+	for (const text of [
+		"See #N/A here", // innocent prose token, not a case type
+		"Priority: #priority/high", // not a case type this form knows
+		"Typo: #mothre/code", // misspelled type name — left literal by the emitter
+		"Child: #child/name", // child type, created fresh, never loaded
+		"Hello #case/case_name", // transitional #case/ — the wire still resolves it
+	]) {
+		it(`leaves unresolved prose untouched: "${text}"`, () => {
+			const doc = followupWithProse({ surface: "label", text });
+			const errors = runValidation(doc);
+			expect(errors.filter((e) => e.code === "INVALID_CASE_REF")).toEqual([]);
+		});
+	}
+
+	it("flags ONLY the bad-property token among mixed prose", () => {
+		// `#N/A` is innocent prose, `#case/case_name` resolves on the wire, but
+		// `#mother/typoprop` is a reachable type with a bogus property.
+		const doc = followupWithProse({
+			surface: "label",
+			text: "See #N/A and #case/case_name and #mother/typoprop",
+		});
+		const errors = runValidation(doc);
+		const caseRefErrors = errors.filter((e) => e.code === "INVALID_CASE_REF");
+		expect(caseRefErrors).toHaveLength(1);
+		expect(caseRefErrors[0].message).toContain("#mother/typoprop");
+	});
+});
+
+// ── Reserved case-type name (namespace collision) ───────────────────
+
+describe("RESERVED_CASE_TYPE_NAME", () => {
+	/** Registration-form fixture over a case type with the given name. */
+	function appWithCaseType(name: string): BlueprintDoc {
+		return buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "M",
+					caseType: name,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: name,
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name, properties: [{ name: "case_name", label: "Name" }] }],
+		});
+	}
+
+	it("rejects a case type named 'user' with the collision message", () => {
+		const errors = runValidation(appWithCaseType("user"));
+		const offender = errors.find((e) => e.code === "RESERVED_CASE_TYPE_NAME");
+		expect(offender).toBeDefined();
+		expect(offender?.message).toContain("#user/");
+		expect(offender?.message).toContain("reserved reference namespace");
+		// Reported once even though "user" appears on the module AND the catalog.
+		expect(
+			errors.filter((e) => e.code === "RESERVED_CASE_TYPE_NAME"),
+		).toHaveLength(1);
+	});
+
+	it("rejects 'case', 'form', and 'parent' too", () => {
+		for (const name of ["case", "form", "parent"]) {
+			const errors = runValidation(appWithCaseType(name));
+			expect(errors.some((e) => e.code === "RESERVED_CASE_TYPE_NAME")).toBe(
+				true,
+			);
+		}
+	});
+
+	it("is case-insensitive (rejects 'Parent')", () => {
+		const errors = runValidation(appWithCaseType("Parent"));
+		expect(errors.some((e) => e.code === "RESERVED_CASE_TYPE_NAME")).toBe(true);
+	});
+
+	it("leaves a project-specific case type alone", () => {
+		const errors = runValidation(appWithCaseType("user_record"));
+		expect(errors.some((e) => e.code === "RESERVED_CASE_TYPE_NAME")).toBe(
+			false,
+		);
+	});
+});
+
 // ── Connect rules ──────────────────────────────────────────────────
 
 describe("connect rules", () => {

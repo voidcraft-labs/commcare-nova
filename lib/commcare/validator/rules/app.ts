@@ -8,6 +8,7 @@
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
+import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 
 function noModules(doc: BlueprintDoc): ValidationError[] {
@@ -59,6 +60,50 @@ function duplicateModuleNames(doc: BlueprintDoc): ValidationError[] {
 		} else {
 			seen.set(mod.name, i);
 		}
+	}
+	return errors;
+}
+
+/**
+ * Reject a case type named after a reserved reference namespace
+ * (`form` / `user` / `case` / `parent`, case-insensitive). Such a name
+ * collides with the hashtag system: `#user/<prop>` always resolves to
+ * CommCare's built-in user case (the wire resolves the flat namespace first),
+ * so the validator would accept `#user/x` as the project's `user` type while
+ * the emitter silently points it at the wrong case — a wrong emit with no
+ * authoring signal. The reserved set is shared with `checkCaseHashtag`'s
+ * resolution skip-set (`reservedNamespaces.ts`) so the two can't drift. Scans
+ * every module's `caseType` AND the case-type catalog so a child type declared
+ * only in `doc.caseTypes` is caught too; each offending name is reported once.
+ */
+function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const flagged = new Set<string>();
+
+	const flag = (name: string, location: ValidationError["location"]): void => {
+		const lower = name.toLowerCase();
+		if (!RESERVED_CASE_TYPE_NAMES.has(lower)) return;
+		if (flagged.has(lower)) return;
+		flagged.add(lower);
+		errors.push(
+			validationError(
+				"RESERVED_CASE_TYPE_NAME",
+				"app",
+				`Case type "${name}" collides with a reserved reference namespace. CommCare's hashtag system reserves "#form/", "#user/", "#case/", and "#parent/", and the wire resolves those before any project case type — so "#${name}/<property>" would always resolve to the built-in "${lower}" namespace, never to this case type, silently emitting against the wrong target. Rename the case type to something project-specific (e.g. "${name}_record").`,
+				location,
+				{ caseType: name },
+			),
+		);
+	};
+
+	for (const moduleUuid of doc.moduleOrder) {
+		const mod = doc.modules[moduleUuid];
+		if (mod.caseType) {
+			flag(mod.caseType, { moduleUuid, moduleName: mod.name });
+		}
+	}
+	for (const ct of doc.caseTypes ?? []) {
+		flag(ct.name, {});
 	}
 	return errors;
 }
@@ -226,6 +271,7 @@ export const APP_RULES = [
 	noModules,
 	emptyAppName,
 	duplicateModuleNames,
+	reservedCaseTypeName,
 	childCaseTypeMissingModule,
 	circularFormLinks,
 	duplicateConnectIds,

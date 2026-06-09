@@ -46,11 +46,16 @@ import { createRefSuggestion } from "./refSuggestion";
  * the `#` trigger to ReferenceProvider for chip autocomplete.
  *
  * @param provider - ReferenceProvider for hashtag autocomplete (null disables autocomplete)
+ * @param getFormUuid - Resolves the form whose readable refs the autocomplete
+ *   offers (the active form being edited)
  */
 export function createInlineEditorExtensions(
 	provider: ReferenceProvider | null,
+	getFormUuid: () => string | undefined,
 ): Extensions {
-	const suggestion = provider ? createRefSuggestion(provider) : undefined;
+	const suggestion = provider
+		? createRefSuggestion(provider, getFormUuid)
+		: undefined;
 
 	return [
 		StarterKit.configure({

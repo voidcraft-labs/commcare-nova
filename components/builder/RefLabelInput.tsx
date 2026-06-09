@@ -2,7 +2,7 @@
  * TipTap-based label input with inline reference chip support.
  *
  * Replaces EditableText for the label field, adding the ability to insert
- * #form/, #case/, #user/ references that render as styled inline chips.
+ * #form/, #<case_type>/, #user/ references that render as styled inline chips.
  * Preserves the same focus/blur/commit/cancel UX as EditableText:
  *   - Blur → save
  *   - Enter → save (single-line mode)
@@ -30,8 +30,13 @@ import {
 } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
+import { namespaceOf } from "@/lib/references/config";
 import { ReferenceProvider } from "@/lib/references/provider";
-import { useReferenceProvider } from "@/lib/references/ReferenceContext";
+import {
+	useCurrentFormUuid,
+	useLiveFormUuidGetter,
+	useReferenceProvider,
+} from "@/lib/references/ReferenceContext";
 import { parseLabelSegments } from "@/lib/references/renderLabel";
 import { CommcareRef } from "@/lib/tiptap/commcareRefNode";
 import { createRefSuggestion } from "@/lib/tiptap/refSuggestion";
@@ -61,6 +66,7 @@ interface RefLabelInputProps {
 function parseValueToContent(
 	value: string,
 	provider: ReferenceProvider | null,
+	formUuid: string | undefined,
 ): JSONContent {
 	if (!value) {
 		return { type: "doc", content: [{ type: "paragraph" }] };
@@ -79,11 +85,13 @@ function parseValueToContent(
 			inlineContent.push({ type: "text", text: seg.value });
 			continue;
 		}
-		const resolved = provider?.resolve(seg.value);
+		const resolved = provider?.resolve(seg.value, formUuid);
 		inlineContent.push({
 			type: "commcareRef",
 			attrs: {
-				refType: parsed.type,
+				/* `refType` carries the namespace — a case-type name for case refs,
+				 * derived through `namespaceOf` (never the coarse "case"). */
+				refType: namespaceOf(parsed),
 				path: parsed.path,
 				label: resolved?.label ?? parsed.path,
 			},
@@ -162,11 +170,13 @@ export function RefLabelInput({
 	);
 
 	const provider = useReferenceProvider();
+	const currentFormUuid = useCurrentFormUuid();
+	const getFormUuid = useLiveFormUuidGetter();
 
 	const suggestion = useMemo(() => {
 		if (!provider) return undefined;
-		return createRefSuggestion(provider);
-	}, [provider]);
+		return createRefSuggestion(provider, getFormUuid);
+	}, [provider, getFormUuid]);
 
 	/**
 	 * TipTap extension for commit/cancel keyboard shortcuts. Runs at ProseMirror
@@ -226,8 +236,8 @@ export function RefLabelInput({
 	);
 
 	const initialContent = useMemo(
-		() => parseValueToContent(value, provider),
-		[value, provider],
+		() => parseValueToContent(value, provider, currentFormUuid),
+		[value, provider, currentFormUuid],
 	);
 
 	const editor = useEditor({
@@ -258,10 +268,10 @@ export function RefLabelInput({
 		if (!editor || focused) return;
 		const currentSerialized = serializeContent(editor.getJSON());
 		if (currentSerialized !== value) {
-			const content = parseValueToContent(value, provider);
+			const content = parseValueToContent(value, provider, currentFormUuid);
 			editor.commands.setContent(content);
 		}
-	}, [editor, value, focused, provider]);
+	}, [editor, value, focused, provider, currentFormUuid]);
 
 	/* Auto-focus and selectAll on mount. */
 	useEffect(() => {
@@ -310,7 +320,11 @@ export function RefLabelInput({
 		setFocused(false);
 		editor.commands.blur();
 
-		const content = parseValueToContent(savedValueRef.current, provider);
+		const content = parseValueToContent(
+			savedValueRef.current,
+			provider,
+			currentFormUuid,
+		);
 		editor.commands.setContent(content);
 
 		/* Push the reverted value back to the parent so the canvas stays in sync. */
@@ -319,7 +333,7 @@ export function RefLabelInput({
 		if (!savedValueRef.current.trim() && onEmpty) {
 			onEmpty();
 		}
-	}, [editor, provider, onEmpty]);
+	}, [editor, provider, onEmpty, currentFormUuid]);
 
 	/* Stable refs so the event listener effect doesn't re-register on every
      parent render (commit/cancel get new identities when onSave/onEmpty change). */

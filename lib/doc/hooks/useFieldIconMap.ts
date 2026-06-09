@@ -1,71 +1,21 @@
 /**
- * Field-icon-map hook + field-count helpers used by the AppTree rows.
- *
- * `useFieldIconMap` walks a form's field subtree once and memoizes a
- * `FieldPath → IconifyIcon` map keyed by path. FormCard passes the
- * map down the tree via `FormIconContext` so FieldRow can render
- * reference chips (e.g. `#form/field_id`) with the correct
- * field-kind icon without prop-drilling.
+ * Field-count hooks used by the AppTree rows.
  *
  * `useFormDescendantCount` + the underlying pure `countFieldsFromOrder`
- * helper live here because they walk the same subtree shape. Keeping the
+ * helper live here because they walk a form's field subtree. Keeping the
  * pure walker as a primitive-returning function lets Zustand's equality
  * check skip re-renders when unrelated forms' field lists change.
  *
- * Lives in `lib/doc/hooks/` because — despite the "iconmap" name — these
- * are narrow doc-store subscription hooks, not AppTree-presentation
- * utilities. Colocating them with the other `lib/doc/hooks/*` entries
- * keeps the boundary rule (components import hooks, never the raw
- * store) trivially enforceable.
+ * Lives in `lib/doc/hooks/` because these are narrow doc-store subscription
+ * hooks, not AppTree-presentation utilities. Colocating them with the other
+ * `lib/doc/hooks/*` entries keeps the boundary rule (components import hooks,
+ * never the raw store) trivially enforceable.
  */
 
 "use client";
 
-import type { IconifyIcon } from "@iconify/react/offline";
-import { useMemo } from "react";
-import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
-import {
-	useBlueprintDoc,
-	useBlueprintDocShallow,
-} from "@/lib/doc/hooks/useBlueprintDoc";
+import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
-import { fieldRegistry } from "@/lib/domain";
-
-/**
- * Build a `FieldPath → field-kind icon` map for a form's fields.
- *
- * Recurses through the form's `fieldOrder` subtree and records the
- * per-kind icon from `fieldRegistry`. The registry lookup is total
- * (every kind has an icon) so no defensive branch is needed.
- *
- * The map is memoized on `{formId, fields, fieldOrder}` — entity-map
- * reference equality means the walk runs once per actual change.
- */
-export function useFieldIconMap(formId: Uuid): Map<string, IconifyIcon> {
-	const { fields, fieldOrder } = useBlueprintDocShallow((s) => ({
-		fields: s.fields,
-		fieldOrder: s.fieldOrder,
-	}));
-
-	return useMemo(() => {
-		const map = new Map<string, IconifyIcon>();
-		function walk(parentId: Uuid, parentPath?: FieldPath) {
-			const uuids = fieldOrder[parentId] ?? [];
-			for (const uuid of uuids) {
-				const f = fields[uuid];
-				if (!f) continue;
-				const p = fpath(f.id, parentPath);
-				// Icon comes from `fieldRegistry[kind]` — the domain-owned
-				// metadata registry. Every kind has an icon, so no defensive
-				// branch is needed; the lookup is total.
-				map.set(p, fieldRegistry[f.kind].icon);
-				walk(uuid, p);
-			}
-		}
-		walk(formId);
-		return map;
-	}, [formId, fields, fieldOrder]);
-}
 
 /**
  * Count fields recursively under a form or group. Pure, primitive

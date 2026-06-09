@@ -13,9 +13,24 @@
 
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
-import { type FieldKind, fieldKinds, fieldRegistry } from "@/lib/domain";
-import { REFERENCE_TYPES } from "./config";
-import type { Reference, ReferenceType } from "./types";
+import {
+	caseRefAcceptMap,
+	type FieldKind,
+	fieldKinds,
+	fieldRegistry,
+} from "@/lib/domain";
+import { classifyNamespace } from "./config";
+import type { Reference } from "./types";
+
+/**
+ * The pure (no-lookup) parse of a `#namespace/path` string. The namespace is
+ * the token between `#` and the first `/`: `form` / `user` are the fixed
+ * families; any other identifier is a case type, captured on `caseType`.
+ */
+export type ParsedReference =
+	| { type: "form"; path: string }
+	| { type: "user"; path: string }
+	| { type: "case"; caseType: string; path: string };
 
 /**
  * Field kinds that produce referenceable values — derived from the
@@ -39,39 +54,61 @@ export const USER_PROPERTIES: ReadonlyArray<{ name: string; label: string }> = [
 	{ name: "phone_number", label: "Phone Number" },
 ];
 
-const VALID_TYPES = new Set<ReferenceType>(REFERENCE_TYPES);
+const NAMESPACE_RE = /^[A-Za-z_]\w*$/;
 
 /** Re-export of `fpath` for callers that previously used this module as
  *  the tree-walking helper. Kept alongside the provider so nothing breaks
  *  the `lib/references/provider` import surface. */
 export { fpath };
 
+/** A cached form scope: the form's lint context plus the derived indexes the
+ *  hot paths read. `byPath` is the `#form/` path index; `accept` is the
+ *  per-case-type accept map already narrowed by form type (so resolve/search/
+ *  namespaces never re-run the narrowing rule and never disagree with the
+ *  validator). */
+interface FormCacheEntry {
+	ctx: XPathLintContext;
+	byPath: Map<string, { label: string; kind: FieldKind }>;
+	accept: Map<string, Set<string>>;
+}
+
 export class ReferenceProvider {
-	/** Cached form entries keyed by path. Rebuilt on `invalidate()`. */
-	private formCache: {
-		entries: ReadonlyArray<{
-			path: FieldPath;
-			label: string;
-			kind: FieldKind;
-		}>;
-		byPath: Map<string, { label: string; kind: FieldKind }>;
-	} | null = null;
+	/** Per-form cache, keyed by form uuid: the lint context + its derived
+	 *  indexes. Built lazily and cleared wholesale by `invalidate()` on any
+	 *  blueprint mutation. A Map (not a single slot) because one render — the
+	 *  app-tree sidebar — resolves refs across many forms at once; a single slot
+	 *  would thrash. Caching the whole context (not just `byPath`) keeps the
+	 *  sidebar from re-walking the form tree once per chip. */
+	private caches = new Map<string, FormCacheEntry>();
 
-	constructor(private getContext: () => XPathLintContext | undefined) {}
+	/**
+	 * @param getContextForForm Resolve the lint context for a given form uuid.
+	 *   The app-wide provider builds it from the doc store; a per-editor
+	 *   provider may ignore the argument and return its single bound form.
+	 */
+	constructor(
+		private getContextForForm: (
+			formUuid: string,
+		) => XPathLintContext | undefined,
+	) {}
 
-	/** Clear cached data. Call when the blueprint or selection changes. */
+	/** Clear all cached form scopes. Call when the blueprint mutates. */
 	invalidate(): void {
-		this.formCache = null;
+		this.caches.clear();
 	}
 
 	/**
-	 * Search references by type, filtered by a partial path query.
-	 * Powers autocomplete in both CodeMirror and TipTap surfaces.
+	 * Search references in a namespace, filtered by a partial query. Powers
+	 * autocomplete in both CodeMirror and TipTap surfaces. `namespace` is
+	 * `"form"`, `"user"`, or a case-type name. `user` needs no form scope;
+	 * `form` and case namespaces resolve against `formUuid`'s context. Case
+	 * results are narrowed by the same `accept` map the validator uses, so the
+	 * autocomplete never offers a ref the validator would reject.
 	 */
-	search(type: ReferenceType, query: string): Reference[] {
+	search(namespace: string, query: string, formUuid?: string): Reference[] {
 		const lowerQuery = query.toLowerCase();
 
-		if (type === "user") {
+		if (namespace === "user") {
 			return USER_PROPERTIES.filter(
 				(p) =>
 					p.name.includes(lowerQuery) ||
@@ -84,126 +121,158 @@ export class ReferenceProvider {
 			}));
 		}
 
-		const ctx = this.getContext();
-		if (!ctx) return [];
+		if (!formUuid) return [];
+		const cache = this.ensureCache(formUuid);
+		if (!cache) return [];
 
-		if (type === "form") {
-			const cache = this.ensureFormCache(ctx);
-			return cache.entries
-				.filter(
-					(e) =>
-						e.path.toLowerCase().includes(lowerQuery) ||
-						e.label.toLowerCase().includes(lowerQuery),
-				)
-				.map((e) => ({
-					type: "form" as const,
-					path: e.path,
-					label: e.label,
-					raw: `#form/${e.path}`,
-					icon: fieldRegistry[e.kind].icon,
-				}));
-		}
-
-		if (type === "case") {
-			if (!ctx.caseProperties) return [];
+		if (namespace === "form") {
 			const results: Reference[] = [];
-			for (const [name, meta] of ctx.caseProperties) {
-				if (name.toLowerCase().includes(lowerQuery)) {
+			for (const [path, meta] of cache.byPath) {
+				if (
+					path.toLowerCase().includes(lowerQuery) ||
+					meta.label.toLowerCase().includes(lowerQuery)
+				) {
 					results.push({
-						type: "case",
-						path: name,
-						label: meta.label ?? name,
-						raw: `#case/${name}`,
+						type: "form",
+						path: path as FieldPath,
+						label: meta.label,
+						raw: `#form/${path}`,
+						icon: fieldRegistry[meta.kind].icon,
 					});
 				}
 			}
 			return results;
 		}
 
-		return [];
+		// Case namespace — only the properties the accept map admits for this
+		// form (registration narrows the own type to `case_id`). Labels come
+		// from the full reachable index.
+		const allowed = cache.accept.get(namespace);
+		if (!allowed) return [];
+		const typeEntry = cache.ctx.reachableCaseTypes?.get(namespace);
+		const results: Reference[] = [];
+		for (const name of allowed) {
+			if (name.toLowerCase().includes(lowerQuery)) {
+				results.push({
+					type: "case",
+					caseType: namespace,
+					path: name,
+					label: typeEntry?.properties.get(name)?.label ?? name,
+					raw: `#${namespace}/${name}`,
+				});
+			}
+		}
+		return results;
 	}
 
 	/**
-	 * Resolve a canonical "#type/path" string to a Reference with label.
-	 * Returns null if the format doesn't match or the reference doesn't
-	 * exist in the current blueprint context.
+	 * Resolve a `#namespace/path` string to a Reference with label, scoped to
+	 * `formUuid`. Returns null when the format is malformed OR the reference
+	 * doesn't resolve in that form's context (the gate that keeps an
+	 * unresolvable ref from rendering as a chip). `user` refs are global and
+	 * need no form; `form`/case refs require `formUuid` + its context. Case
+	 * refs go through the same `accept` map the validator uses, so a chip
+	 * renders only for refs the validator would also accept.
 	 */
-	resolve(raw: string): Reference | null {
+	resolve(raw: string, formUuid?: string): Reference | null {
 		const parsed = ReferenceProvider.parse(raw);
 		if (!parsed) return null;
 
-		const { type, path } = parsed;
-
-		if (type === "user") {
-			const prop = USER_PROPERTIES.find((p) => p.name === path);
+		if (parsed.type === "user") {
+			const prop = USER_PROPERTIES.find((p) => p.name === parsed.path);
 			if (!prop) return null;
-			return { type, path, label: prop.label, raw };
+			return { type: "user", path: parsed.path, label: prop.label, raw };
 		}
 
-		const ctx = this.getContext();
-		if (!ctx) return null;
+		if (!formUuid) return null;
+		const cache = this.ensureCache(formUuid);
+		if (!cache) return null;
 
-		if (type === "form") {
-			const fieldPath = path as FieldPath;
-			const cache = this.ensureFormCache(ctx);
-			const found = cache.byPath.get(path);
+		if (parsed.type === "form") {
+			const found = cache.byPath.get(parsed.path);
 			if (!found) return null;
 			return {
-				type,
-				path: fieldPath,
+				type: "form",
+				path: parsed.path as FieldPath,
 				raw,
-				label: found.label ?? path,
+				label: found.label ?? parsed.path,
 				icon: fieldRegistry[found.kind].icon,
 			};
 		}
 
-		if (type === "case") {
-			const meta = ctx.caseProperties?.get(path);
-			if (!meta) return null;
-			return { type, path, label: meta.label ?? path, raw };
-		}
-
-		return null;
+		// Case ref — resolvable only if the accept map admits this type +
+		// property for this form (registration narrows the own type to
+		// `case_id`). The label comes from the full reachable index.
+		if (!cache.accept.get(parsed.caseType)?.has(parsed.path)) return null;
+		const meta = cache.ctx.reachableCaseTypes
+			?.get(parsed.caseType)
+			?.properties.get(parsed.path);
+		return {
+			type: "case",
+			caseType: parsed.caseType,
+			path: parsed.path,
+			label: meta?.label ?? parsed.path,
+			raw,
+		};
 	}
 
 	/**
-	 * Parse a raw "#type/path" string into its namespace and path components.
-	 * Pure string parsing — no blueprint lookup. The path is a plain string;
-	 * callers construct the appropriate Reference variant with the correct
-	 * path type (FieldPath for form, string for case/user).
+	 * The namespaces offered at the `#`-stage of autocomplete for a form:
+	 * always `form` + `user`, plus one per case type the `accept` map admits
+	 * (so a registration form offers only its own type, never ancestors).
+	 * Returns just `form`/`user` when no form scope is supplied.
 	 */
-	static parse(raw: string): { type: ReferenceType; path: string } | null {
+	namespaces(formUuid?: string): string[] {
+		const base = ["form", "user"];
+		if (!formUuid) return base;
+		const cache = this.ensureCache(formUuid);
+		if (!cache) return base;
+		return [...base, ...cache.accept.keys()];
+	}
+
+	/**
+	 * Parse a raw `#namespace/path` string into its namespace + path. Pure
+	 * string parsing — no blueprint lookup. The namespace must be a legal
+	 * identifier; `classifyNamespace` decides the family (`form`/`user` fixed,
+	 * anything else a case type carried on `caseType`).
+	 */
+	static parse(raw: string): ParsedReference | null {
 		if (!raw.startsWith("#")) return null;
 		const slashIdx = raw.indexOf("/");
 		if (slashIdx < 0) return null;
-		const type = raw.slice(1, slashIdx);
-		if (!VALID_TYPES.has(type as ReferenceType)) return null;
+		const ns = raw.slice(1, slashIdx);
+		if (!NAMESPACE_RE.test(ns)) return null;
 		const path = raw.slice(slashIdx + 1);
 		if (!path) return null;
-		return { type: type as ReferenceType, path };
+		const family = classifyNamespace(ns);
+		return family === "case"
+			? { type: "case", caseType: ns, path }
+			: { type: family, path };
 	}
 
 	// ── Private helpers ──────────────────────────────────────────────────
 
 	/**
-	 * Build the form-entries cache from the context's pre-collected
-	 * `formEntries` list. The context hands us tuples with a leading-slash-
-	 * free path (e.g. "group1/age"), which is exactly the `FieldPath`
-	 * shape used by the chip/resolve surfaces.
+	 * Build (or reuse) the cached scope for a form: its lint context plus the
+	 * `#form/` path index and the narrowed per-type accept map. One full
+	 * `getContextForForm` walk per form per invalidation cycle; every resolve /
+	 * search / namespace lookup after that reads the cache.
 	 */
-	private ensureFormCache(ctx: XPathLintContext) {
-		if (this.formCache) return this.formCache;
-		const entries = ctx.formEntries.map((e) => ({
-			path: e.path as FieldPath,
-			label: e.label,
-			kind: e.kind,
-		}));
+	private ensureCache(formUuid: string): FormCacheEntry | undefined {
+		const cached = this.caches.get(formUuid);
+		if (cached) return cached;
+		const ctx = this.getContextForForm(formUuid);
+		if (!ctx) return undefined;
 		const byPath = new Map<string, { label: string; kind: FieldKind }>();
-		for (const e of entries) {
+		for (const e of ctx.formEntries) {
 			byPath.set(e.path, { label: e.label, kind: e.kind });
 		}
-		this.formCache = { entries, byPath };
-		return this.formCache;
+		const accept = ctx.reachableCaseTypes
+			? caseRefAcceptMap(ctx.reachableCaseTypes, ctx.formType)
+			: new Map<string, Set<string>>();
+		const entry: FormCacheEntry = { ctx, byPath, accept };
+		this.caches.set(formUuid, entry);
+		return entry;
 	}
 }
 

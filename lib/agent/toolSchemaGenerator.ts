@@ -100,7 +100,7 @@ const FIELD_DOCS = {
 		"CommCare case-property key when `case_property_on` is set.",
 	label:
 		"Human-friendly label shown to the end user. Supports hashtag " +
-		"references (`#case/prop`, `#form/path`, `#user/prop`) and " +
+		"references (`#<case_type>/prop`, `#form/path`, `#user/prop`) and " +
 		"markdown. Do NOT use {curly_brace} template syntax — unsupported. " +
 		'Pass "" (empty string) for `hidden` fields (which never render). ' +
 		'Pass "" for `group` to make the group transparent at runtime ' +

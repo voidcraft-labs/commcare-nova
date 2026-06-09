@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
+import { expandHashtags } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import {
@@ -1772,6 +1773,212 @@ describe("#form/ hashtag expansion", () => {
 		// But vellum:calculate IS present (preserves shorthand for Vellum editor)
 		expect(xform).toContain('vellum:calculate="#form/a * 2"');
 		expect(xform).toContain('calculate="/data/a * 2"');
+	});
+
+	it("resolves a #<case_type>/<prop> ref to the same parent-index walk as #case/", () => {
+		// `pregnancy` (own, depth 0) → `mother` (parent, depth 1). A field's
+		// calculate reads the mother's household_code via the per-type namespace;
+		// the wire XPath must be the depth-1 parent-index walk, byte-identical to
+		// what `#case/parent/household_code` emits. This is also the casedb-instance
+		// guard: the ONLY case reference here is `#mother/...` (no `#case/`), so a
+		// missing instance declaration would emit a casedb lookup with no source.
+		const doc = buildDoc({
+			appName: "CaseTypeRefs",
+			modules: [
+				{
+					name: "Pregnancies",
+					caseType: "pregnancy",
+					caseListConfig: caseListConfig([{ field: "ga", header: "GA" }]),
+					forms: [
+						{
+							name: "ANC Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "mother_code",
+									calculate: "#mother/household_code",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "pregnancy",
+					parent_type: "mother",
+					properties: [{ name: "ga", label: "GA" }],
+				},
+				{
+					name: "mother",
+					properties: [{ name: "household_code", label: "Household Code" }],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const xform = Object.values(hq._attachments)[0] as string;
+		// The resolved `calculate` is byte-identical to the legacy `#case/parent`
+		// walk (apostrophes XML-escaped by the serializer in the attribute value).
+		const escapedWalk = expandHashtags(
+			"#case/parent/household_code",
+		).replaceAll("'", "&apos;");
+		expect(xform).toContain(`calculate="${escapedWalk}"`);
+		// The per-type shorthand round-trips for the Vellum editor.
+		expect(xform).toContain('vellum:calculate="#mother/household_code"');
+		// A per-type ref needs casedb just like `#case/` — the instance MUST be
+		// declared, or the emitted lookup references a non-existent source.
+		expect(xform).toContain(
+			'<instance src="jr://instance/casedb" id="casedb"/>',
+		);
+	});
+
+	it("lowers a #<case_type>/<prop> prose label ref to an <output> with the parent-index walk", () => {
+		const doc = buildDoc({
+			appName: "CaseTypeProse",
+			modules: [
+				{
+					name: "Pregnancies",
+					caseType: "pregnancy",
+					caseListConfig: caseListConfig([{ field: "ga", header: "GA" }]),
+					forms: [
+						{
+							name: "ANC Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "code_note",
+									label: "Code: #mother/household_code",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "pregnancy",
+					parent_type: "mother",
+					properties: [{ name: "ga", label: "GA" }],
+				},
+				{
+					name: "mother",
+					properties: [{ name: "household_code", label: "Household Code" }],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const xform = Object.values(hq._attachments)[0] as string;
+		const escapedWalk = expandHashtags(
+			"#case/parent/household_code",
+		).replaceAll("'", "&apos;");
+		// Prose lowers to an `<output>` carrying the resolved parent-index walk.
+		expect(xform).toContain(`<output value="${escapedWalk}"`);
+		// Prose case refs force the casedb instance declaration too.
+		expect(xform).toContain(
+			'<instance src="jr://instance/casedb" id="casedb"/>',
+		);
+	});
+
+	it("keeps an unresolvable prose token literal — no <output>, no casedb", () => {
+		// The broad `BARE_HASHTAG_RE` matches innocent prose tokens too: an
+		// unreachable namespace (`#section/intro`), a junk token (`#N/A`), or a
+		// CHILD case type (`#child/name` — a write target, absent from the form's
+		// reachable read set). `expand` returns each verbatim, and prose lowering is
+		// gated on a CHANGED string, so none lower to `<output>` (a verbatim
+		// `<output value="#N/A">` would be broken XPath on device). They stay
+		// literal escaped text, exactly as before the regex was broadened —
+		// authoring-time flagging of a misdirected per-type prose ref is a separate
+		// validator job.
+		const doc = buildDoc({
+			appName: "JunkProse",
+			modules: [
+				{
+					name: "Pregnancies",
+					caseType: "pregnancy",
+					caseListConfig: caseListConfig([{ field: "ga", header: "GA" }]),
+					forms: [
+						{
+							name: "ANC Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "junk_note",
+									label: "Codes #N/A and #child/name and #section/intro",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "pregnancy", properties: [{ name: "ga", label: "GA" }] },
+			],
+		});
+		const hq = expandDoc(doc);
+		const xform = Object.values(hq._attachments)[0] as string;
+		// The tokens stay literal — no lowering happened at all.
+		expect(xform).not.toContain("<output");
+		expect(xform).toContain("Codes #N/A and #child/name and #section/intro");
+		// No case resolution → no casedb instance declared.
+		expect(xform).not.toContain('id="casedb"');
+	});
+
+	it("declares the casedb instance for a per-type ref whose ONLY home is a validate_msg", () => {
+		// `validate_msg` is lowered by `buildLabelNodes` just like `label`/`hint`,
+		// so a reachable `#mother/...` ref there must force the `casedb` `<instance>`
+		// even when the field has no case-ref calculate/relevant. Driving the prose
+		// instance scan from `addItext` (the single lowering funnel) is what makes
+		// this hold for every prose surface, not just label + hint.
+		const doc = buildDoc({
+			appName: "ValidateMsgRef",
+			modules: [
+				{
+					name: "Pregnancies",
+					caseType: "pregnancy",
+					caseListConfig: caseListConfig([{ field: "ga", header: "GA" }]),
+					forms: [
+						{
+							name: "ANC Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "code",
+									label: "Code",
+									validate: "string-length(.) > 0",
+									validate_msg: "Must match #mother/household_code",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "pregnancy",
+					parent_type: "mother",
+					properties: [{ name: "ga", label: "GA" }],
+				},
+				{
+					name: "mother",
+					properties: [{ name: "household_code", label: "Household Code" }],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const xform = Object.values(hq._attachments)[0] as string;
+		const escapedWalk = expandHashtags(
+			"#case/parent/household_code",
+		).replaceAll("'", "&apos;");
+		// The validate_msg prose lowered to an <output> carrying the resolved walk…
+		expect(xform).toContain(`<output value="${escapedWalk}"`);
+		// …and the casedb instance is declared (the bug this guards against).
+		expect(xform).toContain(
+			'<instance src="jr://instance/casedb" id="casedb"/>',
+		);
 	});
 
 	it("declares no secondary instances for #form/-only expressions", () => {

@@ -60,9 +60,6 @@ const EXPANSIONS = new Map<string, string>([
 	["user", VELLUM_HASHTAG_TRANSFORMS.prefixes["#user/"]],
 ]);
 
-/** Hashtag types that need HQ-side vellum:hashtags metadata (non-trivial expansions). */
-const HQ_HASHTAG_TYPES = new Set(["case", "user"]);
-
 // ── Case relationship traversal ──────────────────────────────────────
 
 /**
@@ -84,31 +81,60 @@ const HQ_HASHTAG_TYPES = new Set(["case", "user"]);
 const CASE_PARENT_SEGMENT = "parent";
 
 /**
- * Expand a `#case/...` hashtag's segments to full casedb XPath, resolving any
- * leading `parent` relationship segments through the case index. Zero parent
- * segments → the plain loaded-case selector (the same shape the `#case/`
- * transforms prefix carries, since both compose from `caseById`). N parents →
- * N nested `caseById(...)/index/parent` walks from the current case to the
- * target ancestor case, then the remaining property path read off that case.
+ * The core case-loading walk, addressed by hop depth: `hops` parent-index hops
+ * up from the form's loaded case, then `propPath` read off the target case.
+ * Zero hops → the plain loaded-case selector (the same shape the `#case/`
+ * transforms prefix carries, since both compose from `caseById`). N hops → N
+ * nested `caseById(...)/index/parent` walks from the current case to the target
+ * ancestor case.
+ *
+ * The single wire-shape authority for BOTH ways a case is addressed: the legacy
+ * `#case/parent…/<prop>` path counts leading `parent` segments into `hops`
+ * (`expandCaseHashtag`), and the per-case-type path
+ * (`hashtags/formContext.ts::expandHashtagsInContext`) maps a case-type
+ * namespace to its `reachableCaseTypes` depth and passes that depth as `hops`.
+ * Routing both through here is what makes `#<own_type>/<prop>` byte-identical to
+ * `#case/<prop>` and `#<ancestor>/<prop>` byte-identical to the matching
+ * `#case/parent…/<prop>` BY CONSTRUCTION, not by parallel walks that could drift.
  */
-function expandCaseHashtag(segments: string[]): string {
-	let firstProp = 0;
-	while (segments[firstProp] === CASE_PARENT_SEGMENT) firstProp++;
-	const hops = firstProp;
-	const propPath = segments.slice(firstProp).join("/");
-
-	// Walk to the target case's id — one `/index/parent` per parent hop; zero
-	// hops leaves it at the current case. Everything flows through `caseById`,
-	// so the zero-hop output is byte-for-byte the loaded-case prefix, which the
-	// `#case/<prop>` regression test pins — transitively guarding these
-	// selector primitives against drift.
+export function expandCaseToWire(hops: number, propPath: string): string {
+	// Walk to the target case's id — one `/index/parent` per hop; zero hops
+	// leaves it at the current case. Everything flows through `caseById`, so the
+	// zero-hop output is byte-for-byte the loaded-case prefix, which the
+	// `#case/<prop>` regression test pins — transitively guarding these selector
+	// primitives against drift.
 	let idExpr = CURRENT_CASE_ID;
 	for (let h = 0; h < hops; h++) {
 		idExpr = `${caseById(idExpr)}/index/parent`;
 	}
-	// A bare `#case/parent` (relationship with no trailing property) resolves
-	// to the related case node itself.
+	// A walk with no trailing property (a bare `#case/parent` relationship)
+	// resolves to the related case node itself.
 	return propPath ? `${caseById(idExpr)}/${propPath}` : caseById(idExpr);
+}
+
+/**
+ * Split a literal `#case/...` hashtag's segments into the parent-index hop count
+ * (the leading `parent` relationship segments) and the property path read off
+ * the target case. The context-aware expander reuses this so its literal-`#case/`
+ * branch counts hops identically to `expandCaseHashtag`.
+ */
+export function splitCaseSegments(segments: string[]): {
+	hops: number;
+	propPath: string;
+} {
+	let firstProp = 0;
+	while (segments[firstProp] === CASE_PARENT_SEGMENT) firstProp++;
+	return { hops: firstProp, propPath: segments.slice(firstProp).join("/") };
+}
+
+/**
+ * Expand a `#case/...` hashtag's segments to full casedb XPath, resolving any
+ * leading `parent` relationship segments through the case index into the hop
+ * count `expandCaseToWire` walks; the remaining segments are the property path.
+ */
+export function expandCaseHashtag(segments: string[]): string {
+	const { hops, propPath } = splitCaseSegments(segments);
+	return expandCaseToWire(hops, propPath);
 }
 
 /** Apply edits in reverse order to preserve source offsets. */
@@ -125,8 +151,21 @@ function applyEdits(
 	return result;
 }
 
-/** Expand #form/, #case/, and #user/ hashtags to full XPath in an expression. */
-export function expandHashtags(expr: string): string {
+/**
+ * Walk every `HashtagRef` in `expr` (via the Lezer XPath parser, never a
+ * substring scan — `#case/case_id` and `#case/case_id_x` differ only at a
+ * segment boundary the parser respects) and replace each through `resolve`.
+ * The resolver receives the hashtag's type name + segment strings and returns
+ * the replacement XPath, or `undefined` to leave that ref verbatim.
+ *
+ * The single tree-walk shared by the context-free {@link expandHashtags} and
+ * the context-aware `hashtags/formContext.ts::expandHashtagsInContext`, so the
+ * two can never drift in how they locate hashtag spans.
+ */
+export function rewriteHashtags(
+	expr: string,
+	resolve: (typeName: string, segments: string[]) => string | undefined,
+): string {
 	if (!expr) return expr;
 
 	const tree = parser.parse(expr);
@@ -139,18 +178,11 @@ export function expandHashtags(expr: string): string {
 				const ref = node.node;
 				const type = ref.getChild(T.HashtagType.id);
 				if (!type) return;
-				const segments = ref.getChildren(T.HashtagSegment.id);
 				const typeName = expr.slice(type.from, type.to);
-				const segmentStrings = segments.map((s) => expr.slice(s.from, s.to));
-				// `case` routes through the relationship-aware expander; `form`
-				// and `user` are flat prefix + path.
-				let text: string | undefined;
-				if (typeName === "case") {
-					text = expandCaseHashtag(segmentStrings);
-				} else {
-					const prefix = EXPANSIONS.get(typeName);
-					if (prefix !== undefined) text = prefix + segmentStrings.join("/");
-				}
+				const segments = ref
+					.getChildren(T.HashtagSegment.id)
+					.map((s) => expr.slice(s.from, s.to));
+				const text = resolve(typeName, segments);
 				if (text !== undefined) {
 					edits.push({ from: node.from, to: node.to, text });
 				}
@@ -160,6 +192,35 @@ export function expandHashtags(expr: string): string {
 	});
 
 	return applyEdits(expr, edits);
+}
+
+/**
+ * Flat-prefix resolution for the namespaces whose expansion is a simple
+ * `prefix + property path` — `#form/` and `#user/`. Returns `undefined` for any
+ * other namespace; `#case/` and the per-case-type namespaces carry
+ * relationship / scope that needs the `expandCaseToWire` walk instead.
+ */
+export function resolveFlatHashtag(
+	typeName: string,
+	segments: string[],
+): string | undefined {
+	const prefix = EXPANSIONS.get(typeName);
+	return prefix !== undefined ? prefix + segments.join("/") : undefined;
+}
+
+/**
+ * Expand `#form/`, `#case/`, and `#user/` hashtags to full XPath. Context-free:
+ * it CANNOT resolve per-case-type namespaces (`#<type>/<prop>`) because those
+ * need the form's reachable-case-type depths — that resolution lives in
+ * `hashtags/formContext.ts::expandHashtagsInContext`. The literal `#case/`
+ * branch stays as a transitional safety net for any un-migrated reference.
+ */
+export function expandHashtags(expr: string): string {
+	return rewriteHashtags(expr, (typeName, segments) =>
+		typeName === "case"
+			? expandCaseHashtag(segments)
+			: resolveFlatHashtag(typeName, segments),
+	);
 }
 
 /** Returns true if the expression contains any HashtagRef nodes. */
@@ -172,7 +233,13 @@ export function hasHashtags(expr: string): boolean {
 	return false;
 }
 
-/** Extract all #case/... and #user/... hashtag references from XPath expressions. */
+/**
+ * Extract every case-bound hashtag reference from XPath expressions: `#case/…`,
+ * `#user/…`, and every `#<case_type>/…` per-type ref — i.e. every namespace
+ * EXCEPT `#form/`, which resolves to a plain in-form `/data/` path that carries
+ * no HQ-side `vellum:hashtags` metadata or `case_references_data.load` entry.
+ * Feeds both the bind's `vellum:hashtags` map and `formActions.ts`'s load map.
+ */
 export function extractHashtags(exprs: string[]): string[] {
 	const hashtags = new Set<string>();
 	for (const expr of exprs) {
@@ -183,7 +250,7 @@ export function extractHashtags(exprs: string[]): string[] {
 					const type = node.node.getChild(T.HashtagType.id);
 					if (!type) return false;
 					const typeName = expr.slice(type.from, type.to);
-					if (HQ_HASHTAG_TYPES.has(typeName)) {
+					if (typeName !== "form") {
 						hashtags.add(expr.slice(node.from, node.to));
 					}
 					return false;
@@ -192,4 +259,44 @@ export function extractHashtags(exprs: string[]): string[] {
 		});
 	}
 	return [...hashtags];
+}
+
+/** Parse the namespace out of a full hashtag ref string (`#mother/x` → `mother`).
+ *  Returns `undefined` for a malformed ref (no leading `#` or no segment). */
+function hashtagNamespace(ref: string): string | undefined {
+	const slash = ref.indexOf("/");
+	return ref.startsWith("#") && slash > 1 ? ref.slice(1, slash) : undefined;
+}
+
+/**
+ * Build a bind's `vellum:hashtagTransforms` metadata: the HQ-Vellum round-trip
+ * table mapping each referenced hashtag prefix to the XPath it expands to.
+ *
+ * Starts from the static `#case/` + `#user/` base (`VELLUM_HASHTAG_TRANSFORMS`),
+ * then adds a per-type prefix for every case-type namespace actually referenced
+ * in `referencedHashtags`, each the depth-N `caseById` walk `expandCaseToWire`
+ * emits — so HQ's editor round-trips `#<type>/` to the same XPath the bind
+ * carries. Own-type (depth 0) yields the same prefix string as `#case/`.
+ *
+ * A bind that references no per-type namespace returns the base unchanged, so
+ * its serialized metadata is byte-identical to the pre-per-type output. Emitting
+ * only the referenced types (not every reachable type) keeps the metadata
+ * minimal and matches the existing "transforms only when a ref needs them"
+ * posture.
+ */
+export function buildHashtagTransforms(
+	referencedHashtags: string[],
+	caseTypeDepths: ReadonlyMap<string, number>,
+): { prefixes: Record<string, string> } {
+	const prefixes: Record<string, string> = {
+		...VELLUM_HASHTAG_TRANSFORMS.prefixes,
+	};
+	for (const ref of referencedHashtags) {
+		const ns = hashtagNamespace(ref);
+		if (ns === undefined) continue;
+		const depth = caseTypeDepths.get(ns);
+		if (depth === undefined) continue;
+		prefixes[`#${ns}/`] = `${expandCaseToWire(depth, "")}/`;
+	}
+	return { prefixes };
 }

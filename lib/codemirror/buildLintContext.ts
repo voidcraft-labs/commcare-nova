@@ -3,7 +3,8 @@
  *
  * The lint/autocomplete plugin takes a pre-collected snapshot of:
  *   - valid `/data/...` paths in the current form,
- *   - case property names/labels reachable from this module, and
+ *   - the case types readable from this form (own + ancestors) with their
+ *     property metadata, and
  *   - value-producing form fields (for `#form/x` completions).
  *
  * Both the field inspector's XPath editors and the form-settings
@@ -13,7 +14,14 @@
  */
 
 import type { BlueprintDocState } from "@/lib/doc/store";
-import type { Field, FieldKind, Form, Uuid } from "@/lib/domain";
+import {
+	type Field,
+	type FieldKind,
+	type Form,
+	reachableCaseTypes,
+	toReachableIndex,
+	type Uuid,
+} from "@/lib/domain";
 import { VALUE_PRODUCING_TYPES } from "@/lib/references/provider";
 import type { XPathLintContext } from "./xpath-lint";
 
@@ -69,31 +77,22 @@ export function buildLintContext(
 	}
 	walk(formUuid, "/data");
 
-	// Case properties: own case type + any child case types that point to
-	// this module's type. The case-type record on `doc.caseTypes` is the
-	// authoritative list; it's populated by the SA and we never synthesize
-	// entries from per-field `case_property_on` values (by design).
-	const caseProperties = new Map<string, { label?: string }>();
-	if (moduleCaseType && state.caseTypes) {
-		const ct = state.caseTypes.find((c) => c.name === moduleCaseType);
-		if (ct) {
-			for (const prop of ct.properties) {
-				caseProperties.set(prop.name, { label: prop.label });
-			}
-		}
-		for (const child of state.caseTypes) {
-			if (child.parent_type === moduleCaseType) {
-				for (const prop of child.properties) {
-					if (!caseProperties.has(prop.name))
-						caseProperties.set(prop.name, { label: prop.label });
-				}
-			}
-		}
-	}
+	// Readable case types: the form's own case type plus its ancestor chain
+	// (walked through `parent_type`). The case-type record on `doc.caseTypes`
+	// is the authoritative property list; it's populated by the SA and we never
+	// synthesize entries from per-field `case_property_on` values (by design).
+	// Child types are deliberately NOT included — a child case is created fresh
+	// and never loaded, so reading its properties is unresolvable at runtime.
+	const reachable = moduleCaseType
+		? toReachableIndex(
+				reachableCaseTypes(moduleCaseType, state.caseTypes ?? []),
+			)
+		: undefined;
 
 	return {
+		formUuid,
 		validPaths,
-		caseProperties: moduleCaseType ? caseProperties : undefined,
+		reachableCaseTypes: reachable,
 		formEntries: formEntries.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind)),
 		formType: form.type,
 	};
