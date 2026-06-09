@@ -29,6 +29,7 @@ import {
 	type CommCareSettingsPublic,
 	getCommCareSettings,
 } from "@/lib/db/settings";
+import { log } from "@/lib/logger";
 import { ThreadHistory } from "./thread-history";
 
 export default async function BuilderPage({
@@ -36,12 +37,19 @@ export default async function BuilderPage({
 }: {
 	params: Promise<{ id: string }>;
 }) {
+	// [perf] TEMP — server data-fetch buckets for the /build/[id] load. The
+	// auth bucket is logged in build/layout (getSession here is a cache hit
+	// that races the layout's call, so it isn't timed separately). Remove with
+	// the rest of the `[perf]` logging once the load regression is diagnosed.
+	const pageStart = performance.now();
 	const { id } = await params;
 
 	const session = await getSession();
+	const settingsStart = performance.now();
 	const commcareSettings = session
 		? await getCommCareSettings(session.user.id)
 		: ({ configured: false } satisfies CommCareSettingsPublic);
+	const settingsMs = Math.round(performance.now() - settingsStart);
 
 	/* New apps — no blueprint fetch needed. */
 	if (id === "new") {
@@ -54,9 +62,28 @@ export default async function BuilderPage({
 
 	if (!session) redirect("/");
 
+	const loadAppStart = performance.now();
 	const app = await loadApp(id);
+	const loadAppMs = Math.round(performance.now() - loadAppStart);
 	if (!app || app.owner !== session.user.id) notFound();
 	if (app.status !== "complete") redirect("/");
+
+	/* [perf] Log size alongside duration: a recently-bloated blueprint would
+	 * slow BOTH the Firestore read here AND the RSC serialization that happens
+	 * after this component returns (which no in-component timer can see — the
+	 * gap between `dataFetchMs` and the perceived load is that serialization +
+	 * transfer). `blueprintBytes` is the JSON length of the persisted doc. */
+	const blueprintBytes = JSON.stringify(app.blueprint).length;
+	log.info("[perf] build/page data", {
+		appId: id,
+		settingsMs,
+		loadAppMs,
+		dataFetchMs: Math.round(performance.now() - pageStart),
+		blueprintBytes,
+		moduleCount: app.blueprint.moduleOrder.length,
+		formCount: Object.keys(app.blueprint.forms).length,
+		fieldCount: Object.keys(app.blueprint.fields).length,
+	});
 
 	return (
 		<BuilderProvider buildId={id} initialDoc={app.blueprint}>
