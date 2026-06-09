@@ -126,6 +126,9 @@ export const HOSTNAME_ALLOWLIST = {
 		"/api/commcare",
 		"/api/log",
 		"/api/media",
+		/* Sentry browser-event tunnel (`tunnelRoute` in next.config.ts) — not a
+		 * route handler; a Next rewrite forwards the POST to Sentry ingest. */
+		"/api/monitoring",
 		"/api/user",
 		"/api/admin",
 		"/.well-known/oauth-authorization-server",
@@ -146,8 +149,10 @@ export const HOSTNAME_ALLOWLIST = {
 	/* The docs host serves docs content at the root, so the proxy rewrites
 	 * every wire path to the internal `/docs/[[...slug]]` route — the
 	 * docs allowlist enumerates only the framework + search-API paths
-	 * that bypass the rewrite. Page-path coverage is the proxy's job. */
-	[HOSTNAMES.docs]: ["/api/search", "/_next", "/favicon"],
+	 * that bypass the rewrite. Page-path coverage is the proxy's job.
+	 * `/api/monitoring` is the Sentry browser-event tunnel — docs pages
+	 * load the client SDK too, and the tunnel POST is same-origin. */
+	[HOSTNAMES.docs]: ["/api/search", "/api/monitoring", "/_next", "/favicon"],
 } as const satisfies Record<Hostname, readonly string[]>;
 
 /** Normalize the Host header: lowercase, strip trailing dot, strip :80 / :443. */

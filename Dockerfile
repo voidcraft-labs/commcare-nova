@@ -35,6 +35,17 @@ COPY . .
 # Next.js collects anonymous telemetry — disable in CI/build.
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Cloud Build doesn't set CI itself; next.config.ts keys the Sentry
+# plugin's verbosity on it (`silent: !process.env.CI`), so without this
+# the deploy log can't show whether the source-map upload succeeded.
+ENV CI=true
+
+# Sentry uploads source maps during `next build` when this is set. Cloud Build
+# passes it from Secret Manager (`nova-sentry`); a local `docker build` leaves
+# it empty and the Sentry plugin skips the upload without failing the build.
+# Only the builder stage sees it — nothing leaks into the pushed runner image.
+ARG SENTRY_AUTH_TOKEN
+
 RUN npm run build
 
 # --- Stage 4: Production runner ---

@@ -81,6 +81,8 @@ Google Cloud Run via Docker (`next.config.ts` → `output: "standalone"`).
 
 **Default `*.run.app` URL is disabled.** The service is reachable only through the three custom-domain mappings (`commcare.app`, `mcp.commcare.app`, `docs.commcare.app`). `gcloud run services describe` still lists the `*.run.app` URLs in `run.googleapis.com/urls` — they 404 in practice. Re-enable with `gcloud run services update commcare-nova --region=us-central1 --default-url` if needed for debugging.
 
+**Observability is two-channel.** Cloud Logging stays the log stream: `lib/logger.ts` writes structured JSON to stdout/stderr (severity, labels, `stack_trace` for GCP Error Reporting) and `/api/log/error` funnels browser errors into it. Sentry (org `dimagi-1l`, project `nova`) owns error grouping, tracing, and session replay: `instrumentation.ts` captures server request errors, `instrumentation-client.ts` + `app/global-error.tsx` capture the browser, and events auto-tag `environment` so dev noise filters out. Sentry never sees `log.*` output — stdout writes bypass it. Browser events tunnel through `/api/monitoring` (a Next rewrite, allowlisted on the main + docs hosts; an off-allowlist tunnel path 404s in the proxy and client reporting silently dies). Session Replay needs the proxy CSP's `worker-src 'self' blob:`. Server/edge configs keep `sendDefaultPii` off so request cookies (the session token) never reach Sentry. Source maps upload inside the Cloud Build docker build via the `nova-sentry` secret → `SENTRY_AUTH_TOKEN` build arg.
+
 ## Architecture
 
 ### Multi-host, single service
