@@ -362,6 +362,33 @@ describe("proxy: unknown hosts (Cloud Run health checks, dev localhost, missing 
 		const res = proxy(req("", "/build"));
 		expectAuthRedirect(res);
 	});
+
+	it("renders /warmup for the startup probe — no auth redirect, CSP attached", () => {
+		/* The startup probe carries the instance's own Host and no session
+		 * cookie. A 307 here would count as probe success WITHOUT loading
+		 * the page graph — the whole point of the probe — so /warmup must
+		 * skip the auth redirect and take the normal page path. */
+		const res = proxy(req("nova-abc-uc.a.run.app", "/warmup"));
+		expectPassthrough(res);
+		expect(res.status).not.toBe(307);
+		expect(res.headers.get("content-security-policy")).not.toBeNull();
+	});
+});
+
+describe("proxy: /warmup stays probe-only on the custom domains", () => {
+	it.each([
+		"commcare.app",
+		"mcp.commcare.app",
+	])("404s /warmup on %s (hostname allowlist)", (host) => {
+		expectNotFound(proxy(req(host, "/warmup")));
+	});
+
+	it("rewrites /warmup on docs.commcare.app into docs space like any unknown docs path", () => {
+		/* The docs host never proxy-404s: every off-allowlist path rewrites
+		 * to `/docs/<path>` and fumadocs' own not-found page answers. The
+		 * warmup page is unreachable through it either way. */
+		expectRewrite(proxy(req("docs.commcare.app", "/warmup")), "/docs/warmup");
+	});
 });
 
 /**
