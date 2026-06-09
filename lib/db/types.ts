@@ -516,6 +516,43 @@ export const mediaAssetDocSchema = z.object({
 		})
 		.optional(),
 	created_at: timestamp,
+	/**
+	 * Reverse index: ids of apps whose PERSISTED blueprint references this asset on
+	 * some carrier. Maintained append-only by the blueprint writers
+	 * (`syncMediaReferences` arrayUnions the app id on every save that references
+	 * the asset) so the delete reference guard reads a tiny candidate set instead
+	 * of loading every one of the owner's apps. Entries are CANDIDATES, not proof:
+	 * a save never removes them, so the guard re-walks each candidate's live doc to
+	 * confirm a real reference (and names the carrier) — a stale entry that no
+	 * longer references the asset simply yields no carrier and doesn't block.
+	 *
+	 * The set is APPEND-ONLY and never pruned (no writer calls `arrayRemove`), so
+	 * it grows toward the count of DISTINCT apps that ever referenced the asset —
+	 * tiny for per-question field media, larger only for an asset reused as a logo
+	 * across many apps. There is deliberately no prune (it would mean writes on the
+	 * read-path guard); the guard re-walk tolerates stale entries at the cost of
+	 * one extra app load each. If a single asset's set ever became genuinely large,
+	 * the fix is a prune pass, not a re-run of the additive backfill — note that
+	 * the backfill only `arrayUnion`s, so it can NEVER shrink an existing set.
+	 *
+	 * Ids are NOT owner-filtered: a blueprint that references a foreign asset id
+	 * writes a cross-owner candidate here, harmless because the guard re-walk drops
+	 * any app whose `owner` isn't the asset's owner.
+	 *
+	 * Server-only — never projected onto `WireMediaAsset`.
+	 *
+	 * `undefined` marks a row written before the index shipped and not yet
+	 * backfilled. The guard full-scans those (correct, slow), so the field's value
+	 * for the index's CORRECTNESS is the backfill having run before the writers go
+	 * live: once a writer arrayUnions a single app onto an absent field, the field
+	 * becomes DEFINED-but-partial and the full-scan fallback no longer fires, so a
+	 * still-referenced asset whose other apps haven't re-saved could be wrongly
+	 * deletable in that window. Run the backfill as part of the deploy (see
+	 * `scripts/backfill-media-reference-index.ts`); the export media-validator is
+	 * the backstop if a partial edge ever slips through. New rows are born `[]`
+	 * (see `createPendingAsset`), so post-backfill no live row is `undefined`.
+	 */
+	referencingAppIds: z.array(z.string()).optional(),
 });
 export type MediaAssetDoc = z.infer<typeof mediaAssetDocSchema>;
 export type MediaAssetExtract = NonNullable<MediaAssetDoc["extract"]>;

@@ -72,6 +72,21 @@ export interface MediaPickerDialogProps {
 	 */
 	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
+	/**
+	 * Asset ids currently staged elsewhere in the SAME surface that aren't held
+	 * in the blueprint — today, the chat composer's attachment chips. Deleting
+	 * one of these from the library is a valid action (chat attachments aren't an
+	 * app reference, so the delete isn't blocked), but it would silently strand
+	 * the chip, so the confirm dialog warns the user it'll be pulled off the
+	 * message. Empty/absent on the builder media slots, which have no such chips.
+	 */
+	attachedAssetIds?: readonly string[];
+	/**
+	 * Called after a library asset is successfully deleted, so the caller can
+	 * drop any staged reference to it (e.g. remove the chat chip). Fires on every
+	 * delete; the caller no-ops when the id isn't one it's staging.
+	 */
+	onAssetDeleted?: (assetId: string) => void;
 }
 
 export function MediaPickerDialog({
@@ -79,6 +94,8 @@ export function MediaPickerDialog({
 	onOpenChange,
 	kinds,
 	onPick,
+	attachedAssetIds,
+	onAssetDeleted,
 }: MediaPickerDialogProps) {
 	// The data hooks (`useMediaLibrary`) live in `PickerBody`, which is
 	// a child of `Dialog.Popup` — Base UI only mounts the Popup's
@@ -98,6 +115,8 @@ export function MediaPickerDialog({
 							onPick(asset);
 							onOpenChange(false);
 						}}
+						attachedAssetIds={attachedAssetIds}
+						onAssetDeleted={onAssetDeleted}
 					/>
 				</Dialog.Popup>
 			</Dialog.Portal>
@@ -110,9 +129,13 @@ export function MediaPickerDialog({
 function PickerBody({
 	kinds,
 	onPick,
+	attachedAssetIds,
+	onAssetDeleted,
 }: {
 	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
+	attachedAssetIds?: readonly string[];
+	onAssetDeleted?: (assetId: string) => void;
 }) {
 	const [tab, setTab] = useState<Tab>("upload");
 	// A multi-kind slot gets a browse filter (defaulting to "all"); a
@@ -173,6 +196,9 @@ function PickerBody({
 		try {
 			await deleteMediaAsset(asset.id);
 			removeAsset(asset.id);
+			// Pull any staged reference to the now-gone asset (e.g. the chat
+			// composer's chip). A no-op for a caller that wasn't staging it.
+			onAssetDeleted?.(asset.id);
 			showToast("info", "File deleted", name);
 			setDeleteTarget(null);
 		} catch (err) {
@@ -266,6 +292,10 @@ function PickerBody({
 			 *  on top at the same z-modal tier. */}
 			<MediaDeleteConfirmDialog
 				target={deleteTarget}
+				attached={
+					deleteTarget !== null &&
+					(attachedAssetIds?.includes(deleteTarget.id) ?? false)
+				}
 				deleting={deleting}
 				onConfirm={confirmDelete}
 				onCancel={() => {
@@ -717,12 +747,17 @@ function FilterChip({
  */
 function MediaDeleteConfirmDialog({
 	target,
+	attached,
 	deleting,
 	onConfirm,
 	onCancel,
 }: {
 	/** The asset awaiting confirmation, or `null` when the dialog is closed. */
 	target: MediaAssetView | null;
+	/** True when this asset is currently attached to the chat message (staged as
+	 *  a composer chip). Adds a line warning the delete will pull it off the
+	 *  message, since the chip can't survive its asset being gone. */
+	attached: boolean;
 	/** True while the delete request is in flight (locks the controls). */
 	deleting: boolean;
 	onConfirm: () => void;
@@ -747,6 +782,18 @@ function MediaDeleteConfirmDialog({
 						<span className="font-medium text-nova-text-secondary">{name}</span>{" "}
 						will be removed from your library. This can't be undone.
 					</AlertDialog.Description>
+					{attached && (
+						<p className="mt-2 flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
+							<Icon
+								icon={tablerAlertTriangle}
+								className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
+							/>
+							<span>
+								It's attached to your current message — deleting it will also
+								remove it from the chat.
+							</span>
+						</p>
+					)}
 					<div className="mt-4 flex justify-end gap-2">
 						<AlertDialog.Close
 							disabled={deleting}

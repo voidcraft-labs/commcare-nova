@@ -63,8 +63,12 @@ beforeEach(() => {
 	listApps.mockResolvedValue({ apps: [] });
 });
 
-/** Minimal owned asset row for the load mock. */
-function ownedAsset(id: string): MediaAssetRecord {
+/** Minimal owned asset row for the load mock. `referencingAppIds` is the reverse
+ *  index the guard reads — defaults to `[]` (no other app references it). */
+function ownedAsset(
+	id: string,
+	referencingAppIds: string[] = [],
+): MediaAssetRecord {
 	return {
 		id,
 		owner: "user-1",
@@ -76,6 +80,7 @@ function ownedAsset(id: string): MediaAssetRecord {
 		extension: ".png",
 		sizeBytes: 100,
 		status: "ready",
+		referencingAppIds,
 	} as unknown as MediaAssetRecord;
 }
 
@@ -157,25 +162,14 @@ describe("removeMediaAsset", () => {
 
 	it("refuses and deletes nothing when another live app references it", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetForOwner.mockResolvedValue(ownedAsset("used-elsewhere"));
-		listApps.mockResolvedValue({
-			apps: [
-				{
-					id: "other-app",
-					app_name: "Other App",
-					connect_type: null,
-					module_count: 1,
-					form_count: 1,
-					status: "complete",
-					error_type: null,
-					logo: null,
-					created_at: "2026-05-29T00:00:00.000Z",
-					updated_at: "2026-05-29T00:00:00.000Z",
-				},
-			],
-		});
+		// The reverse index names "other-app" as a candidate, so the guard loads
+		// ONLY it (not the owner's whole list) and re-walks it to confirm.
+		loadAssetForOwner.mockResolvedValue(
+			ownedAsset("used-elsewhere", ["other-app"]),
+		);
 		loadApp.mockResolvedValue({
 			owner: "user-1",
+			app_name: "Other App",
 			deleted_at: null,
 			blueprint: docReferencing("used-elsewhere", doc),
 		});
@@ -190,6 +184,9 @@ describe("removeMediaAsset", () => {
 			throw new Error("expected refusal");
 		}
 		expect(result.data.error).toContain("Other App");
+		// Index path — never the owner-wide scan.
+		expect(listApps).not.toHaveBeenCalled();
+		expect(loadApp).toHaveBeenCalledWith("other-app");
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 		expect(deleteAssetRow).not.toHaveBeenCalled();
 	});

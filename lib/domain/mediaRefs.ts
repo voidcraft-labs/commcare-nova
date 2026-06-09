@@ -32,7 +32,7 @@
 // `caseListOnly` modules — that's the one shape where CCHQ emits a
 // case-list menu command for the icon to land on (see the walk below).
 
-import type { BlueprintDoc } from "./blueprint";
+import type { BlueprintDoc, PersistableDoc } from "./blueprint";
 import { type Field, isContainer } from "./fields";
 import type { Media } from "./multimedia";
 import type { Uuid } from "./uuid";
@@ -481,4 +481,18 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
 		ids.add(ref.assetId);
 	}
 	return ids;
+}
+
+/**
+ * Adapt a `PersistableDoc` (the on-disk shape, no derived `fieldParent`) into
+ * the `BlueprintDoc` the asset walk types against. `walkAssetRefs` traverses
+ * only `logo` / `moduleOrder` / `modules` / `formOrder` / `forms` / `fields` /
+ * case-list columns — never `fieldParent` — so an empty stand-in is sound, and
+ * this avoids rebuilding the field-parent reverse index just to read media refs
+ * off a persisted blueprint. The single home for that contract, so the two
+ * server callers (the reverse-index sync on save, the delete guard's carrier
+ * walk) can't each hand-cast it and drift on whether the cast is safe.
+ */
+export function asWalkableDoc(doc: PersistableDoc): BlueprintDoc {
+	return { ...doc, fieldParent: {} } as BlueprintDoc;
 }

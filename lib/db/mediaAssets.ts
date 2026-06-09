@@ -25,6 +25,7 @@ import {
 	type MediaAssetStatus,
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
+import { log } from "@/lib/logger";
 import { collections, docs } from "./firestore";
 import type { MediaAssetDoc, MediaAssetExtract } from "./types";
 
@@ -163,6 +164,12 @@ export async function createPendingAsset(args: {
 		// resolves it server-side, so two clients writing at the same
 		// wall-clock millisecond get monotonic timestamps anyway.
 		created_at: FieldValue.serverTimestamp() as unknown as Timestamp,
+		// Born indexed-empty: a freshly uploaded asset is referenced by no app, so
+		// the delete reference guard reads `[]` and skips the owner-wide scan from
+		// the start. The blueprint writers arrayUnion an app id here when a save
+		// first references it. (An ABSENT value — only on rows written before the
+		// index shipped — routes the guard to its full-scan fallback.)
+		referencingAppIds: [],
 	});
 	return { assetId, gcsObjectKey };
 }
@@ -532,6 +539,55 @@ export class MalformedCursorError extends Error {
 		);
 		this.name = "MalformedCursorError";
 	}
+}
+
+/**
+ * Reverse-index maintenance: record that `appId`'s persisted blueprint
+ * references each of `assetIds`. Called by the blueprint writers on every save
+ * (`syncMediaReferences`), so the delete reference guard can read an asset's
+ * candidate referencing-app set instead of scanning every app the owner has.
+ *
+ * Append-only by design: `arrayUnion` is idempotent at the VALUE level (re-adding
+ * a present app id leaves the set unchanged) and never removes an app that
+ * stopped referencing the asset — the guard re-walks each candidate to confirm +
+ * prune-by-omission, so a stale entry costs one extra app load, never a wrong
+ * block. It is still a real write each save (the accepted cost of the append-only
+ * design); an empty `assetIds` (the overwhelming common case — no media) does
+ * nothing.
+ *
+ * Each asset is written INDEPENDENTLY (settled, not one atomic batch): a saved
+ * blueprint can carry a dangling asset id — a ref to a recovered or purged asset
+ * with no `mediaAssets` row — and `update()` on a missing doc rejects NOT_FOUND.
+ * In an atomic batch that one bad ref would drop EVERY edge in the save; settled
+ * independently, the bogus id skips itself and every valid edge still lands. The
+ * write is `update` (not `set({merge:true})`) ON PURPOSE: a missing id must fail,
+ * not materialize a schema-invalid ghost asset row (no owner/contentHash) that
+ * the converter's `schema.parse` would throw on at the next read.
+ */
+export async function addReferencingApp(
+	assetIds: readonly string[],
+	appId: string,
+): Promise<void> {
+	const unique = [...new Set(assetIds)];
+	if (unique.length === 0) return;
+	const results = await Promise.allSettled(
+		unique.map((assetId) =>
+			docs.mediaAsset(assetId).update({
+				referencingAppIds: FieldValue.arrayUnion(appId),
+			}),
+		),
+	);
+	results.forEach((r, i) => {
+		// A rejection is almost always a dangling ref (no asset row). The valid
+		// edges still landed; log the orphan so it's diagnosable, don't throw.
+		if (r.status === "rejected") {
+			log.warn("[addReferencingApp] couldn't index a referenced asset", {
+				assetId: unique[i],
+				appId,
+				err: r.reason,
+			});
+		}
+	});
 }
 
 /**

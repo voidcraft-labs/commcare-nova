@@ -332,6 +332,11 @@ export function ChatInput({
 				onOpenChange={setPickerOpen}
 				kinds={CHAT_ATTACHMENT_KINDS}
 				onPick={addPicked}
+				// Let the file manager warn before deleting a file that's staged as a
+				// chip here, and drop the chip when it's deleted — otherwise the chip
+				// would dangle, pointing at bytes that no longer exist.
+				attachedAssetIds={picked.map((a) => a.id)}
+				onAssetDeleted={removePicked}
 			/>
 			<AssetPreviewDialog
 				target={previewTarget}
