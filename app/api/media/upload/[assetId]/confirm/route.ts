@@ -1,7 +1,7 @@
 /**
  * POST /api/media/upload/[assetId]/confirm — finalize an upload.
  *
- * Called by the browser after the signed-PUT step completes. The
+ * Called by the browser after the byte-PUT step completes. The
  * server:
  *
  *   1. loads the `pending` row (rejects if foreign owner or missing)
@@ -76,17 +76,15 @@ export async function POST(
 		}
 
 		// Size-gate from GCS metadata BEFORE pulling the body into
-		// memory. The signed PUT URL is bound to the object key +
-		// content-type but not the body size, so a client could
-		// initiate with a small claimed size and then PUT a huge
-		// body. Rejecting on the stored object's actual size here
-		// keeps an oversized upload from OOMing the instance at
-		// `downloadAssetBytes`. Missing object → the upload never
-		// landed; treat as not-found.
+		// memory. The byte-PUT route caps the stream, but a client could PUT
+		// directly more than once; rejecting on the stored object's actual
+		// size here keeps an oversized upload from OOMing the instance at
+		// `downloadAssetBytes`. Missing object → the upload never landed;
+		// treat as not-found.
 		const storedSize = await getStoredObjectSize(asset.gcsObjectKey);
 		if (storedSize === null) {
 			throw new ApiError(
-				"We couldn't find the uploaded bytes for this asset. The signed-upload step may not have completed — try uploading again.",
+				"We couldn't find the uploaded bytes for this asset. The upload step may not have completed — try uploading again.",
 				404,
 			);
 		}
@@ -102,9 +100,9 @@ export async function POST(
 		}
 
 		// The byte cap is enforced inside the read (not just the
-		// `getStoredObjectSize` early-exit above): a signed PUT URL stays
-		// usable for its TTL, so the stored object could have been
-		// overwritten with a larger body since that metadata check.
+		// `getStoredObjectSize` early-exit above): the pending object could
+		// have been overwritten with a larger body by a second PUT since that
+		// metadata check.
 		const bytes = await downloadAssetBytes(
 			asset.gcsObjectKey,
 			ASSET_SIZE_CAPS_BYTES[asset.kind],

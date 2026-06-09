@@ -172,20 +172,7 @@ function buildCsp(isDev: boolean): { csp: string; nonce: string } {
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' blob: data: *.googleusercontent.com",
 		"font-src 'self'",
-		/* `blob:` is required so the chat composer can `fetch()` the object URL
-		 * of a staged attachment to read it back as a data URL before sending
-		 * (AI Elements `PromptInput` stages files as `URL.createObjectURL` blobs).
-		 * Without it the fetch is CSP-blocked, the conversion silently fails, and
-		 * the raw `blob:` URL ships to the server as unreadable binary. blob: URLs
-		 * are same-origin and page-created, so allowing them to be fetched is safe.
-		 *
-		 * `https://storage.googleapis.com` is required because a media upload PUTs
-		 * its bytes straight to a V4 signed GCS URL from the browser — a
-		 * cross-origin request the default `'self'` would block. Reads don't need
-		 * it (the `/api/media/[assetId]` route proxies bytes same-origin); only
-		 * the direct-to-GCS upload PUT is cross-origin. In local dev the signed
-		 * URL is a same-origin emulator-proxy path, so this only matters in prod. */
-		"connect-src 'self' blob: https://storage.googleapis.com",
+		"connect-src 'self'",
 		"object-src 'none'",
 		"base-uri 'self'",
 		"form-action 'self'",

@@ -15,7 +15,9 @@
  * import this module without env vars present.
  */
 
-import type { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { type Bucket, Storage } from "@google-cloud/storage";
 import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
@@ -125,16 +127,13 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * Apply the bucket lifecycle rule that auto-deletes abandoned upload
  * objects under the `pending/` prefix.
  *
- * Browser uploads PUT to a per-attempt `pending/<owner>/...` key via a V4
- * signed URL. A V4 signed PUT can't bind a maximum Content-Length (that's
- * a signed-POST-policy feature), so a client that uploads an oversized
- * object and then never calls confirm leaves it in `pending/` — confirm-
- * time validation is what deletes oversized bytes, and it only runs if the
- * client calls confirm. This rule is the backstop: GCS itself deletes any
- * `pending/` object older than `PENDING_OBJECT_TTL_DAYS`, reaping both
- * abandoned and oversized attempts with no server-side cron. Ready objects
- * are never touched — confirm promotes validated bytes OUT of `pending/`
- * to the content-hash key before flipping the row to ready.
+ * Browser uploads PUT their bytes to a per-attempt `pending/<owner>/...`
+ * key; confirm normally promotes the validated bytes OUT of `pending/` to
+ * the content-hash key within seconds. A client that PUTs and never calls
+ * confirm (tab closed, crash) leaves the object stranded. This rule is the
+ * backstop: GCS deletes any `pending/` object older than
+ * `PENDING_OBJECT_TTL_DAYS` with no server-side cron. Ready objects are
+ * never touched.
  *
  * Idempotent: `append: false` replaces the bucket's lifecycle with this
  * single rule. The media bucket is dedicated, so it owns no other rules to
@@ -156,58 +155,68 @@ export async function applyPendingObjectLifecycle(): Promise<void> {
 }
 
 /**
- * Generates a V4 signed PUT URL the browser uses to push bytes
- * directly to GCS. The URL is bound to:
- *
- *  - the destination object key (path the bytes land at — browser
- *    uploads use `pending/<owner>/<assetId>.<ext>`; the owner segment
- *    keeps a different owner's namespace structurally unreachable),
- *  - the request `Content-Type` header (the upload must declare
- *    the same MIME the route's pre-screen accepted).
- *
- * A 5-minute TTL keeps a leaked URL short-lived. Confirm-time
- * validation is the authoritative tamper protection: the confirm step
- * downloads the bytes from `gcsObjectKey`, re-computes the sha256, and
- * rejects if the actual hash doesn't match the row's claimed hash.
- * There's no server-side body-hash binding here — we'd need a separate
- * canonical-request mechanism, and the confirm-time re-validation
- * already covers it.
+ * Raised by `uploadAssetStream` when the incoming body exceeds the byte
+ * ceiling mid-stream. The byte-PUT route maps it to a 413 — distinct from a
+ * generic storage failure, which is a 500.
  */
-export async function createSignedUploadUrl(args: {
-	gcsObjectKey: string;
-	contentType: string;
-}): Promise<{ url: string; expiresAtMs: number }> {
-	const ttlMs = 5 * 60 * 1000;
-	const expiresAtMs = Date.now() + ttlMs;
-
-	// Local dev (fake-gcs-server emulator): the browser can't PUT straight to
-	// the emulator (cross-origin) and there's no SA key to mint a real V4
-	// signed URL with. Instead the browser PUTs to a same-origin local-dev
-	// proxy route that writes the bytes to the emulator server-side — no
-	// signing, no credentials, no impersonation. Hard-gated on the same env
-	// var, so the route 404s in prod. Prod keeps the real signed URL below.
-	if (process.env.NOVA_MEDIA_EMULATOR_HOST) {
-		const url = `/api/media/upload/emulator-put?key=${encodeURIComponent(
-			args.gcsObjectKey,
-		)}`;
-		return { url, expiresAtMs };
+export class AssetUploadTooLargeError extends Error {
+	constructor(readonly maxBytes: number) {
+		super(
+			`The upload exceeds the ${(maxBytes / 1024 / 1024).toFixed(0)} MB ceiling for a single file.`,
+		);
+		this.name = "AssetUploadTooLargeError";
 	}
-
-	const [url] = await getBucket().file(args.gcsObjectKey).getSignedUrl({
-		version: "v4",
-		action: "write",
-		expires: expiresAtMs,
-		contentType: args.contentType,
-	});
-	return { url, expiresAtMs };
 }
 
 /**
- * Upload a byte buffer directly to GCS from the server. The browser
- * flow never needs this — it PUTs to a signed URL — but the MCP
- * `upload_media_asset` tool decodes base64 bytes inline (Claude Code
- * et al can't run the hash → signed-PUT → confirm dance), so the
- * server holds the bytes and writes them itself.
+ * Stream a browser upload's request body to its pending GCS key, capping the
+ * byte count AS IT READS so an oversized body never fully buffers in the
+ * instance. The byte-PUT route (`/api/media/upload/bytes`) is the only
+ * caller; confirm later validates and promotes the stored bytes.
+ *
+ * `resumable: false` is a one-shot multipart write. On a cap breach the guard
+ * errors, `pipeline` tears down the write stream so no object is finalized,
+ * and the caller surfaces `AssetUploadTooLargeError`.
+ */
+export async function uploadAssetStream(args: {
+	gcsObjectKey: string;
+	body: ReadableStream<Uint8Array>;
+	contentType: string;
+	maxBytes: number;
+}): Promise<void> {
+	await ensureEmulatorBucket();
+	const writeStream = getBucket().file(args.gcsObjectKey).createWriteStream({
+		resumable: false,
+		contentType: args.contentType,
+	});
+	let total = 0;
+	const capGuard = new Transform({
+		transform(chunk: Buffer, _encoding, callback) {
+			total += chunk.length;
+			if (total > args.maxBytes) {
+				callback(new AssetUploadTooLargeError(args.maxBytes));
+				return;
+			}
+			callback(null, chunk);
+		},
+	});
+	// `req.body` is the DOM `ReadableStream`; `Readable.fromWeb` wants the
+	// `node:stream/web` one. They're structurally the same web stream — the
+	// cast just reconciles the two lib type declarations.
+	await pipeline(
+		Readable.fromWeb(args.body as NodeReadableStream<Uint8Array>),
+		capGuard,
+		writeStream,
+	);
+}
+
+/**
+ * Upload a byte buffer to GCS from the server — used where the bytes are
+ * already in hand: the MCP `upload_media_asset` tool (it decodes base64
+ * inline, since Claude Code et al can't run the browser hash → PUT → confirm
+ * dance) and `writeTextObject` (the document extract sibling). The browser
+ * upload path streams instead (`uploadAssetStream`), so an oversized body
+ * never fully buffers.
  *
  * `resumable: false` forces a single multipart write rather than GCS's
  * resumable-session protocol: the payloads here are small (bounded by
@@ -231,11 +240,10 @@ export async function uploadAssetBytes(args: {
 /**
  * Copy a validated pending object to its final storage key.
  *
- * Browser signed-PUT uploads land at a per-attempt pending key so stale
- * signed URLs cannot overwrite a ready content-hash object. Confirm-time
- * validation calls this after the bytes have passed the hash/MIME/parser
- * checks, promoting the object to the deduped final key that ready rows
- * serve.
+ * Browser uploads land at a per-attempt pending key so a late/duplicate PUT
+ * can't overwrite a ready content-hash object. Confirm-time validation calls
+ * this after the bytes have passed the hash/MIME/parser checks, promoting the
+ * object to the deduped final key that ready rows serve.
  */
 export async function copyAssetObject(
 	sourceGcsObjectKey: string,
@@ -264,10 +272,9 @@ export function streamAsset(gcsObjectKey: string): Readable {
 /**
  * Read the stored object's size in bytes from GCS metadata,
  * without downloading the body. The confirm step calls this BEFORE
- * `downloadAssetBytes` so an oversized object (a client that
- * initiated with a small claimed size, then PUT a huge body to the
- * signed URL) is rejected before we ever pull it into memory —
- * otherwise a single request could OOM the instance. Returns
+ * `downloadAssetBytes` so an oversized object (a client that PUT a body past
+ * the route's stream cap, or PUT twice) is rejected before we ever pull it
+ * into memory — otherwise a single request could OOM the instance. Returns
  * `null` if the object doesn't exist.
  */
 export async function getStoredObjectSize(
@@ -285,11 +292,10 @@ export async function getStoredObjectSize(
  * Drain a GCS object into memory, enforcing a byte ceiling AS IT READS.
  * The cap lives in this streamed read (a running counter that destroys
  * the stream past `maxBytes`), NOT in a separate `getStoredObjectSize`
- * metadata check beforehand: a signed PUT URL is a reusable write
- * credential for its whole TTL, so a client can overwrite the pending
- * object with a huge body in the window between a metadata size-check and
- * the download. Capping the read itself closes that TOCTOU — at most
- * `maxBytes` ever resides in memory, whatever the object grew to.
+ * metadata check beforehand: a client can overwrite the pending object with a
+ * huge body (a second PUT) in the window between a metadata size-check and the
+ * download. Capping the read itself closes that TOCTOU — at most `maxBytes`
+ * ever resides in memory, whatever the object grew to.
  *
  * Runs only at confirm time (one shot per upload) and the compile bundle,
  * never on the hot read path — that streams straight through via

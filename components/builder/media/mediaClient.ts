@@ -3,7 +3,7 @@
 // Client-side data layer for the media authoring UI. The codebase
 // has no React Query / SWR, so these are plain `fetch` helpers the
 // hooks wrap with local state. The upload flow inherently runs in
-// the browser (the bytes PUT directly to a GCS signed URL), so a
+// the browser (it hashes the file, then PUTs the bytes), so a
 // server-action shape wouldn't fit — fetch is the right tool here.
 //
 // `WireMediaAsset` is imported as a type only (erased at compile),
@@ -100,11 +100,10 @@ interface InitiateResponse {
 	deduplicated: boolean;
 	/** Present iff `deduplicated` — the existing asset to reuse. */
 	asset?: MediaAssetView;
-	/** Present iff NOT `deduplicated` — the GCS signed PUT URL. */
+	/** Present iff NOT `deduplicated` — the URL to PUT the bytes to. */
 	uploadUrl?: string;
 	/** The exact `Content-Type` the PUT must send (the normalized MIME). */
 	uploadContentType?: string;
-	expiresAtMs?: number;
 }
 
 /**
@@ -144,9 +143,8 @@ export async function uploadMediaAsset(file: File): Promise<MediaAssetView> {
 		);
 	}
 
-	// PUT the bytes straight to GCS. The `Content-Type` MUST match the
-	// value the signed URL was bound to (the server's normalized MIME),
-	// not the raw `file.type`, or GCS rejects the signature.
+	// PUT the bytes to the upload URL. The `Content-Type` is the server's
+	// normalized MIME (`uploadContentType`), not the raw `file.type`.
 	const putRes = await fetch(initiate.uploadUrl, {
 		method: "PUT",
 		headers: { "Content-Type": initiate.uploadContentType },
