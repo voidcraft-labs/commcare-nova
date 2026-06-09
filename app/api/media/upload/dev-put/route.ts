@@ -1,19 +1,19 @@
 /**
- * Local-dev only — the browser's signed-PUT target when media runs against
- * the fake-gcs-server emulator.
+ * Local-dev only — the browser's signed-PUT target during development.
  *
  * Production mints a real V4 signed URL straight to GCS (see
- * `lib/storage/media.ts::createSignedUploadUrl`); locally there's no service
- * account key to sign with and the emulator is cross-origin to the dev
- * server, so the browser PUTs the bytes here instead and the server writes
- * them to the emulator via `uploadAssetBytes`. This keeps the rest of the
- * upload flow (initiate → PUT → confirm → validate → promote) byte-identical
- * to prod; only the signed-PUT hop is swapped for this same-origin proxy.
+ * `lib/storage/media.ts::createSignedUploadUrl`), signed by the runtime
+ * service account. A developer's Application Default Credentials are a
+ * user credential with no private key, so they cannot mint that
+ * signature — the browser PUTs the bytes here instead and the server
+ * writes them to the dev bucket through its own storage client. This
+ * keeps the rest of the upload flow (initiate → PUT → confirm →
+ * validate → promote) byte-identical to prod; only the signed-PUT hop
+ * is swapped for this same-origin proxy.
  *
- * Hard-gated on `NOVA_MEDIA_EMULATOR_HOST`: the route 404s anywhere that env var
- * is unset, so this surface cannot exist in production. It is still
- * session-gated and scoped to the caller's own pending namespace as
- * defense-in-depth.
+ * Hard-gated on `NODE_ENV`: the route 404s outside development, so this
+ * surface cannot exist in production. It is still session-gated and
+ * scoped to the caller's own pending namespace as defense-in-depth.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -23,8 +23,8 @@ import { uploadAssetBytes } from "@/lib/storage/media";
 
 export async function PUT(req: NextRequest) {
 	try {
-		// Prod-safety: this proxy only exists when pointed at an emulator.
-		if (!process.env.NOVA_MEDIA_EMULATOR_HOST) {
+		// Prod-safety: this proxy exists only in local development.
+		if (process.env.NODE_ENV !== "development") {
 			throw new ApiError("Not found", 404);
 		}
 
@@ -56,7 +56,7 @@ export async function PUT(req: NextRequest) {
 		return new NextResponse(null, { status: 200 });
 	} catch (err) {
 		return handleApiError(
-			err instanceof Error ? err : new Error("Emulator upload failed"),
+			err instanceof Error ? err : new Error("Dev upload failed"),
 		);
 	}
 }

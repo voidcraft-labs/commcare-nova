@@ -19,9 +19,7 @@
  *   GOOGLE_CLOUD_PROJECT=<project> \
  *   npx tsx scripts/infra/apply-media-bucket-lifecycle.ts
  *
- * Idempotent — re-running sets the same single rule. Targets real GCS
- * only: it refuses to run with `NOVA_MEDIA_EMULATOR_HOST` set, since the
- * local fake-gcs-server has no lifecycle support.
+ * Idempotent — re-running sets the same single rule.
  */
 
 import { applyPendingObjectLifecycle } from "@/lib/storage/media";
@@ -31,12 +29,6 @@ async function main(): Promise<void> {
 	if (!bucket) {
 		console.error(
 			"NOVA_MEDIA_BUCKET is unset — set it to the target bucket (e.g. nova-multimedia-prod) before running.",
-		);
-		process.exit(1);
-	}
-	if (process.env.NOVA_MEDIA_EMULATOR_HOST) {
-		console.error(
-			"NOVA_MEDIA_EMULATOR_HOST is set — this applies a real GCS lifecycle rule and must not target the emulator. Unset it and retry.",
 		);
 		process.exit(1);
 	}
