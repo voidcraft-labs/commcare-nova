@@ -55,6 +55,22 @@ steps:
   # carries forward existing scaling, but pinning it means a fresh service or a
   # reset can't silently drop back to scale-to-zero (which exposes the cold
   # boot on every idle return). Keep it explicit.
+  #
+  # `--startup-probe` points at `/warmup` (see `app/(app)/warmup/page.tsx`):
+  # a new instance only takes traffic once it has rendered a page, which
+  # forces the multi-second lazy load of the server module graph to happen
+  # BEFORE readiness instead of inside a user's first request. Node listens
+  # within ~1s of boot, so a TCP probe would mark the instance ready while
+  # that cost is still unpaid — every deploy and autoscale-up would route
+  # users onto a module-cold instance.
+  #
+  # Probe math is platform-constrained: timeoutSeconds must not exceed
+  # periodSeconds, and failureThreshold × periodSeconds caps at 240s. The
+  # 10s timeout lets a single attempt wait out the first render (~6s warm
+  # cost); 24 × 10s gives the full four-minute window before the instance
+  # is declared failed — in practice the second attempt succeeds. The probe
+  # port is Cloud Run's default container port; if a `--port` override ever
+  # lands here, httpGet.port must move with it.
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
@@ -65,6 +81,7 @@ steps:
       - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA
       - --region=us-central1
       - --min-instances=1
+      - --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
 
 options:
   logging: CLOUD_LOGGING_ONLY

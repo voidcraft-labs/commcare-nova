@@ -358,6 +358,18 @@ export function proxy(request: NextRequest): NextResponse {
 
 	/* ── 3. Pages: nonce-based CSP + optimistic auth ─────────────────── */
 
+	/* Cloud Run's startup probe targets `/warmup` so a new instance loads
+	 * the heavy page-module graph BEFORE it is marked ready for traffic.
+	 * The probe arrives with the instance's own Host header — never a
+	 * custom domain — so it lands in the unknown-host fall-through with
+	 * no session cookie. It must bypass the auth redirect below: probes
+	 * count a 307 as success, which would mark the instance ready without
+	 * warming anything. This is not a public surface — on the custom
+	 * domains the hostname allowlist 404s `/warmup` before this runs. */
+	if (pathname === "/warmup") {
+		return attachCsp(requestHeaders, { type: "next" }, isDev);
+	}
+
 	/* Optimistic auth — cookie presence only, server does full validation.
 	 * The root path is exempt so the unauthenticated landing page is
 	 * reachable. `/.well-known/*` requests cannot reach this branch — the
