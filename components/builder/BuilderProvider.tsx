@@ -105,14 +105,6 @@ function BuilderProviderInner({
 		appId: buildId === "new" ? undefined : buildId,
 	}))[0];
 
-	/* [perf] TEMP — first-render timestamp for the client mount→ready bucket.
-	 * `LoadAppHydrator` logs `performance.now() - mountedAt`, i.e. the time to
-	 * render + commit + paint the builder tree (the existing-app load path).
-	 * Note: this does NOT include the RSC fetch/transfer/deserialize that
-	 * precedes this client render — read that from the Network tab. Remove with
-	 * the rest of the `[perf]` logging once the load regression is diagnosed. */
-	const mountedAt = useState(() => performance.now())[0];
-
 	return (
 		<BlueprintDocProvider
 			appId={buildId === "new" ? undefined : buildId}
@@ -134,9 +126,7 @@ function BuilderProviderInner({
 							 *  route, so stale-ref stripping doesn't apply. */}
 							{replay ? null : <LocationRecoveryEffect />}
 							{replay ? <ReplayHydrator replay={replay} /> : null}
-							{!replay && initialDoc ? (
-								<LoadAppHydrator mountedAt={mountedAt} />
-							) : null}
+							{!replay && initialDoc ? <LoadAppHydrator /> : null}
 							{children}
 						</BuilderFormEngineProvider>
 					</EditGuardProvider>
@@ -270,7 +260,7 @@ function SyncBridge() {
  * Runs once per mount (gated by `hydratedRef`). Replay hydration uses
  * `ReplayHydrator` instead — the two paths are mutually exclusive.
  */
-function LoadAppHydrator({ mountedAt }: { mountedAt: number }) {
+function LoadAppHydrator() {
 	const sessionStore = useContext(BuilderSessionContext);
 	const hydratedRef = useRef(false);
 
@@ -281,15 +271,7 @@ function LoadAppHydrator({ mountedAt }: { mountedAt: number }) {
 		/* appId was pre-seeded via `SessionStoreInit`; only the loading
 		 * flag needs clearing to transition from Loading → Ready. */
 		sessionStore.getState().setLoading(false);
-
-		/* [perf] TEMP — client mount→ready bucket. Logged to the browser
-		 * console (the server `log` helper writes to process streams and can't
-		 * run client-side). Remove with the rest of the `[perf]` logging once
-		 * the load regression is diagnosed. */
-		console.info(
-			`[perf] build client mount→ready ${Math.round(performance.now() - mountedAt)}ms`,
-		);
-	}, [sessionStore, mountedAt]);
+	}, [sessionStore]);
 
 	return null;
 }

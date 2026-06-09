@@ -202,30 +202,12 @@ export const getSession = cache(async (): Promise<Session | null> => {
 	 * creates the Firestore adapter) synchronously before `headers()` signals
 	 * dynamic rendering — the missing secret throws a warning and the Firestore
 	 * session read hangs indefinitely in Cloud Build where there's no database. */
-	// [perf] TEMP — shared page-path auth timing. getSession runs on every RSC
-	// page render (the (app) layout + each page) but NOT on the fast route
-	// handlers (they use getSessionSafe, with no connection()/headers()). The
-	// prod regression is page-only, idle-CPU, super-linear under concurrency —
-	// so splitting connection() from the Better Auth lookup localizes whether
-	// the wait is here or downstream in render/stream (all buckets small while
-	// the Cloud Run request latency is large). Remove with the rest of `[perf]`.
-	const t0 = performance.now();
 	await connection();
-	const connectionMs = Math.round(performance.now() - t0);
-	const tAuth = performance.now();
 	try {
-		const session =
-			(await getAuth().api.getSession({ headers: await headers() })) ?? null;
-		log.info("[perf] getSession", {
-			connectionMs,
-			authMs: Math.round(performance.now() - tAuth),
-		});
-		return session;
+		return (
+			(await getAuth().api.getSession({ headers: await headers() })) ?? null
+		);
 	} catch {
-		log.info("[perf] getSession threw", {
-			connectionMs,
-			authMs: Math.round(performance.now() - tAuth),
-		});
 		return null;
 	}
 });
