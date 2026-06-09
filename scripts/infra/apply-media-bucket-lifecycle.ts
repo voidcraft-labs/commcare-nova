@@ -1,12 +1,14 @@
 /**
  * Apply the media bucket's pending-object lifecycle rule.
  *
- * Browser uploads PUT their bytes to `pending/<owner>/...` and then call
- * confirm, which promotes the validated bytes out of `pending/`. A client
- * that PUTs and never calls confirm (tab closed, crash) leaves the object
- * sitting in `pending/`. This idempotent operation installs the GCS lifecycle
- * rule that reaps any `pending/` object older than a day — the backstop for
- * those abandoned uploads, with no server-side cron. The rule itself lives in
+ * Browser uploads PUT to `pending/<owner>/...` via a V4 signed URL, and a
+ * V4 signed PUT can't bind a maximum Content-Length — so a client that
+ * uploads an oversized object and never calls confirm leaves it sitting in
+ * `pending/` (confirm-time validation is the only thing that deletes
+ * oversized bytes, and it only runs if confirm is called). This idempotent
+ * operation installs the GCS lifecycle rule that reaps any `pending/`
+ * object older than a day — the backstop the per-request path can't
+ * provide. The rule itself lives in
  * `lib/storage/media.ts::applyPendingObjectLifecycle` so the prefix + TTL
  * stay coupled to the upload code.
  *

@@ -1,13 +1,7 @@
-# Cloud Build pipeline for the multi-container (nginx h2c ingress + Next app)
-# deploy. Build both images tagged with the commit, push them, then point each
-# container at its new image with a single `services update` — no YAML rendering
-# (`gcloud run services replace` reads service.yaml literally and never
-# substitutes a per-commit tag, which is why the image goes on the command line
-# here instead). The full service spec (env, secrets, VPC, ports, probes) is set
-# once from service.yaml; routine deploys only swap the images, so everything
-# else is preserved.
+# Cloud Build: build the app image tagged with the commit, push it, and deploy a
+# new single-container Cloud Run revision. The main-push trigger runs this file.
 steps:
-  - id: build-app
+  - id: build
     name: gcr.io/cloud-builders/docker
     args:
       - build
@@ -17,41 +11,21 @@ steps:
       - Dockerfile
       - .
 
-  - id: build-nginx
-    name: gcr.io/cloud-builders/docker
-    args:
-      - build
-      - -t
-      - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/nginx:$COMMIT_SHA"
-      - -f
-      - docker/nginx.Dockerfile
-      - .
-
-  - id: push-app
+  - id: push
     name: gcr.io/cloud-builders/docker
     args:
       - push
       - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA"
-
-  - id: push-nginx
-    name: gcr.io/cloud-builders/docker
-    args:
-      - push
-      - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/nginx:$COMMIT_SHA"
 
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
     args:
       - run
-      - services
-      - update
+      - deploy
       - commcare-nova
-      - --region=us-central1
-      - --container=app
       - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA
-      - --container=nginx
-      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/nginx:$COMMIT_SHA
+      - --region=us-central1
 
 options:
   logging: CLOUD_LOGGING_ONLY

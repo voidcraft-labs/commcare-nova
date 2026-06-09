@@ -9,9 +9,8 @@
  *   - checks for a (owner, hash) match in the asset library — on
  *     hit, returns the existing assetId and tells the browser to
  *     skip the bytes-PUT entirely (dedup-skip-the-upload)
- *   - on miss, creates a `pending` Firestore row and returns the
- *     same-origin `/api/media/upload/bytes` URL the browser PUTs the
- *     bytes to (that route streams them to the pending GCS key)
+ *   - on miss, creates a `pending` Firestore row and a signed PUT
+ *     URL the browser uses to push bytes directly to GCS
  *
  * Step 2 lives at `[assetId]/confirm/route.ts` — the browser calls
  * it after the PUT completes, and the server re-validates the pending
@@ -41,6 +40,7 @@ import {
 	EXTENSION_FOR_MIME_TYPE,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { createSignedUploadUrl } from "@/lib/storage/media";
 
 const requestBodySchema = z
 	.object({
@@ -127,11 +127,11 @@ export async function POST(req: NextRequest) {
 			});
 		}
 
-		// New blob. Reserve the row first (so the byte-PUT and confirm steps
-		// have something to look up), then hand back the byte-PUT URL keyed by
-		// the new `assetId`. Confirm promotes validated bytes to the
-		// content-hash final key; a late/duplicate PUT can only overwrite this
-		// attempt's pending object.
+		// New blob. Reserve the row first (so the confirm step has
+		// something to look up), then mint the signed URL against the
+		// row's per-attempt pending key. Confirm promotes validated
+		// bytes to the content-hash final key; a stale signed URL can
+		// only overwrite this attempt's pending object.
 		const extension = EXTENSION_FOR_MIME_TYPE[mimeType];
 		const pending = await createPendingAsset({
 			owner: session.user.id,
@@ -142,18 +142,21 @@ export async function POST(req: NextRequest) {
 			sizeBytes,
 			originalFilename: filename,
 		});
-
-		const uploadUrl = `/api/media/upload/bytes?assetId=${encodeURIComponent(pending.assetId)}`;
+		const { url, expiresAtMs } = await createSignedUploadUrl({
+			gcsObjectKey: pending.gcsObjectKey,
+			contentType: mimeType,
+		});
 
 		return NextResponse.json({
 			assetId: pending.assetId,
 			deduplicated: false,
-			uploadUrl,
-			// The NORMALIZED `mimeType`, not the client's raw `File.type` (which
-			// may be an alias like `image/apng`). The browser sends it as the PUT
-			// `Content-Type`; confirm re-derives the authoritative type from the
-			// bytes.
+			uploadUrl: url,
+			// The signed URL is bound to the NORMALIZED `mimeType`, not
+			// the client's raw `File.type` (which may be an alias like
+			// `image/apng`). The browser must send this exact value as
+			// the PUT `Content-Type`, or GCS rejects the signature.
 			uploadContentType: mimeType,
+			expiresAtMs,
 		});
 	} catch (err) {
 		return handleApiError(

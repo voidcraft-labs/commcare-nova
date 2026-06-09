@@ -1,11 +1,10 @@
 /**
- * `POST /api/media/upload` — initiate tests.
+ * `POST /api/media/upload` — signed-PUT initiate tests.
  *
- * The browser upload path writes untrusted bytes to a per-attempt pending
- * object, not the final content-hash key; confirm validates and promotes
- * them later. This pins that the initiate response points the byte-PUT at
- * the per-attempt pending key, so a late/duplicate PUT can only overwrite
- * its own attempt.
+ * The browser upload path must write untrusted bytes to a per-attempt
+ * pending object, not the final content-hash key. Confirm validation
+ * promotes the bytes later. This pins the stale-signed-URL data-loss fix:
+ * a leaked/late PUT can only overwrite its own pending object.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +15,7 @@ import {
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
 import { asAssetId } from "@/lib/domain";
+import { createSignedUploadUrl } from "@/lib/storage/media";
 import { POST } from "../route";
 
 const HASH = "a".repeat(64);
@@ -24,10 +24,12 @@ const {
 	requireSessionMock,
 	createPendingAssetMock,
 	findReadyAssetByOwnerAndHashMock,
+	createSignedUploadUrlMock,
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	createPendingAssetMock: vi.fn(),
 	findReadyAssetByOwnerAndHashMock: vi.fn(),
+	createSignedUploadUrlMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
@@ -35,6 +37,9 @@ vi.mock("@/lib/db/mediaAssets", () => ({
 	createPendingAsset: createPendingAssetMock,
 	findReadyAssetByOwnerAndHash: findReadyAssetByOwnerAndHashMock,
 	toWireMediaAsset: vi.fn((asset: MediaAssetRecord) => asset),
+}));
+vi.mock("@/lib/storage/media", () => ({
+	createSignedUploadUrl: createSignedUploadUrlMock,
 }));
 
 function reqWith(body: unknown) {
@@ -56,10 +61,14 @@ beforeEach(() => {
 		assetId: asAssetId("asset-1"),
 		gcsObjectKey: "pending/user-1/asset-1.png",
 	});
+	vi.mocked(createSignedUploadUrl).mockResolvedValue({
+		url: "https://storage.example/signed",
+		expiresAtMs: 123,
+	});
 });
 
 describe("POST /api/media/upload", () => {
-	it("points the byte-PUT at the reserved pending object key", async () => {
+	it("mints the signed URL against the reserved pending object key", async () => {
 		const res = await POST(
 			reqWith({
 				filename: "logo.png",
@@ -71,14 +80,11 @@ describe("POST /api/media/upload", () => {
 		const body = (await res.json()) as {
 			assetId: string;
 			uploadUrl: string;
-			uploadContentType: string;
 		};
 
 		expect(res.status).toBe(200);
 		expect(body.assetId).toBe("asset-1");
-		// Same-origin byte-PUT route carrying the reserved `assetId`.
-		expect(body.uploadUrl).toBe("/api/media/upload/bytes?assetId=asset-1");
-		expect(body.uploadContentType).toBe("image/png");
+		expect(body.uploadUrl).toBe("https://storage.example/signed");
 		const pendingArgs = vi.mocked(createPendingAsset).mock.calls[0]?.[0];
 		expect(pendingArgs).toMatchObject({
 			owner: "user-1",
@@ -86,5 +92,9 @@ describe("POST /api/media/upload", () => {
 			extension: ".png",
 		});
 		expect(pendingArgs).not.toHaveProperty("gcsObjectKey");
+		expect(createSignedUploadUrl).toHaveBeenCalledWith({
+			gcsObjectKey: "pending/user-1/asset-1.png",
+			contentType: "image/png",
+		});
 	});
 });

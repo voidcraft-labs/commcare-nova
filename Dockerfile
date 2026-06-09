@@ -71,9 +71,7 @@ COPY --chown=nextjs:nodejs lib/case-store/migrations ./lib/case-store/migrations
 
 USER nextjs
 
-# Cloud Run injects PORT. As a sidecar this container serves on the loopback
-# behind the nginx ingress container (service.yaml sets PORT=8888); nginx, not
-# this container, holds the externally routed port.
+# Cloud Run injects PORT (defaults to 8080).
 ENV PORT=8080
 ENV HOSTNAME="0.0.0.0"
 EXPOSE 8080
