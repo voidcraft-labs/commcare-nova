@@ -8,10 +8,11 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { AppSummary } from "@/lib/db/apps";
 import { useExternalNavigate } from "@/lib/routing/hooks";
-import { formatRelativeDate, STATUS_STYLES } from "@/lib/utils/format";
+import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
 
 /**
@@ -133,7 +134,7 @@ export function AppCard({
 						<span className="text-nova-rose/70">Generation failed</span>
 					) : (
 						<>
-							<span>{formatRelativeDate(updatedAt)}</span>
+							<RelativeTime date={updatedAt} />
 							<span className="text-nova-text-muted">
 								{app.module_count} module
 								{app.module_count !== 1 ? "s" : ""}

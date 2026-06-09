@@ -15,9 +15,10 @@ import {
 import Image from "next/image";
 import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 import type { AdminUserRow } from "@/lib/admin/types";
 import { useExternalNavigate } from "@/lib/routing/hooks";
-import { formatCurrency, formatRelativeDate } from "@/lib/utils/format";
+import { formatCurrency } from "@/lib/utils/format";
 
 // ── Column Definitions ───────────────────────────────────────────
 
@@ -110,7 +111,9 @@ const columns: ColumnDef<AdminUserRow>[] = [
 	{
 		accessorKey: "last_active_at",
 		header: "Last Active",
-		cell: ({ getValue }) => formatRelativeDate(new Date(getValue<string>())),
+		cell: ({ getValue }) => (
+			<RelativeTime date={new Date(getValue<string>())} />
+		),
 		sortingFn: "datetime",
 	},
 ];

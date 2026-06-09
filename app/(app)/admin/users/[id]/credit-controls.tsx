@@ -37,6 +37,7 @@ import {
 import { Field, FieldLabel } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import { Badge } from "@/components/ui/Badge";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 // `import type` is mandatory here: this is a "use client" module, and the
 // VALUE side of `@/lib/db/credits` pulls in `@google-cloud/firestore`. A plain
 // import would drag server-only Firestore into the client bundle (a build-time
@@ -47,7 +48,7 @@ import type { CreditGrantAudit } from "@/lib/admin/types";
 import type { CreditSummary } from "@/lib/db/credits";
 import { useExternalNavigate } from "@/lib/routing/hooks";
 import { showToast } from "@/lib/ui/toastStore";
-import { formatPeriodLabel, formatRelativeDate } from "@/lib/utils/format";
+import { formatPeriodLabel } from "@/lib/utils/format";
 
 /** Which action is currently in flight (mutually exclusive — one dialog at a time). */
 type PendingAction = "reset" | "grant";
@@ -417,9 +418,10 @@ export function CreditControls({
 								{grant.reason && (
 									<span className="text-nova-text-muted">— {grant.reason}</span>
 								)}
-								<span className="ml-auto text-xs text-nova-text-muted tabular-nums">
-									{formatRelativeDate(new Date(grant.created_at))}
-								</span>
+								<RelativeTime
+									className="ml-auto text-xs text-nova-text-muted tabular-nums"
+									date={new Date(grant.created_at)}
+								/>
 							</li>
 						))}
 					</ul>

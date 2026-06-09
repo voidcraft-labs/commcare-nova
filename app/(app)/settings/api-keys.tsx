@@ -452,9 +452,14 @@ function Row({
 				 *   (the column to the right is width-reserved for the
 				 *   confirm-revoke state). */}
 				<div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-nova-text-muted">
-					<span>{lastUsedLabel}</span>
+					{/* Both labels are "now"-relative (down to seconds for a
+					 *  just-used key), so the server render and the hydration
+					 *  pass legitimately disagree — same contract as
+					 *  `RelativeTime`, which these can't reuse because they
+					 *  format through Intl with their own prefixes. */}
+					<span suppressHydrationWarning>{lastUsedLabel}</span>
 					<span className="text-nova-text-muted/40">·</span>
-					<span>{expiryLabel}</span>
+					<span suppressHydrationWarning>{expiryLabel}</span>
 				</div>
 				<AnimatePresence>
 					{status.type === "error" && (
