@@ -76,16 +76,19 @@ ENV PORT=8080
 ENV HOSTNAME="0.0.0.0"
 EXPOSE 8080
 
-# Atlas applies any pending migrations, then the Next.js server
-# starts. `&&` aborts the boot if migration fails, so the Cloud
-# Run instance never serves traffic against a half-migrated
-# schema. The `--allow-dirty` rationale, the advisory-lock
-# concurrency model, and the IAM-auth URL composition all live
-# in `lib/case-store/CLAUDE.md` § Production: Cloud Run startup
-# CMD.
+# Boot is node-only — migrations do NOT run here. A per-boot
+# `atlas migrate apply` put a Cloud SQL connect + advisory-lock
+# acquisition on the cold-start critical path (Node didn't start
+# until atlas finished), adding seconds to every cold start and
+# serializing concurrent instance startups on the one lock. The
+# migration now runs once per deploy via the `commcare-nova-migrate`
+# Cloud Run Job (cloudbuild runs it before shifting traffic), so a
+# cold boot is just Node coming up.
 #
-# `exec` replaces the shell with the Node process so SIGTERM
-# from Cloud Run reaches Node directly — without `exec`, the
-# shell would intercept the signal and Node would never get a
-# graceful-shutdown opportunity.
-CMD ["sh", "-c", "atlas migrate apply --env prod --allow-dirty && exec node server.js"]
+# The atlas binary + migrations stay copied into this image on
+# purpose: the migrate Job reuses THIS image with a command
+# override, so the binary and migration files must be present.
+#
+# Exec-form CMD (no `sh -c` wrapper) makes Node PID 1, so SIGTERM
+# from Cloud Run reaches it directly for graceful shutdown.
+CMD ["node", "server.js"]

@@ -177,11 +177,15 @@ env "testcontainer" {
 # `prod` env — Cloud Run startup CMD
 # -----------------------------------------------------------------
 #
-# The Dockerfile's CMD chains `atlas migrate apply --env prod &&
-# exec node server.js`. Atlas runs first, applies any pending
-# migrations against the live Cloud SQL instance, and only on
-# success does Next.js boot. Failure exits non-zero and the Cloud
-# Run instance never serves traffic.
+# Migrations run once per deploy as the `commcare-nova-migrate`
+# Cloud Run Job (invoked by cloudbuild.yaml before traffic shifts),
+# NOT on container boot — a per-boot apply put a Cloud SQL connect +
+# advisory-lock wait on the cold-start critical path. The Job reuses
+# the app image with a command override (`atlas migrate apply --env
+# prod --allow-dirty`) and applies pending migrations against the
+# live Cloud SQL instance. A non-zero exit fails the build before the
+# new revision deploys, so code never ships ahead of a failed schema
+# change.
 #
 # ### URL composition
 #

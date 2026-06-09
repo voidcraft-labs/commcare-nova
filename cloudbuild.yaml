@@ -1,5 +1,13 @@
-# Cloud Build: build the app image tagged with the commit, push it, and deploy a
-# new single-container Cloud Run revision. The main-push trigger runs this file.
+# Cloud Build (main-push trigger): build the app image, push it, run pending
+# case-store migrations once via the migrate Job, then deploy a new Cloud Run
+# revision.
+#
+# Migrations run as a dedicated Cloud Run Job here — NOT on every container
+# boot — so a cold start is just Node coming up (no Cloud SQL connect + Atlas
+# advisory-lock wait on the startup critical path). The Job reuses the app
+# image with a command override. If the migration fails the build stops before
+# `deploy`, so the old revision keeps serving and we never ship code ahead of a
+# failed schema change (same guarantee the old startup CMD gave, at deploy time).
 steps:
   - id: build
     name: gcr.io/cloud-builders/docker
@@ -17,6 +25,36 @@ steps:
       - push
       - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA"
 
+  # Apply pending case-store migrations against live Cloud SQL, once. `jobs
+  # deploy` is create-or-update (idempotent) so the Job's config lives here in
+  # version control and stays pinned to the image being deployed. The Job
+  # mirrors the service's identity + network so Atlas's `prod` env resolves:
+  # the IAM service account, Direct VPC Egress (private-IP Cloud SQL), and the
+  # NOVA_DB_* vars its `postgres://` URL composes from. `execute --wait` fails
+  # the build on a non-zero migration exit.
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud run jobs deploy commcare-nova-migrate \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA \
+          --region=us-central1 \
+          --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
+          --network=default --subnet=default --vpc-egress=private-ranges-only \
+          --set-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_HOST=10.9.160.3,NOVA_DB_NAME=nova_cases \
+          --command=atlas \
+          --args=migrate,apply,--env,prod,--allow-dirty \
+          --max-retries=1 \
+          --task-timeout=600
+        gcloud run jobs execute commcare-nova-migrate --region=us-central1 --wait
+
+  # `--min-instances=1` is pinned here on purpose: a bare `gcloud run deploy`
+  # carries forward existing scaling, but pinning it means a fresh service or a
+  # reset can't silently drop back to scale-to-zero (which exposes the cold
+  # boot on every idle return). Keep it explicit.
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
@@ -26,6 +64,7 @@ steps:
       - commcare-nova
       - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA
       - --region=us-central1
+      - --min-instances=1
 
 options:
   logging: CLOUD_LOGGING_ONLY

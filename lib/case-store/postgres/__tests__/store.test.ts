@@ -40,11 +40,11 @@
 //
 // The split mirrors the production split between Cloud SQL
 // provisioning (extensions installed at provisioning time under
-// `cloudsqlsuperuser`) and migration application (Cloud Run
-// startup CMD applies atlas migrations under the IAM-auth runtime
-// SA). In tests, the helper plays the role of the superuser
-// provisioning; the atlas shell-out plays the role of the Cloud
-// Run startup migration.
+// `cloudsqlsuperuser`) and migration application (the
+// `commcare-nova-migrate` Cloud Run Job applies atlas migrations
+// per deploy under the IAM-auth runtime SA). In tests, the helper
+// plays the role of the superuser provisioning; the atlas shell-out
+// plays the role of the per-deploy migration Job.
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
