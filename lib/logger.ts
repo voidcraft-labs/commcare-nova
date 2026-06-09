@@ -12,7 +12,19 @@
  * In local dev, `NODE_ENV !== 'production'` falls back to `console.*` for
  * readable terminal output. In production (Cloud Run), emits JSON to
  * stdout/stderr for Cloud Logging ingestion.
+ *
+ * `error()` / `critical()` are TWO-channel: alongside the Cloud Logging
+ * line they capture to Sentry (issue grouping, alerting, symbolicated
+ * stacks). Sentry cannot see stdout, so this capture is how a
+ * caught-and-logged server error becomes a Sentry issue — every server
+ * error path already funnels through here (route catch blocks,
+ * `handleApiError`, the MCP error serializer, the agent's `emitError`).
+ * `info()` / `warn()` stay Cloud Logging-only: `warn` deliberately covers
+ * expected external conditions (provider rate limits, overload) that
+ * would flood Sentry's issue stream with non-bugs.
  */
+
+import * as Sentry from "@sentry/nextjs";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -37,6 +49,17 @@ interface LogPayload {
  * (string-only values) is satisfied.
  */
 export type LogContext = Record<string, unknown>;
+
+/** Options for `log.error`. */
+export interface LogErrorOptions {
+	/**
+	 * Set false ONLY when the error already reached Sentry at its source
+	 * and a second capture here would duplicate the issue. Today that's
+	 * just `/api/log/error`, which relays browser errors the Sentry
+	 * client SDK captured first-hand.
+	 */
+	sentry?: boolean;
+}
 
 // ── Internal ───────────────────────────────────────────────────────────
 
@@ -63,6 +86,28 @@ function emit(payload: LogPayload): void {
 			? process.stderr
 			: process.stdout;
 	stream.write(`${JSON.stringify(payload)}\n`);
+}
+
+/**
+ * Mirror an error/critical entry to Sentry. `captureException` when the
+ * caller passed a thrown value — Sentry fingerprints on its stack, which
+ * groups far better than message text — and `captureMessage` otherwise.
+ * The log message + context ride along as `extra` so the Sentry issue
+ * carries the same detail as the Cloud Logging line. The SDK never
+ * throws and no-ops when uninitialized (e.g. unit tests).
+ */
+function captureToSentry(
+	level: "error" | "fatal",
+	message: string,
+	error: unknown,
+	context: LogContext | undefined,
+): void {
+	const capture = { level, extra: { log_message: message, ...context } };
+	if (error !== undefined) {
+		Sentry.captureException(error, capture);
+	} else {
+		Sentry.captureMessage(message, capture);
+	}
 }
 
 /**
@@ -135,8 +180,17 @@ export const log = {
 	 * @param message - Human-readable description of what went wrong
 	 * @param error - The caught error/exception (stack extracted automatically)
 	 * @param context - Arbitrary labels for Cloud Logging filtering
+	 * @param options - `{ sentry: false }` skips the Sentry mirror; see `LogErrorOptions`
 	 */
-	error(message: string, error?: unknown, context?: LogContext): void {
+	error(
+		message: string,
+		error?: unknown,
+		context?: LogContext,
+		options?: LogErrorOptions,
+	): void {
+		if (options?.sentry !== false) {
+			captureToSentry("error", message, error, context);
+		}
 		if (!isProduction) {
 			if (error !== undefined) {
 				if (context && Object.keys(context).length > 0)
@@ -165,6 +219,7 @@ export const log = {
 	 * unrecoverable state. Use sparingly; most errors should use `error()`.
 	 */
 	critical(message: string, error?: unknown, context?: LogContext): void {
+		captureToSentry("fatal", message, error, context);
 		if (!isProduction) {
 			const prefixed = `[CRITICAL] ${message}`;
 			if (error !== undefined) {

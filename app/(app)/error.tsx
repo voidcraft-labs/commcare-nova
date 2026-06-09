@@ -9,8 +9,9 @@ import { reportClientError } from "@/lib/clientErrorReporter";
  * instead of router.push because client-side navigation doesn't work reliably
  * inside an error boundary — React's tree is in an error state.
  *
- * Reports the caught error to the server logging endpoint on mount so
- * React rendering crashes appear in GCP Cloud Logging alongside JS errors.
+ * Reports the caught error through the shared client error funnel on
+ * mount so React rendering crashes reach Sentry and Cloud Logging
+ * alongside uncaught JS errors.
  */
 export default function GlobalError({
 	error,
@@ -20,12 +21,15 @@ export default function GlobalError({
 	reset: () => void;
 }) {
 	useEffect(() => {
-		reportClientError({
-			message: error.message || "Unknown rendering error",
-			stack: error.stack,
-			source: "error-boundary",
-			url: window.location.href,
-		});
+		reportClientError(
+			{
+				message: error.message || "Unknown rendering error",
+				stack: error.stack,
+				source: "error-boundary",
+				url: window.location.href,
+			},
+			error,
+		);
 	}, [error]);
 
 	return (

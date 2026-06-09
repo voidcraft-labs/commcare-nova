@@ -1,16 +1,29 @@
 "use client";
 
-import * as Sentry from "@sentry/nextjs";
 import NextError from "next/error";
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/clientErrorReporter";
 
+/**
+ * Root error boundary — fires only when the root layout itself crashes,
+ * above every route-level boundary. Reports through the shared client
+ * funnel (Sentry + Cloud Logging) like every other boundary.
+ */
 export default function GlobalError({
 	error,
 }: {
 	error: Error & { digest?: string };
 }) {
 	useEffect(() => {
-		Sentry.captureException(error);
+		reportClientError(
+			{
+				message: error.message || "Unknown rendering error",
+				stack: error.stack,
+				source: "error-boundary",
+				url: window.location.href,
+			},
+			error,
+		);
 	}, [error]);
 
 	return (

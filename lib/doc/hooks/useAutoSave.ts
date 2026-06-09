@@ -201,12 +201,15 @@ export function useAutoSave(): SaveState {
 				}
 			} catch (err) {
 				if (stillCurrent()) {
-					reportClientError({
-						message: `Auto-save network error: ${err instanceof Error ? err.message : String(err)}`,
-						stack: err instanceof Error ? err.stack : undefined,
-						source: "manual",
-						url: window.location.href,
-					});
+					reportClientError(
+						{
+							message: `Auto-save network error: ${err instanceof Error ? err.message : String(err)}`,
+							stack: err instanceof Error ? err.stack : undefined,
+							source: "manual",
+							url: window.location.href,
+						},
+						err,
+					);
 					setState((prev) => ({ ...prev, status: "error" }));
 				}
 			} finally {

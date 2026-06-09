@@ -14,8 +14,8 @@ interface ErrorBoundaryState {
 
 /**
  * Catches render errors in children and displays a fallback instead of
- * crashing the whole tree. Reports the error to the server logging
- * endpoint so component-level crashes appear in GCP Cloud Logging.
+ * crashing the whole tree. Reports the error through the shared client
+ * error funnel so component-level crashes reach Sentry and Cloud Logging.
  */
 export class ErrorBoundary extends React.Component<
 	ErrorBoundaryProps,
@@ -31,12 +31,15 @@ export class ErrorBoundary extends React.Component<
 	}
 
 	componentDidCatch(error: Error) {
-		reportClientError({
-			message: error.message || "Component rendering error",
-			stack: error.stack,
-			source: "error-boundary",
-			url: typeof window !== "undefined" ? window.location.href : "",
-		});
+		reportClientError(
+			{
+				message: error.message || "Component rendering error",
+				stack: error.stack,
+				source: "error-boundary",
+				url: typeof window !== "undefined" ? window.location.href : "",
+			},
+			error,
+		);
 	}
 
 	render() {
