@@ -2,13 +2,14 @@
  * Google Cloud Storage client for media assets.
  *
  * Lazily-initialized singleton matching the Firestore singleton
- * pattern in `lib/db/firestore.ts`. Credentials: Application Default
- * Credentials (the attached service account) on Cloud Run; locally, a
- * `fake-gcs-server` emulator (`compose.yaml`) — set `NOVA_MEDIA_EMULATOR_HOST`
- * and the client talks to it with NO auth, so local-dev media needs no
- * real GCS, no signed-URL signing, and no service-account impersonation.
- * Pointing local dev at the real `nova-multimedia-dev` bucket still works
- * if ADC is configured, but the emulator is the default local path.
+ * pattern in `lib/db/firestore.ts`. Credentials are Application
+ * Default Credentials everywhere: the attached service account on
+ * Cloud Run, the developer's `gcloud auth application-default`
+ * identity locally. Local dev points at the dev project's real
+ * bucket (`GOOGLE_CLOUD_PROJECT` + `NOVA_MEDIA_BUCKET` in `.env`) so
+ * dev exercises the same client against the same wire behavior as
+ * prod — Firestore rows and stored bytes live in the same project
+ * and can never disagree about what exists.
  *
  * The bucket name comes from `NOVA_MEDIA_BUCKET` at first call.
  * Throwing here (rather than at module load) lets the build step
@@ -29,68 +30,12 @@ let _bucket: Bucket | null = null;
  */
 function getStorage(): Storage {
 	if (!_storage) {
-		// Local dev (fake-gcs-server emulator): pass the emulator host as an
-		// explicit `apiEndpoint`. A custom `apiEndpoint` reroutes EVERY
-		// operation to the emulator and skips ADC (the client's default
-		// `useAuthWithCustomEndpoint: false`), so local media needs no
-		// credentials, no signed-URL signing, and no impersonation. `projectId`
-		// is a placeholder the emulator ignores; prod sets no emulator host, so
-		// it uses real GCS with ADC and the real `GOOGLE_CLOUD_PROJECT`.
-		//
-		// We deliberately use our own `NOVA_MEDIA_EMULATOR_HOST`, NOT the
-		// conventional `STORAGE_EMULATOR_HOST`: the client auto-detects the
-		// latter and rewrites read / copy / delete paths to a prefix-less form
-		// (`/b/<bucket>/o/...` instead of `/storage/v1/b/...`) that
-		// fake-gcs-server answers 404 for, and `apiEndpoint` can't override it.
-		// A non-hijacked var + `apiEndpoint` keeps every path correct.
-		const emulatorHost = process.env.NOVA_MEDIA_EMULATOR_HOST;
-		_storage = new Storage({
-			projectId: process.env.GOOGLE_CLOUD_PROJECT ?? "nova-local",
-			...(emulatorHost ? { apiEndpoint: emulatorHost } : {}),
-		});
+		// `projectId` is read from the env when set (local dev names the dev
+		// project explicitly); on Cloud Run it is omitted and the client
+		// resolves it from the metadata server.
+		_storage = new Storage({ projectId: process.env.GOOGLE_CLOUD_PROJECT });
 	}
 	return _storage;
-}
-
-/**
- * Idempotently create the media bucket in the local emulator before the
- * first write. Prod buckets are provisioned out-of-band against real GCS;
- * the emulator starts empty, so the first upload of a session creates the
- * bucket. A no-op (and zero network) outside emulator mode. The guard
- * promise runs the create at most once per process; an "already exists"
- * response is the expected steady state and is swallowed.
- */
-let _emulatorBucketReady: Promise<void> | null = null;
-async function ensureEmulatorBucket(): Promise<void> {
-	const emulator = process.env.NOVA_MEDIA_EMULATOR_HOST;
-	if (!emulator) return;
-	if (!_emulatorBucketReady) {
-		const name = process.env.NOVA_MEDIA_BUCKET;
-		// Create the bucket with the raw GCS JSON-API shape rather than the
-		// client's `createBucket()`: the client method posts to an endpoint
-		// fake-gcs-server answers 404 for, while the plain `POST /storage/v1/b`
-		// below is the request the emulator actually implements. A 409 (already
-		// exists) or any other response is fine — this only needs to run once
-		// per process, and a network blip falls through to the upload's own
-		// error. The `project` query param is required by the emulator but
-		// ignored by it.
-		const project = process.env.GOOGLE_CLOUD_PROJECT ?? "nova-local";
-		_emulatorBucketReady = name
-			? fetch(
-					`${emulator.replace(/\/$/, "")}/storage/v1/b?project=${encodeURIComponent(
-						project,
-					)}`,
-					{
-						method: "POST",
-						headers: { "content-type": "application/json" },
-						body: JSON.stringify({ name }),
-					},
-				)
-					.then(() => undefined)
-					.catch(() => undefined)
-			: Promise.resolve();
-	}
-	return _emulatorBucketReady;
 }
 
 /**
@@ -105,7 +50,7 @@ function getBucket(): Bucket {
 		const name = process.env.NOVA_MEDIA_BUCKET;
 		if (!name) {
 			throw new Error(
-				"NOVA_MEDIA_BUCKET is unset — multimedia upload and read routes need this env var to know which GCS bucket holds the bytes. Set it to e.g. `nova-multimedia-prod` (production) or `nova-multimedia-dev` (local).",
+				"NOVA_MEDIA_BUCKET is unset — multimedia upload and read routes need this env var to know which GCS bucket holds the bytes. Set it to e.g. `nova-multimedia-prod` (production) or `commcare-nova-dev-multimedia` (local dev).",
 			);
 		}
 		_bucket = getStorage().bucket(name);
@@ -180,14 +125,15 @@ export async function createSignedUploadUrl(args: {
 	const ttlMs = 5 * 60 * 1000;
 	const expiresAtMs = Date.now() + ttlMs;
 
-	// Local dev (fake-gcs-server emulator): the browser can't PUT straight to
-	// the emulator (cross-origin) and there's no SA key to mint a real V4
-	// signed URL with. Instead the browser PUTs to a same-origin local-dev
-	// proxy route that writes the bytes to the emulator server-side — no
-	// signing, no credentials, no impersonation. Hard-gated on the same env
-	// var, so the route 404s in prod. Prod keeps the real signed URL below.
-	if (process.env.NOVA_MEDIA_EMULATOR_HOST) {
-		const url = `/api/media/upload/emulator-put?key=${encodeURIComponent(
+	// Local dev: developer ADC is a user credential with no private key, so
+	// it cannot mint a V4 signature (prod's runtime service account signs
+	// via the IAM credentials API). The browser instead PUTs to a
+	// same-origin dev-only route that writes the bytes through this
+	// module's storage client. The rest of the upload flow (initiate → PUT
+	// → confirm → validate → promote) stays byte-identical to prod — only
+	// the signed-PUT hop is swapped. The route 404s outside development.
+	if (process.env.NODE_ENV === "development") {
+		const url = `/api/media/upload/dev-put?key=${encodeURIComponent(
 			args.gcsObjectKey,
 		)}`;
 		return { url, expiresAtMs };
@@ -221,7 +167,6 @@ export async function uploadAssetBytes(args: {
 	bytes: Buffer;
 	contentType: string;
 }): Promise<void> {
-	await ensureEmulatorBucket();
 	await getBucket().file(args.gcsObjectKey).save(args.bytes, {
 		resumable: false,
 		contentType: args.contentType,

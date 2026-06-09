@@ -175,8 +175,9 @@ function buildCsp(isDev: boolean): { csp: string; nonce: string } {
 		/* A media upload PUTs its bytes straight to a V4 signed GCS URL from the
 		 * browser — a cross-origin request the default `'self'` would block. Reads
 		 * stay same-origin (the `/api/media/[assetId]` route proxies them), so only
-		 * the upload PUT needs this. In local dev the signed URL is a same-origin
-		 * emulator path, so it only matters in prod. */
+		 * the upload PUT needs this. In local dev the upload target is the
+		 * same-origin `/api/media/upload/dev-put` route, so it only matters in
+		 * prod. */
 		"connect-src 'self' https://storage.googleapis.com",
 		"object-src 'none'",
 		"base-uri 'self'",
