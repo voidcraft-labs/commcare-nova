@@ -1,9 +1,12 @@
 # Multi-container Cloud Run service: nginx h2c ingress + Next app sidecar.
 #
-# Deployed by cloudbuild.yaml via `gcloud run services replace` (the __*_IMAGE__
-# placeholders are substituted per build). This file is the source of truth for
-# the ENTIRE service spec — env, secrets, VPC, scaling — so change config here,
-# not in the console (a console edit is reverted on the next deploy).
+# Full-spec source of truth for env, secrets, VPC, scaling, ports, and probes.
+# Routine deploys do NOT re-apply this file: cloudbuild.yaml swaps only the
+# container images per commit with `gcloud run services update --container …
+# --image …`, so everything declared here persists across deploys. To change any
+# of that config, replace the __*_IMAGE__ placeholders with a real pushed image
+# and run `gcloud run services replace service.yaml` once (the next CI deploy
+# re-pins the images to the current commit).
 #
 # Shape (per Cloud Run's documented HTTP/2-end-to-end pattern): Cloud Run
 # terminates TLS and forwards h2c to the `nginx` container (its port is named

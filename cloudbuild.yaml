@@ -1,12 +1,11 @@
 # Cloud Build pipeline for the multi-container (nginx h2c ingress + Next app)
-# deploy: build both images, then replace the live service from service.yaml.
-# The main-push trigger runs this file (its config is `filename: cloudbuild.yaml`).
-#
-# Image refs inline $PROJECT_ID/$COMMIT_SHA directly at every use site instead of
-# through a user-defined substitution. Cloud Build substitution is single-pass, so
-# a user substitution whose VALUE contains $COMMIT_SHA leaves it unexpanded when it
-# lands in the images: field — the build then fails validation with "invalid image
-# name ...:$COMMIT_SHA".
+# deploy. Build both images tagged with the commit, push them, then point each
+# container at its new image with a single `services update` — no YAML rendering
+# (`gcloud run services replace` reads service.yaml literally and never
+# substitutes a per-commit tag, which is why the image goes on the command line
+# here instead). The full service spec (env, secrets, VPC, ports, probes) is set
+# once from service.yaml; routine deploys only swap the images, so everything
+# else is preserved.
 steps:
   - id: build-app
     name: gcr.io/cloud-builders/docker
@@ -40,22 +39,19 @@ steps:
       - push
       - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/nginx:$COMMIT_SHA"
 
-  # Substitute the freshly built image tags into the service spec, then replace
-  # the live service declaratively.
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: bash
+    entrypoint: gcloud
     args:
-      - -c
-      - |
-        sed -e "s|__APP_IMAGE__|us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA|g" \
-            -e "s|__NGINX_IMAGE__|us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/nginx:$COMMIT_SHA|g" \
-            service.yaml > /workspace/service.resolved.yaml
-        gcloud run services replace /workspace/service.resolved.yaml --region=us-central1 --quiet
-
-images:
-  - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA"
-  - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/nginx:$COMMIT_SHA"
+      - run
+      - services
+      - update
+      - commcare-nova
+      - --region=us-central1
+      - --container=app
+      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA
+      - --container=nginx
+      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/nginx:$COMMIT_SHA
 
 options:
   logging: CLOUD_LOGGING_ONLY
