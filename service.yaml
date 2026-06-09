@@ -46,7 +46,12 @@ spec:
               containerPort: 8080
           resources:
             limits:
-              cpu: 500m
+              # A container's CPU must be a fraction in [0.08, 1) or a whole
+              # 1/2/4/6/8 — 1.5 is rejected — and the instance total must land on
+              # 1/2/4/6/8. So the only split that keeps the app at a full vCPU is
+              # 1 + 1 = 2; nginx is over-provisioned but CPU is throttled to
+              # request time, so the idle cost is nil.
+              cpu: "1"
               memory: 256Mi
           startupProbe:
             tcpSocket:
@@ -99,7 +104,7 @@ spec:
                   name: nova-google_generative_api_key
           resources:
             limits:
-              cpu: 1500m
+              cpu: "1"
               memory: 2Gi
           startupProbe:
             tcpSocket:
