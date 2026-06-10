@@ -37,13 +37,11 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
-import {
-	type CaseListConfig,
-	type CaseSearchConfig,
-	type Column,
-	plainColumn,
-	type SearchInputDef,
-	simpleSearchInputDef,
+import type {
+	CaseListConfig,
+	CaseSearchConfig,
+	Column,
+	SearchInputDef,
 } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId } from "@/lib/session/hooks";
@@ -53,15 +51,18 @@ import { CaseListCanvas } from "./canvas/CaseListCanvas";
 import { DetailCanvas } from "./canvas/DetailCanvas";
 import { SearchCanvas } from "./canvas/SearchCanvas";
 import { WorkerPreviewCanvas } from "./canvas/WorkerPreviewCanvas";
-import { isCaseListConfigValid } from "./configValidity";
+import {
+	type CaseListConfigErrorAreas,
+	caseListConfigErrorAreas,
+} from "./configValidity";
 import { FilterInspectorBody } from "./inspector/FilterInspectorBody";
 import { ListPanelInspectorBody } from "./inspector/ListPanelInspectorBody";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
+import { seedColumn, seedSearchInput } from "./seeds";
 import { resolveSortedColumns, sortPositionByUuid } from "./sortPriority";
 import { useCaseListPreview } from "./useCaseListPreview";
 import { useSampleData } from "./useSampleData";
-import { newUuid } from "./uuid";
 import type { WorkspaceSelection } from "./workspaceSelection";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -136,13 +137,15 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	);
 
 	// ── Live preview (one load feeds the list + detail canvases) ──
-	const configValid = useMemo(
+	const errorAreas = useMemo(
 		() =>
 			caseType !== undefined
-				? isCaseListConfigValid(config, caseTypes, caseType)
-				: true,
+				? caseListConfigErrorAreas(config, caseTypes, caseType)
+				: { search: false, list: false, detail: false },
 		[config, caseTypes, caseType],
 	);
+	const configValid =
+		!errorAreas.search && !errorAreas.list && !errorAreas.detail;
 	const { state: preview, reload: reloadPreview } = useCaseListPreview({
 		appId,
 		caseListConfig: config,
@@ -175,9 +178,8 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	);
 
 	const ct = caseTypes.find((c) => c.name === caseType);
-	const firstProperty = ct?.properties[0]?.name ?? "";
 	const addDisabledReason =
-		firstProperty === "" ? PROPERTYLESS_HINT : undefined;
+		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
 	const replaceColumn = (uuid: string, next: Column) => {
 		updateConfig({
@@ -193,7 +195,12 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		deselect();
 	};
 	const addColumn = (slots?: { visibleInList?: boolean }) => {
-		const seed = plainColumn(newUuid(), firstProperty, "", slots);
+		// Smart seed — bound to an unused property, human-worded header,
+		// date-formatted when the property is date-shaped. A blank seed
+		// would render "untitled" and demand three edits before the
+		// canvas looks right; this one is presentable as it lands.
+		const seed = seedColumn(config, ct, slots);
+		if (seed === undefined) return;
 		updateConfig({ ...config, columns: [...config.columns, seed] });
 		setSel({ type: "column", uuid: seed.uuid });
 	};
@@ -217,11 +224,12 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		deselect();
 	};
 	const addInput = () => {
-		// `input_` prefix + short random suffix distinguishes
-		// auto-generated names from hand-authored ones at-a-glance while
-		// staying unique among siblings.
-		const freshName = `input_${crypto.randomUUID().slice(0, 8)}`;
-		const seed = simpleSearchInputDef(newUuid(), freshName, "", "text", "");
+		// Smart seed — bound property, human label, widget matched to the
+		// data type, fuzzy match for text. An unbound input matches
+		// NOTHING at runtime, which reads as "search is broken"; a seed
+		// must work the moment it lands.
+		const seed = seedSearchInput(config, ct);
+		if (seed === undefined) return;
 		updateConfig({ ...config, searchInputs: [...config.searchInputs, seed] });
 		setSel({ type: "input", uuid: seed.uuid });
 	};
@@ -265,6 +273,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				searchMeta={`${config.searchInputs.length} ${config.searchInputs.length === 1 ? "input" : "inputs"}`}
 				listMeta={`${config.columns.length} ${config.columns.length === 1 ? "column" : "columns"}`}
 				detailMeta={`${detailFieldCount} ${detailFieldCount === 1 ? "field" : "fields"}`}
+				errorAreas={errorAreas}
 				onSelectTab={(next) => {
 					if (next === tab) return;
 					if (next === "search") navigate.openSearchConfig(moduleUuid);
@@ -317,6 +326,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					searchConfig={searchConfig}
 					caseType={ct}
 					appId={appId}
+					onConfigChange={updateConfig}
 				/>
 			)}
 
@@ -470,6 +480,7 @@ interface WorkspaceTabsProps {
 	readonly searchMeta: string;
 	readonly listMeta: string;
 	readonly detailMeta: string;
+	readonly errorAreas: CaseListConfigErrorAreas;
 	readonly onSelectTab: (next: CaseListWorkspaceTab) => void;
 }
 
@@ -494,6 +505,7 @@ function WorkspaceTabs({
 	searchMeta,
 	listMeta,
 	detailMeta,
+	errorAreas,
 	onSelectTab,
 }: WorkspaceTabsProps) {
 	const metas: Record<Exclude<CaseListWorkspaceTab, "preview">, string> = {
@@ -509,18 +521,25 @@ function WorkspaceTabs({
 		<div className="sticky top-0 z-raised flex items-center gap-1.5 @2xl:gap-2 px-4 @2xl:px-7 py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
 			{TAB_DEFS.map(({ id, icon, label }) => {
 				const active = tab === id;
+				const hasErrors = errorAreas[id];
 				return (
 					<button
 						type="button"
 						key={id}
 						onClick={() => onSelectTab(id)}
-						title={label}
-						className={`flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
+						title={hasErrors ? `${label} — needs attention` : label}
+						className={`relative flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
 							active
 								? "bg-nova-violet/[0.13] border-nova-border-bright"
 								: "border-transparent hover:bg-white/[0.03]"
 						}`}
 					>
+						{hasErrors && (
+							<span
+								className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
+								aria-hidden="true"
+							/>
+						)}
 						<Icon
 							icon={icon}
 							width="17"

@@ -41,8 +41,8 @@ export function MatchAllCard(_props: MatchAllCardProps) {
 			<div className="text-xs">
 				<div className="text-nova-text">Always true — matches every case.</div>
 				<div className="text-[10px] text-nova-text-muted/70">
-					The boolean-algebra identity element. Combine with other clauses to
-					keep them as no-ops.
+					A starting point that filters nothing out — use Change to pick a real
+					condition.
 				</div>
 			</div>
 		</div>
@@ -61,8 +61,7 @@ export function MatchNoneCard(_props: MatchNoneCardProps) {
 			<div className="text-xs">
 				<div className="text-nova-text">Always false — matches no case.</div>
 				<div className="text-[10px] text-nova-text-muted/70">
-					The boolean-algebra absorbing element. Useful as an explicit
-					"disabled" filter state.
+					Hides everything — an explicit "off switch" for whatever it replaces.
 				</div>
 			</div>
 		</div>

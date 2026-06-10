@@ -34,6 +34,7 @@ import {
 	resolveRows,
 	rowHasStructuralError,
 	SEARCH_INPUT_TYPE_ICONS,
+	SEARCH_MODE_LABELS,
 } from "../searchInputResolution";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { AddGhostButton, activateOnKeyDown } from "./canvasChrome";
@@ -225,7 +226,7 @@ function InputRow({
 	const dflt = defaultDisplayValue(input.default);
 	const modeNote =
 		input.kind === "simple" && input.mode !== undefined
-			? ` · ${input.mode.kind} match`
+			? ` · ${SEARCH_MODE_LABELS[input.mode.kind]} match`
 			: "";
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: can't use <button> — the row hosts a nested grip button, which HTML forbids inside a button

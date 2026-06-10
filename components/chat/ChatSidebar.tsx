@@ -496,6 +496,7 @@ export function ChatSidebar({
 						<button
 							type="button"
 							onClick={() => setSidebarOpen("chat", false)}
+							aria-label="Collapse chat sidebar"
 							className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 						>
 							<Icon icon={tablerChevronRight} width="14" height="14" />

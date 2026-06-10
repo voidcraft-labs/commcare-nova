@@ -24,6 +24,7 @@ import {
 	applicableSearchModes,
 	type CaseProperty,
 	type CaseType,
+	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
 	exactMode,
 	fuzzyDateMode,
@@ -68,15 +69,59 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 	barcode: tablerBarcode,
 };
 
+/** Plain-words explanation per widget type — what the worker gets.
+ *  Shown in the Type picker's menu beside each label. */
+export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
+	text: "Free-typed text box.",
+	select: "Pick from the property's options.",
+	date: "Calendar picker for a single date.",
+	"date-range": "From / to pair searching a date span.",
+	barcode: "Scan a barcode instead of typing.",
+};
+
+/**
+ * Authoring-layer mode names — plain words over search-engine
+ * vocabulary ("fuzzy", "phonetic"), because the author choosing
+ * between them is rarely a search engineer. The wire layer keeps
+ * its own vocabulary; these labels never leave the builder UI.
+ */
 export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
 	exact: "Exact",
-	fuzzy: "Fuzzy",
+	fuzzy: "Forgiving",
 	"starts-with": "Starts with",
-	phonetic: "Phonetic",
-	"fuzzy-date": "Fuzzy date",
+	phonetic: "Sounds like",
+	"fuzzy-date": "Forgiving date",
 	range: "Range",
-	"multi-select-contains": "Multi-select contains",
+	"multi-select-contains": "Contains",
 };
+
+/**
+ * Plain-words explanation per match mode — what the worker's typed
+ * value has to look like to hit. Shown in the Match picker's menu
+ * AND as the chosen mode's hint, because the difference between
+ * "Exact" and "Forgiving" is the difference between "search looks
+ * broken" and "search works": exact is letter-for-letter and
+ * case-sensitive, which surprises everyone the first time.
+ */
+export const SEARCH_MODE_DESCRIPTIONS: Record<SearchInputMode["kind"], string> =
+	{
+		exact: "Letter-for-letter, including capitalization.",
+		fuzzy: "Tolerates typos, partial words, and capitalization.",
+		"starts-with": "Matches values that begin with the typed text.",
+		phonetic: "Matches names that sound alike when spoken.",
+		"fuzzy-date": "Tolerates day/month digit swaps in a typed date.",
+		range: "Worker picks a from / to range.",
+		"multi-select-contains": "Matches cases containing the chosen tokens.",
+	};
+
+/** The mode a row actually runs with — its explicit mode, or the
+ *  per-type default when the slot is absent. */
+export function effectiveModeKind(
+	input: SearchInputDef,
+): SearchInputMode["kind"] {
+	if (input.kind === "advanced") return "exact";
+	return input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
+}
 
 // ── Per-mode builder lookup ───────────────────────────────────────
 
@@ -114,9 +159,21 @@ export type NameState =
 	 *  silently overwrite. */
 	| { kind: "duplicate"; firstIndex: number };
 
+export type PropertyState =
+	/** Bound and resolvable (or advanced arm — the predicate AST owns
+	 *  property resolution). */
+	| { kind: "ok" }
+	/** Simple arm with `property: ""` — an unbound input matches
+	 *  NOTHING at runtime, which reads as "search is broken". */
+	| { kind: "empty" }
+	/** Simple arm naming a property the destination case type doesn't
+	 *  declare (renamed or removed since) — also matches nothing. */
+	| { kind: "dangling"; destination: string };
+
 export interface ResolvedRow {
 	readonly nameState: NameState;
 	readonly labelEmpty: boolean;
+	readonly propertyState: PropertyState;
 	/** Type-coupling diagnostics — empty when the picked
 	 *  `(type, mode)` pair is admissible against the targeted
 	 *  property's `data_type`. Always empty for `kind: "advanced"`
@@ -157,17 +214,29 @@ export function resolveRows(
 
 		// Advanced arm bypasses type-coupling — the predicate AST owns
 		// property resolution + has its own type checker.
-		const typeCouplingErrors =
-			row.kind === "advanced"
-				? ([] as const)
-				: computeTypeCouplingErrors(
-						row,
-						resolveProperty(caseTypes, row, currentCaseType),
-					);
+		let propertyState: PropertyState = { kind: "ok" };
+		let typeCouplingErrors: readonly string[] = [];
+		if (row.kind === "simple") {
+			const property = resolveProperty(caseTypes, row, currentCaseType);
+			if (row.property === "") {
+				propertyState = { kind: "empty" };
+			} else if (property === undefined) {
+				propertyState = {
+					kind: "dangling",
+					destination: resolveDestinationCaseType(
+						caseTypes,
+						row.via,
+						currentCaseType,
+					),
+				};
+			}
+			typeCouplingErrors = computeTypeCouplingErrors(row, property);
+		}
 
 		return {
 			nameState,
 			labelEmpty: row.label === "",
+			propertyState,
 			typeCouplingErrors,
 		};
 	});
@@ -275,6 +344,7 @@ export function computeTypeCouplingErrors(
 export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 	if (resolved.nameState.kind !== "ok") return true;
 	if (resolved.labelEmpty) return true;
+	if (resolved.propertyState.kind !== "ok") return true;
 	if (resolved.typeCouplingErrors.length > 0) return true;
 	return false;
 }

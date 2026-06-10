@@ -19,16 +19,27 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
+import tablerWand from "@iconify-icons/tabler/wand";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { CaseListConfig, CaseSearchConfig, CaseType } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	type CaseSearchConfig,
+	type CaseType,
+	effectiveDataType,
+	fuzzyMode,
+	SEARCH_MODE_PROPERTY_TYPES,
+	type SimpleSearchInputDef,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import { useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { renderColumnCell } from "../columnCellRenderer";
+import { effectiveModeKind } from "../searchInputResolution";
 import { useSampleData } from "../useSampleData";
 
 /** Canvas width where search sits beside the results instead of above
@@ -41,6 +52,7 @@ export interface WorkerPreviewCanvasProps {
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseType: CaseType | undefined;
 	readonly appId: string;
+	readonly onConfigChange: (next: CaseListConfig) => void;
 }
 
 export function WorkerPreviewCanvas({
@@ -49,6 +61,7 @@ export function WorkerPreviewCanvas({
 	searchConfig,
 	caseType,
 	appId,
+	onConfigChange,
 }: WorkerPreviewCanvasProps) {
 	const docApi = useBlueprintDocApi();
 	const blueprint = useMemo(
@@ -103,6 +116,43 @@ export function WorkerPreviewCanvas({
 	);
 	const hasSearch = config.searchInputs.length > 0;
 	const queryActive = [...inputValues.values()].some((v) => v !== "");
+
+	/* A zero-match against a letter-for-letter text input is the single
+	 * most common "search is broken" experience — the worker typed a
+	 * lowercase or partial name into an exact-match field. Spot that
+	 * shape (typed-into, text, exact mode, property admits fuzzy) so
+	 * the no-match state can name the cause and fix it in one click. */
+	const strictTextInputs = useMemo(
+		() =>
+			config.searchInputs.filter((s): s is SimpleSearchInputDef => {
+				if (s.kind !== "simple" || s.type !== "text" || s.via !== undefined)
+					return false;
+				if ((inputValues.get(s.name)?.trim() ?? "") === "") return false;
+				if (effectiveModeKind(s) !== "exact") return false;
+				const def = caseType?.properties.find((p) => p.name === s.property);
+				if (def === undefined) return false;
+				return (
+					SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(effectiveDataType(def)) ??
+					true
+				);
+			}),
+		[config.searchInputs, inputValues, caseType],
+	);
+	const makeForgiving = () => {
+		const strict = new Set(strictTextInputs.map((s) => s.uuid));
+		onConfigChange({
+			...config,
+			searchInputs: config.searchInputs.map((s) =>
+				s.kind === "simple" && strict.has(s.uuid)
+					? simpleSearchInputDef(s.uuid, s.name, s.label, s.type, s.property, {
+							via: s.via,
+							mode: fuzzyMode(),
+							default: s.default,
+						})
+					: s,
+			),
+		});
+	};
 
 	const title = searchConfig?.searchScreenTitle ?? "Search";
 	const subtitle = searchConfig?.searchScreenSubtitle;
@@ -196,6 +246,8 @@ export function WorkerPreviewCanvas({
 				queryActive={queryActive}
 				onOpenCase={setOpenCase}
 				generate={generate}
+				strictTextInputs={strictTextInputs}
+				onMakeForgiving={makeForgiving}
 			/>
 			{state.kind === "rows" && state.rows.length > 0 && (
 				<p className="mt-2.5 text-xs text-nova-text-muted">
@@ -243,12 +295,16 @@ function ResultsBody({
 	queryActive,
 	onOpenCase,
 	generate,
+	strictTextInputs,
+	onMakeForgiving,
 }: {
 	readonly state: ReturnType<typeof useCases>["state"];
 	readonly visibleColumns: CaseListConfig["columns"];
 	readonly queryActive: boolean;
 	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
 	readonly generate: ReturnType<typeof useSampleData>["generate"];
+	readonly strictTextInputs: readonly SimpleSearchInputDef[];
+	readonly onMakeForgiving: () => void;
 }) {
 	if (state.kind === "idle" || state.kind === "loading") {
 		return (
@@ -284,9 +340,10 @@ function ResultsBody({
 		// The store reports `empty` for "this query matched nothing" too —
 		// with a search active that means no match, not an empty store.
 		return (
-			<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center text-xs text-nova-text-muted">
-				No cases match this search.
-			</div>
+			<NoMatchNotice
+				strictTextInputs={strictTextInputs}
+				onMakeForgiving={onMakeForgiving}
+			/>
 		);
 	}
 
@@ -331,15 +388,90 @@ function ResultsBody({
 	}
 
 	if (state.rows.length === 0) {
+		if (queryActive) {
+			return (
+				<NoMatchNotice
+					strictTextInputs={strictTextInputs}
+					onMakeForgiving={onMakeForgiving}
+				/>
+			);
+		}
 		return (
 			<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center text-xs text-nova-text-muted">
-				{queryActive
-					? "No cases match this search."
-					: "No cases match the current filter."}
+				No cases match the current filter.
 			</div>
 		);
 	}
 
+	return (
+		<ResultsTable
+			state={state}
+			visibleColumns={visibleColumns}
+			onOpenCase={onOpenCase}
+		/>
+	);
+}
+
+// ── No-match state ────────────────────────────────────────────────
+
+/**
+ * The zero-results card. When the miss is explained by a
+ * letter-for-letter text input the worker typed into, the card says
+ * so in plain words and offers the one-click fix — switching those
+ * inputs to forgiving match IS a config edit (visible in the
+ * inspector, undoable), so the preview result updates live.
+ */
+function NoMatchNotice({
+	strictTextInputs,
+	onMakeForgiving,
+}: {
+	readonly strictTextInputs: readonly SimpleSearchInputDef[];
+	readonly onMakeForgiving: () => void;
+}) {
+	const names = strictTextInputs.map((s) => `“${s.label || s.name}”`);
+	const list =
+		names.length <= 1
+			? names[0]
+			: `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+	return (
+		<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center">
+			<p className="text-xs text-nova-text-muted">
+				No cases match this search.
+			</p>
+			{strictTextInputs.length > 0 && (
+				<div className="max-w-md mx-auto mt-4 pt-4 border-t border-nova-violet/[0.08]">
+					<p className="mb-3 text-xs text-nova-text-secondary text-balance">
+						{list} {names.length === 1 ? "matches" : "match"} letter-for-letter
+						— a lowercase, partial, or misspelled entry returns nothing.
+					</p>
+					<button
+						type="button"
+						onClick={onMakeForgiving}
+						className="inline-flex items-center gap-1.5 px-3 min-h-9 rounded-md border border-nova-border-bright bg-nova-violet/[0.12] text-xs font-medium text-nova-violet-bright hover:bg-nova-violet/[0.2] transition-colors cursor-pointer"
+					>
+						<Icon icon={tablerWand} width="13" height="13" />
+						Switch to forgiving match
+					</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ── Results table ─────────────────────────────────────────────────
+
+function ResultsTable({
+	state,
+	visibleColumns,
+	onOpenCase,
+}: {
+	readonly state: Extract<
+		ReturnType<typeof useCases>["state"],
+		{ kind: "rows" }
+	>;
+	readonly visibleColumns: CaseListConfig["columns"];
+	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
+}) {
 	return (
 		<div className="rounded-lg border border-pv-input-border bg-pv-surface overflow-x-auto">
 			<div style={{ minWidth: visibleColumns.length * 140 + 36 }}>

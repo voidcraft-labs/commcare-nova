@@ -46,10 +46,16 @@ import { RelationPathBuilder } from "@/components/builder/shared/primitives/Rela
 import {
 	advancedSearchInputDef,
 	applicableSearchModes,
+	type CasePropertyDataType,
 	type CaseType,
+	DEFAULT_SEARCH_MODE_KIND,
+	effectiveDataType,
+	fuzzyMode,
 	type MultiSelectQuantifier,
 	multiSelectContainsMode,
+	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_INPUT_TYPES,
+	SEARCH_MODE_PROPERTY_TYPES,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
@@ -77,13 +83,24 @@ import {
 	buildMode,
 	computeKnownInputsForRow,
 	expectedTypeForDefault,
+	type PropertyState,
 	type ResolvedRow,
+	resolveDestinationCaseType,
 	resolveRows,
+	SEARCH_INPUT_TYPE_DESCRIPTIONS,
 	SEARCH_INPUT_TYPE_ICONS,
 	SEARCH_INPUT_TYPE_LABELS,
+	SEARCH_MODE_DESCRIPTIONS,
 	SEARCH_MODE_LABELS,
 	seedDefaultExpression,
 } from "../searchInputResolution";
+import {
+	labelFromProperty,
+	pickSeedProperty,
+	uniqueInputName,
+	widgetTypeForProperty,
+	xmlNameFromProperty,
+} from "../seeds";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -123,6 +140,7 @@ export function SearchInputEditor({
 			rows[index] ?? {
 				nameState: { kind: "ok" } as const,
 				labelEmpty: value.label === "",
+				propertyState: { kind: "ok" } as const,
 				typeCouplingErrors: [] as readonly string[],
 			}
 		);
@@ -163,7 +181,72 @@ export function SearchInputEditor({
 
 	const setProperty = (property: string) => {
 		if (value.kind !== "simple") return;
-		onChange(rebuildRow(value, { property }));
+		// The rest of the row follows the property. The widget: picking
+		// a date property on a text input would otherwise strand the row
+		// in a type-coupling error the author must untangle by hand —
+		// and at runtime a mismatched widget silently matches nothing.
+		// The label and name: only while they still read as derived from
+		// the previous property — a hand-typed label is the author's and
+		// is never overwritten.
+		const patch: {
+			property: string;
+			type?: SearchInputType;
+			mode?: SearchInputMode | undefined;
+			label?: string;
+			name?: string;
+		} = { property };
+
+		const destination = resolveDestinationCaseType(
+			caseTypes,
+			value.via,
+			currentCaseType,
+		);
+		const propertyDef = caseTypes
+			.find((c) => c.name === destination)
+			?.properties.find((p) => p.name === property);
+		if (propertyDef !== undefined) {
+			const dataType = effectiveDataType(propertyDef);
+			const typeAllowed =
+				SEARCH_INPUT_TYPE_PROPERTY_TYPES[value.type]?.includes(dataType) ??
+				true;
+			const nextType = typeAllowed
+				? value.type
+				: widgetTypeForProperty(propertyDef);
+			if (nextType !== value.type) patch.type = nextType;
+			const modeAllowed =
+				value.mode === undefined ||
+				(applicableSearchModes(nextType).includes(value.mode.kind) &&
+					(SEARCH_MODE_PROPERTY_TYPES[value.mode.kind]?.includes(dataType) ??
+						true));
+			if (!modeAllowed) {
+				const fuzzyAdmitted =
+					SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(dataType) ?? true;
+				patch.mode =
+					nextType === "text" && fuzzyAdmitted ? fuzzyMode() : undefined;
+			}
+		}
+
+		if (
+			value.label === "" ||
+			value.label === labelFromProperty(value.property)
+		) {
+			patch.label = labelFromProperty(property);
+		}
+		const oldBase =
+			value.property === "" ? "" : xmlNameFromProperty(value.property);
+		const nameDerived =
+			value.name === "" ||
+			(oldBase !== "" &&
+				(value.name === oldBase ||
+					new RegExp(`^${oldBase}_\\d+$`).test(value.name)));
+		if (nameDerived) {
+			patch.name = uniqueInputName(
+				xmlNameFromProperty(property),
+				siblings.filter((s) => s.uuid !== value.uuid),
+			);
+		}
+
+		onChange(rebuildRow(value, patch));
 	};
 	const setVia = (via: RelationPath) => {
 		if (value.kind !== "simple") return;
@@ -219,21 +302,66 @@ export function SearchInputEditor({
 	};
 	const convertToSimple = () => {
 		if (value.kind !== "advanced") return;
+		// Land a WORKING row, same bar as the add seed — an unbound
+		// simple row matches nothing at runtime. Recover the property
+		// when the predicate is still anchored on a self property (the
+		// round-trip shape `convertToAdvanced` seeds); otherwise re-seed
+		// the way a fresh input would.
+		const ct = caseTypes.find((c) => c.name === currentCaseType);
+		const used = new Set(
+			siblings.flatMap((s) =>
+				s.kind === "simple" && s.uuid !== value.uuid && s.property !== ""
+					? [s.property]
+					: [],
+			),
+		);
+		const recovered = recoverAnchoredProperty(value.predicate);
+		const propertyDef =
+			(recovered !== undefined
+				? ct?.properties.find((p) => p.name === recovered)
+				: undefined) ?? pickSeedProperty(ct, used);
+		const type =
+			propertyDef !== undefined
+				? widgetTypeForProperty(propertyDef)
+				: value.type;
+		const fuzzyAdmitted =
+			propertyDef !== undefined &&
+			(SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(
+				effectiveDataType(propertyDef),
+			) ??
+				true);
 		onChange(
 			simpleSearchInputDef(
 				value.uuid,
 				value.name,
 				value.label,
-				value.type,
-				"",
+				type,
+				propertyDef?.name ?? "",
 				{
 					default: value.default,
+					...(type === "text" && fuzzyAdmitted ? { mode: fuzzyMode() } : {}),
 				},
 			),
 		);
 	};
 
 	const emptyValidityIndex = useMemo(() => buildValidityIndex([]), []);
+
+	/* The bound property's effective data type — the mode picker uses
+	 * it to disable modes the validator would reject (fuzzy on a
+	 * geopoint, say) instead of letting the author pick into an error. */
+	const propertyDataType = useMemo<CasePropertyDataType | undefined>(() => {
+		if (value.kind !== "simple") return undefined;
+		const destination = resolveDestinationCaseType(
+			caseTypes,
+			value.via,
+			currentCaseType,
+		);
+		const def = caseTypes
+			.find((c) => c.name === destination)
+			?.properties.find((p) => p.name === value.property);
+		return def === undefined ? undefined : effectiveDataType(def);
+	}, [value, caseTypes, currentCaseType]);
 
 	return (
 		<PredicateEditProvider
@@ -279,7 +407,12 @@ export function SearchInputEditor({
 				</InspectorField>
 
 				<InspectorField label="Type">
-					<TypePicker value={value.type} onChange={setType} rowIndex={index} />
+					<TypePicker
+						value={value.type}
+						onChange={setType}
+						propertyDataType={propertyDataType}
+						rowIndex={index}
+					/>
 				</InspectorField>
 
 				{value.kind === "simple" ? (
@@ -288,6 +421,8 @@ export function SearchInputEditor({
 						rowIndex={index}
 						currentCaseType={currentCaseType}
 						typeCouplingInvalid={resolved.typeCouplingErrors.length > 0}
+						propertyState={resolved.propertyState}
+						propertyDataType={propertyDataType}
 						onSetProperty={setProperty}
 						onSetVia={setVia}
 						onSetMode={setMode}
@@ -401,9 +536,29 @@ interface SimpleArmBodyProps {
 	readonly rowIndex: number;
 	readonly currentCaseType: string;
 	readonly typeCouplingInvalid: boolean;
+	readonly propertyState: PropertyState;
+	readonly propertyDataType: CasePropertyDataType | undefined;
 	readonly onSetProperty: (property: string) => void;
 	readonly onSetVia: (via: RelationPath) => void;
 	readonly onSetMode: (mode: SearchInputMode | undefined) => void;
+}
+
+/** The person-to-person line under an unbound / dangling property —
+ *  names what's wrong AND what it costs at runtime. */
+function propertyErrors(
+	state: PropertyState,
+	property: string,
+): readonly string[] {
+	switch (state.kind) {
+		case "ok":
+			return [];
+		case "empty":
+			return ["Pick a property — an unbound input matches nothing."];
+		case "dangling":
+			return [
+				`"${property}" is not a property of the ${state.destination} case type — pick one from the list.`,
+			];
+	}
 }
 
 /**
@@ -417,6 +572,8 @@ function SimpleArmBody({
 	rowIndex,
 	currentCaseType,
 	typeCouplingInvalid,
+	propertyState,
+	propertyDataType,
 	onSetProperty,
 	onSetVia,
 	onSetMode,
@@ -441,15 +598,21 @@ function SimpleArmBody({
 						</div>
 					</div>
 				</div>
+				<InlineError errors={propertyErrors(propertyState, row.property)} />
 			</InspectorField>
 
 			<InspectorField
 				label="Match"
-				hint="How the worker's typed value matches the property."
+				hint={
+					SEARCH_MODE_DESCRIPTIONS[
+						row.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[row.type]
+					]
+				}
 			>
 				<ModePicker
 					value={row.mode}
 					type={row.type}
+					propertyDataType={propertyDataType}
 					onChange={onSetMode}
 					invalid={typeCouplingInvalid}
 					rowIndex={rowIndex}
@@ -535,6 +698,22 @@ interface RowPatch {
 	readonly default?: ValueExpression | undefined;
 }
 
+/**
+ * The property an advanced predicate is anchored on, when it has the
+ * left-anchored shape (`comparison` / `in` / `between` / `is-null` /
+ * `is-blank` whose left side reads a self property). Lets a
+ * round-tripped advanced→simple conversion land back on the same
+ * property rather than re-seeding.
+ */
+function recoverAnchoredProperty(predicate: Predicate): string | undefined {
+	if (!("left" in predicate)) return undefined;
+	const left = predicate.left;
+	if (left.kind !== "term" || left.term.kind !== "prop") return undefined;
+	const ref = left.term;
+	if (ref.via !== undefined && ref.via.kind !== "self") return undefined;
+	return ref.property;
+}
+
 function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
 	if (value.kind === "simple") {
 		const property = "property" in patch ? patch.property : value.property;
@@ -566,10 +745,20 @@ function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
 interface TypePickerProps {
 	readonly value: SearchInputType;
 	readonly onChange: (next: SearchInputType) => void;
+	/** Effective data type of the bound property (simple arm only) —
+	 *  gates which widget types are selectable, mirroring the Match
+	 *  picker. `undefined` (advanced arm / unresolved property) gates
+	 *  nothing, matching the validator's skip. */
+	readonly propertyDataType: CasePropertyDataType | undefined;
 	readonly rowIndex: number;
 }
 
-function TypePicker({ value, onChange, rowIndex }: TypePickerProps) {
+function TypePicker({
+	value,
+	onChange,
+	propertyDataType,
+	rowIndex,
+}: TypePickerProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const triggerLabel = SEARCH_INPUT_TYPE_LABELS[value];
 	const triggerIcon = SEARCH_INPUT_TYPE_ICONS[value];
@@ -603,6 +792,16 @@ function TypePicker({ value, onChange, rowIndex }: TypePickerProps) {
 					<Menu.Popup className={`${MENU_POPUP_CLS} min-w-[10rem]`}>
 						{SEARCH_INPUT_TYPES.map((t, i) => {
 							const isActive = t === value;
+							// Property-level gate — a widget the bound property's
+							// data type can't run (a calendar over a text
+							// property, say) is disabled with the reason rather
+							// than selectable into a validation error.
+							const admitted =
+								propertyDataType === undefined ||
+								(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
+									propertyDataType,
+								) ??
+									true);
 							const last = SEARCH_INPUT_TYPES.length - 1;
 							const corners =
 								i === 0 && i === last
@@ -615,10 +814,11 @@ function TypePicker({ value, onChange, rowIndex }: TypePickerProps) {
 							return (
 								<Menu.Item
 									key={t}
+									disabled={!admitted}
 									onClick={() => onChange(t)}
 									className={`${corners} ${MENU_ITEM_CLS} ${
 										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
+									} ${admitted ? "" : "opacity-45"}`}
 								>
 									<Icon
 										icon={SEARCH_INPUT_TYPE_ICONS[t]}
@@ -631,7 +831,18 @@ function TypePicker({ value, onChange, rowIndex }: TypePickerProps) {
 										}
 									/>
 									<span className="flex-1 text-left">
-										{SEARCH_INPUT_TYPE_LABELS[t]}
+										<div>{SEARCH_INPUT_TYPE_LABELS[t]}</div>
+										<div
+											className={`text-[10px] ${
+												isActive
+													? "text-nova-violet-bright/60"
+													: "text-nova-text-muted"
+											}`}
+										>
+											{admitted
+												? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
+												: `Not available for ${propertyDataType} properties.`}
+										</div>
 									</span>
 									{isActive && (
 										<Icon
@@ -656,6 +867,10 @@ function TypePicker({ value, onChange, rowIndex }: TypePickerProps) {
 interface ModePickerProps {
 	readonly value: SearchInputMode | undefined;
 	readonly type: SearchInputType;
+	/** Effective data type of the bound property — gates which modes
+	 *  are selectable. `undefined` (unresolved property) gates nothing,
+	 *  matching the validator's skip. */
+	readonly propertyDataType: CasePropertyDataType | undefined;
 	readonly onChange: (next: SearchInputMode | undefined) => void;
 	readonly invalid: boolean;
 	readonly rowIndex: number;
@@ -664,6 +879,7 @@ interface ModePickerProps {
 function ModePicker({
 	value,
 	type,
+	propertyDataType,
 	onChange,
 	invalid,
 	rowIndex,
@@ -728,15 +944,18 @@ function ModePicker({
 								}`}
 							>
 								<span className="flex-1 text-left">
-									<div>Default</div>
+									<div>
+										Default —{" "}
+										{SEARCH_MODE_LABELS[DEFAULT_SEARCH_MODE_KIND[type]]}
+									</div>
 									<div
-										className={`text-[10px] uppercase tracking-wider ${
+										className={`text-[10px] ${
 											value === undefined
 												? "text-nova-violet-bright/60"
 												: "text-nova-text-muted"
 										}`}
 									>
-										Per-type default
+										{SEARCH_MODE_DESCRIPTIONS[DEFAULT_SEARCH_MODE_KIND[type]]}
 									</div>
 								</span>
 								{value === undefined && (
@@ -750,20 +969,42 @@ function ModePicker({
 							</Menu.Item>
 							{applicable.map((kind, i) => {
 								const isActive = value !== undefined && value.kind === kind;
+								// Property-level gate — picking a mode the bound
+								// property's data type can't run would only land the
+								// row in a validation error, so the item is disabled
+								// and says why instead.
+								const admitted =
+									propertyDataType === undefined ||
+									(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(
+										propertyDataType,
+									) ??
+										true);
 								const last = applicable.length - 1;
 								const corners = i === last ? "rounded-b-xl" : "";
 								return (
 									<Menu.Item
 										key={kind}
+										disabled={!admitted}
 										onClick={() => onChange(buildMode(kind))}
 										className={`${corners} ${MENU_ITEM_CLS} ${
 											isActive
 												? "text-nova-violet-bright bg-nova-violet/10"
 												: ""
-										}`}
+										} ${admitted ? "" : "opacity-45"}`}
 									>
 										<span className="flex-1 text-left">
-											{SEARCH_MODE_LABELS[kind]}
+											<div>{SEARCH_MODE_LABELS[kind]}</div>
+											<div
+												className={`text-[10px] ${
+													isActive
+														? "text-nova-violet-bright/60"
+														: "text-nova-text-muted"
+												}`}
+											>
+												{admitted
+													? SEARCH_MODE_DESCRIPTIONS[kind]
+													: `Not available for ${propertyDataType} properties.`}
+											</div>
 										</span>
 										{isActive && (
 											<Icon

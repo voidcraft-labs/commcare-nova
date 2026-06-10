@@ -42,11 +42,20 @@ import {
 	rowHasStructuralError,
 } from "./searchInputResolution";
 
-export function isCaseListConfigValid(
+/** Which workspace tabs currently host a configuration error — the
+ *  tab strip badges these so a problem on an unopened tab is visible
+ *  from anywhere in the workspace. */
+export interface CaseListConfigErrorAreas {
+	readonly search: boolean;
+	readonly list: boolean;
+	readonly detail: boolean;
+}
+
+export function caseListConfigErrorAreas(
 	config: CaseListConfig,
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
-): boolean {
+): CaseListConfigErrorAreas {
 	const editCtx = { caseTypes, currentCaseType };
 	const bareCtx: TypeContext = {
 		caseTypes: [...caseTypes],
@@ -54,14 +63,23 @@ export function isCaseListConfigValid(
 		currentCaseType,
 	};
 
+	let search = false;
+	let list = false;
+	let detail = false;
+
 	for (const col of config.columns) {
-		if (col.kind === "calculated") {
-			if (!checkValueExpression(col.expression, bareCtx).ok) return false;
-			continue;
-		}
-		const property = resolveColumnProperty(editCtx, col.field);
-		if (!columnCardSchemas[col.kind].applicableForProperty(property)) {
-			return false;
+		const broken =
+			col.kind === "calculated"
+				? !checkValueExpression(col.expression, bareCtx).ok
+				: !columnCardSchemas[col.kind].applicableForProperty(
+						resolveColumnProperty(editCtx, col.field),
+					);
+		if (broken) {
+			// The list canvas renders every column (hidden ones dim), so a
+			// broken column always badges the list tab; the detail tab is
+			// badged only when the column participates there.
+			list = true;
+			if (col.visibleInDetail !== false) detail = true;
 		}
 	}
 
@@ -71,7 +89,7 @@ export function isCaseListConfigValid(
 			knownInputs: [...config.searchInputs],
 			currentCaseType,
 		};
-		if (!checkPredicate(config.filter, filterCtx).ok) return false;
+		if (!checkPredicate(config.filter, filterCtx).ok) list = true;
 	}
 
 	const resolved = resolveRows(config.searchInputs, caseTypes, currentCaseType);
@@ -79,7 +97,10 @@ export function isCaseListConfigValid(
 		const row = config.searchInputs[i];
 		const rowResolved = resolved[i];
 		if (row === undefined || rowResolved === undefined) continue;
-		if (rowHasStructuralError(rowResolved)) return false;
+		if (rowHasStructuralError(rowResolved)) {
+			search = true;
+			continue;
+		}
 
 		const rowCtx: TypeContext = {
 			caseTypes: [...caseTypes],
@@ -99,12 +120,21 @@ export function isCaseListConfigValid(
 				rowCtx,
 				expectedTypeForDefault(row.type),
 			);
-			if (!verdict.ok) return false;
+			if (!verdict.ok) search = true;
 		}
 		if (row.kind === "advanced") {
-			if (!checkPredicate(row.predicate, rowCtx).ok) return false;
+			if (!checkPredicate(row.predicate, rowCtx).ok) search = true;
 		}
 	}
 
-	return true;
+	return { search, list, detail };
+}
+
+export function isCaseListConfigValid(
+	config: CaseListConfig,
+	caseTypes: readonly CaseType[],
+	currentCaseType: string,
+): boolean {
+	const areas = caseListConfigErrorAreas(config, caseTypes, currentCaseType);
+	return !areas.search && !areas.list && !areas.detail;
 }

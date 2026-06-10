@@ -160,13 +160,20 @@ export function BuilderContentArea({
 						 *  Hidden in pointer mode — sidebars are force-closed for
 						 *  immersive testing, so an expand icon would be
 						 *  misleading. (The structure sidebar needs no floating
-						 *  button: its collapsed state is the icon rail.) */}
+						 *  button: its collapsed state is the icon rail.)
+						 *
+						 *  On case surfaces the workspace pins a sticky, near-opaque
+						 *  tab row (z-raised) across the canvas top; a top-3 button
+						 *  would sit underneath it — hidden AND click-shielded — so
+						 *  the affordance drops below the row's ~64px band there. */}
 						{cursorMode !== "pointer" && !chatOpen && !inspectorActive && (
 							<Tooltip content="Open chat" placement="left">
 								<button
 									type="button"
 									onClick={() => setSidebarOpen("chat", true)}
-									className="absolute top-3 right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer"
+									className={`absolute right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer ${
+										onCaseSurface ? "top-[4.5rem]" : "top-3"
+									}`}
 									aria-label="Open chat sidebar"
 								>
 									<Icon icon={tablerMessageChatbot} width="20" height="20" />

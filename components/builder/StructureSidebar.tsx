@@ -22,6 +22,7 @@ export function StructureSidebar() {
 				<button
 					type="button"
 					onClick={() => setSidebarOpen("structure", false)}
+					aria-label="Collapse structure sidebar"
 					className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerChevronLeft} width="14" height="14" />

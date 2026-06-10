@@ -48,17 +48,20 @@ const MATCH_TEXT_SHAPED_FILTER = (p: CaseProperty): boolean => isTextShaped(p);
 const MATCH_FUZZY_DATE_FILTER = (p: CaseProperty): boolean =>
 	isTextShaped(p) || isDateTyped(p);
 
+/** Plain-words mode names, matching the search-input Match picker's
+ *  vocabulary (`SEARCH_MODE_LABELS`) so the simple and advanced arms
+ *  never call the same behavior two different things. */
 const MODE_LABELS: Record<MatchMode, { label: string; description: string }> = {
 	fuzzy: {
-		label: "Fuzzy",
-		description: "Edit-distance match — tolerates typos",
+		label: "Forgiving",
+		description: "Tolerates typos, partial words, and capitalization",
 	},
 	phonetic: {
-		label: "Phonetic",
-		description: "Sounds-like match",
+		label: "Sounds like",
+		description: "Matches names that sound alike when spoken",
 	},
 	"fuzzy-date": {
-		label: "Fuzzy date",
+		label: "Forgiving date",
 		description: "Recovers from transposed YYYY-MM-DD inputs",
 	},
 	"starts-with": {

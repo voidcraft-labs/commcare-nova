@@ -237,9 +237,6 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 	const formName = useBlueprintDoc((s) =>
 		formUuid ? s.forms[formUuid]?.name : undefined,
 	);
-	const moduleCaseType = useBlueprintDoc((s) =>
-		moduleUuid ? s.modules[moduleUuid]?.caseType : undefined,
-	);
 
 	return useMemo<BreadcrumbItem[]>(() => {
 		const items: BreadcrumbItem[] = [
@@ -252,10 +249,15 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				location: { kind: "module", moduleUuid },
 			});
 		}
+		// The trailing crumb names the workspace tab, word-for-word
+		// ("Case list" / "Search" / "Case detail" / "Preview") — the
+		// module crumb already carries the case-type context, so a
+		// "client search"-style prefix would just restate it in a
+		// different casing.
 		if (loc.kind === "cases") {
 			items.push({
 				key: `cases:${moduleUuid}`,
-				label: moduleCaseType ? `${moduleCaseType} cases` : "Cases",
+				label: "Case list",
 				location: { kind: "cases", moduleUuid: loc.moduleUuid },
 			});
 			if (loc.caseId) {
@@ -273,14 +275,14 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		if (loc.kind === "search-config") {
 			items.push({
 				key: `search-config:${moduleUuid}`,
-				label: moduleCaseType ? `${moduleCaseType} search` : "Case search",
+				label: "Search",
 				location: { kind: "search-config", moduleUuid: loc.moduleUuid },
 			});
 		}
 		if (loc.kind === "detail-config") {
 			items.push({
 				key: `detail-config:${moduleUuid}`,
-				label: moduleCaseType ? `${moduleCaseType} detail` : "Case detail",
+				label: "Case detail",
 				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
 			});
 		}
@@ -299,15 +301,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		return items;
-	}, [
-		appName,
-		loc,
-		moduleUuid,
-		formUuid,
-		moduleName,
-		formName,
-		moduleCaseType,
-	]);
+	}, [appName, loc, moduleUuid, formUuid, moduleName, formName]);
 }
 
 /**
