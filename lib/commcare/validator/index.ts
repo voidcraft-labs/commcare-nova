@@ -66,6 +66,50 @@ export type ConnectXPathSlot = ConnectXPathSlotId;
 export type ProseSurface = FieldProseSlotId;
 
 /**
+ * A validation scope — which entities a scoped run walks. App-level rules
+ * always run regardless of scope (they're cheap and their findings are
+ * app-anchored); module rules run for modules in `moduleUuids`; form-level
+ * work (form rules, field rules, deep XPath validation) runs for every form
+ * of an in-scope module plus every form named directly in `formUuids`.
+ *
+ * An ABSENT scope means a full run. A PRESENT scope with empty/absent sets
+ * is meaningful — it runs app rules only (e.g. a pure module reorder, which
+ * can't change any module/form-level finding).
+ *
+ * Scopes are derived from mutation batches by `scopeOfMutations`; the
+ * scoped-run ≡ full-run-filtered law is documented at
+ * `runner.ts::errorWithinScope` and property-tested.
+ */
+export interface ValidationScope {
+	readonly moduleUuids?: ReadonlySet<Uuid>;
+	readonly formUuids?: ReadonlySet<Uuid>;
+}
+
+/** Whether a scope (or no scope) admits the module's module-level rules. */
+export function scopeHasModule(
+	scope: ValidationScope | undefined,
+	moduleUuid: Uuid,
+): boolean {
+	return scope === undefined || (scope.moduleUuids?.has(moduleUuid) ?? false);
+}
+
+/**
+ * Whether a scope (or no scope) admits a form's form-level work. A form is
+ * in scope when its module is (module scope covers the module's whole
+ * subtree) or when the form is named directly.
+ */
+export function scopeHasForm(
+	scope: ValidationScope | undefined,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): boolean {
+	return (
+		scopeHasModule(scope, moduleUuid) ||
+		(scope?.formUuids?.has(formUuid) ?? false)
+	);
+}
+
+/**
  * The location every deep error carries — resolved DURING the walk from the
  * uuid-indexed doc, never re-derived afterward by matching a name. Both the
  * module/form uuids AND their display names travel together so the runner
@@ -194,11 +238,22 @@ function collectFromTree(
  */
 export function validateBlueprintDeep(
 	doc: BlueprintDoc,
+	scope?: ValidationScope,
 ): DeepValidationError[] {
 	const errors: DeepValidationError[] = [];
 
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
+		// Scope filter — restrict WHICH forms are walked, never post-filter
+		// findings (the deep walk's Lezer parses are the expensive part, so
+		// skipping the walk is the point). A module fully in scope walks all
+		// its forms; otherwise only the directly-named forms are walked.
+		const allForms = doc.formOrder[moduleUuid] ?? [];
+		const scopedForms = scopeHasModule(scope, moduleUuid)
+			? allForms
+			: allForms.filter((formUuid) => scope?.formUuids?.has(formUuid) ?? false);
+		if (scopedForms.length === 0) continue;
+
 		// The case types every form in this module can READ (own + ancestors),
 		// keyed by name. Built once per module from `doc.caseTypes`; the
 		// per-form accept map below narrows it by form type. Reads from the
@@ -208,7 +263,7 @@ export function validateBlueprintDeep(
 			? toReachableIndex(reachableCaseTypes(mod.caseType, doc.caseTypes ?? []))
 			: undefined;
 
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+		for (const formUuid of scopedForms) {
 			const form = doc.forms[formUuid];
 			const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
 			if (tree.length === 0) continue;
