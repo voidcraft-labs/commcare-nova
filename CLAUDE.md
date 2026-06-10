@@ -176,7 +176,7 @@ The chat route drains the agent loop server-side (`consumeStream()`) and forward
 
 **Two identities per field.** Semantic id (mutable, used as XForm node name / CommCare property key) vs stable uuid (assigned at creation, never changed on rename). Use uuid for UI identity (React keys, DOM selectors, drag-and-drop IDs); use id / path for blueprint mutations + expander/compiler calls.
 
-**Sibling ids must be unique** (CommCare requirement; cousins can share). Enforced on cross-level moves (auto-suffix + XPath rewrite) and on rename.
+**Sibling ids must be unique** (CommCare requirement; cousins can share). Enforced at the source on every surface via the shared verdicts in `lib/doc/identifierVerdicts.ts` (UI rename guard, SA `addFields`/`editField` rejections) plus auto-suffix on cross-level moves and duplication; `DUPLICATE_FIELD_ID` stays as the validator backstop.
 
 **Case list columns are fully LLM-controlled** — no auto-prepend/filter by expander or compiler.
 

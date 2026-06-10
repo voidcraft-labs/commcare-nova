@@ -691,3 +691,10 @@ doc corrections:
 
 Full suite after fixes: 5980 passed / 0 failed (30 pre-existing
 skips), lint + tsc clean.
+
+### Round 5 (`05a64111`) — loop closed
+
+One survivor: the logger-ban source scan wasn't recursive (flat-today blind
+spot). Fixed red-first with a planted nested offender + a non-empty-walk
+assertion. Review loop converged 15 → 7 → 7 → 7 → 1 → 0 across five cold
+rounds; Stage 0 is review-complete.
