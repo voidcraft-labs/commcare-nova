@@ -306,13 +306,17 @@ implementation, not the call sites. **Prose stays markdown strings
 permanently** — prose refs are indexed, never restructured, and the prose
 hashtag rewriter is permanent.
 
-Replay and ingest ride the **upgrade shim**: the commit-boundary string→AST
-converter runs at every non-commit ingress (replay dispatch, ingest parse,
-recovery scripts), converting string payloads at dispatch time — old event
-logs replay through current reducers, no frozen legacy reducers, no event-log
-epochs, no mixed-representation docs. Conversion is round-trip-gated: an
-expression converts only when `print(parse(s)) === s`; otherwise it stays a
-string and the scan reports it.
+Replay compatibility is solved by one-time data migration, not permanent
+machinery: when a surface migrates, one-off scripts (scan read-only; migrate
+dry-run default, `--apply`; deleted after the run — the established pattern)
+convert stored docs AND stored event-log mutation payloads to the AST format,
+so replay reads already-migrated events through current reducers — no frozen
+legacy reducers, no event-log epochs, no permanent replay shim. The
+string→AST converter is permanent only at the live commit boundary (the SA
+writes strings forever); recovery scripts route through it too. Conversion is
+round-trip-gated: an expression converts only when `print(parse(s)) === s`;
+otherwise it stays a string, the scan reports it, and reducers degrade per
+D10.
 
 Under this representation a form-local rename rewrites *nothing* on migrated
 surfaces (leaves hold the uuid); a case-property rename remains a cascade
@@ -379,20 +383,23 @@ indexed carriers.
   rejection at the boundary) — each fix deleted as its source enforcement
   lands.
 
-## Open decisions (user-owned)
+## Resolved decisions (owner, 2026-06-09)
 
-1. **Case-property identity**: name-keyed namespaces (recommended — "field id
-   = case property name" is load-bearing across emitters, HQ FormActions, and
-   the SA vocabulary; the indexed leaf-walk makes property renames cheap
-   without new identity) vs first-class property uuids. Deadline: before
-   Stage 6 migrates the first case-ref-bearing surface.
-2. **`duplicateField` clone semantics under uuid leaves**: verbatim leaf copy
-   (recommended — preserves today's point-at-original behavior and
-   migrate∘duplicate commutativity) vs remap-to-clone.
-3. **Pre-migration event-log fidelity**: the upgrade shim (recommended,
-   committed above) replays old logs through current reducers via dispatch-time
-   conversion; the alternative (accepted fidelity loss for historical runs) is
-   cheaper but degrades replay. Veto window: before Stage 6.
+1. **Case properties stay name-keyed namespaces.** "Field id = case property
+   name" remains the domain invariant — it is load-bearing across the
+   emitters, HQ's FormActions contract, and the SA vocabulary, and the indexed
+   leaf-walk makes property renames cheap without new identity. Revisit only
+   if a concrete feature needs a property name decoupled from its writers'
+   ids.
+2. **`duplicateField` copies reference leaves verbatim** — clones keep
+   pointing at the original targets, preserving today's behavior and
+   migrate∘duplicate commutativity.
+3. **Historical event logs are migrated in place, not shimmed.** Per-surface
+   scan + migrate scripts (read-only scan; migrate dry-run default,
+   `--apply`; user-run; deleted after the run) convert stored event-log
+   payloads alongside the doc migration. No permanent replay-ingress
+   converter. Non-round-tripping legacy payloads stay strings and degrade per
+   D10.
 
 ## Stages
 
@@ -567,9 +574,10 @@ delete dialog's referent list is exact on a large fixture; CI fuzz green.
 `repeat_count`/`ids_query` → connect slots. Per surface: persist the typed AST
 (round-trip-gated conversion); `expressionSource` + emit project strings; the
 index extractor flips string-parse → leaf-walk; the surface's string rewriter
-leaves the commit path; replay/ingest ride the upgrade shim; one-time doc
-migration scripts (scan read-only; migrate dry-run default, `--apply` —
-user-invoked).
+leaves the commit path; one-time migration of stored docs AND event-log
+payloads via scan + migrate scripts (read-only scan; migrate dry-run default,
+`--apply` — user-invoked; scripts deleted after the run per resolved
+decision 3).
 
 **Verification (per surface):** rename a field referenced by a migrated
 surface — the stored payload contains no string form (representation-invariant
