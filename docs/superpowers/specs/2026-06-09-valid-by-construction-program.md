@@ -10,7 +10,13 @@ attack/steelman, three independent judges, unanimous verdict) — plus the v2
 ground-truth facts, which were independently fact-checked against main and
 held. Owner decisions approved 2026-06-09: introduced-error gate semantics, the
 completeness ratchet, MCP `draft` status, the SA schema deltas named below, and
-measured (not single-cut) retirement of `validateApp`. (This worktree is behind
+proof-based retirement of `validateApp`. Delivery model (owner decision
+2026-06-10): the program ships as ONE continuous build on this branch — the
+stages below are BUILD ORDER (real dependency sequencing), not shipping
+boundaries; no per-stage PRs, no transitional coexistence machinery whose
+only purpose is to make an intermediate merge production-coherent. The
+branch stays suite-green at every commit; user-runnable verification lines
+are checkpoints, not ship gates. (This worktree is behind
 main — rebase before implementation starts.)
 
 ## Goal
@@ -18,13 +24,13 @@ main — rebase before implementation starts.)
 **Every committed mutation batch leaves the blueprint valid, identically for
 the builder UI, the chat SA, and MCP, so invalid states are never persisted.**
 The after-the-fact `validateApp` fix loop — today the only validity net in the
-system — is removed once measurement proves the gates have starved it. What
+system — is deleted once the construction-guarantee proof covers everything it caught. What
 survives at the boundaries is small and fix-free: the media-state export gate,
 a completeness check at transaction boundaries, an index-backed ingest gate for
 docs that bypassed the guarded paths, and the wire oracles (already CI/fuzz
 tripwires, never authoring gates — untouched).
 
-The program has three layers, separable and independently shippable:
+The program has three layers, built in dependency order:
 
 1. **The validity gate** — valid-at-every-commit, enforced now, with the
    machinery the codebase already has (scoped validation walks). Correctness
@@ -370,12 +376,16 @@ indexed carriers.
   when case-managing. Tool use is not grammar-constrained, so the large inputs
   are legal; `scripts/test-schema.ts` proves acceptance. Build mode keeps the
   staged scaffold flow under the `building` window.
-- **D14 — Measured retirement of `validateApp`** (owner-approved): the tool
-  survives as a safety net while Stages 2–3 bake; the event log's
-  `fix:attempt-N` rate is the readiness metric; removal requires a sustained
-  zero rate, plus per-re-scoping-mutation-kind guard coverage (the D4-of-v2
-  four: `moveForm`, `updateModule({caseType})`, `updateForm({type})`,
-  `setCaseTypes`), not just per-code coverage.
+- **D14 — Proof-based retirement of `validateApp`** (owner decision
+  2026-06-10, superseding the earlier measured-retirement plan): no
+  production observation window, no safety-net coexistence period — the
+  validate-fix loop is deleted in the same continuous build once the
+  construction-guarantee proof covers everything it caught: the
+  mutation-sequence fuzz (random batches through `applyMutations` never
+  trip a demoted code) plus per-re-scoping-mutation-kind guard coverage
+  (`moveForm`, `updateModule({caseType})`, `updateForm({type})`,
+  `setCaseTypes`), not just per-code coverage. Proof by construction
+  replaces monitoring.
 - **D15 — The 13 auto-fixes dissolve into construction defaults at their
   sources** (required `case_type` at module creation; `options: min(1)` +
   UI-seeded options; XML-name checks at rename/add boundaries; connect
@@ -403,8 +413,10 @@ indexed carriers.
 
 ## Stages
 
-Each stage is independently shippable; docs (CLAUDE.md + the public docs site)
-move with the stage that changes behavior.
+Stages are build order, not shipping boundaries — dependencies are real
+(registry before index, identifier guards before index, gates before loop
+removal, index before migration), the merge is one PR at the end. Docs
+(CLAUDE.md + the public docs site) move with the work that changes behavior.
 
 ### Stage 0 — Foundations (no behavior change)
 
@@ -479,9 +491,8 @@ and rule instead of a download; reverts → export succeeds.
    case-list columns/search-inputs whose `field` names the deleted field
    auto-cascade in the same batch (the cleanup `renameField` already performs
    for renames).
-4. `validateApp` stays registered (D14); the event log shows zero
-   `fix:attempt-N` batches on healthy runs — the readiness metric starts
-   accumulating.
+4. `validateApp` is not retired here only because its deletion rides the
+   lifecycle rework (Stage 4) — no observation window, per D14.
 5. Tests: per-tool rejection tests; property test — generator-driven tool-call
    sequences through `guardedMutate` assert every accepted intermediate doc is
    soundness-clean.
@@ -518,10 +529,11 @@ the run log shows no fix chapter; the app exports cleanly.
 `1bad id` → inline rejection; deletes a referenced field → dialog names the
 referents, columns clean up in the same undo step.
 
-### Stage 4 — Lifecycle + measured loop removal
+### Stage 4 — Lifecycle + loop removal
 
-Entry criterion (D14): sustained zero `fix:attempt-N` rate across Stages 2–3
-usage, plus guard coverage for the four re-scoping mutation kinds.
+Entry criterion (D14): the mutation-sequence fuzz is green and guard
+coverage for the four re-scoping mutation kinds is proven — both are tests
+in this branch, not production observations.
 
 1. Atomic edit-mode creation (D13): widened `createForm`/`createModule`
    schemas (verified via `scripts/test-schema.ts`); edit-mode per-call
@@ -619,8 +631,9 @@ and lifecycle; `npm run test:leaks` green before final push.
   radius to new edits; the Stage-1 scan sizes legacy exposure before any
   commit path tightens; PUT rejections are Sentry-loud.
 - **SA call-failure churn** (per-call rejection vs batched fixes) → message
-  quality is already SA-tuned; Stage 2 ships while `validateApp` still
-  exists; the `fix:attempt` rate is the go/no-go gauge for Stage 4.
+  quality is already SA-tuned; rejection-message tests drive the same repro
+  scenarios the fix loop used to repair, asserting the SA-visible error
+  names the correction.
 - **Index drift** (the cache-invalidation bug class, now load-bearing for doc
   bytes) → D9's oracle discipline; carrier-keyed edges remove span trust;
   the generic re-extraction hook removes per-reducer bookkeeping drift.
