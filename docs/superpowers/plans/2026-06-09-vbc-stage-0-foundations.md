@@ -629,8 +629,15 @@ match the wire (partialOf already omits it; replay ≡ in-process restored;
 convertField stays the only kind-change path; the round-2 scope arm deleted
 as dead); (2) cross-form moveField skip polarity flipped to fail-closed
 (proceed only when both forms resolve and match); (3) reducer skip warns on
-the established console convention; (4) applyEdits/SourceEdit variants in
-hashtags.ts + transpiler.ts consolidated onto the shared exports.
+the established console convention; (4) the applyEdits/SourceEdit variants
+in hashtags.ts + transpiler.ts resolved as DOCUMENTED DIVERGENCE, not
+consolidation — each stays local under a contract-bearing name (hashtags.ts
+`applyPresortedEdits` leans on document-order pre-sorting and never sorts;
+transpiler.ts `applyEditsRejectingOverlaps` copies, sorts, and THROWS on
+overlap as the oracle posture), each with a doc comment on why it is
+deliberately not the rewriters' self-sorting `applyEdits`
+(`lib/preview/xpath/rewrite.ts`). [Corrected in round 4 — this entry
+originally recorded a consolidation that never shipped.]
 
 ### Startup-wedge root cause (`2777f1d8`, discovered during round-3 verification)
 
@@ -639,3 +646,48 @@ deadlocking pre-banner (vite 8 default `bundle` loader; all rolldown-worker
 threads in pthread_cond_wait). Every vitest entry point now pins
 `--configLoader runner`; vitest.config.ts is strict-ESM-clean. See the
 CLAUDE.md "Testing — startup wedge" section.
+
+### Round 4 (`d154d2e7`)
+
+7 findings from the round-3 delta review, 4 code root causes plus two
+doc corrections:
+
+1. **Console convention completed** — round 3 converted only the two
+   named warns; three reducer sites (convertField's convertibility
+   gate + reconcile failure, setFieldMedia's slot mismatch) and the
+   client hook's `warnUnresolved` still hit the structured logger,
+   whose production path writes to `process.stdout` — undefined in
+   Next's browser process shim, so each was a production-client THROW
+   on its degraded path. All four now `console.warn`. A source-scan
+   test (`lib/doc/__tests__/mutations-no-structured-logger.test.ts`)
+   bans `@/lib/logger` from `lib/doc/mutations/` + `lib/doc/hooks/` —
+   a runtime assertion can't see the crash because vitest.setup.ts
+   mocks the logger globally, which is how the regression shipped.
+2. **Self-subtree moveField guard** — a `toParentUuid` inside the
+   moved subtree (including the moved uuid itself) passed the
+   fail-closed cross-form guard (both ends resolve to the same form
+   PRE-move) and spliced the subtree into its own `fieldOrder`,
+   silently detaching it from every walk. The guard now walks the
+   destination's ancestry and warn-and-skips when it crosses the
+   moved uuid; pinned by two skip tests (self, descendant).
+3. **editField.ts kind-change comment** — rewritten to the post-strip
+   truth: the updateField reducer drops `kind`/`uuid` and applies the
+   REST of the patch (a kind-bearing patch is NOT a whole-patch
+   no-op); convertField stays the single kind-change path.
+4. **Gate coverage restored in its live spelling** — the round-3
+   deletion of the kind-PATCH writers-disagree test removed the only
+   evaluateCommit-level proof that a kind change introducing
+   FIELD_KIND_WRITERS_DISAGREE is caught. Restored through
+   convertField (int → decimal writers of one case property across
+   two modules): full scope derived, verdict rejects, one finding per
+   writer.
+5. **Round-3 entry corrected above** — item (4) recorded a
+   consolidation; the shipped resolution was documented divergence
+   with contract-bearing renames.
+6. **Credit-system plan's vitest steps** — the archived plan's
+   executable `npx vitest run` step lines (the one in-repo text
+   contradicting the `--configLoader runner` invariant, and the exact
+   copy-paste source for single-file runs) now carry the flag.
+
+Full suite after fixes: 5980 passed / 0 failed (30 pre-existing
+skips), lint + tsc clean.

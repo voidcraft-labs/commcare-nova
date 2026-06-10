@@ -85,7 +85,7 @@ describe("creditGrantDocSchema", () => {
 
 - [ ] **Step 2: Run — expect FAIL** (`creditMonthDocSchema` not exported)
 
-Run: `npx vitest run lib/db/__tests__/credits.test.ts`
+Run: `npx vitest run --configLoader runner lib/db/__tests__/credits.test.ts`
 Expected: FAIL — `creditMonthDocSchema is not a function` / import error.
 
 - [ ] **Step 3: Add schemas to `lib/db/types.ts`**
@@ -174,7 +174,7 @@ creditMonthRaw: (userId: string, period: string): DocumentReference =>
 
 - [ ] **Step 5: Run — expect PASS**
 
-Run: `npx vitest run lib/db/__tests__/credits.test.ts`
+Run: `npx vitest run --configLoader runner lib/db/__tests__/credits.test.ts`
 Expected: PASS (3 tests). Also run `npx tsc --noEmit` — expect no new errors.
 
 - [ ] **Step 6: Commit**
@@ -224,7 +224,7 @@ describe("pure credit helpers", () => {
 ```
 
 - [ ] **Step 2: Run — expect FAIL** (module missing).
-Run: `npx vitest run lib/db/__tests__/credits.test.ts`
+Run: `npx vitest run --configLoader runner lib/db/__tests__/credits.test.ts`
 
 - [ ] **Step 3: Create `lib/db/creditPolicy.ts` (pure constants + helpers — NO Firestore import)**
 ```ts
@@ -272,7 +272,7 @@ export function isChargeableTurn(rawMessages: readonly UIMessage[]): boolean {
 }
 ```
 
-- [ ] **Step 4: Run — expect PASS.** `npx vitest run lib/db/__tests__/credits.test.ts`
+- [ ] **Step 4: Run — expect PASS.** `npx vitest run --configLoader runner lib/db/__tests__/credits.test.ts`
 - [ ] **Step 5: Commit**
 ```bash
 git add lib/db/creditPolicy.ts lib/db/__tests__/credits.test.ts
@@ -311,7 +311,7 @@ The reservation is a `runTransaction` over the **raw** ref (Task 1's `docs.credi
 ```
 Run via `npm run test:integration` if the emulator is available (it boots a Java Firestore emulator); else it auto-skips — report which. Confirm the file mirrors `api-keys.integration.test.ts` structurally.
 
-- [ ] **Step 2: Run — expect FAIL** (unit suite; `npx vitest run lib/db/__tests__/credits.test.ts`).
+- [ ] **Step 2: Run — expect FAIL** (unit suite; `npx vitest run --configLoader runner lib/db/__tests__/credits.test.ts`).
 
 - [ ] **Step 3: Implement in `lib/db/credits.ts`**
 ```ts
@@ -536,7 +536,7 @@ git commit -m "feat(credits): accumulator refunds the reservation on a no-op run
 
 - [ ] **Step 1:** In `lib/agent/errorClassifier.ts`, rename the `spend_cap_exceeded` member of the `AgentErrorType` union to `out_of_credits` and update its `MESSAGES` entry to: `"You're out of credits for this month — they refresh on the 1st."` Because the union is closed, `tsc` will surface EVERY consumer — fix ALL of them in THIS commit so the build stays green (this task must leave `tsc` clean on its own): the existing `spend_cap_exceeded` references in `app/api/chat/route.ts` (the current dollar-cap block's `MESSAGES.spend_cap_exceeded` + `type: "spend_cap_exceeded"`) become `out_of_credits` — a mechanical rename only; Task 7 later REPLACES that whole block with the real credit gate, so the transient "out_of_credits message on a still-dollar-cap check" lives only between this commit and Task 7's (never shipped). Also fix `errorClassifier`'s own `MESSAGES`, any `errorClassifier` test referencing the old literal, and confirm `McpErrorType` (which inherits the union) compiles. Grep `spend_cap_exceeded` across the repo → zero matches after this task.
 - [ ] **Step 2:** Run `npx tsc --noEmit` — expect errors ONLY at the chat route (fixed in Task 7) and any test referencing the old literal; fix the test literal here.
-- [ ] **Step 3:** Run `npx vitest run lib/agent` — expect PASS.
+- [ ] **Step 3:** Run `npx vitest run --configLoader runner lib/agent` — expect PASS.
 - [ ] **Step 4: Commit**
 ```bash
 git add lib/agent/errorClassifier.ts
@@ -607,7 +607,7 @@ const handleRouteError = (error: unknown, source: string): void => {
   - Guard `ctx.emitConversation(...)` (the user-message echo) in a try/catch so an emit throw can't escape the stream scope and skip the `finally` (which would leak the reservation).
   - Remove the now-unused `MONTHLY_SPEND_CAP_USD` import; keep `getMonthlyUsage`. Add `getCurrentCreditBalance` + `reserveCredits` + `ACTUAL_COST_BACKSTOP_USD` imports.
 
-- [ ] **Step 6: Verify** — `npx tsc --noEmit` (no errors), `npx vitest run app/api/chat` + `npx vitest run lib/db` (PASS). Manual reasoning check against spec §6 ordering: enumerate every `return`/throw after the reservation line and confirm each is inside the stream scope (so `flush()` refunds) — there should be none before the stream.
+- [ ] **Step 6: Verify** — `npx tsc --noEmit` (no errors), `npx vitest run --configLoader runner app/api/chat` + `npx vitest run --configLoader runner lib/db` (PASS). Manual reasoning check against spec §6 ordering: enumerate every `return`/throw after the reservation line and confirm each is inside the stream scope (so `flush()` refunds) — there should be none before the stream.
 
 - [ ] **Step 7: Commit**
 ```bash
@@ -652,7 +652,7 @@ if (type === "data-credit-refund") {
 
 - [ ] **Step 1:** Change the GET handler to return the full `CreditSummary` from `getCreditSummary(session.user.id)` — `{ period, allowance, consumed, bonus, balance, lifetimeConsumed }` (its JSDoc: "the shape the user-facing usage endpoint and the admin dashboard both render"). Drop the old `{ cost_estimate, request_count, cap }` dollar shape and the now-unused `getMonthlyUsage` + `MONTHLY_SPEND_CAP_USD` + `getCurrentPeriod` imports (`getCreditSummary` carries `period` itself). Keep the `requireSession` + `handleApiError` pattern unchanged. Refresh the file's top JSDoc to describe the credit shape, not "cost estimate, request count, spend cap".
 - [ ] **Step 2: No new route test.** This route is a thin serialization shim (`requireSession → getCreditSummary → Response.json`) with no branching logic; its logic lives in `getCreditSummary`, already unit-tested in Task 4. The repo's own convention is to test logic, not serialization shims (see `app/api/mcp/__tests__/route.test.ts`'s rationale for not testing its 5-line shim). There is no existing test of this route to update.
-- [ ] **Step 3:** `npx tsc --noEmit` (clean — note: the `AccountMenu.tsx` consumer casts the fetch to its own local `UsageData` type, so reshaping the JSON does NOT break tsc; it drifts at runtime until Task 14 re-anchors AccountMenu to the credit shape — expected, sequenced). `npx vitest run lib/db` (the `getCreditSummary` tests still pass).
+- [ ] **Step 3:** `npx tsc --noEmit` (clean — note: the `AccountMenu.tsx` consumer casts the fetch to its own local `UsageData` type, so reshaping the JSON does NOT break tsc; it drifts at runtime until Task 14 re-anchors AccountMenu to the credit shape — expected, sequenced). `npx vitest run --configLoader runner lib/db` (the `getCreditSummary` tests still pass).
 - [ ] **Step 4: Commit** `git commit -am "feat(credits): /api/user/usage returns credit balance"`
 
 ---
@@ -672,7 +672,7 @@ if (type === "data-credit-refund") {
   - New `getAdminUserCredits(userId): Promise<{ credits: CreditSummary; grants: CreditGrantAudit[] }>`: `getCreditSummary(userId)` for `credits`; `collections.creditGrants(userId).orderBy("created_at","desc").get()` mapped to `CreditGrantAudit` (`created_at` Timestamp→ISO via the file's existing `toISOString`; pick `amount`/`type`/`actor_email`/`reason`/`period`, drop `actor`).
   - `getAdminUserDetail`: add `getAdminUserCredits(userId)` to the parallel `Promise.all`, spread its `credits` + `grants` into the response.
   - `getAdminUserUsage`: also read `collections.creditMonths(userId).get()`, build a `Map<period, {consumed, bonus}>`, and attach `credits_consumed`/`credits_bonus` to each `UsagePeriod` row (left undefined when a period has no credit doc).
-- [ ] **Step 3: No new test.** These are Firestore read-and-aggregate functions composing already-tested primitives (`getCreditSummary` unit+integration-tested in Tasks 3/4); the aggregation is a Σ + a `Map` join + a field-rename map, and the admin layer has no existing test harness. A hand-mocked Firestore unit test would be tautological (`feedback_tautological_mocks`); an emulator integration test would mostly re-exercise `getCreditSummary`. Verify by reading + `npx tsc --noEmit` + `npx vitest run lib/db` (credit primitives still green).
+- [ ] **Step 3: No new test.** These are Firestore read-and-aggregate functions composing already-tested primitives (`getCreditSummary` unit+integration-tested in Tasks 3/4); the aggregation is a Σ + a `Map` join + a field-rename map, and the admin layer has no existing test harness. A hand-mocked Firestore unit test would be tautological (`feedback_tautological_mocks`); an emulator integration test would mostly re-exercise `getCreditSummary`. Verify by reading + `npx tsc --noEmit` + `npx vitest run --configLoader runner lib/db` (credit primitives still green).
 - [ ] **Step 4: Commit** `git commit -am "feat(credits): admin data layer surfaces credits + lifetime + audit"`
 
 ---
@@ -765,7 +765,7 @@ if (type === "data-credit-refund") {
   - `currentUsage: Map<string, number>` keyed `"${ownerId}/${period}"` → current `cost_estimate`.
   - Returns one `CellRow` per `(ownerId, finishedPeriod)`: `{ ownerId, period, current, ledgerSum, delta: ledgerSum−current, isCurrentMonth: period===currentPeriod, softDeletedContribution (Σ costEstimate of `deleted` runs in the cell), crossMonthRuns: [{runId, appId, startedPeriod, finishedPeriod, costEstimate}] (runs where startedPeriod !== finishedPeriod), overBackstopCurrentMonth: isCurrentMonth && ledgerSum >= backstopUsd }`. Group by `finishedPeriod`; include soft-deleted runs in `ledgerSum` (noted, not excluded). Write `scripts/__tests__/creditReconcile.test.ts` FIRST (red→green) with fixtures mirroring spec §10: a single-period user (delta vs current); a **cross-month** run (started 2026-05, finished 2026-06 → whole cost in June, listed in `crossMonthRuns`); a **soft-deleted** app's run (counted in `ledgerSum` + `softDeletedContribution`); a **current-month over-$50** cell (`overBackstopCurrentMonth` true); a cell where `current === ledgerSum` (delta 0). Assert the grouping, sums, delta, flags.
 - [ ] **Step 2: `scripts/inspect-credit-migration.ts` (read-only I/O wrapper).** `db.collectionGroup("runs").get()` → for each run doc build a `RunInput` (`appId = doc.ref.parent.parent.id`; `costEstimate`; `startedPeriod`/`finishedPeriod` from the ISO strings). Batch-read the distinct `apps/{appId}` docs → `ownerId = owner`, `deleted = deleted_at != null`. Batch-read `usage/{owner}/months/{period}.cost_estimate` for every `(owner, period)` present → the `currentUsage` map. `currentPeriod = new Date().toISOString().slice(0,7)`; `backstopUsd = ACTUAL_COST_BACKSTOP_USD` (import from `@/lib/db/creditPolicy`). Call `creditReconcile`, resolve `ownerId → email` via `auth_users`, and print with `scripts/lib/format` (`printHeader`/`printSection`/`printTable`/`usd`): a per-cell table (`email`, `period`, `current`, `ledger_sum`, `delta`, `CURRENT?`, `soft-deleted $`), then prominent sections for **CROSS-MONTH runs** (run + both timestamps), **CURRENT-MONTH OVER-$50** (loud — would re-block), and **non-zero DELTAS** (the re-baseline preview). Print the recorded cross-checks (mmaher April `unadjusted_estimate` live value + the recorded mmaher/alohi June figures) beside their ledger-sums, and the orphan key's live value if present. **Never writes** (no `set`/`update`/`delete`; `runMain` wrapper).
-- [ ] **Step 3: Verify** — `npx vitest run scripts/__tests__/creditReconcile.test.ts` (PASS), `npx tsc --noEmit` (clean), `npx biome check` the new files. (Cannot run against PROD from the worktree — that's Step 4, post-merge.)
+- [ ] **Step 3: Verify** — `npx vitest run --configLoader runner scripts/__tests__/creditReconcile.test.ts` (PASS), `npx tsc --noEmit` (clean), `npx biome check` the new files. (Cannot run against PROD from the worktree — that's Step 4, post-merge.)
 - [ ] **Step 4: Run read-only against PROD** (post-merge, with the user): `npx tsx scripts/inspect-credit-migration.ts`. Capture output — this is the data the re-baseline apply is decided on.
 - [ ] **Step 5: Commit** `git commit -am "chore(credits): read-only migration scan + pure reconcile"`
 
