@@ -542,3 +542,49 @@ User runs `npm run dev`, opens an app in the builder:
    preview still resolves it (it dangled silently before).
 3. `npm run test` green; export `.ccz` of an unchanged app byte-identical to
    pre-stage export (no wire change).
+
+## Post-review fixes (SHIPPED — d2d8a0b2)
+
+The stage-level adversarial review confirmed 15 findings collapsing to 8
+root causes; all fixed failing-test-first in one commit (`d2d8a0b2`):
+
+1. **Gate scope holes** (scopeOfMutations) — T7's "widen to every module
+   of the written caseType" was unsound: the rename cascade renames peers
+   app-wide by `(id, case_property_on)` (child-case writers live in
+   modules of OTHER types), and relation-walk readers (search-input `via`
+   configs, predicate-AST `PropertyRef` leaves, ancestor-chain `#<type>/`
+   refs) read the written type from modules of any caseType. Every
+   case-property-writer/catalog-touching field mutation (add, remove,
+   duplicate, move, rename, convert, re-target/re-id via updateField) now
+   derives `"full"`; `widenToCaseType` is gone. Non-case field mutations
+   stay form-scoped. Both staleness shapes (cross-module peer
+   DUPLICATE_FIELD_ID; UNKNOWN_PROPERTY → MODE_MISMATCH flip in a
+   relation-walking module) are pinned end-to-end in gate.test.ts.
+2. **Container descendant hashtag refs** — `#form/` walks in
+   `rewriteXPathRefs` / `rewriteXPathOnMove` match by segment PREFIX, so
+   renaming/moving a group re-anchors `#form/grp/inner` like the
+   absolute spelling always did. T2's "nothing dangles" acceptance now
+   holds for same-form moves; cross-form is documented as inherent
+   form-scoping, not a rewrite gap.
+3. **Hashtag segment Unicode divergence** — segments now ride a dedicated
+   ASCII `hashtagName` token in the grammar (parser regenerated), so all
+   three matchers agree on extents over Unicode continuation chars;
+   divergence corpus extended with Unicode entries.
+4. **moveField cross-form** — the rewrite pass walks the SOURCE form +
+   moved subtree on a cross-form move (pre-move resolution is
+   form-scoped); the destination form's own same-path refs are never
+   retargeted.
+5. **Catalog rename merge** — `cascadeCasePropertyRename` no longer mints
+   a duplicate entry when renaming onto an existing property name (the
+   declared entry wins; the old entry drops).
+6. **errorIdentity totality** — lone UTF-16 surrogates in authored
+   discriminators no longer throw out of `evaluateCommit`
+   (`toWellFormed` before `encodeURIComponent`; well-formed identities
+   unchanged).
+7. **encodeTupleKey** — JSON-encoded pair keys, collision-free over the
+   arbitrary docs `runValidation` is total over.
+8. **caseDataTypeForFieldKind** — the defensive never-arm returns
+   `undefined` instead of the raw unknown kind string.
+
+Full suite after fixes: 5971 passed / 0 failed (30 pre-existing skips),
+lint + tsc clean.
