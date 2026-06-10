@@ -11,4 +11,5 @@ export * from "./forms";
 export * from "./kinds";
 export * from "./modules";
 export * from "./multimedia";
+export * from "./referenceSlots";
 export * from "./uuid";

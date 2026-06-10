@@ -60,6 +60,23 @@ const repeatBase = containerFieldBase.extend({
 });
 
 /**
+ * The three repeat-mode discriminator literals — the canonical
+ * vocabulary tuple for `repeat_mode`. Each entry names one variant of
+ * the discriminated union below; consumers that key per-variant data
+ * (key sets, reference-slot applicability) derive their key type from
+ * this tuple so the variant set has a single declaration site. A test
+ * in `__tests__/referenceSlots.test.ts` pins each entry to the
+ * matching variant schema's `repeat_mode` literal, so the tuple can't
+ * drift from the union.
+ */
+export const repeatModes = [
+	"user_controlled",
+	"count_bound",
+	"query_bound",
+] as const;
+export type RepeatMode = (typeof repeatModes)[number];
+
+/**
  * User-controlled repeat — the default. Runtime adds/removes instances
  * via UI affordances; no `jr:count` on the wire.
  */
