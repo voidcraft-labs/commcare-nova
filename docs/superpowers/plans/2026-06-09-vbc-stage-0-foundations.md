@@ -130,6 +130,69 @@ ref followed); the two live bugs reproduce as failing tests first
 (`required` ref breaks on rename today; `help`/`validate_msg`/option-label
 hashtags never rewrite today) then pass.
 
+**SHIPPED** (`6498b4fa`) with these deviations/decisions:
+
+- (a) The form/module-level rewrites live in a NEW
+  `lib/doc/mutations/referenceRewrites.ts` consumed by the `renameField` /
+  `moveField` arms — `mutations/forms.ts` + `modules.ts` are untouched (the
+  cascade is a side effect of the renameField reducer, not of form/module
+  mutations; the plan's file list was a sketch). Walkers are exhaustive
+  switches over the registry's slot-id unions: a new registry slot without a
+  rewrite decision is a compile error. A value-level walker for the
+  registry's path grammar (`rewriteSlotStrings` — `.` steps, `[]` fan-out,
+  total over shape mismatches) was added to `lib/domain/referenceSlots.ts`.
+- (b) No `case_preload` work, per Task 1's SHIPPED (derived, never stored).
+- (c) Form-link scoping VERIFIED before coding: CCHQ's end-of-form navigation
+  installs `link.xpath` verbatim as the SOURCE form's stack-frame condition
+  and evaluates manual datum values in the same post-submit context
+  (`commcare-hq/.../suite_xml/post_process/workflow.py::
+  EndOfFormNavigationWorkflow._get_link_frame`), so `formLinks[].condition` +
+  `formLinks[].datums[].xpath` rewrite on the form that OWNS the links —
+  never on forms that link INTO the renamed field's form. `datums[].name` is
+  the target entry's session-variable wire token; not rewritten.
+  `formLinks[].target` is entity-uuid — stable under rename. Connect slots
+  rewrite form-locally (the deep validator checks them against the owning
+  form's `validPaths`).
+- (d) `closeCondition.field` (bare leaf-id ref) follows the rename only when
+  the renamed field was the UNIQUE holder of the old id in its form — with a
+  cousin still answering to the name, the ref is ambiguous
+  (`formActions.ts::findField` takes the first walk-order match) and a
+  rewrite would silently retarget it. Consequence: a move-with-dedup never
+  rewrites it (the colliding destination sibling still holds the old id).
+- (e) PropertyRef matching is on the relation walk's DESTINATION type: origin
+  `caseType` for absent/`self` via, the LAST ancestor step's
+  `throughCaseType`, `ofCaseType` for subcase/any-relation. Walks WITHOUT an
+  explicit destination hint are deliberately skipped — the AST doesn't
+  encode where they land, and a guessed rewrite corrupts silently while a
+  stale name is at least validator-visible. Helper:
+  `lib/domain/predicate/rewrite.ts` (in-place via `walkTerms`, same purity
+  contract as `walk.ts`). `searchInputs[].via` itself carries no property
+  names (relation ids + case-TYPE hints) — nothing to rewrite on a property
+  rename. Simple-input `property` matches on
+  `relationDestinationCaseType(via, module.caseType)`.
+- (f) `FieldRenameMeta` gains `formWiringRewritten` (DISTINCT forms whose
+  wiring slots changed — per-form so cross-pass touches dedupe) and
+  `moduleRefsRewritten` (AST `PropertyRef` nodes + simple-input property
+  slots); both documented on the type, the latter forces
+  `cascadedAcrossForms` (module-level state); form-wiring changes feed
+  `affectedForms` so only NON-primary-form wiring flips the flag.
+  `xpathFieldsRewritten`'s meaning is unchanged (rename: distinct fields;
+  move: per-slot, now also counting the form's wiring slots), so
+  `lib/doc/CLAUDE.md`'s contract line and `notifyMoveRename` copy stand.
+- (g) The per-kind registry projection exposed schema-unfaithful test
+  fixtures (`calculate` parked on text-kind fields — the registry scopes
+  `calculate` to hidden only). Twelve fixture sites across three existing
+  test files were converted to faithful shapes (hidden for pure calculates;
+  `relevant` where one field needs prose + XPath surfaces) rather than
+  widening the projection to off-schema keys.
+- Slots covered by the cascade now: every registry slot except the
+  deliberate non-rewrites — `case_property_on` / `module.caseType`
+  (case-TYPE refs; no mutation renames a type), `form_link_target`
+  (entity-uuid), `search_input_via` (no property names). Tests: 26 new
+  coverage tests + 13 predicate-rewrite tests + 3 path-walker tests;
+  failing-first confirmed (22 of 26 failed pre-implementation; the 4
+  passing were the negative shapes).
+
 ## Task 4 — Identifier guards at source
 
 **Files:** `lib/doc/identifierVerdicts.ts` (new shared verdict module; pure),
