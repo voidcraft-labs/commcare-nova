@@ -22,8 +22,8 @@
  *      returned `MutationResult[]`.
  *
  * Missing references (unknown uuid) are silently swallowed with a
- * dev-mode `console.warn`. The engine behaved the same way: no-op rather
- * than throw, so the UI never crashes on a stale selection held over a
+ * `console.warn`. The engine behaved the same way: no-op rather than
+ * throw, so the UI never crashes on a stale selection held over a
  * reload or undo.
  */
 
@@ -53,7 +53,6 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
-import { type LogContext, log } from "@/lib/logger";
 
 /**
  * Result of a `renameField` dispatch.
@@ -287,17 +286,25 @@ export interface BlueprintMutations {
 }
 
 /**
- * Warning for silent no-ops, routed through the structured logger.
+ * Warning for silent no-ops.
  *
  * Every mutation method bails out silently when a uuid can't be found
  * in the current doc — matching the legacy engine's behavior, which the
  * UI relies on so stale selections don't crash the tree. We still want
  * visibility into which lookups are failing so bugs don't hide behind
- * the fail-open contract. The logger decides per-environment whether
- * to print locally or emit structured JSON to Cloud Logging.
+ * the fail-open contract.
+ *
+ * `console.warn`, not the structured logger: this hook is client-only,
+ * and the logger's production path writes to `process.stdout`, which
+ * Next's browser process shim doesn't define — it would throw on the
+ * exact degraded path (a stale selection racing an agent edit) this
+ * warn exists to soften.
  */
-function warnUnresolved(method: string, context: LogContext): void {
-	log.warn(`[useBlueprintMutations.${method}] unresolved uuid`, context);
+function warnUnresolved(
+	method: string,
+	context: Record<string, unknown>,
+): void {
+	console.warn(`[useBlueprintMutations.${method}] unresolved uuid`, context);
 }
 
 /**

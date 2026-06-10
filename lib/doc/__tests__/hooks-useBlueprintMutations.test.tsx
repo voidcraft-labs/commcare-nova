@@ -27,7 +27,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
-import { assert, describe, expect, it } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -46,7 +46,6 @@ import {
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { asAssetId, type FieldKind } from "@/lib/domain";
-import { log } from "@/lib/logger";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 // Declared here (not inside the fixture) so tests can reference them
@@ -1132,13 +1131,14 @@ describe("useBlueprintMutations", () => {
 		it("no-ops silently when uuid is unknown", () => {
 			// An unrecognized uuid must not throw and must leave the store
 			// unchanged — matches the fail-open contract the other mutation
-			// methods follow. The hook's JSDoc also promises a `log.warn` on
-			// every unresolved uuid; that warning is the ONLY observability
-			// the fail-open contract offers, so we assert on the globally
-			// mocked logger here to lock the contract against a future
-			// refactor dropping the `warnUnresolved` call. (The logger mock
-			// lives in `vitest.setup.ts`; `clearMocks` wipes prior calls
-			// before this test runs.)
+			// methods follow. The hook also promises a `console.warn` on
+			// every unresolved uuid (`console`, NOT the structured logger:
+			// this hook is client-only and the logger's production path
+			// throws in the browser). That warning is the ONLY observability
+			// the fail-open contract offers, so we spy on it here to lock
+			// the contract against a future refactor dropping the
+			// `warnUnresolved` call.
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 				wrapper,
 			});
@@ -1167,7 +1167,7 @@ describe("useBlueprintMutations", () => {
 			// Lock the fail-open contract: the warn must fire and include both
 			// `uuid` and `toKind` so a dev debugging a silent no-op can tell
 			// which call site produced it.
-			expect(log.warn).toHaveBeenCalledWith(
+			expect(warn).toHaveBeenCalledWith(
 				expect.stringContaining(
 					"[useBlueprintMutations.convertField] unresolved uuid",
 				),
@@ -1176,12 +1176,16 @@ describe("useBlueprintMutations", () => {
 					toKind: "secret",
 				}),
 			);
+			warn.mockRestore();
 		});
 	});
 
 	// ── Unresolved uuid no-op ─────────────────────────────────────────────
 
 	it("unresolved uuid silently no-ops (no throw)", () => {
+		// Every unresolved dispatch console.warns; silence the expected
+		// noise while keeping the no-throw + unchanged-store assertions.
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
@@ -1217,6 +1221,7 @@ describe("useBlueprintMutations", () => {
 				});
 			});
 		}).not.toThrow();
+		warn.mockRestore();
 
 		// Store should be unchanged.
 		expect(result.current.children.map((q) => q.id)).toEqual(["a", "b", "grp"]);

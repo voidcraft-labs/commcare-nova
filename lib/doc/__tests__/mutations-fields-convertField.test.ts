@@ -15,7 +15,7 @@
  */
 
 import { produce } from "immer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutation } from "@/lib/doc/mutations";
 import { asUuid } from "@/lib/domain";
@@ -482,6 +482,9 @@ describe("convertField — invariants", () => {
 			id: "name",
 			label: "Name",
 		});
+		// The convertibility gate console.warns on the skip (the reducer's
+		// client-safe degraded-path convention); silence the expected noise.
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
@@ -489,6 +492,8 @@ describe("convertField — invariants", () => {
 				toKind: "group",
 			});
 		});
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
 		// Immer returns the original object unchanged when no mutation occurs.
 		expect(next.fields[asUuid("q-1")]).toBe(doc.fields[asUuid("q-1")]);
 	});
@@ -530,6 +535,7 @@ describe("convertField — invariants", () => {
 				},
 			],
 		});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
@@ -537,6 +543,8 @@ describe("convertField — invariants", () => {
 				toKind: "text",
 			});
 		});
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
 		// Group must remain a group — the entity, its fieldOrder entry, and
 		// its child must all be unchanged.
 		expect(next.fields[asUuid("g-1")]?.kind).toBe("group");

@@ -386,3 +386,104 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		);
 	});
 });
+
+// ── Self-subtree moves ──────────────────────────────────────────────
+
+const PAR = asUuid("par-0000-0000-0000-000000000000");
+const INNER = asUuid("inr-0000-0000-0000-000000000000");
+const LEAF = asUuid("lef-0000-0000-0000-000000000000");
+
+/**
+ * M → F → par { inner { leaf } }
+ *
+ * Both ends of a self-subtree move resolve to the SAME form pre-move,
+ * so the cross-form guard alone would let it through — and the splice
+ * would insert `par` into its own descendant's `fieldOrder`, creating
+ * a cycle that detaches the whole subtree from every form walk. The
+ * reducer must warn-and-skip instead.
+ */
+function selfSubtreeFixture(): BlueprintDoc {
+	return {
+		appId: "app",
+		appName: "Test",
+		connectType: null,
+		caseTypes: null,
+		modules: {
+			[MOD]: { uuid: MOD, id: "m", name: "M" },
+		},
+		forms: {
+			[FORM]: { uuid: FORM, id: "f", name: "F", type: "survey" },
+		},
+		fields: {
+			[PAR]: {
+				uuid: PAR,
+				id: "par",
+				kind: "group",
+				label: "Par",
+			} as BlueprintDoc["fields"][typeof PAR],
+			[INNER]: {
+				uuid: INNER,
+				id: "inner",
+				kind: "group",
+				label: "Inner",
+			} as BlueprintDoc["fields"][typeof INNER],
+			[LEAF]: {
+				uuid: LEAF,
+				id: "leaf",
+				kind: "text",
+				label: "Leaf",
+			} as BlueprintDoc["fields"][typeof LEAF],
+		},
+		moduleOrder: [MOD],
+		formOrder: { [MOD]: [FORM] },
+		fieldOrder: {
+			[FORM]: [PAR],
+			[PAR]: [INNER],
+			[INNER]: [LEAF],
+		},
+		fieldParent: {},
+	};
+}
+
+describe("moveField into the moved field's own subtree is warn-and-skipped", () => {
+	it("skips a move whose destination IS the moved field itself", () => {
+		const store = createBlueprintDocStore();
+		store.getState().load(selfSubtreeFixture());
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const [result] = store
+			.getState()
+			.applyMany([
+				{ kind: "moveField", uuid: PAR, toParentUuid: PAR, toIndex: 0 },
+			]);
+
+		// Skip convention: warn logged, empty result, nothing mutated.
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
+		expect(result).toBeUndefined();
+		const state = store.getState();
+		expect(state.fieldOrder[FORM]).toEqual([PAR]);
+		expect(state.fieldOrder[PAR]).toEqual([INNER]);
+		expect(state.fieldOrder[INNER]).toEqual([LEAF]);
+	});
+
+	it("skips a move whose destination is a DESCENDANT of the moved field", () => {
+		const store = createBlueprintDocStore();
+		store.getState().load(selfSubtreeFixture());
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const [result] = store
+			.getState()
+			.applyMany([
+				{ kind: "moveField", uuid: PAR, toParentUuid: INNER, toIndex: 0 },
+			]);
+
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
+		expect(result).toBeUndefined();
+		const state = store.getState();
+		// The subtree must still hang off the form — a proceed would have
+		// spliced `par` under `inner`, detaching it from every walk.
+		expect(state.fieldOrder[FORM]).toEqual([PAR]);
+		expect(state.fieldOrder[PAR]).toEqual([INNER]);
+		expect(state.fieldOrder[INNER]).toEqual([LEAF]);
+	});
+});

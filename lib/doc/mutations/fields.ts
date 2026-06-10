@@ -10,7 +10,6 @@ import {
 	pickFieldKeysForKind,
 	reconcileFieldForKind,
 } from "@/lib/domain";
-import { log } from "@/lib/logger";
 import {
 	rewriteHashtagRefs,
 	rewriteXPathRefs,
@@ -35,11 +34,14 @@ import {
  * Metadata returned by `moveField`.
  *
  * The reducer performs SAME-FORM moves only — a `toParentUuid` resolving
- * to a different form is warn-and-skipped (see the guard in the arm).
- * Cross-form moves were never designed: references are form-scoped, so a
- * field that changes forms has no defined meaning for its inbound OR
- * outbound references; designing the operation is future work that has to
- * pick outbound-ref semantics first.
+ * to a different form is warn-and-skipped (see the guard in the arm), and
+ * so is a destination inside the moved field's OWN subtree (itself or a
+ * descendant container — the splice would create a `fieldOrder` cycle
+ * that detaches the subtree from every walk). Cross-form moves were never
+ * designed: references are form-scoped, so a field that changes forms has
+ * no defined meaning for its inbound OR outbound references; designing
+ * the operation is future work that has to pick outbound-ref semantics
+ * first.
  *
  * `renamed` is populated when a cross-level move triggers sibling-id
  * deduplication (CommCare requires unique IDs per parent level). Within
@@ -292,6 +294,47 @@ export function applyFieldMutation(
 				destField &&
 				(destField.kind === "group" || destField.kind === "repeat");
 			if (!destIsForm && !destIsContainer) return;
+
+			// A destination inside the moved subtree (the moved field itself,
+			// or any container under it) passes the same-form guard below —
+			// both ends resolve to the same form PRE-move — but the splice
+			// would insert the field into its own descendant's `fieldOrder`,
+			// a cycle no form walk reaches: the whole subtree silently
+			// vanishes from the builder tree, the validator, and every
+			// emitter. Walk the destination's ancestry; hitting the moved
+			// uuid before a form means the move folds the subtree into
+			// itself — warn-and-skip, same convention as the cross-form
+			// guard below.
+			if (!destIsForm) {
+				let insideMovedSubtree = false;
+				let cursor: Uuid | undefined = mut.toParentUuid;
+				const seen = new Set<Uuid>(); // Defensive: a pre-existing cycle must not hang the reducer.
+				while (cursor !== undefined && !seen.has(cursor)) {
+					if (cursor === mut.uuid) {
+						insideMovedSubtree = true;
+						break;
+					}
+					seen.add(cursor);
+					const ancestor = findFieldParent(
+						draft as unknown as BlueprintDoc,
+						cursor,
+					);
+					// Stop at the form boundary or an orphan top — the
+					// same-form guard below owns unreachable destinations.
+					cursor =
+						ancestor !== undefined &&
+						draft.forms[ancestor.parentUuid] === undefined
+							? ancestor.parentUuid
+							: undefined;
+				}
+				if (insideMovedSubtree) {
+					console.warn(
+						`moveField: skipped moving "${field.id}" — the destination container is the field itself or one of its own descendants, and a field can't move inside its own subtree. Pick a destination outside the moved ${field.kind}.`,
+						{ uuid: mut.uuid, toParentUuid: mut.toParentUuid },
+					);
+					return;
+				}
+			}
 
 			// The move proceeds only when it is PROVABLY same-form: both
 			// ends resolve to a containing form and the two are equal.
@@ -623,8 +666,11 @@ export function applyFieldMutation(
 			// single source of truth for which swaps are semantically valid.
 			const allowed = getConvertibleTypes(field.kind);
 			if (!allowed.includes(mut.toKind)) {
-				log.warn(
-					`convertField: ${field.kind} cannot convert to ${mut.toKind}`,
+				// `console.warn`, not the structured logger — reducers bundle
+				// client-side, where the logger's production path throws (see
+				// the moveField guard note).
+				console.warn(
+					`convertField: skipped converting "${field.id}" — a "${field.kind}" field can't convert to "${mut.toKind}".${allowed.length > 0 ? ` Valid targets: ${allowed.join(", ")}.` : ""}`,
 					{ uuid: mut.uuid, validTargets: allowed },
 				);
 				return;
@@ -638,10 +684,10 @@ export function applyFieldMutation(
 				// future schema introduces a required key that isn't present
 				// on every would-be source kind, throwing inside an Immer
 				// reducer propagates up through `store.applyMany()` and crashes
-				// the surrounding render. Logging + no-op keeps the app alive
+				// the surrounding render. Warning + no-op keeps the app alive
 				// while making the anomaly visible in dev tools.
-				log.warn(
-					`convertField: cannot reconcile ${field.kind} → ${mut.toKind}`,
+				console.warn(
+					`convertField: couldn't reconcile "${field.id}" from "${field.kind}" to "${mut.toKind}" — the converted shape failed the field schema, so the field was left unchanged.`,
 					{ uuid: mut.uuid, field },
 				);
 				return;
@@ -670,8 +716,8 @@ export function applyFieldMutation(
 			// later reject. The SA tool rejects this up front; the reducer
 			// guard is the backstop for any other emitter.
 			if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
-				log.warn(
-					`setFieldMedia: ${field.kind} field has no ${mediaKey} slot — skipped.`,
+				console.warn(
+					`setFieldMedia: skipped setting ${mut.slot} media on "${field.id}" — a "${field.kind}" field has no ${mediaKey} slot.`,
 					{ uuid: mut.fieldUuid, slot: mut.slot },
 				);
 				return;

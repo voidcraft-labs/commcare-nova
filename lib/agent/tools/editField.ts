@@ -249,12 +249,15 @@ export const editFieldTool = {
 			}
 
 			// Kind change → `convertField` mutation (not `updateField`). The
-			// updateField reducer parses the merged patch against
-			// `fieldSchema` and silently no-ops when a kind change introduces
-			// required keys the target kind demands (e.g. `options` on
-			// `single_select`). Routing through convertField makes the intent
-			// explicit + surfaces a clear error when the conversion isn't
-			// allowed by the source kind's `convertTargets` list.
+			// updateField reducer STRIPS `kind` (and `uuid`) from patches —
+			// identity and discriminant are immutable through the patch path
+			// — and applies the REST of the patch normally, so a kind-bearing
+			// patch is NOT a whole-patch no-op: the kind silently drops while
+			// every other key lands on the old kind. convertField is the
+			// single designed kind-change path — it owns the convertibility
+			// gate, and routing through it here surfaces a clear error when
+			// the conversion isn't allowed by the source kind's
+			// `convertTargets` list.
 			if (newKind && newKind !== resolved.field.kind) {
 				const fromKind = resolved.field.kind;
 				const allowed = getConvertibleTypes(fromKind);

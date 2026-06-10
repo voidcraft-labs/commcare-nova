@@ -714,6 +714,85 @@ describe("evaluateCommit", () => {
 			);
 		}
 	});
+
+	it("catches a writers-disagreement introduced by convertField on a case-bound field", () => {
+		// `convertField` is the single live kind-change path (`updateField`
+		// strips `kind` from patches). Two agreeing int writers of
+		// patient.score live in different modules; converting one to
+		// decimal introduces FIELD_KIND_WRITERS_DISAGREE on BOTH writers,
+		// and the derived scope must be full so the verdict carries every
+		// copy — a scope filter applied before the diff, or a location
+		// keying that collapses the two writers' findings into one, fails
+		// here.
+		const doc = buildDoc({
+			appName: "Writers",
+			modules: [
+				{
+					name: "Mod A",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "F1",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "score",
+									label: "Score",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Mod B",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "F2",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "score",
+									label: "Score",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "N" }] },
+			],
+		});
+		const firstScore = Object.values(doc.fields).find((x) => x.id === "score");
+		const mutations: Mutation[] = [
+			{
+				kind: "convertField",
+				uuid: firstScore?.uuid as Uuid,
+				toKind: "decimal",
+			},
+		];
+		expect(scopeOfMutations(doc, mutations)).toBe("full");
+		const verdict = gateCommit(doc, mutations, "building");
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			const disagreements = verdict.introduced.filter(
+				(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
+			);
+			// One finding per writer — both sides of the conflict surface.
+			expect(disagreements).toHaveLength(2);
+		}
+	});
 });
 
 // ── evaluateBoundary ───────────────────────────────────────────────
