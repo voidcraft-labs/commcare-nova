@@ -41,6 +41,18 @@ to consume the registry directly can come later.
 **Acceptance:** `npm run test` green; the audit test fails if a known
 expression-bearing key is missing from the registry (prove by test).
 
+**SHIPPED** (`41d76ba6`) with four reviewed deviations: (a) surface-kind union
+is 7, not 5 — `case-property-ref` + `case-type-ref` added (columns' `field`,
+`case_property_on`, `module.caseType`); (b) `case_preload` is NOT a registry
+slot — form case wiring is derived on demand by `deriveCaseConfig`, nothing
+stored to rewrite, so **Task 3 has no case_preload work**; (c)
+`searchButtonDisplayCondition` is `predicate-ast` (the schema is
+`predicateSchema`), not xpath as written below; (d) plan-missed slots
+registered: `formLinks[].datums[].xpath` (xpath),
+`caseSearchConfig.excludedOwnerIds` (value-expression),
+`searchInputs[].via` (relation-path). 30 slots total. Tasks 3/6/7 consume the
+registry as shipped, not as sketched above.
+
 ## Task 2 — Matcher unification + multi-segment hashtag rewrites
 
 **Files:** `lib/commcare/hashtagSegments.ts` (new shared segment definition),
