@@ -15,7 +15,12 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { ToolExecutionContext } from "../toolExecutionContext";
+import type {
+	StagedMutationBatch,
+	ToolExecutionContext,
+} from "../toolExecutionContext";
+
+export type { StagedMutationBatch };
 
 /**
  * Apply a mutation batch to a `BlueprintDoc` via Immer `produce`.
@@ -79,29 +84,21 @@ export async function guardedMutate(
 }
 
 /**
- * One stage of a multi-stage edit: the batch plus the doc AFTER it
- * applied to the previous stage's doc (via {@link applyToDoc}). The
- * per-stage `stage` tag keeps the event log's chapter shapes
- * (`convert:`/`rename:`/`edit:`) while the gate evaluates the stages as
- * one edit.
- */
-export interface StagedMutationBatch {
-	mutations: Mutation[];
-	doc: BlueprintDoc;
-	stage?: string;
-}
-
-/**
  * The multi-stage twin of {@link guardedMutate}: gate the WHOLE staged
- * sequence as one candidate, then persist each stage with its own tag.
+ * sequence as one candidate, then persist it as ONE save that keeps the
+ * per-stage event-log tags.
  *
  * The verdict runs over the concatenated batches against `prevDoc`, so a
  * rejection — wherever in the sequence the finding would arise — commits
- * NOTHING. There is no committed prefix to report or re-issue around,
- * which is what lets every surface state "a rejected call saved nothing"
- * without a multi-stage asterisk. Only after the whole edit passes do the
- * stage batches persist, in order, each with the caller's precomputed
- * post-stage doc.
+ * NOTHING. The persistence side holds the same property: the whole
+ * sequence goes through `ctx.recordMutationStages` as one save, so a
+ * surface whose write can itself reject (the MCP transactional commit
+ * re-verdicts against the FRESH stored doc) evaluates the concatenated
+ * batch once and commits all-or-nothing. There is no committed prefix to
+ * report or re-issue around, and no per-stage re-verdict that could be
+ * stricter than the whole-sequence gate — which is what lets every
+ * surface state "a rejected call saved nothing" without a multi-stage
+ * asterisk.
  */
 export async function guardedMutateStages(
 	ctx: ToolExecutionContext,
@@ -113,13 +110,10 @@ export async function guardedMutateStages(
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
-	let newDoc = prevDoc;
-	for (const s of stages) {
-		if (s.mutations.length === 0) continue;
-		await ctx.recordMutations(s.mutations, s.doc, s.stage);
-		newDoc = s.doc;
-	}
-	return { ok: true, newDoc };
+	const nonEmpty = stages.filter((s) => s.mutations.length > 0);
+	if (nonEmpty.length === 0) return { ok: true, newDoc: prevDoc };
+	await ctx.recordMutationStages(nonEmpty);
+	return { ok: true, newDoc: nonEmpty[nonEmpty.length - 1].doc };
 }
 
 /**

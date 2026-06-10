@@ -38,7 +38,10 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
+import type {
+	StagedMutationBatch,
+	ToolExecutionContext,
+} from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -136,7 +139,53 @@ export class McpContext implements ToolExecutionContext {
 		 * that recorded a batch the blueprint never absorbed would make a
 		 * replay diverge from the persisted doc. */
 		await this.saveBlueprint(doc, mutations);
-		const events: MutationEvent[] = mutations.map((mutation) => ({
+		const events = this.buildEnvelopes(mutations, stage);
+		for (const e of events) this.logWriter.logEvent(e);
+		return events;
+	}
+
+	/**
+	 * Persist a multi-stage sequence as ONE transactional guarded save.
+	 *
+	 * The whole point of this method on the MCP surface: the guarded
+	 * commit re-applies the batch to the FRESH stored blueprint and
+	 * re-runs the validity verdict inside the Firestore transaction, and
+	 * that re-verdict must see the SAME candidate the optimistic gate
+	 * approved — the concatenated sequence, once. Saving stage-by-stage
+	 * would instead run an independent transaction per stage, so a
+	 * mid-sequence rejection (a concurrent commit landing between
+	 * transactions) would leave the earlier stages PERSISTED while the
+	 * tool reports "nothing was saved" — and an intermediate-state finding
+	 * a later stage resolves would reject at a per-stage re-verdict even
+	 * though the whole edit is valid. One save, one re-verdict, zero
+	 * committed prefix on any rejection.
+	 *
+	 * The persisted snapshot is the final stage's doc; the event-log
+	 * envelopes keep each stage's own tag. Same persist-first/log-second
+	 * ordering as `recordMutations`.
+	 */
+	async recordMutationStages(
+		stages: StagedMutationBatch[],
+	): Promise<MutationEvent[]> {
+		const nonEmpty = stages.filter((s) => s.mutations.length > 0);
+		if (nonEmpty.length === 0) return [];
+		const finalDoc = nonEmpty[nonEmpty.length - 1].doc;
+		const allMutations = nonEmpty.flatMap((s) => s.mutations);
+		await this.saveBlueprint(finalDoc, allMutations);
+		const events = nonEmpty.flatMap((s) =>
+			this.buildEnvelopes(s.mutations, s.stage),
+		);
+		for (const e of events) this.logWriter.logEvent(e);
+		return events;
+	}
+
+	/** Build the `MutationEvent` envelopes for one batch under one stage
+	 *  tag, allocating from the per-request `seq` counter. */
+	private buildEnvelopes(
+		mutations: Mutation[],
+		stage?: string,
+	): MutationEvent[] {
+		return mutations.map((mutation) => ({
 			kind: "mutation",
 			runId: this.runId,
 			ts: Date.now(),
@@ -150,8 +199,6 @@ export class McpContext implements ToolExecutionContext {
 			...(stage !== undefined && { stage }),
 			mutation,
 		}));
-		for (const e of events) this.logWriter.logEvent(e);
-		return events;
 	}
 
 	/**

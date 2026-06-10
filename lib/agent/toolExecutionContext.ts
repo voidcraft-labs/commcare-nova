@@ -41,10 +41,13 @@ export interface ToolExecutionContext {
 
 	/**
 	 * The app's lifecycle phase for the validity gate
-	 * (`tools/common.ts::guardedMutate`): `"building"` while the app is
-	 * under construction (chat builds — `appReady` false), `"complete"`
-	 * otherwise. Derived once per request/call by the surface that built
-	 * this context; the gate semantics themselves live in
+	 * (`tools/common.ts::guardedMutate`): derived from the app document's
+	 * own `status` via `commitPhaseForAppStatus` — `"building"` while the
+	 * app is under construction, `"complete"` once it is. Derived once per
+	 * request/call by the surface that built this context (the chat route
+	 * off the status it loaded for ownership; the MCP adapter off the doc
+	 * it loaded for the tool call), never from a client-supplied flag. The
+	 * gate semantics themselves live in
 	 * `lib/commcare/validator/gate.ts::evaluateCommit`.
 	 */
 	readonly commitPhase: CommitPhase;
@@ -70,7 +73,34 @@ export interface ToolExecutionContext {
 		stage?: string,
 	): Promise<MutationEvent[]>;
 
+	/**
+	 * Persist a multi-stage mutation sequence as ONE save. The stages keep
+	 * their per-stage event-log tags (`convert:`/`rename:`/`edit:` chapter
+	 * shapes), but the blueprint write is a single unit: an implementation
+	 * whose save can reject (the MCP surface's transactional guarded
+	 * commit) re-verdicts the CONCATENATED batch against the fresh stored
+	 * doc and commits all-or-nothing — a rejection mid-sequence can never
+	 * leave a committed prefix, which is what lets every surface state "a
+	 * rejected call saved nothing" with no multi-stage asterisk.
+	 *
+	 * Callers pass stages with non-empty `mutations`; each stage's `doc`
+	 * is the blueprint AFTER that stage applied to the previous one's.
+	 */
+	recordMutationStages(stages: StagedMutationBatch[]): Promise<MutationEvent[]>;
+
 	/** Persist a conversation event (assistant text/reasoning, tool
 	 * call/result, user message, error). */
 	recordConversation(payload: ConversationPayload): ConversationEvent;
+}
+
+/**
+ * One stage of a multi-stage edit: the batch plus the doc AFTER it applied
+ * to the previous stage's doc. The per-stage `stage` tag keeps the event
+ * log's chapter shapes while the whole sequence gates and persists as one
+ * edit (see `recordMutationStages`).
+ */
+export interface StagedMutationBatch {
+	mutations: Mutation[];
+	doc: BlueprintDoc;
+	stage?: string;
 }

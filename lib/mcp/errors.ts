@@ -40,6 +40,7 @@
 
 import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
 import { classifyError } from "@/lib/agent/errorClassifier";
+import { BlueprintCommitRejectedError } from "@/lib/db/applyBlueprintChange";
 import { log } from "@/lib/logger";
 import { McpAccessError } from "./ownership";
 import { McpScopeError } from "./scopes";
@@ -235,6 +236,32 @@ export function toMcpErrorResult(
 		 * either a client regression or an attacker probing the
 		 * contract. Silent was worse than noisy here. */
 		log.warn("[mcp] invalid input", {
+			userId: ctx?.userId ?? null,
+			appId: ctx?.appId ?? null,
+			message: err.message,
+		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof BlueprintCommitRejectedError) {
+		/* The transactional commit's fresh-doc re-verdict rejected the batch
+		 * (a concurrent write landed between the optimistic gate and the
+		 * Firestore transaction, and the batch introduces a finding against
+		 * the doc as it now stands). Nothing was written. This is the same
+		 * validity-rejection shape the optimistic gate produces inside a
+		 * tool body, so it gets the same envelope: `invalid_input` with the
+		 * verdict's person-to-person findings as the message — never the
+		 * generic internal bucket, which would read as a server fault the
+		 * caller can't act on. */
+		log.warn("[mcp] guarded commit rejected against the fresh blueprint", {
 			userId: ctx?.userId ?? null,
 			appId: ctx?.appId ?? null,
 			message: err.message,

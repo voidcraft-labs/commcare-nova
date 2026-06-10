@@ -71,7 +71,10 @@ import type {
 } from "./documentExtraction";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
 import { streamObjectWith } from "./subGeneration";
-import type { ToolExecutionContext } from "./toolExecutionContext";
+import type {
+	StagedMutationBatch,
+	ToolExecutionContext,
+} from "./toolExecutionContext";
 
 /** Log AI SDK warnings to the console if present. */
 export function logWarnings(
@@ -510,6 +513,26 @@ export class GenerationContext implements ToolExecutionContext {
 		stage?: string,
 	): Promise<MutationEvent[]> {
 		return this.emitMutations(mutations, doc, stage);
+	}
+
+	/**
+	 * ToolExecutionContext implementation. The chat surface's save is
+	 * fire-and-forget per stage (the SA's retry discipline covers a missed
+	 * intermediate save), so "one save for the whole sequence" needs no
+	 * special handling here — each stage emits its own SSE batch + log
+	 * envelopes under its own tag, and the last stage's snapshot is the
+	 * one that settles on Firestore. The atomicity contract this method
+	 * exists for lives on the MCP implementation, whose transactional
+	 * write can reject (`McpContext.recordMutationStages`).
+	 */
+	async recordMutationStages(
+		stages: StagedMutationBatch[],
+	): Promise<MutationEvent[]> {
+		const events: MutationEvent[] = [];
+		for (const s of stages) {
+			events.push(...this.emitMutations(s.mutations, s.doc, s.stage));
+		}
+		return events;
 	}
 
 	/**

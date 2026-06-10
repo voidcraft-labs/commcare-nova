@@ -68,19 +68,22 @@ function minDoc(): BlueprintDoc {
 	});
 }
 
-/** Bare `ToolExecutionContext` stub — `recordMutations` is the assertion
- *  surface; nothing here touches Firestore. */
+/** Bare `ToolExecutionContext` stub — `recordMutations` (single-batch
+ *  tools) and `recordMutationStages` (multi-stage tools) are the
+ *  assertion surfaces; nothing here touches Firestore. */
 function makeCtx(phase: "building" | "complete") {
 	const recordMutations = vi.fn().mockResolvedValue([]);
+	const recordMutationStages = vi.fn().mockResolvedValue([]);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
 		commitPhase: phase,
 		recordMutations,
+		recordMutationStages,
 		recordConversation: vi.fn(),
 	};
-	return { ctx, recordMutations };
+	return { ctx, recordMutations, recordMutationStages };
 }
 
 function badRelevantMutation(doc: BlueprintDoc): Mutation[] {
@@ -207,7 +210,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		// and the agent can re-issue the corrected call from the original
 		// state ("a rejected call saved nothing" holds with no asterisk).
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations, recordMutationStages } = makeCtx("complete");
 
 		const out = await editFieldTool.execute(
 			{
@@ -230,6 +233,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		expect(out.mutations).toEqual([]);
 		expect(out.newDoc).toBe(doc);
 		expect(recordMutations).not.toHaveBeenCalled();
+		expect(recordMutationStages).not.toHaveBeenCalled();
 		// The rename never landed.
 		const renamed = Object.values(doc.fields).find(
 			(fl) => fl.id === "village_name",
@@ -237,9 +241,9 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		expect(renamed).toBeUndefined();
 	});
 
-	it("a passing multi-stage edit persists each stage with its own tag", async () => {
+	it("a passing multi-stage edit persists as ONE save carrying each stage's own tag", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutationStages } = makeCtx("complete");
 
 		const out = await editFieldTool.execute(
 			{
@@ -257,15 +261,18 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		);
 
 		expect("message" in out.result).toBe(true);
-		// Two stages persisted in order: rename, then the scalar patch.
-		expect(recordMutations).toHaveBeenCalledTimes(2);
-		expect(recordMutations.mock.calls[0]?.[2]).toBe("rename:0-0");
-		expect(recordMutations.mock.calls[1]?.[2]).toBe("edit:0-0");
+		// One persistence call for the whole sequence — the stages ride
+		// inside it, in order, each with its own tag.
+		expect(recordMutationStages).toHaveBeenCalledTimes(1);
+		const stages = recordMutationStages.mock.calls[0]?.[0] as Array<{
+			stage?: string;
+		}>;
+		expect(stages.map((s) => s.stage)).toEqual(["rename:0-0", "edit:0-0"]);
 	});
 
 	it("commits a clean edit unchanged (the gate is transparent on pass)", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutationStages } = makeCtx("complete");
 
 		const out = await editFieldTool.execute(
 			{
@@ -280,6 +287,6 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		expect("message" in out.result).toBe(true);
 		expect(out.mutations.length).toBeGreaterThan(0);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
+		expect(recordMutationStages).toHaveBeenCalledTimes(1);
 	});
 });

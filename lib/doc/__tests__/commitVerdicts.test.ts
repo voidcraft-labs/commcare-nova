@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
+	commitPhaseForAppStatus,
 	describeIntroducedErrors,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
@@ -183,6 +184,59 @@ describe("mutationCommitVerdict", () => {
 		expect(verdict).toEqual({ ok: true, nextDoc: doc, results: [] });
 		// Reference equality — no candidate apply ran.
 		expect(verdict.nextDoc).toBe(doc);
+	});
+});
+
+describe("commitPhaseForAppStatus", () => {
+	it("maps the under-construction statuses to building, the rest to complete", () => {
+		expect(commitPhaseForAppStatus("generating")).toBe("building");
+		// A FAILED build is an app still under construction — the retry's
+		// scaffold batches must gate exactly like the original build's.
+		expect(commitPhaseForAppStatus("error")).toBe("building");
+		expect(commitPhaseForAppStatus("complete")).toBe("complete");
+		expect(commitPhaseForAppStatus("deleted")).toBe("complete");
+	});
+
+	it("a retry of a failed build can land its scaffold batch (fieldless forms defer completeness)", () => {
+		// The retry flow: a build failed (status "error"), the user resends
+		// in the same thread, and the SA's generateScaffold emits modules +
+		// fieldless forms — EMPTY_FORM / MISSING_CASE_LIST_COLUMNS findings
+		// the building window defers and the complete-phase ratchet would
+		// reject. The phase derived from the FAILED app's status must accept
+		// the batch, or every retry burns its reservation looping on
+		// rejections it cannot fix.
+		const doc = minDoc();
+		const moduleUuid = asUuid("m-retry");
+		const scaffoldBatch: Mutation[] = [
+			{
+				kind: "addModule",
+				module: {
+					uuid: moduleUuid,
+					id: "visits",
+					name: "Visits",
+					caseType: "visit",
+				} as never,
+			},
+			{
+				kind: "addForm",
+				moduleUuid,
+				form: {
+					uuid: asUuid("f-retry"),
+					id: "record_visit",
+					name: "Record visit",
+					type: "registration",
+				} as never,
+			},
+		];
+
+		const retryPhase = commitPhaseForAppStatus("error");
+		const accepted = mutationCommitVerdict(doc, scaffoldBatch, retryPhase);
+		expect(accepted.ok).toBe(true);
+
+		// Sanity: the SAME batch under the complete-phase ratchet rejects —
+		// the status mapping is what makes the retry viable.
+		const rejected = mutationCommitVerdict(doc, scaffoldBatch, "complete");
+		expect(rejected.ok).toBe(false);
 	});
 });
 

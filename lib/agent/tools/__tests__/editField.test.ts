@@ -136,7 +136,7 @@ function makeTwoFieldDoc(): BlueprintDoc {
 describe("editField — rename identifier guard", () => {
 	it("rejects a rename to a sibling-conflicting id and persists nothing", async () => {
 		const { ctx } = makeTestContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutations");
+		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
 				moduleIndex: 0,
@@ -192,7 +192,7 @@ describe("editField — rename identifier guard", () => {
 
 	it("accepts a legal rename and persists it", async () => {
 		const { ctx } = makeTestContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutations");
+		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
 				moduleIndex: 0,
@@ -211,7 +211,7 @@ describe("editField — rename identifier guard", () => {
 
 	it("rejects the same conflicting rename through an McpContext (same guard, both surfaces)", async () => {
 		const { ctx } = makeMcpTestContext();
-		const recordSpy = vi.spyOn(ctx, "recordMutations");
+		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
 				moduleIndex: 0,
