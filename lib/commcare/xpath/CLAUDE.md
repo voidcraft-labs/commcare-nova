@@ -6,6 +6,7 @@ CommCare's XPath dialect: the Lezer grammar + generated parser and the export-ti
 
 - `grammar.lezer.grammar` — grammar source.
 - `parser.ts` + `parser.terms.ts` — committed, regenerated via `scripts/build-xpath-parser.ts`.
+- `hashtagGuard.ts` — external tokenizer emitting the zero-width adjacency guards `HashtagRef` requires between its tokens (a hashtag is one contiguous span; an open-ended skipless rule is inexpressible in LR). Kept in lockstep with the regex matchers built from `lib/domain/hashtagSegments.ts` by the divergence-corpus test.
 - `transpiler.ts` — public `transpile(source)` entry point.
 - `typeInfer.ts` — internal bottom-up type inference over the Lezer CST.
 - `passes/` — internal transform passes, each shaped `(tree, types, source) → SourceEdit[]`.

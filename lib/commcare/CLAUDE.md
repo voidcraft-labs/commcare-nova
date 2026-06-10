@@ -28,7 +28,7 @@ CommCare's Vellum editor requires both expanded XPath AND the original shorthand
 
 ### Bare hashtags in prose
 
-Hashtag wrapping in label/hint text uses regex (`proseHashtags.ts::BARE_HASHTAG_PATTERN`), NOT the Lezer XPath parser. Labels are prose; surrounding characters like `**` (markdown bold) parse as XPath operators, which swallows the `#`. The pattern matches ANY `#<namespace>/<segments>` — including per-case-type refs (`#mother/age`) — not just `case`/`form`/`user`; deciding which refs actually resolve is the emitter's / validator's job, so don't narrow the pattern to a fixed namespace set.
+Hashtag wrapping in label/hint text uses regex (`proseHashtags.ts::BARE_HASHTAG_PATTERN`), NOT the Lezer XPath parser. Labels are prose; surrounding characters like `**` (markdown bold) parse as XPath operators, which swallows the `#`. The pattern matches ANY `#<namespace>/<segments>` — including per-case-type refs (`#mother/age`) — not just `case`/`form`/`user`; deciding which refs actually resolve is the emitter's / validator's job, so don't narrow the pattern to a fixed namespace set. The segment vocabulary itself comes from ONE shared source, `lib/domain/hashtagSegments.ts` — it builds this pattern, `lib/references/config.ts::HASHTAG_REF_PATTERN`, and (via the divergence-corpus test at `xpath/__tests__/hashtagMatchers.divergence.test.ts`) holds the grammar's `HashtagType`/`HashtagSegment` tokens in lockstep, since the grammar can't import TS.
 
 ### Markdown itext
 

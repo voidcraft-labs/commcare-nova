@@ -8,6 +8,7 @@ export * from "./casePropertyTypes";
 export * from "./caseTypes";
 export * from "./fields";
 export * from "./forms";
+export * from "./hashtagSegments";
 export * from "./kinds";
 export * from "./modules";
 export * from "./multimedia";

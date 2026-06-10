@@ -76,11 +76,35 @@ describe("rewriteXPathRefs", () => {
 			);
 		});
 
-		it("does not rewrite #form/ hashtag for nested fields", () => {
-			// Nested fields use full paths, not #form/ shorthand
+		it("does not rewrite a top-level #form/ hashtag when the renamed field is nested", () => {
+			// `#form/old_id` points at a TOP-LEVEL field named old_id, not at
+			// the nested `group/old_id` being renamed — the full segment path
+			// must match, not just the leaf.
 			expect(
 				rewriteXPathRefs("#form/old_id > 5", "group/old_id", "new_id"),
 			).toBe("#form/old_id > 5");
+		});
+
+		it("rewrites the leaf of a nested #form/ hashtag when the full path matches", () => {
+			expect(
+				rewriteXPathRefs("#form/group/old_id > 5", "group/old_id", "new_id"),
+			).toBe("#form/group/new_id > 5");
+		});
+
+		it("rewrites deep nested #form/ hashtags", () => {
+			expect(
+				rewriteXPathRefs(
+					"concat(#form/a/b/old_id, #form/a/b/old_id)",
+					"a/b/old_id",
+					"new_id",
+				),
+			).toBe("concat(#form/a/b/new_id, #form/a/b/new_id)");
+		});
+
+		it("does not rewrite a cousin sharing the leaf id under a different group", () => {
+			expect(
+				rewriteXPathRefs("#form/other/old_id > 5", "group/old_id", "new_id"),
+			).toBe("#form/other/old_id > 5");
 		});
 
 		it("rewrites both hashtag and absolute path in one expression", () => {

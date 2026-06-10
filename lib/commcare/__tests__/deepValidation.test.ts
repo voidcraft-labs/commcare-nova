@@ -131,6 +131,19 @@ describe("validateXPath", () => {
 			expect(validateXPath("/data/group1/child1", validPaths)).toEqual([]);
 		});
 
+		it("lints a multi-segment #form ref clean when the nested path exists", () => {
+			// A re-anchored ref (`#form/group1/child1` after a move into a
+			// group) maps to `/data/group1/child1` — known, so no diagnostics.
+			expect(validateXPath("#form/group1/child1 != ''", validPaths)).toEqual(
+				[],
+			);
+		});
+
+		it("flags a multi-segment #form ref whose nested path is unknown", () => {
+			const errors = validateXPath("#form/group1/nope != ''", validPaths);
+			expect(errors.some((e) => e.code === "INVALID_REF")).toBe(true);
+		});
+
 		it("catches invalid references", () => {
 			const errors = validateXPath("/data/nonexistent != ''", validPaths);
 			expect(errors.some((e) => e.code === "INVALID_REF")).toBe(true);

@@ -46,7 +46,10 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
  *
  * Handles:
  * - Absolute paths: /data/old_id → /data/new_id (and /data/group/old_id → /data/group/new_id)
- * - Hashtag refs: #form/old_id → #form/new_id (top-level fields only)
+ * - Hashtag refs: #form/old_id → #form/new_id, at any depth
+ *   (#form/group/old_id → #form/group/new_id). The FULL segment path must
+ *   match — a cousin sharing the leaf id under a different group is never
+ *   rewritten.
  *
  * @param expr       The XPath expression to rewrite
  * @param oldPath    The old field path segments (e.g. 'old_id' or 'group/old_id')
@@ -68,10 +71,15 @@ export function rewriteXPathRefs(
 	// Walk for absolute paths (/data/...)
 	walkForPaths(tree.topNode, expr, targetAbsSegments, newId, edits);
 
-	// Walk for hashtag refs (#form/old_id) — only for top-level fields
-	if (oldSegments.length === 1) {
-		walkForHashtags(tree.topNode, expr, "#form/", oldSegments[0], newId, edits);
-	}
+	// Walk for hashtag refs (#form/<oldPath>) — full-path match, leaf rewrite.
+	const newSegments = [...oldSegments.slice(0, -1), newId];
+	walkForHashtags(
+		tree.topNode,
+		expr,
+		`#form/${oldPath}`,
+		`#form/${newSegments.join("/")}`,
+		edits,
+	);
 
 	return applyEdits(expr, edits);
 }
@@ -79,8 +87,9 @@ export function rewriteXPathRefs(
 /**
  * Rewrite hashtag references in an XPath expression.
  *
- * Uses the Lezer parser to find HashtagRef nodes matching the given prefix
- * (e.g. '#case/', '#form/') and surgically replaces the name portion.
+ * Uses the Lezer parser to find HashtagRef nodes whose full text equals
+ * `prefix + oldName` (e.g. '#case/' + 'age') and surgically replaces each
+ * with `prefix + newName`.
  *
  * @param expr       The XPath expression to rewrite
  * @param prefix     The hashtag prefix to match (e.g. '#case/', '#form/')
@@ -97,7 +106,13 @@ export function rewriteHashtagRefs(
 
 	const tree = parser.parse(expr);
 	const edits: SourceEdit[] = [];
-	walkForHashtags(tree.topNode, expr, prefix, oldName, newName, edits);
+	walkForHashtags(
+		tree.topNode,
+		expr,
+		prefix + oldName,
+		prefix + newName,
+		edits,
+	);
 	return applyEdits(expr, edits);
 }
 
@@ -141,30 +156,29 @@ function walkForPaths(
 }
 
 /**
- * Walk the CST for hashtag refs matching prefix + oldName.
- * Records an edit on the name portion (after the prefix).
+ * Walk the CST for hashtag refs whose full text equals `oldRef` and record
+ * an edit replacing the whole ref with `newRef`. Full-text matching keeps
+ * the rewrite path-exact: `#form/group/old` never matches `#form/old` or a
+ * cousin's `#form/other/old`.
  */
 function walkForHashtags(
 	node: SyntaxNode,
 	source: string,
-	prefix: string,
-	oldName: string,
-	newName: string,
+	oldRef: string,
+	newRef: string,
 	edits: SourceEdit[],
 ): void {
 	if (node.type === T.HashtagRef) {
 		const text = source.slice(node.from, node.to);
-		if (text === prefix + oldName) {
-			// Replace just the name portion after the prefix
-			const nameStart = node.from + prefix.length;
-			edits.push({ from: nameStart, to: node.to, text: newName });
+		if (text === oldRef) {
+			edits.push({ from: node.from, to: node.to, text: newRef });
 		}
 		return;
 	}
 
 	let child = node.firstChild;
 	while (child) {
-		walkForHashtags(child, source, prefix, oldName, newName, edits);
+		walkForHashtags(child, source, oldRef, newRef, edits);
 		child = child.nextSibling;
 	}
 }

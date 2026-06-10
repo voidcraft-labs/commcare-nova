@@ -522,7 +522,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const field = doc.fields[uuid];
 				if (!field) {
 					warnUnresolved("moveField", { uuid });
-					return { droppedCrossDepthRefs: 0 };
+					return {};
 				}
 
 				// Default destination: the field's current parent (same-parent
@@ -562,11 +562,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const [result] = store
 					.getState()
 					.applyMany([{ kind: "moveField", uuid, toParentUuid, toIndex }]);
-				return (
-					(result as MoveFieldResult | undefined) ?? {
-						droppedCrossDepthRefs: 0,
-					}
-				);
+				return (result as MoveFieldResult | undefined) ?? {};
 			},
 
 			duplicateField(uuid) {

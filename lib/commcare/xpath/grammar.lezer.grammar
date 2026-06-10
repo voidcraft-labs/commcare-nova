@@ -81,7 +81,18 @@ expr {
 // Structured as type + path segments so consumers get named child nodes.
 // !hashtag on "/" ensures the parser continues consuming path segments
 // rather than reducing early and treating "/" as a child-step operator.
-HashtagRef { "#" HashtagType { localName } (!hashtag "/" HashtagSegment { localName })+ }
+// A hashtag is one CONTIGUOUS span ("# form/x" / "#form/ x" / "#form /x"
+// are not refs), matching the regex matchers built from
+// lib/domain/hashtagSegments.ts (divergence-corpus test enforced). The
+// grammar skips whitespace between any two tokens and an open-ended
+// skipless rule is inexpressible in LR ("inconsistent skip sets"), so
+// contiguity rides on zero-width guard tokens: the external tokenizer
+// emits one only when nothing was skipped before the current token AND
+// the lookahead can genuinely continue the ref (so the guard never wins
+// a shift the following token would then fail).
+@external tokens hashtagGuard from "./hashtagGuard" { noGapIdent, noGapSlash }
+
+HashtagRef { "#" noGapIdent HashtagType { localName } (!hashtag noGapSlash "/" noGapIdent HashtagSegment { localName })+ }
 
 NameTest {
   name

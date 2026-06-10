@@ -737,16 +737,14 @@ describe("moveField result metadata", () => {
 
 		expect(result).toBeDefined();
 		expect(result?.renamed).toBeUndefined();
-		expect(result?.droppedCrossDepthRefs).toBe(0);
 	});
 
-	it("counts dropped cross-depth hashtag refs on top-level → nested move", () => {
+	it("re-anchors hashtag refs on a top-level → nested move, on xpath AND prose surfaces", () => {
 		// Move top-level `source` into a group. Absolute-path refs to
-		// `/data/source` get rewritten to `/data/grp/source` cleanly.
-		// But a hashtag ref `#form/source` embedded in a label cannot be
-		// rewritten (hashtag syntax has no depth > 1). The reducer must
-		// surface the count on `droppedCrossDepthRefs` so a future UI toast
-		// can warn the user N references silently broke.
+		// `/data/source` rewrite to `/data/grp/source`; hashtag refs
+		// (`#form/source`) re-anchor to the nested form `#form/grp/source`
+		// on BOTH the xpath surfaces (calculate) and the prose surfaces
+		// (label, via transformBareHashtags). Nothing dangles.
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
@@ -755,6 +753,8 @@ describe("moveField result metadata", () => {
 				[Q("ref")]: field_(Q("ref"), "ref", {
 					// Prose label with a hashtag ref — transformBareHashtags path.
 					label: "See #form/source for details",
+					// XPath surface with the same hashtag ref.
+					calculate: "#form/source + 1",
 				}),
 			},
 			fieldOrder: {
@@ -763,17 +763,51 @@ describe("moveField result metadata", () => {
 			},
 		};
 
-		let result: MoveFieldResult | undefined;
-		produce(start, (d) => {
-			result = applyMutation(d, {
+		const next = produce(start, (d) => {
+			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("src"),
 				toParentUuid: Q("grp"),
 				toIndex: 0,
-			}) as MoveFieldResult;
+			});
 		});
 
-		expect(result?.droppedCrossDepthRefs).toBe(1);
+		expect(asField(next.fields[Q("ref")])?.label).toBe(
+			"See #form/grp/source for details",
+		);
+		expect(asField(next.fields[Q("ref")])?.calculate).toBe(
+			"#form/grp/source + 1",
+		);
+	});
+
+	it("re-anchors hashtag refs on a nested → top-level move", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
+				[Q("src")]: field_(Q("src"), "source"),
+				[Q("ref")]: field_(Q("ref"), "ref", {
+					label: "See #form/grp/source for details",
+				}),
+			},
+			fieldOrder: {
+				[F("1")]: [Q("grp"), Q("ref")],
+				[Q("grp")]: [Q("src")],
+			},
+		};
+
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "moveField",
+				uuid: Q("src"),
+				toParentUuid: F("1"),
+				toIndex: 1,
+			});
+		});
+
+		expect(asField(next.fields[Q("ref")])?.label).toBe(
+			"See #form/source for details",
+		);
 	});
 });
 

@@ -9,12 +9,11 @@
  * Implementation reuses the same Lezer walk used by `rewriteXPathRefs` —
  * we match absolute paths whose collected segments exactly equal
  * `[data, ...oldSegments]` and replace the entire segment sequence (not
- * just the final NameTest) with `[data, ...newSegments]`. For hashtag
- * refs, we only rewrite when BOTH `oldSegments` and `newSegments` have
- * length 1 (top-level → top-level rename); every other case is a DROP —
- * a hashtag ref can't encode nested paths, so a cross-depth move makes
- * the reference dangling. The caller gets a count of how many of these
- * drops were detected so downstream UI can surface the loss.
+ * just the final NameTest) with `[data, ...newSegments]`. Hashtag refs
+ * re-anchor the same way: a ref whose full text is `#form/<oldSegments>`
+ * becomes `#form/<newSegments>` — hashtag paths mirror the form's group
+ * nesting, so a cross-depth move changes the ref's depth with it
+ * (`#form/foo` → `#form/group/foo` and the reverse).
  */
 
 import type { SyntaxNode } from "@lezer/common";
@@ -61,37 +60,25 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
 }
 
 /**
- * Result of rewriting one expression on a move.
+ * Rewrite all references in `expr` that point at the moved field's old
+ * location to the equivalent reference at its new location:
  *
- * `droppedHashtagRefs` counts hashtag refs that pointed at the moved
- * field's old id but could not be rewritten because either the old or
- * new path has depth > 1 (hashtag syntax only encodes a single top-level
- * name). Those refs are now dangling; the caller can surface the count
- * so users know something broke silently.
- */
-interface RewriteOnMoveResult {
-	expr: string;
-	droppedHashtagRefs: number;
-}
-
-/**
- * Rewrite all absolute path references in `expr` whose segments match
- * `oldSegments` (below the `/data` root) to the equivalent path with
- * `newSegments`. Top-level hashtag refs are rewritten only when both
- * segment sequences are length 1; otherwise they are counted as dropped.
+ *   - absolute paths whose segments match `oldSegments` (below the `/data`
+ *     root) become the `newSegments` path, and
+ *   - `#form/` hashtag refs whose full segment path matches `oldSegments`
+ *     re-anchor to `#form/<newSegments>` — across any old/new depth.
  *
  * @param expr           XPath expression to rewrite
  * @param oldSegments    Segments below `/data` in the field's old path
  * @param newSegments    Segments below `/data` in the field's new path
- * @returns              Rewritten expression plus count of dropped hashtag
- *                       references (unreachable via hashtag syntax).
+ * @returns              The rewritten expression.
  */
 export function rewriteXPathOnMove(
 	expr: string,
 	oldSegments: string[],
 	newSegments: string[],
-): RewriteOnMoveResult {
-	if (!expr) return { expr, droppedHashtagRefs: 0 };
+): string {
+	if (!expr) return expr;
 
 	const tree = parser.parse(expr);
 	const edits: SourceEdit[] = [];
@@ -102,37 +89,17 @@ export function rewriteXPathOnMove(
 
 	walkForAbsolutePaths(tree.topNode, expr, targetAbsOld, newSegments, edits);
 
-	// Hashtag refs (`#form/field_id`) only encode a single top-level field
-	// name — they can't represent nested group paths.
-	//   - Both sides top-level (length 1): rewrite the name.
-	//   - Either side nested (length > 1): count matches as dropped.
-	// The old-id leaf is the last `oldSegments` element in both cases —
-	// that's what a hashtag would have pointed at before the move.
-	const oldLeaf = oldSegments[oldSegments.length - 1] ?? "";
-	const canRewriteHashtag =
-		oldSegments.length === 1 && newSegments.length === 1;
-	let droppedHashtagRefs = 0;
-	if (oldLeaf) {
-		if (canRewriteHashtag) {
-			walkForHashtags(
-				tree.topNode,
-				expr,
-				"#form/",
-				oldLeaf,
-				newSegments[0],
-				edits,
-			);
-		} else {
-			droppedHashtagRefs = countHashtagMatches(
-				tree.topNode,
-				expr,
-				"#form/",
-				oldLeaf,
-			);
-		}
-	}
+	// Hashtag refs re-anchor whole: full-path match on the old location,
+	// full replacement with the new one.
+	walkForHashtags(
+		tree.topNode,
+		expr,
+		`#form/${oldSegments.join("/")}`,
+		`#form/${newSegments.join("/")}`,
+		edits,
+	);
 
-	return { expr: applyEdits(expr, edits), droppedHashtagRefs };
+	return applyEdits(expr, edits);
 }
 
 // ── Tree walkers ──────────────────────────────────────────────────────
@@ -187,56 +154,31 @@ function walkForAbsolutePaths(
 }
 
 /**
- * Walk the CST for hashtag refs matching `prefix + oldName`.
- * Records an edit on the name portion (after the prefix).
+ * Walk the CST for hashtag refs whose full text equals `oldRef` and record
+ * an edit replacing the whole ref with `newRef`. Full-text matching keeps
+ * the re-anchor path-exact: `#form/source` never matches a moved
+ * `grp/source` (same leaf, different field).
  */
 function walkForHashtags(
 	node: SyntaxNode,
 	source: string,
-	prefix: string,
-	oldName: string,
-	newName: string,
+	oldRef: string,
+	newRef: string,
 	edits: SourceEdit[],
 ): void {
 	if (node.type === T.HashtagRef) {
 		const text = source.slice(node.from, node.to);
-		if (text === prefix + oldName) {
-			const nameStart = node.from + prefix.length;
-			edits.push({ from: nameStart, to: node.to, text: newName });
+		if (text === oldRef) {
+			edits.push({ from: node.from, to: node.to, text: newRef });
 		}
 		return;
 	}
 
 	let child = node.firstChild;
 	while (child) {
-		walkForHashtags(child, source, prefix, oldName, newName, edits);
+		walkForHashtags(child, source, oldRef, newRef, edits);
 		child = child.nextSibling;
 	}
-}
-
-/**
- * Count hashtag refs matching `prefix + oldName` without rewriting them.
- * Used when the caller detected that a rewrite isn't possible (e.g. a
- * cross-depth move whose new path can't be expressed as a hashtag) and
- * just wants to know how many references were dropped.
- */
-function countHashtagMatches(
-	node: SyntaxNode,
-	source: string,
-	prefix: string,
-	oldName: string,
-): number {
-	if (node.type === T.HashtagRef) {
-		const text = source.slice(node.from, node.to);
-		return text === prefix + oldName ? 1 : 0;
-	}
-	let count = 0;
-	let child = node.firstChild;
-	while (child) {
-		count += countHashtagMatches(child, source, prefix, oldName);
-		child = child.nextSibling;
-	}
-	return count;
 }
 
 // ── Segment collection ────────────────────────────────────────────────

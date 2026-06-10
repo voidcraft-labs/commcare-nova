@@ -29,13 +29,10 @@ import { rewriteXPathOnMove } from "./pathRewrite";
  * Metadata returned by `moveField`.
  *
  * `renamed` is populated when a cross-level move triggers sibling-id
- * deduplication (CommCare requires unique IDs per parent level).
- *
- * `droppedCrossDepthRefs` counts hashtag refs (`#form/foo`) that pointed at
- * the moved field's old id but became dangling because the new path has
- * depth > 1 (hashtag syntax only encodes single top-level names). No
- * consumer surfaces this to the UI yet; the count is captured so a
- * future toast can warn the user that N references silently broke.
+ * deduplication (CommCare requires unique IDs per parent level). Reference
+ * rewriting itself is total: absolute paths AND `#form/` hashtag refs
+ * re-anchor across any depth change (`rewriteXPathOnMove`), so a move
+ * never leaves a dangling reference behind.
  */
 export interface MoveFieldResult {
 	renamed?: {
@@ -44,7 +41,6 @@ export interface MoveFieldResult {
 		newPath: FieldPath;
 		xpathFieldsRewritten: number;
 	};
-	droppedCrossDepthRefs: number;
 }
 
 /**
@@ -312,15 +308,12 @@ export function applyFieldMutation(
 			draft.fieldOrder[mut.toParentUuid] = destOrder;
 
 			// Rewrite absolute-path / hashtag references that now point at a
-			// stale path. Covers cross-level moves (where the prefix changes)
-			// and reorder+rename (where the leaf segment changes from dedup).
-			// Same-form only — xpath references never cross form boundaries.
+			// stale path. Covers cross-level moves (where the prefix changes —
+			// hashtag refs re-anchor across depth, `#form/foo` ↔
+			// `#form/grp/foo`) and reorder+rename (where the leaf segment
+			// changes from dedup). Same-form only — xpath references never
+			// cross form boundaries.
 			let xpathFieldsRewritten = 0;
-			// Count of hashtag refs (`#form/foo`) that matched the moved field's
-			// old id but could not be rewritten — a cross-depth move makes those
-			// references unreachable via hashtag syntax. Captured for future UI
-			// surfacing; no consumer reads it yet.
-			let droppedCrossDepthRefs = 0;
 			const newPathStr =
 				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
 			if (oldPathStr && newPathStr && oldPathStr !== newPathStr) {
@@ -340,33 +333,30 @@ export function applyFieldMutation(
 						for (const f of XPATH_FIELDS) {
 							const expr = (target as Record<string, unknown>)[f];
 							if (typeof expr === "string" && expr.length > 0) {
-								const { expr: rewritten, droppedHashtagRefs } =
-									rewriteXPathOnMove(expr, oldSegments, newSegments);
+								const rewritten = rewriteXPathOnMove(
+									expr,
+									oldSegments,
+									newSegments,
+								);
 								if (rewritten !== expr) {
 									(target as Record<string, unknown>)[f] = rewritten;
 									xpathFieldsRewritten++;
 								}
-								droppedCrossDepthRefs += droppedHashtagRefs;
 							}
 						}
 						for (const f of DISPLAY_FIELDS) {
 							const text = (target as Record<string, unknown>)[f];
 							if (typeof text === "string" && text.length > 0) {
-								// `transformBareHashtags` passes each embedded hashtag's
-								// parsed expression through the callback. We accumulate
-								// dropped-ref counts via closure since the transformer
-								// expects a string return.
-								let localDropped = 0;
-								const rewritten = transformBareHashtags(text, (expr) => {
-									const r = rewriteXPathOnMove(expr, oldSegments, newSegments);
-									localDropped += r.droppedHashtagRefs;
-									return r.expr;
-								});
+								// `transformBareHashtags` locates each embedded hashtag
+								// in the prose and passes it through the rewriter — the
+								// prose itself is never parsed as XPath.
+								const rewritten = transformBareHashtags(text, (expr) =>
+									rewriteXPathOnMove(expr, oldSegments, newSegments),
+								);
 								if (rewritten !== text) {
 									(target as Record<string, unknown>)[f] = rewritten;
 									xpathFieldsRewritten++;
 								}
-								droppedCrossDepthRefs += localDropped;
 							}
 						}
 					}
@@ -383,7 +373,7 @@ export function applyFieldMutation(
 							xpathFieldsRewritten,
 						}
 					: undefined;
-			return { renamed, droppedCrossDepthRefs } satisfies MoveFieldResult;
+			return { renamed } satisfies MoveFieldResult;
 		}
 		case "renameField": {
 			const field = draft.fields[mut.uuid];
@@ -641,9 +631,9 @@ function extractCaseProperty(field: { kind: string }): string | undefined {
  * Reference coverage:
  *   - `XPATH_FIELDS` (relevant / calculate / default_value / validate)
  *     run through `rewriteXPathRefs`, which surgically edits matching
- *     absolute paths (`/data/…/old_id` → `/data/…/new_id`) and `#form/old_id`
- *     hashtags (top-level fields only — hashtag syntax cannot encode
- *     nested paths).
+ *     absolute paths (`/data/…/old_id` → `/data/…/new_id`) and `#form/`
+ *     hashtags at any depth (`#form/grp/old_id` → `#form/grp/new_id`,
+ *     full-path matched so a cousin sharing the leaf is untouched).
  *   - `DISPLAY_FIELDS` (label / hint) run through `transformBareHashtags`
  *     so only embedded hashtag refs are rewritten while the surrounding
  *     prose is preserved verbatim.
