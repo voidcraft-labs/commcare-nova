@@ -78,7 +78,10 @@ function ToastItem({
 					{toast.title}
 				</p>
 				{toast.message && (
-					<p className="mt-0.5 text-xs text-nova-text-secondary leading-snug">
+					/* whitespace-pre-line: multi-line messages (e.g. the export
+					 * boundary gate's one-finding-per-line details) render as
+					 * separate lines instead of collapsing into one run-on. */
+					<p className="mt-0.5 text-xs text-nova-text-secondary leading-snug whitespace-pre-line">
 						{toast.message}
 					</p>
 				)}

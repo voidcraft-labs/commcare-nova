@@ -16,8 +16,10 @@
  *     inside a `{ format: "ccz", encoding, data }` wrapper so the client
  *     knows to decode the `data` field.
  *
- * Both formats expand via `expandDoc`; the media gate runs first so a stale
- * reference surfaces as actionable `invalid_input`, never a broken reference.
+ * Both formats expand via `expandDoc`; the zero-tolerance boundary gate runs
+ * first so any validator finding — a soundness error, missing completeness
+ * work, or a stale media reference — surfaces as actionable `invalid_input`,
+ * never a broken artifact.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,8 +28,8 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -77,17 +79,17 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * the wire collapses both to `not_found`. */
 				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
 
-				/* Media gate — both formats are media-ON when the app has
-				 * media, so either can hit `expandDoc`'s `requireAssetRef`
-				 * throw on a stale reference (deleted, still-uploading,
-				 * foreign-owned, or kind-mismatched asset). Validate once, up
-				 * front, so that surfaces as a `McpInvalidInputError` →
-				 * `invalid_input` envelope carrying the rule's Elm-shape text,
-				 * not an opaque `internal` error from the expand throw. */
-				const mediaErrors = await collectMediaValidationErrors(doc, ctx.userId);
-				if (mediaErrors.length > 0) {
+				/* Boundary gate — zero tolerance before any expensive work.
+				 * Every validator finding (soundness, completeness, media-
+				 * state) rejects the compile as a `McpInvalidInputError` →
+				 * `invalid_input` envelope carrying each rule's actionable
+				 * message, so an invalid app never compiles into an artifact —
+				 * and a stale media reference never reaches `expandDoc`'s
+				 * `requireAssetRef` throw (an opaque `internal` error). */
+				const violations = await collectBoundaryViolations(doc, ctx.userId);
+				if (violations.length > 0) {
 					throw new McpInvalidInputError(
-						`This app references media that isn't ready to compile: ${mediaErrors
+						`This app isn't ready to compile — fix these first: ${violations
 							.map(errorToString)
 							.join(" ")}`,
 					);

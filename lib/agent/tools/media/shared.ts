@@ -20,11 +20,13 @@
  *     — see `lib/domain/multimedia.ts::mediaSchema`'s docstring for why
  *     menu carriers don't use the bundle.
  *
- * Asset existence is NOT checked here. The SA validation loop runs
- * `collectMediaValidationErrors` after every mutation batch, so a bad ref
- * (deleted / pending / foreign-owned / kind-mismatched) surfaces with its
- * carrier location through the same gate every other media reference site
- * uses. The tools persist the reference and let the loop adjudicate.
+ * Asset existence is NOT checked here. The SA validation loop runs the
+ * asset-context media rules (with a freshly resolved manifest) on every
+ * `validateApp` pass, so a bad ref (deleted / pending / foreign-owned /
+ * kind-mismatched) surfaces with its carrier location through the same
+ * rules every other media reference site uses — and the export boundary
+ * gate rejects it outright. The tools persist the reference and let the
+ * loop adjudicate.
  * (`remove_media_asset` is the one exception — it guards against
  * orphaning a live reference at the source.)
  */

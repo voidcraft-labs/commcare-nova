@@ -19,13 +19,13 @@ import { requireSession } from "@/lib/auth-utils";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { asAssetId } from "@/lib/domain/multimedia";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/media/mediaValidation", () => ({
-	collectMediaValidationErrors: vi.fn(),
+vi.mock("@/lib/media/boundaryValidation", () => ({
+	collectBoundaryViolations: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
 vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
@@ -69,7 +69,7 @@ function reqWith(body: unknown) {
 
 beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
-	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
+	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 	vi.mocked(expandDoc).mockReturnValue({
 		doc_type: "Application",
@@ -135,8 +135,8 @@ describe("POST /api/compile/json", () => {
 		).toBe("PNG-BYTES");
 	});
 
-	it("returns 400 (not 500) when a media reference is stale", async () => {
-		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+	it("returns 422 (not 500) when a media reference is stale", async () => {
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
 			validationError(
 				"MEDIA_KIND_MISMATCH",
 				"field",
@@ -150,9 +150,10 @@ describe("POST /api/compile/json", () => {
 		// stream — an unread error body leaks under the async-leak gate).
 		const body = (await res.json()) as { error: string; details?: string[] };
 
-		expect(res.status).toBe(400);
-		expect(body.error).toContain("media");
-		// The media gate short-circuits before expand.
+		expect(res.status).toBe(422);
+		expect(body.error).toContain("isn't ready to export");
+		expect(body.details?.[0]).toContain("audio file");
+		// The boundary gate short-circuits before expand.
 		expect(expandDoc).not.toHaveBeenCalled();
 	});
 });

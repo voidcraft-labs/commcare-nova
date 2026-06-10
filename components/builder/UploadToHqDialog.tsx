@@ -35,6 +35,7 @@ import {
 } from "@/components/shadcn/select";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { PersistableDoc } from "@/lib/domain";
+import { describeApiFailure } from "@/lib/ui/apiFailure";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -57,7 +58,14 @@ type UploadStatus =
 	| { type: "idle" }
 	| { type: "uploading" }
 	| { type: "success"; appUrl: string; warnings: string[] }
-	| { type: "error"; message: string; status: number };
+	| {
+			type: "error";
+			message: string;
+			status: number;
+			/** Per-issue lines from the boundary gate (each names what's wrong
+			 *  and where it lives). Empty for non-gate failures. */
+			details: string[];
+	  };
 
 // ── Styles ─────────────────────────────────────────────────────────
 
@@ -147,10 +155,15 @@ export function UploadToHqDialog({
 			};
 
 			if (!res.ok || !data.success) {
+				const failure = describeApiFailure(
+					data,
+					`Upload failed (HTTP ${res.status})`,
+				);
 				setUploadStatus({
 					type: "error",
-					message: data.error ?? `Upload failed (HTTP ${res.status})`,
+					message: failure.message,
 					status: res.status,
+					details: failure.details,
 				});
 				return;
 			}
@@ -165,6 +178,7 @@ export function UploadToHqDialog({
 				type: "error",
 				message: "Network error. Please check your connection and try again.",
 				status: 0,
+				details: [],
 			});
 		}
 	}, [selectedDomain, appName, getDoc]);
@@ -295,12 +309,27 @@ export function UploadToHqDialog({
 									</div>
 								</div>
 
-								{/* Upload error — inline, form stays intact for retry */}
+								{/* Upload error — inline, form stays intact for retry.
+								 * Boundary-gate rejections carry per-issue lines, each
+								 * naming what's wrong and where — list them so the user
+								 * can fix the app without guessing. */}
 								{uploadStatus.type === "error" && (
 									<div className="mt-3">
 										<p className="text-sm text-nova-rose">
 											{uploadStatus.message}
 										</p>
+										{uploadStatus.details.length > 0 && (
+											<ul className="mt-1.5 space-y-1 list-disc pl-4">
+												{uploadStatus.details.map((line) => (
+													<li
+														key={line}
+														className="text-xs text-nova-text-secondary leading-snug"
+													>
+														{line}
+													</li>
+												))}
+											</ul>
+										)}
 										{uploadStatus.status === 401 && (
 											<Link
 												href="/settings"

@@ -658,9 +658,9 @@ export function evaluateCommit({
  *
  * The aggregate export-budget guard (`MEDIA_EXPORT_TOO_LARGE`) is NOT run
  * here: it lives with the manifest loader
- * (`lib/media/mediaValidation.ts::collectMediaValidationErrors`) because
+ * (`lib/media/boundaryValidation.ts::collectBoundaryViolations`) because
  * it is a property of the loaded Firestore rows, which this pure function
- * never fetches. Boundary call sites compose both (Stage 1 wiring).
+ * never fetches. The boundary call sites all go through that composer.
  */
 export function evaluateBoundary(
 	doc: BlueprintDoc,

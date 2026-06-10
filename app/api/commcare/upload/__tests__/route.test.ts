@@ -1,15 +1,15 @@
 /**
- * `POST /api/commcare/upload` — media-validation gate tests.
+ * `POST /api/commcare/upload` — boundary gate tests.
  *
- * This route is media-ON: a stale media reference would make `expandDoc`
- * throw `requireAssetRef` → opaque 500. The gate runs media validation
- * first and returns an actionable 400 instead. These tests prove the
- * gate fires AND that the handler returns on it (the un-typed
- * fall-through risk: calling the gate, getting errors, but forgetting to
- * return and 500ing anyway).
+ * This route is media-ON and boundary-gated: any validator finding
+ * returns an actionable 422 before the HQ import (a stale media
+ * reference would otherwise make `expandDoc` throw `requireAssetRef` →
+ * opaque 500). These tests prove the gate fires AND that the handler
+ * returns on it (the un-typed fall-through risk: calling the gate,
+ * getting errors, but forgetting to return and 500ing anyway).
  *
  * Boundaries are mocked: `requireSession` (so `req` is never read beyond
- * `json()`), credentials/manifest/import/expand, and the media gate
+ * `json()`), credentials/manifest/import/expand, and the boundary gate
  * itself. A stub `NextRequest` carries the body via `json()`. The route
  * runs the REAL `blueprintDocSchema`, so the fixture doc is schema-valid
  * (built via `buildDoc`).
@@ -22,16 +22,16 @@ import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
 vi.mock("@/lib/db/settings", () => ({
 	getCredentialsForUpload: vi.fn(),
 }));
-vi.mock("@/lib/media/mediaValidation", () => ({
-	collectMediaValidationErrors: vi.fn(),
+vi.mock("@/lib/media/boundaryValidation", () => ({
+	collectBoundaryViolations: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
 vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
@@ -95,7 +95,7 @@ function reqWith(body: unknown) {
 beforeEach(() => {
 	vi.mocked(requireSession).mockReset();
 	vi.mocked(getCredentialsForUpload).mockReset();
-	vi.mocked(collectMediaValidationErrors).mockReset();
+	vi.mocked(collectBoundaryViolations).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(importApp).mockReset();
@@ -111,7 +111,7 @@ beforeEach(() => {
 		creds: { username: "alice", apiKey: "k" },
 		domain: { name: DOMAIN, displayName: "ACME" },
 	} as never);
-	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
+	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 	vi.mocked(expandDoc).mockReturnValue({} as never);
 	vi.mocked(uploadAppMediaBundle).mockResolvedValue({
@@ -122,9 +122,9 @@ beforeEach(() => {
 	});
 });
 
-describe("POST /api/commcare/upload — media validation gate", () => {
-	it("returns 400 with the rule's message (not a 500) when a media ref is stale", async () => {
-		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+describe("POST /api/commcare/upload — boundary gate", () => {
+	it("returns 422 with the rule's message (not a 500) when a media ref is stale", async () => {
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
 			validationError(
 				"MEDIA_ASSET_NOT_READY",
 				"field",
@@ -138,15 +138,15 @@ describe("POST /api/commcare/upload — media validation gate", () => {
 		);
 		const body = (await res.json()) as { error: string; details?: string[] };
 
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(422);
 		expect(body.details?.[0]).toContain("still uploading");
-		/* The gate must short-circuit BEFORE import — a media-invalid app
+		/* The gate must short-circuit BEFORE import — an invalid app
 		 * never reaches HQ. */
 		expect(importApp).not.toHaveBeenCalled();
 		expect(expandDoc).not.toHaveBeenCalled();
 	});
 
-	it("proceeds to import + bulk media upload when media validation is clean", async () => {
+	it("proceeds to import + bulk media upload when the boundary gate is clean", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
@@ -171,7 +171,7 @@ describe("POST /api/commcare/upload — media validation gate", () => {
 		expect(body.appId).toBe("hq-1");
 		// Default bundle result is a clean match → no warnings.
 		expect(body.warnings).toEqual([]);
-		expect(collectMediaValidationErrors).toHaveBeenCalledWith(
+		expect(collectBoundaryViolations).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
 			"u1",
 		);
