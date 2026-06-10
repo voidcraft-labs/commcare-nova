@@ -18,21 +18,25 @@
  * SA wrapper's "advance closure on non-empty mutations" check still
  * works uniformly across every mutating tool.
  *
- * Five exit branches:
+ * Six exit branches:
  *
  *   1. Field not found at the given triple → `{ error }`, no mutations.
- *   2. Illegal kind conversion (target not in the source kind's
+ *   2. Rename rejected by the shared identifier verdict (XML-illegal /
+ *      reserved / over-long / sibling-conflicting new id, checked
+ *      before ANY stage runs) → `{ error }`, nothing persisted.
+ *   3. Illegal kind conversion (target not in the source kind's
  *      `convertTargets`) → `{ error }`, no mutations.
- *   3. Conversion rejected by the reducer (reconcile returned a shape
+ *   4. Conversion rejected by the reducer (reconcile returned a shape
  *      the target kind's schema rejects) → `{ error }`, partial
  *      mutations already persisted.
- *   4. Rename left the field not found (shouldn't happen in practice) →
+ *   5. Rename left the field not found (shouldn't happen in practice) →
  *      `{ error }`.
- *   5. Success → a human-readable `message` referencing the final id +
+ *   6. Success → a human-readable `message` referencing the final id +
  *      changes, plus a UI `summary` for the chat transcript.
  */
 
 import { z } from "zod";
+import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -220,6 +224,29 @@ export const editFieldTool = {
 			let workingDoc = doc;
 			const allMutations: Mutation[] = [];
 			const fieldUuid: Uuid = resolved.field.uuid;
+
+			// Pre-dispatch rename guard, checked BEFORE the convert stage so
+			// a rejected rename fails the whole call with nothing persisted
+			// (sibling scope and id format don't depend on the kind, so
+			// checking against the pre-convert doc is equivalent). The shared
+			// verdict (`lib/doc/identifierVerdicts.ts`) covers XML-name
+			// legality, the reserved `__nova_` prefix, the case-property
+			// length cap, and the peer-aware sibling-conflict scan — the same
+			// rules the UI commit guard applies, with the validator's
+			// DUPLICATE_FIELD_ID / INVALID_FIELD_ID rules as backstops.
+			if (newId && newId !== fieldId) {
+				const verdict = renameFieldIdVerdict({ doc, fieldUuid, newId });
+				if (!verdict.ok) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Cannot rename "${fieldId}" to "${newId}". ${verdict.message}`,
+						},
+					};
+				}
+			}
 
 			// Kind change → `convertField` mutation (not `updateField`). The
 			// updateField reducer parses the merged patch against

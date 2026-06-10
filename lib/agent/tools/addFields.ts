@@ -16,18 +16,23 @@
  * tool — one field is just a length-1 `fields` array.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Three legal exit branches
+ * shared `ToolExecutionContext` interface. Four legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
  *   1. Index resolution miss (module / form) → `{ error }`, no
  *      mutations.
- *   2. Runtime error in the pipeline → `{ error }`, no mutations.
- *   3. Success → a human-readable `message` (+ a UI `summary`); the stage
+ *   2. Identifier guard rejection (any field id illegal / reserved /
+ *      over-long / sibling-conflicting per the shared verdicts in
+ *      `lib/doc/identifierVerdicts.ts`) → `{ error }` naming EVERY
+ *      failing item, no mutations, nothing persisted.
+ *   3. Runtime error in the pipeline → `{ error }`, no mutations.
+ *   4. Success → a human-readable `message` (+ a UI `summary`); the stage
  *      tag drives lifecycle derivation on the chat client.
  */
 
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
+import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { asUuid, isContainer } from "@/lib/domain";
@@ -169,6 +174,15 @@ export const addFieldsTool = {
 			const mintedByBareId = new Map<string, Uuid>();
 			const mutations: Mutation[] = [];
 			const skipped: Array<{ id: string; reason: string }> = [];
+			// Identifier-guard state. Every assembled field's id runs through
+			// the shared verdict (`lib/doc/identifierVerdicts.ts`) BEFORE any
+			// mutation persists; a single bad id fails the whole call, and the
+			// error lists EVERY failing item so the SA fixes them in one
+			// re-issue. `pendingByParent` carries the ids earlier batch items
+			// claimed per parent (they aren't in `doc` yet), so two new
+			// siblings can't land with the same id.
+			const rejected: Array<{ id: string; reason: string }> = [];
+			const pendingByParent = new Map<Uuid, Set<string>>();
 
 			for (const raw of fields) {
 				// `raw` is a per-kind union arm (the tool input is a
@@ -221,6 +235,26 @@ export const addFieldsTool = {
 					continue;
 				}
 				const field = assembled.field;
+
+				// Pre-dispatch identifier guard: XML-name legality, the
+				// reserved `__nova_` prefix, the case-property length cap, and
+				// sibling-id uniqueness against the doc AND this batch's
+				// earlier items. A rejected field claims nothing — it never
+				// joins the pending scope or the minted-parent lookup.
+				const pending = pendingByParent.get(parentUuid);
+				const verdict = fieldIdVerdict({
+					doc,
+					parentUuid,
+					proposedId: field.id,
+					pendingSiblingIds: pending,
+				});
+				if (!verdict.ok) {
+					rejected.push({ id: field.id, reason: verdict.message });
+					continue;
+				}
+				if (pending) pending.add(field.id);
+				else pendingByParent.set(parentUuid, new Set([field.id]));
+
 				// Only containers can parent a later field in this batch;
 				// recording only them keeps the minted-parent lookup from
 				// resolving to a leaf.
@@ -243,6 +277,24 @@ export const addFieldsTool = {
 				} else {
 					mutations.push({ kind: "addField", parentUuid, field });
 				}
+			}
+
+			// Any identifier rejection fails the WHOLE call before anything
+			// persists — partial batches would leave the SA guessing which
+			// fields landed. The error names every failing item so one
+			// corrected re-issue suffices.
+			if (rejected.length > 0) {
+				const lines = rejected
+					.map((r) => `- "${r.id}": ${r.reason}`)
+					.join("\n");
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `No fields were added to "${form.name}" — ${rejected.length} of ${fields.length} field id(s) can't be used:\n${lines}\nFix the listed id(s) and re-issue the call.`,
+					},
+				};
 			}
 
 			// Compute the post-mutation doc once and persist via the shared

@@ -661,6 +661,60 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			McpContext.prototype.recordMutations = originalRecord;
 		}
 	});
+
+	it("rejects a duplicate sibling id through the adapter and persists nothing", async () => {
+		/* The identifier guard lives INSIDE the shared tool body
+		 * (`lib/doc/identifierVerdicts.ts` consumed by `addFieldsTool`),
+		 * so an MCP client adding a field whose id collides with an
+		 * existing sibling must get the verdict's `{ error }` envelope
+		 * with zero persistence — proving the MCP wire path hits the
+		 * same guard the chat surface does. */
+		const { addFieldsTool } = await import("@/lib/agent/tools/addFields");
+
+		/* One-module-one-form fixture seeded with an existing `age`
+		 * field so the incoming duplicate has a sibling to collide
+		 * with. */
+		const { blueprint, formUuid } = mockBlueprintWithForm();
+		const existingUuid = asUuid("66666666-6666-6666-6666-666666666666");
+		blueprint.fields[existingUuid] = {
+			uuid: existingUuid,
+			id: "age",
+			kind: "int",
+			label: "Age",
+		} as BlueprintDoc["fields"][Uuid];
+		blueprint.fieldOrder[formUuid] = [existingUuid];
+		vi.mocked(loadApp).mockResolvedValueOnce(
+			buildLoadedApp({ blueprint: blueprint as unknown as BlueprintDoc }),
+		);
+
+		const { McpContext } = await import("../context");
+		const originalRecord = McpContext.prototype.recordMutations;
+		const recordSpy = vi.fn().mockResolvedValue([]);
+		McpContext.prototype.recordMutations = recordSpy;
+
+		try {
+			const { server, capture } = makeFakeServer();
+			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx);
+
+			const out = (await capture()(
+				{
+					app_id: "a1",
+					moduleIndex: 0,
+					formIndex: 0,
+					fields: [{ id: "age", kind: "text", label: "Age again" }],
+				},
+				{},
+			)) as { content: Array<{ type: "text"; text: string }> };
+
+			const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+				error?: string;
+			};
+			expect(parsed.error).toContain('"age"');
+			expect(recordSpy).not.toHaveBeenCalled();
+		} finally {
+			McpContext.prototype.recordMutations = originalRecord;
+		}
+	});
 });
 
 describe("registerSharedTool — IDOR byte-parity regression lock", () => {

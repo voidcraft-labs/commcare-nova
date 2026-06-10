@@ -31,6 +31,7 @@
 
 import { useContext, useMemo } from "react";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type {
 	BlueprintDoc,
@@ -449,48 +450,15 @@ export function useBlueprintMutations(): BlueprintMutations {
 
 				// Conflict check: reject the rename before dispatching so the
 				// UI can surface a "name already taken" message without
-				// unwinding a half-applied mutation.
-				//
-				// Scope: the primary field's parent AND the parent of every
-				// peer that will cascade-rename to `newId`. Skipping peers'
-				// parents would let the reducer silently create duplicate
-				// sibling ids in a different form — same case_property_on means
-				// both (primary + peer) rename together, so the collision
-				// check must consider every destination parent. Peers are
-				// identified by matching (id, case_property_on) on the primary.
-				const casePropertyOn = (field as { case_property_on?: string })
-					.case_property_on;
-				const peerUuids: Uuid[] = [];
-				if (typeof casePropertyOn === "string" && casePropertyOn.length > 0) {
-					for (const [fuuid, f] of Object.entries(doc.fields)) {
-						if (!f || fuuid === uuid) continue;
-						if (f.id !== field.id) continue;
-						const cp = (f as { case_property_on?: string }).case_property_on;
-						if (cp !== casePropertyOn) continue;
-						peerUuids.push(fuuid as Uuid);
-					}
-				}
-
-				// Build the set of uuids that will be renamed — any sibling
-				// already in this set is NOT a conflict (it will become
-				// `newId` in lockstep). Everything else with `id === newId`
-				// in any destination parent IS a conflict.
-				const renamingUuids = new Set<Uuid>([uuid, ...peerUuids]);
-				const parentsToCheck = new Set<Uuid>();
-				const primaryParent = doc.fieldParent[uuid] ?? undefined;
-				if (primaryParent !== undefined) parentsToCheck.add(primaryParent);
-				for (const peer of peerUuids) {
-					const pp = doc.fieldParent[peer] ?? undefined;
-					if (pp !== undefined) parentsToCheck.add(pp);
-				}
-				for (const parent of parentsToCheck) {
-					const siblings = doc.fieldOrder[parent] ?? [];
-					for (const sibUuid of siblings) {
-						if (renamingUuids.has(sibUuid)) continue;
-						if (doc.fields[sibUuid]?.id === newId) {
-							return { ...emptyFieldRenameResult(), conflict: true };
-						}
-					}
+				// unwinding a half-applied mutation. The peer-aware scan (the
+				// renamed field's parent plus the parent of every
+				// case-property peer that cascade-renames in lockstep) lives
+				// in the shared verdict module — the same definition of
+				// "conflict" the UI commit guard and the SA tools consult —
+				// so the store-level backstop can't drift from the surfaces
+				// it backs.
+				if (findRenameSiblingConflict(doc, uuid, newId) !== undefined) {
+					return { ...emptyFieldRenameResult(), conflict: true };
 				}
 
 				// Dispatch via the single write path. Position `[0]` of the

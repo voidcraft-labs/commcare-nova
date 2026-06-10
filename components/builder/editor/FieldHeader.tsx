@@ -36,6 +36,7 @@ import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import {
 	type CrossLevelFieldMoveTarget,
 	getCrossLevelFieldMoveTargets,
@@ -163,32 +164,36 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 		return () => clearTimeout(timer);
 	}, [idNotice]);
 
-	/** Attempts the rename and returns false if blocked by a sibling conflict.
-	 * On success the mutation has already been applied by the store.
-	 * Rename doesn't change uuid, so no selection update is needed. The
+	/** Runs the shared identifier verdict and returns false if the rename
+	 * is rejected; on a clean verdict the rename mutation dispatches and
+	 * true is returned. Rename doesn't change uuid, so no selection
+	 * update is needed. The verdict (`renameFieldIdVerdict`) is the same
+	 * one the SA tools enforce — XML-name legality, the reserved
+	 * `__nova_` prefix, the case-property length cap, and the peer-aware
+	 * sibling-conflict scan — so UI and agent renames can't drift. The
 	 * outcome classification is owned by `classifyRenameOutcome` so the
-	 * conflict-message wording + branching is testable without mounting
-	 * the header. */
+	 * branching is testable without mounting the header. */
 	const validateRename = useCallback(
 		(newId: string): boolean => {
 			if (!selectedUuid) return false;
 
-			const result = renameFieldAction(asUuid(selectedUuid), newId);
-			const outcome = classifyRenameOutcome({
+			const verdict = renameFieldIdVerdict({
+				doc: docApi.getState(),
+				fieldUuid: asUuid(selectedUuid),
 				newId,
-				hasConflict: !!result.conflict,
 			});
+			const outcome = classifyRenameOutcome({ newId, verdict });
 
 			switch (outcome.kind) {
 				case "noop":
 					return false;
-				case "conflict":
-					/* Store blocked the rename — two siblings would now share
-					 * the same id, which CommCare forbids. Surface the
-					 * collision with a quick shake on the input wrapper plus
-					 * an error popover anchored to it. The `onAnimationEnd`
-					 * handler on the wrapper clears `shaking` when the CSS
-					 * keyframe completes. */
+				case "rejected":
+					/* The verdict blocked the rename — an illegal, reserved,
+					 * over-long, or sibling-conflicting id. Surface it with a
+					 * quick shake on the input wrapper plus an error popover
+					 * anchored to it. The `onAnimationEnd` handler on the
+					 * wrapper clears `shaking` when the CSS keyframe
+					 * completes. */
 					setShaking(true);
 					setIdNotice({
 						severity: "error",
@@ -196,15 +201,17 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 					});
 					return false;
 				case "success":
-					/* Rename succeeded — uuid stays the same, selection is
-					 * stable. Clear the new-field highlight so subsequent
-					 * edits are normal. */
+					/* Verdict clean — dispatch the rename (the store re-runs
+					 * the conflict scan as its own backstop). Uuid stays the
+					 * same, selection is stable. Clear the new-field
+					 * highlight so subsequent edits are normal. */
+					renameFieldAction(asUuid(selectedUuid), newId);
 					setIdNotice(null);
 					clearNewField();
 					return true;
 			}
 		},
-		[selectedUuid, renameFieldAction, clearNewField],
+		[selectedUuid, docApi, renameFieldAction, clearNewField],
 	);
 
 	const idField = useCommitField({
