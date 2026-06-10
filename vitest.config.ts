@@ -4,6 +4,16 @@ import {
 	configDefaults as vitestConfigDefaults,
 } from "vitest/config";
 
+// `import.meta.dirname`, not `__dirname`: this config must load under the
+// module-runner config loader (`--configLoader runner`), which evaluates it
+// as strict ESM with no CJS shims. The npm test scripts pin that loader
+// because the default `bundle` loader routes through rolldown's native
+// binding, whose startup has an intermittent deadlock (all rolldown-worker
+// threads parked in pthread_cond_wait before the banner prints) that
+// silently hangs the whole run — see the "Testing — startup wedge" section
+// in CLAUDE.md.
+const configDir = import.meta.dirname;
+
 export default defineConfig({
 	test: {
 		globals: true,
@@ -47,7 +57,7 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: {
-			"@": path.resolve(__dirname, "."),
+			"@": path.resolve(configDir, "."),
 			// Resolve `server-only` to its own no-op shim so tests of
 			// server modules (which mark themselves with the import as
 			// a build-time client-bundle defense) can load under
@@ -59,7 +69,7 @@ export default defineConfig({
 			// file keeps the marker import functional in production
 			// builds while letting test-time imports pass through.
 			"server-only": path.resolve(
-				__dirname,
+				configDir,
 				"node_modules/server-only/empty.js",
 			),
 		},
