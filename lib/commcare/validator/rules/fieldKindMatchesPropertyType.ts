@@ -13,15 +13,15 @@
  * authoring surface highlights the specific field it owns rather
  * than emitting a single composite error against an arbitrary writer.
  *
- * **The kind→data_type mapping table is locked here.** Adding a new
- * field kind whose semantic data type isn't already covered cascades
- * to this table — no other surface should hold a parallel mapping.
- * Coercion paths (e.g. `text` field → `int` property) are explicitly
- * rejected; `barcode` and `secret` fields map to `text` because
- * they're text-shaped at the wire layer despite carrying a separate
- * authoring kind. `hidden` fields are skipped: `kind === "hidden"`
- * doesn't pin a value type — the calculate expression's output type
- * does, and that's a separate type-checker concern.
+ * The kind→data_type mapping itself lives at
+ * `lib/domain/caseTypes.ts::caseDataTypeForFieldKind` — the single
+ * table this rule and the reducer-side catalog sync both consult, so
+ * the data type a writer stamps into the catalog and the data type
+ * this rule expects can never disagree. Coercion paths (e.g. `text`
+ * field → `int` property) are explicitly rejected; `hidden` fields
+ * are skipped: `kind === "hidden"` doesn't pin a value type — the
+ * calculate expression's output type does, and that's a separate
+ * type-checker concern.
  *
  * Container kinds (group, repeat) and media kinds (image, audio,
  * video, signature) carry no `case_property_on` slot in their schema
@@ -30,76 +30,25 @@
  * remaining input kind.
  */
 
-import type {
-	BlueprintDoc,
-	CasePropertyDataType,
-	Field,
-	FieldKind,
-	Uuid,
+import {
+	type BlueprintDoc,
+	type CasePropertyDataType,
+	caseDataTypeForFieldKind,
+	type Field,
+	type FieldKind,
+	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 
 /**
- * Per-field-kind → expected case-property `data_type`.
- *
- * Returns `undefined` for kinds that are intentionally skipped at
- * this rule layer (`hidden` — calculate-driven; container / media
- * kinds — no `case_property_on` slot). The expected data type for
- * every other input kind is concrete and cascades from the field
- * schema's wire shape.
+ * Per-field-kind → expected case-property `data_type`. Thin alias over
+ * the locked domain table (`caseDataTypeForFieldKind`) named for this
+ * rule's reading: the data type a writer of this kind is EXPECTED to
+ * agree with. `undefined` means the kind is skipped at this rule layer
+ * (`hidden` — calculate-driven; container / media kinds — no
+ * `case_property_on` slot).
  */
-function expectedDataType(kind: FieldKind): CasePropertyDataType | undefined {
-	switch (kind) {
-		case "text":
-		case "barcode":
-		case "secret":
-			// Text-shaped wire type — barcodes scan as plain strings;
-			// secrets serialize as `xsd:string` like text. Both write to
-			// a `text` case property without coercion.
-			return "text";
-		case "int":
-			return "int";
-		case "decimal":
-			return "decimal";
-		case "date":
-			return "date";
-		case "datetime":
-			return "datetime";
-		case "time":
-			return "time";
-		case "single_select":
-			return "single_select";
-		case "multi_select":
-			return "multi_select";
-		case "geopoint":
-			return "geopoint";
-		case "hidden":
-		case "label":
-		case "group":
-		case "repeat":
-		case "image":
-		case "audio":
-		case "video":
-		case "signature":
-			// `hidden` skipped: the calculate expression's output type
-			// drives the property's actual data type, which is a separate
-			// type-checker concern. The remaining kinds carry no
-			// `case_property_on` slot in their schema and are
-			// structurally unreachable; listing them keeps the switch
-			// exhaustive against `FieldKind` — adding a new kind without
-			// a parallel arm here breaks the build.
-			return undefined;
-		default: {
-			// Exhaustiveness assertion — adding a new `FieldKind` without
-			// a parallel arm here is a compile-time error. The runtime
-			// branch defends untyped boundaries that bypass the type
-			// system (e.g. a corrupted persisted document with an unknown
-			// kind string).
-			const _exhaustive: never = kind;
-			return _exhaustive;
-		}
-	}
-}
+const expectedDataType = caseDataTypeForFieldKind;
 
 /**
  * One field that writes to a case property — collected across the

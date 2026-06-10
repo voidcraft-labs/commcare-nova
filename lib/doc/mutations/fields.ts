@@ -2,6 +2,8 @@ import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
+	caseDataTypeForFieldKind,
+	type Field,
 	fieldKindDeclaresKey,
 	fieldSchema,
 	getConvertibleTypes,
@@ -161,6 +163,9 @@ export function applyFieldMutation(
 			if (mut.field.kind === "group" || mut.field.kind === "repeat") {
 				draft.fieldOrder[mut.field.uuid] ??= [];
 			}
+			// A landed case-property writer declares its property — sync
+			// the catalog (see `ensureCatalogProperty`).
+			ensureCatalogProperty(draft as unknown as BlueprintDoc, mut.field);
 			return;
 		}
 		case "updateField": {
@@ -222,6 +227,11 @@ export function applyFieldMutation(
 			// than mutating it in place, which is the canonical Immer-friendly
 			// way to write a known-good replacement.
 			draft.fields[mut.uuid] = result.data;
+			// The patch may have set `case_property_on` or changed `id` —
+			// either way the field's (case type, property) pair may be new.
+			// Sync the catalog off the merged result; a pair that didn't
+			// change is a no-op (see `ensureCatalogProperty`).
+			ensureCatalogProperty(draft as unknown as BlueprintDoc, result.data);
 			return;
 		}
 		case "removeField": {
@@ -287,6 +297,13 @@ export function applyFieldMutation(
 					mut.uuid,
 				);
 				field.id = deduped;
+			}
+			// A dedup rename changes the field's (case type, property) pair —
+			// the move does NOT ride the rename cascade, so sync the catalog
+			// here. The old pair stays (the colliding destination sibling
+			// still writes it); a move that didn't rename changed no pair.
+			if (field.id !== oldId) {
+				ensureCatalogProperty(draft as unknown as BlueprintDoc, field);
 			}
 
 			// Insert at destination.
@@ -503,6 +520,16 @@ export function applyFieldMutation(
 				parentOrder.splice(parent.index + 1, 0, rootUuid);
 				draft.fieldOrder[parent.parentUuid] = parentOrder;
 			}
+			// Every cloned writer declares its (case type, property) pair —
+			// the deduped root clone introduces a NEW pair (suffixed id);
+			// descendant clones keep their source ids, so their sync is an
+			// idempotent re-assert. Read post-dedup state off the draft.
+			for (const uuid of Object.keys(clonedF)) {
+				const clonedField = draft.fields[uuid as Uuid];
+				if (clonedField) {
+					ensureCatalogProperty(draft as unknown as BlueprintDoc, clonedField);
+				}
+			}
 			return;
 		}
 		case "convertField": {
@@ -549,6 +576,11 @@ export function applyFieldMutation(
 				return;
 			}
 			draft.fields[mut.uuid] = reconciled;
+			// The destination kind may derive a different catalog
+			// `data_type` for a surviving `case_property_on` pointer; a
+			// pair already declared is left untouched (declared wins —
+			// the kind/declaration agreement rule owns mismatches).
+			ensureCatalogProperty(draft as unknown as BlueprintDoc, reconciled);
 			return;
 		}
 		case "setFieldMedia": {
@@ -626,6 +658,62 @@ function extractCaseProperty(field: { kind: string }): string | undefined {
 	const value = (field as { case_property_on?: string }).case_property_on;
 	if (typeof value !== "string" || value.length === 0) return undefined;
 	return value;
+}
+
+/**
+ * Catalog sync at source: register a field's `(case_property_on,
+ * field.id)` pair in the case-type catalog iff absent.
+ *
+ * The catalog (`doc.caseTypes[].properties`) is the authoritative
+ * admission set for `#<type>/<prop>` references — the deep validator,
+ * inline linter, chip hydrator, and autocomplete all read it via
+ * `reachableCaseTypes`. A field that writes to a case property IS a
+ * declaration of that property, so every reducer arm that lands a
+ * field with (or changes a field to have) a non-empty
+ * `case_property_on` calls this — `addField`, `updateField`,
+ * `convertField`, `duplicateField`, and `moveField`'s dedup-rename —
+ * mirroring the in-place entry rename `cascadeCasePropertyRename`
+ * already performs. Reducer-side so server, client, and event-log
+ * replay derive byte-identical catalogs from the same mutation.
+ *
+ * Admission rules, matching the validator's model:
+ *   - A declared entry is never touched — no duplicate, no
+ *     `data_type` / `label` overwrite. Writer/declaration mismatches
+ *     stay visible to the `FIELD_KIND_PROPERTY_TYPE_MISMATCH` rule.
+ *   - An absent case TYPE is created as a bare `{ name, properties }`
+ *     record. The system already treats naming a type as bringing its
+ *     namespace into existence (`reachableCaseTypes` admits an
+ *     undeclared module type at depth 0), and writer-derived
+ *     properties are already admitted by the case-list rules
+ *     (`validator/rules/case-list/shared.ts::augmentCaseType`).
+ *     Ancestry (`parent_type` / `relationship`) is a declaration-level
+ *     act made via `setCaseTypes` — never invented here.
+ *   - New entries carry the kind-derived `data_type` from the locked
+ *     domain table (`caseDataTypeForFieldKind`); kinds that don't pin
+ *     a value type (`hidden`) yield an untyped entry, read as `text`
+ *     everywhere via the `effectiveDataType` convention. `label`
+ *     defaults to the property name, the same shape `augmentCaseType`
+ *     gives writer-derived entries.
+ *   - Removal/clear never prunes — declared properties outlive their
+ *     writers by design.
+ */
+function ensureCatalogProperty(doc: BlueprintDoc, field: Field): void {
+	const caseType = extractCaseProperty(field);
+	if (caseType === undefined || field.id.length === 0) return;
+	doc.caseTypes ??= [];
+	const catalog = doc.caseTypes;
+	let ct = catalog.find((c) => c.name === caseType);
+	if (!ct) {
+		ct = { name: caseType, properties: [] };
+		catalog.push(ct);
+	}
+	if (ct.properties.some((p) => p.name === field.id)) return;
+	const dataType = caseDataTypeForFieldKind(field.kind);
+	ct.properties.push({
+		name: field.id,
+		label: field.id,
+		...(dataType !== undefined && { data_type: dataType }),
+	});
 }
 
 /**

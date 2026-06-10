@@ -5,7 +5,83 @@
 // (which case types a module can write to), not UI policy.
 
 import type { CaseProperty, CaseType } from "./blueprint";
+import type { CasePropertyDataType } from "./casePropertyTypes";
+import type { FieldKind } from "./fields";
 import type { FormType } from "./forms";
+
+/**
+ * The case-property `data_type` a field of the given kind writes.
+ *
+ * **The kind→data_type mapping table is locked here** — the single
+ * source every surface that relates a field kind to a property data
+ * type consults: the validator's writer/declaration agreement rule
+ * (`lib/commcare/validator/rules/fieldKindMatchesPropertyType.ts`)
+ * and the reducer-side catalog sync
+ * (`lib/doc/mutations/fields.ts::ensureCatalogProperty`). Adding a new
+ * field kind whose semantic data type isn't already covered cascades
+ * to this table; no other surface may hold a parallel mapping.
+ *
+ * Returns `undefined` for kinds that don't pin a value type:
+ * `hidden` — the calculate expression's output type drives the
+ * property's actual data type, which is a separate type-checker
+ * concern — and the structural / media / display kinds, whose schemas
+ * carry no `case_property_on` slot at all. `barcode` and `secret`
+ * map to `text` because they're text-shaped at the wire layer despite
+ * carrying a separate authoring kind; coercion paths (e.g. `text`
+ * field → `int` property) are deliberately not expressed.
+ */
+export function caseDataTypeForFieldKind(
+	kind: FieldKind,
+): CasePropertyDataType | undefined {
+	switch (kind) {
+		case "text":
+		case "barcode":
+		case "secret":
+			// Text-shaped wire type — barcodes scan as plain strings;
+			// secrets serialize as `xsd:string` like text. Both write to
+			// a `text` case property without coercion.
+			return "text";
+		case "int":
+			return "int";
+		case "decimal":
+			return "decimal";
+		case "date":
+			return "date";
+		case "datetime":
+			return "datetime";
+		case "time":
+			return "time";
+		case "single_select":
+			return "single_select";
+		case "multi_select":
+			return "multi_select";
+		case "geopoint":
+			return "geopoint";
+		case "hidden":
+		case "label":
+		case "group":
+		case "repeat":
+		case "image":
+		case "audio":
+		case "video":
+		case "signature":
+			// `hidden` skipped: see the function doc. The remaining kinds
+			// carry no `case_property_on` slot in their schema and are
+			// structurally unreachable; listing them keeps the switch
+			// exhaustive against `FieldKind` — adding a new kind without
+			// a parallel arm here breaks the build.
+			return undefined;
+		default: {
+			// Exhaustiveness assertion — adding a new `FieldKind` without
+			// a parallel arm here is a compile-time error. The runtime
+			// branch defends untyped boundaries that bypass the type
+			// system (e.g. a corrupted persisted document with an unknown
+			// kind string).
+			const _exhaustive: never = kind;
+			return _exhaustive;
+		}
+	}
+}
 
 /**
  * Returns the case type names a module can write to: its own primary
