@@ -11,10 +11,10 @@
 		"lint": "biome check --error-on-warnings",
 		"format": "biome check --write",
 		"typecheck": "fumadocs-mdx && tsc --noEmit",
-		"test": "vitest run --configLoader runner",
-		"test:watch": "vitest --configLoader runner",
-		"test:leaks": "vitest run --configLoader runner --detect-async-leaks",
-		"test:integration": "node_modules/.bin/firebase emulators:exec --only firestore --project demo-test 'GOOGLE_CLOUD_PROJECT=demo-test ./node_modules/.bin/vitest run --configLoader runner --no-file-parallelism integration.test.ts'",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:leaks": "vitest run --detect-async-leaks",
+		"test:integration": "node_modules/.bin/firebase emulators:exec --only firestore --project demo-test 'GOOGLE_CLOUD_PROJECT=demo-test ./node_modules/.bin/vitest run --no-file-parallelism integration.test.ts'",
 		"db:diff": "atlas migrate diff --env local",
 		"db:lint": "atlas migrate lint --env local --latest 1"
 	},
@@ -130,13 +130,13 @@
 		"react-scan": "^0.5.3",
 		"tailwindcss": "^4",
 		"typescript": "^5",
-		"vitest": "^4.1.5"
+		"vitest": "^4.1.8"
 	},
 	"overrides": {
 		"http-proxy-agent": "^9.0.0",
 		"@types/react": "19.2.14",
 		"@types/react-dom": "19.2.3",
-		"vite": "^8.0.0",
+		"vite": "^8.0.16",
 		"postcss": "^8.5.12",
 		"fast-xml-parser": "^5.7.2",
 		"uuid": "^14.0.0"

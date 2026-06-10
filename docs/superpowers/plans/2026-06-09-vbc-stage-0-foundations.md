@@ -643,9 +643,11 @@ originally recorded a consolidation that never shipped.]
 
 The recurring silent suite hang was rolldown's native config bundler
 deadlocking pre-banner (vite 8 default `bundle` loader; all rolldown-worker
-threads in pthread_cond_wait). Every vitest entry point now pins
-`--configLoader runner`; vitest.config.ts is strict-ESM-clean. See the
-CLAUDE.md "Testing — startup wedge" section.
+threads in pthread_cond_wait). Interim fix pinned `--configLoader runner`;
+the root fix landed next: vite bumped to 8.0.16 (rolldown 1.0.3 stable, past
+the racy rc.16), flags removed so every invocation shape — npm scripts, bare
+npx, IDE — rides the fixed default loader. vitest.config.ts stays
+strict-ESM-clean (loads identically under all three loaders).
 
 ### Round 4 (`d154d2e7`)
 
@@ -685,9 +687,10 @@ doc corrections:
    consolidation; the shipped resolution was documented divergence
    with contract-bearing renames.
 6. **Credit-system plan's vitest steps** — the archived plan's
-   executable `npx vitest run` step lines (the one in-repo text
-   contradicting the `--configLoader runner` invariant, and the exact
-   copy-paste source for single-file runs) now carry the flag.
+   executable `npx vitest run` step lines briefly carried the interim
+   loader flag; the flag was removed everywhere once the vite 8.0.16 /
+   rolldown 1.0.3 bump made the default loader safe (see the
+   startup-wedge entry above).
 
 Full suite after fixes: 5980 passed / 0 failed (30 pre-existing
 skips), lint + tsc clean.

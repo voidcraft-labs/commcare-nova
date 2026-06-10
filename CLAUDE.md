@@ -26,22 +26,6 @@ npx tsx scripts/build-xpath-parser.ts   # rebuild Lezer parser from lib/commcare
 
 `scripts/` also has read-only Firestore inspection tools and a `recover-app` writer (⚠️). Run any with `--help` for flags. Excluded from Docker.
 
-## Testing — startup wedge (config loader)
-
-Every vitest invocation must carry `--configLoader runner` — the npm scripts
-and `scripts/check-async-leaks.ts` already do; keep it on any new entry
-point. The default `bundle` loader routes `vitest.config.ts` through
-rolldown's native binding (vite 8 is rolldown-powered), whose startup has an
-intermittent deadlock: every rolldown-worker thread parks in
-`pthread_cond_wait`, the config-load promise never settles, and the run hangs
-silently before the banner — zero tests, no testcontainer, ~0 CPU, forever.
-The runner loader transforms the config on the fly and never touches the
-native bundler. Consequence: the config must stay strict-ESM-clean
-(`import.meta.dirname`, never `__dirname` — the bundle loader shimmed CJS
-globals; runner doesn't). If a silent pre-banner hang ever recurs, `sample
-<pid>` and look for rolldown-worker threads in cond_wait before blaming
-tests, Docker, or the leak gate.
-
 ## Testing — async-resource leaks
 
 A test "leaks" when it leaves an async resource alive after it finishes:

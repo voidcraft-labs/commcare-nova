@@ -108,14 +108,10 @@ function runLeakDetection(): Promise<{
 		// Own process group (`detached`) so a timeout can kill the whole
 		// tree — Vitest spawns worker subprocesses, and a perpetual leak
 		// lives in a worker that would otherwise outlive the parent.
-		const child = spawn(
-			VITEST_BIN,
-			["run", "--configLoader", "runner", "--detect-async-leaks"],
-			{
-				stdio: ["ignore", "pipe", "pipe"],
-				detached: true,
-			},
-		);
+		const child = spawn(VITEST_BIN, ["run", "--detect-async-leaks"], {
+			stdio: ["ignore", "pipe", "pipe"],
+			detached: true,
+		});
 
 		let output = "";
 		let timedOut = false;

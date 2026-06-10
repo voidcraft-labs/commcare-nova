@@ -4,14 +4,10 @@ import {
 	configDefaults as vitestConfigDefaults,
 } from "vitest/config";
 
-// `import.meta.dirname`, not `__dirname`: this config must load under the
-// module-runner config loader (`--configLoader runner`), which evaluates it
-// as strict ESM with no CJS shims. The npm test scripts pin that loader
-// because the default `bundle` loader routes through rolldown's native
-// binding, whose startup has an intermittent deadlock (all rolldown-worker
-// threads parked in pthread_cond_wait before the banner prints) that
-// silently hangs the whole run — see the "Testing — startup wedge" section
-// in CLAUDE.md.
+// `import.meta.dirname`, not `__dirname`: vite accepts three config
+// loaders (bundle / runner / native) and only the bundle loader shims CJS
+// globals — this file stays strict-ESM-clean so it loads identically under
+// all three, whichever any tool or future default picks.
 const configDir = import.meta.dirname;
 
 export default defineConfig({
