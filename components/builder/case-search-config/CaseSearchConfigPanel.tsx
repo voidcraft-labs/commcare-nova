@@ -133,7 +133,9 @@ export function CaseSearchConfigPanel({
 
 	const handleSearchConfigChange = useCallback(
 		(next: CaseSearchConfig) => {
-			updateModule(moduleUuid, { caseSearchConfig: next });
+			// Forward the gated outcome so the sections' inline text rows
+			// keep a refused draft on screen with the finding.
+			return updateModule(moduleUuid, { caseSearchConfig: next });
 		},
 		[updateModule, moduleUuid],
 	);

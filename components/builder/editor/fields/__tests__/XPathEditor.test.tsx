@@ -55,7 +55,9 @@ vi.mock("@/components/builder/XPathField", () => ({
 
 // Track every call to `updateField` so the test can assert the
 // slot-clear arm did or did not fire.
-const updateFieldMock = vi.fn();
+const updateFieldMock = vi.fn(
+	(_uuid: unknown, _kind: unknown, _patch: unknown) => ({ ok: true }) as const,
+);
 vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 	useBlueprintMutations: () => ({ updateField: updateFieldMock }),
 }));
@@ -94,7 +96,7 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 			<XPathEditor
 				field={baseField}
 				value=". > 0"
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				label="Validation"
 				keyName="validate"
 			/>,
@@ -140,7 +142,7 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 			<XPathEditor
 				field={{ ...baseField, validate_msg: "Must be greater than zero." }}
 				value=". > 0"
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				label="Validation"
 				keyName="validate"
 			/>,

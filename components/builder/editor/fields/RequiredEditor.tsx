@@ -98,14 +98,19 @@ export function RequiredEditor<F extends Field>({
 
 	const handleConditionSave = useCallback(
 		(next: string) => {
-			onChange(
+			const outcome = onChange(
 				nextRequiredValue({
 					type: "save-condition",
 					next,
 				}) as F["required" & keyof F],
 			);
-			setAddingCondition(false);
-			if (!next) setEditing(false);
+			// Keep the add-condition editor open when the gate refuses — the
+			// outcome flows back to XPathField, which holds the draft.
+			if (outcome.ok) {
+				setAddingCondition(false);
+				if (!next) setEditing(false);
+			}
+			return outcome;
 		},
 		[onChange],
 	);

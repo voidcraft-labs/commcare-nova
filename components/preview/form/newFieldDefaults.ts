@@ -67,6 +67,13 @@ export const NEW_FIELD_BUILDERS: {
 		repeat_mode: "user_controlled",
 	}),
 	// Hidden carries NO label (it's never shown) — passing one would not
-	// compile, which is the whole point.
-	hidden: (id) => ({ kind: "hidden", id }),
+	// compile, which is the whole point. It starts with `default_value:
+	// "''"` (the empty-string literal — a one-shot <setvalue> seed) so the
+	// fresh field is immediately valid: a hidden field must carry a value
+	// source (`HIDDEN_NO_VALUE` is soundness, so the commit gate rejects a
+	// bare one in every phase). `default_value` — not `calculate` — is the
+	// seed because it stays inert if the user then adds a calculate (the
+	// computed value simply wins), whereas a seeded calculate would
+	// continuously clobber any default the user typed until removed.
+	hidden: (id) => ({ kind: "hidden", id, default_value: "''" }),
 };

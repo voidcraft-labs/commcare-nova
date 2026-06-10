@@ -14,7 +14,7 @@ import {
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
-import type { ConnectConfig } from "@/lib/domain";
+import type { CommitOutcome, ConnectConfig } from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { useConnectLintContext } from "./useConnectLintContext";
@@ -34,7 +34,10 @@ export const DEFAULT_LEARN_TIME_ESTIMATE = 5;
  */
 interface ConnectSubConfigProps {
 	connect: ConnectConfig;
-	save: (c: ConnectConfig) => void;
+	/** Persist the new config through the gated form update —
+	 *  returns the commit outcome so a refused edit keeps the
+	 *  inline editor's draft + finding on screen. */
+	save: (c: ConnectConfig) => CommitOutcome;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
 }
@@ -112,7 +115,7 @@ export function LearnConfig({
 				description: "",
 				time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
 			};
-			save({ ...connect, learn_module: { ...current, [field]: value } });
+			return save({ ...connect, learn_module: { ...current, [field]: value } });
 		},
 		[connect, save, defaultIds],
 	);
@@ -270,7 +273,7 @@ export function LearnConfig({
 									value={assessment.user_score}
 									onSave={(v) => {
 										if (v.trim())
-											save({
+											return save({
 												...connect,
 												assessment: { ...assessment, user_score: v },
 											});

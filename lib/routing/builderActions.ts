@@ -137,7 +137,7 @@ export function useDeleteSelectedField(): () => void {
 			 * the hook shows the rejection toast and returns false. Keep the
 			 * selection on the still-present field rather than deselecting a
 			 * field the user is looking at. */
-			if (!removeField(asUuid(loc.selectedUuid))) return;
+			if (!removeField(asUuid(loc.selectedUuid)).ok) return;
 			select(neighbor ? neighbor.uuid : undefined);
 		},
 		[loc, docApi, select, removeField],

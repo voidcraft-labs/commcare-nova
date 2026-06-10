@@ -53,6 +53,7 @@ function ControlledOptionsEditor({
 			onChange={(next) => {
 				setValue(next as SelectOption[] | undefined);
 				onDispatch?.(next as SelectOption[] | undefined);
+				return { ok: true } as const;
 			}}
 			label="Options"
 			keyName="options"
@@ -66,7 +67,7 @@ describe("OptionsEditor", () => {
 			<OptionsEditor
 				field={baseField}
 				value={baseField.options}
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				label="Options"
 				keyName="options"
 			/>,
@@ -84,7 +85,7 @@ describe("OptionsEditor", () => {
 			<OptionsEditor
 				field={baseField}
 				value={baseField.options}
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				label="Options"
 				keyName="options"
 			/>,

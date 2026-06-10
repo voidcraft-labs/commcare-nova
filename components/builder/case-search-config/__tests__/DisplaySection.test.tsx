@@ -30,7 +30,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { CaseSearchConfig, CaseType } from "@/lib/domain";
+import type { CaseSearchConfig, CaseType, CommitOutcome } from "@/lib/domain";
 import {
 	gt,
 	literal,
@@ -71,7 +71,7 @@ describe("DisplaySection — round-trip", () => {
 		render(
 			<DisplaySection
 				value={POPULATED_CONFIG}
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 			/>,
@@ -111,7 +111,9 @@ describe("DisplaySection — per-slot edits", () => {
 		["Title", "searchScreenTitle", "Find a patient", "Find a patient"],
 		["Search button label", "searchButtonLabel", "Go", "Go"],
 	] as const)("types into the %s slot and emits onChange with the new value", (label, slot, typed, expected) => {
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		const onChange = vi.fn<(next: CaseSearchConfig) => CommitOutcome>(() => ({
+			ok: true,
+		}));
 		render(
 			<DisplaySection
 				value={undefined}
@@ -143,7 +145,9 @@ describe("DisplaySection — per-slot edits", () => {
 		// textarea + the live `<PreviewMarkdown />` render. Pinning
 		// the textarea's commit path independently keeps the markdown
 		// row's commit semantics under direct test.
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		const onChange = vi.fn<(next: CaseSearchConfig) => CommitOutcome>(() => ({
+			ok: true,
+		}));
 		render(
 			<DisplaySection
 				value={undefined}
@@ -174,7 +178,9 @@ describe("DisplaySection — per-slot edits", () => {
 		// `key: undefined` shape would land the key as an own enumerable
 		// property under the doc store's `Object.assign(mod, patch)`
 		// merge and break downstream `key in config` presence checks.
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		const onChange = vi.fn<(next: CaseSearchConfig) => CommitOutcome>(() => ({
+			ok: true,
+		}));
 		render(
 			<DisplaySection
 				value={{
@@ -207,7 +213,9 @@ describe("DisplaySection — per-slot edits", () => {
 		// "I clicked on this and looked away" interaction. That's a
 		// spurious autosave + an undo-history entry the user never
 		// asked for; this test fails the regression class loudly.
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		const onChange = vi.fn<(next: CaseSearchConfig) => CommitOutcome>(() => ({
+			ok: true,
+		}));
 		render(
 			<DisplaySection
 				value={undefined}
@@ -236,7 +244,7 @@ describe("DisplaySection — validity propagation", () => {
 		render(
 			<DisplaySection
 				value={undefined}
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 				onValidityChange={onValidityChange}
@@ -260,7 +268,7 @@ describe("DisplaySection — validity propagation", () => {
 				value={{
 					searchButtonDisplayCondition: invalidPredicate,
 				}}
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 				onValidityChange={onValidityChange}
@@ -282,7 +290,9 @@ describe("DisplaySection — cross-slot preservation", () => {
 		// base spread without any code path inside the section being
 		// able to fake the result.
 		const excludedOwnerIds: ValueExpression = term(literal("owner-a"));
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		const onChange = vi.fn<(next: CaseSearchConfig) => CommitOutcome>(() => ({
+			ok: true,
+		}));
 		render(
 			<DisplaySection
 				value={{

@@ -27,7 +27,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Field, FieldPatchFor } from "@/lib/domain";
+import type { CommitOutcome, Field, FieldPatchFor } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
 import { AddPropertyButton } from "./AddPropertyButton";
 import type { EditorSectionName } from "./useEntryActivation";
@@ -72,7 +72,7 @@ export function FieldEditorSection<F extends Field>({
 	// single-key literal whose key is `K extends keyof F` because each
 	// per-kind arm sees `K` distributively.
 	const setKey = useCallback(
-		<K extends keyof F & string>(key: K, value: F[K]) => {
+		<K extends keyof F & string>(key: K, value: F[K]): CommitOutcome => {
 			// `unknown` widening: the runtime patch shape is a single
 			// arbitrary key/value pair, but the hook's type-level patch
 			// shape is per-kind partial; TS can't bridge a generic `K
@@ -80,10 +80,14 @@ export function FieldEditorSection<F extends Field>({
 			// union. Every editor that mounts here is gated on
 			// `entry.visible(field)`, so `key` is always a property the
 			// kind's schema declares.
-			updateField(field.uuid, field.kind, {
+			const outcome = updateField(field.uuid, field.kind, {
 				[key]: value,
 			} as unknown as FieldPatchFor<F["kind"]>);
-			onCommit(key, value);
+			// Activation cleanup only when the write actually landed — a
+			// gate-rejected clear leaves the slot populated, so collapsing
+			// the entry's activation would misstate the doc.
+			if (outcome.ok) onCommit(key, value);
+			return outcome;
 		},
 		[updateField, field.uuid, field.kind, onCommit],
 	);
@@ -109,7 +113,7 @@ export function FieldEditorSection<F extends Field>({
 					const Component = entry.component as React.ComponentType<{
 						field: F;
 						value: F[typeof key];
-						onChange: (next: F[typeof key]) => void;
+						onChange: (next: F[typeof key]) => CommitOutcome;
 						label: string;
 						keyName: typeof key;
 						autoFocus?: boolean;

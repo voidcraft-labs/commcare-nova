@@ -1,6 +1,7 @@
 "use client";
 import { useId } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import type { CommitOutcome } from "@/lib/domain";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 
 /**
@@ -29,7 +30,10 @@ export function InlineField({
 }: {
 	label: string;
 	value: string;
-	onChange: (value: string) => void;
+	/** Commit the value. Returning the gated dispatch's `CommitOutcome`
+	 *  lets a refused edit keep the draft + show the finding inline (see
+	 *  `useCommitField`); `void` reads as committed. */
+	onChange: (value: string) => CommitOutcome | undefined;
 	/**
 	 * Optional field-level validity check. Return a human-readable reason
 	 * to reject the value, or `null` when it's valid. A non-null result
@@ -52,6 +56,7 @@ export function InlineField({
 		setDraft,
 		focused,
 		saved,
+		rejection,
 		ref,
 		handleFocus,
 		handleBlur,
@@ -68,8 +73,10 @@ export function InlineField({
 
 	// Compute the reason against the in-progress draft so the message
 	// tracks what the user is typing. Only surfaced while focused — at rest
-	// the field shows the persisted (valid) value, so no error chrome lingers.
-	const reason = validate && focused ? validate(draft) : null;
+	// the field shows the persisted (valid) value, so no error chrome
+	// lingers. A gate `rejection` (the commit bounced AFTER local
+	// validation passed) shares the same display channel.
+	const reason = (validate && focused ? validate(draft) : null) ?? rejection;
 
 	// `aria-describedby` ties the message to the input for assistive tech;
 	// only set when a reason is actually showing.

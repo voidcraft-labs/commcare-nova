@@ -89,7 +89,10 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 		}>,
 	) => {
 		const current = form.closeCondition ?? { field: "", answer: "" };
-		updateFormAction(asUuid(formUuid), {
+		// Forward the gated outcome so the inline editors keep a refused
+		// draft on screen with the finding (e.g. a value field naming a
+		// nonexistent close field).
+		return updateFormAction(asUuid(formUuid), {
 			closeCondition: { ...current, ...patch },
 		});
 	};

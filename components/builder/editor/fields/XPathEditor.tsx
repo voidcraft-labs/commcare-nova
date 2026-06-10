@@ -57,7 +57,10 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 
 	const handleSave = useCallback(
 		(next: string) => {
-			onChange((next === "" ? undefined : next) as F[K]);
+			// Forward the gated outcome — XPathField keeps the editor open
+			// with the draft + an inline message when the gate refuses (e.g.
+			// a dependency cycle only the whole-doc validator can see).
+			return onChange((next === "" ? undefined : next) as F[K]);
 		},
 		[onChange],
 	);
@@ -101,10 +104,11 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 	const { updateField } = useBlueprintMutations();
 	const saveValidateMsg = useCallback(
 		(next: string) => {
-			updateField(field.uuid, field.kind, {
+			const outcome = updateField(field.uuid, field.kind, {
 				validate_msg: next === "" ? undefined : next,
 			} as unknown as FieldPatchFor<F["kind"]>);
-			setAddingMsg(false);
+			if (outcome.ok) setAddingMsg(false);
+			return outcome;
 		},
 		[updateField, field.uuid, field.kind],
 	);

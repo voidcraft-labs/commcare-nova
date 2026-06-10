@@ -10,7 +10,7 @@ import {
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
-import type { ConnectConfig } from "@/lib/domain";
+import type { CommitOutcome, ConnectConfig } from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { useConnectLintContext } from "./useConnectLintContext";
@@ -21,7 +21,10 @@ import { useConnectLintContext } from "./useConnectLintContext";
  */
 interface ConnectSubConfigProps {
 	connect: ConnectConfig;
-	save: (c: ConnectConfig) => void;
+	/** Persist the new config through the gated form update —
+	 *  returns the commit outcome so a refused edit keeps the
+	 *  inline editor's draft + finding on screen. */
+	save: (c: ConnectConfig) => CommitOutcome;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
 }
@@ -92,7 +95,7 @@ export function DeliverConfig({
 			 * on the domain shape; `entity_id` / `entity_name` are
 			 * optional and default at wire-emit time. */
 			const current = connect.deliver_unit ?? { name: "" };
-			save({ ...connect, deliver_unit: { ...current, [field]: value } });
+			return save({ ...connect, deliver_unit: { ...current, [field]: value } });
 		},
 		[connect, save],
 	);
@@ -120,7 +123,7 @@ export function DeliverConfig({
 	const updateTask = useCallback(
 		(field: string, value: string) => {
 			const current = connect.task ?? { name: "", description: "" };
-			save({ ...connect, task: { ...current, [field]: value } });
+			return save({ ...connect, task: { ...current, [field]: value } });
 		},
 		[connect, save],
 	);
@@ -218,8 +221,9 @@ export function DeliverConfig({
 									 * `""` would trip `CONNECT_EMPTY_XPATH`. */
 									value={du.entity_id ?? ""}
 									onSave={(v) => {
-										if (v.trim()) updateDeliverUnit("entity_id", v);
-										else clearDeliverField("entity_id");
+										if (v.trim()) return updateDeliverUnit("entity_id", v);
+										clearDeliverField("entity_id");
+										return undefined;
 									}}
 									getLintContext={getLintContext}
 								/>
@@ -227,8 +231,9 @@ export function DeliverConfig({
 									label="Entity Name"
 									value={du.entity_name ?? ""}
 									onSave={(v) => {
-										if (v.trim()) updateDeliverUnit("entity_name", v);
-										else clearDeliverField("entity_name");
+										if (v.trim()) return updateDeliverUnit("entity_name", v);
+										clearDeliverField("entity_name");
+										return undefined;
 									}}
 									getLintContext={getLintContext}
 								/>

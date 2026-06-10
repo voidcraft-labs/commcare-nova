@@ -200,15 +200,31 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 						message: outcome.message,
 					});
 					return false;
-				case "success":
+				case "success": {
 					/* Verdict clean — dispatch the rename (the store re-runs
-					 * the conflict scan as its own backstop). Uuid stays the
-					 * same, selection is stable. Clear the new-field
-					 * highlight so subsequent edits are normal. */
-					renameFieldAction(asUuid(selectedUuid), newId);
+					 * the conflict scan as its own backstop, and the commit
+					 * gate can still refuse for findings only the whole-doc
+					 * validator sees). Uuid stays the same, selection is
+					 * stable. */
+					const result = renameFieldAction(asUuid(selectedUuid), newId);
+					if (result.rejected && result.rejected.length > 0) {
+						/* The commit gate refused — same shake + popover chrome
+						 * as an identifier rejection, with the gate's own
+						 * finding. Returning false keeps the typed id in the
+						 * input (useCommitField holds the draft). */
+						setShaking(true);
+						setIdNotice({
+							severity: "error",
+							message: result.rejected[0],
+						});
+						return false;
+					}
+					/* Clear the new-field highlight so subsequent edits are
+					 * normal. */
 					setIdNotice(null);
 					clearNewField();
 					return true;
+				}
 			}
 		},
 		[selectedUuid, docApi, renameFieldAction, clearNewField],
@@ -217,7 +233,9 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	const idField = useCommitField({
 		value: field.id,
 		validate: validateRename,
-		onSave: () => {},
+		// The rename dispatches inside `validateRename` (it owns the
+		// verdict + gate handling); there is nothing left to commit here.
+		onSave: () => undefined,
 	});
 
 	/** Callback ref for the ID input — merges the commit hook ref with

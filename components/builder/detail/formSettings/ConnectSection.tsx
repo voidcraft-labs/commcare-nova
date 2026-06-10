@@ -52,7 +52,9 @@ export function ConnectSection({
 
 	const save = useCallback(
 		(config: ConnectConfig | null) => {
-			updateFormAction(asUuid(formUuid), {
+			// Forward the gated outcome so sub-config editors keep a refused
+			// draft on screen with the finding.
+			return updateFormAction(asUuid(formUuid), {
 				connect: config ?? undefined,
 			});
 		},

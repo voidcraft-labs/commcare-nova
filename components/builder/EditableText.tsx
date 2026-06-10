@@ -2,12 +2,16 @@
 import { useCallback, useId } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
+import type { CommitOutcome } from "@/lib/domain";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 
 interface EditableTextProps {
 	label: string;
 	value: string;
-	onSave: (value: string) => void;
+	/** Commit the trimmed value. Returning the gated dispatch's
+	 *  `CommitOutcome` lets a refused edit keep the draft + show the
+	 *  finding inline (see `useCommitField`); `void` reads as committed. */
+	onSave: (value: string) => CommitOutcome | undefined;
 	onEmpty?: () => void;
 	mono?: boolean;
 	color?: string;
@@ -42,6 +46,7 @@ export function EditableText({
 		setDraft,
 		focused,
 		saved,
+		rejection,
 		ref,
 		handleFocus,
 		handleBlur,
@@ -130,6 +135,12 @@ export function EditableText({
 					data-1p-ignore
 					data-field-id={dataFieldId}
 				/>
+			)}
+			{rejection && (
+				/* The validity gate refused the last commit — the draft is
+				 * still in the input (useCommitField restored editing); this
+				 * line tells the user what to fix, in the rule's own words. */
+				<p className="mt-1 text-xs text-nova-rose leading-snug">{rejection}</p>
 			)}
 		</div>
 	);

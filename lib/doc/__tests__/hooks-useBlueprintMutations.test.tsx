@@ -33,7 +33,10 @@ import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
-import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import {
+	type AddCommitOutcome,
+	useBlueprintMutations,
+} from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	useOrderedForms,
 	useOrderedModules,
@@ -314,7 +317,7 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
-		let returned: Uuid = "" as Uuid;
+		let returned = { ok: false, messages: [] } as AddCommitOutcome;
 		act(() => {
 			const formUuid = getFormUuid(result.current.store);
 			returned = result.current.mutations.addField(formUuid, {
@@ -324,11 +327,12 @@ describe("useBlueprintMutations", () => {
 			});
 		});
 
-		// Returned value is a uuid (non-empty string) and matches the newly
-		// inserted field in the form's children.
-		expect(returned).toMatch(/[0-9a-f-]/);
+		// The outcome carries the minted uuid, matching the newly inserted
+		// field in the form's children.
+		assert(returned.ok);
+		expect(returned.uuid).toMatch(/[0-9a-f-]/);
 		const inserted = result.current.children.find((q) => q.id === "d");
-		expect(inserted?.uuid).toBe(returned);
+		expect(inserted?.uuid).toBe(returned.uuid);
 	});
 
 	it("addField with parentUuid inserts into a group", () => {
@@ -598,7 +602,7 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
-		let returned: Uuid = "" as Uuid;
+		let returned = { ok: false, messages: [] } as AddCommitOutcome;
 		act(() => {
 			const s = result.current.store?.getState();
 			assert(s);
@@ -611,11 +615,12 @@ describe("useBlueprintMutations", () => {
 			});
 		});
 
-		expect(returned).toMatch(/[0-9a-f-]/);
+		assert(returned.ok);
+		expect(returned.uuid).toMatch(/[0-9a-f-]/);
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.forms[returned]).toBeDefined();
-		expect(s.forms[returned].name).toBe("F2");
+		expect(s.forms[returned.uuid]).toBeDefined();
+		expect(s.forms[returned.uuid].name).toBe("F2");
 	});
 
 	// ── addModule returns uuid ────────────────────────────────────────────
@@ -625,7 +630,7 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
-		let returned: Uuid = "" as Uuid;
+		let returned = { ok: false, messages: [] } as AddCommitOutcome;
 		act(() => {
 			returned = result.current.mutations.addModule({
 				uuid: "module-2-uuid",
@@ -634,11 +639,12 @@ describe("useBlueprintMutations", () => {
 			});
 		});
 
-		expect(returned).toMatch(/[0-9a-f-]/);
+		assert(returned.ok);
+		expect(returned.uuid).toMatch(/[0-9a-f-]/);
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.modules[returned]).toBeDefined();
-		expect(s.modules[returned].name).toBe("M1");
+		expect(s.modules[returned.uuid]).toBeDefined();
+		expect(s.modules[returned.uuid].name).toBe("M1");
 	});
 
 	// ── updateForm ────────────────────────────────────────────────────────
@@ -1265,7 +1271,7 @@ describe("useBlueprintMutations — commit gate (complete phase)", () => {
 			wrapper: completePhaseWrapper,
 		});
 
-		let returned: Uuid = "unset" as Uuid;
+		let returned = { ok: true, uuid: "unset" as Uuid } as AddCommitOutcome;
 		act(() => {
 			const s = result.current.store?.getState();
 			assert(s);
@@ -1279,7 +1285,10 @@ describe("useBlueprintMutations — commit gate (complete phase)", () => {
 			});
 		});
 
-		expect(returned).toBe("");
+		// The rejection is honest — no fabricated uuid, the findings ride
+		// along for inline display.
+		assert(!returned.ok);
+		expect(returned.messages[0]).toContain("has no fields");
 		const s = result.current.store?.getState();
 		expect(s?.forms[asUuid("form-gated-uuid")]).toBeUndefined();
 		// The rejection surfaced person-to-person, not silently.

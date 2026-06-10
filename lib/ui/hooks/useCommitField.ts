@@ -1,12 +1,20 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CommitOutcome } from "@/lib/domain";
 
 /** Options for configuring commit/cancel/checkmark behavior. */
 interface UseCommitFieldOptions {
 	/** Current persisted value — the source of truth outside of editing. */
 	value: string;
-	/** Called when a changed value is committed (after validation, if any). */
-	onSave: (value: string) => void;
+	/**
+	 * Called when a changed value is committed (after validation, if any).
+	 * May return the gated dispatch's `CommitOutcome`: an `ok: false`
+	 * with messages means the validity gate refused the edit — the hook
+	 * then RESTORES editing with the draft intact (typed input is never
+	 * discarded) and exposes the first finding via `rejection` so the
+	 * consumer renders it inline. A `void` return reads as committed.
+	 */
+	onSave: (value: string) => CommitOutcome | undefined;
 	/**
 	 * Optional pre-save validation. Return `false` to reject the commit —
 	 * the save will not fire and the checkmark animation will be suppressed.
@@ -50,6 +58,14 @@ interface UseCommitFieldResult {
 	 * Use this to drive a checkmark animation in the label row.
 	 */
 	saved: boolean;
+	/**
+	 * The validity gate's first finding when the last commit attempt was
+	 * refused, else `null`. The hook keeps the field in edit mode with
+	 * the draft intact while this is set; cleared on the next keystroke,
+	 * focus, or successful commit. Consumers render it inline beside the
+	 * input.
+	 */
+	rejection: string | null;
 	/** Callback ref to attach to the input/textarea element. */
 	ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => void;
 	/** Wire to the input's onFocus. */
@@ -86,10 +102,17 @@ export function useCommitField({
 	const [internalDraft, setInternalDraft] = useState(value);
 	const [focused, setFocused] = useState(false);
 	const [saved, setSaved] = useState(false);
+	const [rejection, setRejection] = useState<string | null>(null);
 
 	// Guards against double-commit: set before imperative .blur() so handleBlur
 	// knows not to re-commit after Enter or Escape already fired.
 	const committedRef = useRef(false);
+	/* Set by a rejected commit just before its programmatic refocus. The
+	 * focus event fires synchronously (before React re-renders), so
+	 * `handleFocus` can't read the just-set state — this ref is how it
+	 * knows to KEEP the draft + rejection instead of snapshotting the
+	 * prop value over them. */
+	const restoringRef = useRef(false);
 	const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
 	const ref = useCallback(
@@ -125,7 +148,23 @@ export function useCommitField({
 		if (required && !trimmed) return;
 		if (trimmed !== value) {
 			if (validate && !validate(trimmed)) return;
-			onSave(trimmed);
+			const outcome = onSave(trimmed);
+			if (outcome && outcome.ok === false) {
+				/* The validity gate refused the edit. Restore editing with
+				 * the draft intact — the user's typed input must survive the
+				 * bounced commit — and surface the first finding inline. A
+				 * messageless rejection is a silent no-op (stale uuid), which
+				 * keeps the legacy quiet behavior: no error, no refocus. */
+				if (outcome.messages.length > 0) {
+					committedRef.current = false;
+					setRejection(outcome.messages[0]);
+					setFocused(true);
+					restoringRef.current = true;
+					inputRef.current?.focus();
+				}
+				return;
+			}
+			setRejection(null);
 			setSaved(true);
 		}
 	}, [internalDraft, value, onSave, validate, onEmpty, required]);
@@ -140,6 +179,15 @@ export function useCommitField({
 
 	const handleFocus = useCallback(() => {
 		committedRef.current = false;
+		if (restoringRef.current) {
+			/* Re-entry from a rejected commit's programmatic refocus — keep
+			 * the draft (the whole point is not losing it) and the
+			 * rejection message it just set. */
+			restoringRef.current = false;
+			setFocused(true);
+			return;
+		}
+		setRejection(null);
 		// Snapshot prop value as editing baseline — captures undo/redo changes
 		// that happened while the field was blurred.
 		setInternalDraft(value);
@@ -181,11 +229,17 @@ export function useCommitField({
 		[multiline, commit, cancel],
 	);
 
+	const setDraft = useCallback((v: string) => {
+		setRejection(null);
+		setInternalDraft(v);
+	}, []);
+
 	return {
 		draft,
-		setDraft: setInternalDraft,
+		setDraft,
 		focused,
 		saved,
+		rejection,
 		ref,
 		handleFocus,
 		handleBlur,

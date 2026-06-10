@@ -42,7 +42,7 @@ import { useId, useState } from "react";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import type { CaseSearchConfig, CaseType } from "@/lib/domain";
+import type { CaseSearchConfig, CaseType, CommitOutcome } from "@/lib/domain";
 import type { Predicate, SearchInputDecl } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
@@ -57,8 +57,9 @@ export interface DisplaySectionProps {
 	readonly value: CaseSearchConfig | undefined;
 	/** Fired with the next configuration. The parent applies the
 	 *  next config to its source-of-truth (the doc store's module
-	 *  `caseSearchConfig` slot). */
-	readonly onChange: (next: CaseSearchConfig) => void;
+	 *  `caseSearchConfig` slot) and returns the gated outcome so the
+	 *  text rows keep a refused draft + finding inline. */
+	readonly onChange: (next: CaseSearchConfig) => CommitOutcome | undefined;
 	/** Blueprint case-type definitions — drives the property pickers
 	 *  inside the predicate editor mounted on the
 	 *  `searchButtonDisplayCondition` slot. */
@@ -104,7 +105,10 @@ interface OptionalTextRowProps {
 	readonly label: string;
 	readonly hint: string;
 	readonly value: string | undefined;
-	readonly onCommit: (next: string | undefined) => void;
+	/** Commit the slot. Returns the gated outcome (or void for callers
+	 *  with nothing to report) so a refused edit keeps the draft +
+	 *  finding inline. */
+	readonly onCommit: (next: string | undefined) => CommitOutcome | undefined;
 	readonly placeholder?: string;
 	/** When `true`, the row renders a `<textarea>` + a "Markdown"
 	 *  badge + a live `<PreviewMarkdown />` panel beneath. When
@@ -249,13 +253,13 @@ export function DisplaySection({
 	// source would land as a real own enumerable property and break
 	// the `key in config` genuine-presence check).
 	const setSearchScreenTitle = (next: string | undefined) => {
-		onChange(setOptionalSlot(value, "searchScreenTitle", next));
+		return onChange(setOptionalSlot(value, "searchScreenTitle", next));
 	};
 	const setSearchScreenSubtitle = (next: string | undefined) => {
-		onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
+		return onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
 	};
 	const setSearchButtonLabel = (next: string | undefined) => {
-		onChange(setOptionalSlot(value, "searchButtonLabel", next));
+		return onChange(setOptionalSlot(value, "searchButtonLabel", next));
 	};
 	const setSearchButtonDisplayCondition = (next: Predicate | undefined) => {
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));

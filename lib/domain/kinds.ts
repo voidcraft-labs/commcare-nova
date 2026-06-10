@@ -99,10 +99,28 @@ export type FieldKindMetadata<K extends FieldKind> = {
  * the editor has just been made visible in response to a user action and
  * the user would naturally expect the new input to receive keyboard focus.
  */
+/**
+ * Result of a gated commit, as seen by editor components. Mirrors the
+ * doc layer's mutation-gate verdict structurally (declared here rather
+ * than imported so the domain package keeps no edge into `lib/doc`):
+ *
+ *   - `ok: true` — the edit dispatched.
+ *   - `ok: false` — the edit did NOT dispatch. `messages` carries the
+ *     gate's person-to-person findings when the validity gate rejected
+ *     it; an EMPTY `messages` means a silent no-op (a stale uuid the
+ *     dispatch couldn't resolve) — editors keep the legacy quiet
+ *     behavior for that case and render inline errors only when there
+ *     are messages to show.
+ */
+export type CommitOutcome = { ok: true } | { ok: false; messages: string[] };
+
 export type FieldEditorComponentProps<F extends Field, K extends keyof F> = {
 	field: F;
 	value: F[K];
-	onChange: (next: F[K]) => void;
+	/** Dispatch the new value through the gated mutation hook. Returns
+	 *  the commit outcome so draft-holding editors can keep the user's
+	 *  typed input and surface the findings inline on a rejection. */
+	onChange: (next: F[K]) => CommitOutcome;
 	label: string;
 	keyName: K;
 	autoFocus?: boolean;

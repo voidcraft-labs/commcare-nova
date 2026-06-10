@@ -63,6 +63,7 @@ import {
 	asUuid,
 	type CaseProperty,
 	type CaseType,
+	type CommitOutcome,
 	type ConnectType,
 	type Field,
 	type FieldKind,
@@ -70,6 +71,26 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
+
+/**
+ * Outcome of an entity-adding dispatch: the minted uuid on success, the
+ * gate's findings on a rejection (`messages` empty for a silent no-op —
+ * an unresolvable parent/target the dispatch couldn't act on).
+ */
+export type AddCommitOutcome =
+	| { ok: true; uuid: Uuid }
+	| { ok: false; messages: string[] };
+
+export type { CommitOutcome };
+
+const COMMITTED: CommitOutcome = { ok: true };
+
+/** The silent-no-op rejection (a stale uuid, nothing dispatched) — no
+ *  messages, so editors keep the legacy quiet behavior. */
+const NOOP_REJECTION: CommitOutcome & { ok: false } = {
+	ok: false,
+	messages: [],
+};
 
 /**
  * Result of a `renameField` dispatch.
@@ -95,6 +116,10 @@ export interface FieldRenameResult {
 	catalogEntryRenamed: boolean;
 	cascadedAcrossForms: boolean;
 	conflict?: boolean;
+	/** Present when the commit gate rejected the rename — the findings'
+	 *  person-to-person messages. The rename never ran; the caller keeps
+	 *  the user's typed id on screen and surfaces these inline. */
+	rejected?: string[];
 }
 
 /**
@@ -141,9 +166,9 @@ export interface BlueprintMutations {
 	/**
 	 * Insert a new field into a parent container (form or group/repeat).
 	 *
-	 * Returns the new field's uuid so callers can drive selection or
-	 * navigation. Returns the empty string (branded as `Uuid`) on a no-op
-	 * (e.g. unrecognized `parentUuid`).
+	 * Returns the minted uuid on success so callers can drive selection
+	 * or navigation, and the honest rejection otherwise — never a
+	 * fabricated sentinel a caller could mistake for an identity.
 	 *
 	 * Accepts a Field without uuid — the hook mints one via
 	 * `crypto.randomUUID()`. Callers that already own a uuid (e.g. the
@@ -160,7 +185,7 @@ export interface BlueprintMutations {
 			beforeUuid?: Uuid;
 			atIndex?: number;
 		},
-	) => Uuid;
+	) => AddCommitOutcome;
 	/**
 	 * Update fields on an existing field entity. Callers pass `undefined` for
 	 * any field value to clear it — no `null` coercion needed.
@@ -178,16 +203,16 @@ export interface BlueprintMutations {
 		uuid: Uuid,
 		targetKind: K,
 		patch: FieldPatchFor<K>,
-	) => void;
+	) => CommitOutcome;
 	/**
-	 * Remove a field (and its subtree). Returns `true` when the removal
-	 * dispatched; `false` when it didn't — an unknown uuid, or the commit
-	 * gate rejecting a removal that would take the app incomplete (e.g.
+	 * Remove a field (and its subtree). `ok: false` when it didn't
+	 * dispatch — an unknown uuid (empty `messages`), or the commit gate
+	 * rejecting a removal that would take the app incomplete (e.g.
 	 * deleting a form's only field on a complete app). Callers that
-	 * follow up with selection moves gate on the result so the UI never
+	 * follow up with selection moves gate on `ok` so the UI never
 	 * deselects a field that's still there.
 	 */
-	removeField: (uuid: Uuid) => boolean;
+	removeField: (uuid: Uuid) => CommitOutcome;
 	renameField: (uuid: Uuid, newId: string) => FieldRenameResult;
 	moveField: (
 		uuid: Uuid,
@@ -211,20 +236,21 @@ export interface BlueprintMutations {
 	 * Silently no-ops when the uuid is unknown or when the source kind
 	 * equals the target kind.
 	 */
-	convertField: (uuid: Uuid, toKind: FieldKind) => void;
+	convertField: (uuid: Uuid, toKind: FieldKind) => CommitOutcome;
 
 	// ── Form mutations ────────────────────────────────────────────────────
-	/** Insert a new form into a module. Returns the new form's uuid.
-	 *  Accepts a form without a uuid — the hook mints one for the new entity. */
+	/** Insert a new form into a module. Returns the minted uuid on
+	 *  success, the rejection otherwise. Accepts a form without a uuid —
+	 *  the hook mints one for the new entity. */
 	addForm: (
 		moduleUuid: Uuid,
 		form: Omit<Form, "uuid"> & { uuid?: string },
-	) => Uuid;
+	) => AddCommitOutcome;
 	/**
 	 * Update fields on an existing form. Patches use camelCase domain property
 	 * names (e.g. `closeCondition`, `postSubmit`).
 	 */
-	updateForm: (uuid: Uuid, patch: Partial<Omit<Form, "uuid">>) => void;
+	updateForm: (uuid: Uuid, patch: Partial<Omit<Form, "uuid">>) => CommitOutcome;
 	/**
 	 * Set or clear form menu media via the dedicated null-carrying mutation
 	 * so clears survive JSON replay.
@@ -232,14 +258,19 @@ export interface BlueprintMutations {
 	setFormMedia: (
 		uuid: Uuid,
 		media: { icon: AssetId | null; audioLabel: AssetId | null },
-	) => void;
-	removeForm: (uuid: Uuid) => void;
+	) => CommitOutcome;
+	removeForm: (uuid: Uuid) => CommitOutcome;
 
 	// ── Module mutations ──────────────────────────────────────────────────
 	/** Insert a new module. Returns the new module's uuid.
 	 *  Accepts a module without a uuid — the hook mints one for the new entity. */
-	addModule: (module: Omit<Module, "uuid"> & { uuid?: string }) => Uuid;
-	updateModule: (uuid: Uuid, patch: Partial<Omit<Module, "uuid">>) => void;
+	addModule: (
+		module: Omit<Module, "uuid"> & { uuid?: string },
+	) => AddCommitOutcome;
+	updateModule: (
+		uuid: Uuid,
+		patch: Partial<Omit<Module, "uuid">>,
+	) => CommitOutcome;
 	/**
 	 * Set or clear the module menu-tile media (home-screen `icon` +
 	 * `audioLabel`) via the dedicated null-carrying mutation. Mirrors
@@ -253,8 +284,8 @@ export interface BlueprintMutations {
 	setModuleMedia: (
 		uuid: Uuid,
 		media: { icon: AssetId | null; audioLabel: AssetId | null },
-	) => void;
-	removeModule: (uuid: Uuid) => void;
+	) => CommitOutcome;
+	removeModule: (uuid: Uuid) => CommitOutcome;
 
 	// ── App-level ─────────────────────────────────────────────────────────
 	/**
@@ -265,7 +296,7 @@ export interface BlueprintMutations {
 	updateApp: (patch: {
 		app_name?: string;
 		connect_type?: ConnectType | null;
-	}) => void;
+	}) => CommitOutcome;
 	/**
 	 * Set or clear the app-level logo (the single image shown on the
 	 * web-apps login + home screens) via the dedicated null-carrying
@@ -278,8 +309,8 @@ export interface BlueprintMutations {
 	 * the logo is a single app-level slot, so there is no entity to
 	 * validate (mirrors `setCaseTypes`, not `setFormMedia`).
 	 */
-	setAppLogo: (logo: AssetId | null) => void;
-	setCaseTypes: (caseTypes: CaseType[] | null) => void;
+	setAppLogo: (logo: AssetId | null) => CommitOutcome;
+	setCaseTypes: (caseTypes: CaseType[] | null) => CommitOutcome;
 	/**
 	 * Update a single property on a case type's property list.
 	 *
@@ -293,7 +324,7 @@ export interface BlueprintMutations {
 		caseTypeName: string,
 		propertyName: string,
 		updates: Partial<Omit<CaseProperty, "name">>,
-	) => void;
+	) => CommitOutcome;
 
 	// ── Batch ─────────────────────────────────────────────────────────────
 	/**
@@ -398,15 +429,25 @@ export function useBlueprintMutations(): BlueprintMutations {
 		 * validated (load-bearing for `duplicateField`'s minted uuid). */
 		const guardedApply = (
 			mutations: Mutation[],
-		): MutationResult[] | undefined => {
+		):
+			| { ok: true; results: MutationResult[] }
+			| { ok: false; messages: string[] } => {
 			const verdict = mutationCommitVerdict(get(), mutations, phaseRef.current);
 			if (!verdict.ok) {
 				notifyRejectedCommit(verdict.introduced);
-				return undefined;
+				return {
+					ok: false,
+					messages: verdict.introduced.map((err) => err.message),
+				};
 			}
 			store.getState().commitDoc(verdict.nextDoc);
-			return verdict.results;
+			return { ok: true, results: verdict.results };
 		};
+
+		/** Project a `guardedApply` result onto the plain commit outcome. */
+		const toOutcome = (
+			applied: ReturnType<typeof guardedApply>,
+		): CommitOutcome => (applied.ok ? COMMITTED : applied);
 
 		return {
 			addField(parentUuid, field, opts) {
@@ -418,7 +459,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					doc.fields[parentUuid] === undefined
 				) {
 					warnUnresolved("addField", { parentUuid });
-					return "" as Uuid;
+					return NOOP_REJECTION;
 				}
 
 				// Resolve insertion index from afterUuid / beforeUuid / atIndex.
@@ -452,7 +493,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// discriminated unions).
 				const entity = { ...field, uuid } as unknown as Field;
 
-				const results = guardedApply([
+				const applied = guardedApply([
 					{
 						kind: "addField",
 						parentUuid,
@@ -460,15 +501,15 @@ export function useBlueprintMutations(): BlueprintMutations {
 						index,
 					},
 				]);
-				if (!results) return "" as Uuid;
-				return uuid;
+				if (!applied.ok) return applied;
+				return { ok: true, uuid };
 			},
 
 			updateField(uuid, targetKind, patch) {
 				const doc = get();
 				if (!doc.fields[uuid]) {
 					warnUnresolved("updateField", { uuid, targetKind });
-					return;
+					return NOOP_REJECTION;
 				}
 				// `targetKind` + `patch` are typed against the same variant via
 				// the generic, so the spread into the mutation literal lands on
@@ -478,23 +519,25 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// in `Mutation` — at the value level the shape is structurally
 				// identical, but TS treats the union arms as distinct types
 				// rather than a parameterized one.
-				guardedApply([
-					{
-						kind: "updateField",
-						uuid,
-						targetKind,
-						patch,
-					} as Mutation,
-				]);
+				return toOutcome(
+					guardedApply([
+						{
+							kind: "updateField",
+							uuid,
+							targetKind,
+							patch,
+						} as Mutation,
+					]),
+				);
 			},
 
 			removeField(uuid) {
 				const doc = get();
 				if (!doc.fields[uuid]) {
 					warnUnresolved("removeField", { uuid });
-					return false;
+					return NOOP_REJECTION;
 				}
-				return guardedApply([{ kind: "removeField", uuid }]) !== undefined;
+				return toOutcome(guardedApply([{ kind: "removeField", uuid }]));
 			},
 
 			renameField(uuid, newId) {
@@ -525,9 +568,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// vanishes between our pre-check and the Immer draft —
 				// defensive fallback to zero counts so callers always see a
 				// valid result shape.
-				const results = guardedApply([{ kind: "renameField", uuid, newId }]);
-				if (!results) return emptyFieldRenameResult();
-				const meta = results[0] as FieldRenameMeta | undefined;
+				const applied = guardedApply([{ kind: "renameField", uuid, newId }]);
+				if (!applied.ok) {
+					return { ...emptyFieldRenameResult(), rejected: applied.messages };
+				}
+				const meta = applied.results[0] as FieldRenameMeta | undefined;
 
 				/* Compute the new path AFTER dispatch — the semantic id has
 				 * changed. `renameField` doesn't reparent, so `fieldParent`
@@ -589,11 +634,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// `undefined` if the target entity vanishes between our pre-check
 				// and the Immer draft — fallback to a zeroed result so callers
 				// always see a valid `MoveFieldResult`.
-				const results = guardedApply([
+				const applied = guardedApply([
 					{ kind: "moveField", uuid, toParentUuid, toIndex },
 				]);
-				if (!results) return {};
-				return (results[0] as MoveFieldResult | undefined) ?? {};
+				if (!applied.ok) return {};
+				return (applied.results[0] as MoveFieldResult | undefined) ?? {};
 			},
 
 			duplicateField(uuid) {
@@ -618,7 +663,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const beforeOrder = [...(doc.fieldOrder[parentUuid] ?? [])];
 				const beforeSet = new Set(beforeOrder);
 
-				if (!guardedApply([{ kind: "duplicateField", uuid }])) {
+				if (!guardedApply([{ kind: "duplicateField", uuid }]).ok) {
 					return undefined;
 				}
 
@@ -652,16 +697,18 @@ export function useBlueprintMutations(): BlueprintMutations {
 					// identically without it. Matches the debug payload shape the
 					// other multi-arg mutations (updateCaseProperty, etc.) use.
 					warnUnresolved("convertField", { uuid, toKind });
-					return;
+					return NOOP_REJECTION;
 				}
-				guardedApply([{ kind: "convertField", uuid, toKind }]);
+				return toOutcome(
+					guardedApply([{ kind: "convertField", uuid, toKind }]),
+				);
 			},
 
 			addForm(moduleUuid, form) {
 				const doc = get();
 				if (!doc.modules[moduleUuid]) {
 					warnUnresolved("addForm", { moduleUuid });
-					return "" as Uuid;
+					return NOOP_REJECTION;
 				}
 				const maybeUuid = form.uuid;
 				const formUuid = asUuid(
@@ -669,55 +716,59 @@ export function useBlueprintMutations(): BlueprintMutations {
 						? maybeUuid
 						: crypto.randomUUID(),
 				);
-				const results = guardedApply([
+				const applied = guardedApply([
 					{
 						kind: "addForm",
 						moduleUuid,
 						form: { ...form, uuid: formUuid } as Form,
 					},
 				]);
-				if (!results) return "" as Uuid;
-				return formUuid;
+				if (!applied.ok) return applied;
+				return { ok: true, uuid: formUuid };
 			},
 
 			updateForm(uuid, patch) {
 				const doc = get();
 				if (!doc.forms[uuid]) {
 					warnUnresolved("updateForm", { uuid });
-					return;
+					return NOOP_REJECTION;
 				}
-				guardedApply([
-					{
-						kind: "updateForm",
-						uuid,
-						patch,
-					},
-				]);
+				return toOutcome(
+					guardedApply([
+						{
+							kind: "updateForm",
+							uuid,
+							patch,
+						},
+					]),
+				);
 			},
 
 			setFormMedia(uuid, media) {
 				const doc = get();
 				if (!doc.forms[uuid]) {
 					warnUnresolved("setFormMedia", { uuid });
-					return;
+					return NOOP_REJECTION;
 				}
-				guardedApply([
-					{
-						kind: "setFormMedia",
-						uuid,
-						icon: media.icon,
-						audioLabel: media.audioLabel,
-					},
-				]);
+				return toOutcome(
+					guardedApply([
+						{
+							kind: "setFormMedia",
+							uuid,
+							icon: media.icon,
+							audioLabel: media.audioLabel,
+						},
+					]),
+				);
 			},
 
 			removeForm(uuid) {
 				const doc = get();
 				if (!doc.forms[uuid]) {
 					warnUnresolved("removeForm", { uuid });
-					return;
+					return NOOP_REJECTION;
 				}
-				guardedApply([{ kind: "removeForm", uuid }]);
+				return toOutcome(guardedApply([{ kind: "removeForm", uuid }]));
 			},
 
 			addModule(module) {
@@ -727,48 +778,50 @@ export function useBlueprintMutations(): BlueprintMutations {
 						? maybeUuid
 						: crypto.randomUUID(),
 				);
-				const results = guardedApply([
+				const applied = guardedApply([
 					{
 						kind: "addModule",
 						module: { ...module, uuid: moduleUuid } as Module,
 					},
 				]);
-				if (!results) return "" as Uuid;
-				return moduleUuid;
+				if (!applied.ok) return applied;
+				return { ok: true, uuid: moduleUuid };
 			},
 
 			updateModule(uuid, patch) {
 				const doc = get();
 				if (!doc.modules[uuid]) {
 					warnUnresolved("updateModule", { uuid });
-					return;
+					return NOOP_REJECTION;
 				}
-				guardedApply([{ kind: "updateModule", uuid, patch }]);
+				return toOutcome(guardedApply([{ kind: "updateModule", uuid, patch }]));
 			},
 
 			setModuleMedia(uuid, media) {
 				const doc = get();
 				if (!doc.modules[uuid]) {
 					warnUnresolved("setModuleMedia", { uuid });
-					return;
+					return NOOP_REJECTION;
 				}
-				guardedApply([
-					{
-						kind: "setModuleMedia",
-						uuid,
-						icon: media.icon,
-						audioLabel: media.audioLabel,
-					},
-				]);
+				return toOutcome(
+					guardedApply([
+						{
+							kind: "setModuleMedia",
+							uuid,
+							icon: media.icon,
+							audioLabel: media.audioLabel,
+						},
+					]),
+				);
 			},
 
 			removeModule(uuid) {
 				const doc = get();
 				if (!doc.modules[uuid]) {
 					warnUnresolved("removeModule", { uuid });
-					return;
+					return NOOP_REJECTION;
 				}
-				guardedApply([{ kind: "removeModule", uuid }]);
+				return toOutcome(guardedApply([{ kind: "removeModule", uuid }]));
 			},
 
 			updateApp(patch) {
@@ -789,9 +842,8 @@ export function useBlueprintMutations(): BlueprintMutations {
 						connectType: patch.connect_type,
 					});
 				}
-				if (mutations.length > 0) {
-					guardedApply(mutations);
-				}
+				if (mutations.length === 0) return COMMITTED;
+				return toOutcome(guardedApply(mutations));
 			},
 
 			setAppLogo(logo) {
@@ -800,11 +852,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// entity-guarded `setFormMedia` / `setModuleMedia`. The payload
 				// carries an explicit `AssetId | null`; the reducer maps `null →
 				// undefined` so a clear drops the optional key off the doc.
-				guardedApply([{ kind: "setAppLogo", logo }]);
+				return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
 			},
 
 			setCaseTypes(caseTypes) {
-				guardedApply([{ kind: "setCaseTypes", caseTypes }]);
+				return toOutcome(guardedApply([{ kind: "setCaseTypes", caseTypes }]));
 			},
 
 			updateCaseProperty(caseTypeName, propertyName, updates) {
@@ -812,7 +864,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const currentCaseTypes = doc.caseTypes;
 				if (!currentCaseTypes) {
 					warnUnresolved("updateCaseProperty", { caseTypeName, propertyName });
-					return;
+					return NOOP_REJECTION;
 				}
 				const ctIndex = currentCaseTypes.findIndex(
 					(ct) => ct.name === caseTypeName,
@@ -822,7 +874,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 						caseTypeName,
 						reason: "case type not found",
 					});
-					return;
+					return NOOP_REJECTION;
 				}
 				const ct = currentCaseTypes[ctIndex];
 				const propIndex = ct.properties.findIndex(
@@ -834,7 +886,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 						propertyName,
 						reason: "property not found",
 					});
-					return;
+					return NOOP_REJECTION;
 				}
 				// Build a new caseTypes array with the updated property. Immutable
 				// construction avoids mutating the Immer-frozen snapshot.
@@ -847,7 +899,9 @@ export function useBlueprintMutations(): BlueprintMutations {
 						),
 					};
 				});
-				guardedApply([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]);
+				return toOutcome(
+					guardedApply([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]),
+				);
 			},
 
 			applyMany(mutations) {
@@ -857,7 +911,8 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// surfaced here so callers can narrow specific positions. A
 				// gate rejection returns an empty array (positional reads see
 				// `undefined`, the same shape a no-op reducer produces).
-				return guardedApply(mutations) ?? [];
+				const applied = guardedApply(mutations);
+				return applied.ok ? applied.results : [];
 			},
 		};
 	}, [store, phaseRef]);
