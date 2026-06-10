@@ -620,3 +620,22 @@ causes — all fixed failing-test-first in one commit (`10d0d9fa`):
 
 Full suite after fixes: 5975 passed / 0 failed (30 pre-existing skips),
 lint + tsc clean.
+
+### Round 3 (`e1762eb9`)
+
+7 survivors from the round-2 delta review, 4 root causes: (1) the kind-patch
+spelling resolved by REMOVING it — updateField strips `kind` pre-merge to
+match the wire (partialOf already omits it; replay ≡ in-process restored;
+convertField stays the only kind-change path; the round-2 scope arm deleted
+as dead); (2) cross-form moveField skip polarity flipped to fail-closed
+(proceed only when both forms resolve and match); (3) reducer skip warns on
+the established console convention; (4) applyEdits/SourceEdit variants in
+hashtags.ts + transpiler.ts consolidated onto the shared exports.
+
+### Startup-wedge root cause (`2777f1d8`, discovered during round-3 verification)
+
+The recurring silent suite hang was rolldown's native config bundler
+deadlocking pre-banner (vite 8 default `bundle` loader; all rolldown-worker
+threads in pthread_cond_wait). Every vitest entry point now pins
+`--configLoader runner`; vitest.config.ts is strict-ESM-clean. See the
+CLAUDE.md "Testing — startup wedge" section.
