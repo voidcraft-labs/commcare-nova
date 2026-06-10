@@ -31,10 +31,13 @@ import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
+import { CommitPhaseProvider } from "@/lib/doc/commitPhaseContext";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { replayEventsSync } from "@/lib/log/replay";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
+import { BuilderPhase } from "@/lib/session/builderTypes";
+import { useBuilderPhase } from "@/lib/session/hooks";
 import {
 	BuilderSessionContext,
 	BuilderSessionProvider,
@@ -127,7 +130,7 @@ function BuilderProviderInner({
 							{replay ? null : <LocationRecoveryEffect />}
 							{replay ? <ReplayHydrator replay={replay} /> : null}
 							{!replay && initialDoc ? <LoadAppHydrator /> : null}
-							{children}
+							<BuilderCommitPhaseBridge>{children}</BuilderCommitPhaseBridge>
 						</BuilderFormEngineProvider>
 					</EditGuardProvider>
 				</ScrollRegistryProvider>
@@ -223,6 +226,32 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
 	}, [replay, docStore, sessionStore]);
 
 	return null;
+}
+
+/**
+ * BuilderCommitPhaseBridge — feeds the session-derived builder phase into
+ * the doc layer's `CommitPhaseProvider` so `useBlueprintMutations`' gate
+ * knows whether the app is still under construction. The doc package
+ * can't read the session store itself (the session package already
+ * imports doc hooks; the reverse edge would close an import cycle), so
+ * this bridge — which sits inside both providers — is where the two meet.
+ *
+ * Only `Generating` maps to the construction window (completeness
+ * deferred); every other phase — including the transient `Completed`
+ * celebration and `Loading` — gates as `complete`, the stricter
+ * direction. The hydrators above write through the store directly and
+ * never pass through the gate, so their position outside this provider
+ * is irrelevant to them.
+ */
+function BuilderCommitPhaseBridge({ children }: { children: ReactNode }) {
+	const phase = useBuilderPhase();
+	return (
+		<CommitPhaseProvider
+			phase={phase === BuilderPhase.Generating ? "building" : "complete"}
+		>
+			{children}
+		</CommitPhaseProvider>
+	);
 }
 
 /**

@@ -25,13 +25,30 @@
  * `console.warn`. The engine behaved the same way: no-op rather than
  * throw, so the UI never crashes on a stale selection held over a
  * reload or undo.
+ *
+ * **Every dispatch is gated.** Before any batch reaches `applyMany`, it
+ * runs through the shared commit verdict
+ * (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` — the
+ * `identifierVerdicts` pattern generalized to the whole validator). An
+ * edit that would introduce a validator finding is rejected: nothing
+ * dispatches, the rejection toast lists each finding's
+ * person-to-person message, and the method returns its no-op shape.
+ * The phase comes from the builder's `CommitPhaseProvider` (building
+ * during a generation run, complete otherwise). Undo/redo (the
+ * temporal store), hydration (`load`), the agent stream
+ * (`streamDispatcher`), and replay all write through other paths and
+ * deliberately bypass this gate — they replay already-committed
+ * states.
  */
 
 "use client";
 
 import { useContext, useMemo } from "react";
+import { useCommitPhaseRef } from "@/lib/doc/commitPhaseContext";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
+import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type {
 	BlueprintDoc,
@@ -162,7 +179,15 @@ export interface BlueprintMutations {
 		targetKind: K,
 		patch: FieldPatchFor<K>,
 	) => void;
-	removeField: (uuid: Uuid) => void;
+	/**
+	 * Remove a field (and its subtree). Returns `true` when the removal
+	 * dispatched; `false` when it didn't — an unknown uuid, or the commit
+	 * gate rejecting a removal that would take the app incomplete (e.g.
+	 * deleting a form's only field on a complete app). Callers that
+	 * follow up with selection moves gate on the result so the UI never
+	 * deselects a field that's still there.
+	 */
+	removeField: (uuid: Uuid) => boolean;
 	renameField: (uuid: Uuid, newId: string) => FieldRenameResult;
 	moveField: (
 		uuid: Uuid,
@@ -343,6 +368,10 @@ function computePathForUuid(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 
 export function useBlueprintMutations(): BlueprintMutations {
 	const store = useContext(BlueprintDocContext);
+	/* Stable ref — its `.current` is the builder-supplied commit phase,
+	 * read at dispatch time. Identity never changes, so it's a safe
+	 * `useMemo` dependency. */
+	const phaseRef = useCommitPhaseRef();
 	if (!store) {
 		throw new Error(
 			"useBlueprintMutations requires a <BlueprintDocProvider> ancestor",
@@ -358,6 +387,23 @@ export function useBlueprintMutations(): BlueprintMutations {
 		// never at hook construction. This is critical: without it, a mutation
 		// made immediately after another would validate against stale state.
 		const get = () => store.getState();
+
+		/* The gated dispatch every method routes through. Runs the shared
+		 * commit verdict against the freshest doc; on rejection, shows the
+		 * findings and returns `undefined` so the caller maps to its no-op
+		 * return shape — the batch never reaches the store. On a pass,
+		 * dispatches through `applyMany` unchanged (the verdict's candidate
+		 * doc is discarded; the store's reducer run is the commit). */
+		const guardedApply = (
+			mutations: Mutation[],
+		): MutationResult[] | undefined => {
+			const verdict = mutationCommitVerdict(get(), mutations, phaseRef.current);
+			if (!verdict.ok) {
+				notifyRejectedCommit(verdict.introduced);
+				return undefined;
+			}
+			return store.getState().applyMany(mutations);
+		};
 
 		return {
 			addField(parentUuid, field, opts) {
@@ -403,7 +449,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// discriminated unions).
 				const entity = { ...field, uuid } as unknown as Field;
 
-				store.getState().applyMany([
+				const results = guardedApply([
 					{
 						kind: "addField",
 						parentUuid,
@@ -411,6 +457,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 						index,
 					},
 				]);
+				if (!results) return "" as Uuid;
 				return uuid;
 			},
 
@@ -428,7 +475,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// in `Mutation` — at the value level the shape is structurally
 				// identical, but TS treats the union arms as distinct types
 				// rather than a parameterized one.
-				store.getState().applyMany([
+				guardedApply([
 					{
 						kind: "updateField",
 						uuid,
@@ -442,9 +489,9 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const doc = get();
 				if (!doc.fields[uuid]) {
 					warnUnresolved("removeField", { uuid });
-					return;
+					return false;
 				}
-				store.getState().applyMany([{ kind: "removeField", uuid }]);
+				return guardedApply([{ kind: "removeField", uuid }]) !== undefined;
 			},
 
 			renameField(uuid, newId) {
@@ -475,10 +522,9 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// vanishes between our pre-check and the Immer draft —
 				// defensive fallback to zero counts so callers always see a
 				// valid result shape.
-				const [result] = store
-					.getState()
-					.applyMany([{ kind: "renameField", uuid, newId }]);
-				const meta = result as FieldRenameMeta | undefined;
+				const results = guardedApply([{ kind: "renameField", uuid, newId }]);
+				if (!results) return emptyFieldRenameResult();
+				const meta = results[0] as FieldRenameMeta | undefined;
 
 				/* Compute the new path AFTER dispatch — the semantic id has
 				 * changed. `renameField` doesn't reparent, so `fieldParent`
@@ -540,10 +586,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// `undefined` if the target entity vanishes between our pre-check
 				// and the Immer draft — fallback to a zeroed result so callers
 				// always see a valid `MoveFieldResult`.
-				const [result] = store
-					.getState()
-					.applyMany([{ kind: "moveField", uuid, toParentUuid, toIndex }]);
-				return (result as MoveFieldResult | undefined) ?? {};
+				const results = guardedApply([
+					{ kind: "moveField", uuid, toParentUuid, toIndex },
+				]);
+				if (!results) return {};
+				return (results[0] as MoveFieldResult | undefined) ?? {};
 			},
 
 			duplicateField(uuid) {
@@ -568,7 +615,9 @@ export function useBlueprintMutations(): BlueprintMutations {
 				const beforeOrder = [...(doc.fieldOrder[parentUuid] ?? [])];
 				const beforeSet = new Set(beforeOrder);
 
-				store.getState().applyMany([{ kind: "duplicateField", uuid }]);
+				if (!guardedApply([{ kind: "duplicateField", uuid }])) {
+					return undefined;
+				}
 
 				// Diff the post-dispatch order against the snapshot to find the
 				// new clone. Only one uuid should be new.
@@ -602,7 +651,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("convertField", { uuid, toKind });
 					return;
 				}
-				store.getState().applyMany([{ kind: "convertField", uuid, toKind }]);
+				guardedApply([{ kind: "convertField", uuid, toKind }]);
 			},
 
 			addForm(moduleUuid, form) {
@@ -617,13 +666,14 @@ export function useBlueprintMutations(): BlueprintMutations {
 						? maybeUuid
 						: crypto.randomUUID(),
 				);
-				store.getState().applyMany([
+				const results = guardedApply([
 					{
 						kind: "addForm",
 						moduleUuid,
 						form: { ...form, uuid: formUuid } as Form,
 					},
 				]);
+				if (!results) return "" as Uuid;
 				return formUuid;
 			},
 
@@ -633,7 +683,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("updateForm", { uuid });
 					return;
 				}
-				store.getState().applyMany([
+				guardedApply([
 					{
 						kind: "updateForm",
 						uuid,
@@ -648,7 +698,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("setFormMedia", { uuid });
 					return;
 				}
-				store.getState().applyMany([
+				guardedApply([
 					{
 						kind: "setFormMedia",
 						uuid,
@@ -664,7 +714,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("removeForm", { uuid });
 					return;
 				}
-				store.getState().applyMany([{ kind: "removeForm", uuid }]);
+				guardedApply([{ kind: "removeForm", uuid }]);
 			},
 
 			addModule(module) {
@@ -674,12 +724,13 @@ export function useBlueprintMutations(): BlueprintMutations {
 						? maybeUuid
 						: crypto.randomUUID(),
 				);
-				store.getState().applyMany([
+				const results = guardedApply([
 					{
 						kind: "addModule",
 						module: { ...module, uuid: moduleUuid } as Module,
 					},
 				]);
+				if (!results) return "" as Uuid;
 				return moduleUuid;
 			},
 
@@ -689,7 +740,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("updateModule", { uuid });
 					return;
 				}
-				store.getState().applyMany([{ kind: "updateModule", uuid, patch }]);
+				guardedApply([{ kind: "updateModule", uuid, patch }]);
 			},
 
 			setModuleMedia(uuid, media) {
@@ -698,7 +749,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("setModuleMedia", { uuid });
 					return;
 				}
-				store.getState().applyMany([
+				guardedApply([
 					{
 						kind: "setModuleMedia",
 						uuid,
@@ -714,7 +765,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("removeModule", { uuid });
 					return;
 				}
-				store.getState().applyMany([{ kind: "removeModule", uuid }]);
+				guardedApply([{ kind: "removeModule", uuid }]);
 			},
 
 			updateApp(patch) {
@@ -736,7 +787,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 					});
 				}
 				if (mutations.length > 0) {
-					store.getState().applyMany(mutations);
+					guardedApply(mutations);
 				}
 			},
 
@@ -746,11 +797,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 				// entity-guarded `setFormMedia` / `setModuleMedia`. The payload
 				// carries an explicit `AssetId | null`; the reducer maps `null →
 				// undefined` so a clear drops the optional key off the doc.
-				store.getState().applyMany([{ kind: "setAppLogo", logo }]);
+				guardedApply([{ kind: "setAppLogo", logo }]);
 			},
 
 			setCaseTypes(caseTypes) {
-				store.getState().applyMany([{ kind: "setCaseTypes", caseTypes }]);
+				guardedApply([{ kind: "setCaseTypes", caseTypes }]);
 			},
 
 			updateCaseProperty(caseTypeName, propertyName, updates) {
@@ -793,18 +844,18 @@ export function useBlueprintMutations(): BlueprintMutations {
 						),
 					};
 				});
-				store
-					.getState()
-					.applyMany([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]);
+				guardedApply([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]);
 			},
 
 			applyMany(mutations) {
 				// Batch dispatch — the store's `applyMany` wraps the whole set
 				// in one `set()` call so zundo records exactly one undo entry.
 				// Returns the reducer's per-mutation results in input order;
-				// surfaced here so callers can narrow specific positions.
-				return store.getState().applyMany(mutations);
+				// surfaced here so callers can narrow specific positions. A
+				// gate rejection returns an empty array (positional reads see
+				// `undefined`, the same shape a no-op reducer produces).
+				return guardedApply(mutations) ?? [];
 			},
 		};
-	}, [store]);
+	}, [store, phaseRef]);
 }

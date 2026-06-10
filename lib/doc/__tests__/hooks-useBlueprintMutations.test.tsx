@@ -28,6 +28,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
 import { assert, describe, expect, it, vi } from "vitest";
+import { CommitPhaseProvider } from "@/lib/doc/commitPhaseContext";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -46,6 +47,7 @@ import {
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { asAssetId, type FieldKind } from "@/lib/domain";
+import { toastStore } from "@/lib/ui/toastStore";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 // Declared here (not inside the fixture) so tests can reference them
@@ -124,7 +126,26 @@ const bp: BlueprintDoc = {
 	fieldParent: {},
 };
 
+/**
+ * Default wrapper runs the mutation gate in the `"building"` phase —
+ * these tests prove the hook's uuid-validation + dispatch mechanics, and
+ * several drive deliberately partial states (an empty new form, a
+ * connect flip with no per-form blocks) that the complete-phase ratchet
+ * would rightly reject. The gating behavior itself is pinned by the
+ * dedicated "commit gate" describe below, which mounts WITHOUT a
+ * `CommitPhaseProvider` (the default phase is `"complete"`).
+ */
 function wrapper({ children }: { children: ReactNode }) {
+	return (
+		<BlueprintDocProvider appId="t" initialDoc={bp}>
+			<CommitPhaseProvider phase="building">{children}</CommitPhaseProvider>
+		</BlueprintDocProvider>
+	);
+}
+
+/** Complete-phase wrapper — no `CommitPhaseProvider`, so the gate runs
+ *  at its `"complete"` default (the ratchet holds). */
+function completePhaseWrapper({ children }: { children: ReactNode }) {
 	return (
 		<BlueprintDocProvider appId="t" initialDoc={bp}>
 			{children}
@@ -607,7 +628,7 @@ describe("useBlueprintMutations", () => {
 		let returned: Uuid = "" as Uuid;
 		act(() => {
 			returned = result.current.mutations.addModule({
-				uuid: "module-1-uuid",
+				uuid: "module-2-uuid",
 				id: "m1",
 				name: "M1",
 			});
@@ -1225,5 +1246,66 @@ describe("useBlueprintMutations", () => {
 
 		// Store should be unchanged.
 		expect(result.current.children.map((q) => q.id)).toEqual(["a", "b", "grp"]);
+	});
+});
+
+// ── Commit gate (complete phase) ──────────────────────────────────────────
+//
+// The dedicated gating coverage: mounted WITHOUT a `CommitPhaseProvider`,
+// so the gate runs at its `"complete"` default and the ratchet holds. The
+// verdict semantics themselves are pinned in
+// `lib/doc/__tests__/commitVerdicts.test.ts`; what must hold HERE is the
+// hook wiring — a rejected dispatch never reaches the store, the method
+// returns its no-op shape, and the rejection surfaces as an error toast.
+
+describe("useBlueprintMutations — commit gate (complete phase)", () => {
+	it("rejects an edit that would introduce a finding: store untouched, no-op return, error toast", () => {
+		toastStore.clear();
+		const { result } = renderHook(() => useMutationsWithStore(), {
+			wrapper: completePhaseWrapper,
+		});
+
+		let returned: Uuid = "unset" as Uuid;
+		act(() => {
+			const s = result.current.store?.getState();
+			assert(s);
+			// An empty survey form on a complete app introduces EMPTY_FORM —
+			// the ratchet rejects it.
+			returned = result.current.mutations.addForm(s.moduleOrder[0], {
+				uuid: "form-gated-uuid",
+				id: "gated",
+				name: "Gated",
+				type: "survey",
+			});
+		});
+
+		expect(returned).toBe("");
+		const s = result.current.store?.getState();
+		expect(s?.forms[asUuid("form-gated-uuid")]).toBeUndefined();
+		// The rejection surfaced person-to-person, not silently.
+		const toast = toastStore.toasts.at(-1);
+		expect(toast?.severity).toBe("error");
+		expect(toast?.message).toContain("has no fields");
+		toastStore.clear();
+	});
+
+	it("dispatches a clean edit unchanged (the gate is transparent on pass)", () => {
+		toastStore.clear();
+		const { result } = renderHook(() => useMutationsWithStore(), {
+			wrapper: completePhaseWrapper,
+		});
+
+		act(() => {
+			const s = result.current.store?.getState();
+			assert(s);
+			result.current.mutations.updateModule(s.moduleOrder[0], {
+				name: "Renamed Module",
+			});
+		});
+
+		const s = result.current.store?.getState();
+		assert(s);
+		expect(s.modules[s.moduleOrder[0]]?.name).toBe("Renamed Module");
+		expect(toastStore.toasts).toHaveLength(0);
 	});
 });
