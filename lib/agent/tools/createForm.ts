@@ -23,7 +23,7 @@ import type {
 import { FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -84,8 +84,21 @@ export const createFormTool = {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
 			});
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(mutations, newDoc, `module:${moduleIndex}`);
+			const commit = await guardedMutate(
+				ctx,
+				doc,
+				mutations,
+				`module:${moduleIndex}`,
+			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			const mod = newDoc.modules[moduleUuid];
 			const forms = newDoc.formOrder[moduleUuid] ?? [];

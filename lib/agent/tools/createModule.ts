@@ -26,7 +26,7 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { addModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -75,8 +75,16 @@ export const createModuleTool = {
 				...(case_type && { caseType: case_type }),
 				...(case_list_only && { caseListOnly: case_list_only }),
 			});
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(mutations, newDoc, "module:create");
+			const commit = await guardedMutate(ctx, doc, mutations, "module:create");
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			const newModIndex = newDoc.moduleOrder.length - 1;
 			return {

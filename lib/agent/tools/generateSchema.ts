@@ -15,7 +15,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { setCaseTypesMutations } from "../blueprintHelpers";
 import { caseTypesOutputSchema } from "../scaffoldSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 
 export const generateSchemaInputSchema = z
 	.object({
@@ -62,8 +62,16 @@ export const generateSchemaTool = {
 				{ kind: "setAppName", name: input.appName },
 				...setCaseTypesMutations(input.caseTypes),
 			];
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(mutations, newDoc, "schema");
+			const commit = await guardedMutate(ctx, doc, mutations, "schema");
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 			return {
 				kind: "mutate" as const,
 				mutations,

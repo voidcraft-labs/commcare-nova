@@ -45,7 +45,7 @@ import {
 	setFieldMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "../common";
+import { guardedMutate, type MutatingToolResult } from "../common";
 import {
 	brandMediaBundle,
 	FIELD_MEDIA_SLOTS,
@@ -144,12 +144,21 @@ export const attachFieldMediaTool = {
 				slot,
 				hasAny ? branded : null,
 			);
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`media:field:${moduleIndex}-${formIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			const verb = hasAny ? "Attached" : "Cleared";
 			const slots = hasAny

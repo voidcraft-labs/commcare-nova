@@ -38,7 +38,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "../common";
+import { guardedMutate, type MutatingToolResult } from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult, snapshotCaseListConfig } from "./shared";
 
@@ -125,12 +125,21 @@ export const setCaseListFilterTool = {
 			const mutations = updateModuleMutations(mod, {
 				caseListConfig: nextConfig,
 			});
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`module:${moduleIndex}:filter`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,

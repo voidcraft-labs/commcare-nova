@@ -20,7 +20,7 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { resolveFormUuid, setFormMediaMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "../common";
+import { guardedMutate, type MutatingToolResult } from "../common";
 import { brandAssetSlot, nullableAssetSlot } from "./shared";
 
 export const setFormMediaInputSchema = z
@@ -76,12 +76,21 @@ export const setFormMediaTool = {
 				brandAssetSlot(icon),
 				brandAssetSlot(audioLabel),
 			);
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`media:form:${moduleIndex}-${formIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			const formName =
 				newDoc.forms[formUuid]?.name ?? `m${moduleIndex}-f${formIndex}`;

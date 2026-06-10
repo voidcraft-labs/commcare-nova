@@ -19,6 +19,7 @@
  * MCP adapter).
  */
 
+import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
@@ -37,6 +38,16 @@ export interface ToolExecutionContext {
 
 	/** Per-run grouping id. Stamped on every event envelope. */
 	readonly runId: string;
+
+	/**
+	 * The app's lifecycle phase for the validity gate
+	 * (`tools/common.ts::guardedMutate`): `"building"` while the app is
+	 * under construction (chat builds — `appReady` false), `"complete"`
+	 * otherwise. Derived once per request/call by the surface that built
+	 * this context; the gate semantics themselves live in
+	 * `lib/commcare/validator/gate.ts::evaluateCommit`.
+	 */
+	readonly commitPhase: CommitPhase;
 
 	/**
 	 * Persist a mutation batch to the durable event log and to Firestore.

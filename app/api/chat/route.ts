@@ -395,6 +395,11 @@ export async function POST(req: Request) {
 				usage,
 				session: keyResult.session,
 				appId,
+				/* Validity-gate phase: the same `appReady` signal that picks the
+				 * editing prompt — false during initial generation (completeness
+				 * deferred while the SA is still scaffolding), true for edits of
+				 * an existing app (the completeness ratchet holds). */
+				commitPhase: appReady ? "complete" : "building",
 			});
 
 			/* Persist the current request's user message as the first

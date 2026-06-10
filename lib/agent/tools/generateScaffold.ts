@@ -19,7 +19,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { setScaffoldMutations } from "../blueprintHelpers";
 import { scaffoldModulesSchema } from "../scaffoldSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import { enforceScaffoldConnectIds } from "./shared/connectIds";
 
 export const generateScaffoldInputSchema = scaffoldModulesSchema;
@@ -78,8 +78,16 @@ export const generateScaffoldTool = {
 			const scaffold = enforced.scaffold;
 
 			const mutations = setScaffoldMutations(scaffold);
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(mutations, newDoc, "scaffold");
+			const commit = await guardedMutate(ctx, doc, mutations, "scaffold");
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 			return {
 				kind: "mutate" as const,
 				mutations,

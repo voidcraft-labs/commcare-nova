@@ -790,7 +790,12 @@ describe("solutionsArchitect — validateApp", () => {
 // field-registry rule + fix pair that produces the error.
 
 vi.mock("@/lib/commcare/validator/runner", () => ({
-	runValidation: vi.fn(),
+	// Default to "no findings" — every mutating tool now routes through the
+	// commit gate (`guardedMutate`), which calls `runValidation` twice per
+	// batch; a bare `vi.fn()` would return `undefined` and crash the gate
+	// inside every tool under test. The validationLoop tests below override
+	// per call to drive their fix iterations.
+	runValidation: vi.fn(() => []),
 }));
 
 vi.mock("@/lib/commcare/validator/fixes", () => ({

@@ -29,7 +29,7 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -81,8 +81,21 @@ export const updateModuleTool = {
 			}
 
 			const mutations = updateModuleMutations(mod, { name });
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(mutations, newDoc, `module:${moduleIndex}`);
+			const commit = await guardedMutate(
+				ctx,
+				doc,
+				mutations,
+				`module:${moduleIndex}`,
+			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			// Read back from the post-mutation doc so the summary reflects
 			// the values the SA can expect on a follow-up read — the patch

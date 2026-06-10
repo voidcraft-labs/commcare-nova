@@ -52,6 +52,7 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { updateAppForRun } from "@/lib/db/apps";
 import type { UsageAccumulator } from "@/lib/db/usage";
+import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -124,6 +125,10 @@ interface GenerationContextOptions {
 	/** Firestore app id. The chat route creates the app doc before this
 	 * constructor runs so every context has a valid target app. */
 	appId: string;
+	/** Validity-gate phase for this run — `"building"` for an initial
+	 * build (`appReady` false), `"complete"` for an edit of an existing
+	 * app. See `ToolExecutionContext.commitPhase`. */
+	commitPhase: CommitPhase;
 }
 
 /**
@@ -176,6 +181,8 @@ export class GenerationContext implements ToolExecutionContext {
 	/** Firestore app id — required. Created before construction by the
 	 * chat route so every context has a valid persistence target. */
 	readonly appId: string;
+	/** Validity-gate phase for this run. See `ToolExecutionContext.commitPhase`. */
+	readonly commitPhase: CommitPhase;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
 	 * each request; doc IDs are Firestore-minted, so no cross-request
@@ -204,6 +211,7 @@ export class GenerationContext implements ToolExecutionContext {
 		this.usage = opts.usage;
 		this.session = opts.session;
 		this.appId = opts.appId;
+		this.commitPhase = opts.commitPhase;
 	}
 
 	/** Get the Anthropic model provider for a given model ID. The SA always

@@ -18,7 +18,7 @@
  * SA wrapper's "advance closure on non-empty mutations" check still
  * works uniformly across every mutating tool.
  *
- * Six exit branches:
+ * Seven exit branches:
  *
  *   1. Field not found at the given triple → `{ error }`, no mutations.
  *   2. Rename rejected by the shared identifier verdict (XML-illegal /
@@ -27,11 +27,15 @@
  *   3. Illegal kind conversion (target not in the source kind's
  *      `convertTargets`) → `{ error }`, no mutations.
  *   4. Conversion rejected by the reducer (reconcile returned a shape
- *      the target kind's schema rejects) → `{ error }`, partial
- *      mutations already persisted.
- *   5. Rename left the field not found (shouldn't happen in practice) →
+ *      the target kind's schema rejects) → `{ error }`, nothing
+ *      persisted (the pre-check runs before the convert commits).
+ *   5. Commit-gate rejection on any stage (`guardedMutate` — the batch
+ *      would introduce a validator finding) → `{ error }` listing the
+ *      findings plus, after the first stage, which earlier stages of
+ *      this call already committed.
+ *   6. Rename left the field not found (shouldn't happen in practice) →
  *      `{ error }`.
- *   6. Success → a human-readable `message` referencing the final id +
+ *   7. Success → a human-readable `message` referencing the final id +
  *      changes, plus a UI `summary` for the chat transcript.
  */
 
@@ -56,7 +60,7 @@ import {
 	editFieldUpdatesSchema,
 	type wideEditUpdatesSchema,
 } from "../toolSchemas";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { applyToDoc, guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -187,6 +191,25 @@ function editPatchToFieldPatch(
 	return patch as FieldPatchFor<FieldKind>;
 }
 
+/**
+ * The mid-call rejection note for a multi-batch edit: each of this
+ * tool's stages (convert → rename → patch) commits independently, so a
+ * stage the gate rejects must tell the agent which earlier stages
+ * already landed — otherwise it would retry the WHOLE call and
+ * double-apply the committed prefix.
+ */
+function withCommittedPrefixNote(
+	error: string,
+	committedStages: string[],
+): string {
+	if (committedStages.length === 0) return error;
+	return `${error}\nNote: the earlier ${
+		committedStages.length === 1 ? "step" : "steps"
+	} of this call (${committedStages.join(
+		", ",
+	)}) already applied — only re-issue the rejected part.`;
+}
+
 export const editFieldTool = {
 	description:
 		"Update properties on an existing field. Pass the field's current kind to edit it in place — that selects the set of properties this kind actually has; passing a different kind requests a conversion to that kind. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
@@ -223,6 +246,9 @@ export const editFieldTool = {
 			// sentinel at the end.
 			let workingDoc = doc;
 			const allMutations: Mutation[] = [];
+			/* Stage names already committed in THIS call — drives the
+			 * committed-prefix note on a mid-call gate rejection. */
+			const committedStages: string[] = [];
 			const fieldUuid: Uuid = resolved.field.uuid;
 
 			// Pre-dispatch rename guard, checked BEFORE the convert stage so
@@ -306,13 +332,28 @@ export const editFieldTool = {
 					};
 				}
 
-				await ctx.recordMutations(
+				const convertCommit = await guardedMutate(
+					ctx,
+					workingDoc,
 					convertMuts,
-					afterConvert,
 					`convert:${moduleIndex}-${formIndex}`,
 				);
-				workingDoc = afterConvert;
+				if (!convertCommit.ok) {
+					return {
+						kind: "mutate" as const,
+						mutations: allMutations,
+						newDoc: workingDoc,
+						result: {
+							error: withCommittedPrefixNote(
+								convertCommit.error,
+								committedStages,
+							),
+						},
+					};
+				}
+				workingDoc = convertCommit.newDoc;
 				allMutations.push(...convertMuts);
+				committedStages.push("kind conversion");
 			}
 
 			// Id rename next as its own emitted batch. The `renameField`
@@ -324,13 +365,28 @@ export const editFieldTool = {
 			if (newId && newId !== fieldId) {
 				const renameMuts = renameFieldMutations(workingDoc, fieldUuid, newId);
 				if (renameMuts.length > 0) {
-					workingDoc = applyToDoc(workingDoc, renameMuts);
-					await ctx.recordMutations(
-						renameMuts,
+					const renameCommit = await guardedMutate(
+						ctx,
 						workingDoc,
+						renameMuts,
 						`rename:${moduleIndex}-${formIndex}`,
 					);
+					if (!renameCommit.ok) {
+						return {
+							kind: "mutate" as const,
+							mutations: allMutations,
+							newDoc: workingDoc,
+							result: {
+								error: withCommittedPrefixNote(
+									renameCommit.error,
+									committedStages,
+								),
+							},
+						};
+					}
+					workingDoc = renameCommit.newDoc;
 					allMutations.push(...renameMuts);
+					committedStages.push(`rename to "${newId}"`);
 				}
 			}
 
@@ -375,12 +431,26 @@ export const editFieldTool = {
 						patch,
 					);
 					if (updateMuts.length > 0) {
-						workingDoc = applyToDoc(workingDoc, updateMuts);
-						await ctx.recordMutations(
-							updateMuts,
+						const patchCommit = await guardedMutate(
+							ctx,
 							workingDoc,
+							updateMuts,
 							`edit:${moduleIndex}-${formIndex}`,
 						);
+						if (!patchCommit.ok) {
+							return {
+								kind: "mutate" as const,
+								mutations: allMutations,
+								newDoc: workingDoc,
+								result: {
+									error: withCommittedPrefixNote(
+										patchCommit.error,
+										committedStages,
+									),
+								},
+							};
+						}
+						workingDoc = patchCommit.newDoc;
 						allMutations.push(...updateMuts);
 					}
 				}

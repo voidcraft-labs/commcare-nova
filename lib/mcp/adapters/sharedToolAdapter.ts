@@ -60,7 +60,7 @@ import type {
 } from "@/lib/agent/tools/common";
 import type { ValidateAppResult } from "@/lib/agent/tools/validateApp";
 import type { BlueprintDoc } from "@/lib/domain";
-import { initMcpCall } from "../context";
+import { commitPhaseForAppStatus, initMcpCall } from "../context";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -192,7 +192,8 @@ export function registerSharedTool(
 
 				/* `initMcpCall` bundles the per-call collaborators the
 				 * adapter needs (`LogWriter` + progress emitter +
-				 * `McpContext`) and binds them to the derived `runId`.
+				 * `McpContext`) and binds them to the derived `runId` plus
+				 * the validity-gate phase from the app's lifecycle status.
 				 * Shared with `uploadAppToHq` so a single change to
 				 * collaborator wiring lands in one place rather than
 				 * across every tool handler. */
@@ -201,6 +202,7 @@ export function registerSharedTool(
 					ctx,
 					appId,
 					runId,
+					commitPhaseForAppStatus(loaded.app.status),
 					extra,
 				);
 

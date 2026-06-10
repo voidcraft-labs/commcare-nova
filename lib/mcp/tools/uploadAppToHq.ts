@@ -77,7 +77,7 @@ import { getCredentialsForUpload } from "@/lib/db/settings";
 import { log } from "@/lib/logger";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { initMcpCall } from "../context";
+import { commitPhaseForAppStatus, initMcpCall } from "../context";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -273,6 +273,7 @@ export function registerUploadAppToHq(
 					ctx,
 					appId,
 					runId,
+					commitPhaseForAppStatus(app.status),
 					extra,
 				);
 

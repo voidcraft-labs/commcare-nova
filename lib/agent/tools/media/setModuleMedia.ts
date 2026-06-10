@@ -23,7 +23,7 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { setModuleMediaMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "../common";
+import { guardedMutate, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import { brandAssetSlot, nullableAssetSlot } from "./shared";
 
@@ -82,12 +82,21 @@ export const setModuleMediaTool = {
 				brandAssetSlot(icon),
 				brandAssetSlot(audioLabel),
 			);
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`media:module:${moduleIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,

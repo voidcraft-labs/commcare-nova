@@ -16,7 +16,7 @@
  * tool — one field is just a length-1 `fields` array.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Four legal exit branches
+ * shared `ToolExecutionContext` interface. Five legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
  *   1. Index resolution miss (module / form) → `{ error }`, no
@@ -25,8 +25,11 @@
  *      over-long / sibling-conflicting per the shared verdicts in
  *      `lib/doc/identifierVerdicts.ts`) → `{ error }` naming EVERY
  *      failing item, no mutations, nothing persisted.
- *   3. Runtime error in the pipeline → `{ error }`, no mutations.
- *   4. Success → a human-readable `message` (+ a UI `summary`); the stage
+ *   3. Commit-gate rejection (`guardedMutate` — the batch would
+ *      introduce a validator finding) → `{ error }` listing each
+ *      finding, nothing persisted.
+ *   4. Runtime error in the pipeline → `{ error }`, no mutations.
+ *   5. Success → a human-readable `message` (+ a UI `summary`); the stage
  *      tag drives lifecycle derivation on the chat client.
  */
 
@@ -45,7 +48,7 @@ import {
 } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -301,12 +304,21 @@ export const addFieldsTool = {
 			// context. The client applies via `applyMany` — no wire snapshot
 			// needed; the mutations ARE the update. The `form:M-F` stage tag
 			// drives lifecycle derivation on the chat client (forms phase).
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`form:${moduleIndex}-${formIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			// The human-readable summary uses the post-mutation doc's field
 			// count so the SA's message reflects reality after the batch

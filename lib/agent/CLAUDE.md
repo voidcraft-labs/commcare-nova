@@ -30,7 +30,9 @@ CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/comm
 
 ## The write surface (server side)
 
-The SA computes `Mutation[]` internally (via the helpers in `blueprintHelpers.ts`), applies them to its own doc via Immer `produce`, and persists them through the shared tool-execution contract via `ctx.recordMutations(mutations, doc, stage?)`. Clients of that stream (the interactive builder) receive `data-mutations` events and feed the payload straight into `docStore.applyMany(mutations)` — no translation, no reconstruction. The agent and the user speak the same mutation API.
+The SA computes `Mutation[]` internally (via the helpers in `blueprintHelpers.ts`) and commits them through `tools/common.ts::guardedMutate` — the one write path that runs the validity gate (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` over `evaluateCommit`, phase from `ctx.commitPhase`) BEFORE persisting via `ctx.recordMutations(mutations, doc, stage?)`. A batch that would introduce a validator finding fails the tool call with the findings in the `{ error }` envelope and persists nothing — the agent self-corrects within its loop; an invalid intermediate never reaches Firestore or the stream, on chat and MCP alike. Multi-batch tools (`editField`'s convert → rename → patch) gate each stage independently and report the committed prefix on a mid-call rejection. The `validateApp` fix loop's internal batches (`connect-defaults`, `fix:attempt-N`) stay ungated — they are repairs, and the gate would pass them anyway.
+
+Clients of the stream (the interactive builder) receive `data-mutations` events and feed the payload straight into `docStore.applyMany(mutations)` — no translation, no reconstruction. The agent and the user speak the same mutation API.
 
 `data-done` still carries the full `PersistableDoc` at the end of `validateApp` because validation autofixes can produce opaque deltas; the final reconciliation there is cheaper than threading a mutation trail through the fix registry. Nothing else emits full docs on the live path.
 

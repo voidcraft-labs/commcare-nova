@@ -25,7 +25,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { removeModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -75,12 +75,21 @@ export const removeModuleTool = {
 			const name = doc.modules[moduleUuid]?.name ?? null;
 
 			const mutations: Mutation[] = removeModuleMutations(doc, moduleUuid);
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`module:remove:${moduleIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,

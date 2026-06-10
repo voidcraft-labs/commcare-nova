@@ -89,6 +89,7 @@ describe("McpContext", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
+			commitPhase: "complete",
 			logWriter,
 			progress: mockProgress(),
 		});
@@ -122,6 +123,7 @@ describe("McpContext", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
+			commitPhase: "complete",
 			logWriter: mockLogWriter(),
 			progress: mockProgress(),
 		});
@@ -155,6 +157,7 @@ describe("McpContext", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
+			commitPhase: "complete",
 			logWriter,
 			progress: mockProgress(),
 		});

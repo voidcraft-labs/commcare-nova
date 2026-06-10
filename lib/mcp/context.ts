@@ -40,6 +40,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
+import type { AppDoc } from "@/lib/db/types";
+import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -66,6 +68,10 @@ export interface McpContextOptions {
 	userId: string;
 	/** Run id — derived by the adapter from the app doc's current state. */
 	runId: string;
+	/** Validity-gate phase, derived from the loaded app's lifecycle
+	 * status via `commitPhaseForAppStatus`. See
+	 * `ToolExecutionContext.commitPhase`. */
+	commitPhase: CommitPhase;
 	/** Event-log sink. Always constructed with `source: "mcp"` by the adapter. */
 	logWriter: LogWriter;
 	/** MCP progress-notification emitter. No-op if the client didn't opt in. */
@@ -76,6 +82,7 @@ export class McpContext implements ToolExecutionContext {
 	readonly appId: string;
 	readonly userId: string;
 	readonly runId: string;
+	readonly commitPhase: CommitPhase;
 	readonly logWriter: LogWriter;
 	readonly progress: ProgressEmitter;
 	/**
@@ -92,6 +99,7 @@ export class McpContext implements ToolExecutionContext {
 		this.appId = opts.appId;
 		this.userId = opts.userId;
 		this.runId = opts.runId;
+		this.commitPhase = opts.commitPhase;
 		this.logWriter = opts.logWriter;
 		this.progress = opts.progress;
 	}
@@ -253,6 +261,7 @@ export function initMcpCall(
 	ctx: ToolContext,
 	appId: string,
 	runId: string,
+	commitPhase: CommitPhase,
 	extra: McpCallExtra | undefined,
 ): InitMcpCallResult {
 	const progressToken = extra?._meta?.progressToken;
@@ -262,8 +271,21 @@ export function initMcpCall(
 		appId,
 		userId: ctx.userId,
 		runId,
+		commitPhase,
 		logWriter,
 		progress,
 	});
 	return { mcpCtx, logWriter, runId, progress };
+}
+
+/**
+ * Validity-gate phase for an MCP call, from the loaded app's lifecycle
+ * status: a `generating` app is still under construction (completeness
+ * deferred); everything else is `complete` (the ratchet holds). MCP
+ * tool calls always run against a loaded `AppDoc`, so the status is the
+ * authoritative build-window signal on this surface — the MCP analog of
+ * the chat route's `appReady` flag.
+ */
+export function commitPhaseForAppStatus(status: AppDoc["status"]): CommitPhase {
+	return status === "generating" ? "building" : "complete";
 }

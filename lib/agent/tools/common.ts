@@ -8,9 +8,14 @@
  */
 
 import { produce } from "immer";
+import {
+	describeIntroducedErrors,
+	mutationCommitVerdict,
+} from "@/lib/doc/commitVerdicts";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { ToolExecutionContext } from "../toolExecutionContext";
 
 /**
  * Apply a mutation batch to a `BlueprintDoc` via Immer `produce`.
@@ -27,6 +32,50 @@ export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
 	return produce(doc, (draft) => {
 		applyMutations(draft, muts);
 	});
+}
+
+/**
+ * Outcome of a {@link guardedMutate} call. `ok: true` means the batch
+ * passed the validity gate AND was persisted; `newDoc` is the doc the
+ * tool continues against. `ok: false` means the gate rejected the batch
+ * — nothing was written — and `error` is the person-to-person message
+ * (one line per introduced finding) the tool returns in its `{ error }`
+ * envelope so the agent self-corrects in its loop.
+ */
+export type GuardedMutateOutcome =
+	| { ok: true; newDoc: BlueprintDoc }
+	| { ok: false; error: string };
+
+/**
+ * The one write path for every mutating shared tool: gate the batch
+ * through the validity verdict, then persist via `ctx.recordMutations`.
+ *
+ * The gate (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` over
+ * `evaluateCommit`) accepts a batch iff it introduces no error of a
+ * gating class for `ctx.commitPhase` — soundness always, completeness
+ * once the app is complete. A rejected batch persists NOTHING: the gate
+ * runs before the write, so an invalid intermediate state never reaches
+ * Firestore or the mutation stream, on the chat surface and MCP alike.
+ *
+ * Tools must route every batch through here rather than calling
+ * `applyToDoc` + `ctx.recordMutations` themselves — a direct write would
+ * skip the gate. (`applyToDoc` stays exported for non-commit candidate
+ * computation, e.g. `editField`'s convert pre-check.)
+ */
+export async function guardedMutate(
+	ctx: ToolExecutionContext,
+	prevDoc: BlueprintDoc,
+	mutations: Mutation[],
+	stage?: string,
+): Promise<GuardedMutateOutcome> {
+	const verdict = mutationCommitVerdict(prevDoc, mutations, ctx.commitPhase);
+	if (!verdict.ok) {
+		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
+	}
+	if (mutations.length > 0) {
+		await ctx.recordMutations(mutations, verdict.nextDoc, stage);
+	}
+	return { ok: true, newDoc: verdict.nextDoc };
 }
 
 /**

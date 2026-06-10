@@ -22,7 +22,7 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { setAppLogoMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "../common";
+import { guardedMutate, type MutatingToolResult } from "../common";
 import { brandAssetSlot, nullableAssetSlot } from "./shared";
 
 export const setAppLogoInputSchema = z
@@ -52,8 +52,16 @@ export const setAppLogoTool = {
 		const { logo } = input;
 		try {
 			const mutations = setAppLogoMutations(brandAssetSlot(logo));
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(mutations, newDoc, "media:app-logo");
+			const commit = await guardedMutate(ctx, doc, mutations, "media:app-logo");
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,

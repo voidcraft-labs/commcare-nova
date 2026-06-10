@@ -42,7 +42,7 @@ import type {
 import { USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import {
 	collectConnectIdsExcept,
 	enforceConnectIds,
@@ -298,12 +298,21 @@ export const updateFormTool = {
 			// the shared context so both surfaces write the same stream +
 			// log + Firestore trio.
 			const mutations = updateFormMutations(doc, formUuid, patch);
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`form:${moduleIndex}-${formIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			const formAfter = newDoc.forms[formUuid];
 			if (!formAfter) {
