@@ -588,3 +588,35 @@ root causes; all fixed failing-test-first in one commit (`d2d8a0b2`):
 
 Full suite after fixes: 5971 passed / 0 failed (30 pre-existing skips),
 lint + tsc clean.
+
+### Round 2 (SHIPPED — 10d0d9fa)
+
+A cold re-review of `d2d8a0b2` surfaced 7 surviving findings, 4 root
+causes — all fixed failing-test-first in one commit (`10d0d9fa`):
+
+1. **Cross-form moveField → warn-and-skip** — round 1 gave an undesigned
+   operation half-designed semantics (the dedup name, chosen against
+   DESTINATION siblings, could capture an unrelated source-form field
+   when spliced into source expressions; the moved subtree's outbound
+   refs silently retargeted to same-named destination fields). The
+   reducer now skips any `moveField` whose `toParentUuid` resolves to a
+   different form (warn logged, doc unchanged, empty result — the
+   total-reducer skip convention); the round-1 source+subtree rewrite is
+   deleted and the doc blocks state same-form scope plainly. Designing
+   cross-form moves is future work that must pick outbound-ref semantics
+   first. Same-form cross-parent moves keep full re-anchoring.
+2. **updateField kind patch** — the reducer accepts a `kind` patch
+   (convertField in another spelling), so a kind patch on a case-bound
+   field now derives scope `"full"`, mirroring convertField.
+3. **toWellFormed → regex sanitizer** — ES2024's method is unpolyfilled
+   (Firefox ≤118 / Safari ≤16.3), so identity parts now run a
+   lookbehind-free pair-or-lone regex pass replacing lone surrogates
+   with U+FFFD; byte-identity with the native method is test-pinned.
+4. **Walker consolidation** — `pathRewrite.ts` imports the `#form/`
+   prefix walker, segment collector, `applyEdits`, and `SourceEdit` from
+   `lib/preview/xpath/rewrite.ts` (the byte-identical copies and the
+   false "stands alone" justification are gone — `fields.ts` already
+   imported the preview rewriters).
+
+Full suite after fixes: 5975 passed / 0 failed (30 pre-existing skips),
+lint + tsc clean.
