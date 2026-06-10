@@ -83,6 +83,38 @@ describe("keyboardManager", () => {
 		expect(handler1).not.toHaveBeenCalled();
 	});
 
+	it("a handler returning false declines: earlier registrations get the key and the event stays unconsumed when all decline", () => {
+		// Registration order is recency-of-(re)registration, not component
+		// depth: a broad layout-level handler that re-registers on
+		// unrelated state routinely lands LAST without being the most
+		// specific match. Declining (return false) lets the more specific,
+		// longer-lived registration handle the key instead of the event
+		// being eaten by a no-op.
+		const specific = vi.fn();
+		const decliner = vi.fn(() => false);
+		keyboardManager.register("test-1", [{ key: "Escape", handler: specific }]);
+		keyboardManager.register("test-2", [{ key: "Escape", handler: decliner }]);
+
+		const event = new KeyboardEvent("keydown", {
+			key: "Escape",
+			cancelable: true,
+		});
+		document.dispatchEvent(event);
+		expect(decliner).toHaveBeenCalledOnce();
+		expect(specific).toHaveBeenCalledOnce();
+		expect(event.defaultPrevented).toBe(true);
+
+		// When every matching handler declines, the event is left
+		// untouched for whatever non-manager listener wants it.
+		keyboardManager.unregister("test-1");
+		const allDecline = new KeyboardEvent("keydown", {
+			key: "Escape",
+			cancelable: true,
+		});
+		document.dispatchEvent(allDecline);
+		expect(allDecline.defaultPrevented).toBe(false);
+	});
+
 	it("suppresses non-global shortcuts when input is focused", () => {
 		const handler = vi.fn();
 		keyboardManager.register("test-1", [{ key: "a", handler }]);

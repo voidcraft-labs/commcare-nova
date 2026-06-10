@@ -62,7 +62,13 @@ export function useBuilderShortcuts(
 		};
 
 		return [
-			// Escape — deselect / exit pointer mode
+			// Escape — deselect / exit pointer mode. Declines (returns
+			// false) when neither applies so the key falls through to a
+			// more specific registration (e.g. the case-list workspace's
+			// inspector-closing Escape) instead of being eaten — this
+			// registration re-registers on every doc mutation (the memo
+			// depends on `loc`), so it routinely sits LAST in the manager's
+			// recency order without being the most specific handler.
 			{
 				key: "Escape",
 				handler: () => {
@@ -74,6 +80,7 @@ export function useBuilderShortcuts(
 						select(undefined);
 						return;
 					}
+					return false;
 				},
 			},
 			// V/E — switch cursor mode (Figma-style single-key shortcuts,
