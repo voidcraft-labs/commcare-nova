@@ -48,6 +48,14 @@ describe("serializePath", () => {
 		expect(serializePath(loc)).toEqual([modUuid, "search-config"]);
 	});
 
+	it("returns [moduleUuid, 'detail-config'] for the case-detail authoring kind", () => {
+		const loc: Location = {
+			kind: "detail-config",
+			moduleUuid: modUuid,
+		};
+		expect(serializePath(loc)).toEqual([modUuid, "detail-config"]);
+	});
+
 	it("returns [formUuid] for form without selection", () => {
 		const loc: Location = {
 			kind: "form",
@@ -180,6 +188,24 @@ describe("parsePathToLocation", () => {
 		});
 	});
 
+	it("parses case-detail authoring screen", () => {
+		const doc = makeParseDoc({
+			modules: { [modUuid]: { uuid: modUuid } as never },
+		});
+		expect(parsePathToLocation([modUuid, "detail-config"], doc)).toEqual({
+			kind: "detail-config",
+			moduleUuid: modUuid,
+		});
+	});
+
+	it("falls back to home when detail-config module is missing", () => {
+		expect(
+			parsePathToLocation([modUuid, "detail-config"], makeParseDoc()),
+		).toEqual({
+			kind: "home",
+		});
+	});
+
 	it("parses form with selection from two segments", () => {
 		const doc = makeParseDoc({
 			forms: { [formUuid]: { uuid: formUuid } as never },
@@ -302,6 +328,23 @@ describe("isValidLocation", () => {
 		});
 		expect(
 			isValidLocation({ kind: "search-config", moduleUuid: modUuid }, doc),
+		).toBe(true);
+	});
+
+	it("rejects detail-config when module uuid is unknown", () => {
+		expect(
+			isValidLocation({ kind: "detail-config", moduleUuid: modUuid }, emptyDoc),
+		).toBe(false);
+	});
+
+	it("accepts detail-config when module exists", () => {
+		const doc = docWith({
+			modules: {
+				[modUuid]: { uuid: modUuid, name: "m" } as never,
+			},
+		});
+		expect(
+			isValidLocation({ kind: "detail-config", moduleUuid: modUuid }, doc),
 		).toBe(true);
 	});
 

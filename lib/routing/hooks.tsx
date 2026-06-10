@@ -124,6 +124,18 @@ export interface NavigateActions {
 	 * `openCaseList` — same per-module shape, different config slot.
 	 */
 	openSearchConfig: (moduleUuid: Uuid) => void;
+	/**
+	 * Open the case-detail authoring workspace for `moduleUuid`. Routes
+	 * to `/build/{appId}/{moduleUuid}/detail-config` — the third tab of
+	 * the case-list workspace alongside `openCaseList` / `openSearchConfig`.
+	 */
+	openDetailConfig: (moduleUuid: Uuid) => void;
+	/**
+	 * Open the case-list worker preview for `moduleUuid`. Routes to
+	 * `/build/{appId}/{moduleUuid}/case-preview` — the workspace's
+	 * first-class run-through tab.
+	 */
+	openCasePreview: (moduleUuid: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -149,7 +161,25 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 		(loc.kind === "module" ||
 			loc.kind === "cases" ||
 			loc.kind === "search-config" ||
+			loc.kind === "detail-config" ||
+			loc.kind === "case-preview" ||
 			loc.kind === "form") &&
+		loc.moduleUuid === uuid
+	);
+}
+
+/**
+ * `true` when any of the case-list workspace's URLs (list / search /
+ * detail / preview tab) is open for this module. Used by the tree
+ * sidebar's Case List & Search node for highlight state.
+ */
+export function useIsCaseListSelected(uuid: Uuid): boolean {
+	const loc = useLocation();
+	return (
+		(loc.kind === "cases" ||
+			loc.kind === "search-config" ||
+			loc.kind === "detail-config" ||
+			loc.kind === "case-preview") &&
 		loc.moduleUuid === uuid
 	);
 }
@@ -194,6 +224,8 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "module" ||
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
+		loc.kind === "detail-config" ||
+		loc.kind === "case-preview" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
@@ -241,8 +273,22 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		if (loc.kind === "search-config") {
 			items.push({
 				key: `search-config:${moduleUuid}`,
-				label: "Search Config",
+				label: moduleCaseType ? `${moduleCaseType} search` : "Case search",
 				location: { kind: "search-config", moduleUuid: loc.moduleUuid },
+			});
+		}
+		if (loc.kind === "detail-config") {
+			items.push({
+				key: `detail-config:${moduleUuid}`,
+				label: moduleCaseType ? `${moduleCaseType} detail` : "Case detail",
+				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
+			});
+		}
+		if (loc.kind === "case-preview") {
+			items.push({
+				key: `case-preview:${moduleUuid}`,
+				label: "Preview",
+				location: { kind: "case-preview", moduleUuid: loc.moduleUuid },
 			});
 		}
 		if (loc.kind === "form" && formUuid && moduleUuid) {
@@ -318,6 +364,10 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "cases", moduleUuid, caseId }),
 			openSearchConfig: (moduleUuid: Uuid) =>
 				push({ kind: "search-config", moduleUuid }),
+			openDetailConfig: (moduleUuid: Uuid) =>
+				push({ kind: "detail-config", moduleUuid }),
+			openCasePreview: (moduleUuid: Uuid) =>
+				push({ kind: "case-preview", moduleUuid }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -350,6 +400,8 @@ export function parentLocation(loc: Location): Location | undefined {
 				? { kind: "cases", moduleUuid: loc.moduleUuid }
 				: { kind: "module", moduleUuid: loc.moduleUuid };
 		case "search-config":
+		case "detail-config":
+		case "case-preview":
 			return { kind: "module", moduleUuid: loc.moduleUuid };
 		case "form":
 			return loc.selectedUuid

@@ -53,11 +53,13 @@ export type PreviewScreen =
 	| { type: "home" }
 	| { type: "module"; moduleIndex: number }
 	| { type: "caseList"; moduleIndex: number; formIndex: number }
-	/** Per-module case-search authoring surface. Sibling to `caseList` —
-	 *  same module-anchored shape, different config slot. The integer
+	/** Per-module case-search / case-detail authoring surfaces.
+	 *  Siblings to `caseList` — the three URL-addressed tabs of the
+	 *  case-list workspace, same module-anchored shape. The integer
 	 *  index round-trips through PreviewShell's `locationToScreen`
 	 *  adapter just like every other screen kind. */
 	| { type: "searchConfig"; moduleIndex: number }
+	| { type: "detailConfig"; moduleIndex: number }
 	| { type: "form"; moduleIndex: number; formIndex: number; caseId?: string };
 
 /** Returns the immediate parent screen in the hierarchy, or undefined if already at home. */
@@ -69,6 +71,7 @@ export function getParentScreen(
 			return { type: "home" };
 		case "caseList":
 		case "searchConfig":
+		case "detailConfig":
 		case "form":
 			return { type: "module", moduleIndex: screen.moduleIndex };
 		default:
@@ -84,6 +87,8 @@ export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
 	if (a.type === "caseList" && b.type === "caseList")
 		return a.moduleIndex === b.moduleIndex && a.formIndex === b.formIndex;
 	if (a.type === "searchConfig" && b.type === "searchConfig")
+		return a.moduleIndex === b.moduleIndex;
+	if (a.type === "detailConfig" && b.type === "detailConfig")
 		return a.moduleIndex === b.moduleIndex;
 	if (a.type === "form" && b.type === "form")
 		return (
@@ -107,6 +112,8 @@ export function screenKey(screen: PreviewScreen): string {
 			return `caseList-${screen.moduleIndex}-${screen.formIndex}`;
 		case "searchConfig":
 			return `searchConfig-${screen.moduleIndex}`;
+		case "detailConfig":
+			return `detailConfig-${screen.moduleIndex}`;
 		case "form":
 			return `form-${screen.moduleIndex}-${screen.formIndex}`;
 	}

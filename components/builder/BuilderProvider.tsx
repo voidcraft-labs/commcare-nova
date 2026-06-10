@@ -10,6 +10,7 @@
  *   BuilderSessionProvider      — lifecycle + ephemeral UI state
  *   ScrollRegistryProvider      — imperative scroll plumbing
  *   EditGuardProvider           — select-guard predicate stack
+ *   InspectorProvider           — right-rail inspector claim/portal state
  *   BuilderFormEngineProvider   — form preview runtime controller
  *     SyncBridge                — wires doc store ref into session store
  *     LocationRecoveryEffect    — repairs stale URL selection mid-session
@@ -40,6 +41,7 @@ import {
 	BuilderSessionProvider,
 } from "@/lib/session/provider";
 import type { ReplayInit } from "@/lib/session/types";
+import { InspectorProvider } from "@/lib/ui/inspector";
 
 // ── Provider ────────────────────────────────────────────────────────────
 
@@ -114,21 +116,23 @@ function BuilderProviderInner({
 			<BuilderSessionProvider init={sessionInit}>
 				<ScrollRegistryProvider>
 					<EditGuardProvider>
-						<BuilderFormEngineProvider>
-							<SyncBridge />
-							{/* LocationRecoveryEffect assumes a `/build/{id}/{...path}`
-							 *  URL shape (it slices the first two segments as the
-							 *  base path). Replay mounts at `/build/replay/{id}`
-							 *  where segment[1] is the literal "replay", not the
-							 *  app id — running the effect there would treat
-							 *  "replay" as the id and strip the real id on
-							 *  recovery. Replay is read-only + scoped to its own
-							 *  route, so stale-ref stripping doesn't apply. */}
-							{replay ? null : <LocationRecoveryEffect />}
-							{replay ? <ReplayHydrator replay={replay} /> : null}
-							{!replay && initialDoc ? <LoadAppHydrator /> : null}
-							{children}
-						</BuilderFormEngineProvider>
+						<InspectorProvider>
+							<BuilderFormEngineProvider>
+								<SyncBridge />
+								{/* LocationRecoveryEffect assumes a `/build/{id}/{...path}`
+								 *  URL shape (it slices the first two segments as the
+								 *  base path). Replay mounts at `/build/replay/{id}`
+								 *  where segment[1] is the literal "replay", not the
+								 *  app id — running the effect there would treat
+								 *  "replay" as the id and strip the real id on
+								 *  recovery. Replay is read-only + scoped to its own
+								 *  route, so stale-ref stripping doesn't apply. */}
+								{replay ? null : <LocationRecoveryEffect />}
+								{replay ? <ReplayHydrator replay={replay} /> : null}
+								{!replay && initialDoc ? <LoadAppHydrator /> : null}
+								{children}
+							</BuilderFormEngineProvider>
+						</InspectorProvider>
 					</EditGuardProvider>
 				</ScrollRegistryProvider>
 			</BuilderSessionProvider>

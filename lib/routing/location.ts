@@ -9,9 +9,11 @@
  *
  *   []                              → home
  *   [moduleUuid]                    → module
- *   [moduleUuid, "cases"]           → case list
+ *   [moduleUuid, "cases"]           → case list authoring
  *   [moduleUuid, "cases", caseId]   → case detail
  *   [moduleUuid, "search-config"]   → case-search authoring
+ *   [moduleUuid, "detail-config"]   → case-detail authoring
+ *   [moduleUuid, "case-preview"]    → case-list worker preview
  *   [formUuid]                      → form
  *   [formUuid, fieldUuid]        → form + selected field
  *
@@ -58,6 +60,10 @@ export function serializePath(loc: Location): string[] {
 				: [loc.moduleUuid, "cases"];
 		case "search-config":
 			return [loc.moduleUuid, "search-config"];
+		case "detail-config":
+			return [loc.moduleUuid, "detail-config"];
+		case "case-preview":
+			return [loc.moduleUuid, "case-preview"];
 		case "form":
 			/* A selected field is serialized as a single UUID — the parser
 			 * resolves it to its parent form via findFormForField. This
@@ -206,6 +212,21 @@ export function parsePathToLocation(
 		return { kind: "search-config", moduleUuid: first };
 	}
 
+	if (second === "detail-config") {
+		/* /build/{id}/{moduleUuid}/detail-config — case-detail authoring
+		 * surface, the third tab of the case-list workspace. Same module-
+		 * must-exist rule as its `cases` / `search-config` siblings. */
+		if (doc.modules[first] === undefined) return { kind: "home" };
+		return { kind: "detail-config", moduleUuid: first };
+	}
+
+	if (second === "case-preview") {
+		/* /build/{id}/{moduleUuid}/case-preview — the workspace's worker
+		 * run-through tab. Same module-must-exist rule as its siblings. */
+		if (doc.modules[first] === undefined) return { kind: "home" };
+		return { kind: "case-preview", moduleUuid: first };
+	}
+
 	/* Two-segment path: /build/{id}/{formUuid}/{fieldUuid} */
 	const secondUuid = second as Uuid;
 
@@ -251,7 +272,9 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 			// against the doc. Only the module reference matters here.
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "search-config":
-			// Case-search authoring opens against the same module
+		case "detail-config":
+		case "case-preview":
+			// The workspace's sibling tabs open against the same module
 			// reference shape as `cases`; only that uuid needs to resolve.
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "form": {
@@ -295,6 +318,8 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	if (loc.kind === "module") return loc;
 	if (loc.kind === "cases") return loc;
 	if (loc.kind === "search-config") return loc;
+	if (loc.kind === "detail-config") return loc;
+	if (loc.kind === "case-preview") return loc;
 
 	/* loc.kind === "form" — walk inward: form, then selected field. */
 	if (doc.forms[loc.formUuid] === undefined) {

@@ -27,8 +27,11 @@ import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
 import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
-import type { Uuid } from "@/lib/domain";
-import { useIsModuleSelected } from "@/lib/routing/hooks";
+import type { CaseListConfig, Uuid } from "@/lib/domain";
+import {
+	useIsCaseListSelected,
+	useIsModuleSelected,
+} from "@/lib/routing/hooks";
 
 export const ModuleCard = memo(function ModuleCard({
 	moduleUuid,
@@ -61,6 +64,7 @@ export const ModuleCard = memo(function ModuleCard({
 	/** Boolean selection — URL-driven via useIsModuleSelected.
 	 *  Only this module + the previously selected re-render on change. */
 	const isSelected = useIsModuleSelected(moduleUuid);
+	const isCaseListSelected = useIsCaseListSelected(moduleUuid);
 
 	const collapseKey = `m${moduleIndex}`;
 	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
@@ -127,55 +131,20 @@ export const ModuleCard = memo(function ModuleCard({
 
 			{!isCollapsed && (
 				<>
-					{(() => {
-						// Filter to columns visible in the case list — the
-						// schema's `visibleInList ?? true` contract means
-						// absent slots default to visible. The sidebar
-						// preview is a scaled-down mirror of the runtime
-						// case list, so the filter matches what the runtime
-						// renders. Calculated columns surface their header
-						// (the only authored identity); other kinds prefer
-						// the field name when no header is set so the
-						// sidebar communicates the column's source.
-						const visibleColumns = mod.caseListConfig?.columns.filter(
-							(col) => col.visibleInList ?? true,
-						);
-						if (!visibleColumns || visibleColumns.length === 0) return null;
-						return (
-							<div className="mx-4 mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-								<div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-white/[0.04]">
-									<Icon
-										icon={tablerTable}
-										width="12"
-										height="12"
-										className="text-nova-text-muted"
-									/>
-									<span className="text-[10px] font-medium text-nova-text-muted uppercase tracking-widest">
-										Case List
-									</span>
-								</div>
-								<div className="flex">
-									{visibleColumns.map((col, colIdx) => {
-										const labelSource =
-											col.kind === "calculated"
-												? col.header
-												: col.header || col.field;
-										const label = labelSource || "(unnamed)";
-										return (
-											<div
-												key={col.uuid}
-												className={`flex-1 px-3 py-2 text-xs font-medium text-nova-text-secondary ${
-													colIdx > 0 ? "border-l border-white/[0.04]" : ""
-												}`}
-											>
-												{label}
-											</div>
-										);
-									})}
-								</div>
-							</div>
-						);
-					})()}
+					{/* Case List & Search — the workspace's entry point. Lives
+					 *  here in the tree (not on the module screen) so it's
+					 *  one click from anywhere, including via the collapsed
+					 *  icon rail. The column strip beneath the row is a
+					 *  scaled-down mirror of the runtime list (visibleInList
+					 *  ?? true), so the node doubles as an at-a-glance
+					 *  preview of what workers see. */}
+					{mod.caseType && !locked && (
+						<CaseListNode
+							caseListConfig={mod.caseListConfig}
+							selected={isCaseListSelected}
+							onClick={() => onSelect({ kind: "cases", moduleUuid })}
+						/>
+					)}
 
 					<div className="border-t border-nova-border">
 						<AnimatePresence mode="sync">
@@ -206,3 +175,72 @@ export const ModuleCard = memo(function ModuleCard({
 		</motion.div>
 	);
 });
+
+/**
+ * The tree's Case List & Search node — a navigable row plus the
+ * column-strip preview, both one click target. Always renders for
+ * case-typed modules (even before any column exists) so the entry
+ * point stays discoverable.
+ */
+function CaseListNode({
+	caseListConfig,
+	selected,
+	onClick,
+}: {
+	caseListConfig: CaseListConfig | undefined;
+	selected: boolean;
+	onClick: () => void;
+}) {
+	const visibleColumns =
+		caseListConfig?.columns.filter((col) => col.visibleInList ?? true) ?? [];
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={`block text-left mx-4 mb-3 w-[calc(100%-2rem)] rounded-lg border overflow-hidden cursor-pointer transition-colors ${
+				selected
+					? "border-nova-violet/50 bg-nova-violet/[0.08]"
+					: "border-white/[0.06] bg-white/[0.02] hover:border-nova-violet/30 hover:bg-nova-violet/[0.04]"
+			}`}
+		>
+			<div
+				className={`flex items-center gap-1.5 px-3 py-2 ${visibleColumns.length > 0 ? "border-b border-white/[0.04]" : ""}`}
+			>
+				<Icon
+					icon={tablerTable}
+					width="13"
+					height="13"
+					className={
+						selected ? "text-nova-violet-bright" : "text-nova-text-muted"
+					}
+				/>
+				<span
+					className={`text-[11px] font-medium uppercase tracking-widest ${
+						selected ? "text-nova-violet-bright" : "text-nova-text-muted"
+					}`}
+				>
+					Case List & Search
+				</span>
+			</div>
+			{visibleColumns.length > 0 && (
+				<div className="flex">
+					{visibleColumns.map((col, colIdx) => {
+						const labelSource =
+							col.kind === "calculated" ? col.header : col.header || col.field;
+						const label = labelSource || "(unnamed)";
+						return (
+							<div
+								key={col.uuid}
+								className={`flex-1 px-3 py-2 text-xs font-medium text-nova-text-secondary truncate ${
+									colIdx > 0 ? "border-l border-white/[0.04]" : ""
+								}`}
+							>
+								{label}
+							</div>
+						);
+					})}
+				</div>
+			)}
+		</button>
+	);
+}

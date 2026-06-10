@@ -45,7 +45,7 @@ import { useAppId } from "@/lib/session/hooks";
  * the case-store; the only divergence is the leading verb in the
  * `validation-failure` / "Sign in to ..." sentences.
  */
-function describePopulateError(
+export function describePopulateError(
 	result: Exclude<PopulateSampleCasesResult, { kind: "ok" }>,
 	verb: "Generate" | "Reset",
 ): string {
@@ -193,7 +193,16 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const appId = useAppId();
 	const docApi = useBlueprintDocApi();
 
-	const moduleUuid = loc.kind === "cases" ? loc.moduleUuid : undefined;
+	/* All three case-list workspace URLs (`cases` / `search-config` /
+	 * `detail-config`) render this screen in interact mode — search and
+	 * detail are facets of the same case list, so the worker preview is
+	 * always the assembled artifact. */
+	const moduleUuid =
+		loc.kind === "cases" ||
+		loc.kind === "search-config" ||
+		loc.kind === "detail-config"
+			? loc.moduleUuid
+			: undefined;
 
 	/** The case list always opens into the module's first form (the case-loading form). */
 	const firstForm = useFirstFormForModule(moduleUuid);
