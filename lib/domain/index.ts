@@ -6,6 +6,7 @@
 export * from "./blueprint";
 export * from "./casePropertyTypes";
 export * from "./caseTypes";
+export * from "./expressionSource";
 export * from "./fields";
 export * from "./forms";
 export * from "./hashtagSegments";

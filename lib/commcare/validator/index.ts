@@ -14,8 +14,14 @@
 
 import {
 	type BlueprintDoc,
+	CONNECT_XPATH_SLOT_IDS,
+	type ConnectXPathSlotId,
 	caseRefAcceptMap,
+	expressionSurfaceReads,
 	type Field,
+	type FieldProseSlotId,
+	type FieldXPathSlotId,
+	formExpressionSource,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
@@ -33,42 +39,31 @@ import {
 } from "./xpathValidator";
 
 /**
- * The XPath-bearing surfaces deep validation walks on a field. Each maps to
- * a user-facing label at render time (`runner.ts::SURFACE_LABELS`). Keeping
- * this a closed union (not a bare string) means a new surface can't be added
- * to the walk without the runner being forced to give it a label.
+ * The XPath-bearing surfaces deep validation walks on a field — the
+ * reference-slot registry's xpath projection, which the walk iterates via
+ * `expressionSurfaceReads`. Each maps to a user-facing label at render time
+ * (`runner.ts::SURFACE_LABELS`). Keeping this a closed union (not a bare
+ * string) means a new registry slot can't enter the walk without the runner
+ * being forced to give it a label.
  */
-export type XPathSurface =
-	| "relevant"
-	| "validate"
-	| "calculate"
-	| "default_value"
-	| "required"
-	| "repeat_count"
-	| "ids_query";
+export type XPathSurface = FieldXPathSlotId;
 
 /**
- * The Connect-block XPath slots (Connect mode only). A closed union for the
- * same reason as `XPathSurface` — the runner owns the display label.
+ * The Connect-block XPath slots (Connect mode only) — the registry's
+ * `connect.*` form-slot projection. A closed union for the same reason as
+ * `XPathSurface`: the runner owns the display label.
  */
-export type ConnectXPathSlot =
-	| "assessment_user_score"
-	| "deliver_entity_id"
-	| "deliver_entity_name";
+export type ConnectXPathSlot = ConnectXPathSlotId;
 
 /**
  * The PROSE surfaces deep validation scans for embedded `#<type>/<prop>`
- * hashtag refs. These aren't XPath — they're natural-language label / hint /
- * help / validate-error text (plus per-option labels on selects) that lower
- * their inline hashtags to `<output value>` at emit. A closed union for the
- * same reason as `XPathSurface`: the runner owns the display label.
+ * hashtag refs — the registry's prose projection. These aren't XPath —
+ * they're natural-language label / hint / help / validate-error text (plus
+ * per-option labels on selects) that lower their inline hashtags to
+ * `<output value>` at emit. A closed union for the same reason as
+ * `XPathSurface`: the runner owns the display label.
  */
-export type ProseSurface =
-	| "label"
-	| "hint"
-	| "help"
-	| "validate_msg"
-	| "option_label";
+export type ProseSurface = FieldProseSlotId;
 
 /**
  * The location every deep error carries — resolved DURING the walk from the
@@ -112,32 +107,6 @@ export type DeepValidationError =
 			error: XPathError;
 	  })
 	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
-
-/**
- * Keys on a `Field` that hold XPath expressions. Narrowed to known string
- * properties; we read via an index access below which safely returns
- * `undefined` for kinds that don't carry a given key.
- */
-const XPATH_FIELDS = [
-	"relevant",
-	"validate",
-	"calculate",
-	"default_value",
-	"required",
-] as const;
-
-type XPathFieldKey = (typeof XPATH_FIELDS)[number];
-
-/**
- * Safely read an XPath-bearing property off a Field union member without
- * having to narrow the discriminant first. Returns the string if the
- * variant carries the key AND the value is a non-empty string, else
- * `undefined`.
- */
-function readXPath(field: Field, key: XPathFieldKey): string | undefined {
-	const value = (field as unknown as Record<string, unknown>)[key];
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
 
 /**
  * Walk a field subtree (rooted at `parentUuid`) and collect every valid
@@ -326,27 +295,14 @@ export function validateBlueprintDeep(
 
 			// Connect-block XPath expressions. The expressions themselves
 			// (`user_score`, `entity_id`, `entity_name`) are id-independent, so
-			// reading them off the resolved config matches the raw doc value.
-			// Each entry carries a TYPED `ConnectXPathSlot`, not a prose label.
+			// reading them off the doc via the expression accessor matches the
+			// resolved config. Each entry carries a TYPED `ConnectXPathSlot`,
+			// not a prose label.
 			if (connect) {
 				const connectXPaths: Array<[ConnectXPathSlot, string]> = [];
-				if (connect.assessment?.user_score) {
-					connectXPaths.push([
-						"assessment_user_score",
-						connect.assessment.user_score,
-					]);
-				}
-				if (connect.deliver_unit?.entity_id) {
-					connectXPaths.push([
-						"deliver_entity_id",
-						connect.deliver_unit.entity_id,
-					]);
-				}
-				if (connect.deliver_unit?.entity_name) {
-					connectXPaths.push([
-						"deliver_entity_name",
-						connect.deliver_unit.entity_name,
-					]);
+				for (const slot of CONNECT_XPATH_SLOT_IDS) {
+					const expr = formExpressionSource(form, slot);
+					if (expr) connectXPaths.push([slot, expr]);
 				}
 				for (const [slot, expr] of connectXPaths) {
 					for (const error of validateXPath(
@@ -405,64 +361,29 @@ function validateTreeXPath(
 	};
 
 	for (const node of nodes) {
-		for (const key of XPATH_FIELDS) {
-			const expr = readXPath(node.field, key);
-			if (!expr) continue;
+		// The registry's per-kind xpath projection (narrowed by
+		// `repeat_mode` for repeats) drives the walk, so a new
+		// expression-bearing slot enters validation by being registered,
+		// never by extending a hand-rolled key list here.
+		for (const { slot, text } of expressionSurfaceReads(node.field, "xpath")) {
+			// Blank-skip policy is per slot: empty `repeat_count` /
+			// `ids_query` values (including whitespace-only — hence trim)
+			// are caught by `EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY` at the
+			// field-rule layer, so skipping them here avoids
+			// double-reporting a single empty value. The flat slots have no
+			// empty-rule twin and keep the plain emptiness check.
+			const blank =
+				slot === "repeat_count" || slot === "ids_query"
+					? text.trim().length === 0
+					: text.length === 0;
+			if (blank) continue;
 			for (const error of validateXPath(
-				expr,
+				text,
 				validPaths,
 				caseTypeProps,
 				isRegistrationForm,
 			)) {
-				pushFieldError(node.field, key, error);
-			}
-		}
-		// Repeat-mode XPath fields. `repeat_count` lives only on the
-		// count_bound variant of the discriminated repeat union, and
-		// `data_source.ids_query` only on query_bound — neither fits the
-		// flat `XPATH_FIELDS` reader (one is variant-specific, the other
-		// is nested). Discriminated-union narrowing handles both. Empty
-		// values are caught by `EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY`
-		// at the field-rule layer; the length check here skips them so
-		// the SA doesn't see double-reporting on a single empty value.
-		// Each pushes its own typed `XPathSurface` (`repeat_count` /
-		// `ids_query`); the runner maps that to a user-facing label.
-		if (node.field.kind === "repeat") {
-			// Both branches use `typeof === "string" && trim().length > 0`
-			// to match the empty-rule layer's defensive shape exactly:
-			// trim catches whitespace-only inputs the same way the empty
-			// rule does (so the SA never sees double-reporting on
-			// whitespace), and the typeof guard defends against partial
-			// or hand-built docs that bypass Zod — fixture builders, the
-			// replay hydrator, recovery scripts — and could land here
-			// with `repeat_mode` set but the matching XPath field
-			// undefined. Without the typeof guard, `.trim()` on
-			// undefined throws and kills `validateBlueprintDeep`
-			// mid-walk, dropping every error already collected.
-			if (node.field.repeat_mode === "count_bound") {
-				const repeatCount = node.field.repeat_count;
-				if (typeof repeatCount === "string" && repeatCount.trim().length > 0) {
-					for (const error of validateXPath(
-						repeatCount,
-						validPaths,
-						caseTypeProps,
-						isRegistrationForm,
-					)) {
-						pushFieldError(node.field, "repeat_count", error);
-					}
-				}
-			} else if (node.field.repeat_mode === "query_bound") {
-				const idsQuery = node.field.data_source?.ids_query;
-				if (typeof idsQuery === "string" && idsQuery.trim().length > 0) {
-					for (const error of validateXPath(
-						idsQuery,
-						validPaths,
-						caseTypeProps,
-						isRegistrationForm,
-					)) {
-						pushFieldError(node.field, "ids_query", error);
-					}
-				}
+				pushFieldError(node.field, slot, error);
 			}
 		}
 		if (node.children) {
@@ -479,15 +400,6 @@ function validateTreeXPath(
 }
 
 /**
- * The PROSE message surfaces deep validation reads off a field via a plain
- * key. `option_label` (one field carries many) is scanned separately. Each
- * maps to a user-facing label at render time
- * (`runner.ts::PROSE_SURFACE_LABELS`).
- */
-const PROSE_SURFACES = ["label", "hint", "help", "validate_msg"] as const;
-type ProseSurfaceKey = (typeof PROSE_SURFACES)[number];
-
-/**
  * Match an embedded Nova hashtag ref inside PROSE using the SAME pattern the
  * XForm builder's lowering pass consumes (`BARE_HASHTAG_PATTERN`), so emission
  * and validation can't drift on what counts as a prose hashtag. Own global
@@ -495,16 +407,6 @@ type ProseSurfaceKey = (typeof PROSE_SURFACES)[number];
  * (it clones, never mutating `lastIndex`).
  */
 const PROSE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
-
-/**
- * Safely read a PROSE message slot off a Field union member — mirrors
- * `readXPath` for the message surfaces. Returns the string when the variant
- * carries the key AND the value is non-empty, else `undefined`.
- */
-function readProse(field: Field, key: ProseSurfaceKey): string | undefined {
-	const value = (field as unknown as Record<string, unknown>)[key];
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
 
 /**
  * Recursively scan every PROSE surface (label / hint / help / validate_msg +
@@ -557,21 +459,12 @@ function validateTreeProse(
 
 	for (const node of nodes) {
 		const field = node.field;
-		for (const key of PROSE_SURFACES) {
-			scan(field, key, readProse(field, key));
-		}
-		// Select-option labels — each option's display label lowers to itext
-		// just like a field label, so an embedded case ref there must resolve
-		// too. Read defensively: only select kinds carry `options`, and a
-		// hand-built / partial doc may bypass Zod.
-		const options = (field as { options?: unknown }).options;
-		if (Array.isArray(options)) {
-			for (const opt of options) {
-				const optLabel = (opt as { label?: unknown })?.label;
-				if (typeof optLabel === "string") {
-					scan(field, "option_label", optLabel);
-				}
-			}
+		// The registry's per-kind prose projection drives the walk —
+		// including the fan-out `option_label` slot, whose per-option
+		// labels lower to itext just like a field label, so an embedded
+		// case ref there must resolve too.
+		for (const { slot, text } of expressionSurfaceReads(field, "prose")) {
+			scan(field, slot, text);
 		}
 		if (node.children) {
 			validateTreeProse(

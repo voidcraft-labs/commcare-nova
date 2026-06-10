@@ -1,4 +1,4 @@
-import type { Field } from "@/lib/domain";
+import { expressionSource, type Field } from "@/lib/domain";
 import { extractPathRefs } from "../xpath/dependencies";
 import type { FieldTreeNode } from "./fieldTree";
 import { parseBareHashtags } from "./labelRefs";
@@ -103,40 +103,28 @@ export class TriggerDag {
 	private registerExpressions(path: string, f: Field): void {
 		const expressions: { type: ExpressionType; expr: string }[] = [];
 
-		// XPath-bearing keys (relevant/calculate/required/validate) and
-		// `label` live on different Field variants — access via the union's
-		// intersection fallback so a missing key on a variant that doesn't
-		// declare it reads as `undefined` rather than throwing.
-		const withExprs = f as Field & {
-			relevant?: string;
-			calculate?: string;
-			required?: string;
-			validate?: string;
-			label?: string;
-			hint?: string;
-		};
-
-		if (withExprs.relevant)
-			expressions.push({ type: "relevant", expr: withExprs.relevant });
-		if (withExprs.calculate)
-			expressions.push({ type: "calculate", expr: withExprs.calculate });
-		if (
-			withExprs.required &&
-			withExprs.required !== "true()" &&
-			withExprs.required !== "false()"
-		) {
-			expressions.push({ type: "required", expr: withExprs.required });
+		// The XPath-bearing slots (relevant/calculate/required/validate)
+		// and the prose slots (label/hint) live on different Field
+		// variants — `expressionSource` reads each through the union so a
+		// slot a variant doesn't declare reads as `undefined`.
+		const relevant = expressionSource(f, "relevant");
+		if (relevant) expressions.push({ type: "relevant", expr: relevant });
+		const calculate = expressionSource(f, "calculate");
+		if (calculate) expressions.push({ type: "calculate", expr: calculate });
+		const required = expressionSource(f, "required");
+		if (required && required !== "true()" && required !== "false()") {
+			expressions.push({ type: "required", expr: required });
 		}
-		if (withExprs.validate)
-			expressions.push({ type: "validation", expr: withExprs.validate });
+		const validate = expressionSource(f, "validate");
+		if (validate) expressions.push({ type: "validation", expr: validate });
 
 		// Collect all XPath expressions that create dependency edges
 		const allDepExprs = expressions.map((e) => e.expr);
 
 		// Scan label and hint for bare hashtag refs (#form/x, #case/x, #user/x)
-		const allLabelRefs = parseBareHashtags(withExprs.label ?? "").concat(
-			parseBareHashtags(withExprs.hint ?? ""),
-		);
+		const allLabelRefs = parseBareHashtags(
+			expressionSource(f, "label") ?? "",
+		).concat(parseBareHashtags(expressionSource(f, "hint") ?? ""));
 		if (allLabelRefs.length > 0) {
 			expressions.push({ type: "output", expr: "" });
 			for (const ref of allLabelRefs) allDepExprs.push(ref);

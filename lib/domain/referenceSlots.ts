@@ -250,12 +250,24 @@ const LABELED_KINDS = [
 // ── Field slots ───────────────────────────────────────────────────
 
 export const FIELD_REFERENCE_SLOTS = [
+	// Entry order is observable: consumers that walk a field's slots in
+	// registry order (the rename rewriters, the deep validator's scan —
+	// whose error order user-facing surfaces preserve) see slots in this
+	// sequence, so it stays aligned with the validator's long-standing
+	// relevant → validate → calculate → default_value → required walk.
 	{
 		entity: "field",
 		slot: "relevant",
 		path: "relevant",
 		kind: "xpath",
 		appliesTo: RELEVANT_KINDS,
+	},
+	{
+		entity: "field",
+		slot: "validate",
+		path: "validate",
+		kind: "xpath",
+		appliesTo: VALIDATED_INPUT_KINDS,
 	},
 	{
 		entity: "field",
@@ -273,13 +285,6 @@ export const FIELD_REFERENCE_SLOTS = [
 		path: "default_value",
 		kind: "xpath",
 		appliesTo: [...VALIDATED_INPUT_KINDS, "geopoint", "hidden"],
-	},
-	{
-		entity: "field",
-		slot: "validate",
-		path: "validate",
-		kind: "xpath",
-		appliesTo: VALIDATED_INPUT_KINDS,
 	},
 	{
 		entity: "field",
@@ -569,38 +574,82 @@ export function fieldReferenceSlotsFor(
 }
 
 // ── Slot-path value walker ────────────────────────────────────────
+//
+// One traversal interprets the registry's path grammar — `.` for
+// object steps, a `[]` suffix for array fan-out (e.g.
+// `options[].label`, `formLinks[].datums[].xpath`,
+// `data_source.ids_query`) — so the schema-resolving audit test, the
+// write-side rewriter, and the read accessor
+// (`expressionSource.ts`) interpret one vocabulary. Total over any
+// value shape: a missing key, a non-object step, or a non-array under
+// a `[]` segment resolves to zero visits rather than a throw
+// (optional slots are absent on most entities — that is the normal
+// case, not an error).
+
+/**
+ * One string value a slot path resolved to on a live entity.
+ * `indices` carries the array index chosen at each `[]` fan-out step,
+ * outermost first (empty for scalar paths), so callers can pair the
+ * value with sibling data on the same element (an option's `value`
+ * next to its `label`).
+ */
+export interface SlotStringEntry {
+	readonly indices: readonly number[];
+	readonly text: string;
+}
 
 /**
  * Rewrite every string value a registry slot `path` resolves to on a
- * live entity, in place. The path grammar is the registry's own —
- * `.` for object steps, a `[]` suffix for array fan-out (e.g.
- * `options[].label`, `formLinks[].datums[].xpath`,
- * `data_source.ids_query`) — so the schema-resolving audit test and
- * this value-level walker interpret one vocabulary.
- *
- * Total over any value shape: a missing key, a non-object step, or a
- * non-array under a `[]` segment resolves to zero rewrites rather
- * than a throw (optional slots are absent on most entities — that is
- * the normal case, not an error). Only non-empty strings whose
- * rewritten form differs are written back. Returns the number of
- * leaf values changed.
+ * live entity, in place. Only non-empty strings whose rewritten form
+ * differs are written back. Returns the number of leaf values changed.
  */
 export function rewriteSlotStrings(
 	entity: unknown,
 	path: string,
 	rewrite: (value: string) => string,
 ): number {
-	return rewriteAtPath(entity, path.split("."), rewrite);
+	let changed = 0;
+	walkSlotStrings(entity, path.split("."), [], (holder, key, value) => {
+		if (value.length === 0) return;
+		const next = rewrite(value);
+		if (next === value) return;
+		holder[key] = next;
+		changed++;
+	});
+	return changed;
 }
 
-function rewriteAtPath(
+/**
+ * Read every string value a registry slot `path` resolves to on a
+ * live entity, in resolution (array) order. Empty strings are
+ * reported as-is — emptiness policy belongs to the caller (the
+ * validator's blank-skip rules differ per slot), not the walk.
+ */
+export function readSlotStrings(
+	entity: unknown,
+	path: string,
+): SlotStringEntry[] {
+	const entries: SlotStringEntry[] = [];
+	walkSlotStrings(entity, path.split("."), [], (_holder, _key, text, indices) =>
+		entries.push({ indices, text }),
+	);
+	return entries;
+}
+
+function walkSlotStrings(
 	node: unknown,
 	segments: readonly string[],
-	rewrite: (value: string) => string,
-): number {
+	indices: readonly number[],
+	visit: (
+		holder: Record<string, unknown>,
+		key: string,
+		value: string,
+		indices: readonly number[],
+	) => void,
+): void {
 	const head = segments[0];
 	if (head === undefined || node === null || typeof node !== "object") {
-		return 0;
+		return;
 	}
 	const fanOut = head.endsWith("[]");
 	const key = fanOut ? head.slice(0, -2) : head;
@@ -608,23 +657,20 @@ function rewriteAtPath(
 	const rest = segments.slice(1);
 
 	if (fanOut) {
-		if (!Array.isArray(value)) return 0;
-		let changed = 0;
-		for (const element of value) {
-			changed += rewriteAtPath(element, rest, rewrite);
-		}
-		return changed;
+		if (!Array.isArray(value)) return;
+		value.forEach((element, index) => {
+			walkSlotStrings(element, rest, [...indices, index], visit);
+		});
+		return;
 	}
 
 	if (rest.length > 0) {
-		return rewriteAtPath(value, rest, rewrite);
+		walkSlotStrings(value, rest, indices, visit);
+		return;
 	}
 
-	if (typeof value !== "string" || value.length === 0) return 0;
-	const next = rewrite(value);
-	if (next === value) return 0;
-	(node as Record<string, unknown>)[key] = next;
-	return 1;
+	if (typeof value !== "string") return;
+	visit(node as Record<string, unknown>, key, value, indices);
 }
 
 // ── Non-reference classification ──────────────────────────────────

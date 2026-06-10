@@ -32,7 +32,7 @@ import type {
 	Form,
 	Uuid,
 } from "@/lib/domain";
-import { casePropertyDataTypes } from "@/lib/domain";
+import { casePropertyDataTypes, expressionSource } from "@/lib/domain";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
@@ -612,11 +612,7 @@ export class FormEngine {
 		}
 
 		/* Initialize runtime state */
-		const withReq = field as Field & {
-			required?: string;
-			default_value?: string;
-		};
-		const isRequired = withReq.required === "true()";
+		const isRequired = expressionSource(field, "required") === "true()";
 		const state: FieldState = {
 			path,
 			value: this.instance.get(path) ?? "",
@@ -628,9 +624,10 @@ export class FormEngine {
 		this.store.setState({ [path]: state });
 
 		/* Apply default value if present */
-		if (withReq.default_value) {
+		const defaultValue = expressionSource(field, "default_value");
+		if (defaultValue) {
 			const ctx = this.createEvalContext(path);
-			const result = evaluate(withReq.default_value, ctx);
+			const result = evaluate(defaultValue, ctx);
 			const value = xpathToString(result);
 			if (value && value !== "false") {
 				this.instance.set(path, value);
@@ -705,10 +702,10 @@ export class FormEngine {
 	 * Used when a field's default_value changes in the blueprint.
 	 */
 	reevaluateDefault(path: string, field: Field): void {
-		const withDef = field as Field & { default_value?: string };
-		if (withDef.default_value) {
+		const defaultValue = expressionSource(field, "default_value");
+		if (defaultValue) {
 			const ctx = this.createEvalContext(path);
-			const result = evaluate(withDef.default_value, ctx);
+			const result = evaluate(defaultValue, ctx);
 			const value = xpathToString(result);
 			if (value && value !== "false") {
 				this.instance.set(path, value);
@@ -998,9 +995,8 @@ export class FormEngine {
 					if (f) {
 						const resolve = (exprStr: string): string =>
 							xpathToString(evaluate(exprStr, ctx));
-						const withLabels = f as Field & { label?: string; hint?: string };
-						const rl = resolveLabel(withLabels.label, resolve);
-						const rh = resolveLabel(withLabels.hint, resolve);
+						const rl = resolveLabel(expressionSource(f, "label"), resolve);
+						const rh = resolveLabel(expressionSource(f, "hint"), resolve);
 						if (rl !== resolvedLabel || rh !== resolvedHint) {
 							resolvedLabel = rl;
 							resolvedHint = rh;
@@ -1082,12 +1078,11 @@ export class FormEngine {
 		const ctx = this.createEvalContext(path);
 		const result = evaluate(validationExpr.expr, ctx);
 		const valid = toBoolean(result);
-		const field = this.findField(path) as
-			| (Field & { validate_msg?: string })
-			| undefined;
+		const field = this.findField(path);
 		const errorMessage = valid
 			? undefined
-			: (field?.validate_msg ?? "Invalid value");
+			: ((field ? expressionSource(field, "validate_msg") : undefined) ??
+				"Invalid value");
 
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
 			updates[path] = { ...state, valid, errorMessage };
@@ -1132,12 +1127,11 @@ export class FormEngine {
 					this.initStatesInto(states, node.children, childPrefix);
 				}
 			} else {
-				const withReq = f as Field & { required?: string };
 				states[path] = {
 					path,
 					value: this.instance.get(path) ?? "",
 					visible: true,
-					required: withReq.required === "true()",
+					required: expressionSource(f, "required") === "true()",
 					valid: true,
 					touched: false,
 				};
@@ -1154,10 +1148,10 @@ export class FormEngine {
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const withDef = f as Field & { default_value?: string };
-			if (withDef.default_value) {
+			const defaultValue = expressionSource(f, "default_value");
+			if (defaultValue) {
 				const ctx = this.createEvalContext(path);
-				const result = evaluate(withDef.default_value, ctx);
+				const result = evaluate(defaultValue, ctx);
 				const value = xpathToString(result);
 				if (value && value !== "false") {
 					this.instance.set(path, value);
