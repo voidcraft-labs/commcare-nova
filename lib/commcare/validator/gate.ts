@@ -308,21 +308,48 @@ export function classifyError(code: ValidationErrorCode): ValidityClass {
 // ── Error identity ─────────────────────────────────────────────────
 
 /**
+ * A surrogate pair (kept) or a single surrogate code unit (lone — only
+ * reachable when the pair branch didn't match at that position). No
+ * lookbehind: the engines this sanitizer exists for (Safari ≤16.3) reject
+ * lookbehind at parse time. Safe as a shared global: `String.replace`
+ * owns the iteration and never leaks `lastIndex` state.
+ */
+const SURROGATE_PAIR_OR_LONE =
+	/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g;
+
+/**
+ * Replace lone UTF-16 surrogates with U+FFFD — `String.prototype
+ * .toWellFormed`'s exact semantics, implemented environment-independently:
+ * the native method is ES2024 with no polyfill in this app (missing in
+ * Firefox ≤118 / Safari ≤16.3, both above Next's browser floor), and the
+ * gate runs client-side once wired into the builder commit path. No
+ * feature-detect-and-branch — identity must be deterministic across
+ * environments, so every environment runs the same pass. Byte-identity
+ * with the native method is pinned by a gate test.
+ */
+export function replaceLoneSurrogates(value: string): string {
+	if (!/[\uD800-\uDFFF]/.test(value)) return value;
+	return value.replace(SURROGATE_PAIR_OR_LONE, (match) =>
+		match.length === 2 ? match : "�",
+	);
+}
+
+/**
  * One identity part: a tagged, URI-encoded value so distinct discriminator
  * shapes can never alias each other in the joined key.
  *
  * Total over arbitrary strings: discriminator values are user/LLM-authored
  * and arrive through JSON, which legally transports lone UTF-16 surrogates
  * (`'"\ud83d"'` parses fine) — and `encodeURIComponent` THROWS on those.
- * Lone surrogates are replaced with U+FFFD first (`toWellFormed`), so the
- * gate always renders a verdict instead of dying inside `diffIntroduced`.
- * Well-formed strings encode byte-identically to plain
- * `encodeURIComponent`, so existing identities are unchanged; two distinct
- * lone surrogates collapse to one identity — the permissive direction the
- * identity contract already allows.
+ * Lone surrogates are replaced with U+FFFD first, so the gate always
+ * renders a verdict instead of dying inside `diffIntroduced`. Well-formed
+ * strings encode byte-identically to plain `encodeURIComponent`, so
+ * existing identities are unchanged; two distinct lone surrogates collapse
+ * to one identity — the permissive direction the identity contract already
+ * allows.
  */
 function part(tag: string, value: string | undefined): string {
-	return `${tag}=${encodeURIComponent((value ?? "").toWellFormed())}`;
+	return `${tag}=${encodeURIComponent(replaceLoneSurrogates(value ?? ""))}`;
 }
 
 /**

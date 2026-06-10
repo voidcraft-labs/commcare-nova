@@ -22,15 +22,17 @@ const T = (() => {
 	};
 })();
 
-/** A positional edit in the source string. */
-interface SourceEdit {
+/** A positional edit in the source string. Shared (with `applyEdits`,
+ *  `collectSegmentsWithPositions`, and `walkForFormHashtagPrefix`) by the
+ *  moveField rewriter at `lib/doc/mutations/pathRewrite.ts`. */
+export interface SourceEdit {
 	from: number;
 	to: number;
 	text: string;
 }
 
 /** Apply edits in reverse position order to preserve offsets. */
-function applyEdits(source: string, edits: SourceEdit[]): string {
+export function applyEdits(source: string, edits: SourceEdit[]): string {
 	if (edits.length === 0) return source;
 	edits.sort((a, b) => b.from - a.from);
 	let result = source;
@@ -198,7 +200,7 @@ function walkForHashtags(
  * segment, so a cousin sharing a tail (`#form/other/grp/inner`) is never
  * touched.
  */
-function walkForFormHashtagPrefix(
+export function walkForFormHashtagPrefix(
 	node: SyntaxNode,
 	source: string,
 	oldSegments: string[],
@@ -243,7 +245,7 @@ function walkForFormHashtagPrefix(
  * Collect path segments with their source positions from a path node.
  * Mirrors collectPathSegments from dependencies.ts but retains positions.
  */
-function collectSegmentsWithPositions(
+export function collectSegmentsWithPositions(
 	node: SyntaxNode,
 	source: string,
 	segments: Array<{ text: string; from: number; to: number }>,

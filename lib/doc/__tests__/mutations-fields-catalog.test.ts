@@ -314,7 +314,11 @@ describe("duplicateField catalog sync", () => {
 });
 
 describe("moveField catalog sync", () => {
-	it("registers the dedup-renamed id as a new pair", () => {
+	it("registers the dedup-renamed id as a new pair (cross-parent move within one form)", () => {
+		// `age` lives at F1's root AND inside F1's group — outdenting the
+		// nested one collides with the root sibling, dedup renames it, and
+		// the new (case type, property) pair lands in the catalog. Cross-FORM
+		// moves never reach this path: the reducer warn-and-skips them.
 		const start = produce(
 			docWithForms([
 				{
@@ -327,19 +331,20 @@ describe("moveField catalog sync", () => {
 					kind: "int",
 					case_property_on: "patient",
 				});
+				d.fields[Q("grp")] = field_(Q("grp"), "grp", { kind: "group" });
 				d.fields[Q("b")] = field_(Q("b"), "age", {
 					kind: "int",
 					case_property_on: "patient",
 				});
-				d.fieldOrder[F("1")] = [Q("a")];
-				d.fieldOrder[F("2")] = [Q("b")];
+				d.fieldOrder[F("1")] = [Q("a"), Q("grp")];
+				d.fieldOrder[Q("grp")] = [Q("b")];
 			},
 		);
 		const next = apply(start, {
 			kind: "moveField",
 			uuid: Q("b"),
 			toParentUuid: F("1"),
-			toIndex: 1,
+			toIndex: 2,
 		});
 		expect(next.fields[Q("b")]?.id).toBe("age_2");
 		expect(catalogProps(next, "patient")).toEqual([
@@ -354,12 +359,14 @@ describe("moveField catalog sync", () => {
 				kind: "int",
 				case_property_on: "patient",
 			});
-			d.fieldOrder[F("1")] = [Q("a")];
+			d.fields[Q("grp")] = field_(Q("grp"), "grp", { kind: "group" });
+			d.fieldOrder[F("1")] = [Q("a"), Q("grp")];
+			d.fieldOrder[Q("grp")] = [];
 		});
 		const next = apply(start, {
 			kind: "moveField",
 			uuid: Q("a"),
-			toParentUuid: F("2"),
+			toParentUuid: Q("grp"),
 			toIndex: 0,
 		});
 		expect(next.caseTypes).toBeNull();

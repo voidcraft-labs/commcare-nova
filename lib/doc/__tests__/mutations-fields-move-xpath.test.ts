@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
+// Globally mocked in `vitest.setup.ts` — asserted on for the skip path.
+import { log } from "@/lib/logger";
 
 // Fixed UUIDs for all entities in the fixture.
 const MOD = asUuid("module-1-uuid");
@@ -212,12 +214,10 @@ const WATCH_B = asUuid("wtb-0000-0000-0000-000000000000");
  * M → A { notes, watch_a (references /data/notes — A's own `notes`) }
  *     B { notes, watch_b (references /data/notes — B's own `notes`) }
  *
- * Moving A's `notes` into B dedup-renames the incomer (`notes_2`).
- * Pre-move resolution is form-scoped, so the rewrite must follow it:
- * A's refs named the MOVED field (rewrite to its new id — they cannot
- * resolve across forms either way, but they must keep naming the field
- * they referenced, not silently capture a future same-named sibling);
- * B's refs named B's OWN still-present `notes` (never retargeted).
+ * A cross-form `moveField` has no defined reference semantics (XPath
+ * refs are form-scoped, and both directions can silently CAPTURE a
+ * same-named field in whichever form they land), so the reducer
+ * warn-and-skips it: nothing moves, nothing is rewritten.
  */
 function crossFormFixture(): BlueprintDoc {
 	return {
@@ -268,8 +268,8 @@ function crossFormFixture(): BlueprintDoc {
 	};
 }
 
-describe("moveField across forms (raw mutation — no emitter fences this)", () => {
-	it("rewrites the SOURCE form's refs to the moved field and never retargets the destination's own", () => {
+describe("moveField across forms is warn-and-skipped (undesigned operation)", () => {
+	it("skips a move whose destination is another FORM and leaves the doc unchanged", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(crossFormFixture());
 		const [result] = store
@@ -278,32 +278,25 @@ describe("moveField across forms (raw mutation — no emitter fences this)", () 
 				{ kind: "moveField", uuid: NOTES_A, toParentUuid: FORM_B, toIndex: 0 },
 			]);
 
-		// Dedup renamed the incomer against B's own `notes`.
-		expect(store.getState().fields[NOTES_A]?.id).toBe("notes_2");
-		expect(
-			(result as { renamed?: { oldId: string; newId: string } })?.renamed,
-		).toMatchObject({ oldId: "notes", newId: "notes_2" });
-
-		// Source form: the ref named the moved field — it follows the
-		// field's new id instead of dangling on a name a future sibling
-		// could silently capture.
-		const watchA = store.getState().fields[WATCH_A] as
-			| { calculate?: string }
-			| undefined;
-		expect(watchA?.calculate).toBe("/data/notes_2 != ''");
-
-		// Destination form: its ref named B's OWN `notes`, which is still
-		// present — rewriting it would retarget a working expression at
-		// the incomer.
-		const watchB = store.getState().fields[WATCH_B] as
-			| { calculate?: string }
-			| undefined;
-		expect(watchB?.calculate).toBe("/data/notes = 'yes'");
+		// Skip convention: warn logged, empty result, nothing mutated.
+		expect(log.warn).toHaveBeenCalledTimes(1);
+		expect(result).toBeUndefined();
+		const state = store.getState();
+		expect(state.fields[NOTES_A]?.id).toBe("notes");
+		expect(state.fieldOrder[FORM]).toEqual([NOTES_A, WATCH_A]);
+		expect(state.fieldOrder[FORM_B]).toEqual([NOTES_B, WATCH_B]);
+		expect((state.fields[WATCH_A] as { calculate?: string })?.calculate).toBe(
+			"/data/notes != ''",
+		);
+		expect((state.fields[WATCH_B] as { calculate?: string })?.calculate).toBe(
+			"/data/notes = 'yes'",
+		);
 	});
 
-	it("re-anchors the moved subtree's own internal refs in the destination form", () => {
-		// grp { a, b(calc /data/grp/a) } moves from A into B's group `sec`:
-		// the intra-subtree ref re-anchors to the new prefix.
+	it("skips a move whose destination CONTAINER lives in another form", () => {
+		// grp { a, b(calc /data/grp/a) } in form A; destination is form B's
+		// group `sec`. The skip must resolve the container's containing form,
+		// not just compare against form uuids.
 		const SEC = asUuid("sec-0000-0000-0000-000000000000");
 		const SUB_A = asUuid("sba-0000-0000-0000-000000000000");
 		const SUB_B = asUuid("sbb-0000-0000-0000-000000000000");
@@ -339,15 +332,19 @@ describe("moveField across forms (raw mutation — no emitter fences this)", () 
 
 		const store = createBlueprintDocStore();
 		store.getState().load(doc);
-		store
+		const [result] = store
 			.getState()
 			.applyMany([
 				{ kind: "moveField", uuid: GRP, toParentUuid: SEC, toIndex: 0 },
 			]);
 
-		const subB = store.getState().fields[SUB_B] as
-			| { calculate?: string }
-			| undefined;
-		expect(subB?.calculate).toBe("/data/sec/grp/a + 1");
+		expect(log.warn).toHaveBeenCalledTimes(1);
+		expect(result).toBeUndefined();
+		const state = store.getState();
+		expect(state.fieldOrder[FORM]).toEqual([NOTES_A, WATCH_A, GRP]);
+		expect(state.fieldOrder[SEC]).toEqual([]);
+		expect((state.fields[SUB_B] as { calculate?: string })?.calculate).toBe(
+			"/data/grp/a + 1",
+		);
 	});
 });

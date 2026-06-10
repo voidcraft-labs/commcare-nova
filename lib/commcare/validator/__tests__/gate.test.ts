@@ -14,6 +14,7 @@ import {
 	errorIdentity,
 	evaluateBoundary,
 	evaluateCommit,
+	replaceLoneSurrogates,
 	VALIDITY_CLASS_BY_CODE,
 } from "../gate";
 import { runValidation } from "../runner";
@@ -337,6 +338,33 @@ describe("errorIdentity", () => {
 		expect(errorIdentity(wellFormed)).toBe(
 			`DUPLICATE_MODULE_NAME|name=${encodeURIComponent("Visites cliniques")}`,
 		);
+	});
+
+	it("replaceLoneSurrogates is byte-identical to String.prototype.toWellFormed", () => {
+		// The sanitizer is hand-rolled because `toWellFormed` is ES2024 and
+		// unpolyfilled here (Firefox ≤118 / Safari ≤16.3 lack it — and the
+		// gate runs client-side once wired into the builder commit path).
+		// Identity must be deterministic across environments, so the regex
+		// pass must agree with the native method wherever the native one
+		// exists — this corpus pins that equivalence.
+		const samples = [
+			"",
+			"plain ascii",
+			"emoji 👍🏽 and text",
+			"\ud83d", // lone high
+			"\udc00", // lone low
+			"trailing high \ud83d",
+			"\udc00 leading low",
+			"a\ud800b", // lone high mid-string
+			"😀", // well-formed pair
+			"\ud800𐀀\udc00", // lone-high, pair, lone-low
+			"\udfff\ud800", // low-then-high (reversed — both lone)
+			"� already a replacement char",
+			"mixé Unicode ñ 中文 👍",
+		];
+		for (const sample of samples) {
+			expect(replaceLoneSurrogates(sample)).toBe(sample.toWellFormed());
+		}
 	});
 });
 
@@ -684,6 +712,83 @@ describe("evaluateCommit", () => {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
 				"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			);
+		}
+	});
+
+	it("catches a writers-disagreement introduced by a kind PATCH on a case-bound field", () => {
+		// `updateField` accepts a `kind` patch — convertField's semantic
+		// change in another spelling. Two agreeing text writers of
+		// patient.score live in different modules; re-kinding one to int
+		// introduces FIELD_KIND_WRITERS_DISAGREE on BOTH writers, and the
+		// derived scope must be full so the verdict carries every copy.
+		const doc = buildDoc({
+			appName: "Writers",
+			modules: [
+				{
+					name: "Mod A",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "F1",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "score",
+									label: "Score",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Mod B",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "F2",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "score",
+									label: "Score",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "N" }] },
+			],
+		});
+		const firstScore = Object.values(doc.fields).find((x) => x.id === "score");
+		const mutations: Mutation[] = [
+			{
+				kind: "updateField",
+				uuid: firstScore?.uuid as Uuid,
+				targetKind: "text",
+				patch: { kind: "int" },
+			} as Mutation,
+		];
+		expect(scopeOfMutations(doc, mutations)).toBe("full");
+		const verdict = gateCommit(doc, mutations, "building");
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			const disagreements = verdict.introduced.filter(
+				(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
+			);
+			// One finding per writer — both sides of the conflict surface.
+			expect(disagreements).toHaveLength(2);
 		}
 	});
 });

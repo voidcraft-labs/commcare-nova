@@ -189,6 +189,42 @@ describe("scopeOfMutations", () => {
 		).toBe("full");
 	});
 
+	it("a patch re-kinding a case-bound field maps to full (convertField in another spelling)", () => {
+		// The reducer accepts a `kind` patch — `pickFieldKeysForKind` keeps
+		// the key and `fieldSchema.safeParse` dispatches on the merged
+		// discriminator — which changes the writer's data type exactly like
+		// convertField does.
+		const doc = twoTypeDoc();
+		const caseName = fieldByid(doc, "case_name");
+		expect(
+			scopeOfMutations(doc, [
+				{
+					kind: "updateField",
+					uuid: caseName.uuid,
+					targetKind: "text",
+					patch: { kind: "int" },
+				} as Mutation,
+			]),
+		).toBe("full");
+	});
+
+	it("a kind patch on a NON-case-bound field stays scoped to its form", () => {
+		const doc = twoTypeDoc();
+		const notes = fieldByid(doc, "notes");
+		const scope = scopeOfMutations(doc, [
+			{
+				kind: "updateField",
+				uuid: notes.uuid,
+				targetKind: "text",
+				patch: { kind: "int" },
+			} as Mutation,
+		]);
+		expectScope(scope);
+		expect([...(scope.formUuids ?? [])]).toEqual([
+			doc.formOrder[doc.moduleOrder[0]][0],
+		]);
+	});
+
 	it("removing a container whose subtree writes a case property maps to full", () => {
 		const doc = twoTypeDoc();
 		const grp = fieldByid(doc, "grp");

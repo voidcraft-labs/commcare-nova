@@ -34,23 +34,23 @@ import {
 /**
  * Metadata returned by `moveField`.
  *
+ * The reducer performs SAME-FORM moves only — a `toParentUuid` resolving
+ * to a different form is warn-and-skipped (see the guard in the arm).
+ * Cross-form moves were never designed: references are form-scoped, so a
+ * field that changes forms has no defined meaning for its inbound OR
+ * outbound references; designing the operation is future work that has to
+ * pick outbound-ref semantics first.
+ *
  * `renamed` is populated when a cross-level move triggers sibling-id
- * deduplication (CommCare requires unique IDs per parent level). Reference
- * rewriting is total for SAME-FORM moves: absolute paths AND `#form/`
+ * deduplication (CommCare requires unique IDs per parent level). Within
+ * the form, reference rewriting is total: absolute paths AND `#form/`
  * hashtag refs re-anchor across any depth change (`rewriteXPathOnMove`),
  * refs to a moved CONTAINER's descendants included (segment-prefix
- * re-anchor), so a same-form move never leaves a dangling reference
- * behind. A CROSS-FORM move re-anchors every ref that named the moved
- * field — the source form's slots plus the moved subtree's own — but
- * those refs cannot resolve in the source form afterwards: XPath
- * references are form-scoped by CommCare semantics, so the dangle is
- * inherent to moving the referent away, not a rewrite gap (the rewrite
- * keeps them naming the field they referenced, never a stale name a
- * future same-named sibling would capture).
+ * re-anchor), so a move never leaves a dangling reference behind.
  *
  * `xpathFieldsRewritten` counts the reference-carrying SLOTS whose
- * value changed across the move's rewrite pass — the walked fields'
- * expression/prose slots plus the walked form's own wiring slots
+ * value changed across the move's rewrite pass — sibling fields'
+ * expression/prose slots plus the containing form's own wiring slots
  * (form-link conditions/datums, Connect expressions). It feeds the
  * "N references updated" toast (`notify.ts::notifyMoveRename`).
  */
@@ -276,18 +276,44 @@ export function applyFieldMutation(
 				(destField.kind === "group" || destField.kind === "repeat");
 			if (!destIsForm && !destIsContainer) return;
 
+			// Cross-form moves are warn-and-skipped — the total-reducer
+			// convention for an invalid mutation (same shape as the stale
+			// updateField patch skip). XPath references are form-scoped, so a
+			// field that changes forms has no defined semantics for EITHER
+			// direction of its references: refs it leaves behind and its own
+			// outbound refs can each silently capture an unrelated same-named
+			// field in whichever form they end up reading against. Every
+			// current emitter stays within one form; designing cross-form
+			// moves is future work that has to pick outbound-ref semantics
+			// first.
+			const sourceFormUuid = findContainingForm(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
+			const destFormUuid = destIsForm
+				? mut.toParentUuid
+				: findContainingForm(
+						draft as unknown as BlueprintDoc,
+						mut.toParentUuid,
+					);
+			if (
+				sourceFormUuid !== undefined &&
+				destFormUuid !== undefined &&
+				sourceFormUuid !== destFormUuid
+			) {
+				log.warn(
+					`moveField: skipped moving "${field.id}" into a different form — a field can't move between forms because its references can't follow it across the form boundary. Remove the field and recreate it in the other form instead.`,
+					{ uuid: mut.uuid, toParentUuid: mut.toParentUuid },
+				);
+				return;
+			}
+
 			const sourceParent = findFieldParent(
 				draft as unknown as BlueprintDoc,
 				mut.uuid,
 			);
 			const oldPathStr =
 				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
-			// Resolved BEFORE the removal below — `findContainingForm` walks
-			// `fieldOrder`, which won't reach the field once it's spliced out.
-			const sourceFormUuid = findContainingForm(
-				draft as unknown as BlueprintDoc,
-				mut.uuid,
-			);
 			const crossParent =
 				sourceParent !== undefined &&
 				sourceParent.parentUuid !== mut.toParentUuid;
@@ -332,28 +358,17 @@ export function applyFieldMutation(
 			// hashtag refs re-anchor across depth, `#form/foo` ↔
 			// `#form/grp/foo`, descendants of a moved container included) and
 			// reorder+rename (where the leaf segment changes from dedup).
-			// Registry-driven: every XPath/prose slot on the walked fields
-			// plus the walked form's own wiring slots (form-link
-			// conditions/datums, Connect expressions). `closeCondition.field`
-			// is a bare leaf-id ref and is deliberately NOT rewritten here:
-			// a move only changes the leaf id through sibling-dedup, and in
-			// that case the destination sibling that forced the dedup still
-			// holds the old id — the ref keeps resolving to it (see
-			// `FormSlotRewriteContext.fieldIdRename`'s unique-holder rule).
-			//
-			// WHICH fields get walked follows from pre-move resolution, which
-			// is form-scoped (`/data/foo` means "this form's foo"): a ref
-			// matched the moved field's old path iff it lived in the SOURCE
-			// form — its remaining fields, its wiring, and the moved subtree
-			// itself (now re-parented). For a same-form move that set IS the
-			// (single) containing form. For a cross-form move the rest of the
-			// DESTINATION form is deliberately NOT walked: its same-path refs
-			// named its OWN fields (the dedup collider that keeps the old id,
-			// for one), and rewriting them would retarget working expressions
-			// at the incomer. Source-form refs to the moved field can no
-			// longer resolve either way — the rewrite keeps them naming the
-			// field they referenced instead of leaving a stale name a future
-			// same-named sibling would silently capture.
+			// Same-form by the cross-form guard above — XPath references
+			// never cross form boundaries, so the (single) containing form
+			// bounds every ref the move can affect. Registry-driven: every
+			// XPath/prose slot on the form's fields plus the form's own
+			// wiring slots (form-link conditions/datums, Connect
+			// expressions). `closeCondition.field` is a bare leaf-id ref and
+			// is deliberately NOT rewritten here: a move only changes the
+			// leaf id through sibling-dedup, and in that case the destination
+			// sibling that forced the dedup still holds the old id — the ref
+			// keeps resolving to it (see `FormSlotRewriteContext
+			// .fieldIdRename`'s unique-holder rule).
 			let xpathFieldsRewritten = 0;
 			const newPathStr =
 				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
@@ -362,29 +377,15 @@ export function applyFieldMutation(
 				const newSegments = newPathStr.split("/");
 				const moveRewriter = (expr: string) =>
 					rewriteXPathOnMove(expr, oldSegments, newSegments);
-				const destFormUuid = findContainingForm(
+				const formUuid = findContainingForm(
 					draft as unknown as BlueprintDoc,
 					mut.uuid,
 				);
-				const crossForm =
-					sourceFormUuid !== undefined &&
-					destFormUuid !== undefined &&
-					sourceFormUuid !== destFormUuid;
-				const walkFormUuid = crossForm ? sourceFormUuid : destFormUuid;
-				if (walkFormUuid) {
-					const fieldUuids = walkFormFieldUuids(
+				if (formUuid) {
+					for (const fUuid of walkFormFieldUuids(
 						draft as unknown as BlueprintDoc,
-						walkFormUuid,
-					);
-					if (crossForm) {
-						// The moved subtree left the source form's walk — its own
-						// slots (intra-subtree refs included) still re-anchor.
-						fieldUuids.push(
-							mut.uuid,
-							...walkFormFieldUuids(draft as unknown as BlueprintDoc, mut.uuid),
-						);
-					}
-					for (const fUuid of fieldUuids) {
+						formUuid,
+					)) {
 						const target = draft.fields[fUuid];
 						if (!target) continue;
 						xpathFieldsRewritten += rewriteFieldReferenceSlots(
@@ -392,7 +393,7 @@ export function applyFieldMutation(
 							moveRewriter,
 						);
 					}
-					const form = draft.forms[walkFormUuid];
+					const form = draft.forms[formUuid];
 					if (form) {
 						xpathFieldsRewritten += rewriteFormReferenceSlots(form, {
 							xpath: moveRewriter,
