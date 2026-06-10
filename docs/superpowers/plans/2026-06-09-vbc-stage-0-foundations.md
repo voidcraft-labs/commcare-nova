@@ -213,6 +213,53 @@ the conflict (test through the tool handler); UI rename to an XML-illegal id
 rejects inline (state-model test of the verdict, not RTL); `DUPLICATE_FIELD_ID`
 validator rule still passes as backstop.
 
+**SHIPPED** (`01704a03`) with these deviations/decisions:
+
+- (a) Boundary: `lib/doc/identifierVerdicts.ts` imports the identifier
+  rules from the `@/lib/commcare` barrel via a new one-file biome
+  allowlist entry — the exact `lib/doc/connectConfig.ts` precedent, so
+  the "mirror the regex in `lib/domain` + assert-equal test" fallback was
+  not needed. Both `noRestrictedImports` message strings updated.
+- (b) The case-property length cap is **255** (`MAX_CASE_PROPERTY_LENGTH`,
+  CommCare Core's CaseXmlParser constraint, backstopped by
+  `CASE_PROPERTY_TOO_LONG`), not the 50 the task sketch carried — 50 is
+  the connect-slug `varchar(50)` limit. Boundary tests pin 255-passes /
+  256-fails per the real constant.
+- (c) The SA/MCP seam is the tool bodies themselves
+  (`addFieldsTool.execute` / `editFieldTool.execute`) — the MCP adapter
+  (`registerSharedTool`) calls the same `execute`, so one guard covers
+  both surfaces; proven by tests driving both `GenerationContext` and
+  `McpContext` plus one through the adapter harness. `editField` checks
+  the rename verdict BEFORE the convert stage (sibling scope and format
+  don't depend on kind), so a rejected rename persists NOTHING — the
+  spec's committed-prefix allowance never has to fire for this class.
+- (d) The UI add path needed NO verdict wiring (verified):
+  `FieldTypePicker` mints `new_<kind>` ids deduped against every field
+  id doc-wide (a superset of sibling scope, always XML-legal, never
+  `__nova_`-prefixed), and `duplicateField` dedupes sibling ids inside
+  the reducer.
+- (e) The rename verdict is peer-aware: it scans the destination parent
+  of every `(id, case_property_on)` peer the reducer's cascade will
+  rename in lockstep, and a cross-form collision names the peer's form
+  in the message. `useBlueprintMutations.renameField`'s inline peer scan
+  (the client-side duplicate the spec's drift list called out) was
+  REPLACED by the shared `findRenameSiblingConflict` — one
+  implementation, hook semantics unchanged. `classifyRenameOutcome`
+  reshaped from post-dispatch conflict-flag classification to
+  pre-dispatch verdict classification (`conflict` arm → `rejected`);
+  FieldHeader dispatches only on a clean verdict, chrome unchanged.
+- (f) `addFields` fails the WHOLE call when any item's id is rejected —
+  the `{ error }` envelope lists EVERY failing item (id + verdict
+  message); in-batch sibling collisions are caught via a per-parent
+  `pendingSiblingIds` scope threaded through the shared verdict.
+  Assembly-failure skips keep their existing skip-and-report semantics.
+- Tests: 19 verdict unit tests (each failure class + 255/256 boundary +
+  cousins-share + self-rename + peer-cascade cases), 7 `addFields` and
+  5 `editField` tool-handler tests (failing-first confirmed: 9 of the
+  rejection tests failed pre-implementation), 1 adapter-path test, 4
+  reshaped `classifyRenameOutcome` tests. Full suite 5732 passed / 0
+  failed; `scripts/test-schema.ts` 21/21 PASS (no schema shape change).
+
 ## Task 5 — Catalog sync at source
 
 **Files:** `lib/doc/mutations/fields.ts` (addField/updateField/convertField
