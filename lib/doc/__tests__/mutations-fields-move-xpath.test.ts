@@ -17,9 +17,13 @@ const REF = asUuid("ref-0000-0000-0000-000000000000");
  * Structure:
  *   M → F → grp1 { source }
  *           grp2 {}
- *           ref (calculate references /data/grp1/source)
+ *           ref (hidden; calculate references /data/grp1/source)
  *
  * Moving `source` from grp1 into grp2 should update ref's calculate XPath.
+ * `ref` is a hidden field because `calculate` lives on the hidden kind
+ * only (visible kinds carry `default_value` instead) — the rewrite pass
+ * walks the registry's per-kind slot projection, so the fixture has to
+ * put the expression where the schema actually allows it.
  */
 function fixture(): BlueprintDoc {
 	return {
@@ -55,8 +59,7 @@ function fixture(): BlueprintDoc {
 			[REF]: {
 				uuid: REF,
 				id: "ref",
-				kind: "text",
-				label: "Ref",
+				kind: "hidden",
 				calculate: "/data/grp1/source + 1",
 			} as BlueprintDoc["fields"][typeof REF],
 		},

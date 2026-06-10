@@ -568,6 +568,65 @@ export function fieldReferenceSlotsFor(
 	);
 }
 
+// ── Slot-path value walker ────────────────────────────────────────
+
+/**
+ * Rewrite every string value a registry slot `path` resolves to on a
+ * live entity, in place. The path grammar is the registry's own —
+ * `.` for object steps, a `[]` suffix for array fan-out (e.g.
+ * `options[].label`, `formLinks[].datums[].xpath`,
+ * `data_source.ids_query`) — so the schema-resolving audit test and
+ * this value-level walker interpret one vocabulary.
+ *
+ * Total over any value shape: a missing key, a non-object step, or a
+ * non-array under a `[]` segment resolves to zero rewrites rather
+ * than a throw (optional slots are absent on most entities — that is
+ * the normal case, not an error). Only non-empty strings whose
+ * rewritten form differs are written back. Returns the number of
+ * leaf values changed.
+ */
+export function rewriteSlotStrings(
+	entity: unknown,
+	path: string,
+	rewrite: (value: string) => string,
+): number {
+	return rewriteAtPath(entity, path.split("."), rewrite);
+}
+
+function rewriteAtPath(
+	node: unknown,
+	segments: readonly string[],
+	rewrite: (value: string) => string,
+): number {
+	const head = segments[0];
+	if (head === undefined || node === null || typeof node !== "object") {
+		return 0;
+	}
+	const fanOut = head.endsWith("[]");
+	const key = fanOut ? head.slice(0, -2) : head;
+	const value = (node as Record<string, unknown>)[key];
+	const rest = segments.slice(1);
+
+	if (fanOut) {
+		if (!Array.isArray(value)) return 0;
+		let changed = 0;
+		for (const element of value) {
+			changed += rewriteAtPath(element, rest, rewrite);
+		}
+		return changed;
+	}
+
+	if (rest.length > 0) {
+		return rewriteAtPath(value, rest, rewrite);
+	}
+
+	if (typeof value !== "string" || value.length === 0) return 0;
+	const next = rewrite(value);
+	if (next === value) return 0;
+	(node as Record<string, unknown>)[key] = next;
+	return 1;
+}
+
 // ── Non-reference classification ──────────────────────────────────
 //
 // Every schema key that does NOT carry a reference, with the reason it

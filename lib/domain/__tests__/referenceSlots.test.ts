@@ -81,6 +81,7 @@ import {
 	NON_REFERENCE_FIELD_PATHS,
 	NON_REFERENCE_FORM_PATHS,
 	NON_REFERENCE_MODULE_PATHS,
+	rewriteSlotStrings,
 } from "../referenceSlots";
 
 // Widened views of the registry tuples. The `as const` literals are
@@ -667,5 +668,50 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"name",
 			"purpose",
 		]);
+	});
+});
+
+// ── Slot-path value walker ────────────────────────────────────────
+
+describe("rewriteSlotStrings", () => {
+	const upper = (s: string) => s.toUpperCase();
+
+	it("rewrites nested object paths and array fan-out paths in place", () => {
+		const entity = {
+			data_source: { ids_query: "query" },
+			options: [{ label: "a" }, { label: "b" }, { label: "" }],
+			links: [{ datums: [{ xpath: "x" }, { xpath: "y" }] }],
+		};
+		expect(rewriteSlotStrings(entity, "data_source.ids_query", upper)).toBe(1);
+		expect(entity.data_source.ids_query).toBe("QUERY");
+		// Empty strings are skipped — two of three options rewrite.
+		expect(rewriteSlotStrings(entity, "options[].label", upper)).toBe(2);
+		expect(entity.options.map((o) => o.label)).toEqual(["A", "B", ""]);
+		expect(rewriteSlotStrings(entity, "links[].datums[].xpath", upper)).toBe(2);
+	});
+
+	it("counts only values the rewriter actually changed", () => {
+		const entity = { relevant: "stable" };
+		expect(rewriteSlotStrings(entity, "relevant", (s) => s)).toBe(0);
+		expect(entity.relevant).toBe("stable");
+	});
+
+	it("is total over absent and mismatched shapes — zero rewrites, no throw", () => {
+		// Reducers run this over whatever state exists; a missing optional
+		// slot or an off-schema value must resolve to "nothing to rewrite".
+		expect(rewriteSlotStrings({}, "data_source.ids_query", upper)).toBe(0);
+		expect(
+			rewriteSlotStrings(
+				{ data_source: "str" },
+				"data_source.ids_query",
+				upper,
+			),
+		).toBe(0);
+		expect(
+			rewriteSlotStrings({ options: "not-an-array" }, "options[].label", upper),
+		).toBe(0);
+		expect(rewriteSlotStrings({ relevant: 42 }, "relevant", upper)).toBe(0);
+		expect(rewriteSlotStrings(null, "relevant", upper)).toBe(0);
+		expect(rewriteSlotStrings(undefined, "relevant", upper)).toBe(0);
 	});
 });

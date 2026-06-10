@@ -73,6 +73,8 @@ export interface FieldRenameResult {
 	xpathFieldsRewritten: number;
 	peerFieldsRenamed: number;
 	columnsRewritten: number;
+	formWiringRewritten: number;
+	moduleRefsRewritten: number;
 	catalogEntryRenamed: boolean;
 	cascadedAcrossForms: boolean;
 	conflict?: boolean;
@@ -90,6 +92,8 @@ function emptyFieldRenameResult(): FieldRenameResult {
 		xpathFieldsRewritten: 0,
 		peerFieldsRenamed: 0,
 		columnsRewritten: 0,
+		formWiringRewritten: 0,
+		moduleRefsRewritten: 0,
 		catalogEntryRenamed: false,
 		cascadedAcrossForms: false,
 	};
@@ -512,6 +516,8 @@ export function useBlueprintMutations(): BlueprintMutations {
 					xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
 					peerFieldsRenamed: meta?.peerFieldsRenamed ?? 0,
 					columnsRewritten: meta?.columnsRewritten ?? 0,
+					formWiringRewritten: meta?.formWiringRewritten ?? 0,
+					moduleRefsRewritten: meta?.moduleRefsRewritten ?? 0,
 					catalogEntryRenamed: meta?.catalogEntryRenamed ?? false,
 					cascadedAcrossForms: meta?.cascadedAcrossForms ?? false,
 				};

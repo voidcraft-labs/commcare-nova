@@ -472,7 +472,11 @@ describe("moveField", () => {
 			...docWithForm(),
 			fields: {
 				[Q("src")]: field_(Q("src"), "source"),
+				// `calculate` lives on the hidden kind only — fixtures put
+				// expressions where the schema (and so the registry's
+				// per-kind slot projection) actually declares them.
 				[Q("ref")]: field_(Q("ref"), "ref", {
+					kind: "hidden",
 					calculate: "/data/source + 1",
 				}),
 				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
@@ -538,6 +542,7 @@ describe("renameField", () => {
 			fields: {
 				[Q("src")]: field_(Q("src"), "source"),
 				[Q("ref")]: field_(Q("ref"), "ref", {
+					kind: "hidden",
 					calculate: "/data/source * 2",
 				}),
 			},
@@ -689,6 +694,7 @@ describe("moveField result metadata", () => {
 				[Q("src_a")]: field_(Q("src_a"), "source"),
 				[Q("src_b")]: field_(Q("src_b"), "source"),
 				[Q("ref")]: field_(Q("ref"), "ref", {
+					kind: "hidden",
 					calculate: "/data/source + 1",
 				}),
 			},
@@ -753,8 +759,11 @@ describe("moveField result metadata", () => {
 				[Q("ref")]: field_(Q("ref"), "ref", {
 					// Prose label with a hashtag ref — transformBareHashtags path.
 					label: "See #form/source for details",
-					// XPath surface with the same hashtag ref.
-					calculate: "#form/source + 1",
+					// XPath surface with the same hashtag ref. `relevant` is the
+					// XPath slot every kind carries, so one text field can host
+					// both surfaces (`calculate` is hidden-only and hidden has
+					// no prose slots).
+					relevant: "#form/source != ''",
 				}),
 			},
 			fieldOrder: {
@@ -775,8 +784,8 @@ describe("moveField result metadata", () => {
 		expect(asField(next.fields[Q("ref")])?.label).toBe(
 			"See #form/grp/source for details",
 		);
-		expect(asField(next.fields[Q("ref")])?.calculate).toBe(
-			"#form/grp/source + 1",
+		expect(asField(next.fields[Q("ref")])?.relevant).toBe(
+			"#form/grp/source != ''",
 		);
 	});
 
@@ -818,6 +827,7 @@ describe("renameField result metadata", () => {
 			fields: {
 				[Q("src")]: field_(Q("src"), "source"),
 				[Q("ref")]: field_(Q("ref"), "ref", {
+					kind: "hidden",
 					calculate: "/data/source * 2",
 				}),
 			},
@@ -1006,6 +1016,7 @@ describe("renameField case-property cascade", () => {
 			fields: {
 				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 				[Q("ref")]: field_(Q("ref"), "adult_check", {
+					kind: "hidden",
 					calculate: "#case/age >= 18",
 					relevant: "#case/age > 0",
 				}),
@@ -1064,7 +1075,9 @@ describe("renameField case-property cascade", () => {
 				// (an ancestor) and pregnancy's own `age` (same property name,
 				// different type).
 				[Q("ref")]: field_(Q("ref"), "adult_check", {
-					calculate: "#mother/age + #pregnancy/age",
+					// `relevant` hosts the XPath surface so the same text field
+					// can also carry the prose label (calculate is hidden-only).
+					relevant: "#mother/age + #pregnancy/age",
 					label: "Mother age: #mother/age",
 				}),
 			},
@@ -1085,7 +1098,7 @@ describe("renameField case-property cascade", () => {
 		expect(next.fields[Q("src")]?.id).toBe("age_years");
 		// `#mother/age` rewritten even though the ref lives in the CHILD
 		// module's form (app-wide scope); `#pregnancy/age` left verbatim.
-		expect(asField(next.fields[Q("ref")])?.calculate).toBe(
+		expect(asField(next.fields[Q("ref")])?.relevant).toBe(
 			"#mother/age_years + #pregnancy/age",
 		);
 		// Prose ref rewritten the same way.
@@ -1368,10 +1381,12 @@ describe("renameField case-property cascade", () => {
 			fields: {
 				[Q("src_a")]: field_(Q("src_a"), "source"),
 				[Q("ref_a")]: field_(Q("ref_a"), "ref_a", {
+					kind: "hidden",
 					calculate: "/data/source + 1",
 				}),
 				[Q("src_b")]: field_(Q("src_b"), "source"),
 				[Q("ref_b")]: field_(Q("ref_b"), "ref_b", {
+					kind: "hidden",
 					calculate: "/data/source + 1",
 				}),
 			},
@@ -1410,11 +1425,12 @@ describe("renameField case-property cascade", () => {
 			fields: {
 				// Primary holder of the `age` case property, in its own form.
 				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
-				// Same-form ref with /data/age reached by form-local pass.
-				// AND #case/age reached by the cascade pass (module X's
-				// caseType is "patient" → its forms are visited).
+				// Same-form ref with /data/age reached by form-local pass
+				// (`relevant` — the XPath slot text fields carry) AND
+				// #case/age reached by the cascade pass (module X's caseType
+				// is "patient" → its forms are visited).
 				[Q("ref")]: field_(Q("ref"), "display", {
-					calculate: "/data/age + 1",
+					relevant: "/data/age > 1",
 					label: "Age: #case/age",
 				}),
 			},
@@ -1431,7 +1447,7 @@ describe("renameField case-property cascade", () => {
 		});
 
 		// Both refs updated…
-		expect(asField(next.fields[Q("ref")])?.calculate).toBe("/data/age_1 + 1");
+		expect(asField(next.fields[Q("ref")])?.relevant).toBe("/data/age_1 > 1");
 		expect(asField(next.fields[Q("ref")])?.label).toBe("Age: #case/age_1");
 		// …but `ref` is still exactly one field → count is 1.
 		expect(result?.xpathFieldsRewritten).toBe(1);

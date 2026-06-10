@@ -1007,11 +1007,13 @@ describe("useBlueprintMutations", () => {
 					kind: "text",
 					label: "Source",
 				} as BlueprintDoc["fields"][typeof Q_SRC],
+				// `calculate` lives on the hidden kind only — the rewrite pass
+				// walks the registry's per-kind slot projection, so the fixture
+				// puts the expression where the schema actually declares it.
 				[Q_DEP]: {
 					uuid: Q_DEP,
 					id: "dep",
-					kind: "text",
-					label: "Dep",
+					kind: "hidden",
 					calculate: "/data/source + 1",
 				} as BlueprintDoc["fields"][typeof Q_DEP],
 			},
