@@ -9,33 +9,30 @@
  * chat factory and the MCP adapter call this through the shared
  * `ToolExecutionContext` interface.
  *
- * Batches execute sequentially, each `await ctx.recordMutations`-ed
- * before the next computes — later batches read from the post-previous
- * `workingDoc` so, for example, a scalar patch applied to a just-
- * converted field targets the new kind's schema. Running mutations are
- * accumulated into a single `mutations` array the wrapper uses only as a
- * non-empty sentinel: the per-batch persistence already happened, so the
- * SA wrapper's "advance closure on non-empty mutations" check still
- * works uniformly across every mutating tool.
+ * The stages are BUILT sequentially against local candidate docs (a
+ * later batch reads the previous batch's result — e.g. a scalar patch
+ * targets the just-converted kind's schema) but COMMIT as one edit:
+ * `guardedMutateStages` runs the validity gate over the whole sequence
+ * before anything persists, so a rejection — whichever stage's batch
+ * would introduce the finding — leaves zero committed prefix. "A
+ * rejected call saved nothing" holds for this tool exactly as for every
+ * single-batch tool.
  *
- * Seven exit branches:
+ * Six exit branches:
  *
  *   1. Field not found at the given triple → `{ error }`, no mutations.
  *   2. Rename rejected by the shared identifier verdict (XML-illegal /
  *      reserved / over-long / sibling-conflicting new id, checked
- *      before ANY stage runs) → `{ error }`, nothing persisted.
+ *      before ANY stage builds) → `{ error }`, nothing persisted.
  *   3. Illegal kind conversion (target not in the source kind's
  *      `convertTargets`) → `{ error }`, no mutations.
  *   4. Conversion rejected by the reducer (reconcile returned a shape
  *      the target kind's schema rejects) → `{ error }`, nothing
- *      persisted (the pre-check runs before the convert commits).
- *   5. Commit-gate rejection on any stage (`guardedMutate` — the batch
- *      would introduce a validator finding) → `{ error }` listing the
- *      findings plus, after the first stage, which earlier stages of
- *      this call already committed.
- *   6. Rename left the field not found (shouldn't happen in practice) →
- *      `{ error }`.
- *   7. Success → a human-readable `message` referencing the final id +
+ *      persisted (the candidate apply runs before anything commits).
+ *   5. Commit-gate rejection of the whole edit (`guardedMutateStages` —
+ *      the combined batches would introduce a validator finding) →
+ *      `{ error }` listing the findings, nothing persisted.
+ *   6. Success → a human-readable `message` referencing the final id +
  *      changes, plus a UI `summary` for the chat transcript.
  */
 
@@ -60,7 +57,12 @@ import {
 	editFieldUpdatesSchema,
 	type wideEditUpdatesSchema,
 } from "../toolSchemas";
-import { applyToDoc, guardedMutate, type MutatingToolResult } from "./common";
+import {
+	applyToDoc,
+	guardedMutateStages,
+	type MutatingToolResult,
+	type StagedMutationBatch,
+} from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -191,25 +193,6 @@ function editPatchToFieldPatch(
 	return patch as FieldPatchFor<FieldKind>;
 }
 
-/**
- * The mid-call rejection note for a multi-batch edit: each of this
- * tool's stages (convert → rename → patch) commits independently, so a
- * stage the gate rejects must tell the agent which earlier stages
- * already landed — otherwise it would retry the WHOLE call and
- * double-apply the committed prefix.
- */
-function withCommittedPrefixNote(
-	error: string,
-	committedStages: string[],
-): string {
-	if (committedStages.length === 0) return error;
-	return `${error}\nNote: the earlier ${
-		committedStages.length === 1 ? "step" : "steps"
-	} of this call (${committedStages.join(
-		", ",
-	)}) already applied — only re-issue the rejected part.`;
-}
-
 export const editFieldTool = {
 	description:
 		"Update properties on an existing field. Pass the field's current kind to edit it in place — that selects the set of properties this kind actually has; passing a different kind requests a conversion to that kind. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
@@ -240,15 +223,11 @@ export const editFieldTool = {
 
 			const { id: newId, kind: newKind, ...fieldUpdates } = updates;
 
-			// Working doc walks forward through each batch so the next step
-			// sees prior changes. The per-batch `recordMutations` call owns
-			// persistence — `allMutations` is purely the wrapper's advance
-			// sentinel at the end.
+			// Candidate doc walks forward through each stage's batch so the
+			// next stage builds against prior changes — locally only; nothing
+			// persists until the whole edit passes the gate below.
 			let workingDoc = doc;
-			const allMutations: Mutation[] = [];
-			/* Stage names already committed in THIS call — drives the
-			 * committed-prefix note on a mid-call gate rejection. */
-			const committedStages: string[] = [];
+			const stages: StagedMutationBatch[] = [];
 			const fieldUuid: Uuid = resolved.field.uuid;
 
 			// Pre-dispatch rename guard, checked BEFORE the convert stage so
@@ -311,49 +290,32 @@ export const editFieldTool = {
 					{ kind: "convertField", uuid: fieldUuid, toKind: newKind },
 				];
 
-				// Apply locally first so we can verify the reducer accepted
-				// the conversion before persisting the event. A silent no-op
+				// Apply the candidate first so we can verify the reducer
+				// accepted the conversion before STAGING it. A silent no-op
 				// from the reducer (reconcile produces a shape the target
-				// kind's schema rejects) would otherwise write a misleading
-				// `convert:M-F` event to the log and the SA wrapper would
-				// advance `doc = newDoc` against unchanged state. Mirrors
-				// the rename + scalar-patch sections' order: apply → verify
-				// → persist.
+				// kind's schema rejects) would otherwise stage a misleading
+				// `convert:M-F` event and the SA wrapper would advance
+				// `doc = newDoc` against unchanged state.
 				const afterConvert = applyToDoc(workingDoc, convertMuts);
 				const postConvertField = afterConvert.fields[fieldUuid];
 				if (!postConvertField || postConvertField.kind !== newKind) {
+					// Candidate-only at this point — nothing has persisted.
 					return {
 						kind: "mutate" as const,
-						mutations: allMutations,
-						newDoc: workingDoc,
+						mutations: [],
+						newDoc: doc,
 						result: {
 							error: `convertField ${fromKind} → ${newKind} for "${fieldId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry. Add the missing key first (e.g. \`options\` for select kinds), then retry.`,
 						},
 					};
 				}
 
-				const convertCommit = await guardedMutate(
-					ctx,
-					workingDoc,
-					convertMuts,
-					`convert:${moduleIndex}-${formIndex}`,
-				);
-				if (!convertCommit.ok) {
-					return {
-						kind: "mutate" as const,
-						mutations: allMutations,
-						newDoc: workingDoc,
-						result: {
-							error: withCommittedPrefixNote(
-								convertCommit.error,
-								committedStages,
-							),
-						},
-					};
-				}
-				workingDoc = convertCommit.newDoc;
-				allMutations.push(...convertMuts);
-				committedStages.push("kind conversion");
+				stages.push({
+					mutations: convertMuts,
+					doc: afterConvert,
+					stage: `convert:${moduleIndex}-${formIndex}`,
+				});
+				workingDoc = afterConvert;
 			}
 
 			// Id rename next as its own emitted batch. The `renameField`
@@ -365,28 +327,12 @@ export const editFieldTool = {
 			if (newId && newId !== fieldId) {
 				const renameMuts = renameFieldMutations(workingDoc, fieldUuid, newId);
 				if (renameMuts.length > 0) {
-					const renameCommit = await guardedMutate(
-						ctx,
-						workingDoc,
-						renameMuts,
-						`rename:${moduleIndex}-${formIndex}`,
-					);
-					if (!renameCommit.ok) {
-						return {
-							kind: "mutate" as const,
-							mutations: allMutations,
-							newDoc: workingDoc,
-							result: {
-								error: withCommittedPrefixNote(
-									renameCommit.error,
-									committedStages,
-								),
-							},
-						};
-					}
-					workingDoc = renameCommit.newDoc;
-					allMutations.push(...renameMuts);
-					committedStages.push(`rename to "${newId}"`);
+					workingDoc = applyToDoc(workingDoc, renameMuts);
+					stages.push({
+						mutations: renameMuts,
+						doc: workingDoc,
+						stage: `rename:${moduleIndex}-${formIndex}`,
+					});
 				}
 			}
 
@@ -400,16 +346,18 @@ export const editFieldTool = {
 				finalId,
 			);
 			if (!afterRename) {
+				// The rename stage is candidate-only at this point — nothing
+				// has persisted, so the failure reports an untouched doc.
 				return {
 					kind: "mutate" as const,
-					mutations: allMutations,
-					newDoc: workingDoc,
+					mutations: [],
+					newDoc: doc,
 					result: { error: `Field "${finalId}" not found after rename` },
 				};
 			}
 
-			// Remaining scalar-patch keys as a final batch. Convert + rename
-			// already landed; this covers only the leftovers. The reducer
+			// Remaining scalar-patch keys as a final stage. Convert + rename
+			// are staged candidates above; this covers the leftovers. The reducer
 			// still gates against shape violations via `fieldSchema.safeParse`,
 			// so anything slipping through here that doesn't fit the
 			// (possibly just-converted) kind is logged and no-ops safely.
@@ -431,29 +379,28 @@ export const editFieldTool = {
 						patch,
 					);
 					if (updateMuts.length > 0) {
-						const patchCommit = await guardedMutate(
-							ctx,
-							workingDoc,
-							updateMuts,
-							`edit:${moduleIndex}-${formIndex}`,
-						);
-						if (!patchCommit.ok) {
-							return {
-								kind: "mutate" as const,
-								mutations: allMutations,
-								newDoc: workingDoc,
-								result: {
-									error: withCommittedPrefixNote(
-										patchCommit.error,
-										committedStages,
-									),
-								},
-							};
-						}
-						workingDoc = patchCommit.newDoc;
-						allMutations.push(...updateMuts);
+						workingDoc = applyToDoc(workingDoc, updateMuts);
+						stages.push({
+							mutations: updateMuts,
+							doc: workingDoc,
+							stage: `edit:${moduleIndex}-${formIndex}`,
+						});
 					}
 				}
+			}
+
+			// Gate the WHOLE edit as one candidate; persist the stage batches
+			// only after it passes. A rejection leaves zero committed prefix —
+			// the agent re-issues the corrected call from the original state.
+			const allMutations = stages.flatMap((s) => s.mutations);
+			const commit = await guardedMutateStages(ctx, doc, stages);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
 			}
 
 			const postField = workingDoc.fields[afterRename.field.uuid];

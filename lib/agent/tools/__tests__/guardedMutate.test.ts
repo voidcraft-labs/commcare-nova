@@ -200,6 +200,69 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
+	it("a multi-stage edit (rename + patch) is atomic — a bad patch leaves zero committed prefix", async () => {
+		// The rename alone is valid; the relevant patch introduces
+		// XPATH_SYNTAX. The whole edit gates as ONE candidate, so the
+		// rename must NOT commit — nothing persists, the doc is untouched,
+		// and the agent can re-issue the corrected call from the original
+		// state ("a rejected call saved nothing" holds with no asterisk).
+		const doc = minDoc();
+		const { ctx, recordMutations } = makeCtx("complete");
+
+		const out = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "village",
+				updates: {
+					kind: "text",
+					id: "village_name",
+					relevant: "if(",
+				} as never,
+			},
+			ctx,
+			doc,
+		);
+
+		expect("error" in out.result && out.result.error).toContain(
+			"This change wasn't applied",
+		);
+		expect(out.mutations).toEqual([]);
+		expect(out.newDoc).toBe(doc);
+		expect(recordMutations).not.toHaveBeenCalled();
+		// The rename never landed.
+		const renamed = Object.values(doc.fields).find(
+			(fl) => fl.id === "village_name",
+		);
+		expect(renamed).toBeUndefined();
+	});
+
+	it("a passing multi-stage edit persists each stage with its own tag", async () => {
+		const doc = minDoc();
+		const { ctx, recordMutations } = makeCtx("complete");
+
+		const out = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "village",
+				updates: {
+					kind: "text",
+					id: "village_name",
+					label: "Home village",
+				} as never,
+			},
+			ctx,
+			doc,
+		);
+
+		expect("message" in out.result).toBe(true);
+		// Two stages persisted in order: rename, then the scalar patch.
+		expect(recordMutations).toHaveBeenCalledTimes(2);
+		expect(recordMutations.mock.calls[0]?.[2]).toBe("rename:0-0");
+		expect(recordMutations.mock.calls[1]?.[2]).toBe("edit:0-0");
+	});
+
 	it("commits a clean edit unchanged (the gate is transparent on pass)", async () => {
 		const doc = minDoc();
 		const { ctx, recordMutations } = makeCtx("complete");

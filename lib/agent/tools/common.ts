@@ -79,6 +79,50 @@ export async function guardedMutate(
 }
 
 /**
+ * One stage of a multi-stage edit: the batch plus the doc AFTER it
+ * applied to the previous stage's doc (via {@link applyToDoc}). The
+ * per-stage `stage` tag keeps the event log's chapter shapes
+ * (`convert:`/`rename:`/`edit:`) while the gate evaluates the stages as
+ * one edit.
+ */
+export interface StagedMutationBatch {
+	mutations: Mutation[];
+	doc: BlueprintDoc;
+	stage?: string;
+}
+
+/**
+ * The multi-stage twin of {@link guardedMutate}: gate the WHOLE staged
+ * sequence as one candidate, then persist each stage with its own tag.
+ *
+ * The verdict runs over the concatenated batches against `prevDoc`, so a
+ * rejection — wherever in the sequence the finding would arise — commits
+ * NOTHING. There is no committed prefix to report or re-issue around,
+ * which is what lets every surface state "a rejected call saved nothing"
+ * without a multi-stage asterisk. Only after the whole edit passes do the
+ * stage batches persist, in order, each with the caller's precomputed
+ * post-stage doc.
+ */
+export async function guardedMutateStages(
+	ctx: ToolExecutionContext,
+	prevDoc: BlueprintDoc,
+	stages: StagedMutationBatch[],
+): Promise<GuardedMutateOutcome> {
+	const all = stages.flatMap((s) => s.mutations);
+	const verdict = mutationCommitVerdict(prevDoc, all, ctx.commitPhase);
+	if (!verdict.ok) {
+		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
+	}
+	let newDoc = prevDoc;
+	for (const s of stages) {
+		if (s.mutations.length === 0) continue;
+		await ctx.recordMutations(s.mutations, s.doc, s.stage);
+		newDoc = s.doc;
+	}
+	return { ok: true, newDoc };
+}
+
+/**
  * Standard output shape for every mutating shared tool.
  *
  * Tagged with `kind: "mutate"` so the MCP adapter's result projector
