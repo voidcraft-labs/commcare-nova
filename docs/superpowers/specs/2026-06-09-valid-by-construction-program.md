@@ -1,718 +1,651 @@
-# Valid by Construction — Program Spec
+# Valid by Construction — Program Spec (v3)
 
-Supersedes `2026-05-31-valid-by-construction-design.md` (same program, same goal;
-this revision adds the reference-index architecture, the canonical-representation
-end state, and re-sequences the work into seven tranches). Ground-truth claims
-were verified against main and the CommCare checkouts on 2026-06-09, and the
-full draft was adversarially reviewed against the codebase; design decisions
-below record what survived. (This worktree is behind main — rebase before
-implementation starts so Tranche 0 diffs apply against current source.)
+Supersedes `2026-05-31-valid-by-construction-design.md` and the v2 revision of
+this file. Provenance, recorded deliberately: v2's review was contaminated (the
+author's draft decisions rode into reviewer prompts as locked axioms). v3 is a
+synthesis of two uncontaminated streams produced 2026-06-09 — a clean-room plan
+derived from the codebase by an agent with no access to prior artifacts, and a
+blind A/B architecture evaluation (two requirement-only derivations, symmetric
+attack/steelman, three independent judges, unanimous verdict) — plus the v2
+ground-truth facts, which were independently fact-checked against main and
+held. Owner decisions approved 2026-06-09: introduced-error gate semantics, the
+completeness ratchet, MCP `draft` status, the SA schema deltas named below, and
+measured (not single-cut) retirement of `validateApp`. (This worktree is behind
+main — rebase before implementation starts.)
 
 ## Goal
 
-**Every committed mutation batch leaves the blueprint valid, identically for the
-SA and the builder UI, so invalid states are unrepresentable rather than
-detected-and-repaired.** The user-facing `validateApp` fix loop — today the
-*only* validity net in the system — is removed, because there is nothing left
-for it to fix. What survives at the boundaries is small and fix-free:
+**Every committed mutation batch leaves the blueprint valid, identically for
+the builder UI, the chat SA, and MCP, so invalid states are never persisted.**
+The after-the-fact `validateApp` fix loop — today the only validity net in the
+system — is removed once measurement proves the gates have starved it. What
+survives at the boundaries is small and fix-free: the media-state export gate,
+a completeness check at transaction boundaries, an index-backed ingest gate for
+docs that bypassed the guarded paths, and the wire oracles (already CI/fuzz
+tripwires, never authoring gates — untouched).
 
-- the **media-state export gate** (asset readiness is external Firestore/GCS
-  state, not a doc property — permanently a boundary check),
-- a **completeness checklist** at export ("is it finished", not "is it broken"),
-- an **index-backed ingest gate** for docs that never rode the guarded write
-  paths (recovery scripts, legacy docs, hand-built MCP payloads),
-- the **wire oracles** (XForm / suite / HQ-JSON / binding-resolution), which are
-  already CI/fuzz-only totality proofs and never user gates — they stay forever
-  and need no work.
+The program has three layers, separable and independently shippable:
 
-The validate-then-fix model is the last structural leftover of the pre-Nova
-"Forge" era. The "every mutation is valid" invariant already exists as a UI
-principle; this program extends it to the agent, on the principle that if a user
-cannot reach an invalid state through the interface, neither should the agent.
+1. **The validity gate** — valid-at-every-commit, enforced now, with the
+   machinery the codebase already has (scoped validation walks). Correctness
+   does not wait for new infrastructure.
+2. **The reference index** — the requirement that reference operations in the
+   write path (rename/move/delete cascades, every future reference-aware
+   operation) never perform document-wide searches; cost proportional to the
+   references actually involved. Lands underneath the gate and swaps its
+   verdict implementations from walks to queries.
+3. **Canonical structured expressions** — XPath surfaces migrate to typed ASTs
+   whose reference leaves carry stable identity, making form-local renames
+   rewrite nothing and killing the string-rewrite machinery at the root.
 
 ## Definitions
 
-Three validity categories — the load-bearing distinction is the **enforcement
-response**, not the taxonomy label:
+### Five validity classes, five enforcement points
 
-- **Illegal** — malformed id, unparseable expression, dangling reference,
-  dependency cycle. Never allowed. Response: **reject** (or auto-correct) at the
-  commit boundary, or **rewrite/resolve** when the edit itself is legal but
-  would break references (rename rewrites; delete demands a resolution).
-- **Incomplete** — module with no columns yet, registration form with no
-  case-name field yet, child case type no module lists yet. Normal
-  work-in-progress states; response: **defer to the export/"done" boundary**.
-  Enforcing these per-mutation would make incremental building impossible: a
-  just-created form IS empty, generation tools stream fields in after the form
-  exists, and building the parent module's child-creating fields before
-  scaffolding the child module is the natural build order.
-- **Emergent** — cross-entity integrity: who references whom, what a rename
-  cascades to, what a delete orphans, whether an edit closes a cycle. Shares the
-  commit-boundary verdict *mechanism* with illegal states; differs in the state
-  consulted (cross-entity, via the reference index).
+| Class | Definition | Enforcement |
+|---|---|---|
+| **Shape** | Wrong structure (kind-mismatched property, malformed doc) | Already unrepresentable (Zod schemas, reducers' `safeParse`, strict per-kind tool arms) — keep |
+| **Soundness** | A wrong thing *exists*: bad XPath, dangling reference, duplicate id, type error, dependency cycle, reserved name, contradictory config | **Every commit, every surface** — rejected before persistence |
+| **Completeness** | Construction not *finished*: `NO_MODULES`, `EMPTY_FORM`, `MISSING_CASE_LIST_COLUMNS`, `NO_CASE_NAME_FIELD`, `REGISTRATION_NO_CASE_PROPS`, `CHILD_CASE_NO_NAME_FIELD`, `MISSING_CHILD_CASE_MODULE`, `CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE`, the Connect missing-block family | **Ratchet on every commit** (an edit may never take a complete entity incomplete) + **zero-tolerance at transaction boundaries** (build completion, export, upload) |
+| **Environment** | Media asset existence/readiness/kind vs external Firestore/GCS state | Attach-time checks for what's knowable (exists / owner / kind); readiness stays an export-boundary gate |
+| **Oracle** | `XFORM_*` / `SUITE_*` / `HQJSON_*` / `BINDING_RESOLUTION_*` — generator-bug tripwires | CI/fuzz primary; at boundaries they are Sentry-reported *infrastructure* errors, never SA-fixable authoring states |
 
-**The persisted mutation batch is the unit of validity** — one `applyMany` /
-one `recordMutations` call. Every batch must commit valid; co-dependent
-mutations must ride one batch. Intra-batch intermediate states may transiently
-dangle; validity holds at the batch boundary. Tools that deliberately stage
-multiple batches (`editField`'s convert→rename→patch split) must make each
-stage independently valid — and on a mid-call rejection, report the committed
-prefix in the tool result so the SA knows what landed.
+Completeness is deferred during construction because building takes time — a
+scaffolded-but-unfilled form is unfinished, not wrong, and the codebase already
+models the build window (`status: "generating"`; "app-exists stays false during
+initial generation"). Forcing completeness at every write would require
+mega-atomic whole-app tool calls, which the staged tool design deliberately
+rejects.
 
-**One enforcement layer, two surfaces.** The UI (`lib/doc/store.ts::applyMany`)
-and the SA (`lib/agent/tools/common.ts::applyToDoc`) apply through the single
-`lib/doc/mutations/index.ts::applyMutations` reducer, and server- and
-client-derived docs are byte-identical from the same `Mutation[]`. Guards that
-*reject* run **pre-dispatch** at the hook/tool layer via shared verdict
-functions (the `lib/commcare/connectSlugs.ts` pattern: one function, both
-callers, validator rule retained as backstop); reducers stay guard-free and
-never throw.
+### Introduced-error semantics
 
-**The rejection channel is the verdict function's typed return** — evaluated
-pre-dispatch, before `applyMany` is ever called. The UI hook renders the
-verdict inline and never dispatches; the SA/MCP tool layer maps the same
-verdict to the existing structured `{ error }` tool-failure shape.
-`MutationResult[]` (`FieldRenameMeta` / `MoveFieldResult`) remains what it is
-today — post-apply side-effect metadata for toasts — and is *not* the rejection
-path.
+A commit is accepted iff `errors(nextDoc) ⊆ errors(prevDoc)` under stable error
+identity (code + location uuids + surface key). Transaction boundaries require
+the empty set. Consequences, each load-bearing:
 
-## Ground truth (verified 2026-06-09, against main)
+- **Monotone**: apps only get better; no edit can add a soundness error, and
+  no edit can take a complete entity incomplete.
+- **Legacy-safe with zero migration**: pre-existing invalid Firestore apps stay
+  editable — edits to untouched-broken regions pass; the broken region itself
+  can only improve. No ingest rejection, no repair migration required to ship.
+- **Build-coherent**: a fresh build is born at zero soundness errors (under
+  deferred completeness) and the per-call gate keeps it there by induction, so
+  the terminal check can only fail on completeness — work not yet done, never
+  damage to repair.
 
-What the investigation established, with the evidence:
+### Unit of validity and enforcement placement
 
-**The validator, classified.** 190 distinct checks. ~95 are wire-oracle codes
-already at the desired end state (CI/fuzz harnesses + `compileCcz` throws —
-generator-bug detectors, never authoring gates). The ~95 live authoring-facing
-codes decompose, after review, into:
+The **persisted mutation batch** is the unit — one `applyMany` / one
+`recordMutations` call. Co-dependent mutations ride one batch; tools that stage
+multiple batches (`editField`'s convert→rename→patch) must make each stage
+independently valid, reporting the committed prefix on a mid-call rejection.
 
-- **~12 backstops** whose primary enforcement already lives at source (the
-  connect-slug family et al.) — no work beyond keeping them;
-- **16 killed outright by the reference index**: `INVALID_REF`,
-  `INVALID_CASE_REF`, `CYCLE`, `FORM_LINK_TARGET_NOT_FOUND`,
-  `FORM_LINK_SELF_REFERENCE`, `FORM_LINK_CIRCULAR`,
-  `FIELD_KIND_PROPERTY_TYPE_MISMATCH`, `FIELD_KIND_WRITERS_DISAGREE`,
-  `DUPLICATE_CASE_PROPERTY`, `CLOSE_CONDITION_FIELD_NOT_FOUND`,
-  `CASE_LIST_COLUMN_UNKNOWN_FIELD`, `CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY`,
-  `CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH`,
-  `CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`,
-  `CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT`, `CASE_HASHTAG_ON_CREATE_FORM`;
-- **~11 export-boundary completeness codes** (`NO_MODULES`, `EMPTY_FORM`,
-  `NO_FORMS_OR_CASE_LIST`, `MISSING_CASE_LIST_COLUMNS`,
-  `REGISTRATION_NO_CASE_PROPS`, `NO_CASE_NAME_FIELD`,
-  `CHILD_CASE_NO_NAME_FIELD`, `MISSING_CHILD_CASE_MODULE`, the Connect
-  missing-block family) — deferred, never construction-enforced.
-  `MISSING_CHILD_CASE_MODULE` is deliberately here, not in the 16: HQ has no
-  rule requiring a created child type to be listed (its requirement is
-  case-detail-on-case-requiring-modules only), the rule is stricter than the
-  platform, and "child type with no module yet" is the canonical mid-build
-  state;
-- **3 media-boundary codes** (readiness / kind / export budget — external
-  state);
-- **~53 needing a construction mechanism**: ~24 typed-schema tightenings, ~19
-  commit guards (including parse-at-commit, which absorbs
-  `FIXTURE_REFERENCE_NOT_MODELED` — a property of the expression text), ~10
-  structured-expression/type checks at commit.
+Both surfaces apply through the single reducer
+(`lib/doc/mutations/index.ts::applyMutations`; client via
+`lib/doc/store.ts::applyMany`, server via
+`lib/agent/tools/common.ts::applyToDoc`). **Gate verdicts run at the commit
+boundary** — the UI dispatch/commit layer and the shared SA/MCP tool layer —
+via one shared verdict module (the connect-slug pattern: one function, every
+caller). **Reducers stay total** with their existing warn-and-skip semantics,
+so historical event-log replay never blocks on a degenerate event. The
+rejection channel is the verdict's typed return: the UI renders it inline and
+never dispatches; the tool layer maps it to the standard `{ error }` envelope
+with the already-SA-tuned humanized messages. `MutationResult[]` stays what it
+is (post-apply toast metadata), not a rejection path.
 
-**Today's only net is SA-side.** The builder UI runs no validation anywhere
-under `components/builder/`, and neither export path validates the blueprint —
-`app/api/compile/route.ts` and `app/api/commcare/upload/route.ts` call the
-emitters with no `runValidation` gate (the media validator gates media-ON
-exports; nothing gates blueprint validity). A user can delete a field three
-other fields reference and nothing warns; a broken app uploads and breaks at
-CCHQ.
+## Ground truth (verified 2026-06-09 against main)
 
-**The mutation layer's reference handling is partial and asymmetric.**
+The facts the design rests on; each was independently verified, most twice.
 
-- `renameField` runs a two-phase cascade (`lib/doc/mutations/fields.ts`):
-  form-local Lezer rewrites over `XPATH_FIELDS` + `DISPLAY_FIELDS`, then — when
-  the field has `case_property_on` — an app-wide scan renaming peer fields,
-  the case-type catalog entry, case-list columns, and `#case/` + `#<type>/`
-  hashtags. It works, but its surface list is the narrowest of three.
-- **Surface coverage disagrees across three layers.** The rename/move rewriters
-  cover 6 surfaces (`relevant`, `calculate`, `default_value`, `validate` +
-  `label`, `hint`); emit and the deep validator cover ~15 (adding `required`,
-  `repeat_count`, `ids_query`, `help`, `validate_msg`, option labels, connect
-  XPath slots, `closeCondition.field`, predicate-AST `PropertyRef`s, form-link
-  conditions/datums). `required` is excluded from `XPATH_FIELDS` under a comment
-  that is provably stale (`lib/domain/fields/base.ts` declares it as an XPath
-  surface; the validator and fix loop treat it as one). **Renaming a field
-  referenced in a `required` expression silently breaks it today.**
-- `moveField` rewrites absolute paths through the Lezer walk, but a cross-depth
-  move **drops** `#form/` hashtag refs — counted in
-  `MoveFieldResult.droppedCrossDepthRefs`, which no consumer reads. The
-  limitation is the *rewriters'*, not the syntax's: the Lezer grammar
-  (`HashtagRef` is multi-segment), `BARE_HASHTAG_PATTERN`, the emitter's
-  `resolveFlatHashtag`, the preview resolver, and Vellum's canonical
-  `#form/group/q` shorthand all handle nested hashtags; only
-  `rewriteXPathOnMove` restricts itself to single-segment rewrites.
-- `removeField` / `removeForm` / `removeModule` are pure subtree cascades: **no
-  reference scan of any kind**. Every inbound reference orphans silently.
-- `moveForm` across modules, `updateModule({caseType})`, `updateForm({type})`,
-  and `setCaseTypes` change what existing refs resolve to with **zero string
-  changes** — no rewrite, no warning. (`updateForm({type})` to registration
-  collapses the form's accept set to own-type `case_id` only; to survey, to
-  nothing — instantly orphaning every other case ref in the form.) These are
-  the mutations no string-keyed rewriter can even see.
+**Validity is owned by `lib/commcare/validator/`** — ~190 codes in
+`errors.ts`; domain rules walk the doc once (`runner.ts::runValidation`);
+deep XPath validation (`validator/index.ts::validateBlueprintDeep`) covers
+syntax/function/arity/refs/case-refs/cycles/types over every XPath and prose
+surface; post-expansion oracles prove emitter totality. The fix loop
+(`lib/agent/validationLoop.ts::validateAndFix`) applies `FIX_REGISTRY` (13
+codes) in `fix:attempt-N` batches with a 3-consecutive-identical-signature
+stuck check; the chat-side success arm (`lib/agent/solutionsArchitect.ts`)
+awaits `materializeCaseStoreSchemas`, emits `data-done`, fires `completeApp` —
+chat-only; MCP builds never run them.
 
-**Identifier invariants are not construction-guaranteed.** The `addField`
-reducer has no sibling-id uniqueness check (parent-existence + splice only); the
-SA rename path (`lib/agent/blueprintHelpers.ts::renameFieldMutations`) dispatches
-with no conflict guard — only the UI hook pre-checks; field-id legality is
-validate-time + autofix. Reference resolution is path/name-scoped, so duplicate
-sibling ids make resolution ambiguous: any index built before these guards land
-indexes ambiguity.
+**None of the four commit surfaces enforces semantic validity.** UI edits
+persist via auto-save through a PUT that checks only the Zod shape parse. SA
+tools persist fire-and-forget per call — invalid intermediates are durable
+throughout builds and edits; a run that dies mid-way leaves the invalid state
+as the final state. MCP tools persist per call with nothing forcing an external
+client to ever validate — and `lib/mcp/tools/createApp.ts` mints an empty app
+with `status: "complete"`, violating `NO_MODULES` from birth. **Neither export
+path validates the blueprint** — compile and HQ-upload run only the media
+validator. A semantically broken app exports and uploads today.
 
-**Three hashtag matchers disagree.** The Lezer `HashtagRef` grammar (XPath), the
-wire-prose `BARE_HASHTAG_PATTERN` (`lib/commcare/proseHashtags.ts`, allows `-`
-in segments), and the UI `HASHTAG_REF_PATTERN` (`lib/references/config.ts`,
-allows `.` in paths) are kept in lockstep only by convention.
+**Validity-by-construction already exists in patches — the pattern to
+extend:** per-kind field shape (reducer `safeParse` + strict tool arms);
+sibling-id dedup on move; the rename XPath cascade; the UI `XPathField`
+refusing to commit unparseable expressions; connect-id enforcement at every
+source with the validator as backstop; media deletion's reference guard; the
+total, fuzz-proven wire emitters.
 
-**No expression references anything by stable identity.** Every ref inside an
-expression or prose string uses the semantic-id/name vocabulary; uuid references
-exist only at the entity level (`form_links` targets store
-`{moduleUuid, formUuid}` — the one rename-proof reference family — plus media
-`AssetId`s). The doc store itself is uuid-normalized, so the infrastructure for
-identity-keyed references exists one layer down.
+**The reference machinery is partial, asymmetric, and already drifting:**
 
-**The structured-AST precedent cuts both ways.** Case-list filters and
-calculated columns are already structured-canonical (`Predicate` /
-`ValueExpression` in `lib/domain/predicate`) — representation-first is the
-codebase's existing direction, not a novel bet. But the same precedent proves
-structure alone doesn't fix staleness: `PropertyRef` stores case-type/property
-*names*, and no mutation rewrites them today — the rename cascade skips
-predicate ASTs entirely. Structure without identity resolution and a reverse
-index just changes what goes stale.
-
-**The preview engine's graph is real but not the answer.**
-`lib/preview/engine/triggerDag.ts` is path-string-keyed (a rename re-keys its
-whole world), per-form, full-rebuild-on-change, covers a subset of surfaces, and
-silently breaks cycles at runtime (`detectAndBreakCycles`, console.warn). Its
-pure pieces are already shared with the write side — the validator imports
-`reportCycles` and `buildFieldTree`; the doc mutations import the
-`lib/preview/xpath` rewriters — so the shareable primitives are proven; the
-structure itself is the wrong shape to grow.
-
-**The cross-form model is the case-flow structure, verified against the
-platform.** Expression-dependency edges (recompute order, cycles — what
-TriggerDag models) cannot cross a form boundary: `#<type>/<prop>` lowers to a
-casedb read mediated by session selection, never a live edge into another form's
-instance. Intra-form triggerable cycles are form-load fatal
-(`~/code/commcare-core/.../javarosa/core/model/FormDef.java::finalizeTriggerables`
-throws on cyclic graphs, invoked from `XFormParser`). A case type is *usable*
-only through a case list: HQ requires a short detail on case-requiring modules
-(`~/code/commcare-hq/corehq/apps/app_manager/helpers/validators.py:321,728-733`,
-`'no case detail'`), and at runtime entity selection exists only through a
-case-list detail (`~/code/commcare-core/.../xml/SessionDatumParser.java:60`
-reads `detail-select` into `EntityDatum.shortDetail`). So the app-level layer of
-the graph is the **case-flow model** — case-type nodes with parent edges,
-module-lists-type edges, form-creates/updates/closes-type edges, and the
-property namespace under each type — not a bare property-name index. Nova
-already encodes fragments of it
-(`lib/domain/caseTypes.ts::reachableCaseTypes`, `caseRefAcceptMap`).
-
-**`validateApp` is load-bearing beyond validation.** The chat-side success arm
-triggers `materializeCaseStoreSchemas` + `completeApp`
-(`lib/agent/solutionsArchitect.ts` — chat-surface-only today; MCP builds never
-run them). The fix loop (`lib/agent/validationLoop.ts`) carries a FIX_REGISTRY
-(13 auto-fix codes) and a stuck check (3 consecutive identical error
-signatures — there is no hard iteration cap). Retiring it means relocating
-those side effects, not just deleting checks.
-
-## End-state architecture
-
-### Canonical structured expressions, strings at the edges
-
-The destination representation: XPath expression surfaces persist as a typed
-AST — **uuid leaves** for form-local references (`#form/...`, `/data/...`),
-**`(case_type, property)` leaves** for case references, named leaves for
-`#user/<prop>` — with strings *projected* at every edge that wants text.
-
-The persistable AST is a new typed tree following the `Predicate` /
-`ValueExpression` pattern, built *from* the Lezer parse and carrying
-inter-token trivia, with a printer obeying a fuzz-pinned round-trip law:
-`print(parse(s)) === s` byte-exactly for every parse-clean `s`. The editor
-reopens to the user's exact text, the event log carries no formatting churn,
-and projected wire bytes stay stable. The Lezer tree remains the parse front
-end only — never the stored form.
-
-The edges:
-
-- **Wire emission** projects strings (the emitters are DOM construction; the
-  predicate AST already compiles to XPath). A `(caseType, prop)` leaf needs no
-  depth structure: emit derives depth from the form's reachable-type map
-  (unique depth per type by construction), including the registration
-  narrowing; an unreachable leaf re-projects as verbatim `#<type>/<prop>` text,
-  preserving today's validator-quote behavior.
-- **The expression editor** round-trips text ↔ AST at commit (the round-trip
-  law makes this lossless).
-- **The SA surface does not change shape.** Tool input schemas stay
-  string-typed — the SA writes XPath text in both worlds. Parsing happens
-  inside the tool handler; the SA-visible change is failure results on invalid
-  input (the connect-slug precedent). Requires owner sign-off per the
-  SA-surface rule; the change is handler-internal.
-- **Every read edge goes through one accessor.** Tranche 0 introduces
-  `expressionSource(field, key) → string` and converts every reader to it
-  (`getField`/`getForm` tool reads, `searchBlueprint`, the preview engine's
-  extraction/evaluation/change-detection, `connectConfig`, validator scans,
-  `formActions`, the emitters) — so Tranche 5 changes the accessor's
-  implementation, not its consumers.
-- **Prose stays prose, permanently.** Labels/hints remain markdown strings with
-  bare hashtags (locked: markdown swallows `#` under XPath parsing; the tiptap
-  chip layer is editor-only by design). Prose refs are indexed, never
-  restructured — which means **the prose hashtag rewriter is permanent**, and
-  `renameField` remains a cascading reducer side effect for prose surfaces
-  forever.
-
-Under this representation, a form-local rename is a metadata no-op **on
-migrated expression surfaces** — no parsing, no matcher lockstep. A
-case-property rename remains a cascade (the property name is shared by peer
-writers), executed as a structural leaf-walk inside the reducer.
-
-### The reference index
-
-A **derived, identity-keyed, never-persisted** index over the doc, maintained at
-the mutation batch boundary. Its role is precisely scoped: it powers
-**pre-dispatch verdicts** (conflict guards, orphan lists, affected-reference
-previews, cycle checks) and **read paths** (find-references, lint, autocomplete,
-readiness affordances). It never drives reducer behavior — see D4.
-
-Shape — two layers plus entity edges, matching what the platform actually
-couples:
-
-- **Per-form expression graphs**: nodes are field uuids; edges are reference
-  occurrences `{ownerUuid, surfaceKey, refShape, span}`. Recompute order and
-  triggerable cycles live here.
-- **App-wide case-flow graph**: case-type nodes (parent edges); property nodes
-  keyed `(caseType, propName)` carrying provenance with the validator's
-  admission *priority* — `declared > standard > writerDerived` — not a flat
-  flag set (data-type resolution depends on the order); module-lists-type
-  edges; form-creates/updates/closes-type edges; writer/reader edges from
-  fields and case-list/search surfaces into property nodes. `writersOf`
-  declares its scope explicitly: the admission-parity query mirrors
-  `collectCaseProperties`' target ∪ declared-parent module scope, while the
-  app-wide writer set is a separate query for the writers-disagree guard —
-  the two existing consumers genuinely differ and the index must not blur them.
-- **Entity-uuid edges**: form-link targets, media `AssetId`s — already stable,
-  indexed directly.
-
-A `#<type>/<prop>` ref denotes a property **namespace**, never a field — peer
-fields across forms co-own it (`cascadeCasePropertyRename` models them as
-co-equal authoritative declarations). Pointing property refs at a "primary
-writer" field is wrong by construction.
-
-`listersOf(caseType)`: a module lists type *t* when `module.caseType === t` and
-it provides selection — form-entry case list, `caseListOnly` browse entry, or a
-case-search module. Parent-select chains are HQ's other lister shape and a
-named extension point for when that feature is modeled.
-
-## Design decisions (locked for the program)
-
-- **D1 — Strings stay canonical until their surface migrates.** The index is
-  derived, never authoritative, never persisted. Stripped by a
-  `toPersistableDoc`-style twin at every Firestore/SSE boundary, pinned by a
-  test. (Persisting it would push the 1 MiB app-doc limit and create a drift
-  channel for out-of-band writers.)
-- **D2 — Node identity is uuid for entities, `(caseType, propName)` +
-  prioritized provenance for properties.** Never semantic-id paths
-  (TriggerDag's mistake: a rename re-keys the world). References are edge
-  records; a rename rewrites edge payloads, never re-keys nodes.
-- **D3 — The index lives on doc state** so zundo snapshots restore a graph
-  consistent with its doc for free — maintained incrementally with
-  structure-sharing partitions: per-form partitions for expression graphs,
-  per-case-type partitions with per-`(caseType, propName)` node records for the
-  case-flow layer, all updated in place through the same Immer draft. Layer-
-  level clear-and-rebuild is forbidden outside `load()` and the D9 fallback
-  (never `fieldParent`'s clear-and-rebuild-per-batch idiom: 100 history entries
-  must share structure, not hold 100 copies).
-- **D4 — Batch-end maintenance; reducers never read the index.** The index
-  updates once at the end of each unbracketed `applyMutations` batch; the
-  Biome `noRestrictedImports` boundary bans the sub-reducer modules
-  (`fields`/`forms`/`modules`/`app`/`helpers`) from importing the index module;
-  the batch dispatcher (and the store/`applyToDoc` callers) is the single
-  maintenance site — mirroring how `rebuildFieldParent` wires today.
-  **Consequence, stated explicitly: the rename/move reference cascade stays a
-  reducer side effect computed from doc state alone** — the existing string
-  rewriters while strings are canonical, a structural leaf-walk after
-  migration. The bare `renameField` mutation keeps reproducing the full cascade
-  on the client and in replay; `FieldRenameMeta` keeps its producer; the event
-  log keeps recording one mutation per rename. The index informs the
-  *pre-dispatch* verdict ("this rename touches N references", conflict
-  detection) — it never drives the rewrite. The cascade's cost stays O(doc);
-  what migration buys is *no parsing and no matcher lockstep*, not index-driven
-  dispatch. Ref-proportional cost is a property of index *queries*
-  (find-references, delete-impact, verdicts), not of cascade execution.
-- **D5 — Guards run pre-dispatch via shared verdict functions** against settled
-  state — the doc directly until Tranche 2, the index thereafter; one function,
-  called from both the UI hook layer and the shared SA tool layer; the
-  corresponding validator rule survives as a backstop. During the coexistence
-  window, the SA fix loop's mutation batches run through the same verdict
-  functions before `recordMutations` — a guard rejecting an autofix is a
-  FIX_REGISTRY bug surfaced loudly, not silently.
-- **D6 — Live streams maintain incrementally; only replay and load defer.**
-  Agent-write streams do NOT bracket the index: the client maintains it
-  incrementally per streamed `data-mutations` batch and the server per tool
-  call (D4's normal operation) — guards must see current state mid-stream
-  because the SA's second tool call may depend on its first. The
-  defer-and-rebuild bracket is reserved for the replay loops (ReplayHydrator
-  hydration, chapter scrubbing) and `load()`, where no guard can fire. Invariant:
-  **an index-defer window must also be an undo-pause window**, and the settle
-  rebuild commits before undo tracking resumes.
-- **D7 — Incremental ≡ rebuild is fuzz-proven.** The from-scratch rebuild is the
-  oracle; a property test applies random mutation batches and asserts the
-  incrementally-maintained index equals the rebuild — same posture as the wire
-  oracles. A dev-mode assertion compares the two after each unbracketed batch.
-- **D8 — Unparseable expressions degrade, never fail.** An expression with Lezer
-  error nodes contributes zero edges and marks its owner opaque; the existing
-  syntax diagnostic stays the user-facing signal; loads never fail; index-backed
-  guards downgrade to warnings on forms containing opaque expressions.
-- **D9 — Invalidation scope is a function of (mutation, pre-state).** The core
-  is derived, not hand-tabled: `update*`/`rename*`/`move*` compute scope as the
-  maximum over touched keys' scoping declared in the Tranche-0 surface
-  registry, plus one pre-state rule (a touched field with non-empty
-  `case_property_on`, or a patch touching it, invalidates the case-flow layer).
-  A static kind-keyed table survives only for genuinely fixed-scope kinds, and
-  unmapped kinds default to full rebuild — omissions degrade to slowness, never
-  staleness. The four zero-string-change re-scoping kinds (`moveForm`,
-  `updateModule({caseType})`, `updateForm({type})`, `setCaseTypes`) are the
-  canonical case-flow invalidators.
-- **D10 — One index, typed extractors per ref family**: Lezer walks for XPath
-  surfaces; the shared bare-hashtag matcher for prose (never Lezer on prose —
-  markdown swallows the `#`); structural walks for predicate/value-expression
-  ASTs (refs are first-class, no parsing); direct reads for entity-uuid refs.
-  Every edge carries its surface kind so per-surface policy (strict vs lenient,
-  rewrite vs flag) stays expressible. Index queries are **parse-forcing**: a
-  query touching lazily-parsed edges completes the outstanding per-form parses
-  (through the bounded cache) before answering, so guards always see a complete
-  graph; first paint pays only the structural skeleton.
-- **D11 — Acyclicity is enforced per edge class.** The only platform-fatal
-  class is **intra-form expression dependencies**
-  (`FormDef.java::finalizeTriggerables` throws at form load). Form-link cycle
-  rejection is a **Nova product rule**, kept deliberately (it preserves today's
-  `FORM_LINK_CIRCULAR` stance; the acknowledged cost is that conditional
-  ping-pong workflows are platform-legal — HQ validates only link-target
-  existence). Parent-select-chain and root-module-chain cycles are
-  platform-required classes (`validators.py` `'parent cycle'` /
-  `'circular case hierarchy'`), stubbed until those features are modeled.
-  Cross-form case-property cycles are legal and common — a globally-acyclic
-  graph would reject valid apps. Preview's break-edge runtime tolerance stays
-  as defense in depth. `setCaseTypes` gains construction-time rejection of
-  `parent_type` cycles — grounded in Nova's depth-keyed `#<type>/` vocabulary
-  (a cyclic chain makes type→depth ambiguous; platform-legal self-parenting is
-  deliberately unsupported because the vocabulary cannot disambiguate depths),
-  not platform fidelity.
-
-## Open decision (user-owned)
-
-**Do case properties get first-class identity** (own uuids; field id and
-property name become projections), **or stay name-keyed namespaces?**
-
-Recommendation: **name-keyed**, with the structural leaf-walk cascade making
-property renames cheap and safe. "Field id = case property name" is a
-load-bearing domain invariant (the wire emitters, HQ's FormActions contract,
-and the SA vocabulary all consume it), and no current feature needs a property
-name decoupled from its writers' ids. Promote to first-class identity only when
-a concrete feature requires the decoupling. **Decision deadline: before
-Tranche 5 migrates the first case-ref-bearing surface** — it changes what the
-migrated leaves store.
-
-## Tranches
-
-Each tranche is independently shippable and none is throwaway: the registry,
-guards, boundary gates, index API, and consumers are permanent under the
-end-state representation. The retirement list is honest and short: the
-*XPath-surface* string rewriters leave the live commit path as their surfaces
-migrate (the prose rewriter is permanent), and the index's string-parsing
-extractors flip to leaf-walks per migrated surface (the resolution logic
-relocates into the commit-time converter).
-
-### Tranche 0 — Ground rules: one registry, sound identifiers, one matcher
-
-The prerequisites everything else keys on.
-
-- **Surface registry.** One declarative table — entity type → key path →
-  surface kind (`xpath` | `prose` | `predicate-ast` | `entity-uuid`) → scoping —
-  consumed by the rename/move rewriters, the deep validator's surface unions
-  (`XPathSurface`/`ProseSurface`/`ConnectXPathSlot`), the emitter funnels, and
-  (from Tranche 2) the index extractors and D9's scope derivation. Closing the
-  rewriter coverage gaps is part of shipping it: `required` first, then
-  `repeat_count`, `ids_query`, `help`, `validate_msg`, option labels,
-  `closeCondition.field`, form-link conditions, connect slots, and a structural
-  rewrite pass for predicate-AST `PropertyRef`s (closing the rename cascade's
-  predicate gap).
-- **Read-side accessor.** `expressionSource(field, key)` — every expression
-  reader converts to it now, so Tranche 5 swaps the implementation, not the
-  call sites.
-- **Multi-segment hashtag rewrites.** Teach the two rewriters
-  (`lib/preview/xpath/rewrite.ts`, `lib/doc/mutations/pathRewrite.ts`) and the
-  reference resolver/linter/autocomplete multi-segment `#form/<path>` refs —
-  the grammar, prose pattern, emitter expansion, preview resolver, and Vellum
-  round-trip already support them; only the rewriters are single-segment.
-- **Identifier guards at source.** Sibling-id uniqueness on `addField`; a rename
-  conflict verdict shared by the UI hook and the SA tool layer; field-id
-  legality at commit. Validator rules (`DUPLICATE_FIELD_ID`,
-  `INVALID_FIELD_ID`) stay as backstops. These precede the index because
-  reference resolution is path/name-scoped: duplicate siblings make resolution
-  ambiguous, and an index over ambiguous identifiers is unsound.
-- **Matcher unification.** One shared hashtag-segment definition feeding the
-  Lezer grammar's `HashtagRef`, `BARE_HASHTAG_PATTERN`, and
-  `HASHTAG_REF_PATTERN`, plus a divergence-corpus test (`-` and `.` segments,
-  markdown-adjacent text, multi-segment forms).
-
-**Verification:** run dev, open the builder, rename a field referenced in
-another field's `required` expression — the reference follows the rename (it
-silently breaks today). Ask the SA to rename a field to an id its sibling
-already holds — the tool call fails with a message naming the conflict.
-
-### Tranche 1 — Boundary gates: parse-at-commit and export readiness
-
-Closes the two live product holes that don't need the index, and establishes the
-permanent commit choke point.
-
-- **Parse-at-commit.** Every expression-bearing write parses through the Lezer
-  grammar at the commit boundary — the hook/tool layer that accepts the raw
-  string, via a shared `validateExpressionContent` verdict (syntax,
-  unknown-function, arity, unmodeled fixture refs; the `lib/commcare` parser is
-  already importable there). Rejections are Elm-style, returned per the
-  verdict-channel rule. Only the *changed* expressions are gated — an edit to
-  an unrelated property of a field whose stored expression predates the gate
-  must not block. This is the seam where Tranche 5's string→AST conversion
-  later runs — the parse call doesn't move; we start keeping the tree.
-- **Export readiness.** Extract the ~11 completeness codes into
-  `checkExportReadiness(doc)`; gate `/api/compile`, `/api/compile/json`,
-  `/api/commcare/upload`, and the MCP compile/upload tools on it (reject, no
-  override), alongside the existing media gate. MCP failures use the
-  `invalid_input` envelope carrying the readiness list; the docs site and
-  plugin notes flag the contract change for existing MCP clients. The SA's
-  end-of-turn check and a passive UI "what's left" affordance read the same
-  function. An app may sit incomplete while building; it cannot *export*
-  incomplete. **This is where "always exportable" becomes true** — today
-  neither export path validates at all.
-- **Legacy sweep.** A read-only scan script reporting stored expressions that
-  fail the parse (dry-run only; migration is the user's call).
-
-**Verification:** type `foo(bar` into a calculate in the builder — the commit is
-rejected with a message naming the problem; the SA gets the same as a tool
-failure. Hit `/api/compile` on a module with no case-list columns — 4xx listing
-exactly what's missing; the builder shows the same list passively.
-
-### Tranche 2 — The reference index
-
-The structure from "End-state architecture", built to D1–D11. Lives in its own
-`lib/doc`-adjacent package behind the Biome boundary; built from-scratch in
-`load()` (structural skeleton eager, per-form expression parse lazy behind
-parse-forcing queries with a bounded expression→result cache); maintained
-incrementally at batch end through D9's scope derivation; deferred only across
-replay/load (D6); fuzz-proven incremental ≡ rebuild (D7).
-
-API shape (the permanent contract consumers code against):
-`referencesOf(owner)`, `whoReferences(node)`, plus case-flow queries —
-`writersOf(caseType, prop)` (admission-scoped and app-wide variants),
-`reachableTypes(formUuid)`, `listersOf(caseType)`.
-
-**Verification:** a NODE_ENV-gated overlay inside the builder (reading the same
-store instance) renders index stats and D7's live incremental-vs-rebuild parity
-assertion; edit the app while watching it — parity stays green. The fuzz oracle
-is green in CI.
-
-### Tranche 3 — Convert the reference class
-
-The 16 codes flip to construction time; reference-breaking edits become
-deliberate acts.
-
-- **Delete** routes through the index pre-dispatch: the UI gets a resolution
-  dialog ("N fields reference this — clear references / reassign / cancel");
-  the SA gets a structured tool *failure* (the existing `{ error }` shape)
-  carrying the orphan list and the legal strategy tokens, and re-issues with an
-  explicit strategy. Same verdict engine, two renderings. Schema delta: an
-  optional `strategy` enum on the remove-family tool inputs — **owner sign-off
-  required** (SA-surface rule), named here so the permission is requested in
-  the spec rather than discovered mid-implementation.
-- **Move re-anchors instead of dropping**: a cross-depth move rewrites
-  `#form/foo` → `#form/<group-path>/foo` — multi-segment hashtags, one
-  mechanism that works identically on XPath and prose surfaces (absolute-path
-  conversion is wrong for prose: `BARE_HASHTAG_PATTERN` can't match it, so the
-  ref would silently die as literal text). `droppedCrossDepthRefs` is
-  eliminated, not surfaced. Rides Tranche 0's multi-segment rewriter work; the
-  rewrite itself remains a reducer side effect per D4.
-- **Re-scope guards cover the full D9 set**: `moveForm`,
+- Three layers disagree on which surfaces carry references. The rename/move
+  rewriters cover `relevant`/`calculate`/`default_value`/`validate` +
+  `label`/`hint`; emit and the deep validator cover ~15 surfaces.
+  **Live bugs**: `required` is excluded from the rewrite list under a stale
+  comment, so renames silently break `required` expressions; the prose scanner
+  declares `help`/`validate_msg`/option-label as hashtag carriers but the
+  cascade rewrites only `label`/`hint` — those refs silently never rewrite.
+- A cross-depth `moveField` **drops** `#form/` hashtag refs
+  (`MoveFieldResult.droppedCrossDepthRefs` — no consumer reads it). The
+  limitation is the rewriters', not the syntax's: the grammar, prose pattern,
+  emitter expansion, preview resolver, and Vellum's canonical `#form/group/q`
+  all handle multi-segment hashtags; only the rewriters are single-segment.
+- `removeField`/`removeForm`/`removeModule` are pure cascades — no reference
+  scan; every inbound reference orphans silently. `moveForm`,
   `updateModule({caseType})`, `updateForm({type})`, and `setCaseTypes`
-  (parent_type edits and case-type removals) all consult the case-flow graph
-  pre-dispatch; an edit that re-scopes existing refs blocks with the
-  affected-reference list — same dialog/structured-failure contract as delete.
-- **Cycle rejection at commit** per D11's classes: per-form triggerables (the
-  platform-fatal class), form links (Nova product rule), `parent_type` cycles
-  in `setCaseTypes`.
-- **Rename/move verdicts via index**: conflict detection and the "this will
-  touch N references" preview run pre-dispatch on `whoReferences`; the cascade
-  itself stays in-reducer (D4).
-- **Read-path consolidation.** `ReferenceProvider`, the lint context, and the
-  autocomplete universe become projections of the index (the index becomes the
-  single opinion, not a fifth one). TriggerDag keeps its own per-form runtime
-  build — evaluation semantics stay in the engine — but sources edge extraction
-  from the same shared extractors.
+  re-scope what refs resolve to with zero string changes.
+- The rename cascade's app-wide scans live inside the reducer
+  (`fields.ts::cascadeCasePropertyRename` scans `Object.entries(doc.fields)`
+  and walks every module × form × field); a duplicate of the peer scan exists
+  client-side in `lib/doc/hooks/useBlueprintMutations.ts`.
+- `addField` has no sibling-id uniqueness check; the SA rename path has no
+  conflict guard (only the UI hook pre-checks); field-id legality is
+  validate-time + autofix.
+- The case-type catalog (`doc.caseTypes`) is written wholesale
+  (`setCaseTypes`) and by the rename cascade only — `addFields` introducing a
+  new case property never extends it, so case-ref validation
+  (`caseRefAcceptMap` reads the catalog) can lag live writers.
+- No expression references anything by stable identity; uuid refs exist only
+  at the entity level (`form_links` targets, media `AssetId`s). The store
+  itself is uuid-normalized.
 
-**Verification:** delete a field that other fields reference — a dialog lists
-every dependent and requires a choice (today it deletes silently). Move a field
-into a group when a hashtag references it — the reference survives as a nested
-hashtag and still renders/lowers everywhere (today it dangles silently). Create
-a calculate cycle — the edit is rejected naming the cycle. Switch a followup
-form to survey while it holds case refs — blocked with the affected-reference
-list.
+**Write-path topology facts (decisive for the index design):**
+`applyMutations` is the real chokepoint — five non-test wrappers (client
+store, server tool path, two validation-loop sites, replay chapters); there is
+no single "dispatch layer" above it. The streamed-mutations contract: the SA
+streams bare `Mutation[]`; the client feeds them straight into `applyMany`; the
+event log replays one-mutation batches through *current* reducers; reducer
+side effects must therefore reproduce identically from the bare mutation.
+zundo snapshots whole store state (limit 100, no partialize) in one `set()`
+per batch; `moveField`'s sibling dedup happens mid-batch on the live draft, so
+no pre-dispatch expander can know its outcome. The only derived-index
+precedent (`fieldParent`) lives inside `applyMutations`; its batch-end timing
+is documented as legal *only because no reducer reads it* — a reference index
+read by reducers mid-batch must be maintained per-mutation.
 
-### Tranche 4 — Commit-guard the rest
+**Structural scope facts:** the builder UI has no module/form create/delete
+affordances (structural mutation is SA/MCP-only), which shrinks the UI gating
+surface. The app lifecycle already encodes build-as-transaction for chat
+(`generating` → `completeApp`, stale-`generating` reaper); MCP bypasses it
+entirely.
 
-The ~53 remaining authoring codes move to their named mechanisms, each riding
-the verdict channel and, where cross-entity, the index (writer tuples, sibling
-sets, link edges make them O(1) instead of full-doc scans): ~24 typed-schema
-tightenings, ~19 commit guards (duplicate module names, case-type
-format/length, reserved namespaces, select-with-no-options, connect rules
-beyond the slug family, case-search compatibility rules), ~10 expression type
-checks at commit (the `typeChecker` slice, fed by the index + catalog). The
-completeness set explicitly does **not** move — it stays at the export boundary
-by the category argument above.
+**Platform facts (verified in the Dimagi checkouts):** intra-form triggerable
+cycles are form-load fatal
+(`commcare-core .../FormDef.java::finalizeTriggerables` throws). Form-link
+cycles are platform-legal (HQ validates only link-target existence) —
+rejecting them is a Nova product rule. Parent-select-chain and
+root-module-chain cycles are the platform-required classes, stubbed until
+those features are modeled. HQ has no rule requiring a created child case type
+to be listed by a module — `MISSING_CHILD_CASE_MODULE` is stricter than the
+platform and is a completeness check, not a soundness one. A case type is
+usable only through a case-list detail (HQ `'no case detail'`;
+`SessionDatumParser.java:60` — the detail IS the selection UI).
 
-**Verification:** each migrated rule has a repro: attempt the invalid edit in
-the UI — blocked inline with the reason; ask the SA to do the same — the tool
-call fails with the same reason. The corresponding validator codes never fire in
-the full test suite's generated-app corpus.
+## Architecture
 
-### Tranche 5 — Representation migration, per surface
+### Layer 1 — the validity gate
 
-Surface-by-surface, in expression-density order: `calculate` → `relevant` →
-`validate` / `default_value` / `required` → `repeat_count` / `ids_query` →
-connect slots. Per surface:
+```
+lib/commcare/validator/gate.ts        (new)
+  classifyError(code)  → shape | soundness | completeness | environment | oracle
+  errorIdentity(err)   → stable key (code + location uuids + surface key)
+  diffIntroduced(prev, next) → ValidationError[]
+  evaluateCommit({ prevDoc, nextDoc, scope, phase })
+      → { ok: true } | { ok: false, introduced: ValidationError[] }
+      phase: "building" (completeness deferred) | "complete" (ratchet)
+  evaluateBoundary(doc, manifest) → ValidationError[]   // zero-tolerance, full run
+```
 
-- Persist the typed AST (uuid leaves for form-local refs; `(caseType, prop)`
-  leaves per the open-decision outcome; `.`/`..` are structural context nodes,
-  never uuid leaves); project strings through `expressionSource` and the wire
-  emitters.
-- **Conversion is round-trip-gated**: an expression converts only when
-  `print(parse(s)) === s` byte-exactly; otherwise it stays a string and the
-  scan reports it. No mixed semantics — a non-converting expression keeps full
-  string behavior until cleaned up.
-- **Replay and ingest ride the same converter** — the **upgrade shim**: the
-  Tranche-1 commit-boundary string→AST converter runs at every non-commit
-  ingress (ReplayHydrator dispatch, chapter scrubbing, the ingest parse,
-  recovery scripts), converting string payloads at dispatch time (unparseable
-  strings degrade per D8). Old event logs replay through *current* reducers
-  with original semantics reproduced by projection — no frozen legacy reducers,
-  no event-log epochs, no dual-format reducer arms, and no
-  mixed-representation doc can exist.
-- That surface's string rewriter leaves the live commit path (the in-reducer
-  cascade becomes a structural leaf-walk for it). The prose rewriter is
-  unaffected and permanent.
-- `duplicateField` copies AST leaves **verbatim** through `cloneFieldSubtree`,
-  preserving today's duplicate semantics (clone refs keep pointing at the
-  original's targets exactly as copied strings re-resolve today) and
-  migrate∘duplicate commutativity.
-- One-time migration of existing docs: scan (read-only) + migrate (dry-run
-  default, `--apply`) scripts; the user decides when each runs.
+The classification table is typed `Record<ValidationErrorCode, Class>` so a new
+code without a class fails compile. `evaluateCommit` runs **scoped
+validation**: the runner gains a `{ formUuids?, moduleUuids? }` filter, scope
+derived from the batch's mutations (`scopeOfMutations`, widening to all
+modules of a case type for case-property-touching mutations). Scoped-equals-
+full-filtered is property-tested. Boundaries and saves run the full doc — the
+current loop already runs full validation several times per build, so this is
+not a regression; a perf-guard test on a large fixture keeps it measurable.
+
+Phase derivation: `generating` (chat builds) and `draft` (MCP builds, new) are
+`building`; everything else is `complete`.
+
+Call sites: a `guardedMutate` wrapper in `lib/agent/tools/common.ts` (one
+change covers chat + MCP — both run the same tool bodies); the UI dispatch
+layer (`useBlueprintMutations`) at-source; `app/api/apps/[id]/route.ts::PUT`
+as the server backstop for the UI (rejections are Sentry-visible client-gate
+bugs, not expected UX); the export/upload/compile routes and MCP tools plus
+the new `completeBuild` tool as boundaries. Agent-originated client applies
+and replay bypass the client gate — the server already gated them.
+
+### Layer 2 — the reference index
+
+Unanimous judge verdict (B-modified), independently converged on by both blind
+derivations: **the index lives inside the write path and reducers read it.**
+
+- **Placement**: derived state on `BlueprintDoc`, maintained **per-mutation**
+  inside `applyMutations`/`dispatchMutation` — index state is a deterministic
+  function of (initial doc, mutation prefix), identical in every consumer of
+  the one shared reducer. Server/client byte-identity, streamed-mutation
+  replication, and event-log replay are preserved *by construction* because
+  there is no second code path.
+- **Shape** (plain JSON records — no Map/Set; zundo snapshots whole state):
+  `refs.in: Record<TargetKey, Record<CarrierKey, true>>` — TargetKey is
+  `u:<fieldUuid>` (form-local) or `c:<caseType>/<propName>` (case property);
+  CarrierKey is `<ownerUuid>:<slot>`. Plus `refs.decl`: the **declarations
+  index** `(caseType, propName) → declaring field uuids` — without it,
+  case-property peer discovery remains the full-doc scan and the no-search
+  requirement is unmet for that operation class.
+- **No stored spans.** Edges name *where* (carrier entity + slot); the rewrite
+  re-derives *what* inside that one entity with the existing single-entity
+  rewriters (Lezer/regex today, structural leaf replacement post-migration).
+  This structurally kills the stale-span-splices-garbage failure mode and
+  keeps doc bytes derived from doc truth.
+- **Maintenance**: one **generic hook** at the `dispatchMutation` chokepoint —
+  un-index the named entity's old edges, re-extract from its post-reducer
+  state (cost: that entity's own refs) — never hand-written per-reducer
+  bookkeeping across ~26 mutation kinds. Reducer silent no-ops need no
+  mirroring: re-extraction of an unchanged entity is a no-op by construction.
+- **Extraction** from **one slot registry** of reference-bearing slots per
+  entity kind, derived from and audited against the `lib/domain` schemas —
+  closing the verified live gaps (`required`; `help`/`validate_msg`/
+  option-label prose; case-list columns/filter; search-input predicates;
+  connect slots; `closeCondition.field`; form-link conditions; predicate-AST
+  `PropertyRef`s). The registry is shared by the extractor, the rewrite walks,
+  the commit guards, and `buildReferenceIndex` — one enumeration, four
+  consumers, no drift surface.
+- **Prose edges** run the chip resolve gate (`classifyNamespace` +
+  resolution), never the bare permissive regex — plain text that merely looks
+  like a hashtag never enters the index.
+- **Boundaries**: never persisted — `toPersistableDoc` extends to strip it
+  (and the three hand-rolled inline `fieldParent` destructures centralize
+  while touching this). Rebuilt at every hydration site, enumerated:
+  `store.load()`, the `data-done` full-doc reconciliation (bypasses the
+  mutation stream), replay seeding, MCP `loadAppBlueprint`, chat-route doc
+  materialization. Consumers reach it only through a narrow query API
+  (edges-of-target, declarers-of, edges-of-owner) behind a Biome
+  `noRestrictedImports` ban — no consumer can iterate the raw index.
+- **Correctness discipline** (the emitter-oracle pattern; no runtime prod
+  validation): `buildReferenceIndex(doc)` is simultaneously the hydration
+  builder and the fuzz oracle. Dev-mode batch-end assertion
+  (incremental ≡ rebuild) plus CI fuzz over mutation-sequence generators whose
+  alphabet includes multi-mutation batches with intra-batch reference
+  dependencies and malformed-XPath strings.
+
+What the index makes index-driven: the rename cascade (peers from
+`refs.decl`, carriers from `refs.in` — replacing both reducer scans and the
+duplicated client-side peer scan), move re-anchoring, delete-impact verdicts
+with carrier lists, cycle DFS over `u:` edges, find-references, and the lint/
+autocomplete/chip read paths (which become projections of the index instead of
+parallel derivations).
+
+### Layer 3 — canonical structured expressions
+
+XPath surfaces migrate, surface-by-surface, to a typed AST following the
+`Predicate`/`ValueExpression` pattern: built *from* the Lezer parse, carrying
+inter-token trivia, with a printer obeying a fuzz-pinned round-trip law —
+`print(parse(s)) === s` byte-exactly for every parse-clean `s`. Reference
+leaves carry identity: **uuid leaves** for form-local refs, **`(caseType,
+propName)` leaves** for case refs (no depth structure needed — depth is
+uniquely derivable per form at emit, registration narrowing included;
+unreachable leaves re-project as verbatim `#<type>/<prop>` text), named leaves
+for `#user/<prop>`. `.`/`..` are structural context nodes, never uuid leaves.
+
+Strings at the edges: wire emission projects text; the expression editor
+round-trips text ↔ AST at commit; the SA surface stays string-typed (parsing
+inside the tool handler); every read edge goes through one accessor
+(`expressionSource(field, key)`) introduced in Stage 0 so migration swaps the
+implementation, not the call sites. **Prose stays markdown strings
+permanently** — prose refs are indexed, never restructured, and the prose
+hashtag rewriter is permanent.
+
+Replay and ingest ride the **upgrade shim**: the commit-boundary string→AST
+converter runs at every non-commit ingress (replay dispatch, ingest parse,
+recovery scripts), converting string payloads at dispatch time — old event
+logs replay through current reducers, no frozen legacy reducers, no event-log
+epochs, no mixed-representation docs. Conversion is round-trip-gated: an
+expression converts only when `print(parse(s)) === s`; otherwise it stays a
+string and the scan reports it.
+
+Under this representation a form-local rename rewrites *nothing* on migrated
+surfaces (leaves hold the uuid); a case-property rename remains a cascade
+(peers co-own the name) executed as a structural leaf-walk on exactly the
+indexed carriers.
+
+## Design decisions (locked)
+
+- **D1 — Introduced-error gate semantics** (owner-approved): monotone
+  `errors(next) ⊆ errors(prev)`; empty set at boundaries; identity =
+  code + location uuids + surface.
+- **D2 — Completeness ratchet** (owner-approved): deferred while `building`,
+  ratcheted while `complete`; zero-tolerance only at transaction boundaries.
+- **D3 — Per-call gating for the SA, never run-level buffering**: buffering
+  breaks fail-closed persistence, live streaming, and crash recovery — all
+  load-bearing. Per-call rejection converts the end-of-run error dump into
+  immediate local feedback.
+- **D4 — Index inside the write path, per-mutation, reducer-readable**
+  (judge-unanimous; supersedes v2's batch-end/no-reducer-reads rule, which
+  made the no-search requirement unmeetable). Mid-batch currency is required:
+  a batch that adds a referencing expression then renames its target must see
+  the new edge.
+- **D5 — Carrier-keyed edges, no stored spans** — re-derive edits inside the
+  named carrier; never trust positional data across mutations.
+- **D6 — One slot registry**, typed total over entity kinds, shared by
+  extractor/rewriters/guards/oracle-builder.
+- **D7 — Declarations index** alongside reference edges — peer discovery must
+  be a lookup, not a scan.
+- **D8 — Reducers stay total** (warn-and-skip); rejection lives at the commit
+  boundary via shared verdict functions; the verdict's typed return is the
+  rejection channel.
+- **D9 — Oracle discipline, no runtime self-validation**: `buildReferenceIndex`
+  doubles as hydration builder and fuzz oracle; dev assertion + CI fuzz; a
+  failure is a maintenance bug, never a new runtime check.
+- **D10 — Unparseable expressions degrade**: zero edges, owner marked opaque,
+  existing syntax diagnostic as the signal; loads never fail; guards downgrade
+  to warnings on opaque-bearing forms.
+- **D11 — Acyclicity per edge class**: intra-form triggerables
+  (platform-fatal) and form links (Nova product rule, kept) reject at commit;
+  `setCaseTypes` rejects `parent_type` cycles (grounded in the depth-keyed
+  `#<type>/` vocabulary, not platform fidelity); parent-select/root-module
+  classes stubbed; cross-form case-property cycles are legal — global
+  acyclicity would reject valid apps. Preview's break-edge tolerance stays as
+  defense in depth.
+- **D12 — MCP builds get `draft` status** (owner-approved): reaper-exempt,
+  list-visible, `building`-phase; `complete_build` flips it. Complete-at-birth
+  dies.
+- **D13 — Atomic structural creation in edit mode** (owner-approved SA schema
+  delta): `createForm` requires `fields` (registration units must include a
+  case-name writer); `createModule` requires `forms` + case-list `columns`
+  when case-managing. Tool use is not grammar-constrained, so the large inputs
+  are legal; `scripts/test-schema.ts` proves acceptance. Build mode keeps the
+  staged scaffold flow under the `building` window.
+- **D14 — Measured retirement of `validateApp`** (owner-approved): the tool
+  survives as a safety net while Stages 2–3 bake; the event log's
+  `fix:attempt-N` rate is the readiness metric; removal requires a sustained
+  zero rate, plus per-re-scoping-mutation-kind guard coverage (the D4-of-v2
+  four: `moveForm`, `updateModule({caseType})`, `updateForm({type})`,
+  `setCaseTypes`), not just per-code coverage.
+- **D15 — The 13 auto-fixes dissolve into construction defaults at their
+  sources** (required `case_type` at module creation; `options: min(1)` +
+  UI-seeded options; XML-name checks at rename/add boundaries; connect
+  defaults derived at `updateForm`/scaffold/UI-toggle time; reserved-property
+  rejection at the boundary) — each fix deleted as its source enforcement
+  lands.
+
+## Open decisions (user-owned)
+
+1. **Case-property identity**: name-keyed namespaces (recommended — "field id
+   = case property name" is load-bearing across emitters, HQ FormActions, and
+   the SA vocabulary; the indexed leaf-walk makes property renames cheap
+   without new identity) vs first-class property uuids. Deadline: before
+   Stage 6 migrates the first case-ref-bearing surface.
+2. **`duplicateField` clone semantics under uuid leaves**: verbatim leaf copy
+   (recommended — preserves today's point-at-original behavior and
+   migrate∘duplicate commutativity) vs remap-to-clone.
+3. **Pre-migration event-log fidelity**: the upgrade shim (recommended,
+   committed above) replays old logs through current reducers via dispatch-time
+   conversion; the alternative (accepted fidelity loss for historical runs) is
+   cheaper but degrades replay. Veto window: before Stage 6.
+
+## Stages
+
+Each stage is independently shippable; docs (CLAUDE.md + the public docs site)
+move with the stage that changes behavior.
+
+### Stage 0 — Foundations (no behavior change)
+
+1. `gate.ts`: classification table (typed-total over all ~190 codes; the
+   class assignments above are the seed — the task audits every domain code
+   file-by-file against its rule implementation), `errorIdentity`,
+   `diffIntroduced`, `evaluateCommit`, `evaluateBoundary`.
+2. Scoped runner: `{ formUuids?, moduleUuids? }` filter on `runValidation` +
+   `validateBlueprintDeep`; `scopeOfMutations` beside the gate.
+3. **Slot registry** (D6) + closure of the rewriter coverage gaps it exposes:
+   `required`, `help`/`validate_msg`/option-label prose, `repeat_count`,
+   `ids_query`, `closeCondition.field`, form-link conditions, connect slots,
+   predicate-AST `PropertyRef` rewrite pass. Load-bearing for the gate: once
+   introduced-error rejection lands, an un-rewritten ref would make legitimate
+   renames *reject* — coverage must close first.
+4. **Multi-segment hashtag rewrites** in both rewriters + resolver/linter/
+   autocomplete: cross-depth moves re-anchor `#form/foo` → `#form/group/foo`
+   (one mechanism, XPath and prose; absolute-path conversion is
+   prose-destroying and is not used). Same load-bearing argument: post-gate, a
+   ref-dropping move would reject.
+5. Identifier guards at source: sibling-id uniqueness on `addField`; shared
+   rename-conflict verdict (replacing the UI-only check and covering the SA
+   path); XML-name legality at rename/add.
+6. Matcher unification: one shared hashtag-segment definition feeding the
+   grammar, `BARE_HASHTAG_PATTERN`, and `HASHTAG_REF_PATTERN`; divergence-
+   corpus test.
+7. Catalog sync at source: `addFields`/`editField` mutation builders append
+   new `(case_type, property)` pairs to `doc.caseTypes` (what the rename
+   cascade already maintains).
+8. Read-side accessor `expressionSource(field, key)`; convert every expression
+   reader.
+9. Tests: classification totality; identity stability under unrelated edits;
+   scoped ≡ full-filtered (property-tested); perf guard on a large fixture.
+
+**Verification:** `npm run test && npm run build` green. Behavior identical —
+user runs dev, edits, exports, sees no change — *except* two fixed bugs: rename
+a field referenced in another field's `required` expression → the reference
+follows (silently broke before); move a field into a group when a hashtag
+references it → the ref re-anchors as a nested hashtag and still renders
+(dangled before).
+
+### Stage 1 — Close the export hole (boundaries)
+
+1. `prepareCompileRequest.ts`, the HQ-upload route, MCP `compile_app` +
+   `upload_app_to_hq`: replace the media-only gate with `evaluateBoundary`
+   (soundness + completeness + media); 422 / `invalid_input` envelope with
+   humanized errors; docs + plugin notes flag the MCP contract change (plugin
+   version bump on merge).
+2. Export/upload UI affordances surface the error list (extend the existing
+   media-error path).
+3. Boundary oracle throws → Sentry-tagged infrastructure errors, generic
+   user message.
+4. `scripts/scan-app-validity.ts` (read-only, re-runnable): sizes legacy
+   exposure per code — the early warning if a rule misfires on real data.
+   Any repair migration is a separate user-invoked decision (dry-run default,
+   `--apply`).
+
+**Verification:** user runs dev, makes a soundness-breaking edit (still
+possible pre-Stage-3), clicks export `.ccz` → actionable error naming the form
+and rule instead of a download; reverts → export succeeds.
+
+### Stage 2 — SA per-call soundness gate (chat + MCP, one change)
+
+1. `guardedMutate` in `lib/agent/tools/common.ts`: compute `nextDoc`, run
+   `evaluateCommit` (phase from app status), on introduction return the
+   `{ error }` envelope (humanized, with the existing did-you-mean
+   suggestions) and persist nothing. Wire through every mutating tool.
+2. Construction defaults replacing fixes (D15), each fix deleted as its
+   source lands.
+3. Ratchet for destructive SA ops while `complete`: `removeField`/`removeForm`
+   /`removeModule`/`editField`-clears reject with referent-naming errors;
+   case-list columns/search-inputs whose `field` names the deleted field
+   auto-cascade in the same batch (the cleanup `renameField` already performs
+   for renames).
+4. `validateApp` stays registered (D14); the event log shows zero
+   `fix:attempt-N` batches on healthy runs — the readiness metric starts
+   accumulating.
+5. Tests: per-tool rejection tests; property test — generator-driven tool-call
+   sequences through `guardedMutate` assert every accepted intermediate doc is
+   soundness-clean.
+
+**Verification:** user builds an app via chat, then asks for an edit with a
+deliberate error ("set the age field's display condition to `if(`") → the
+transcript shows the SA hitting the rejection and correcting in the same turn;
+the run log shows no fix chapter; the app exports cleanly.
+
+### Stage 3 — Builder UI commit gating (at-source + server backstop)
+
+1. Case-list / case-search workspaces: draft-until-valid commits using the
+   existing `useValidityPropagator` verdicts; invalid drafts stay local with
+   the existing error styling. The `property: ""` transient-commit affordance
+   tightens out of the schema as the *last* step, after every commit path is
+   gated.
+2. `FieldHeader.tsx::validateRename` extends with XML-name validity +
+   case-property length (same shake + notice chrome) — now backed by the
+   shared Stage-0 verdict.
+3. Field picker seeds two default options on select kinds.
+4. Destructive delete guard: `useDeleteSelectedField` checks referents
+   (XPath refs, columns, search inputs, preloads, form links — the existing
+   reference scan until Stage 5 swaps in the index); confirm dialog lists
+   them, auto-cascades columns/search-inputs in the same `applyMany` batch,
+   blocks with click-to-navigate referents for XPath refs.
+5. Server backstop: PUT runs `evaluateCommit`; 422 with codes; `useAutoSave`
+   gets a distinct "rejected" state (vs network error) and fires
+   `reportClientError` — a PUT rejection is by definition a client-gate bug.
+6. Form-settings panels audit (close condition, form links, post-submit,
+   connect): commit-on-valid everywhere; close gaps found.
+
+**Verification:** user blanks a case-list column's property → red card,
+"Saved" never errors, reload shows last valid config; renames a field to
+`1bad id` → inline rejection; deletes a referenced field → dialog names the
+referents, columns clean up in the same undo step.
+
+### Stage 4 — Lifecycle + measured loop removal
+
+Entry criterion (D14): sustained zero `fix:attempt-N` rate across Stages 2–3
+usage, plus guard coverage for the four re-scoping mutation kinds.
+
+1. Atomic edit-mode creation (D13): widened `createForm`/`createModule`
+   schemas (verified via `scripts/test-schema.ts`); edit-mode per-call
+   completeness goes zero-tolerance; build mode unchanged.
+2. `completeBuild` shared tool replaces `validateApp`: one deterministic
+   `evaluateBoundary` → on clean: materialize (current infra-error arm
+   preserved verbatim) → `data-done` → `completeApp`; on completeness residue:
+   return the list — no fixes, no loop, nothing to "fix", only work not yet
+   done, which the SA finishes with its normal tools and calls again. Replaces
+   the tool in `solutionsArchitect.ts`, `SHARED_TOOLS`
+   (`validate_app` → `complete_build`), and the prompts (build step 5; edit
+   preamble's "call validateApp when done" deleted). MCP-driven builds now
+   run materialization (closing the chat-only asymmetry, deliberately).
+3. MCP lifecycle (D12): `create_app` writes `status: "draft"`; reaper-exempt;
+   list/search badges; edit-vs-build derivation treats draft as building;
+   `complete_build` flips it. `get_agent_prompt` + plugin skill text updated;
+   plugin version bump.
+4. Delete: `validator/fixes.ts` + `FIX_REGISTRY`, the loop/stuck-signature
+   machinery in `validationLoop.ts`, `validateApp.ts`, `validation-attempt`
+   *emission* (type retained so historical runs still render), validate-
+   specific tool-summary rendering for new runs. Chat-route edit turns log
+   (warn) if a run ends incomplete — unreachable except via bugs; the log is
+   the tripwire.
+
+**Verification:** user builds end-to-end via chat → completion fires, app
+exports; `/nova:autobuild` via MCP → app shows Draft mid-build, Complete
+after; `/nova:edit` "delete the visit form" where it's the module's only
+form → the agent relays the refusal naming the consequence;
+`git grep validateAndFix FIX_REGISTRY` returns nothing.
+
+### Stage 5 — The reference index
+
+Layer 2 as specified. Implementation order inside the stage: index module +
+generic maintenance hook + `buildReferenceIndex` + hydration sites +
+`toPersistableDoc` strip → dev assertion + CI fuzz green → swap consumers:
+rename cascade (peers via `refs.decl`, carriers via `refs.in`; the client-side
+duplicate peer scan deletes), move re-anchoring, delete-impact verdicts,
+cycle DFS, find-references/lint/autocomplete/chips as index projections.
+TriggerDag keeps its per-form runtime build but sources extraction from the
+shared registry extractors.
+
+**Verification:** the NODE_ENV-gated builder overlay shows index stats and the
+live incremental≡rebuild parity check staying green during editing; renaming a
+heavily-referenced case property in a large app is visibly immediate; the
+delete dialog's referent list is exact on a large fixture; CI fuzz green.
+
+### Stage 6 — Representation migration, per surface
+
+`calculate` → `relevant` → `validate`/`default_value`/`required` →
+`repeat_count`/`ids_query` → connect slots. Per surface: persist the typed AST
+(round-trip-gated conversion); `expressionSource` + emit project strings; the
+index extractor flips string-parse → leaf-walk; the surface's string rewriter
+leaves the commit path; replay/ingest ride the upgrade shim; one-time doc
+migration scripts (scan read-only; migrate dry-run default, `--apply` —
+user-invoked).
 
 **Verification (per surface):** rename a field referenced by a migrated
-surface — the stored doc's migrated payload contains no string representation
-(representation-invariant test), the projected text is correct on every read
-edge, and no Lezer parse executes during the rename of a fully-migrated form
-(reducer-path assertion). The wire regression compares per-entry bytes of the
-`.ccz` archives (deterministic id factory injected; zip container headers
-ignored) — byte-identical entries pre/post migration across the corpus.
+surface — the stored payload contains no string form (representation-invariant
+test), projected text is correct on every read edge, and no Lezer parse
+executes during the rename (reducer-path assertion). Wire regression: per-entry
+bytes of the `.ccz` (deterministic id factory; zip container headers ignored)
+identical pre/post migration across the corpus.
 
-### Tranche 6 — Retire the user-facing validateApp
+### Stage 7 — Residue
 
-- The SA loses the validate-fix loop: the FIX_REGISTRY and the
-  stuck-signature check are removed from `validationLoop.ts`; the end-of-turn
-  call becomes `checkExportReadiness`, which **informs the SA's reply and the
-  UI checklist but never gates run completion**.
-- The success-arm side effects relocate from `solutionsArchitect.ts` to the
-  shared run-completion path keyed off the drain's terminal state —
-  `completeApp` + `materializeCaseStoreSchemas` run on every successful turn
-  regardless of readiness, and MCP-driven builds gain materialization (closing
-  today's accidental chat-only asymmetry).
-- The MCP `validate_app` tool repurposes to the readiness checklist readout.
-- The 16 reference-class codes demote to the fuzz harness as
-  construction-guarantee oracles (a failure is a guard bug, never a fixable
-  authoring state) — joining the wire oracles, which never change. **The
-  demotion gate enumerates guard coverage per re-scoping mutation kind** (the
-  D9 four), not just per validator code.
-- **Ingest hardening is index-backed**: a doc that bypassed the guarded write
-  paths gets `blueprintDocSchema` parse + index build + the reference-class
-  verdict functions run against the fresh index, with failures routed through
-  the same resolution contract guards use — ingest converges on the
-  construction invariant instead of being schema-shape-only.
-- Clean up the stale `validateAndFix` re-export comment in
-  `lib/agent/index.ts` while touching it.
+Index-backed ingest gate for out-of-band docs (schema parse + index build +
+reference-class verdicts on load, failures routed through the same resolution
+contract); rerun the validity scan on prod data (read-only; report); docs/
+drift sweep; the stale `validateAndFix` re-export comment in
+`lib/agent/index.ts` dies; oracle CI coverage confirmed unchanged.
 
-**Verification:** run a full SA build — the event log contains zero
-validation-fix-stage mutation events (observable via `scripts/inspect-logs.ts`);
-the built app exports clean. `/api/compile` on an app with a pending media
-asset still blocks (the media gate is untouched). The fuzz suite — random
-mutation sequences through `applyMutations` — never produces a doc that trips a
-demoted oracle.
-
-## Sequencing rationale
-
-- **Registry before everything**: every later layer (extractors, rewriters,
-  guards, scope derivation, the migration list) consumes the same enumeration;
-  today's bug class *is* the enumeration drift.
-- **Identifier guards before the index**: resolution soundness; an index over
-  ambiguous identifiers indexes ambiguity.
-- **Boundary gates early and independent**: ungated export is a live product
-  hole today, and the verdict channel is shared plumbing every later guard
-  rides.
-- **Index before representation migration**: the predicate-AST lesson —
-  structure without identity resolution and a reverse index mints stale refs;
-  migrating surfaces first would re-create that bug class per surface. The
-  index is also the migration's verification harness.
-- **Migration before retirement**: rewriters leave the commit path
-  surface-by-surface; `validateApp` retires when the guards cover everything it
-  caught.
+**Verification:** docs at `docs.commcare.app` describe the new tool surface
+and lifecycle; `npm run test:leaks` green before final push.
 
 ## Testing strategy
 
-- **State-model tests** for every verdict function and guard (no UI mounting —
-  test the reducer + index directly).
-- **Incremental ≡ rebuild fuzz oracle** (D7) from Tranche 2 onward; dev-mode
-  per-batch assertion on unbracketed batches.
-- **Round-trip law fuzz** (Tranche 5): `print(parse(s)) === s` for every
-  parse-clean expression the corpus and arbitraries produce.
-- **Mutation-sequence fuzzing**: extend `blueprintDocArbitrary` to generate
-  random mutation sequences through `applyMutations`, asserting committed docs
-  never trip the demoted oracles — the construction-guarantee proof that gates
-  Tranche 6.
-- **Wire entry-byte regression** per migrated surface (Tranche 5), across the
-  generated-app corpus, under a deterministic id factory.
-- The existing wire-oracle fuzzers keep proving emitter totality, unchanged.
+- State-model tests for every verdict function and guard (no UI mounting).
+- Classification totality (compile-time) + identity stability + scoped ≡
+  full-filtered property tests (Stage 0).
+- Tool-call-sequence property test: accepted intermediates are
+  soundness-clean (Stage 2).
+- Index oracle: `buildReferenceIndex` ≡ incremental, dev assertion + CI fuzz
+  with multi-mutation intra-batch-dependency alphabets (Stage 5).
+- Round-trip law fuzz: `print(parse(s)) === s` (Stage 6).
+- Wire entry-byte regression per migrated surface under a deterministic id
+  factory (Stage 6).
+- Perf guards on large fixtures (gate latency, index maintenance, history
+  memory under zundo's 100-snapshot window).
+- Existing wire-oracle fuzzers unchanged.
 
 ## Risks
 
-- **A missed reference surface = a silent dangling ref with no backstop** (after
-  Tranche 6). Mitigation: the registry is the single enumeration; demotion is
-  gated on the mutation-sequence fuzz *and* per-mutation-kind guard coverage;
-  validator backstops stay until their guard is proven.
-- **Incremental-index drift** — the classic cache-invalidation bug class, and
-  strictly worse than today's parse-everything-on-demand (which cannot drift).
-  Mitigation: D7's oracle + dev assertion; D9's default-to-rebuild on unmapped
-  kinds.
-- **zundo memory amplification** if the index defeats structural sharing.
-  Mitigation: D3's partition discipline; measure history memory on a large
-  fixture before locking.
-- **Replay/first-paint cost** of eager parsing. Mitigation: D6's replay
-  bracket, parse-forcing lazy queries, bounded parse cache; measure on a
-  realistic large blueprint.
-- **Guard-placement bypass** — a guard only at the UI hook layer leaves the SA,
-  MCP, fix-loop, and recovery paths unguarded. Mitigation: D5 — shared verdict
-  functions at the shared tool layer, including the fix loop during the
-  coexistence window.
-- **Provenance ambiguity** — a property node that ignores the
-  declared>standard>writerDerived priority or the writer-scope split drives
-  guards that disagree with the rules they replace. Mitigation: priority and
-  scope are pinned on the node/query design above.
+- **Gate misfire on real data** → introduced-error semantics bound the blast
+  radius to new edits; the Stage-1 scan sizes legacy exposure before any
+  commit path tightens; PUT rejections are Sentry-loud.
+- **SA call-failure churn** (per-call rejection vs batched fixes) → message
+  quality is already SA-tuned; Stage 2 ships while `validateApp` still
+  exists; the `fix:attempt` rate is the go/no-go gauge for Stage 4.
+- **Index drift** (the cache-invalidation bug class, now load-bearing for doc
+  bytes) → D9's oracle discipline; carrier-keyed edges remove span trust;
+  the generic re-extraction hook removes per-reducer bookkeeping drift.
+- **Registry drift** (the highest-probability failure mode — it is the live
+  bug class today) → one registry, four consumers, typed totality, audited
+  against the domain schemas in Stage 0.
+- **zundo memory amplification** → in-place Immer updates on carrier-keyed
+  JSON records preserve structural sharing; measured on a large fixture
+  before Stage 5 locks.
+- **Mega-input creation tools** raising malformed-call rates →
+  `scripts/test-schema.ts` proves acceptance; rejections name the exact bad
+  item.
+- **Two-writer races** (UI auto-save vs SA edit run) — unchanged by this
+  program; both paths gate against their own `prevDoc`; existing
+  last-write-wins is orthogonal and explicitly out of scope.
+
+## What is deleted when the program lands
+
+`validator/fixes.ts` (the 13-fix registry), the loop body of
+`validationLoop.ts::validateAndFix` (stuck signatures, `fix:attempt-N`),
+`lib/agent/tools/validateApp.ts`, the `validate_app` MCP registration, the
+validate-loop prompt instructions, validate-time connect defaulting, the
+media-only export gating (subsumed), the client-side duplicate peer scan, the
+single-segment-only rewriter restrictions, and — per migrated surface — the
+XPath string rewriters from the commit path. The validator rules, the oracles,
+the fuzzers, and the humanized error vocabulary all remain: they become the
+gate's engine instead of the loop's.
 
 ## Non-goals
 
-- Replicating CCHQ's validation UX or save/version gauntlet (locked: Nova apps
-  are always export-ready; reject at construction).
-- Persisting the index, in the app doc or a sidecar.
-- Global acyclicity (D11 — it would reject valid apps).
+- Replicating CCHQ's validation UX or save/version gauntlet (locked: Nova
+  apps are always export-ready; reject at construction).
+- Persisting the index.
+- Global acyclicity (D11).
 - Preview-mode or runtime/case-store model changes (locked elsewhere).
-- New CommCare authoring features — this program is about where and how validity
-  is enforced.
+- New CommCare authoring features.
