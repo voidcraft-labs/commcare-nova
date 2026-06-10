@@ -339,6 +339,85 @@ change. Skip surfaces that read non-expression strings.
 `(field as ...).calculate`-style expression reads outside the accessor + the
 registry (allow the emitters' `readFieldString` if it delegates).
 
+**SHIPPED** (`f53ac063`) with these deviations/decisions:
+
+- (a) Accessor surface (all registry-driven; no second key list):
+  `expressionSource(field, scalarSlot)` — TOTAL scalar read (returns the
+  stored string, `""` included, `undefined` otherwise; no applicability
+  gating — off-schema docs behave exactly like the direct reads it
+  replaced); `expressionSourceEntries(field, slot)` — fan-out-aware
+  (`option_label` yields one entry per option with pairing `indices`);
+  `expressionSurfaceReads(field, "xpath" | "prose")` — the
+  applicability-gated per-kind projection (narrowed by `repeat_mode`),
+  in registry order; `formExpressionSource(form, scalarSlot)` +
+  `CONNECT_XPATH_SLOT_IDS` for the Connect bindings. Form-level slots
+  included because the deep validator reads them; module-level slots
+  deliberately absent — every module slot is predicate-AST or a bare
+  name ref, no expression source text exists.
+- (b) Path resolution shared, nothing relocated: Task 3's walker already
+  lives in `lib/domain/referenceSlots.ts`, so `readSlotStrings` joins
+  `rewriteSlotStrings` there on one private `walkSlotStrings` traversal.
+  Reads report empty strings (callers own blank policy — the validator's
+  trim-skip on `repeat_count`/`ids_query` vs plain-empty on flat slots is
+  preserved at its call site); the rewriter keeps its skip-empty
+  write-back contract.
+- (c) `readFieldString` STAYS and delegates: its consumers also read the
+  non-expression `case_property_on` (`deriveCaseConfig`,
+  `rules/form.ts`), so it splits on `isScalarFieldExpressionSlotId` —
+  expression keys route through `expressionSource` (which also resolves
+  the nested `ids_query` path), everything else stays a plain property
+  lookup. The emitters' flat-slot reads ride the delegation unchanged.
+- (d) Registry field-slot ORDER changed: `validate` now precedes
+  `calculate`, restoring the validator's long-standing
+  relevant → validate → calculate → default_value → required surface
+  order — entry order became observable through the registry-driven scan
+  (`text` carries both `validate` and `default_value`, so relative order
+  shows in error output). No kind carries both `validate` and
+  `calculate`, so that pair's swap is unobservable; the per-kind
+  projection assertions in `referenceSlots.test.ts` were unaffected.
+- (e) The validator's `XPathSurface` / `ProseSurface` / `ConnectXPathSlot`
+  unions became ALIASES of the registry projections (the "rewiring the
+  validator can come later" Task 1 left open) — `XPATH_FIELDS`,
+  `PROSE_SURFACES`, `readXPath`, `readProse`, and the hand-narrowed
+  repeat/option scan branches are gone; `referenceSlotUnions.test.ts`
+  still pins both directions.
+- (f) Sites intentionally left direct (the acceptance grep's allowance
+  list), each with its reason:
+  - `lib/commcare/validator/rules/field.ts` + `rules/form.ts`
+    (`caseHashtagOnCreateForm`'s repeat arms) — kind/mode-narrowed rule
+    code where the schema types the slot as REQUIRED on the narrowed
+    variant and the rule's subject is the stored slot itself
+    (emptiness, banned functions); their generic flat-slot reads route
+    through `readFieldString` → accessor.
+  - `lib/commcare/xform/builder.ts` repeat emission — same narrowing
+    (mode-required slots); flat slots already flow through
+    `readFieldString`.
+  - `lib/preview/engine/engineController.ts` — representation-identity
+    diff between two snapshots of the same field (change detection),
+    not expression consumption.
+  - `lib/doc/connectConfig.ts::findScoreField` — narrowed to
+    `HiddenField` where `calculate` is a typed property; seeds a
+    Connect default.
+  - `components/preview/form/fields/HiddenField.tsx` — display of the
+    stored expression text on the field card (display read).
+  - `components/builder/editor/fields/XPathEditor.tsx` + the field
+    editor surface — the editing surface owns the stored
+    representation (read-back of what it writes).
+  - Label/hint display reads everywhere (`lib/references/provider.ts`,
+    `lib/agent/summarizeBlueprint.ts`, builder/preview components) —
+    label-as-display-text, non-expression reads.
+  - `lib/preview/engine/formEngine.ts` `case_property_on` reads —
+    `case-type-ref` slot, not an expression surface.
+- Tests: 132 new in `lib/domain/__tests__/expressionSource.test.ts` —
+  every xpath/prose registry slot resolved on a schema-valid fixture of
+  EVERY kind (and repeat mode) it claims, nested + fan-out paths
+  included; total-read vs gated-projection split pinned (a `calculate`
+  parked off-schema on a text field is visible to `expressionSource`,
+  invisible to `expressionSurfaceReads`); Connect form slots; slot-id
+  narrowing for the delegation. No failing-first phase — no behavior to
+  assert against (mechanical indirection); the full suite is the
+  no-change oracle: 5882 passed / 0 failed (single run).
+
 ## Task 7 — The gate + scoped runner
 
 **Files:** `lib/commcare/validator/gate.ts` (new),
