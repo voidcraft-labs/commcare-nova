@@ -304,11 +304,22 @@ export function scopeOfMutations(
 				} else {
 					acc.formUuids.add(targetForm);
 				}
-				// A cross-level move dedup-renames on sibling collision — for a
+				// A CROSS-parent move dedup-renames on sibling collision — for a
 				// case-property writer that renames the PROPERTY (new catalog
 				// entry, new writer pair), so the subtree carrying any writer
-				// degrades to full.
-				if (subtreeWritesCaseProperty(prevDoc, acc, mut.uuid)) {
+				// degrades to full. A SAME-parent move is a pure reorder: the
+				// reducer runs `dedupeSiblingId` only when the parent changes
+				// (`fields.ts` moveField arm's `crossParent` check), the sibling
+				// set is unchanged, and no rule outside the containing form
+				// reads sibling order — so the form scope above is sound, and
+				// the builder's hottest gesture (drag reorder of a case-bound
+				// field) stays off the full-validation path.
+				const currentParent =
+					acc.addedFieldParents.get(mut.uuid) ??
+					prevDoc.fieldParent[mut.uuid] ??
+					undefined;
+				const sameParent = currentParent === mut.toParentUuid;
+				if (!sameParent && subtreeWritesCaseProperty(prevDoc, acc, mut.uuid)) {
 					acc.full = true;
 				}
 				break;
@@ -363,10 +374,18 @@ export function scopeOfMutations(
 
 			// ── App-level mutations ────────────────────────────────────
 			case "setAppName":
-			case "setConnectType":
 			case "setAppLogo":
+				// App rules always run, even under an empty scope (the
+				// runner's scope-exempt app pass), and these two slots feed
+				// ONLY app rules and boundary-time surfaces: `appName` is read
+				// by EMPTY_APP_NAME (an app rule); `logo` only by the
+				// manifest-gated media rules, which never run on the commit
+				// path. The empty scope is the documented sound shape — same
+				// as `moveModule`.
+				break;
+			case "setConnectType":
 			case "setCaseTypes":
-				// App-level state feeds rules across every entity
+				// App-level state that feeds rules across every entity
 				// (`connectType` gates the per-form Connect rules; the
 				// catalog feeds every case-reference admission set).
 				acc.full = true;

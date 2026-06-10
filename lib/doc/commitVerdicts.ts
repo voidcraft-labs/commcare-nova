@@ -19,8 +19,12 @@
  * this: a degenerate historical event must still replay.
  *
  * Pure — the candidate `nextDoc` is computed via Immer `produce` over
- * the same `applyMutations` reducer every committed batch runs through,
- * so the gated doc is byte-identical to what the dispatch would produce.
+ * the same `applyMutations` reducer every committed batch runs through.
+ * Accepting callers commit the candidate itself (the builder's
+ * `commitDoc`, the MCP transactional write), so the doc the gate
+ * validated IS the doc that lands — one reducer run, no
+ * candidate-vs-committed divergence even for the one nondeterministic
+ * reducer (`duplicateField`'s minted clone uuid).
  */
 
 import { produce } from "immer";
@@ -32,7 +36,7 @@ import {
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import type { AppDoc } from "@/lib/db/types";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { Mutation } from "@/lib/doc/types";
+import type { Mutation, MutationResult } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 
 export type { CommitPhase };
@@ -54,10 +58,13 @@ export function commitPhaseForAppStatus(status: AppDoc["status"]): CommitPhase {
  * The verdict shape every commit surface consumes. `nextDoc` is always
  * present: an accepting caller commits/persists it; a rejecting caller
  * discards it and renders the `introduced` findings (each carries the
- * validator's person-to-person `message`).
+ * validator's person-to-person `message`). The accepting arm also
+ * carries the reducers' per-mutation `results` (rename/move metadata)
+ * from the candidate run, so a caller that commits `nextDoc` directly
+ * never needs a second reducer pass to recover them.
  */
 export type MutationCommitVerdict =
-	| { ok: true; nextDoc: BlueprintDoc }
+	| { ok: true; nextDoc: BlueprintDoc; results: MutationResult[] }
 	| { ok: false; nextDoc: BlueprintDoc; introduced: ValidationError[] };
 
 /**
@@ -75,15 +82,18 @@ export function mutationCommitVerdict(
 	mutations: Mutation[],
 	phase: CommitPhase,
 ): MutationCommitVerdict {
-	if (mutations.length === 0) return { ok: true, nextDoc: prevDoc };
+	if (mutations.length === 0) {
+		return { ok: true, nextDoc: prevDoc, results: [] };
+	}
 
+	let results: MutationResult[] = [];
 	const nextDoc = produce(prevDoc, (draft) => {
-		applyMutations(draft, mutations);
+		results = applyMutations(draft, mutations);
 	});
 	const scope = scopeOfMutations(prevDoc, mutations);
 	const verdict = evaluateCommit({ prevDoc, nextDoc, scope, phase });
 	return verdict.ok
-		? { ok: true, nextDoc }
+		? { ok: true, nextDoc, results }
 		: { ok: false, nextDoc, introduced: verdict.introduced };
 }
 

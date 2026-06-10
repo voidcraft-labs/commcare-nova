@@ -59,6 +59,14 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	applyMany: (muts: Mutation[]) => MutationResult[];
 	/**
+	 * Commit a gate-validated candidate doc as one undo entry — the
+	 * gated-dispatch twin of `applyMany`, called only by
+	 * `useBlueprintMutations`' gate with a verdict's `nextDoc` (produced
+	 * by the same reducer). See the implementation note for why this
+	 * exists instead of a second `applyMany` run.
+	 */
+	commitDoc: (next: BlueprintDoc) => void;
+	/**
 	 * Replace the entire doc from a `PersistableDoc` (the Firestore-persisted
 	 * shape that omits `fieldParent`).
 	 *
@@ -166,6 +174,44 @@ export function createBlueprintDocStore() {
 								);
 							});
 							return results;
+						},
+
+						/**
+						 * Commit a doc the validity gate already produced AND
+						 * validated — the gated-dispatch twin of `applyMany`.
+						 *
+						 * `useBlueprintMutations`' gate runs the batch through the
+						 * shared reducer once to build its candidate; committing
+						 * that candidate here (instead of re-running `applyMany`)
+						 * keeps every UI dispatch a single reducer run and makes
+						 * the committed doc EXACTLY the doc the gate validated —
+						 * load-bearing for `duplicateField`, whose reducer mints a
+						 * fresh clone uuid per run.
+						 *
+						 * One `set()` call, so zundo records exactly one undo
+						 * entry, same as `applyMany`. The key walk handles the
+						 * candidate's structure faithfully: assignments copy every
+						 * doc field (structural sharing keeps unchanged maps the
+						 * same reference), and optional doc keys the candidate
+						 * dropped (e.g. a cleared `logo`) are deleted — a plain
+						 * `Object.assign` would leave them stale.
+						 *
+						 * Only the mutation hook's gate should call this; every
+						 * other writer routes through `applyMany` so the reducer
+						 * stays the one mutation interpreter.
+						 */
+						commitDoc: (next: BlueprintDoc): void => {
+							set((draft) => {
+								const d = draft as unknown as Record<string, unknown>;
+								for (const key of Object.keys(d)) {
+									// Action methods live alongside data on the state —
+									// never touch them; drop data keys the candidate
+									// no longer carries.
+									if (typeof d[key] === "function") continue;
+									if (!(key in next)) delete d[key];
+								}
+								Object.assign(d, next);
+							});
 						},
 
 						/**

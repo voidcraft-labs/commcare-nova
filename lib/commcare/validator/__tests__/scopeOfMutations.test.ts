@@ -386,14 +386,64 @@ describe("scopeOfMutations", () => {
 				toModuleUuid: doc.moduleOrder[1],
 				toIndex: 0,
 			},
-			{ kind: "setAppName", name: "X" },
 			{ kind: "setConnectType", connectType: "learn" },
-			{ kind: "setAppLogo", logo: null },
 			{ kind: "setCaseTypes", caseTypes: null },
 		];
 		for (const mutation of fullKinds) {
 			expect(scopeOfMutations(doc, [mutation]), mutation.kind).toBe("full");
 		}
+	});
+
+	it("setAppName / setAppLogo are app-rules-only (empty) scopes, not full", () => {
+		// `appName` feeds only EMPTY_APP_NAME (an always-run app rule) and
+		// `logo` only the boundary-time media surfaces — an app rename /
+		// logo edit must not pay two full deep-validation runs.
+		const doc = twoTypeDoc();
+		const appLevel: Mutation[] = [
+			{ kind: "setAppName", name: "X" },
+			{ kind: "setAppLogo", logo: null },
+		];
+		for (const mutation of appLevel) {
+			const scope = scopeOfMutations(doc, [mutation]);
+			expectScope(scope);
+			expect(scope.moduleUuids?.size, mutation.kind).toBe(0);
+			expect(scope.formUuids?.size, mutation.kind).toBe(0);
+		}
+	});
+
+	it("a SAME-parent moveField of a case-bound field stays form-scoped (no full escalation)", () => {
+		// Drag-reorder within one parent can't dedup-rename (the reducer
+		// only dedups on a parent change), so the writer set is untouched
+		// and the containing form covers every order-sensitive finding.
+		const doc = twoTypeDoc();
+		const writer = fieldByid(doc, "case_name");
+		const formUuid = doc.fieldParent[writer.uuid];
+		const scope = scopeOfMutations(doc, [
+			{
+				kind: "moveField",
+				uuid: writer.uuid,
+				toParentUuid: formUuid as never,
+				toIndex: 1,
+			},
+		]);
+		expectScope(scope);
+		expect(scope.formUuids?.has(formUuid as never)).toBe(true);
+	});
+
+	it("a CROSS-parent moveField of a case-bound field still degrades to full", () => {
+		const doc = twoTypeDoc();
+		const writer = fieldByid(doc, "case_name");
+		const targetForm = doc.formOrder[doc.moduleOrder[2]][0];
+		expect(
+			scopeOfMutations(doc, [
+				{
+					kind: "moveField",
+					uuid: writer.uuid,
+					toParentUuid: targetForm,
+					toIndex: 0,
+				},
+			]),
+		).toBe("full");
 	});
 
 	it("moveModule is an app-rules-only (empty) scope, not full", () => {

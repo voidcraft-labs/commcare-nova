@@ -180,7 +180,7 @@ describe("mutationCommitVerdict", () => {
 	it("passes an empty batch through without validating", () => {
 		const doc = minDoc();
 		const verdict = mutationCommitVerdict(doc, [], "complete");
-		expect(verdict).toEqual({ ok: true, nextDoc: doc });
+		expect(verdict).toEqual({ ok: true, nextDoc: doc, results: [] });
 		// Reference equality — no candidate apply ran.
 		expect(verdict.nextDoc).toBe(doc);
 	});

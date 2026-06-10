@@ -391,9 +391,11 @@ export function useBlueprintMutations(): BlueprintMutations {
 		/* The gated dispatch every method routes through. Runs the shared
 		 * commit verdict against the freshest doc; on rejection, shows the
 		 * findings and returns `undefined` so the caller maps to its no-op
-		 * return shape — the batch never reaches the store. On a pass,
-		 * dispatches through `applyMany` unchanged (the verdict's candidate
-		 * doc is discarded; the store's reducer run is the commit). */
+		 * return shape — the batch never reaches the store. On a pass, the
+		 * VALIDATED CANDIDATE commits directly (`commitDoc`) with the
+		 * candidate run's own reducer results — one reducer run per
+		 * dispatch, and the committed doc is exactly the doc the gate
+		 * validated (load-bearing for `duplicateField`'s minted uuid). */
 		const guardedApply = (
 			mutations: Mutation[],
 		): MutationResult[] | undefined => {
@@ -402,7 +404,8 @@ export function useBlueprintMutations(): BlueprintMutations {
 				notifyRejectedCommit(verdict.introduced);
 				return undefined;
 			}
-			return store.getState().applyMany(mutations);
+			store.getState().commitDoc(verdict.nextDoc);
+			return verdict.results;
 		};
 
 		return {

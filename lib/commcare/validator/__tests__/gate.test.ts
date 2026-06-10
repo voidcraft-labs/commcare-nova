@@ -510,10 +510,15 @@ describe("evaluateCommit", () => {
 		expect(gateCommit(broken, fix, "complete")).toEqual({ ok: true });
 	});
 
-	it("scope 'full' behaves identically to the derived scope on an app-level batch", () => {
+	it("setAppName's empty derived scope still catches EMPTY_APP_NAME (app rules always run)", () => {
+		// `setAppName` derives the app-rules-only empty scope (nothing
+		// module/form-shaped reads the name); the gate must still reject an
+		// empty-name introduction through it, because app rules run on
+		// every scoped pass.
 		const doc = minDoc();
 		const mutations: Mutation[] = [{ kind: "setAppName", name: "" }];
-		expect(scopeOfMutations(doc, mutations)).toBe("full");
+		const scope = scopeOfMutations(doc, mutations);
+		expect(scope).not.toBe("full");
 		const verdict = gateCommit(doc, mutations, "building");
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
