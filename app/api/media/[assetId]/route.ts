@@ -115,7 +115,7 @@ export async function GET(
  * Owner-gated (404 on missing OR foreign, so ids stay non-enumerable). Refuses
  * with a 409 — naming the carriers — if any of the owner's live apps still
  * reference the asset, so a delete can't silently orphan a reference the
- * media-validation gate would later reject. On success it purges the Firestore
+ * export boundary gate would later reject. On success it purges the Firestore
  * row, the GCS bytes, and the document-extract sibling (keeping shared bytes
  * intact), then returns 204. The deletion mechanics are shared with the SA's
  * `remove_media_asset` tool via `lib/media/assetDeletion`.

@@ -18,6 +18,16 @@
  * ratchet are never re-derived here. Reducers stay total and never call
  * this: a degenerate historical event must still replay.
  *
+ * Bypasses: undo/redo, hydration, the agent stream, and replay write
+ * through the store directly — they replay already-committed states.
+ * The session store's `switchConnectMode` is the one DELIBERATE
+ * live-edit bypass (owner decision pending): enabling Connect
+ * introduces `CONNECT_FORM_MISSING_BLOCK` on every form by construction
+ * — no form carries a block before the mode exists — so gating that
+ * dispatch would make Connect un-enableable on complete apps. The
+ * export boundary rejects the incomplete state instead, until Connect's
+ * enable flow seeds/restores every form's block in the enabling batch.
+ *
  * Pure — the candidate `nextDoc` is computed via Immer `produce` over
  * the same `applyMutations` reducer every committed batch runs through.
  * Accepting callers commit the candidate itself (the builder's

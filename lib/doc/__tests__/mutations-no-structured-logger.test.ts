@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Convention pin: no module under `lib/doc/mutations/` or
- * `lib/doc/hooks/` may import `@/lib/logger`.
+ * `lib/doc/hooks/`, and none of the client-bundled package-root
+ * modules (the commit gate's verdict + phase plumbing run on every UI
+ * dispatch), may import `@/lib/logger`.
  *
- * Both packages bundle CLIENT-side — the reducers run inside the
+ * These surfaces bundle CLIENT-side — the reducers run inside the
  * browser doc store (and must stay byte-identical with their server
  * and replay runs), and the hooks are client components' mutation
  * surface. The structured logger's production path writes to
@@ -28,11 +30,29 @@ import { describe, expect, it } from "vitest";
  */
 describe("lib/doc client-bundled packages avoid the structured logger", () => {
 	const packageDirs = ["../mutations", "../hooks"] as const;
+	/* Package-root modules on the browser's gated-dispatch path. Named
+	 * individually (not a root walk) because some root modules are
+	 * legitimately server-reachable-only; these run inside every builder
+	 * edit. */
+	const clientRootModules = [
+		"../commitVerdicts.ts",
+		"../commitPhaseContext.tsx",
+		"../identifierVerdicts.ts",
+		"../connectConfig.ts",
+	] as const;
 
 	it("no file imports @/lib/logger", () => {
 		const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 		const offenders: string[] = [];
 		let visited = 0;
+		for (const file of clientRootModules) {
+			const filePath = fileURLToPath(new URL(file, import.meta.url));
+			visited += 1;
+			const source = readFileSync(filePath, "utf8");
+			if (source.includes("@/lib/logger")) {
+				offenders.push(join("lib/doc", relative(packageRoot, filePath)));
+			}
+		}
 		for (const dir of packageDirs) {
 			const dirPath = fileURLToPath(new URL(dir, import.meta.url));
 			const entries = readdirSync(dirPath, {

@@ -10,7 +10,7 @@
  *
  * **Reference guard.** Refuse if any carrier — in the current working app OR any
  * other live app — still points at the asset, naming the slots to clear:
- * deleting a referenced asset orphans a live reference the media-validation gate
+ * deleting a referenced asset orphans a live reference the export boundary gate
  * would later reject far from where the SA could fix it.
  *
  * Ownership is enforced by `loadAssetForOwner`, which throws

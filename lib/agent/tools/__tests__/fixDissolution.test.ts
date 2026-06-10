@@ -1,19 +1,22 @@
 /**
  * Fix-registry dissolution proofs — one test per `FIX_REGISTRY` entry,
  * each showing the guarded construction path can no longer PRODUCE the
- * condition that fix exists to repair. The registry itself stays in
- * place until the lifecycle rework deletes the validate-fix loop; these
- * tests are what make each fix redundant in practice:
+ * condition that fix exists to repair. While the registry exists, these
+ * proofs are what make every entry redundant in practice — and they are
+ * the per-entry pins any deletion of the registry stands on:
  *
  *   - codes whose conditions the commit gate now rejects at the
  *     introducing batch (`guardedMutate` / the builder hook — same
  *     verdict): NO_CASE_TYPE, RESERVED_CASE_PROPERTY,
- *     UNQUOTED_STRING_LITERAL, CLOSE_CONDITION_*, UNKNOWN_FUNCTION,
- *     WRONG_ARITY, CASE_PROPERTY_BAD_FORMAT;
+ *     UNQUOTED_STRING_LITERAL, CLOSE_CONDITION_WRONG_TYPE,
+ *     CLOSE_CONDITION_INCOMPLETE, CLOSE_CONDITION_FIELD_NOT_FOUND,
+ *     UNKNOWN_FUNCTION, WRONG_ARITY, CASE_PROPERTY_BAD_FORMAT;
  *   - codes already unrepresentable through construction (shape):
- *     MEDIA_CASE_PROPERTY (no `case_property_on` slot on media kinds),
- *     SELECT_NO_OPTIONS (domain schema `.min(2)`; the UI picker seeds
- *     two starter options; the SA add path fails assembly);
+ *     MEDIA_CASE_PROPERTY (no `case_property_on` slot on media kinds —
+ *     pinned on the add arm, the edit arm, AND the strict domain
+ *     schema), SELECT_NO_OPTIONS (domain schema `.min(2)`; the UI
+ *     picker seeds two starter options; the SA add path fails
+ *     assembly);
  *   - INVALID_FIELD_ID — rejected at source by the shared identifier
  *     verdicts (`lib/doc/identifierVerdicts.ts`), pinned here through
  *     the `addFields` path;
@@ -28,9 +31,9 @@ import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, fieldSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { addFieldsItemSchema } from "../../toolSchemas";
+import { addFieldsItemSchema, editFieldUpdatesSchema } from "../../toolSchemas";
 import { addFieldsTool } from "../addFields";
 import { createFormTool } from "../createForm";
 import { updateModuleTool } from "../updateModule";
@@ -135,6 +138,25 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
+	it("updateModule with neither name nor case_type returns the corrective error, not a fake success", async () => {
+		// The schema deliberately admits a bare { moduleIndex } (so the SA
+		// reads a corrective message rather than an opaque parse failure);
+		// the tool body owns the rejection. Without this branch, a no-op
+		// call would report "Successfully updated" for an edit that never
+		// happened.
+		const { ctx, recordMutations } = makeCtx("building");
+		const out = await updateModuleTool.execute(
+			{ moduleIndex: 0 },
+			ctx,
+			caseTypelessDoc(),
+		);
+		expect("error" in out.result && out.result.error).toContain(
+			"Nothing to update",
+		);
+		expect(out.mutations).toEqual([]);
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
 	it("updateModule sets case_type, after which the same createForm commits", async () => {
 		const { ctx } = makeCtx("building");
 		const doc = caseTypelessDoc();
@@ -213,6 +235,27 @@ describe("MEDIA_CASE_PROPERTY — no construction surface can express it", () =>
 			case_property_on: "patient",
 		});
 		// `.strict()` arms reject the unknown key outright.
+		expect(parsed.success).toBe(false);
+	});
+
+	it("the per-kind edit arm carries no case_property_on slot on media kinds", () => {
+		const parsed = editFieldUpdatesSchema.safeParse({
+			kind: "image",
+			case_property_on: "patient",
+		});
+		expect(parsed.success).toBe(false);
+	});
+
+	it("the strict domain schema rejects a media field carrying case_property_on", () => {
+		// The reducers' `safeParse` and the auto-save's `blueprintDocSchema`
+		// both run this schema — the chokepoint behind every surface.
+		const parsed = fieldSchema.safeParse({
+			uuid: "00000000-0000-4000-8000-000000000001",
+			kind: "image",
+			id: "photo",
+			label: "Photo",
+			case_property_on: "patient",
+		});
 		expect(parsed.success).toBe(false);
 	});
 });
@@ -316,64 +359,69 @@ describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
 
 // ── CLOSE_CONDITION_* ───────────────────────────────────────────────
 
+/** minDoc plus a close form holding a two-option select ("outcome"). */
+function closeFormDoc(): BlueprintDoc {
+	return buildDoc({
+		appName: "Test",
+		modules: [
+			{
+				name: "Mod",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Reg",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "patient",
+							}),
+							f({
+								kind: "text",
+								id: "village",
+								label: "Village",
+								case_property_on: "patient",
+							}),
+						],
+					},
+					{
+						name: "Close out",
+						type: "close",
+						fields: [
+							f({
+								kind: "single_select",
+								id: "outcome",
+								label: "Outcome",
+								options: [
+									{ value: "done", label: "Done" },
+									{ value: "moved", label: "Moved" },
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: "Name" },
+					{ name: "village", label: "Village" },
+				],
+			},
+		],
+	});
+}
+
 describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 	it("a close condition naming a nonexistent field is rejected", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-								}),
-								f({
-									kind: "text",
-									id: "village",
-									label: "Village",
-									case_property_on: "patient",
-								}),
-							],
-						},
-						{
-							name: "Close out",
-							type: "close",
-							fields: [
-								f({
-									kind: "single_select",
-									id: "outcome",
-									label: "Outcome",
-									options: [
-										{ value: "done", label: "Done" },
-										{ value: "moved", label: "Moved" },
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "village", label: "Village" },
-					],
-				},
-			],
-		});
+		const doc = closeFormDoc();
 		const closeFormUuid = doc.formOrder[doc.moduleOrder[0]][1];
 
 		const verdict = mutationCommitVerdict(
@@ -391,6 +439,53 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
 				"CLOSE_CONDITION_FIELD_NOT_FOUND",
+			);
+		}
+	});
+
+	it("a close condition on a non-close form is rejected (WRONG_TYPE)", () => {
+		const doc = minDoc();
+		// minDoc's only form is a registration form — a close condition on
+		// it is exactly the contradictory config the rule names.
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateForm",
+					uuid: doc.formOrder[doc.moduleOrder[0]][0],
+					patch: { closeCondition: { field: "village", answer: "done" } },
+				},
+			],
+			"building",
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.introduced.map((e) => e.code)).toContain(
+				"CLOSE_CONDITION_WRONG_TYPE",
+			);
+		}
+	});
+
+	it("a close condition missing its field or answer is rejected (INCOMPLETE)", () => {
+		const doc = closeFormDoc();
+		const closeFormUuid = doc.formOrder[doc.moduleOrder[0]][1];
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateForm",
+					uuid: closeFormUuid,
+					// The schema admits empty strings, so this is a live input
+					// shape — both halves are required for a conditional close.
+					patch: { closeCondition: { field: "outcome", answer: "" } },
+				},
+			],
+			"building",
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.introduced.map((e) => e.code)).toContain(
+				"CLOSE_CONDITION_INCOMPLETE",
 			);
 		}
 	});
