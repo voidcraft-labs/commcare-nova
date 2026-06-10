@@ -450,6 +450,75 @@ NOTHING consumes the gate yet (Stage 1+ wires it). Pure lib + tests.
 
 **Acceptance:** totality compiles; all gate tests green; perf guard green.
 
+**SHIPPED** (`f833ce36`) with these deviations/decisions:
+
+- (a) Classification (190 codes, not the spec's "~190"): 11 completeness
+  (exactly the spec's list — NO_MODULES, EMPTY_FORM,
+  MISSING_CASE_LIST_COLUMNS, NO_CASE_NAME_FIELD, REGISTRATION_NO_CASE_PROPS,
+  CHILD_CASE_NO_NAME_FIELD, MISSING_CHILD_CASE_MODULE,
+  CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE, CONNECT_FORM_MISSING_BLOCK,
+  CONNECT_MISSING_LEARN, CONNECT_MISSING_DELIVER), 4 environment (the three
+  asset-context rules + MEDIA_EXPORT_TOO_LARGE — external-state-dependent,
+  boundary-only, never producible by a commit-path run), 95 oracle (XFORM 28
+  / SUITE 35 / HQJSON 15 / BINDING_RESOLUTION 4 / MEDIA_SUITE 3 + the
+  10-code media-suite resource family), 6 shape (schema-verified backstops:
+  REQUIRED_ON_HIDDEN, CALCULATE_ON_VISIBLE_INPUT,
+  VALIDATION_ON_NON_INPUT_KIND, INVALID_POST_SUBMIT — Zod enum,
+  SELECT_NO_OPTIONS — `options.min(2)`, MEDIA_CASE_PROPERTY — media kinds
+  carry no `case_property_on`), 74 soundness. Judgment calls:
+  NO_FORMS_OR_CASE_LIST reads "unfinished" by the definition but is NOT on
+  the spec's closed list, so it stays soundness — under the Stage-2 gate a
+  batch creating a module without its forms will reject even while
+  `building`; flagged for Stage-2 review rather than reclassified here.
+- (b) `errorIdentity` default = code + location uuids + `location.field`;
+  exceptions decided per rule source: value-keyed dedup findings drop their
+  flip-prone location anchor (DUPLICATE_MODULE_NAME → name,
+  RESERVED_CASE_TYPE_NAME / MISSING_CHILD_CASE_MODULE → caseType,
+  CONNECT_ID_DUPLICATE → connectId, FORM_LINK_CIRCULAR → code only);
+  case-list shapes add the stable sub-entity uuid or value key from
+  `details` (columnUuid / inputUuid / inputName / priority / image-map
+  value / slot+property); form-scope property findings add the property /
+  connectId / surface+hashtag / caseType. Positional indices, AST paths,
+  prose, and mutable semantic ids NEVER enter identity — every collapse is
+  permissive (a second same-key finding passes), never a churn that rejects
+  a strict improvement.
+- (c) `evaluateCommit` runs BOTH docs under the batch's scope; the
+  documented equivalence with the full-run diff rests on (1) scope
+  soundness by `scopeOfMutations` construction, (2) every identity embeds
+  the uuid that decides its scope membership (or is scope-exempt), so the
+  in/out-of-scope partition is identical for prev and next, (3) the
+  property-tested scoped ≡ full-filtered runner law.
+- (d) Runner attribution rides per-CODE, not on `err.scope`:
+  `fieldKindMatchesPropertyType` is an APP rule emitting field-located
+  errors, so `SCOPE_EXEMPT_CODES` (app rules + manifest-gated media rules +
+  MEDIA_EXPORT_TOO_LARGE) anchors the law's filter side
+  (`errorWithinScope`, exported). Scope restricts which entities are
+  WALKED — no post-filtering.
+- (e) `scopeOfMutations` beyond the sketch: removeForm / removeModule →
+  full (form-link targets + vanishing case-property writers are
+  cross-entity); addForm / addModule → containing module; moveModule →
+  EMPTY scope (app rules only — order feeds no module/form rule);
+  moveField scopes both endpoint forms + subtree case-type widening
+  (cross-level dedup-rename can rename a writer); remove/duplicate widen by
+  every case type in the prevDoc subtree; intra-batch adds resolve through
+  an overlay (addModule+addForm+addField stays scoped); unresolvable
+  targets → full; exhaustive switch + runtime `default` → full.
+- (f) Property test restructured to a DAMAGE batch + EDIT batch after
+  measuring that the single-batch shape never exercised the filter side
+  (docs are valid by construction and sound scopes contain their own
+  damage — 0/200 samples had out-of-scope findings; two-batch shape: 77/100
+  comparison-reaching samples carry findings, 8/100 filter findings out).
+  Asserts the runner law on next AND prev, the deep-walk law directly, and
+  scope soundness (edit-introduced findings all in scope); 200 runs, seed
+  pinned.
+- (g) Perf guard: deterministic 3,000-field fixture (30 modules × 4 forms ×
+  25 fields, expression-bearing) under a 20s budget; measured ~100ms — the
+  budget trips only on an order-of-magnitude regression.
+- Tests: 22 gate + 13 scopeOfMutations + 1 property + 1 perf = 37 new.
+  Full suite: 5919 passed / 0 failed (30 pre-existing skips; single
+  observed run — a first launch wedged at vitest startup having executed
+  zero tests and was killed unread).
+
 ## Sequencing & protocol
 
 T1 → T2 → T3 → T4 → T5 → T6 → T7, strictly serialized. Each task: implement →
