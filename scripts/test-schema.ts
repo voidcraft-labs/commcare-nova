@@ -21,7 +21,7 @@
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `addSearchInputs`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
- *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
+ *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`, `updateModule`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setModuleMedia`,
  *     `setFormMedia`, `setAppLogo`, `listMediaAssets`,
  *     `removeMediaAsset`, `uploadMediaAsset`.
@@ -50,6 +50,10 @@ import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset"
 import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
 import { setFormMediaTool } from "../lib/agent/tools/media/setFormMedia";
 import { setModuleMediaTool } from "../lib/agent/tools/media/setModuleMedia";
+import {
+	updateModuleInputSchema,
+	updateModuleTool,
+} from "../lib/agent/tools/updateModule";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
 import { SA_MODEL } from "../lib/models";
 
@@ -73,6 +77,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: addFieldsTool.inputSchema,
 		prompt:
 			"Use addFields on module 0, form 0 to add two fields: patient_name (a text field labeled 'Patient name') and age (an int field labeled 'Age').",
+	},
+	{
+		name: "updateModule",
+		description: updateModuleTool.description,
+		schema: updateModuleInputSchema,
+		prompt:
+			'Use updateModule on module 0 to set its case_type to "patient" and rename it to "Patients".',
 	},
 	{
 		name: "addCaseListColumns",

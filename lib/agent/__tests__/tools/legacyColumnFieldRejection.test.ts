@@ -59,12 +59,21 @@ describe("updateModule legacy column field rejection", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("input schema rejects a payload missing the now-required name", () => {
-		// Sanity-check: dropping the columns made `name` the sole edit
-		// surface, so the schema requires it. A payload with only
-		// `moduleIndex` is meaningless and must fail to parse.
+	it("input schema parses a payload with neither name nor case_type (the tool body rejects it)", () => {
+		// `name` and `case_type` are each optional — the schema accepts a
+		// bare moduleIndex and the tool body returns the "nothing to
+		// update" error, so the SA gets a corrective message rather than a
+		// parse failure it can't read.
 		const result = updateModuleInputSchema.safeParse({ moduleIndex: 0 });
-		expect(result.success).toBe(false);
+		expect(result.success).toBe(true);
+	});
+
+	it("input schema parses a case_type-only payload (the NO_CASE_TYPE repair path)", () => {
+		const result = updateModuleInputSchema.safeParse({
+			moduleIndex: 0,
+			case_type: "patient",
+		});
+		expect(result.success).toBe(true);
 	});
 });
 
