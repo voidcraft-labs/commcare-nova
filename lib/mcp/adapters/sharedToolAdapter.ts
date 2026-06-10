@@ -59,8 +59,9 @@ import type {
 	ReadToolResult,
 } from "@/lib/agent/tools/common";
 import type { ValidateAppResult } from "@/lib/agent/tools/validateApp";
+import { commitPhaseForAppStatus } from "@/lib/doc/commitVerdicts";
 import type { BlueprintDoc } from "@/lib/domain";
-import { commitPhaseForAppStatus, initMcpCall } from "../context";
+import { initMcpCall } from "../context";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,

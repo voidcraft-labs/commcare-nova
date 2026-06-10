@@ -40,7 +40,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
-import type { AppDoc } from "@/lib/db/types";
 import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
@@ -132,6 +131,11 @@ export class McpContext implements ToolExecutionContext {
 		stage?: string,
 	): Promise<MutationEvent[]> {
 		if (mutations.length === 0) return [];
+		/* Persist FIRST, log second: the guarded transactional commit can
+		 * still reject (or throw on a transport fault), and an event log
+		 * that recorded a batch the blueprint never absorbed would make a
+		 * replay diverge from the persisted doc. */
+		await this.saveBlueprint(doc, mutations);
 		const events: MutationEvent[] = mutations.map((mutation) => ({
 			kind: "mutation",
 			runId: this.runId,
@@ -147,7 +151,6 @@ export class McpContext implements ToolExecutionContext {
 			mutation,
 		}));
 		for (const e of events) this.logWriter.logEvent(e);
-		await this.saveBlueprint(doc);
 		return events;
 	}
 
@@ -199,12 +202,22 @@ export class McpContext implements ToolExecutionContext {
 	 * argument routes the Firestore commit through `updateAppForRun`
 	 * so the run id persists alongside the blueprint.
 	 */
-	private async saveBlueprint(doc: BlueprintDoc): Promise<void> {
+	private async saveBlueprint(
+		doc: BlueprintDoc,
+		mutations: Mutation[],
+	): Promise<void> {
 		await applyBlueprintChange({
 			appId: this.appId,
 			userId: this.userId,
 			prospective: toPersistableDoc(doc),
 			runId: this.runId,
+			/* Guarded commit: the saga's Firestore write re-reads the stored
+			 * blueprint, re-applies this batch, and re-runs the validity
+			 * verdict inside a transaction — two concurrent gate-approved
+			 * batches serialize instead of last-writer-wins, and a batch the
+			 * fresh doc rejects throws (the tool returns its `{ error }`
+			 * envelope) rather than erasing the concurrent commit. */
+			guard: { mutations, commitPhase: this.commitPhase },
 		});
 	}
 }
@@ -276,16 +289,4 @@ export function initMcpCall(
 		progress,
 	});
 	return { mcpCtx, logWriter, runId, progress };
-}
-
-/**
- * Validity-gate phase for an MCP call, from the loaded app's lifecycle
- * status: a `generating` app is still under construction (completeness
- * deferred); everything else is `complete` (the ratchet holds). MCP
- * tool calls always run against a loaded `AppDoc`, so the status is the
- * authoritative build-window signal on this surface — the MCP analog of
- * the chat route's `appReady` flag.
- */
-export function commitPhaseForAppStatus(status: AppDoc["status"]): CommitPhase {
-	return status === "generating" ? "building" : "complete";
 }

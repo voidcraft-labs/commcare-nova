@@ -65,9 +65,21 @@
 
 import type { CaseStore } from "@/lib/case-store";
 import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
+import {
+	type CommitPhase,
+	describeIntroducedErrors,
+	mutationCommitVerdict,
+} from "@/lib/doc/commitVerdicts";
+import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
-import { loadApp, updateApp, updateAppForRun } from "./apps";
+import {
+	loadApp,
+	updateApp,
+	updateAppForRun,
+	updateAppForRunTransactional,
+} from "./apps";
 import {
 	type CaseTypeChangeEntry,
 	classifyCaseTypeChanges,
@@ -103,6 +115,41 @@ export interface ApplyBlueprintChangeArgs {
 	readonly runId?: string;
 	readonly hint?: SchemaChangeHint;
 	readonly priorBlueprint?: PersistableDoc;
+	/**
+	 * Guarded-commit mode (the MCP surface): instead of overwriting the
+	 * blueprint with `prospective` blind, the Firestore commit becomes a
+	 * transactional read-evaluate-write — re-apply `mutations` to the
+	 * FRESH stored blueprint and re-run the validity verdict against it
+	 * before writing. A concurrent committed batch therefore can't be
+	 * silently erased (the recomputed doc builds ON the fresh state),
+	 * and a batch the fresh verdict rejects throws
+	 * {@link BlueprintCommitRejectedError} with nothing written.
+	 * Requires `runId` (the guarded writer persists it alongside).
+	 *
+	 * `prospective` still drives the Postgres schema diff: the entry set
+	 * derives from the mutations, so on the rare commit race the synced
+	 * schema can momentarily trail the recomputed blueprint — the next
+	 * successful save re-syncs, the same eventual-consistency posture the
+	 * saga already documents for per-row migrations.
+	 */
+	readonly guard?: {
+		readonly mutations: Mutation[];
+		readonly commitPhase: CommitPhase;
+	};
+}
+
+/**
+ * Thrown by the guarded commit when the validity verdict — re-run inside
+ * the Firestore transaction against the freshly read blueprint — rejects
+ * the batch. Carries the person-to-person findings as its message; the
+ * MCP tool's catch returns it in the standard `{ error }` envelope, the
+ * same shape an optimistic gate rejection produces.
+ */
+export class BlueprintCommitRejectedError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "BlueprintCommitRejectedError";
+	}
 }
 
 /**
@@ -208,6 +255,28 @@ async function resolvePriorBlueprint(
  * persist the run id alongside) and through `updateApp` otherwise.
  */
 async function persistBlueprint(args: ApplyBlueprintChangeArgs): Promise<void> {
+	if (args.guard !== undefined && args.runId !== undefined) {
+		const { mutations, commitPhase } = args.guard;
+		await updateAppForRunTransactional(args.appId, args.runId, (fresh) => {
+			/* Re-apply against the FRESH stored blueprint and re-run the
+			 * verdict inside the transaction. Firestore re-runs this body on
+			 * contention, so the verdict always holds against the doc the
+			 * write replaces. */
+			const freshDoc: BlueprintDoc = {
+				...(fresh.blueprint as PersistableDoc),
+				fieldParent: {},
+			} as BlueprintDoc;
+			rebuildFieldParent(freshDoc);
+			const verdict = mutationCommitVerdict(freshDoc, mutations, commitPhase);
+			if (!verdict.ok) {
+				throw new BlueprintCommitRejectedError(
+					describeIntroducedErrors(verdict.introduced),
+				);
+			}
+			return toPersistableDoc(verdict.nextDoc);
+		});
+		return;
+	}
 	if (args.runId !== undefined) {
 		await updateAppForRun(args.appId, args.prospective, args.runId);
 	} else {

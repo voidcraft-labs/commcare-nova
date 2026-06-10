@@ -30,11 +30,25 @@ import {
 	evaluateCommit,
 } from "@/lib/commcare/validator/gate";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
+import type { AppDoc } from "@/lib/db/types";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 
 export type { CommitPhase };
+
+/**
+ * Validity-gate phase from an app document's lifecycle status — the ONE
+ * derivation every server surface shares (the chat route reads it off
+ * the app doc it already loaded for ownership; the MCP adapter off the
+ * doc it loaded for the tool call). A `generating` app is still under
+ * construction (completeness deferred); everything else is `complete`
+ * (the ratchet holds). The phase is never taken from a client-supplied
+ * flag: the app doc is the authority on its own build window.
+ */
+export function commitPhaseForAppStatus(status: AppDoc["status"]): CommitPhase {
+	return status === "generating" ? "building" : "complete";
+}
 
 /**
  * The verdict shape every commit surface consumes. `nextDoc` is always

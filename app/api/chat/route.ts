@@ -24,7 +24,7 @@ import {
 	createApp,
 	failApp,
 	hasActiveGeneration,
-	loadAppOwner,
+	loadAppOwnerAndStatus,
 	setAwaitingInput,
 } from "@/lib/db/apps";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
@@ -36,6 +36,10 @@ import {
 	reserveCredits,
 } from "@/lib/db/credits";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
+import {
+	type CommitPhase,
+	commitPhaseForAppStatus,
+} from "@/lib/doc/commitVerdicts";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
@@ -190,6 +194,12 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	/* Validity-gate phase, derived server-side from the app doc's own
+	 * lifecycle status (`commitPhaseForAppStatus`) — never from the
+	 * client-reported `appReady` flag, which picks only the prompt/tool
+	 * mode. A brand-new build's doc is created `generating` below, so it
+	 * gates under the construction window without a re-read. */
+	let commitPhase: CommitPhase = "building";
 	if (!appId) {
 		try {
 			appId = await createApp(userId, effectiveRunId);
@@ -208,13 +218,14 @@ export async function POST(req: Request) {
 		/* Verify ownership — apps are a root-level collection, so the path no
 		 * longer scopes writes to the authenticated user. Without this check,
 		 * a crafted request with another user's appId would overwrite their app. */
-		const owner = await loadAppOwner(appId);
-		if (!owner || owner !== userId) {
+		const access = await loadAppOwnerAndStatus(appId);
+		if (!access || access.owner !== userId) {
 			return Response.json(
 				{ error: "App not found", type: "not_found" },
 				{ status: 404 },
 			);
 		}
+		commitPhase = commitPhaseForAppStatus(access.status);
 		/* This POST runs against an existing app — if it's resuming a build that
 		 * paused on an `askQuestions` round, clear the pause flag now (before the
 		 * stream) so a resume that then hard-kills becomes reapable again. A no-op
@@ -395,11 +406,11 @@ export async function POST(req: Request) {
 				usage,
 				session: keyResult.session,
 				appId,
-				/* Validity-gate phase: the same `appReady` signal that picks the
-				 * editing prompt — false during initial generation (completeness
-				 * deferred while the SA is still scaffolding), true for edits of
-				 * an existing app (the completeness ratchet holds). */
-				commitPhase: appReady ? "complete" : "building",
+				/* Server-derived gate phase (see the `commitPhase` resolution
+				 * beside the ownership check) — the app doc's status, not the
+				 * client's `appReady` flag, decides whether the completeness
+				 * ratchet holds. */
+				commitPhase,
 			});
 
 			/* Persist the current request's user message as the first

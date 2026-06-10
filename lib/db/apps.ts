@@ -462,14 +462,61 @@ async function persistBlueprintSnapshot(
 	doc: PersistableDoc,
 	extra: { status?: AppDoc["status"]; runId?: string } = {},
 ): Promise<void> {
-	await docs.app(appId).update({
+	await docs.app(appId).update(blueprintSnapshotFields(doc, extra));
+	await syncMediaReferences(appId, doc);
+}
+
+/**
+ * The blueprint-snapshot field set — the ONE definition of what a
+ * blueprint write touches, shared by the plain writers above and the
+ * transactional writer below so the two can't drift on which
+ * denormalized fields ride along.
+ */
+function blueprintSnapshotFields(
+	doc: PersistableDoc,
+	extra: { status?: AppDoc["status"]; runId?: string } = {},
+) {
+	return {
 		...denormalize(doc),
 		blueprint: doc,
 		updated_at: FieldValue.serverTimestamp(),
 		...(extra.status !== undefined && { status: extra.status }),
 		...(extra.runId !== undefined && { run_id: extra.runId }),
+	};
+}
+
+/**
+ * Transactional blueprint write — the guarded MCP commit's
+ * read-evaluate-write. Runs `body` with the FRESH app doc inside a
+ * Firestore transaction: `body` returns the next persistable doc to
+ * commit, or throws to abort with nothing written. Firestore re-runs
+ * the body against the newest read on contention, so whatever decision
+ * `body` makes (the validity re-verdict) always holds against the doc
+ * the write actually replaces — a concurrent committed batch can't be
+ * silently erased by a verdict taken against a stale snapshot.
+ *
+ * The media reverse-index sync runs after the commit with the same
+ * best-effort contract as the plain writers (`persistBlueprintSnapshot`).
+ */
+export async function updateAppForRunTransactional(
+	appId: string,
+	runId: string,
+	body: (fresh: AppDoc) => PersistableDoc,
+): Promise<PersistableDoc> {
+	const committed = await getDb().runTransaction(async (tx) => {
+		const snap = await tx.get(docs.app(appId));
+		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[updateAppForRunTransactional] app document missing for appId=${appId}`,
+			);
+		}
+		const next = body(fresh);
+		tx.update(docs.appRaw(appId), blueprintSnapshotFields(next, { runId }));
+		return next;
 	});
-	await syncMediaReferences(appId, doc);
+	await syncMediaReferences(appId, committed);
+	return committed;
 }
 
 /**
@@ -735,6 +782,26 @@ export async function loadAppOwner(appId: string): Promise<string | null> {
 	const snap = await getDb().collection("apps").doc(appId).get();
 	if (!snap.exists) return null;
 	return (snap.data()?.owner as string) ?? null;
+}
+
+/**
+ * Load the owner + lifecycle status in one untyped read — the chat
+ * route's pre-stream gate needs both: `owner` for the ownership 404 and
+ * `status` for the validity gate's commit phase (derived server-side
+ * from the app doc, never from a client-supplied flag). Returns `null`
+ * when the doc doesn't exist. `status` defaults to `"complete"` for a
+ * pre-status legacy row — the stricter (ratcheted) gate direction.
+ */
+export async function loadAppOwnerAndStatus(
+	appId: string,
+): Promise<{ owner: string | null; status: AppDoc["status"] } | null> {
+	const snap = await getDb().collection("apps").doc(appId).get();
+	if (!snap.exists) return null;
+	const data = snap.data();
+	return {
+		owner: (data?.owner as string) ?? null,
+		status: (data?.status as AppDoc["status"]) ?? "complete",
+	};
 }
 
 /**

@@ -74,10 +74,11 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { commitPhaseForAppStatus } from "@/lib/doc/commitVerdicts";
 import { log } from "@/lib/logger";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { commitPhaseForAppStatus, initMcpCall } from "../context";
+import { initMcpCall } from "../context";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
