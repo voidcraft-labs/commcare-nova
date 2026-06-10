@@ -276,6 +276,53 @@ authoritative).
 `#<type>/<prop>` ref validate clean without `setCaseTypes`; existing
 catalog-dependent tests unchanged.
 
+**SHIPPED** (`bd25b170`) with these deviations/decisions:
+
+- (a) Arms covered beyond the file-list sketch: `addField`, `updateField`
+  (one ensure off the merged parse result covers BOTH `case_property_on`
+  patches and `id` patches — patches can carry `id`, only `uuid`/`kind`
+  are immutable), `convertField`, **`duplicateField`** (the suffixed root
+  clone introduces a new pair; descendant clones re-assert their source
+  pairs idempotently), and **`moveField`'s dedup-rename** — verified it
+  does NOT ride the rename cascade (`fields.ts` moveField arm writes
+  `field.id = deduped` directly, never calling
+  `cascadeCasePropertyRename`), so it syncs explicitly. `renameField`
+  deliberately unchanged: the cascade already renames the catalog entry
+  in place, and post-Task-5 every pair exists at introduction, so the
+  rename always finds its entry.
+- (b) Undeclared case type → the reducer CREATES a bare
+  `{ name, properties }` entry. Evidence for matching the admission
+  model: `lib/domain/caseTypes.ts::reachableCaseTypes` already admits an
+  undeclared module type's namespace at depth 0 ("recognized even before
+  properties exist"), and the case-list rules already admit
+  writer-derived properties as real
+  (`validator/rules/case-list/shared.ts::augmentCaseType`, priority 3) —
+  types come into existence by being named, properties by being written.
+  The acceptance criterion ("WITHOUT `setCaseTypes`") is only satisfiable
+  this way. Ancestry (`parent_type` / `relationship`) is never invented —
+  that stays a `setCaseTypes`-level declaration.
+- (c) The kind→`data_type` mapping was RELOCATED, not allowlist-imported:
+  the validator rule's module-private `expectedDataType` switch moved to
+  `lib/domain/caseTypes.ts::caseDataTypeForFieldKind` (both ends of the
+  mapping are `lib/domain` types, so it isn't wire vocabulary) and
+  `fieldKindMatchesPropertyType.ts` now consumes it via a thin alias —
+  one table, no `@/lib/commcare` boundary widening for `lib/doc`.
+- (d) New entries carry `label: name` (the `casePropertySchema` requires
+  `label`; same shape `augmentCaseType` gives writer-derived entries) and
+  the kind-derived `data_type`; `hidden` writers land an UNTYPED entry
+  (the calculate's output type isn't pinned by the kind), read as `text`
+  everywhere via the `effectiveDataType` convention. Declared entries are
+  never clobbered (no duplicate, no `data_type`/`label` overwrite) and
+  removal never prunes.
+- Tests: 18 new in `lib/doc/__tests__/mutations-fields-catalog.test.ts`,
+  failing-first confirmed (13 of 18 failed pre-implementation; the 5
+  passing were the negative shapes — no-pointer add, declared-entry
+  no-clobber, move-without-rename, the gap-is-real proof). The acceptance
+  pair drives the real `validateBlueprintDeep`: `#patient/age` on a
+  followup form is `INVALID_CASE_REF` before the `addField` writer lands
+  and clean after, with `caseTypes` starting `null`. Full suite 5750
+  passed / 0 failed.
+
 ## Task 6 — `expressionSource` accessor
 
 **Files:** `lib/domain/expressionSource.ts` (new), conversions in
