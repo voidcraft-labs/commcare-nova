@@ -117,3 +117,7 @@ You can attach images, audio, and video to parts of an app — a field's label o
 <Callout type="info">
 HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova copy doesn't change. To retire the previous HQ version, archive it on HQ.
 </Callout>
+
+<Callout type="warn">
+Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist — fails with a message naming each problem, and nothing is saved; fix the input and call again. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved issues — including unfinished pieces like an empty form — listing each one, so a broken app never reaches a device or HQ.
+</Callout>
