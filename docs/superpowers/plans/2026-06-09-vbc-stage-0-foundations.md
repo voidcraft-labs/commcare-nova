@@ -87,6 +87,27 @@ surfaces and nothing dangles; divergence corpus green; emitter expansion of
 multi-segment hashtags already works (`hashtags.ts::resolveFlatHashtag`) — add a
 round-trip test re-anchored-ref → emit → expected `/data/...` path.
 
+**SHIPPED** (`f328d294`) with four deviations: (a) the shared segment source
+is `lib/domain/hashtagSegments.ts`, NOT `lib/commcare/hashtagSegments.ts` —
+`lib/references` is not an allowlisted consumer of the `@/lib/commcare`
+boundary (`biome.json::noRestrictedImports`), and both packages may import
+`lib/domain`; the provider's `NAMESPACE_RE` is rebuilt from the same source.
+(b) The grammar DID need a change, but not a token-charset one: whitespace
+skipping applied inside `HashtagRef` (`# form/x` parsed as a ref), an
+open-ended skipless rule is inexpressible in LR ("inconsistent skip sets"),
+so contiguity rides on zero-width adjacency guards from a new external
+tokenizer `lib/commcare/xpath/hashtagGuard.ts` (lookahead-keyed so a guard
+never wins a shift the next token would fail); parser regenerated and
+committed; hashtag segments are ASCII on every matcher while `NameTest`
+keeps Unicode. Blast radius: zero — full suite green, no wire-emitter test
+changed. (c) `HASHTAG_REF_PATTERN` narrowed/widened to the unified segment:
+dots no longer captured (trailing sentence punctuation fixed), hyphens now
+admitted. (d) `notifyMoveRename` copy needed NO change — it never surfaced
+the dropped count; its "N references updated" stays accurate (the count now
+includes re-anchors). Resolver/linter/autocomplete already resolved
+multi-segment refs (nested `formEntries` paths; `extractPathRefs` maps
+`#form/a/b` → `/data/a/b`) — pinned by new tests rather than extended.
+
 ## Task 3 — Rewriter coverage closure (registry-driven)
 
 **Files:** `lib/doc/mutations/fields.ts` (XPATH_FIELDS/DISPLAY_FIELDS replaced by
