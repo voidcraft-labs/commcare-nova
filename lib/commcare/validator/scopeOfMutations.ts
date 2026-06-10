@@ -79,7 +79,7 @@ interface ScopeAccumulator {
  * Resolve the form that contains `uuid` (itself a form uuid, or a field /
  * container uuid anywhere under one), consulting prevDoc plus the batch
  * overlay. `undefined` = unresolvable (degenerate mutation — the reducer
- * would warn-and-skip it; the caller degrades to a full run).
+ * skips it, some arms with a warn; the caller degrades to a full run).
  */
 function containingForm(
 	doc: BlueprintDoc,
@@ -329,18 +329,16 @@ export function scopeOfMutations(
 			case "updateField": {
 				const patch = mut.patch as Record<string, unknown>;
 				scopeFieldTarget(prevDoc, acc, mut.uuid);
-				// Full iff the patch changes what the field WRITES while
-				// either side of the change is case-bound: re-targeting
-				// `case_property_on` (set, change, or `null`/empty clear),
-				// renaming `id` on a bound field (the writer pair), or
-				// re-kinding a bound field — the reducer accepts a `kind`
-				// patch (`pickFieldKeysForKind` keeps the key and
-				// `fieldSchema.safeParse` dispatches on the merged
-				// discriminator), which is `convertField`'s semantic change
-				// in another spelling and shifts the writer's data type the
-				// case-property readers consume. Patches that leave pair and
-				// kind alone (labels, expressions, options) can only flip
-				// form-local findings.
+				// Full iff the patch changes the field's WRITER PAIR
+				// (case type, property name) while either side of the change
+				// is case-bound: re-targeting `case_property_on` (set, change,
+				// or `null`/empty clear) or renaming `id` on a bound field.
+				// `kind` never changes through a patch — the wire schema
+				// strips the key (the per-kind partial schemas omit it) and
+				// the reducer ignores it for replay-equivalence; `convertField`
+				// is the single kind-change path and maps to full above. So
+				// patches that leave the pair alone (labels, expressions,
+				// options) can only flip form-local findings.
 				const field = resolveField(prevDoc, acc, mut.uuid);
 				const prevType = field ? casePropertyOn(field) : undefined;
 				const rawNext = patch.case_property_on;
@@ -349,15 +347,10 @@ export function scopeOfMutations(
 						? rawNext
 						: undefined
 					: prevType;
-				const writerChanges =
+				const pairChanges =
 					nextType !== prevType ||
-					(field !== undefined &&
-						(patchTouches(patch, "id", field.id) ||
-							patchTouches(patch, "kind", field.kind)));
-				if (
-					(prevType !== undefined || nextType !== undefined) &&
-					writerChanges
-				) {
+					(field !== undefined && patchTouches(patch, "id", field.id));
+				if ((prevType !== undefined || nextType !== undefined) && pairChanges) {
 					acc.full = true;
 				}
 				break;

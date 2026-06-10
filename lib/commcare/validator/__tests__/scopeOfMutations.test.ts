@@ -189,32 +189,19 @@ describe("scopeOfMutations", () => {
 		).toBe("full");
 	});
 
-	it("a patch re-kinding a case-bound field maps to full (convertField in another spelling)", () => {
-		// The reducer accepts a `kind` patch — `pickFieldKeysForKind` keeps
-		// the key and `fieldSchema.safeParse` dispatches on the merged
-		// discriminator — which changes the writer's data type exactly like
-		// convertField does.
+	it("a kind-bearing patch stays form-scoped — the reducer strips the immutable discriminant", () => {
+		// `kind` never changes through a patch: the wire schema strips the
+		// key (the per-kind partial schemas omit it) and the reducer ignores
+		// it for replay-equivalence — `convertField` is the single
+		// kind-change path and keeps its full mapping. A kind-bearing patch
+		// can therefore only flip form-local findings via its remaining
+		// keys, even on a case-bound field.
 		const doc = twoTypeDoc();
 		const caseName = fieldByid(doc, "case_name");
-		expect(
-			scopeOfMutations(doc, [
-				{
-					kind: "updateField",
-					uuid: caseName.uuid,
-					targetKind: "text",
-					patch: { kind: "int" },
-				} as Mutation,
-			]),
-		).toBe("full");
-	});
-
-	it("a kind patch on a NON-case-bound field stays scoped to its form", () => {
-		const doc = twoTypeDoc();
-		const notes = fieldByid(doc, "notes");
 		const scope = scopeOfMutations(doc, [
 			{
 				kind: "updateField",
-				uuid: notes.uuid,
+				uuid: caseName.uuid,
 				targetKind: "text",
 				patch: { kind: "int" },
 			} as Mutation,

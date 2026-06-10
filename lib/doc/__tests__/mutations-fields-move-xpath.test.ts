@@ -1,9 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
-// Globally mocked in `vitest.setup.ts` — asserted on for the skip path.
-import { log } from "@/lib/logger";
 
 // Fixed UUIDs for all entities in the fixture.
 const MOD = asUuid("module-1-uuid");
@@ -272,6 +270,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 	it("skips a move whose destination is another FORM and leaves the doc unchanged", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(crossFormFixture());
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const [result] = store
 			.getState()
 			.applyMany([
@@ -279,7 +278,8 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 			]);
 
 		// Skip convention: warn logged, empty result, nothing mutated.
-		expect(log.warn).toHaveBeenCalledTimes(1);
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
 		expect(result).toBeUndefined();
 		const state = store.getState();
 		expect(state.fields[NOTES_A]?.id).toBe("notes");
@@ -332,19 +332,57 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 
 		const store = createBlueprintDocStore();
 		store.getState().load(doc);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const [result] = store
 			.getState()
 			.applyMany([
 				{ kind: "moveField", uuid: GRP, toParentUuid: SEC, toIndex: 0 },
 			]);
 
-		expect(log.warn).toHaveBeenCalledTimes(1);
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
 		expect(result).toBeUndefined();
 		const state = store.getState();
 		expect(state.fieldOrder[FORM]).toEqual([NOTES_A, WATCH_A, GRP]);
 		expect(state.fieldOrder[SEC]).toEqual([]);
 		expect((state.fields[SUB_B] as { calculate?: string })?.calculate).toBe(
 			"/data/grp/a + 1",
+		);
+	});
+
+	it("skips a move whose destination container is reachable from NO form (fail closed)", () => {
+		// An orphaned group (present in `fields`, absent from every
+		// `fieldOrder`) can arrive via a degenerate historical replay. The
+		// guard must skip unless the move is PROVABLY same-form — proceeding
+		// would teleport the field out of its form with zero reference
+		// rewriting, the exact dangling-then-captured bug class the skip
+		// exists to eliminate.
+		const ORPHAN = asUuid("orp-0000-0000-0000-000000000000");
+		const doc = fixture();
+		doc.fields[ORPHAN] = {
+			uuid: ORPHAN,
+			id: "orphan",
+			kind: "group",
+			label: "Orphan",
+		} as BlueprintDoc["fields"][typeof ORPHAN];
+
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const [result] = store
+			.getState()
+			.applyMany([
+				{ kind: "moveField", uuid: SRC, toParentUuid: ORPHAN, toIndex: 0 },
+			]);
+
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
+		expect(result).toBeUndefined();
+		const state = store.getState();
+		expect(state.fieldOrder[GRP1]).toEqual([SRC]);
+		expect(state.fieldOrder[ORPHAN]).toBeUndefined();
+		expect((state.fields[REF] as { calculate?: string })?.calculate).toBe(
+			"/data/grp1/source + 1",
 		);
 	});
 });

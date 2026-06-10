@@ -198,8 +198,25 @@ export function applyFieldMutation(
 			// "delete this key"; any other value sets it. Deleting rather
 			// than assigning the null/undefined keeps the resulting object
 			// free of the unrepresentable/invalid value before the parse.
+			//
+			// Identity (`uuid`) and discriminant (`kind`) are immutable for
+			// the lifetime of a field entity, so those keys are STRIPPED
+			// (the rest of the patch applies normally). The per-kind patch
+			// schemas omit both, which means a wire/event-log round-trip
+			// silently drops them (`partialOf`'s default-mode object strips
+			// unknown keys) — the reducer must drop them too or in-process
+			// application and replay of the SAME mutation diverge, breaking
+			// byte-identity. `convertField` is the single designed
+			// kind-change path: it owns the convertibility gate (container ↔
+			// leaf corruption) this merge has no equivalent of.
 			const spread: Record<string, unknown> = { ...field };
 			for (const [key, value] of Object.entries(mut.patch)) {
+				if (key === "uuid" || key === "kind") {
+					console.debug(
+						`updateField: ignored the immutable "${key}" key in a patch for ${mut.uuid} — a field's identity and kind never change through a patch. Use convertField to change a field's kind.`,
+					);
+					continue;
+				}
 				if (value === null || value === undefined) {
 					delete spread[key];
 				} else {
@@ -276,16 +293,26 @@ export function applyFieldMutation(
 				(destField.kind === "group" || destField.kind === "repeat");
 			if (!destIsForm && !destIsContainer) return;
 
-			// Cross-form moves are warn-and-skipped — the total-reducer
-			// convention for an invalid mutation (same shape as the stale
-			// updateField patch skip). XPath references are form-scoped, so a
-			// field that changes forms has no defined semantics for EITHER
-			// direction of its references: refs it leaves behind and its own
-			// outbound refs can each silently capture an unrelated same-named
-			// field in whichever form they end up reading against. Every
-			// current emitter stays within one form; designing cross-form
-			// moves is future work that has to pick outbound-ref semantics
-			// first.
+			// The move proceeds only when it is PROVABLY same-form: both
+			// ends resolve to a containing form and the two are equal.
+			// Everything else — a different form, OR either end unreachable
+			// from any form (an orphaned container off a degenerate replay) —
+			// is warn-and-skipped, the total-reducer convention for an
+			// invalid mutation (same shape as the stale updateField patch
+			// skip). Fail CLOSED: XPath references are form-scoped, so a
+			// field that changes forms (or vanishes into an unreachable
+			// container, with zero rewriting possible) has no defined
+			// semantics for EITHER direction of its references — refs it
+			// leaves behind and its own outbound refs can each silently
+			// capture an unrelated same-named field. Every current emitter
+			// stays within one form; designing cross-form moves is future
+			// work that has to pick outbound-ref semantics first.
+			//
+			// `console.warn`, not the structured logger: reducers bundle
+			// client-side, and the logger's production path writes to
+			// `process.stdout`, which Next's browser process shim doesn't
+			// define — it would throw from inside the reducer on the exact
+			// degraded path this guard exists to soften.
 			const sourceFormUuid = findContainingForm(
 				draft as unknown as BlueprintDoc,
 				mut.uuid,
@@ -297,12 +324,12 @@ export function applyFieldMutation(
 						mut.toParentUuid,
 					);
 			if (
-				sourceFormUuid !== undefined &&
-				destFormUuid !== undefined &&
+				sourceFormUuid === undefined ||
+				destFormUuid === undefined ||
 				sourceFormUuid !== destFormUuid
 			) {
-				log.warn(
-					`moveField: skipped moving "${field.id}" into a different form — a field can't move between forms because its references can't follow it across the form boundary. Remove the field and recreate it in the other form instead.`,
+				console.warn(
+					`moveField: skipped moving "${field.id}" — the move couldn't be confirmed to stay within one form (the destination is in a different form, or one end isn't reachable from any form). A field can't move between forms because its references can't follow it across the form boundary; remove the field and recreate it in the other form instead.`,
 					{ uuid: mut.uuid, toParentUuid: mut.toParentUuid },
 				);
 				return;

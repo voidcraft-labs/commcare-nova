@@ -46,6 +46,7 @@ type AnyField =
 			id: string;
 			kind: string;
 			label?: string;
+			hint?: string;
 			required?: string;
 			calculate?: string;
 			relevant?: string;
@@ -211,6 +212,68 @@ describe("updateField", () => {
 		// Field unchanged — original calculate preserved.
 		expect(asField(next.fields[Q("h")])?.calculate).toBe("1");
 		expect(next.fields[Q("h")]?.kind).toBe("hidden");
+	});
+
+	it("never re-kinds through a patch — `kind` is stripped, the rest applies", () => {
+		// `convertField` is the single kind-change path (it owns the
+		// convertibility gate; a patch-merge has no equivalent and would
+		// happily turn a group with children into a leaf, orphaning the
+		// subtree). The per-kind patch schemas omit `kind`, so a wire
+		// round-trip silently drops the key — the reducer must drop it too,
+		// or in-process application and event-log replay diverge.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
+				[Q("kid")]: field_(Q("kid"), "kid"),
+			},
+			fieldOrder: { [F("1")]: [Q("grp")], [Q("grp")]: [Q("kid")] },
+		};
+		const next = produce(start, (d) => {
+			applyMutation(d, {
+				kind: "updateField",
+				uuid: Q("grp"),
+				targetKind: "group",
+				patch: { kind: "text", label: "Renamed" } as unknown as Partial<{
+					label: string;
+				}>,
+			});
+		});
+		// The group stays a group (children intact); the rest of the patch
+		// landed normally.
+		expect(next.fields[Q("grp")]?.kind).toBe("group");
+		expect(asField(next.fields[Q("grp")])?.label).toBe("Renamed");
+		expect(next.fieldOrder[Q("grp")]).toEqual([Q("kid")]);
+	});
+
+	it("applies a kind-bearing patch byte-identically in-process and after a wire round-trip", () => {
+		// Replay-equivalence: `mutationSchema` strips `kind` from the patch
+		// (the per-kind partial schemas omit it; default-mode Zod objects
+		// drop unknown keys silently), so the SAME mutation replayed off the
+		// event log must produce the SAME doc the in-process dispatch did.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: { [Q("a")]: field_(Q("a"), "name") },
+			fieldOrder: { [F("1")]: [Q("a")] },
+		};
+		const mut = {
+			kind: "updateField",
+			uuid: Q("a"),
+			targetKind: "text",
+			patch: { kind: "int", hint: "patched" },
+		} as unknown as Parameters<typeof applyMutation>[1];
+		const inProcess = produce(start, (d) => {
+			applyMutation(d, mut);
+		});
+		const roundTripped = mutationSchema.parse(
+			JSON.parse(JSON.stringify(mut)),
+		) as Parameters<typeof applyMutation>[1];
+		const replayed = produce(start, (d) => {
+			applyMutation(d, roundTripped);
+		});
+		expect(JSON.stringify(inProcess)).toBe(JSON.stringify(replayed));
+		expect(inProcess.fields[Q("a")]?.kind).toBe("text");
+		expect(asField(inProcess.fields[Q("a")])?.hint).toBe("patched");
 	});
 
 	it("drops stale mode-specific keys when repeat_mode changes", () => {
