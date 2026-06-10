@@ -18,18 +18,33 @@
  * the same reason: an unrecognized kind from a stale payload degrades to a
  * full run, never to staleness.
  *
- * Case-property widening: any field mutation whose target field HAS (or
- * whose payload GAINS) a non-empty `case_property_on` widens the scope to
- * every module of that case type plus their forms. Those modules' case-list
- * rules read the app-wide writer set and the catalog the reducers sync
- * (`fields.ts::ensureCatalogProperty`, `cascadeCasePropertyRename`), so a
- * writer change can flip their findings. Forms in OTHER modules that merely
- * READ the type (`#<type>/<prop>` from a descendant module) are safe
- * without widening because the catalog only ever GAINS entries from field
- * mutations (resolving errors, never introducing them) and a property
- * RENAME rewrites every reference app-wide in the same reducer cascade —
- * the rewriter-coverage closure this stage landed is what that argument
- * leans on.
+ * Case-property writes force a FULL run: any mutation that changes the
+ * app's case-property writer set or the case-type catalog — landing,
+ * removing, renaming, re-kinding, or re-targeting a field with a
+ * non-empty `case_property_on` (the reducers sync the catalog on each:
+ * `fields.ts::ensureCatalogProperty`, `cascadeCasePropertyRename`) — maps
+ * to `"full"`. No entity-keyed widening can bound who READS that state:
+ *
+ *   - the rename cascade renames peer fields app-wide by their
+ *     `(id, case_property_on)` pair — a child-case writer routinely
+ *     lives in a module of a DIFFERENT caseType, and the cascade
+ *     rewrites that module's forms (and can mint a sibling collision
+ *     there);
+ *   - module rules resolve properties on OTHER case types through
+ *     relation walks (`searchInputModeMatchesPropertyType` et al. via
+ *     `checkRelationPath`; predicate-AST `PropertyRef` leaves
+ *     self-encode foreign destination types), so a writer or catalog
+ *     change for type T flips findings in modules of ANY type whose
+ *     configs walk to T — including error-code flips like
+ *     UNKNOWN_PROPERTY → MODE_PROPERTY_TYPE_MISMATCH when a gained
+ *     catalog entry types a previously unknown property;
+ *   - the deep validator admits `#<type>/<prop>` refs through the
+ *     ancestor chain, so forms in descendant-type modules read a
+ *     renamed/removed property's catalog state too.
+ *
+ * Widening to "every module of the written caseType" does not cover any
+ * of these (each reader's own caseType differs from the written type),
+ * so don't reintroduce it — slowness over staleness decides.
  */
 
 import type { Mutation } from "@/lib/doc/types";
@@ -98,42 +113,27 @@ function resolveField(
 }
 
 /**
- * Every case type written (via `case_property_on`) by `uuid`'s subtree in
- * prevDoc — the field itself plus, for containers, every descendant, since
- * a remove/move/duplicate carries the whole subtree with it.
+ * Whether `uuid`'s subtree in prevDoc writes ANY case property — the field
+ * itself plus, for containers, every descendant, since a
+ * remove/move/duplicate carries the whole subtree with it. A `true` maps
+ * the mutation to `"full"` (see the header: writer-set changes reach
+ * readers no entity-keyed widening can bound).
  */
-function subtreeCaseTypes(
+function subtreeWritesCaseProperty(
 	doc: BlueprintDoc,
 	acc: ScopeAccumulator,
 	uuid: Uuid,
-): Set<string> {
-	const types = new Set<string>();
+): boolean {
 	const stack: Uuid[] = [uuid];
 	while (stack.length > 0) {
 		const current = stack.pop();
 		if (current === undefined) break;
 		const field = resolveField(doc, acc, current);
-		if (field) {
-			const type = casePropertyOn(field);
-			if (type) types.add(type);
-		}
+		if (field && casePropertyOn(field) !== undefined) return true;
 		const children = doc.fieldOrder[current];
 		if (children) stack.push(...children);
 	}
-	return types;
-}
-
-/** Widen the scope to every module of `caseType` (their forms ride along via module scope). */
-function widenToCaseType(
-	doc: BlueprintDoc,
-	acc: ScopeAccumulator,
-	caseType: string,
-): void {
-	for (const moduleUuid of doc.moduleOrder) {
-		if (doc.modules[moduleUuid]?.caseType === caseType) {
-			acc.moduleUuids.add(moduleUuid);
-		}
-	}
+	return false;
 }
 
 /**
@@ -150,12 +150,16 @@ function patchTouches(
 	return Object.hasOwn(patch, key) && patch[key] !== currentValue;
 }
 
-/** Scope a mutation that targets a field (or a field-adjacent slot). */
+/**
+ * Scope a mutation that targets a field (or a field-adjacent slot) to its
+ * containing form. Form resolution only — each arm owns its own
+ * case-property decision (a media-slot edit on a case-bound field never
+ * touches the writer set; a remove of the same field does).
+ */
 function scopeFieldTarget(
 	doc: BlueprintDoc,
 	acc: ScopeAccumulator,
 	fieldUuid: Uuid,
-	options?: { gainsCaseType?: string },
 ): void {
 	const form = containingForm(doc, acc, fieldUuid);
 	if (form === undefined) {
@@ -163,12 +167,6 @@ function scopeFieldTarget(
 		return;
 	}
 	acc.formUuids.add(form);
-	for (const type of subtreeCaseTypes(doc, acc, fieldUuid)) {
-		widenToCaseType(doc, acc, type);
-	}
-	if (options?.gainsCaseType) {
-		widenToCaseType(doc, acc, options.gainsCaseType);
-	}
 }
 
 /**
@@ -276,8 +274,9 @@ export function scopeOfMutations(
 					acc.full = true;
 				} else {
 					acc.formUuids.add(form);
-					const gained = casePropertyOn(mut.field);
-					if (gained) widenToCaseType(prevDoc, acc, gained);
+					// A landed writer declares its property (catalog gain) —
+					// writer-set reach, full (see header).
+					if (casePropertyOn(mut.field)) acc.full = true;
 				}
 				acc.addedFieldParents.set(mut.field.uuid, mut.parentUuid);
 				acc.addedFields.set(mut.field.uuid, mut.field);
@@ -286,12 +285,16 @@ export function scopeOfMutations(
 			case "removeField":
 			case "duplicateField":
 				scopeFieldTarget(prevDoc, acc, mut.uuid);
+				// Removing a writer (or cloning one — the clone's dedup rename
+				// can mint a NEW property + catalog entry) changes the writer
+				// set the case-property readers consume.
+				if (subtreeWritesCaseProperty(prevDoc, acc, mut.uuid)) {
+					acc.full = true;
+				}
 				break;
 			case "moveField": {
 				// Both ends: the source form loses the subtree, the target
-				// form gains it (the reducer also dedup-renames on cross-level
-				// moves, which can rename a case-property writer — covered by
-				// the subtree widening).
+				// form gains it.
 				scopeFieldTarget(prevDoc, acc, mut.uuid);
 				const targetForm = containingForm(prevDoc, acc, mut.toParentUuid);
 				if (targetForm === undefined) {
@@ -299,24 +302,56 @@ export function scopeOfMutations(
 				} else {
 					acc.formUuids.add(targetForm);
 				}
+				// A cross-level move dedup-renames on sibling collision — for a
+				// case-property writer that renames the PROPERTY (new catalog
+				// entry, new writer pair), so the subtree carrying any writer
+				// degrades to full.
+				if (subtreeWritesCaseProperty(prevDoc, acc, mut.uuid)) {
+					acc.full = true;
+				}
 				break;
 			}
 			case "renameField":
-			case "convertField":
+			case "convertField": {
 				scopeFieldTarget(prevDoc, acc, mut.uuid);
+				// Renaming a case-bound field renames the case PROPERTY
+				// (peer cascade + catalog rename); converting one changes the
+				// writer's data type. Container renames stay form-local:
+				// descendants keep their ids, so the writer set is untouched.
+				const field = resolveField(prevDoc, acc, mut.uuid);
+				if (field && casePropertyOn(field) !== undefined) {
+					acc.full = true;
+				}
 				break;
+			}
 			case "updateField": {
 				const patch = mut.patch as Record<string, unknown>;
-				const gained = patch.case_property_on;
-				scopeFieldTarget(prevDoc, acc, mut.uuid, {
-					gainsCaseType:
-						typeof gained === "string" && gained.length > 0
-							? gained
-							: undefined,
-				});
+				scopeFieldTarget(prevDoc, acc, mut.uuid);
+				// Full iff the patch changes the field's WRITER PAIR
+				// (case type, property name) while either side of the change
+				// is case-bound: re-targeting `case_property_on` (set, change,
+				// or `null`/empty clear) or renaming `id` on a bound field.
+				// Patches that leave the pair alone (labels, expressions,
+				// options) can only flip form-local findings.
+				const field = resolveField(prevDoc, acc, mut.uuid);
+				const prevType = field ? casePropertyOn(field) : undefined;
+				const rawNext = patch.case_property_on;
+				const nextType = Object.hasOwn(patch, "case_property_on")
+					? typeof rawNext === "string" && rawNext.length > 0
+						? rawNext
+						: undefined
+					: prevType;
+				const pairChanges =
+					nextType !== prevType ||
+					(field !== undefined && patchTouches(patch, "id", field.id));
+				if ((prevType !== undefined || nextType !== undefined) && pairChanges) {
+					acc.full = true;
+				}
 				break;
 			}
 			case "setFieldMedia":
+				// Media slots never touch the writer set — form scope, even on
+				// a case-bound field (the media rules are scope-exempt anyway).
 				scopeFieldTarget(prevDoc, acc, mut.fieldUuid);
 				break;
 

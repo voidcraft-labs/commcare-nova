@@ -55,6 +55,7 @@ type AnyField =
 			label?: string;
 			hint?: string;
 			help?: string;
+			relevant?: string;
 			required?: string;
 			validate?: string;
 			validate_msg?: string;
@@ -812,5 +813,77 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		);
 		expect(meta?.formWiringRewritten).toBe(1);
 		expect(meta?.cascadedAcrossForms).toBe(true);
+	});
+});
+
+// ── Renamed-container descendants ──────────────────────────────────
+
+describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () => {
+	it("rewrites descendant hashtag + absolute refs on XPath surfaces", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
+				[Q("inner")]: field_(Q("inner"), "inner"),
+				[Q("ref")]: field_(Q("ref"), "watcher", {
+					relevant: "#form/grp/inner = '1' and /data/grp/inner != ''",
+				}),
+			},
+			fieldOrder: {
+				[F("1")]: [Q("grp"), Q("ref")],
+				[Q("grp")]: [Q("inner")],
+			},
+		};
+		const { next } = rename(start, Q("grp"), "grp2");
+		expect(asField(next.fields[Q("ref")])?.relevant).toBe(
+			"#form/grp2/inner = '1' and /data/grp2/inner != ''",
+		);
+	});
+
+	it("rewrites descendant hashtag refs embedded in prose surfaces", () => {
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
+				[Q("inner")]: field_(Q("inner"), "inner"),
+				[Q("ref")]: field_(Q("ref"), "watcher", {
+					label: "Compare with #form/grp/inner today",
+				}),
+			},
+			fieldOrder: {
+				[F("1")]: [Q("grp"), Q("ref")],
+				[Q("grp")]: [Q("inner")],
+			},
+		};
+		const { next } = rename(start, Q("grp"), "grp2");
+		expect(asField(next.fields[Q("ref")])?.label).toBe(
+			"Compare with #form/grp2/inner today",
+		);
+	});
+
+	it("leaves a same-leaf cousin's descendant hashtag untouched", () => {
+		// `other/inner` shares the `inner` leaf but is anchored under a
+		// different container — renaming `grp` never touches it.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
+				[Q("inner")]: field_(Q("inner"), "inner"),
+				[Q("other")]: field_(Q("other"), "other", { kind: "group" }),
+				[Q("inner2")]: field_(Q("inner2"), "inner"),
+				[Q("ref")]: field_(Q("ref"), "watcher", {
+					relevant: "#form/other/inner = '1'",
+				}),
+			},
+			fieldOrder: {
+				[F("1")]: [Q("grp"), Q("other"), Q("ref")],
+				[Q("grp")]: [Q("inner")],
+				[Q("other")]: [Q("inner2")],
+			},
+		};
+		const { next } = rename(start, Q("grp"), "grp2");
+		expect(asField(next.fields[Q("ref")])?.relevant).toBe(
+			"#form/other/inner = '1'",
+		);
 	});
 });

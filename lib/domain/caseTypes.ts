@@ -76,9 +76,12 @@ export function caseDataTypeForFieldKind(
 			// a parallel arm here is a compile-time error. The runtime
 			// branch defends untyped boundaries that bypass the type
 			// system (e.g. a corrupted persisted document with an unknown
-			// kind string).
+			// kind string): an unknown kind pins no data type, so it must
+			// report `undefined` — returning the raw kind would launder it
+			// into the catalog as a `data_type` outside the union.
 			const _exhaustive: never = kind;
-			return _exhaustive;
+			void _exhaustive;
+			return undefined;
 		}
 	}
 }

@@ -110,6 +110,20 @@ const CORPUS: CorpusEntry[] = [
 	{ text: "concat(#form/a, #form/b)", refs: ["#form/a", "#form/b"] },
 	// A `//` after a ref is a descendant step, never a ref segment.
 	{ text: "#form/a//b", refs: ["#form/a"] },
+	// Unicode CONTINUATION chars: the unified segment charset is ASCII-only,
+	// so a ref's extent stops at the first non-ASCII char on every matcher —
+	// the grammar's hashtag-segment token included (XPath element names keep
+	// full Unicode; hashtag segments never do). A divergence here is the
+	// "one layer rewrites a ref another layer can't find" bug class.
+	{ text: "#form/agé", refs: ["#form/ag"] },
+	{ text: "#form/años + 1", refs: ["#form/a"] },
+	{ text: "#form/a·b", refs: ["#form/a"] },
+	{ text: "#mother/agé != ''", refs: ["#mother/ag"] },
+	// Combining mark ("age" + U+0301 combining acute) — a continuation
+	// char in the grammar's `identChar`, never part of a hashtag segment.
+	{ text: "#form/age\u0301", refs: ["#form/age"] },
+	// Non-ASCII segment START — no ref on any matcher.
+	{ text: "#form/ñx", refs: [] },
 	// Non-refs that must NOT match anywhere.
 	{ text: "#1tag", refs: [] },
 	{ text: "#", refs: [] },

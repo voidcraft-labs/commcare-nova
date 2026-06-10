@@ -310,9 +310,19 @@ export function classifyError(code: ValidationErrorCode): ValidityClass {
 /**
  * One identity part: a tagged, URI-encoded value so distinct discriminator
  * shapes can never alias each other in the joined key.
+ *
+ * Total over arbitrary strings: discriminator values are user/LLM-authored
+ * and arrive through JSON, which legally transports lone UTF-16 surrogates
+ * (`'"\ud83d"'` parses fine) — and `encodeURIComponent` THROWS on those.
+ * Lone surrogates are replaced with U+FFFD first (`toWellFormed`), so the
+ * gate always renders a verdict instead of dying inside `diffIntroduced`.
+ * Well-formed strings encode byte-identically to plain
+ * `encodeURIComponent`, so existing identities are unchanged; two distinct
+ * lone surrogates collapse to one identity — the permissive direction the
+ * identity contract already allows.
  */
 function part(tag: string, value: string | undefined): string {
-	return `${tag}=${encodeURIComponent(value ?? "")}`;
+	return `${tag}=${encodeURIComponent((value ?? "").toWellFormed())}`;
 }
 
 /**
@@ -565,10 +575,14 @@ export type CommitVerdict =
  *
  *   1. Scope soundness (by `scopeOfMutations`' construction): every
  *      finding whose presence can differ between `prevDoc` and `nextDoc`
- *      attributes within the scope — kinds with cross-entity reach return
- *      `"full"` or widen. Out-of-scope findings are therefore identical
- *      on both sides, and identity stability under unrelated edits makes
- *      their keys equal.
+ *      attributes within the scope. Mutations with cross-entity reach
+ *      return `"full"` — case-property-touching field mutations
+ *      included, because their readers (cross-type peer cascades,
+ *      relation-walk search configs, ancestor-chain `#<type>/` refs)
+ *      cannot be bounded by entity-keyed widening (see the
+ *      `scopeOfMutations` header). Out-of-scope findings are therefore
+ *      identical on both sides, and identity stability under unrelated
+ *      edits makes their keys equal.
  *   2. An identity's scope membership is a function of the identity
  *      itself: scope-exempt codes are always in scope, and every other
  *      identity embeds the module/form uuid that decides membership

@@ -116,35 +116,80 @@ describe("scopeOfMutations", () => {
 		]);
 	});
 
-	it("a case-property-touching field mutation widens to every module of that case type", () => {
+	it("a case-property-touching rename maps to full — cascades and readers reach app-wide", () => {
+		// The rename cascade renames peers by (id, case_property_on)
+		// regardless of their module's caseType, and relation-walk readers
+		// (search inputs / predicate ASTs walking to the written type) can
+		// live in modules of ANY type — no widening bounds that reach.
 		const doc = twoTypeDoc();
 		const caseName = fieldByid(doc, "case_name");
-		const scope = scopeOfMutations(doc, [
-			{ kind: "renameField", uuid: caseName.uuid, newId: "full_name" },
-		]);
-		expectScope(scope);
-		// Both patient modules — and NOT the survey module.
-		expect([...(scope.moduleUuids ?? [])].sort()).toEqual(
-			[doc.moduleOrder[0], doc.moduleOrder[1]].sort(),
-		);
+		expect(
+			scopeOfMutations(doc, [
+				{ kind: "renameField", uuid: caseName.uuid, newId: "full_name" },
+			]),
+		).toBe("full");
 	});
 
-	it("a patch GAINING case_property_on widens too", () => {
+	it("a rename of a NON-case-bound field stays scoped to its form", () => {
 		const doc = twoTypeDoc();
 		const notes = fieldByid(doc, "notes");
 		const scope = scopeOfMutations(doc, [
+			{ kind: "renameField", uuid: notes.uuid, newId: "remarks" },
+		]);
+		expectScope(scope);
+		expect([...(scope.formUuids ?? [])]).toEqual([
+			doc.formOrder[doc.moduleOrder[0]][0],
+		]);
+	});
+
+	it("a patch GAINING case_property_on maps to full", () => {
+		const doc = twoTypeDoc();
+		const notes = fieldByid(doc, "notes");
+		expect(
+			scopeOfMutations(doc, [
+				{
+					kind: "updateField",
+					uuid: notes.uuid,
+					targetKind: "text",
+					patch: { case_property_on: "patient" },
+				} as Mutation,
+			]),
+		).toBe("full");
+	});
+
+	it("a patch on a case-bound field that leaves the writer pair alone stays scoped", () => {
+		const doc = twoTypeDoc();
+		const caseName = fieldByid(doc, "case_name");
+		const scope = scopeOfMutations(doc, [
 			{
 				kind: "updateField",
-				uuid: notes.uuid,
+				uuid: caseName.uuid,
 				targetKind: "text",
-				patch: { case_property_on: "patient" },
+				patch: { label: "Full name" },
 			} as Mutation,
 		]);
 		expectScope(scope);
-		expect(scope.moduleUuids?.size).toBe(2);
+		expect([...(scope.formUuids ?? [])]).toEqual([
+			doc.formOrder[doc.moduleOrder[0]][0],
+		]);
 	});
 
-	it("removing a container widens by every case type its subtree writes", () => {
+	it("a patch renaming a case-bound field's id maps to full (writer pair changes)", () => {
+		const doc = twoTypeDoc();
+		const caseName = fieldByid(doc, "case_name");
+		expect(
+			scopeOfMutations(doc, [
+				{
+					kind: "updateField",
+					uuid: caseName.uuid,
+					targetKind: "text",
+					patch: { id: "full_name" },
+				} as Mutation,
+			]),
+		).toBe("full");
+	});
+
+	it("removing a container whose subtree writes a case property maps to full", () => {
 		const doc = twoTypeDoc();
 		const grp = fieldByid(doc, "grp");
 		// Give the nested field a case write first (fixture-level), then
@@ -157,11 +202,107 @@ describe("scopeOfMutations", () => {
 			(inner as unknown as Record<string, unknown>).case_property_on =
 				"patient";
 		}
-		const scope = scopeOfMutations(withWriter, [
-			{ kind: "removeField", uuid: grp.uuid },
+		expect(
+			scopeOfMutations(withWriter, [{ kind: "removeField", uuid: grp.uuid }]),
+		).toBe("full");
+	});
+
+	it("renaming a case-bound field maps to full even when its peers live in OTHER-type modules", () => {
+		// Finding-1 repro shape: two HOUSEHOLD modules whose forms write the
+		// PATIENT type (the child-case authoring pattern). The cascade
+		// renames the form-2 peer (`age` → `weight`, colliding with its
+		// sibling) — a form no caseType-keyed widening would ever cover, so
+		// the only sound scope is full.
+		const doc = buildDoc({
+			appName: "Peers",
+			modules: [
+				{
+					name: "Households A",
+					caseType: "household",
+					forms: [
+						{
+							name: "F1",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "age",
+									label: "Age",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Households B",
+					caseType: "household",
+					forms: [
+						{
+							name: "F2",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "age",
+									label: "Age",
+									case_property_on: "patient",
+								}),
+								f({ kind: "int", id: "weight", label: "Weight" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const age = fieldByid(doc, "age");
+		expect(
+			scopeOfMutations(doc, [
+				{ kind: "renameField", uuid: age.uuid, newId: "weight" },
+			]),
+		).toBe("full");
+	});
+
+	it("adding a case-property writer maps to full (relation-walk readers live anywhere)", () => {
+		// Finding-7 repro shape: a module of a DIFFERENT caseType holds a
+		// search input whose `via` walks to the written type — its findings
+		// flip when the writer-augmented property set changes.
+		const doc = twoTypeDoc();
+		const form = doc.formOrder[doc.moduleOrder[0]][0];
+		expect(
+			scopeOfMutations(doc, [
+				{
+					kind: "addField",
+					parentUuid: form,
+					field: {
+						uuid: asUuid("fld-age"),
+						kind: "date",
+						id: "age",
+						label: "Age",
+						case_property_on: "patient",
+					} as Field,
+				},
+			]),
+		).toBe("full");
+	});
+
+	it("convertField on a case-bound field maps to full; on a plain field it stays scoped", () => {
+		const doc = twoTypeDoc();
+		const caseName = fieldByid(doc, "case_name");
+		expect(
+			scopeOfMutations(doc, [
+				{ kind: "convertField", uuid: caseName.uuid, toKind: "int" },
+			]),
+		).toBe("full");
+
+		const notes = fieldByid(doc, "notes");
+		const scope = scopeOfMutations(doc, [
+			{ kind: "convertField", uuid: notes.uuid, toKind: "int" },
 		]);
 		expectScope(scope);
-		expect(scope.moduleUuids?.size).toBe(2);
+		expect([...(scope.formUuids ?? [])]).toEqual([
+			doc.formOrder[doc.moduleOrder[0]][0],
+		]);
 	});
 
 	it("updateModule keeps module scope unless the patch touches caseType", () => {

@@ -22,9 +22,10 @@
  * (`lib/commcare/xpath/__tests__/hashtagMatchers.divergence.test.ts`).
  *
  * A segment is an ASCII identifier that may carry digits, `_`, and `-`
- * (matching the grammar's `identChar`), and deliberately NOT `.` — so a ref
- * at the end of a sentence ("see #form/age.") never captures the trailing
- * punctuation. The pattern stays namespace-agnostic: any identifier is a
+ * (matching the grammar's dedicated `hashtagName` token — ASCII-only,
+ * unlike the full-Unicode `localName` XPath element names ride on), and
+ * deliberately NOT `.` — so a ref at the end of a sentence
+ * ("see #form/age.") never captures the trailing punctuation. The pattern stays namespace-agnostic: any identifier is a
  * namespace (per-case-type refs like `#mother/age` included); deciding which
  * matches actually RESOLVE is the resolve gate's / emitter's / validator's
  * job, never the pattern's.

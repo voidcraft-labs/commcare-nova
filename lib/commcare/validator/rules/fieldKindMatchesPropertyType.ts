@@ -249,18 +249,17 @@ function collectWriters(
 
 /**
  * Encode `(caseType, propertyName)` as a single string key for the
- * writers map. The `::` separator is structurally safe because both
- * `caseType` (`CASE_TYPE_REGEX` at `lib/commcare/constants.ts`) and
- * field-id-derived property names (`XML_ELEMENT_NAME_REGEX`) reject
- * `:`, so the delimiter never appears inside either component.
- * `decodeTupleKey` splits on the first occurrence — the encoded key
- * is round-trip lossless against any pair drawn from the validator's
- * accepted character set.
+ * writers map. JSON-encoding the pair is collision-free over ALL
+ * strings, which matters because this rule runs inside `runValidation`
+ * — total over arbitrary docs (reducers are total; event-log replay
+ * bypasses the identifier verdicts), so identifiers containing any
+ * would-be delimiter can reach it. A delimiter-joined key would alias
+ * distinct tuples (`('a::b','c')` vs `('a','b::c')`) into one writers
+ * bucket and fabricate a cross-writer conflict.
  */
 function encodeTupleKey(caseType: string, propertyName: string): string {
-	return `${caseType}::${propertyName}`;
+	return JSON.stringify([caseType, propertyName]);
 }
 function decodeTupleKey(key: string): [string, string] {
-	const idx = key.indexOf("::");
-	return [key.slice(0, idx), key.slice(idx + 2)];
+	return JSON.parse(key) as [string, string];
 }

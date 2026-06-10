@@ -310,6 +310,34 @@ describe("errorIdentity", () => {
 		// must not make the second (its index now shifted) look introduced.
 		expect(errorIdentity(err("1"))).toBe(errorIdentity(err("4")));
 	});
+
+	it("is total over lone UTF-16 surrogates in authored discriminators", () => {
+		// JSON legally transports unpaired surrogates ('"Visits \ud83d"'
+		// parses fine), so a truncated-emoji module name reaches the gate
+		// through SA tool calls and replayed events. The identity encoder
+		// must render a key, never throw — a throwing encoder would crash
+		// `diffIntroduced` / `evaluateCommit` instead of producing a verdict.
+		const err: ValidationError = {
+			code: "DUPLICATE_MODULE_NAME",
+			scope: "app",
+			message: "duplicate",
+			location: {
+				moduleUuid: asUuid("m-1"),
+				moduleName: "Visits \ud83d",
+			},
+		};
+		expect(() => errorIdentity(err)).not.toThrow();
+		expect(errorIdentity(err)).toBe(errorIdentity({ ...err }));
+		expect(diffIntroduced([], [err])).toEqual([err]);
+		// Well-formed strings keep their exact pre-existing identity shape.
+		const wellFormed: ValidationError = {
+			...err,
+			location: { moduleUuid: asUuid("m-1"), moduleName: "Visites cliniques" },
+		};
+		expect(errorIdentity(wellFormed)).toBe(
+			`DUPLICATE_MODULE_NAME|name=${encodeURIComponent("Visites cliniques")}`,
+		);
+	});
 });
 
 // ── diffIntroduced ─────────────────────────────────────────────────
@@ -483,6 +511,180 @@ describe("evaluateCommit", () => {
 			"complete",
 		);
 		expect(verdict).toEqual({ ok: true });
+	});
+
+	it("catches a DUPLICATE_FIELD_ID the rename cascade introduces in a cross-module peer's form", () => {
+		// Two HOUSEHOLD modules whose forms write the PATIENT type (the
+		// child-case pattern). Renaming F1's `age` cascades to F2's peer by
+		// (id, case_property_on) — colliding with F2's sibling `weight`.
+		// The peer's form shares no caseType with the written type, so any
+		// caseType-keyed widening misses it; the derived scope must degrade
+		// to full so the introduced soundness error reaches the verdict.
+		const doc = buildDoc({
+			appName: "Peers",
+			modules: [
+				{
+					name: "Households A",
+					caseType: "household",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "F1",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "age",
+									label: "Age",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Households B",
+					caseType: "household",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "F2",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "age",
+									label: "Age",
+									case_property_on: "patient",
+								}),
+								f({ kind: "int", id: "weight", label: "Weight" }),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+				{ name: "patient", properties: [{ name: "age", label: "Age" }] },
+			],
+		});
+		const age = Object.values(doc.fields).find((x) => x.id === "age");
+		const verdict = gateCommit(
+			doc,
+			[{ kind: "renameField", uuid: age?.uuid as Uuid, newId: "weight" }],
+			"building",
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.introduced.map((e) => e.code)).toContain(
+				"DUPLICATE_FIELD_ID",
+			);
+		}
+	});
+
+	it("catches a search-input finding a new writer flips in a relation-walking module of another type", () => {
+		// The Households module's search input `via`-walks to the PATIENT
+		// type. Adding a date writer for `patient.age` types the property,
+		// flipping the module's UNKNOWN_PROPERTY finding into a
+		// MODE_PROPERTY_TYPE_MISMATCH (starts-with is text-only) — a NEW
+		// identity in a module whose own caseType never matches the written
+		// type. The derived scope must reach it.
+		const doc = buildDoc({
+			appName: "Walk",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Households",
+					caseType: "household",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						searchInputs: [
+							{
+								kind: "simple",
+								uuid: asUuid("sin-walk"),
+								name: "age",
+								label: "Age",
+								type: "text",
+								property: "age",
+								mode: { kind: "starts-with" },
+								via: {
+									kind: "ancestor",
+									via: [{ identifier: "parent" }],
+								},
+							},
+						],
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+				{
+					name: "household",
+					parent_type: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+		});
+		const registerForm = doc.formOrder[doc.moduleOrder[0]][0];
+		const prevCodes = runValidation(doc).map((e) => e.code);
+		expect(prevCodes).toContain("CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY");
+		const verdict = gateCommit(
+			doc,
+			[
+				{
+					kind: "addField",
+					parentUuid: registerForm,
+					field: {
+						uuid: asUuid("fld-age-new"),
+						kind: "date",
+						id: "age",
+						label: "Age",
+						case_property_on: "patient",
+					} as Field,
+				},
+			],
+			"building",
+		);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.introduced.map((e) => e.code)).toContain(
+				"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
+			);
+		}
 	});
 });
 

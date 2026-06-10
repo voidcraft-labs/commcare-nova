@@ -184,3 +184,34 @@ describe("rewriteHashtagRefs", () => {
 		expect(rewriteHashtagRefs("", "#case/", "old", "new")).toBe("");
 	});
 });
+
+describe("renamed-CONTAINER descendant refs (prefix rewrite)", () => {
+	it("re-anchors hashtag refs to a renamed group's descendants alongside the absolute spelling", () => {
+		expect(
+			rewriteXPathRefs(
+				"#form/grp/inner = '1' and /data/grp/inner != ''",
+				"grp",
+				"grp2",
+			),
+		).toBe("#form/grp2/inner = '1' and /data/grp2/inner != ''");
+	});
+
+	it("re-anchors deep descendants of a nested renamed container, keeping the tail", () => {
+		expect(rewriteXPathRefs("#form/outer/grp/a/b", "outer/grp", "grp2")).toBe(
+			"#form/outer/grp2/a/b",
+		);
+	});
+
+	it("still rewrites a ref to the container itself", () => {
+		expect(rewriteXPathRefs("#form/grp", "grp", "grp2")).toBe("#form/grp2");
+	});
+
+	it("never rewrites same-leaf cousins outside the renamed container", () => {
+		expect(rewriteXPathRefs("#form/other/grp/inner", "grp", "grp2")).toBe(
+			"#form/other/grp/inner",
+		);
+		expect(rewriteXPathRefs("#form/grpx/inner", "grp", "grp2")).toBe(
+			"#form/grpx/inner",
+		);
+	});
+});

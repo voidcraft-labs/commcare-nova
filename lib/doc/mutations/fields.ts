@@ -36,13 +36,21 @@ import {
  *
  * `renamed` is populated when a cross-level move triggers sibling-id
  * deduplication (CommCare requires unique IDs per parent level). Reference
- * rewriting itself is total: absolute paths AND `#form/` hashtag refs
- * re-anchor across any depth change (`rewriteXPathOnMove`), so a move
- * never leaves a dangling reference behind.
+ * rewriting is total for SAME-FORM moves: absolute paths AND `#form/`
+ * hashtag refs re-anchor across any depth change (`rewriteXPathOnMove`),
+ * refs to a moved CONTAINER's descendants included (segment-prefix
+ * re-anchor), so a same-form move never leaves a dangling reference
+ * behind. A CROSS-FORM move re-anchors every ref that named the moved
+ * field — the source form's slots plus the moved subtree's own — but
+ * those refs cannot resolve in the source form afterwards: XPath
+ * references are form-scoped by CommCare semantics, so the dangle is
+ * inherent to moving the referent away, not a rewrite gap (the rewrite
+ * keeps them naming the field they referenced, never a stale name a
+ * future same-named sibling would capture).
  *
  * `xpathFieldsRewritten` counts the reference-carrying SLOTS whose
- * value changed across the move's rewrite pass — sibling fields'
- * expression/prose slots plus the containing form's own wiring slots
+ * value changed across the move's rewrite pass — the walked fields'
+ * expression/prose slots plus the walked form's own wiring slots
  * (form-link conditions/datums, Connect expressions). It feeds the
  * "N references updated" toast (`notify.ts::notifyMoveRename`).
  */
@@ -93,7 +101,8 @@ export interface MoveFieldResult {
  *     simple search-input `property` slots. Module-level state — a
  *     non-zero value forces `cascadedAcrossForms`.
  *   - `catalogEntryRenamed` — `true` iff `doc.caseTypes[caseType].properties[]`
- *     had a matching entry renamed. The catalog is the authoritative list
+ *     had a matching entry renamed (or merged into an already-declared
+ *     `newId` entry). The catalog is the authoritative list
  *     of known case properties for the XPath linter, `#case/` chip
  *     hydrator, and autocompleter; a stale catalog makes freshly-valid
  *     refs look "unknown." Consumers can use this to invalidate autocomplete
@@ -273,6 +282,12 @@ export function applyFieldMutation(
 			);
 			const oldPathStr =
 				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
+			// Resolved BEFORE the removal below — `findContainingForm` walks
+			// `fieldOrder`, which won't reach the field once it's spliced out.
+			const sourceFormUuid = findContainingForm(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
 			const crossParent =
 				sourceParent !== undefined &&
 				sourceParent.parentUuid !== mut.toParentUuid;
@@ -315,16 +330,30 @@ export function applyFieldMutation(
 			// Rewrite absolute-path / hashtag references that now point at a
 			// stale path. Covers cross-level moves (where the prefix changes —
 			// hashtag refs re-anchor across depth, `#form/foo` ↔
-			// `#form/grp/foo`) and reorder+rename (where the leaf segment
-			// changes from dedup). Same-form only — xpath references never
-			// cross form boundaries. Registry-driven: every XPath/prose slot
-			// on sibling fields plus the form's own wiring slots (form-link
+			// `#form/grp/foo`, descendants of a moved container included) and
+			// reorder+rename (where the leaf segment changes from dedup).
+			// Registry-driven: every XPath/prose slot on the walked fields
+			// plus the walked form's own wiring slots (form-link
 			// conditions/datums, Connect expressions). `closeCondition.field`
 			// is a bare leaf-id ref and is deliberately NOT rewritten here:
 			// a move only changes the leaf id through sibling-dedup, and in
 			// that case the destination sibling that forced the dedup still
 			// holds the old id — the ref keeps resolving to it (see
 			// `FormSlotRewriteContext.fieldIdRename`'s unique-holder rule).
+			//
+			// WHICH fields get walked follows from pre-move resolution, which
+			// is form-scoped (`/data/foo` means "this form's foo"): a ref
+			// matched the moved field's old path iff it lived in the SOURCE
+			// form — its remaining fields, its wiring, and the moved subtree
+			// itself (now re-parented). For a same-form move that set IS the
+			// (single) containing form. For a cross-form move the rest of the
+			// DESTINATION form is deliberately NOT walked: its same-path refs
+			// named its OWN fields (the dedup collider that keeps the old id,
+			// for one), and rewriting them would retarget working expressions
+			// at the incomer. Source-form refs to the moved field can no
+			// longer resolve either way — the rewrite keeps them naming the
+			// field they referenced instead of leaving a stale name a future
+			// same-named sibling would silently capture.
 			let xpathFieldsRewritten = 0;
 			const newPathStr =
 				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
@@ -333,15 +362,29 @@ export function applyFieldMutation(
 				const newSegments = newPathStr.split("/");
 				const moveRewriter = (expr: string) =>
 					rewriteXPathOnMove(expr, oldSegments, newSegments);
-				const formUuid = findContainingForm(
+				const destFormUuid = findContainingForm(
 					draft as unknown as BlueprintDoc,
 					mut.uuid,
 				);
-				if (formUuid) {
-					for (const fUuid of walkFormFieldUuids(
+				const crossForm =
+					sourceFormUuid !== undefined &&
+					destFormUuid !== undefined &&
+					sourceFormUuid !== destFormUuid;
+				const walkFormUuid = crossForm ? sourceFormUuid : destFormUuid;
+				if (walkFormUuid) {
+					const fieldUuids = walkFormFieldUuids(
 						draft as unknown as BlueprintDoc,
-						formUuid,
-					)) {
+						walkFormUuid,
+					);
+					if (crossForm) {
+						// The moved subtree left the source form's walk — its own
+						// slots (intra-subtree refs included) still re-anchor.
+						fieldUuids.push(
+							mut.uuid,
+							...walkFormFieldUuids(draft as unknown as BlueprintDoc, mut.uuid),
+						);
+					}
+					for (const fUuid of fieldUuids) {
 						const target = draft.fields[fUuid];
 						if (!target) continue;
 						xpathFieldsRewritten += rewriteFieldReferenceSlots(
@@ -349,7 +392,7 @@ export function applyFieldMutation(
 							moveRewriter,
 						);
 					}
-					const form = draft.forms[formUuid];
+					const form = draft.forms[walkFormUuid];
 					if (form) {
 						xpathFieldsRewritten += rewriteFormReferenceSlots(form, {
 							xpath: moveRewriter,
@@ -727,10 +770,12 @@ function ensureCatalogProperty(doc: BlueprintDoc, field: Field): void {
  * slot runs through `rewriteXPathRefs`, which surgically edits
  * matching absolute paths (`/data/…/old_id` → `/data/…/new_id`) and
  * `#form/` hashtags at any depth (`#form/grp/old_id` →
- * `#form/grp/new_id`, full-path matched so a cousin sharing the leaf
- * is untouched); every prose slot is regex-located first so only the
- * embedded hashtag refs are rewritten while the surrounding text is
- * preserved verbatim. The containing form's own wiring slots
+ * `#form/grp/new_id`), prefix-matched on the renamed field's segments
+ * so renaming a CONTAINER re-anchors refs to its descendants too
+ * (`#form/grp/inner` → `#form/grp2/inner`) while a cousin sharing the
+ * leaf under a different group is untouched; every prose slot is
+ * regex-located first so only the embedded hashtag refs are rewritten
+ * while the surrounding text is preserved verbatim. The containing form's own wiring slots
  * (form-link conditions/datums, Connect expressions,
  * `closeCondition.field`) are rewritten in the same pass — they
  * reference this form's fields (see `FormSlotRewriteContext`).
@@ -876,8 +921,10 @@ interface CaseCascadeResult {
 	 *  renamed across module-level ASTs. See `FieldRenameMeta`. */
 	moduleRefsRewritten: number;
 	/** True iff a `caseTypes[caseType].properties[]` entry named `oldId`
-	 *  was found and renamed. Reported on `FieldRenameMeta` so consumers
-	 *  know the catalog changed (e.g. to refresh autocomplete caches). */
+	 *  was found and renamed — or merged away because an entry named
+	 *  `newId` already existed (the declared entry wins; see the catalog
+	 *  pass below). Reported on `FieldRenameMeta` so consumers know the
+	 *  catalog changed (e.g. to refresh autocomplete caches). */
 	catalogEntryRenamed: boolean;
 }
 function cascadeCasePropertyRename(
@@ -917,13 +964,32 @@ function cascadeCasePropertyRename(
 	// / hashtag passes so any code reading the draft mid-traversal sees
 	// the updated catalog — matches the ordering invariant that a given
 	// name is either `oldId` or `newId` but never both.
+	//
+	// When an entry named `newId` ALREADY exists on the type (nothing
+	// blocks renaming a field onto another property's name — the
+	// identifier verdicts check sibling FIELD ids only), the rename is a
+	// MERGE: the existing entry's declaration wins (the same
+	// declared-never-touched rule `ensureCatalogProperty` applies on the
+	// add path) and the `oldId` entry is dropped. Renaming it anyway
+	// would mint a duplicate name, and every by-name consumer
+	// (`properties.find(...)`) is first-match — resolution would depend
+	// on insertion order forever, since removal never prunes.
 	if (doc.caseTypes) {
 		for (const ct of doc.caseTypes) {
 			if (ct.name !== caseType) continue;
-			for (const prop of ct.properties) {
-				if (prop.name === oldId) {
-					prop.name = newId;
+			const newIdDeclared = ct.properties.some((p) => p.name === newId);
+			if (newIdDeclared) {
+				const kept = ct.properties.filter((p) => p.name !== oldId);
+				if (kept.length !== ct.properties.length) {
+					ct.properties = kept;
 					catalogEntryRenamed = true;
+				}
+			} else {
+				for (const prop of ct.properties) {
+					if (prop.name === oldId) {
+						prop.name = newId;
+						catalogEntryRenamed = true;
+					}
 				}
 			}
 		}

@@ -399,6 +399,37 @@ describe("renameField interplay", () => {
 			{ name: "years", label: "age", data_type: "int" },
 		]);
 	});
+
+	it("a rename onto an existing property name merges — one entry, the declared one wins", () => {
+		// Nothing blocks renaming a field onto another property's name (the
+		// identifier verdicts check sibling FIELD ids only), so the catalog
+		// pass must not mint a second entry: every by-name consumer
+		// (`properties.find(...)`) is first-match, and a duplicate makes
+		// resolution depend on insertion order forever (removal never
+		// prunes). Merge semantics mirror `ensureCatalogProperty`: the
+		// existing `newId` entry's declaration wins; the old entry is
+		// dropped.
+		const start = docWithForms([
+			{
+				name: "patient",
+				properties: [
+					{ name: "name", label: "Name", data_type: "text" },
+					{ name: "age", label: "age", data_type: "int" },
+				],
+			},
+		]);
+		const next = apply(
+			start,
+			addField(
+				F("1"),
+				field_(Q("a"), "age", { kind: "int", case_property_on: "patient" }),
+			),
+			{ kind: "renameField", uuid: Q("a"), newId: "name" },
+		);
+		expect(catalogProps(next, "patient")).toEqual([
+			{ name: "name", label: "Name", data_type: "text" },
+		]);
+	});
 });
 
 describe("acceptance — a writer-introduced property validates without setCaseTypes", () => {

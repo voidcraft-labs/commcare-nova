@@ -132,3 +132,46 @@ describe("re-anchored hashtag → wire round-trip", () => {
 		expect(expandHashtags(reAnchored)).toBe("/data/source");
 	});
 });
+
+describe("moved-CONTAINER descendant refs (prefix re-anchor)", () => {
+	it("re-anchors a hashtag ref to a moved group's descendant (indent)", () => {
+		expect(
+			rewriteXPathOnMove("#form/grp/child = 1", ["grp"], ["outer", "grp"]),
+		).toBe("#form/outer/grp/child = 1");
+	});
+
+	it("re-anchors a hashtag ref to a moved group's descendant (outdent)", () => {
+		expect(
+			rewriteXPathOnMove("#form/outer/grp/child", ["outer", "grp"], ["grp"]),
+		).toBe("#form/grp/child");
+	});
+
+	it("re-anchors deep descendants, keeping the tail", () => {
+		expect(
+			rewriteXPathOnMove("#form/grp/sub/leaf", ["grp"], ["outer", "grp"]),
+		).toBe("#form/outer/grp/sub/leaf");
+	});
+
+	it("hashtag and absolute spellings of the same dependency move together", () => {
+		expect(
+			rewriteXPathOnMove(
+				"#form/grp/child = '1' and /data/grp/child != ''",
+				["grp"],
+				["outer", "grp"],
+			),
+		).toBe("#form/outer/grp/child = '1' and /data/outer/grp/child != ''");
+	});
+
+	it("never re-anchors a same-leaf ref that is not under the moved container", () => {
+		// `other/grp/child` shares the `grp/child` tail but is anchored under
+		// a different top-level container — prefix matching starts at
+		// segment 0, so it is never the moved subtree.
+		expect(
+			rewriteXPathOnMove("#form/other/grp/child", ["grp"], ["outer", "grp"]),
+		).toBe("#form/other/grp/child");
+		// A leaf ref shorter than the moved path is never a descendant.
+		expect(rewriteXPathOnMove("#form/child", ["grp", "child"], ["child"])).toBe(
+			"#form/child",
+		);
+	});
+});

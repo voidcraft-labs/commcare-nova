@@ -10,10 +10,14 @@
  * we match absolute paths whose collected segments exactly equal
  * `[data, ...oldSegments]` and replace the entire segment sequence (not
  * just the final NameTest) with `[data, ...newSegments]`. Hashtag refs
- * re-anchor the same way: a ref whose full text is `#form/<oldSegments>`
- * becomes `#form/<newSegments>` — hashtag paths mirror the form's group
+ * re-anchor by segment PREFIX: a `#form/` ref whose leading segments
+ * equal `oldSegments` has that prefix replaced with `newSegments`,
+ * keeping any descendant tail — hashtag paths mirror the form's group
  * nesting, so a cross-depth move changes the ref's depth with it
- * (`#form/foo` → `#form/group/foo` and the reverse).
+ * (`#form/foo` → `#form/group/foo` and the reverse), and moving a
+ * CONTAINER re-anchors refs to its descendants too (`#form/grp/child` →
+ * `#form/outer/grp/child`), matching what the nested-CST recursion
+ * already gives absolute paths for free.
  */
 
 import type { SyntaxNode } from "@lezer/common";
@@ -37,6 +41,8 @@ const T = (() => {
 		NameTest: one("NameTest"),
 		RootPath: one("RootPath"),
 		HashtagRef: one("HashtagRef"),
+		HashtagType: one("HashtagType"),
+		HashtagSegment: one("HashtagSegment"),
 		Slash: one("/"),
 	};
 })();
@@ -64,9 +70,11 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
  * location to the equivalent reference at its new location:
  *
  *   - absolute paths whose segments match `oldSegments` (below the `/data`
- *     root) become the `newSegments` path, and
- *   - `#form/` hashtag refs whose full segment path matches `oldSegments`
- *     re-anchor to `#form/<newSegments>` — across any old/new depth.
+ *     root) — or have them as a PREFIX, for refs to a moved container's
+ *     descendants — re-anchor onto the `newSegments` path, and
+ *   - `#form/` hashtag refs whose leading segments match `oldSegments`
+ *     re-anchor that prefix to `#form/<newSegments>` (descendant tails
+ *     kept) — across any old/new depth.
  *
  * @param expr           XPath expression to rewrite
  * @param oldSegments    Segments below `/data` in the field's old path
@@ -89,15 +97,9 @@ export function rewriteXPathOnMove(
 
 	walkForAbsolutePaths(tree.topNode, expr, targetAbsOld, newSegments, edits);
 
-	// Hashtag refs re-anchor whole: full-path match on the old location,
-	// full replacement with the new one.
-	walkForHashtags(
-		tree.topNode,
-		expr,
-		`#form/${oldSegments.join("/")}`,
-		`#form/${newSegments.join("/")}`,
-		edits,
-	);
+	// Hashtag refs re-anchor by segment prefix: descendants of a moved
+	// container keep their tail below the re-anchored prefix.
+	walkForHashtagPrefix(tree.topNode, expr, oldSegments, newSegments, edits);
 
 	return applyEdits(expr, edits);
 }
@@ -154,29 +156,54 @@ function walkForAbsolutePaths(
 }
 
 /**
- * Walk the CST for hashtag refs whose full text equals `oldRef` and record
- * an edit replacing the whole ref with `newRef`. Full-text matching keeps
- * the re-anchor path-exact: `#form/source` never matches a moved
- * `grp/source` (same leaf, different field).
+ * Walk the CST for `#form/` refs whose leading segments equal
+ * `oldSegments` and re-anchor that prefix to `newSegments`, keeping any
+ * descendant tail. The grammar parses a multi-segment ref as ONE flat
+ * `HashtagRef` node (no nested path CST to recurse into), so descendant
+ * coverage must be explicit here — segment-wise, never substring-wise.
+ * Matching starts at the ref's first segment and a ref shorter than the
+ * moved path never matches, which keeps the re-anchor path-exact:
+ * `#form/source` never matches a moved `grp/source` (same leaf,
+ * different field), and `#form/other/grp/child` never matches a moved
+ * `grp`. Mirrors `walkForFormHashtagPrefix` in
+ * `lib/preview/xpath/rewrite.ts` — duplicated intentionally so this
+ * module stands alone without coupling to the preview layer.
  */
-function walkForHashtags(
+function walkForHashtagPrefix(
 	node: SyntaxNode,
 	source: string,
-	oldRef: string,
-	newRef: string,
+	oldSegments: string[],
+	newSegments: string[],
 	edits: SourceEdit[],
 ): void {
 	if (node.type === T.HashtagRef) {
-		const text = source.slice(node.from, node.to);
-		if (text === oldRef) {
-			edits.push({ from: node.from, to: node.to, text: newRef });
+		const namespaceNode = node.getChild(T.HashtagType.name);
+		if (
+			namespaceNode &&
+			source.slice(namespaceNode.from, namespaceNode.to) === "form"
+		) {
+			const segs = node.getChildren(T.HashtagSegment.name);
+			if (
+				segs.length >= oldSegments.length &&
+				oldSegments.every(
+					(seg, i) => source.slice(segs[i].from, segs[i].to) === seg,
+				)
+			) {
+				const first = segs[0];
+				const lastMatched = segs[oldSegments.length - 1];
+				edits.push({
+					from: first.from,
+					to: lastMatched.to,
+					text: newSegments.join("/"),
+				});
+			}
 		}
 		return;
 	}
 
 	let child = node.firstChild;
 	while (child) {
-		walkForHashtags(child, source, oldRef, newRef, edits);
+		walkForHashtagPrefix(child, source, oldSegments, newSegments, edits);
 		child = child.nextSibling;
 	}
 }

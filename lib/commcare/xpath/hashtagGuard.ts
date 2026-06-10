@@ -19,10 +19,14 @@
  *      `#form/age + 1` reduces cleanly instead of shifting a guard the
  *      following `/` would then fail).
  *
- * The identifier-start set here is the ASCII subset of the grammar's
- * `identStart` — deliberately the regex matchers' charset, so a hashtag's
- * segments are ASCII identifiers on every matcher even though XPath
- * element names (`NameTest`) keep the grammar's full Unicode range.
+ * The identifier-start set here is the start charset of the grammar's
+ * dedicated `hashtagName` token — the regex matchers' `[A-Za-z_]`. The
+ * token's body pins the REST of each segment to the same ASCII charset
+ * (`[A-Za-z0-9_-]*`), so a segment's full extent means the same thing on
+ * every matcher even though XPath element names (`NameTest`) keep the
+ * grammar's full Unicode range. The guard alone can't deliver that — it
+ * fires once at the token boundary; the extent agreement lives in the
+ * token definition, held in lockstep by the divergence-corpus test.
  */
 import { ExternalTokenizer } from "@lezer/lr";
 import { noGapIdent, noGapSlash } from "./parser.terms";
