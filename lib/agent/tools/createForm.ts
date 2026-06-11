@@ -30,12 +30,14 @@
 import { z } from "zod";
 import type {
 	BlueprintDoc,
+	ConnectConfig,
 	FormType,
 	PostSubmitDestination,
 } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations } from "../blueprintHelpers";
 import type { FlatField } from "../contentProcessing";
+import { connectFormConfigSchema } from "../scaffoldSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import { guardedMutate, type MutatingToolResult } from "./common";
@@ -69,6 +71,11 @@ export const createFormInputSchema = z
 			.describe(
 				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
 			),
+		connect: connectFormConfigSchema
+			.optional()
+			.describe(
+				"Per-form Connect config — REQUIRED when the app's connect_type is learn or deliver (a Connect form lands with its block in this call); omit on standard apps.",
+			),
 	})
 	.strict();
 
@@ -86,7 +93,7 @@ export const createFormTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<CreateFormResult>> {
-		const { moduleIndex, name, type, fields, post_submit } = input;
+		const { moduleIndex, name, type, fields, post_submit, connect } = input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid) {
@@ -110,6 +117,7 @@ export const createFormTool = {
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
+				...(connect && { connect: connect as ConnectConfig }),
 			});
 
 			// Per-kind union arms are validated structural subsets of the wide

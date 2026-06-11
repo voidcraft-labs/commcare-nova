@@ -284,3 +284,167 @@ describe("createModule — atomic module + forms + case list", () => {
 		expect("message" in out.result).toBe(true);
 	});
 });
+
+// ── Atomic creation on complete Connect apps ─────────────────────────
+
+/** A COMPLETE Connect learn app: every form carries its connect block. */
+function completeConnectDoc(): BlueprintDoc {
+	return buildDoc({
+		appName: "Training",
+		connectType: "learn",
+		modules: [
+			{
+				name: "Lessons",
+				caseType: "trainee",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Enroll trainee",
+						type: "registration",
+						connect: {
+							learn_module: {
+								id: "enroll_module",
+								name: "Enrollment",
+								description: "Sign-up basics",
+								time_estimate: 10,
+							},
+						},
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "trainee",
+							}),
+							f({
+								kind: "text",
+								id: "village",
+								label: "Village",
+								case_property_on: "trainee",
+							}),
+						],
+					},
+				],
+			},
+		],
+		caseTypes: [
+			{
+				name: "trainee",
+				properties: [
+					{ name: "case_name", label: "Name" },
+					{ name: "village", label: "Village" },
+				],
+			},
+		],
+	});
+}
+
+describe("atomic creation on a complete Connect app", () => {
+	it("createForm with a connect block commits in one batch", async () => {
+		const { ctx, recordMutations } = makeCtx("complete");
+		const out = await createFormTool.execute(
+			{
+				moduleIndex: 0,
+				name: "Lesson two",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "lesson_notes",
+						label: "Notes",
+						case_property_on: "trainee",
+					} as never,
+				],
+				connect: {
+					learn_module: {
+						id: "lesson_two",
+						name: "Lesson two",
+						description: "Follow-up content",
+						time_estimate: 20,
+					},
+				},
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("message" in out.result).toBe(true);
+		expect(recordMutations).toHaveBeenCalledTimes(1);
+	});
+
+	it("createForm WITHOUT a connect block is rejected with guidance the same call satisfies", async () => {
+		const { ctx, recordMutations } = makeCtx("complete");
+		const out = await createFormTool.execute(
+			{
+				moduleIndex: 0,
+				name: "Lesson two",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "lesson_notes",
+						label: "Notes",
+						case_property_on: "trainee",
+					} as never,
+				],
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		const error = "error" in out.result ? out.result.error : "";
+		expect(error).toContain("Connect");
+		// The named repair is satisfiable on THIS call — the creation tools
+		// accept `connect` directly.
+		expect(error).toContain("connect");
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("createModule lands forms with their connect blocks in one batch", async () => {
+		const { ctx, recordMutations } = makeCtx("complete");
+		const out = await createModuleTool.execute(
+			{
+				name: "Assessments",
+				case_type: "assessment_case",
+				forms: [
+					{
+						name: "Register assessment",
+						type: "registration",
+						fields: [
+							{
+								kind: "text",
+								id: "case_name",
+								label: "Assessment name",
+								case_property_on: "assessment_case",
+							} as never,
+							{
+								kind: "text",
+								id: "topic",
+								label: "Topic",
+								case_property_on: "assessment_case",
+							} as never,
+						],
+						connect: {
+							learn_module: {
+								id: "assessment_intro",
+								name: "Assessment intro",
+								description: "How scoring works",
+								time_estimate: 5,
+							},
+						},
+					},
+				],
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" } as never,
+				],
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("message" in out.result).toBe(true);
+		expect(recordMutations).toHaveBeenCalledTimes(1);
+	});
+});

@@ -29,10 +29,11 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
 import type { FlatField } from "../contentProcessing";
+import { connectFormConfigSchema } from "../scaffoldSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -69,6 +70,11 @@ const createModuleFormSchema = z
 			.optional()
 			.describe(
 				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
+			),
+		connect: connectFormConfigSchema
+			.optional()
+			.describe(
+				"Per-form Connect config — REQUIRED when the app's connect_type is learn or deliver (a Connect form lands with its block in this call); omit on standard apps.",
 			),
 	})
 	.strict();
@@ -151,6 +157,9 @@ export const createModuleTool = {
 							type: formInput.type,
 							...(formInput.post_submit && {
 								postSubmit: formInput.post_submit,
+							}),
+							...(formInput.connect && {
+								connect: formInput.connect as ConnectConfig,
 							}),
 						},
 						// The module is created by THIS batch — skip the

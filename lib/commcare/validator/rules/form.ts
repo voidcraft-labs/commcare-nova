@@ -589,8 +589,8 @@ function connectValidation(
 	if (!form.connect) {
 		const guidance =
 			doc.connectType === "learn"
-				? "Add a learn_module (educational content), an assessment (quiz/test), or both via update_form."
-				: "Add a deliver_unit and/or task via update_form.";
+				? "Give the form a connect block with a learn_module (educational content), an assessment (quiz/test), or both — on the call creating the form (create_form / create_module accept `connect`), or via update_form on an existing one."
+				: "Give the form a connect block with a deliver_unit (and optionally a task) — on the call creating the form (create_form / create_module accept `connect`), or via update_form on an existing one.";
 		errors.push(
 			validationError(
 				"CONNECT_FORM_MISSING_BLOCK",

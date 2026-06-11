@@ -127,6 +127,67 @@ export const caseTypesOutputSchema = z.object({
 
 // ── generateScaffold input ──────────────────────────────────────────
 
+/**
+ * Per-form Connect config — the ONE SA-facing input shape for a form's
+ * `connect` block, shared by `generateScaffold` (initial build) and the
+ * atomic creation tools (`createForm` / `createModule`), so a
+ * Connect-typed app can grow structure after completion: on a complete
+ * Connect app, a form without its block introduces
+ * CONNECT_FORM_MISSING_BLOCK and the creation call is where the block
+ * must land.
+ */
+export const connectFormConfigSchema = z.object({
+	learn_module: z
+		.object({
+			id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string(),
+			description: z.string(),
+			// Match the domain's `connectLearnModuleSchema`: time estimate is
+			// in minutes and must be a positive integer. The reducer applies
+			// the patch via `Object.assign` without a Zod re-parse, so the
+			// SA-facing schema is the only gate against `0` / negatives /
+			// floats landing on the persisted doc.
+			time_estimate: z
+				.number()
+				.refine(
+					(n) => Number.isInteger(n) && n >= 1,
+					"time_estimate must be a positive integer (minutes).",
+				),
+		})
+		.optional()
+		.describe(
+			"Set on forms with educational/training content. Omit on quiz-only forms.",
+		),
+	assessment: z
+		.object({
+			id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+			user_score: z.string(),
+		})
+		.optional()
+		.describe(
+			"Set on forms with a quiz/test. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
+		),
+	deliver_unit: z
+		.object({
+			id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string(),
+		})
+		.optional()
+		.describe(
+			"Set on every form in a Connect deliver app. Connect's deliver-unit picker reads these from the released CCZ.",
+		),
+	task: z
+		.object({
+			id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string(),
+			description: z.string(),
+		})
+		.optional()
+		.describe(
+			"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
+		),
+});
+
 /** Input shape for the `generateScaffold` tool (second build step). */
 export const scaffoldModulesSchema = z.object({
 	app_name: z.string().describe("Name of the CommCare application"),
@@ -173,72 +234,7 @@ export const scaffoldModulesSchema = z.object({
 						.describe(
 							'Where the user goes after submitting. Defaults to "previous" for followup forms, "app_home" for registration/survey. Only set to override.',
 						),
-					connect: z
-						.object({
-							learn_module: z
-								.object({
-									id: z
-										.string()
-										.optional()
-										.describe(CONNECT_ID_FIELD_DESCRIPTION),
-									name: z.string(),
-									description: z.string(),
-									// Match the domain's `connectLearnModuleSchema`:
-									// time estimate is in minutes and must be a
-									// positive integer. The reducer applies the
-									// patch via `Object.assign` without a Zod
-									// re-parse, so the SA-facing schema is the
-									// only gate against `0` / negatives / floats
-									// landing on the persisted doc.
-									time_estimate: z
-										.number()
-										.refine(
-											(n) => Number.isInteger(n) && n >= 1,
-											"time_estimate must be a positive integer (minutes).",
-										),
-								})
-								.optional()
-								.describe(
-									"Set on forms with educational/training content. Omit on quiz-only forms.",
-								),
-							assessment: z
-								.object({
-									id: z
-										.string()
-										.optional()
-										.describe(CONNECT_ID_FIELD_DESCRIPTION),
-									user_score: z.string(),
-								})
-								.optional()
-								.describe(
-									"Set on forms with a quiz/test. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
-								),
-							deliver_unit: z
-								.object({
-									id: z
-										.string()
-										.optional()
-										.describe(CONNECT_ID_FIELD_DESCRIPTION),
-									name: z.string(),
-								})
-								.optional()
-								.describe(
-									"Set on every form in a Connect deliver app. Connect's deliver-unit picker reads these from the released CCZ.",
-								),
-							task: z
-								.object({
-									id: z
-										.string()
-										.optional()
-										.describe(CONNECT_ID_FIELD_DESCRIPTION),
-									name: z.string(),
-									description: z.string(),
-								})
-								.optional()
-								.describe(
-									"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
-								),
-						})
+					connect: connectFormConfigSchema
 						.optional()
 						.describe(
 							"Per-form Connect config. REQUIRED on every form when the app's `connect_type` is `learn` or `deliver`; omit entirely on standard apps. Pick sub-configs by content: `learn_module` for educational content, `assessment` for quizzes, `deliver_unit` for every deliver-app form, optional `task` for delivery descriptions.",
