@@ -588,11 +588,17 @@ function WorkspaceTabs({
 									active ? "text-nova-violet-bright" : "text-nova-text-muted"
 								}`}
 							/>
-							<span className="hidden @xl:block">
-								{/* Inline-grid stacks the visible label over an invisible
-								 *  bold ghost, so the slot is always as wide as the bold
-								 *  form — selecting a tab must never nudge its neighbors. */}
-								<span className="inline-grid text-[13px] leading-tight">
+							{/* Flex column (not a plain block): a block wrapper carries
+							 *  the inherited 16px/24px line-height strut into the label's
+							 *  anonymous line box, which pads ~5px of dead space above the
+							 *  label and bottom-weights the whole text block. Flex children
+							 *  size to their own line-height, so label + meta center as a
+							 *  unit against the icon. */}
+							<span className="hidden @xl:flex flex-col gap-0.5">
+								{/* Grid stacks the visible label over an invisible bold
+								 *  ghost, so the slot is always as wide as the bold form —
+								 *  selecting a tab must never nudge its neighbors. */}
+								<span className="grid text-[13px] leading-tight">
 									<span
 										className={`col-start-1 row-start-1 ${
 											active
