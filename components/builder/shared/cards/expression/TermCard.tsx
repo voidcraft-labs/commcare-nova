@@ -136,7 +136,7 @@ export function TermCard({ value, onChange, path }: TermCardProps) {
 
 	return (
 		<div className="space-y-1">
-			<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
+			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
 				<ModeMenu mode={mode} setMode={setMode} />
 				<TermBodyInput
 					term={term}
@@ -639,7 +639,7 @@ function LiteralCardEditor({
 	};
 
 	return (
-		<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
+		<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
 			<LiteralShapeMenu shape={literalShape} setShape={setShape} />
 			<LiteralBodyInput
 				value={value}

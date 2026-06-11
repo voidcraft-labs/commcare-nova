@@ -84,55 +84,56 @@ export function SlotCardHeader({
 	clear,
 }: SlotCardHeaderProps) {
 	return (
-		<header className="flex items-baseline gap-2">
-			<div className="w-0.5 h-3 rounded-full bg-nova-violet/40 self-center" />
-			{collapse ? (
-				<button
-					type="button"
-					onClick={collapse.onToggle}
-					aria-expanded={collapse.isOpen}
-					aria-controls={collapse.controlsId}
-					aria-label={
-						collapse.isOpen ? collapse.collapseLabel : collapse.expandLabel
-					}
-					className="self-center cursor-pointer text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors"
-				>
-					<Icon
-						icon={collapse.isOpen ? tablerChevronDown : tablerChevronRight}
-						width="12"
-						height="12"
-					/>
-				</button>
-			) : null}
-			<Icon
-				icon={icon}
-				width="14"
-				height="14"
-				className="text-nova-violet-bright/80 self-center"
-			/>
-			<h3 className="text-[11px] font-semibold uppercase tracking-widest text-nova-text/90">
-				{title}
-			</h3>
-			<span className="ml-1 text-[10px] text-nova-text-muted/70">
-				{description}
-			</span>
-			{clear ? (
-				// Wrapper and button render together — without `clear`,
-				// neither the button nor an empty `ml-auto` container
-				// lands in the DOM, so a cleared-slot header has no
-				// stray spacer node.
-				<div className="ml-auto">
+		<header className="space-y-1">
+			<div className="flex items-center gap-2">
+				<div className="w-0.5 h-3 rounded-full bg-nova-violet/40" />
+				{collapse ? (
+					<button
+						type="button"
+						onClick={collapse.onToggle}
+						aria-expanded={collapse.isOpen}
+						aria-controls={collapse.controlsId}
+						aria-label={
+							collapse.isOpen ? collapse.collapseLabel : collapse.expandLabel
+						}
+						className="cursor-pointer text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors"
+					>
+						<Icon
+							icon={collapse.isOpen ? tablerChevronDown : tablerChevronRight}
+							width="12"
+							height="12"
+						/>
+					</button>
+				) : null}
+				<Icon
+					icon={icon}
+					width="14"
+					height="14"
+					className="text-nova-violet-bright/80"
+				/>
+				<h3 className="text-[11px] font-semibold uppercase tracking-widest text-nova-text/90">
+					{title}
+				</h3>
+				{clear ? (
+					// Button renders only with `clear` — a cleared-slot
+					// header has no stray spacer node. `whitespace-nowrap`
+					// because an action label must never wrap mid-phrase.
 					<button
 						type="button"
 						onClick={clear.onClick}
-						className="inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
+						className="ml-auto inline-flex items-center gap-1 px-2.5 min-h-11 text-[10px] uppercase tracking-wider whitespace-nowrap rounded-md text-nova-text-muted/70 hover:text-nova-error hover:bg-nova-error/10 transition-colors cursor-pointer"
 						aria-label={clear.label}
 					>
 						<Icon icon={tablerX} width="11" height="11" />
 						<span>{clear.label}</span>
 					</button>
-				</div>
-			) : null}
+				) : null}
+			</div>
+			{/* Description gets its own line — sharing the title row made
+			 *  it fight the Clear action for space in narrow rails. */}
+			<p className="text-[11px] leading-relaxed text-nova-text-muted">
+				{description}
+			</p>
 		</header>
 	);
 }

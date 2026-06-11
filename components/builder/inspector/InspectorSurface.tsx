@@ -91,7 +91,10 @@ export function InspectorSurface({
 					</button>
 				</Tooltip>
 			</div>
-			<div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4">
+			{/* `@container` so editor bodies can adapt to the rail's width —
+			 *  the predicate/expression cards stack their operand grids in
+			 *  narrow containers and go multi-column only with real room. */}
+			<div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 @container">
 				{children}
 			</div>
 		</div>,

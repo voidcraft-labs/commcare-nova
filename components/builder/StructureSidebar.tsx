@@ -16,7 +16,7 @@ export function StructureSidebar() {
 	const setSidebarOpen = useSetSidebarOpen();
 
 	return (
-		<div className="w-88 border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
+		<div className="w-90 border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
 			{/* Header */}
 			<div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
 				<button

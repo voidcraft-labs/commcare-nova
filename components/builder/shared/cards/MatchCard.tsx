@@ -120,7 +120,7 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 
 	return (
 		<div className="space-y-2">
-			<div className="grid grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
+			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
 				<div>
 					<PropertyRefPicker
 						mode="property-only"
@@ -179,7 +179,7 @@ function ModeMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Match mode: ${current.label}`}
-				className="group flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="group flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
 			>
 				<span>{current.label}</span>
 				<svg

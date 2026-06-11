@@ -109,7 +109,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 				<InlineError errors={leftErrors} />
 			</div>
 
-			<div className="grid grid-cols-2 gap-2">
+			<div className="grid grid-cols-1 @md:grid-cols-2 gap-2">
 				{/* The schema's `.refine(...)` rejects a between with no
 				 *  bounds — at least one of `lower` / `upper` must be
 				 *  present. The editor enforces the same invariant via

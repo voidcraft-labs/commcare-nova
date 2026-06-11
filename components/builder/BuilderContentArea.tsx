@@ -42,8 +42,9 @@ import { INSPECTOR_RAIL_WIDTH, useInspectorActive } from "@/lib/ui/inspector";
 /** Shared sidebar open/close animation config. */
 const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const;
 
-/** Width of the structure sidebar in pixels (w-88). */
-const STRUCTURE_SIDEBAR_WIDTH = 352;
+/** Width of the structure sidebar in pixels (w-90) — the same width
+ *  as the right rail, so the two edges frame the canvas evenly. */
+const STRUCTURE_SIDEBAR_WIDTH = 360;
 
 /** Width of the collapsed icon rails (w-14) — structure and chat
  *  share it, so the two edges read as one system. */

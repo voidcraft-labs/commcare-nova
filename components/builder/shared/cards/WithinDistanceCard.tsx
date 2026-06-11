@@ -95,7 +95,7 @@ export function WithinDistanceCard({
 				<InlineError errors={propertyErrors} />
 			</div>
 
-			<div className="grid grid-cols-[1.6fr_auto_auto] gap-2 items-start">
+			<div className="grid grid-cols-1 @md:grid-cols-[1.6fr_auto_auto] gap-2 items-start">
 				<div>
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
 						Center
@@ -192,7 +192,7 @@ function UnitMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Distance unit: ${UNIT_LABELS[unit]}`}
-				className="group flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="group flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
 			>
 				<span>{UNIT_LABELS[unit]}</span>
 				<svg

@@ -589,14 +589,25 @@ function WorkspaceTabs({
 								}`}
 							/>
 							<span className="hidden @xl:block">
-								<span
-									className={`block text-[13px] leading-tight ${
-										active
-											? "font-semibold text-nova-text"
-											: "font-medium text-nova-text-secondary"
-									}`}
-								>
-									{label}
+								{/* Inline-grid stacks the visible label over an invisible
+								 *  bold ghost, so the slot is always as wide as the bold
+								 *  form — selecting a tab must never nudge its neighbors. */}
+								<span className="inline-grid text-[13px] leading-tight">
+									<span
+										className={`col-start-1 row-start-1 ${
+											active
+												? "font-semibold text-nova-text"
+												: "font-medium text-nova-text-secondary"
+										}`}
+									>
+										{label}
+									</span>
+									<span
+										aria-hidden="true"
+										className="col-start-1 row-start-1 font-semibold invisible"
+									>
+										{label}
+									</span>
 								</span>
 								<span className="hidden @min-[40rem]:block text-[10px] text-nova-text-muted leading-tight">
 									{metas[id]}

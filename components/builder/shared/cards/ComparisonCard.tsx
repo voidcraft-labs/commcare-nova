@@ -163,7 +163,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	};
 
 	return (
-		<div className="grid grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
+		<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
 			<div>
 				<PropertyRefPicker
 					mode="left"
@@ -235,7 +235,7 @@ function OperatorMenu({ kind, setKind }: OperatorMenuProps) {
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Operator: ${meta.label}`}
-				className="group flex items-center justify-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer min-w-[3rem]"
+				className="group flex items-center justify-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer min-w-[3rem] @max-md:justify-self-start"
 			>
 				<span className="font-mono text-base leading-none">{meta.symbol}</span>
 				<svg
