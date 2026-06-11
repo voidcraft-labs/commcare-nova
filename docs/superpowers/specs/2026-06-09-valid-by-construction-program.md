@@ -580,6 +580,35 @@ Round-3 review hardening (same stage, post-ship):
   property, and its generators were probe-rebalanced so every op type
   lands real commits.
 
+Round-4 review hardening (same stage, post-ship):
+- Connect ids are enforced at the creation source: `createForm` /
+  `createModule` run `enforceConnectIds` before the batch is built (one
+  threaded id set per `createModule` call), matching `updateForm` /
+  `generateScaffold`. `deriveConnectDefaults` is deleted (its last
+  production caller went with the validation loop); the validator gains
+  `CONNECT_ID_MISSING` (soundness) so an id-less block in a stored doc is
+  a boundary finding, never the emit resolver's throw surfacing as a 500.
+- The fuzz's "every op type lands real commits" is an ENFORCED floor, not
+  a probe result: per-property commit tallies under pinned fast-check
+  seeds, plus Connect-specific floors (connect-carrying and omitted-id
+  creations commit) and `CONNECT_FORM_MISSING_BLOCK` /
+  `CONNECT_ID_MISSING` pinned kept-out on the Connect property. The
+  floor's first run exposed two starved ops, fixed structurally (fixture
+  close forms; an `__own__` case-binding marker resolved per target
+  module).
+- The retry revival is a transaction flipping ONLY `error → generating`
+  (`GenerationRetryConflictError` → route 429): same-app contenders share
+  one row that `hasActiveGeneration` excludes as their own, so the
+  compare-and-flip is the arbitration between them.
+- A chat-side stale-basis completion bounce reloads the stored doc into
+  the run's working state before advising the re-run (`staleBasis` on the
+  shared result; MCP wire shape unchanged) — the retry evaluates a doc
+  that includes the concurrent edit instead of committing the stale
+  working doc over it.
+- The run's intermediate saves chain, and `getCompletionBasis` drains the
+  chain before its token read — a run's own in-flight save can no longer
+  land after the guarded completion and clobber the completed snapshot.
+
 1. Atomic edit-mode creation (D13): widened `createForm`/`createModule`
    schemas (verified via `scripts/test-schema.ts`); edit-mode per-call
    completeness goes zero-tolerance; build mode unchanged.
