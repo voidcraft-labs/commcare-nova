@@ -30,7 +30,9 @@ import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	Field,
+	ResolveFieldPath,
 	Uuid,
+	XPathExpression,
 	XPathPrintableDoc,
 } from "@/lib/domain";
 import {
@@ -71,6 +73,16 @@ export type FieldAssemblyResult =
 			/** Items that didn't assemble into a valid Field for their kind —
 			 *  reported, never silently dropped. */
 			skipped: Array<{ id: string; reason: string }>;
+			/**
+			 * Parse expression TEXT against the doc PLUS this batch's planned
+			 * tree — the same resolution context the landed fields' own
+			 * expression slots were re-parsed in. The creation tools route
+			 * their form-level XPath inputs (the Connect bindings, via
+			 * `buildConnectConfig`) through this so a reference to a field
+			 * landing in the same call resolves to an identity leaf, exactly
+			 * as it would once the batch has applied.
+			 */
+			parseExpression: (text: string) => XPathExpression;
 	  }
 	| {
 			ok: false;
@@ -214,22 +226,27 @@ export function assembleFieldMutations(
 	}
 
 	if (rejected.length > 0) return { ok: false, rejected };
-	resolveBatchExpressions(doc, formUuid, mutations, landed);
-	return { ok: true, mutations, skipped };
+	const resolve = batchPathResolver(doc, formUuid, mutations);
+	resolveBatchExpressions(resolve, landed);
+	return {
+		ok: true,
+		mutations,
+		skipped,
+		parseExpression: (text) => parseXPathExpression(text, resolve),
+	};
 }
 
 /**
- * Second assembly pass: re-parse every landed field's expression slots
- * against the doc PLUS the whole batch's planned tree, so a reference
- * to any field in the same call — earlier or later — resolves to an
- * identity leaf exactly as it would once the batch has applied.
+ * Reference resolver over the doc PLUS the whole batch's planned tree —
+ * the overlay both second-pass consumers share: the landed fields' own
+ * expression slots (`resolveBatchExpressions`) and the caller-facing
+ * `parseExpression` for form-level XPath inputs riding the same batch.
  */
-function resolveBatchExpressions(
+function batchPathResolver(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	mutations: readonly Mutation[],
-	landed: ReadonlyArray<{ field: Field; processed: Partial<FlatField> }>,
-): void {
+): ResolveFieldPath {
 	const fields: Record<string, { id: string } | undefined> = { ...doc.fields };
 	const fieldOrder: Record<string, string[] | undefined> = {};
 	for (const [parent, order] of Object.entries(doc.fieldOrder)) {
@@ -255,8 +272,19 @@ function resolveBatchExpressions(
 		}
 	}
 	const overlay: XPathPrintableDoc = { forms, fields, fieldOrder };
-	const resolve = fieldPathResolver(overlay, formUuid);
+	return fieldPathResolver(overlay, formUuid);
+}
 
+/**
+ * Second assembly pass: re-parse every landed field's expression slots
+ * against the batch-aware resolver, so a reference to any field in the
+ * same call — earlier or later — resolves to an identity leaf exactly
+ * as it would once the batch has applied.
+ */
+function resolveBatchExpressions(
+	resolve: ResolveFieldPath,
+	landed: ReadonlyArray<{ field: Field; processed: Partial<FlatField> }>,
+): void {
 	for (const { field, processed } of landed) {
 		const carrier = field as unknown as Record<string, unknown>;
 		for (const slot of [

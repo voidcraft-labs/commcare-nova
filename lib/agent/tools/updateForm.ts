@@ -38,17 +38,13 @@ import {
 
 import { z } from "zod";
 import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
-import type {
-	BlueprintDoc,
-	ConnectConfig,
-	PostSubmitDestination,
-	XPathExpression,
-} from "@/lib/domain";
+import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
 import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
+import { buildConnectConfig } from "./shared/connectInput";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -170,57 +166,6 @@ export type UpdateFormInput = z.infer<typeof updateFormInputSchema>;
 /** Human-readable success string or an error record. */
 export type UpdateFormResult = MutationSuccess | { error: string };
 
-/**
- * Merge the SA's partial connect-config input into a full
- * `ConnectConfig`. Pure structural merge: keys absent from `input` are
- * copied verbatim from `existing`. Keys present on `input` overlay the
- * matching existing sub-config (`existing.learn_module` ←
- * `input.learn_module`, etc.). Returns `null` only when the SA's input
- * is explicitly `null` — the caller uses that as the "clear Connect
- * config" signal.
- *
- * No defaults are invented here. `deliver_unit` may land without
- * `entity_id`/`entity_name` — that's a normal state of the domain
- * type, and the XForm builder substitutes the canonical XPath defaults
- * when emitting the binds.
- */
-function buildConnectConfig(
-	input: NonNullable<UpdateFormInput["connect"]> | null,
-	existing: ConnectConfig | undefined,
-	parseExpr: (text: string) => XPathExpression,
-): ConnectConfig | null {
-	if (input === null) return null;
-	const out: ConnectConfig = { ...existing };
-	if (input.learn_module !== undefined) {
-		out.learn_module = { ...existing?.learn_module, ...input.learn_module };
-	}
-	if (input.assessment !== undefined) {
-		// The SA authors the XPath slots as text; the stored form is the
-		// expression AST, resolved against the owning form.
-		const { user_score, ...assessmentRest } = input.assessment;
-		out.assessment = {
-			...existing?.assessment,
-			...assessmentRest,
-			user_score: parseExpr(user_score),
-		};
-	}
-	if (input.deliver_unit !== undefined) {
-		const { entity_id, entity_name, ...deliverRest } = input.deliver_unit;
-		out.deliver_unit = {
-			...existing?.deliver_unit,
-			...deliverRest,
-			...(entity_id !== undefined && { entity_id: parseExpr(entity_id) }),
-			...(entity_name !== undefined && {
-				entity_name: parseExpr(entity_name),
-			}),
-		};
-	}
-	if (input.task !== undefined) {
-		out.task = { ...existing?.task, ...input.task };
-	}
-	return out;
-}
-
 export const updateFormTool = {
 	description:
 		"Update form metadata: name, close condition (close forms only), Connect integration, or post-submit navigation.",
@@ -285,14 +230,17 @@ export const updateFormTool = {
 				patch.postSubmit = post_submit as PostSubmitDestination | null;
 			}
 			if (connect !== undefined) {
-				const merged = buildConnectConfig(
-					connect,
-					existing.connect ?? undefined,
-					(text) => parseXPathForForm(doc, formUuid, text),
-				);
-				if (merged === null) {
+				if (connect === null) {
 					patch.connect = null;
 				} else {
+					// Structural partial-update merge + the text → AST parse
+					// boundary for the connect XPath slots, resolved against
+					// the owning form (`shared/connectInput.ts`).
+					const merged = buildConnectConfig(
+						connect,
+						existing.connect ?? undefined,
+						(text) => parseXPathForForm(doc, formUuid, text),
+					);
 					// Force connect ids correct at the source: autofill omitted
 					// ids, reject explicit-invalid ids (fail the call, write
 					// nothing). `existingIds` excludes this form's own ids so a

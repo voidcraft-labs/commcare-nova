@@ -13,13 +13,27 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { printXPathInDoc } from "@/lib/doc/expressionText";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { createFormTool } from "../createForm";
 import { createModuleTool } from "../createModule";
 
 function makeCtx() {
-	const recordMutations = vi.fn().mockResolvedValue([]);
+	// Every persisted doc must survive the SAME Zod gate the next load
+	// runs (`appDocSchema` parses the stored blueprint through
+	// `blueprintDocSchema`'s sub-schemas). Parsing here means a tool that
+	// commits a Zod-unreadable doc — e.g. a raw string parked in an
+	// AST-typed slot — fails its test at the commit, not in production on
+	// the app's next load.
+	const recordMutations = vi
+		.fn()
+		.mockImplementation(async (_muts: unknown, doc: BlueprintDoc) => {
+			blueprintDocSchema.parse(toPersistableDoc(doc));
+			return [];
+		});
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
@@ -398,6 +412,107 @@ describe("atomic creation on a complete Connect app", () => {
 		// accept `connect` directly.
 		expect(error).toContain("connect");
 		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("createForm parses assessment.user_score text to the expression AST, resolving a same-call field to an identity leaf", async () => {
+		const { ctx, recordMutations } = makeCtx();
+		const out = await createFormTool.execute(
+			{
+				moduleIndex: 0,
+				name: "Quiz",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "answer_one",
+						label: "Answer one",
+						case_property_on: "trainee",
+					} as never,
+					{ kind: "hidden", id: "score_total", calculate: "1 + 1" } as never,
+				],
+				connect: {
+					assessment: { user_score: "#form/score_total" },
+				},
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
+		expect(recordMutations).toHaveBeenCalledTimes(1);
+		const addForm = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
+		);
+		const scoreField = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addField" }> =>
+				m.kind === "addField" && m.field.id === "score_total",
+		);
+		const userScore = addForm?.form.connect?.assessment?.user_score;
+		// Stored as the AST — a raw string here is exactly the shape the
+		// next load's Zod gate rejects (the whole point of the boundary).
+		expect(userScore).toEqual({
+			parts: [{ kind: "field-ref", uuid: scoreField?.field.uuid }],
+		});
+		// And the projection prints the authored text back.
+		expect(userScore && printXPathInDoc(out.newDoc, userScore)).toBe(
+			"#form/score_total",
+		);
+	});
+
+	it("createModule parses each form's assessment.user_score the same way", async () => {
+		const { ctx, recordMutations } = makeCtx();
+		const out = await createModuleTool.execute(
+			{
+				name: "Quizzes",
+				case_type: "quiz_case",
+				forms: [
+					{
+						name: "Register quiz",
+						type: "registration",
+						fields: [
+							{
+								kind: "text",
+								id: "case_name",
+								label: "Quiz name",
+								case_property_on: "quiz_case",
+							} as never,
+							{
+								kind: "text",
+								id: "topic",
+								label: "Topic",
+								case_property_on: "quiz_case",
+							} as never,
+							{
+								kind: "hidden",
+								id: "score_total",
+								calculate: "1 + 1",
+							} as never,
+						],
+						connect: {
+							assessment: { user_score: "#form/score_total" },
+						},
+					},
+				],
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" } as never,
+				],
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
+		expect(recordMutations).toHaveBeenCalledTimes(1);
+		const addForm = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
+		);
+		const scoreField = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addField" }> =>
+				m.kind === "addField" && m.field.id === "score_total",
+		);
+		expect(addForm?.form.connect?.assessment?.user_score).toEqual({
+			parts: [{ kind: "field-ref", uuid: scoreField?.field.uuid }],
+		});
 	});
 
 	it("createModule lands forms with their connect blocks in one batch", async () => {

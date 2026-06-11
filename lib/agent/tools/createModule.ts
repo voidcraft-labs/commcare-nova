@@ -22,21 +22,25 @@
  * goes through the case-list-config tools once the module exists; this
  * tool's `case_list_columns` exists so the module can BE BORN complete.
  *
- * Each form's `connect` block runs through `enforceConnectIds` (the
- * agent-path source guard, same as `updateForm` / `createForm`) BEFORE
- * the batch is built — one app-wide id set threads through every form
- * in the call, so an omitted id autofills valid + unique across the
- * whole creation and an explicit invalid or duplicate id fails the call.
+ * Each form's `connect` block crosses the text → AST parse boundary
+ * (`shared/connectInput.ts::buildConnectConfig`, same as `updateForm` /
+ * `createForm`) against that form's batch-aware assembly resolver — an
+ * `assessment.user_score` referencing a field landing in the same form
+ * resolves to an identity leaf — and then runs through
+ * `enforceConnectIds` (the agent-path source guard). One app-wide id
+ * set threads through every form in the call, so an omitted id
+ * autofills valid + unique across the whole creation and an explicit
+ * invalid or duplicate id fails the call.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
  *
  *   1. A `case_type_record` that mismatches `case_type` or re-declares
  *      an existing record → `{ error }`, no mutations.
- *   2. An explicit connect id is invalid/duplicate → `{ error }`, no
- *      mutations.
- *   3. Identifier guard rejection in any form's fields → `{ error }`
+ *   2. Identifier guard rejection in any form's fields → `{ error }`
  *      naming every failing item, nothing persisted.
+ *   3. An explicit connect id is invalid/duplicate → `{ error }`, no
+ *      mutations.
  *   4. Commit-gate rejection → `{ error }` listing each finding,
  *      nothing persisted.
  *   5. Unexpected runtime error → `{ error }`, no mutations.
@@ -63,6 +67,7 @@ import {
 } from "./case-list-config/shared";
 import { guardedMutate, type MutatingToolResult } from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
+import { buildConnectConfig } from "./shared/connectInput";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
@@ -240,48 +245,9 @@ export const createModuleTool = {
 			// doc yet.
 			const takenConnectIds = collectConnectIds(doc);
 			for (const formInput of forms ?? []) {
-				let enforcedConnect: ConnectConfig | undefined;
-				if (formInput.connect) {
-					const enforced = enforceConnectIds(
-						formInput.connect as ConnectConfig,
-						name,
-						formInput.name,
-						takenConnectIds,
-					);
-					if (!enforced.ok) {
-						return {
-							kind: "mutate" as const,
-							mutations: [],
-							newDoc: doc,
-							result: {
-								error: `Module "${name}" wasn't created — form "${formInput.name}": ${enforced.error}`,
-							},
-						};
-					}
-					enforcedConnect = enforced.config;
-				}
 				const formUuid = asUuid(crypto.randomUUID());
-				mutations.push(
-					...addFormMutations(
-						doc,
-						moduleUuid,
-						{
-							uuid: formUuid,
-							name: formInput.name,
-							type: formInput.type,
-							...(formInput.purpose !== undefined && {
-								purpose: formInput.purpose,
-							}),
-							...(formInput.post_submit && {
-								postSubmit: formInput.post_submit,
-							}),
-							...(enforcedConnect && { connect: enforcedConnect }),
-						},
-						// The module is created by THIS batch — skip the
-						// doc-existence guard that would otherwise reject it.
-						{ moduleAddedInBatch: true },
-					),
-				);
+				// Assembled BEFORE the connect block so the block's XPath
+				// slots can parse against this form's batch-aware resolver.
 				const assembly = assembleFieldMutations({
 					doc: assemblyDoc,
 					formUuid,
@@ -321,6 +287,54 @@ export const createModuleTool = {
 						},
 					};
 				}
+				// Text → AST parse boundary for the connect XPath slots
+				// (against this form's batch resolver), then the id source
+				// guard against the call-wide threaded set.
+				let enforcedConnect: ConnectConfig | undefined;
+				if (formInput.connect) {
+					const enforced = enforceConnectIds(
+						buildConnectConfig(
+							formInput.connect,
+							undefined,
+							assembly.parseExpression,
+						),
+						name,
+						formInput.name,
+						takenConnectIds,
+					);
+					if (!enforced.ok) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Module "${name}" wasn't created — form "${formInput.name}": ${enforced.error}`,
+							},
+						};
+					}
+					enforcedConnect = enforced.config;
+				}
+				mutations.push(
+					...addFormMutations(
+						doc,
+						moduleUuid,
+						{
+							uuid: formUuid,
+							name: formInput.name,
+							type: formInput.type,
+							...(formInput.purpose !== undefined && {
+								purpose: formInput.purpose,
+							}),
+							...(formInput.post_submit && {
+								postSubmit: formInput.post_submit,
+							}),
+							...(enforcedConnect && { connect: enforcedConnect }),
+						},
+						// The module is created by THIS batch — skip the
+						// doc-existence guard that would otherwise reject it.
+						{ moduleAddedInBatch: true },
+					),
+				);
 				mutations.push(...assembly.mutations);
 				fieldCount += assembly.mutations.length;
 				skipped.push(...assembly.skipped);

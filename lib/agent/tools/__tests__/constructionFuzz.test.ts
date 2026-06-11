@@ -48,8 +48,10 @@ import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { addFieldsTool } from "../addFields";
@@ -256,22 +258,57 @@ const fieldItemArb = fc
 		}),
 	);
 
-/** Optional per-form connect block (learn shape) — the Connect-app run's
- *  creations carry these. Three arms: an OMITTED id (the schema-recommended
- *  normal case — the creation tools must autofill a valid unique id, never
- *  land an id-less block), an explicit id from a small pool (so explicit
- *  collisions — a fail-the-call outcome — occur alongside clean creations),
- *  and no block at all. */
+/** Optional per-form connect block (learn shapes) — the Connect-app run's
+ *  creations carry these. The id axis has two arms: an OMITTED id (the
+ *  schema-recommended normal case — the creation tools must autofill a
+ *  valid unique id, never land an id-less block) and an explicit id from a
+ *  small pool (so explicit collisions — a fail-the-call outcome — occur
+ *  alongside clean creations). The sub-config axis covers all three learn
+ *  shapes — learn_module only, assessment only, and both — because
+ *  `assessment.user_score` is the one creation-tool input that crosses the
+ *  text → AST parse boundary: its pool mixes a literal, the
+ *  `__same_call_field__` marker (resolved by `resolveConnectScoreRef` to a
+ *  reference to a field landing in the same call — the batch-overlay
+ *  resolution shape), and a dangling reference (a gate bounce).
+ *  `fc.option` keeps the no-block arm. */
 const connectArb = fc.option(
 	fc
-		.tuple(fc.constantFrom("lesson_a", "lesson_b", "lesson_c"), fc.boolean())
-		.map(([id, omitId]) => ({
-			learn_module: {
-				...(omitId ? {} : { id }),
-				name: "Lesson",
-				description: "Generated lesson content",
-				time_estimate: 15,
-			},
+		.record({
+			id: fc.constantFrom("lesson_a", "lesson_b", "lesson_c"),
+			omitId: fc.boolean(),
+			shape: fc.constantFrom(
+				"learn_module",
+				"assessment",
+				"both",
+			) as fc.Arbitrary<"learn_module" | "assessment" | "both">,
+			/* Marker-weighted: the same-call reference is the arm the parse
+			 * boundary exists for, so it dominates; the literal and the
+			 * dangling reference keep the trivial-commit and bounce arms
+			 * alive. */
+			userScore: fc.constantFrom<string>(
+				"__same_call_field__",
+				"__same_call_field__",
+				"1",
+				"#form/missing_score",
+			),
+		})
+		.map(({ id, omitId, shape, userScore }) => ({
+			...(shape !== "assessment" && {
+				learn_module: {
+					...(omitId ? {} : { id }),
+					name: "Lesson",
+					description: "Generated lesson content",
+					time_estimate: 15,
+				},
+			}),
+			...(shape !== "learn_module" && {
+				assessment: {
+					// Disjoint from the learn_module pool so a "both" block
+					// can't collide with itself.
+					...(omitId ? {} : { id: `${id}_quiz` }),
+					user_score: userScore,
+				},
+			}),
 		})),
 	{ nil: undefined },
 );
@@ -430,6 +467,35 @@ type FieldItem = { id: string; case_property_on?: string } & Record<
 	string,
 	unknown
 >;
+
+/** One generated per-form connect block (the creation ops' optional slot). */
+type GeneratedConnectBlock = Exclude<
+	Extract<FuzzOp, { type: "createForm" }>["connect"],
+	undefined
+>;
+
+/**
+ * Resolve the generator's `__same_call_field__` user_score marker against
+ * the fields THIS creation actually lands — the only doc-agnostic way to
+ * exercise the assessment parse boundary's batch overlay (a `user_score`
+ * referencing a field from the same call) at real frequency, mirroring
+ * the `__own__` case-binding marker. With no landable field the marker
+ * falls back to a literal score so the block stays committable.
+ */
+function resolveConnectScoreRef(
+	connect: GeneratedConnectBlock,
+	fields: readonly FieldItem[],
+): GeneratedConnectBlock {
+	if (connect.assessment?.user_score !== "__same_call_field__") return connect;
+	const first = fields[0];
+	return {
+		...connect,
+		assessment: {
+			...connect.assessment,
+			user_score: first ? `#form/${first.id}` : "1",
+		},
+	};
+}
 
 /** Resolve the generator's `__own__` case-binding marker against the target
  *  module's case type. With no own type the marker drops to an unbound
@@ -605,7 +671,9 @@ async function applyOp(
 								name: "First form",
 								type: coherentType ? "registration" : op.formType,
 								fields: formFields,
-								...(op.connect && { connect: op.connect }),
+								...(op.connect && {
+									connect: resolveConnectScoreRef(op.connect, formFields),
+								}),
 							},
 						],
 					}),
@@ -641,7 +709,9 @@ async function applyOp(
 					name: op.name,
 					type: op.formType,
 					fields,
-					...(op.connect && { connect: op.connect }),
+					...(op.connect && {
+						connect: resolveConnectScoreRef(op.connect, fields),
+					}),
 				},
 				ctx,
 				doc,
@@ -923,6 +993,24 @@ function assertZeroFindings(doc: BlueprintDoc, context: string): void {
 			`a finding reached a construction-grown doc (${context}): ${findings.join(
 				"; ",
 			)}`,
+		);
+	}
+}
+
+/**
+ * The persisted-shape invariant, asserted beside the zero-findings one:
+ * every doc the tools grow must round-trip the SAME Zod gate the next
+ * load runs (`appDocSchema` parses the stored blueprint through
+ * `blueprintDocSchema`). The validator can't see this class — a raw
+ * string parked in an AST-typed slot validates clean (the total reader
+ * projects it as text) but bricks the app on its next load, which is
+ * how the creation tools' unparsed `assessment.user_score` shipped.
+ */
+function assertPersistedShapeParses(doc: BlueprintDoc, context: string): void {
+	const parsed = blueprintDocSchema.safeParse(toPersistableDoc(doc));
+	if (!parsed.success) {
+		throw new Error(
+			`a tool committed a doc the next load's Zod gate rejects (${context}): ${parsed.error.message}`,
 		);
 	}
 }
@@ -1358,6 +1446,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					let doc = await growStandardPrelude(ctx);
 					assertZeroFindings(doc, "standard prelude");
 					assertIndexParity(doc, "standard prelude");
+					assertPersistedShapeParses(doc, "standard prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
 						const committed = next !== doc;
@@ -1366,6 +1455,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 						doc = next;
 						assertZeroFindings(doc, `standard op#${i} ${op.type}`);
 						assertIndexParity(doc, `standard op#${i} ${op.type}`);
+						assertPersistedShapeParses(doc, `standard op#${i} ${op.type}`);
 					}
 				},
 			),
@@ -1390,12 +1480,17 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 
 	it("Connect learn app: creations carrying (or missing) connect blocks hold the same invariant", async () => {
 		const tally = newCommitTally();
-		/* The Connect-specific floor: this run exists to prove creations work
-		 * under the per-form block obligation + the id enforcement, which is
-		 * only proven if connect-carrying creations actually COMMIT —
-		 * including the omitted-id arm (the autofill path). */
+		/* The Connect-specific floors: this run exists to prove creations work
+		 * under the per-form block obligation + the id enforcement + the
+		 * user_score parse boundary, which is only proven if the matching
+		 * creations actually COMMIT — the omitted-id arm (the autofill path),
+		 * the assessment arm (the text → AST boundary), and the same-call
+		 * reference arm (the batch-overlay resolution that must land an
+		 * identity leaf, the exact shape the unparsed-cast regression hid). */
 		let connectCreationCommits = 0;
 		let omittedIdCreationCommits = 0;
+		let assessmentCreationCommits = 0;
+		let sameCallScoreRefCommits = 0;
 		await fc.assert(
 			fc.asyncProperty(
 				fc.array(opArb, { minLength: 1, maxLength: 14 }),
@@ -1404,23 +1499,37 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					let doc = await growConnectPrelude(ctx);
 					assertZeroFindings(doc, "connect prelude");
 					assertIndexParity(doc, "connect prelude");
+					assertPersistedShapeParses(doc, "connect prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
 						if (next !== doc) {
 							tally.set(op.type, (tally.get(op.type) ?? 0) + 1);
-							if (opCarriesConnect(op)) {
+							if (
+								(op.type === "createForm" || op.type === "createModule") &&
+								opCarriesConnect(op) &&
+								op.connect
+							) {
 								connectCreationCommits++;
 								if (
-									(op.type === "createForm" || op.type === "createModule") &&
-									op.connect?.learn_module.id === undefined
+									(op.connect.learn_module ?? op.connect.assessment)?.id ===
+									undefined
 								) {
 									omittedIdCreationCommits++;
+								}
+								if (op.connect.assessment) {
+									assessmentCreationCommits++;
+									if (
+										op.connect.assessment.user_score === "__same_call_field__"
+									) {
+										sameCallScoreRefCommits++;
+									}
 								}
 							}
 						}
 						doc = next;
 						assertZeroFindings(doc, `connect op#${i} ${op.type}`);
 						assertIndexParity(doc, `connect op#${i} ${op.type}`);
+						assertPersistedShapeParses(doc, `connect op#${i} ${op.type}`);
 					}
 				},
 			),
@@ -1429,5 +1538,13 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 		assertCommitFloor(tally, "connect run");
 		expect(connectCreationCommits).toBeGreaterThan(0);
 		expect(omittedIdCreationCommits).toBeGreaterThan(0);
+		expect(
+			assessmentCreationCommits,
+			"no assessment-carrying creation ever committed — the user_score parse boundary went unexercised",
+		).toBeGreaterThan(0);
+		expect(
+			sameCallScoreRefCommits,
+			"no committed assessment ever referenced a field from its own call — the batch-overlay resolution arm went unexercised",
+		).toBeGreaterThan(0);
 	});
 });
