@@ -867,6 +867,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					slotKey: string,
 					upload: { filename: string; kind: MediaKind; abort: () => void },
 				) {
+					/* Re-staging over a transfer still running on this slot
+					 * displaces it — abort the displaced transfer FIRST. Once its
+					 * handle is overwritten the transfer is unreachable: cancel
+					 * can't stop it, and if it confirmed it would attach the
+					 * DISPLACED file and clear this record out from under the new
+					 * upload. The displaced driver settles against its own aborted
+					 * signal (the same silent branch a user cancel takes). */
+					stagedUploadAborts.get(slotKey)?.();
 					stagedUploadAborts.set(slotKey, upload.abort);
 					set((s) => ({
 						stagedUploads: {

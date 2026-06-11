@@ -270,7 +270,7 @@ export const REPAIR_JUDGMENTS: Readonly<
 		"the wiring names a field that's gone; re-pointing it is content",
 	),
 	MEDIA_CASE_PROPERTY: mechanical(
-		"clear case_property_on on the media field; the case-attachment shape is never emitted, so the slot has zero wire effect",
+		"clear case_property_on on the media field; the case-update arm already skips media kinds (formActions.ts::buildSafeUpdateMap), and on a case-loading form the only wire artifact is the case-preload setvalue piping case text into a media question — broken on its face, so removing it is the repair",
 	),
 	CASE_PRELOAD_MISSING_FIELD: owner(
 		"the preload names a field that's gone; re-pointing it is content",
@@ -890,7 +890,7 @@ const planClearMediaCaseProperty: RepairModule = (finding, doc) => {
 	if (!field || fieldCasePropertyOn(field) === undefined) return undefined;
 	return {
 		tier: "mechanical",
-		description: `clear case_property_on on media field "${field.id}" (the case-attachment shape is never emitted)`,
+		description: `clear case_property_on on media field "${field.id}" (case updates already skip media kinds; on a case-loading form this also drops the preload setvalue that piped case text into the media question)`,
 		mutations: [updateFieldMutation(field, { case_property_on: null })],
 	};
 };
@@ -1274,6 +1274,14 @@ export interface AppRepairOutcome {
 	rejected: RejectedRepair[];
 	/** Plans that committed but did not clear their finding. */
 	uncleared: FindingReport[];
+	/** Instances of a mechanically/proposed-judged class the planner had
+	 *  no deterministic rewrite for (an unknown function with no
+	 *  case-insensitive match, an arity error outside round(), case-bound
+	 *  duplicate-id twins, a deep-XPath finding on a slot the rewriters
+	 *  don't reach). Owner-resolved, exactly like the needs-owner classes
+	 *  — the report must surface each one or the repair → re-scan
+	 *  choreography stalls on an invisible finding. */
+	unplanned: FindingReport[];
 	verdict: RepairOutcomeVerdict;
 }
 
@@ -1300,6 +1308,7 @@ export function repairApp(
 	const proposedSkipped: FindingReport[] = [];
 	const rejected: RejectedRepair[] = [];
 	const uncleared: FindingReport[] = [];
+	const unplanned: FindingReport[] = [];
 	// Identities already handled (repaired, withheld, refused, or
 	// planless) — the loop never revisits one, which bounds it.
 	const settled = new Set<string>();
@@ -1312,6 +1321,19 @@ export function repairApp(
 		const identity = errorIdentity(next);
 		const plan = planRepair(next, working);
 		if (!plan) {
+			const judgment = judgmentFor(next.code);
+			if (judgment.kind === "mechanical" || judgment.kind === "proposed") {
+				// The CLASS repairs, this INSTANCE doesn't: the deterministic
+				// rewrite doesn't cover its shape. It must land in the report
+				// as an owner item — settling it silently would leave a
+				// repairable-labeled finding standing with no line explaining
+				// why, and the repair → re-scan choreography would stall on it.
+				unplanned.push({
+					finding: next,
+					description:
+						"the class repairs mechanically, but no deterministic repair covers this instance's shape — resolve it by hand",
+				});
+			}
 			settled.add(identity);
 			continue;
 		}
@@ -1353,6 +1375,133 @@ export function repairApp(
 		proposed: proposedSkipped,
 		rejected,
 		uncleared,
+		unplanned,
 		verdict: repairOutcomeVerdict(before, after, applied.length),
 	};
+}
+
+// ── The per-app report — rendered here so it's testable ─────────────
+
+export interface RenderedRepairReport {
+	lines: string[];
+	/** Findings the OWNER must resolve: the unplanned instances plus every
+	 *  surviving finding not already covered by a section above. */
+	needsOwnerCount: number;
+}
+
+/**
+ * Render one app's repair outcome as the report lines the CLI prints.
+ * Total over the outcome: every surviving finding appears exactly once —
+ * applied / proposed / gate-refused / did-not-clear / no-plan in their
+ * sections, and EVERYTHING else (keyed by finding identity, so an
+ * instance of a repairable class that no section claimed can never fall
+ * through) as a needs-owner line carrying the judgment's reasoning.
+ */
+export function renderAppRepairReport(
+	outcome: AppRepairOutcome,
+	options: { applyLabel: string },
+): RenderedRepairReport {
+	const lines: string[] = [];
+	let needsOwnerCount = 0;
+	const section = (prefix: string, reports: readonly FindingReport[]) => {
+		for (const { finding, description } of reports) {
+			lines.push(
+				`  ${prefix} ${finding.code} — ${describeFindingLocation(finding)}`,
+				`      ${description}`,
+			);
+		}
+	};
+
+	section(options.applyLabel, outcome.applied);
+	section("PROPOSED (needs --apply-proposed)", outcome.proposed);
+	for (const { finding, description, introduced } of outcome.rejected) {
+		lines.push(
+			`  GATE-REFUSED ${finding.code} — ${describeFindingLocation(finding)}`,
+			`      the planned repair (${description}) would itself introduce:`,
+			...introduced.map((e) => `        - ${e.message}`),
+		);
+	}
+	section("DID NOT CLEAR", outcome.uncleared);
+	for (const { finding, description } of outcome.unplanned) {
+		needsOwnerCount++;
+		lines.push(
+			`  NEEDS OWNER (no repair for this shape) ${finding.code} — ${describeFindingLocation(finding)}`,
+			`      ${finding.message}`,
+			`      (${description})`,
+		);
+	}
+
+	// Every surviving finding a section above already explained, by
+	// identity — never by code, so a second instance of a repaired class
+	// still gets its own line below.
+	const reportedAbove = new Set(
+		[
+			...outcome.proposed,
+			...outcome.rejected,
+			...outcome.uncleared,
+			...outcome.unplanned,
+		].map((report) => errorIdentity(report.finding)),
+	);
+	for (const finding of outcome.after) {
+		if (reportedAbove.has(errorIdentity(finding))) continue;
+		needsOwnerCount++;
+		lines.push(
+			`  NEEDS OWNER ${finding.code} — ${describeFindingLocation(finding)}`,
+			`      ${finding.message}`,
+			`      (${judgmentFor(finding.code).reason})`,
+		);
+	}
+
+	return { lines, needsOwnerCount };
+}
+
+// ── Per-app fault isolation ──────────────────────────────────────────
+//
+// A structurally broken stored blueprint (a dangling `moduleOrder` uuid
+// the validator dereferences, a shape `structuredClone` chokes on) must
+// cost ONE app's report, never the run — the scan/repair loop covers
+// every app the owner is bringing inside the invariant, and an abort
+// mid-loop silently skips the rest. The CLIs route per-app work through
+// these guards and print the error arm person-to-person.
+
+export type GuardedAppResult<T> =
+	| { ok: true; value: T }
+	| { ok: false; error: string };
+
+function guardError(err: unknown): { ok: false; error: string } {
+	return { ok: false, error: err instanceof Error ? err.message : String(err) };
+}
+
+/** The scan's per-app work: load the boundary view + evaluate. */
+export function guardedLegacyEvaluation(raw: unknown): GuardedAppResult<{
+	view: LegacyBlueprintView;
+	evaluation: LegacyEvaluation;
+}> {
+	try {
+		const view = toLegacyBlueprintView(raw);
+		return {
+			ok: true,
+			value: { view, evaluation: evaluateLegacyFindings(view.doc) },
+		};
+	} catch (err) {
+		return guardError(err);
+	}
+}
+
+/** The repair CLI's findings stage: load the boundary view and, when the
+ *  app has findings, run the repair loop. `doc` is the boundary-view doc
+ *  BEFORE repairs — the caller picks `outcome.doc` when the oracle holds. */
+export function guardedRepairApp(
+	raw: unknown,
+	options: RepairAppOptions,
+): GuardedAppResult<{ doc: BlueprintDoc; outcome?: AppRepairOutcome }> {
+	try {
+		const { doc } = toLegacyBlueprintView(raw);
+		if (evaluateLegacyFindings(doc).findings.length === 0) {
+			return { ok: true, value: { doc } };
+		}
+		return { ok: true, value: { doc, outcome: repairApp(doc, options) } };
+	} catch (err) {
+		return guardError(err);
+	}
 }

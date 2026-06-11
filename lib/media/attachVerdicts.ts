@@ -11,8 +11,9 @@
 // matches its slot's kind — and the attach never pushes the app's
 // referenced-media aggregate past the export ceiling.
 //
-// What makes checking at attach SUFFICIENT — an asset cannot go bad
-// after the attach commits:
+// Why attach-time checking holds — every way an asset could go bad
+// after the attach commits is closed, except one narrow delete/attach
+// interleaving with a designed backstop (see the surfaces paragraph):
 //
 //   - Deleting a referenced asset is refused at both delete surfaces:
 //     the browser route (`app/api/media/[assetId]/route.ts::DELETE`,
@@ -41,11 +42,23 @@
 // per-asset judgment INSIDE the transactional commit — the expectations
 // ride `guardedMutate` → `recordMutations` → `applyBlueprintChange`'s
 // guard, and `describeMediaExpectationFailures` is re-applied to rows
-// read in the SAME Firestore transaction that re-verdicts the batch, so
-// a delete racing the attach serializes against it. The aggregate
-// ceiling stays pre-commit-only on both surfaces: a racing delete can
-// only SHRINK the aggregate, and the boundary's own budget check remains
-// the backstop for the pathological concurrent-attach case.
+// read in the SAME Firestore transaction that re-verdicts the batch.
+// That covers the ordering where the delete COMMITS first: a row gone
+// by the attach's transactional read fails the re-verdict and the
+// attach refuses. The REVERSE interleaving survives on both surfaces —
+// the delete's reference guard (`findAppReferencesToAsset`) runs
+// outside any transaction against the `referencingAppIds` reverse
+// index, which updates only after a blueprint write commits, so a
+// guard read taken just before the attach commit lands sees no
+// reference, approves the delete, and the row drops just after the
+// attach. The ref that interleaving strands is exactly what the export
+// boundary's media arm exists for (`MEDIA_ASSET_NOT_FOUND` rejects the
+// export naming the re-uploadable file), with the legacy repair pair's
+// `--media` arm (`scripts/lib/legacyMediaRefs.ts`) as the bulk
+// clear-dead-refs tool. The aggregate ceiling stays pre-commit-only on
+// both surfaces: a racing delete can only SHRINK the aggregate, and
+// the boundary's own budget check remains the backstop for the
+// pathological concurrent-attach case.
 
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";

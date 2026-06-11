@@ -41,7 +41,10 @@ import {
 import {
 	evaluateLegacyFindings,
 	gatingValidationCodes,
+	guardedLegacyEvaluation,
+	guardedRepairApp,
 	REPAIR_JUDGMENTS,
+	renderAppRepairReport,
 	repairApp,
 	repairableCodes,
 	repairOutcomeVerdict,
@@ -191,7 +194,11 @@ describe("XPath text repairs", () => {
 		expectRepaired(doc, "UNKNOWN_FUNCTION");
 	});
 
-	it("UNKNOWN_FUNCTION: a genuinely unknown function is reported, never guessed", () => {
+	it("UNKNOWN_FUNCTION: a genuinely unknown function lands in `unplanned` and the rendered report", () => {
+		// The class is judged mechanical, but this instance has no
+		// case-insensitive registry match — the repairable-class-without-a-
+		// plan shape. It must surface per instance in the report, or the
+		// repair → re-scan choreography stalls on an invisible finding.
 		const doc = minDoc([
 			f({
 				kind: "text",
@@ -205,6 +212,18 @@ describe("XPath text repairs", () => {
 		expect(codes(outcome.after)).toContain("UNKNOWN_FUNCTION");
 		expect(outcome.applied).toEqual([]);
 		expect(outcome.verdict.ok).toBe(true);
+		expect(outcome.unplanned).toHaveLength(1);
+		expect(outcome.unplanned[0].finding.code).toBe("UNKNOWN_FUNCTION");
+
+		const report = renderAppRepairReport(outcome, {
+			applyLabel: "WOULD REPAIR",
+		});
+		const rendered = report.lines.join("\n");
+		expect(rendered).toContain(
+			"NEEDS OWNER (no repair for this shape) UNKNOWN_FUNCTION",
+		);
+		expect(rendered).toContain("resolve it by hand");
+		expect(report.needsOwnerCount).toBe(1);
 	});
 
 	it("WRONG_ARITY: drops round()'s extra argument", () => {
@@ -319,6 +338,11 @@ describe("identifier repairs", () => {
 		expect(codes(outcome.before)).toContain("DUPLICATE_FIELD_ID");
 		expect(codes(outcome.after)).toContain("DUPLICATE_FIELD_ID");
 		expect(outcome.verdict.ok).toBe(true);
+		// Mechanical class, no plan for this shape → the unplanned bucket,
+		// never a silent skip.
+		expect(outcome.unplanned.map((entry) => entry.finding.code)).toContain(
+			"DUPLICATE_FIELD_ID",
+		);
 	});
 
 	it("sanitizeIdentifier is deterministic and letter-first", () => {
@@ -814,5 +838,60 @@ describe("toLegacyBlueprintView — reads pre-AST blueprints the migration's way
 		const { findings, birth } = evaluateLegacyFindings(empty);
 		expect(findings).toEqual([]);
 		expect(codes(birth).sort()).toEqual(["EMPTY_APP_NAME", "NO_MODULES"]);
+	});
+});
+
+// ── Per-app fault isolation ──────────────────────────────────────────
+
+describe("guarded per-app entry points — one broken doc never takes down the run", () => {
+	/** A structurally broken stored doc: `moduleOrder` names a module that
+	 *  doesn't exist, so the validator's module walk dereferences
+	 *  `undefined` and throws. */
+	function brokenStoredDoc(): Record<string, unknown> {
+		const doc = minDoc();
+		doc.moduleOrder.push(asUuid("ghost-module"));
+		const raw = structuredClone(doc) as unknown as Record<string, unknown>;
+		delete raw.fieldParent;
+		return raw;
+	}
+
+	it("the broken fixture genuinely throws when evaluated unguarded", () => {
+		const { doc } = toLegacyBlueprintView(brokenStoredDoc());
+		expect(() => evaluateLegacyFindings(doc)).toThrow();
+	});
+
+	it("guardedLegacyEvaluation returns the error arm instead of throwing", () => {
+		const result = guardedLegacyEvaluation(brokenStoredDoc());
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.error.length).toBeGreaterThan(0);
+	});
+
+	it("guardedRepairApp returns the error arm instead of throwing", () => {
+		const result = guardedRepairApp(brokenStoredDoc(), {
+			applyProposed: false,
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.error.length).toBeGreaterThan(0);
+	});
+
+	it("a healthy doc passes through both guards unchanged", () => {
+		const doc = minDoc([f({ kind: "text", id: "bad id!", label: "Bad" })]);
+		const raw = structuredClone(doc) as unknown as Record<string, unknown>;
+		delete raw.fieldParent;
+
+		const scan = guardedLegacyEvaluation(raw);
+		expect(scan.ok).toBe(true);
+		if (scan.ok) {
+			expect(codes(scan.value.evaluation.findings)).toContain(
+				"INVALID_FIELD_ID",
+			);
+		}
+
+		const repair = guardedRepairApp(raw, { applyProposed: false });
+		expect(repair.ok).toBe(true);
+		if (repair.ok) {
+			expect(repair.value.outcome?.verdict.ok).toBe(true);
+			expect(repair.value.outcome?.after).toEqual([]);
+		}
 	});
 });

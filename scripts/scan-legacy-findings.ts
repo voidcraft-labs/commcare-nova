@@ -40,9 +40,8 @@ import { VALIDITY_CLASS_BY_CODE } from "../lib/commcare/validator/gate";
 import { collectAssetRefs } from "../lib/domain/mediaRefs";
 import {
 	describeFindingLocation,
-	evaluateLegacyFindings,
+	guardedLegacyEvaluation,
 	judgmentFor,
-	toLegacyBlueprintView,
 } from "./lib/legacyFindingRepairs";
 import {
 	classifyMediaRefs,
@@ -110,6 +109,7 @@ async function main() {
 	let deadRefTotal = 0;
 	let ambiguousRefTotal = 0;
 	let refTotal = 0;
+	const failedApps: string[] = [];
 	const tally = new Map<ValidationErrorCode, number>();
 
 	for (const appSnap of apps.docs) {
@@ -122,73 +122,96 @@ async function main() {
 			continue;
 		}
 
-		const { doc, conversion } = toLegacyBlueprintView(blueprint);
-		for (const failure of conversion.failures) {
-			conversionFailures++;
-			console.log(
-				`${label}\n  EXPRESSION ROUND-TRIP FAIL [${failure.slot} on ${failure.entityUuid}] — ` +
-					"a parser/printer bug, owned by scan-expression-asts.ts; this scan evaluated the slot as stored.\n" +
-					`      stored:  ${JSON.stringify(failure.text)}\n` +
-					`      printed: ${JSON.stringify(failure.printed)}`,
-			);
-		}
-
-		const { findings, birth } = evaluateLegacyFindings(doc);
-
-		// The --media arm: resolve every referenced asset and judge each
-		// reference. Independent of the blueprint findings — an app can be
-		// clean on one axis and not the other.
-		let mediaReport: MediaRefReport | undefined;
-		if (media) {
-			const ids = [...collectAssetRefs(doc)];
-			const rows =
-				ids.length === 0 ? new Map() : await loadAssetRowsForScan(db, ids);
-			mediaReport = classifyMediaRefs(
-				doc,
-				typeof data.owner === "string" ? data.owner : undefined,
-				rows,
-				{ nowMs: Date.now() },
-			);
-			refTotal += mediaReport.total;
-			deadRefTotal += mediaReport.dead.length;
-			ambiguousRefTotal += mediaReport.needsOwner.length;
-		}
-		const mediaFindingCount = mediaReport
-			? mediaReport.dead.length + mediaReport.needsOwner.length
-			: 0;
-
-		if (findings.length === 0 && mediaFindingCount === 0) {
-			if (birth.length > 0) emptyApps++;
-			continue;
-		}
-
-		appsWithFindings++;
-		console.log(
-			`${label} — ${findings.length} finding(s)` +
-				(mediaFindingCount > 0
-					? ` + ${mediaFindingCount} media reference(s)`
-					: ""),
-		);
-		for (const err of findings) {
-			tally.set(err.code, (tally.get(err.code) ?? 0) + 1);
-			console.log(findingLine(err));
-		}
-		if (mediaReport) {
-			for (const entry of mediaReport.dead) {
+		// Per-app fault isolation: a stored doc broken enough to throw out
+		// of the loader/validator (a dangling moduleOrder uuid a rule
+		// dereferences) costs THIS app's report, never the run — the scan
+		// covers every app the owner is bringing inside the invariant.
+		try {
+			const guarded = guardedLegacyEvaluation(blueprint);
+			if (!guarded.ok) {
+				failedApps.push(label);
 				console.log(
-					`  [media] DEAD ${describeMediaRef(entry)}\n      REPAIRABLE — repair-legacy-findings.ts --media clears it.`,
+					`${label}\n  ✗ COULDN'T SCAN — the stored blueprint is broken in a way the validator can't even read:\n` +
+						`      ${guarded.error}\n` +
+						"      Fix this app by hand (scripts/recover-app.ts), then re-scan; every other app was scanned normally.\n",
+				);
+				continue;
+			}
+			const { doc, conversion } = guarded.value.view;
+			for (const failure of conversion.failures) {
+				conversionFailures++;
+				console.log(
+					`${label}\n  EXPRESSION ROUND-TRIP FAIL [${failure.slot} on ${failure.entityUuid}] — ` +
+						"a parser/printer bug, owned by scan-expression-asts.ts; this scan evaluated the slot as stored.\n" +
+						`      stored:  ${JSON.stringify(failure.text)}\n` +
+						`      printed: ${JSON.stringify(failure.printed)}`,
 				);
 			}
-			for (const entry of mediaReport.needsOwner) {
-				console.log(`  [media] NEEDS OWNER ${describeMediaRef(entry)}`);
+
+			const { findings, birth } = guarded.value.evaluation;
+
+			// The --media arm: resolve every referenced asset and judge each
+			// reference. Independent of the blueprint findings — an app can be
+			// clean on one axis and not the other.
+			let mediaReport: MediaRefReport | undefined;
+			if (media) {
+				const ids = [...collectAssetRefs(doc)];
+				const rows =
+					ids.length === 0 ? new Map() : await loadAssetRowsForScan(db, ids);
+				mediaReport = classifyMediaRefs(
+					doc,
+					typeof data.owner === "string" ? data.owner : undefined,
+					rows,
+					{ nowMs: Date.now() },
+				);
+				refTotal += mediaReport.total;
+				deadRefTotal += mediaReport.dead.length;
+				ambiguousRefTotal += mediaReport.needsOwner.length;
 			}
-		}
-		if (birth.length > 0) {
+			const mediaFindingCount = mediaReport
+				? mediaReport.dead.length + mediaReport.needsOwner.length
+				: 0;
+
+			if (findings.length === 0 && mediaFindingCount === 0) {
+				if (birth.length > 0) emptyApps++;
+				continue;
+			}
+
+			appsWithFindings++;
 			console.log(
-				"  (plus the empty-app birth state — by design, not counted)",
+				`${label} — ${findings.length} finding(s)` +
+					(mediaFindingCount > 0
+						? ` + ${mediaFindingCount} media reference(s)`
+						: ""),
+			);
+			for (const err of findings) {
+				tally.set(err.code, (tally.get(err.code) ?? 0) + 1);
+				console.log(findingLine(err));
+			}
+			if (mediaReport) {
+				for (const entry of mediaReport.dead) {
+					console.log(
+						`  [media] DEAD ${describeMediaRef(entry)}\n      REPAIRABLE — repair-legacy-findings.ts --media clears it.`,
+					);
+				}
+				for (const entry of mediaReport.needsOwner) {
+					console.log(`  [media] NEEDS OWNER ${describeMediaRef(entry)}`);
+				}
+			}
+			if (birth.length > 0) {
+				console.log(
+					"  (plus the empty-app birth state — by design, not counted)",
+				);
+			}
+			console.log("");
+		} catch (err) {
+			failedApps.push(label);
+			console.log(
+				`${label}\n  ✗ COULDN'T SCAN — this app threw mid-scan:\n` +
+					`      ${err instanceof Error ? err.message : String(err)}\n` +
+					"      Fix this app by hand (scripts/recover-app.ts), then re-scan; every other app was scanned normally.\n",
 			);
 		}
-		console.log("");
 	}
 
 	// ── Per-class tally with the repair judgment ─────────────────────
@@ -215,6 +238,13 @@ async function main() {
 		console.log(
 			`Media references: ${refTotal} walked; ${deadRefTotal} dead (repairable); ${ambiguousRefTotal} need the owner.`,
 		);
+	}
+	if (failedApps.length > 0) {
+		console.log(
+			`\n✗ ${failedApps.length} app(s) couldn't be scanned (stored doc too broken to read — see the per-app reports above) and need the owner:\n` +
+				failedApps.map((entry) => `  - ${entry}`).join("\n"),
+		);
+		process.exitCode = 1;
 	}
 	if (appsWithFindings > 0) {
 		console.log(

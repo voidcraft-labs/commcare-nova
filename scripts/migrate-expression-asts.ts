@@ -25,6 +25,14 @@
  * `scan-expression-asts.ts` is the read-only twin. Idempotent:
  * a converted slot reads as already-current on a re-run.
  *
+ * The blueprint write goes through the app writers' own snapshot-field
+ * shape (`lib/db/apps.ts::blueprintSnapshotFields` — denormalized
+ * summary + `updated_at` + a ROTATED `blueprint_token`), so a builder
+ * tab still open across the migration window gets a stale-basis
+ * rejection on its next auto-save and reloads, instead of blind-PUTting
+ * its pre-AST doc back over the converted row (which the deployed
+ * code's strict load gate would then refuse).
+ *
  * One-time migration: the deployed code reads ONLY the AST shape, so
  * the owner runs this against production when deploying the
  * expression-AST representation over data written before it — scan
@@ -34,12 +42,13 @@
  */
 import { Firestore } from "@google-cloud/firestore";
 import { Command } from "commander";
+import { blueprintSnapshotFields } from "../lib/db/apps";
 import {
 	type DocExpressionMigrationResult,
 	migrateDocExpressions,
 	migrateMutationExpressions,
 } from "../lib/doc/expressionMigration";
-import { rebuildFieldParent } from "../lib/doc/fieldParent";
+import { rebuildFieldParent, toPersistableDoc } from "../lib/doc/fieldParent";
 import { applyMutations } from "../lib/doc/mutations";
 import type { BlueprintDoc, Mutation } from "../lib/doc/types";
 import { runMain } from "./lib/main";
@@ -133,12 +142,17 @@ async function main() {
 				);
 				reportFailures("  ", result);
 				if (apply) {
-					// `fieldParent` is in-memory derived state — strip before
-					// the write so the stored row stays the persisted shape.
-					const { fieldParent: _derived, ...persisted } =
-						migrated as BlueprintDoc & { refIndex?: unknown };
-					delete (persisted as { refIndex?: unknown }).refIndex;
-					await appSnap.ref.update({ blueprint: persisted });
+					/* The app writers' snapshot-field shape with a ROTATED basis
+					 * token — a builder tab open across the migration window gets
+					 * a stale-basis rejection on its next auto-save instead of
+					 * blind-PUTting its pre-AST doc back over the converted row.
+					 * The conversion never adds an asset reference, so the
+					 * writers' media reverse-index sync has nothing to add. */
+					await appSnap.ref.update(
+						blueprintSnapshotFields(toPersistableDoc(migrated), {
+							basisToken: crypto.randomUUID(),
+						}),
+					);
 					blueprintWrites++;
 				}
 			} else {

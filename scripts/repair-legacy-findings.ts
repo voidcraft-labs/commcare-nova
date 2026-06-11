@@ -36,25 +36,29 @@
  * A written blueprint lands in the expression-AST shape (the converter
  * runs as part of the load) — `migrate-expression-asts.ts` later reads
  * those slots as already current; event logs are untouched here and
- * convert in that script.
+ * convert in that script. The write goes through the app writers' own
+ * snapshot-field shape (`lib/db/apps.ts::blueprintSnapshotFields` —
+ * denormalized summary + `updated_at` + a ROTATED `blueprint_token`),
+ * so a builder tab still open across the migration window gets a
+ * stale-basis rejection on its next auto-save and reloads, instead of
+ * silently overwriting the repairs with its pre-repair doc.
  *
  * Idempotent (a repaired app re-evaluates clean, so a re-run plans
  * nothing) and resumable per app (each app loads, repairs, and writes
  * independently — a re-run after an interruption skips the finished
- * ones). Run with `--help` for flags.
+ * ones, and an app whose stored doc is too broken to even read is
+ * reported and skipped without taking down the run). Run with `--help`
+ * for flags.
  */
 import { Firestore } from "@google-cloud/firestore";
 import { Command } from "commander";
+import { blueprintSnapshotFields } from "../lib/db/apps";
 import { mutationCommitVerdict } from "../lib/doc/commitVerdicts";
 import { toPersistableDoc } from "../lib/doc/fieldParent";
 import { collectAssetRefs, walkAssetRefs } from "../lib/domain/mediaRefs";
 import {
-	describeFindingLocation,
-	evaluateLegacyFindings,
-	type FindingReport,
-	judgmentFor,
-	repairApp,
-	toLegacyBlueprintView,
+	guardedRepairApp,
+	renderAppRepairReport,
 } from "./lib/legacyFindingRepairs";
 import {
 	classifyMediaRefs,
@@ -106,15 +110,6 @@ program
 program.parse();
 const { project, apply, applyProposed, media } = program.opts<RepairOptions>();
 
-function printReports(prefix: string, reports: readonly FindingReport[]): void {
-	for (const { finding, description } of reports) {
-		console.log(
-			`  ${prefix} ${finding.code} — ${describeFindingLocation(finding)}`,
-		);
-		console.log(`      ${description}`);
-	}
-}
-
 async function main() {
 	// `ignoreUndefinedProperties` matches the app's own Firestore client:
 	// the drop-this-config repairs (close conditions, post-submit) clear
@@ -138,6 +133,7 @@ async function main() {
 	let deadRefsCleared = 0;
 	let mediaNeedsOwnerTotal = 0;
 	const oracleFailures: string[] = [];
+	const failedApps: string[] = [];
 
 	for (const appSnap of apps.docs) {
 		const data = appSnap.data();
@@ -145,142 +141,157 @@ async function main() {
 		const blueprint = data.blueprint;
 		if (!blueprint) continue;
 
-		const { doc } = toLegacyBlueprintView(blueprint);
-		const hasFindings = evaluateLegacyFindings(doc).findings.length > 0;
-		if (!hasFindings && !media) continue;
-
-		/* The doc the write persists: the findings repairs apply first, the
-		 * media clears compose on top — one write per app either way. */
-		let working = doc;
-		let changed = false;
-
-		if (hasFindings) {
-			const outcome = repairApp(working, {
+		// Per-app fault isolation: a malformed stored doc costs THIS app's
+		// report, never the run — the catch at the bottom of the loop body
+		// is the backstop for the media arm + the write; the guarded repair
+		// covers the load + findings stage the same way.
+		try {
+			const guarded = guardedRepairApp(blueprint, {
 				applyProposed: applyProposed ?? false,
 			});
-			console.log(
-				`${label} — ${outcome.before.length} finding(s) → ${outcome.after.length}` +
-					(outcome.proposed.length > 0
-						? ` (${outcome.after.length - outcome.proposed.length} with --apply-proposed)`
-						: ""),
-			);
-			printReports(apply ? "REPAIRED" : "WOULD REPAIR", outcome.applied);
-			printReports("PROPOSED (needs --apply-proposed)", outcome.proposed);
-			for (const { finding, description, introduced } of outcome.rejected) {
+			if (!guarded.ok) {
+				failedApps.push(label);
 				console.log(
-					`  GATE-REFUSED ${finding.code} — ${describeFindingLocation(finding)}\n` +
-						`      the planned repair (${description}) would itself introduce:\n` +
-						introduced.map((e) => `        - ${e.message}`).join("\n"),
+					`${label}\n  ✗ COULDN'T PROCESS — the stored blueprint is broken in a way the repair can't even read:\n` +
+						`      ${guarded.error}\n` +
+						"      Nothing was written for it. Fix this app by hand (scripts/recover-app.ts), then re-run; every other app was processed normally.\n",
 				);
-			}
-			printReports("DID NOT CLEAR", outcome.uncleared);
-			for (const finding of outcome.after) {
-				const judgment = judgmentFor(finding.code);
-				if (judgment.kind === "mechanical" || judgment.kind === "proposed") {
-					continue; // already reported above as proposed/rejected/uncleared
-				}
-				needsOwnerTotal++;
-				console.log(
-					`  NEEDS OWNER ${finding.code} — ${describeFindingLocation(finding)}\n` +
-						`      ${finding.message}\n` +
-						`      (${judgment.reason})`,
-				);
-			}
-
-			if (!outcome.verdict.ok) {
-				oracleFailures.push(label);
-				console.log(
-					`  ✗ ORACLE FAILED — ${outcome.before.length} finding(s) before, ${outcome.after.length} after, ` +
-						`${outcome.verdict.introduced.length} introduced. Nothing was written for this app; ` +
-						"the repair engine has a bug to look at before re-running.",
-				);
-				for (const err of outcome.verdict.introduced) {
-					console.log(`      introduced: ${err.code} — ${err.message}`);
-				}
-				console.log("");
 				continue;
 			}
+			const { doc, outcome } = guarded.value;
+			const hasFindings = outcome !== undefined;
+			if (!hasFindings && !media) continue;
 
-			working = outcome.doc;
-			changed = outcome.changed;
-			findingsCleared += outcome.applied.length;
-			proposedWithheld += outcome.proposed.length;
-		}
+			/* The doc the write persists: the findings repairs apply first, the
+			 * media clears compose on top — one write per app either way. */
+			let working = doc;
+			let changed = false;
 
-		let printedMediaLines = false;
-		if (media) {
-			const ids = [...collectAssetRefs(working)];
-			const rows =
-				ids.length === 0 ? new Map() : await loadAssetRowsForScan(db, ids);
-			const report = classifyMediaRefs(
-				working,
-				typeof data.owner === "string" ? data.owner : undefined,
-				rows,
-				{ nowMs: Date.now() },
-			);
-			const plan = planMediaRefClears(working, report.dead);
-			const mediaIssues =
-				plan.notes.length + report.needsOwner.length + plan.unclearable.length;
-			if (mediaIssues > 0) {
-				printedMediaLines = true;
-				if (!hasFindings) {
-					console.log(`${label} — ${mediaIssues} media reference issue(s)`);
-				}
-			}
-
-			if (plan.mutations.length > 0) {
-				/* The same commit gate every live write surface runs — a clear
-				 * batch that would introduce any finding is refused whole. */
-				const gate = mutationCommitVerdict(working, plan.mutations);
-				if (!gate.ok) {
-					console.log(
-						"  MEDIA GATE-REFUSED — the planned clears would introduce:\n" +
-							gate.introduced.map((e) => `      - ${e.message}`).join("\n"),
-					);
-				} else {
-					/* Verify every targeted reference is actually GONE from the
-					 * cleared doc — the media twin of the strictly-decreasing
-					 * oracle. A survivor means the clear planner has a bug; the
-					 * app is reported and not written. */
-					const remaining = new Set(
-						[...walkAssetRefs(gate.nextDoc)].map(mediaRefIdentity),
-					);
-					const survivors = [...plan.clearedIdentities].filter((identity) =>
-						remaining.has(identity),
-					);
-					if (survivors.length > 0) {
-						oracleFailures.push(`${label} (media clears)`);
-						console.log(
-							`  ✗ MEDIA ORACLE FAILED — ${survivors.length} of ${plan.clearedIdentities.size} planned clears left their reference in place. ` +
-								"Nothing was written for this app; the clear planner has a bug to look at before re-running.",
-						);
-						console.log("");
-						continue;
-					}
-					for (const noteLine of plan.notes) {
-						console.log(`  ${apply ? "CLEARED" : "WOULD CLEAR"} ${noteLine}`);
-					}
-					working = gate.nextDoc;
-					changed = true;
-					deadRefsCleared += plan.notes.length;
-				}
-			}
-
-			for (const entry of [...report.needsOwner, ...plan.unclearable]) {
-				mediaNeedsOwnerTotal++;
-				console.log(`  NEEDS OWNER [media] ${describeMediaRef(entry)}`);
-			}
-		}
-
-		if (changed) {
-			appsRepaired++;
-			if (apply) {
-				await appSnap.ref.update({
-					blueprint: toPersistableDoc(working),
+			if (outcome) {
+				console.log(
+					`${label} — ${outcome.before.length} finding(s) → ${outcome.after.length}` +
+						(outcome.proposed.length > 0
+							? ` (${outcome.after.length - outcome.proposed.length} with --apply-proposed)`
+							: ""),
+				);
+				const report = renderAppRepairReport(outcome, {
+					applyLabel: apply ? "REPAIRED" : "WOULD REPAIR",
 				});
+				for (const line of report.lines) console.log(line);
+				needsOwnerTotal += report.needsOwnerCount;
+
+				if (!outcome.verdict.ok) {
+					oracleFailures.push(label);
+					console.log(
+						`  ✗ ORACLE FAILED — ${outcome.before.length} finding(s) before, ${outcome.after.length} after, ` +
+							`${outcome.verdict.introduced.length} introduced. Nothing was written for this app; ` +
+							"the repair engine has a bug to look at before re-running.",
+					);
+					for (const err of outcome.verdict.introduced) {
+						console.log(`      introduced: ${err.code} — ${err.message}`);
+					}
+					console.log("");
+					continue;
+				}
+
+				working = outcome.doc;
+				changed = outcome.changed;
+				findingsCleared += outcome.applied.length;
+				proposedWithheld += outcome.proposed.length;
 			}
+
+			let printedMediaLines = false;
+			if (media) {
+				const ids = [...collectAssetRefs(working)];
+				const rows =
+					ids.length === 0 ? new Map() : await loadAssetRowsForScan(db, ids);
+				const report = classifyMediaRefs(
+					working,
+					typeof data.owner === "string" ? data.owner : undefined,
+					rows,
+					{ nowMs: Date.now() },
+				);
+				const plan = planMediaRefClears(working, report.dead);
+				const mediaIssues =
+					plan.notes.length +
+					report.needsOwner.length +
+					plan.unclearable.length;
+				if (mediaIssues > 0) {
+					printedMediaLines = true;
+					if (!hasFindings) {
+						console.log(`${label} — ${mediaIssues} media reference issue(s)`);
+					}
+				}
+
+				if (plan.mutations.length > 0) {
+					/* The same commit gate every live write surface runs — a clear
+					 * batch that would introduce any finding is refused whole. */
+					const gate = mutationCommitVerdict(working, plan.mutations);
+					if (!gate.ok) {
+						console.log(
+							"  MEDIA GATE-REFUSED — the planned clears would introduce:\n" +
+								gate.introduced.map((e) => `      - ${e.message}`).join("\n"),
+						);
+					} else {
+						/* Verify every targeted reference is actually GONE from the
+						 * cleared doc — the media twin of the strictly-decreasing
+						 * oracle. A survivor means the clear planner has a bug; the
+						 * app is reported and not written. */
+						const remaining = new Set(
+							[...walkAssetRefs(gate.nextDoc)].map(mediaRefIdentity),
+						);
+						const survivors = [...plan.clearedIdentities].filter((identity) =>
+							remaining.has(identity),
+						);
+						if (survivors.length > 0) {
+							oracleFailures.push(`${label} (media clears)`);
+							console.log(
+								`  ✗ MEDIA ORACLE FAILED — ${survivors.length} of ${plan.clearedIdentities.size} planned clears left their reference in place. ` +
+									"Nothing was written for this app; the clear planner has a bug to look at before re-running.",
+							);
+							console.log("");
+							continue;
+						}
+						for (const noteLine of plan.notes) {
+							console.log(`  ${apply ? "CLEARED" : "WOULD CLEAR"} ${noteLine}`);
+						}
+						working = gate.nextDoc;
+						changed = true;
+						deadRefsCleared += plan.notes.length;
+					}
+				}
+
+				for (const entry of [...report.needsOwner, ...plan.unclearable]) {
+					mediaNeedsOwnerTotal++;
+					console.log(`  NEEDS OWNER [media] ${describeMediaRef(entry)}`);
+				}
+			}
+
+			if (changed) {
+				appsRepaired++;
+				if (apply) {
+					/* The app writers' snapshot-field shape with a ROTATED basis
+					 * token — a builder tab open across the migration window gets
+					 * a stale-basis rejection on its next auto-save instead of
+					 * overwriting the repairs. Repairs only remove or rename —
+					 * never add an asset reference — so the writers' reverse-index
+					 * sync has nothing to add for this write. */
+					await appSnap.ref.update(
+						blueprintSnapshotFields(toPersistableDoc(working), {
+							basisToken: crypto.randomUUID(),
+						}),
+					);
+				}
+			}
+			if (hasFindings || printedMediaLines) console.log("");
+		} catch (err) {
+			failedApps.push(label);
+			console.log(
+				`${label}\n  ✗ COULDN'T PROCESS — this app threw mid-repair:\n` +
+					`      ${err instanceof Error ? err.message : String(err)}\n` +
+					"      Nothing was written for it. Fix this app by hand (scripts/recover-app.ts), then re-run; every other app was processed normally.\n",
+			);
 		}
-		if (hasFindings || printedMediaLines) console.log("");
 	}
 
 	console.log(
@@ -295,6 +306,13 @@ async function main() {
 		console.log(
 			`\n✗ The strictly-decreasing oracle FAILED for ${oracleFailures.length} app(s) — nothing was written for them:\n` +
 				oracleFailures.map((entry) => `  - ${entry}`).join("\n"),
+		);
+		process.exitCode = 1;
+	}
+	if (failedApps.length > 0) {
+		console.log(
+			`\n✗ ${failedApps.length} app(s) couldn't be processed (stored doc too broken to read — see the per-app reports above) and need the owner:\n` +
+				failedApps.map((entry) => `  - ${entry}`).join("\n"),
 		);
 		process.exitCode = 1;
 	}

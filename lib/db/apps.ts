@@ -492,8 +492,16 @@ async function persistBlueprintSnapshot(
  * `appDocSchema.blueprint_token` for which writers rotate and why the
  * chat-run writers don't); writers that omit it leave the stored token
  * untouched.
+ *
+ * Exported for the one-time migration writers (`repair-legacy-findings`,
+ * `migrate-expression-asts`), which run on their own `--project`-pinned
+ * Firestore client and therefore can't call the `getDb()`-bound writers
+ * here — but must honor the same write contract: an owner-run migration
+ * is exactly the external write a live builder tab can't see, so it
+ * rotates the basis and a stale tab's next auto-save 409s and reloads
+ * instead of silently overwriting the migration.
  */
-function blueprintSnapshotFields(
+export function blueprintSnapshotFields(
 	doc: PersistedBlueprint,
 	extra: {
 		status?: AppDoc["status"];

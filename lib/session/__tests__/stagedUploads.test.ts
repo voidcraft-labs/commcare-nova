@@ -116,7 +116,34 @@ describe("staged media uploads", () => {
 			progress: 0,
 		});
 		store.getState().cancelStagedUpload(KEY);
+		// The failed transfer's handle was already dropped at failure —
+		// nothing in flight for the re-stage to displace.
 		expect(firstAbort).not.toHaveBeenCalled();
+		expect(secondAbort).toHaveBeenCalledTimes(1);
+	});
+
+	it("a re-stage over a LIVE upload aborts the displaced transfer", () => {
+		const store = createBuilderSessionStore();
+		const firstAbort = vi.fn();
+		const secondAbort = vi.fn();
+		stage(store, firstAbort);
+
+		// Pick a replacement file while the first transfer is still running:
+		// the displaced transfer must be aborted at stage time — its handle
+		// is unreachable afterwards, and left alive its confirm would attach
+		// the displaced file and clear the new upload's record.
+		stage(store, secondAbort);
+		expect(firstAbort).toHaveBeenCalledTimes(1);
+		expect(secondAbort).not.toHaveBeenCalled();
+		expect(store.getState().stagedUploads[KEY]?.status).toEqual({
+			state: "uploading",
+			progress: 0,
+		});
+
+		// Cancel reaches only the live (new) handle — the displaced one was
+		// consumed at stage time.
+		store.getState().cancelStagedUpload(KEY);
+		expect(firstAbort).toHaveBeenCalledTimes(1);
 		expect(secondAbort).toHaveBeenCalledTimes(1);
 	});
 
