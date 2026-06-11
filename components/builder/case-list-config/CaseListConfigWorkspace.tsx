@@ -511,80 +511,85 @@ function WorkspaceTabs({
 	/* The canvas narrows when the inspector docks (and again with both
 	 * sidebars open), so the row compacts by container width: metas
 	 * drop first, then labels go icon-only with the tooltip carrying
-	 * the name. */
+	 * the name. The bar spans the column (sticky, border); its contents
+	 * sit in the workspace's shared frame — the same `max-w-5xl px-8`
+	 * the case-list canvas, the breadcrumb strip, and the preview
+	 * run-through use, so every layer shares one left edge. */
 	return (
-		<div className="sticky top-0 z-raised flex items-center gap-1.5 @2xl:gap-2 px-4 @2xl:px-7 py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
-			{TAB_DEFS.map(({ id, icon, label }) => {
-				const active = tab === id;
-				const hasErrors = errorAreas[id];
-				return (
-					<Tooltip
-						key={id}
-						content={
-							hasErrors
-								? `${label} needs attention — open it to see what's wrong`
-								: label
-						}
-						placement="bottom"
-					>
-						<button
-							type="button"
-							onClick={() => onSelectTab(id)}
-							className={`relative flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
-								active
-									? "bg-nova-violet/[0.13] border-nova-border-bright"
-									: "border-transparent hover:bg-white/[0.03]"
-							}`}
+		<div className="sticky top-0 z-raised py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
+			<div className="mx-auto w-full max-w-5xl px-8 flex items-center gap-1.5 @2xl:gap-2">
+				{TAB_DEFS.map(({ id, icon, label }) => {
+					const active = tab === id;
+					const hasErrors = errorAreas[id];
+					return (
+						<Tooltip
+							key={id}
+							content={
+								hasErrors
+									? `${label} needs attention — open it to see what's wrong`
+									: label
+							}
+							placement="bottom"
 						>
-							{hasErrors && (
-								<span
-									className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
-									aria-hidden="true"
-								/>
-							)}
-							<Icon
-								icon={icon}
-								width="17"
-								height="17"
-								className={`shrink-0 ${
-									active ? "text-nova-violet-bright" : "text-nova-text-muted"
+							<button
+								type="button"
+								onClick={() => onSelectTab(id)}
+								className={`relative flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
+									active
+										? "bg-nova-violet/[0.13] border-nova-border-bright"
+										: "border-transparent hover:bg-white/[0.03]"
 								}`}
-							/>
-							{/* Flex column (not a plain block): a block wrapper carries
-							 *  the inherited 16px/24px line-height strut into the label's
-							 *  anonymous line box, which pads ~5px of dead space above the
-							 *  label and bottom-weights the whole text block. Flex children
-							 *  size to their own line-height, so label + meta center as a
-							 *  unit against the icon. */}
-							<span className="hidden @xl:flex flex-col gap-0.5">
-								{/* Grid stacks the visible label over an invisible bold
-								 *  ghost, so the slot is always as wide as the bold form —
-								 *  selecting a tab must never nudge its neighbors. */}
-								<span className="grid text-[13px] leading-tight">
+							>
+								{hasErrors && (
 									<span
-										className={`col-start-1 row-start-1 ${
-											active
-												? "font-semibold text-nova-text"
-												: "font-medium text-nova-text-secondary"
-										}`}
-									>
-										{label}
-									</span>
-									<span
+										className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
 										aria-hidden="true"
-										className="col-start-1 row-start-1 font-semibold invisible"
-									>
-										{label}
+									/>
+								)}
+								<Icon
+									icon={icon}
+									width="17"
+									height="17"
+									className={`shrink-0 ${
+										active ? "text-nova-violet-bright" : "text-nova-text-muted"
+									}`}
+								/>
+								{/* Flex column (not a plain block): a block wrapper carries
+								 *  the inherited 16px/24px line-height strut into the label's
+								 *  anonymous line box, which pads ~5px of dead space above the
+								 *  label and bottom-weights the whole text block. Flex children
+								 *  size to their own line-height, so label + meta center as a
+								 *  unit against the icon. */}
+								<span className="hidden @xl:flex flex-col gap-0.5">
+									{/* Grid stacks the visible label over an invisible bold
+									 *  ghost, so the slot is always as wide as the bold form —
+									 *  selecting a tab must never nudge its neighbors. */}
+									<span className="grid text-[13px] leading-tight">
+										<span
+											className={`col-start-1 row-start-1 ${
+												active
+													? "font-semibold text-nova-text"
+													: "font-medium text-nova-text-secondary"
+											}`}
+										>
+											{label}
+										</span>
+										<span
+											aria-hidden="true"
+											className="col-start-1 row-start-1 font-semibold invisible"
+										>
+											{label}
+										</span>
+									</span>
+									<span className="hidden @min-[40rem]:block text-[10px] text-nova-text-muted leading-tight">
+										{metas[id]}
 									</span>
 								</span>
-								<span className="hidden @min-[40rem]:block text-[10px] text-nova-text-muted leading-tight">
-									{metas[id]}
-								</span>
-							</span>
-						</button>
-					</Tooltip>
-				);
-			})}
+							</button>
+						</Tooltip>
+					);
+				})}
+			</div>
 		</div>
 	);
 }
