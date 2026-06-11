@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { expandHashtags } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -3223,8 +3223,8 @@ describe("Connect deliver_unit entity defaults", () => {
 								deliver_unit: {
 									id: "vendor_visit",
 									name: "Vendor visit",
-									entity_id: "uuid()",
-									entity_name: "'manual override'",
+									entity_id: xp("uuid()"),
+									entity_name: xp("'manual override'"),
 								},
 							},
 							fields: [f({ kind: "text", id: "vendor", label: "Vendor" })],

@@ -365,7 +365,7 @@ export function validateBlueprintDeep(
 			if (connect) {
 				const connectXPaths: Array<[ConnectXPathSlot, string]> = [];
 				for (const slot of CONNECT_XPATH_SLOT_IDS) {
-					const expr = formExpressionSource(form, slot);
+					const expr = formExpressionSource(form, slot, doc);
 					if (expr) connectXPaths.push([slot, expr]);
 				}
 				for (const [slot, expr] of connectXPaths) {

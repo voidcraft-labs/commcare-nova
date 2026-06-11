@@ -18,9 +18,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig, Form, Module } from "@/lib/domain";
-import { asUuid, expressionSource } from "@/lib/domain";
+import { asUuid, expressionSource, formExpressionSource } from "@/lib/domain";
 import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
 import { makeMcpTestContext, makeTestContext } from "../fixtures";
@@ -107,7 +108,7 @@ function makeDocWithFullConnect(): BlueprintDoc {
 		},
 		assessment: {
 			id: "patient_enroll_quiz",
-			user_score: "#form/quiz_score",
+			user_score: xp("#form/quiz_score"),
 		},
 	};
 	return {
@@ -419,10 +420,16 @@ describe("updateFormTool partial connect-config updates", () => {
 			description: "How to enroll patients",
 			time_estimate: 20,
 		});
-		expect(patchConnect?.assessment).toEqual({
-			id: "patient_enroll_quiz",
-			user_score: "#form/new_score",
-		});
+		expect(patchConnect?.assessment?.id).toBe("patient_enroll_quiz");
+		const patchedForm = result.newDoc.forms[FORM_A];
+		expect(
+			patchedForm &&
+				formExpressionSource(
+					patchedForm,
+					"assessment_user_score",
+					result.newDoc,
+				),
+		).toBe("#form/new_score");
 	});
 
 	it("patching only `learn_module` preserves the existing `assessment`", async () => {
@@ -454,10 +461,16 @@ describe("updateFormTool partial connect-config updates", () => {
 			throw new Error(`expected updateForm mutation, got ${mut?.kind}`);
 		}
 		const patchConnect = mut.patch.connect;
-		expect(patchConnect?.assessment).toEqual({
-			id: "patient_enroll_quiz",
-			user_score: "#form/quiz_score",
-		});
+		expect(patchConnect?.assessment?.id).toBe("patient_enroll_quiz");
+		const patchedForm = result.newDoc.forms[FORM_A];
+		expect(
+			patchedForm &&
+				formExpressionSource(
+					patchedForm,
+					"assessment_user_score",
+					result.newDoc,
+				),
+		).toBe("#form/quiz_score");
 		/* Merge semantics: the spread keeps pre-existing `id` from the
 		 * existing learn_module plus the new name/description/time
 		 * the patch supplied. */
@@ -634,8 +647,8 @@ describe("updateFormTool deliver_unit", () => {
 						deliver_unit: {
 							id: "vendor_visit",
 							name: "Vendor visit",
-							entity_id: "concat(#form/loc_id, '-', uuid())",
-							entity_name: "#form/loc_id/market_name",
+							entity_id: xp("concat(#form/loc_id, '-', uuid())"),
+							entity_name: xp("#form/loc_id/market_name"),
 						},
 					},
 				} as Form,
@@ -656,12 +669,18 @@ describe("updateFormTool deliver_unit", () => {
 		);
 
 		const finalForm = result.newDoc.forms[FORM_A];
-		expect(finalForm?.connect?.deliver_unit).toEqual({
+		expect(finalForm?.connect?.deliver_unit).toMatchObject({
 			id: "vendor_visit",
 			name: "Vendor visit (updated)",
-			entity_id: "concat(#form/loc_id, '-', uuid())",
-			entity_name: "#form/loc_id/market_name",
 		});
+		expect(
+			finalForm &&
+				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
+		).toBe("concat(#form/loc_id, '-', uuid())");
+		expect(
+			finalForm &&
+				formExpressionSource(finalForm, "deliver_entity_name", result.newDoc),
+		).toBe("#form/loc_id/market_name");
 	});
 
 	it("accepts SA-supplied entity_id and entity_name and lands them on the doc verbatim", async () => {
@@ -692,12 +711,18 @@ describe("updateFormTool deliver_unit", () => {
 		);
 
 		const finalForm = result.newDoc.forms[FORM_A];
-		expect(finalForm?.connect?.deliver_unit).toEqual({
+		expect(finalForm?.connect?.deliver_unit).toMatchObject({
 			id: "patient",
 			name: "Beneficiary visit",
-			entity_id: "#patient/case_id",
-			entity_name: "#patient/case_name",
 		});
+		expect(
+			finalForm &&
+				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
+		).toBe("#patient/case_id");
+		expect(
+			finalForm &&
+				formExpressionSource(finalForm, "deliver_entity_name", result.newDoc),
+		).toBe("#patient/case_name");
 	});
 
 	it("schema accepts a partial deliver_unit with only entity_id set (entity_name still falls through to wire default)", async () => {
@@ -724,11 +749,14 @@ describe("updateFormTool deliver_unit", () => {
 		);
 
 		const finalForm = result.newDoc.forms[FORM_A];
-		expect(finalForm?.connect?.deliver_unit).toEqual({
+		expect(finalForm?.connect?.deliver_unit).toMatchObject({
 			id: "patient",
 			name: "Site visit",
-			entity_id: "#form/site_id",
 		});
+		expect(
+			finalForm &&
+				formExpressionSource(finalForm, "deliver_entity_id", result.newDoc),
+		).toBe("#form/site_id");
 		expect(finalForm?.connect?.deliver_unit?.entity_name).toBeUndefined();
 	});
 });

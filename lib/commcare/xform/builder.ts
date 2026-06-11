@@ -252,6 +252,7 @@ const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
  * a bind per declared sub-node so CommCare has paths to write to.
  */
 function buildConnectBlocks(
+	doc: BlueprintDoc,
 	connect: ResolvedConnectConfig | undefined,
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
@@ -294,7 +295,7 @@ function buildConnectBlocks(
 		// session-preload builder calls, so the bind XML and the
 		// case-references load map agree on which XPath actually runs at
 		// form-fill time.
-		const userScore = effectiveAssessmentUserScore(connect.assessment);
+		const userScore = effectiveAssessmentUserScore(connect.assessment, doc);
 		instances.scanXPath(userScore);
 		const assessPath = FormPath.root().child(assessId);
 		dataElements.push(
@@ -324,7 +325,7 @@ function buildConnectBlocks(
 		// defaults — same helper the session-preload builder calls, so
 		// the bind XML and the case-references load map agree on which
 		// XPaths actually run at form-fill time.
-		const { entityId, entityName } = effectiveDeliverEntities(du);
+		const { entityId, entityName } = effectiveDeliverEntities(du, doc);
 		instances.scanXPath(entityId);
 		instances.scanXPath(entityName);
 		const duPath = FormPath.root().child(duId);
@@ -547,7 +548,7 @@ export function buildXForm(
 	}
 
 	// Connect data + binds are data-only (no body elements).
-	const connectParts = buildConnectBlocks(opts.connect, instances, expand);
+	const connectParts = buildConnectBlocks(doc, opts.connect, instances, expand);
 	dataElements.push(...connectParts.dataElements);
 	binds.push(...connectParts.binds);
 

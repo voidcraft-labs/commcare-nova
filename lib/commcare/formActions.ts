@@ -390,7 +390,7 @@ export function buildCaseReferencesLoad(
 		// evaluate from that bind. (The default is a hashtag-free literal,
 		// so an unset user_score contributes no load entry.)
 		const h = extractHashtags([
-			effectiveAssessmentUserScore(connect.assessment),
+			effectiveAssessmentUserScore(connect.assessment, doc),
 		]);
 		if (h.length > 0) {
 			load[
@@ -410,6 +410,7 @@ export function buildCaseReferencesLoad(
 		// runtime will evaluate from those binds.
 		const { entityId, entityName } = effectiveDeliverEntities(
 			connect.deliver_unit,
+			doc,
 		);
 		const deliverPath = FormPath.root().child(duId).child("deliver");
 		const idH = extractHashtags([entityId]);

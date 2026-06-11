@@ -1142,7 +1142,11 @@ function cascadeCasePropertyRename(
 			continue;
 		}
 		const form = doc.forms[carrierUuid as Uuid];
-		if (form && rewriteFormReferenceSlots(form, { xpath: rewriter }) > 0) {
+		const formOps = {
+			xpath: rewriter,
+			caseLeafRename: { rename, contextualMatches: matchesCaseType },
+		};
+		if (form && rewriteFormReferenceSlots(form, formOps) > 0) {
 			tracking.rewiredForms.add(formUuid);
 			tracking.affectedForms.add(formUuid);
 		}

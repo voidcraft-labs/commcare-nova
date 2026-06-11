@@ -26,6 +26,7 @@ import {
 	type BlueprintDoc,
 	type Field,
 	type Form,
+	formExpressionSource,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
 	type Uuid,
@@ -752,21 +753,22 @@ function connectValidation(
 	if (form.connect.assessment) {
 		// `user_score` is optional in the domain — an absent value skips both
 		// checks below (the wire layer substitutes the canonical default),
-		// same as the deliver entity slots.
+		// same as the deliver entity slots. AST-stored values project to
+		// their printed text through the shared accessor.
 		connectXPaths.push({
 			label: "Connect assessment user_score",
-			expr: form.connect.assessment.user_score,
+			expr: formExpressionSource(form, "assessment_user_score", doc),
 		});
 	}
 	if (form.connect.deliver_unit) {
 		connectXPaths.push(
 			{
 				label: "Connect deliver entity_id",
-				expr: form.connect.deliver_unit.entity_id,
+				expr: formExpressionSource(form, "deliver_entity_id", doc),
 			},
 			{
 				label: "Connect deliver entity_name",
-				expr: form.connect.deliver_unit.entity_name,
+				expr: formExpressionSource(form, "deliver_entity_name", doc),
 			},
 		);
 	}
@@ -1069,13 +1071,13 @@ function caseHashtagOnCreateForm(
 			"xpath",
 			"connect deliver_unit.entity_id",
 			"",
-			form.connect.deliver_unit.entity_id,
+			formExpressionSource(form, "deliver_entity_id", doc),
 		);
 		flag(
 			"xpath",
 			"connect deliver_unit.entity_name",
 			"",
-			form.connect.deliver_unit.entity_name,
+			formExpressionSource(form, "deliver_entity_name", doc),
 		);
 	}
 	if (form.connect?.assessment) {
@@ -1083,7 +1085,7 @@ function caseHashtagOnCreateForm(
 			"xpath",
 			"connect assessment.user_score",
 			"",
-			form.connect.assessment.user_score,
+			formExpressionSource(form, "assessment_user_score", doc),
 		);
 	}
 

@@ -22,6 +22,12 @@
  */
 
 import type { ConnectConfig } from "@/lib/domain";
+import {
+	isXPathExpression,
+	printXPath,
+	type XPathPrintableDoc,
+	xpathPrintContext,
+} from "@/lib/domain";
 
 /**
  * Default XPath expression substituted for a Connect deliver_unit's
@@ -72,8 +78,26 @@ export const DEFAULT_ASSESSMENT_USER_SCORE = "100";
  */
 export function effectiveAssessmentUserScore(
 	assessment: NonNullable<ConnectConfig["assessment"]>,
+	doc: XPathPrintableDoc,
 ): string {
-	return assessment.user_score || DEFAULT_ASSESSMENT_USER_SCORE;
+	return (
+		projectConnectXPath(assessment.user_score, doc) ||
+		DEFAULT_ASSESSMENT_USER_SCORE
+	);
+}
+
+/** Shape-driven projection of a stored Connect XPath slot: AST values
+ *  print against the doc; a legacy string (a doc read mid-migration)
+ *  reads verbatim — total either way. */
+function projectConnectXPath(
+	value: unknown,
+	doc: XPathPrintableDoc,
+): string | undefined {
+	if (typeof value === "string") return value;
+	if (isXPathExpression(value)) {
+		return printXPath(value, xpathPrintContext(doc));
+	}
+	return undefined;
 }
 
 /**
@@ -95,9 +119,12 @@ export function effectiveAssessmentUserScore(
  */
 export function effectiveDeliverEntities(
 	du: NonNullable<ConnectConfig["deliver_unit"]>,
+	doc: XPathPrintableDoc,
 ): { entityId: string; entityName: string } {
 	return {
-		entityId: du.entity_id || DEFAULT_DELIVER_ENTITY_ID,
-		entityName: du.entity_name || DEFAULT_DELIVER_ENTITY_NAME,
+		entityId:
+			projectConnectXPath(du.entity_id, doc) || DEFAULT_DELIVER_ENTITY_ID,
+		entityName:
+			projectConnectXPath(du.entity_name, doc) || DEFAULT_DELIVER_ENTITY_NAME,
 	};
 }

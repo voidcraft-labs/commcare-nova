@@ -10,8 +10,16 @@ import {
 	useAppConnectIds,
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
+import {
+	useParseXPathForForm,
+	useXPathText,
+} from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
-import type { CommitOutcome, ConnectConfig } from "@/lib/domain";
+import type {
+	CommitOutcome,
+	ConnectConfig,
+	XPathExpression,
+} from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { StagedCommitRow } from "./StagedCommitRow";
@@ -59,6 +67,11 @@ export function DeliverConfig({
 	if (du) lastDeliverRef.current = du;
 	if (task) lastTaskRef.current = task;
 	const getLintContext = useConnectLintContext(formUuid);
+	// AST-stored slots ⇄ text: display prints against the live doc,
+	// commit parses against the doc of the moment.
+	const entityIdText = useXPathText(du?.entity_id);
+	const entityNameText = useXPathText(du?.entity_name);
+	const parseForForm = useParseXPathForForm(formUuid);
 	/** In-flight staged blocks — component state only, until committed
 	 *  (or toggled off, which discards). */
 	const [stagedDeliver, setStagedDeliver] = useState<
@@ -102,7 +115,7 @@ export function DeliverConfig({
 	);
 
 	const updateDeliverUnit = useCallback(
-		(field: string, value: string) => {
+		(field: string, value: string | XPathExpression) => {
 			/* Defensive fallback for the rare case the deliver_unit was
 			 * stripped between render and edit. Only `name` is required
 			 * on the domain shape; `entity_id` / `entity_name` are
@@ -254,9 +267,13 @@ export function DeliverConfig({
 											 * outright (via `clearDeliverField`) so the
 											 * wire-emit fallback kicks in — writing
 											 * `""` would trip `CONNECT_EMPTY_XPATH`. */
-											value={du.entity_id ?? ""}
+											value={entityIdText}
 											onSave={(v) => {
-												if (v.trim()) return updateDeliverUnit("entity_id", v);
+												if (v.trim())
+													return updateDeliverUnit(
+														"entity_id",
+														parseForForm(v),
+													);
 												clearDeliverField("entity_id");
 												return undefined;
 											}}
@@ -264,10 +281,13 @@ export function DeliverConfig({
 										/>
 										<LabeledXPathField
 											label="Entity Name"
-											value={du.entity_name ?? ""}
+											value={entityNameText}
 											onSave={(v) => {
 												if (v.trim())
-													return updateDeliverUnit("entity_name", v);
+													return updateDeliverUnit(
+														"entity_name",
+														parseForForm(v),
+													);
 												clearDeliverField("entity_name");
 												return undefined;
 											}}

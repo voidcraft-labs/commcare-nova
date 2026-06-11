@@ -10,6 +10,7 @@
 //     validator scopes.
 
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, type ConnectConfig } from "@/lib/domain";
 import { collectConnectIds, enforceConnectIds } from "../connectIds";
 
@@ -51,7 +52,7 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 				description: "x",
 				time_estimate: 5,
 			},
-			assessment: { id: "dup", user_score: "100" },
+			assessment: { id: "dup", user_score: xp("100") },
 		};
 		const result = enforceConnectIds(config, "Module", "Form", new Set());
 		expect(result.ok).toBe(false);
@@ -67,7 +68,7 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 				description: "x",
 				time_estimate: 5,
 			},
-			assessment: { id: "as", user_score: "100" },
+			assessment: { id: "as", user_score: xp("100") },
 		};
 		const result = enforceConnectIds(config, "Module", "Form", new Set());
 		expect(result.ok).toBe(true);

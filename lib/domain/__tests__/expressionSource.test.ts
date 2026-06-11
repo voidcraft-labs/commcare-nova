@@ -365,21 +365,21 @@ describe("formExpressionSource", () => {
 			name: "Fixture",
 			type: "followup",
 			connect: {
-				assessment: { user_score: "#form/score" },
+				assessment: { user_score: opaqueXPathExpression("#form/score") },
 				deliver_unit: {
 					name: "Unit",
-					entity_id: "#form/entity",
-					entity_name: "#form/entity_name",
+					entity_id: opaqueXPathExpression("#form/entity"),
+					entity_name: opaqueXPathExpression("#form/entity_name"),
 				},
 			},
 		});
-		expect(formExpressionSource(form, "assessment_user_score")).toBe(
+		expect(formExpressionSource(form, "assessment_user_score", EMPTY_DOC)).toBe(
 			"#form/score",
 		);
-		expect(formExpressionSource(form, "deliver_entity_id")).toBe(
+		expect(formExpressionSource(form, "deliver_entity_id", EMPTY_DOC)).toBe(
 			"#form/entity",
 		);
-		expect(formExpressionSource(form, "deliver_entity_name")).toBe(
+		expect(formExpressionSource(form, "deliver_entity_name", EMPTY_DOC)).toBe(
 			"#form/entity_name",
 		);
 	});
@@ -391,8 +391,12 @@ describe("formExpressionSource", () => {
 			name: "Fixture",
 			type: "survey",
 		});
-		expect(formExpressionSource(form, "assessment_user_score")).toBeUndefined();
-		expect(formExpressionSource(form, "deliver_entity_id")).toBeUndefined();
+		expect(
+			formExpressionSource(form, "assessment_user_score", EMPTY_DOC),
+		).toBeUndefined();
+		expect(
+			formExpressionSource(form, "deliver_entity_id", EMPTY_DOC),
+		).toBeUndefined();
 	});
 
 	it("CONNECT_XPATH_SLOT_IDS is the registry's connect projection in order", () => {

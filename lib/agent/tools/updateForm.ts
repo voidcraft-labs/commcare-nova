@@ -1,4 +1,7 @@
-import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
+import {
+	parseXPathForForm,
+	resolveCloseFieldRef,
+} from "@/lib/doc/expressionText";
 /**
  * SA tool: `updateForm` — patch form-level metadata.
  *
@@ -39,6 +42,7 @@ import type {
 	BlueprintDoc,
 	ConnectConfig,
 	PostSubmitDestination,
+	XPathExpression,
 } from "@/lib/domain";
 import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
@@ -182,7 +186,8 @@ export type UpdateFormResult = MutationSuccess | { error: string };
  */
 function buildConnectConfig(
 	input: NonNullable<UpdateFormInput["connect"]> | null,
-	existing?: ConnectConfig,
+	existing: ConnectConfig | undefined,
+	parseExpr: (text: string) => XPathExpression,
 ): ConnectConfig | null {
 	if (input === null) return null;
 	const out: ConnectConfig = { ...existing };
@@ -190,10 +195,25 @@ function buildConnectConfig(
 		out.learn_module = { ...existing?.learn_module, ...input.learn_module };
 	}
 	if (input.assessment !== undefined) {
-		out.assessment = { ...existing?.assessment, ...input.assessment };
+		// The SA authors the XPath slots as text; the stored form is the
+		// expression AST, resolved against the owning form.
+		const { user_score, ...assessmentRest } = input.assessment;
+		out.assessment = {
+			...existing?.assessment,
+			...assessmentRest,
+			user_score: parseExpr(user_score),
+		};
 	}
 	if (input.deliver_unit !== undefined) {
-		out.deliver_unit = { ...existing?.deliver_unit, ...input.deliver_unit };
+		const { entity_id, entity_name, ...deliverRest } = input.deliver_unit;
+		out.deliver_unit = {
+			...existing?.deliver_unit,
+			...deliverRest,
+			...(entity_id !== undefined && { entity_id: parseExpr(entity_id) }),
+			...(entity_name !== undefined && {
+				entity_name: parseExpr(entity_name),
+			}),
+		};
 	}
 	if (input.task !== undefined) {
 		out.task = { ...existing?.task, ...input.task };
@@ -268,6 +288,7 @@ export const updateFormTool = {
 				const merged = buildConnectConfig(
 					connect,
 					existing.connect ?? undefined,
+					(text) => parseXPathForForm(doc, formUuid, text),
 				);
 				if (merged === null) {
 					patch.connect = null;

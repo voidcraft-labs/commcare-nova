@@ -38,7 +38,6 @@ import {
 	FORM_REFERENCE_SLOTS,
 	fieldSlotApplies,
 	type ReferenceSurfaceKind,
-	readSlotStrings,
 	readSlotValues,
 	type SlotStringEntry,
 } from "./referenceSlots";
@@ -204,14 +203,17 @@ export function expressionSourceEntries(
 }
 
 /**
- * The source text stored in a scalar form expression slot (the
- * Connect-block bindings), or `undefined` when absent.
+ * The source text a scalar form expression slot (the Connect-block
+ * bindings) reads as, or `undefined` when absent. AST-stored values
+ * print against `doc`; legacy strings read verbatim.
  */
 export function formExpressionSource(
 	form: Form,
 	slot: ScalarFormExpressionSlotId,
+	doc: XPathPrintableDoc,
 ): string | undefined {
-	return readSlotStrings(form, FORM_SLOT_PATHS[slot])[0]?.text;
+	const value = readSlotValues(form, FORM_SLOT_PATHS[slot])[0]?.value;
+	return projectSlotValue(value, doc);
 }
 
 /**

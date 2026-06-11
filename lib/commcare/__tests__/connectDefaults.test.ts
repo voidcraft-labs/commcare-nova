@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
 	DEFAULT_ASSESSMENT_USER_SCORE,
 	effectiveAssessmentUserScore,
@@ -53,7 +53,7 @@ describe("assessment user_score wire default", () => {
 		const explicit = emitAssessmentForm({
 			assessment: {
 				id: "intro_quiz",
-				user_score: DEFAULT_ASSESSMENT_USER_SCORE,
+				user_score: xp(DEFAULT_ASSESSMENT_USER_SCORE),
 			},
 		});
 		const unset = emitAssessmentForm({ assessment: { id: "intro_quiz" } });
@@ -65,7 +65,7 @@ describe("assessment user_score wire default", () => {
 
 	it("an explicit custom expression wins over the default", () => {
 		const custom = emitAssessmentForm({
-			assessment: { id: "intro_quiz", user_score: "#form/feedback" },
+			assessment: { id: "intro_quiz", user_score: xp("#form/feedback") },
 		});
 		expect(custom).not.toContain(
 			`calculate="${DEFAULT_ASSESSMENT_USER_SCORE}"`,
@@ -74,17 +74,21 @@ describe("assessment user_score wire default", () => {
 	});
 
 	it("resolves absent and empty to the default, explicit values verbatim", () => {
-		expect(effectiveAssessmentUserScore({ user_score: "#form/score" })).toBe(
-			"#form/score",
-		);
-		expect(effectiveAssessmentUserScore({})).toBe(
+		const EMPTY_DOC = { forms: {}, fields: {}, fieldOrder: {} };
+		expect(
+			effectiveAssessmentUserScore(
+				{ user_score: xp("#form/score") },
+				EMPTY_DOC,
+			),
+		).toBe("#form/score");
+		expect(effectiveAssessmentUserScore({}, EMPTY_DOC)).toBe(
 			DEFAULT_ASSESSMENT_USER_SCORE,
 		);
-		// An explicit empty string still falls through — `<bind calculate=""/>`
-		// is a CCHQ build rejection, and the validator's CONNECT_EMPTY_XPATH
-		// flags the doc state itself.
-		expect(effectiveAssessmentUserScore({ user_score: "" })).toBe(
-			DEFAULT_ASSESSMENT_USER_SCORE,
-		);
+		// An explicit empty expression still falls through — `<bind
+		// calculate=""/>` is a CCHQ build rejection, and the validator's
+		// CONNECT_EMPTY_XPATH flags the doc state itself.
+		expect(
+			effectiveAssessmentUserScore({ user_score: xp("") }, EMPTY_DOC),
+		).toBe(DEFAULT_ASSESSMENT_USER_SCORE);
 	});
 });

@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { assetIdSchema } from "./multimedia";
 import { type Uuid, uuidSchema } from "./uuid";
+import { xpathExpressionSchema } from "./xpath";
 
 export const FORM_TYPES = [
 	"registration",
@@ -135,7 +136,7 @@ const connectAssessmentSchema = z
 		// time — the same contract `deliver_unit.entity_id` / `entity_name`
 		// hold. Optional here matches what's true: the doc tracks what was
 		// set, the wire layer fills the rest.
-		user_score: z.string().optional(),
+		user_score: xpathExpressionSchema.optional(),
 	})
 	.strict();
 const connectDeliverUnitSchema = z
@@ -149,8 +150,8 @@ const connectDeliverUnitSchema = z
 		// emits the canonical defaults at bind time. Optional here matches
 		// what's true: the doc tracks what was set, the wire layer fills
 		// the rest.
-		entity_id: z.string().optional(),
-		entity_name: z.string().optional(),
+		entity_id: xpathExpressionSchema.optional(),
+		entity_name: xpathExpressionSchema.optional(),
 	})
 	.strict();
 const connectTaskSchema = z

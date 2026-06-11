@@ -1,7 +1,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
-import { buildDoc, caseListConfig, f } from "../../__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "../../__tests__/docHelpers";
 import { errorIdentity, evaluateBoundary } from "../validator/gate";
 import { runValidation } from "../validator/runner";
 
@@ -2282,8 +2282,8 @@ describe("connect rules", () => {
 				deliver_unit: {
 					id: "vendor",
 					name: "Visit",
-					entity_id: "",
-					entity_name: "#user/username",
+					entity_id: xp(""),
+					entity_name: xp("#user/username"),
 				},
 			},
 		});
@@ -2300,8 +2300,8 @@ describe("connect rules", () => {
 				deliver_unit: {
 					id: "vendor",
 					name: "Visit",
-					entity_id: "concat(#user/username, '-', today())",
-					entity_name: "",
+					entity_id: xp("concat(#user/username, '-', today())"),
+					entity_name: xp(""),
 				},
 			},
 		});
@@ -2315,7 +2315,7 @@ describe("connect rules", () => {
 		const doc = connectDoc({
 			connectType: "learn",
 			formConnect: {
-				assessment: { id: "quiz", user_score: "" },
+				assessment: { id: "quiz", user_score: xp("") },
 			},
 		});
 		const errors = runValidation(doc);
@@ -2334,8 +2334,8 @@ describe("connect rules", () => {
 				deliver_unit: {
 					id: "vendor",
 					name: "Visit",
-					entity_id: "concat(#user/username, '-', today())",
-					entity_name: "#user/username",
+					entity_id: xp("concat(#user/username, '-', today())"),
+					entity_name: xp("#user/username"),
 				},
 			},
 		});
@@ -2441,7 +2441,7 @@ describe("connect rules", () => {
 			connectType: "learn",
 			formConnect: {
 				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
-				assessment: { user_score: "100" },
+				assessment: { user_score: xp("100") },
 			},
 		});
 		const missing = runValidation(doc).filter(
@@ -2502,7 +2502,7 @@ describe("connect rules", () => {
 					description: "x",
 					time_estimate: 5,
 				},
-				assessment: { id: "bad id", user_score: "100" },
+				assessment: { id: "bad id", user_score: xp("100") },
 			},
 		});
 		const deliverDoc = connectDoc({
@@ -2577,7 +2577,7 @@ describe("connect rules", () => {
 		const learnDoc = connectDoc({
 			connectType: "learn",
 			formConnect: {
-				assessment: { id: longId, user_score: "100" },
+				assessment: { id: longId, user_score: xp("100") },
 			},
 		});
 		const deliverDoc = connectDoc({

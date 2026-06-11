@@ -22,7 +22,7 @@ import type { FieldRenameMeta } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
-import { expressionSource } from "@/lib/domain";
+import { expressionSource, formExpressionSource } from "@/lib/domain";
 import {
 	ancestorPath,
 	eq,
@@ -408,7 +408,7 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 		expect(next.fields[Q("o2")]?.id).toBe("outcome");
 	});
 
-	it("rewrites the connect XPath slots (user_score, entity_id, entity_name)", () => {
+	it("connect XPath slots follow a rename at print, with zero rewrites", () => {
 		const start: BlueprintDoc = {
 			...docWithForm({
 				connect: {
@@ -418,19 +418,24 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 						entity_id: "concat(#form/score, '-', today())",
 						entity_name: "#form/score",
 					},
-				},
+				} as unknown as Form["connect"],
 			}),
 			fields: { [Q("s")]: field_(Q("s"), "score", { kind: "int" }) },
 			fieldOrder: { [F("1")]: [Q("s")] },
 		};
 		const { next, meta } = rename(start, Q("s"), "points");
-		const connect = next.forms[F("1")]?.connect;
-		expect(connect?.assessment?.user_score).toBe("/data/points * 10");
-		expect(connect?.deliver_unit?.entity_id).toBe(
+		const form = next.forms[F("1")];
+		if (!form) throw new Error("fixture form missing");
+		expect(formExpressionSource(form, "assessment_user_score", next)).toBe(
+			"/data/points * 10",
+		);
+		expect(formExpressionSource(form, "deliver_entity_id", next)).toBe(
 			"concat(#form/points, '-', today())",
 		);
-		expect(connect?.deliver_unit?.entity_name).toBe("#form/points");
-		expect(meta?.formWiringRewritten).toBe(1);
+		expect(formExpressionSource(form, "deliver_entity_name", next)).toBe(
+			"#form/points",
+		);
+		expect(meta?.formWiringRewritten).toBe(0);
 	});
 });
 
@@ -446,7 +451,7 @@ describe("moveField re-anchors form-level wiring", () => {
 				],
 				connect: {
 					deliver_unit: { name: "visit", entity_name: "/data/score" },
-				},
+				} as unknown as Form["connect"],
 			}),
 			fields: {
 				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
@@ -454,7 +459,7 @@ describe("moveField re-anchors form-level wiring", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("grp"), Q("s")], [Q("grp")]: [] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("s"),
@@ -465,7 +470,9 @@ describe("moveField re-anchors form-level wiring", () => {
 		expect(next.forms[F("1")]?.formLinks?.[0]?.condition).toBe(
 			"#form/grp/score > 5",
 		);
-		expect(next.forms[F("1")]?.connect?.deliver_unit?.entity_name).toBe(
+		const movedForm = next.forms[F("1")];
+		if (!movedForm) throw new Error("fixture form missing");
+		expect(formExpressionSource(movedForm, "deliver_entity_name", next)).toBe(
 			"/data/grp/score",
 		);
 	});

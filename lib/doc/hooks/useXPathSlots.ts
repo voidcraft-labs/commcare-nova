@@ -12,7 +12,10 @@
 "use client";
 
 import { useCallback } from "react";
-import { parseXPathForField } from "@/lib/doc/expressionText";
+import {
+	parseXPathForField,
+	parseXPathForForm,
+} from "@/lib/doc/expressionText";
 import {
 	useBlueprintDoc,
 	useBlueprintDocApi,
@@ -42,5 +45,17 @@ export function useParseXPathForField(
 	return useCallback(
 		(text: string) => parseXPathForField(api.getState(), fieldUuid, text),
 		[api, fieldUuid],
+	);
+}
+
+/** The form-scoped twin — for form-level expression slots (the
+ *  Connect-block bindings). */
+export function useParseXPathForForm(
+	formUuid: Uuid,
+): (text: string) => XPathExpression {
+	const api = useBlueprintDocApi();
+	return useCallback(
+		(text: string) => parseXPathForForm(api.getState(), formUuid, text),
+		[api, formUuid],
 	);
 }

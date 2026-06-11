@@ -22,11 +22,13 @@ import {
 	type ConnectType,
 	type Field,
 	type FieldKind,
+	FORM_REFERENCE_SLOTS,
 	type Form,
 	type FormLink,
 	fieldPathResolver,
 	type Module,
 	plainColumn,
+	rewriteSlotValues,
 	type Uuid,
 	type XPathExpression,
 } from "@/lib/domain";
@@ -276,6 +278,17 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 				}
 			}
 			for (const child of doc.fieldOrder[uuid] ?? []) stack.push(child);
+		}
+	}
+	for (const [formUuid, form] of Object.entries(doc.forms)) {
+		const resolve = fieldPathResolver(doc, formUuid);
+		for (const entry of FORM_REFERENCE_SLOTS) {
+			if ((entry.kind as string) !== "xpath-ast") continue;
+			rewriteSlotValues(form, entry.path, (value) =>
+				typeof value === "string"
+					? parseXPathExpression(value, resolve)
+					: value,
+			);
 		}
 	}
 	return doc;

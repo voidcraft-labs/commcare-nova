@@ -141,6 +141,13 @@ export function rewriteFieldReferenceSlots(
  */
 export interface FormSlotRewriteContext {
 	xpath: (expr: string) => string;
+	/** Case-property leaf rename for the AST-stored Connect bindings —
+	 *  present only on the case cascade pass (same contract as
+	 *  `FieldSlotRewriteOps.caseLeafRename`). */
+	caseLeafRename?: {
+		rename: XPathCasePropertyRename;
+		contextualMatches: boolean;
+	};
 }
 
 /**
@@ -162,11 +169,26 @@ export function rewriteFormReferenceSlots(
 		switch (slot.slot) {
 			case "form_link_condition":
 			case "form_link_datum_xpath":
-			case "assessment_user_score":
-			case "deliver_entity_id":
-			case "deliver_entity_name":
 				changed += rewriteSlotStrings(form, slot.path, ctx.xpath);
 				break;
+			case "assessment_user_score":
+			case "deliver_entity_id":
+			case "deliver_entity_name": {
+				// AST-stored — identity leaves follow renames/moves at print;
+				// only a case-property rename touches them, structurally.
+				const leafRename = ctx.caseLeafRename;
+				if (leafRename === undefined) break;
+				for (const entry of readSlotValues(form, slot.path)) {
+					if (!isXPathExpression(entry.value)) continue;
+					const renamed = renameCasePropertyInXPath(
+						entry.value,
+						leafRename.rename,
+						{ contextualMatches: leafRename.contextualMatches },
+					);
+					if (renamed > 0) changed++;
+				}
+				break;
+			}
 			case "close_condition_field":
 			case "form_link_target":
 				// entity-uuid — stable identity, unaffected by renames/moves.

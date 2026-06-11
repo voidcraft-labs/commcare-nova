@@ -2,7 +2,10 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useId, useRef, useState } from "react";
 import { Toggle } from "@/components/ui/Toggle";
-import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import { parseXPathForForm } from "@/lib/doc/expressionText";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import type { ConnectConfig, ConnectType, XPathExpression } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
 
 /**
  * The staging step of the app-level Connect enable flow. Enabling
@@ -92,7 +95,11 @@ function draftComplete(draft: BlockDraft, mode: ConnectType): boolean {
  *  Ids are deliberately absent — the commit path autofills them. A blank
  *  user_score is likewise omitted so the wire-emit default applies
  *  (writing `""` would trip the `CONNECT_EMPTY_XPATH` validator). */
-function draftToConfig(draft: BlockDraft, mode: ConnectType): ConnectConfig {
+function draftToConfig(
+	draft: BlockDraft,
+	mode: ConnectType,
+	parseExpr: (text: string) => XPathExpression,
+): ConnectConfig {
 	if (mode === "learn") {
 		return {
 			...(draft.learnOn && {
@@ -105,7 +112,7 @@ function draftToConfig(draft: BlockDraft, mode: ConnectType): ConnectConfig {
 			...(draft.assessmentOn && {
 				assessment: {
 					...(draft.userScore.trim() && {
-						user_score: draft.userScore.trim(),
+						user_score: parseExpr(draft.userScore.trim()),
 					}),
 				},
 			}),
@@ -249,12 +256,18 @@ export function ConnectEnableDialog({
 		draftComplete(drafts[t.formUuid] ?? EMPTY_DRAFT, mode),
 	);
 
+	const docApi = useBlueprintDocApi();
 	const confirm = () => {
+		// Each block's authored XPath resolves against ITS form, at the
+		// moment of the commit.
+		const doc = docApi.getState();
 		onConfirm(
 			Object.fromEntries(
 				targets.map((t) => [
 					t.formUuid,
-					draftToConfig(drafts[t.formUuid] ?? EMPTY_DRAFT, mode),
+					draftToConfig(drafts[t.formUuid] ?? EMPTY_DRAFT, mode, (text) =>
+						parseXPathForForm(doc, asUuid(t.formUuid), text),
+					),
 				]),
 			),
 		);

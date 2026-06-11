@@ -17,6 +17,10 @@ import {
 	useAppConnectIds,
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
+import {
+	useParseXPathForForm,
+	useXPathText,
+} from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, ConnectConfig } from "@/lib/domain";
 import { InlineField } from "./InlineField";
@@ -86,6 +90,10 @@ export function LearnConfig({
 	if (lm) lastLearnRef.current = lm;
 	if (assessment) lastAssessmentRef.current = assessment;
 	const getLintContext = useConnectLintContext(formUuid);
+	// AST-stored slot ⇄ text: display prints against the live doc,
+	// commit parses against the doc of the moment.
+	const userScoreText = useXPathText(assessment?.user_score);
+	const parseForForm = useParseXPathForForm(formUuid);
 	/** The in-flight staged learn block — exists only until the user
 	 *  commits it (or toggles the staging off, which discards it). */
 	const [stagedLearn, setStagedLearn] = useState<LearnDraft | undefined>();
@@ -379,12 +387,15 @@ export function LearnConfig({
 									 * value. Saving an empty value clears the key outright
 									 * so that fallback kicks in — writing `""` would trip
 									 * `CONNECT_EMPTY_XPATH`. */
-									value={assessment.user_score ?? ""}
+									value={userScoreText}
 									onSave={(v) => {
 										if (v.trim())
 											return save({
 												...connect,
-												assessment: { ...assessment, user_score: v },
+												assessment: {
+													...assessment,
+													user_score: parseForForm(v),
+												},
 											});
 										const { user_score: _removed, ...rest } = assessment;
 										save({ ...connect, assessment: rest });

@@ -413,14 +413,22 @@ function extractFormEdges(
 		switch (slot.slot) {
 			case "form_link_condition":
 			case "form_link_datum_xpath":
-			case "assessment_user_score":
-			case "deliver_entity_id":
-			case "deliver_entity_name":
 				// Form wiring references the form's OWN fields (CCHQ evaluates
 				// link conditions/datums in the source form's context), so the
 				// form-local namespace is the form itself.
 				for (const value of readSlotStrings(form, slot.path)) {
 					extractXPathRefs(sink, doc, ctx, value.text, slot.slot);
+				}
+				break;
+			case "assessment_user_score":
+			case "deliver_entity_id":
+			case "deliver_entity_name":
+				// AST-stored Connect bindings — a pure leaf walk, same as the
+				// field expression slots.
+				for (const value of readSlotValues(form, slot.path)) {
+					if (isXPathExpression(value.value)) {
+						extractAstRefs(sink, ctx, value.value, slot.slot);
+					}
 				}
 				break;
 			case "close_condition_field": {

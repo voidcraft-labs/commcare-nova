@@ -4,6 +4,7 @@ import {
 	type FieldSpec,
 	type FormSpec,
 	f,
+	xp,
 } from "@/lib/__tests__/docHelpers";
 import { connectIdError } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -98,7 +99,7 @@ describe("dedupeRestoredConnectIds", () => {
 		const result = dedupeRestoredConnectIds(
 			{
 				learn_module: { name: "L", description: "x", time_estimate: 5 },
-				assessment: { user_score: "100" },
+				assessment: { user_score: xp("100") },
 			},
 			ctx({}),
 		);
@@ -137,7 +138,7 @@ describe("dedupeRestoredConnectIds", () => {
 					description: "x",
 					time_estimate: 5,
 				},
-				assessment: { id: "other", user_score: "100" },
+				assessment: { id: "other", user_score: xp("100") },
 			},
 			ctx({
 				appConnectIds: [
@@ -161,7 +162,7 @@ describe("dedupeRestoredConnectIds", () => {
 					description: "x",
 					time_estimate: 5,
 				},
-				assessment: { id: "dup", user_score: "100" },
+				assessment: { id: "dup", user_score: xp("100") },
 			},
 			ctx({}),
 		);
@@ -178,7 +179,7 @@ describe("dedupeRestoredConnectIds", () => {
 					description: "x",
 					time_estimate: 5,
 				},
-				assessment: { id: "as", user_score: "100" },
+				assessment: { id: "as", user_score: xp("100") },
 			},
 			ctx({}),
 		);
@@ -257,7 +258,7 @@ describe("Connect XForm export", () => {
 					description: "Test",
 					time_estimate: 1,
 				},
-				assessment: { id: "main_ilc_training", user_score: "100" },
+				assessment: { id: "main_ilc_training", user_score: xp("100") },
 			},
 			"ILC Training",
 		);
@@ -280,8 +281,8 @@ describe("Connect XForm export", () => {
 				deliver_unit: {
 					id: "main",
 					name: "Weekly Report",
-					entity_id: "concat('user', '-', today())",
-					entity_name: "'test_user'",
+					entity_id: xp("concat('user', '-', today())"),
+					entity_name: xp("'test_user'"),
 				},
 			},
 			"Weekly Report",
@@ -307,8 +308,8 @@ describe("Connect XForm export", () => {
 				deliver_unit: {
 					id: "main",
 					name: "Unit",
-					entity_id: "'id'",
-					entity_name: "'name'",
+					entity_id: xp("'id'"),
+					entity_name: xp("'name'"),
 				},
 				task: {
 					id: "main_weekly_report",
@@ -333,8 +334,8 @@ describe("Connect XForm export", () => {
 				deliver_unit: {
 					id: "main",
 					name: "Unit",
-					entity_id: "concat(#user/username, '-', today())",
-					entity_name: "#user/username",
+					entity_id: xp("concat(#user/username, '-', today())"),
+					entity_name: xp("#user/username"),
 				},
 			},
 			"Weekly Report",
@@ -397,7 +398,7 @@ describe("Connect validation", () => {
 
 	it("passes validation for learn form with only assessment", () => {
 		const doc = makeConnectValidationDoc("learn", {
-			assessment: { user_score: "100" },
+			assessment: { user_score: xp("100") },
 		});
 		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(false);
@@ -432,7 +433,7 @@ describe("Connect validation", () => {
 					description: "Desc",
 					time_estimate: 5,
 				},
-				assessment: { id: "module_quiz", user_score: "100" },
+				assessment: { id: "module_quiz", user_score: xp("100") },
 			},
 			"Form",
 			[f({ kind: "text", id: "q", label: "Q" })],
@@ -448,8 +449,8 @@ describe("Connect validation", () => {
 				deliver_unit: {
 					id: "unit",
 					name: "Unit",
-					entity_id: "concat('user', '-', today())",
-					entity_name: "'test_user'",
+					entity_id: xp("concat('user', '-', today())"),
+					entity_name: xp("'test_user'"),
 				},
 			},
 			"Form",

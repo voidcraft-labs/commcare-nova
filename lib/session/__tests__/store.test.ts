@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Event } from "@/lib/log/types";
 import { createBuilderSessionStore } from "../store";
@@ -242,7 +242,7 @@ describe("BuilderSession connect stash", () => {
 				learn_module: { name: "Form A", description: "desc", time_estimate: 5 },
 			},
 			[formB]: {
-				assessment: { user_score: "#form/score" },
+				assessment: { user_score: xp("#form/score") },
 			},
 		};
 	}

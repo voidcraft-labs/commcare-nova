@@ -15,6 +15,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 
 // HQ unique_ids/xmlns are random per expansion — pin them to a
@@ -33,9 +34,11 @@ beforeEach(() => {
 import { buildXForm } from "@/lib/commcare/xform";
 import { migrateDocExpressions } from "@/lib/doc/expressionMigration";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import type { Form, ReferenceSlot } from "@/lib/domain";
 import {
 	asUuid,
 	FIELD_REFERENCE_SLOTS,
+	FORM_REFERENCE_SLOTS,
 	isXPathExpression,
 	printXPath,
 	readSlotValues,
@@ -49,6 +52,7 @@ import {
 function richDoc(): BlueprintDoc {
 	return buildDoc({
 		appName: "Migration Clinic",
+		connectType: "learn",
 		caseTypes: [
 			{
 				name: "patient",
@@ -138,6 +142,17 @@ function richDoc(): BlueprintDoc {
 						],
 					},
 					{
+						name: "Quiz",
+						type: "survey",
+						connect: {
+							assessment: {
+								id: "clinic_quiz",
+								user_score: "#form/score + 0",
+							},
+						} as unknown as Form["connect"],
+						fields: [f({ kind: "int", id: "score", label: "Score" })],
+					},
+					{
 						name: "Close case",
 						type: "close",
 						closeCondition: { field: "outcome", answer: "deceased" },
@@ -162,6 +177,9 @@ function richDoc(): BlueprintDoc {
 const AST_SLOT_PATHS = FIELD_REFERENCE_SLOTS.filter(
 	(slot) => slot.kind === "xpath-ast",
 ).map((slot) => slot.path);
+const FORM_AST_SLOT_PATHS = (FORM_REFERENCE_SLOTS as readonly ReferenceSlot[])
+	.filter((slot) => slot.kind === "xpath-ast")
+	.map((slot) => slot.path);
 
 /** Project every AST slot back to its printed string, and every
  *  close-condition uuid back to its field id — the stored shape a
@@ -176,6 +194,11 @@ function legacyize(doc: BlueprintDoc): BlueprintDoc {
 		}
 	}
 	for (const form of Object.values(doc.forms)) {
+		for (const path of FORM_AST_SLOT_PATHS) {
+			rewriteSlotValues(form, path, (value) =>
+				isXPathExpression(value) ? printXPath(value, ctx) : value,
+			);
+		}
 		if (form.closeCondition) {
 			form.closeCondition.field = asUuid(
 				doc.fields[form.closeCondition.field]?.id ?? form.closeCondition.field,
@@ -190,11 +213,18 @@ function emitAll(doc: BlueprintDoc): string {
 	idCounter = 0;
 	const xforms = Object.keys(doc.forms)
 		.sort()
-		.map((formUuid) =>
-			buildXForm(doc, formUuid as never, {
+		.map((formUuid) => {
+			// The compile path passes the form's RESOLVED Connect config
+			// into the XForm builder — mirror it so the Connect binds (and
+			// their stored expressions) are part of the byte comparison.
+			const connect = doc.forms[formUuid as never]?.connect as
+				| ResolvedConnectConfig
+				| undefined;
+			return buildXForm(doc, formUuid as never, {
 				xmlns: `http://openrosa.org/formdesigner/${formUuid}`,
-			}),
-		);
+				...(connect !== undefined && { connect }),
+			});
+		});
 	return `${JSON.stringify(expandDoc(doc))}\n${xforms.join("\n")}`;
 }
 
@@ -206,7 +236,7 @@ describe("expression migration — byte identity", () => {
 		const migrated = structuredClone(legacy);
 		const result = migrateDocExpressions(migrated);
 		expect(result.failures).toEqual([]);
-		expect(result.converted).toBeGreaterThanOrEqual(9);
+		expect(result.converted).toBeGreaterThanOrEqual(10);
 		expect(result.closeRefsConverted).toBe(1);
 		expect(result.unresolvedCloseRefs).toEqual([]);
 

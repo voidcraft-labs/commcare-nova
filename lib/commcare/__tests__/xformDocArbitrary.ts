@@ -814,7 +814,7 @@ function buildConnectConfig(
 				// A quoted literal: a valid XPath the bind emitter renders as
 				// `calculate="'100'"` (a bare `100` would also parse, but a quoted
 				// value mirrors how the SA pins a fixed score).
-				user_score: "'100'",
+				user_score: opaqueXPathExpression("'100'"),
 			};
 		}
 		return config;

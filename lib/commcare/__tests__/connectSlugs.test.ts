@@ -22,7 +22,7 @@
  * valid-path set).
  */
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
 	buildConnectSlugMap,
 	CONNECT_SLUG_MAX_LENGTH,
@@ -73,7 +73,7 @@ describe("buildConnectSlugMap — typed pass-through (no transform)", () => {
 									description: "Intro",
 									time_estimate: 30,
 								},
-								assessment: { id: "intro_quiz", user_score: "100" },
+								assessment: { id: "intro_quiz", user_score: xp("100") },
 							},
 						},
 					],
@@ -505,7 +505,7 @@ describe("Connect id — end-to-end XForm consistency", () => {
 								deliver_unit: {
 									id: "vendor_visit",
 									name: "Visit",
-									entity_id: "#case/beneficiary_id",
+									entity_id: xp("#case/beneficiary_id"),
 								},
 							},
 							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
@@ -581,7 +581,7 @@ describe("Connect assessment — user_score value lives in the bind, not the ele
 						connect: {
 							assessment: {
 								id: "intro_assessment",
-								user_score: "42",
+								user_score: xp("42"),
 							},
 						},
 						fields: [f({ kind: "text", id: "answer", label: "Answer" })],
