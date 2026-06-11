@@ -3,9 +3,9 @@ import { Icon } from "@iconify/react/offline";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerListSearch from "@iconify-icons/tabler/list-search";
 import { motion } from "motion/react";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
-import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
+import { EditableTitle } from "@/components/builder/EditableTitle";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseListSummary } from "@/lib/doc/hooks/useCaseListSummary";
@@ -37,17 +37,15 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
 
-	const [saved, setSaved] = useState(false);
+	/* Forward the gated dispatch's outcome — a rename the commit gate
+	 * refuses (e.g. duplicating another module's name) keeps the editor
+	 * open with the draft and surfaces the finding inline; the saved
+	 * checkmark only fires on a committed rename. */
 	const saveModuleName = useCallback(
-		(name: string) => {
-			if (moduleUuid) updateModule(moduleUuid, { name });
-		},
+		(name: string) =>
+			moduleUuid ? updateModule(moduleUuid, { name }) : undefined,
 		[updateModule, moduleUuid],
 	);
-	const handleSaved = useCallback(() => {
-		setSaved(true);
-		setTimeout(() => setSaved(false), 1500);
-	}, []);
 
 	if (!mod) return null;
 
@@ -58,15 +56,10 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 		<div className="p-6 space-y-4 max-w-3xl mx-auto">
 			<div className="flex items-center gap-2">
 				{canEdit ? (
-					<EditableTitle
-						value={mod.name}
-						onSave={saveModuleName}
-						onSaved={handleSaved}
-					/>
+					<EditableTitle value={mod.name} onSave={saveModuleName} />
 				) : (
 					<EditableTitle value={mod.name} readOnly />
 				)}
-				<SavedCheck visible={saved} />
 				{/* Module-settings gear — the module-level analog of
 				 *  `FormScreen`'s `FormSettingsButton` on the form header.
 				 *  Edit-mode only (matches the form-header gate) and only once

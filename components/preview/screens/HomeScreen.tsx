@@ -2,8 +2,8 @@
 import { Icon } from "@iconify/react/offline";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import { motion } from "motion/react";
-import { useCallback, useState } from "react";
-import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
+import { useCallback } from "react";
+import { EditableTitle } from "@/components/builder/EditableTitle";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { Badge } from "@/components/ui/Badge";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
@@ -30,17 +30,13 @@ export function HomeScreen() {
 	const modules = useOrderedModules();
 	const logo = useAppLogo();
 
-	const [saved, setSaved] = useState(false);
+	/* Forward the gated dispatch's outcome — a refused rename keeps the
+	 * editor open with the draft and surfaces the finding inline; the
+	 * saved checkmark only fires on a committed rename. */
 	const saveAppName = useCallback(
-		(name: string) => {
-			updateApp({ app_name: name });
-		},
+		(name: string) => updateApp({ app_name: name }),
 		[updateApp],
 	);
-	const handleSaved = useCallback(() => {
-		setSaved(true);
-		setTimeout(() => setSaved(false), 1500);
-	}, []);
 
 	if (!hasData) return null;
 
@@ -60,15 +56,10 @@ export function HomeScreen() {
 			)}
 			<div className="flex items-center gap-2">
 				{canEdit ? (
-					<EditableTitle
-						value={appName}
-						onSave={saveAppName}
-						onSaved={handleSaved}
-					/>
+					<EditableTitle value={appName} onSave={saveAppName} />
 				) : (
 					<EditableTitle value={appName} readOnly />
 				)}
-				<SavedCheck visible={saved} />
 			</div>
 			<div className="grid gap-3">
 				{modules.map((mod, mIdx) => {
