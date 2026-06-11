@@ -1212,6 +1212,7 @@ function buildContainer(
 	if (field.kind === "repeat") {
 		bodyElements.push(
 			buildRepeatBody(
+				doc,
 				field,
 				nodePath,
 				labelEl,
@@ -1272,6 +1273,7 @@ function buildContainer(
  *     data-element rewrite).
  */
 function buildRepeatBody(
+	doc: BlueprintDoc,
 	field: Field & { kind: "repeat" },
 	nodePath: FormPath,
 	labelEl: Element | undefined,
@@ -1288,9 +1290,12 @@ function buildRepeatBody(
 	const repeatAttribs: Record<string, string> = {};
 
 	if (field.repeat_mode === "count_bound") {
-		const expandedCount = expand(field.repeat_count);
+		// The stored AST projects to text once; every use below (expand,
+		// instance scan, the vellum round-trip attribute) shares it.
+		const repeatCount = readFieldString(field, "repeat_count", doc) ?? "";
+		const expandedCount = expand(repeatCount);
 		// Hashtags inside repeat_count may reference casedb/session.
-		instances.scanXPath(field.repeat_count);
+		instances.scanXPath(repeatCount);
 
 		// JavaRosa parses the `jr:count` attribute through
 		// `new XPathReference(countRef)`, which throws
@@ -1312,8 +1317,8 @@ function buildRepeatBody(
 			// round-tripping back into the editor. Insertion order matches the
 			// prior emitter: vellum:count (when present), then jr:count, then
 			// jr:noAddRemove.
-			if (hasHashtags(field.repeat_count)) {
-				repeatAttribs["vellum:count"] = field.repeat_count;
+			if (hasHashtags(repeatCount)) {
+				repeatAttribs["vellum:count"] = repeatCount;
 			}
 			repeatAttribs["jr:count"] = expandedCount;
 			repeatAttribs["jr:noAddRemove"] = "true()";
@@ -1372,7 +1377,7 @@ function buildRepeatBody(
 			// `vellum:*` attrs opportunistically and tolerates a non-path value
 			// here. Insertion order matches the prior emitter: vellum:count,
 			// jr:count, jr:noAddRemove.
-			repeatAttribs["vellum:count"] = field.repeat_count;
+			repeatAttribs["vellum:count"] = repeatCount;
 			repeatAttribs["jr:count"] = countNodeXPath;
 			repeatAttribs["jr:noAddRemove"] = "true()";
 		}
@@ -1386,7 +1391,8 @@ function buildRepeatBody(
 		repeatNodeset = itemPath.toXPath();
 		repeatAttribs["jr:count"] = countAttrPath;
 		repeatAttribs["jr:noAddRemove"] = "true()";
-		const expandedIdsQuery = expand(field.data_source.ids_query);
+		const idsQuery = readFieldString(field, "ids_query", doc) ?? "";
+		const expandedIdsQuery = expand(idsQuery);
 		const idsValue = `join(' ', ${expandedIdsQuery})`;
 		const countValue = `count-selected(${idsAttrPath})`;
 		const indexValue = `int(${currentIndexAttrPath})`;
@@ -1434,7 +1440,7 @@ function buildRepeatBody(
 			}),
 		);
 		// ids_query may reference casedb / commcaresession.
-		instances.scanXPath(field.data_source.ids_query);
+		instances.scanXPath(idsQuery);
 	}
 
 	// The `<repeat>` itself, then the surrounding `<group>` wrapper that holds

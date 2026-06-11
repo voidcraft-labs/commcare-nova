@@ -13,7 +13,7 @@ import { fieldBaseSchema, xpathExpressionSchema } from "./base";
 export const signatureFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("signature"),
 	hint: z.string().optional(),
-	required: z.string().optional(),
+	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 });
 

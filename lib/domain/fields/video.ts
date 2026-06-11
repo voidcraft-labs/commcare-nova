@@ -12,7 +12,7 @@ import { fieldBaseSchema, xpathExpressionSchema } from "./base";
 export const videoFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("video"),
 	hint: z.string().optional(),
-	required: z.string().optional(),
+	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 });
 

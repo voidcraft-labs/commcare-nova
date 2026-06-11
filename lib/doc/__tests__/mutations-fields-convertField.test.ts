@@ -90,7 +90,7 @@ describe("convertField — text / secret family", () => {
 		expect(converted.label).toBe("PIN");
 		expect(converted.uuid).toBe("q-1");
 		expect(converted.hint).toBe("four digits");
-		expect(converted.required).toBe("true()");
+		expect(printSlot(converted.required, next)).toBe("true()");
 		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 4");
 		// `calculate` exists on text but not secret — must be stripped.
 		expect(converted.calculate).toBeUndefined();
@@ -168,7 +168,7 @@ describe("convertField — int / decimal family", () => {
 		expect(printSlot(converted.relevant, next)).toBe(
 			"/data/show_price = 'yes'",
 		);
-		expect(converted.required).toBe("true()");
+		expect(printSlot(converted.required, next)).toBe("true()");
 	});
 });
 

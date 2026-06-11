@@ -56,7 +56,7 @@ const FIELD_DESCRIPTIONS: Record<XPathFieldKey, string> = {
  */
 function readXPath(
 	field: Field,
-	key: XPathFieldKey,
+	key: XPathFieldKey | "repeat_count" | "ids_query",
 	ctx: FieldContext,
 ): string | undefined {
 	const value = expressionSource(field, key, ctx.doc);
@@ -163,7 +163,7 @@ function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
  */
 function requiredOnHidden(field: Field, ctx: FieldContext): ValidationError[] {
 	if (field.kind !== "hidden") return [];
-	const required = readString(field, "required");
+	const required = readXPath(field, "required", ctx);
 	if (!required) return [];
 	return [
 		validationError(
@@ -310,8 +310,8 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 	};
 
 	if (field.repeat_mode === "count_bound") {
-		const expr = field.repeat_count;
-		if (typeof expr !== "string" || expr.trim().length === 0) {
+		const expr = readXPath(field, "repeat_count", ctx);
+		if (expr === undefined || expr.trim().length === 0) {
 			errors.push(
 				validationError(
 					"EMPTY_REPEAT_COUNT",
@@ -323,8 +323,8 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 			);
 		}
 	} else if (field.repeat_mode === "query_bound") {
-		const expr = field.data_source?.ids_query;
-		if (typeof expr !== "string" || expr.trim().length === 0) {
+		const expr = readXPath(field, "ids_query", ctx);
+		if (expr === undefined || expr.trim().length === 0) {
 			errors.push(
 				validationError(
 					"EMPTY_IDS_QUERY",
@@ -543,9 +543,9 @@ function fixtureReferenceNotModeled(
 	// invalid."
 	if (field.kind === "repeat") {
 		if (field.repeat_mode === "count_bound") {
-			flag("repeat count expression", field.repeat_count);
+			flag("repeat count expression", readXPath(field, "repeat_count", ctx));
 		} else if (field.repeat_mode === "query_bound") {
-			flag("repeat ids-query expression", field.data_source.ids_query);
+			flag("repeat ids-query expression", readXPath(field, "ids_query", ctx));
 		}
 	}
 

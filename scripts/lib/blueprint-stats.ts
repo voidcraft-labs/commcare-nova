@@ -192,7 +192,7 @@ function countKindsFromList(fields: Field[]): FieldKindCounts {
  * every key — reads are guarded via `in` because the discriminated
  * union doesn't narrow across per-key access.
  */
-function countLogicFromList(fields: Field[]): LogicCounts {
+function countLogicFromList(doc: BlueprintDoc, fields: Field[]): LogicCounts {
 	const counts: LogicCounts = {
 		calculates: 0,
 		relevants: 0,
@@ -224,7 +224,8 @@ function countLogicFromList(fields: Field[]): LogicCounts {
 			hasAny = true;
 		}
 		/* required = "true()" is meaningful; "false()" is the default / absent. */
-		if ("required" in f && f.required && f.required !== "false()") {
+		const requiredText = expressionSource(f, "required", doc);
+		if (requiredText && requiredText !== "false()") {
 			counts.requireds++;
 			hasAny = true;
 		}
@@ -276,7 +277,7 @@ function analyzeForm(doc: BlueprintDoc, form: Form): FormAnalysis {
 		type: form.type,
 		fieldCount: fields.length,
 		fieldKinds: countKindsFromList(fields),
-		logic: countLogicFromList(fields),
+		logic: countLogicFromList(doc, fields),
 		hasPostSubmit: form.postSubmit !== undefined,
 		postSubmitValue: form.postSubmit,
 		hasCloseCase: form.type === "close",
@@ -502,9 +503,10 @@ function walkForLogic(
 			has.push("validate");
 			expressions.validate = validate;
 		}
-		if ("required" in f && f.required && f.required !== "false()") {
+		const required = expressionSource(f, "required", doc);
+		if (required && required !== "false()") {
 			has.push("required");
-			expressions.required = f.required;
+			expressions.required = required;
 		}
 		if ("hint" in f && f.hint) {
 			has.push("hint");

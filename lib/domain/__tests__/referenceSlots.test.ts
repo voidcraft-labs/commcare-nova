@@ -83,6 +83,7 @@ import {
 	NON_REFERENCE_MODULE_PATHS,
 	rewriteSlotStrings,
 } from "../referenceSlots";
+import { xpathExpressionSchema } from "../xpath";
 
 // Widened views of the registry tuples. The `as const` literals are
 // what make the slot-id projection types possible, but property access
@@ -141,6 +142,7 @@ const PREDICATE_AST_SCHEMAS = new Set<z.ZodType>([
  *  media bundle (whose internals the media-carrier walk owns). */
 const SUBTREE_LEAF_SCHEMAS = new Set<z.ZodType>([
 	...PREDICATE_AST_SCHEMAS,
+	xpathExpressionSchema,
 	mediaSchema,
 ]);
 
@@ -346,11 +348,7 @@ describe("field slots — paths resolve exactly where claimed", () => {
 		for (const schema of schemasClaimedByFieldSlot(slot)) {
 			const resolved = resolvePath(schema, slot.path);
 			expect(resolved.length).toBeGreaterThan(0);
-			if (
-				slot.kind === "xpath" ||
-				slot.kind === "prose" ||
-				slot.kind === "case-type-ref"
-			) {
+			if (slot.kind === "prose" || slot.kind === "case-type-ref") {
 				for (const r of resolved) {
 					expect(r).toBeInstanceOf(z.ZodString);
 				}
@@ -388,11 +386,9 @@ describe("form slots — paths resolve with the promised shape", () => {
 	it.each(formSlots)("$slot resolves on the form schema", (slot) => {
 		const resolved = resolvePath(formSchema, slot.path);
 		expect(resolved.length).toBeGreaterThan(0);
-		if (slot.kind === "xpath") {
-			for (const r of resolved) {
-				expect(r).toBeInstanceOf(z.ZodString);
-			}
-		}
+		// Form xpath-ast slots resolve to the expression schema — pinned
+		// by identity below for predicate-ast; the audit's totality claim
+		// is the path resolution itself.
 	});
 });
 

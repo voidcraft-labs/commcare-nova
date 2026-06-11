@@ -48,7 +48,7 @@ describe("field schema — media slots", () => {
 			label: "Patient name",
 			help: "Enter the legal name shown on their ID document.",
 			help_media: { image: "media-asset-1" },
-			required: "true()",
+			required: opaqueXPathExpression("true()"),
 		});
 		expect(parsed.kind).toBe("text");
 		if (parsed.kind === "text") {

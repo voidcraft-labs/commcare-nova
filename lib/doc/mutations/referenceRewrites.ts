@@ -79,9 +79,6 @@ export function rewriteFieldReferenceSlots(
 	let changed = 0;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
-			case "xpath":
-				changed += rewriteSlotStrings(field, slot.path, ops.xpath);
-				break;
 			case "xpath-ast": {
 				const leafRename = ops.caseLeafRename;
 				if (leafRename === undefined) break;
@@ -123,28 +120,18 @@ export function rewriteFieldReferenceSlots(
 }
 
 /**
- * Context for one form-level rewrite pass.
- *
- * `xpath` rewrites the form's XPath-carrying wiring slots — form-link
- * conditions, form-link datum values, and the Connect expression
- * slots. Per CCHQ's end-of-form navigation semantics
- * (`commcare-hq/.../suite_xml/post_process/workflow.py::
- * EndOfFormNavigationWorkflow._get_link_frame` installs `link.xpath`
- * verbatim as the SOURCE form's stack-frame condition, and manual
- * datum values are evaluated in the same post-submit context), these
- * slots reference the fields of the form that OWNS them — so a rename
- * pass runs against the renamed field's own containing form, never
- * against forms that merely link INTO it. Connect slots likewise
- * validate against their own form's field paths
- * (`lib/commcare/validator/index.ts` checks them with the form's
- * `validPaths`).
+ * Context for one form-level rewrite pass. Every form wiring slot is
+ * identity-stored (uuid pointers and expression ASTs), so the only
+ * pass with anything to do is the case-property cascade: a structural
+ * leaf rename over the form's expression slots (same contract as
+ * `FieldSlotRewriteOps.caseLeafRename`). Form-link conditions/datums
+ * and Connect bindings reference the form's OWN fields (CCHQ's
+ * end-of-form navigation evaluates `link.xpath` in the source form's
+ * context), which is why the cascade's per-carrier module match is
+ * meaningful here at all.
  */
 export interface FormSlotRewriteContext {
-	xpath: (expr: string) => string;
-	/** Case-property leaf rename for the AST-stored Connect bindings —
-	 *  present only on the case cascade pass (same contract as
-	 *  `FieldSlotRewriteOps.caseLeafRename`). */
-	caseLeafRename?: {
+	caseLeafRename: {
 		rename: XPathCasePropertyRename;
 		contextualMatches: boolean;
 	};
@@ -169,15 +156,12 @@ export function rewriteFormReferenceSlots(
 		switch (slot.slot) {
 			case "form_link_condition":
 			case "form_link_datum_xpath":
-				changed += rewriteSlotStrings(form, slot.path, ctx.xpath);
-				break;
 			case "assessment_user_score":
 			case "deliver_entity_id":
 			case "deliver_entity_name": {
 				// AST-stored — identity leaves follow renames/moves at print;
 				// only a case-property rename touches them, structurally.
 				const leafRename = ctx.caseLeafRename;
-				if (leafRename === undefined) break;
 				for (const entry of readSlotValues(form, slot.path)) {
 					if (!isXPathExpression(entry.value)) continue;
 					const renamed = renameCasePropertyInXPath(

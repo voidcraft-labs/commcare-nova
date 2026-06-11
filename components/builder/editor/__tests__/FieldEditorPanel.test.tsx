@@ -9,7 +9,7 @@
  *      skips when no entry would render and mounts otherwise.
  *
  *   2. `valueOnAdd` on `required` — every kind that exposes a
- *      `required` entry must declare `valueOnAdd: ALWAYS_REQUIRED`,
+ *      `required` entry must declare `valueOnAdd: ALWAYS_REQUIRED_EXPRESSION`,
  *      so clicking "+ Required" turns the toggle on in one click
  *      rather than mounting an empty editor that the user has to
  *      manually flip.
@@ -27,7 +27,7 @@ import {
 	type TextField,
 } from "@/lib/domain";
 import { fieldEditorSchemas } from "../fieldEditorSchemas";
-import { ALWAYS_REQUIRED } from "../fields/requiredState";
+import { ALWAYS_REQUIRED_EXPRESSION } from "../fields/requiredState";
 import { sectionHasContent } from "../partitionEditorEntries";
 
 // Trivial fixtures — only the discriminant + identity keys are read by
@@ -141,7 +141,7 @@ describe("required entry — valueOnAdd contract", () => {
 		for (const section of sections) {
 			for (const entry of section) {
 				if (entry.key === "required") {
-					expect(entry.valueOnAdd).toBe(ALWAYS_REQUIRED);
+					expect(entry.valueOnAdd).toBe(ALWAYS_REQUIRED_EXPRESSION);
 				}
 			}
 		}

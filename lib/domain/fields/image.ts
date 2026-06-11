@@ -12,7 +12,7 @@ import { fieldBaseSchema, xpathExpressionSchema } from "./base";
 export const imageFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("image"),
 	hint: z.string().optional(),
-	required: z.string().optional(),
+	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 });
 

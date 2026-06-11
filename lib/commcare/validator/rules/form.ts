@@ -29,7 +29,9 @@ import {
 	formExpressionSource,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
+	printXPath,
 	type Uuid,
+	xpathPrintContext,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 
@@ -525,8 +527,11 @@ function formLinkValidation(
 
 	for (let lIdx = 0; lIdx < form.formLinks.length; lIdx++) {
 		const link = form.formLinks[lIdx];
-		const linkLabel = link.condition
-			? `form link ${lIdx + 1} (condition: "${link.condition.slice(0, 40)}${link.condition.length > 40 ? "..." : ""}")`
+		const conditionText = link.condition
+			? printXPath(link.condition, xpathPrintContext(doc))
+			: undefined;
+		const linkLabel = conditionText
+			? `form link ${lIdx + 1} (condition: "${conditionText.slice(0, 40)}${conditionText.length > 40 ? "..." : ""}")`
 			: `form link ${lIdx + 1}`;
 
 		if (link.target.type === "form") {
@@ -1048,13 +1053,18 @@ function caseHashtagOnCreateForm(
 			// throw, the failure mode this rule exists to close.
 			if (field.kind === "repeat") {
 				if (field.repeat_mode === "count_bound") {
-					flag("xpath", "repeat_count", fieldRef, field.repeat_count);
+					flag(
+						"xpath",
+						"repeat_count",
+						fieldRef,
+						readFieldString(field, "repeat_count", doc),
+					);
 				} else if (field.repeat_mode === "query_bound") {
 					flag(
 						"xpath",
 						"data_source.ids_query",
 						fieldRef,
-						field.data_source.ids_query,
+						readFieldString(field, "ids_query", doc),
 					);
 				}
 			}

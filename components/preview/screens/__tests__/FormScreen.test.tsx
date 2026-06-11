@@ -36,6 +36,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
@@ -250,7 +251,7 @@ function renderFormScreen(opts: {
 						kind: "text",
 						label: "Name",
 						case_property_on: CASE_TYPE,
-						required: "true()",
+						required: xp("true()"),
 					},
 				},
 				moduleOrder: [MODULE_UUID],

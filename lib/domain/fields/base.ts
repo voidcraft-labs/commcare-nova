@@ -128,7 +128,7 @@ export type InputFieldBase = FieldBase & {
 	hint_media?: Media;
 	help?: string;
 	help_media?: Media;
-	required?: string; // XPath expression or "true()"
+	required?: XPathExpression; // an expression, or the "true()" sentinel
 	relevant?: XPathExpression;
 	case_property_on?: string; // case type name this field writes to
 };
@@ -138,7 +138,7 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint_media: mediaSchema.optional(),
 	help: z.string().optional(),
 	help_media: mediaSchema.optional(),
-	required: z.string().optional(),
+	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 	case_property_on: z.string().optional(),
 });

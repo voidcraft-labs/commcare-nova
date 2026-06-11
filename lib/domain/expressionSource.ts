@@ -53,11 +53,11 @@ type FormSlotEntry = (typeof FORM_REFERENCE_SLOTS)[number];
 
 type FieldExpressionSlotEntry = Extract<
 	FieldSlotEntry,
-	{ kind: "xpath" | "xpath-ast" | "prose" }
+	{ kind: "xpath-ast" | "prose" }
 >;
 type FormExpressionSlotEntry = Extract<
 	FormSlotEntry,
-	{ kind: "xpath" | "xpath-ast" | "prose" }
+	{ kind: "xpath-ast" | "prose" }
 >;
 
 /** A slot path with at least one `[]` fan-out step. */
@@ -85,9 +85,8 @@ export type ScalarFormExpressionSlotId =
 	ScalarEntry<FormExpressionSlotEntry>["slot"];
 
 /** The surface kinds whose read projection is expression SOURCE TEXT
- *  — string-stored slots verbatim, AST-stored slots printed. */
+ *  — AST-stored slots printed, prose verbatim. */
 const EXPRESSION_SURFACE_KINDS: ReadonlySet<ReferenceSurfaceKind> = new Set([
-	"xpath",
 	"xpath-ast",
 	"prose",
 ]);
@@ -255,12 +254,10 @@ export function expressionSurfaceReads(
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	const reads: ExpressionRead[] = [];
 	for (const entry of FIELD_EXPRESSION_SLOT_ENTRIES) {
-		// The "xpath" surface spans both storage shapes — the read is
-		// text either way (AST slots print).
+		// The "xpath" surface name is the validator's vocabulary; its
+		// storage is the AST, and the read is the printed text.
 		const matches =
-			surface === "xpath"
-				? entry.kind === "xpath" || entry.kind === "xpath-ast"
-				: entry.kind === "prose";
+			surface === "xpath" ? entry.kind === "xpath-ast" : entry.kind === "prose";
 		if (!matches) continue;
 		// The literal-tuple entries narrow to the declared interface for
 		// the applicability check (optional keys are absent on most

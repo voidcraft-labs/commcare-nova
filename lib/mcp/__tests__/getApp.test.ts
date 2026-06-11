@@ -25,6 +25,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -88,7 +89,7 @@ function mockBlueprint(
 				/* `required` on an input field is an XPath string, not a
 				 * boolean — "true()" is the canonical always-required
 				 * form used throughout the blueprint. */
-				required: "true()",
+				required: xp("true()"),
 			},
 		},
 		moduleOrder: [modUuid],

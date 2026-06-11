@@ -93,7 +93,7 @@ export const userControlledRepeatSchema = repeatBase.extend({
  */
 export const countBoundRepeatSchema = repeatBase.extend({
 	repeat_mode: z.literal("count_bound"),
-	repeat_count: z.string(),
+	repeat_count: xpathExpressionSchema,
 });
 
 /**
@@ -108,7 +108,7 @@ export const queryBoundRepeatSchema = repeatBase.extend({
 	data_source: z
 		.object({
 			/** XPath returning a space-separated list of case ids to iterate. */
-			ids_query: z.string(),
+			ids_query: xpathExpressionSchema,
 		})
 		.strict(),
 });

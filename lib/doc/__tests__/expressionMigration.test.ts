@@ -125,6 +125,30 @@ function richDoc(): BlueprintDoc {
 								label: "Notes",
 								default_value: "concat('a', \"b\")",
 								relevant: "#patient/age > 0 and #user/role != ''",
+								required: "#form/age >= 18",
+							}),
+							f({
+								kind: "repeat",
+								id: "kids",
+								label: "Children",
+								repeat_mode: "count_bound",
+								repeat_count: "#form/age - 18",
+								children: [
+									f({ kind: "text", id: "kid_name", label: "Kid name" }),
+								],
+							}),
+							f({
+								kind: "repeat",
+								id: "visits",
+								label: "Visits",
+								repeat_mode: "query_bound",
+								data_source: {
+									ids_query:
+										"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
+								},
+								children: [
+									f({ kind: "text", id: "visit_note", label: "Note" }),
+								],
 							}),
 						],
 					},
@@ -144,6 +168,16 @@ function richDoc(): BlueprintDoc {
 					{
 						name: "Quiz",
 						type: "survey",
+						formLinks: [
+							{
+								condition: "#form/score > 50",
+								target: {
+									type: "module",
+									moduleUuid: asUuid("99999999-9999-4999-8999-999999999999"),
+								},
+								datums: [{ name: "case_id", xpath: "/data/score" }],
+							},
+						],
 						connect: {
 							assessment: {
 								id: "clinic_quiz",

@@ -54,9 +54,6 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  * How a slot carries its reference — the dispatch key consumers use to
  * pick an extraction/rewrite strategy:
  *
- *   - `xpath` — a string XPath expression; refs travel as hashtags
- *     (`#form/...`, `#<case_type>/<prop>`, `#user/<prop>`) and are
- *     read via the Lezer grammar.
  *   - `xpath-ast` — an XPath expression stored as the typed AST
  *     (`lib/domain/xpath`): references are identity leaves walked
  *     structurally; source text is a PROJECTION (`printXPath`), so
@@ -77,7 +74,6 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  *   - `case-type-ref` — names a case type by bare name.
  */
 export const REFERENCE_SURFACE_KINDS = [
-	"xpath",
 	"xpath-ast",
 	"prose",
 	"predicate-ast",
@@ -294,14 +290,14 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "required",
 		path: "required",
-		kind: "xpath",
+		kind: "xpath-ast",
 		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS],
 	},
 	{
 		entity: "field",
 		slot: "repeat_count",
 		path: "repeat_count",
-		kind: "xpath",
+		kind: "xpath-ast",
 		appliesTo: ["repeat"],
 		repeatModes: ["count_bound"],
 	},
@@ -309,7 +305,7 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "ids_query",
 		path: "data_source.ids_query",
-		kind: "xpath",
+		kind: "xpath-ast",
 		appliesTo: ["repeat"],
 		repeatModes: ["query_bound"],
 	},
@@ -378,7 +374,7 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "form_link_condition",
 		path: "formLinks[].condition",
-		kind: "xpath",
+		kind: "xpath-ast",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -395,7 +391,7 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "form_link_datum_xpath",
 		path: "formLinks[].datums[].xpath",
-		kind: "xpath",
+		kind: "xpath-ast",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -521,17 +517,10 @@ type FieldSlotEntry = (typeof FIELD_REFERENCE_SLOTS)[number];
 type FormSlotEntry = (typeof FORM_REFERENCE_SLOTS)[number];
 type ModuleSlotEntry = (typeof MODULE_REFERENCE_SLOTS)[number];
 
-/** Field slot ids carrying an XPath expression — string-stored
- *  (`xpath`) and AST-stored (`xpath-ast`) alike. One union on purpose:
- *  the read surface is expression TEXT either way (AST slots print),
- *  so the validator's `XPathSurface` vocabulary spans both. */
+/** Field slot ids carrying an XPath expression (AST-stored) — the
+ *  registry side of the validator's `XPathSurface` union; the read
+ *  surface is the printed TEXT. */
 export type FieldXPathSlotId = Extract<
-	FieldSlotEntry,
-	{ kind: "xpath" | "xpath-ast" }
->["slot"];
-
-/** The field slot ids whose stored value is the expression AST. */
-export type FieldXPathAstSlotId = Extract<
 	FieldSlotEntry,
 	{ kind: "xpath-ast" }
 >["slot"];

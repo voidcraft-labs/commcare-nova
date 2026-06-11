@@ -296,13 +296,13 @@ export function buildField(
 			field = {
 				...base,
 				repeat_mode: "count_bound",
-				repeat_count: spec.count,
+				repeat_count: opaqueXPathExpression(spec.count),
 			} as Field;
 		} else {
 			field = {
 				...base,
 				repeat_mode: "query_bound",
-				data_source: { ids_query: spec.idsQuery },
+				data_source: { ids_query: opaqueXPathExpression(spec.idsQuery) },
 			} as Field;
 		}
 		ctx.fields[uuid] = field;
@@ -354,7 +354,9 @@ export function buildField(
 		...(spec.relevant
 			? { relevant: opaqueXPathExpression(spec.relevant) }
 			: {}),
-		...(spec.required ? { required: spec.required } : {}),
+		...(spec.required
+			? { required: opaqueXPathExpression(spec.required) }
+			: {}),
 		...(spec.hint ? { hint: spec.hint } : {}),
 		...(validatable && spec.validate
 			? {
@@ -408,14 +410,16 @@ function injectSubcaseRepeat(
 		repeatField = {
 			...repeatBase,
 			repeat_mode: "count_bound",
-			repeat_count: "3",
+			repeat_count: opaqueXPathExpression("3"),
 		} as Field;
 	} else {
 		repeatField = {
 			...repeatBase,
 			repeat_mode: "query_bound",
 			data_source: {
-				ids_query: `instance('casedb')/casedb/case[@case_type='${spec.childCaseType}']/@case_id`,
+				ids_query: opaqueXPathExpression(
+					`instance('casedb')/casedb/case[@case_type='${spec.childCaseType}']/@case_id`,
+				),
 			},
 		} as Field;
 	}

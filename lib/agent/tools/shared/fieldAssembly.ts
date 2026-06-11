@@ -259,7 +259,12 @@ function resolveBatchExpressions(
 
 	for (const { field, processed } of landed) {
 		const carrier = field as unknown as Record<string, unknown>;
-		for (const slot of ["relevant", "calculate", "default_value"] as const) {
+		for (const slot of [
+			"relevant",
+			"calculate",
+			"default_value",
+			"required",
+		] as const) {
 			const text = processed[slot];
 			if (typeof text === "string" && text.length > 0 && slot in carrier) {
 				carrier[slot] = parseXPathExpression(text, resolve);
@@ -273,6 +278,31 @@ function resolveBatchExpressions(
 		) {
 			carrier.validate = parseXPathExpression(
 				unescapeXPath(validateExpr),
+				resolve,
+			);
+		}
+		const repeatCount = processed.repeat?.count;
+		if (
+			typeof repeatCount === "string" &&
+			repeatCount.length > 0 &&
+			"repeat_count" in carrier
+		) {
+			carrier.repeat_count = parseXPathExpression(
+				unescapeXPath(repeatCount),
+				resolve,
+			);
+		}
+		const idsQuery = processed.repeat?.ids_query;
+		const dataSource = carrier.data_source as
+			| { ids_query?: unknown }
+			| undefined;
+		if (
+			typeof idsQuery === "string" &&
+			idsQuery.length > 0 &&
+			dataSource !== undefined
+		) {
+			dataSource.ids_query = parseXPathExpression(
+				unescapeXPath(idsQuery),
 				resolve,
 			);
 		}

@@ -336,7 +336,7 @@ export function flatFieldToField(
 		...(typeof q.hint === "string" && q.hint.length > 0 && { hint: q.hint }),
 		...(typeof q.required === "string" &&
 			q.required.length > 0 && {
-				required: q.required,
+				required: parseExpr(q.required),
 			}),
 		...(typeof q.relevant === "string" &&
 			q.relevant.length > 0 && {
@@ -388,12 +388,12 @@ export function flatFieldToField(
 				repeat_mode: q.repeat.mode,
 				...(typeof q.repeat.count === "string" &&
 					q.repeat.count.length > 0 && {
-						repeat_count: unescapeXPath(q.repeat.count),
+						repeat_count: parseExpr(unescapeXPath(q.repeat.count)),
 					}),
 				...(typeof q.repeat.ids_query === "string" &&
 					q.repeat.ids_query.length > 0 && {
 						data_source: {
-							ids_query: unescapeXPath(q.repeat.ids_query),
+							ids_query: parseExpr(unescapeXPath(q.repeat.ids_query)),
 						},
 					}),
 			}),

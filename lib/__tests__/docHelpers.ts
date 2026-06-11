@@ -104,7 +104,13 @@ export interface FormSpec {
 	};
 	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
-	formLinks?: FormLink[];
+	/** Authored with string conditions/datum XPaths (the concise spec
+	 *  shape); `buildDoc` parses them against the assembled form. */
+	formLinks?: Array<{
+		condition?: string;
+		target: FormLink["target"];
+		datums?: Array<{ name: string; xpath: string }>;
+	}>;
 	fields?: FieldSpec[];
 }
 
@@ -214,7 +220,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 					postSubmit: formSpec.postSubmit,
 				}),
 				...(formSpec.formLinks !== undefined && {
-					formLinks: formSpec.formLinks,
+					formLinks: formSpec.formLinks as unknown as FormLink[],
 				}),
 			};
 
@@ -261,6 +267,8 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 		"validate",
 		"calculate",
 		"default_value",
+		"required",
+		"repeat_count",
 	] as const;
 	for (const [formUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
 		if (doc.forms[formUuid] === undefined) continue;
@@ -276,6 +284,15 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 				if (typeof value === "string") {
 					field[slot] = parseXPathExpression(value, resolve);
 				}
+			}
+			const dataSource = field.data_source as
+				| { ids_query?: unknown }
+				| undefined;
+			if (dataSource && typeof dataSource.ids_query === "string") {
+				dataSource.ids_query = parseXPathExpression(
+					dataSource.ids_query,
+					resolve,
+				);
 			}
 			for (const child of doc.fieldOrder[uuid] ?? []) stack.push(child);
 		}

@@ -105,7 +105,12 @@ function rawFixture(
 		case "repeat": {
 			const repeatMode = mode ?? "user_controlled";
 			if (repeatMode === "count_bound") {
-				return { ...base, kind, repeat_mode: repeatMode, repeat_count: "3" };
+				return {
+					...base,
+					kind,
+					repeat_mode: repeatMode,
+					repeat_count: opaqueXPathExpression("3"),
+				};
 			}
 			if (repeatMode === "query_bound") {
 				return {
@@ -113,7 +118,9 @@ function rawFixture(
 					kind,
 					repeat_mode: repeatMode,
 					data_source: {
-						ids_query: "instance('casedb')/casedb/case/@case_id",
+						ids_query: opaqueXPathExpression(
+							"instance('casedb')/casedb/case/@case_id",
+						),
 					},
 				};
 			}
@@ -193,8 +200,7 @@ function plantedText(slot: string, indices: readonly number[]): string {
 
 const fieldSlots: readonly FieldReferenceSlot[] = FIELD_REFERENCE_SLOTS;
 const expressionSlots = fieldSlots.filter(
-	(slot) =>
-		slot.kind === "xpath" || slot.kind === "xpath-ast" || slot.kind === "prose",
+	(slot) => slot.kind === "xpath-ast" || slot.kind === "prose",
 );
 
 describe("expressionSource resolves every registry xpath/prose slot", () => {
@@ -287,7 +293,7 @@ describe("expressionSurfaceReads", () => {
 		for (const path of ["relevant", "validate", "default_value"]) {
 			plantAtPath(raw, path, () => opaqueXPathExpression(`expr ${path}`));
 		}
-		plantAtPath(raw, "required", () => "expr required");
+		plantAtPath(raw, "required", () => opaqueXPathExpression("expr required"));
 		const field = parseFixture(raw, "text");
 		expect(
 			expressionSurfaceReads(field, "xpath", EMPTY_DOC).map((r) => r.slot),

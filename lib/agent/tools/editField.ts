@@ -125,8 +125,7 @@ function editPatchToFieldPatch(
 	// path, so the same SA payload produces the same stored entity through
 	// both tools — and the AST-stored slots (`relevant`, `calculate`,
 	// `default_value`) additionally parse to their stored expression form.
-	const astScalarKeys = new Set(["relevant", "calculate", "default_value"]);
-	const xpathScalarKeys = new Set([
+	const astScalarKeys = new Set([
 		"relevant",
 		"calculate",
 		"default_value",
@@ -152,8 +151,6 @@ function editPatchToFieldPatch(
 		if (value === undefined) continue;
 		if (typeof value === "string" && astScalarKeys.has(key)) {
 			patch[key] = parseExpr(unescapeXPath(value));
-		} else if (typeof value === "string" && xpathScalarKeys.has(key)) {
-			patch[key] = unescapeXPath(value);
 		} else {
 			// A string sets the property; `null` clears it (preserved as
 			// `null` so the clear survives serialization).
@@ -190,11 +187,11 @@ function editPatchToFieldPatch(
 		patch.repeat_mode = updates.repeat.mode;
 		patch.repeat_count =
 			updates.repeat.count && updates.repeat.count.length > 0
-				? unescapeXPath(updates.repeat.count)
+				? parseExpr(unescapeXPath(updates.repeat.count))
 				: null;
 		patch.data_source =
 			updates.repeat.ids_query && updates.repeat.ids_query.length > 0
-				? { ids_query: unescapeXPath(updates.repeat.ids_query) }
+				? { ids_query: parseExpr(unescapeXPath(updates.repeat.ids_query)) }
 				: null;
 	}
 	return patch as FieldPatchFor<FieldKind>;

@@ -922,7 +922,7 @@ describe("form_links validation", () => {
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
 				{
-					condition: "x = 1",
+					condition: xp("x = 1"),
 					target: { type: "form", moduleUuid, formUuid: f1Uuid },
 				},
 			];
@@ -960,7 +960,7 @@ describe("form_links validation", () => {
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
 				{
-					condition: "x = 1",
+					condition: xp("x = 1"),
 					target: { type: "form", moduleUuid, formUuid: f1Uuid },
 				},
 			];

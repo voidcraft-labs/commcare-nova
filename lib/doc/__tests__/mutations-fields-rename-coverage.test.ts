@@ -22,7 +22,12 @@ import type { FieldRenameMeta } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
-import { expressionSource, formExpressionSource } from "@/lib/domain";
+import {
+	expressionSource,
+	formExpressionSource,
+	printXPath,
+	xpathPrintContext,
+} from "@/lib/domain";
 import {
 	ancestorPath,
 	eq,
@@ -74,7 +79,14 @@ const asField = (f: Field | undefined): AnyField => f as AnyField;
 function printedSlot(
 	doc: BlueprintDoc,
 	uuid: Uuid,
-	slot: "calculate" | "relevant" | "validate" | "default_value",
+	slot:
+		| "calculate"
+		| "relevant"
+		| "validate"
+		| "default_value"
+		| "required"
+		| "repeat_count"
+		| "ids_query",
 ): string | undefined {
 	const field = doc.fields[uuid];
 	return field ? expressionSource(field, slot, doc) : undefined;
@@ -133,7 +145,7 @@ describe("renameField rewrites `required` expressions (live bug)", () => {
 			fieldOrder: { [F("1")]: [Q("age"), Q("ref")] },
 		};
 		const { next } = rename(start, Q("age"), "years");
-		expect(asField(next.fields[Q("ref")])?.required).toBe("/data/years > 17");
+		expect(printedSlot(next, Q("ref"), "required")).toBe("/data/years > 17");
 	});
 
 	it("follows a #form/ hashtag ref in required", () => {
@@ -148,7 +160,7 @@ describe("renameField rewrites `required` expressions (live bug)", () => {
 			fieldOrder: { [F("1")]: [Q("age"), Q("ref")] },
 		};
 		const { next } = rename(start, Q("age"), "years");
-		expect(asField(next.fields[Q("ref")])?.required).toBe("#form/years > 17");
+		expect(printedSlot(next, Q("ref"), "required")).toBe("#form/years > 17");
 	});
 
 	it("does NOT rewrite a required ref to a cousin sharing the leaf id", () => {
@@ -171,7 +183,7 @@ describe("renameField rewrites `required` expressions (live bug)", () => {
 			},
 		};
 		const { next } = rename(start, Q("root"), "years");
-		expect(asField(next.fields[Q("ref")])?.required).toBe("#form/grp/age > 17");
+		expect(printedSlot(next, Q("ref"), "required")).toBe("#form/grp/age > 17");
 	});
 });
 
@@ -241,8 +253,8 @@ describe("renameField rewrites help/validate_msg/option-label prose (live bug)",
 
 // ── Repeat slots: repeat_count + data_source.ids_query ────────────
 
-describe("renameField rewrites repeat slots", () => {
-	it("rewrites a count_bound repeat's repeat_count", () => {
+describe("repeat slots follow renames at print", () => {
+	it("a count_bound repeat's repeat_count resolves to the new name", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
@@ -256,12 +268,12 @@ describe("renameField rewrites repeat slots", () => {
 			fieldOrder: { [F("1")]: [Q("n"), Q("rep")], [Q("rep")]: [] },
 		};
 		const { next } = rename(start, Q("n"), "child_count");
-		expect(asField(next.fields[Q("rep")])?.repeat_count).toBe(
+		expect(printedSlot(next, Q("rep"), "repeat_count")).toBe(
 			"/data/child_count",
 		);
 	});
 
-	it("rewrites a query_bound repeat's data_source.ids_query", () => {
+	it("a query_bound repeat's data_source.ids_query resolves to the new name", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
@@ -278,7 +290,7 @@ describe("renameField rewrites repeat slots", () => {
 			fieldOrder: { [F("1")]: [Q("v"), Q("rep")], [Q("rep")]: [] },
 		};
 		const { next } = rename(start, Q("v"), "location");
-		expect(asField(next.fields[Q("rep")])?.data_source?.ids_query).toBe(
+		expect(printedSlot(next, Q("rep"), "ids_query")).toBe(
 			"instance('casedb')/casedb/case[village = #form/location]/@case_id",
 		);
 	});
@@ -287,7 +299,7 @@ describe("renameField rewrites repeat slots", () => {
 // ── Form-level wiring: form links, close condition, connect ───────
 
 describe("renameField rewrites the owning form's form-level wiring", () => {
-	it("rewrites form_links[].condition (path and hashtag refs)", () => {
+	it("form_links[].condition follows a rename at print, with zero rewrites", () => {
 		const start: BlueprintDoc = {
 			...docWithForm({
 				formLinks: [
@@ -295,16 +307,17 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 						condition: "/data/refer = 'yes' and #form/refer != ''",
 						target: { type: "module", moduleUuid: M("X") },
 					},
-				],
+				] as unknown as Form["formLinks"],
 			}),
 			fields: { [Q("r")]: field_(Q("r"), "refer") },
 			fieldOrder: { [F("1")]: [Q("r")] },
 		};
 		const { next, meta } = rename(start, Q("r"), "referral");
-		expect(next.forms[F("1")]?.formLinks?.[0]?.condition).toBe(
+		const condition = next.forms[F("1")]?.formLinks?.[0]?.condition;
+		expect(condition && printXPath(condition, xpathPrintContext(next))).toBe(
 			"/data/referral = 'yes' and #form/referral != ''",
 		);
-		expect(meta?.formWiringRewritten).toBe(1);
+		expect(meta?.formWiringRewritten).toBe(0);
 	});
 
 	it("rewrites form_links[].datums[].xpath but never the datum name", () => {
@@ -319,14 +332,17 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 						},
 						datums: [{ name: "case_id", xpath: "/data/selected_case" }],
 					},
-				],
+				] as unknown as Form["formLinks"],
 			}),
 			fields: { [Q("s")]: field_(Q("s"), "selected_case") },
 			fieldOrder: { [F("1")]: [Q("s")] },
 		};
 		const { next } = rename(start, Q("s"), "chosen_case");
 		const link = next.forms[F("1")]?.formLinks?.[0];
-		expect(link?.datums?.[0]?.xpath).toBe("/data/chosen_case");
+		const datumXPath = link?.datums?.[0]?.xpath;
+		expect(datumXPath && printXPath(datumXPath, xpathPrintContext(next))).toBe(
+			"/data/chosen_case",
+		);
 		// The datum NAME is the target entry's session-variable token
 		// (wire vocabulary), not a field reference.
 		expect(link?.datums?.[0]?.name).toBe("case_id");
@@ -353,7 +369,7 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 							target: { type: "module", moduleUuid: M("X") },
 						},
 					],
-				} as Form,
+				} as unknown as Form,
 			},
 			fields: {
 				[Q("a1")]: field_(Q("a1"), "age", { kind: "int" }),
@@ -363,9 +379,10 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			fieldOrder: { [F("1")]: [Q("a1")], [F("2")]: [Q("a2")] },
 		};
 		const { next } = rename(start, Q("a1"), "years");
-		expect(next.forms[F("2")]?.formLinks?.[0]?.condition).toBe(
-			"/data/age > 17",
-		);
+		const otherCondition = next.forms[F("2")]?.formLinks?.[0]?.condition;
+		expect(
+			otherCondition && printXPath(otherCondition, xpathPrintContext(next)),
+		).toBe("/data/age > 17");
 	});
 
 	it("a close condition follows its field's rename with zero rewrites — the ref is its uuid", () => {
@@ -448,7 +465,7 @@ describe("moveField re-anchors form-level wiring", () => {
 						condition: "#form/score > 5",
 						target: { type: "module", moduleUuid: M("X") },
 					},
-				],
+				] as unknown as Form["formLinks"],
 				connect: {
 					deliver_unit: { name: "visit", entity_name: "/data/score" },
 				} as unknown as Form["connect"],
@@ -467,9 +484,10 @@ describe("moveField re-anchors form-level wiring", () => {
 				toIndex: 0,
 			});
 		});
-		expect(next.forms[F("1")]?.formLinks?.[0]?.condition).toBe(
-			"#form/grp/score > 5",
-		);
+		const movedCondition = next.forms[F("1")]?.formLinks?.[0]?.condition;
+		expect(
+			movedCondition && printXPath(movedCondition, xpathPrintContext(next)),
+		).toBe("#form/grp/score > 5");
 		const movedForm = next.forms[F("1")];
 		if (!movedForm) throw new Error("fixture form missing");
 		expect(formExpressionSource(movedForm, "deliver_entity_name", next)).toBe(
@@ -823,15 +841,16 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 							target: { type: "module", moduleUuid: M("X") },
 						},
 					],
-				} as Form,
+				} as unknown as Form,
 			},
 			formOrder: { ...base.formOrder, [M("X")]: [F("1"), F("3")] },
 			fieldOrder: { ...base.fieldOrder, [F("3")]: [] },
 		};
 		const { next, meta } = rename(start, Q("src"), "years");
-		expect(next.forms[F("3")]?.formLinks?.[0]?.condition).toBe(
-			"#case/years > 17 and #patient/years > 17",
-		);
+		const f3Condition = next.forms[F("3")]?.formLinks?.[0]?.condition;
+		expect(
+			f3Condition && printXPath(f3Condition, xpathPrintContext(next)),
+		).toBe("#case/years > 17 and #patient/years > 17");
 		expect(meta?.formWiringRewritten).toBe(1);
 		expect(meta?.cascadedAcrossForms).toBe(true);
 	});

@@ -38,7 +38,6 @@
  * the validator's own property rules adjudicate them on the same batch.
  */
 
-import { parser } from "@/lib/commcare/xpath";
 import {
 	findContainingForm,
 	findFieldParent,
@@ -366,16 +365,6 @@ function collectFieldReferences(
 				}
 				break;
 			}
-			case "xpath": {
-				for (const entry of readSlotStrings(field, slot.path)) {
-					if (expressionNamesCaseType(entry.text, caseType)) {
-						out.push(
-							`field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" expression`,
-						);
-					}
-				}
-				break;
-			}
 			case "xpath-ast": {
 				// Identity leaves name their case type directly — a leaf walk,
 				// never a re-parse. Explicit multi-segment raw refs keep their
@@ -431,9 +420,19 @@ function collectFormSlotReferences(
 	out: string[],
 ): void {
 	for (const slot of FORM_REFERENCE_SLOTS) {
-		if (slot.kind !== "xpath") continue;
-		for (const entry of readSlotStrings(form, slot.path)) {
-			if (expressionNamesCaseType(entry.text, caseType)) {
+		if (slot.kind !== "xpath-ast") continue;
+		for (const entry of readSlotValues(form, slot.path)) {
+			if (!isXPathExpression(entry.value)) continue;
+			const names = xpathRefParts(entry.value).some(
+				(part) =>
+					(part.kind === "case-ref" && part.caseType === caseType) ||
+					(part.kind === "raw-ref" &&
+						part.namespace === caseType &&
+						part.namespace !== "form" &&
+						part.namespace !== "user" &&
+						part.namespace !== "case"),
+			);
+			if (names) {
 				out.push(
 					`${where} references #${caseType}/… in its "${slot.slot}" expression`,
 				);
@@ -604,33 +603,6 @@ function expressionRefsCaseType(
 	let found = false;
 	walkExpressionTerms(expression, (term) => {
 		if (termRefsCaseType(term, caseType)) found = true;
-	});
-	return found;
-}
-
-/** Pre-resolved Lezer node type for `#…/…` references. */
-const HASHTAG_REF_TYPES = new Set(
-	parser.nodeSet.types.filter((t) => t.name === "HashtagRef"),
-);
-
-/**
- * Whether an XPath expression carries a `#<caseType>/…` hashtag. Read
- * through the Lezer grammar — a hashtag is a structural node, never a
- * substring pattern.
- */
-function expressionNamesCaseType(expr: string, caseType: string): boolean {
-	if (!expr.includes("#")) return false;
-	const tree = parser.parse(expr);
-	let found = false;
-	tree.iterate({
-		enter(node) {
-			if (found || !HASHTAG_REF_TYPES.has(node.type)) return;
-			const text = expr.slice(node.from, node.to);
-			const slashIdx = text.indexOf("/");
-			if (slashIdx > 1 && text.slice(1, slashIdx) === caseType) {
-				found = true;
-			}
-		},
 	});
 	return found;
 }

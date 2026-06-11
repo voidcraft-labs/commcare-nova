@@ -74,7 +74,7 @@ const closeConditionSchema = z
 const formLinkDatumSchema = z
 	.object({
 		name: z.string(),
-		xpath: z.string(),
+		xpath: xpathExpressionSchema,
 	})
 	.strict();
 
@@ -96,13 +96,12 @@ const formLinkTargetSchema = z.discriminatedUnion("type", [
 
 const formLinkSchema = z
 	.object({
-		// Empty string is semantically meaningless — the session emitter's
-		// truthy check (`if (link.condition)`) treats "" as "unconditional"
-		// while the expander's presence check (`!== undefined`) treats it as
-		// "set" and emits `condition: ""` to HQ. Rejecting "" at the schema
-		// keeps those two views trivially in agreement: the field is either
-		// absent or a non-empty XPath expression.
-		condition: z.string().min(1).optional(),
+		// An empty condition is semantically meaningless (the emitters
+		// treat absence as "unconditional"), so the slot is either absent
+		// or a non-empty expression — the printed projection of an empty
+		// AST is "", and the boundary that parses authored text never
+		// stores one (an empty commit clears the slot).
+		condition: xpathExpressionSchema.optional(),
 		target: formLinkTargetSchema,
 		datums: z.array(formLinkDatumSchema).optional(),
 	})

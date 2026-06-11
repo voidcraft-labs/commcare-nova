@@ -66,7 +66,7 @@ const asField = (f: Field | undefined): AnyField => f as AnyField;
 function slotText(
 	doc: BlueprintDoc,
 	uuid: Uuid,
-	slot: "calculate" | "relevant" | "validate" | "default_value",
+	slot: "calculate" | "relevant" | "validate" | "default_value" | "required",
 ): string | undefined {
 	const field = doc.fields[uuid];
 	return field ? expressionSource(field, slot, doc) : undefined;
@@ -184,11 +184,11 @@ describe("updateField", () => {
 				kind: "updateField",
 				uuid: Q("a"),
 				targetKind: "text",
-				patch: { label: "Patient Name", required: "true" },
+				patch: { label: "Patient Name", required: xp("true") },
 			});
 		});
 		expect(asField(next.fields[Q("a")])?.label).toBe("Patient Name");
-		expect(asField(next.fields[Q("a")])?.required).toBe("true");
+		expect(slotText(next, Q("a"), "required")).toBe("true");
 		expect(next.fields[Q("a")]?.id).toBe("name"); // Preserved
 	});
 
@@ -306,7 +306,7 @@ describe("updateField", () => {
 					id: "r",
 					kind: "repeat",
 					repeat_mode: "count_bound",
-					repeat_count: "5",
+					repeat_count: xp("5"),
 				} as Field,
 			},
 			fieldOrder: { [F("1")]: [Q("r")] },

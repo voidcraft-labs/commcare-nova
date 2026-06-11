@@ -63,8 +63,6 @@
  * fewer edges (or none), never to a throw.
  */
 
-import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/commcare/xpath";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -96,29 +94,7 @@ import {
 	walkExpressionTerms,
 	walkTerms,
 } from "@/lib/domain/predicate";
-import { collectSegmentsWithPositions } from "@/lib/preview/xpath/rewrite";
 import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
-
-// ── Pre-resolved Lezer node types ───────────────────────────────────
-// Same shape as the rewriters' lookups: the grammar emits TWO distinct
-// `Child` / `Descendant` node types, so membership is a Set check.
-
-const T = (() => {
-	const all = parser.nodeSet.types;
-	const one = (name: string) => {
-		const found = all.find((t) => t.name === name);
-		if (!found) throw new Error(`Unknown node type: ${name}`);
-		return found;
-	};
-	const many = (name: string) => new Set(all.filter((t) => t.name === name));
-	return {
-		Children: many("Child"),
-		Descendants: many("Descendant"),
-		HashtagRef: one("HashtagRef"),
-		HashtagType: one("HashtagType"),
-		HashtagSegment: one("HashtagSegment"),
-	};
-})();
 
 // ── Index primitives ────────────────────────────────────────────────
 
@@ -344,7 +320,7 @@ function extractCarrierEdges(
 	}
 	const form = doc.forms[carrier];
 	if (form) {
-		extractFormEdges(makeSink(index, carrier, ctx), doc, form, ctx);
+		extractFormEdges(makeSink(index, carrier, ctx), form, ctx);
 		return;
 	}
 	const field = doc.fields[carrier];
@@ -360,11 +336,6 @@ function extractFieldEdges(
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
-			case "xpath":
-				for (const value of readSlotStrings(field, slot.path)) {
-					extractXPathRefs(sink, doc, ctx, value.text, slot.slot);
-				}
-				break;
 			case "xpath-ast":
 				for (const value of readSlotValues(field, slot.path)) {
 					if (isXPathExpression(value.value)) {
@@ -405,7 +376,6 @@ function extractFieldEdges(
 
 function extractFormEdges(
 	sink: EdgeSink,
-	doc: BlueprintDoc,
 	form: Form,
 	ctx: CarrierContext,
 ): void {
@@ -413,18 +383,13 @@ function extractFormEdges(
 		switch (slot.slot) {
 			case "form_link_condition":
 			case "form_link_datum_xpath":
-				// Form wiring references the form's OWN fields (CCHQ evaluates
-				// link conditions/datums in the source form's context), so the
-				// form-local namespace is the form itself.
-				for (const value of readSlotStrings(form, slot.path)) {
-					extractXPathRefs(sink, doc, ctx, value.text, slot.slot);
-				}
-				break;
 			case "assessment_user_score":
 			case "deliver_entity_id":
 			case "deliver_entity_name":
-				// AST-stored Connect bindings — a pure leaf walk, same as the
-				// field expression slots.
+				// AST-stored form wiring (form-link conditions/datums reference
+				// the form's OWN fields per CCHQ's end-of-form navigation
+				// semantics; Connect bindings likewise) — a pure leaf walk,
+				// same as the field expression slots.
 				for (const value of readSlotValues(form, slot.path)) {
 					if (isXPathExpression(value.value)) {
 						extractAstRefs(sink, ctx, value.value, slot.slot);
@@ -432,14 +397,15 @@ function extractFormEdges(
 				}
 				break;
 			case "close_condition_field": {
-				// The checked field's stable uuid. A legacy dangler (an id the
-				// migration couldn't resolve, or a transient empty value)
-				// names no entity — zero edges, the raw-leaf treatment.
+				// The checked field's stable uuid — an UNCONDITIONAL identity
+				// edge, like every AST leaf: no doc-dependent resolution, so
+				// the incremental index can't drift from a rebuild when the
+				// target appears or disappears at a distance. A legacy dangler
+				// (id text the migration couldn't resolve) edges to a key
+				// nothing ever queries.
 				const ref = form.closeCondition?.field;
 				if (typeof ref !== "string" || ref.length === 0) break;
-				if (doc.fields[ref as Uuid] !== undefined) {
-					sink.edge(entityTargetKey(ref), slot.slot);
-				}
+				sink.edge(entityTargetKey(ref), slot.slot);
 				break;
 			}
 			case "form_link_target": {
@@ -708,63 +674,7 @@ function extractAstRefs(
 	}
 }
 
-// ── XPath / prose extraction ────────────────────────────────────────
-
-/**
- * Edges for one XPath expression, read through the Lezer grammar.
- * Mirrors the rename/move rewriters' matching exactly:
- *
- *   - Every `Child`/`Descendant` node whose first collected segment is
- *     `data` resolves its remaining segments by id from the form root;
- *     a full resolution emits a `u:` edge to the landed field. Nested
- *     path CST nodes are each visited, which is precisely how prefix
- *     coverage arises — `/data/grp/inner` carries edges to BOTH `grp`
- *     and `inner`, so renaming/moving the container finds carriers of
- *     refs into its subtree with one lookup.
- *   - Every `HashtagRef` dispatches on its namespace; `#form/…`
- *     resolves each anchored segment prefix (one flat node carries the
- *     whole path, so prefixes are explicit here — the dual of the
- *     nested-CST recursion above).
- */
-function extractXPathRefs(
-	sink: EdgeSink,
-	doc: BlueprintDoc,
-	ctx: CarrierContext,
-	text: string,
-	slot: string,
-): void {
-	if (!text || (!text.includes("#") && !text.includes("/"))) return;
-	const tree = parser.parse(text);
-	const visit = (node: SyntaxNode): void => {
-		if (node.type === T.HashtagRef) {
-			const nsNode = node.getChild(T.HashtagType.name);
-			const namespace = nsNode ? text.slice(nsNode.from, nsNode.to) : "";
-			const segments = node
-				.getChildren(T.HashtagSegment.name)
-				.map((segment) => text.slice(segment.from, segment.to));
-			hashtagEdges(sink, doc, ctx, slot, namespace, segments);
-			return;
-		}
-		if (T.Children.has(node.type) || T.Descendants.has(node.type)) {
-			const collected: Array<{ text: string; from: number; to: number }> = [];
-			collectSegmentsWithPositions(node, text, collected);
-			if (collected.length >= 2 && collected[0].text === "data") {
-				sink.markLocal();
-				const segments = collected.slice(1).map((segment) => segment.text);
-				const resolved = resolveIdChain(doc, ctx.formUuid, segments);
-				if (resolved.length === segments.length) {
-					sink.edge(entityTargetKey(resolved[resolved.length - 1]), slot);
-				}
-			}
-			// Keep recursing: nested Child nodes are this path's prefixes,
-			// and predicate bodies can hold further paths/hashtags.
-		}
-		for (let child = node.firstChild; child; child = child.nextSibling) {
-			visit(child);
-		}
-	};
-	visit(tree.topNode);
-}
+// ── Prose extraction ────────────────────────────────────────────────
 
 /**
  * Edges for one prose string. Only the bare-hashtag substrings the

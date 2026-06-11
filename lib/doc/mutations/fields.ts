@@ -435,15 +435,12 @@ export function applyFieldMutation(
 			// never cross form boundaries. The carriers come from the
 			// reference index: refs into a moved CONTAINER's subtree carry a
 			// prefix edge to the container itself, so one lookup on the moved
-			// field's uuid names every field whose slots can match, and the
-			// rewriter re-parses just those carriers' slots. The containing
-			// form's own wiring slots (form-link conditions/datums, Connect
-			// expressions) rewrite alongside. `closeCondition.field` is a bare leaf-id ref and
-			// is deliberately NOT rewritten here: a move only changes the
-			// leaf id through sibling-dedup, and in that case the destination
-			// sibling that forced the dedup still holds the old id — the ref
-			// keeps resolving to it (see `FormSlotRewriteContext
-			// .fieldIdRename`'s unique-holder rule).
+			// field's uuid names every field whose slots can match. Only
+			// PROSE rewrites remain: expression slots store identity leaves
+			// that re-anchor at print, and every form wiring slot is
+			// identity-stored too — so the carriers here are fields whose
+			// label/hint/help text embeds a `#form/…` hashtag into the
+			// moved subtree.
 			let xpathFieldsRewritten = 0;
 			const newPathStr =
 				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
@@ -452,27 +449,15 @@ export function applyFieldMutation(
 				const newSegments = newPathStr.split("/");
 				const moveRewriter = (expr: string) =>
 					rewriteXPathOnMove(expr, oldSegments, newSegments);
-				const formUuid = findContainingForm(
+				for (const carrierUuid of referencingCarrierUuids(
 					draft as unknown as BlueprintDoc,
-					mut.uuid,
-				);
-				if (formUuid) {
-					for (const carrierUuid of referencingCarrierUuids(
-						draft as unknown as BlueprintDoc,
-						entityTargetKey(mut.uuid),
-					)) {
-						const target = draft.fields[carrierUuid as Uuid];
-						if (!target) continue;
-						xpathFieldsRewritten += rewriteFieldReferenceSlots(target, {
-							xpath: moveRewriter,
-						});
-					}
-					const form = draft.forms[formUuid];
-					if (form) {
-						xpathFieldsRewritten += rewriteFormReferenceSlots(form, {
-							xpath: moveRewriter,
-						});
-					}
+					entityTargetKey(mut.uuid),
+				)) {
+					const target = draft.fields[carrierUuid as Uuid];
+					if (!target) continue;
+					xpathFieldsRewritten += rewriteFieldReferenceSlots(target, {
+						xpath: moveRewriter,
+					});
 				}
 			}
 
@@ -867,20 +852,10 @@ function renameSingleField(
 	if (oldPath === undefined || formUuid === undefined) return;
 
 	rewriteFormLocalRefs(doc, uuid, formUuid, oldPath, newId, tracking);
-
-	// Form-level wiring on the containing form. `closeCondition.field`
-	// holds the checked field's stable uuid, so it needs nothing from a
-	// rename — only the string XPath wiring slots still rewrite here.
-	const form = doc.forms[formUuid];
-	if (form) {
-		const wiringChanges = rewriteFormReferenceSlots(form, {
-			xpath: (expr) => rewriteXPathRefs(expr, oldPath, newId),
-		});
-		if (wiringChanges > 0) {
-			tracking.rewiredForms.add(formUuid);
-			tracking.affectedForms.add(formUuid);
-		}
-	}
+	// The containing form's own wiring needs nothing from a rename:
+	// `closeCondition.field` holds the checked field's stable uuid and
+	// every form expression slot stores identity leaves — both resolve
+	// to the new name at print.
 }
 
 /**
@@ -1143,7 +1118,6 @@ function cascadeCasePropertyRename(
 		}
 		const form = doc.forms[carrierUuid as Uuid];
 		const formOps = {
-			xpath: rewriter,
 			caseLeafRename: { rename, contextualMatches: matchesCaseType },
 		};
 		if (form && rewriteFormReferenceSlots(form, formOps) > 0) {
