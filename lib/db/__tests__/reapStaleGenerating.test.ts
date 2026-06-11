@@ -125,60 +125,86 @@ describe("setAwaitingInput", () => {
 	});
 });
 
-describe("markAppGenerating", () => {
+describe("claimBuildRun", () => {
 	beforeEach(() => {
 		txGetMock.mockReset();
 		txUpdateMock.mockReset();
 	});
 
-	const snapshotWithStatus = (status: string) => ({
+	const snapshotWith = (data: Record<string, unknown>) => ({
 		exists: true,
-		data: () => ({ status }),
+		data: () => data,
 	});
 
-	it("re-enters the build window with a FRESH staleness clock and a cleared error", async () => {
+	it("claims a FAILED build's window with a fresh staleness clock and a cleared error", async () => {
 		// A retry of a failed build flips error → generating before the
 		// route's concurrency check (write-then-check — the row is the
 		// lock). The fresh `updated_at` is load-bearing: the row's old
 		// timestamp belongs to the FAILED run and may already sit outside
 		// the staleness window, so without re-arming, a concurrent list
 		// scan could reap (and refund) the retry at birth.
-		txGetMock.mockResolvedValue(snapshotWithStatus("error"));
-		const { markAppGenerating } = await import("../apps");
-		await markAppGenerating("app-1");
+		txGetMock.mockResolvedValue(snapshotWith({ status: "error" }));
+		const { claimBuildRun } = await import("../apps");
+		const claim = await claimBuildRun("app-1");
 
+		expect(claim).toEqual({ from: "error" });
 		expect(txUpdateMock).toHaveBeenCalledTimes(1);
 		const [, payload] = txUpdateMock.mock.calls[0];
 		expect(payload).toMatchObject({ status: "generating", error_type: null });
 		expect(payload).toHaveProperty("updated_at");
 	});
 
-	it("fails the second same-app contender — the flip moves ONLY error → generating", async () => {
-		// Two near-simultaneous retries share ONE row, and the concurrency
+	it("claims a COMPLETE app's window — a new instruction into a finished build re-enters liveness coverage", async () => {
+		// Without this arm, a chargeable build POST against a `complete` app
+		// (the reply after a purely conversational first turn) would run with
+		// NO durable `generating` row: a hard kill would strand its 100-credit
+		// hold forever (the reaper keys on `generating`), and a duplicate POST
+		// would pass the concurrency check and interleave two SA loops on one
+		// doc. The claim reports what it moved the app out of so a pre-stream
+		// bail-out can restore `complete` rather than failing a working app.
+		txGetMock.mockResolvedValue(snapshotWith({ status: "complete" }));
+		const { claimBuildRun } = await import("../apps");
+		const claim = await claimBuildRun("app-1");
+
+		expect(claim).toEqual({ from: "complete" });
+		expect(txUpdateMock).toHaveBeenCalledTimes(1);
+		const [, payload] = txUpdateMock.mock.calls[0];
+		expect(payload).toMatchObject({ status: "generating", error_type: null });
+	});
+
+	it("claims a build PAUSED on questions, clearing the pause flag in the same transaction", async () => {
+		// A paused build (`generating` + `awaiting_input`) has no live
+		// process — a fresh chargeable instruction may take over its window.
+		// The flag clears inside the claim so two such POSTs arbitrate on the
+		// compare-and-flip: the loser's re-read sees a live `generating`
+		// (flag gone) and throws.
+		txGetMock.mockResolvedValue(
+			snapshotWith({ status: "generating", awaiting_input: true }),
+		);
+		const { claimBuildRun } = await import("../apps");
+		const claim = await claimBuildRun("app-1");
+
+		expect(claim).toEqual({ from: "paused" });
+		expect(txUpdateMock).toHaveBeenCalledTimes(1);
+		const [, payload] = txUpdateMock.mock.calls[0];
+		expect(payload).toMatchObject({
+			status: "generating",
+			awaiting_input: false,
+		});
+	});
+
+	it("fails the second same-app contender — a LIVE generating row is owned", async () => {
+		// Two near-simultaneous POSTs share ONE row, and the concurrency
 		// check excludes the contender's own appId — so the compare inside
 		// this transaction is the only arbitration between them. The loser's
 		// fresh read sees the winner's `generating` and must throw with
 		// nothing written (the route 429s it), or two SA loops would
 		// interleave their saves on one app.
-		txGetMock.mockResolvedValue(snapshotWithStatus("generating"));
-		const { markAppGenerating, GenerationRetryConflictError } = await import(
-			"../apps"
-		);
+		txGetMock.mockResolvedValue(snapshotWith({ status: "generating" }));
+		const { claimBuildRun, BuildRunConflictError } = await import("../apps");
 
-		await expect(markAppGenerating("app-1")).rejects.toBeInstanceOf(
-			GenerationRetryConflictError,
-		);
-		expect(txUpdateMock).not.toHaveBeenCalled();
-	});
-
-	it("throws the conflict (not a flip) when the build completed between the pre-read and the transaction", async () => {
-		txGetMock.mockResolvedValue(snapshotWithStatus("complete"));
-		const { markAppGenerating, GenerationRetryConflictError } = await import(
-			"../apps"
-		);
-
-		await expect(markAppGenerating("app-1")).rejects.toBeInstanceOf(
-			GenerationRetryConflictError,
+		await expect(claimBuildRun("app-1")).rejects.toBeInstanceOf(
+			BuildRunConflictError,
 		);
 		expect(txUpdateMock).not.toHaveBeenCalled();
 	});

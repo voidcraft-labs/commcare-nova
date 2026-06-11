@@ -241,8 +241,10 @@ export const appDocSchema = z.object({
 	 * - `complete` — the at-rest state: no run is working on the app.
 	 *   Every non-chat creation (MCP `create_app` included) is born here,
 	 *   and the chat route flips a finished build here at drain end.
-	 * - `error` — a build run failed; see `error_type` for the bucket. A
-	 *   retry flips it back to `generating` (`markAppGenerating`).
+	 * - `error` — a build run failed; see `error_type` for the bucket.
+	 *   Every chargeable build POST against an existing app — a retry of
+	 *   a failed build or a new instruction into a finished one — claims
+	 *   the run window back to `generating` (`claimBuildRun`).
 	 * - `deleted` — legacy marker, retained in the enum for back-compat
 	 *   with rows soft-deleted before the marker moved off `status`.
 	 *   New code uses `deleted_at != null` as the soft-delete signal

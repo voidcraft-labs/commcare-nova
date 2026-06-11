@@ -21,13 +21,14 @@ import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
+	BuildRunConflictError,
+	type ClaimedBuildRun,
+	claimBuildRun,
 	completeApp,
 	createApp,
 	failApp,
-	GenerationRetryConflictError,
 	hasActiveGeneration,
-	loadAppOwnerAndStatus,
-	markAppGenerating,
+	loadAppOwner,
 	setAwaitingInput,
 } from "@/lib/db/apps";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
@@ -194,10 +195,13 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
-	/* True when this POST revived a FAILED build (`error → generating`)
-	 * for a retry — the pre-stream rejection arms below must flip it back
-	 * to `error` on bail-out, mirroring how `appCreated` rows are failed. */
-	let revivedForRetry = false;
+	/* Set when this POST claimed an existing app's build-run window
+	 * (`claimBuildRun` flipped it to `generating`). Carries the shape the
+	 * claim moved the app out of, so the pre-stream rejection arms below
+	 * can put the row back exactly where the claim found it — failing a
+	 * previously-`complete` app to `error` over a rejected request would
+	 * brick a working app. */
+	let claimedRun: ClaimedBuildRun | undefined;
 	if (!appId) {
 		try {
 			appId = await createApp(userId, effectiveRunId);
@@ -216,35 +220,39 @@ export async function POST(req: Request) {
 		/* Verify ownership — apps are a root-level collection, so the path no
 		 * longer scopes writes to the authenticated user. Without this check,
 		 * a crafted request with another user's appId would overwrite their app. */
-		const access = await loadAppOwnerAndStatus(appId);
-		if (!access || access.owner !== userId) {
+		const owner = await loadAppOwner(appId);
+		if (owner !== userId) {
 			return Response.json(
 				{ error: "App not found", type: "not_found" },
 				{ status: 404 },
 			);
 		}
-		/* A BUILD-mode retry of a failed build re-enters `generating` HERE —
-		 * awaited, BEFORE the concurrency check below, the same
-		 * write-then-check ordering `createApp` uses (the durable row is the
-		 * lock; do not reorder). This is what puts the retry back under the
-		 * existing liveness machinery: the concurrency guard, the staleness
-		 * reaper's reservation refund for a hard-killed run, and the list
-		 * failure inference.
-		 *
-		 * The flip itself is the same-app lock: `hasActiveGeneration` below
-		 * excludes this appId (so a retry isn't blocked by its own row), which
-		 * means it can never arbitrate between two retries of the SAME app —
-		 * the transactional `error → generating` compare inside
-		 * `markAppGenerating` is what fails the loser. */
-		if (access.status === "error" && !parsed.data.appReady) {
+		if (!parsed.data.appReady && chargeable) {
+			/* EVERY chargeable BUILD-mode POST against an existing app claims
+			 * the run window HERE — awaited, BEFORE the concurrency check
+			 * below, the same write-then-check ordering `createApp` uses (the
+			 * durable `generating` row is the lock; do not reorder). One
+			 * mechanism for every shape the row can be in: a retry of a
+			 * failed build (`error`), a new instruction into a finished one
+			 * (`complete` — e.g. the reply after a purely conversational
+			 * first turn), and a fresh instruction into a build paused on
+			 * questions (`generating` + `awaiting_input`). The claim is what
+			 * puts the run under the liveness machinery: the concurrency
+			 * guard, the staleness reaper's reservation refund for a
+			 * hard-killed run, and the list failure inference.
+			 *
+			 * The claim itself is the same-app lock: `hasActiveGeneration`
+			 * below excludes this appId (so a run isn't blocked by its own
+			 * row), which means it can never arbitrate between two POSTs on
+			 * the SAME app — the transactional compare-and-flip inside
+			 * `claimBuildRun` is what fails the loser. */
 			try {
-				await markAppGenerating(appId);
-				revivedForRetry = true;
+				claimedRun = await claimBuildRun(appId);
 			} catch (err) {
-				if (err instanceof GenerationRetryConflictError) {
-					/* Lost the revival race — another POST flipped this row first
-					 * and its run owns it now. 429 without touching the row:
-					 * failing the app here would kill the winner's live lock. */
+				if (err instanceof BuildRunConflictError) {
+					/* Lost the claim race — another POST owns this row's run now.
+					 * 429 without touching the row: failing the app here would
+					 * kill the winner's live lock. */
 					return Response.json(
 						{
 							error: MESSAGES.generation_in_progress,
@@ -253,23 +261,55 @@ export async function POST(req: Request) {
 						{ status: 429 },
 					);
 				}
-				log.error("[chat] retry revival write failed", err, { appId });
+				log.error("[chat] build-run claim write failed", err, { appId });
 				return Response.json(
 					{
-						error: "Unable to restart this build. Please try again shortly.",
+						error: "Unable to start this build. Please try again shortly.",
 						type: "internal",
 					},
 					{ status: 503 },
 				);
 			}
+		} else {
+			/* A free continuation or an edit against an existing app — if it's
+			 * resuming a build that paused on an `askQuestions` round, clear the
+			 * pause flag now (before the stream) so a resume that then hard-kills
+			 * becomes reapable again. A no-op for an ordinary edit (the field is
+			 * absent). The run re-sets it below if it pauses on a question again.
+			 * (A chargeable build POST took the claim branch above, whose
+			 * transaction already cleared the flag.) */
+			void setAwaitingInput(appId, false);
 		}
-		/* This POST runs against an existing app — if it's resuming a build that
-		 * paused on an `askQuestions` round, clear the pause flag now (before the
-		 * stream) so a resume that then hard-kills becomes reapable again. A no-op
-		 * for an ordinary edit (the field is absent). The run re-sets it below if it
-		 * pauses on a question again. */
-		void setAwaitingInput(appId, false);
 	}
+
+	/**
+	 * Put a claimed run window back where `claimBuildRun` found it — the
+	 * pre-stream bail-out arms (concurrency 429, out-of-credits,
+	 * reservation failure) call this so a rejected request leaves the app
+	 * exactly as it was. Fire-and-forget like `failApp`: a rejection
+	 * response must not block on Firestore, and a dropped restore degrades
+	 * to the reaper settling the still-`generating` row (refund-first).
+	 */
+	const restoreClaimedRun = (
+		claim: ClaimedBuildRun,
+		reason: ErrorType,
+	): void => {
+		switch (claim.from) {
+			case "error":
+				failApp(appId, reason);
+				return;
+			case "complete":
+				completeApp(appId).catch((err) =>
+					log.error("[chat] claimed-run restore to complete failed", err, {
+						appId,
+					}),
+				);
+				return;
+			case "paused":
+				void setAwaitingInput(appId, true);
+				return;
+		}
+	};
 
 	// Concurrency guard — only one generation at a time per user. Prevents
 	// concurrent requests from racing past the credit gate and works across
@@ -281,8 +321,10 @@ export async function POST(req: Request) {
 	try {
 		const inFlight = await hasActiveGeneration(userId, appId);
 		if (inFlight) {
-			if (!parsed.data.appId || revivedForRetry) {
+			if (!parsed.data.appId) {
 				failApp(appId, "generation_in_progress");
+			} else if (claimedRun) {
+				restoreClaimedRun(claimedRun, "generation_in_progress");
 			}
 			return Response.json(
 				{
@@ -322,12 +364,14 @@ export async function POST(req: Request) {
 			if (err instanceof OutOfCreditsError) {
 				// Lost the rare race: passed the fast-fail balance read, then a
 				// concurrent reservation depleted the balance before this debit. Fail
-				// the just-created build doc — and flip a revived retry back to
-				// `error` (its `generating` was this POST's own lock write, now
-				// pointing at a run that never starts). An ordinary existing-app
-				// request stays untouched.
-				if (appCreated || revivedForRetry) {
+				// the just-created build doc — and put a claimed run window back
+				// where the claim found it (its `generating` was this POST's own
+				// lock write, now pointing at a run that never starts). An ordinary
+				// existing-app request stays untouched.
+				if (appCreated) {
 					failApp(appId, "out_of_credits");
+				} else if (claimedRun) {
+					restoreClaimedRun(claimedRun, "out_of_credits");
 				}
 				return Response.json(
 					{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
@@ -336,7 +380,13 @@ export async function POST(req: Request) {
 			}
 			// Any other failure is infrastructure (Firestore down / transaction
 			// contention exhausted). Fail closed — never silently skip the charge
-			// and let an uncharged generation through.
+			// and let an uncharged generation through. A claimed run window is
+			// put back first — leaving it `generating` would hand a working app
+			// to the reaper (which would settle it to `error`) over a request
+			// that never ran.
+			if (claimedRun) {
+				restoreClaimedRun(claimedRun, "internal");
+			}
 			log.error("[chat] credit reservation failed", err);
 			return Response.json(
 				{

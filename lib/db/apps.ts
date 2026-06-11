@@ -626,63 +626,98 @@ export async function completeApp(appId: string): Promise<void> {
 }
 
 /**
- * Thrown by `markAppGenerating` when the app is no longer `error` at the
- * transaction's read — another request already revived this build (or it
- * completed in the meantime), so THIS contender must not run. The chat
- * route maps it to the same 429 a cross-app concurrent build gets.
+ * Thrown by `claimBuildRun` when the app's run window is already owned at
+ * the transaction's read — another request's build run is live on this
+ * app, so THIS contender must not run. The chat route maps it to the
+ * same 429 a cross-app concurrent build gets.
  */
-export class GenerationRetryConflictError extends Error {
+export class BuildRunConflictError extends Error {
 	constructor() {
 		super(
-			"This build was already restarted by another request — only one run can work on an app at a time.",
+			"Another request is already running a build on this app — only one run can work on an app at a time.",
 		);
-		this.name = "GenerationRetryConflictError";
+		this.name = "BuildRunConflictError";
 	}
 }
 
 /**
- * Re-enter the build window for a RETRY of a failed build: flip
- * `error → generating` with a FRESH `updated_at`, clearing `error_type`.
+ * The at-rest shape `claimBuildRun` moved the app out of. The chat route
+ * holds this so a pre-stream bail-out (concurrency 429, out-of-credits,
+ * reservation failure) can put the app back exactly where the claim
+ * found it — flipping a previously-`complete` app to `error` over a
+ * rejected request would brick a working app.
+ */
+export type ClaimedBuildRun =
+	| { from: "complete" }
+	| { from: "error" }
+	/** A build paused on an `askQuestions` round — `generating` with
+	 *  `awaiting_input`. The claim cleared the pause flag; restoring
+	 *  means re-setting it so the paused run stays alive and unreapable. */
+	| { from: "paused" };
+
+/**
+ * Claim the app's build-run window: transactionally flip the row to
+ * `generating` with a FRESH `updated_at`, clearing `error_type` and the
+ * `awaiting_input` pause flag. Every chargeable build-mode POST against
+ * an existing app runs this — a retry of a failed build (`error`), a new
+ * instruction into a finished one (`complete`), and a fresh instruction
+ * into a build paused on questions (`generating` + `awaiting_input`) all
+ * enter the window through the same compare-and-flip, so every build run
+ * sits under the liveness machinery uniformly: `hasActiveGeneration`
+ * blocks concurrent new builds while it runs, the staleness reaper
+ * refunds a hard-killed run's reservation, and the list failure
+ * inference surfaces a dead one. The fresh timestamp matters — the row's
+ * old `updated_at` belongs to the PREVIOUS run and may already sit
+ * outside the staleness window, so without re-arming, a concurrent list
+ * scan could reap the new run at birth.
  *
  * The chat route awaits this BEFORE its concurrency check — the same
  * write-then-check ordering `createApp` uses (the durable `generating`
  * row IS the lock; checking first would reopen the TOCTOU the pattern
- * closes). Re-entering `generating` is what re-arms ALL the existing
- * build-liveness machinery for free: `hasActiveGeneration` blocks
- * concurrent new builds while the retry runs, the staleness reaper
- * refunds a hard-killed retry's reservation, and the list failure
- * inference surfaces a dead one. The fresh timestamp matters — the
- * row's old `updated_at` is from the FAILED run and may already be
- * outside the staleness window, so without re-arming, a concurrent
- * list scan could reap the retry at birth.
+ * closes).
  *
- * The flip is a TRANSACTION that moves ONLY `error → generating`. For a
- * retry, same-app contenders share ONE row — `hasActiveGeneration`
- * excludes the contender's own appId, so the row can't arbitrate between
- * them the way per-contender `createApp` rows arbitrate new builds. The
- * compare-and-flip is what makes the shared row a real lock: the first
- * contender's transaction sees `error` and flips it; the loser's re-read
- * sees `generating` and throws `GenerationRetryConflictError` with
- * nothing written, so two double-clicked retries can never run two SA
- * loops against one app.
+ * The claim is a TRANSACTION because same-app contenders share ONE row —
+ * `hasActiveGeneration` excludes the contender's own appId, so the row
+ * can't arbitrate between them the way per-contender `createApp` rows
+ * arbitrate new builds. The compare-and-flip is the lock: the first
+ * contender's transaction sees a claimable shape and flips it; the
+ * loser's re-read sees a live `generating` (no pause flag) and throws
+ * `BuildRunConflictError` with nothing written, so two near-simultaneous
+ * POSTs can never run two SA loops against one app. A stale `generating`
+ * row (a hard-killed run the reaper hasn't seen yet) also reads as
+ * owned — the reaper settles it to `error` (refunding its hold first),
+ * after which the claim succeeds.
+ *
+ * Returns the shape the claim moved the app out of, for bail-out
+ * restoration (see `ClaimedBuildRun`).
  */
-export async function markAppGenerating(appId: string): Promise<void> {
-	await getDb().runTransaction(async (tx) => {
+export async function claimBuildRun(appId: string): Promise<ClaimedBuildRun> {
+	return await getDb().runTransaction(async (tx) => {
 		const snap = await tx.get(docs.app(appId));
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {
 			throw new Error(
-				`[markAppGenerating] app document missing for appId=${appId}`,
+				`[claimBuildRun] app document missing for appId=${appId}`,
 			);
 		}
-		if (fresh.status !== "error") {
-			throw new GenerationRetryConflictError();
+		const from: ClaimedBuildRun["from"] | undefined =
+			fresh.status === "complete"
+				? "complete"
+				: fresh.status === "error"
+					? "error"
+					: fresh.status === "generating" && fresh.awaiting_input
+						? "paused"
+						: undefined;
+		if (from === undefined) {
+			throw new BuildRunConflictError();
 		}
 		tx.update(docs.appRaw(appId), {
 			status: "generating",
 			error_type: null,
+			awaiting_input: false,
 			updated_at: FieldValue.serverTimestamp(),
 		});
+		return { from };
 	});
 }
 
@@ -932,26 +967,6 @@ export async function loadAppOwner(appId: string): Promise<string | null> {
 	const snap = await getDb().collection("apps").doc(appId).get();
 	if (!snap.exists) return null;
 	return (snap.data()?.owner as string) ?? null;
-}
-
-/**
- * Load the owner + lifecycle status in one untyped read — the chat
- * route's pre-stream gate needs both: `owner` for the ownership 404 and
- * `status` for the validity gate's commit phase (derived server-side
- * from the app doc, never from a client-supplied flag). Returns `null`
- * when the doc doesn't exist. `status` defaults to `"complete"` for a
- * pre-status legacy row — the stricter (ratcheted) gate direction.
- */
-export async function loadAppOwnerAndStatus(
-	appId: string,
-): Promise<{ owner: string | null; status: AppDoc["status"] } | null> {
-	const snap = await getDb().collection("apps").doc(appId).get();
-	if (!snap.exists) return null;
-	const data = snap.data();
-	return {
-		owner: (data?.owner as string) ?? null,
-		status: (data?.status as AppDoc["status"]) ?? "complete",
-	};
 }
 
 /**
