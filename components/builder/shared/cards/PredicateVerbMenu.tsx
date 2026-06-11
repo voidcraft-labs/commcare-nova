@@ -21,8 +21,33 @@
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
-import { Icon } from "@iconify/react/offline";
+import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import tablerAbc from "@iconify-icons/tabler/abc";
+import tablerArrowsHorizontal from "@iconify-icons/tabler/arrows-horizontal";
+import tablerAsterisk from "@iconify-icons/tabler/asterisk";
+import tablerCalendarQuestion from "@iconify-icons/tabler/calendar-question";
 import tablerCheck from "@iconify-icons/tabler/check";
+import tablerCheckbox from "@iconify-icons/tabler/checkbox";
+import tablerChecks from "@iconify-icons/tabler/checks";
+import tablerCircleDashed from "@iconify-icons/tabler/circle-dashed";
+import tablerCircleOff from "@iconify-icons/tabler/circle-off";
+import tablerEar from "@iconify-icons/tabler/ear";
+import tablerEqual from "@iconify-icons/tabler/equal";
+import tablerEqualNot from "@iconify-icons/tabler/equal-not";
+import tablerFilter from "@iconify-icons/tabler/filter";
+import tablerLink from "@iconify-icons/tabler/link";
+import tablerListCheck from "@iconify-icons/tabler/list-check";
+import tablerLogicAnd from "@iconify-icons/tabler/logic-and";
+import tablerLogicNot from "@iconify-icons/tabler/logic-not";
+import tablerLogicOr from "@iconify-icons/tabler/logic-or";
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
+import tablerMathEqualGreater from "@iconify-icons/tabler/math-equal-greater";
+import tablerMathEqualLower from "@iconify-icons/tabler/math-equal-lower";
+import tablerMathGreater from "@iconify-icons/tabler/math-greater";
+import tablerMathLower from "@iconify-icons/tabler/math-lower";
+import tablerSlash from "@iconify-icons/tabler/slash";
+import tablerUnlink from "@iconify-icons/tabler/unlink";
+import tablerWand from "@iconify-icons/tabler/wand";
 import { useRef } from "react";
 import {
 	type ComparisonKind,
@@ -54,6 +79,8 @@ interface VerbEntry {
 	readonly id: string;
 	readonly label: string;
 	readonly description: string;
+	/** Scan anchor — menus are skimmed by glyph before they're read. */
+	readonly icon: IconifyIcon;
 	/** The schema kind backing applicability dimming. */
 	readonly schemaKind: Predicate["kind"];
 	readonly isCurrent: (value: Predicate) => boolean;
@@ -182,28 +209,43 @@ const COMPARISON_VERBS: ReadonlyArray<{
 	kind: ComparisonKind;
 	label: string;
 	description: string;
+	icon: IconifyIcon;
 }> = [
-	{ kind: "eq", label: "is", description: "Exactly this value." },
-	{ kind: "neq", label: "is not", description: "Anything except this value." },
+	{
+		kind: "eq",
+		label: "is",
+		description: "Exactly this value.",
+		icon: tablerEqual,
+	},
+	{
+		kind: "neq",
+		label: "is not",
+		description: "Anything except this value.",
+		icon: tablerEqualNot,
+	},
 	{
 		kind: "gt",
 		label: "is more than",
 		description: "Above the value — numbers and dates compare by order.",
+		icon: tablerMathGreater,
 	},
 	{
 		kind: "gte",
 		label: "is at least",
 		description: "The value or above.",
+		icon: tablerMathEqualGreater,
 	},
 	{
 		kind: "lt",
 		label: "is less than",
 		description: "Below the value.",
+		icon: tablerMathLower,
 	},
 	{
 		kind: "lte",
 		label: "is at most",
 		description: "The value or below.",
+		icon: tablerMathEqualLower,
 	},
 ];
 
@@ -211,26 +253,31 @@ const MATCH_VERBS: ReadonlyArray<{
 	mode: MatchMode;
 	label: string;
 	description: string;
+	icon: IconifyIcon;
 }> = [
 	{
 		mode: "fuzzy",
 		label: "fuzzy matches",
 		description: "Forgives a typo or two per word; ignores capitalization.",
+		icon: tablerWand,
 	},
 	{
 		mode: "starts-with",
 		label: "starts with",
 		description: "Begins with the text — capitalization counts.",
+		icon: tablerAbc,
 	},
 	{
 		mode: "phonetic",
 		label: "sounds like",
 		description: "Same spoken sound — Smith finds Smyth.",
+		icon: tablerEar,
 	},
 	{
 		mode: "fuzzy-date",
 		label: "fuzzy matches the date",
 		description: "Forgives swapped day and month, and mistyped digits.",
+		icon: tablerCalendarQuestion,
 	},
 ];
 
@@ -241,6 +288,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			id: v.kind,
 			label: v.label,
 			description: v.description,
+			icon: v.icon,
 			schemaKind: v.kind,
 			isCurrent: (p) => p.kind === v.kind,
 			build: (p, ctx) => buildComparison(v.kind, p, ctx),
@@ -251,6 +299,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			id: `match:${m.mode}`,
 			label: m.label,
 			description: m.description,
+			icon: m.icon,
 			schemaKind: "match",
 			isCurrent: (p) => p.kind === "match" && p.mode === m.mode,
 			build: (p, ctx) => buildMatch(m.mode, p, ctx),
@@ -260,6 +309,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		{
 			id: "in",
 			label: "is any of",
+			icon: tablerListCheck,
 			description: "Matches one value from a list you write.",
 			schemaKind: "in",
 			isCurrent: (p) => p.kind === "in",
@@ -268,6 +318,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		{
 			id: "between",
 			label: "is between",
+			icon: tablerArrowsHorizontal,
 			description: "Falls inside a range — either end optional.",
 			schemaKind: "between",
 			isCurrent: (p) => p.kind === "between",
@@ -276,6 +327,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		{
 			id: "msc:any",
 			label: "includes any of",
+			icon: tablerCheckbox,
 			description: "The multi-choice list has at least one of the options.",
 			schemaKind: "multi-select-contains",
 			isCurrent: (p) =>
@@ -285,6 +337,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		{
 			id: "msc:all",
 			label: "includes all of",
+			icon: tablerChecks,
 			description: "The multi-choice list has every one of the options.",
 			schemaKind: "multi-select-contains",
 			isCurrent: (p) =>
@@ -294,6 +347,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		{
 			id: "within-distance",
 			label: "is near",
+			icon: tablerMapPin,
 			description: "Within a distance of a place.",
 			schemaKind: "within-distance",
 			isCurrent: (p) => p.kind === "within-distance",
@@ -308,6 +362,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		{
 			id: "is-blank",
 			label: "is blank",
+			icon: tablerCircleOff,
 			description: "Empty, or missing entirely.",
 			schemaKind: "is-blank",
 			isCurrent: (p) => p.kind === "is-blank",
@@ -316,6 +371,7 @@ function buildVerbEntries(): readonly VerbEntry[] {
 		{
 			id: "is-null",
 			label: "was never recorded",
+			icon: tablerCircleDashed,
 			description: "Strictly absent — an empty value still counts as recorded.",
 			schemaKind: "is-null",
 			isCurrent: (p) => p.kind === "is-null",
@@ -333,6 +389,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "and",
 		label: "All of these…",
+		icon: tablerLogicAnd,
 		description: "A group — every condition inside must match.",
 		schemaKind: "and",
 		isCurrent: (p) => p.kind === "and",
@@ -341,6 +398,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "or",
 		label: "Any of these…",
+		icon: tablerLogicOr,
 		description: "A group — at least one condition inside must match.",
 		schemaKind: "or",
 		isCurrent: (p) => p.kind === "or",
@@ -349,6 +407,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "not",
 		label: "Not…",
+		icon: tablerLogicNot,
 		description: "Flips this condition — matches when it doesn't.",
 		schemaKind: "not",
 		isCurrent: (p) => p.kind === "not",
@@ -358,6 +417,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "exists",
 		label: "Has a related case…",
+		icon: tablerLink,
 		description: "At least one connected case satisfies a condition.",
 		schemaKind: "exists",
 		isCurrent: (p) => p.kind === "exists",
@@ -366,6 +426,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "missing",
 		label: "Has no related case…",
+		icon: tablerUnlink,
 		description: "No connected case satisfies the condition.",
 		schemaKind: "missing",
 		isCurrent: (p) => p.kind === "missing",
@@ -374,6 +435,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "when-input-present",
 		label: "When a search field is filled…",
+		icon: tablerFilter,
 		description: "Applies this condition only while a field has a value.",
 		schemaKind: "when-input-present",
 		isCurrent: (p) => p.kind === "when-input-present",
@@ -387,6 +449,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "match-all",
 		label: "Always true",
+		icon: tablerAsterisk,
 		description: "Matches every case — a placeholder to build from.",
 		schemaKind: "match-all",
 		isCurrent: (p) => p.kind === "match-all",
@@ -395,6 +458,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "match-none",
 		label: "Always false",
+		icon: tablerSlash,
 		description: "Matches nothing — an explicit off switch.",
 		schemaKind: "match-none",
 		isCurrent: (p) => p.kind === "match-none",
@@ -445,6 +509,14 @@ export function PredicateVerbMenu({
 					isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
 				} ${isApplicable ? "" : "opacity-45"}`}
 			>
+				<Icon
+					icon={entry.icon}
+					width="15"
+					height="15"
+					className={
+						isCurrent ? "text-nova-violet-bright" : "text-nova-text-muted"
+					}
+				/>
 				<span className="flex-1 text-left min-w-0">
 					<div className="truncate">{entry.label}</div>
 					<div
