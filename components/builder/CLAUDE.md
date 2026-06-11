@@ -6,7 +6,7 @@ Edit is a frozen, stateless view: inputs empty, validation suppressed, submit ba
 
 ## Preview mode
 
-One global Preview toggle (centered in the BuilderHeader — directly above the canvas for reach; `P`, Escape exits) flips the whole canvas to the running app. Breadcrumbs live in the canvas column's own strip so a long trail can never collide with the centered toggle — there is no per-surface preview affordance and no cursor-mode pill. Entering hides both sidebars AND their collapsed rails atomically, stashing open-state in one set call so leaving restores the layout. Keep the early return on no-op toggles — without it, entering preview twice overwrites the stash with `{ false, false }`.
+One global Preview toggle (centered in the BuilderHeader — directly above the canvas for reach; `P`, Escape exits) flips the whole canvas to the running app. Breadcrumbs live in the canvas column's own strip so a long trail can never collide with the centered toggle. **The mode flip is a single-frame cut, not a slide** — centered (max-width) content can't track a sliding sidebar edge (it stays viewport-pinned until the column narrows past the frame, then rushes), so the toggle snaps every width in one frame and the slide is reserved for manual sidebar collapse — there is no per-surface preview affordance and no cursor-mode pill. Entering hides both sidebars AND their collapsed rails atomically, stashing open-state in one set call so leaving restores the layout. Keep the early return on no-op toggles — without it, entering preview twice overwrites the stash with `{ false, false }`.
 
 ## Flipbook (edit ↔ live) invariants
 

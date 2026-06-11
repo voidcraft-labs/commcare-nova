@@ -15,7 +15,7 @@
  */
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { AppTreeRail } from "@/components/builder/appTree/AppTreeRail";
 import { BreadcrumbStrip } from "@/components/builder/BreadcrumbStrip";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
@@ -93,6 +93,22 @@ export function BuilderContentArea({
 			? CHAT_SIDEBAR_WIDTH
 			: 0;
 
+	/* The preview toggle is a CUT, not a glide. Centered content cannot
+	 * track a sliding edge: while the column is wider than the content's
+	 * max-width frame the frame stays pinned to the viewport center,
+	 * then does all its travel in the tail of the tween — chrome and
+	 * content visibly desynchronize. So a mode flip switches layout in
+	 * a single frame (everything lands together, in sync by
+	 * construction) while manual sidebar toggles keep the slide.
+	 * `modeFlip` is true only on the render where `previewing` changed —
+	 * exactly the render whose width targets it must snap. */
+	const prevPreviewingRef = useRef(previewing);
+	const modeFlip = previewing !== prevPreviewingRef.current;
+	useEffect(() => {
+		prevPreviewingRef.current = previewing;
+	});
+	const widthTransition = modeFlip ? { duration: 0 } : SIDEBAR_TRANSITION;
+
 	const showProgress = phase === BuilderPhase.Generating && !inReplayMode;
 
 	return (
@@ -100,27 +116,34 @@ export function BuilderContentArea({
 			{/* Structure sidebar (left) — full tree when open, icon rail when
 			 *  collapsed. The rail keeps every destination (modules, each
 			 *  case list, every form) one click away, so collapsing trades
-			 *  width for labels, never for reach. Preview unmounts the
-			 *  whole strip — the running app gets the full canvas. */}
+			 *  width for labels, never for reach. Preview empties the strip
+			 *  to width 0 — the wrapper stays mounted so the mode cut can
+			 *  control the transition directly (an AnimatePresence exit
+			 *  would replay the previous render's tween). */}
 			<AnimatePresence initial={false}>
-				{!isCentered && hasData && !previewing && (
+				{!isCentered && hasData && (
 					<motion.div
 						key="structure"
 						initial={{ width: 0 }}
 						animate={{
-							width: structureOpen
-								? STRUCTURE_SIDEBAR_WIDTH
-								: COLLAPSED_RAIL_WIDTH,
+							width: previewing
+								? 0
+								: structureOpen
+									? STRUCTURE_SIDEBAR_WIDTH
+									: COLLAPSED_RAIL_WIDTH,
 						}}
 						exit={{ width: 0 }}
-						transition={SIDEBAR_TRANSITION}
+						transition={widthTransition}
 						className="shrink-0 overflow-hidden"
 					>
-						{structureOpen ? (
-							<StructureSidebar />
-						) : (
-							<AppTreeRail onExpand={() => setSidebarOpen("structure", true)} />
-						)}
+						{!previewing &&
+							(structureOpen ? (
+								<StructureSidebar />
+							) : (
+								<AppTreeRail
+									onExpand={() => setSidebarOpen("structure", true)}
+								/>
+							))}
 					</motion.div>
 				)}
 			</AnimatePresence>
@@ -174,7 +197,7 @@ export function BuilderContentArea({
 				animate={{
 					width: isCentered ? "auto" : railWidth,
 				}}
-				transition={isCentered ? { duration: 0 } : SIDEBAR_TRANSITION}
+				transition={isCentered ? { duration: 0 } : widthTransition}
 				className={isCentered ? "" : "shrink-0 overflow-hidden"}
 			>
 				<ErrorBoundary>
@@ -189,24 +212,28 @@ export function BuilderContentArea({
 			 *  width 0 (chat state survives collapse); this sibling column is
 			 *  purely the collapsed affordance. It steps aside whenever the
 			 *  inspector claims the rail (selection forces the rail open) and
-			 *  in preview, where chrome is force-hidden. */}
+			 *  in preview, where chrome is force-hidden — width 0 via the
+			 *  same mode-cut transition as the other flanks. */}
 			<AnimatePresence initial={false}>
-				{!isCentered &&
-					hasData &&
-					!previewing &&
-					!chatOpen &&
-					!inspectorActive && (
-						<motion.div
-							key="chat-rail"
-							initial={{ width: 0 }}
-							animate={{ width: COLLAPSED_RAIL_WIDTH }}
-							exit={{ width: 0 }}
-							transition={SIDEBAR_TRANSITION}
-							className="shrink-0 overflow-hidden"
-						>
+				{!isCentered && hasData && (
+					<motion.div
+						key="chat-rail"
+						initial={{ width: 0 }}
+						animate={{
+							width:
+								!previewing && !chatOpen && !inspectorActive
+									? COLLAPSED_RAIL_WIDTH
+									: 0,
+						}}
+						exit={{ width: 0 }}
+						transition={widthTransition}
+						className="shrink-0 overflow-hidden"
+					>
+						{!previewing && (
 							<ChatRail onExpand={() => setSidebarOpen("chat", true)} />
-						</motion.div>
-					)}
+						)}
+					</motion.div>
+				)}
 			</AnimatePresence>
 		</div>
 	);
