@@ -5,12 +5,14 @@
  *
  * Every reference operation in the write path answers "who references
  * X?" / "who declares X?" through these lookups instead of walking the
- * document: the rename cascade and `moveField`'s re-anchor pass
+ * document: the rename cascade and `moveField`'s prose re-anchor pass
  * (`mutations/fields.ts`), the case-type retirement planner
  * (`caseTypeRetirement.ts`), and the peer-aware rename verdict
- * (`identifierVerdicts.ts`). The rewriters still re-parse the slots the
- * index names — edges carry (carrier uuid, slot id), never character
- * positions, so nothing positional can go stale across mutations.
+ * (`identifierVerdicts.ts`). Edges carry (carrier uuid, slot id),
+ * never character positions — a consumer that needs structure walks
+ * the named slot's leaves (AST slots) or re-locates the hashtag
+ * substrings (prose), so nothing positional can go stale across
+ * mutations.
  *
  * ## One extractor, two builders
  *
@@ -24,12 +26,12 @@
  *
  * ## Extraction discipline
  *
- * XPath-kind slots are read through the Lezer grammar
- * (`lib/commcare/xpath`) — the same trees the rename rewriters
- * (`lib/preview/xpath/rewrite.ts`) walk, so an edge exists exactly
- * where a rewrite would land. Prose slots are located with the shared
- * hashtag matcher (`lib/domain/hashtagSegments.ts`), never parsed as
- * XPath. Predicate/value-expression slots are walked structurally via
+ * Expression slots store the XPath AST (`lib/domain/xpath`), so their
+ * extraction is a pure leaf walk — identity leaves edge directly, no
+ * parse, no resolution. Prose slots are located with the shared
+ * hashtag matcher (`lib/domain/hashtagSegments.ts`) and their refs
+ * resolved against the doc, never parsed as XPath.
+ * Predicate/value-expression slots are walked structurally via
  * `lib/domain/predicate`'s term walkers, keying each `PropertyRef` on
  * the walk's DESTINATION type — the rename rewriter's matching rule.
  *
@@ -43,16 +45,19 @@
  * (peers via the declarations index, property referencers via the
  * `c:`-bucket), and two resolution-context groups —
  *
- *   - `local[form]`: carriers holding form-local reference text.
- *     Form-local refs resolve by id-path against the form's field
- *     tree, so any mutation that changes the form's id/path namespace
- *     (add/remove/move/rename/duplicate) can flip a ref between
- *     dangling and resolved WITHOUT touching the carrier. Re-deriving
- *     the bucket keeps the incremental index equal to a rebuild even
- *     for those at-a-distance shifts.
+ *   - `local[form]`: carriers whose PROSE embeds form-local hashtag
+ *     text. Prose refs resolve by id-path against the form's field
+ *     tree at extraction, so any mutation that changes the form's
+ *     id/path namespace (add/remove/move/rename/duplicate) can flip a
+ *     ref between dangling and resolved WITHOUT touching the carrier.
+ *     Re-deriving the bucket keeps the incremental index equal to a
+ *     rebuild even for those at-a-distance shifts. AST slots never
+ *     join: their identity leaves resolve at PRINT, and an unresolved
+ *     leaf stays text forever — extraction has no resolution to track.
  *   - `ctx[module]`: carriers whose extraction read the module's case
- *     type (`#case/…` refs). A module case-type change or a
- *     cross-module form move re-keys their `c:` edges the same way.
+ *     type (contextual `#case/…` refs, prose or transitional AST raw
+ *     leaves). A module case-type change or a cross-module form move
+ *     re-keys their `c:` edges the same way.
  *
  * Re-extraction is idempotent, so over-approximating a touched set
  * costs only repeated parses of that carrier's own slots — never

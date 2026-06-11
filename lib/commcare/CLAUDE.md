@@ -20,7 +20,7 @@ The set of allowed consumers is enforced by `biome.json`'s `noRestrictedImports`
 
 ### Shared field-string accessor
 
-`fieldProps.ts::readFieldString` is the one reading-helper the wire emitters share: a single untyped lookup over `Field`'s discriminated union for the optional string properties (`relevant`, `validate`, `calculate`, `default_value`, `required`, `hint`, `label`, `case_property_on`, `validate_msg`). Narrowing per kind at every call site would cascade N×M branches.
+`fieldProps.ts::readFieldString(field, key, doc)` is the one reading-helper the wire emitters share: expression slots (`relevant`, `validate`, `calculate`, `default_value`, `required`, the repeat slots, `label`, `hint`, …) delegate to the domain's `expressionSource`, which projects AST-stored values to their printed text against `doc` — identity references resolve to CURRENT names at every read — and passes prose/legacy strings through; non-expression keys (`case_property_on`) stay a plain untyped lookup. Narrowing per kind at every call site would cascade N×M branches.
 
 ### Vellum dual-attribute pattern
 

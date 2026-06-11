@@ -14,11 +14,12 @@
 //
 // An edge keys on the IDENTITY of what is referenced, never on text:
 //
-//   - `u:<uuid>` — an entity reference by stable uuid. A form-local
-//     field reference (`#form/grp/age`, `/data/age`) resolves to the
-//     target field's uuid at extraction time; form-link targets carry
-//     module/form uuids directly. Renames never re-key these edges —
-//     the uuid is stable.
+//   - `u:<uuid>` — an entity reference by stable uuid. An expression
+//     slot's form-local leaf (`#form/grp/age`, `/data/age` at the
+//     commit that parsed it) carries the target uuid directly;
+//     form-link targets and close conditions store uuids outright;
+//     prose hashtags resolve to the uuid at extraction. Renames never
+//     re-key these edges — the uuid is stable.
 //   - `c:<caseType>/<property>` — a case-property reference. Explicit
 //     per-type hashtags (`#mother/age`), contextual `#case/age` refs
 //     (keyed under the owning module's case type), predicate-AST
@@ -64,12 +65,13 @@ export interface ReferenceCarrierEntry {
 	/** Fields only: the `<caseType>/<property>` pair this field
 	 *  declares via `case_property_on` + id, mirrored into `decl`. */
 	decl?: string;
-	/** Set when this carrier holds form-local-shaped reference text
-	 *  (`#form/…`, `/data/…`, a close-condition field id) — the form
-	 *  uuid whose `local` bucket lists it. Carriers in a form's
-	 *  `local` bucket re-extract whenever that form's id/path
-	 *  namespace changes, because resolution (dangling ↔ resolved)
-	 *  can shift without the carrier itself being touched. */
+	/** Set when this carrier's PROSE embeds form-local hashtag text
+	 *  (`#form/…` in a label/hint/help) — the form uuid whose `local`
+	 *  bucket lists it. Carriers in a form's `local` bucket re-extract
+	 *  whenever that form's id/path namespace changes, because prose
+	 *  resolution (dangling ↔ resolved) can shift without the carrier
+	 *  itself being touched. Expression-AST slots never set this:
+	 *  their identity leaves resolve at print, not at extraction. */
 	local?: string;
 	/** Set when extraction consumed the owning module's `caseType`
 	 *  context (a `#case/…` ref) — the module uuid whose `ctx` bucket
