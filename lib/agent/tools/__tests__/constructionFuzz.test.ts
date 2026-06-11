@@ -18,25 +18,47 @@
  * construction outcome, so the schemas' structural exclusions are part
  * of what the proof exercises. Inputs deliberately mix valid and
  * invalid raw values (bare-word XPath, reserved ids, XML-illegal ids,
- * wrong-cased functions, broken close conditions, media kinds) — the
- * surface is supposed to REFUSE the bad ones; the invariant is about
- * the doc state after whatever was accepted. A second run grows a
- * Connect learn app from birth, with creations optionally carrying
- * their per-form `connect` blocks.
+ * wrong-cased functions, broken close conditions, media kinds, unknown
+ * case properties) — the surface is supposed to REFUSE the bad ones;
+ * the invariant is about the doc state after whatever was accepted. A
+ * second run grows a Connect learn app from birth, with creations
+ * optionally carrying their per-form `connect` blocks.
+ *
+ * The op pool spans the structural tools (create/remove module + form,
+ * field mutations — `removeModule` included, so the case-type
+ * retirement cascade and the NO_MODULES re-introduction rejection are
+ * both exercised) and the whole case-list-config family (column
+ * add/update/remove/reorder, the filter, search-input
+ * add/update/remove/reorder). The media tools stay out: their inputs
+ * are opaque asset ids with no gate interplay (attach-time existence
+ * is deliberately unchecked — the export boundary adjudicates against
+ * the resolved manifest), so a media op would only ever write an
+ * arbitrary id the invariant can't judge.
  */
 
 import * as fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { eq, literal, prop } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { addFieldsTool } from "../addFields";
+import { addCaseListColumnsTool } from "../case-list-config/addCaseListColumns";
+import { addSearchInputsTool } from "../case-list-config/addSearchInputs";
+import { removeCaseListColumnTool } from "../case-list-config/removeCaseListColumn";
+import { removeSearchInputTool } from "../case-list-config/removeSearchInput";
+import { reorderCaseListColumnsTool } from "../case-list-config/reorderCaseListColumns";
+import { reorderSearchInputsTool } from "../case-list-config/reorderSearchInputs";
+import { setCaseListFilterTool } from "../case-list-config/setCaseListFilter";
+import { updateCaseListColumnTool } from "../case-list-config/updateCaseListColumn";
+import { updateSearchInputTool } from "../case-list-config/updateSearchInput";
 import { createFormTool } from "../createForm";
 import { createModuleTool } from "../createModule";
 import { editFieldTool } from "../editField";
 import { removeFieldTool } from "../removeField";
 import { removeFormTool } from "../removeForm";
+import { removeModuleTool } from "../removeModule";
 import { updateAppTool } from "../updateApp";
 import { updateFormTool } from "../updateForm";
 import { updateModuleTool } from "../updateModule";
@@ -166,6 +188,13 @@ const CASE_TYPE_POOL = ["patient", "visit", "household", "Bad Type!", ""];
 const FIELD_CASE_BINDING_POOL = [...CASE_TYPE_POOL, "__own__", "__own__"];
 
 const FORM_TYPE_POOL = ["registration", "followup", "survey", "close"] as const;
+
+/* Case-list pools. "ghost_prop" names no declared case property, so the
+ * ops carrying it exercise the unknown-property rejection arms while the
+ * clean entries land commits. */
+const COLUMN_FIELD_POOL = ["case_name", "village", "village", "ghost_prop"];
+const COLUMN_HEADER_POOL = ["Name", "Village", "Status"];
+const SEARCH_INPUT_NAME_POOL = ["by_name", "by_village", "find_case"];
 
 // ── Arbitraries ─────────────────────────────────────────────────────────
 
@@ -309,6 +338,64 @@ const opArb = fc.oneof(
 			formIndex: formIndexArb,
 		})
 		.map((r) => ({ type: "removeForm" as const, ...r })),
+	fc
+		.record({ moduleIndex: moduleIndexArb })
+		.map((r) => ({ type: "removeModule" as const, ...r })),
+	fc
+		.record({
+			moduleIndex: moduleIndexArb,
+			field: fc.constantFrom(...COLUMN_FIELD_POOL),
+			header: fc.constantFrom(...COLUMN_HEADER_POOL),
+		})
+		.map((r) => ({ type: "addCaseListColumns" as const, ...r })),
+	fc
+		.record({
+			moduleIndex: moduleIndexArb,
+			columnPick: fc.nat({ max: 5 }),
+			field: fc.constantFrom(...COLUMN_FIELD_POOL),
+			header: fc.constantFrom(...COLUMN_HEADER_POOL),
+		})
+		.map((r) => ({ type: "updateCaseListColumn" as const, ...r })),
+	fc
+		.record({
+			moduleIndex: moduleIndexArb,
+			columnPick: fc.nat({ max: 5 }),
+		})
+		.map((r) => ({ type: "removeCaseListColumn" as const, ...r })),
+	fc
+		.record({ moduleIndex: moduleIndexArb })
+		.map((r) => ({ type: "reorderCaseListColumns" as const, ...r })),
+	fc
+		.record({
+			moduleIndex: moduleIndexArb,
+			clear: fc.boolean(),
+			property: fc.constantFrom(...COLUMN_FIELD_POOL),
+		})
+		.map((r) => ({ type: "setCaseListFilter" as const, ...r })),
+	fc
+		.record({
+			moduleIndex: moduleIndexArb,
+			name: fc.constantFrom(...SEARCH_INPUT_NAME_POOL),
+			property: fc.constantFrom(...COLUMN_FIELD_POOL),
+		})
+		.map((r) => ({ type: "addSearchInputs" as const, ...r })),
+	fc
+		.record({
+			moduleIndex: moduleIndexArb,
+			inputPick: fc.nat({ max: 5 }),
+			name: fc.constantFrom(...SEARCH_INPUT_NAME_POOL),
+			property: fc.constantFrom(...COLUMN_FIELD_POOL),
+		})
+		.map((r) => ({ type: "updateSearchInput" as const, ...r })),
+	fc
+		.record({
+			moduleIndex: moduleIndexArb,
+			inputPick: fc.nat({ max: 5 }),
+		})
+		.map((r) => ({ type: "removeSearchInput" as const, ...r })),
+	fc
+		.record({ moduleIndex: moduleIndexArb })
+		.map((r) => ({ type: "reorderSearchInputs" as const, ...r })),
 );
 
 type FuzzOp = typeof opArb extends fc.Arbitrary<infer T> ? T : never;
@@ -360,6 +447,34 @@ function formTypeAt(
 		? doc.formOrder[moduleUuid]?.[formIndex]
 		: undefined;
 	return formUuid ? doc.forms[formUuid]?.type : undefined;
+}
+
+/** The module's case-list config at a positional index, if any. */
+function caseListConfigAt(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+): { columns: { uuid: Uuid }[]; searchInputs: { uuid: Uuid }[] } | undefined {
+	return doc.modules[doc.moduleOrder[moduleIndex]]?.caseListConfig;
+}
+
+/** Resolve a case-list column uuid by pick index (deterministic). */
+function pickColumnUuid(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	pick: number,
+): Uuid | undefined {
+	const columns = caseListConfigAt(doc, moduleIndex)?.columns ?? [];
+	return columns.length > 0 ? columns[pick % columns.length]?.uuid : undefined;
+}
+
+/** Resolve a search-input uuid by pick index (deterministic). */
+function pickSearchInputUuid(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	pick: number,
+): Uuid | undefined {
+	const inputs = caseListConfigAt(doc, moduleIndex)?.searchInputs ?? [];
+	return inputs.length > 0 ? inputs[pick % inputs.length]?.uuid : undefined;
 }
 
 /** First close-type form in document order, as positional indices. */
@@ -637,6 +752,154 @@ async function applyOp(
 				ctx,
 				doc,
 			);
+		case "removeModule":
+			/* Exercises the case-type retirement cascade (the prelude module is
+			 * its type's only owner) AND the NO_MODULES re-introduction
+			 * rejection (removing the only module bounces at the gate). */
+			return runParsed(
+				removeModuleTool,
+				{ moduleIndex: op.moduleIndex },
+				ctx,
+				doc,
+			);
+		case "addCaseListColumns":
+			return runParsed(
+				addCaseListColumnsTool,
+				{
+					moduleIndex: op.moduleIndex,
+					columns: [{ kind: "plain", field: op.field, header: op.header }],
+				},
+				ctx,
+				doc,
+			);
+		case "updateCaseListColumn": {
+			const columnUuid = pickColumnUuid(doc, op.moduleIndex, op.columnPick);
+			if (!columnUuid) return doc;
+			return runParsed(
+				updateCaseListColumnTool,
+				{
+					moduleIndex: op.moduleIndex,
+					columnUuid,
+					column: { kind: "plain", field: op.field, header: op.header },
+				},
+				ctx,
+				doc,
+			);
+		}
+		case "removeCaseListColumn": {
+			const columnUuid = pickColumnUuid(doc, op.moduleIndex, op.columnPick);
+			if (!columnUuid) return doc;
+			return runParsed(
+				removeCaseListColumnTool,
+				{ moduleIndex: op.moduleIndex, columnUuid },
+				ctx,
+				doc,
+			);
+		}
+		case "reorderCaseListColumns": {
+			/* Reversal of the live uuid set — always a complete permutation,
+			 * so the op exercises the reorder commit rather than the
+			 * unknown/missing-uuid input rejections. */
+			const columns = caseListConfigAt(doc, op.moduleIndex)?.columns ?? [];
+			if (columns.length === 0) return doc;
+			return runParsed(
+				reorderCaseListColumnsTool,
+				{
+					moduleIndex: op.moduleIndex,
+					columnUuids: columns.map((c) => c.uuid).reverse(),
+				},
+				ctx,
+				doc,
+			);
+		}
+		case "setCaseListFilter": {
+			/* The predicate names the target module's OWN type (the dominant
+			 * authoring shape); a typeless module falls back to a foreign
+			 * literal so the rejection arm stays alive. `clear` keeps the
+			 * null-clears convention exercised. */
+			const ownType =
+				doc.modules[doc.moduleOrder[op.moduleIndex]]?.caseType ?? "patient";
+			return runParsed(
+				setCaseListFilterTool,
+				{
+					moduleIndex: op.moduleIndex,
+					filter: op.clear
+						? null
+						: eq(prop(ownType, op.property), literal("x")),
+				},
+				ctx,
+				doc,
+			);
+		}
+		case "addSearchInputs":
+			return runParsed(
+				addSearchInputsTool,
+				{
+					moduleIndex: op.moduleIndex,
+					searchInputs: [
+						{
+							kind: "simple",
+							name: op.name,
+							label: "Search",
+							type: "text",
+							property: op.property,
+						},
+					],
+				},
+				ctx,
+				doc,
+			);
+		case "updateSearchInput": {
+			const searchInputUuid = pickSearchInputUuid(
+				doc,
+				op.moduleIndex,
+				op.inputPick,
+			);
+			if (!searchInputUuid) return doc;
+			return runParsed(
+				updateSearchInputTool,
+				{
+					moduleIndex: op.moduleIndex,
+					searchInputUuid,
+					searchInput: {
+						kind: "simple",
+						name: op.name,
+						label: "Search",
+						type: "text",
+						property: op.property,
+					},
+				},
+				ctx,
+				doc,
+			);
+		}
+		case "removeSearchInput": {
+			const searchInputUuid = pickSearchInputUuid(
+				doc,
+				op.moduleIndex,
+				op.inputPick,
+			);
+			if (!searchInputUuid) return doc;
+			return runParsed(
+				removeSearchInputTool,
+				{ moduleIndex: op.moduleIndex, searchInputUuid },
+				ctx,
+				doc,
+			);
+		}
+		case "reorderSearchInputs": {
+			const inputs = caseListConfigAt(doc, op.moduleIndex)?.searchInputs ?? [];
+			if (inputs.length === 0) return doc;
+			return runParsed(
+				reorderSearchInputsTool,
+				{
+					moduleIndex: op.moduleIndex,
+					searchInputUuids: inputs.map((i) => i.uuid).reverse(),
+				},
+				ctx,
+				doc,
+			);
+		}
 	}
 }
 
@@ -662,7 +925,11 @@ function assertZeroFindings(doc: BlueprintDoc, context: string): void {
 // carrying a registration unit AND a standing close-type form (a close
 // condition can only commit on one — without it, the close op's commits
 // would depend on the sequence first creating a close form, starving the
-// acceptance floor below).
+// acceptance floor below). The same standing-target rationale gives the
+// prelude module a SECOND case-list column and one search input (grown
+// through the real config tools): the update/remove/reorder config ops
+// always have an addressable entry from op #0, instead of depending on
+// the sequence first landing an add.
 
 async function growStandardPrelude(
 	ctx: ToolExecutionContext,
@@ -688,7 +955,20 @@ async function growStandardPrelude(
 				{
 					name: "Register patient",
 					type: "registration",
-					fields: registrationUnitFields("patient"),
+					/* The third writer is the standing removeField target: with
+					 * only the registration unit, removing `village` would
+					 * re-introduce REGISTRATION_NO_CASE_PROPS (the name writer
+					 * alone doesn't count as saving case data) and every
+					 * prelude-form removal would bounce. */
+					fields: [
+						...registrationUnitFields("patient"),
+						{
+							kind: "text",
+							id: "notes",
+							label: "Notes",
+							case_property_on: "patient",
+						},
+					],
 				},
 				{
 					name: "Close case",
@@ -707,7 +987,54 @@ async function growStandardPrelude(
 		ctx,
 		doc,
 	);
-	expect(doc.moduleOrder).toHaveLength(1);
+	/* A second, caseless module is the standing removeModule target:
+	 * removing the ONLY module bounces on NO_MODULES, so without one the
+	 * op's commits would depend on a sequence creating a module first. */
+	doc = await runParsed(
+		createModuleTool,
+		{
+			name: "Feedback",
+			forms: [
+				{
+					name: "Feedback survey",
+					type: "survey",
+					fields: [{ kind: "text", id: "comments", label: "Comments" }],
+				},
+			],
+		},
+		ctx,
+		doc,
+	);
+	doc = await runParsed(
+		addCaseListColumnsTool,
+		{
+			moduleIndex: 0,
+			columns: [{ kind: "plain", field: "village", header: "Village" }],
+		},
+		ctx,
+		doc,
+	);
+	doc = await runParsed(
+		addSearchInputsTool,
+		{
+			moduleIndex: 0,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "by_name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		},
+		ctx,
+		doc,
+	);
+	expect(doc.modules[doc.moduleOrder[0]]?.caseListConfig?.columns).toHaveLength(
+		2,
+	);
+	expect(doc.moduleOrder).toHaveLength(2);
 	return doc;
 }
 
@@ -751,7 +1078,17 @@ async function growConnectPrelude(
 							time_estimate: 10,
 						},
 					},
-					fields: registrationUnitFields("trainee"),
+					/* Third writer = standing removeField target — see the
+					 * standard prelude. */
+					fields: [
+						...registrationUnitFields("trainee"),
+						{
+							kind: "text",
+							id: "notes",
+							label: "Notes",
+							case_property_on: "trainee",
+						},
+					],
 				},
 				{
 					name: "Close enrollment",
@@ -778,7 +1115,61 @@ async function growConnectPrelude(
 		ctx,
 		doc,
 	);
-	expect(doc.moduleOrder).toHaveLength(1);
+	/* Standing removeModule target — see the standard prelude. Carries
+	 * its learn block like every form on a Connect app. */
+	doc = await runParsed(
+		createModuleTool,
+		{
+			name: "Feedback",
+			forms: [
+				{
+					name: "Feedback survey",
+					type: "survey",
+					connect: {
+						learn_module: {
+							id: "feedback_module",
+							name: "Feedback",
+							description: "Course feedback",
+							time_estimate: 5,
+						},
+					},
+					fields: [{ kind: "text", id: "comments", label: "Comments" }],
+				},
+			],
+		},
+		ctx,
+		doc,
+	);
+	doc = await runParsed(
+		addCaseListColumnsTool,
+		{
+			moduleIndex: 0,
+			columns: [{ kind: "plain", field: "village", header: "Village" }],
+		},
+		ctx,
+		doc,
+	);
+	doc = await runParsed(
+		addSearchInputsTool,
+		{
+			moduleIndex: 0,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "by_name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		},
+		ctx,
+		doc,
+	);
+	expect(doc.modules[doc.moduleOrder[0]]?.caseListConfig?.columns).toHaveLength(
+		2,
+	);
+	expect(doc.moduleOrder).toHaveLength(2);
 	return doc;
 }
 
@@ -807,6 +1198,16 @@ const OP_TYPES = [
 	"updateModule",
 	"removeField",
 	"removeForm",
+	"removeModule",
+	"addCaseListColumns",
+	"updateCaseListColumn",
+	"removeCaseListColumn",
+	"reorderCaseListColumns",
+	"setCaseListFilter",
+	"addSearchInputs",
+	"updateSearchInput",
+	"removeSearchInput",
+	"reorderSearchInputs",
 ] as const satisfies readonly FuzzOp["type"][];
 
 function newCommitTally(): Map<FuzzOp["type"], number> {
@@ -839,7 +1240,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 		const tally = newCommitTally();
 		await fc.assert(
 			fc.asyncProperty(
-				fc.array(opArb, { minLength: 1, maxLength: 10 }),
+				fc.array(opArb, { minLength: 1, maxLength: 14 }),
 				async (ops) => {
 					const ctx = makeCtx();
 					let doc = await growStandardPrelude(ctx);
@@ -852,7 +1253,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					}
 				},
 			),
-			{ numRuns: 40, seed: 20260610 },
+			{ numRuns: 60, seed: 20260610 },
 		);
 		assertCommitFloor(tally, "standard app");
 	});
@@ -867,7 +1268,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 		let omittedIdCreationCommits = 0;
 		await fc.assert(
 			fc.asyncProperty(
-				fc.array(opArb, { minLength: 1, maxLength: 10 }),
+				fc.array(opArb, { minLength: 1, maxLength: 14 }),
 				async (ops) => {
 					const ctx = makeCtx();
 					let doc = await growConnectPrelude(ctx);
@@ -891,7 +1292,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					}
 				},
 			),
-			{ numRuns: 30, seed: 20260610 },
+			{ numRuns: 45, seed: 20260610 },
 		);
 		assertCommitFloor(tally, "connect run");
 		expect(connectCreationCommits).toBeGreaterThan(0);
