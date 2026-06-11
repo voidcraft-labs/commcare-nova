@@ -400,6 +400,41 @@ export async function fetchMediaLibrary(
 	return res.json();
 }
 
+/** Ids per resolve request — keeps the repeated-`id` URL well under
+ *  request-header limits; the server caps the per-request total anyway. */
+const RESOLVE_IDS_CHUNK = 50;
+
+/**
+ * Resolve specific asset ids to their wire rows — the library route's
+ * resolve mode (repeated `?id=`). Owner-filtered server-side: a missing
+ * or foreign id is simply absent from the result, never an error. The
+ * attach budget check uses this to learn the byte sizes of referenced
+ * assets this session hasn't otherwise loaded. Chunked so a
+ * reference-heavy doc can't overflow a request URL.
+ */
+export async function fetchAssetsByIds(
+	ids: readonly string[],
+): Promise<MediaAssetView[]> {
+	const unique = [...new Set(ids)];
+	const out: MediaAssetView[] = [];
+	for (let i = 0; i < unique.length; i += RESOLVE_IDS_CHUNK) {
+		const params = new URLSearchParams();
+		for (const id of unique.slice(i, i + RESOLVE_IDS_CHUNK)) {
+			params.append("id", id);
+		}
+		const res = await fetch(`/api/media/library?${params.toString()}`);
+		if (!res.ok) {
+			throw await errorFromResponse(
+				res,
+				"Couldn't look up the attached files' details.",
+			);
+		}
+		const page = (await res.json()) as MediaLibraryPage;
+		out.push(...page.assets);
+	}
+	return out;
+}
+
 /**
  * Delete an asset from the owner's library. Resolves on success (the route
  * returns 204); throws with the server's message on a refusal — a 409 when the

@@ -45,11 +45,8 @@ import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
-import {
-	isMediaKind,
-	MAX_MEDIA_EXPORT_ASSETS,
-	MAX_MEDIA_EXPORT_BYTES,
-} from "@/lib/domain/multimedia";
+import { MAX_MEDIA_EXPORT_ASSETS } from "@/lib/domain/multimedia";
+import { exportBudgetExcess } from "./exportBudget";
 
 /**
  * Run the zero-tolerance boundary validation against a doc and return
@@ -120,39 +117,19 @@ export async function collectBoundaryViolations(
  * referenced READY media asset's bytes into one in-memory manifest (the
  * `.ccz` ZIP buffer, the HQ per-file upload), so the work scales with the
  * SUM of referenced media — a total the per-asset size caps don't bound.
- * Sum the rows `resolveMediaManifest` will actually pull (ready + media
- * kind, mirroring its filter) and, if either the count or the total bytes
- * exceeds its ceiling, return the actionable error. Returns `null` when
- * the app is within budget.
+ * The arithmetic is the shared ceiling math (`lib/media/exportBudget.ts`
+ * — the attach-time checks, server tools and browser slots alike, run
+ * the identical function; this boundary is the enforcement authority per
+ * the trust model documented there). Returns `null` when the app is
+ * within budget.
  */
 function exportBudgetError(rows: MediaAssetRecord[]): ValidationError | null {
-	// Only ready media rows reach the byte download — the manifest filters
-	// pending rows out, and documents never wire-emit — so the budget counts
-	// exactly what would be loaded.
-	const exportable = rows.filter(
-		(row) => row.status === "ready" && isMediaKind(row.kind),
-	);
-	const totalBytes = exportable.reduce((sum, row) => sum + row.sizeBytes, 0);
-	const overCount = exportable.length > MAX_MEDIA_EXPORT_ASSETS;
-	const overBytes = totalBytes > MAX_MEDIA_EXPORT_BYTES;
-	if (!overCount && !overBytes) return null;
-
-	const capMb = Math.round(MAX_MEDIA_EXPORT_BYTES / 1024 / 1024);
-	const reasons: string[] = [];
-	if (overCount) {
-		reasons.push(
-			`${exportable.length} attachments (the limit is ${MAX_MEDIA_EXPORT_ASSETS})`,
-		);
-	}
-	if (overBytes) {
-		reasons.push(
-			`${(totalBytes / 1024 / 1024).toFixed(0)} MB of media (the limit is ${capMb} MB)`,
-		);
-	}
+	const excess = exportBudgetExcess(rows);
+	if (excess === null) return null;
 	return validationError(
 		"MEDIA_EXPORT_TOO_LARGE",
 		"app",
-		`This app bundles too much media to export — ${reasons.join(
+		`This app bundles too much media to export — ${excess.reasons.join(
 			" and ",
 		)}. Remove or shrink some attachments, then export again.`,
 		{},

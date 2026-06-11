@@ -34,6 +34,7 @@ import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
+import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import type { CursorMode, ReplayData, ReplayInit, StagedUpload } from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
@@ -198,6 +199,24 @@ export interface BuilderSessionState {
 	 *  remove the record. The upload driver sees the abort and stays
 	 *  silent — cancel already cleared the slot. */
 	cancelStagedUpload: (slotKey: string) => void;
+
+	/** Budget-relevant asset metadata observed this session — every
+	 *  library page the builder's pickers load, every upload confirm, and
+	 *  every row the attach budget check fetches lands here, keyed by
+	 *  asset id. The browser's pre-dispatch export-ceiling check
+	 *  (`components/builder/media/useAttachBudget.ts`) resolves the doc's
+	 *  referenced ids against this registry and fetches only the gaps.
+	 *  Advisory data by design: the export boundary re-loads fresh rows
+	 *  server-side, so a stale entry here can only mis-tune the courtesy
+	 *  check, never the enforcement. */
+	assetMeta: Record<string, ExportBudgetRowView>;
+
+	/** Merge observed asset rows into the registry. Idempotent — a batch
+	 *  that changes nothing writes nothing (no subscriber churn from
+	 *  re-fetched pages). */
+	recordAssetMeta: (
+		assets: readonly ({ id: string } & ExportBudgetRowView)[],
+	) => void;
 
 	// ── Transient UI hints (one-shot, consumed by a single component) ────
 
@@ -483,6 +502,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				/* Staged media uploads */
 				stagedUploads: {} as Record<string, StagedUpload>,
+				assetMeta: {} as Record<string, ExportBudgetRowView>,
 
 				/* UI hints */
 				focusHint: undefined as string | undefined,
@@ -906,6 +926,35 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					get().clearStagedUpload(slotKey);
 				},
 
+				recordAssetMeta(
+					assets: readonly ({ id: string } & ExportBudgetRowView)[],
+				) {
+					if (assets.length === 0) return;
+					const current = get().assetMeta;
+					/* Skip the write when every incoming row is already recorded
+					 * verbatim — library pages re-fetch on every picker open, and
+					 * an unchanged registry must not notify subscribers. */
+					const changed = assets.some((asset) => {
+						const known = current[asset.id];
+						return (
+							known === undefined ||
+							known.status !== asset.status ||
+							known.kind !== asset.kind ||
+							known.sizeBytes !== asset.sizeBytes
+						);
+					});
+					if (!changed) return;
+					const next = { ...current };
+					for (const asset of assets) {
+						next[asset.id] = {
+							status: asset.status,
+							kind: asset.kind,
+							sizeBytes: asset.sizeBytes,
+						};
+					}
+					set({ assetMeta: next });
+				},
+
 				setFocusHint(fieldId: string | undefined) {
 					if (fieldId === get().focusHint) return;
 					set({ focusHint: fieldId });
@@ -968,6 +1017,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* Staged media uploads */
 						stagedUploads: {} as Record<string, StagedUpload>,
+						assetMeta: {} as Record<string, ExportBudgetRowView>,
 
 						/* UI hints */
 						focusHint: undefined as string | undefined,

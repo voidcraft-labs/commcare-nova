@@ -19,6 +19,12 @@
 // abort registry. The confirm-time attach goes through an `onReady` ref
 // updated every render, so it dispatches against the carrier's CURRENT
 // value, not the one captured when the upload began.
+//
+// The confirm also runs the attach budget check (`useAttachBudget.ts`)
+// BEFORE dispatching: a confirmed upload that would push the app past
+// the media export ceiling lands in the library (the bytes are valid)
+// but does NOT attach — the staged chip flips to the shared rejection
+// prose with nothing committed.
 
 "use client";
 
@@ -26,6 +32,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { type MediaAssetView, uploadMediaAsset } from "./mediaClient";
+import { useAttachBudgetGuard } from "./useAttachBudget";
 
 /**
  * Drive staged uploads for one carrier slot family. `onReady` receives
@@ -40,6 +47,7 @@ export function useStagedSlotUpload(
 	onReady: (asset: MediaAssetView, kind: MediaKind) => void,
 ): (slotKey: string, kind: MediaKind, file: File) => void {
 	const session = useBuilderSessionApi();
+	const checkAttachBudget = useAttachBudgetGuard();
 	const onReadyRef = useRef(onReady);
 	useEffect(() => {
 		onReadyRef.current = onReady;
@@ -59,9 +67,19 @@ export function useStagedSlotUpload(
 				onProgress: (fraction) =>
 					session.getState().setStagedUploadProgress(slotKey, fraction),
 			}).then(
-				(asset) => {
-					/* Confirm flipped the row to ready — the staged record's job
-					 * is done; the gated attach takes over as the slot's truth. */
+				async (asset) => {
+					/* Confirm flipped the row to ready. Budget BEFORE dispatch:
+					 * the upload itself succeeded (the file is in the library),
+					 * but an attach that would breach the export ceiling refuses
+					 * here — the shared prose lands on the staged chip and
+					 * nothing was ever committed. A cancel that raced the check
+					 * wins (the record is gone; stay silent). */
+					const verdict = await checkAttachBudget(asset);
+					if (controller.signal.aborted) return;
+					if (!verdict.ok) {
+						session.getState().failStagedUpload(slotKey, verdict.error);
+						return;
+					}
 					session.getState().clearStagedUpload(slotKey);
 					onReadyRef.current(asset, kind);
 				},
@@ -81,6 +99,6 @@ export function useStagedSlotUpload(
 				},
 			);
 		},
-		[session],
+		[session, checkAttachBudget],
 	);
 }

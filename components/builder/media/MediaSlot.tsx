@@ -21,6 +21,12 @@
 // uuid + bundle key, `module:<uuid>:icon`, `app:logo`, …) so a
 // remounted slot re-renders its staged chip from the store.
 //
+// BOTH attach entry points run the export-ceiling budget check
+// (`useAttachBudget.ts`) before dispatching — a library pick rejects as
+// a toast, a staged confirm rejects on its chip, each with the same
+// prose the SA/MCP verdict speaks — so an over-budget app is something
+// an honest user can't build toward an export-time surprise.
+//
 // Controls name themselves by kind ("Remove image", "Preview audio");
 // `ariaLabel`, when a carrier passes it, names the GROUP those controls
 // belong to (the field/option/slot) — so a screen reader hears "Label
@@ -39,7 +45,7 @@ import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerReplace from "@iconify-icons/tabler/replace";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	Tooltip,
 	TooltipContent,
@@ -57,10 +63,30 @@ import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_ELEVATED_CLS,
 } from "@/lib/styles";
+import { showToast } from "@/lib/ui/toastStore";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { MediaPickerDialog } from "./MediaPickerDialog";
-import { clearMediaSlot, mediaSrc, setMediaSlot } from "./mediaClient";
+import {
+	clearMediaSlot,
+	type MediaAssetView,
+	mediaSrc,
+	setMediaSlot,
+} from "./mediaClient";
+import { useAttachBudgetGuard } from "./useAttachBudget";
 import { useStagedSlotUpload } from "./useStagedUpload";
+
+/**
+ * Record a picker's loaded library pages into the session's asset
+ * registry — the "already-loaded library rows" the attach budget check
+ * resolves referenced ids against without a fetch.
+ */
+function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
+	const session = useBuilderSessionApi();
+	return useCallback(
+		(assets: MediaAssetView[]) => session.getState().recordAssetMeta(assets),
+		[session],
+	);
+}
 
 // ── MediaSlot — the image/audio/video bundle ─────────────────────
 
@@ -107,6 +133,8 @@ export function MediaSlot({
 	const [picker, setPicker] = useState<PickerState>({ open: false, kinds });
 	const staged = useStagedUploadsFor(slotKey);
 	const session = useBuilderSessionApi();
+	const checkAttachBudget = useAttachBudgetGuard();
+	const recordLoadedAssets = useRecordLoadedAssets();
 
 	// The confirm-time attach must compose against the carrier's CURRENT
 	// bundle (another kind may have attached while the upload ran), and the
@@ -167,14 +195,24 @@ export function MediaSlot({
 				open={picker.open}
 				onOpenChange={(open) => setPicker((prev) => ({ ...prev, open }))}
 				kinds={picker.kinds}
+				onAssetsLoaded={recordLoadedAssets}
 				// The picker is media-scoped for a carrier, so a picked asset is
 				// always a media kind; the `isMediaKind` narrow makes that
 				// type-safe (`setMediaSlot` keys the bundle by `MediaKind`) and
-				// is an inert guard at runtime.
+				// is an inert guard at runtime. The attach budget check runs
+				// BEFORE the dispatch — a pick that would breach the export
+				// ceiling never reaches the doc; the shared prose lands as a
+				// toast (the picker has already closed).
 				onPick={(asset) => {
-					if (isMediaKind(asset.kind)) {
-						onChange(setMediaSlot(value, asset.kind, asset.id));
-					}
+					if (!isMediaKind(asset.kind)) return;
+					const kind = asset.kind;
+					void checkAttachBudget(asset).then((verdict) => {
+						if (!verdict.ok) {
+							showToast("warning", "Couldn't attach this file", verdict.error);
+							return;
+						}
+						onChangeRef.current(setMediaSlot(valueRef.current, kind, asset.id));
+					});
 				}}
 				// A picked FILE stages instead of attaching: the upload runs
 				// against this slot's staged record, and the attach dispatches
@@ -216,6 +254,8 @@ export function SingleAssetSlot({
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const staged = useStagedUpload(slotKey);
 	const session = useBuilderSessionApi();
+	const checkAttachBudget = useAttachBudgetGuard();
+	const recordLoadedAssets = useRecordLoadedAssets();
 
 	const onChangeRef = useRef(onChange);
 	useEffect(() => {
@@ -253,7 +293,19 @@ export function SingleAssetSlot({
 				open={pickerOpen}
 				onOpenChange={setPickerOpen}
 				kinds={[kind]}
-				onPick={(asset) => onChange(asset.id)}
+				onAssetsLoaded={recordLoadedAssets}
+				// Budget BEFORE dispatch — an over-ceiling pick never reaches
+				// the doc; the shared prose lands as a toast (the picker has
+				// already closed).
+				onPick={(asset) => {
+					void checkAttachBudget(asset).then((verdict) => {
+						if (!verdict.ok) {
+							showToast("warning", "Couldn't attach this file", verdict.error);
+							return;
+						}
+						onChangeRef.current(asset.id);
+					});
+				}}
 				onUploadStart={(file, pickedKind) => {
 					if (isMediaKind(pickedKind)) {
 						startUpload(slotKey, pickedKind, file);

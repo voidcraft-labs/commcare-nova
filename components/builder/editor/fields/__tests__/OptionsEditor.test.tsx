@@ -17,15 +17,19 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { SelectOption, SingleSelectField } from "@/lib/domain";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 import { OptionsEditor } from "../OptionsEditor";
 
 /** Option rows mount `MediaSlot`, whose staged-upload chip reads the
- *  session store — provide it the way the builder always does. */
+ *  session store and whose attach budget check reads the doc store —
+ *  provide both the way the builder always does. */
 const wrapper = ({ children }: { children: React.ReactNode }) => (
-	<BuilderSessionProvider>{children}</BuilderSessionProvider>
+	<BlueprintDocProvider>
+		<BuilderSessionProvider>{children}</BuilderSessionProvider>
+	</BlueprintDocProvider>
 );
 
 const baseField: SingleSelectField = {

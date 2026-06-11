@@ -50,13 +50,8 @@
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
-import {
-	type AssetKind,
-	isMediaKind,
-	MAX_MEDIA_EXPORT_ASSETS,
-	MAX_MEDIA_EXPORT_BYTES,
-	type MediaKind,
-} from "@/lib/domain/multimedia";
+import type { AssetKind, MediaKind } from "@/lib/domain/multimedia";
+import { attachOverBudgetMessage, exportBudgetExcess } from "./exportBudget";
 
 /**
  * One asset reference an attach is about to commit: the id the caller
@@ -182,34 +177,12 @@ export async function mediaAttachVerdict(args: {
 	);
 	if (failure) return { ok: false, error: failure };
 
-	// Post-attach aggregate, mirroring the boundary's `exportBudgetError`
-	// filter: only ready media rows reach the export byte download, so
-	// only those count against the ceiling.
-	const exportable = rows.filter(
-		(row) => row.status === "ready" && isMediaKind(row.kind),
-	);
-	const totalBytes = exportable.reduce((sum, row) => sum + row.sizeBytes, 0);
-	const overCount = exportable.length > MAX_MEDIA_EXPORT_ASSETS;
-	const overBytes = totalBytes > MAX_MEDIA_EXPORT_BYTES;
-	if (overCount || overBytes) {
-		const capMb = Math.round(MAX_MEDIA_EXPORT_BYTES / 1024 / 1024);
-		const reasons: string[] = [];
-		if (overCount) {
-			reasons.push(
-				`${exportable.length} attachments (the limit is ${MAX_MEDIA_EXPORT_ASSETS})`,
-			);
-		}
-		if (overBytes) {
-			reasons.push(
-				`${(totalBytes / 1024 / 1024).toFixed(0)} MB of media (the limit is ${capMb} MB)`,
-			);
-		}
-		return {
-			ok: false,
-			error: `Attaching this would put the app over its media export limit — ${reasons.join(
-				" and ",
-			)}. Remove or shrink some other attachments first, then attach this one.`,
-		};
+	// Post-attach aggregate — the shared ceiling math
+	// (`lib/media/exportBudget.ts`), the same function the export
+	// boundary and the browser slots run.
+	const excess = exportBudgetExcess(rows);
+	if (excess !== null) {
+		return { ok: false, error: attachOverBudgetMessage(excess) };
 	}
 
 	return { ok: true };

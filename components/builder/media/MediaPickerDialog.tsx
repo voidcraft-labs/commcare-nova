@@ -25,7 +25,7 @@ import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerEye from "@iconify-icons/tabler/eye";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	Tooltip,
 	TooltipContent,
@@ -83,6 +83,14 @@ export interface MediaPickerDialogProps {
 	 */
 	onUploadStart?: (file: File, kind: AssetKind) => void;
 	/**
+	 * Fires with the library's currently loaded assets whenever a page
+	 * lands. The builder slots feed these rows (which carry byte sizes)
+	 * into the session's asset registry so the attach budget check
+	 * resolves referenced ids against already-loaded data instead of
+	 * fetching. The chat file manager omits it.
+	 */
+	onAssetsLoaded?: (assets: MediaAssetView[]) => void;
+	/**
 	 * Asset ids currently staged elsewhere in the SAME surface that aren't held
 	 * in the blueprint — today, the chat composer's attachment chips. Deleting
 	 * one of these from the library is a valid action (chat attachments aren't an
@@ -105,6 +113,7 @@ export function MediaPickerDialog({
 	kinds,
 	onPick,
 	onUploadStart,
+	onAssetsLoaded,
 	attachedAssetIds,
 	onAssetDeleted,
 }: MediaPickerDialogProps) {
@@ -136,6 +145,7 @@ export function MediaPickerDialog({
 								onOpenChange(false);
 							})
 						}
+						onAssetsLoaded={onAssetsLoaded}
 						attachedAssetIds={attachedAssetIds}
 						onAssetDeleted={onAssetDeleted}
 					/>
@@ -151,12 +161,14 @@ function PickerBody({
 	kinds,
 	onPick,
 	onUploadStart,
+	onAssetsLoaded,
 	attachedAssetIds,
 	onAssetDeleted,
 }: {
 	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
 	onUploadStart?: (file: File, kind: AssetKind) => void;
+	onAssetsLoaded?: (assets: MediaAssetView[]) => void;
 	attachedAssetIds?: readonly string[];
 	onAssetDeleted?: (assetId: string) => void;
 }) {
@@ -193,6 +205,13 @@ function PickerBody({
 		removeAsset,
 		updateAsset,
 	} = useMediaLibrary(libraryKinds);
+
+	// Surface each loaded page to the caller (the builder slots record the
+	// rows for the attach budget check). The consumer's merge is
+	// idempotent, so re-reporting the whole current list per page is fine.
+	useEffect(() => {
+		if (assets.length > 0) onAssetsLoaded?.(assets);
+	}, [assets, onAssetsLoaded]);
 
 	const commit = (asset: MediaAssetView) => {
 		addUploaded(asset);
