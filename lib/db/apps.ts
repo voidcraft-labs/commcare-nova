@@ -19,7 +19,7 @@ import { asWalkableDoc, collectAssetRefs } from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
 import { addReferencingApp } from "./mediaAssets";
-import type { AppDoc } from "./types";
+import type { AppDoc, CreditMonthDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -649,7 +649,15 @@ export class BuildRunConflictError extends Error {
  */
 export type ClaimedBuildRun =
 	| { from: "complete" }
-	| { from: "error" }
+	/** A failed build awaiting retry. `errorType` is the displaced
+	 *  classification (cleared by the claim's `error_type: null`), carried
+	 *  so a bail-out restore puts back what the row actually said —
+	 *  overwriting a `model_error` with the bail-out's own reason would
+	 *  lose why the build originally failed. `null` only on a legacy row
+	 *  that reached `error` without a classification. The read-side
+	 *  narrowing to `ErrorType` is sound because `failApp` (typed
+	 *  `ErrorType`) is the only writer of non-null `error_type`. */
+	| { from: "error"; errorType: ErrorType | null }
 	/** A build paused on an `askQuestions` round — `generating` with
 	 *  `awaiting_input`. The claim cleared the pause flag; restoring
 	 *  means re-setting it so the paused run stays alive and unreapable. */
@@ -683,10 +691,30 @@ export type ClaimedBuildRun =
  * contender's transaction sees a claimable shape and flips it; the
  * loser's re-read sees a live `generating` (no pause flag) and throws
  * `BuildRunConflictError` with nothing written, so two near-simultaneous
- * POSTs can never run two SA loops against one app. A stale `generating`
- * row (a hard-killed run the reaper hasn't seen yet) also reads as
- * owned — the reaper settles it to `error` (refunding its hold first),
- * after which the claim succeeds.
+ * POSTs can never run two SA loops against one app.
+ *
+ * A non-paused `generating` row reads as owned ONLY while its
+ * `updated_at` is inside the staleness window. Past it, the run is dead
+ * (a hard kill the list/concurrency reapers haven't scanned yet — and a
+ * retry POST runs neither of them, so without this arm the 429 would
+ * repeat indefinitely while telling the user to wait for a run that no
+ * longer exists). The claim settles the dead run exactly as
+ * `reapStaleGenerating` would — refund-first off the marker's `settled`
+ * flag, classification `internal` per the reaper's convention — and
+ * claims in the same transaction, reporting `from: "error"` because
+ * that IS the shape the reaper would have left for a bail-out to
+ * restore.
+ *
+ * The claim also SETTLES the displaced run's reservation marker. Every
+ * shape it displaces has already resolved its charge — `complete` kept
+ * it, `error` was refunded (refund settles), a paused run kept it (the
+ * pause policy), and the stale arm refunds it right here — so the
+ * marker must read settled the moment the row flips: between this claim
+ * and the new run's `reserveCredits` (which overwrites the marker with
+ * its own fresh, unsettled one), a hard kill or a dropped bail-out
+ * restore leaves a `generating` row the reaper WILL reap, and an
+ * unsettled leftover marker there would hand back a charge that was
+ * kept.
  *
  * Returns the shape the claim moved the app out of, for bail-out
  * restoration (see `ClaimedBuildRun`).
@@ -700,24 +728,67 @@ export async function claimBuildRun(appId: string): Promise<ClaimedBuildRun> {
 				`[claimBuildRun] app document missing for appId=${appId}`,
 			);
 		}
-		const from: ClaimedBuildRun["from"] | undefined =
+		let claimed: ClaimedBuildRun | undefined =
 			fresh.status === "complete"
-				? "complete"
+				? { from: "complete" }
 				: fresh.status === "error"
-					? "error"
+					? { from: "error", errorType: fresh.error_type as ErrorType | null }
 					: fresh.status === "generating" && fresh.awaiting_input
-						? "paused"
+						? { from: "paused" }
 						: undefined;
-		if (from === undefined) {
-			throw new BuildRunConflictError();
+
+		/* Deferred refund write for the stale-displacement arm — Firestore
+		 * transactions require every read to precede every write, so the
+		 * credit-doc read happens here and its write below. */
+		let refundCredits: (() => void) | undefined;
+		if (claimed === undefined) {
+			const updatedAt = fresh.updated_at.toDate();
+			const stale =
+				Date.now() - updatedAt.getTime() > MAX_GENERATION_MINUTES * 60_000;
+			if (!stale) {
+				throw new BuildRunConflictError();
+			}
+			/* A dead run's stranded hold refunds before anything else touches
+			 * the row — the same refund-first discipline `reapStaleGenerating`
+			 * holds, here made atomic with the claim: the transaction either
+			 * refunds AND claims or leaves the row reapable. A settled or
+			 * absent marker has nothing to hand back (a missing credit doc
+			 * likewise — the marker still settles below so nothing revisits). */
+			const marker = fresh.reservation;
+			if (marker && !marker.settled) {
+				const creditRef = docs.creditMonthRaw(fresh.owner, marker.period);
+				const creditSnap = await tx.get(creditRef);
+				if (creditSnap.exists) {
+					const consumed =
+						(creditSnap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
+					refundCredits = () =>
+						tx.set(
+							creditRef,
+							{
+								consumed: Math.max(0, consumed - marker.reserved),
+								updated_at: FieldValue.serverTimestamp(),
+							},
+							{ merge: true },
+						);
+				}
+			}
+			claimed = { from: "error", errorType: "internal" };
 		}
+
+		refundCredits?.();
 		tx.update(docs.appRaw(appId), {
 			status: "generating",
 			error_type: null,
 			awaiting_input: false,
 			updated_at: FieldValue.serverTimestamp(),
+			/* Settle the displaced run's marker (see the docblock). Left
+			 * untouched when already settled or absent — `reserveCredits`
+			 * writes the new run's marker fresh either way. */
+			...(fresh.reservation && !fresh.reservation.settled
+				? { reservation: { ...fresh.reservation, settled: true } }
+				: {}),
 		});
-		return { from };
+		return claimed;
 	});
 }
 
@@ -812,11 +883,15 @@ export function setAwaitingInput(
  * failure self-heals on the next scan.
  *
  * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only the
- * build paths write — `createApp` for a new build, `markAppGenerating` for a
- * retry of a failed one. A chargeable EDIT reserves credits but keeps its app
- * `complete`, so a hard-killed edit's 5-credit hold is never reaped — an
- * accepted residual (small and rare). Builds are the high-value case (100
- * credits) this reaper exists for.
+ * build paths write — `createApp` for a new build, `claimBuildRun` for every
+ * chargeable build POST against an existing app (a retry of a failed build, a
+ * new instruction into a finished one, a takeover of a paused one). A
+ * chargeable EDIT reserves credits but keeps its app `complete`, so a
+ * hard-killed edit's 5-credit hold is never reaped — an accepted residual
+ * (small and rare). Builds are the high-value case (100 credits) this reaper
+ * exists for. `claimBuildRun`'s stale-displacement arm performs this same
+ * settle (refund-first, `internal`) inline when a retry POST lands on a dead
+ * row before any list/concurrency scan has.
  */
 export async function reapStaleGenerating(appId: string): Promise<void> {
 	try {

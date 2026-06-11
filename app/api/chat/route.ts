@@ -202,6 +202,10 @@ export async function POST(req: Request) {
 	 * previously-`complete` app to `error` over a rejected request would
 	 * brick a working app. */
 	let claimedRun: ClaimedBuildRun | undefined;
+	/* Set when this POST may be resuming a paused build WITHOUT claiming
+	 * (a free continuation / an edit). The actual clear runs after every
+	 * pre-stream bail-out gate has passed — see the branch that sets it. */
+	let clearPauseFlagAfterGates = false;
 	if (!appId) {
 		try {
 			appId = await createApp(userId, effectiveRunId);
@@ -272,13 +276,17 @@ export async function POST(req: Request) {
 			}
 		} else {
 			/* A free continuation or an edit against an existing app — if it's
-			 * resuming a build that paused on an `askQuestions` round, clear the
-			 * pause flag now (before the stream) so a resume that then hard-kills
-			 * becomes reapable again. A no-op for an ordinary edit (the field is
-			 * absent). The run re-sets it below if it pauses on a question again.
-			 * (A chargeable build POST took the claim branch above, whose
-			 * transaction already cleared the flag.) */
-			void setAwaitingInput(appId, false);
+			 * resuming a build that paused on an `askQuestions` round, the pause
+			 * flag must clear so a resume that then hard-kills becomes reapable
+			 * again. The clear itself runs AFTER the last pre-stream bail-out
+			 * gate (below the reservation block): clearing here would leave a
+			 * 429'd/503'd request's paused run as an unflagged `generating` row
+			 * the reaper kills ten minutes later — refunding and erroring a
+			 * build that is still politely waiting on its questions. (A
+			 * chargeable build POST took the claim branch above, whose
+			 * transaction already cleared the flag — and whose bail-outs
+			 * restore it.) */
+			clearPauseFlagAfterGates = true;
 		}
 	}
 
@@ -296,7 +304,12 @@ export async function POST(req: Request) {
 	): void => {
 		switch (claim.from) {
 			case "error":
-				failApp(appId, reason);
+				/* Write back the DISPLACED classification — the row's original
+				 * failure (model_error, …) is what the user retried, and the
+				 * bail-out's own reason describes this rejected request, not
+				 * that build. The fallback covers a legacy row that reached
+				 * `error` with no classification recorded. */
+				failApp(appId, claim.errorType ?? reason);
 				return;
 			case "complete":
 				completeApp(appId).catch((err) =>
@@ -396,6 +409,16 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+	}
+
+	/* Every pre-stream bail-out gate has passed — a request that reaches
+	 * here WILL run. Only now may an unclaimed resume clear the pause flag:
+	 * the flag (not the timestamp) is what spares a paused build from the
+	 * reaper, so it must survive any rejection above. The run re-sets it if
+	 * it pauses on a question again; a no-op for an ordinary edit (the
+	 * field is absent). Fire-and-forget — see `setAwaitingInput`. */
+	if (clearPauseFlagAfterGates) {
+		void setAwaitingInput(appId, false);
 	}
 
 	/* Two collaborators replace the legacy EventLogger:

@@ -321,13 +321,19 @@ export const appDocSchema = z.object({
 	 *
 	 * Written ATOMICALLY with the credit debit when a chargeable turn reserves
 	 * (same `reserveCredits` transaction), so a committed charge always carries
-	 * the marker its refund needs. `settled` means the hold was REFUNDED (handed
-	 * back) — set by the live finalize path or by the reaper. A KEPT charge (a
-	 * successful or otherwise-paid run) intentionally leaves the marker unsettled;
-	 * that is harmless because the reaper only ever reaps `generating` rows, never a
-	 * `complete` charged app. So a stale `generating` app with an UNSETTLED marker
-	 * is a build the process never finished (hard kill / OOM / scale-in);
-	 * `reapStaleGenerating` refunds the stranded hold. `reserved` is the exact
+	 * the marker its refund needs. `settled` means the hold is RESOLVED — no
+	 * refund is owed: set by the live refund paths (flush / `failRun` /
+	 * `reapStaleGenerating`, which hand the hold back) and by `claimBuildRun`
+	 * when it displaces a finished run whose charge was KEPT. The claim-window
+	 * rule is what makes "stale `generating` + unsettled marker ⇒ refund it"
+	 * safe: a kept charge's marker stays unsettled only while its app sits at
+	 * rest (`complete` / paused — shapes the reaper never touches), and the
+	 * moment a new run claims that row back to `generating`, the claim
+	 * transaction marks the displaced marker settled-as-kept. So a `generating`
+	 * row's unsettled marker can only ever belong to the LIVE run's own charge
+	 * (re-written fresh by its `reserveCredits`), and the reaper refunding off
+	 * it can never un-book a charge a previous run kept — even when a hard kill
+	 * lands between the claim and the new reservation. `reserved` is the exact
 	 * amount to return; `period` is the month the hold actually hit (the reaper
 	 * refunds that month, not whatever month it happens to run in).
 	 *
