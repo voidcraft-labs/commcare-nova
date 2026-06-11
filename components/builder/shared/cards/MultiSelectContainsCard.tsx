@@ -16,6 +16,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef } from "react";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { CaseProperty } from "@/lib/domain";
 import {
 	type Literal,
@@ -316,22 +317,25 @@ function TokenChip({
 			: "border-nova-violet/25 bg-nova-violet/10 text-nova-violet-bright",
 	].join(" ");
 	return (
-		<span
-			className={cls}
-			title={invalid ? errors.join("\n") : value !== label ? value : undefined}
+		<Tooltip
+			content={
+				invalid ? errors.join("\n") : value !== label ? value : undefined
+			}
 		>
-			<span className="font-mono">{label}</span>
-			{!isOnlyOne && (
-				<button
-					type="button"
-					aria-label={`Remove ${label}`}
-					onClick={onRemove}
-					className="rounded text-current/70 hover:text-current hover:bg-white/[0.08] p-0.5 cursor-pointer"
-				>
-					<Icon icon={tablerX} width="10" height="10" />
-				</button>
-			)}
-		</span>
+			<span className={cls}>
+				<span className="font-mono">{label}</span>
+				{!isOnlyOne && (
+					<button
+						type="button"
+						aria-label={`Remove ${label}`}
+						onClick={onRemove}
+						className="rounded text-current/70 hover:text-current hover:bg-white/[0.08] p-1 cursor-pointer"
+					>
+						<Icon icon={tablerX} width="10" height="10" />
+					</button>
+				)}
+			</span>
+		</Tooltip>
 	);
 }
 

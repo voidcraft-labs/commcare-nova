@@ -114,7 +114,7 @@ export function PropertyPicker({
 	);
 
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
 			? "border-nova-error/40 hover:border-nova-error/60"
 			: "border-white/[0.06] hover:border-nova-violet/30",

@@ -11,7 +11,7 @@
 // Every column renders regardless of `visibleInList` — hidden ones
 // dim with an eye-off glyph so the full structure stays reachable for
 // editing (the same rule the form editor applies to
-// relevance-hidden fields). The worker-true rendering is pointer
+// relevance-hidden fields). The app-true rendering is the Preview
 // mode's `CaseListScreen`.
 //
 // The table never crushes: columns have a readable minimum and the
@@ -30,6 +30,7 @@ import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { CaseListConfig, Column } from "@/lib/domain";
 import { renderColumnCell } from "../columnCellRenderer";
 import { summarizeFilter } from "../predicateSummary";
@@ -61,6 +62,9 @@ export interface CaseListCanvasProps {
 	/** Disabled-add hint — `undefined` means add is enabled. */
 	readonly addColumnDisabledReason: string | undefined;
 	readonly onReorderColumns: (next: readonly Column[]) => void;
+	/** A preview reload is in flight while the rows on screen are the
+	 *  previous settle — the table dims instead of unmounting. */
+	readonly refreshing?: boolean;
 	/** Populate-sample-data action — surfaced in the table's empty
 	 *  state so an empty store never dead-ends the canvas. */
 	readonly generateSampleData: SampleDataAction;
@@ -75,6 +79,7 @@ export function CaseListCanvas({
 	onAddColumn,
 	addColumnDisabledReason,
 	onReorderColumns,
+	refreshing = false,
 	generateSampleData,
 }: CaseListCanvasProps) {
 	const containerKey = useId();
@@ -105,33 +110,33 @@ export function CaseListCanvas({
 
 	return (
 		<div className="max-w-5xl mx-auto px-8 pt-6 pb-24">
-			<p className="mb-5 text-xs text-nova-text-muted">
-				The live case list — click a column to configure it, drag headers to
-				reorder.
+			<p className="mb-5 text-[13px] text-nova-text-muted">
+				The case list, live from your data — click a column to set it up, or
+				drag headers to reorder.
 			</p>
 
 			{/* Title row — the list-panel selection target — plus the
 			 *  human-language filter affordance. */}
 			<div className="flex items-center gap-3 mb-4 min-h-10">
-				<button
-					type="button"
-					onClick={() => onSelect({ type: "list-panel" })}
-					title="The case list — click to configure sorting and appearance"
-					className={`px-2 py-1 -ml-2 rounded-lg text-left transition-all cursor-pointer border ${
-						panelSelected
-							? "border-nova-violet bg-nova-violet/[0.10] shadow-[0_0_14px_rgba(139,92,246,0.25)]"
-							: "border-transparent hover:bg-white/[0.03]"
-					}`}
-				>
-					<h1 className="font-display font-bold text-2xl tracking-tight text-nova-text">
-						{moduleName}
-					</h1>
-				</button>
+				<Tooltip content="List settings — sort order and sample data">
+					<button
+						type="button"
+						onClick={() => onSelect({ type: "list-panel" })}
+						className={`px-2 py-1 -ml-2 min-h-11 rounded-lg text-left transition-all cursor-pointer border ${
+							panelSelected
+								? "border-nova-violet bg-nova-violet/[0.10] shadow-[0_0_14px_rgba(139,92,246,0.25)]"
+								: "border-transparent hover:bg-white/[0.03]"
+						}`}
+					>
+						<h1 className="font-display font-bold text-2xl tracking-tight text-nova-text">
+							{moduleName}
+						</h1>
+					</button>
+				</Tooltip>
 				<button
 					type="button"
 					onClick={() => onSelect({ type: "filter" })}
-					title="List filter — click to configure"
-					className={`ml-auto inline-flex items-center gap-2 px-3 min-h-10 max-w-[55%] rounded-md cursor-pointer border transition-all text-xs ${
+					className={`ml-auto inline-flex items-center gap-2 px-3 min-h-11 max-w-[55%] rounded-md cursor-pointer border transition-all text-xs ${
 						filterSelected
 							? "border-nova-violet bg-nova-violet/[0.14] shadow-[0_0_14px_rgba(139,92,246,0.25)]"
 							: "border-transparent hover:bg-white/[0.03]"
@@ -151,8 +156,10 @@ export function CaseListCanvas({
 				</button>
 			</div>
 
-			{/* The table */}
-			<div className="rounded-lg border border-nova-border bg-nova-surface/40 overflow-x-auto">
+			{/* The table — dims (never unmounts) while a reload settles. */}
+			<div
+				className={`rounded-lg border border-nova-border bg-nova-surface/40 overflow-x-auto transition-opacity ${refreshing ? "opacity-70" : "opacity-100"}`}
+			>
 				<div style={{ minWidth: tableMinWidth }}>
 					{/* Header row */}
 					<div
@@ -204,23 +211,24 @@ export function CaseListCanvas({
 								)}
 							</ReorderableRow>
 						))}
-						<button
-							type="button"
-							onClick={onAddColumn}
-							disabled={addColumnDisabledReason !== undefined}
-							title={addColumnDisabledReason ?? "Add column"}
-							aria-label="Add column"
-							className="grid place-items-center min-h-11 border-l border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-						>
-							<Icon icon={tablerPlus} width="16" height="16" />
-						</button>
+						<Tooltip content={addColumnDisabledReason ?? "Add a column"}>
+							<button
+								type="button"
+								onClick={onAddColumn}
+								disabled={addColumnDisabledReason !== undefined}
+								aria-label="Add a column"
+								className="grid place-items-center min-h-11 border-l border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+							>
+								<Icon icon={tablerPlus} width="16" height="16" />
+							</button>
+						</Tooltip>
 					</div>
 
 					{/* Body — live rows, or the explanatory state arm. */}
 					{columns.length === 0 ? (
 						<CanvasNotice tone="muted">
-							No columns yet — add one to define what workers see in the case
-							list.
+							No columns yet — add one to choose what the list shows about each
+							case.
 						</CanvasNotice>
 					) : preview.kind === "rows" ? (
 						rows.length === 0 ? (
@@ -251,7 +259,7 @@ export function CaseListCanvas({
 												tabIndex={-1}
 												onClick={select}
 												onKeyDown={activateOnKeyDown(select)}
-												className={`px-3.5 py-2.5 text-[13px] text-nova-text-secondary whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer border-r border-nova-violet/[0.06] last:border-r-0 ${
+												className={`px-3.5 py-2.5 min-h-11 flex items-center text-[13px] text-nova-text-secondary whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer border-r border-nova-violet/[0.06] last:border-r-0 ${
 													isSel ? "bg-nova-violet/[0.06]" : ""
 												} ${hidden ? "opacity-35" : ""} ${col.kind === "calculated" ? "font-mono text-xs" : ""}`}
 											>
@@ -275,7 +283,7 @@ export function CaseListCanvas({
 								type="button"
 								onClick={generateSampleData.run}
 								disabled={generateSampleData.status.kind === "running"}
-								className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-md bg-nova-violet/[0.15] border border-nova-violet/[0.35] text-nova-violet-bright hover:bg-nova-violet/[0.25] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+								className="inline-flex items-center gap-2 px-4 min-h-11 text-[13px] font-medium rounded-lg bg-nova-violet/[0.15] border border-nova-violet/[0.35] text-nova-violet-bright hover:bg-nova-violet/[0.25] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
 							>
 								<Icon
 									icon={
@@ -319,6 +327,15 @@ export function CaseListCanvas({
 						{hasFilter ? " · filtered" : ""}
 						{sortSummary ? ` · sorted by ${sortSummary}` : ""}
 					</span>
+					{refreshing && (
+						<Icon
+							icon={tablerLoader2}
+							width="12"
+							height="12"
+							className="animate-spin"
+							aria-label="Updating"
+						/>
+					)}
 				</div>
 			)}
 		</div>
@@ -349,38 +366,48 @@ function HeaderCell({
 			: column.header || column.field || "untitled";
 	const direction = column.sort?.direction;
 	return (
-		<button
-			type="button"
-			ref={setHandleEl}
-			onClick={onClick}
-			title="Click to configure · drag to reorder"
-			className={`flex items-center gap-1.5 px-3.5 min-h-11 w-full text-left font-semibold text-[13px] whitespace-nowrap overflow-hidden cursor-pointer border-r border-nova-border last:border-r-0 transition-colors ${
-				selected
-					? "bg-nova-violet/[0.14] shadow-[inset_0_0_0_1.5px_var(--nova-violet)] rounded-sm text-nova-text"
-					: "text-nova-text hover:bg-white/[0.03]"
-			} ${hidden ? "opacity-50" : ""}`}
-		>
-			{hidden && (
-				<Icon
-					icon={tablerEyeOff}
-					width="13"
-					height="13"
-					className="shrink-0 text-nova-text-muted"
-					aria-label="Hidden from the case list"
-				/>
-			)}
-			<span
-				className={`overflow-hidden text-ellipsis ${column.header ? "" : "italic text-nova-text-muted"}`}
+		<Tooltip content="Click to set up · drag to reorder">
+			<button
+				type="button"
+				ref={setHandleEl}
+				onClick={onClick}
+				className={`flex items-center gap-1.5 px-3.5 min-h-11 w-full text-left font-semibold text-[13px] whitespace-nowrap overflow-hidden cursor-pointer border-r border-nova-border last:border-r-0 transition-colors ${
+					selected
+						? "bg-nova-violet/[0.14] shadow-[inset_0_0_0_1.5px_var(--nova-violet)] rounded-sm text-nova-text"
+						: "text-nova-text hover:bg-white/[0.03]"
+				} ${hidden ? "opacity-50" : ""}`}
 			>
-				{label}
-			</span>
-			{direction !== undefined && (
-				<span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-sm bg-nova-violet/15 border border-nova-violet/20 text-nova-violet-bright font-mono text-[10px] shrink-0">
-					{direction === "asc" ? "↑" : "↓"}
-					{sortPosition}
+				{hidden && (
+					<span
+						role="img"
+						className="inline-flex shrink-0"
+						aria-label="Hidden from the case list"
+					>
+						<Icon
+							icon={tablerEyeOff}
+							width="13"
+							height="13"
+							className="text-nova-text-muted"
+						/>
+					</span>
+				)}
+				<span
+					className={`overflow-hidden text-ellipsis ${column.header ? "" : "italic text-nova-text-muted"}`}
+				>
+					{label}
 				</span>
-			)}
-		</button>
+				{direction !== undefined && (
+					<span
+						role="img"
+						className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-sm bg-nova-violet/15 border border-nova-violet/20 text-nova-violet-bright font-mono text-[10px] shrink-0"
+						aria-label={`Sorted ${direction === "asc" ? "ascending" : "descending"}, sort key ${sortPosition}`}
+					>
+						{direction === "asc" ? "↑" : "↓"}
+						{sortPosition}
+					</span>
+				)}
+			</button>
+		</Tooltip>
 	);
 }
 

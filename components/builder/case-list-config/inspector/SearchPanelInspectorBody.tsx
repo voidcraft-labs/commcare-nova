@@ -112,7 +112,7 @@ export function SearchPanelInspectorBody({
 			<OptionalSlotCard<ValueExpression>
 				icon={tablerForbid}
 				title="Excluded owners"
-				description="Hide cases owned by specific owner ids."
+				description="Hide cases that belong to particular owner ids — they never appear in results."
 				addLabel="Add excluded owners"
 				clearLabel="Clear excluded owners"
 				value={value?.excludedOwnerIds}

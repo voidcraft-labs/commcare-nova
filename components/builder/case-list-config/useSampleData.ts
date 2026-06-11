@@ -3,7 +3,7 @@
 // Generate / Reset sample case data from the authoring surfaces.
 // Sample data is an ACTION against the user's real case store (not a
 // preview-mode shape), so the affordances live wherever the need
-// shows up — the case-list canvas's empty state, the worker preview's
+// shows up — the case-list canvas's empty state, the live preview's
 // empty state, and the list-panel inspector — all driving this one
 // status machine.
 

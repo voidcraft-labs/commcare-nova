@@ -53,20 +53,20 @@ const MATCH_FUZZY_DATE_FILTER = (p: CaseProperty): boolean =>
  *  never call the same behavior two different things. */
 const MODE_LABELS: Record<MatchMode, { label: string; description: string }> = {
 	fuzzy: {
-		label: "Forgiving",
-		description: "Tolerates typos, partial words, and capitalization",
+		label: "Fuzzy",
+		description: "Forgives a typo or two per word; ignores capitalization",
 	},
 	phonetic: {
 		label: "Sounds like",
-		description: "Matches names that sound alike when spoken",
+		description: "Names that sound alike when spoken — Smith finds Smyth",
 	},
 	"fuzzy-date": {
-		label: "Forgiving date",
-		description: "Recovers from transposed YYYY-MM-DD inputs",
+		label: "Fuzzy date",
+		description: "Forgives swapped day and month, and mistyped digits",
 	},
 	"starts-with": {
 		label: "Starts with",
-		description: "Prefix match",
+		description: "Values beginning with the text — capitalization counts",
 	},
 };
 

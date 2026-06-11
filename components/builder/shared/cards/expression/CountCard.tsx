@@ -130,7 +130,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 				)}
 				{value.where !== undefined && destinationCaseType === undefined && (
 					<div className="text-[11px] text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-						Pick a valid relation walk to author a where clause.
+						Pick a valid connection before narrowing it with a condition.
 					</div>
 				)}
 			</div>

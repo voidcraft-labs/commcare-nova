@@ -71,7 +71,7 @@ export function OptionalTextRow({
 			<div className="flex items-center gap-2">
 				<label
 					htmlFor={inputId}
-					className="text-[10px] uppercase tracking-widest text-nova-text-muted/70"
+					className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted"
 				>
 					{label}
 				</label>
@@ -98,7 +98,7 @@ export function OptionalTextRow({
 					data-1p-ignore
 					placeholder={placeholder}
 					rows={3}
-					className="w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors resize-none"
+					className="w-full px-3 py-2.5 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors resize-none"
 				/>
 			) : (
 				<input
@@ -113,10 +113,12 @@ export function OptionalTextRow({
 					autoComplete="off"
 					data-1p-ignore
 					placeholder={placeholder}
-					className="w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
+					className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
 				/>
 			)}
-			<span className="text-[10px] text-nova-text-muted/70">{hint}</span>
+			<span className="text-[11px] leading-relaxed text-nova-text-muted">
+				{hint}
+			</span>
 			{markdown && draft.trim().length > 0 ? (
 				// Live preview of the markdown the author is typing.
 				// Visual-only — the textarea above carries the

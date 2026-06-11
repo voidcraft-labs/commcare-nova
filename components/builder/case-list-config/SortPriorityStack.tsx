@@ -1,11 +1,11 @@
 // components/builder/case-list-config/SortPriorityStack.tsx
 //
-// Sort-priority pill stack — the ordered list of sorted columns,
-// drag-to-reorder priority. The first pill is the primary sort.
-// Mounted in the case-list panel inspector (the canvas's header sort
-// chips are the read-only mirror). The drag handler always emits a
-// clean 0..N-1 priority sequence so the visible order stays readable
-// even though the schema tolerates gaps (see `sortPriority.ts`).
+// The ordered list of sorted columns — drag to reorder which sorts
+// first. The top row is the primary sort. Mounted in the case-list
+// panel inspector (the canvas's header sort chips are the read-only
+// mirror). The drag handler always emits a clean 0..N-1 priority
+// sequence so the visible order stays readable even though the
+// schema tolerates gaps (see `sortPriority.ts`).
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -13,12 +13,13 @@ import tablerArrowsSort from "@iconify-icons/tabler/arrows-sort";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerSortAscending from "@iconify-icons/tabler/sort-ascending";
 import tablerSortDescending from "@iconify-icons/tabler/sort-descending";
-import tablerTrash from "@iconify-icons/tabler/trash";
+import tablerX from "@iconify-icons/tabler/x";
 import { useId, useMemo } from "react";
 import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { Column, ColumnSort } from "@/lib/domain";
 import { resolveSortedColumns } from "./sortPriority";
 
@@ -28,11 +29,11 @@ interface SortPriorityStackProps {
 }
 
 /**
- * Sort priority pill stack. Renders the sorted columns in priority
- * order; each pill carries the column's header (or field), the sort
- * direction icon, a drag handle, and a clear affordance. Renders an
- * explanatory resting line when no column is sorted so the inspector
- * section doesn't read as broken.
+ * Sort order stack. Renders the sorted columns top-to-bottom in
+ * priority order; each row carries the column's name, its direction,
+ * a full-height grab rail, and a remove affordance — all full-size
+ * targets. Renders an explanatory resting line when no column is
+ * sorted so the section doesn't read as broken.
  */
 export function SortPriorityStack({ value, onChange }: SortPriorityStackProps) {
 	const sorted = useMemo(() => resolveSortedColumns(value), [value]);
@@ -78,14 +79,14 @@ export function SortPriorityStack({ value, onChange }: SortPriorityStackProps) {
 
 	if (sorted.length === 0) {
 		return (
-			<p className="text-[11px] text-nova-text-muted/70">
-				No sort yet — pick a direction on a column to sort the list by it.
+			<p className="text-[11px] leading-relaxed text-nova-text-muted">
+				Nothing sorts the list yet — pick Ascending or Descending on a column.
 			</p>
 		);
 	}
 
 	return (
-		<div className="flex flex-wrap items-stretch gap-1.5">
+		<div className="space-y-1.5">
 			{sorted.map((col, i) => (
 				<ReorderableRow
 					key={col.uuid}
@@ -109,14 +110,14 @@ export function SortPriorityStack({ value, onChange }: SortPriorityStackProps) {
 							{closestEdge !== null && (
 								<div
 									aria-hidden="true"
-									className="absolute top-0 bottom-0 w-0.5 bg-nova-violet rounded-full"
+									className="absolute left-0 right-0 h-0.5 bg-nova-violet rounded-full z-10"
 									style={{
-										left: closestEdge === "top" ? -3 : undefined,
-										right: closestEdge === "bottom" ? -3 : undefined,
+										top: closestEdge === "top" ? -3 : undefined,
+										bottom: closestEdge === "bottom" ? -3 : undefined,
 									}}
 								/>
 							)}
-							<SortPriorityPill
+							<SortPriorityRowItem
 								column={col}
 								position={i + 1}
 								setHandleEl={setHandleEl}
@@ -131,22 +132,23 @@ export function SortPriorityStack({ value, onChange }: SortPriorityStackProps) {
 	);
 }
 
-interface SortPriorityPillProps {
+interface SortPriorityRowItemProps {
 	readonly column: Column;
 	readonly position: number;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onRemove: () => void;
 }
 
-/** Single pill in the sort priority stack. Carries the column's
- *  label + a direction icon + a remove affordance. */
-function SortPriorityPill({
+/** One row of the sort order — position, column name, direction, and
+ *  the grab / remove affordances at full row height. */
+function SortPriorityRowItem({
 	column,
 	position,
 	setHandleEl,
 	onRemove,
-}: SortPriorityPillProps) {
+}: SortPriorityRowItemProps) {
 	const direction = column.sort?.direction ?? "asc";
+	const directionLabel = direction === "asc" ? "Ascending" : "Descending";
 	const directionIcon =
 		direction === "asc" ? tablerSortAscending : tablerSortDescending;
 	// Calculated columns have no `field`; use the header alone (or a
@@ -156,36 +158,40 @@ function SortPriorityPill({
 			? column.header || "(unnamed)"
 			: column.header || column.field || "(unnamed)";
 	return (
-		<div className="inline-flex items-center gap-1.5 rounded-md border border-nova-violet/30 bg-nova-violet/[0.08] px-2 py-1 text-xs">
-			<button
-				type="button"
-				ref={setHandleEl}
-				aria-label={`Reorder sort priority for ${labelSource}`}
-				className="cursor-grab text-nova-violet-bright/60 hover:text-nova-violet-bright transition-colors"
+		<div className="relative flex items-center gap-2 min-h-11 pl-8 pr-1 rounded-lg border border-nova-violet/25 bg-nova-violet/[0.06]">
+			<Tooltip
+				content="Drag to reorder — the top one sorts first"
+				placement="left"
 			>
-				<Icon icon={tablerGripVertical} width="12" height="12" />
-			</button>
-			<span className="text-[10px] font-mono text-nova-violet-bright/60">
+				<button
+					type="button"
+					ref={setHandleEl}
+					aria-label={`Drag to reorder the sort position of ${labelSource}`}
+					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-lg cursor-grab text-nova-violet-bright/50 hover:text-nova-violet-bright transition-colors"
+				>
+					<Icon icon={tablerGripVertical} width="14" height="14" />
+				</button>
+			</Tooltip>
+			<span className="font-mono text-[10px] text-nova-violet-bright/70 shrink-0">
 				{position}
 			</span>
-			<span className="truncate max-w-[160px] text-nova-text">
+			<span className="flex-1 min-w-0 truncate text-[13px] text-nova-text">
 				{labelSource}
 			</span>
-			<Icon
-				icon={directionIcon}
-				width="12"
-				height="12"
-				className="text-nova-violet-bright/80"
-				aria-label={`Sorted ${direction === "asc" ? "ascending" : "descending"}`}
-			/>
-			<button
-				type="button"
-				onClick={onRemove}
-				aria-label={`Clear sort for ${labelSource}`}
-				className="rounded p-0.5 text-nova-violet-bright/60 hover:text-nova-rose hover:bg-white/[0.05] transition-colors cursor-pointer"
-			>
-				<Icon icon={tablerTrash} width="11" height="11" />
-			</button>
+			<span className="inline-flex items-center gap-1 text-[11px] text-nova-violet-bright/80 shrink-0">
+				<Icon icon={directionIcon} width="13" height="13" aria-hidden="true" />
+				{directionLabel}
+			</span>
+			<Tooltip content="Stop sorting by this column">
+				<button
+					type="button"
+					onClick={onRemove}
+					aria-label={`Stop sorting by ${labelSource}`}
+					className="w-10 self-stretch min-h-11 grid place-items-center rounded-r-lg text-nova-violet-bright/50 hover:text-nova-rose transition-colors cursor-pointer"
+				>
+					<Icon icon={tablerX} width="14" height="14" />
+				</button>
+			</Tooltip>
 		</div>
 	);
 }

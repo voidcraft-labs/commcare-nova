@@ -4,7 +4,7 @@
 // source of truth for "is this search input structurally sound".
 // Three consumers read it:
 //
-//   - the search canvas (error badges on worker-true input rows)
+//   - the search canvas (error badges on app-true field rows)
 //   - the search-input inspector (inline diagnostics next to the
 //     offending control)
 //   - the workspace's config-validity derivation (gates the live
@@ -54,9 +54,9 @@ import {
 // ── Display labels ────────────────────────────────────────────────
 
 export const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
-	text: "Text",
-	select: "Select",
-	date: "Date",
+	text: "Text box",
+	select: "Choice list",
+	date: "Date picker",
 	"date-range": "Date range",
 	barcode: "Barcode",
 };
@@ -69,49 +69,63 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 	barcode: tablerBarcode,
 };
 
-/** Plain-words explanation per widget type — what the worker gets.
- *  Shown in the Type picker's menu beside each label. */
+/** Plain-words explanation per field type — what the field looks
+ *  like in the running app. Shown in the picker beside each label. */
 export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
-	text: "Free-typed text box.",
-	select: "Pick from the property's options.",
-	date: "Calendar picker for a single date.",
-	"date-range": "From / to pair searching a date span.",
+	text: "A box to type into.",
+	select: "Pick one of the property's options.",
+	date: "A calendar for a single date.",
+	"date-range": "From and to dates, searched as a span.",
 	barcode: "Scan a barcode instead of typing.",
 };
 
 /**
- * Authoring-layer mode names — plain words over search-engine
- * vocabulary ("fuzzy", "phonetic"), because the author choosing
- * between them is rarely a search engineer. The wire layer keeps
- * its own vocabulary; these labels never leave the builder UI.
+ * Authoring-layer mode names. "Fuzzy" stays — it's the term every
+ * search box on the internet taught people, at every technical
+ * level. The descriptions carry the precision; the labels stay
+ * short and familiar.
  */
 export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
 	exact: "Exact",
-	fuzzy: "Forgiving",
+	fuzzy: "Fuzzy",
 	"starts-with": "Starts with",
 	phonetic: "Sounds like",
-	"fuzzy-date": "Forgiving date",
+	"fuzzy-date": "Fuzzy date",
 	range: "Range",
 	"multi-select-contains": "Contains",
 };
 
 /**
- * Plain-words explanation per match mode — what the worker's typed
- * value has to look like to hit. Shown in the Match picker's menu
- * AND as the chosen mode's hint, because the difference between
- * "Exact" and "Forgiving" is the difference between "search looks
- * broken" and "search works": exact is letter-for-letter and
- * case-sensitive, which surprises everyone the first time.
+ * Per-mode explanation, shown in the Match picker and as the chosen
+ * mode's hint. These are exact behavioral claims, not vibes — each
+ * one states what CommCare's search actually does with the typed
+ * value, because the gap between "Exact" and "Fuzzy" is the gap
+ * between "search looks broken" and "search works": exact is
+ * letter-for-letter including capitalization, which surprises
+ * everyone the first time.
+ *
+ * Behavioral ground truth (mirrored by the case store's Postgres
+ * compiler and CommCare HQ's Elasticsearch layer):
+ *   - exact: whole-value term match, case-sensitive.
+ *   - fuzzy: per-word — a word matches if it equals a word of the
+ *     value (ignoring case), or sits within 1 edit (words of 3–5
+ *     letters) / 2 edits (6+) of one sharing its first two letters.
+ *     It does NOT match partial words: "bo" never finds "bob".
+ *   - starts-with: prefix of the whole value, case-sensitive.
+ *   - phonetic: Soundex per word — same spoken shape, any spelling.
+ *   - fuzzy-date: the typed date plus its digit-permutation set
+ *     (swapped day/month, reversed digit pairs).
  */
 export const SEARCH_MODE_DESCRIPTIONS: Record<SearchInputMode["kind"], string> =
 	{
-		exact: "Letter-for-letter, including capitalization.",
-		fuzzy: "Tolerates typos, partial words, and capitalization.",
-		"starts-with": "Matches values that begin with the typed text.",
-		phonetic: "Matches names that sound alike when spoken.",
-		"fuzzy-date": "Tolerates day/month digit swaps in a typed date.",
-		range: "Worker picks a from / to range.",
-		"multi-select-contains": "Matches cases containing the chosen tokens.",
+		exact: "The whole value, letter for letter — capitalization counts.",
+		fuzzy: "Forgives a typo or two per word, and ignores capitalization.",
+		"starts-with":
+			"Values that begin with the typed text — capitalization counts.",
+		phonetic: "Names that sound alike when spoken — Smith finds Smyth.",
+		"fuzzy-date": "Forgives swapped day and month, and mistyped digits.",
+		range: "Anything between the two ends, inclusive.",
+		"multi-select-contains": "Cases whose list includes the chosen options.",
 	};
 
 /** The mode a row actually runs with — its explicit mode, or the

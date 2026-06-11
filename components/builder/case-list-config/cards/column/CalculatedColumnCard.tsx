@@ -60,7 +60,7 @@ export function CalculatedColumnCard({
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 					Header
 				</div>
 				<BlurCommitTextInput
@@ -71,7 +71,7 @@ export function CalculatedColumnCard({
 				/>
 			</div>
 			<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
-				<div className="text-[10px] uppercase tracking-widest text-nova-text-muted/60">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
 					Expression
 				</div>
 				<ExpressionCardEditor

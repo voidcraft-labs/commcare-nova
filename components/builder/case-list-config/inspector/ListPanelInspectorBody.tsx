@@ -25,6 +25,7 @@ import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import { asAssetId, type CaseListConfig, type Column } from "@/lib/domain";
 import { SortPriorityStack } from "../SortPriorityStack";
 import type { SampleDataAction } from "../useSampleData";
+import { InspectorHint, InspectorSection } from "./inspectorChrome";
 
 export interface ListPanelInspectorBodyProps {
 	readonly config: CaseListConfig;
@@ -62,30 +63,18 @@ export function ListPanelInspectorBody({
 
 	return (
 		<>
-			<div className="space-y-1.5">
-				<div className="text-[10px] uppercase tracking-widest text-nova-text-muted/70">
-					Sort order
-				</div>
+			<InspectorSection label="Sort order">
 				<SortPriorityStack value={config.columns} onChange={setColumns} />
-				<p className="text-[10px] text-nova-text-muted/60">
-					Drag to rearrange priority — the first pill is the primary sort.
-				</p>
-			</div>
+			</InspectorSection>
 
-			<div className="space-y-2 pt-2 border-t border-nova-border">
-				<div className="text-[10px] uppercase tracking-widest text-nova-text-muted/70">
-					Sample data
-				</div>
+			<InspectorSection label="Sample data">
 				<SampleDataControls sampleData={sampleData} />
-			</div>
+			</InspectorSection>
 
 			{caseListOnly && (
-				<div className="space-y-3 pt-2 border-t border-nova-border">
-					<div className="text-[10px] uppercase tracking-widest text-nova-text-muted/70">
-						Menu link appearance
-					</div>
+				<InspectorSection label="Menu link appearance">
 					<div>
-						<span className="text-xs text-nova-text-muted mb-1 block">
+						<span className="text-xs text-nova-text-muted mb-1.5 block">
 							Icon
 						</span>
 						<SingleAssetSlot
@@ -96,7 +85,7 @@ export function ListPanelInspectorBody({
 						/>
 					</div>
 					<div>
-						<span className="text-xs text-nova-text-muted mb-1 block">
+						<span className="text-xs text-nova-text-muted mb-1.5 block">
 							Audio label
 						</span>
 						<SingleAssetSlot
@@ -106,7 +95,7 @@ export function ListPanelInspectorBody({
 							onChange={(audioLabel) => setMediaSlot("audioLabel", audioLabel)}
 						/>
 					</div>
-				</div>
+				</InspectorSection>
 			)}
 		</>
 	);
@@ -129,7 +118,7 @@ function SampleDataControls({
 	const [confirmingReset, setConfirmingReset] = useState(false);
 
 	const buttonCls =
-		"inline-flex items-center justify-center gap-1.5 px-2.5 py-2 text-[11px] rounded-md border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
+		"inline-flex items-center justify-center gap-1.5 px-3 min-h-11 text-xs rounded-lg border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 
 	return (
 		<div className="space-y-2">
@@ -196,19 +185,25 @@ function SampleDataControls({
 					</button>
 				)}
 			</div>
+			{!confirmingReset && (
+				<InspectorHint>
+					Generate adds realistic rows; Reset replaces every case with a fresh
+					set.
+				</InspectorHint>
+			)}
 			{confirmingReset && (
-				<p className="text-[10px] text-nova-rose/80 leading-relaxed">
+				<p className="text-[11px] text-nova-rose/80 leading-relaxed">
 					Reset deletes every case in this case type — including ones edited
 					through Preview — and writes fresh sample data.
 				</p>
 			)}
 			{generate.status.kind === "error" && (
-				<p className="text-[10px] text-nova-rose/90 whitespace-pre-line">
+				<p className="text-[11px] text-nova-rose/90 whitespace-pre-line">
 					{generate.status.message}
 				</p>
 			)}
 			{reset.status.kind === "error" && (
-				<p className="text-[10px] text-nova-rose/90 whitespace-pre-line">
+				<p className="text-[11px] text-nova-rose/90 whitespace-pre-line">
 					{reset.status.message}
 				</p>
 			)}

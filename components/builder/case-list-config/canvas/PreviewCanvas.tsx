@@ -1,15 +1,25 @@
-// components/builder/case-list-config/canvas/WorkerPreviewCanvas.tsx
+// components/builder/case-list-config/canvas/PreviewCanvas.tsx
 //
-// The Preview tab — a first-class worker run-through, never a modal
+// The Preview tab — these screens running for real, never a modal
 // and never a cursor mode. Everything is live from the current
-// config: the real `SearchInputForm` widgets filter the real case
-// store as the worker types, rows open the case detail IN PLACE
-// (mirroring the worker's tap), and the chat rail stays alive beside
-// it so the author can ask Nova for changes while previewing.
+// config: the real `SearchInputForm` widgets query the real case
+// store as you type, the list narrows through its own filter box
+// (the same per-word, case-insensitive narrowing CommCare's case
+// list does), rows open the case detail IN PLACE, and the chat rail
+// stays alive beside it so you can ask Nova for changes while
+// trying the result.
 //
 // Composition is this tab's job: search beside the results when the
 // canvas is wide, stacked when it isn't — width decides, exactly as
-// it does for workers, so authors never pick an export mode.
+// it does in the running app, so authors never pick an export mode.
+//
+// Two flicker guards, both deliberate:
+//   - the canvas measures its width synchronously in the ref
+//     callback (before first paint), so the side-by-side layout
+//     never flashes through the stacked one;
+//   - `useCases` keeps the previous rows rendered while a re-query
+//     is in flight (`fetching`), so typing narrows the table in
+//     place instead of blanking it to a spinner.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -20,7 +30,11 @@ import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+	ListFilterBox,
+	rowMatchesFilterText,
+} from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
@@ -43,26 +57,31 @@ import { effectiveModeKind } from "../searchInputResolution";
 import { useSampleData } from "../useSampleData";
 
 /** Canvas width where search sits beside the results instead of above
- *  them — the same responsive truth the worker's screen follows. */
+ *  them — the same responsive truth the running app follows. */
 const SPLIT_MIN_WIDTH = 760;
 
-export interface WorkerPreviewCanvasProps {
+export interface PreviewCanvasProps {
 	readonly moduleName: string;
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseType: CaseType | undefined;
 	readonly appId: string;
 	readonly onConfigChange: (next: CaseListConfig) => void;
+	/** Rows the workspace already loaded for the authoring canvases —
+	 *  rendered until this tab's own first query settles, so switching
+	 *  to Preview never opens on a spinner. */
+	readonly warmRows: readonly CaseRowWithCalculated[] | undefined;
 }
 
-export function WorkerPreviewCanvas({
+export function PreviewCanvas({
 	moduleName,
 	config,
 	searchConfig,
 	caseType,
 	appId,
 	onConfigChange,
-}: WorkerPreviewCanvasProps) {
+	warmRows,
+}: PreviewCanvasProps) {
 	const docApi = useBlueprintDocApi();
 	const blueprint = useMemo(
 		() => pickBlueprintDoc(docApi.getState()),
@@ -70,26 +89,34 @@ export function WorkerPreviewCanvas({
 	);
 
 	// ── Responsive split — the canvas's own width decides ──
-	const containerRef = useRef<HTMLDivElement | null>(null);
+	// Measured synchronously in the ref callback so the very first
+	// paint already has the real width; the ResizeObserver keeps it
+	// fresh afterwards. (An effect-mounted observer measures only
+	// AFTER first paint, which made the layout visibly jump from
+	// stacked to side-by-side on every tab switch.)
 	const [width, setWidth] = useState(0);
-	useEffect(() => {
-		const el = containerRef.current;
+	const observerRef = useRef<ResizeObserver | null>(null);
+	const containerRef = useCallback((el: HTMLDivElement | null) => {
+		observerRef.current?.disconnect();
+		observerRef.current = null;
 		if (!el) return;
+		setWidth(el.getBoundingClientRect().width);
 		const ro = new ResizeObserver((entries) => {
 			setWidth(entries[0]?.contentRect.width ?? 0);
 		});
 		ro.observe(el);
-		return () => ro.disconnect();
+		observerRef.current = ro;
 	}, []);
 	const split = width >= SPLIT_MIN_WIDTH;
 
-	// ── Live worker state ──
+	// ── Live state ──
 	const [inputValues, setInputValues] = useState<SearchInputValues>(
 		() => new Map(),
 	);
+	const [filterText, setFilterText] = useState("");
 	const [openCase, setOpenCase] = useState<CaseRowWithCalculated | null>(null);
 
-	const { state, reload } = useCases({
+	const { state, fetching, reload } = useCases({
 		appId,
 		caseType: caseType?.name,
 		blueprint,
@@ -105,6 +132,7 @@ export function WorkerPreviewCanvas({
 
 	const restart = () => {
 		setInputValues(new Map());
+		setFilterText("");
 		setOpenCase(null);
 	};
 
@@ -117,11 +145,34 @@ export function WorkerPreviewCanvas({
 	const hasSearch = config.searchInputs.length > 0;
 	const queryActive = [...inputValues.values()].some((v) => v !== "");
 
-	/* A zero-match against a letter-for-letter text input is the single
-	 * most common "search is broken" experience — the worker typed a
-	 * lowercase or partial name into an exact-match field. Spot that
-	 * shape (typed-into, text, exact mode, property admits fuzzy) so
-	 * the no-match state can name the cause and fix it in one click. */
+	/* Until this tab's own first query settles, stand the workspace's
+	 * already-loaded rows in — same query (this config, no typed
+	 * values), so the swap-in is invisible. */
+	const effectiveState =
+		(state.kind === "idle" || state.kind === "loading") &&
+		!queryActive &&
+		warmRows !== undefined
+			? warmRows.length > 0
+				? ({ kind: "rows", rows: warmRows } as const)
+				: ({ kind: "empty" } as const)
+			: state;
+
+	const loadedRows = effectiveState.kind === "rows" ? effectiveState.rows : [];
+	const filteredRows = useMemo(
+		() =>
+			filterText === ""
+				? loadedRows
+				: loadedRows.filter((row) =>
+						rowMatchesFilterText(visibleColumns, row, filterText),
+					),
+		[loadedRows, visibleColumns, filterText],
+	);
+
+	/* A zero-match against a letter-for-letter text field is the single
+	 * most common "search is broken" experience — a lowercase or
+	 * partial name typed into an exact-match field. Spot that shape
+	 * (typed-into, text, exact mode, property admits fuzzy) so the
+	 * no-match state can name the cause and fix it in one click. */
 	const strictTextInputs = useMemo(
 		() =>
 			config.searchInputs.filter((s): s is SimpleSearchInputDef => {
@@ -138,7 +189,7 @@ export function WorkerPreviewCanvas({
 			}),
 		[config.searchInputs, inputValues, caseType],
 	);
-	const makeForgiving = () => {
+	const makeFuzzy = () => {
 		const strict = new Set(strictTextInputs.map((s) => s.uuid));
 		onConfigChange({
 			...config,
@@ -193,7 +244,7 @@ export function WorkerPreviewCanvas({
 			<button
 				type="button"
 				onClick={() => setOpenCase(null)}
-				className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-10 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
+				className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
 				Back to results
@@ -223,7 +274,7 @@ export function WorkerPreviewCanvas({
 				})}
 			</div>
 			<p className="mt-3 text-xs text-nova-text-muted">
-				From here the worker continues into the form.
+				From here, your app continues into the form.
 			</p>
 		</div>
 	);
@@ -234,24 +285,44 @@ export function WorkerPreviewCanvas({
 				<h2 className="font-display font-bold text-xl tracking-tight text-nova-text">
 					{moduleName}
 				</h2>
-				{state.kind === "rows" && (
-					<span className="ml-auto text-xs text-nova-text-muted whitespace-nowrap">
-						{state.rows.length} {state.rows.length === 1 ? "case" : "cases"}
+				{effectiveState.kind === "rows" && (
+					<span className="ml-auto inline-flex items-center gap-1.5 text-xs text-nova-text-muted whitespace-nowrap">
+						{fetching && (
+							<Icon
+								icon={tablerLoader2}
+								width="12"
+								height="12"
+								className="animate-spin"
+							/>
+						)}
+						{filteredRows.length} {filteredRows.length === 1 ? "case" : "cases"}
 					</span>
 				)}
 			</div>
+			{effectiveState.kind === "rows" && loadedRows.length > 0 && (
+				<div className="mb-3">
+					<ListFilterBox
+						value={filterText}
+						onChange={setFilterText}
+						resultCount={filterText === "" ? undefined : filteredRows.length}
+					/>
+				</div>
+			)}
 			<ResultsBody
-				state={state}
+				state={effectiveState}
+				fetching={fetching}
+				rows={filteredRows}
+				filterActive={filterText !== ""}
 				visibleColumns={visibleColumns}
 				queryActive={queryActive}
 				onOpenCase={setOpenCase}
 				generate={generate}
 				strictTextInputs={strictTextInputs}
-				onMakeForgiving={makeForgiving}
+				onMakeFuzzy={makeFuzzy}
 			/>
-			{state.kind === "rows" && state.rows.length > 0 && (
+			{effectiveState.kind === "rows" && filteredRows.length > 0 && (
 				<p className="mt-2.5 text-xs text-nova-text-muted">
-					Tap a row to open the case.
+					Click any row to open the case.
 				</p>
 			)}
 		</div>
@@ -261,15 +332,15 @@ export function WorkerPreviewCanvas({
 		<div ref={containerRef} className="max-w-5xl mx-auto px-8 pt-6 pb-24">
 			<div className="flex items-center gap-2.5 mb-5">
 				<span className="font-mono text-[10px] tracking-[0.14em] text-nova-violet-bright">
-					WORKER PREVIEW
+					LIVE PREVIEW
 				</span>
 				<span className="text-xs text-nova-text-muted">
-					— live from this config, fully interactive
+					— your screens, your case data, fully interactive
 				</span>
 				<button
 					type="button"
 					onClick={restart}
-					className="ml-auto inline-flex items-center gap-1.5 px-3 min-h-9 rounded-md border border-nova-border text-xs text-nova-text-muted hover:text-nova-text hover:border-nova-border-bright transition-colors cursor-pointer"
+					className="ml-auto inline-flex items-center gap-1.5 px-3 min-h-11 rounded-lg border border-nova-border text-xs text-nova-text-muted hover:text-nova-text hover:border-nova-border-bright transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerRefresh} width="13" height="13" />
 					Restart
@@ -291,20 +362,27 @@ export function WorkerPreviewCanvas({
 
 function ResultsBody({
 	state,
+	fetching,
+	rows,
+	filterActive,
 	visibleColumns,
 	queryActive,
 	onOpenCase,
 	generate,
 	strictTextInputs,
-	onMakeForgiving,
+	onMakeFuzzy,
 }: {
 	readonly state: ReturnType<typeof useCases>["state"];
+	readonly fetching: boolean;
+	/** Rows after the list filter box's narrowing. */
+	readonly rows: readonly CaseRowWithCalculated[];
+	readonly filterActive: boolean;
 	readonly visibleColumns: CaseListConfig["columns"];
 	readonly queryActive: boolean;
 	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
 	readonly generate: ReturnType<typeof useSampleData>["generate"];
 	readonly strictTextInputs: readonly SimpleSearchInputDef[];
-	readonly onMakeForgiving: () => void;
+	readonly onMakeFuzzy: () => void;
 }) {
 	if (state.kind === "idle" || state.kind === "loading") {
 		return (
@@ -342,7 +420,7 @@ function ResultsBody({
 		return (
 			<NoMatchNotice
 				strictTextInputs={strictTextInputs}
-				onMakeForgiving={onMakeForgiving}
+				onMakeFuzzy={onMakeFuzzy}
 			/>
 		);
 	}
@@ -354,13 +432,13 @@ function ResultsBody({
 			<div className="rounded-lg border border-dashed border-nova-border-bright px-6 py-10 text-center">
 				<p className="text-sm text-nova-text-secondary mb-1">No cases yet</p>
 				<p className="text-xs text-nova-text-muted mb-4">
-					Generate sample data to try the worker experience with realistic rows.
+					Generate sample data to try these screens with realistic rows.
 				</p>
 				<button
 					type="button"
 					onClick={generate.run}
 					disabled={generate.status.kind === "running"}
-					className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-lg bg-nova-violet text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+					className="inline-flex items-center gap-2 px-4 min-h-11 text-[13px] font-medium rounded-lg bg-nova-violet text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
 				>
 					<Icon
 						icon={
@@ -387,28 +465,39 @@ function ResultsBody({
 		);
 	}
 
-	if (state.rows.length === 0) {
+	if (rows.length === 0) {
+		if (filterActive) {
+			return (
+				<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center text-xs text-nova-text-muted">
+					Nothing here matches the filter — clear it to see every result.
+				</div>
+			);
+		}
 		if (queryActive) {
 			return (
 				<NoMatchNotice
 					strictTextInputs={strictTextInputs}
-					onMakeForgiving={onMakeForgiving}
+					onMakeFuzzy={onMakeFuzzy}
 				/>
 			);
 		}
 		return (
 			<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center text-xs text-nova-text-muted">
-				No cases match the current filter.
+				No cases match the list's filter.
 			</div>
 		);
 	}
 
 	return (
-		<ResultsTable
-			state={state}
-			visibleColumns={visibleColumns}
-			onOpenCase={onOpenCase}
-		/>
+		<div
+			className={`transition-opacity ${fetching ? "opacity-60" : "opacity-100"}`}
+		>
+			<ResultsTable
+				rows={rows}
+				visibleColumns={visibleColumns}
+				onOpenCase={onOpenCase}
+			/>
+		</div>
 	);
 }
 
@@ -416,17 +505,17 @@ function ResultsBody({
 
 /**
  * The zero-results card. When the miss is explained by a
- * letter-for-letter text input the worker typed into, the card says
- * so in plain words and offers the one-click fix — switching those
- * inputs to forgiving match IS a config edit (visible in the
- * inspector, undoable), so the preview result updates live.
+ * letter-for-letter text field someone typed into, the card says so
+ * in plain words and offers the one-click fix — switching those
+ * fields to fuzzy match IS a config edit (visible in the inspector,
+ * undoable), so the result updates live.
  */
 function NoMatchNotice({
 	strictTextInputs,
-	onMakeForgiving,
+	onMakeFuzzy,
 }: {
 	readonly strictTextInputs: readonly SimpleSearchInputDef[];
-	readonly onMakeForgiving: () => void;
+	readonly onMakeFuzzy: () => void;
 }) {
 	const names = strictTextInputs.map((s) => `“${s.label || s.name}”`);
 	const list =
@@ -441,16 +530,16 @@ function NoMatchNotice({
 			{strictTextInputs.length > 0 && (
 				<div className="max-w-md mx-auto mt-4 pt-4 border-t border-nova-violet/[0.08]">
 					<p className="mb-3 text-xs text-nova-text-secondary text-balance">
-						{list} {names.length === 1 ? "matches" : "match"} letter-for-letter
-						— a lowercase, partial, or misspelled entry returns nothing.
+						{list} {names.length === 1 ? "matches" : "match"} letter for letter
+						— capitalization and spelling have to be exact.
 					</p>
 					<button
 						type="button"
-						onClick={onMakeForgiving}
-						className="inline-flex items-center gap-1.5 px-3 min-h-9 rounded-md border border-nova-border-bright bg-nova-violet/[0.12] text-xs font-medium text-nova-violet-bright hover:bg-nova-violet/[0.2] transition-colors cursor-pointer"
+						onClick={onMakeFuzzy}
+						className="inline-flex items-center gap-1.5 px-3 min-h-11 rounded-lg border border-nova-border-bright bg-nova-violet/[0.12] text-xs font-medium text-nova-violet-bright hover:bg-nova-violet/[0.2] transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerWand} width="13" height="13" />
-						Switch to forgiving match
+						Switch to fuzzy match
 					</button>
 				</div>
 			)}
@@ -461,14 +550,11 @@ function NoMatchNotice({
 // ── Results table ─────────────────────────────────────────────────
 
 function ResultsTable({
-	state,
+	rows,
 	visibleColumns,
 	onOpenCase,
 }: {
-	readonly state: Extract<
-		ReturnType<typeof useCases>["state"],
-		{ kind: "rows" }
-	>;
+	readonly rows: readonly CaseRowWithCalculated[];
 	readonly visibleColumns: CaseListConfig["columns"];
 	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
 }) {
@@ -493,7 +579,7 @@ function ResultsTable({
 					))}
 					<div aria-hidden="true" />
 				</div>
-				{state.rows.map((row) => (
+				{rows.map((row) => (
 					<button
 						type="button"
 						key={row.case_id}
@@ -506,7 +592,7 @@ function ResultsTable({
 						{visibleColumns.map((col) => (
 							<span
 								key={col.uuid}
-								className="px-3.5 py-2.5 text-[13px] text-nova-text-secondary whitespace-nowrap overflow-hidden text-ellipsis"
+								className="px-3.5 py-2.5 min-h-11 inline-flex items-center text-[13px] text-nova-text-secondary whitespace-nowrap overflow-hidden text-ellipsis"
 							>
 								{renderColumnCell(col, row)}
 							</span>

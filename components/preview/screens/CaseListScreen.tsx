@@ -3,8 +3,11 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
-import { motion } from "motion/react";
 import { type ReactNode, useMemo, useState } from "react";
+import {
+	ListFilterBox,
+	rowMatchesFilterText,
+} from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import {
 	AlertDialog,
@@ -195,7 +198,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 
 	/* All three case-list workspace URLs (`cases` / `search-config` /
 	 * `detail-config`) render this screen in interact mode — search and
-	 * detail are facets of the same case list, so the worker preview is
+	 * detail are facets of the same case list, so the live preview is
 	 * always the assembled artifact. */
 	const moduleUuid =
 		loc.kind === "cases" ||
@@ -237,7 +240,12 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		() => new Map(),
 	);
 
-	const { state, reload } = useCases({
+	// The list's own filter box — client-side narrowing over the rows
+	// already loaded, the same per-word case-insensitive contains
+	// matching CommCare's case list runs.
+	const [filterText, setFilterText] = useState("");
+
+	const { state, fetching, reload } = useCases({
 		appId,
 		caseType: caseType?.name,
 		blueprint,
@@ -414,7 +422,12 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		);
 	}
 
-	const rows = state.rows;
+	const rows =
+		filterText === ""
+			? state.rows
+			: state.rows.filter((row) =>
+					rowMatchesFilterText(columns, row, filterText),
+				);
 	const resetRunning = resetStatus.kind === "running";
 
 	return shell(
@@ -456,7 +469,17 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				</AlertDialog>
 			</div>
 
-			<div className="rounded-lg border border-pv-input-border overflow-hidden">
+			<div className="mb-3">
+				<ListFilterBox
+					value={filterText}
+					onChange={setFilterText}
+					resultCount={filterText === "" ? undefined : rows.length}
+				/>
+			</div>
+
+			<div
+				className={`rounded-lg border border-pv-input-border overflow-hidden transition-opacity ${fetching ? "opacity-60" : "opacity-100"}`}
+			>
 				<table className="w-full text-sm">
 					<thead>
 						<tr className="bg-pv-surface">
@@ -472,11 +495,11 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 					</thead>
 					<tbody>
 						{rows.map((row, rIdx) => (
-							<motion.tr
+							/* No entry animation — rows re-render on every search
+							 * keystroke's settle, and replaying a stagger each
+							 * time reads as flicker, not polish. */
+							<tr
 								key={row.case_id}
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								transition={{ delay: rIdx * 0.04, duration: 0.2 }}
 								onClick={() => handleRowClick()}
 								className={`cursor-pointer hover:bg-pv-elevated ${
 									rIdx % 2 === 0 ? "bg-pv-bg" : "bg-pv-surface/50"
@@ -490,7 +513,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 										{evaluateColumnValue(col, row)}
 									</td>
 								))}
-							</motion.tr>
+							</tr>
 						))}
 					</tbody>
 				</table>

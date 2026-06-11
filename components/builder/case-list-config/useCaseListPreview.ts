@@ -32,11 +32,12 @@ export function useCaseListPreview(args: {
 	caseListConfig: CaseListConfig;
 	currentCaseType: string;
 	configValid: boolean;
-}): { state: CaseListPreviewState; reload: () => void } {
+}): { state: CaseListPreviewState; fetching: boolean; reload: () => void } {
 	const { appId, caseListConfig, currentCaseType, configValid } = args;
 	const docApi = useBlueprintDocApi();
 
 	const [state, setState] = useState<CaseListPreviewState>({ kind: "idle" });
+	const [fetching, setFetching] = useState(false);
 
 	/* Bumps to re-fire the load after an out-of-band data change —
 	 * generating or resetting sample data writes rows the config-driven
@@ -51,10 +52,20 @@ export function useCaseListPreview(args: {
 	useEffect(() => {
 		if (!configValid) {
 			setState({ kind: "paused" });
+			setFetching(false);
 			return;
 		}
 		let cancelled = false;
-		setState({ kind: "loading" });
+		/* Stale-while-revalidate: every config keystroke re-fires this
+		 * effect, and blanking the live table to a spinner per edit
+		 * reads as flicker. Settled data arms stay rendered through
+		 * the reload; `fetching` carries the in-flight signal. */
+		setState((prev) =>
+			prev.kind === "rows" || prev.kind === "empty"
+				? prev
+				: { kind: "loading" },
+		);
+		setFetching(true);
 		const blueprint = pickBlueprintDoc(docApi.getState());
 		loadCaseListPreviewAction({
 			appId,
@@ -65,6 +76,7 @@ export function useCaseListPreview(args: {
 			.then((result) => {
 				if (cancelled) return;
 				setState(result);
+				setFetching(false);
 			})
 			.catch((err: unknown) => {
 				if (cancelled) return;
@@ -73,6 +85,7 @@ export function useCaseListPreview(args: {
 					message:
 						err instanceof Error ? err.message : "Failed to load preview.",
 				});
+				setFetching(false);
 			});
 		return () => {
 			cancelled = true;
@@ -89,5 +102,5 @@ export function useCaseListPreview(args: {
 		docApi.getState,
 	]);
 
-	return { state, reload };
+	return { state, fetching, reload };
 }

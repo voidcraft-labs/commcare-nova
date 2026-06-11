@@ -1,6 +1,6 @@
 // components/builder/case-list-config/canvas/DetailCanvas.tsx
 //
-// The case-detail tab's canvas: what workers see after opening a case
+// The case-detail tab's canvas: what opens after choosing a case
 // from the list, rendered over the first live sample case. Detail
 // fields ARE the columns — each column's `visibleInDetail` slot picks
 // whether it appears here — so clicking a row opens the same column
@@ -51,9 +51,9 @@ export function DetailCanvas({
 
 	return (
 		<div className="max-w-lg mx-auto px-6 pt-6 pb-24">
-			<p className="mb-5 text-xs text-nova-text-muted">
-				What workers see after opening a case from the list — click a row to
-				configure it.
+			<p className="mb-5 text-[13px] text-nova-text-muted">
+				What opens after choosing a case from the list — click a row to set it
+				up.
 			</p>
 
 			<div className="flex items-center gap-3 mb-1.5">
@@ -91,7 +91,6 @@ export function DetailCanvas({
 								type="button"
 								key={col.uuid}
 								onClick={() => onSelect({ type: "column", uuid: col.uuid })}
-								title="Click to configure"
 								className={`w-full flex items-center gap-2.5 px-4 py-3 min-h-11 text-left cursor-pointer transition-colors ${
 									i > 0 ? "border-t border-nova-violet/[0.08]" : ""
 								} ${
@@ -101,13 +100,18 @@ export function DetailCanvas({
 								} ${hidden ? "opacity-45" : ""}`}
 							>
 								{hidden && (
-									<Icon
-										icon={tablerEyeOff}
-										width="14"
-										height="14"
-										className="shrink-0 text-nova-text-muted"
+									<span
+										role="img"
+										className="inline-flex shrink-0"
 										aria-label="Hidden from the case detail"
-									/>
+									>
+										<Icon
+											icon={tablerEyeOff}
+											width="14"
+											height="14"
+											className="text-nova-text-muted"
+										/>
+									</span>
 								)}
 								<span
 									className={`w-[150px] shrink-0 text-[13px] text-nova-text-muted ${col.header ? "" : "italic"}`}

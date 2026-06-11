@@ -68,7 +68,7 @@ export function BlurCommitTextInput({
 		onCommit(draft);
 	}, [draft, value, onCommit]);
 	const cls = [
-		"w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors",
+		"w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors",
 		monospace ? "font-mono" : "",
 	]
 		.filter(Boolean)

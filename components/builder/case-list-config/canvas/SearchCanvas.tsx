@@ -1,17 +1,17 @@
 // components/builder/case-list-config/canvas/SearchCanvas.tsx
 //
-// The search tab's canvas: the worker's search panel, rendered as the
-// worker sees it. Config state lives in the artifact where it
-// manifests — a date-range input renders as two From/To fields, a
-// select carries its chevron, a default shows pre-filled in the field
-// — and in the inspector where it doesn't (match mode is invisible to
-// workers, so it stays off the canvas).
+// The search tab's canvas: the search screen, rendered the way the
+// running app shows it. Config state lives in the artifact where it
+// manifests — a date-range field renders as two From/To boxes, a
+// choice list carries its chevron, a default shows pre-filled in the
+// field — and in the inspector where it doesn't (the match setting is
+// invisible on the screen, so it stays off the canvas).
 //
-// Clicking a thing configures that thing: input rows select their
-// input, everything else on the card (title, subtitle, the Search
+// Clicking a thing configures that thing: field rows select their
+// field, everything else on the card (title, subtitle, the Search
 // button) selects the panel. The fields are depictions, not live
-// widgets — pointer mode's `CaseListScreen` mounts the real
-// `SearchInputForm` for actually searching.
+// widgets — the Preview tab mounts the real `SearchInputForm` for
+// actually searching.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -26,6 +26,7 @@ import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { CaseSearchConfig, CaseType, SearchInputDef } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
@@ -34,7 +35,6 @@ import {
 	resolveRows,
 	rowHasStructuralError,
 	SEARCH_INPUT_TYPE_ICONS,
-	SEARCH_MODE_LABELS,
 } from "../searchInputResolution";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { AddGhostButton, activateOnKeyDown } from "./canvasChrome";
@@ -88,19 +88,18 @@ export function SearchCanvas({
 
 	return (
 		<div className="max-w-md mx-auto px-6 pt-6 pb-24">
-			<p className="mb-5 text-xs text-nova-text-muted">
-				How workers find a case — click any part to configure it.
+			<p className="mb-5 text-[13px] text-nova-text-muted">
+				The search screen, as your app shows it — click any part to set it up.
 			</p>
 
-			{/* The worker's search panel. Clicking panel chrome selects the
-			 *  panel; inner rows stop propagation and select themselves. */}
+			{/* The search panel. Clicking panel chrome selects the panel;
+			 *  inner rows stop propagation and select themselves. */}
 			{/* biome-ignore lint/a11y/useSemanticElements: can't use <button> — the card hosts nested interactive children (rows, grips, the add affordance), which HTML forbids in a button */}
 			<div
 				role="button"
 				tabIndex={0}
 				onClick={() => onSelect({ type: "search-panel" })}
 				onKeyDown={activateOnKeyDown(() => onSelect({ type: "search-panel" }))}
-				title="The worker's search screen — click to configure its labels and behavior"
 				className={`rounded-lg p-4 cursor-pointer transition-all border bg-nova-surface/40 ${
 					panelSelected
 						? "border-nova-violet shadow-[0_0_14px_rgba(139,92,246,0.25)]"
@@ -127,7 +126,7 @@ export function SearchCanvas({
 				<div className="mt-2 space-y-1">
 					{searchInputs.length === 0 && (
 						<p className="px-1 py-2 text-xs text-nova-text-muted">
-							No search inputs yet — workers see the list without a search form.
+							No search fields yet — the app goes straight to the list.
 						</p>
 					)}
 					{searchInputs.map((input, i) => {
@@ -181,7 +180,7 @@ export function SearchCanvas({
 				</div>
 
 				<AddGhostButton
-					label="Add search input"
+					label="Add search field"
 					onClick={(e) => {
 						e.stopPropagation();
 						onAddInput();
@@ -190,7 +189,7 @@ export function SearchCanvas({
 					className="w-full my-3"
 				/>
 
-				{/* The worker's Search button — part of the panel, so clicking
+				{/* The screen's Search button — part of the panel, so clicking
 				 *  it configures the panel like the rest of the card chrome. */}
 				<div className="w-full inline-flex items-center justify-center gap-2 px-4 min-h-11 rounded-md bg-nova-violet text-white text-sm font-semibold select-none">
 					<Icon icon={tablerSearch} width="15" height="15" />
@@ -198,7 +197,7 @@ export function SearchCanvas({
 				</div>
 				{displayConditionPhrase !== undefined && (
 					<p className="mt-2 px-1 text-[11px] text-nova-text-muted leading-relaxed first-letter:uppercase">
-						Button shown only when {displayConditionPhrase}.
+						The button appears only when {displayConditionPhrase}.
 					</p>
 				)}
 			</div>
@@ -206,7 +205,7 @@ export function SearchCanvas({
 	);
 }
 
-// ── Worker-true input row ─────────────────────────────────────────
+// ── App-true field row ────────────────────────────────────────────
 
 interface InputRowProps {
 	readonly input: SearchInputDef;
@@ -224,12 +223,8 @@ function InputRow({
 	onClick,
 }: InputRowProps) {
 	const dflt = defaultDisplayValue(input.default);
-	const modeNote =
-		input.kind === "simple" && input.mode !== undefined
-			? ` · ${SEARCH_MODE_LABELS[input.mode.kind]} match`
-			: "";
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: can't use <button> — the row hosts a nested grip button, which HTML forbids inside a button
+		// biome-ignore lint/a11y/useSemanticElements: can't use <button> — the row hosts a nested grab rail button, which HTML forbids inside a button
 		<div
 			role="button"
 			tabIndex={0}
@@ -238,8 +233,7 @@ function InputRow({
 				onClick();
 			}}
 			onKeyDown={activateOnKeyDown(onClick)}
-			title={`${input.type} input${modeNote} — click to configure`}
-			className={`group/input relative rounded-md px-2.5 py-2 cursor-pointer border transition-all ${
+			className={`group/input relative rounded-md pl-8 pr-3 py-2.5 cursor-pointer border transition-all ${
 				selected
 					? "border-nova-violet bg-nova-violet/[0.08] shadow-[0_0_10px_rgba(139,92,246,0.2)]"
 					: hasError
@@ -247,40 +241,51 @@ function InputRow({
 						: "border-transparent hover:bg-white/[0.03]"
 			}`}
 		>
-			<div className="flex items-center gap-1.5 mb-1.5">
+			{/* Grab rail — the row's full height, so the drag target is
+			 *  never smaller than the row itself. */}
+			<Tooltip content="Drag to reorder" placement="left">
 				<button
 					type="button"
 					ref={setHandleEl}
-					aria-label={`Reorder ${input.label || input.name || "search input"}`}
+					aria-label={`Drag to reorder ${input.label || input.name || "search field"}`}
 					onClick={(e) => e.stopPropagation()}
-					className="cursor-grab text-nova-text-muted/0 group-hover/input:text-nova-text-muted/60 transition-colors -ml-1"
+					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-md cursor-grab text-nova-text-muted/0 group-hover/input:text-nova-text-muted/60 hover:!text-nova-text-muted transition-colors"
 				>
-					<Icon icon={tablerGripVertical} width="12" height="12" />
+					<Icon icon={tablerGripVertical} width="14" height="14" />
 				</button>
+			</Tooltip>
+			<div className="flex items-center gap-1.5 mb-1.5">
 				<span
 					className={`text-[13px] font-medium ${input.label ? "text-nova-text" : "italic text-nova-text-muted"}`}
 				>
-					{input.label || "untitled input"}
+					{input.label || "untitled field"}
 				</span>
 				{hasError && (
-					<Icon
-						icon={tablerAlertCircle}
-						width="13"
-						height="13"
-						className="text-nova-rose/80"
-						aria-label="This input has configuration errors"
-					/>
+					<Tooltip content="This field has a problem — open it to see what.">
+						<span
+							role="img"
+							className="inline-flex"
+							aria-label="This field has a problem"
+						>
+							<Icon
+								icon={tablerAlertCircle}
+								width="13"
+								height="13"
+								className="text-nova-rose/80"
+							/>
+						</span>
+					</Tooltip>
 				)}
 			</div>
-			<WorkerField input={input} defaultText={dflt} />
+			<AppField input={input} defaultText={dflt} />
 		</div>
 	);
 }
 
-/** The field as the worker gets it — widget shape carried by the
- *  rendering itself (range = two fields, select = chevron, barcode =
- *  scan glyph), defaults pre-filled in full text color. */
-function WorkerField({
+/** The field as the app renders it — widget shape carried by the
+ *  rendering itself (range = two fields, choice list = chevron,
+ *  barcode = scan glyph), defaults pre-filled in full text color. */
+function AppField({
 	input,
 	defaultText,
 }: {

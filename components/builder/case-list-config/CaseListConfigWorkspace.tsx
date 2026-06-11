@@ -4,7 +4,7 @@
 // tabs (Search / Case list / Case detail) plus a first-class Preview
 // tab. Each config tab is an artifact-first canvas where clicking a
 // thing configures that thing in the right-rail inspector; Preview is
-// the live worker run-through, a place (URL-addressed) rather than a
+// the live run-through, a place (URL-addressed) rather than a
 // popup or a cursor mode. The tab IS the URL (`/cases`,
 // `/search-config`, `/detail-config`, `/case-preview`), so tab
 // switches are ordinary history navigation and deep links land on the
@@ -33,6 +33,7 @@ import tablerSearch from "@iconify-icons/tabler/search";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
@@ -49,8 +50,8 @@ import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import { ColumnEditor } from "./ColumnEditor";
 import { CaseListCanvas } from "./canvas/CaseListCanvas";
 import { DetailCanvas } from "./canvas/DetailCanvas";
+import { PreviewCanvas } from "./canvas/PreviewCanvas";
 import { SearchCanvas } from "./canvas/SearchCanvas";
-import { WorkerPreviewCanvas } from "./canvas/WorkerPreviewCanvas";
 import {
 	type CaseListConfigErrorAreas,
 	caseListConfigErrorAreas,
@@ -122,6 +123,16 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		setSel(null);
 	}, [tab]);
 
+	/* Where Preview toggles back to. Tracks the last config tab the
+	 * user was on so clicking the active Preview button returns them
+	 * exactly where they left off (defaults to the list). */
+	const lastConfigTabRef = useRef<Exclude<CaseListWorkspaceTab, "preview">>(
+		tab === "preview" ? "list" : tab,
+	);
+	useEffect(() => {
+		if (tab !== "preview") lastConfigTabRef.current = tab;
+	}, [tab]);
+
 	/* Escape closes the inspector. Routed through the shared keyboard
 	 * manager (not a raw listener — the manager preventDefaults every
 	 * matched key, and later registrations win) so it layers over the
@@ -146,7 +157,11 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	);
 	const configValid =
 		!errorAreas.search && !errorAreas.list && !errorAreas.detail;
-	const { state: preview, reload: reloadPreview } = useCaseListPreview({
+	const {
+		state: preview,
+		fetching: previewFetching,
+		reload: reloadPreview,
+	} = useCaseListPreview({
 		appId,
 		caseListConfig: config,
 		currentCaseType: caseType ?? "",
@@ -260,6 +275,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		removeColumn,
 		replaceInput,
 		removeInput,
+		onSelectListPanel: () => setSel({ type: "list-panel" }),
 	});
 
 	const detailFieldCount = config.columns.filter(
@@ -270,12 +286,22 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		<div className="case-list-workspace @container">
 			<WorkspaceTabs
 				tab={tab}
-				searchMeta={`${config.searchInputs.length} ${config.searchInputs.length === 1 ? "input" : "inputs"}`}
+				searchMeta={`${config.searchInputs.length} ${config.searchInputs.length === 1 ? "field" : "fields"}`}
 				listMeta={`${config.columns.length} ${config.columns.length === 1 ? "column" : "columns"}`}
 				detailMeta={`${detailFieldCount} ${detailFieldCount === 1 ? "field" : "fields"}`}
 				errorAreas={errorAreas}
 				onSelectTab={(next) => {
-					if (next === tab) return;
+					/* Preview is a toggle: clicking it while active returns to
+					 * the tab the user came from. Config tabs stay no-ops when
+					 * already active. */
+					if (next === tab) {
+						if (next !== "preview") return;
+						const back = lastConfigTabRef.current;
+						if (back === "search") navigate.openSearchConfig(moduleUuid);
+						else if (back === "detail") navigate.openDetailConfig(moduleUuid);
+						else navigate.openCaseList(moduleUuid);
+						return;
+					}
 					if (next === "search") navigate.openSearchConfig(moduleUuid);
 					else if (next === "list") navigate.openCaseList(moduleUuid);
 					else if (next === "detail") navigate.openDetailConfig(moduleUuid);
@@ -301,6 +327,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					config={config}
 					moduleName={mod.name}
 					preview={preview}
+					refreshing={previewFetching}
 					selection={sel}
 					onSelect={setSel}
 					onAddColumn={() => addColumn()}
@@ -320,13 +347,14 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				/>
 			)}
 			{tab === "preview" && (
-				<WorkerPreviewCanvas
+				<PreviewCanvas
 					moduleName={mod.name}
 					config={config}
 					searchConfig={searchConfig}
 					caseType={ct}
 					appId={appId}
 					onConfigChange={updateConfig}
+					warmRows={preview.kind === "rows" ? preview.rows : undefined}
 				/>
 			)}
 
@@ -361,6 +389,9 @@ interface ResolveInspectorArgs {
 	readonly removeColumn: (uuid: string) => void;
 	readonly replaceInput: (uuid: string, next: SearchInputDef) => void;
 	readonly removeInput: (uuid: string) => void;
+	/** Select the list panel — the column inspector's "arrange the
+	 *  sort order" affordance lands the user on the sort stack. */
+	readonly onSelectListPanel: () => void;
 }
 
 /**
@@ -400,6 +431,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							sortPriorityPosition={sortPositionByUuid(config.columns).get(
 								column.uuid,
 							)}
+							onEditSortOrder={args.onSelectListPanel}
 						/>
 						<RemoveEntityButton
 							label="Remove column"
@@ -414,8 +446,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			const input = config.searchInputs[index];
 			if (input === undefined) return null;
 			return {
-				kicker: `Search input ${index + 1} of ${config.searchInputs.length}`,
-				title: input.label || input.name || "Untitled input",
+				kicker: `Search field ${index + 1} of ${config.searchInputs.length}`,
+				title: input.label || input.name || "Untitled field",
 				body: (
 					<SearchInputEditor
 						value={input}
@@ -498,7 +530,7 @@ const TAB_DEFS: ReadonlyArray<{
  * Peer config tabs — no numbering, no implied order — plus the
  * Preview affordance on the right edge, visually distinct (violet,
  * play glyph) because it answers a different question: the config
- * tabs are workbenches; Preview is the worker's composed experience.
+ * tabs are workbenches; Preview is the composed running experience.
  */
 function WorkspaceTabs({
 	tab,
@@ -516,68 +548,86 @@ function WorkspaceTabs({
 	const previewActive = tab === "preview";
 	/* The canvas narrows when the inspector docks (and again with both
 	 * sidebars open), so the row compacts by container width: metas
-	 * drop first, then labels go icon-only with the name on `title`. */
+	 * drop first, then labels go icon-only with the tooltip carrying
+	 * the name. */
 	return (
 		<div className="sticky top-0 z-raised flex items-center gap-1.5 @2xl:gap-2 px-4 @2xl:px-7 py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
 			{TAB_DEFS.map(({ id, icon, label }) => {
 				const active = tab === id;
 				const hasErrors = errorAreas[id];
 				return (
-					<button
-						type="button"
+					<Tooltip
 						key={id}
-						onClick={() => onSelectTab(id)}
-						title={hasErrors ? `${label} — needs attention` : label}
-						className={`relative flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
-							active
-								? "bg-nova-violet/[0.13] border-nova-border-bright"
-								: "border-transparent hover:bg-white/[0.03]"
-						}`}
+						content={
+							hasErrors
+								? `${label} needs attention — open it to see what's wrong`
+								: label
+						}
+						placement="bottom"
 					>
-						{hasErrors && (
-							<span
-								className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
-								aria-hidden="true"
-							/>
-						)}
-						<Icon
-							icon={icon}
-							width="17"
-							height="17"
-							className={`shrink-0 ${
-								active ? "text-nova-violet-bright" : "text-nova-text-muted"
+						<button
+							type="button"
+							onClick={() => onSelectTab(id)}
+							className={`relative flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
+								active
+									? "bg-nova-violet/[0.13] border-nova-border-bright"
+									: "border-transparent hover:bg-white/[0.03]"
 							}`}
-						/>
-						<span className="hidden @xl:block">
-							<span
-								className={`block text-[13px] leading-tight ${
-									active
-										? "font-semibold text-nova-text"
-										: "font-medium text-nova-text-secondary"
+						>
+							{hasErrors && (
+								<span
+									className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
+									aria-hidden="true"
+								/>
+							)}
+							<Icon
+								icon={icon}
+								width="17"
+								height="17"
+								className={`shrink-0 ${
+									active ? "text-nova-violet-bright" : "text-nova-text-muted"
 								}`}
-							>
-								{label}
+							/>
+							<span className="hidden @xl:block">
+								<span
+									className={`block text-[13px] leading-tight ${
+										active
+											? "font-semibold text-nova-text"
+											: "font-medium text-nova-text-secondary"
+									}`}
+								>
+									{label}
+								</span>
+								<span className="hidden @3xl:block text-[10px] text-nova-text-muted leading-tight">
+									{metas[id]}
+								</span>
 							</span>
-							<span className="hidden @3xl:block text-[10px] text-nova-text-muted leading-tight">
-								{metas[id]}
-							</span>
-						</span>
-					</button>
+						</button>
+					</Tooltip>
 				);
 			})}
-			<button
-				type="button"
-				onClick={() => onSelectTab("preview")}
-				title="Use these screens exactly as a worker would"
-				className={`ml-auto inline-flex items-center gap-2 px-3 @xl:px-4 min-h-10 rounded-md text-[13px] font-semibold whitespace-nowrap cursor-pointer border transition-all ${
+			<Tooltip
+				content={
 					previewActive
-						? "bg-nova-violet border-nova-violet text-white shadow-[0_0_16px_rgba(139,92,246,0.4)]"
-						: "bg-nova-violet/[0.12] border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.2]"
-				}`}
+						? "Back to editing"
+						: "Try these screens exactly as your app runs them"
+				}
+				placement="bottom"
 			>
-				<Icon icon={tablerPlayerPlay} width="14" height="14" />
-				<span className="hidden @xl:inline">Preview</span>
-			</button>
+				<button
+					type="button"
+					onClick={() => onSelectTab("preview")}
+					aria-pressed={previewActive}
+					className={`ml-auto inline-flex items-center gap-2 px-3 @xl:px-4 min-h-11 rounded-lg text-[13px] font-semibold whitespace-nowrap cursor-pointer border transition-all ${
+						previewActive
+							? "bg-nova-violet border-nova-violet text-white shadow-[0_0_16px_rgba(139,92,246,0.4)]"
+							: "bg-nova-violet/[0.12] border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.2]"
+					}`}
+				>
+					<Icon icon={tablerPlayerPlay} width="14" height="14" />
+					<span className="hidden @xl:inline">Preview</span>
+				</button>
+			</Tooltip>
 		</div>
 	);
 }
@@ -596,9 +646,9 @@ function RemoveEntityButton({
 			<button
 				type="button"
 				onClick={onClick}
-				className="w-full inline-flex items-center justify-center gap-1.5 px-2.5 py-2 text-xs rounded-md border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
+				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
 			>
-				<Icon icon={tablerTrash} width="13" height="13" />
+				<Icon icon={tablerTrash} width="14" height="14" />
 				<span>{label}</span>
 			</button>
 		</div>

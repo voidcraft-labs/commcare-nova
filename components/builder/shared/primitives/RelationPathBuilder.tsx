@@ -96,8 +96,8 @@ function classify(path: RelationPath): PathClassification {
 				kind: "badge",
 				label:
 					path.via.length > 1
-						? "Multi-hop ancestor walk"
-						: "Qualified ancestor walk",
+						? "Several steps up the case family"
+						: "Up to a specific case type",
 			};
 		case "subcase":
 			// `subcase` with an `ofCaseType` qualifier is non-canonical
@@ -107,12 +107,12 @@ function classify(path: RelationPath): PathClassification {
 			if (path.ofCaseType === undefined) {
 				return { kind: "canonical", canonical: "subcase" };
 			}
-			return { kind: "badge", label: "Qualified subcase walk" };
+			return { kind: "badge", label: "Down to a specific case type" };
 		case "any-relation":
 			// `any-relation` is structurally distinct from `subcase` at
 			// the wire-emission boundary — collapsing it onto the
 			// composer's `subcase` mode would flip the discriminator.
-			return { kind: "badge", label: "Direction-agnostic walk" };
+			return { kind: "badge", label: "Any connected case" };
 	}
 }
 
@@ -213,8 +213,8 @@ function NonCanonicalBadge({
 	readonly onReplace: () => void;
 }) {
 	return (
-		<div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.10] bg-nova-deep/30">
-			<span className="text-nova-text-muted shrink-0">Relation:</span>
+		<div className="flex items-center gap-2 px-3 min-h-11 text-xs rounded-lg border border-dashed border-white/[0.10] bg-nova-deep/30">
+			<span className="text-nova-text-muted shrink-0">Connection:</span>
 			<span className="font-mono text-nova-violet-bright/80 truncate">
 				{label}
 			</span>
@@ -222,7 +222,7 @@ function NonCanonicalBadge({
 			<button
 				type="button"
 				onClick={onReplace}
-				className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+				className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
 			>
 				Replace
 			</button>
@@ -247,21 +247,21 @@ function KindMenu({
 	}[] = [
 		{
 			kind: "self",
-			label: "Self",
+			label: "This case",
 			icon: tablerHierarchy,
-			description: "No traversal — same case",
+			description: "Stay on the case itself",
 		},
 		{
 			kind: "ancestor",
-			label: "Ancestor",
+			label: "Parent case",
 			icon: tablerHierarchy,
-			description: "Walk up via the parent index",
+			description: "Look at the case this one belongs to",
 		},
 		{
 			kind: "subcase",
-			label: "Subcase",
+			label: "Child cases",
 			icon: tablerLink,
-			description: "Walk down via the reverse index",
+			description: "Look at the cases that belong to this one",
 		},
 	];
 	const current = items.find((i) => i.kind === kind) ?? items[0];
@@ -271,8 +271,8 @@ function KindMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				id={triggerId}
-				aria-label={`Relation kind: ${current.label}`}
-				className="group flex items-center gap-1.5 px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text hover:border-nova-violet/30 transition-colors cursor-pointer"
+				aria-label={`Connection: ${current.label}`}
+				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text hover:border-nova-violet/30 transition-colors cursor-pointer"
 			>
 				<Icon
 					icon={current.icon}
@@ -368,7 +368,7 @@ function IdentifierInput({
 	readonly invalid: boolean;
 }) {
 	const cls = [
-		"w-32 px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
+		"w-32 min-h-11 px-3 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
 			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
@@ -379,7 +379,7 @@ function IdentifierInput({
 			value={value}
 			onChange={(e) => onChange(e.target.value)}
 			placeholder="parent"
-			aria-label="Relation index name"
+			aria-label="Connection name"
 			aria-invalid={invalid || undefined}
 			autoComplete="off"
 			data-1p-ignore

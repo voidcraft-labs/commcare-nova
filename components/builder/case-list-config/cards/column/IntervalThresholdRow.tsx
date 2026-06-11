@@ -63,13 +63,13 @@ export function IntervalThresholdRow({
 	return (
 		<div className="grid grid-cols-[1fr_auto] gap-2 items-start">
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 					{thresholdLabel}
 				</div>
 				<ThresholdInput value={threshold} onChange={onThresholdChange} />
 			</div>
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 					Unit
 				</div>
 				<UnitMenu unit={unit} onUnitChange={onUnitChange} />

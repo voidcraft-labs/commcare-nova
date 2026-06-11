@@ -85,9 +85,9 @@ export function InspectorSurface({
 						type="button"
 						onClick={onClose}
 						aria-label="Close inspector"
-						className="shrink-0 size-8 grid place-items-center rounded-md border border-nova-border text-nova-text-muted hover:text-nova-text hover:border-nova-border-bright transition-colors cursor-pointer"
+						className="shrink-0 size-11 grid place-items-center rounded-lg border border-nova-border text-nova-text-muted hover:text-nova-text hover:border-nova-border-bright transition-colors cursor-pointer"
 					>
-						<Icon icon={tablerX} width="15" height="15" />
+						<Icon icon={tablerX} width="16" height="16" />
 					</button>
 				</Tooltip>
 			</div>

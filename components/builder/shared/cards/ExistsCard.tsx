@@ -98,7 +98,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 				<KindMenu kind={value.kind} setKind={setKind} />
 				<div>
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
-						Relation walk
+						Connection
 					</div>
 					<RelationPathBuilder
 						value={value.via}
@@ -135,7 +135,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 				)}
 				{value.where !== undefined && destinationCaseType === undefined && (
 					<div className="text-[11px] text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-						Pick a valid relation walk to author a where clause.
+						Pick a valid connection before narrowing it with a condition.
 					</div>
 				)}
 			</div>

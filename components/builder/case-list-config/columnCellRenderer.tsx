@@ -25,6 +25,7 @@
 
 "use client";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { Column } from "@/lib/domain";
 import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
@@ -85,13 +86,14 @@ export function renderColumnCell(
 			const match = column.mapping.find((entry) => entry.value === raw);
 			if (match !== undefined) {
 				return (
-					// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
-					<img
-						src={mediaSrc(match.assetId)}
-						alt={raw}
-						title={raw}
-						className="size-5 rounded object-cover inline-block"
-					/>
+					<Tooltip content={raw}>
+						{/* biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth */}
+						<img
+							src={mediaSrc(match.assetId)}
+							alt={raw}
+							className="size-5 rounded object-cover inline-block"
+						/>
+					</Tooltip>
 				);
 			}
 			return <span>{raw || "—"}</span>;

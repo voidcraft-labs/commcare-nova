@@ -96,7 +96,7 @@ function locationToScreen(
 	}
 
 	if (loc.kind === "case-preview") {
-		/* The preview tab IS the case list as workers see it — sharing the
+		/* The preview tab IS the case list as the running app shows it — sharing the
 		 * caseList screen identity keeps the legacy pipeline (scroll keys,
 		 * interact-mode dispatch) on one shape. */
 		return { type: "caseList", moduleIndex, formIndex: 0 };
@@ -208,7 +208,7 @@ export function PreviewShell({
 		case "searchConfig":
 		case "detailConfig":
 			/* In interact mode all three case-list URLs render the same
-			 * running-app `CaseListScreen` (the worker's composed search +
+			 * running-app `CaseListScreen` (the composed search +
 			 * list experience), so the sibling kinds synthesize the
 			 * integer-indexed caseList identity. */
 			caseListScreenRef.current = {
@@ -301,7 +301,7 @@ export function PreviewShell({
 				 *     ref directly.
 				 *
 				 *   - Otherwise: the CaseListScreen running-app preview —
-				 *     the worker's composed search + list experience over
+				 *     the composed search + list experience over
 				 *     real case data. All three URLs share it: search and
 				 *     detail are facets of the same case list, so interact
 				 *     mode always shows the assembled artifact.

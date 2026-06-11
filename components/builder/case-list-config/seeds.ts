@@ -9,7 +9,7 @@
 // first name.
 //
 // Property choice prefers `case_name` (the property every case
-// type has and the one workers search by), then any unused text
+// type has and the one searches use), then any unused text
 // property, then any unused property at all. The widget follows the
 // property's data type; text-shaped properties seed with FORGIVING
 // (fuzzy) match — typo-and-case-tolerant on both the wire (CCHQ's
@@ -35,7 +35,7 @@ import { newUuid } from "./uuid";
 
 // ── Naming helpers ────────────────────────────────────────────────
 
-/** Property name → worker-facing label: `rash_onset_date` reads
+/** Property name → person-facing label: `rash_onset_date` reads
  *  "Rash onset date". */
 export function labelFromProperty(property: string): string {
 	const words = humanizeName(property);
@@ -126,7 +126,7 @@ export function seedSearchInput(
 	if (property === undefined) return undefined;
 
 	const type = widgetTypeForProperty(property);
-	// Text searches the forgiving way by default; date / select widgets
+	// Text searches fuzzily by default; date / select widgets
 	// keep the per-type default (exact pick-a-value). Fuzzy is gated on
 	// the property's data type too — a number property also renders as
 	// a text widget, but fuzzy is text-only and would seed an invalid row.

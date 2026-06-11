@@ -1,37 +1,39 @@
 // components/builder/case-list-config/inspector/SearchInputEditor.tsx
 //
-// Properties editor for one `SearchInputDef` — the inspector body
-// behind a selected search input on the search canvas. The schema's
-// discriminated union splits authoring into two arms:
+// Inspector body for one search field. ONE view serves every author:
+// Label → what it searches → how the field looks → how it matches →
+// what it starts with → its reference name. There is no separate
+// "advanced mode" — writing custom matching logic is just the last
+// choice in the Match picker, and picking any standard match brings
+// the standard controls back.
 //
-//   - `kind: "simple"` — `(property, mode, via)` triple. The wire
-//     layer derives the predicate from the targeted property + the
-//     mode + the optional relation walk.
-//   - `kind: "advanced"` — author-defined `predicate` AST. The wire
-//     layer emits the predicate verbatim; this arm mounts a
-//     `PredicateCardEditor`.
+// Under the hood the schema still splits into two arms (`simple`
+// carries `(property, mode, via)`; `advanced` carries a predicate
+// AST), but that split is storage shape, not UI shape. The Match
+// picker is the only place the two arms meet:
 //
-// A "Convert to advanced" / "Convert to simple" affordance flips the
-// discriminator. Converting to advanced seeds the predicate from the
-// row's current property (or `match-all()` when none); converting
-// back drops the predicate and re-exposes the property + mode
-// pickers. Common slots — `uuid`, `name`, `label`, `type`,
-// `default?` — live on both arms.
+//   - picking "Custom condition" converts to the advanced arm,
+//     seeding `property = typed value` so the author edits the
+//     behavior they already had;
+//   - picking a standard match converts back, recovering the
+//     property the condition was anchored on when it still has the
+//     round-trip shape.
 //
-// Inline diagnostics (empty / duplicate names, empty labels, simple-
-// arm type-coupling mismatches) come from the shared
-// `searchInputResolution` derivation — the same source the search
-// canvas's error badges and the workspace's preview gate read, so
-// the three surfaces can't disagree.
+// Inline diagnostics (empty / duplicate names, empty labels, unbound
+// or dangling properties, type-coupling mismatches) come from the
+// shared `searchInputResolution` derivation — the same source the
+// search canvas's error badges and the workspace's preview gate
+// read, so the three surfaces can't disagree.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
-import tablerArrowsExchange from "@iconify-icons/tabler/arrows-exchange";
 import tablerCheck from "@iconify-icons/tabler/check";
+import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import tablerWand from "@iconify-icons/tabler/wand";
 import { useMemo, useRef } from "react";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import {
@@ -41,18 +43,15 @@ import {
 import { PredicateCardEditor } from "@/components/builder/shared/PredicateCardEditor";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
-import { PropertyRefPicker } from "@/components/builder/shared/primitives/PropertyRefPicker";
-import { RelationPathBuilder } from "@/components/builder/shared/primitives/RelationPathBuilder";
 import {
 	advancedSearchInputDef,
 	applicableSearchModes,
+	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
-	fuzzyMode,
 	type MultiSelectQuantifier,
-	multiSelectContainsMode,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_INPUT_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
@@ -63,13 +62,15 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
+	ancestorPath,
+	input,
 	literal,
 	matchAll,
 	type Predicate,
 	prop,
 	type RelationPath,
+	relationStep,
 	type SearchInputDecl,
-	selfPath,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
@@ -82,6 +83,7 @@ import {
 import {
 	buildMode,
 	computeKnownInputsForRow,
+	effectiveModeKind,
 	expectedTypeForDefault,
 	type PropertyState,
 	type ResolvedRow,
@@ -101,6 +103,11 @@ import {
 	widgetTypeForProperty,
 	xmlNameFromProperty,
 } from "../seeds";
+import {
+	CONSOLE_MENU_ITEM_MIN,
+	CONSOLE_TRIGGER_CLS,
+	SegmentedRow,
+} from "./inspectorChrome";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -120,10 +127,25 @@ export interface SearchInputEditorProps {
 	readonly onRemove: () => void;
 }
 
+/** Where a simple row's property lives — this case, the parent case,
+ *  or a non-canonical relation walk authored elsewhere (chat, MCP). */
+type BindingScope = "self" | "parent" | "custom";
+
+function classifyVia(via: RelationPath | undefined): BindingScope {
+	if (via === undefined || via.kind === "self") return "self";
+	if (
+		via.kind === "ancestor" &&
+		via.via.length === 1 &&
+		via.via[0].throughCaseType === undefined
+	) {
+		return "parent";
+	}
+	return "custom";
+}
+
 /**
- * Stacked properties editor for one search input. Field order walks
- * from what workers see (label) to wire identity (name) to widget
- * shape (type / property / mode) to behavior (default value).
+ * Inspector body for one search field. Every control labeled, every
+ * target full-size, one view for all authors.
  */
 export function SearchInputEditor({
 	value,
@@ -177,28 +199,38 @@ export function SearchInputEditor({
 	const setDefault = (next: ValueExpression | undefined) =>
 		onChange(rebuildRow(value, { default: next }));
 
-	// ── Simple-arm mutators (no-op when row is advanced) ──
+	// ── Simple-arm mutators ──
 
-	const setProperty = (property: string) => {
+	/**
+	 * Bind the row to `(property, scope)` in one write. The rest of
+	 * the row follows the property: a widget the property can't run
+	 * (a calendar over a text property, say) self-corrects to one it
+	 * can, an inadmissible match drops back to the type's default,
+	 * and the label / name update only while they still read as
+	 * derived from the previous property — hand-typed values are the
+	 * author's and are never overwritten.
+	 */
+	const setBinding = (property: string, scope: "self" | "parent") => {
 		if (value.kind !== "simple") return;
-		// The rest of the row follows the property. The widget: picking
-		// a date property on a text input would otherwise strand the row
-		// in a type-coupling error the author must untangle by hand —
-		// and at runtime a mismatched widget silently matches nothing.
-		// The label and name: only while they still read as derived from
-		// the previous property — a hand-typed label is the author's and
-		// is never overwritten.
+		const via: RelationPath | undefined =
+			scope === "self"
+				? undefined
+				: classifyVia(value.via) === "parent"
+					? value.via
+					: ancestorPath(relationStep("parent"));
+
 		const patch: {
 			property: string;
+			via: RelationPath | undefined;
 			type?: SearchInputType;
 			mode?: SearchInputMode | undefined;
 			label?: string;
 			name?: string;
-		} = { property };
+		} = { property, via };
 
 		const destination = resolveDestinationCaseType(
 			caseTypes,
-			value.via,
+			via,
 			currentCaseType,
 		);
 		const propertyDef = caseTypes
@@ -222,7 +254,7 @@ export function SearchInputEditor({
 				const fuzzyAdmitted =
 					SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(dataType) ?? true;
 				patch.mode =
-					nextType === "text" && fuzzyAdmitted ? fuzzyMode() : undefined;
+					nextType === "text" && fuzzyAdmitted ? buildMode("fuzzy") : undefined;
 			}
 		}
 
@@ -248,16 +280,29 @@ export function SearchInputEditor({
 
 		onChange(rebuildRow(value, patch));
 	};
-	const setVia = (via: RelationPath) => {
+
+	/** Store the picked match. The type's own default stores as an
+	 *  absent slot so the saved doc stays minimal; everything else
+	 *  stores explicitly. */
+	const setModeKind = (kind: SearchInputMode["kind"]) => {
 		if (value.kind !== "simple") return;
-		onChange(rebuildRow(value, { via }));
-	};
-	const setMode = (mode: SearchInputMode | undefined) => {
-		if (value.kind !== "simple") return;
+		const isParameterless = kind !== "multi-select-contains";
+		const mode =
+			isParameterless && kind === DEFAULT_SEARCH_MODE_KIND[value.type]
+				? undefined
+				: buildMode(kind);
 		onChange(rebuildRow(value, { mode }));
 	};
+	const setQuantifier = (quantifier: MultiSelectQuantifier) => {
+		if (value.kind !== "simple") return;
+		onChange(
+			rebuildRow(value, {
+				mode: buildMode("multi-select-contains", quantifier),
+			}),
+		);
+	};
 
-	// ── Advanced-arm mutator (no-op when row is simple) ──
+	// ── Advanced-arm mutator ──
 
 	const setPredicate = (next: Predicate) => {
 		if (value.kind !== "advanced") return;
@@ -273,21 +318,19 @@ export function SearchInputEditor({
 		);
 	};
 
-	// ── Arm conversion ──
+	// ── Match-picker arm conversion ──
 	//
-	// "Convert to advanced" replaces the row with an advanced arm,
-	// seeding the predicate from the simple arm's current property
-	// (when set) or `match-all()` otherwise. The `via` slot drops here
-	// — the predicate AST encodes relation walks inside its own
-	// structure when needed.
+	// "Custom condition" replaces the row with the advanced arm,
+	// seeding `property = typed value` (the behavior the row already
+	// had) so the author edits forward rather than starting blank.
+	// The `via` slot drops — the condition AST encodes relation walks
+	// inside its own structure when needed.
 	//
-	// "Convert to simple" replaces the row with a simple arm, dropping
-	// the predicate. The new arm's property is empty (the user picks
-	// one); mode and via reset to default. The predicate's structure
-	// isn't reverse-engineered into a (property, mode, via) triple —
-	// the conversion is a fresh start on the simple arm.
+	// Picking a standard match from the custom state converts back,
+	// recovering the property when the condition is still anchored on
+	// a self property (the round-trip shape the seed produces).
 
-	const convertToAdvanced = () => {
+	const toCustomCondition = () => {
 		if (value.kind !== "simple") return;
 		onChange(
 			advancedSearchInputDef(
@@ -295,18 +338,18 @@ export function SearchInputEditor({
 				value.name,
 				value.label,
 				value.type,
-				seedAdvancedPredicate(value, currentCaseType),
+				seedCustomCondition(value, currentCaseType),
 				{ default: value.default },
 			),
 		);
 	};
-	const convertToSimple = () => {
+
+	const toStandardMode = (kind: SearchInputMode["kind"]) => {
 		if (value.kind !== "advanced") return;
 		// Land a WORKING row, same bar as the add seed — an unbound
-		// simple row matches nothing at runtime. Recover the property
-		// when the predicate is still anchored on a self property (the
-		// round-trip shape `convertToAdvanced` seeds); otherwise re-seed
-		// the way a fresh input would.
+		// row matches nothing at runtime. Recover the condition's
+		// anchor property when it has the round-trip shape; otherwise
+		// seed the way a fresh field would.
 		const ct = caseTypes.find((c) => c.name === currentCaseType);
 		const used = new Set(
 			siblings.flatMap((s) =>
@@ -324,32 +367,36 @@ export function SearchInputEditor({
 			propertyDef !== undefined
 				? widgetTypeForProperty(propertyDef)
 				: value.type;
-		const fuzzyAdmitted =
-			propertyDef !== undefined &&
-			(SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(
-				effectiveDataType(propertyDef),
-			) ??
-				true);
+		const dataType =
+			propertyDef !== undefined ? effectiveDataType(propertyDef) : undefined;
+		const kindAdmitted =
+			applicableSearchModes(type).includes(kind) &&
+			(dataType === undefined ||
+				(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(dataType) ?? true));
+		const isParameterless = kind !== "multi-select-contains";
+		const mode = !kindAdmitted
+			? undefined
+			: isParameterless && kind === DEFAULT_SEARCH_MODE_KIND[type]
+				? undefined
+				: buildMode(kind);
 		onChange(
 			simpleSearchInputDef(
 				value.uuid,
 				value.name,
 				value.label,
 				type,
-				propertyDef?.name ?? "",
-				{
-					default: value.default,
-					...(type === "text" && fuzzyAdmitted ? { mode: fuzzyMode() } : {}),
-				},
+				propertyDef?.name ?? recovered ?? "",
+				{ default: value.default, ...(mode !== undefined ? { mode } : {}) },
 			),
 		);
 	};
 
 	const emptyValidityIndex = useMemo(() => buildValidityIndex([]), []);
 
-	/* The bound property's effective data type — the mode picker uses
-	 * it to disable modes the validator would reject (fuzzy on a
-	 * geopoint, say) instead of letting the author pick into an error. */
+	/* The bound property's effective data type — the Field type and
+	 * Match pickers use it to disable choices the validator would
+	 * reject (fuzzy on a number, say) instead of letting the author
+	 * pick into an error. */
 	const propertyDataType = useMemo<CasePropertyDataType | undefined>(() => {
 		if (value.kind !== "simple") return undefined;
 		const destination = resolveDestinationCaseType(
@@ -363,6 +410,11 @@ export function SearchInputEditor({
 		return def === undefined ? undefined : effectiveDataType(def);
 	}, [value, caseTypes, currentCaseType]);
 
+	const duplicateOf =
+		resolved.nameState.kind === "duplicate"
+			? siblings[resolved.nameState.firstIndex]
+			: undefined;
+
 	return (
 		<PredicateEditProvider
 			caseTypes={caseTypes}
@@ -370,71 +422,88 @@ export function SearchInputEditor({
 			knownInputs={knownInputs}
 			validityIndex={emptyValidityIndex}
 		>
-			<div className="space-y-4">
-				<InspectorField label="Label" hint="Shown to workers above the field.">
+			<div className="space-y-5">
+				<FieldRow label="Label" hint="Shown above the field.">
 					<BlurCommitTextInput
 						value={value.label}
 						onCommit={setLabel}
-						placeholder="Display label"
-						ariaLabel={`Search input ${index + 1} label`}
+						placeholder="Client name"
+						ariaLabel={`Search field ${index + 1} label`}
 					/>
 					{resolved.labelEmpty && (
-						<InlineError errors={["Label is required."]} />
+						<InlineError errors={["Give the field a label."]} />
 					)}
-				</InspectorField>
+				</FieldRow>
 
-				<InspectorField
-					label="Name"
-					hint="Wire identifier — other inputs and predicates reference it."
-				>
-					<BlurCommitTextInput
-						value={value.name}
-						onCommit={setName}
-						placeholder="input_name"
-						ariaLabel={`Search input ${index + 1} name`}
-						monospace
-					/>
-					{resolved.nameState.kind === "empty" && (
-						<InlineError errors={["Name is required."]} />
-					)}
-					{resolved.nameState.kind === "duplicate" && (
-						<InlineError
-							errors={[
-								`Already used by search input ${resolved.nameState.firstIndex + 1}.`,
-							]}
+				{value.kind === "simple" && (
+					<FieldRow label="Searches">
+						<BindingPicker
+							row={value}
+							caseTypes={caseTypes}
+							currentCaseType={currentCaseType}
+							onPick={setBinding}
+							rowIndex={index}
 						/>
-					)}
-				</InspectorField>
+						<InlineError
+							errors={propertyErrors(resolved.propertyState, value.property)}
+						/>
+					</FieldRow>
+				)}
 
-				<InspectorField label="Type">
+				<FieldRow label="Field type">
 					<TypePicker
 						value={value.type}
 						onChange={setType}
 						propertyDataType={propertyDataType}
 						rowIndex={index}
 					/>
-				</InspectorField>
+				</FieldRow>
 
-				{value.kind === "simple" ? (
-					<SimpleArmBody
-						row={value}
-						rowIndex={index}
-						currentCaseType={currentCaseType}
-						typeCouplingInvalid={resolved.typeCouplingErrors.length > 0}
-						propertyState={resolved.propertyState}
+				<FieldRow
+					label="Match"
+					hint={
+						value.kind === "advanced"
+							? "The condition below decides which cases match."
+							: SEARCH_MODE_DESCRIPTIONS[effectiveModeKind(value)]
+					}
+				>
+					<MatchPicker
+						value={value}
 						propertyDataType={propertyDataType}
-						onSetProperty={setProperty}
-						onSetVia={setVia}
-						onSetMode={setMode}
+						invalid={resolved.typeCouplingErrors.length > 0}
+						rowIndex={index}
+						onPickMode={value.kind === "simple" ? setModeKind : toStandardMode}
+						onPickCustom={toCustomCondition}
 					/>
-				) : (
-					<AdvancedArmBody
-						value={value.predicate}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						knownInputs={knownInputs}
-						onChange={setPredicate}
-					/>
+					{value.kind === "simple" &&
+						value.mode?.kind === "multi-select-contains" && (
+							<SegmentedRow
+								legend="How many of the chosen options a case needs"
+								options={[
+									{ value: "any", label: "Any of them" },
+									{ value: "all", label: "All of them" },
+								]}
+								value={value.mode.quantifier}
+								onChange={setQuantifier}
+							/>
+						)}
+				</FieldRow>
+
+				{value.kind === "advanced" && (
+					<FieldRow
+						label="Condition"
+						hint="The typed value is available to the condition as this field."
+					>
+						<div className="rounded-lg border border-white/[0.04] bg-nova-deep/30 p-2.5">
+							<PredicateCardEditor
+								value={value.predicate}
+								onChange={setPredicate}
+								caseTypes={caseTypes}
+								currentCaseType={currentCaseType}
+								knownInputs={knownInputs}
+							/>
+						</div>
+					</FieldRow>
 				)}
 
 				<InlineError errors={resolved.typeCouplingErrors} />
@@ -449,21 +518,37 @@ export function SearchInputEditor({
 					onChange={setDefault}
 				/>
 
-				<div className="flex items-center gap-2 pt-2 border-t border-nova-border">
-					<ConvertArmButton
-						kind={value.kind}
-						onConvert={
-							value.kind === "simple" ? convertToAdvanced : convertToSimple
-						}
-						rowIndex={index}
+				<FieldRow
+					label="Reference name"
+					hint="How conditions and other fields refer to this one."
+				>
+					<BlurCommitTextInput
+						value={value.name}
+						onCommit={setName}
+						placeholder="client_name"
+						ariaLabel={`Search field ${index + 1} reference name`}
+						monospace
 					/>
+					{resolved.nameState.kind === "empty" && (
+						<InlineError errors={["Give the field a reference name."]} />
+					)}
+					{duplicateOf !== undefined && (
+						<InlineError
+							errors={[
+								`Already used by “${duplicateOf.label || duplicateOf.name}” — names must be unique.`,
+							]}
+						/>
+					)}
+				</FieldRow>
+
+				<div className="pt-3 border-t border-nova-border">
 					<button
 						type="button"
 						onClick={onRemove}
-						className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-md border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
+						className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
 					>
-						<Icon icon={tablerTrash} width="12" height="12" />
-						<span>Remove input</span>
+						<Icon icon={tablerTrash} width="14" height="14" />
+						<span>Remove search field</span>
 					</button>
 				</div>
 			</div>
@@ -471,9 +556,10 @@ export function SearchInputEditor({
 	);
 }
 
-// ── Inspector field chrome ────────────────────────────────────────
+// ── Field chrome ──────────────────────────────────────────────────
 
-function InspectorField({
+/** Etched console label + control + quiet hint. */
+function FieldRow({
 	label,
 	hint,
 	children,
@@ -483,64 +569,18 @@ function InspectorField({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<div className="space-y-1.5">
-			<div className="text-[10px] uppercase tracking-widest text-nova-text-muted/70">
+		<div className="space-y-2">
+			<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
 				{label}
 			</div>
 			{children}
 			{hint !== undefined && (
-				<p className="text-[10px] text-nova-text-muted/60">{hint}</p>
+				<p className="text-[11px] leading-relaxed text-nova-text-muted">
+					{hint}
+				</p>
 			)}
 		</div>
 	);
-}
-
-// ── Convert-arm button ────────────────────────────────────────────
-
-interface ConvertArmButtonProps {
-	readonly kind: SearchInputDef["kind"];
-	readonly onConvert: () => void;
-	readonly rowIndex: number;
-}
-
-/**
- * Single button that flips the row's discriminator. Label and aria
- * text adjust to the destination arm so the affordance reads as
- * "what you're switching to" rather than "what you're switching
- * from".
- */
-function ConvertArmButton({
-	kind,
-	onConvert,
-	rowIndex,
-}: ConvertArmButtonProps) {
-	const targetLabel = kind === "simple" ? "advanced" : "simple";
-	return (
-		<button
-			type="button"
-			onClick={onConvert}
-			aria-label={`Convert search input ${rowIndex + 1} to ${targetLabel}`}
-			title={`Convert to ${targetLabel}`}
-			className="inline-flex items-center gap-1 px-2 py-1.5 text-[11px] rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-		>
-			<Icon icon={tablerArrowsExchange} width="11" height="11" />
-			<span>To {targetLabel}</span>
-		</button>
-	);
-}
-
-// ── Simple arm body ───────────────────────────────────────────────
-
-interface SimpleArmBodyProps {
-	readonly row: SimpleSearchInputDef;
-	readonly rowIndex: number;
-	readonly currentCaseType: string;
-	readonly typeCouplingInvalid: boolean;
-	readonly propertyState: PropertyState;
-	readonly propertyDataType: CasePropertyDataType | undefined;
-	readonly onSetProperty: (property: string) => void;
-	readonly onSetVia: (via: RelationPath) => void;
-	readonly onSetMode: (mode: SearchInputMode | undefined) => void;
 }
 
 /** The person-to-person line under an unbound / dangling property —
@@ -553,7 +593,7 @@ function propertyErrors(
 		case "ok":
 			return [];
 		case "empty":
-			return ["Pick a property — an unbound input matches nothing."];
+			return ["Pick a property — until then, this field matches nothing."];
 		case "dangling":
 			return [
 				`"${property}" is not a property of the ${state.destination} case type — pick one from the list.`,
@@ -561,115 +601,212 @@ function propertyErrors(
 	}
 }
 
-/**
- * Body for `kind: "simple"` rows. Property picker (with relation
- * walk builder) + mode picker. The simple arm's `property` slot is
- * required by the schema — there's no escape hatch on this arm
- * (a property-less input belongs on the advanced arm).
- */
-function SimpleArmBody({
-	row,
-	rowIndex,
-	currentCaseType,
-	typeCouplingInvalid,
-	propertyState,
-	propertyDataType,
-	onSetProperty,
-	onSetVia,
-	onSetMode,
-}: SimpleArmBodyProps) {
-	const viaForBuilder = row.via ?? selfPath();
-	return (
-		<>
-			<InspectorField label="Property">
-				<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
-					<PropertyRefPicker
-						mode="property-only"
-						value={prop(currentCaseType, row.property)}
-						onChange={(nextRef) => onSetProperty(nextRef.property)}
-						ariaLabel={`Search input ${rowIndex + 1} property`}
-					/>
-					<div className="flex items-center gap-2">
-						<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60 shrink-0">
-							Walk
-						</span>
-						<div className="flex-1 min-w-0">
-							<RelationPathBuilder value={viaForBuilder} onChange={onSetVia} />
-						</div>
-					</div>
-				</div>
-				<InlineError errors={propertyErrors(propertyState, row.property)} />
-			</InspectorField>
+// ── Binding picker — property + where it lives, one control ───────
 
-			<InspectorField
-				label="Match"
-				hint={
-					SEARCH_MODE_DESCRIPTIONS[
-						row.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[row.type]
-					]
-				}
-			>
-				<ModePicker
-					value={row.mode}
-					type={row.type}
-					propertyDataType={propertyDataType}
-					onChange={onSetMode}
-					invalid={typeCouplingInvalid}
-					rowIndex={rowIndex}
-				/>
-			</InspectorField>
-		</>
-	);
-}
-
-// ── Advanced arm body ─────────────────────────────────────────────
-
-interface AdvancedArmBodyProps {
-	readonly value: Predicate;
+interface BindingPickerProps {
+	readonly row: SimpleSearchInputDef;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
-	readonly knownInputs: readonly SearchInputDecl[];
-	readonly onChange: (next: Predicate) => void;
+	readonly onPick: (property: string, scope: "self" | "parent") => void;
+	readonly rowIndex: number;
 }
 
 /**
- * Body for `kind: "advanced"` rows. Renders the
- * `PredicateCardEditor` for the row's `predicate` slot. The
- * predicate AST encodes property references, relation walks, and
- * input bindings inline — the simple arm's pickers are inapplicable
- * here.
+ * One picker answers "what does this field search?" — the case's own
+ * properties, and the parent case's when the case type has a parent.
+ * Picking a parent property carries the relation walk implicitly; no
+ * separate control, no walk vocabulary.
+ *
+ * A row whose walk was authored elsewhere with a shape this picker
+ * can't express (a child-case walk, a multi-step walk) keeps working
+ * — the picker says so in plain words and offers the way back.
  */
-function AdvancedArmBody({
-	value,
+function BindingPicker({
+	row,
 	caseTypes,
 	currentCaseType,
-	knownInputs,
-	onChange,
-}: AdvancedArmBodyProps) {
-	return (
-		<InspectorField label="Predicate">
-			<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2">
-				<PredicateCardEditor
-					value={value}
-					onChange={onChange}
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					knownInputs={knownInputs}
-				/>
+	onPick,
+	rowIndex,
+}: BindingPickerProps) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const scope = classifyVia(row.via);
+	const ct = caseTypes.find((c) => c.name === currentCaseType);
+	const parentCt =
+		ct?.parent_type !== undefined
+			? caseTypes.find((c) => c.name === ct.parent_type)
+			: undefined;
+
+	if (scope === "custom") {
+		return (
+			<div className="flex items-center gap-3 w-full min-h-11 px-3 py-2 rounded-lg border border-white/[0.06] bg-nova-deep/30">
+				<span className="flex-1 min-w-0">
+					<span className="block text-[13px] text-nova-text font-mono truncate">
+						{row.property || "—"}
+					</span>
+					<span className="block text-[11px] text-nova-text-muted">
+						On a linked case, through a custom connection.
+					</span>
+				</span>
+				<button
+					type="button"
+					onClick={() => onPick(row.property, "self")}
+					className="shrink-0 px-3 min-h-9 text-xs rounded-md border border-white/[0.08] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				>
+					Search this case instead
+				</button>
 			</div>
-		</InspectorField>
+		);
+	}
+
+	const destination = scope === "parent" ? parentCt : ct;
+	const selectedDef = destination?.properties.find(
+		(p) => p.name === row.property,
+	);
+	const scopeLabel = scope === "parent" ? "On the parent case" : "On this case";
+
+	return (
+		<Menu.Root>
+			<Menu.Trigger
+				ref={triggerRef}
+				aria-label={`Search field ${rowIndex + 1} property`}
+				className={CONSOLE_TRIGGER_CLS}
+			>
+				<Icon
+					icon={tablerDatabase}
+					width="16"
+					height="16"
+					className="text-nova-violet-bright/80 shrink-0"
+				/>
+				<span className="flex-1 min-w-0 text-left">
+					{row.property === "" ? (
+						<span className="block text-nova-text-muted">Pick a property</span>
+					) : (
+						<>
+							<span className="block font-mono text-nova-text truncate">
+								{row.property}
+							</span>
+							<span className="block text-[11px] text-nova-text-muted truncate">
+								{scopeLabel}
+								{selectedDef !== undefined
+									? ` · ${effectiveDataType(selectedDef)}`
+									: ""}
+							</span>
+						</>
+					)}
+				</span>
+				<Chevron />
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					anchor={triggerRef}
+					className={MENU_POSITIONER_CLS}
+					style={{ minWidth: "var(--anchor-width)" }}
+				>
+					<Menu.Popup
+						className={`${MENU_POPUP_CLS} max-h-80 overflow-y-auto min-w-[16rem]`}
+					>
+						<PropertyGroup
+							heading={`This case — ${ct?.name ?? currentCaseType}`}
+							properties={ct?.properties ?? []}
+							isSelected={(p) => scope === "self" && p.name === row.property}
+							onPick={(p) => onPick(p.name, "self")}
+							roundTop
+							roundBottom={parentCt === undefined}
+						/>
+						{parentCt !== undefined && (
+							<PropertyGroup
+								heading={`Parent case — ${parentCt.name}`}
+								properties={parentCt.properties}
+								isSelected={(p) =>
+									scope === "parent" && p.name === row.property
+								}
+								onPick={(p) => onPick(p.name, "parent")}
+								roundTop={false}
+								roundBottom
+							/>
+						)}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
 	);
 }
 
+function PropertyGroup({
+	heading,
+	properties,
+	isSelected,
+	onPick,
+	roundTop,
+	roundBottom,
+}: {
+	readonly heading: string;
+	readonly properties: readonly CaseProperty[];
+	readonly isSelected: (p: CaseProperty) => boolean;
+	readonly onPick: (p: CaseProperty) => void;
+	readonly roundTop: boolean;
+	readonly roundBottom: boolean;
+}) {
+	return (
+		<Menu.Group>
+			<Menu.GroupLabel
+				className={`px-3 pt-2.5 pb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-nova-text-muted ${roundTop ? "rounded-t-xl" : ""}`}
+			>
+				{heading}
+			</Menu.GroupLabel>
+			{properties.length === 0 && (
+				<div className={`${MENU_ITEM_BASE} text-nova-text-muted italic`}>
+					No properties yet
+				</div>
+			)}
+			{properties.map((p, i) => {
+				const active = isSelected(p);
+				const isLast = roundBottom && i === properties.length - 1;
+				return (
+					<Menu.Item
+						key={p.name}
+						onClick={() => onPick(p)}
+						className={`${isLast ? "rounded-b-xl" : ""} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
+							active ? "text-nova-violet-bright bg-nova-violet/10" : ""
+						}`}
+					>
+						<span className="flex-1 text-left min-w-0 font-mono truncate">
+							{p.name}
+						</span>
+						<span
+							className={`text-[10px] uppercase tracking-wider ${
+								active ? "text-nova-violet-bright/60" : "text-nova-text-muted"
+							}`}
+						>
+							{effectiveDataType(p)}
+						</span>
+						{active && (
+							<Icon
+								icon={tablerCheck}
+								width="14"
+								height="14"
+								className="text-nova-violet-bright"
+							/>
+						)}
+					</Menu.Item>
+				);
+			})}
+		</Menu.Group>
+	);
+}
+
+// ── Custom-condition seeding + recovery ───────────────────────────
+
 /**
- * Seed an advanced-arm predicate from a simple-arm row. When the
- * simple arm carries a property, the seed is `prop(...) eq ''` so
- * the user immediately sees a meaningful predicate they can edit;
- * when the simple arm has no property, fall back to `match-all()`
- * — the canonical always-true sentinel used elsewhere as the empty
- * predicate seed.
+ * Seed the custom condition with the behavior the row already has:
+ * `property = typed value`. The author edits forward from something
+ * working instead of starting from a blank. Rows with no property
+ * yet seed `match-all()` — the canonical always-true starting point.
  */
-function seedAdvancedPredicate(
+function seedCustomCondition(
 	row: SimpleSearchInputDef,
 	currentCaseType: string,
 ): Predicate {
@@ -677,8 +814,24 @@ function seedAdvancedPredicate(
 	return {
 		kind: "eq",
 		left: term(prop(currentCaseType, row.property)),
-		right: term(literal("")),
+		right: row.name === "" ? term(literal("")) : term(input(row.name)),
 	};
+}
+
+/**
+ * The property a custom condition is anchored on, when it has the
+ * left-anchored shape (`comparison` / `in` / `between` / `is-null` /
+ * `is-blank` whose left side reads a self property). Lets a
+ * round-tripped custom→standard conversion land back on the same
+ * property rather than re-seeding.
+ */
+function recoverAnchoredProperty(predicate: Predicate): string | undefined {
+	if (!("left" in predicate)) return undefined;
+	const left = predicate.left;
+	if (left.kind !== "term" || left.term.kind !== "prop") return undefined;
+	const ref = left.term;
+	if (ref.via !== undefined && ref.via.kind !== "self") return undefined;
+	return ref.property;
 }
 
 // ── Row rebuild helper ────────────────────────────────────────────
@@ -696,22 +849,6 @@ interface RowPatch {
 	readonly via?: RelationPath | undefined;
 	readonly mode?: SearchInputMode | undefined;
 	readonly default?: ValueExpression | undefined;
-}
-
-/**
- * The property an advanced predicate is anchored on, when it has the
- * left-anchored shape (`comparison` / `in` / `between` / `is-null` /
- * `is-blank` whose left side reads a self property). Lets a
- * round-tripped advanced→simple conversion land back on the same
- * property rather than re-seeding.
- */
-function recoverAnchoredProperty(predicate: Predicate): string | undefined {
-	if (!("left" in predicate)) return undefined;
-	const left = predicate.left;
-	if (left.kind !== "term" || left.term.kind !== "prop") return undefined;
-	const ref = left.term;
-	if (ref.via !== undefined && ref.via.kind !== "self") return undefined;
-	return ref.property;
 }
 
 function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
@@ -740,15 +877,15 @@ function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
 	);
 }
 
-// ── Type picker ───────────────────────────────────────────────────
+// ── Field-type picker ─────────────────────────────────────────────
 
 interface TypePickerProps {
 	readonly value: SearchInputType;
 	readonly onChange: (next: SearchInputType) => void;
 	/** Effective data type of the bound property (simple arm only) —
-	 *  gates which widget types are selectable, mirroring the Match
-	 *  picker. `undefined` (advanced arm / unresolved property) gates
-	 *  nothing, matching the validator's skip. */
+	 *  gates which field types are selectable, mirroring the Match
+	 *  picker. `undefined` (custom condition / unresolved property)
+	 *  gates nothing, matching the validator's skip. */
 	readonly propertyDataType: CasePropertyDataType | undefined;
 	readonly rowIndex: number;
 }
@@ -760,24 +897,27 @@ function TypePicker({
 	rowIndex,
 }: TypePickerProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const triggerLabel = SEARCH_INPUT_TYPE_LABELS[value];
-	const triggerIcon = SEARCH_INPUT_TYPE_ICONS[value];
-	const triggerClass =
-		"group w-full flex items-center gap-1.5 px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30 whitespace-nowrap";
 	return (
 		<Menu.Root>
 			<Menu.Trigger
 				ref={triggerRef}
-				aria-label={`Search input ${rowIndex + 1} type: ${triggerLabel}`}
-				className={triggerClass}
+				aria-label={`Search field ${rowIndex + 1} type: ${SEARCH_INPUT_TYPE_LABELS[value]}`}
+				className={CONSOLE_TRIGGER_CLS}
 			>
 				<Icon
-					icon={triggerIcon}
-					width="14"
-					height="14"
-					className="text-nova-violet-bright/80"
+					icon={SEARCH_INPUT_TYPE_ICONS[value]}
+					width="16"
+					height="16"
+					className="text-nova-violet-bright/80 shrink-0"
 				/>
-				<span className="flex-1 text-left text-nova-text">{triggerLabel}</span>
+				<span className="flex-1 min-w-0 text-left">
+					<span className="block text-nova-text">
+						{SEARCH_INPUT_TYPE_LABELS[value]}
+					</span>
+					<span className="block text-[11px] text-nova-text-muted truncate">
+						{SEARCH_INPUT_TYPE_DESCRIPTIONS[value]}
+					</span>
+				</span>
 				<Chevron />
 			</Menu.Trigger>
 			<Menu.Portal>
@@ -789,10 +929,10 @@ function TypePicker({
 					className={MENU_POSITIONER_CLS}
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
-					<Menu.Popup className={`${MENU_POPUP_CLS} min-w-[10rem]`}>
+					<Menu.Popup className={`${MENU_POPUP_CLS} min-w-[13rem]`}>
 						{SEARCH_INPUT_TYPES.map((t, i) => {
 							const isActive = t === value;
-							// Property-level gate — a widget the bound property's
+							// Property-level gate — a field the bound property's
 							// data type can't run (a calendar over a text
 							// property, say) is disabled with the reason rather
 							// than selectable into a validation error.
@@ -816,14 +956,14 @@ function TypePicker({
 									key={t}
 									disabled={!admitted}
 									onClick={() => onChange(t)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
+									className={`${corners} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
 										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
 									} ${admitted ? "" : "opacity-45"}`}
 								>
 									<Icon
 										icon={SEARCH_INPUT_TYPE_ICONS[t]}
-										width="14"
-										height="14"
+										width="15"
+										height="15"
 										className={
 											isActive
 												? "text-nova-violet-bright"
@@ -833,7 +973,7 @@ function TypePicker({
 									<span className="flex-1 text-left">
 										<div>{SEARCH_INPUT_TYPE_LABELS[t]}</div>
 										<div
-											className={`text-[10px] ${
+											className={`text-[11px] ${
 												isActive
 													? "text-nova-violet-bright/60"
 													: "text-nova-text-muted"
@@ -862,225 +1002,156 @@ function TypePicker({
 	);
 }
 
-// ── Mode picker ───────────────────────────────────────────────────
+// ── Match picker — standard modes + the custom arm, one menu ──────
 
-interface ModePickerProps {
-	readonly value: SearchInputMode | undefined;
-	readonly type: SearchInputType;
+interface MatchPickerProps {
+	readonly value: SearchInputDef;
 	/** Effective data type of the bound property — gates which modes
-	 *  are selectable. `undefined` (unresolved property) gates nothing,
-	 *  matching the validator's skip. */
+	 *  are selectable. `undefined` (unresolved property / custom
+	 *  condition) gates nothing, matching the validator's skip. */
 	readonly propertyDataType: CasePropertyDataType | undefined;
-	readonly onChange: (next: SearchInputMode | undefined) => void;
 	readonly invalid: boolean;
 	readonly rowIndex: number;
+	readonly onPickMode: (kind: SearchInputMode["kind"]) => void;
+	readonly onPickCustom: () => void;
 }
 
-function ModePicker({
+function MatchPicker({
 	value,
-	type,
 	propertyDataType,
-	onChange,
 	invalid,
 	rowIndex,
-}: ModePickerProps) {
+	onPickMode,
+	onPickCustom,
+}: MatchPickerProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const applicable = applicableSearchModes(type);
-	const triggerLabel =
-		value === undefined ? "Default" : SEARCH_MODE_LABELS[value.kind];
-	const triggerClass = [
-		"group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
-		invalid
-			? "border-nova-rose/40 hover:border-nova-rose/60"
-			: "border-white/[0.06] hover:border-nova-violet/30",
-	].join(" ");
-
-	const setMultiSelectQuantifier = (q: MultiSelectQuantifier) => {
-		onChange(multiSelectContainsMode(q));
-	};
-
-	const isMultiSelect = value?.kind === "multi-select-contains";
+	const isCustom = value.kind === "advanced";
+	const applicable = applicableSearchModes(value.type);
+	const effectiveKind =
+		value.kind === "simple" ? effectiveModeKind(value) : null;
+	const triggerLabel = isCustom
+		? "Custom condition"
+		: SEARCH_MODE_LABELS[effectiveKind ?? "exact"];
 
 	return (
-		<div className="flex items-center gap-1.5">
-			<Menu.Root>
-				<Menu.Trigger
-					ref={triggerRef}
-					aria-label={`Search input ${rowIndex + 1} mode: ${triggerLabel}`}
-					className={triggerClass}
-				>
-					<span className="flex items-center gap-1.5 min-w-0">
-						<span className={invalid ? "text-nova-rose/90" : "text-nova-text"}>
-							{triggerLabel}
-						</span>
-						{invalid && (
-							<Icon
-								icon={tablerExclamationCircle}
-								width="14"
-								height="14"
-								className="text-nova-rose/80"
-								aria-hidden="true"
-							/>
-						)}
+		<Menu.Root>
+			<Menu.Trigger
+				ref={triggerRef}
+				aria-label={`Search field ${rowIndex + 1} match: ${triggerLabel}`}
+				className={`${CONSOLE_TRIGGER_CLS} ${
+					invalid ? "border-nova-rose/40 hover:border-nova-rose/60" : ""
+				}`}
+			>
+				<span className="flex-1 min-w-0 text-left flex items-center gap-2">
+					<span className={invalid ? "text-nova-rose/90" : "text-nova-text"}>
+						{triggerLabel}
 					</span>
-					<Chevron />
-				</Menu.Trigger>
-				<Menu.Portal>
-					<Menu.Positioner
-						side="bottom"
-						align="start"
-						sideOffset={4}
-						anchor={triggerRef}
-						className={MENU_POSITIONER_CLS}
-						style={{ minWidth: "var(--anchor-width)" }}
-					>
-						<Menu.Popup className={MENU_POPUP_CLS}>
-							<Menu.Item
-								onClick={() => onChange(undefined)}
-								className={`rounded-t-xl ${MENU_ITEM_CLS} ${
-									value === undefined
-										? "text-nova-violet-bright bg-nova-violet/10"
-										: ""
-								}`}
-							>
-								<span className="flex-1 text-left">
-									<div>
-										Default —{" "}
-										{SEARCH_MODE_LABELS[DEFAULT_SEARCH_MODE_KIND[type]]}
-									</div>
-									<div
-										className={`text-[10px] ${
-											value === undefined
-												? "text-nova-violet-bright/60"
-												: "text-nova-text-muted"
-										}`}
-									>
-										{SEARCH_MODE_DESCRIPTIONS[DEFAULT_SEARCH_MODE_KIND[type]]}
-									</div>
-								</span>
-								{value === undefined && (
-									<Icon
-										icon={tablerCheck}
-										width="14"
-										height="14"
-										className="text-nova-violet-bright"
-									/>
-								)}
-							</Menu.Item>
-							{applicable.map((kind, i) => {
-								const isActive = value !== undefined && value.kind === kind;
-								// Property-level gate — picking a mode the bound
-								// property's data type can't run would only land the
-								// row in a validation error, so the item is disabled
-								// and says why instead.
-								const admitted =
-									propertyDataType === undefined ||
-									(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(
-										propertyDataType,
-									) ??
-										true);
-								const last = applicable.length - 1;
-								const corners = i === last ? "rounded-b-xl" : "";
-								return (
-									<Menu.Item
-										key={kind}
-										disabled={!admitted}
-										onClick={() => onChange(buildMode(kind))}
-										className={`${corners} ${MENU_ITEM_CLS} ${
-											isActive
-												? "text-nova-violet-bright bg-nova-violet/10"
-												: ""
-										} ${admitted ? "" : "opacity-45"}`}
-									>
-										<span className="flex-1 text-left">
-											<div>{SEARCH_MODE_LABELS[kind]}</div>
-											<div
-												className={`text-[10px] ${
-													isActive
-														? "text-nova-violet-bright/60"
-														: "text-nova-text-muted"
-												}`}
-											>
-												{admitted
-													? SEARCH_MODE_DESCRIPTIONS[kind]
-													: `Not available for ${propertyDataType} properties.`}
-											</div>
-										</span>
-										{isActive && (
-											<Icon
-												icon={tablerCheck}
-												width="14"
-												height="14"
-												className="text-nova-violet-bright"
-											/>
-										)}
-									</Menu.Item>
-								);
-							})}
-							{applicable.length === 0 && (
-								<div
-									className={`${MENU_ITEM_BASE} text-nova-text-muted italic`}
+					{invalid && (
+						<Icon
+							icon={tablerExclamationCircle}
+							width="14"
+							height="14"
+							className="text-nova-rose/80"
+							aria-hidden="true"
+						/>
+					)}
+				</span>
+				<Chevron />
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					anchor={triggerRef}
+					className={MENU_POSITIONER_CLS}
+					style={{ minWidth: "var(--anchor-width)" }}
+				>
+					<Menu.Popup className={`${MENU_POPUP_CLS} min-w-[16rem]`}>
+						{applicable.map((kind, i) => {
+							const isActive = !isCustom && effectiveKind === kind;
+							// Property-level gate — picking a match the bound
+							// property's data type can't run would only land the
+							// row in a validation error, so the item is disabled
+							// and says why instead.
+							const admitted =
+								propertyDataType === undefined ||
+								(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(propertyDataType) ??
+									true);
+							return (
+								<Menu.Item
+									key={kind}
+									disabled={!admitted}
+									onClick={() => onPickMode(kind)}
+									className={`${i === 0 ? "rounded-t-xl" : ""} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
+										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
+									} ${admitted ? "" : "opacity-45"}`}
 								>
-									No applicable modes
+									<span className="flex-1 text-left">
+										<div>{SEARCH_MODE_LABELS[kind]}</div>
+										<div
+											className={`text-[11px] ${
+												isActive
+													? "text-nova-violet-bright/60"
+													: "text-nova-text-muted"
+											}`}
+										>
+											{admitted
+												? SEARCH_MODE_DESCRIPTIONS[kind]
+												: `Not available for ${propertyDataType} properties.`}
+										</div>
+									</span>
+									{isActive && (
+										<Icon
+											icon={tablerCheck}
+											width="14"
+											height="14"
+											className="text-nova-violet-bright"
+										/>
+									)}
+								</Menu.Item>
+							);
+						})}
+						<Menu.Item
+							onClick={onPickCustom}
+							className={`rounded-b-xl border-t border-white/[0.06] ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
+								isCustom ? "text-nova-violet-bright bg-nova-violet/10" : ""
+							}`}
+						>
+							<Icon
+								icon={tablerWand}
+								width="15"
+								height="15"
+								className={
+									isCustom ? "text-nova-violet-bright" : "text-nova-text-muted"
+								}
+							/>
+							<span className="flex-1 text-left">
+								<div>Custom condition</div>
+								<div
+									className={`text-[11px] ${
+										isCustom
+											? "text-nova-violet-bright/60"
+											: "text-nova-text-muted"
+									}`}
+								>
+									Write the matching logic yourself — any properties, any
+									comparison.
 								</div>
+							</span>
+							{isCustom && (
+								<Icon
+									icon={tablerCheck}
+									width="14"
+									height="14"
+									className="text-nova-violet-bright"
+								/>
 							)}
-						</Menu.Popup>
-					</Menu.Positioner>
-				</Menu.Portal>
-			</Menu.Root>
-			{isMultiSelect && (
-				<QuantifierToggle
-					value={value.quantifier}
-					onChange={setMultiSelectQuantifier}
-					rowIndex={rowIndex}
-				/>
-			)}
-		</div>
-	);
-}
-
-// ── Quantifier toggle ─────────────────────────────────────────────
-
-interface QuantifierToggleProps {
-	readonly value: MultiSelectQuantifier;
-	readonly onChange: (next: MultiSelectQuantifier) => void;
-	readonly rowIndex: number;
-}
-
-function QuantifierToggle({
-	value,
-	onChange,
-	rowIndex,
-}: QuantifierToggleProps) {
-	const segCls = (active: boolean) =>
-		[
-			"px-2 py-1.5 text-xs transition-colors cursor-pointer",
-			active
-				? "bg-nova-violet/15 text-nova-violet-bright"
-				: "text-nova-text-muted hover:text-nova-text",
-		].join(" ");
-	return (
-		<fieldset className="inline-flex rounded-md border border-white/[0.06] bg-nova-deep/50 overflow-hidden p-0 m-0 min-w-0">
-			<legend className="sr-only">
-				Search input {rowIndex + 1} multi-select quantifier
-			</legend>
-			<button
-				type="button"
-				onClick={() => onChange("any")}
-				aria-pressed={value === "any"}
-				className={segCls(value === "any")}
-			>
-				Any
-			</button>
-			<button
-				type="button"
-				onClick={() => onChange("all")}
-				aria-pressed={value === "all"}
-				className={segCls(value === "all")}
-			>
-				All
-			</button>
-		</fieldset>
+						</Menu.Item>
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
 	);
 }
 
@@ -1111,38 +1182,38 @@ function DefaultValueSlot({
 			<button
 				type="button"
 				onClick={() => onChange(seedDefaultExpression(inputType))}
-				className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				aria-label={`Add default value for search input ${rowIndex + 1}`}
+				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				aria-label={`Add a default value for search field ${rowIndex + 1}`}
 			>
-				<Icon icon={tablerPlus} width="11" height="11" />
-				<span>Add default value</span>
+				<Icon icon={tablerPlus} width="13" height="13" />
+				<span>Add a default value</span>
 			</button>
 		);
 	}
 	return (
-		<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
-			<div className="flex items-center gap-1.5">
-				<span className="text-[10px] uppercase tracking-widest text-nova-text-muted/60">
-					Default value
-				</span>
+		<FieldRow
+			label="Default value"
+			hint="The field starts out filled with this — anyone can change it."
+		>
+			<div className="rounded-lg border border-white/[0.04] bg-nova-deep/30 p-2.5 space-y-2">
+				<ExpressionCardEditor
+					value={value}
+					onChange={onChange}
+					caseTypes={caseTypes}
+					currentCaseType={currentCaseType}
+					knownInputs={knownInputs}
+					expectedType={expectedType}
+				/>
 				<button
 					type="button"
 					onClick={() => onChange(undefined)}
-					className="ml-auto text-[10px] uppercase tracking-wider text-nova-text-muted/50 hover:text-nova-rose transition-colors cursor-pointer"
-					aria-label={`Remove default value for search input ${rowIndex + 1}`}
+					className="w-full min-h-10 px-3 text-xs rounded-md border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
+					aria-label={`Remove the default value for search field ${rowIndex + 1}`}
 				>
-					Remove
+					Remove default value
 				</button>
 			</div>
-			<ExpressionCardEditor
-				value={value}
-				onChange={onChange}
-				caseTypes={caseTypes}
-				currentCaseType={currentCaseType}
-				knownInputs={knownInputs}
-				expectedType={expectedType}
-			/>
-		</div>
+		</FieldRow>
 	);
 }
 

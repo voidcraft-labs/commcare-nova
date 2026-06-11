@@ -166,7 +166,7 @@ export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
 			/>
 			<DisplayToggle value={value.display} onChange={setDisplay} />
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 					{copy.textLabel}
 				</div>
 				<BlurCommitTextInput
@@ -200,7 +200,7 @@ function DisplayToggle({ value, onChange }: DisplayToggleProps) {
 		].join(" ");
 	return (
 		<div>
-			<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+			<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 				Display
 			</div>
 			<fieldset className="inline-flex rounded-md border border-white/[0.06] bg-nova-deep/50 overflow-hidden p-0 m-0 min-w-0">

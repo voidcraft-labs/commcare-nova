@@ -10,6 +10,7 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerColumns from "@iconify-icons/tabler/columns";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { Column } from "@/lib/domain";
 import type { CaseListPreviewState } from "../useCaseListPreview";
 
@@ -117,22 +118,23 @@ export function AddGhostButton({
 	 *  a click-capture surface can stop propagation. */
 	readonly onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
 	/** `undefined` = enabled; a string disables the button and
-	 *  surfaces as the hover hint. */
+	 *  surfaces as the hover explanation. */
 	readonly disabledReason?: string;
 	readonly icon?: IconifyIcon;
 	readonly className?: string;
 }) {
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			disabled={disabledReason !== undefined}
-			title={disabledReason}
-			className={`inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-10 text-xs rounded-md border border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
-		>
-			<Icon icon={icon} width="13" height="13" />
-			<span>{label}</span>
-		</button>
+		<Tooltip content={disabledReason}>
+			<button
+				type="button"
+				onClick={onClick}
+				disabled={disabledReason !== undefined}
+				className={`inline-flex items-center justify-center gap-2 px-4 min-h-11 text-[13px] rounded-lg border border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
+			>
+				<Icon icon={icon} width="14" height="14" />
+				<span>{label}</span>
+			</button>
+		</Tooltip>
 	);
 }
 

@@ -180,7 +180,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 				currentCaseType="visit"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Multi-hop ancestor walk/i);
+		expect(container.textContent).toMatch(/Several steps up the case family/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
@@ -199,7 +199,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Qualified ancestor walk/i);
+		expect(container.textContent).toMatch(/Up to a specific case type/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
@@ -214,7 +214,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Direction-agnostic walk/i);
+		expect(container.textContent).toMatch(/Any connected case/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
@@ -232,7 +232,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Qualified subcase walk/i);
+		expect(container.textContent).toMatch(/Down to a specific case type/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
