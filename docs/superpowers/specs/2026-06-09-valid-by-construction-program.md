@@ -747,6 +747,40 @@ Round-5 review hardening (same stage, post-ship):
   (`--project`-pinned; migrate dry-run default, `--apply`). Dev-project
   scan found zero rows.
 
+Round-6 review hardening (same stage, post-ship):
+- The claim window's full charge contract: `claimBuildRun` SETTLES the
+  displaced run's reservation marker in the claim transaction (every
+  displaced shape already resolved its charge), so a hard kill between
+  the claim and the new run's `reserveCredits` can never refund a kept
+  charge; a stale non-paused `generating` row is displaceable — the
+  claim settles it exactly as `reapStaleGenerating` would (refund-first
+  off the marker, `internal`) in the same transaction, ending the
+  indefinite-429 dead end on a hard-killed app; the `error` arm of
+  `ClaimedBuildRun` carries the displaced classification so a bail-out
+  restore writes back why the build originally failed; and the
+  free-continuation pause-flag clear runs only after every pre-stream
+  bail-out gate. `claimWindow.test.ts` composes the real claim/reaper/
+  credits functions over one in-memory store for both arms.
+- The schema heal moved DOWN to the individual case-store write
+  (`schemaHealingCaseStore`): each store operation heals-and-retries
+  just itself, so a followup/close submission's partial progress is
+  resumed, not re-run — the dispatch-level wrapper duplicated child
+  rows on the partial-sync shape the heal exists for.
+- `collectModuleConfigReferences` iterates `MODULE_REFERENCE_SLOTS`
+  with an exhaustive switch (the field/form scans' pattern) — a future
+  module slot fails the retirement planner at compile time.
+- The construction fuzz tallies the retirement arms and asserts each
+  occurred under the pinned seed (≥1 retire-cascade commit, ≥1 blocked
+  bounce, ≥1 NO_MODULES bounce) — the header previously claimed
+  coverage the acceptance floor couldn't hold.
+- Sub-toggle doctrine: the LearnConfig/DeliverConfig sub-toggles stage
+  their block and collect names/descriptions from the user before
+  anything commits (the enable dialog's pattern at sub-config scale);
+  `assessment.user_score` joined the wire-default family
+  (`DEFAULT_ASSESSMENT_USER_SCORE`, byte-identical to the previously
+  seeded "100"), making the assessment toggle commit-immediate with
+  its derived identifier alone.
+
 ### Stage 5 — The reference index
 
 Layer 2 as specified. Implementation order inside the stage: index module +
