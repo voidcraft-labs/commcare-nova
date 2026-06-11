@@ -35,6 +35,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	parseXPathForField,
 	parseXPathForForm,
+	resolveCloseFieldRef,
 } from "@/lib/doc/expressionText";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
@@ -599,13 +600,18 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 		case "updateForm": {
 			const uuid = pickForm(doc, op.formPick);
 			if (!uuid) return [];
+			// The boundary resolves the authored id to the field's uuid; an
+			// id nothing answers to rides verbatim (the dangling shape the
+			// extraction must keep edge-less).
 			return [
 				{
 					kind: "updateForm",
 					uuid,
 					patch: {
 						closeCondition: {
-							field: ID_POOL[op.closeIdPick],
+							field: asUuid(
+								resolveCloseFieldRef(doc, uuid, ID_POOL[op.closeIdPick]),
+							),
 							answer: "done",
 						},
 					},

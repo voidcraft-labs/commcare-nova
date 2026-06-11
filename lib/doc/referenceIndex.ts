@@ -252,8 +252,7 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
  * Register a field's declarations: its id in the containing form's
  * namespace (`ids`) and its `(case_property_on, id)` case-property
  * contribution (`decl`). Runs for EVERY (re-)indexed field BEFORE any
- * edge extraction in the same pass, because close-condition edges
- * resolve against the freshly-settled `ids` bucket.
+ * edge extraction in the same pass.
  */
 function registerFieldDeclarations(
 	index: ReferenceIndex,
@@ -345,7 +344,7 @@ function extractCarrierEdges(
 	}
 	const form = doc.forms[carrier];
 	if (form) {
-		extractFormEdges(makeSink(index, carrier, ctx), index, doc, form, ctx);
+		extractFormEdges(makeSink(index, carrier, ctx), doc, form, ctx);
 		return;
 	}
 	const field = doc.fields[carrier];
@@ -390,7 +389,6 @@ function extractFieldEdges(
 				}
 				break;
 			case "predicate-ast":
-			case "field-id-ref":
 			case "entity-uuid":
 			case "case-property-ref":
 				// No field slot carries these kinds today — kept explicit so
@@ -407,7 +405,6 @@ function extractFieldEdges(
 
 function extractFormEdges(
 	sink: EdgeSink,
-	index: ReferenceIndex,
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: CarrierContext,
@@ -427,19 +424,13 @@ function extractFormEdges(
 				}
 				break;
 			case "close_condition_field": {
+				// The checked field's stable uuid. A legacy dangler (an id the
+				// migration couldn't resolve, or a transient empty value)
+				// names no entity — zero edges, the raw-leaf treatment.
 				const ref = form.closeCondition?.field;
 				if (typeof ref !== "string" || ref.length === 0) break;
-				if (ctx.formUuid === undefined) break;
-				// A bare leaf-id pointer. Bare ids are ambiguous when cousins
-				// share the leaf, and the rename pass only rewrites the ref
-				// when the renamed field is the UNIQUE holder — so the edge
-				// exists only under the same condition: a multi-holder ref
-				// stays edge-less (a rename never follows it).
-				sink.markLocal();
-				const holders = index.ids[ctx.formUuid]?.[ref];
-				const holderUuids = holders ? Object.keys(holders) : [];
-				if (holderUuids.length === 1) {
-					sink.edge(entityTargetKey(holderUuids[0]), slot.slot);
+				if (doc.fields[ref as Uuid] !== undefined) {
+					sink.edge(entityTargetKey(ref), slot.slot);
 				}
 				break;
 			}

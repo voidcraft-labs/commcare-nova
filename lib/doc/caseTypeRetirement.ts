@@ -410,7 +410,6 @@ function collectFieldReferences(
 				break;
 			}
 			case "predicate-ast":
-			case "field-id-ref":
 			case "entity-uuid":
 			case "case-property-ref":
 				// No field slot carries these kinds today — kept explicit so

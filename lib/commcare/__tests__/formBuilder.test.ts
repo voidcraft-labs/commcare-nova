@@ -281,7 +281,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("sets a close_condition on a close form", () => {
 			const doc0 = makeShellDoc("close");
 			const muts = updateFormMutations(doc0, FORM, {
-				closeCondition: { field: "discharge", answer: "yes" },
+				closeCondition: { field: asUuid("discharge"), answer: "yes" },
 			});
 			const doc1 = apply(doc0, muts);
 			expect(doc1.forms[FORM].closeCondition).toEqual({
@@ -296,7 +296,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			doc = apply(
 				doc,
 				updateFormMutations(doc, FORM, {
-					closeCondition: { field: "x", answer: "y" },
+					closeCondition: { field: asUuid("x"), answer: "y" },
 				}),
 			);
 			expect(doc.forms[FORM].closeCondition).toBeDefined();

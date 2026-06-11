@@ -56,3 +56,38 @@ export function printXPathInDoc(
 ): string {
 	return printXPath(expr, xpathPrintContext(doc));
 }
+
+/** The structural slice the close-field resolver needs — both the doc
+ *  and the builder UI's `{ fields, fieldOrder }` selector shape. */
+export interface FieldRefResolvableDoc {
+	fields: Readonly<Record<string, { uuid: Uuid; id: string } | undefined>>;
+	fieldOrder: Readonly<Record<string, readonly string[] | undefined>>;
+}
+
+/**
+ * Resolve an authored close-condition field reference (a bare leaf id)
+ * to the target field's stable uuid — pre-order first match across the
+ * form's tree, the same rule the wire emitter's `findField` applies —
+ * or return the text verbatim when nothing answers to it (a dangling
+ * pointer the validator's close-condition rules flag from the slot).
+ */
+export function resolveCloseFieldRef(
+	doc: FieldRefResolvableDoc,
+	formUuid: string,
+	ref: string,
+): Uuid | string {
+	if (ref.length === 0) return ref;
+	const find = (parentUuid: string): Uuid | undefined => {
+		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+			const field = doc.fields[uuid];
+			if (!field) continue;
+			if (field.id === ref) return field.uuid;
+			if (doc.fieldOrder[uuid] !== undefined) {
+				const found = find(uuid);
+				if (found !== undefined) return found;
+			}
+		}
+		return undefined;
+	};
+	return find(formUuid) ?? ref;
+}

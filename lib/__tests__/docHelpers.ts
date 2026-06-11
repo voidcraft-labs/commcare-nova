@@ -13,6 +13,7 @@
  */
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
+import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
 	asUuid,
@@ -92,7 +93,13 @@ export interface FormSpec {
 	name: string;
 	type: Form["type"];
 	purpose?: string;
-	closeCondition?: Form["closeCondition"];
+	/** Authored with a field ID (the concise spec shape); `buildDoc`
+	 *  resolves it to the field's uuid against the assembled form. */
+	closeCondition?: {
+		field: string;
+		answer: string;
+		operator?: "=" | "selected";
+	};
 	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
 	formLinks?: FormLink[];
@@ -198,7 +205,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				type: formSpec.type,
 				...(formSpec.purpose !== undefined && { purpose: formSpec.purpose }),
 				...(formSpec.closeCondition !== undefined && {
-					closeCondition: formSpec.closeCondition,
+					closeCondition: formSpec.closeCondition as Form["closeCondition"],
 				}),
 				...(formSpec.connect !== undefined && { connect: formSpec.connect }),
 				...(formSpec.postSubmit !== undefined && {
@@ -228,6 +235,13 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 	};
 	rebuildFieldParent(doc);
 	resolveDocExpressions(doc);
+	for (const [formUuid, form] of Object.entries(doc.forms)) {
+		if (form.closeCondition && form.closeCondition.field.length > 0) {
+			form.closeCondition.field = asUuid(
+				resolveCloseFieldRef(doc, formUuid, form.closeCondition.field),
+			);
+		}
+	}
 	return doc;
 }
 

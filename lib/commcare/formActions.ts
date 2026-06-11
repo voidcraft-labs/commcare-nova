@@ -225,10 +225,16 @@ export function buildFormActions(
 	// Close-case action (close forms only — form.type IS the signal).
 	if (form.type === "close") {
 		if (form.closeCondition?.field && form.closeCondition?.answer) {
+			// The stored ref is the checked field's stable uuid; resolve it
+			// to the field's CURRENT id for the path walk. A legacy dangler
+			// (unresolvable text) walks as the id it carries — the same
+			// root-anchored fallback the id-stored era emitted.
+			const closeFieldId =
+				doc.fields[form.closeCondition.field]?.id ?? form.closeCondition.field;
 			base.close_case = {
 				doc_type: "FormAction",
 				condition: ifCondition(
-					resolvePath(doc, formUuid, form.closeCondition.field).toXPath(),
+					resolvePath(doc, formUuid, closeFieldId).toXPath(),
 					form.closeCondition.answer,
 					form.closeCondition.operator ?? "=",
 				),

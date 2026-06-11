@@ -39,6 +39,20 @@ import { type ValidationError, validationError } from "../errors";
  * including descendants in containers. Used by rules that need to check
  * membership — "does a field with this id exist in this form?"
  */
+/** Every field uuid under `parentUuid`, containers included. */
+function collectFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Set<string> {
+	const uuids = new Set<string>();
+	const walk = (uuid: Uuid) => {
+		for (const childUuid of doc.fieldOrder[uuid] ?? []) {
+			if (doc.fields[childUuid] === undefined) continue;
+			uuids.add(childUuid);
+			if (doc.fieldOrder[childUuid] !== undefined) walk(childUuid);
+		}
+	};
+	walk(parentUuid);
+	return uuids;
+}
+
 function collectFieldIds(doc: BlueprintDoc, parentUuid: Uuid): string[] {
 	const ids: string[] = [];
 	const walk = (uuid: Uuid) => {
@@ -370,13 +384,17 @@ function closeConditionValidation(
 			);
 		}
 		if (cc.field) {
-			const ids = collectFieldIds(doc, ctx.formUuid);
-			if (!ids.includes(cc.field)) {
+			// The ref is the checked field's stable uuid; it must land on a
+			// field of THIS form. A legacy dangler (unresolvable id text)
+			// fails the same membership test and reports its text verbatim.
+			const formFieldUuids = collectFieldUuids(doc, ctx.formUuid);
+			if (!formFieldUuids.has(cc.field)) {
+				const shown = doc.fields[cc.field]?.id ?? cc.field;
 				errors.push(
 					validationError(
 						"CLOSE_CONDITION_FIELD_NOT_FOUND",
 						"form",
-						`"${ctx.formName}" has close_condition checking field "${cc.field}", but no field with that ID exists in the form. Either add the field or update close_condition to reference an existing one.`,
+						`"${ctx.formName}" has close_condition checking field "${shown}", but no field like that exists in the form. Either add the field or update close_condition to reference an existing one.`,
 						loc,
 					),
 				);

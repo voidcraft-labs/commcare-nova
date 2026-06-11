@@ -30,7 +30,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import { type BlueprintDoc, fieldSchema } from "@/lib/domain";
+import { asUuid, type BlueprintDoc, fieldSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { addFieldsItemSchema, editFieldUpdatesSchema } from "../../toolSchemas";
 import { addFieldsTool } from "../addFields";
@@ -464,7 +464,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 			{
 				kind: "updateForm",
 				uuid: closeFormUuid,
-				patch: { closeCondition: { field: "ghost", answer: "done" } },
+				patch: { closeCondition: { field: asUuid("ghost"), answer: "done" } },
 			},
 		]);
 		expect(verdict.ok).toBe(false);
@@ -483,7 +483,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 			{
 				kind: "updateForm",
 				uuid: doc.formOrder[doc.moduleOrder[0]][0],
-				patch: { closeCondition: { field: "village", answer: "done" } },
+				patch: { closeCondition: { field: asUuid("village"), answer: "done" } },
 			},
 		]);
 		expect(verdict.ok).toBe(false);
@@ -503,7 +503,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 				uuid: closeFormUuid,
 				// The schema admits empty strings, so this is a live input
 				// shape — both halves are required for a conditional close.
-				patch: { closeCondition: { field: "outcome", answer: "" } },
+				patch: { closeCondition: { field: asUuid("outcome"), answer: "" } },
 			},
 		]);
 		expect(verdict.ok).toBe(false);

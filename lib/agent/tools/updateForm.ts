@@ -1,3 +1,4 @@
+import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 /**
  * SA tool: `updateForm` — patch form-level metadata.
  *
@@ -39,7 +40,7 @@ import type {
 	ConnectConfig,
 	PostSubmitDestination,
 } from "@/lib/domain";
-import { USER_FACING_DESTINATIONS } from "@/lib/domain";
+import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "./common";
@@ -243,11 +244,17 @@ export const updateFormTool = {
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
 			if (name !== undefined) patch.name = name;
 			if (close_condition !== undefined) {
+				// The SA names the checked field by id; the stored form is the
+				// field's stable uuid. An id nothing answers to stays verbatim
+				// — the gate rejects the introduction with the validator's
+				// close-condition finding.
 				patch.closeCondition =
 					close_condition === null
 						? null
 						: {
-								field: close_condition.field,
+								field: asUuid(
+									resolveCloseFieldRef(doc, formUuid, close_condition.field),
+								),
 								answer: close_condition.answer,
 								...(close_condition.operator && {
 									operator: close_condition.operator,

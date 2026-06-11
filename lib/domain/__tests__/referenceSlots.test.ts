@@ -388,7 +388,7 @@ describe("form slots — paths resolve with the promised shape", () => {
 	it.each(formSlots)("$slot resolves on the form schema", (slot) => {
 		const resolved = resolvePath(formSchema, slot.path);
 		expect(resolved.length).toBeGreaterThan(0);
-		if (slot.kind === "xpath" || slot.kind === "field-id-ref") {
+		if (slot.kind === "xpath") {
 			for (const r of resolved) {
 				expect(r).toBeInstanceOf(z.ZodString);
 			}

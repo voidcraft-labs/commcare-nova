@@ -2,11 +2,11 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useId, useMemo } from "react";
 import { FieldPicker } from "@/components/ui/FieldPicker";
+import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
 import { asUuid } from "@/lib/doc/types";
-import { findFieldById } from "./findFieldById";
 import { InlineField } from "./InlineField";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import type { FormSettingsSectionProps } from "./types";
@@ -53,18 +53,23 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	 * FieldPicker + close-field resolution both consume the same slice so
 	 * the doc walks once per render. */
 	const { fields, fieldOrder } = useFieldsAndOrder();
-	const closeFieldId = form?.closeCondition?.field;
+	/* The stored ref is the checked field's stable uuid (a legacy
+	 * dangler keeps its id text — `fields[ref]` then misses and the
+	 * editor shows the text verbatim). */
+	const closeFieldRef = form?.closeCondition?.field;
+	const closeField = closeFieldRef ? fields[closeFieldRef] : undefined;
+	const closeFieldId = closeField?.id ?? closeFieldRef;
 
 	/* Resolve the referenced field to check if it has selectable options. */
 	const selectedFieldOptions = useMemo(() => {
-		if (!closeFieldId) return undefined;
-		const found = findFieldById(fields, fieldOrder, formUuid, closeFieldId);
-		if (!found) return undefined;
+		if (!closeField) return undefined;
 		// `options` only exists on select kinds; narrow via `in`.
-		return "options" in found && found.options && found.options.length > 0
-			? found.options
+		return "options" in closeField &&
+			closeField.options &&
+			closeField.options.length > 0
+			? closeField.options
 			: undefined;
-	}, [closeFieldId, fields, fieldOrder, formUuid]);
+	}, [closeField]);
 
 	if (form?.type !== "close") return null;
 
@@ -76,7 +81,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 			updateFormAction(asUuid(formUuid), { closeCondition: undefined });
 		} else {
 			updateFormAction(asUuid(formUuid), {
-				closeCondition: { field: "", answer: "" },
+				closeCondition: { field: asUuid(""), answer: "" },
 			});
 		}
 	};
@@ -88,12 +93,24 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 			operator: CloseOperator;
 		}>,
 	) => {
-		const current = form.closeCondition ?? { field: "", answer: "" };
+		const current = form.closeCondition ?? { field: asUuid(""), answer: "" };
+		// The picker speaks field ids; the stored ref is the field's stable
+		// uuid. Resolution happens here at the commit boundary — an id
+		// nothing answers to stays verbatim and the gate adjudicates.
+		const { field: pickedId, ...rest } = patch;
+		const resolved: Partial<typeof current> = {
+			...rest,
+			...(pickedId !== undefined && {
+				field: asUuid(
+					resolveCloseFieldRef({ fields, fieldOrder }, formUuid, pickedId),
+				),
+			}),
+		};
 		// Forward the gated outcome so the inline editors keep a refused
 		// draft on screen with the finding (e.g. a value field naming a
 		// nonexistent close field).
 		return updateFormAction(asUuid(formUuid), {
-			closeCondition: { ...current, ...patch },
+			closeCondition: { ...current, ...resolved },
 		});
 	};
 
@@ -130,7 +147,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 							<FieldPicker
 								source={{ fields, fieldOrder }}
 								parentUuid={formUuid}
-								value={form.closeCondition.field}
+								value={closeFieldId ?? ""}
 								onChange={(v) => updateCondition({ field: v })}
 								label="Field"
 								placeholder="Search fields..."

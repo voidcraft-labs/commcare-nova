@@ -368,29 +368,29 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 		);
 	});
 
-	it("rewrites closeCondition.field when the renamed field is its unique holder", () => {
+	it("a close condition follows its field's rename with zero rewrites — the ref is its uuid", () => {
 		const start: BlueprintDoc = {
 			...docWithForm({
 				type: "close",
-				closeCondition: { field: "outcome", answer: "deceased" },
+				closeCondition: { field: Q("o"), answer: "deceased" },
 			}),
 			fields: { [Q("o")]: field_(Q("o"), "outcome") },
 			fieldOrder: { [F("1")]: [Q("o")] },
 		};
 		const { next, meta } = rename(start, Q("o"), "case_outcome");
-		expect(next.forms[F("1")]?.closeCondition?.field).toBe("case_outcome");
+		expect(next.forms[F("1")]?.closeCondition?.field).toBe(Q("o"));
 		expect(next.forms[F("1")]?.closeCondition?.answer).toBe("deceased");
-		expect(meta?.formWiringRewritten).toBe(1);
+		expect(meta?.formWiringRewritten).toBe(0);
 	});
 
-	it("does NOT rewrite closeCondition.field while a cousin still holds the old id", () => {
-		// `closeCondition.field` is a bare leaf id — with cousins sharing
-		// the id the ref is ambiguous, and rewriting it on one cousin's
-		// rename would retarget it. Leave it pointing at the survivor.
+	it("a cousin sharing the target's id can't confuse the ref — identity, not text", () => {
+		// The id-stored era left the ref alone on ambiguity (rewriting could
+		// retarget it). With the uuid stored, the ref names ONE field and
+		// follows that field's rename whatever its cousins are called.
 		const start: BlueprintDoc = {
 			...docWithForm({
 				type: "close",
-				closeCondition: { field: "outcome", answer: "deceased" },
+				closeCondition: { field: Q("o1"), answer: "deceased" },
 			}),
 			fields: {
 				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
@@ -403,7 +403,9 @@ describe("renameField rewrites the owning form's form-level wiring", () => {
 			},
 		};
 		const { next } = rename(start, Q("o1"), "case_outcome");
-		expect(next.forms[F("1")]?.closeCondition?.field).toBe("outcome");
+		expect(next.forms[F("1")]?.closeCondition?.field).toBe(Q("o1"));
+		expect(next.fields[Q("o1")]?.id).toBe("case_outcome");
+		expect(next.fields[Q("o2")]?.id).toBe("outcome");
 	});
 
 	it("rewrites the connect XPath slots (user_score, entity_id, entity_name)", () => {

@@ -1,7 +1,7 @@
 // lib/domain/forms.ts
 import { z } from "zod";
 import { assetIdSchema } from "./multimedia";
-import { uuidSchema } from "./uuid";
+import { type Uuid, uuidSchema } from "./uuid";
 
 export const FORM_TYPES = [
 	"registration",
@@ -58,7 +58,13 @@ export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
 
 const closeConditionSchema = z
 	.object({
-		field: z.string(),
+		// The checked field, by stable uuid — rename-proof identity, the
+		// same contract as form-link targets. The schema stays permissive
+		// over the string (a legacy doc can carry an unresolvable id or a
+		// transient empty value); the validator's close-condition rules
+		// adjudicate resolution, and every reader resolves through
+		// `doc.fields` with the verbatim text as the dangling fallback.
+		field: z.string().transform((s) => s as Uuid),
 		answer: z.string(),
 		operator: z.enum(["=", "selected"]).optional(),
 	})

@@ -1,10 +1,6 @@
 import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import {
-	declarersOf,
-	formIdHolders,
-	referencingCarrierUuids,
-} from "@/lib/doc/referenceIndex";
+import { declarersOf, referencingCarrierUuids } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	caseDataTypeForFieldKind,
@@ -860,9 +856,8 @@ function renameSingleField(
 	const field = doc.fields[uuid];
 	if (!field) return;
 
-	// Capture old id + path BEFORE mutating so `computeFieldPath` produces
+	// Capture the path BEFORE mutating so `computeFieldPath` produces
 	// the pre-rename path segments that references will match against.
-	const oldId = field.id;
 	const oldPath = computeFieldPath(doc, uuid);
 	const formUuid = findContainingForm(doc, uuid);
 	field.id = newId;
@@ -874,24 +869,12 @@ function renameSingleField(
 	rewriteFormLocalRefs(doc, uuid, formUuid, oldPath, newId, tracking);
 
 	// Form-level wiring on the containing form. `closeCondition.field`
-	// is a bare leaf-id ref, so it follows the rename only when the
-	// renamed field was the unique holder of the old id in this form —
-	// if a cousin still answers to it, the ref keeps resolving there.
-	// The holders come from the index's form-scoped id declarations;
-	// each is verified against the CURRENT doc because a case-property
-	// peer renamed earlier in this same mutation no longer holds the old
-	// id even though the index (maintained per MUTATION, not per pass)
-	// still lists it. Ids only move AWAY from the old name inside one
-	// rename, so the pre-mutation holder set is a superset of the live
-	// one and the filter is exact.
+	// holds the checked field's stable uuid, so it needs nothing from a
+	// rename — only the string XPath wiring slots still rewrite here.
 	const form = doc.forms[formUuid];
 	if (form) {
-		const oldIdStillTaken = formIdHolders(doc, formUuid, oldId).some(
-			(holder) => holder !== uuid && doc.fields[holder as Uuid]?.id === oldId,
-		);
 		const wiringChanges = rewriteFormReferenceSlots(form, {
 			xpath: (expr) => rewriteXPathRefs(expr, oldPath, newId),
-			fieldIdRename: { oldId, newId, oldIdStillTaken },
 		});
 		if (wiringChanges > 0) {
 			tracking.rewiredForms.add(formUuid);

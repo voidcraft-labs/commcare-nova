@@ -69,9 +69,8 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  *     (`Predicate`, `ValueExpression`, or `RelationPath`); references
  *     live on typed leaves (`PropertyRef`, relation steps' case-type
  *     hints) and are walked structurally, never as strings.
- *   - `field-id-ref` — names a field in the same form by its semantic
- *     id.
- *   - `entity-uuid` — names a module/form by stable uuid.
+ *   - `entity-uuid` — names an entity (module/form/field) by stable
+ *     uuid.
  *   - `case-property-ref` — names a case property by bare name; the
  *     owning case type comes from context (the module's `caseType`,
  *     or a relation walk's destination).
@@ -82,7 +81,6 @@ export const REFERENCE_SURFACE_KINDS = [
 	"xpath-ast",
 	"prose",
 	"predicate-ast",
-	"field-id-ref",
 	"entity-uuid",
 	"case-property-ref",
 	"case-type-ref",
@@ -370,7 +368,10 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "close_condition_field",
 		path: "closeCondition.field",
-		kind: "field-id-ref",
+		// The checked field's stable uuid (a legacy doc may carry an
+		// unresolvable id verbatim — a dangling pointer, adjudicated by
+		// the validator from the same slot).
+		kind: "entity-uuid",
 		formTypes: ["close"],
 	},
 	{

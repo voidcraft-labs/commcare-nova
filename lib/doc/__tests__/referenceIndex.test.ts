@@ -222,7 +222,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		).toContain(moduleUuid);
 	});
 
-	it("keys the close condition on its unique holder, and drops the edge for shared ids", () => {
+	it("keys the close condition on the checked field's uuid — cousins can't shake it", () => {
 		const doc = richDoc();
 		const formUuid = doc.moduleOrder.flatMap((m) => doc.formOrder[m] ?? [])[0];
 		const outcome = uuidByFieldId(doc, "outcome");
@@ -231,8 +231,9 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 			formUuid,
 		]);
 
-		// A cousin taking the same id makes the bare-id ref ambiguous — the
-		// rename pass would no longer follow it, so the edge goes away.
+		// The ref names ONE field by uuid — a cousin minting the same id
+		// changes nothing about the edge (the id-stored era dropped it on
+		// ambiguity; identity has no ambiguity to drop).
 		const grp = uuidByFieldId(doc, "grp");
 		const next = apply(doc, [
 			{
@@ -246,7 +247,9 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				} as never,
 			},
 		]);
-		expect(referencingCarrierUuids(next, entityTargetKey(outcome))).toEqual([]);
+		expect(referencingCarrierUuids(next, entityTargetKey(outcome))).toEqual([
+			formUuid,
+		]);
 		expect(formIdHolders(next, formUuid, "outcome")).toHaveLength(2);
 	});
 });

@@ -67,8 +67,12 @@ function summarizeForm(
 	if (form.closeCondition) {
 		const op =
 			form.closeCondition.operator === "selected" ? "has selected" : "=";
+		// The SA speaks field ids — resolve the stored uuid to the current
+		// id (a dangler shows its text verbatim).
+		const closeFieldId =
+			doc.fields[form.closeCondition.field]?.id ?? form.closeCondition.field;
 		extras.push(
-			`    close_condition: ${form.closeCondition.field} ${op} "${form.closeCondition.answer}"`,
+			`    close_condition: ${closeFieldId} ${op} "${form.closeCondition.answer}"`,
 		);
 	}
 	const topLevelFields = doc.fieldOrder[formUuid] ?? [];

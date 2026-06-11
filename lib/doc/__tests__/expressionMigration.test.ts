@@ -34,6 +34,7 @@ import { buildXForm } from "@/lib/commcare/xform";
 import { migrateDocExpressions } from "@/lib/doc/expressionMigration";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import {
+	asUuid,
 	FIELD_REFERENCE_SLOTS,
 	isXPathExpression,
 	printXPath,
@@ -136,6 +137,22 @@ function richDoc(): BlueprintDoc {
 							}),
 						],
 					},
+					{
+						name: "Close case",
+						type: "close",
+						closeCondition: { field: "outcome", answer: "deceased" },
+						fields: [
+							f({
+								kind: "single_select",
+								id: "outcome",
+								label: "Outcome",
+								options: [
+									{ value: "deceased", label: "Deceased" },
+									{ value: "moved", label: "Moved" },
+								],
+							}),
+						],
+					},
 				],
 			},
 		],
@@ -146,14 +163,22 @@ const AST_SLOT_PATHS = FIELD_REFERENCE_SLOTS.filter(
 	(slot) => slot.kind === "xpath-ast",
 ).map((slot) => slot.path);
 
-/** Project every AST slot back to its printed string — the stored
- *  shape a string-era doc carried. */
+/** Project every AST slot back to its printed string, and every
+ *  close-condition uuid back to its field id — the stored shape a
+ *  string-era doc carried. */
 function legacyize(doc: BlueprintDoc): BlueprintDoc {
 	const ctx = xpathPrintContext(doc);
 	for (const field of Object.values(doc.fields)) {
 		for (const path of AST_SLOT_PATHS) {
 			rewriteSlotValues(field, path, (value) =>
 				isXPathExpression(value) ? printXPath(value, ctx) : value,
+			);
+		}
+	}
+	for (const form of Object.values(doc.forms)) {
+		if (form.closeCondition) {
+			form.closeCondition.field = asUuid(
+				doc.fields[form.closeCondition.field]?.id ?? form.closeCondition.field,
 			);
 		}
 	}
@@ -182,8 +207,22 @@ describe("expression migration — byte identity", () => {
 		const result = migrateDocExpressions(migrated);
 		expect(result.failures).toEqual([]);
 		expect(result.converted).toBeGreaterThanOrEqual(9);
+		expect(result.closeRefsConverted).toBe(1);
+		expect(result.unresolvedCloseRefs).toEqual([]);
 
 		expect(emitAll(migrated)).toBe(before);
+	});
+
+	it("converts the close-condition ref to the checked field's uuid", () => {
+		const migrated = legacyize(richDoc());
+		migrateDocExpressions(migrated);
+		const closeForm = Object.values(migrated.forms).find(
+			(form) => form.type === "close",
+		);
+		const outcome = Object.values(migrated.fields).find(
+			(field) => field.id === "outcome",
+		);
+		expect(closeForm?.closeCondition?.field).toBe(outcome?.uuid);
 	});
 
 	it("converts every string slot to the AST shape (no dual storage left)", () => {

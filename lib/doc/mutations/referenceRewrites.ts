@@ -106,7 +106,6 @@ export function rewriteFieldReferenceSlots(
 				// case-property renames never change a type name.
 				break;
 			case "predicate-ast":
-			case "field-id-ref":
 			case "entity-uuid":
 			case "case-property-ref":
 				// No field slot carries these kinds today. A new one must
@@ -139,25 +138,9 @@ export function rewriteFieldReferenceSlots(
  * validate against their own form's field paths
  * (`lib/commcare/validator/index.ts` checks them with the form's
  * `validPaths`).
- *
- * `fieldIdRename` drives `closeCondition.field` — a bare leaf-id
- * pointer at a field in the same form. Bare ids are ambiguous when
- * cousins share the leaf (`lib/commcare/formActions.ts::findField`
- * resolves the first match in walk order), so the ref is rewritten
- * only when the renamed field was the UNIQUE holder of the old id in
- * the form: if another field still answers to the old name the ref
- * keeps resolving to it, and rewriting would silently retarget the
- * close condition. Absent on passes that don't change a field id in
- * this form (the case-property hashtag pass, moveField's path pass).
  */
 export interface FormSlotRewriteContext {
 	xpath: (expr: string) => string;
-	fieldIdRename?: {
-		oldId: string;
-		newId: string;
-		/** True iff another field in this form still has `oldId`. */
-		oldIdStillTaken: boolean;
-	};
 }
 
 /**
@@ -184,15 +167,7 @@ export function rewriteFormReferenceSlots(
 			case "deliver_entity_name":
 				changed += rewriteSlotStrings(form, slot.path, ctx.xpath);
 				break;
-			case "close_condition_field": {
-				const rename = ctx.fieldIdRename;
-				if (rename === undefined || rename.oldIdStillTaken) break;
-				if (form.closeCondition?.field === rename.oldId) {
-					form.closeCondition.field = rename.newId;
-					changed++;
-				}
-				break;
-			}
+			case "close_condition_field":
 			case "form_link_target":
 				// entity-uuid — stable identity, unaffected by renames/moves.
 				break;

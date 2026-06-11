@@ -194,7 +194,22 @@ export function formSnapshot(
 ): FormSnapshot | undefined {
 	const form = doc.forms[formUuid];
 	if (!form) return undefined;
-	return { ...form, fields: buildFieldTree(doc, formUuid) };
+	// The SA speaks field ids; the stored close-condition ref is the
+	// field's stable uuid — project it back (a dangler shows its text).
+	const closeCondition = form.closeCondition
+		? {
+				...form.closeCondition,
+				field: asUuid(
+					doc.fields[form.closeCondition.field]?.id ??
+						form.closeCondition.field,
+				),
+			}
+		: undefined;
+	return {
+		...form,
+		...(closeCondition !== undefined && { closeCondition }),
+		fields: buildFieldTree(doc, formUuid),
+	};
 }
 
 // ── Mutation builders — app level ───────────────────────────────────────

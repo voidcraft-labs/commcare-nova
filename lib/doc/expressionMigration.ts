@@ -20,6 +20,7 @@
 // no second slot list to maintain.
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
+import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
 	FIELD_REFERENCE_SLOTS,
@@ -31,6 +32,14 @@ import {
 	rewriteSlotValues,
 	xpathPrintContext,
 } from "@/lib/domain";
+
+/** A close condition whose field reference no id in its form answers
+ *  to — left verbatim (the validator's close-condition rules carry the
+ *  signal), reported so the scan can size the class. */
+export interface UnresolvedCloseFieldRef {
+	formUuid: string;
+	ref: string;
+}
 
 /** One slot whose stored text did not survive the round-trip law. */
 export interface ExpressionConversionFailure {
@@ -51,6 +60,10 @@ export interface DocExpressionMigrationResult {
 	skipped: number;
 	/** Round-trip failures — reported, left as strings. */
 	failures: ExpressionConversionFailure[];
+	/** Close-condition refs converted id → uuid. */
+	closeRefsConverted: number;
+	/** Close-condition refs nothing answered to — left verbatim. */
+	unresolvedCloseRefs: UnresolvedCloseFieldRef[];
 }
 
 const FIELD_AST_SLOTS = FIELD_REFERENCE_SLOTS.filter(
@@ -78,6 +91,8 @@ export function migrateDocExpressions(
 		converted: 0,
 		skipped: 0,
 		failures: [],
+		closeRefsConverted: 0,
+		unresolvedCloseRefs: [],
 	};
 	const printCtx = () => xpathPrintContext(doc);
 
@@ -133,7 +148,38 @@ export function migrateDocExpressions(
 				convert(uuid, slot.slot, resolve, value),
 			);
 		}
+		migrateCloseCondition(doc, uuid, form, result);
 	}
 
 	return result;
+}
+
+/**
+ * Convert a legacy close-condition field reference (a bare leaf id) to
+ * the target field's stable uuid — pre-order first match, the exact
+ * field the id-stored era's wire emission resolved to, so the emitted
+ * bytes cannot move. A ref already naming a field uuid is current; a
+ * ref nothing answers to stays verbatim and is reported.
+ */
+function migrateCloseCondition(
+	doc: BlueprintDoc,
+	formUuid: string,
+	form: unknown,
+	result: DocExpressionMigrationResult,
+): void {
+	const closeCondition = (form as { closeCondition?: { field?: unknown } })
+		.closeCondition;
+	const ref = closeCondition?.field;
+	if (typeof ref !== "string" || ref.length === 0) return;
+	if (doc.fields[ref as Uuid] !== undefined) {
+		result.skipped++;
+		return;
+	}
+	const resolved = resolveCloseFieldRef(doc, formUuid, ref);
+	if (resolved === ref) {
+		result.unresolvedCloseRefs.push({ formUuid, ref });
+		return;
+	}
+	(closeCondition as { field: string }).field = resolved;
+	result.closeRefsConverted++;
 }
