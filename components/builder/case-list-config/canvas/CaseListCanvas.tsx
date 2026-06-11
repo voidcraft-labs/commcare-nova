@@ -200,6 +200,7 @@ export function CaseListCanvas({
 										<HeaderCell
 											column={col}
 											selected={selectedColumnUuid === col.uuid}
+											isFirst={i === 0}
 											sortPosition={sortPositions.get(col.uuid)}
 											setHandleEl={setHandleEl}
 											onClick={() =>
@@ -347,6 +348,9 @@ export function CaseListCanvas({
 interface HeaderCellProps {
 	readonly column: Column;
 	readonly selected: boolean;
+	/** Whether this header occupies the table's top-left corner — the
+	 *  one spot where the cell's shape includes the container's curve. */
+	readonly isFirst: boolean;
 	readonly sortPosition: number | undefined;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onClick: () => void;
@@ -355,6 +359,7 @@ interface HeaderCellProps {
 function HeaderCell({
 	column,
 	selected,
+	isFirst,
 	sortPosition,
 	setHandleEl,
 	onClick,
@@ -373,11 +378,12 @@ function HeaderCell({
 				onClick={onClick}
 				className={`flex items-center gap-1.5 px-3.5 min-h-11 w-full text-left font-semibold text-[13px] whitespace-nowrap overflow-hidden cursor-pointer border-r border-nova-border last:border-r-0 transition-colors ${
 					selected
-						? /* Ring radius = the table wrapper's INNER corner curve
-						   (rounded-lg outer minus its 1px border), so a selected
-						   first column hugs the container corner instead of
-						   getting clipped against a curve it doesn't follow. */
-							"bg-nova-violet/[0.14] shadow-[inset_0_0_0_1.5px_var(--nova-violet)] rounded-[calc(var(--radius)-1px)] text-nova-text"
+						? /* The ring traces the cell's TRUE shape: square corners
+						   everywhere, except the first cell's top-left — the one
+						   corner the container's rounded clip actually curves —
+						   which matches the wrapper's inner radius (rounded-lg
+						   outer minus its 1px border). */
+							`bg-nova-violet/[0.14] shadow-[inset_0_0_0_1.5px_var(--nova-violet)] text-nova-text ${isFirst ? "rounded-tl-[calc(var(--radius)-1px)]" : ""}`
 						: "text-nova-text hover:bg-white/[0.03]"
 				} ${hidden ? "opacity-50" : ""}`}
 			>
