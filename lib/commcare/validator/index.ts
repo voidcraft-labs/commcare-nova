@@ -290,20 +290,21 @@ export function validateBlueprintDeep(
 			const validPaths = collectValidPaths(doc, formUuid);
 
 			// The form's connect config, read directly from the doc (only when
-			// the app is in Connect mode). The validator runs on in-progress
-			// docs that may not yet have ids filled, so it must NOT route
-			// through the emit-time `buildConnectSlugMap` (which asserts ids
-			// are present) — it reads `form.connect` and guards each valid-path
-			// arm on the id being set. An id-less block simply contributes no
-			// valid path; the connect-id format/length rules in `rules/form.ts`
-			// and the app-wide `CONNECT_ID_DUPLICATE` rule in `rules/app.ts`
-			// carry the authoring signal for a bad or colliding explicit id.
+			// the app is in Connect mode). The validator runs on docs that may
+			// carry an id-less block (a doc that skipped the source
+			// enforcement), so it must NOT route through the emit-time
+			// `buildConnectSlugMap` (which THROWS on a missing id) — it reads
+			// `form.connect` and guards each valid-path arm on the id being
+			// set. An id-less block simply contributes no valid path; the
+			// connect-id rules in `rules/form.ts` carry the authoring signal
+			// (`CONNECT_ID_MISSING` for the unset id itself, format/length for
+			// a bad explicit one) and the app-wide `CONNECT_ID_DUPLICATE` rule
+			// in `rules/app.ts` covers collisions.
 			const connect = doc.connectType ? form.connect : undefined;
 
 			// Expose Connect data paths so XPath expressions can reference them.
-			// Each arm gates on the id being present (a wire node only exists
-			// once the id is set; an id-less block is filled at the source
-			// before export).
+			// Each arm gates on the id being present — a wire node only exists
+			// once the id is set.
 			if (connect) {
 				if (connect.learn_module?.id) {
 					validPaths.add(`/data/${connect.learn_module.id}`);

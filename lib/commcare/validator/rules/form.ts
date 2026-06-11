@@ -611,24 +611,67 @@ function connectValidation(
 	// `varchar(50)`). `connectIdError` is the single authority on what makes
 	// an id valid (legal element name AND within length) — the same helper
 	// the field-level commit guard uses, so the field and the server never
-	// disagree. We reject a bad id here rather than silently fixing it. Only
-	// non-empty ids are checked: an absent/empty id means "use the default",
-	// which `deriveConnectDefaults` mints (legal chars, capped length), so a
-	// derived id never trips this — it fires only on hand-typed / SA-supplied
-	// ids (the agent path sets ids as a bare string, bypassing the field).
+	// disagree. We reject a bad id here rather than silently fixing it.
 	//
-	// The helper returns one reason; we pick the structured code from the
-	// cheap element-name check (a char failure → INVALID_FORMAT, otherwise
-	// the only remaining failure is length → TOO_LONG) and wrap the reason
-	// with the form/kind context the message needs.
-	const connectIds: ReadonlyArray<{ label: string; id: string | undefined }> = [
-		{ label: "learn-module", id: form.connect.learn_module?.id },
-		{ label: "assessment", id: form.connect.assessment?.id },
-		{ label: "deliver-unit", id: form.connect.deliver_unit?.id },
-		{ label: "task", id: form.connect.task?.id },
+	// Every source path leaves the id SET: the SA tools autofill or reject
+	// (`enforceConnectIds`), the UI seed/restore paths derive
+	// (`dedupeRestoredConnectIds`). Nothing downstream supplies a default —
+	// the emit resolver (`buildConnectSlugMap`) THROWS on a missing id — so
+	// a block that reaches validation id-less is a doc that skipped that
+	// enforcement, and the unset id is its own finding (CONNECT_ID_MISSING)
+	// rather than a 500 at export. Only the app mode's live kinds are
+	// checked for absence, mirroring the resolver (a cross-mode stray never
+	// emits, so its missing id breaks nothing).
+	//
+	// For a SET id, `connectIdError` returns one reason; we pick the
+	// structured code from the cheap element-name check (a char failure →
+	// INVALID_FORMAT, otherwise the only remaining failure is length →
+	// TOO_LONG) and wrap the reason with the form/kind context.
+	const liveKindLabels: ReadonlySet<string> =
+		doc.connectType === "learn"
+			? new Set(["learn-module", "assessment"])
+			: new Set(["deliver-unit", "task"]);
+	const connectIds: ReadonlyArray<{
+		label: string;
+		present: boolean;
+		id: string | undefined;
+	}> = [
+		{
+			label: "learn-module",
+			present: form.connect.learn_module !== undefined,
+			id: form.connect.learn_module?.id,
+		},
+		{
+			label: "assessment",
+			present: form.connect.assessment !== undefined,
+			id: form.connect.assessment?.id,
+		},
+		{
+			label: "deliver-unit",
+			present: form.connect.deliver_unit !== undefined,
+			id: form.connect.deliver_unit?.id,
+		},
+		{
+			label: "task",
+			present: form.connect.task !== undefined,
+			id: form.connect.task?.id,
+		},
 	];
-	for (const { label, id } of connectIds) {
-		if (!id) continue; // unset/empty → resolver supplies a valid default
+	for (const { label, present, id } of connectIds) {
+		if (!id) {
+			if (present && liveKindLabels.has(label)) {
+				errors.push(
+					validationError(
+						"CONNECT_ID_MISSING",
+						"form",
+						`The Connect ${label} block in "${ctx.formName}" has no id. Every Connect block needs one — it becomes the block's database slug on Connect and its XForm element name, so the app can't export without it. Nova fills the id in when a block is created through the normal paths; set one on this block (letters, numbers, and underscores, 50 characters or fewer, unique across the app) via update_form or the form's Connect settings.`,
+						loc,
+						{ connectKind: label },
+					),
+				);
+			}
+			continue;
+		}
 		const reason = connectIdError(id);
 		if (!reason) continue;
 		const code = XML_ELEMENT_NAME_REGEX.test(id)

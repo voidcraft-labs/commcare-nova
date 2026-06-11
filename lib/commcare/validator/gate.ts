@@ -162,6 +162,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CONNECT_EMPTY_XPATH: "soundness",
 	CONNECT_ID_INVALID_FORMAT: "soundness",
 	CONNECT_ID_TOO_LONG: "soundness",
+	CONNECT_ID_MISSING: "soundness",
 	CONNECT_ID_DUPLICATE: "soundness",
 	CASE_HASHTAG_ON_CREATE_FORM: "soundness",
 	PRIMARY_CASE_FIELD_IN_REPEAT: "soundness",
@@ -494,6 +495,12 @@ export function errorIdentity(err: ValidationError): string {
 		case "CONNECT_ID_INVALID_FORMAT":
 		case "CONNECT_ID_TOO_LONG":
 			parts.push(part("f", loc.formUuid), part("connectId", det?.connectId));
+			break;
+		case "CONNECT_ID_MISSING":
+			// No id value exists to key on — the sub-config KIND is the
+			// per-finding subject, so two id-less blocks on one form (e.g.
+			// learn_module + assessment) stay distinct findings.
+			parts.push(part("f", loc.formUuid), part("kind", det?.connectKind));
 			break;
 		case "CASE_HASHTAG_ON_CREATE_FORM":
 			parts.push(

@@ -424,11 +424,14 @@ describe("buildConnectSlugMap — empty / absent handling", () => {
 		expect(buildConnectSlugMap(doc).size).toBe(0);
 	});
 
-	// Note: id-less blocks are filled at the source (`deriveConnectDefaults`
-	// autofill), so they never reach the resolver id-less in normal flow —
-	// the autofill + uniqueness behavior is covered by `deriveConnectId` and
-	// `deriveConnectDefaults` tests, and the resolver's invariant-throw on a
-	// blank id is covered by the pass-through describe above.
+	// Note: id-less blocks are filled at the source (`enforceConnectIds` on
+	// the SA tools, `dedupeRestoredConnectIds` on the UI seed/restore), so
+	// they never reach the resolver id-less in normal flow — the autofill +
+	// uniqueness behavior is covered by the `deriveConnectId` tests below
+	// and the per-tool enforcement tests, the validator's
+	// `CONNECT_ID_MISSING` backstop covers a doc that skipped enforcement,
+	// and the resolver's invariant-throw on a blank id is covered by the
+	// pass-through describe above.
 });
 
 // ── End-to-end through expandDoc — wire-surface consistency ──────────

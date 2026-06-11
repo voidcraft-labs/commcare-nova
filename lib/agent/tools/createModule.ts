@@ -16,15 +16,23 @@
  * goes through the case-list-config tools once the module exists; this
  * tool's `case_list_columns` exists so the module can BE BORN complete.
  *
+ * Each form's `connect` block runs through `enforceConnectIds` (the
+ * agent-path source guard, same as `updateForm` / `generateScaffold`)
+ * BEFORE the batch is built — one app-wide id set threads through every
+ * form in the call, so an omitted id autofills valid + unique across the
+ * whole creation and an explicit invalid or duplicate id fails the call.
+ *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
  *
- *   1. Identifier guard rejection in any form's fields → `{ error }`
+ *   1. An explicit connect id is invalid/duplicate → `{ error }`, no
+ *      mutations.
+ *   2. Identifier guard rejection in any form's fields → `{ error }`
  *      naming every failing item, nothing persisted.
- *   2. Commit-gate rejection → `{ error }` listing each finding,
+ *   3. Commit-gate rejection → `{ error }` listing each finding,
  *      nothing persisted.
- *   3. Unexpected runtime error → `{ error }`, no mutations.
- *   4. Success → a human-readable `message` (+ a UI `summary`) carrying
+ *   4. Unexpected runtime error → `{ error }`, no mutations.
+ *   5. Success → a human-readable `message` (+ a UI `summary`) carrying
  *      the new module's index + structure counts, stage `module:create`.
  */
 
@@ -42,6 +50,7 @@ import {
 	stampColumnUuid,
 } from "./case-list-config/shared";
 import { guardedMutate, type MutatingToolResult } from "./common";
+import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
@@ -145,7 +154,33 @@ export const createModuleTool = {
 
 			let fieldCount = 0;
 			const skipped: Array<{ id: string; reason: string }> = [];
+			// One app-wide id set threads through every form in this call:
+			// `enforceConnectIds` adds each autofilled/explicit-valid id as it
+			// goes, so two id-less blocks across sibling forms can't derive the
+			// same slug. No exclusion — none of this call's forms exist in the
+			// doc yet.
+			const takenConnectIds = collectConnectIds(doc);
 			for (const formInput of forms ?? []) {
+				let enforcedConnect: ConnectConfig | undefined;
+				if (formInput.connect) {
+					const enforced = enforceConnectIds(
+						formInput.connect as ConnectConfig,
+						name,
+						formInput.name,
+						takenConnectIds,
+					);
+					if (!enforced.ok) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Module "${name}" wasn't created — form "${formInput.name}": ${enforced.error}`,
+							},
+						};
+					}
+					enforcedConnect = enforced.config;
+				}
 				const formUuid = asUuid(crypto.randomUUID());
 				mutations.push(
 					...addFormMutations(
@@ -158,9 +193,7 @@ export const createModuleTool = {
 							...(formInput.post_submit && {
 								postSubmit: formInput.post_submit,
 							}),
-							...(formInput.connect && {
-								connect: formInput.connect as ConnectConfig,
-							}),
+							...(enforcedConnect && { connect: enforcedConnect }),
 						},
 						// The module is created by THIS batch — skip the
 						// doc-existence guard that would otherwise reject it.

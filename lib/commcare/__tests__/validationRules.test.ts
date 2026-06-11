@@ -2,6 +2,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { buildDoc, caseListConfig, f } from "../../__tests__/docHelpers";
+import { errorIdentity, evaluateBoundary } from "../validator/gate";
 import { runValidation } from "../validator/runner";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -2412,20 +2413,81 @@ describe("connect rules", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("does not flag an id-less connect block (resolver derives a valid id)", () => {
-		// Empty/unset id means "use the default" — the emit-time resolver
-		// derives a legal name slug. The rule must skip these so a normal
-		// id-less learn_module never trips it.
+	it("reports an id-less connect block as CONNECT_ID_MISSING, not a format error", () => {
+		// Every source path leaves the id set (tool autofill, UI seed/restore)
+		// and nothing downstream supplies a default — the emit resolver THROWS
+		// on a missing id. So an id-less block in a stored doc is its own
+		// finding here, the backstop that turns the would-be export 500 into
+		// an actionable message. The format rule still skips it (there is no
+		// id value to judge).
 		const doc = connectDoc({
 			connectType: "learn",
 			formConnect: {
 				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
 			},
 		});
-		const errors = runValidation(doc).filter(
-			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		const errors = runValidation(doc);
+		expect(
+			errors.filter((e) => e.code === "CONNECT_ID_INVALID_FORMAT"),
+		).toEqual([]);
+		const missing = errors.filter((e) => e.code === "CONNECT_ID_MISSING");
+		expect(missing).toHaveLength(1);
+		expect(missing[0].message).toContain("learn-module");
+		expect(missing[0].message).toContain("First Form");
+	});
+
+	it("keeps two id-less blocks on one form as distinct CONNECT_ID_MISSING findings", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
+				assessment: { user_score: "100" },
+			},
+		});
+		const missing = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_MISSING",
 		);
-		expect(errors).toEqual([]);
+		expect(missing).toHaveLength(2);
+		// The identity discriminator is the sub-config kind — the gate must
+		// never collapse the two into one finding.
+		expect(new Set(missing.map((e) => errorIdentity(e))).size).toBe(2);
+	});
+
+	it("does not flag an id-less CROSS-MODE stray (it never emits, so its id breaks nothing)", () => {
+		// Mirrors the emit resolver: only mode-matching kinds ship, so a stray
+		// deliver_unit on a learn app needs no id. The learn arm still needs
+		// its block — give it a valid one so the only candidate finding is the
+		// stray's.
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "intake",
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+				deliver_unit: { name: "Stray" },
+			},
+		});
+		expect(
+			runValidation(doc).filter((e) => e.code === "CONNECT_ID_MISSING"),
+		).toEqual([]);
+	});
+
+	it("surfaces the id-less block at the export boundary as a finding, never the emitter throw", () => {
+		// The zero-tolerance boundary run is what every export entry point
+		// consults BEFORE expansion — it must report the state the emit
+		// resolver would otherwise throw on, so a stored id-less doc gets an
+		// actionable rejection instead of a 500.
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
+			},
+		});
+		const findings = evaluateBoundary(doc, new Map());
+		expect(findings.some((e) => e.code === "CONNECT_ID_MISSING")).toBe(true);
 	});
 
 	it("flags bad ids on assessment, deliver_unit, and task too", () => {

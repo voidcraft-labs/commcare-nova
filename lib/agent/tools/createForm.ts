@@ -13,16 +13,25 @@
  * (`shared/fieldAssembly.ts`), so groups + nested children compose
  * identically on both tools.
  *
+ * A `connect` block runs through `enforceConnectIds` (the agent-path
+ * source guard, same as `updateForm` / `generateScaffold`) BEFORE the
+ * batch is built: an omitted connect id is autofilled with a valid,
+ * unique, name-derived id (stored on the doc from then on), and an
+ * explicit invalid or duplicate id fails the call — the schema's "leave
+ * the id unset and Nova fills it in" promise holds on this tool too.
+ *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
  *
  *   1. Parent module index out of range → `{ error }`, no mutations.
- *   2. Identifier guard rejection (any field id illegal / reserved /
+ *   2. An explicit connect id is invalid/duplicate → `{ error }`, no
+ *      mutations.
+ *   3. Identifier guard rejection (any field id illegal / reserved /
  *      over-long / batch-conflicting) → `{ error }` naming EVERY failing
  *      item, nothing persisted.
- *   3. Commit-gate rejection (the batch would introduce a validator
+ *   4. Commit-gate rejection (the batch would introduce a validator
  *      finding) → `{ error }` listing each finding, nothing persisted.
- *   4. Success → human-readable summary with the new form's positional
+ *   5. Success → human-readable summary with the new form's positional
  *      index + field count, tagged under `module:M` so the event log
  *      groups this creation with the rest of that module's activity.
  */
@@ -41,6 +50,7 @@ import { connectFormConfigSchema } from "../scaffoldSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import { guardedMutate, type MutatingToolResult } from "./common";
+import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
@@ -105,6 +115,32 @@ export const createFormTool = {
 				};
 			}
 
+			// Force connect ids correct at the source before the batch is
+			// built: autofill an omitted id (valid + unique, derived from the
+			// module/form name), reject an explicit invalid or duplicate id by
+			// failing the call (writes nothing). No exclusion is passed to the
+			// collector — the form this call creates doesn't exist in the doc
+			// yet, so every stored id is a potential conflict.
+			let enforcedConnect: ConnectConfig | undefined;
+			if (connect) {
+				const moduleName = doc.modules[moduleUuid]?.name ?? "module";
+				const enforced = enforceConnectIds(
+					connect as ConnectConfig,
+					moduleName,
+					name,
+					collectConnectIds(doc),
+				);
+				if (!enforced.ok) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: { error: enforced.error },
+					};
+				}
+				enforcedConnect = enforced.config;
+			}
+
 			// Mint the form's uuid here so the field assembly can target it —
 			// the form only exists once the addForm mutation applies, but the
 			// assembly's sibling scans correctly read an absent `fieldOrder`
@@ -117,7 +153,7 @@ export const createFormTool = {
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
-				...(connect && { connect: connect as ConnectConfig }),
+				...(enforcedConnect && { connect: enforcedConnect }),
 			});
 
 			// Per-kind union arms are validated structural subsets of the wide

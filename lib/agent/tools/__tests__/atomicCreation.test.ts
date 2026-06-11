@@ -448,3 +448,292 @@ describe("atomic creation on a complete Connect app", () => {
 		expect(recordMutations).toHaveBeenCalledTimes(1);
 	});
 });
+
+// ── Connect-id source enforcement on the creation tools ──────────────
+//
+// The creation tools are connect-block writers, so they carry the same
+// at-source id contract `updateForm` / `generateScaffold` hold: an
+// omitted id is autofilled (valid, unique, name-derived, STORED on the
+// doc) and an explicit invalid/duplicate id fails the call with nothing
+// persisted. Nothing downstream supplies a default — the emit resolver
+// throws on a missing id — so this enforcement is what makes the
+// schema's "leave the id unset and Nova fills it in" description true.
+
+describe("creation tools force connect ids correct at the source", () => {
+	it("createForm autofills an omitted connect id from the module name, unique against stored ids", async () => {
+		const { ctx } = makeCtx("complete");
+		const out = await createFormTool.execute(
+			{
+				moduleIndex: 0,
+				name: "Lesson two",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "lesson_notes",
+						label: "Notes",
+						case_property_on: "trainee",
+					} as never,
+				],
+				connect: {
+					learn_module: {
+						// id omitted — the normal case the schema description promises.
+						name: "Lesson two",
+						description: "Follow-up content",
+						time_estimate: 20,
+					},
+				},
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("message" in out.result).toBe(true);
+		const addForm = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
+		);
+		// Derived from the module name ("Lessons"), valid + unique vs the
+		// stored "enroll_module".
+		expect(addForm?.form.connect?.learn_module?.id).toBe("lessons");
+	});
+
+	it("createForm rejects an explicit duplicate connect id (nothing persisted)", async () => {
+		const { ctx, recordMutations } = makeCtx("complete");
+		const out = await createFormTool.execute(
+			{
+				moduleIndex: 0,
+				name: "Lesson two",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "lesson_notes",
+						label: "Notes",
+						case_property_on: "trainee",
+					} as never,
+				],
+				connect: {
+					learn_module: {
+						id: "enroll_module", // already taken by the stored form
+						name: "Lesson two",
+						description: "Follow-up content",
+						time_estimate: 20,
+					},
+				},
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("error" in out.result && out.result.error).toContain(
+			"enroll_module",
+		);
+		expect(out.mutations).toEqual([]);
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("createForm rejects an explicit XML-illegal connect id", async () => {
+		const { ctx, recordMutations } = makeCtx("complete");
+		const out = await createFormTool.execute(
+			{
+				moduleIndex: 0,
+				name: "Lesson two",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "lesson_notes",
+						label: "Notes",
+						case_property_on: "trainee",
+					} as never,
+				],
+				connect: {
+					learn_module: {
+						id: "bad id",
+						name: "Lesson two",
+						description: "Follow-up content",
+						time_estimate: 20,
+					},
+				},
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("error" in out.result && out.result.error).toContain("bad id");
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("createModule autofills omitted ids uniquely across the call's own forms", async () => {
+		// Two id-less learn_module blocks in ONE creation both derive from the
+		// module name — the threaded id set must suffix the second, so the
+		// batch can't be born with a duplicate.
+		const { ctx } = makeCtx("complete");
+		const out = await createModuleTool.execute(
+			{
+				name: "Refreshers",
+				case_type: "refresher",
+				forms: [
+					{
+						name: "Refresher one",
+						type: "registration",
+						fields: [
+							{
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "refresher",
+							} as never,
+							{
+								kind: "text",
+								id: "topic_covered",
+								label: "Topic covered",
+								case_property_on: "refresher",
+							} as never,
+						],
+						connect: {
+							learn_module: {
+								name: "Refresher one",
+								description: "Part one",
+								time_estimate: 5,
+							},
+						},
+					},
+					{
+						name: "Refresher two",
+						type: "followup",
+						fields: [
+							{
+								kind: "text",
+								id: "notes",
+								label: "Notes",
+								case_property_on: "refresher",
+							} as never,
+						],
+						connect: {
+							learn_module: {
+								name: "Refresher two",
+								description: "Part two",
+								time_estimate: 5,
+							},
+						},
+					},
+				],
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" } as never,
+				],
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("message" in out.result).toBe(true);
+		const ids = out.mutations
+			.filter(
+				(m): m is Extract<typeof m, { kind: "addForm" }> =>
+					m.kind === "addForm",
+			)
+			.map((m) => m.form.connect?.learn_module?.id);
+		expect(ids).toEqual(["refreshers", "refreshers_2"]);
+	});
+
+	it("createModule rejects an explicit duplicate id against a stored block (nothing persisted)", async () => {
+		const { ctx, recordMutations } = makeCtx("complete");
+		const out = await createModuleTool.execute(
+			{
+				name: "Refreshers",
+				case_type: "refresher",
+				forms: [
+					{
+						name: "Refresher one",
+						type: "registration",
+						fields: [
+							{
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "refresher",
+							} as never,
+							{
+								kind: "text",
+								id: "topic_covered",
+								label: "Topic covered",
+								case_property_on: "refresher",
+							} as never,
+						],
+						connect: {
+							learn_module: {
+								id: "enroll_module", // taken by the stored form
+								name: "Refresher one",
+								description: "Part one",
+								time_estimate: 5,
+							},
+						},
+					},
+				],
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" } as never,
+				],
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("error" in out.result && out.result.error).toContain(
+			"enroll_module",
+		);
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("caps an id autofilled from a long module name at the 50-character slug limit", async () => {
+		// LEEP regression: this module name's snake-id is 52 chars, over the
+		// varchar(50) Connect column — the autofill must cap at derivation so
+		// CONNECT_ID_TOO_LONG can never fire on an id the user didn't type.
+		const { ctx } = makeCtx("complete");
+		const out = await createModuleTool.execute(
+			{
+				name: "Module 3 — Conducting the 15-question seller interview",
+				case_type: "seller",
+				forms: [
+					{
+						name: "Interview",
+						type: "registration",
+						fields: [
+							{
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "seller",
+							} as never,
+							{
+								kind: "text",
+								id: "stall_location",
+								label: "Stall location",
+								case_property_on: "seller",
+							} as never,
+						],
+						connect: {
+							learn_module: {
+								name: "Interview",
+								description: "Seller interview training",
+								time_estimate: 15,
+							},
+						},
+					},
+				],
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" } as never,
+				],
+			},
+			ctx,
+			completeConnectDoc(),
+		);
+
+		expect("message" in out.result).toBe(true);
+		const addForm = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
+		);
+		const id = addForm?.form.connect?.learn_module?.id as string;
+		expect(id.length).toBeLessThanOrEqual(50);
+	});
+});

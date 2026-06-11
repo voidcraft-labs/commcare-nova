@@ -10,336 +10,11 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
 import { asUuid } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	ConnectConfig,
-	ConnectLearnModule,
-	ConnectType,
-	Uuid,
-} from "@/lib/domain";
+import type { ConnectConfig, ConnectType, Uuid } from "@/lib/domain";
 import {
 	dedupeRestoredConnectIds,
-	deriveConnectDefaults,
 	type RestoredConnectIdContext,
 } from "../connectConfig";
-
-// ── Helpers ──────────────────────────────────────────────────────────
-//
-// `deriveConnectDefaults` operates on `BlueprintDoc` directly. The
-// builders below wrap a form's fields + connect block in a single-module
-// doc so every assertion has the shape the helper actually sees.
-
-const LEARN_FIELDS: FieldSpec[] = [
-	f({ kind: "label", id: "intro", label: "Welcome to the training module" }),
-	f({
-		kind: "single_select",
-		id: "q1",
-		label: "What is the correct dosage?",
-		options: [
-			{ value: "a", label: "10mg" },
-			{ value: "b", label: "20mg" },
-		],
-	}),
-	f({
-		kind: "single_select",
-		id: "q2",
-		label: "How often should you check?",
-		options: [
-			{ value: "daily", label: "Daily" },
-			{ value: "weekly", label: "Weekly" },
-		],
-	}),
-	f({
-		kind: "hidden",
-		id: "assessment_score",
-		calculate: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
-	}),
-];
-
-const DELIVER_FIELDS: FieldSpec[] = [
-	f({
-		kind: "date",
-		id: "report_date",
-		label: "Report Date",
-		required: "true()",
-	}),
-	f({
-		kind: "int",
-		id: "chlorine_level",
-		label: "Chlorine Level",
-		validate: ". >= 0 and . <= 10",
-	}),
-];
-
-/**
- * Build a one-module single-form doc with the given connect config + fields.
- * Returns both the doc and the form's uuid so tests can read the form back
- * after `deriveConnectDefaults` returns.
- */
-function buildConnectDoc(params: {
-	connectType: ConnectType;
-	moduleName?: string;
-	formName: string;
-	connect?: ConnectConfig;
-	fields?: FieldSpec[];
-}): { doc: BlueprintDoc; formUuid: Uuid } {
-	const doc = buildDoc({
-		connectType: params.connectType,
-		modules: [
-			{
-				name: params.moduleName ?? "Main",
-				forms: [
-					{
-						name: params.formName,
-						type: "survey",
-						connect: params.connect,
-						fields: params.fields,
-					},
-				],
-			},
-		],
-	});
-	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid][0];
-	return { doc, formUuid };
-}
-
-// ── deriveConnectDefaults ────────────────────────────────────────────
-
-describe("deriveConnectDefaults", () => {
-	it("returns undefined when form has no connect config", () => {
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "learn",
-			formName: "ILC Training",
-			fields: LEARN_FIELDS,
-		});
-		expect(
-			deriveConnectDefaults({ connectType: "learn", doc, formUuid }),
-		).toBeUndefined();
-	});
-
-	it("disambiguates a derived id against an id already used elsewhere in the app", () => {
-		// Autofill is unique by construction: when the name-derived slug
-		// ("main") is already taken by another block in the doc, the fill
-		// gets a numeric suffix rather than colliding. Build a two-module
-		// doc whose first module's form already carries an explicit
-		// learn_module id "main"; the second (same-named) module's id-less
-		// learn_module must derive something other than "main".
-		const doc = buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: "Main",
-					forms: [
-						{
-							name: "First",
-							type: "survey",
-							connect: {
-								learn_module: {
-									id: "main",
-									name: "First",
-									description: "x",
-									time_estimate: 5,
-								},
-							},
-						},
-					],
-				},
-				{
-					name: "Main",
-					forms: [
-						{
-							name: "Second",
-							type: "survey",
-							connect: {
-								learn_module: {
-									name: "Second",
-									description: "x",
-									time_estimate: 5,
-								},
-							},
-						},
-					],
-				},
-			],
-		});
-		const secondForm = doc.formOrder[doc.moduleOrder[1]][0];
-		const next = deriveConnectDefaults({
-			connectType: "learn",
-			doc,
-			formUuid: secondForm,
-			moduleName: "Main",
-		});
-		expect(next?.learn_module?.id).not.toBe("main");
-		expect(next?.learn_module?.id).toBeDefined();
-	});
-
-	it("fills learn_module defaults when learn_module is present", () => {
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "learn",
-			formName: "ILC Training",
-			connect: {
-				learn_module: {
-					name: "",
-					description: "",
-				} as Partial<ConnectLearnModule> as ConnectLearnModule,
-			},
-			fields: LEARN_FIELDS,
-		});
-		const next = deriveConnectDefaults({
-			connectType: "learn",
-			doc,
-			formUuid,
-			moduleName: "Main",
-		});
-		expect(next?.learn_module).toEqual({
-			id: "main",
-			name: "ILC Training",
-			description: "ILC Training",
-			// 4 fields / 3 rounded up = 2 — hidden assessment_score included;
-			// label/singleSelect/singleSelect/hidden all count (containers don't).
-			time_estimate: 2,
-		});
-	});
-
-	it("auto-detects assessment score when assessment is present", () => {
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "learn",
-			formName: "ILC Training",
-			connect: { assessment: { user_score: "" } },
-			fields: LEARN_FIELDS,
-		});
-		const next = deriveConnectDefaults({
-			connectType: "learn",
-			doc,
-			formUuid,
-			moduleName: "Main",
-		});
-		expect(next?.assessment).toEqual({
-			id: "main_ilc_training",
-			user_score: "if(/data/q1 = 'b' and /data/q2 = 'daily', 100, 0)",
-		});
-	});
-
-	it("does not auto-create learn_module or assessment from empty connect", () => {
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "learn",
-			formName: "ILC Training",
-			connect: {},
-			fields: LEARN_FIELDS,
-		});
-		const next = deriveConnectDefaults({
-			connectType: "learn",
-			doc,
-			formUuid,
-			moduleName: "Main",
-		});
-		expect(next?.learn_module).toBeUndefined();
-		expect(next?.assessment).toBeUndefined();
-	});
-
-	it("does not overwrite existing learn_module", () => {
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "learn",
-			formName: "ILC Training",
-			connect: {
-				learn_module: {
-					name: "Custom Name",
-					description: "Custom Desc",
-					time_estimate: 10,
-				},
-			},
-			fields: LEARN_FIELDS,
-		});
-		const next = deriveConnectDefaults({ connectType: "learn", doc, formUuid });
-		expect(next?.learn_module?.name).toBe("Custom Name");
-		expect(next?.learn_module?.time_estimate).toBe(10);
-	});
-
-	it("does not overwrite existing assessment", () => {
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "learn",
-			formName: "ILC Training",
-			connect: { assessment: { user_score: "50" } },
-			fields: LEARN_FIELDS,
-		});
-		const next = deriveConnectDefaults({ connectType: "learn", doc, formUuid });
-		expect(next?.assessment?.user_score).toBe("50");
-	});
-
-	it("fills deliver_unit `id` and `name` defaults; entity fields are wire-emit-only and remain unset on the doc", () => {
-		/* Layer-2 (`deriveConnectDefaults`) fills the user-semantic
-		 * fields the SA might have left blank — `id` from the module
-		 * slug, `name` from the form name. It does NOT fill
-		 * `entity_id` / `entity_name`: those are wire-format fallbacks
-		 * (see `DEFAULT_DELIVER_ENTITY_ID` / `DEFAULT_DELIVER_ENTITY_NAME`
-		 * in `lib/commcare/xform/builder.ts`) and Layer 2 keeps them
-		 * out of the persisted doc so the canonical default expression
-		 * lives in exactly one place. The `lib/commcare/__tests__/...`
-		 * XForm-builder test asserts the wire side. */
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "deliver",
-			formName: "Weekly Report",
-			connect: {
-				deliver_unit: { name: "", entity_id: "", entity_name: "" },
-			},
-			fields: DELIVER_FIELDS,
-		});
-		const next = deriveConnectDefaults({
-			connectType: "deliver",
-			doc,
-			formUuid,
-			moduleName: "Main",
-		});
-		expect(next?.deliver_unit).toEqual({
-			id: "main",
-			name: "Weekly Report",
-			entity_id: "",
-			entity_name: "",
-		});
-	});
-
-	it("does not overwrite existing deliver_unit", () => {
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "deliver",
-			formName: "Weekly Report",
-			connect: {
-				deliver_unit: {
-					name: "Custom Unit",
-					entity_id: "custom_id",
-					entity_name: "custom_name",
-				},
-			},
-			fields: DELIVER_FIELDS,
-		});
-		const next = deriveConnectDefaults({
-			connectType: "deliver",
-			doc,
-			formUuid,
-		});
-		expect(next?.deliver_unit?.name).toBe("Custom Unit");
-	});
-
-	it("fills assessment default score of 100 when no score field exists", () => {
-		const { doc, formUuid } = buildConnectDoc({
-			connectType: "learn",
-			moduleName: "Training",
-			formName: "Simple Learn",
-			connect: { assessment: { user_score: "" } },
-			fields: [f({ kind: "label", id: "content", label: "Read this." })],
-		});
-		const next = deriveConnectDefaults({
-			connectType: "learn",
-			doc,
-			formUuid,
-			moduleName: "Training",
-		});
-		expect(next?.assessment).toEqual({
-			id: "training_simple_learn",
-			user_score: "100",
-		});
-	});
-});
 
 // ── dedupeRestoredConnectIds ─────────────────────────────────────────
 //
@@ -745,11 +420,19 @@ describe("Connect validation", () => {
 	});
 
 	it("passes validation for well-formed learn config", () => {
+		// Ids are present, as every source path leaves them (creation/update
+		// tool autofill, UI seed/restore) — an id-less block is itself a
+		// finding (CONNECT_ID_MISSING), covered in validationRules.test.ts.
 		const doc = makeConnectValidationDoc(
 			"learn",
 			{
-				learn_module: { name: "Module", description: "Desc", time_estimate: 5 },
-				assessment: { user_score: "100" },
+				learn_module: {
+					id: "module",
+					name: "Module",
+					description: "Desc",
+					time_estimate: 5,
+				},
+				assessment: { id: "module_quiz", user_score: "100" },
 			},
 			"Form",
 			[f({ kind: "text", id: "q", label: "Q" })],
@@ -763,6 +446,7 @@ describe("Connect validation", () => {
 			"deliver",
 			{
 				deliver_unit: {
+					id: "unit",
 					name: "Unit",
 					entity_id: "concat('user', '-', today())",
 					entity_name: "'test_user'",
@@ -773,62 +457,5 @@ describe("Connect validation", () => {
 		);
 		const errors = runValidation(doc);
 		expect(errors).toHaveLength(0);
-	});
-});
-
-// ── Derived-id length cap ────────────────────────────────────────────
-//
-// A derived connect id must be valid-length, just as `toSnakeId` already
-// makes it valid-char. Without the cap, a long module name would derive an
-// over-50 id that the `CONNECT_ID_TOO_LONG` validator rule would then
-// falsely reject — an error the user couldn't fix without renaming the
-// module. The cap lives in `deriveConnectDefaults` so the rule fires only
-// on explicitly hand-typed over-length ids, never on a derived one.
-
-describe("Connect derived id length", () => {
-	// LEEP regression: this module name's snake-id is 52 chars, over the
-	// 50-char column limit — must be capped at derivation.
-	const LONG_MODULE_NAME =
-		"Module 3 — Conducting the 15-question seller interview";
-
-	function longNameLearnDoc(): BlueprintDoc {
-		return buildDoc({
-			connectType: "learn",
-			modules: [
-				{
-					name: LONG_MODULE_NAME,
-					forms: [
-						{
-							name: "Lesson",
-							type: "survey",
-							// id-less → derived from the long module name.
-							connect: {
-								learn_module: { name: "L", description: "x", time_estimate: 5 },
-							},
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
-						},
-					],
-				},
-			],
-		});
-	}
-
-	it("caps a derived learn_module id to ≤50 in deriveConnectDefaults", () => {
-		// LEEP regression: the long module name's snake-id is 52 chars; the
-		// derived id must be capped at derivation, so the `CONNECT_ID_TOO_LONG`
-		// rule never fires on an id the user can't shorten. The cap lives at
-		// the source (deriveConnectDefaults) — the emit-time resolver is a
-		// pass-through and never transforms, so there's nothing to assert at
-		// the wire beyond the consistency tests in connectSlugs.test.ts.
-		const doc = longNameLearnDoc();
-		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		const next = deriveConnectDefaults({
-			connectType: "learn",
-			doc,
-			formUuid,
-			moduleName: LONG_MODULE_NAME,
-		});
-		const id = next?.learn_module?.id as string;
-		expect(id.length).toBeLessThanOrEqual(50);
 	});
 });

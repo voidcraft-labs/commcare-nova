@@ -43,10 +43,7 @@ import { USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "./common";
-import {
-	collectConnectIdsExcept,
-	enforceConnectIds,
-} from "./shared/connectIds";
+import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -280,7 +277,7 @@ export const updateFormTool = {
 						merged,
 						moduleName,
 						existing.name,
-						collectConnectIdsExcept(doc, formUuid),
+						collectConnectIds(doc, formUuid),
 					);
 					if (!enforced.ok) {
 						return {

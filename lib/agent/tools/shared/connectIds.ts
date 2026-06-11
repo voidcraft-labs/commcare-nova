@@ -48,15 +48,17 @@ function liveKinds(doc: BlueprintDoc): readonly ConnectKind[] {
 }
 
 /**
- * Every connect id currently set anywhere in the doc EXCEPT the form being
- * edited (its own ids must not read as conflicts with themselves). Only the
- * doc's live (mode-matching) kinds count, so the SA scope matches the UI /
- * emit / validator scopes. Feeds both autofill uniqueness and the
- * explicit-duplicate rejection.
+ * Every connect id currently set anywhere in the doc, optionally excluding
+ * one form. The edit path (`updateForm`) excludes the form being edited so
+ * its own ids don't read as conflicts with themselves; the creation paths
+ * (`createForm` / `createModule`) pass no exclusion — their forms don't
+ * exist in the doc yet. Only the doc's live (mode-matching) kinds count, so
+ * the SA scope matches the UI / emit / validator scopes. Feeds both
+ * autofill uniqueness and the explicit-duplicate rejection.
  */
-export function collectConnectIdsExcept(
+export function collectConnectIds(
 	doc: BlueprintDoc,
-	exceptFormUuid: Uuid,
+	exceptFormUuid?: Uuid,
 ): Set<string> {
 	const ids = new Set<string>();
 	const kinds = liveKinds(doc);

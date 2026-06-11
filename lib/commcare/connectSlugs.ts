@@ -33,8 +33,8 @@
  *    missing, invalid, or duplicate id reaches it, and processes only blocks
  *    matching the doc's `connectType` (so a stray cross-mode block neither
  *    ships nor trips the invariant). The validator reads `form.connect`
- *    directly rather than through this resolver, because it runs on
- *    in-progress docs that may not yet have ids filled.
+ *    directly rather than through this resolver, because it must report an
+ *    id-less block as a finding (`CONNECT_ID_MISSING`) instead of throwing.
  */
 import type {
 	BlueprintDoc,
@@ -63,7 +63,8 @@ export const CONNECT_SLUG_MAX_LENGTH = 50;
  * SA-facing schema description for every connect `id` field.
  *
  * The id is `.optional()` on every connect sub-config across the agent's
- * tool schemas (`updateForm`, `generateScaffold`). Without telling the SA
+ * tool schemas (`updateForm`, `generateScaffold`, and the atomic creation
+ * tools `createForm` / `createModule`). Without telling the SA
  * *why* it's optional, the model would either set an id on every block (and
  * risk a fail-the-call on a bad value) or omit it and wonder if the call
  * will fail. This text closes that gap: omitting is the normal, safe path
@@ -193,18 +194,19 @@ export type ResolvedConnectConfig = {
  *
  * The resolver does NOT transform ids — no cap, no dedup, no sanitize, no
  * fallback. Every connect id is forced valid (legal element name + ≤50 +
- * unique) at the SOURCE: `deriveConnectId` autofills, `connectIdError` +
- * `connectIdConflictError` reject bad input at the UI commit guard and the
- * SA tools, and the validate-time pass backfills an id-less block. So a block
- * reaching emission with a missing OR invalid id (over-length / bad
- * characters) is an invariant violation — an entry point skipped that
- * enforcement. We throw loud rather than papering
- * over it: silently capping or sanitizing here would corrupt the wire (a
- * different id than the doc records). The throw converts any such gap into a
- * caught error rather than a corrupt wire — the compile/upload routes catch
- * it (the compile route collapses it to a generic 500 with the real reason
- * logged server-side, not shown to the user). In practice it should never
- * fire.
+ * unique) at the SOURCE: `deriveConnectId` autofills an omitted id on every
+ * block-writing path (the SA tools via `enforceConnectIds`, the UI
+ * seed/restore via `dedupeRestoredConnectIds`), and `connectIdError` +
+ * `connectIdConflictError` reject bad explicit input at the UI commit guard
+ * and the SA tools. So a block reaching emission with a missing OR invalid
+ * id (over-length / bad characters) is an invariant violation — an entry
+ * point skipped that enforcement. We throw loud rather than papering over
+ * it: silently capping or sanitizing here would corrupt the wire (a
+ * different id than the doc records). The throw is a tripwire BEHIND the
+ * validator, not a user surface: every export entry point runs the
+ * zero-tolerance boundary gate first, whose `CONNECT_ID_MISSING` /
+ * format/length/duplicate rules report the same states as actionable
+ * findings — so in practice this never fires.
  */
 function narrowId<T extends { id?: string }>(
 	sub: T,

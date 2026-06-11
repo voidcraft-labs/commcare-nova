@@ -5,13 +5,13 @@
 //     block's id (→ `{ ok: false }`, no config), including the
 //     order-dependent same-form cross-kind case (learn_module accumulated
 //     before assessment is checked);
-//   - `collectConnectIdsExcept` counts only mode-matching (live) kinds, so a
+//   - `collectConnectIds` counts only mode-matching (live) kinds, so a
 //     stray cross-mode block isn't "taken" — matching the UI / emit /
 //     validator scopes.
 
 import { describe, expect, it } from "vitest";
 import { asUuid, type BlueprintDoc, type ConnectConfig } from "@/lib/domain";
-import { collectConnectIdsExcept, enforceConnectIds } from "../connectIds";
+import { collectConnectIds, enforceConnectIds } from "../connectIds";
 
 const FORM_A = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const FORM_B = asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -74,7 +74,7 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 	});
 });
 
-describe("collectConnectIdsExcept — mode-matching scope", () => {
+describe("collectConnectIds — mode-matching scope", () => {
 	/** Learn doc: FORM_A has learn_module "intro" + a stray deliver_unit
 	 *  "stray"; FORM_B has learn_module "lesson_two". */
 	function learnDocWithStray(): BlueprintDoc {
@@ -126,7 +126,7 @@ describe("collectConnectIdsExcept — mode-matching scope", () => {
 	it("counts only live (mode-matching) kinds and excludes the named form", () => {
 		const doc = learnDocWithStray();
 		// Excluding FORM_A: FORM_B's learn_module "lesson_two" is in scope.
-		const scope = collectConnectIdsExcept(doc, FORM_A);
+		const scope = collectConnectIds(doc, FORM_A);
 		expect(scope.has("lesson_two")).toBe(true);
 		// FORM_A's own ids excluded (it's the edited form).
 		expect(scope.has("intro")).toBe(false);
@@ -136,7 +136,7 @@ describe("collectConnectIdsExcept — mode-matching scope", () => {
 		const doc = learnDocWithStray();
 		// Excluding FORM_B: FORM_A's learn_module "intro" is in scope, but its
 		// stray deliver_unit "stray" is NOT (deliver_unit isn't live in learn).
-		const scope = collectConnectIdsExcept(doc, FORM_B);
+		const scope = collectConnectIds(doc, FORM_B);
 		expect(scope.has("intro")).toBe(true);
 		expect(scope.has("stray")).toBe(false);
 	});
