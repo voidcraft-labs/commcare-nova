@@ -36,7 +36,6 @@ describe("lib/doc client-bundled packages avoid the structured logger", () => {
 	 * edit. */
 	const clientRootModules = [
 		"../commitVerdicts.ts",
-		"../commitPhaseContext.tsx",
 		"../identifierVerdicts.ts",
 		"../connectConfig.ts",
 	] as const;

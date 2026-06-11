@@ -22,7 +22,6 @@ import type { UIMessageStreamWriter } from "ai";
 import { vi } from "vitest";
 import type { Session } from "@/lib/auth";
 import { type AccumulatorSeed, UsageAccumulator } from "@/lib/db/usage";
-import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "@/lib/mcp/context";
@@ -51,11 +50,6 @@ export interface MakeTestContextOptions {
 	/** Override the appId passed into `GenerationContext`. Defaults to
 	 * "test-app" (matches `DEFAULT_SEED.appId`) when not supplied. */
 	appId?: string;
-	/** Validity-gate phase. Defaults to `"building"` (the construction
-	 * window, matching `DEFAULT_SEED.appReady: false`) so completeness
-	 * stays deferred for tool tests that drive partial docs; ratchet
-	 * tests pass `"complete"` explicitly. */
-	commitPhase?: CommitPhase;
 }
 
 export interface TestContextHandles {
@@ -103,7 +97,6 @@ export function makeTestContext(
 		usage,
 		session,
 		appId: opts.appId ?? "test-app",
-		commitPhase: opts.commitPhase ?? "building",
 	});
 	return {
 		ctx,
@@ -162,9 +155,6 @@ export interface MakeMcpTestContextOptions {
 	userId?: string;
 	/** Per-run grouping id. Defaults to `"run-1"`. */
 	runId?: string;
-	/** Validity-gate phase. Defaults to `"building"`, mirroring
-	 * `makeTestContext` so cross-surface tests see identical gating. */
-	commitPhase?: CommitPhase;
 }
 
 /**
@@ -191,8 +181,6 @@ export function makeMcpTestContext(
 		appId: opts.appId ?? "test-app",
 		userId: opts.userId ?? "user-1",
 		runId: opts.runId ?? "run-1",
-		commitPhase: opts.commitPhase ?? "building",
-		completionBasis: null,
 		logWriter: logWriterStub,
 		progress: progressStub,
 	});

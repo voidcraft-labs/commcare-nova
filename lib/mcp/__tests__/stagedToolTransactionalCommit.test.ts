@@ -97,8 +97,6 @@ function makeMcpCtx() {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
-		commitPhase: "complete",
-		completionBasis: null,
 		logWriter,
 		progress: { notify: vi.fn() },
 	});
@@ -140,7 +138,6 @@ describe("editField through McpContext — one transactional save per edit", () 
 		// The guard carries the WHOLE edit (rename cascade + scalar patch) so
 		// the transaction's fresh-doc re-verdict evaluates the same candidate
 		// the optimistic gate approved — never a lone stage.
-		expect(args?.guard?.commitPhase).toBe("complete");
 		const kinds = (args?.guard?.mutations ?? []).map((m) => m.kind);
 		expect(kinds).toContain("renameField");
 		expect(kinds).toContain("updateField");

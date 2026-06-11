@@ -22,9 +22,8 @@
  *     the `addFields` path;
  *   - NO_CASE_NAME_FIELD — completeness, NOT dissolvable to a
  *     construction default (the case-name field is content the author
- *     adds): deferred while building, ratcheted while complete
- *     (removing it is rejected — pinned here), zero-tolerance at the
- *     export boundary.
+ *     adds): a creation lands it with the form, and removing it is
+ *     rejected (pinned here) — the same single rule as everything else.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -39,16 +38,14 @@ import { createFormTool } from "../createForm";
 import { updateModuleTool } from "../updateModule";
 
 /** Bare ctx stub — `recordMutations` is the persistence assertion surface. */
-function makeCtx(phase: "building" | "complete" = "building") {
+function makeCtx() {
 	const recordMutations = vi.fn().mockResolvedValue([]);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
-		commitPhase: phase,
 		recordMutations,
 		recordMutationStages: vi.fn().mockResolvedValue([]),
-		getCompletionBasis: vi.fn().mockResolvedValue(null),
 		recordConversation: vi.fn(),
 	};
 	return { ctx, recordMutations };
@@ -99,7 +96,9 @@ function minDoc(): BlueprintDoc {
 	});
 }
 
-/** A doc whose module has NO case type and no case forms (a survey). */
+/** A doc whose module has NO case type and no case forms (a survey).
+ *  Carries a `respondent` case-type record so the conversion repair has a
+ *  resolvable property surface to seed columns from. */
 function caseTypelessDoc(): BlueprintDoc {
 	return buildDoc({
 		appName: "Test",
@@ -113,6 +112,12 @@ function caseTypelessDoc(): BlueprintDoc {
 						fields: [f({ kind: "text", id: "comments", label: "Comments" })],
 					},
 				],
+			},
+		],
+		caseTypes: [
+			{
+				name: "respondent",
+				properties: [{ name: "case_name", label: "Name" }],
 			},
 		],
 	});
@@ -129,7 +134,7 @@ function fieldByBareId(doc: BlueprintDoc, id: string) {
 
 describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is the repair", () => {
 	it("createForm(registration) on a case-typeless module fails the call, nothing persisted", async () => {
-		const { ctx, recordMutations } = makeCtx("building");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -151,7 +156,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		// the tool body owns the rejection. Without this branch, a no-op
 		// call would report "Successfully updated" for an edit that never
 		// happened.
-		const { ctx, recordMutations } = makeCtx("building");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await updateModuleTool.execute(
 			{ moduleIndex: 0 },
 			ctx,
@@ -164,12 +169,28 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("updateModule sets case_type, after which the same createForm commits", async () => {
-		const { ctx } = makeCtx("building");
+	it("updateModule sets case_type (with the columns the flip obliges), after which the same createForm commits", async () => {
+		const { ctx } = makeCtx();
 		const doc = caseTypelessDoc();
 
-		const fixed = await updateModuleTool.execute(
+		/* The flip alone would introduce MISSING_CASE_LIST_COLUMNS (the
+		 * module has a form), so the columns ride the same call — the
+		 * rejection's findings are satisfiable without a second tool. */
+		const bare = await updateModuleTool.execute(
 			{ moduleIndex: 0, case_type: "respondent" },
+			ctx,
+			doc,
+		);
+		expect("error" in bare.result).toBe(true);
+
+		const fixed = await updateModuleTool.execute(
+			{
+				moduleIndex: 0,
+				case_type: "respondent",
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" } as never,
+				],
+			},
 			ctx,
 			doc,
 		);
@@ -187,6 +208,12 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 						label: "Name",
 						case_property_on: "respondent",
 					} as never,
+					{
+						kind: "text",
+						id: "village",
+						label: "Village",
+						case_property_on: "respondent",
+					} as never,
 				],
 			},
 			ctx,
@@ -198,15 +225,13 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 
 // ── NO_CASE_NAME_FIELD (cannot dissolve — content) ──────────────────
 
-describe("NO_CASE_NAME_FIELD — phase machinery owns it (no construction default exists)", () => {
-	it("the complete-phase ratchet rejects removing the case_name field", () => {
+describe("NO_CASE_NAME_FIELD — the gate owns it (no construction default exists)", () => {
+	it("removing the case_name field is rejected — the writer never disappears", () => {
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "case_name");
-		const verdict = mutationCommitVerdict(
-			doc,
-			[{ kind: "removeField", uuid: target.uuid }],
-			"complete",
-		);
+		const verdict = mutationCommitVerdict(doc, [
+			{ kind: "removeField", uuid: target.uuid },
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -220,7 +245,7 @@ describe("NO_CASE_NAME_FIELD — phase machinery owns it (no construction defaul
 
 describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => {
 	it("addFields with a case-bound reserved property name fails the call", async () => {
-		const { ctx, recordMutations } = makeCtx("building");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -285,18 +310,14 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 	function verdictForRelevantPatch(expr: string) {
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "village");
-		return mutationCommitVerdict(
-			doc,
-			[
-				{
-					kind: "updateField",
-					uuid: target.uuid,
-					targetKind: "text",
-					patch: { relevant: expr },
-				} as Mutation,
-			],
-			"building",
-		);
+		return mutationCommitVerdict(doc, [
+			{
+				kind: "updateField",
+				uuid: target.uuid,
+				targetKind: "text",
+				patch: { relevant: expr },
+			} as Mutation,
+		]);
 	}
 
 	it("UNQUOTED_STRING_LITERAL: a bare-word value in an XPath slot is rejected", () => {
@@ -304,18 +325,14 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 		// expression belongs (the author meant the string 'approved').
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "village");
-		const verdict = mutationCommitVerdict(
-			doc,
-			[
-				{
-					kind: "updateField",
-					uuid: target.uuid,
-					targetKind: "text",
-					patch: { default_value: "approved" },
-				} as Mutation,
-			],
-			"building",
-		);
+		const verdict = mutationCommitVerdict(doc, [
+			{
+				kind: "updateField",
+				uuid: target.uuid,
+				targetKind: "text",
+				patch: { default_value: "approved" },
+			} as Mutation,
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -348,7 +365,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 
 describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
 	it("the SA add path skips a single_select whose options are missing (assembly fails the domain schema)", async () => {
-		const { ctx } = makeCtx("building");
+		const { ctx } = makeCtx();
 		const out = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -443,17 +460,13 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		const doc = closeFormDoc();
 		const closeFormUuid = doc.formOrder[doc.moduleOrder[0]][1];
 
-		const verdict = mutationCommitVerdict(
-			doc,
-			[
-				{
-					kind: "updateForm",
-					uuid: closeFormUuid,
-					patch: { closeCondition: { field: "ghost", answer: "done" } },
-				},
-			],
-			"building",
-		);
+		const verdict = mutationCommitVerdict(doc, [
+			{
+				kind: "updateForm",
+				uuid: closeFormUuid,
+				patch: { closeCondition: { field: "ghost", answer: "done" } },
+			},
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -466,17 +479,13 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		const doc = minDoc();
 		// minDoc's only form is a registration form — a close condition on
 		// it is exactly the contradictory config the rule names.
-		const verdict = mutationCommitVerdict(
-			doc,
-			[
-				{
-					kind: "updateForm",
-					uuid: doc.formOrder[doc.moduleOrder[0]][0],
-					patch: { closeCondition: { field: "village", answer: "done" } },
-				},
-			],
-			"building",
-		);
+		const verdict = mutationCommitVerdict(doc, [
+			{
+				kind: "updateForm",
+				uuid: doc.formOrder[doc.moduleOrder[0]][0],
+				patch: { closeCondition: { field: "village", answer: "done" } },
+			},
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -488,19 +497,15 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 	it("a close condition missing its field or answer is rejected (INCOMPLETE)", () => {
 		const doc = closeFormDoc();
 		const closeFormUuid = doc.formOrder[doc.moduleOrder[0]][1];
-		const verdict = mutationCommitVerdict(
-			doc,
-			[
-				{
-					kind: "updateForm",
-					uuid: closeFormUuid,
-					// The schema admits empty strings, so this is a live input
-					// shape — both halves are required for a conditional close.
-					patch: { closeCondition: { field: "outcome", answer: "" } },
-				},
-			],
-			"building",
-		);
+		const verdict = mutationCommitVerdict(doc, [
+			{
+				kind: "updateForm",
+				uuid: closeFormUuid,
+				// The schema admits empty strings, so this is a live input
+				// shape — both halves are required for a conditional close.
+				patch: { closeCondition: { field: "outcome", answer: "" } },
+			},
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -514,7 +519,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 
 describe("field-id format fixes — rejected at source", () => {
 	it("INVALID_FIELD_ID: an XML-illegal id never enters through addFields (identifier verdict)", async () => {
-		const { ctx, recordMutations } = makeCtx("building");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -532,7 +537,7 @@ describe("field-id format fixes — rejected at source", () => {
 		// "_temp" passes the XML element-name rules (underscore start is
 		// legal) but case property names must start with a letter — the
 		// identifier verdicts pass it, the commit gate catches it.
-		const { ctx, recordMutations } = makeCtx("building");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,

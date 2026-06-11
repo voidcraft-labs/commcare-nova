@@ -28,7 +28,6 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
 import { assert, describe, expect, it, vi } from "vitest";
-import { CommitPhaseProvider } from "@/lib/doc/commitPhaseContext";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -129,26 +128,9 @@ const bp: BlueprintDoc = {
 	fieldParent: {},
 };
 
-/**
- * Default wrapper runs the mutation gate in the `"building"` phase —
- * these tests prove the hook's uuid-validation + dispatch mechanics, and
- * several drive deliberately partial states (an empty new form, a
- * connect flip with no per-form blocks) that the complete-phase ratchet
- * would rightly reject. The gating behavior itself is pinned by the
- * dedicated "commit gate" describe below, which mounts WITHOUT a
- * `CommitPhaseProvider` (the default phase is `"complete"`).
- */
+/** Every dispatch runs the one commit gate — the wrapper is just the
+ *  doc-store provider. */
 function wrapper({ children }: { children: ReactNode }) {
-	return (
-		<BlueprintDocProvider appId="t" initialDoc={bp}>
-			<CommitPhaseProvider phase="building">{children}</CommitPhaseProvider>
-		</BlueprintDocProvider>
-	);
-}
-
-/** Complete-phase wrapper — no `CommitPhaseProvider`, so the gate runs
- *  at its `"complete"` default (the ratchet holds). */
-function completePhaseWrapper({ children }: { children: ReactNode }) {
 	return (
 		<BlueprintDocProvider appId="t" initialDoc={bp}>
 			{children}
@@ -582,9 +564,11 @@ describe("useBlueprintMutations", () => {
 			result.current.store?.temporal.getState().pastStates.length ?? 0;
 
 		act(() => {
+			/* `null` (Connect off) so the batch introduces nothing — enabling
+			 * Connect would rightly bounce on the fixture's block-less forms. */
 			result.current.mutations.updateApp({
 				app_name: "Combo",
-				connect_type: "learn",
+				connect_type: null,
 			});
 		});
 
@@ -597,12 +581,12 @@ describe("useBlueprintMutations", () => {
 
 	// ── addForm returns uuid ──────────────────────────────────────────────
 
-	it("addForm returns the new form's uuid", () => {
+	it("addForm of a bare (fieldless) form is rejected — a form lands with its content", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
-		let returned = { ok: false, messages: [] } as AddCommitOutcome;
+		let returned = { ok: true, uuid: "" } as unknown as AddCommitOutcome;
 		act(() => {
 			const s = result.current.store?.getState();
 			assert(s);
@@ -615,12 +599,50 @@ describe("useBlueprintMutations", () => {
 			});
 		});
 
-		assert(returned.ok);
-		expect(returned.uuid).toMatch(/[0-9a-f-]/);
+		assert(!returned.ok);
+		expect(returned.messages.length).toBeGreaterThan(0);
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.forms[returned.uuid]).toBeDefined();
-		expect(s.forms[returned.uuid].name).toBe("F2");
+		expect(s.forms[asUuid("form-3-uuid")]).toBeUndefined();
+	});
+
+	it("applyMany lands a new form together with its first field in one gated batch", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			const s = result.current.store?.getState();
+			assert(s);
+			const moduleUuid = s.moduleOrder[0];
+			result.current.mutations.applyMany([
+				{
+					kind: "addForm",
+					moduleUuid,
+					form: {
+						uuid: asUuid("form-3-uuid"),
+						id: "f2",
+						name: "F2",
+						type: "survey",
+					},
+				},
+				{
+					kind: "addField",
+					parentUuid: asUuid("form-3-uuid"),
+					field: {
+						uuid: asUuid("q-n-0000-0000-0000-000000000000"),
+						id: "note",
+						kind: "text",
+						label: "Note",
+					} as never,
+				},
+			]);
+		});
+
+		const s = result.current.store?.getState();
+		assert(s);
+		expect(s.forms[asUuid("form-3-uuid")]).toBeDefined();
+		expect(s.forms[asUuid("form-3-uuid")].name).toBe("F2");
 	});
 
 	// ── addModule returns uuid ────────────────────────────────────────────
@@ -799,17 +821,45 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
+		/* Add a second module first — removing the app's ONLY module would
+		 * re-introduce NO_MODULES and the gate rightly rejects it (pinned
+		 * below). */
+		let secondUuid: Uuid = "" as Uuid;
+		act(() => {
+			const added = result.current.mutations.addModule({
+				id: "m1",
+				name: "M1",
+			});
+			assert(added.ok);
+			secondUuid = added.uuid;
+		});
+
+		act(() => {
+			result.current.mutations.removeModule(secondUuid);
+		});
+
+		const s = result.current.store?.getState();
+		expect(s?.modules[secondUuid]).toBeUndefined();
+		expect(s?.moduleOrder).not.toContain(secondUuid);
+	});
+
+	it("removeModule of the app's ONLY module is rejected — it would re-introduce NO_MODULES", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
 		let moduleUuid: Uuid = "" as Uuid;
+		let outcome: { ok: boolean } = { ok: true };
 		act(() => {
 			const firstUuid = result.current.store?.getState().moduleOrder[0];
 			if (!firstUuid) return;
 			moduleUuid = firstUuid;
-			result.current.mutations.removeModule(moduleUuid);
+			outcome = result.current.mutations.removeModule(moduleUuid);
 		});
 
+		expect(outcome.ok).toBe(false);
 		const s = result.current.store?.getState();
-		expect(s?.modules[moduleUuid]).toBeUndefined();
-		expect(s?.moduleOrder).not.toContain(moduleUuid);
+		expect(s?.modules[moduleUuid]).toBeDefined();
 	});
 
 	// ── setCaseTypes ──────────────────────────────────────────────────────
@@ -959,9 +1009,11 @@ describe("useBlueprintMutations", () => {
 			result.current.store?.temporal.getState().pastStates.length ?? 0;
 
 		act(() => {
+			/* `null` keeps the batch introduction-free — flipping Connect ON
+			 * would rightly bounce on the fixture's block-less forms. */
 			result.current.mutations.applyMany([
 				{ kind: "setAppName", name: "Batched" },
-				{ kind: "setConnectType", connectType: "deliver" },
+				{ kind: "setConnectType", connectType: null },
 			]);
 		});
 
@@ -973,7 +1025,7 @@ describe("useBlueprintMutations", () => {
 
 		const s = result.current.store?.getState();
 		expect(s?.appName).toBe("Batched");
-		expect(s?.connectType).toBe("deliver");
+		expect(s?.connectType).toBeNull();
 	});
 
 	// ── moveField result metadata ────────────────────────────────────────
@@ -1257,18 +1309,17 @@ describe("useBlueprintMutations", () => {
 
 // ── Commit gate (complete phase) ──────────────────────────────────────────
 //
-// The dedicated gating coverage: mounted WITHOUT a `CommitPhaseProvider`,
-// so the gate runs at its `"complete"` default and the ratchet holds. The
+// The dedicated gating coverage. The
 // verdict semantics themselves are pinned in
 // `lib/doc/__tests__/commitVerdicts.test.ts`; what must hold HERE is the
 // hook wiring — a rejected dispatch never reaches the store, the method
 // returns its no-op shape, and the rejection surfaces as an error toast.
 
-describe("useBlueprintMutations — commit gate (complete phase)", () => {
+describe("useBlueprintMutations — commit gate", () => {
 	it("rejects an edit that would introduce a finding: store untouched, no-op return, error toast", () => {
 		toastStore.clear();
 		const { result } = renderHook(() => useMutationsWithStore(), {
-			wrapper: completePhaseWrapper,
+			wrapper: wrapper,
 		});
 
 		let returned = { ok: true, uuid: "unset" as Uuid } as AddCommitOutcome;
@@ -1301,7 +1352,7 @@ describe("useBlueprintMutations — commit gate (complete phase)", () => {
 	it("dispatches a clean edit unchanged (the gate is transparent on pass)", () => {
 		toastStore.clear();
 		const { result } = renderHook(() => useMutationsWithStore(), {
-			wrapper: completePhaseWrapper,
+			wrapper: wrapper,
 		});
 
 		act(() => {

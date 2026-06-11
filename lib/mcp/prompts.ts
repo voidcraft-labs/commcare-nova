@@ -24,18 +24,15 @@
  *    (`EDIT_PREAMBLE`) plus the inlined `summarizeBlueprint(doc)` at
  *    boot — the same prompt the web flow's `/api/chat` edit mode uses,
  *    single source of truth. Build callers pass `undefined`; edit
- *    callers pass the loaded blueprint only for a COMPLETE app —
- *    `get_agent_prompt` keys the fork on the app's lifecycle status, so
- *    a resumed draft (or a failed build) gets the build guidance with
- *    its completion step rather than an edit preamble that never
- *    mentions `complete_build`. Empty docs (`moduleOrder.length === 0`)
- *    additionally fall back to the build prompt inside the renderer —
- *    there's nothing to edit yet.
+ *    callers pass the loaded blueprint. Empty docs
+ *    (`moduleOrder.length === 0`) fall back to the build prompt inside
+ *    the renderer — there's nothing to edit yet, so the planning flow
+ *    is the right boot.
  *
  * **Tool-name vocabulary.** `EDIT_PREAMBLE` and `SHARED_TAIL` in
  * `lib/agent/prompts.ts` reference the SA's camelCase tool names
- * (`searchBlueprint`, `completeBuild`). The MCP surface exposes the same
- * tools under snake_case (`search_blueprint`, `complete_build`). The
+ * (`searchBlueprint`, `createModule`). The MCP surface exposes the same
+ * tools under snake_case (`search_blueprint`, `create_module`). The
  * model resolves the two by name at call time.
  */
 

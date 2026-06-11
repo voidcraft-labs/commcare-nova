@@ -43,7 +43,6 @@ import type {
 	ToolExecutionContext,
 } from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
-import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -70,15 +69,6 @@ export interface McpContextOptions {
 	userId: string;
 	/** Run id — derived by the adapter from the app doc's current state. */
 	runId: string;
-	/** Validity-gate phase, derived from the loaded app's lifecycle
-	 * status via `commitPhaseForAppStatus`. See
-	 * `ToolExecutionContext.commitPhase`. */
-	commitPhase: CommitPhase;
-	/** The app's `blueprint_token` from the SAME load that produced the
-	 * tool's doc — the completion-basis capture is atomic with the
-	 * snapshot on this surface. See
-	 * `ToolExecutionContext.getCompletionBasis`. */
-	completionBasis: string | null;
 	/** Event-log sink. Always constructed with `source: "mcp"` by the adapter. */
 	logWriter: LogWriter;
 	/** MCP progress-notification emitter. No-op if the client didn't opt in. */
@@ -89,8 +79,6 @@ export class McpContext implements ToolExecutionContext {
 	readonly appId: string;
 	readonly userId: string;
 	readonly runId: string;
-	readonly commitPhase: CommitPhase;
-	private readonly completionBasis: string | null;
 	readonly logWriter: LogWriter;
 	readonly progress: ProgressEmitter;
 	/**
@@ -107,8 +95,6 @@ export class McpContext implements ToolExecutionContext {
 		this.appId = opts.appId;
 		this.userId = opts.userId;
 		this.runId = opts.runId;
-		this.commitPhase = opts.commitPhase;
-		this.completionBasis = opts.completionBasis;
 		this.logWriter = opts.logWriter;
 		this.progress = opts.progress;
 	}
@@ -209,16 +195,6 @@ export class McpContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * ToolExecutionContext implementation — returns the token captured in
-	 * the same Firestore load as the doc the tool received, so the basis
-	 * and the evaluated snapshot can't be split by a write landing between
-	 * two reads. See `ToolExecutionContext.getCompletionBasis`.
-	 */
-	async getCompletionBasis(): Promise<string | null> {
-		return this.completionBasis;
-	}
-
-	/**
 	 * Write a single conversation event to the log.
 	 *
 	 * Synchronous: unlike `recordMutations`, this does not touch Firestore
@@ -281,7 +257,7 @@ export class McpContext implements ToolExecutionContext {
 			 * batches serialize instead of last-writer-wins, and a batch the
 			 * fresh doc rejects throws (the tool returns its `{ error }`
 			 * envelope) rather than erasing the concurrent commit. */
-			guard: { mutations, commitPhase: this.commitPhase },
+			guard: { mutations },
 		});
 	}
 }
@@ -338,8 +314,6 @@ export function initMcpCall(
 	ctx: ToolContext,
 	appId: string,
 	runId: string,
-	commitPhase: CommitPhase,
-	completionBasis: string | null,
 	extra: McpCallExtra | undefined,
 ): InitMcpCallResult {
 	const progressToken = extra?._meta?.progressToken;
@@ -349,8 +323,6 @@ export function initMcpCall(
 		appId,
 		userId: ctx.userId,
 		runId,
-		commitPhase,
-		completionBasis,
 		logWriter,
 		progress,
 	});

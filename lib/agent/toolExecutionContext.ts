@@ -19,7 +19,6 @@
  * MCP adapter).
  */
 
-import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
@@ -38,19 +37,6 @@ export interface ToolExecutionContext {
 
 	/** Per-run grouping id. Stamped on every event envelope. */
 	readonly runId: string;
-
-	/**
-	 * The app's lifecycle phase for the validity gate
-	 * (`tools/common.ts::guardedMutate`): derived from the app document's
-	 * own `status` via `commitPhaseForAppStatus` — `"building"` while the
-	 * app is under construction, `"complete"` once it is. Derived once per
-	 * request/call by the surface that built this context (the chat route
-	 * off the status it loaded for ownership; the MCP adapter off the doc
-	 * it loaded for the tool call), never from a client-supplied flag. The
-	 * gate semantics themselves live in
-	 * `lib/commcare/validator/gate.ts::evaluateCommit`.
-	 */
-	readonly commitPhase: CommitPhase;
 
 	/**
 	 * Persist a mutation batch to the durable event log and to Firestore.
@@ -87,23 +73,6 @@ export interface ToolExecutionContext {
 	 * is the blueprint AFTER that stage applied to the previous one's.
 	 */
 	recordMutationStages(stages: StagedMutationBatch[]): Promise<MutationEvent[]>;
-
-	/**
-	 * The `blueprint_token` basis for the completion write — captured
-	 * together with the doc snapshot `completeBuild` evaluates, so the
-	 * guarded completion commit can prove the stored doc didn't advance
-	 * under the multi-second evaluation window (boundary check + media
-	 * manifest + materialize). Per surface:
-	 *
-	 *   - MCP: the token read in the SAME Firestore load as the doc the
-	 *     tool received — airtight against any write after the load.
-	 *   - Chat: a fresh read at call time. The SA's working doc is the
-	 *     snapshot "as of this call", and the run's own intermediate
-	 *     saves never rotate the token, so a rotating writer (a builder
-	 *     tab's save, an MCP commit) landing during the evaluation
-	 *     window is exactly what the compare catches.
-	 */
-	getCompletionBasis(): Promise<string | null>;
 
 	/** Persist a conversation event (assistant text/reasoning, tool
 	 * call/result, user message, error). */

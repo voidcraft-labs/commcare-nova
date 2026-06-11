@@ -39,9 +39,10 @@ const TOOL_ACTIONS: Record<string, string> = {
 	setCaseListFilter: "Set the case-list filter",
 	setCaseSearchAdvanced: "Updated advanced search",
 	setCaseSearchDisplay: "Updated the search screen",
+	updateApp: "Updated app settings",
+	// Historical threads only — these tools are retired, but runs
+	// persisted before their retirement still carry these parts.
 	completeBuild: "Finished the app",
-	// Historical threads only — the validate-fix loop is gone, but runs
-	// persisted before its retirement still carry these parts.
 	validateApp: "Validated the app",
 	searchBlueprint: "Searched the app",
 	getModule: "Inspected a module",
@@ -76,6 +77,8 @@ export const isEditToolPart = (part: { type: string }): boolean =>
 	part.type.startsWith("tool-") &&
 	part.type !== "tool-askQuestions" &&
 	part.type !== "tool-generateSchema" &&
+	part.type !== "tool-planAppDesign" &&
+	// Historical threads only — the retired scaffold generator.
 	part.type !== "tool-generateScaffold";
 
 /** The mutating-tool success shape we read for presentation. All fields are
@@ -97,8 +100,8 @@ const outputOf = (part: ToolUIPart): MutationOutput | null => {
 		: null;
 };
 
-/** Tools whose OUTCOME is `{ success, errors? }` — `completeBuild` live,
- *  `validateApp` on threads persisted before the fix loop's retirement. */
+/** Tools whose OUTCOME is `{ success, errors? }` — both retired, both
+ *  still present on threads persisted before their retirement. */
 const COMPLETION_TOOLS = new Set(["completeBuild", "validateApp"]);
 
 /** A refused completion OUTCOME: the call returns `{ success:false, errors }`.

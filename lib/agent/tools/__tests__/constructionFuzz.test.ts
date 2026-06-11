@@ -1,30 +1,16 @@
 /**
- * Construction fuzz — the proof that licenses deleting the validate-fix
- * loop: randomized sequences of CONSTRUCTION-SURFACE operations (the
- * real SA/MCP tools, with their real assembly defaults and the real
- * commit gate, in both phases) can never leave the doc in a state the
- * retired FIX_REGISTRY existed to repair. The registry's conditions are
- * unreachable from the construction surface, so there is nothing left
- * for a fix loop to fix.
+ * Construction fuzz — the standing proof of the always-valid invariant:
+ * a doc grown purely through ACCEPTED tool calls — from the empty doc a
+ * fresh app is born as, through the real SA/MCP tools with their real
+ * assembly defaults and the real commit gate — carries ZERO validation
+ * findings at all times once its first module lands. (Before that, the
+ * birth findings — the nameless, moduleless state — are the only ones
+ * alive, and they only ever shrink.)
  *
- * The pinned code set is the registry's coverage, written out literally
- * (the registry itself is deleted — the LIST is the contract this test
- * holds):
- *
- *   NO_CASE_TYPE, RESERVED_CASE_PROPERTY, MEDIA_CASE_PROPERTY,
- *   UNQUOTED_STRING_LITERAL, SELECT_NO_OPTIONS, CLOSE_CONDITION_WRONG_TYPE,
- *   CLOSE_CONDITION_INCOMPLETE, CLOSE_CONDITION_FIELD_NOT_FOUND,
- *   UNKNOWN_FUNCTION, WRONG_ARITY, INVALID_FIELD_ID,
- *   CASE_PROPERTY_BAD_FORMAT — soundness/shape: never present after any
- *   accepted sequence, in either phase.
- *
- *   NO_CASE_NAME_FIELD and EMPTY_FORM — completeness: legitimately
- *   PRESENT mid-build (the building window defers them; `completeBuild`
- *   is the boundary that refuses to finish while they stand), so the
- *   invariant for them is the complete-phase ratchet: a doc that starts
- *   without them never gains them — which is exactly the property
- *   atomic creation exists to hold, so a regression there fails the
- *   fuzz itself.
+ * That single property subsumes the retired fix registry's per-code
+ * pins: no registry code (nor any other finding) can exist on a doc the
+ * construction surface grew, so there is nothing for a fix loop to fix
+ * and nothing for a finishing step to catch.
  *
  * Every generated input goes through the tool's OWN Zod input schema
  * before execute — a refusal there (an image field carrying
@@ -34,16 +20,14 @@
  * invalid raw values (bare-word XPath, reserved ids, XML-illegal ids,
  * wrong-cased functions, broken close conditions, media kinds) — the
  * surface is supposed to REFUSE the bad ones; the invariant is about
- * the doc state after whatever was accepted. A third run starts from a
- * complete Connect app, with creations optionally carrying their
- * per-form `connect` blocks.
+ * the doc state after whatever was accepted. A second run grows a
+ * Connect learn app from birth, with creations optionally carrying
+ * their per-form `connect` blocks.
  */
 
 import * as fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -53,224 +37,43 @@ import { createModuleTool } from "../createModule";
 import { editFieldTool } from "../editField";
 import { removeFieldTool } from "../removeField";
 import { removeFormTool } from "../removeForm";
+import { updateAppTool } from "../updateApp";
 import { updateFormTool } from "../updateForm";
 import { updateModuleTool } from "../updateModule";
 
-/** The retired FIX_REGISTRY's soundness/shape coverage — unreachable. */
-const UNREACHABLE_CODES: ReadonlySet<ValidationErrorCode> = new Set([
-	"NO_CASE_TYPE",
-	"RESERVED_CASE_PROPERTY",
-	"MEDIA_CASE_PROPERTY",
-	"UNQUOTED_STRING_LITERAL",
-	"SELECT_NO_OPTIONS",
-	"CLOSE_CONDITION_WRONG_TYPE",
-	"CLOSE_CONDITION_INCOMPLETE",
-	"CLOSE_CONDITION_FIELD_NOT_FOUND",
-	"UNKNOWN_FUNCTION",
-	"WRONG_ARITY",
-	"INVALID_FIELD_ID",
-	"CASE_PROPERTY_BAD_FORMAT",
-]);
-
-function makeCtx(phase: "building" | "complete"): ToolExecutionContext {
+function makeCtx(): ToolExecutionContext {
 	return {
 		appId: "app-fuzz",
 		userId: "user-fuzz",
 		runId: "run-fuzz",
-		commitPhase: phase,
 		recordMutations: vi.fn().mockResolvedValue([]),
 		recordMutationStages: vi.fn().mockResolvedValue([]),
-		getCompletionBasis: vi.fn().mockResolvedValue(null),
 		recordConversation: vi.fn(),
 	};
 }
 
-/* Every fixture carries one CLOSE-type form so the close-condition op has a
- * standing target from the first op (a close condition only commits on a
- * close form naming one of its own fields — without a fixture target, the
- * op's commits depend on the sequence first creating a close form, which
- * starves the acceptance floor below). */
-
-/** A COMPLETE app (no completeness findings) the complete-phase runs grow. */
-function completeDoc(): BlueprintDoc {
-	return buildDoc({
-		appName: "Fuzz Clinic",
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						name: "Register patient",
-						type: "registration",
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: "Name",
-								case_property_on: "patient",
-							}),
-							f({
-								kind: "text",
-								id: "village",
-								label: "Village",
-								case_property_on: "patient",
-							}),
-						],
-					},
-					{
-						name: "Close case",
-						type: "close",
-						fields: [
-							f({
-								kind: "text",
-								id: "closure_reason",
-								label: "Closure reason",
-								case_property_on: "patient",
-							}),
-						],
-					},
-				],
-			},
-		],
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
-				],
-			},
-		],
-	});
-}
-
-/** A doc mid-build: one module exists, nothing else. */
-function buildingDoc(): BlueprintDoc {
-	return buildDoc({
-		appName: "Fuzz WIP",
-		modules: [
-			{
-				name: "Visits",
-				caseType: "visit",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						name: "Record visit",
-						type: "registration",
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: "Name",
-								case_property_on: "visit",
-							}),
-						],
-					},
-					{
-						name: "Close visit",
-						type: "close",
-						fields: [
-							f({
-								kind: "text",
-								id: "closure_reason",
-								label: "Closure reason",
-								case_property_on: "visit",
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
-}
-
-/** A COMPLETE Connect learn app — every form carries its connect block,
- *  so the complete-phase run can prove creations keep working when
- *  CONNECT_FORM_MISSING_BLOCK is in play. */
-function completeConnectDoc(): BlueprintDoc {
-	return buildDoc({
-		appName: "Fuzz Training",
-		connectType: "learn",
-		modules: [
-			{
-				name: "Lessons",
-				caseType: "trainee",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						name: "Enroll trainee",
-						type: "registration",
-						connect: {
-							learn_module: {
-								id: "enroll_module",
-								name: "Enrollment",
-								description: "Sign-up basics",
-								time_estimate: 10,
-							},
-						},
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: "Name",
-								case_property_on: "trainee",
-							}),
-							f({
-								kind: "text",
-								id: "village",
-								label: "Village",
-								case_property_on: "trainee",
-							}),
-						],
-					},
-					{
-						name: "Close enrollment",
-						type: "close",
-						connect: {
-							learn_module: {
-								id: "closeout_module",
-								name: "Closeout",
-								description: "Wrapping up",
-								time_estimate: 5,
-							},
-						},
-						fields: [
-							f({
-								kind: "text",
-								id: "closure_reason",
-								label: "Closure reason",
-								case_property_on: "trainee",
-							}),
-						],
-					},
-				],
-			},
-		],
-		caseTypes: [
-			{
-				name: "trainee",
-				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
-				],
-			},
-		],
-	});
+/** The empty doc a fresh app is born as — `createApp`'s shape. */
+function birthDoc(): BlueprintDoc {
+	return {
+		appId: "app-fuzz",
+		appName: "",
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
+	};
 }
 
 // ── Input pools — valid values interleaved with the exact garbage the
-//    registry's fixes existed to repair ─────────────────────────────────
+//    retired registry's fixes existed to repair ─────────────────────────
 
 /* Weighted toward CLEAN values so sequences actually land commits — a
- * fuzz whose every op bounces would "prove" unreachability vacuously.
+ * fuzz whose every op bounces would "prove" the invariant vacuously.
  * That balance is ENFORCED, not assumed: each property tallies commits
  * per op type and asserts the acceptance floor (see the floor section
  * above the describe). The garbage stays in at real frequency: each
@@ -308,8 +111,8 @@ const idArb = fc.oneof(
 	{ arbitrary: fc.constantFrom(...GARBAGE_IDS), weight: 2 },
 );
 
-/* Module/form pick: weighted toward the indexes that exist (fixtures
- * start with one module / one form; sequences grow more) so most ops hit
+/* Module/form pick: weighted toward the indexes that exist (the prelude
+ * lands one module with two forms; sequences grow more) so most ops hit
  * a live target while out-of-range picks stay covered. */
 const moduleIndexArb = fc.constantFrom(0, 0, 0, 0, 1, 2);
 const formIndexArb = fc.constantFrom(0, 0, 0, 0, 1, 2);
@@ -356,10 +159,10 @@ const CASE_TYPE_POOL = ["patient", "visit", "household", "Bad Type!", ""];
 /* Field case bindings add the `__own__` marker, resolved by `applyOp`
  * against the TARGET module's case type — the dominant authoring shape (a
  * field saving to its own module's case), and the only doc-agnostic way to
- * keep case-bound adds committing on every fixture (the Connect doc's
- * "trainee" isn't in the literal pool, so without the marker its every
- * case-bound add is a cross-type child-case ratchet rejection). The
- * literals stay in so the foreign-type rejection arms stay alive. */
+ * keep case-bound adds committing on every fixture (a generated literal
+ * naming a FOREIGN type is a cross-type child-case shape the gate
+ * usually rejects). The literals stay in so those rejection arms stay
+ * alive. */
 const FIELD_CASE_BINDING_POOL = [...CASE_TYPE_POOL, "__own__", "__own__"];
 
 const FORM_TYPE_POOL = ["registration", "followup", "survey", "close"] as const;
@@ -489,7 +292,7 @@ const opArb = fc.oneof(
 			moduleIndex: moduleIndexArb,
 			// `__own__` resolves to the target module's current type at apply
 			// time — the re-assert/no-op patch shape, and the only arm that can
-			// commit on a fixture whose own type isn't a pool literal.
+			// commit against an already-typed module.
 			caseType: fc.constantFrom(...FIELD_CASE_BINDING_POOL),
 		})
 		.map((r) => ({ type: "updateModule" as const, ...r })),
@@ -603,6 +406,26 @@ async function runParsed<I>(
 	return out.newDoc;
 }
 
+/** The standard registration-unit field pair: the case_name writer plus a
+ *  second property writer (a registration form must capture something
+ *  about its new case beyond the name). */
+function registrationUnitFields(caseType: string): FieldItem[] {
+	return [
+		{
+			kind: "text",
+			id: "case_name",
+			label: "Name",
+			case_property_on: caseType,
+		},
+		{
+			kind: "text",
+			id: "village",
+			label: "Village",
+			case_property_on: caseType,
+		},
+	];
+}
+
 /** Apply one fuzz op through the REAL tool (schema first — see
  *  {@link runParsed}). The tool either commits (and returns the new doc)
  *  or refuses at the schema/gate (and returns the old doc) — all are
@@ -617,10 +440,11 @@ async function applyOp(
 			/* Mirror how the SA composes a case-managing creation: when the
 			 * module declares a (clean) case type and carries forms, the
 			 * first form is a registration unit opening with the case_name
-			 * writer — the rest of the generated fields (garbage included)
-			 * ride along. The gate still adjudicates everything; this
-			 * steering only keeps the generator from producing exclusively
-			 * incoherent births. */
+			 * + village writers — the rest of the generated fields (garbage
+			 * included) ride along, and a NEW case type carries its record
+			 * in the same call (the only way a record reaches the doc). The
+			 * gate still adjudicates everything; this steering only keeps
+			 * the generator from producing exclusively incoherent births. */
 			const coherentType =
 				op.caseType && /^[a-z][a-z0-9_-]*$/.test(op.caseType)
 					? op.caseType
@@ -628,20 +452,29 @@ async function applyOp(
 			const generated = resolveOwnCaseBindings(op.fields, coherentType);
 			const formFields = coherentType
 				? [
-						{
-							kind: "text",
-							id: "case_name",
-							label: "Name",
-							case_property_on: coherentType,
-						},
-						...generated.filter((fl) => fl.id !== "case_name"),
+						...registrationUnitFields(coherentType),
+						...generated.filter(
+							(fl) => fl.id !== "case_name" && fl.id !== "village",
+						),
 					]
 				: generated;
+			const needsRecord =
+				coherentType !== undefined &&
+				!doc.caseTypes?.some((ct) => ct.name === coherentType);
 			return runParsed(
 				createModuleTool,
 				{
 					name: op.name,
 					...(op.caseType && { case_type: op.caseType }),
+					...(needsRecord && {
+						case_type_record: {
+							name: coherentType,
+							properties: [
+								{ name: "case_name", label: "Name" },
+								{ name: "village", label: "Village" },
+							],
+						},
+					}),
 					...(op.withForms && {
 						forms: [
 							{
@@ -664,20 +497,17 @@ async function applyOp(
 		}
 		case "createForm": {
 			/* Same steering for a registration form: it must open its case
-			 * with a case_name writer bound to the module's type — when the
-			 * target module has one. */
+			 * with the registration unit bound to the module's type — when
+			 * the target module has one. */
 			const moduleType = doc.modules[doc.moduleOrder[op.moduleIndex]]?.caseType;
 			const generated = resolveOwnCaseBindings(op.fields, moduleType);
 			const fields =
 				op.formType === "registration" && moduleType
 					? [
-							{
-								kind: "text",
-								id: "case_name",
-								label: "Name",
-								case_property_on: moduleType,
-							},
-							...generated.filter((fl) => fl.id !== "case_name"),
+							...registrationUnitFields(moduleType),
+							...generated.filter(
+								(fl) => fl.id !== "case_name" && fl.id !== "village",
+							),
 						]
 					: generated;
 			return runParsed(
@@ -810,57 +640,152 @@ async function applyOp(
 	}
 }
 
-/** The invariant: no registry-coverage code in the doc's findings. */
-function assertNoRegistryCodes(
-	doc: BlueprintDoc,
-	extraCodes: ReadonlySet<ValidationErrorCode>,
-	context: string,
-): void {
-	const findings = runValidation(doc);
-	const tripped = findings.filter(
-		(err) => UNREACHABLE_CODES.has(err.code) || extraCodes.has(err.code),
-	);
-	expect
-		.soft(
-			tripped.map((t) => `${t.code}: ${t.message}`),
-			context,
-		)
-		.toEqual([]);
-	if (tripped.length > 0) {
+/** The invariant: once the first module landed, the doc has NO findings. */
+function assertZeroFindings(doc: BlueprintDoc, context: string): void {
+	if (doc.moduleOrder.length === 0) return;
+	const findings = runValidation(doc).map((e) => `${e.code}: ${e.message}`);
+	expect.soft(findings, context).toEqual([]);
+	if (findings.length > 0) {
 		throw new Error(
-			`registry-coverage code reached through the construction surface (${context}): ${tripped
-				.map((t) => t.code)
-				.join(", ")}`,
+			`a finding reached a construction-grown doc (${context}): ${findings.join(
+				"; ",
+			)}`,
 		);
 	}
 }
 
-const NO_EXTRA: ReadonlySet<ValidationErrorCode> = new Set();
-const RATCHETED: ReadonlySet<ValidationErrorCode> = new Set([
-	"NO_CASE_NAME_FIELD",
-	// Atomic creation is what keeps a complete app from ever gaining an
-	// empty form — a regression there (a creation tool landing a form
-	// without its fields) fails the fuzz here, not just the narrower
-	// per-tool pins.
-	"EMPTY_FORM",
-]);
-/** The Connect run's additional kept-out codes — the Connect-specific
- *  invariants that run exists to prove. The complete Connect doc starts
- *  without either, so:
- *   - CONNECT_FORM_MISSING_BLOCK stays out via the completeness ratchet (a
- *    creation landing a block-less form on a Connect app is rejected);
- *   - CONNECT_ID_MISSING stays out via at-source enforcement (an omitted id
- *    is autofilled before the batch is built — soundness, both phases). */
-const CONNECT_RATCHETED: ReadonlySet<ValidationErrorCode> = new Set([
-	...RATCHETED,
-	"CONNECT_FORM_MISSING_BLOCK",
-	"CONNECT_ID_MISSING",
-]);
+// ── Preludes — the fixture state, GROWN through the real tools ──────────
+//
+// Each property starts from the birth doc and builds its baseline with
+// real accepted calls, so the invariant covers the doc's whole life: the
+// app name (the first mutation of any build), then one patient module
+// carrying a registration unit AND a standing close-type form (a close
+// condition can only commit on one — without it, the close op's commits
+// would depend on the sequence first creating a close form, starving the
+// acceptance floor below).
+
+async function growStandardPrelude(
+	ctx: ToolExecutionContext,
+): Promise<BlueprintDoc> {
+	let doc = birthDoc();
+	doc = await runParsed(updateAppTool, { name: "Fuzz Clinic" }, ctx, doc);
+	doc = await runParsed(
+		createModuleTool,
+		{
+			name: "Patients",
+			case_type: "patient",
+			case_type_record: {
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: "Name" },
+					{ name: "village", label: "Village" },
+				],
+			},
+			case_list_columns: [
+				{ kind: "plain", field: "case_name", header: "Name" },
+			],
+			forms: [
+				{
+					name: "Register patient",
+					type: "registration",
+					fields: registrationUnitFields("patient"),
+				},
+				{
+					name: "Close case",
+					type: "close",
+					fields: [
+						{
+							kind: "text",
+							id: "closure_reason",
+							label: "Closure reason",
+							case_property_on: "patient",
+						},
+					],
+				},
+			],
+		},
+		ctx,
+		doc,
+	);
+	expect(doc.moduleOrder).toHaveLength(1);
+	return doc;
+}
+
+async function growConnectPrelude(
+	ctx: ToolExecutionContext,
+): Promise<BlueprintDoc> {
+	let doc = birthDoc();
+	/* Connect-typed from the first mutation — on an empty app the flip
+	 * introduces nothing, and every later creation must then carry its
+	 * per-form connect block. */
+	doc = await runParsed(
+		updateAppTool,
+		{ name: "Fuzz Training", connect_type: "learn" },
+		ctx,
+		doc,
+	);
+	doc = await runParsed(
+		createModuleTool,
+		{
+			name: "Lessons",
+			case_type: "trainee",
+			case_type_record: {
+				name: "trainee",
+				properties: [
+					{ name: "case_name", label: "Name" },
+					{ name: "village", label: "Village" },
+				],
+			},
+			case_list_columns: [
+				{ kind: "plain", field: "case_name", header: "Name" },
+			],
+			forms: [
+				{
+					name: "Enroll trainee",
+					type: "registration",
+					connect: {
+						learn_module: {
+							id: "enroll_module",
+							name: "Enrollment",
+							description: "Sign-up basics",
+							time_estimate: 10,
+						},
+					},
+					fields: registrationUnitFields("trainee"),
+				},
+				{
+					name: "Close enrollment",
+					type: "close",
+					connect: {
+						learn_module: {
+							id: "closeout_module",
+							name: "Closeout",
+							description: "Wrapping up",
+							time_estimate: 5,
+						},
+					},
+					fields: [
+						{
+							kind: "text",
+							id: "closure_reason",
+							label: "Closure reason",
+							case_property_on: "trainee",
+						},
+					],
+				},
+			],
+		},
+		ctx,
+		doc,
+	);
+	expect(doc.moduleOrder).toHaveLength(1);
+	return doc;
+}
 
 // ── Acceptance floor ────────────────────────────────────────────────────
 //
-// The invariant assertions above are vacuous over sequences whose every op
-// bounces — a schema change that turns one op type into a permanent
+// The zero-findings assertion above is vacuous over sequences whose every
+// op bounces — a schema change that turns one op type into a permanent
 // `safeParse` refusal would return the proof to near-zero execution while
 // staying green. So each property tallies, per op type, how many ops landed
 // a COMMITTED batch (the tools return a new doc reference only when
@@ -909,67 +834,44 @@ function opCarriesConnect(op: FuzzOp): boolean {
 	return false;
 }
 
-describe("construction fuzz — the FIX_REGISTRY's conditions are unreachable", () => {
-	it("building phase: no accepted sequence ever trips a registry soundness/shape code", async () => {
+describe("construction fuzz — a tool-grown doc carries zero findings", () => {
+	it("standard app: every accepted sequence from birth keeps the doc finding-free", async () => {
 		const tally = newCommitTally();
 		await fc.assert(
 			fc.asyncProperty(
 				fc.array(opArb, { minLength: 1, maxLength: 10 }),
 				async (ops) => {
-					const ctx = makeCtx("building");
-					let doc = buildingDoc();
+					const ctx = makeCtx();
+					let doc = await growStandardPrelude(ctx);
+					assertZeroFindings(doc, "standard prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
 						if (next !== doc) tally.set(op.type, (tally.get(op.type) ?? 0) + 1);
 						doc = next;
-						assertNoRegistryCodes(doc, NO_EXTRA, `building op#${i} ${op.type}`);
+						assertZeroFindings(doc, `standard op#${i} ${op.type}`);
 					}
 				},
 			),
 			{ numRuns: 40, seed: 20260610 },
 		);
-		assertCommitFloor(tally, "building phase");
+		assertCommitFloor(tally, "standard app");
 	});
 
-	it("complete phase: the ratchet additionally keeps NO_CASE_NAME_FIELD and EMPTY_FORM out of a doc that starts without them", async () => {
-		const tally = newCommitTally();
-		await fc.assert(
-			fc.asyncProperty(
-				fc.array(opArb, { minLength: 1, maxLength: 10 }),
-				async (ops) => {
-					const ctx = makeCtx("complete");
-					let doc = completeDoc();
-					for (const [i, op] of ops.entries()) {
-						const next = await applyOp(doc, ctx, op);
-						if (next !== doc) tally.set(op.type, (tally.get(op.type) ?? 0) + 1);
-						doc = next;
-						assertNoRegistryCodes(
-							doc,
-							RATCHETED,
-							`complete op#${i} ${op.type}`,
-						);
-					}
-				},
-			),
-			{ numRuns: 40, seed: 20260610 },
-		);
-		assertCommitFloor(tally, "complete phase");
-	});
-
-	it("complete Connect app: creations carrying (or missing) connect blocks hold the same invariants", async () => {
+	it("Connect learn app: creations carrying (or missing) connect blocks hold the same invariant", async () => {
 		const tally = newCommitTally();
 		/* The Connect-specific floor: this run exists to prove creations work
-		 * under CONNECT_FORM_MISSING_BLOCK + the id enforcement, which is only
-		 * proven if connect-carrying creations actually COMMIT — including the
-		 * omitted-id arm (the autofill path). */
+		 * under the per-form block obligation + the id enforcement, which is
+		 * only proven if connect-carrying creations actually COMMIT —
+		 * including the omitted-id arm (the autofill path). */
 		let connectCreationCommits = 0;
 		let omittedIdCreationCommits = 0;
 		await fc.assert(
 			fc.asyncProperty(
 				fc.array(opArb, { minLength: 1, maxLength: 10 }),
 				async (ops) => {
-					const ctx = makeCtx("complete");
-					let doc = completeConnectDoc();
+					const ctx = makeCtx();
+					let doc = await growConnectPrelude(ctx);
+					assertZeroFindings(doc, "connect prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
 						if (next !== doc) {
@@ -985,11 +887,7 @@ describe("construction fuzz — the FIX_REGISTRY's conditions are unreachable", 
 							}
 						}
 						doc = next;
-						assertNoRegistryCodes(
-							doc,
-							CONNECT_RATCHETED,
-							`connect op#${i} ${op.type}`,
-						);
+						assertZeroFindings(doc, `connect op#${i} ${op.type}`);
 					}
 				},
 			),

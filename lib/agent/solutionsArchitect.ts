@@ -1,11 +1,12 @@
 /**
  * Solutions Architect — single ToolLoopAgent for conversation, generation, and editing.
  *
- * Tools are split into two groups: **generation** (schema, scaffold) and
- * **shared** (conversation, read, mutation, validation, case-list-config).
- * In edit mode (existing app), generation tools are excluded — the SA only
- * gets shared tools and an editing prompt with a blueprint summary. In build
- * mode (new app), all tools are available.
+ * Tools are split into two groups: **planning** (data model, app design —
+ * pure conversation artifacts, no doc writes) and **shared**
+ * (conversation, read, mutation, case-list-config). In edit mode
+ * (existing app), planning tools are excluded — the SA only gets shared
+ * tools and an editing prompt with a blueprint summary. In build mode
+ * (new app), all tools are available.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
@@ -13,17 +14,14 @@
  * `blueprintHelpers.ts`.
  *
  * Stream-event payloads carry fine-grained `data-mutations` events
- * emitted via `ctx.recordMutations` for every tool-level change; the
- * final `data-done` from `completeBuild` carries a normalized doc
- * snapshot.
+ * emitted via `ctx.recordMutations` for every tool-level change. There is
+ * no finishing tool: the chat route finalizes a build at drain end
+ * (status flip + case-store materialize + the `data-done` signal).
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
-import { type FlexibleSchema, stepCountIs, ToolLoopAgent, tool } from "ai";
-import { failApp, loadApp } from "@/lib/db/apps";
-import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import type { BlueprintDoc } from "@/lib/domain";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
-import { classifyError } from "./errorClassifier";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import type { ToolExecutionContext } from "./toolExecutionContext";
@@ -41,11 +39,9 @@ import { updateSearchInputTool } from "./tools/case-list-config/updateSearchInpu
 import { setCaseSearchAdvancedTool } from "./tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "./tools/case-search-config/setCaseSearchDisplay";
 import type { MutatingToolResult, ReadToolResult } from "./tools/common";
-import { completeBuildTool } from "./tools/completeBuild";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
 import { editFieldTool } from "./tools/editField";
-import { generateScaffoldTool } from "./tools/generateScaffold";
 import { generateSchemaTool } from "./tools/generateSchema";
 import { getFieldTool } from "./tools/getField";
 import { getFormTool } from "./tools/getForm";
@@ -57,106 +53,30 @@ import { removeMediaAssetTool } from "./tools/media/removeMediaAsset";
 import { setAppLogoTool } from "./tools/media/setAppLogo";
 import { setFormMediaTool } from "./tools/media/setFormMedia";
 import { setModuleMediaTool } from "./tools/media/setModuleMedia";
+import { planAppDesignTool } from "./tools/planAppDesign";
 import { removeFieldTool } from "./tools/removeField";
 import { removeFormTool } from "./tools/removeForm";
 import { removeModuleTool } from "./tools/removeModule";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
+import { updateAppTool } from "./tools/updateApp";
 import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
 
 /**
  * Names of SA tools exposed only in build mode. Declared as module-scope
  * string literals so `BuildOnlyToolName` can pin them: the factory applies a
- * matching `satisfies Record<BuildOnlyToolName, …>` to its generation-tool
- * record, so adding/removing/renaming a generation tool without updating this
+ * matching `satisfies Record<BuildOnlyToolName, …>` to its planning-tool
+ * record, so adding/removing/renaming a planning tool without updating this
  * list breaks compilation.
  *
  * NOT used to strip message history — the chat route drops any tool-use part
  * whose name isn't in the live tool set (`Object.keys(sa.tools)`), which
  * covers build-only AND removed/renamed tools without a hand-kept list. So
  * this const is purely the compile-time tie for the build/edit tool split.
- * (`completeBuild` is also build-only on the chat surface but lives in its
- * own one-key record with its own `satisfies` tie — see the completion
- * section in the factory.)
  */
-const BUILD_ONLY_TOOL_NAMES = ["generateSchema", "generateScaffold"] as const;
+const BUILD_ONLY_TOOL_NAMES = ["generateSchema", "planAppDesign"] as const;
 
 type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
-
-/**
- * Result the chat-side `completeBuild` wrapper hands the model. Distinct
- * from the shared `CompleteBuildResult` (`kind: "complete"`) that the MCP
- * adapter consumes — the chat wrapper collapses completion to a flat
- * success/failure and layers on the chat-only `data-done` handoff. Three
- * arms, and the discriminator between the two failure arms is
- * load-bearing:
- *
- *  - `{ success: true }` — the boundary evaluation came back clean, the
- *    case-store schema materialized, the app flipped to complete, and
- *    the celebration handoff has fired.
- *  - `{ success: false; errors }` — work remains (deferred completeness,
- *    or a media/soundness finding in a legacy doc). `errors` enumerates
- *    each finding; the SA finishes the work with its normal mutation
- *    tools and calls `completeBuild` again.
- *  - `{ success: false; infrastructure: true; errors }` — the evaluation
- *    PASSED, but a system fault (case-store Postgres outage, a Firestore
- *    write failure) interrupted finalizing the app. The SA cannot repair
- *    this by editing the doc and re-running hits the same fault, so the
- *    arm is tagged `infrastructure: true`. Without the tag this is
- *    byte-identical to an unfinished-work failure, and the SA spends its
- *    `stopWhen` budget "finishing" an app that was never unfinished. The
- *    prompt's Error Recovery section keys off the tag to stop and
- *    surface a system error instead.
- */
-type ChatCompleteBuildResult =
-	| { success: true }
-	| { success: false; errors: string[] }
-	| { success: false; infrastructure: true; errors: string[] };
-
-/**
- * The model-facing instruction returned in `completeBuild`'s
- * infrastructure-failure arm. Distinct from the user-facing
- * `classified.message` that `emitError` ships — this text tells the SA what
- * to *do* (stop, don't retry, report a system error). Named so the arm and
- * its test assert one source of truth rather than each restating the prose.
- */
-export const INFRA_FAILURE_SA_INSTRUCTION =
-	"A system error interrupted finalizing the app — this is an infrastructure problem on our end, not a problem with the app you built. Editing the app will not fix it, and re-running completeBuild will hit the same error. Stop now: tell the user a system error interrupted saving their app (the app itself is sound) and to try again in a moment or contact support. Do not call completeBuild again.";
-
-/**
- * The model-facing instruction for a chat-side stale-basis bounce, returned
- * AFTER the wrapper has reloaded the working doc (see the completion
- * section in the factory). It must say the working copy already includes
- * the outside changes — the SA's in-memory picture of the app is stale, and
- * without that line it would "re-apply" work the reload may have replaced.
- */
-export const STALE_BASIS_SA_INSTRUCTION =
-	"The app changed while it was being completed — another editing session saved in the meantime, so nothing was finalized. Your working copy has been reloaded and now includes those outside changes. Re-read anything you need to verify (searchBlueprint / getForm), then run completeBuild again to evaluate the app as it now stands.";
-
-/**
- * Load the stored blueprint into a fresh working doc — the chat-side
- * stale-basis recovery. The SA's working doc lives in run memory and never
- * reconciles with Firestore on its own, so after a concurrent writer
- * rotates the basis the retry MUST evaluate the stored doc: completing from
- * the unreconciled working doc would adopt the rotated token and commit it
- * over the very edit the basis guard caught. Throws when the app row can't
- * be read — the caller routes that through the infrastructure arm (a fault
- * no doc edit repairs).
- */
-async function reloadWorkingDoc(appId: string): Promise<BlueprintDoc> {
-	const stored = await loadApp(appId);
-	if (!stored) {
-		throw new Error(
-			`The stored app row for ${appId} is missing — the working doc can't be reloaded after the concurrent edit, so completion can't safely retry.`,
-		);
-	}
-	const next: BlueprintDoc = {
-		...structuredClone(stored.blueprint),
-		fieldParent: {},
-	};
-	rebuildFieldParent(next);
-	return next;
-}
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -325,12 +245,13 @@ export function createSolutionsArchitect(
 		};
 	}
 
-	// ── Generation tools (build mode only) ────────────────────────────
-	// Drive the initial build sequence: schema → scaffold → fields. Case
-	// list authoring (columns + filter + searchInputs) happens through
-	// the typed case-list-config tools in the shared set — same tools
-	// both during initial build and on later edits. Excluded in edit
-	// mode — the SA uses mutation tools instead.
+	// ── Planning tools (build mode only) ──────────────────────────────
+	// The two pure planning steps of a new build: the data model, then
+	// the app design. Each records its plan in the conversation (the
+	// tool input IS the plan) and writes nothing — execution happens
+	// through the shared creation tools, one `createModule` per planned
+	// module. Excluded in edit mode: an existing app's structure is the
+	// plan.
 	//
 	// `satisfies Record<BuildOnlyToolName, unknown>` ties the record's keys
 	// to `BUILD_ONLY_TOOL_NAMES`: adding, removing, or renaming a key
@@ -339,8 +260,8 @@ export function createSolutionsArchitect(
 	// the factory actually registers.
 
 	const generationTools = {
-		generateSchema: wrapMutating(generateSchemaTool),
-		generateScaffold: wrapMutating(generateScaffoldTool),
+		generateSchema: wrapRead(generateSchemaTool),
+		planAppDesign: wrapRead(planAppDesignTool),
 	} satisfies Record<BuildOnlyToolName, unknown>;
 
 	// ── Shared tools (all modes) ─────────────────────────────────────
@@ -372,6 +293,7 @@ export function createSolutionsArchitect(
 
 		// ── Structural mutations ──────────────────────────────────────
 
+		updateApp: wrapMutating(updateAppTool),
 		updateModule: wrapMutating(updateModuleTool),
 		updateForm: wrapMutating(updateFormTool),
 		createForm: wrapMutating(createFormTool),
@@ -434,121 +356,12 @@ export function createSolutionsArchitect(
 		removeMediaAsset: wrapRead(removeMediaAssetTool),
 	};
 
-	// ── Completion (build mode only) ──────────────────────────────────
-
-	/* `completeBuild` is bespoke (not `wrapMutating`) because its wrapper
-	 * layers three chat-only concerns on top of the shared tool (which owns
-	 * the boundary evaluation + the awaited materialize + the guarded
-	 * status flip — see `tools/completeBuild.ts` for the ordering
-	 * contract):
-	 *
-	 *   1. `data-done` SSE emit on success — the UX signal carrying the
-	 *      full doc + the completion write's rotated basis token; the
-	 *      client's stream dispatcher reconciles its doc store against
-	 *      the snapshot, adopts the token as its auto-save basis, and
-	 *      stamps `runCompletedAt`, which drives the Completed
-	 *      celebration phase. Emitted AFTER the shared body's awaited
-	 *      materialize, so a user-initiated case-store action that fires
-	 *      sub-second after the celebration sees a synced Postgres
-	 *      schema.
-	 *   2. The stale-basis reload — a basis bounce means a concurrent
-	 *      writer's edit is in Firestore but NOT in this run's working
-	 *      doc, so the wrapper reloads the stored doc into the working
-	 *      state before the SA retries (MCP needs no equivalent: each
-	 *      `complete_build` call re-loads the stored doc).
-	 *   3. The infrastructure-failure arm — a throw out of the shared
-	 *      body (Postgres outage, Firestore write failure) is
-	 *      unrecoverable from the SA's perspective. Letting it propagate
-	 *      to the AI SDK's `tool-error` part would push the SA into a
-	 *      retry loop that burns the 80-step `stopWhen` budget on a fault
-	 *      no edit fixes. The catch routes through the canonical
-	 *      `classifyError` + `ctx.emitError` path the chat route's
-	 *      `failRun` uses, and flips the app to `error` ONLY while it is
-	 *      under construction — an app that is already complete keeps its
-	 *      status, whatever surface the call came from (demoting a
-	 *      working complete app over a transient outage is the exact
-	 *      brick the route's own failure path guards against).
-	 *
-	 * It lives in the BUILD-ONLY record: edit mode (a complete app) has
-	 * nothing to complete — per-commit gating owns edit validity, and the
-	 * edit preamble says so. The chat route's history strip drops the
-	 * tool's parts from edit-turn message history, the same machinery
-	 * every build-only tool rides. */
-	const completionTools = {
-		completeBuild: tool({
-			description: completeBuildTool.description,
-			inputSchema: completeBuildTool.inputSchema,
-			execute: (input) =>
-				serial(async (): Promise<ChatCompleteBuildResult> => {
-					let result: Awaited<ReturnType<typeof completeBuildTool.execute>>;
-					try {
-						result = await completeBuildTool.execute(input, ctx, doc);
-						if (!result.success && result.staleBasis) {
-							/* A concurrent writer (another tab's save, an MCP commit)
-							 * advanced the stored doc during the evaluation window.
-							 * "Run it again" is only sound once the run's working doc
-							 * INCLUDES that edit — on chat the working doc never
-							 * reconciles on its own, so a bare retry would adopt the
-							 * rotated token and commit this stale doc over the very
-							 * edit the guard caught. Reload before advising the
-							 * re-run; a reload failure falls to the infrastructure
-							 * arm below (Firestore down — no doc edit repairs it). */
-							doc = await reloadWorkingDoc(ctx.appId);
-							return {
-								success: false,
-								errors: [STALE_BASIS_SA_INSTRUCTION],
-							};
-						}
-					} catch (err) {
-						const classified = classifyError(err);
-						ctx.emitError(classified, "completeBuild");
-						/* `failApp` is fire-and-forget by design (it swallows
-						 * Firestore errors internally) — match the route's
-						 * `failRun` shape, including its under-construction-only
-						 * scope: never demote an already-complete app. */
-						if (ctx.commitPhase === "building") {
-							failApp(ctx.appId, classified.type);
-						}
-						/* Tag `infrastructure: true` so the SA can tell this apart
-						 * from unfinished work (the app evaluated clean; the fault
-						 * is a system outage no doc mutation repairs), and return
-						 * the model-facing instruction — NOT `classified.message`,
-						 * whose user-facing translation already shipped via
-						 * `emitError` above. */
-						return {
-							success: false,
-							infrastructure: true,
-							errors: [INFRA_FAILURE_SA_INSTRUCTION],
-						};
-					}
-					if (result.success) {
-						ctx.emit("data-done", {
-							doc: toPersistableDoc(doc),
-							success: true,
-							/* The completion write's rotated `blueprint_token` — the
-							 * builder client adopts it as its auto-save basis, so the
-							 * same tab keeps saving without bouncing off the
-							 * rotation. */
-							...(result.basisToken !== undefined && {
-								basisToken: result.basisToken,
-							}),
-						});
-						return { success: true };
-					}
-					return { success: false, errors: result.errors ?? [] };
-				}),
-		}),
-	} satisfies Record<"completeBuild", unknown>;
-
 	// ── Compose tools and build agent ────────────────────────────────
-	// Edit mode: only shared tools (read + mutation) — a complete app has
-	// nothing to complete, so the completion tool is build-only.
-	// Build mode: shared tools + generation tools (schema → scaffold) +
-	// the completion tool.
+	// Edit mode: only shared tools (read + mutation). Build mode: shared
+	// tools + the two planning tools. There is no finishing tool — the
+	// route finalizes a build when the run's drain ends.
 
-	const tools = editing
-		? sharedTools
-		: { ...sharedTools, ...generationTools, ...completionTools };
+	const tools = editing ? sharedTools : { ...sharedTools, ...generationTools };
 
 	const agent = new ToolLoopAgent({
 		model: ctx.model(SA_MODEL),

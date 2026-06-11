@@ -46,7 +46,7 @@ import type {
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations } from "../blueprintHelpers";
 import type { FlatField } from "../contentProcessing";
-import { connectFormConfigSchema } from "../scaffoldSchemas";
+import { connectFormConfigSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import { guardedMutate, type MutatingToolResult } from "./common";
@@ -75,6 +75,10 @@ export const createFormInputSchema = z
 			.describe(
 				"The form's fields, in order — a form is created together with its content in one call (a registration form must include a case_name writer). Same per-field shape as addFields; use parentId on an item to nest it under a group/repeat created earlier in this list.",
 			),
+		purpose: z
+			.string()
+			.optional()
+			.describe("Brief description of what this form collects and why."),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
 			.optional()
@@ -103,7 +107,8 @@ export const createFormTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<CreateFormResult>> {
-		const { moduleIndex, name, type, fields, post_submit, connect } = input;
+		const { moduleIndex, name, type, fields, purpose, post_submit, connect } =
+			input;
 		try {
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid) {
@@ -150,6 +155,7 @@ export const createFormTool = {
 				uuid: formUuid,
 				name,
 				type: type as FormType,
+				...(purpose !== undefined && { purpose }),
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),

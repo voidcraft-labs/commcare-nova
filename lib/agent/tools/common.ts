@@ -56,11 +56,11 @@ export type GuardedMutateOutcome =
  * through the validity verdict, then persist via `ctx.recordMutations`.
  *
  * The gate (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` over
- * `evaluateCommit`) accepts a batch iff it introduces no error of a
- * gating class for `ctx.commitPhase` — soundness always, completeness
- * once the app is complete. A rejected batch persists NOTHING: the gate
- * runs before the write, so an invalid intermediate state never reaches
- * Firestore or the mutation stream, on the chat surface and MCP alike.
+ * `evaluateCommit`) accepts a batch iff it introduces no validator
+ * finding of a gating class — shape, soundness, or completeness. A
+ * rejected batch persists NOTHING: the gate runs before the write, so an
+ * invalid intermediate state never reaches Firestore or the mutation
+ * stream, on the chat surface and MCP alike.
  *
  * Tools must route every batch through here rather than calling
  * `applyToDoc` + `ctx.recordMutations` themselves — a direct write would
@@ -73,7 +73,7 @@ export async function guardedMutate(
 	mutations: Mutation[],
 	stage?: string,
 ): Promise<GuardedMutateOutcome> {
-	const verdict = mutationCommitVerdict(prevDoc, mutations, ctx.commitPhase);
+	const verdict = mutationCommitVerdict(prevDoc, mutations);
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
@@ -106,7 +106,7 @@ export async function guardedMutateStages(
 	stages: StagedMutationBatch[],
 ): Promise<GuardedMutateOutcome> {
 	const all = stages.flatMap((s) => s.mutations);
-	const verdict = mutationCommitVerdict(prevDoc, all, ctx.commitPhase);
+	const verdict = mutationCommitVerdict(prevDoc, all);
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
@@ -122,9 +122,9 @@ export async function guardedMutateStages(
  * Tagged with `kind: "mutate"` so the MCP adapter's result projector
  * dispatches via a `switch` on the discriminator rather than
  * runtime structural inspection — the type system catches a future
- * fourth shape at compile time, and `MutatingToolResult` /
- * `ReadToolResult` / `ValidateAppResult` are unambiguous regardless of
- * incidental shape collisions in their inner payload.
+ * third shape at compile time, and `MutatingToolResult` /
+ * `ReadToolResult` are unambiguous regardless of incidental shape
+ * collisions in their inner payload.
  *
  * - `kind`: the discriminator — always `"mutate"`.
  * - `mutations`: the computed batch. The tool has already persisted it

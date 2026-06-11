@@ -21,6 +21,7 @@ import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
+	completeApp,
 	createApp,
 	failApp,
 	GenerationRetryConflictError,
@@ -37,12 +38,9 @@ import {
 	refundReservation,
 	reserveCredits,
 } from "@/lib/db/credits";
+import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
-import {
-	type CommitPhase,
-	commitPhaseForAppStatus,
-} from "@/lib/doc/commitVerdicts";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
@@ -200,12 +198,6 @@ export async function POST(req: Request) {
 	 * for a retry — the pre-stream rejection arms below must flip it back
 	 * to `error` on bail-out, mirroring how `appCreated` rows are failed. */
 	let revivedForRetry = false;
-	/* Validity-gate phase, derived server-side from the app doc's own
-	 * lifecycle status (`commitPhaseForAppStatus`) — never from the
-	 * client-reported `appReady` flag, which picks only the prompt/tool
-	 * mode. A brand-new build's doc is created `generating` below, so it
-	 * gates under the construction window without a re-read. */
-	let commitPhase: CommitPhase = "building";
 	if (!appId) {
 		try {
 			appId = await createApp(userId, effectiveRunId);
@@ -231,15 +223,13 @@ export async function POST(req: Request) {
 				{ status: 404 },
 			);
 		}
-		commitPhase = commitPhaseForAppStatus(access.status);
 		/* A BUILD-mode retry of a failed build re-enters `generating` HERE —
 		 * awaited, BEFORE the concurrency check below, the same
 		 * write-then-check ordering `createApp` uses (the durable row is the
 		 * lock; do not reorder). This is what puts the retry back under the
 		 * existing liveness machinery: the concurrency guard, the staleness
 		 * reaper's reservation refund for a hard-killed run, and the list
-		 * failure inference. The gate phase is unchanged (`error` and
-		 * `generating` both map to `building`).
+		 * failure inference.
 		 *
 		 * The flip itself is the same-app lock: `hasActiveGeneration` below
 		 * excludes this appId (so a retry isn't blocked by its own row), which
@@ -455,11 +445,6 @@ export async function POST(req: Request) {
 				usage,
 				session: keyResult.session,
 				appId,
-				/* Server-derived gate phase (see the `commitPhase` resolution
-				 * beside the ownership check) — the app doc's status, not the
-				 * client's `appReady` flag, decides whether the completeness
-				 * ratchet holds. */
-				commitPhase,
 			});
 
 			/* Persist the current request's user message as the first
@@ -829,11 +814,83 @@ export async function POST(req: Request) {
 					 * resumes the run. */
 					await setAwaitingInput(appId, true);
 				} else if (editing) {
-					/* Tripwire, not a gate: with every committed batch ratcheted,
-					 * an edit run that ends with a completeness finding is
-					 * unreachable except through a bug — the warn is how one
-					 * would surface in production. */
+					/* Tripwire, not a gate: with every committed batch gated against
+					 * introducing findings, an edit run that ends with a NEW
+					 * completeness finding is unreachable except through a bug — the
+					 * warn is how one would surface in production. */
 					ctx.warnIfEditRunIncomplete();
+					/* An edit run can land case-type records (`createModule` with
+					 * `case_type_record`), and the chat surface's fire-and-forget
+					 * saves never touch Postgres — so sync the case-store schemas
+					 * here, the same "any case-store action after a commit sees a
+					 * synced schema" contract the build arm holds. Idempotent
+					 * upsert; failure is log-only because the edit itself succeeded
+					 * and the builder's next auto-save re-syncs through the
+					 * cross-store saga. */
+					const editDoc = ctx.latestPersistedDoc();
+					if (editDoc) {
+						try {
+							await ctx.drainIntermediateSaves();
+							await materializeCaseStoreSchemas({
+								appId,
+								userId,
+								blueprint: toPersistableDoc(editDoc),
+							});
+						} catch (error) {
+							log.error("[chat] edit-run case-store sync failed", error, {
+								appId,
+							});
+						}
+					}
+				} else {
+					/* BUILD finalization — the drain ended cleanly, so the run is
+					 * done and the app is at rest. There is no finishing tool: the
+					 * route owns the three finishing moves, in this order.
+					 *
+					 *  1. Drain the run's chained intermediate saves, so the stored
+					 *     blueprint is the run's final snapshot before anything
+					 *     signals "finished".
+					 *  2. Materialize the case-store schemas for whatever the run
+					 *     persisted (awaited) — a user-initiated case-store action
+					 *     sub-second after the celebration (sample-data populate,
+					 *     form submit, live preview) must see a synced Postgres
+					 *     schema. The case-store consumers don't gate on status, so
+					 *     this MUST precede `data-done`.
+					 *  3. Flip `generating → complete` (status-only — the blueprint
+					 *     was already persisted by the chained saves, so this write
+					 *     can't blind-overwrite a concurrent editor) and emit
+					 *     `data-done`, the celebration + doc-reconciliation signal.
+					 *
+					 * A run that persisted nothing (a purely conversational build
+					 * turn) still flips to complete — an empty app is at rest and
+					 * valid, and status never feeds gating — but emits no
+					 * `data-done`: nothing was built, so there is nothing to
+					 * celebrate or reconcile.
+					 *
+					 * A throw out of any step funnels through `failRun` — the same
+					 * infrastructure arm a mid-run fault takes (the app flips to
+					 * `error`, the reservation refunds, the user sees the classified
+					 * error). */
+					try {
+						await ctx.drainIntermediateSaves();
+						const finalDoc = ctx.latestPersistedDoc();
+						if (finalDoc) {
+							await materializeCaseStoreSchemas({
+								appId,
+								userId,
+								blueprint: toPersistableDoc(finalDoc),
+							});
+						}
+						await completeApp(appId);
+						if (finalDoc) {
+							ctx.emit("data-done", {
+								doc: toPersistableDoc(finalDoc),
+								success: true,
+							});
+						}
+					} catch (error) {
+						await failRun(error, "route:finalize");
+					}
 				}
 			} catch (error) {
 				/* Init/build error around the stream setup (a bad message shape, an

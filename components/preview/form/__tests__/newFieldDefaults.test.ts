@@ -81,25 +81,19 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 		});
 	}
 
-	it.each(fieldKinds)("%s starter commits in both phases", (kind) => {
+	it.each(fieldKinds)("%s starter commits through the gate", (kind) => {
 		const doc = pickerDoc();
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
 		const field = { ...built, uuid: UUID } as Field;
-		for (const phase of ["building", "complete"] as const) {
-			const verdict = mutationCommitVerdict(
-				doc,
-				[{ kind: "addField", parentUuid: formUuid, field }],
-				phase,
-			);
-			expect(
-				verdict.ok,
-				verdict.ok
-					? ""
-					: `${kind} (${phase}): ${verdict.introduced
-							.map((e) => e.code)
-							.join(", ")}`,
-			).toBe(true);
-		}
+		const verdict = mutationCommitVerdict(doc, [
+			{ kind: "addField", parentUuid: formUuid, field },
+		]);
+		expect(
+			verdict.ok,
+			verdict.ok
+				? ""
+				: `${kind}: ${verdict.introduced.map((e) => e.code).join(", ")}`,
+		).toBe(true);
 	});
 });

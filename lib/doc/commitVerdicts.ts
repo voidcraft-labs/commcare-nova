@@ -13,20 +13,13 @@
  * dispatch hook (`useBlueprintMutations`) consume the same function, so
  * "rejected here, accepted there" can't drift between surfaces.
  *
- * Semantics live entirely in `evaluateCommit` — introduced-error diffing,
- * the building-phase completeness deferral, and the complete-phase
- * ratchet are never re-derived here. Reducers stay total and never call
- * this: a degenerate historical event must still replay.
+ * Semantics live entirely in `evaluateCommit` — introduced-error
+ * diffing and the gating-class filter are never re-derived here.
+ * Reducers stay total and never call this: a degenerate historical
+ * event must still replay.
  *
  * Bypasses: undo/redo, hydration, the agent stream, and replay write
  * through the store directly — they replay already-committed states.
- * The session store's `switchConnectMode` is the one DELIBERATE
- * live-edit bypass (owner decision pending): enabling Connect
- * introduces `CONNECT_FORM_MISSING_BLOCK` on every form by construction
- * — no form carries a block before the mode exists — so gating that
- * dispatch would make Connect un-enableable on complete apps. The
- * export boundary rejects the incomplete state instead, until Connect's
- * enable flow seeds/restores every form's block in the enabling batch.
  *
  * Pure — the candidate `nextDoc` is computed via Immer `produce` over
  * the same `applyMutations` reducer every committed batch runs through.
@@ -39,38 +32,11 @@
 
 import { produce } from "immer";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
-import {
-	type CommitPhase,
-	evaluateCommit,
-} from "@/lib/commcare/validator/gate";
+import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
-import type { AppDoc } from "@/lib/db/types";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation, MutationResult } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-
-export type { CommitPhase };
-
-/**
- * Validity-gate phase from an app document's lifecycle status — the ONE
- * derivation every server surface shares (the chat route reads it off
- * the app doc it already loaded for ownership; the MCP adapter off the
- * doc it loaded for the tool call). Under construction — completeness
- * deferred — covers three statuses: `generating` (a chat build in
- * flight), `draft` (an MCP build between `create_app` and
- * `complete_build`), and `error` (a FAILED build is an app still under
- * construction, not a complete one — the user retries it in the same
- * thread, and the retry's scaffold batches must gate exactly like the
- * original build's; the route's concurrency guard already passes retries
- * through on the same appId). Everything else is `complete` (the ratchet
- * holds). The phase is never taken from a client-supplied flag: the app
- * doc is the authority on its own build window.
- */
-export function commitPhaseForAppStatus(status: AppDoc["status"]): CommitPhase {
-	return status === "generating" || status === "draft" || status === "error"
-		? "building"
-		: "complete";
-}
 
 /**
  * The verdict shape every commit surface consumes. `nextDoc` is always
@@ -89,16 +55,10 @@ export type MutationCommitVerdict =
  * Gate one mutation batch against the doc it would apply to. An empty
  * batch passes without running validation — there is nothing to
  * introduce.
- *
- * `phase` follows `evaluateCommit`'s contract: `"building"` while the
- * app is under construction (completeness deferred), `"complete"`
- * otherwise (the ratchet — an edit may never take a complete entity
- * incomplete).
  */
 export function mutationCommitVerdict(
 	prevDoc: BlueprintDoc,
 	mutations: Mutation[],
-	phase: CommitPhase,
 ): MutationCommitVerdict {
 	if (mutations.length === 0) {
 		return { ok: true, nextDoc: prevDoc, results: [] };
@@ -109,7 +69,7 @@ export function mutationCommitVerdict(
 		results = applyMutations(draft, mutations);
 	});
 	const scope = scopeOfMutations(prevDoc, mutations);
-	const verdict = evaluateCommit({ prevDoc, nextDoc, scope, phase });
+	const verdict = evaluateCommit({ prevDoc, nextDoc, scope });
 	return verdict.ok
 		? { ok: true, nextDoc, results }
 		: { ok: false, nextDoc, introduced: verdict.introduced };

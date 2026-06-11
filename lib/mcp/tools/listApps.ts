@@ -86,10 +86,10 @@ export const listAppsInputSchema = {
 			"Opaque pagination cursor. Pass the `next_cursor` from a prior `list_apps` response to fetch the next page. Must be used with the same `sort` as the prior call — mixing sort orders across pagination is rejected.",
 		),
 	status: z
-		.enum(["generating", "draft", "complete", "error"])
+		.enum(["generating", "complete", "error"])
 		.optional()
 		.describe(
-			"Filter to apps with a specific lifecycle status. Omit to return apps regardless of status. `generating` is an in-flight chat build; `draft` is an MCP build awaiting complete_build; `complete` is ready to use; `error` is a failed build.",
+			"Filter to apps with a specific status. Omit to return apps regardless of status. `generating` is an in-flight chat build run; `complete` is an app at rest; `error` is a failed build.",
 		),
 	sort: z
 		.enum(["updated_desc", "updated_asc", "name_asc", "name_desc"])

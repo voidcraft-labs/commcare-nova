@@ -21,7 +21,7 @@
  *
  *   2. **Shared SA tools** (`lib/agent/tools/*`) — the blueprint
  *      readers + writers the chat-side Solutions Architect already uses
- *      (search, add_fields, edit_field, create_form, complete_build, …).
+ *      (search, add_fields, edit_field, create_form, …).
  *      Those modules share a uniform contract (input schema, `execute`
  *      against a `BlueprintDoc` + `ToolExecutionContext`) so the MCP
  *      surface funnels them through one adapter: `registerSharedTool`
@@ -56,11 +56,9 @@ import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/upd
 import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
-import { completeBuildTool } from "@/lib/agent/tools/completeBuild";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
-import { generateScaffoldTool } from "@/lib/agent/tools/generateScaffold";
 import { generateSchemaTool } from "@/lib/agent/tools/generateSchema";
 import { getFieldTool } from "@/lib/agent/tools/getField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
@@ -72,10 +70,12 @@ import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
 import { setFormMediaTool } from "@/lib/agent/tools/media/setFormMedia";
 import { setModuleMediaTool } from "@/lib/agent/tools/media/setModuleMedia";
+import { planAppDesignTool } from "@/lib/agent/tools/planAppDesign";
 import { removeFieldTool } from "@/lib/agent/tools/removeField";
 import { removeFormTool } from "@/lib/agent/tools/removeForm";
 import { removeModuleTool } from "@/lib/agent/tools/removeModule";
 import { searchBlueprintTool } from "@/lib/agent/tools/searchBlueprint";
+import { updateAppTool } from "@/lib/agent/tools/updateApp";
 import { updateFormTool } from "@/lib/agent/tools/updateForm";
 import { updateModuleTool } from "@/lib/agent/tools/updateModule";
 import {
@@ -120,8 +120,11 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "create_form", tool: createFormTool },
 	{ name: "create_module", tool: createModuleTool },
 	{ name: "edit_field", tool: editFieldTool },
+	/* The two pure planning tools — each records its plan in the
+	 * conversation (the tool input is the plan) and writes nothing.
+	 * Execution runs through create_module per planned module. */
 	{ name: "generate_schema", tool: generateSchemaTool },
-	{ name: "generate_scaffold", tool: generateScaffoldTool },
+	{ name: "plan_app_design", tool: planAppDesignTool },
 	{ name: "get_field", tool: getFieldTool },
 	{ name: "get_form", tool: getFormTool },
 	{ name: "get_module", tool: getModuleTool },
@@ -163,9 +166,9 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "set_app_logo", tool: setAppLogoTool },
 	{ name: "list_media_assets", tool: listMediaAssetsTool },
 	{ name: "remove_media_asset", tool: removeMediaAssetTool },
+	{ name: "update_app", tool: updateAppTool },
 	{ name: "update_form", tool: updateFormTool },
 	{ name: "update_module", tool: updateModuleTool },
-	{ name: "complete_build", tool: completeBuildTool },
 ];
 
 /**

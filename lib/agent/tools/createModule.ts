@@ -3,45 +3,57 @@
  * everything that makes it sound and complete, in one gated batch.
  *
  * Creation is ATOMIC. A case-managing module is only valid WITH its
- * forms (NO_FORMS_OR_CASE_LIST is a soundness rule — it rejects in every
- * phase) and, on a complete app, WITH its case-list columns
- * (MISSING_CASE_LIST_COLUMNS is completeness — the ratchet rejects
- * introducing it). So the tool accepts `forms` (each with its `fields`)
- * and `case_list_columns`, and emits one batch: addModule + addForm × N
- * + addField × M + the case-list config — the gate evaluates the whole
- * thing as one candidate, and a rejection's findings are all satisfiable
- * by adjusting THIS call.
+ * forms (NO_FORMS_OR_CASE_LIST) and WITH its case-list columns
+ * (MISSING_CASE_LIST_COLUMNS — completeness, gated like everything
+ * else). So the tool accepts `forms` (each with its `fields`) and
+ * `case_list_columns`, and emits one batch: the case-type record +
+ * addModule + addForm × N + addField × M + the case-list config — the
+ * gate evaluates the whole thing as one candidate, and a rejection's
+ * findings are all satisfiable by adjusting THIS call.
+ *
+ * The CASE-TYPE RECORD rides the same batch (`case_type_record`): a
+ * record declared ahead of its module would introduce
+ * MISSING_CHILD_CASE_MODULE for a child type, so the record lands
+ * exactly with the module that satisfies its obligations — and the
+ * field assembly sees it in the same call, so catalog defaults (label,
+ * options, validation) seed this module's own fields.
  *
  * Follow-up case-list refinement (sort, filter, search inputs) still
  * goes through the case-list-config tools once the module exists; this
  * tool's `case_list_columns` exists so the module can BE BORN complete.
  *
  * Each form's `connect` block runs through `enforceConnectIds` (the
- * agent-path source guard, same as `updateForm` / `generateScaffold`)
- * BEFORE the batch is built — one app-wide id set threads through every
- * form in the call, so an omitted id autofills valid + unique across the
+ * agent-path source guard, same as `updateForm` / `createForm`) BEFORE
+ * the batch is built — one app-wide id set threads through every form
+ * in the call, so an omitted id autofills valid + unique across the
  * whole creation and an explicit invalid or duplicate id fails the call.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
  *
- *   1. An explicit connect id is invalid/duplicate → `{ error }`, no
+ *   1. A `case_type_record` that mismatches `case_type` or re-declares
+ *      an existing record → `{ error }`, no mutations.
+ *   2. An explicit connect id is invalid/duplicate → `{ error }`, no
  *      mutations.
- *   2. Identifier guard rejection in any form's fields → `{ error }`
+ *   3. Identifier guard rejection in any form's fields → `{ error }`
  *      naming every failing item, nothing persisted.
- *   3. Commit-gate rejection → `{ error }` listing each finding,
+ *   4. Commit-gate rejection → `{ error }` listing each finding,
  *      nothing persisted.
- *   4. Unexpected runtime error → `{ error }`, no mutations.
- *   5. Success → a human-readable `message` (+ a UI `summary`) carrying
+ *   5. Unexpected runtime error → `{ error }`, no mutations.
+ *   6. Success → a human-readable `message` (+ a UI `summary`) carrying
  *      the new module's index + structure counts, stage `module:create`.
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
+import type { Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, CaseType, ConnectConfig } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
 import type { FlatField } from "../contentProcessing";
-import { connectFormConfigSchema } from "../scaffoldSchemas";
+import {
+	caseTypeRecordSchema,
+	connectFormConfigSchema,
+} from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -74,6 +86,10 @@ const createModuleFormSchema = z
 			.describe(
 				"The form's fields, in order (same per-field shape as addFields). A registration form must include a case_name writer.",
 			),
+		purpose: z
+			.string()
+			.optional()
+			.describe("Brief description of what this form collects and why."),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
 			.optional()
@@ -97,6 +113,15 @@ export const createModuleInputSchema = z
 			.describe(
 				"Case type (required if the module has registration/followup/close forms)",
 			),
+		case_type_record: caseTypeRecordSchema
+			.optional()
+			.describe(
+				"The case type's record (properties, parent link) from the data-model plan — provide it when this call's case_type is NEW to the app (its name must equal case_type). A child case type's record lands with ITS module, never earlier. Omit when the case type already has a record.",
+			),
+		purpose: z
+			.string()
+			.optional()
+			.describe("Brief description of this module's role in the app."),
 		forms: z
 			.array(createModuleFormSchema)
 			.optional()
@@ -132,8 +157,58 @@ export const createModuleTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<CreateModuleResult>> {
-		const { name, case_type, forms, case_list_columns, case_list_only } = input;
+		const {
+			name,
+			case_type,
+			case_type_record,
+			purpose,
+			forms,
+			case_list_columns,
+			case_list_only,
+		} = input;
 		try {
+			/* The case-type record rides this batch. Reject the shapes that
+			 * can't mean what the caller intended: a record naming a type
+			 * other than the module's own, and a record for a type the app
+			 * already carries (re-declaring would silently replace the
+			 * existing catalog entry other forms' defaults were seeded from). */
+			let assemblyDoc = doc;
+			const recordMutations: Mutation[] = [];
+			if (case_type_record) {
+				if (!case_type || case_type_record.name !== case_type) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Module "${name}" wasn't created — its case_type_record is named "${case_type_record.name}" but the module's case_type is ${case_type ? `"${case_type}"` : "unset"}. The record describes the module's own case type, so the two names must match.`,
+						},
+					};
+				}
+				if (doc.caseTypes?.some((ct) => ct.name === case_type_record.name)) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Module "${name}" wasn't created — the app already has a case-type record for "${case_type_record.name}". Omit case_type_record (the existing record stays as is), or edit the existing record instead of re-declaring it.`,
+						},
+					};
+				}
+				const mergedCaseTypes = [
+					...(doc.caseTypes ?? []),
+					case_type_record as CaseType,
+				];
+				recordMutations.push({
+					kind: "setCaseTypes",
+					caseTypes: mergedCaseTypes,
+				});
+				/* The field assembly's catalog defaulting reads
+				 * `doc.caseTypes`; thread the merged catalog through so this
+				 * call's own fields seed from the record landing with it. */
+				assemblyDoc = { ...doc, caseTypes: mergedCaseTypes };
+			}
+
 			// Stage tag `module:create` — a positional index isn't available
 			// yet because the new module's slot only exists after the
 			// mutations apply. Downstream consumers that need the index read
@@ -142,15 +217,19 @@ export const createModuleTool = {
 			const columns = (case_list_columns ?? []).map((c) =>
 				stampColumnUuid(c, newUuid()),
 			);
-			const mutations = addModuleMutations(doc, {
-				uuid: moduleUuid,
-				name,
-				...(case_type && { caseType: case_type }),
-				...(case_list_only && { caseListOnly: case_list_only }),
-				...(columns.length > 0 && {
-					caseListConfig: { columns, searchInputs: [] },
+			const mutations = [
+				...recordMutations,
+				...addModuleMutations(doc, {
+					uuid: moduleUuid,
+					name,
+					...(case_type && { caseType: case_type }),
+					...(case_list_only && { caseListOnly: case_list_only }),
+					...(purpose !== undefined && { purpose }),
+					...(columns.length > 0 && {
+						caseListConfig: { columns, searchInputs: [] },
+					}),
 				}),
-			});
+			];
 
 			let fieldCount = 0;
 			const skipped: Array<{ id: string; reason: string }> = [];
@@ -190,6 +269,9 @@ export const createModuleTool = {
 							uuid: formUuid,
 							name: formInput.name,
 							type: formInput.type,
+							...(formInput.purpose !== undefined && {
+								purpose: formInput.purpose,
+							}),
 							...(formInput.post_submit && {
 								postSubmit: formInput.post_submit,
 							}),
@@ -201,7 +283,7 @@ export const createModuleTool = {
 					),
 				);
 				const assembly = assembleFieldMutations({
-					doc,
+					doc: assemblyDoc,
 					formUuid,
 					// Per-kind union arms are validated structural subsets of the
 					// wide `FlatField` the pipeline operates on — same bridge cast

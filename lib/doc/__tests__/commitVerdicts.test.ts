@@ -2,7 +2,7 @@
  * `mutationCommitVerdict` — the shared pre-dispatch gate every commit
  * surface (SA/MCP tool layer, builder dispatch hook) consults. These
  * tests pin the wiring, not the gate semantics themselves —
- * introduced-error diffing, phase handling, and identity stability are
+ * introduced-error diffing and identity stability are
  * `evaluateCommit`'s contract, proven in
  * `lib/commcare/validator/__tests__/gate.test.ts`. What must hold HERE:
  * the candidate doc comes from the same reducer a committed batch runs
@@ -15,7 +15,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
-	commitPhaseForAppStatus,
 	describeIntroducedErrors,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
@@ -85,7 +84,7 @@ describe("mutationCommitVerdict", () => {
 			} as Mutation,
 		];
 
-		const verdict = mutationCommitVerdict(doc, mutations, "complete");
+		const verdict = mutationCommitVerdict(doc, mutations);
 		expect(verdict.ok).toBe(true);
 		const updated = Object.values(verdict.nextDoc.fields).find(
 			(fl) => fl.id === "village",
@@ -93,7 +92,7 @@ describe("mutationCommitVerdict", () => {
 		expect(updated && "label" in updated && updated.label).toBe("Home village");
 	});
 
-	it("rejects a soundness introduction in both phases, with the finding attached", () => {
+	it("rejects a soundness introduction, with the finding attached", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const mutations: Mutation[] = [
@@ -109,19 +108,17 @@ describe("mutationCommitVerdict", () => {
 			} as Mutation,
 		];
 
-		for (const phase of ["building", "complete"] as const) {
-			const verdict = mutationCommitVerdict(doc, mutations, phase);
-			expect(verdict.ok).toBe(false);
-			if (!verdict.ok) {
-				expect(verdict.introduced.length).toBeGreaterThan(0);
-				expect(
-					verdict.introduced.every((e) => typeof e.message === "string"),
-				).toBe(true);
-			}
+		const verdict = mutationCommitVerdict(doc, mutations);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.introduced.length).toBeGreaterThan(0);
+			expect(
+				verdict.introduced.every((e) => typeof e.message === "string"),
+			).toBe(true);
 		}
 	});
 
-	it("defers a completeness introduction while building, ratchets it when complete", () => {
+	it("rejects a completeness introduction — an entity lands with what makes it complete", () => {
 		const doc = minDoc();
 		const mutations: Mutation[] = [
 			{
@@ -136,12 +133,7 @@ describe("mutationCommitVerdict", () => {
 			},
 		];
 
-		// A scaffolded-but-unfilled form is unfinished, not wrong — passes
-		// the construction window.
-		expect(mutationCommitVerdict(doc, mutations, "building").ok).toBe(true);
-
-		// The ratchet: a complete app may not gain an incomplete entity.
-		const verdict = mutationCommitVerdict(doc, mutations, "complete");
+		const verdict = mutationCommitVerdict(doc, mutations);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain("EMPTY_FORM");
@@ -151,92 +143,51 @@ describe("mutationCommitVerdict", () => {
 	it("tolerates a pre-existing error when the edit doesn't introduce a new one (legacy safety)", () => {
 		// A doc that ALREADY carries an empty form (e.g. persisted before the
 		// gates existed). Renaming the other form is a strict non-worsening
-		// edit — it must pass even in complete phase.
-		const base = minDoc();
-		const broken = mutationCommitVerdict(
-			base,
-			[
+		// edit — it must pass.
+		const broken = buildDoc({
+			appName: "Test legacy",
+			modules: [
 				{
-					kind: "addForm",
-					moduleUuid: base.moduleOrder[0],
-					form: {
-						uuid: asUuid("form-old-empty"),
-						id: "form_old_empty",
-						name: "Old empty",
-						type: "survey",
-					} as never,
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Form",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+						// The pre-existing breakage: an empty survey form.
+						{ name: "Old empty", type: "survey", fields: [] },
+					],
 				},
 			],
-			"building",
-		).nextDoc;
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
 
-		const verdict = mutationCommitVerdict(
-			broken,
-			[{ kind: "renameForm", uuid: formUuid(broken), newId: "form_two" }],
-			"complete",
-		);
+		const verdict = mutationCommitVerdict(broken, [
+			{ kind: "renameForm", uuid: formUuid(broken), newId: "form_two" },
+		]);
 		expect(verdict.ok).toBe(true);
 	});
 
 	it("passes an empty batch through without validating", () => {
 		const doc = minDoc();
-		const verdict = mutationCommitVerdict(doc, [], "complete");
+		const verdict = mutationCommitVerdict(doc, []);
 		expect(verdict).toEqual({ ok: true, nextDoc: doc, results: [] });
 		// Reference equality — no candidate apply ran.
 		expect(verdict.nextDoc).toBe(doc);
-	});
-});
-
-describe("commitPhaseForAppStatus", () => {
-	it("maps the under-construction statuses to building, the rest to complete", () => {
-		expect(commitPhaseForAppStatus("generating")).toBe("building");
-		// A FAILED build is an app still under construction — the retry's
-		// scaffold batches must gate exactly like the original build's.
-		expect(commitPhaseForAppStatus("error")).toBe("building");
-		expect(commitPhaseForAppStatus("complete")).toBe("complete");
-		expect(commitPhaseForAppStatus("deleted")).toBe("complete");
-	});
-
-	it("a retry of a failed build can land its scaffold batch (fieldless forms defer completeness)", () => {
-		// The retry flow: a build failed (status "error"), the user resends
-		// in the same thread, and the SA's generateScaffold emits modules +
-		// fieldless forms — EMPTY_FORM / MISSING_CASE_LIST_COLUMNS findings
-		// the building window defers and the complete-phase ratchet would
-		// reject. The phase derived from the FAILED app's status must accept
-		// the batch, or every retry burns its reservation looping on
-		// rejections it cannot fix.
-		const doc = minDoc();
-		const moduleUuid = asUuid("m-retry");
-		const scaffoldBatch: Mutation[] = [
-			{
-				kind: "addModule",
-				module: {
-					uuid: moduleUuid,
-					id: "visits",
-					name: "Visits",
-					caseType: "visit",
-				} as never,
-			},
-			{
-				kind: "addForm",
-				moduleUuid,
-				form: {
-					uuid: asUuid("f-retry"),
-					id: "record_visit",
-					name: "Record visit",
-					type: "registration",
-				} as never,
-			},
-		];
-
-		const retryPhase = commitPhaseForAppStatus("error");
-		const accepted = mutationCommitVerdict(doc, scaffoldBatch, retryPhase);
-		expect(accepted.ok).toBe(true);
-
-		// Sanity: the SAME batch under the complete-phase ratchet rejects —
-		// the status mapping is what makes the retry viable.
-		const rejected = mutationCommitVerdict(doc, scaffoldBatch, "complete");
-		expect(rejected.ok).toBe(false);
 	});
 });
 

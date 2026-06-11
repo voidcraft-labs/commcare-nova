@@ -46,6 +46,7 @@ import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/
 import { createFormTool } from "../lib/agent/tools/createForm";
 import { createModuleTool } from "../lib/agent/tools/createModule";
 import { editFieldTool } from "../lib/agent/tools/editField";
+import { generateSchemaTool } from "../lib/agent/tools/generateSchema";
 import { attachFieldMediaTool } from "../lib/agent/tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "../lib/agent/tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "../lib/agent/tools/media/listMediaAssets";
@@ -53,6 +54,8 @@ import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset"
 import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
 import { setFormMediaTool } from "../lib/agent/tools/media/setFormMedia";
 import { setModuleMediaTool } from "../lib/agent/tools/media/setModuleMedia";
+import { planAppDesignTool } from "../lib/agent/tools/planAppDesign";
+import { updateAppTool } from "../lib/agent/tools/updateApp";
 import {
 	updateModuleInputSchema,
 	updateModuleTool,
@@ -189,7 +192,28 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: createModuleTool.description,
 		schema: createModuleTool.inputSchema,
 		prompt:
-			"Use createModule to add a module named 'Households' with case_type household, one registration form named 'Register household' whose fields are case_name (text labeled 'Household name', case_property_on household) and head_name (text labeled 'Head of household', case_property_on household), and one plain case-list column on field case_name with header Name.",
+			"Use createModule to add a module named 'Households' with case_type household and its case_type_record (properties case_name labeled 'Household name' and head_name labeled 'Head of household'), one registration form named 'Register household' whose fields are case_name (text labeled 'Household name', case_property_on household) and head_name (text labeled 'Head of household', case_property_on household), and one plain case-list column on field case_name with header Name.",
+	},
+	{
+		name: "generateSchema",
+		description: generateSchemaTool.description,
+		schema: generateSchemaTool.inputSchema,
+		prompt:
+			"Use generateSchema to plan an app named 'Village Health' with one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
+	},
+	{
+		name: "planAppDesign",
+		description: planAppDesignTool.description,
+		schema: planAppDesignTool.inputSchema,
+		prompt:
+			"Use planAppDesign to plan an app named 'Village Health' (description: track patient visits, standard app so connect_type is the empty string) with one module 'Patients' (case_type patient, not case-list-only, purpose 'Patient tracking') holding one registration form 'Register patient' whose purpose is enrollment and whose formDesign describes capturing name and village.",
+	},
+	{
+		name: "updateApp",
+		description: updateAppTool.description,
+		schema: updateAppTool.inputSchema,
+		prompt:
+			"Use updateApp to set the app's name to 'Village Health' and make it a standard app (connect off).",
 	},
 	/* Media tools — each new tool's input schema, exercised against the
 	 * compiler. The `Media` bundle is three optionals on a non-array

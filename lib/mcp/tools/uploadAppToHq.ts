@@ -74,7 +74,6 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
-import { commitPhaseForAppStatus } from "@/lib/doc/commitVerdicts";
 import { log } from "@/lib/logger";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
@@ -274,10 +273,6 @@ export function registerUploadAppToHq(
 					ctx,
 					appId,
 					runId,
-					commitPhaseForAppStatus(app.status),
-					/* Same-load completion basis — this tool never completes a
-					 * build, but the collaborator contract is uniform. */
-					app.blueprint_token ?? null,
 					extra,
 				);
 

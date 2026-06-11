@@ -5,8 +5,10 @@
  * persisted document, not survive a deep merge against its prior value.
  *
  * Covers the four form-level nullable fields (`connect`,
- * `closeCondition`, `postSubmit`, `purpose`) and the three persistence
- * helpers (`updateApp`, `updateAppForRun`, `completeAppGuardedByBasis`).
+ * `closeCondition`, `postSubmit`, `purpose`) and the two blueprint
+ * persistence helpers (`updateApp`, `updateAppForRun`); `completeApp`
+ * (status-only, no blueprint payload) is pinned to leave the stored
+ * blueprint untouched.
  *
  * Assertions check key absence (`'connect' in form === false`) rather
  * than `=== undefined`: the wire-level claim is that the key is GONE,
@@ -22,12 +24,7 @@ import type {
 	PersistableDoc,
 	PostSubmitDestination,
 } from "@/lib/domain";
-import {
-	completeAppGuardedByBasis,
-	createApp,
-	updateApp,
-	updateAppForRun,
-} from "../apps";
+import { completeApp, createApp, updateApp, updateAppForRun } from "../apps";
 import { getDb } from "../firestore";
 
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
@@ -336,37 +333,24 @@ describe.skipIf(!emulatorAvailable)(
 			expect("purpose" in form).toBe(false);
 		});
 
-		it("completeAppGuardedByBasis: clearing nested fields removes them AND status flips to complete", async () => {
-			const { appId, moduleUuid, formUuid, runId } = await seedPopulatedApp();
+		it("completeApp: flips status only — the persisted blueprint is byte-identical before and after", async () => {
+			const { appId, formUuid } = await seedPopulatedApp();
 
-			/* The guarded completion write is the generation-success
-			 * boundary — `completeBuild` awaits it after a clean boundary
-			 * evaluation. Seed leaves the app at `status: "generating"`
-			 * with a null `blueprint_token` (the `createApp` defaults), so
-			 * a null basis matches; after the write it MUST flip to
-			 * `"complete"`, rotate the token, AND the cleared fields must
-			 * vanish. */
-			const cleared = buildClearedDoc(appId, moduleUuid, formUuid);
-			const rotated = await completeAppGuardedByBasis(
-				appId,
-				cleared,
-				null,
-				runId,
-			);
+			/* The drain-end finish is STATUS-ONLY by contract: the run's
+			 * chained saves own the blueprint, so the flip must not carry a
+			 * doc payload that could blind-overwrite a concurrent editor. */
+			const before = await readPersistedApp(appId);
+			await completeApp(appId);
 
 			const after = await readPersistedApp(appId);
 			expect(after.status).toBe("complete");
-			expect(after.run_id).toBe(runId);
-			expect(after.blueprint_token).toBe(rotated);
-
+			expect(after.error_type).toBeNull();
+			expect(after.blueprint).toEqual(before.blueprint);
 			const form = (
 				after.blueprint as { forms: Record<string, Record<string, unknown>> }
 			).forms[formUuid];
 			if (!form) throw new Error(`Form ${formUuid} missing after completion`);
-			expect("connect" in form).toBe(false);
-			expect("closeCondition" in form).toBe(false);
-			expect("postSubmit" in form).toBe(false);
-			expect("purpose" in form).toBe(false);
+			expect("connect" in form).toBe(true);
 		});
 	},
 );

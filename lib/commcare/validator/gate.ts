@@ -16,9 +16,9 @@
  *     renames, and unrelated edits elsewhere in the doc.
  *   - `diffIntroduced(prev, next)` — the findings in `next` whose identity
  *     has no counterpart in `prev`.
- *   - `evaluateCommit({ prevDoc, nextDoc, scope, phase })` — the per-commit
- *     gate: a commit is accepted iff it introduces no soundness/shape error
- *     (and, in the `complete` phase, no completeness error — the ratchet).
+ *   - `evaluateCommit({ prevDoc, nextDoc, scope })` — the per-commit gate:
+ *     a commit is accepted iff it introduces no shape, soundness, or
+ *     completeness error. One rule, every surface, every app state.
  *   - `evaluateBoundary(doc, manifest)` — the zero-tolerance full run for
  *     transaction boundaries (export / upload / build completion),
  *     including the asset-context media rules.
@@ -43,9 +43,12 @@ import { runValidation } from "./runner";
  *     duplicate id, type error, cycle, reserved name, contradictory
  *     config). Rejected on every commit, every phase.
  *   - `completeness` — construction not FINISHED (empty form, missing
- *     case-list columns, missing Connect block). Deferred while
- *     `building`; ratcheted while `complete`; zero-tolerance only at
- *     transaction boundaries.
+ *     case-list columns, missing Connect block). Gated like soundness:
+ *     a commit may not introduce one — atomic creation is what lets an
+ *     entity land together with everything that makes it complete.
+ *     Pre-existing findings (birth NO_MODULES, a legacy doc's gaps) only
+ *     ever shrink; the identity diff keeps them from blocking unrelated
+ *     edits.
  *   - `environment` — media-asset state vs external Firestore/GCS rows.
  *     Boundary-only: the rules are manifest-gated and the commit path
  *     never passes a manifest.
@@ -571,14 +574,6 @@ export function diffIntroduced(
 
 // ── Commit gate ────────────────────────────────────────────────────
 
-/**
- * Lifecycle phase of the app being edited. `building` = the construction
- * window (`status: "generating"` chat builds; `draft` MCP builds once D12
- * lands) — completeness is deferred. `complete` = everything else — the
- * ratchet holds (an edit may never take a complete entity incomplete).
- */
-export type CommitPhase = "building" | "complete";
-
 export interface EvaluateCommitArgs {
 	readonly prevDoc: BlueprintDoc;
 	readonly nextDoc: BlueprintDoc;
@@ -587,7 +582,6 @@ export interface EvaluateCommitArgs {
 	 * `scopeOfMutations(prevDoc, mutations)`, or `"full"`.
 	 */
 	readonly scope: ValidationScope | "full";
-	readonly phase: CommitPhase;
 }
 
 export type CommitVerdict =
@@ -596,10 +590,8 @@ export type CommitVerdict =
 
 /**
  * The per-commit gate: accept iff the batch introduces no error of a
- * gating class. `building` gates shape + soundness (completeness is
- * deferred — a scaffolded-but-unfilled entity is unfinished, not wrong);
- * `complete` additionally gates completeness (the ratchet). Environment
- * and oracle classes never gate a commit: environment rules are
+ * gating class — shape, soundness, or completeness. Environment and
+ * oracle classes never gate a commit: environment rules are
  * manifest-gated and this runs WITHOUT a manifest (verified — the runner
  * skips `MEDIA_ASSET_RULES` when `mediaAssets` is absent), and oracle
  * codes are post-expansion wire findings `runValidation` never produces.
@@ -639,7 +631,6 @@ export function evaluateCommit({
 	prevDoc,
 	nextDoc,
 	scope,
-	phase,
 }: EvaluateCommitArgs): CommitVerdict {
 	const options = scope === "full" ? undefined : { scope };
 	const prev = runValidation(prevDoc, options);
@@ -647,8 +638,7 @@ export function evaluateCommit({
 
 	const gating = diffIntroduced(prev, next).filter((err) => {
 		const cls = classifyError(err.code);
-		if (cls === "shape" || cls === "soundness") return true;
-		return cls === "completeness" && phase === "complete";
+		return cls === "shape" || cls === "soundness" || cls === "completeness";
 	});
 
 	return gating.length === 0 ? { ok: true } : { ok: false, introduced: gating };

@@ -44,7 +44,6 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { commitPhaseForAppStatus } from "@/lib/doc/commitVerdicts";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -144,22 +143,13 @@ export function registerGetAgentPrompt(
 					}
 					/* `loadAppBlueprint` ownership-gates and loads in one
 					 * Firestore read; throws `McpAccessError` on cross-tenant
-					 * probe or vanished row. */
+					 * probe or vanished row. The renderer itself decides the
+					 * build/edit framing off the doc: an app with modules gets
+					 * the edit preamble + inlined blueprint summary, an empty
+					 * one falls back to the build guidance — there's nothing
+					 * to edit yet, so the planning flow is the right boot. */
 					const loaded = await loadAppBlueprint(args.app_id, ctx.userId);
-					/* The build/edit framing keys on the app's lifecycle STATUS,
-					 * not on whether modules exist: a half-built draft (or a
-					 * failed build being resumed) is still under construction —
-					 * it needs the build guidance, completion step included
-					 * (`complete_build` is how a draft finishes), not the edit
-					 * preamble's "every edit is checked as it lands, nothing to
-					 * finish" framing that would strand it. Only a COMPLETE app
-					 * gets the edit prompt + inlined blueprint summary. */
-					const underConstruction =
-						commitPhaseForAppStatus(loaded.app.status) === "building";
-					const systemPrompt = renderAgentPrompt(
-						interactive,
-						underConstruction ? undefined : loaded.doc,
-					);
+					const systemPrompt = renderAgentPrompt(interactive, loaded.doc);
 					return {
 						content: [{ type: "text", text: systemPrompt }],
 					};

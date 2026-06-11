@@ -2,7 +2,7 @@
  * `sharedToolAdapter` unit tests.
  *
  * Verifies the adapter's five load-bearing behaviors:
- *   - Read / mutating / completeBuild result projection each produces the
+ *   - Read / mutating result projection each produces the
  *     right MCP text payload. The mutating branch also proves the
  *     hard invariant that the adapter does NOT re-persist: the fake
  *     tool's `ctx.recordMutations` call is tracked and the adapter
@@ -26,7 +26,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
-import type { CompleteBuildResult } from "@/lib/agent/tools/completeBuild";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { Mutation } from "@/lib/doc/types";
@@ -293,99 +292,6 @@ describe("registerSharedTool — mutating tools", () => {
 	});
 });
 
-describe("registerSharedTool — completeBuild projection", () => {
-	it("surfaces success=false with the remaining findings", async () => {
-		const completeLike: SharedToolModule = {
-			description: "complete",
-			inputSchema: z.object({}),
-			async execute(_input, _ctx, _doc) {
-				return {
-					kind: "complete",
-					success: false,
-					errors: ["e1"],
-				};
-			},
-		};
-
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "complete_build", completeLike, toolCtx);
-
-		const out = (await capture()({ app_id: "a1" }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		expect(out.content[0]?.text).toBe(
-			JSON.stringify({ success: false, errors: ["e1"] }),
-		);
-	});
-
-	it("keeps the stale-basis flag off the wire — MCP clients just run complete_build again", async () => {
-		// `staleBasis` is the chat wrapper's reload signal (the chat run's
-		// working doc must reconcile before a retry); on MCP every call
-		// re-loads the stored doc, so the run-again message is the whole
-		// recovery and the flag would be noise on the wire shape.
-		const completeLike: SharedToolModule = {
-			description: "complete",
-			inputSchema: z.object({}),
-			async execute(_input, _ctx, _doc) {
-				return {
-					kind: "complete",
-					success: false,
-					staleBasis: true,
-					errors: ["the app changed — run complete_build again"],
-				};
-			},
-		};
-
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "complete_build", completeLike, toolCtx);
-
-		const out = (await capture()({ app_id: "a1" }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		expect(out.content[0]?.text).toBe(
-			JSON.stringify({
-				success: false,
-				errors: ["the app changed — run complete_build again"],
-			}),
-		);
-	});
-
-	it("surfaces app_id + app_name on a successful completion", async () => {
-		const completeLike: SharedToolModule = {
-			description: "complete",
-			inputSchema: z.object({}),
-			async execute(_input, _ctx, _doc) {
-				return { kind: "complete", success: true };
-			},
-		};
-
-		/* Resolve a DISTINCT `app_name` for this call so the assertion proves
-		 * the value flows from the loaded `AppDoc` — not from coincidental
-		 * equality with the fixture default. */
-		vi.mocked(loadApp).mockResolvedValueOnce(
-			buildLoadedApp({ app_name: "Malaria ITN FGD" }),
-		);
-
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "complete_build", completeLike, toolCtx);
-
-		/* `app_id` is the requested target ("a1"); `app_name` is read off the
-		 * loaded `AppDoc`. Together they let the autobuild architect emit its
-		 * canonical completion line from its LAST tool result rather than a
-		 * stale create_app return. */
-		const out = (await capture()({ app_id: "a1" }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		expect(out.content[0]?.text).toBe(
-			JSON.stringify({
-				success: true,
-				app_id: "a1",
-				app_name: "Malaria ITN FGD",
-			}),
-		);
-	});
-});
-
 describe("registerSharedTool — ownership failure", () => {
 	it("returns an MCP error envelope when the app row is missing", async () => {
 		vi.mocked(loadApp).mockResolvedValueOnce(null);
@@ -479,14 +385,9 @@ describe("registerSharedTool — app_id stripping", () => {
 });
 
 describe("projectResult — direct", () => {
-	/* App identity the adapter always threads in from the loaded `AppDoc`.
-	 * Only the validate-success branch consumes it; the read/mutate branches
-	 * ignore it, so passing a constant here is safe across every case. */
-	const APP = { id: "a1", name: "Test" } as const;
-
 	it("unwraps a `read` result to its `data` field", () => {
 		const data = { query: "x", results: [1, 2, 3] };
-		expect(projectResult({ kind: "read", data }, APP)).toBe(data);
+		expect(projectResult({ kind: "read", data })).toBe(data);
 	});
 
 	it("unwraps a `mutate` result to its `result` field", () => {
@@ -497,34 +398,7 @@ describe("projectResult — direct", () => {
 			newDoc,
 			result: { ok: true },
 		};
-		expect(projectResult(raw, APP)).toEqual({ ok: true });
-	});
-
-	it("projects a failed `complete` result to { success, errors } without app identity", () => {
-		const raw: CompleteBuildResult = {
-			kind: "complete",
-			success: false,
-			errors: ["e"],
-		};
-		/* Failure means "not done yet" — the architect keeps finishing, so
-		 * the completion identifier is intentionally absent until success. */
-		expect(projectResult(raw, APP)).toEqual({ success: false, errors: ["e"] });
-	});
-
-	it("projects a successful `complete` result with the app identity attached", () => {
-		const raw: CompleteBuildResult = {
-			kind: "complete",
-			success: true,
-		};
-		/* Success carries `app_id` + `app_name` so an autonomous MCP caller
-		 * (the autobuild architect) can lift the canonical identifier into
-		 * its completion message — its create_app result is far back in
-		 * context by the time the build finishes. */
-		expect(projectResult(raw, APP)).toEqual({
-			success: true,
-			app_id: "a1",
-			app_name: "Test",
-		});
+		expect(projectResult(raw)).toEqual({ ok: true });
 	});
 });
 

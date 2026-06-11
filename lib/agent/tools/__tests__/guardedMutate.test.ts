@@ -6,8 +6,8 @@
  *     never fires) and returns the person-to-person error;
  *   - a passing batch persists exactly once, with the post-batch doc and
  *     the caller's stage tag;
- *   - the phase comes from `ctx.commitPhase` (building defers
- *     completeness, complete ratchets it);
+ *   - completeness gates like soundness — an entity lands with what
+ *     makes it complete, or not at all;
  *   - tool-level integration: an `editField` carrying an unparseable
  *     XPath fails the call with `{ error }` and an unchanged doc.
  *
@@ -71,17 +71,15 @@ function minDoc(): BlueprintDoc {
 /** Bare `ToolExecutionContext` stub — `recordMutations` (single-batch
  *  tools) and `recordMutationStages` (multi-stage tools) are the
  *  assertion surfaces; nothing here touches Firestore. */
-function makeCtx(phase: "building" | "complete") {
+function makeCtx() {
 	const recordMutations = vi.fn().mockResolvedValue([]);
 	const recordMutationStages = vi.fn().mockResolvedValue([]);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
-		commitPhase: phase,
 		recordMutations,
 		recordMutationStages,
-		getCompletionBasis: vi.fn().mockResolvedValue(null),
 		recordConversation: vi.fn(),
 	};
 	return { ctx, recordMutations, recordMutationStages };
@@ -102,7 +100,7 @@ function badRelevantMutation(doc: BlueprintDoc): Mutation[] {
 describe("guardedMutate", () => {
 	it("persists a passing batch once, with the post-batch doc and stage tag", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const mutations: Mutation[] = [
 			{
@@ -127,7 +125,7 @@ describe("guardedMutate", () => {
 
 	it("persists nothing on a gate rejection and returns the findings as prose", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx("building");
+		const { ctx, recordMutations } = makeCtx();
 
 		const outcome = await guardedMutate(
 			ctx,
@@ -144,7 +142,7 @@ describe("guardedMutate", () => {
 		}
 	});
 
-	it("defers completeness while building, ratchets it when complete", async () => {
+	it("rejects a completeness introduction — an empty form never lands", async () => {
 		const doc = minDoc();
 		const addEmptyForm: Mutation[] = [
 			{
@@ -159,20 +157,15 @@ describe("guardedMutate", () => {
 			},
 		];
 
-		const building = makeCtx("building");
-		const accepted = await guardedMutate(building.ctx, doc, addEmptyForm);
-		expect(accepted.ok).toBe(true);
-		expect(building.recordMutations).toHaveBeenCalledTimes(1);
-
-		const complete = makeCtx("complete");
-		const rejected = await guardedMutate(complete.ctx, doc, addEmptyForm);
+		const { ctx, recordMutations } = makeCtx();
+		const rejected = await guardedMutate(ctx, doc, addEmptyForm);
 		expect(rejected.ok).toBe(false);
-		expect(complete.recordMutations).not.toHaveBeenCalled();
+		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("skips persistence entirely for an empty batch", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const outcome = await guardedMutate(ctx, doc, []);
 		expect(outcome).toEqual({ ok: true, newDoc: doc });
 		expect(recordMutations).not.toHaveBeenCalled();
@@ -182,7 +175,7 @@ describe("guardedMutate", () => {
 describe("tool-level gating (editField through the shared layer)", () => {
 	it("fails the call with { error } and persists nothing when the patch introduces a soundness error", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 
 		const out = await editFieldTool.execute(
 			{
@@ -211,7 +204,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		// and the agent can re-issue the corrected call from the original
 		// state ("a rejected call saved nothing" holds with no asterisk).
 		const doc = minDoc();
-		const { ctx, recordMutations, recordMutationStages } = makeCtx("complete");
+		const { ctx, recordMutations, recordMutationStages } = makeCtx();
 
 		const out = await editFieldTool.execute(
 			{
@@ -244,7 +237,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 	it("a passing multi-stage edit persists as ONE save carrying each stage's own tag", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutationStages } = makeCtx("complete");
+		const { ctx, recordMutationStages } = makeCtx();
 
 		const out = await editFieldTool.execute(
 			{
@@ -273,7 +266,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 	it("commits a clean edit unchanged (the gate is transparent on pass)", async () => {
 		const doc = minDoc();
-		const { ctx, recordMutationStages } = makeCtx("complete");
+		const { ctx, recordMutationStages } = makeCtx();
 
 		const out = await editFieldTool.execute(
 			{

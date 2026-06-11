@@ -90,14 +90,10 @@ function textField(
 }
 
 /** Run the full pipeline: derive scope, apply, gate. */
-function gateCommit(
-	prevDoc: BlueprintDoc,
-	mutations: Mutation[],
-	phase: "building" | "complete",
-) {
+function gateCommit(prevDoc: BlueprintDoc, mutations: Mutation[]) {
 	const scope = scopeOfMutations(prevDoc, mutations);
 	const nextDoc = apply(prevDoc, mutations);
-	return evaluateCommit({ prevDoc, nextDoc, scope, phase });
+	return evaluateCommit({ prevDoc, nextDoc, scope });
 }
 
 /** `minDoc()` plus one empty survey form with a known uuid. */
@@ -413,56 +409,32 @@ describe("diffIntroduced", () => {
 // ── evaluateCommit ─────────────────────────────────────────────────
 
 describe("evaluateCommit", () => {
-	it("building phase: a new EMPTY_FORM (completeness) passes", () => {
+	it("a new EMPTY_FORM (completeness) is rejected — an entity lands complete or not at all", () => {
 		const doc = minDoc();
-		const verdict = gateCommit(
-			doc,
-			[
-				{
-					kind: "addForm",
-					moduleUuid: doc.moduleOrder[0],
-					form: surveyForm("form-new", "New"),
-				},
-			],
-			"building",
-		);
-		expect(verdict).toEqual({ ok: true });
-	});
-
-	it("complete phase: a new EMPTY_FORM is rejected (the ratchet)", () => {
-		const doc = minDoc();
-		const verdict = gateCommit(
-			doc,
-			[
-				{
-					kind: "addForm",
-					moduleUuid: doc.moduleOrder[0],
-					form: surveyForm("form-new", "New"),
-				},
-			],
-			"complete",
-		);
+		const verdict = gateCommit(doc, [
+			{
+				kind: "addForm",
+				moduleUuid: doc.moduleOrder[0],
+				form: surveyForm("form-new", "New"),
+			},
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain("EMPTY_FORM");
 		}
 	});
 
-	it("building phase: a new INVALID_REF (soundness) is rejected", () => {
+	it("a new INVALID_REF (soundness) is rejected", () => {
 		const doc = minDoc();
 		const fieldUuid = Object.values(doc.fields)[0].uuid;
-		const verdict = gateCommit(
-			doc,
-			[
-				{
-					kind: "updateField",
-					uuid: fieldUuid,
-					targetKind: "text",
-					patch: { relevant: "#form/does_not_exist = 'x'" },
-				} as Mutation,
-			],
-			"building",
-		);
+		const verdict = gateCommit(doc, [
+			{
+				kind: "updateField",
+				uuid: fieldUuid,
+				targetKind: "text",
+				patch: { relevant: "#form/does_not_exist = 'x'" },
+			} as Mutation,
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain("INVALID_REF");
@@ -483,21 +455,17 @@ describe("evaluateCommit", () => {
 		const caseNameField = Object.values(broken.fields).find(
 			(x) => x.id === "case_name",
 		);
-		const verdict = gateCommit(
-			broken,
-			[
-				{
-					kind: "renameField",
-					uuid: caseNameField?.uuid as Uuid,
-					newId: "case_name",
-				},
-			],
-			"complete",
-		);
+		const verdict = gateCommit(broken, [
+			{
+				kind: "renameField",
+				uuid: caseNameField?.uuid as Uuid,
+				newId: "case_name",
+			},
+		]);
 		expect(verdict).toEqual({ ok: true });
 	});
 
-	it("fixing an error passes in both phases", () => {
+	it("fixing an error passes", () => {
 		const broken = docWithEmptyForm("form-e1");
 		const fix: Mutation[] = [
 			{
@@ -506,8 +474,7 @@ describe("evaluateCommit", () => {
 				field: textField("fld-fill", "q1"),
 			},
 		];
-		expect(gateCommit(broken, fix, "building")).toEqual({ ok: true });
-		expect(gateCommit(broken, fix, "complete")).toEqual({ ok: true });
+		expect(gateCommit(broken, fix)).toEqual({ ok: true });
 	});
 
 	it("setAppName's empty derived scope still catches EMPTY_APP_NAME (app rules always run)", () => {
@@ -519,7 +486,7 @@ describe("evaluateCommit", () => {
 		const mutations: Mutation[] = [{ kind: "setAppName", name: "" }];
 		const scope = scopeOfMutations(doc, mutations);
 		expect(scope).not.toBe("full");
-		const verdict = gateCommit(doc, mutations, "building");
+		const verdict = gateCommit(doc, mutations);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toEqual(["EMPTY_APP_NAME"]);
@@ -531,18 +498,14 @@ describe("evaluateCommit", () => {
 		// MEDIA_ASSET_NOT_FOUND at a boundary; the commit gate must not see it.
 		const doc = minDoc();
 		const fieldUuid = Object.values(doc.fields)[0].uuid;
-		const verdict = gateCommit(
-			doc,
-			[
-				{
-					kind: "setFieldMedia",
-					fieldUuid,
-					slot: "label",
-					media: { image: asAssetId("asset-missing") },
-				},
-			],
-			"complete",
-		);
+		const verdict = gateCommit(doc, [
+			{
+				kind: "setFieldMedia",
+				fieldUuid,
+				slot: "label",
+				media: { image: asAssetId("asset-missing") },
+			},
+		]);
 		expect(verdict).toEqual({ ok: true });
 	});
 
@@ -606,11 +569,9 @@ describe("evaluateCommit", () => {
 			],
 		});
 		const age = Object.values(doc.fields).find((x) => x.id === "age");
-		const verdict = gateCommit(
-			doc,
-			[{ kind: "renameField", uuid: age?.uuid as Uuid, newId: "weight" }],
-			"building",
-		);
+		const verdict = gateCommit(doc, [
+			{ kind: "renameField", uuid: age?.uuid as Uuid, newId: "weight" },
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -695,23 +656,19 @@ describe("evaluateCommit", () => {
 		const registerForm = doc.formOrder[doc.moduleOrder[0]][0];
 		const prevCodes = runValidation(doc).map((e) => e.code);
 		expect(prevCodes).toContain("CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY");
-		const verdict = gateCommit(
-			doc,
-			[
-				{
-					kind: "addField",
-					parentUuid: registerForm,
-					field: {
-						uuid: asUuid("fld-age-new"),
-						kind: "date",
-						id: "age",
-						label: "Age",
-						case_property_on: "patient",
-					} as Field,
-				},
-			],
-			"building",
-		);
+		const verdict = gateCommit(doc, [
+			{
+				kind: "addField",
+				parentUuid: registerForm,
+				field: {
+					uuid: asUuid("fld-age-new"),
+					kind: "date",
+					id: "age",
+					label: "Age",
+					case_property_on: "patient",
+				} as Field,
+			},
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			expect(verdict.introduced.map((e) => e.code)).toContain(
@@ -788,7 +745,7 @@ describe("evaluateCommit", () => {
 			},
 		];
 		expect(scopeOfMutations(doc, mutations)).toBe("full");
-		const verdict = gateCommit(doc, mutations, "building");
+		const verdict = gateCommit(doc, mutations);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			const disagreements = verdict.introduced.filter(

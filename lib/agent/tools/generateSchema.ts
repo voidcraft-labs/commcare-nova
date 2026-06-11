@@ -1,21 +1,25 @@
 /**
- * SA tool: `generateSchema` — seed the app name + case-type catalog.
+ * SA tool: `generateSchema` — plan the app's data model (name + case-type
+ * catalog).
  *
- * First step of a new build. The SA calls this before `generateScaffold`
- * so downstream helpers can resolve case-property references. Both the
- * SA chat factory and the MCP adapter call this through the shared
- * `ToolExecutionContext` interface; both surfaces hand in the current
- * `BlueprintDoc` (empty on a fresh build) and receive the computed
- * mutations + post-mutation doc + a structured summary for the LLM.
+ * A PURE planning step: it writes nothing to the doc. The structured
+ * input — the full describe-rich case-type catalog — is the plan itself,
+ * preserved verbatim in the conversation as the tool call's input; the
+ * result echoes a compact structured index of it. Case-type RECORDS land
+ * on the doc later, each riding the `createModule` call for the module
+ * that owns the type (`case_type_record`), so a record never exists
+ * ahead of the module that satisfies its validator obligations.
+ *
+ * First step of a new build, before `planAppDesign`. Both the SA chat
+ * factory and the MCP adapter call this through the shared
+ * `ToolExecutionContext` interface.
  */
 
 import { z } from "zod";
-import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { setCaseTypesMutations } from "../blueprintHelpers";
-import { caseTypesOutputSchema } from "../scaffoldSchemas";
+import { caseTypesOutputSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "./common";
+import type { ReadToolResult } from "./common";
 
 export const generateSchemaInputSchema = z
 	.object({
@@ -27,77 +31,44 @@ export const generateSchemaInputSchema = z
 export type GenerateSchemaInput = z.infer<typeof generateSchemaInputSchema>;
 
 /**
- * Structured summary the LLM sees as the tool output. One entry per
- * case type, carrying a count + the property names so the SA can
- * reference them in the follow-up `generateScaffold` call without
- * re-reading the doc.
+ * Structured index of the planned data model — one entry per case type,
+ * carrying the property names plus the parent link, so the follow-up
+ * `planAppDesign` + `createModule` calls can reference the plan without
+ * re-reading anything. The full property detail lives in this call's
+ * own input, which stays in the conversation verbatim.
  */
 export interface GenerateSchemaResult {
+	planned: true;
 	appName: string;
 	caseTypes: Array<{
 		name: string;
+		parent_type?: string;
 		propertyCount: number;
 		properties: string[];
 	}>;
 }
 
-/**
- * Structured summary the LLM sees as the tool output on the error branch —
- * matches the same `{ error }` shape every mutating tool surfaces so the
- * SA sees a uniform error envelope regardless of which tool failed.
- */
-export type GenerateSchemaOutput = GenerateSchemaResult | { error: string };
-
 export const generateSchemaTool = {
 	description:
-		"Set the data model (case types and properties) for the app. Call this first before generateScaffold. Provide the structured case types directly.",
+		"Plan the data model (case types and properties) for the app. Call this first, before planAppDesign. This records the plan in the conversation — it does not change the app. Each case type's record lands on the app later, with the createModule call that owns it (pass it as case_type_record).",
 	inputSchema: generateSchemaInputSchema,
 	async execute(
 		input: GenerateSchemaInput,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
-	): Promise<MutatingToolResult<GenerateSchemaOutput>> {
-		try {
-			const mutations: Mutation[] = [
-				{ kind: "setAppName", name: input.appName },
-				...setCaseTypesMutations(input.caseTypes),
-			];
-			const commit = await guardedMutate(ctx, doc, mutations, "schema");
-			if (!commit.ok) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: { error: commit.error },
-				};
-			}
-			const newDoc = commit.newDoc;
-			return {
-				kind: "mutate" as const,
-				mutations,
-				newDoc,
-				result: {
-					appName: input.appName,
-					caseTypes: input.caseTypes.map((ct) => ({
-						name: ct.name,
-						propertyCount: ct.properties.length,
-						properties: ct.properties.map((p) => p.name),
-					})),
-				},
-			};
-		} catch (err) {
-			// Match the error-envelope shape every other mutating tool
-			// returns so the SA handles a generation-phase failure the same
-			// way as an edit-phase failure. Without this, an unexpected
-			// throw (Firestore down mid-recordMutations, malformed input
-			// that escaped Zod, etc.) would propagate out of the tool loop
-			// as an unhandled exception and abort the entire run.
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
-		}
+		_ctx: ToolExecutionContext,
+		_doc: BlueprintDoc,
+	): Promise<ReadToolResult<GenerateSchemaResult>> {
+		return {
+			kind: "read" as const,
+			data: {
+				planned: true,
+				appName: input.appName,
+				caseTypes: input.caseTypes.map((ct) => ({
+					name: ct.name,
+					...(ct.parent_type && { parent_type: ct.parent_type }),
+					propertyCount: ct.properties.length,
+					properties: ct.properties.map((p) => p.name),
+				})),
+			},
+		};
 	},
 };

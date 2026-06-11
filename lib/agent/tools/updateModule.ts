@@ -5,9 +5,14 @@
  * slot is the SA's repair path when the commit gate rejects adding a
  * case form to a module that never declared one (`NO_CASE_TYPE` names
  * exactly this fix) — without it the only correction would be
- * remove-and-recreate. A case-type change re-scopes what every form's
- * references resolve to, so the gate validates the batch under a full
- * run (`scopeOfMutations` maps the patch to `"full"`). Case list
+ * remove-and-recreate. Setting a case type on a module that has forms
+ * but no case-list columns introduces MISSING_CASE_LIST_COLUMNS, so the
+ * optional `case_list_columns` rides the SAME call (seeded only when the
+ * module has none) — the rejection's findings stay satisfiable by
+ * adjusting this call, the atomic-creation property. A case-type change
+ * re-scopes what every form's references resolve to, so the gate
+ * validates the batch under a full run (`scopeOfMutations` maps the
+ * patch to `"full"`). Ongoing case list
  * authoring lives on the typed case-list-config tools (`addCaseListColumns` /
  * `updateCaseListColumn` / `removeCaseListColumn` /
  * `reorderCaseListColumns`, the matching search-input family, and the
@@ -35,6 +40,11 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
+import {
+	columnInputSchema,
+	newUuid,
+	stampColumnUuid,
+} from "./case-list-config/shared";
 import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
@@ -54,6 +64,12 @@ export const updateModuleInputSchema = z
 			.describe(
 				'The case type this module manages (e.g. "patient"). A module needs one before it can hold registration/followup/close forms. Omit to leave unchanged.',
 			),
+		case_list_columns: z
+			.array(columnInputSchema)
+			.optional()
+			.describe(
+				"Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools.",
+			),
 	})
 	.strict();
 
@@ -71,7 +87,7 @@ export const updateModuleTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateModuleResult>> {
-		const { moduleIndex, name, case_type } = input;
+		const { moduleIndex, name, case_type, case_list_columns } = input;
 		try {
 			if (name === undefined && case_type === undefined) {
 				return {
@@ -106,9 +122,23 @@ export const updateModuleTool = {
 				};
 			}
 
+			/* Seed columns only when the module has none — an existing config
+			 * is authored state the case-list-config tools own, and a
+			 * wholesale replace here would silently drop sort/search work. */
+			const seedColumns =
+				case_list_columns !== undefined &&
+				(mod.caseListConfig?.columns ?? []).length === 0
+					? case_list_columns.map((c) => stampColumnUuid(c, newUuid()))
+					: undefined;
 			const mutations = updateModuleMutations(mod, {
 				...(name !== undefined && { name }),
 				...(case_type !== undefined && { caseType: case_type }),
+				...(seedColumns && {
+					caseListConfig: {
+						...(mod.caseListConfig ?? { searchInputs: [] }),
+						columns: seedColumns,
+					},
+				}),
 			});
 			const commit = await guardedMutate(
 				ctx,

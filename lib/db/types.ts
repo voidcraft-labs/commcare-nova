@@ -229,20 +229,20 @@ export const appDocSchema = z.object({
 	/** Number of forms across all modules — denormalized for list display. */
 	form_count: z.number().default(0),
 	/**
-	 * Build lifecycle status.
+	 * Run-liveness status. Never feeds the validity gate — every commit
+	 * gates identically whatever the status; this field exists for the
+	 * liveness machinery (the concurrency guard, the staleness reaper,
+	 * list display) and nothing else.
 	 *
-	 * - `generating` — a chat build is in progress. `updated_at` advances
-	 *   on every intermediate write; a 10-minute gap trips the staleness
-	 *   inference in `listApps` and self-converts the row to `error`.
-	 * - `draft` — an MCP build between `create_app` and `complete_build`.
-	 *   Gates under the construction window (`commitPhaseForAppStatus`),
-	 *   stays OUT of the staleness reaper and the list failure inference
-	 *   (both key on `generating` — an external agent works on its own
-	 *   clock, so there is no liveness timer to satisfy), and exports
-	 *   honestly fail the zero-tolerance boundary until completed.
-	 * - `complete` — build finished (`completeBuild` ran the boundary
-	 *   evaluation clean and flipped it).
-	 * - `error` — generation failed; see `error_type` for the bucket.
+	 * - `generating` — a chat build run is in flight. `updated_at`
+	 *   advances on every intermediate write; a 10-minute gap trips the
+	 *   staleness inference in `listApps` and self-converts the row to
+	 *   `error`.
+	 * - `complete` — the at-rest state: no run is working on the app.
+	 *   Every non-chat creation (MCP `create_app` included) is born here,
+	 *   and the chat route flips a finished build here at drain end.
+	 * - `error` — a build run failed; see `error_type` for the bucket. A
+	 *   retry flips it back to `generating` (`markAppGenerating`).
 	 * - `deleted` — legacy marker, retained in the enum for back-compat
 	 *   with rows soft-deleted before the marker moved off `status`.
 	 *   New code uses `deleted_at != null` as the soft-delete signal
@@ -250,7 +250,7 @@ export const appDocSchema = z.object({
 	 *   independent axes (see `softDeleteApp` / `restoreApp`).
 	 */
 	status: z
-		.enum(["generating", "draft", "complete", "error", "deleted"])
+		.enum(["generating", "complete", "error", "deleted"])
 		.default("complete"),
 	/**
 	 * True while a build is PAUSED on an `askQuestions` round — the SA halted the
@@ -288,29 +288,23 @@ export const appDocSchema = z.object({
 	 *
 	 * Rotated (fresh random value) by every writer a live builder session
 	 * CANNOT see land in its own doc: the browser auto-save PUT (another
-	 * tab), the MCP guarded commit (an external agent), the guarded
-	 * completion write (`completeAppGuardedByBasis` — which also COMPARES
-	 * the basis captured with the snapshot it evaluated, so a builder edit
-	 * landing during the completion window bounces the completion instead
-	 * of being erased by it), and the `scripts/recover-app.ts` writer. The
+	 * tab), the MCP guarded commit (an external agent), and the
+	 * `scripts/recover-app.ts` writer. The
 	 * builder echoes the token it last observed on every PUT; a mismatch
 	 * means the stored doc advanced under it, and the overwrite is
 	 * rejected (`BlueprintBasisStaleError` → 409) instead of silently
 	 * erasing the other writer's work — the builder then reloads the
-	 * server doc. A successful completion hands its rotated token to the
-	 * same-tab builder client via `data-done`, so the post-build session
-	 * keeps saving without a bounce.
+	 * server doc.
 	 *
 	 * Chat-run INTERMEDIATE saves (`updateAppForRun`) deliberately do NOT
 	 * rotate it: the same browser session that drives a chat run also
 	 * receives every mutation over SSE, so its doc already carries the
 	 * run's changes and its next auto-save is a faithful overwrite — a
 	 * rotation there would 409 the builder against its own companion run.
-	 * Those saves are also ORDERED against the guarded completion write:
-	 * `GenerationContext.saveBlueprint` chains them and the completion
-	 * basis read drains the chain, so a run's own in-flight save can't
-	 * land after `completeAppGuardedByBasis` and leave `status: complete`
-	 * pointing at a regressed blueprint.
+	 * Those saves are also ORDERED against the drain-end finish
+	 * (`completeApp` is status-only and lands after the route drains the
+	 * save chain), so `status: complete` never points at a blueprint the
+	 * run hadn't finished persisting.
 	 * RECORDED CONSTRAINT — the one-tab assumption: that reasoning holds
 	 * for the tab driving the run; a SECOND builder tab open during a
 	 * chat run sees neither the SSE mutations nor a rotation, so its next

@@ -52,9 +52,8 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { loadBlueprintBasis, updateAppForRun } from "@/lib/db/apps";
+import { updateAppForRun } from "@/lib/db/apps";
 import type { UsageAccumulator } from "@/lib/db/usage";
-import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -130,10 +129,6 @@ interface GenerationContextOptions {
 	/** Firestore app id. The chat route creates the app doc before this
 	 * constructor runs so every context has a valid target app. */
 	appId: string;
-	/** Validity-gate phase for this run — `"building"` for an initial
-	 * build (`appReady` false), `"complete"` for an edit of an existing
-	 * app. See `ToolExecutionContext.commitPhase`. */
-	commitPhase: CommitPhase;
 }
 
 /**
@@ -186,8 +181,6 @@ export class GenerationContext implements ToolExecutionContext {
 	/** Firestore app id — required. Created before construction by the
 	 * chat route so every context has a valid persistence target. */
 	readonly appId: string;
-	/** Validity-gate phase for this run. See `ToolExecutionContext.commitPhase`. */
-	readonly commitPhase: CommitPhase;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
 	 * each request; doc IDs are Firestore-minted, so no cross-request
@@ -195,7 +188,8 @@ export class GenerationContext implements ToolExecutionContext {
 	 */
 	private seq = 0;
 	/** The most recent post-mutation doc snapshot this run persisted —
-	 * what `warnIfEditRunIncomplete` evaluates after the drain. Absent
+	 * what the route's drain-end finalize reads (`latestPersistedDoc`)
+	 * and `warnIfEditRunIncomplete` evaluates after the drain. Absent
 	 * until the first mutation batch lands (a read-only turn). */
 	private _latestDoc: BlueprintDoc | undefined;
 	/* Flipped true when the SA emits an `askQuestions` tool-call — the client-side
@@ -205,8 +199,9 @@ export class GenerationContext implements ToolExecutionContext {
 	 * a hard-killed one and refund its still-live hold. */
 	private _pausedOnInput = false;
 	/** Tail of the run's intermediate-save chain — see `saveBlueprint` for why
-	 * the saves serialize and `getCompletionBasis` for who awaits the tail.
-	 * Always settled (every link catches), so awaiting it never throws. */
+	 * the saves serialize and `drainIntermediateSaves` for who awaits the
+	 * tail. Always settled (every link catches), so awaiting it never
+	 * throws. */
 	private saveChain: Promise<void> = Promise.resolve();
 
 	constructor(opts: GenerationContextOptions) {
@@ -224,7 +219,6 @@ export class GenerationContext implements ToolExecutionContext {
 		this.usage = opts.usage;
 		this.session = opts.session;
 		this.appId = opts.appId;
-		this.commitPhase = opts.commitPhase;
 	}
 
 	/** Get the Anthropic model provider for a given model ID. The SA always
@@ -306,12 +300,11 @@ export class GenerationContext implements ToolExecutionContext {
 	 * independent RPCs. Two reasons:
 	 *  - independent writes carry no ordering guarantee, so save N could
 	 *    land after save N+1 and regress the stored snapshot mid-run;
-	 *  - the chain tail is what `getCompletionBasis` awaits, so by the
-	 *    time the guarded completion write commits, every one of this
-	 *    run's saves has SETTLED — an in-flight intermediate save can no
-	 *    longer land after the completion and leave `status: complete`
-	 *    pointing at a regressed blueprint (a state a closed-tab drained
-	 *    run would never heal).
+	 *  - the chain tail is what the route's drain-end build finalize
+	 *    awaits (`drainIntermediateSaves`), so by the time the app flips
+	 *    `complete`, every one of this run's saves has SETTLED — `status:
+	 *    complete` can never point at a blueprint the run hadn't finished
+	 *    persisting (a state a closed-tab drained run would never heal).
 	 * The persistable snapshot is taken eagerly, before the chain link
 	 * runs, so a deferred write persists the doc as it was at call time.
 	 */
@@ -365,7 +358,8 @@ export class GenerationContext implements ToolExecutionContext {
 	 * Used for one-shot lifecycle signals that live outside the
 	 * `data-mutations` / `data-conversation-event` streams:
 	 *
-	 *   - `data-done` — full-doc reconciliation from completeBuild.
+	 *   - `data-done` — the route's drain-end build-finished signal,
+	 *     carrying the final doc snapshot for client reconciliation.
 	 *   - `data-blueprint-updated` — edit-mode coarse-tool replacements.
 	 *   - `data-app-id` — one-shot appId announcement driving the
 	 *     `/build/new` → `/build/{id}` URL swap on new builds.
@@ -582,35 +576,38 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * ToolExecutionContext implementation — the chat surface captures the
-	 * completion basis with a FRESH read at `completeBuild` call time. The
-	 * SA's working doc is the snapshot "as of this call": the run's own
-	 * intermediate saves never rotate the token, so the compare inside
-	 * `completeAppGuardedByBasis` flags exactly the rotating writers (a
-	 * builder tab's save, an MCP commit) that land during the evaluation
-	 * window. (The MCP surface instead injects the token from the same
-	 * load that produced the tool's doc — see `McpContext`.)
-	 *
-	 * The read waits for the run's own save chain to settle first. Tool
-	 * bodies are serialized, so every `saveBlueprint` this run issued was
-	 * issued BEFORE this call — draining the chain here means no own-save
-	 * is still in flight when the guarded completion commits, closing the
-	 * lane where a late-landing intermediate save clobbers the completed
-	 * snapshot (see `saveBlueprint`). The chain never rejects, so this
-	 * await can only delay the read, not fail it.
+	 * The latest post-mutation doc this run persisted, or `undefined` for
+	 * a run that landed no mutations (a purely conversational turn). The
+	 * route's drain-end build finalize reads it to materialize the
+	 * case-store schemas and to carry the final snapshot on `data-done`.
 	 */
-	async getCompletionBasis(): Promise<string | null> {
+	latestPersistedDoc(): BlueprintDoc | undefined {
+		return this._latestDoc;
+	}
+
+	/**
+	 * Await the run's intermediate-save chain. The route's drain-end
+	 * build finalize calls this BEFORE flipping the app `complete`: the
+	 * drain runs after every tool body settled, so every save the run
+	 * issued precedes this await — once it resolves, no own-save is still
+	 * in flight, and `status: complete` can never land ahead of the
+	 * blueprint it describes (see `saveBlueprint`). The chain never
+	 * rejects, so this await can only delay, not fail.
+	 */
+	async drainIntermediateSaves(): Promise<void> {
 		await this.saveChain;
-		return loadBlueprintBasis(this.appId);
 	}
 
 	/**
 	 * Edit-run completeness tripwire — called by the chat route after the
-	 * drain on EDIT turns. With every committed batch gated under the
-	 * complete-phase ratchet, an edit run that ends with a completeness
-	 * finding on the doc is unreachable except through a bug (a gate gap,
-	 * a reducer/validator drift); this warn is the alarm that finds one in
-	 * production. A no-op when the run persisted nothing (read-only turn).
+	 * drain on EDIT turns. With every committed batch gated against
+	 * introducing completeness findings, an edit run that ends with a NEW
+	 * completeness finding on the doc is unreachable except through a bug
+	 * (a gate gap, a reducer/validator drift); this warn is the alarm
+	 * that finds one in production. Legacy docs can carry pre-existing
+	 * findings the run never touched — the warn names the codes so a real
+	 * gate gap is distinguishable from inherited history. A no-op when
+	 * the run persisted nothing (read-only turn).
 	 * Deliberately a warn, never a user-facing signal: the per-commit gate
 	 * already protected the user, and the doc on disk is whatever the
 	 * accepted commits produced.

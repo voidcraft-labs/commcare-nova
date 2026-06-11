@@ -41,7 +41,6 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
-import type { Scaffold } from "./scaffoldSchemas";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -789,75 +788,6 @@ export function updateFieldMutations<K extends FieldKind>(
 	return [
 		{ kind: "updateField", uuid: fieldUuid, targetKind, patch } as Mutation,
 	];
-}
-
-// ── Mutation builders — scaffold ────────────────────────────────────────
-
-/**
- * Build the mutation batch for applying a scaffold to an (effectively
- * empty) doc: set the app name + connect type, then create each module
- * and its forms in order. Mints uuids for every entity so the resulting
- * doc has stable identity immediately.
- *
- * Scaffolds are only applied to empty docs during the initial build —
- * callers must drop any existing modules separately if they want a
- * clean slate. This helper deliberately doesn't emit removeModule
- * mutations for existing modules to keep the intent explicit.
- */
-export function setScaffoldMutations(scaffold: Scaffold): Mutation[] {
-	const muts: Mutation[] = [];
-	muts.push({ kind: "setAppName", name: scaffold.app_name });
-	const connectType = scaffold.connect_type;
-	if (connectType === "learn" || connectType === "deliver") {
-		muts.push({ kind: "setConnectType", connectType });
-	} else {
-		muts.push({ kind: "setConnectType", connectType: null });
-	}
-
-	for (const sm of scaffold.modules) {
-		const moduleUuid = asUuid(crypto.randomUUID());
-		const moduleEntity: Module = {
-			uuid: moduleUuid,
-			id: slugifyModuleId(sm.name),
-			name: sm.name,
-			...(sm.case_type != null && { caseType: sm.case_type }),
-			...(sm.case_list_only && { caseListOnly: sm.case_list_only }),
-			...(sm.purpose !== undefined && { purpose: sm.purpose }),
-		};
-		muts.push({ kind: "addModule", module: moduleEntity });
-
-		for (const sf of sm.forms) {
-			const formUuid = asUuid(crypto.randomUUID());
-			/* Build the Form entity field-by-field with explicit
-			 * assignment for optional properties. Each `if` is a named
-			 * decision the reader can audit top-to-bottom — vs. the
-			 * conditional-spread idiom (`...(cond && {k: v})`), which
-			 * obscures whether a key actually lands on the literal. The
-			 * SA-facing scaffold schema (`scaffoldModulesSchema`) declares
-			 * every property the SA can set; each one needs a matching
-			 * read here. A missing read silently drops the field on the
-			 * persisted doc — the kind of bug that's invisible until a
-			 * downstream consumer notices the wrong default behavior. */
-			const formEntity: Form = {
-				uuid: formUuid,
-				id: slugifyFormId(sf.name),
-				name: sf.name,
-				type: sf.type,
-			};
-			if (sf.purpose !== undefined) formEntity.purpose = sf.purpose;
-			if (sf.post_submit !== undefined) formEntity.postSubmit = sf.post_submit;
-			if (sf.connect !== undefined) {
-				/* `normalizeConnectConfig` strips empty sub-configs so an
-				 * SA-supplied `{}` (zero opt-ins) lands as absent rather
-				 * than as an empty marker on the form. Same contract as
-				 * `addFormMutations` and `updateFormMutations`. */
-				const normalized = normalizeConnectConfig(sf.connect);
-				if (normalized !== undefined) formEntity.connect = normalized;
-			}
-			muts.push({ kind: "addForm", moduleUuid, form: formEntity });
-		}
-	}
-	return muts;
 }
 
 // ── Private helpers ─────────────────────────────────────────────────────

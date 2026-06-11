@@ -212,7 +212,6 @@ function capWriterDoc(): BlueprintDoc {
 interface RejectionProbe {
 	/** Build the doc + the batch the gate must refuse. */
 	build: () => { doc: BlueprintDoc; batch: Mutation[] };
-	phase: "building" | "complete";
 	/** At least one of these codes must be among the introduced findings. */
 	expectCodes: ValidationErrorCode[];
 	/** True for the kinds whose effects out-run any entity-keyed scope —
@@ -248,7 +247,6 @@ const GUARD_COVERAGE = {
 				},
 			],
 		}),
-		phase: "building",
 		expectCodes: ["NO_FORMS_OR_CASE_LIST"],
 	},
 	removeModule: {
@@ -259,7 +257,6 @@ const GUARD_COVERAGE = {
 				batch: [{ kind: "removeModule", uuid: doc.moduleOrder[0] }],
 			};
 		},
-		phase: "building",
 		expectCodes: ["FORM_LINK_TARGET_NOT_FOUND"],
 		fullScope: true,
 	},
@@ -301,7 +298,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "complete",
 		expectCodes: ["REGISTRATION_NO_CASE_PROPS", "MISSING_CASE_LIST_COLUMNS"],
 		fullScope: true,
 	},
@@ -347,7 +343,6 @@ const GUARD_COVERAGE = {
 		// The completeness ratchet: a lone empty form may not land on a
 		// complete app (the building window defers this — that deferral is
 		// the design, and `completeBuild` is its backstop).
-		phase: "complete",
 		expectCodes: ["EMPTY_FORM"],
 	},
 	removeForm: {
@@ -358,7 +353,6 @@ const GUARD_COVERAGE = {
 				batch: [{ kind: "removeForm", uuid: asUuid("frm-reg") }],
 			};
 		},
-		phase: "building",
 		expectCodes: ["FORM_LINK_TARGET_NOT_FOUND"],
 		fullScope: true,
 	},
@@ -377,7 +371,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "building",
 		expectCodes: ["NO_CASE_TYPE"],
 		fullScope: true,
 	},
@@ -409,7 +402,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "building",
 		expectCodes: ["NO_CASE_TYPE"],
 		fullScope: true,
 	},
@@ -452,7 +444,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "complete",
 		expectCodes: ["CHILD_CASE_NO_NAME_FIELD", "MISSING_CHILD_CASE_MODULE"],
 		fullScope: true,
 	},
@@ -464,7 +455,6 @@ const GUARD_COVERAGE = {
 				batch: [{ kind: "removeField", uuid: byId(doc, "case_name").uuid }],
 			};
 		},
-		phase: "complete",
 		expectCodes: ["NO_CASE_NAME_FIELD", "CASE_LIST_COLUMN_UNKNOWN_FIELD"],
 		fullScope: true,
 	},
@@ -485,7 +475,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "building",
 		expectCodes: ["PRIMARY_CASE_FIELD_IN_REPEAT"],
 		fullScope: true,
 	},
@@ -505,7 +494,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "building",
 		expectCodes: ["RESERVED_CASE_PROPERTY"],
 		fullScope: true,
 	},
@@ -517,7 +505,6 @@ const GUARD_COVERAGE = {
 				batch: [{ kind: "duplicateField", uuid: byId(doc, AT_CAP_ID).uuid }],
 			};
 		},
-		phase: "building",
 		// The clone's auto-suffixed id MINTS a new case property past the
 		// 255-char cap — a finding keyed on the new property name, so it
 		// can't collapse into any pre-existing identity.
@@ -541,7 +528,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "building",
 		expectCodes: ["FIELD_KIND_WRITERS_DISAGREE"],
 		fullScope: true,
 	},
@@ -561,7 +547,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "complete",
 		expectCodes: ["CHILD_CASE_NO_NAME_FIELD", "MISSING_CHILD_CASE_MODULE"],
 		fullScope: true,
 	},
@@ -590,7 +575,6 @@ const GUARD_COVERAGE = {
 			doc: richDoc(),
 			batch: [{ kind: "setAppName", name: "" }],
 		}),
-		phase: "building",
 		expectCodes: ["EMPTY_APP_NAME"],
 	},
 	setAppLogo: {
@@ -610,7 +594,6 @@ const GUARD_COVERAGE = {
 			// switchConnectMode (documented in lib/doc/commitVerdicts.ts).
 			batch: [{ kind: "setConnectType", connectType: "learn" }],
 		}),
-		phase: "complete",
 		expectCodes: ["CONNECT_FORM_MISSING_BLOCK", "CONNECT_MISSING_LEARN"],
 		fullScope: true,
 	},
@@ -639,7 +622,6 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		phase: "building",
 		expectCodes: [
 			"INVALID_CASE_REF",
 			"INVALID_REF",
@@ -658,7 +640,7 @@ describe("re-scoping guard coverage — every mutation kind is decided", () => {
 				// The kind's scope decision matches its documented reach — it
 				// never silently widens to a full run (nor needs to).
 				expect(scopeOfMutations(doc, batch)).not.toBe("full");
-				const verdict = mutationCommitVerdict(doc, batch, "complete");
+				const verdict = mutationCommitVerdict(doc, batch);
 				expect(verdict.ok).toBe(true);
 			});
 			continue;
@@ -668,7 +650,7 @@ describe("re-scoping guard coverage — every mutation kind is decided", () => {
 			if ("fullScope" in coverage && coverage.fullScope) {
 				expect(scopeOfMutations(doc, batch)).toBe("full");
 			}
-			const verdict = mutationCommitVerdict(doc, batch, coverage.phase);
+			const verdict = mutationCommitVerdict(doc, batch);
 			expect(verdict.ok).toBe(false);
 			if (!verdict.ok) {
 				const codes = verdict.introduced.map((e) => e.code);

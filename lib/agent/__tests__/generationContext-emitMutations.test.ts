@@ -27,12 +27,9 @@ import { makeMinimalDoc, makeTestContext } from "./fixtures";
  * call (the doc argument is the persistence target; the run id keeps
  * `app.run_id` in sync with the current chat run so MCP's sliding-
  * window derivation doesn't re-attach to a closed run). Stub it out at
- * the module level so the no-op save doesn't reach Firestore.
- * `loadBlueprintBasis` backs `getCompletionBasis`, which the save-chain
- * tests below drive. */
+ * the module level so the no-op save doesn't reach Firestore. */
 vi.mock("@/lib/db/apps", () => ({
 	updateAppForRun: vi.fn(() => Promise.resolve()),
-	loadBlueprintBasis: vi.fn(() => Promise.resolve("stored-token")),
 }));
 
 /* Mock the logger so `emitError`'s server-side cause-logging is silent in
@@ -287,11 +284,11 @@ describe("GenerationContext.emitMutations", () => {
 		});
 	});
 
-	it("getCompletionBasis drains the save chain before reading the stored token", async () => {
+	it("drainIntermediateSaves resolves only once the run's own saves settled", async () => {
 		// The lane this closes: an intermediate save still in flight when the
-		// guarded completion commits would land AFTER it and clobber the
-		// completed snapshot (status complete, regressed blueprint). The basis
-		// read must therefore resolve only once the run's own saves settled.
+		// route flips the app `complete` would mean `status: complete` lands
+		// ahead of the blueprint it describes. The drain must therefore
+		// resolve only once the run's own saves settled.
 		let releaseSave: () => void = () => {};
 		vi.mocked(updateAppForRun).mockImplementationOnce(
 			() =>
@@ -301,27 +298,33 @@ describe("GenerationContext.emitMutations", () => {
 		);
 
 		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		let basis: string | null | undefined;
-		const pending = ctx.getCompletionBasis().then((value) => {
-			basis = value;
+		let drained = false;
+		const pending = ctx.drainIntermediateSaves().then(() => {
+			drained = true;
 		});
 
-		// With the save still in flight, the basis read must not have settled.
+		// With the save still in flight, the drain must not have settled.
 		await Promise.resolve();
 		await Promise.resolve();
-		expect(basis).toBeUndefined();
+		expect(drained).toBe(false);
 
 		releaseSave();
 		await pending;
-		expect(basis).toBe("stored-token");
+		expect(drained).toBe(true);
 	});
 
-	it("getCompletionBasis still reads through after a save FAILED (the chain settles, never wedges)", async () => {
+	it("drainIntermediateSaves still settles after a save FAILED (the chain never wedges)", async () => {
 		vi.mocked(updateAppForRun).mockImplementationOnce(() =>
 			Promise.reject(new Error("firestore hiccup")),
 		);
 		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		await expect(ctx.getCompletionBasis()).resolves.toBe("stored-token");
+		await expect(ctx.drainIntermediateSaves()).resolves.toBeUndefined();
+	});
+
+	it("latestPersistedDoc tracks the newest emitted snapshot (absent before any batch)", () => {
+		expect(ctx.latestPersistedDoc()).toBeUndefined();
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		expect(ctx.latestPersistedDoc()).toBe(DOC);
 	});
 });
 

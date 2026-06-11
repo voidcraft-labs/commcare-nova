@@ -33,9 +33,7 @@
  * edit that would introduce a validator finding is rejected: nothing
  * dispatches, the rejection toast lists each finding's
  * person-to-person message, and the method returns its no-op shape.
- * The phase comes from the builder's `CommitPhaseProvider` (building
- * during a generation run, complete otherwise). Undo/redo (the
- * temporal store), hydration (`load`), the agent stream
+ * Undo/redo (the temporal store), hydration (`load`), the agent stream
  * (`streamDispatcher`), and replay all write through other paths and
  * deliberately bypass this gate — they replay already-committed
  * states.
@@ -44,7 +42,6 @@
 "use client";
 
 import { useContext, useMemo } from "react";
-import { useCommitPhaseRef } from "@/lib/doc/commitPhaseContext";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
@@ -399,10 +396,6 @@ function computePathForUuid(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 
 export function useBlueprintMutations(): BlueprintMutations {
 	const store = useContext(BlueprintDocContext);
-	/* Stable ref — its `.current` is the builder-supplied commit phase,
-	 * read at dispatch time. Identity never changes, so it's a safe
-	 * `useMemo` dependency. */
-	const phaseRef = useCommitPhaseRef();
 	if (!store) {
 		throw new Error(
 			"useBlueprintMutations requires a <BlueprintDocProvider> ancestor",
@@ -432,7 +425,7 @@ export function useBlueprintMutations(): BlueprintMutations {
 		):
 			| { ok: true; results: MutationResult[] }
 			| { ok: false; messages: string[] } => {
-			const verdict = mutationCommitVerdict(get(), mutations, phaseRef.current);
+			const verdict = mutationCommitVerdict(get(), mutations);
 			if (!verdict.ok) {
 				notifyRejectedCommit(verdict.introduced);
 				return {
@@ -915,5 +908,5 @@ export function useBlueprintMutations(): BlueprintMutations {
 				return applied.ok ? applied.results : [];
 			},
 		};
-	}, [store, phaseRef]);
+	}, [store]);
 }

@@ -1,6 +1,7 @@
 /**
- * SA-facing input schemas for the initial-build generation tools
- * (`generateSchema`, `generateScaffold`).
+ * SA-facing input schemas for the initial-build PLANNING tools
+ * (`generateSchema`, `planAppDesign`) and the per-form Connect block
+ * the creation tools share.
  *
  * Separate from the field-mutation tool schemas in `toolSchemas.ts`
  * because these describe whole-app structure at the module / case
@@ -11,8 +12,8 @@
  *
  * The shapes here are structurally compatible with the corresponding
  * domain Zod schemas (e.g. `casePropertySchema` in
- * `lib/domain/blueprint.ts`) so a successful SA tool call round-trips
- * into `setCaseTypesMutations` without reshaping.
+ * `lib/domain/blueprint.ts`) so a plan's case-type entries paste
+ * verbatim into `createModule`'s `case_type_record` without reshaping.
  */
 
 import { z } from "zod";
@@ -93,7 +94,12 @@ const casePropertyDescribed = z.object({
 		.describe("Options for single_select/multi_select properties."),
 });
 
-const caseTypeDescribed = z.object({
+/**
+ * One case-type record — the shape a `generateSchema` plan entry carries
+ * AND the shape `createModule`'s `case_type_record` accepts, so a plan
+ * section pastes into the creation call verbatim.
+ */
+export const caseTypeRecordSchema = z.object({
 	name: z
 		.string()
 		.describe('Case type name in snake_case (e.g., "patient", "household")'),
@@ -121,20 +127,18 @@ const caseTypeDescribed = z.object({
 /** Input shape for the `generateSchema` tool (first build step). */
 export const caseTypesOutputSchema = z.object({
 	case_types: z
-		.array(caseTypeDescribed)
+		.array(caseTypeRecordSchema)
 		.describe("Case types and their properties"),
 });
 
-// ── generateScaffold input ──────────────────────────────────────────
+// ── planAppDesign input ─────────────────────────────────────────────
 
 /**
  * Per-form Connect config — the ONE SA-facing input shape for a form's
- * `connect` block, shared by `generateScaffold` (initial build) and the
- * atomic creation tools (`createForm` / `createModule`), so a
- * Connect-typed app can grow structure after completion: on a complete
- * Connect app, a form without its block introduces
- * CONNECT_FORM_MISSING_BLOCK and the creation call is where the block
- * must land.
+ * `connect` block, shared by the `planAppDesign` plan and the atomic
+ * creation tools (`createForm` / `createModule`). On a Connect-typed
+ * app, a form without its block introduces CONNECT_FORM_MISSING_BLOCK,
+ * so the creation call is where the block must land.
  */
 export const connectFormConfigSchema = z.object({
 	learn_module: z
@@ -188,8 +192,8 @@ export const connectFormConfigSchema = z.object({
 		),
 });
 
-/** Input shape for the `generateScaffold` tool (second build step). */
-export const scaffoldModulesSchema = z.object({
+/** Input shape for the `planAppDesign` tool (second planning step). */
+export const appDesignPlanSchema = z.object({
 	app_name: z.string().describe("Name of the CommCare application"),
 	description: z
 		.string()
@@ -254,4 +258,4 @@ export const scaffoldModulesSchema = z.object({
 
 // ── Inferred TS types ───────────────────────────────────────────────
 
-export type Scaffold = z.infer<typeof scaffoldModulesSchema>;
+export type AppDesignPlan = z.infer<typeof appDesignPlanSchema>;

@@ -362,16 +362,17 @@ export interface CreateAppOptions {
 	/**
 	 * Initial lifecycle status. Limited to the valid creation states:
 	 * `"generating"` arms the staleness timer in `listApps` (advanced on
-	 * every write; a 10-minute gap self-marks the app as `error`);
-	 * `"draft"` is the MCP build window — timer-exempt, because an
-	 * external agent builds on its own clock (`complete_build` flips it);
-	 * `"complete"` opts out for atomic creations with no follow-up writes.
+	 * every write; a 10-minute gap self-marks the app as `error`) — the
+	 * chat build's run-liveness marker; `"complete"` is the at-rest
+	 * default for every other creation (MCP `create_app`, atomic
+	 * creations) — an empty app is at rest and valid, and status never
+	 * feeds the validity gate.
 	 *
 	 * `"error"` is excluded — a fresh app has not failed at anything yet.
 	 * `"deleted"` is excluded — soft-delete is an out-of-band transition
 	 * via `softDeleteApp`, never a creation state.
 	 */
-	status?: "generating" | "draft" | "complete";
+	status?: "generating" | "complete";
 }
 
 /**
@@ -429,8 +430,8 @@ export async function createApp(
 // ── Blueprint snapshot writers ─────────────────────────────────────
 //
 // `updateApp` and `updateAppForRun` (plain) plus the transactional
-// writers (`updateAppForRunTransactional`, `updateAppGuardedByBasis`,
-// `completeAppGuardedByBasis`) all overwrite the blueprint +
+// writers (`updateAppForRunTransactional`, `updateAppGuardedByBasis`)
+// all overwrite the blueprint +
 // denormalized summary fields on an existing app row. They
 // use Firestore `update()` so the top-level `blueprint` map is replaced
 // wholesale — the Firestore client's `ignoreUndefinedProperties: true`
@@ -600,68 +601,28 @@ export async function updateAppGuardedByBasis(
 }
 
 /**
- * Finalize an app on generation success — the basis-guarded
- * read-compare-write twin of `updateAppGuardedByBasis` that also flips
- * `status: "complete"` and stamps `run_id`. Called by the shared
- * `completeBuild` tool after the boundary evaluation comes back clean —
- * on every surface, so the same call flips a chat build's `generating`,
- * an MCP build's `draft`, and a retried build's `error`.
+ * Mark a build finished — the chat route's drain-end status flip.
  *
- * The guard exists because the completion write lands a snapshot
- * captured BEFORE a multi-second evaluation window (boundary check +
- * media manifest + materialize), on a surface that invites concurrent
- * builder edits of the same draft. Inside one transaction: compare the
- * stored `blueprint_token` to the basis captured with the evaluated
- * snapshot; a mismatch throws `BlueprintBasisStaleError` with NOTHING
- * written (the caller reports "the app changed while completing" and
- * the agent re-runs against the new state); a match commits under a
- * freshly rotated token — returned so the chat surface can hand it to
- * the builder client via `data-done`, keeping the same tab's next
- * auto-save off the 409 path.
+ * STATUS-ONLY by design: the run's chained intermediate saves already
+ * persisted the blueprint (the route drains the chain first), so this
+ * write carries no doc snapshot and can never blind-overwrite a
+ * concurrent editor's blueprint. Status is pure run-liveness — it never
+ * feeds the validity gate — so a plain merge-set is enough; there is no
+ * basis to compare. `error_type` clears alongside so a retried build's
+ * stale classification doesn't linger on the now-finished row.
+ *
+ * Awaited (unlike `failApp`): the route emits `data-done` only after the
+ * flip lands, so a page load right after the celebration never sees a
+ * still-`generating` row and bounce off the build page's redirect.
  */
-export async function completeAppGuardedByBasis(
-	appId: string,
-	doc: PersistableDoc,
-	basisToken: string | null,
-	runId: string,
-): Promise<string> {
-	const nextToken = crypto.randomUUID();
-	await getDb().runTransaction(async (tx) => {
-		const snap = await tx.get(docs.app(appId));
-		const fresh = snap.exists ? (snap.data() ?? null) : null;
-		if (!fresh) {
-			throw new Error(
-				`[completeAppGuardedByBasis] app document missing for appId=${appId}`,
-			);
-		}
-		if ((fresh.blueprint_token ?? null) !== basisToken) {
-			throw new BlueprintBasisStaleError();
-		}
-		tx.update(
-			docs.appRaw(appId),
-			blueprintSnapshotFields(doc, {
-				status: "complete",
-				runId,
-				basisToken: nextToken,
-			}),
-		);
-	});
-	await syncMediaReferences(appId, doc);
-	return nextToken;
-}
-
-/**
- * Read just the auto-save basis (`blueprint_token`) for an app — the
- * chat surface's completion-basis capture (`GenerationContext
- * .getCompletionBasis`). Raw single-field read; `null` for a missing
- * doc or a pre-token row, matching the basis compare's null semantics.
- */
-export async function loadBlueprintBasis(
-	appId: string,
-): Promise<string | null> {
-	const snap = await getDb().collection("apps").doc(appId).get();
-	if (!snap.exists) return null;
-	return (snap.data()?.blueprint_token as string | null | undefined) ?? null;
+export async function completeApp(appId: string): Promise<void> {
+	await docs.app(appId).set(
+		{
+			status: "complete",
+			error_type: null,
+		},
+		{ merge: true },
+	);
 }
 
 /**

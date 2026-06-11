@@ -61,7 +61,7 @@ export const searchAppsInputSchema = {
 			"Opaque pagination cursor. Pass the `next_cursor` from a prior `search_apps` response to continue searching the next batch of the user's apps. A single `search_apps` call scans a bounded slice of the user's apps; calling repeatedly with the cursor exhausts the full dataset.",
 		),
 	status: z
-		.enum(["generating", "draft", "complete", "error"])
+		.enum(["generating", "complete", "error"])
 		.optional()
 		.describe(
 			"Restrict the search to apps with a specific lifecycle status. Omit to search across all statuses.",

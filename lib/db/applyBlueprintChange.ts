@@ -66,7 +66,6 @@
 import type { CaseStore } from "@/lib/case-store";
 import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
 import {
-	type CommitPhase,
 	describeIntroducedErrors,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
@@ -135,7 +134,6 @@ export interface ApplyBlueprintChangeArgs {
 	 */
 	readonly guard?: {
 		readonly mutations: Mutation[];
-		readonly commitPhase: CommitPhase;
 	};
 	/**
 	 * Optimistic-basis mode (the browser auto-save PUT): the Firestore
@@ -284,7 +282,7 @@ async function persistBlueprint(
 	args: ApplyBlueprintChangeArgs,
 ): Promise<ApplyBlueprintChangeResult> {
 	if (args.guard !== undefined && args.runId !== undefined) {
-		const { mutations, commitPhase } = args.guard;
+		const { mutations } = args.guard;
 		await updateAppForRunTransactional(args.appId, args.runId, (fresh) => {
 			/* Re-apply against the FRESH stored blueprint and re-run the
 			 * verdict inside the transaction. Firestore re-runs this body on
@@ -295,7 +293,7 @@ async function persistBlueprint(
 				fieldParent: {},
 			} as BlueprintDoc;
 			rebuildFieldParent(freshDoc);
-			const verdict = mutationCommitVerdict(freshDoc, mutations, commitPhase);
+			const verdict = mutationCommitVerdict(freshDoc, mutations);
 			if (!verdict.ok) {
 				throw new BlueprintCommitRejectedError(
 					describeIntroducedErrors(verdict.introduced),

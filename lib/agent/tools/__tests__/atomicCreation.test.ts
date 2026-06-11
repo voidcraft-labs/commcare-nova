@@ -4,10 +4,10 @@
  * batch. This is what makes the completeness ratchet livable on a
  * complete app: before these shapes, nothing could create a form
  * (EMPTY_FORM rejected the lone addForm) or a case-managing module
- * (NO_FORMS_OR_CASE_LIST in both phases; MISSING_CASE_LIST_COLUMNS on
- * complete) — every structural-creation path was a dead end. The tests
- * pin both directions: the atomic call commits on a complete app, and
- * the under-specified call is rejected with findings the SAME call can
+ * (NO_FORMS_OR_CASE_LIST; MISSING_CASE_LIST_COLUMNS) — every
+ * structural-creation path was a dead end. The tests pin both
+ * directions: the atomic call commits on a complete app, and the
+ * under-specified call is rejected with findings the SAME call can
  * satisfy.
  */
 
@@ -18,16 +18,14 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { createFormTool } from "../createForm";
 import { createModuleTool } from "../createModule";
 
-function makeCtx(phase: "building" | "complete") {
+function makeCtx() {
 	const recordMutations = vi.fn().mockResolvedValue([]);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
-		commitPhase: phase,
 		recordMutations,
 		recordMutationStages: vi.fn().mockResolvedValue([]),
-		getCompletionBasis: vi.fn().mockResolvedValue(null),
 		recordConversation: vi.fn(),
 	};
 	return { ctx, recordMutations };
@@ -80,7 +78,7 @@ function completeDoc(): BlueprintDoc {
 
 describe("createForm — atomic form + fields", () => {
 	it("grows a COMPLETE app: a followup form lands with its fields in one batch", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -109,7 +107,7 @@ describe("createForm — atomic form + fields", () => {
 	});
 
 	it("rejects a registration form missing its case_name writer with guidance THIS call can satisfy", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -134,7 +132,7 @@ describe("createForm — atomic form + fields", () => {
 	});
 
 	it("nests fields under a group created in the same call", async () => {
-		const { ctx } = makeCtx("complete");
+		const { ctx } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -168,7 +166,7 @@ describe("createForm — atomic form + fields", () => {
 
 describe("createModule — atomic module + forms + case list", () => {
 	it("grows a COMPLETE app: a case-managing module lands with forms and columns in one batch", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createModuleTool.execute(
 			{
 				name: "Households",
@@ -215,9 +213,9 @@ describe("createModule — atomic module + forms + case list", () => {
 		expect(addModule?.module.caseListConfig?.columns).toHaveLength(1);
 	});
 
-	it("rejects a case-typed module with no forms in BOTH phases (forms belong in this call)", async () => {
-		for (const phase of ["building", "complete"] as const) {
-			const { ctx, recordMutations } = makeCtx(phase);
+	it("rejects a case-typed module with no forms (forms belong in this call)", async () => {
+		{
+			const { ctx, recordMutations } = makeCtx();
 			const out = await createModuleTool.execute(
 				{ name: "Households", case_type: "household" },
 				ctx,
@@ -229,7 +227,7 @@ describe("createModule — atomic module + forms + case list", () => {
 	});
 
 	it("rejects a case-managing module without case-list columns on a complete app", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createModuleTool.execute(
 			{
 				name: "Households",
@@ -264,7 +262,7 @@ describe("createModule — atomic module + forms + case list", () => {
 	});
 
 	it("still creates a plain (case-less) survey module the simple way", async () => {
-		const { ctx } = makeCtx("complete");
+		const { ctx } = makeCtx();
 		const out = await createModuleTool.execute(
 			{
 				name: "Feedback",
@@ -343,7 +341,7 @@ function completeConnectDoc(): BlueprintDoc {
 
 describe("atomic creation on a complete Connect app", () => {
 	it("createForm with a connect block commits in one batch", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -375,7 +373,7 @@ describe("atomic creation on a complete Connect app", () => {
 	});
 
 	it("createForm WITHOUT a connect block is rejected with guidance the same call satisfies", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -403,7 +401,7 @@ describe("atomic creation on a complete Connect app", () => {
 	});
 
 	it("createModule lands forms with their connect blocks in one batch", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createModuleTool.execute(
 			{
 				name: "Assessments",
@@ -461,7 +459,7 @@ describe("atomic creation on a complete Connect app", () => {
 
 describe("creation tools force connect ids correct at the source", () => {
 	it("createForm autofills an omitted connect id from the module name, unique against stored ids", async () => {
-		const { ctx } = makeCtx("complete");
+		const { ctx } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -498,7 +496,7 @@ describe("creation tools force connect ids correct at the source", () => {
 	});
 
 	it("createForm rejects an explicit duplicate connect id (nothing persisted)", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -533,7 +531,7 @@ describe("creation tools force connect ids correct at the source", () => {
 	});
 
 	it("createForm rejects an explicit XML-illegal connect id", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -568,7 +566,7 @@ describe("creation tools force connect ids correct at the source", () => {
 		// Two id-less learn_module blocks in ONE creation both derive from the
 		// module name — the threaded id set must suffix the second, so the
 		// batch can't be born with a duplicate.
-		const { ctx } = makeCtx("complete");
+		const { ctx } = makeCtx();
 		const out = await createModuleTool.execute(
 			{
 				name: "Refreshers",
@@ -638,7 +636,7 @@ describe("creation tools force connect ids correct at the source", () => {
 	});
 
 	it("createModule rejects an explicit duplicate id against a stored block (nothing persisted)", async () => {
-		const { ctx, recordMutations } = makeCtx("complete");
+		const { ctx, recordMutations } = makeCtx();
 		const out = await createModuleTool.execute(
 			{
 				name: "Refreshers",
@@ -689,7 +687,7 @@ describe("creation tools force connect ids correct at the source", () => {
 		// LEEP regression: this module name's snake-id is 52 chars, over the
 		// varchar(50) Connect column — the autofill must cap at derivation so
 		// CONNECT_ID_TOO_LONG can never fire on an id the user didn't type.
-		const { ctx } = makeCtx("complete");
+		const { ctx } = makeCtx();
 		const out = await createModuleTool.execute(
 			{
 				name: "Module 3 — Conducting the 15-question seller interview",

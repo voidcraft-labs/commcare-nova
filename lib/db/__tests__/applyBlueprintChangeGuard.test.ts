@@ -175,7 +175,7 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 			userId: "user-1",
 			prospective: staleProspective,
 			runId: "run-1",
-			guard: { mutations, commitPhase: "complete" },
+			guard: { mutations },
 		});
 
 		expect(updateAppForRunTransactionalMock).toHaveBeenCalledTimes(1);
@@ -216,7 +216,7 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 				userId: "user-1",
 				prospective: toPersistableDoc(prior),
 				runId: "run-1",
-				guard: { mutations, commitPhase: "complete" },
+				guard: { mutations },
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 
@@ -261,7 +261,7 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 				userId: "user-1",
 				prospective,
 				runId: "run-1",
-				guard: { mutations, commitPhase: "complete" },
+				guard: { mutations },
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 
