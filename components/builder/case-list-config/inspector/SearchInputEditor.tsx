@@ -32,7 +32,6 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerWand from "@iconify-icons/tabler/wand";
 import { useMemo, useRef } from "react";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
@@ -106,6 +105,7 @@ import {
 import {
 	CONSOLE_MENU_ITEM_MIN,
 	CONSOLE_TRIGGER_CLS,
+	RemoveRow,
 	SegmentedRow,
 } from "./inspectorChrome";
 
@@ -541,16 +541,7 @@ export function SearchInputEditor({
 					)}
 				</FieldRow>
 
-				<div className="pt-3 border-t border-nova-border">
-					<button
-						type="button"
-						onClick={onRemove}
-						className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
-					>
-						<Icon icon={tablerTrash} width="14" height="14" />
-						<span>Remove search field</span>
-					</button>
-				</div>
+				<RemoveRow label="Remove search field" onClick={onRemove} />
 			</div>
 		</PredicateEditProvider>
 	);
@@ -650,7 +641,7 @@ function BindingPicker({
 				<button
 					type="button"
 					onClick={() => onPick(row.property, "self")}
-					className="shrink-0 px-3 min-h-9 text-xs rounded-md border border-white/[0.08] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+					className="shrink-0 px-3 min-h-11 text-xs rounded-lg border border-white/[0.08] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				>
 					Search this case instead
 				</button>
@@ -1207,7 +1198,7 @@ function DefaultValueSlot({
 				<button
 					type="button"
 					onClick={() => onChange(undefined)}
-					className="w-full min-h-10 px-3 text-xs rounded-md border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
+					className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
 					aria-label={`Remove the default value for search field ${rowIndex + 1}`}
 				>
 					Remove default value

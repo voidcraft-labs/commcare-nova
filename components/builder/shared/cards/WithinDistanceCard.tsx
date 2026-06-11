@@ -177,7 +177,7 @@ function DistanceInput({
 			autoComplete="off"
 			data-1p-ignore
 			aria-label="Distance"
-			className="w-24 px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
+			className="w-24 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
 		/>
 	);
 }
@@ -196,7 +196,7 @@ function UnitMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Distance unit: ${UNIT_LABELS[unit]}`}
-				className="group flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
+				className="group flex items-center gap-1 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
 			>
 				<span>{UNIT_LABELS[unit]}</span>
 				<svg

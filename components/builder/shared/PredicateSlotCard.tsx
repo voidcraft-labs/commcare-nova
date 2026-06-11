@@ -22,7 +22,6 @@
 // reaching for this card.
 
 "use client";
-import type { IconifyIcon } from "@iconify/react/offline";
 import type { CaseType } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
@@ -32,10 +31,8 @@ import { PredicateCardEditor } from "./PredicateCardEditor";
 // ── Public types ──────────────────────────────────────────────────
 
 export interface PredicateSlotCardProps {
-	/** Header icon — the section's leading glyph. */
-	readonly icon: IconifyIcon;
-	/** Header title — short uppercase label rendered as the section's
-	 *  heading text. */
+	/** Header title — short label rendered as the section's etched
+	 *  console eyebrow. */
 	readonly title: string;
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */
@@ -75,7 +72,6 @@ export interface PredicateSlotCardProps {
  * mounted until cleared.
  */
 export function PredicateSlotCard({
-	icon,
 	title,
 	description,
 	addLabel,
@@ -89,7 +85,6 @@ export function PredicateSlotCard({
 }: PredicateSlotCardProps) {
 	return (
 		<OptionalSlotCard<Predicate>
-			icon={icon}
 			title={title}
 			description={description}
 			addLabel={addLabel}

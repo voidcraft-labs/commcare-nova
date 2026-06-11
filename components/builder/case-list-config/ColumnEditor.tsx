@@ -293,8 +293,9 @@ function SortOrderNote({
 	return (
 		<div className="space-y-2">
 			<InspectorHint>
-				Sort key {position} of {sortedColumnCount} — applied after the ones
-				before it.
+				{position === 1
+					? `First of ${sortedColumnCount} in the sort order — it sorts the whole list.`
+					: `${ordinalWord(position)} of ${sortedColumnCount} in the sort order — it breaks ties left by the ones above it.`}
 			</InspectorHint>
 			{onEditSortOrder !== undefined && (
 				<button
@@ -307,6 +308,13 @@ function SortOrderNote({
 			)}
 		</div>
 	);
+}
+
+/** Ordinal words for sort positions — sorted-column lists are short,
+ *  so the numeric fallback rarely shows. */
+function ordinalWord(n: number): string {
+	const words = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"];
+	return words[n - 1] ?? `${n}th`;
 }
 
 /**

@@ -29,6 +29,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import { Tooltip } from "@/components/ui/Tooltip";
 import {
 	type Literal,
 	literal,
@@ -130,7 +131,7 @@ export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 					Match against
 				</div>
 				<ExpressionPicker
@@ -142,7 +143,7 @@ export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
 			</div>
 
 			<div className="space-y-1.5">
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
 					Cases
 				</div>
 				{value.cases.map((c, i) => (
@@ -192,16 +193,16 @@ export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
 				<button
 					type="button"
 					onClick={appendCase}
-					className="inline-flex items-center gap-1.5 px-2 py-1.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+					className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				>
-					<Icon icon={tablerPlus} width="11" height="11" />
+					<Icon icon={tablerPlus} width="14" height="14" />
 					<span>Add case</span>
 				</button>
 			</div>
 
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
-					Fallback (no case matched)
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
+					Otherwise
 				</div>
 				<ExpressionPicker
 					value={value.fallback}
@@ -258,30 +259,32 @@ function CaseRow({
 					type="button"
 					ref={setHandleEl}
 					aria-label="Reorder case"
-					className="cursor-grab text-nova-text-muted/50 hover:text-nova-text-muted transition-colors -ml-0.5"
+					className="size-11 -ml-2 grid place-items-center rounded-md cursor-grab text-nova-text-muted/50 hover:text-nova-text-muted transition-colors"
 				>
 					<Icon icon={tablerGripVertical} width="14" height="14" />
 				</button>
-				<span className="text-[10px] uppercase tracking-wider text-nova-text-muted/80">
+				<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
 					Case {caseIndex + 1}
 				</span>
 				<div className="flex-1" />
 				{!isOnlyOne && (
-					<button
-						type="button"
-						aria-label="Remove case"
-						onClick={onRemove}
-						className="rounded p-0.5 text-nova-text-muted/60 hover:text-nova-error hover:bg-white/[0.05] transition-colors cursor-pointer"
-					>
-						<Icon icon={tablerTrash} width="12" height="12" />
-					</button>
+					<Tooltip content="Remove this case">
+						<button
+							type="button"
+							aria-label="Remove case"
+							onClick={onRemove}
+							className="size-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-rose hover:bg-white/[0.05] transition-colors cursor-pointer"
+						>
+							<Icon icon={tablerTrash} width="13" height="13" />
+						</button>
+					</Tooltip>
 				)}
 			</div>
 
 			<div className="grid grid-cols-2 gap-2">
 				<div>
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
-						When (literal)
+					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
+						When it equals
 					</div>
 					<SwitchWhenLiteralInput
 						value={switchCaseValue.when}
@@ -291,7 +294,7 @@ function CaseRow({
 					<InlineError errors={whenErrors} />
 				</div>
 				<div>
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 						Then
 					</div>
 					<ExpressionPicker

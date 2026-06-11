@@ -41,7 +41,11 @@ export function MatchAllCard({ value, onChange }: MatchAllCardProps) {
 					height="13"
 					className="text-nova-violet-bright/70 shrink-0"
 				/>
-				Matches every case — pick a verb above to start filtering.
+				{/* Context-neutral wording — this sentinel seeds the list
+				 *  filter AND non-case slots like the search button's
+				 *  display condition, so it can't say "matches every
+				 *  case". */}
+				Always true — pick a verb to turn this into a real condition.
 			</div>
 		</div>
 	);
@@ -58,7 +62,7 @@ export function MatchNoneCard({ value, onChange }: MatchNoneCardProps) {
 					height="13"
 					className="text-nova-text-muted shrink-0"
 				/>
-				Hides every case — an explicit off switch.
+				Always false — an explicit off switch.
 			</div>
 		</div>
 	);

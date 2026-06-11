@@ -22,8 +22,6 @@
 // `Object.assign(mod, patch)`).
 
 "use client";
-import tablerEye from "@iconify-icons/tabler/eye";
-import tablerForbid from "@iconify-icons/tabler/forbid";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { OptionalSlotCard } from "@/components/builder/shared/OptionalSlotCard";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
@@ -97,7 +95,6 @@ export function SearchPanelInspectorBody({
 			/>
 
 			<PredicateSlotCard
-				icon={tablerEye}
 				title="Display condition"
 				description="Hide the search button until this condition is met."
 				addLabel="Add display condition"
@@ -110,7 +107,6 @@ export function SearchPanelInspectorBody({
 			/>
 
 			<OptionalSlotCard<ValueExpression>
-				icon={tablerForbid}
 				title="Excluded owners"
 				description="Hide cases that belong to particular owner ids — they never appear in results."
 				addLabel="Add excluded owners"

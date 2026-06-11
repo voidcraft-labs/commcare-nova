@@ -7,6 +7,8 @@
 // control in the rail is at least 44px tall.
 
 "use client";
+import { Icon } from "@iconify/react/offline";
+import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId } from "react";
 import { Switch } from "@/components/shadcn/switch";
 
@@ -86,6 +88,34 @@ export function ToggleRow({
 			</span>
 			<Switch id={id} checked={checked} onCheckedChange={onChange} />
 		</label>
+	);
+}
+
+/**
+ * The inspector's standard footer action for taking the inspected
+ * thing out of the app — "Remove column", "Remove filter", "Remove
+ * search field". Quiet until hovered, when the rose tint says what a
+ * click costs. One shape across every body so removal always lives in
+ * the same place: last.
+ */
+export function RemoveRow({
+	label,
+	onClick,
+}: {
+	readonly label: string;
+	readonly onClick: () => void;
+}) {
+	return (
+		<div className="pt-3 border-t border-nova-border">
+			<button
+				type="button"
+				onClick={onClick}
+				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
+			>
+				<Icon icon={tablerTrash} width="14" height="14" />
+				<span>{label}</span>
+			</button>
+		</div>
 	);
 }
 

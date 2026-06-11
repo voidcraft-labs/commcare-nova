@@ -290,7 +290,7 @@ export const columnCardSchemas: {
 		kind: "calculated",
 		label: "Calculated",
 		icon: tablerMathFunction,
-		description: "Compute what's shown with an expression.",
+		description: "Compute what's shown with a formula.",
 		component: CalculatedColumnCard,
 		defaultValue: () => calculatedColumn(newUuid(), "", term(literal(""))),
 		applicableForProperty: applicableForAny,

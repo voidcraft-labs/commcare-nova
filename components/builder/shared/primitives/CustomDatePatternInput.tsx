@@ -130,7 +130,7 @@ function PresetRow({
 	customSeed,
 }: PresetRowProps) {
 	const baseCls =
-		"px-2 py-1.5 text-[11px] uppercase tracking-wider transition-colors cursor-pointer rounded-md";
+		"px-2 min-h-11 text-[11px] uppercase tracking-wider transition-colors cursor-pointer rounded-md";
 	const activeCls = "text-nova-violet-bright bg-nova-violet/10";
 	const idleCls =
 		"text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]";

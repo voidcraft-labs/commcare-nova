@@ -2,10 +2,10 @@
 //
 // Generic optional-slot card primitive. Owns the shape every authoring
 // surface shares around a single optional value: section header
-// (violet rail + icon + title + hint, with a Clear button when the
-// slot is defined), body switch (consumer-supplied editor when set,
-// dashed "Add ..." CTA when unset), validity short-circuit, and an
-// optional collapse affordance.
+// (etched console label + hint, with a Clear button when the slot is
+// defined), body switch (consumer-supplied editor when set, dashed
+// "Add ..." CTA when unset), validity short-circuit, and an optional
+// collapse affordance.
 //
 // Consumers specialize with a typed `T` plus a `renderEditor` render
 // prop and an `addSeed` value. `onChange(T | undefined)` emits into
@@ -17,7 +17,7 @@
 // its validity verdict keeps reaching the inner shadow.
 
 "use client";
-import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { type ReactNode, useId, useState } from "react";
 import { SlotCardHeader } from "./SlotCardHeader";
@@ -41,11 +41,8 @@ export interface OptionalSlotCardCollapse {
 }
 
 export interface OptionalSlotCardProps<T> {
-	/** Header icon — the consumer's per-surface glyph (filter, eye,
-	 *  forbid, etc). Threaded through to `SlotCardHeader`. */
-	readonly icon: IconifyIcon;
-	/** Header title — short uppercase label (e.g., "Filter",
-	 *  "Display condition"). */
+	/** Header title — short label rendered as the section's etched
+	 *  console eyebrow (e.g., "Display condition"). */
 	readonly title: string;
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */
@@ -102,7 +99,6 @@ export interface OptionalSlotCardProps<T> {
  * editor mount overwrites the shadow.
  */
 export function OptionalSlotCard<T>({
-	icon,
 	title,
 	description,
 	addLabel,
@@ -141,18 +137,19 @@ export function OptionalSlotCard<T>({
 
 	// `slotPresent` reused so the body branch and the validity branch
 	// read off one source.
+	// No wrapper well around the editor — predicate / expression rows
+	// carry their own surfaces, and a second frame around them reads
+	// as a box inside a box.
 	const body = slotPresent ? (
-		<div className="rounded-md border border-white/[0.04] bg-nova-surface/30 p-3">
-			{renderEditor(value, onChange, setInnerValid)}
-		</div>
+		renderEditor(value, onChange, setInnerValid)
 	) : (
 		<button
 			type="button"
 			onClick={handleAdd}
-			className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+			className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 			aria-label={addLabel}
 		>
-			<Icon icon={tablerPlus} width="12" height="12" />
+			<Icon icon={tablerPlus} width="14" height="14" />
 			<span>{addLabel}</span>
 		</button>
 	);
@@ -160,7 +157,6 @@ export function OptionalSlotCard<T>({
 	return (
 		<div className="space-y-3">
 			<SlotCardHeader
-				icon={icon}
 				title={title}
 				description={description}
 				collapse={

@@ -30,7 +30,6 @@ import tablerId from "@iconify-icons/tabler/id";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import tablerSearch from "@iconify-icons/tabler/search";
-import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -57,6 +56,7 @@ import {
 	caseListConfigErrorAreas,
 } from "./configValidity";
 import { FilterInspectorBody } from "./inspector/FilterInspectorBody";
+import { RemoveRow } from "./inspector/inspectorChrome";
 import { ListPanelInspectorBody } from "./inspector/ListPanelInspectorBody";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
@@ -433,7 +433,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							)}
 							onEditSortOrder={args.onSelectListPanel}
 						/>
-						<RemoveEntityButton
+						<RemoveRow
 							label="Remove column"
 							onClick={() => args.removeColumn(column.uuid)}
 						/>
@@ -639,29 +639,6 @@ function WorkspaceTabs({
 					<span className="hidden @xl:inline">Preview</span>
 				</button>
 			</Tooltip>
-		</div>
-	);
-}
-
-// ── Inspector footer ──────────────────────────────────────────────
-
-function RemoveEntityButton({
-	label,
-	onClick,
-}: {
-	readonly label: string;
-	readonly onClick: () => void;
-}) {
-	return (
-		<div className="pt-2 border-t border-nova-border">
-			<button
-				type="button"
-				onClick={onClick}
-				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
-			>
-				<Icon icon={tablerTrash} width="14" height="14" />
-				<span>{label}</span>
-			</button>
 		</div>
 	);
 }

@@ -113,7 +113,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 						onClick={() =>
 							setWhere(value.where === undefined ? matchAll() : undefined)
 						}
-						className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
 					>
 						{value.where === undefined ? "+ Add filter" : "Remove filter"}
 					</button>

@@ -50,8 +50,10 @@ import tablerUnlink from "@iconify-icons/tabler/unlink";
 import tablerWand from "@iconify-icons/tabler/wand";
 import { useRef } from "react";
 import {
+	and,
 	type ComparisonKind,
 	not,
+	or,
 	type Predicate,
 	type PropertyRef,
 	term,
@@ -393,7 +395,23 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 		description: "A group — every condition inside must match.",
 		schemaKind: "and",
 		isCurrent: (p) => p.kind === "and",
-		build: (_p, ctx) => predicateCardSchemas.and.defaultValue(ctx),
+		// Wrapping (not replacing): the current condition becomes the
+		// group's first row, with a fresh row beside it to fill in —
+		// "group this" must never throw away what the author built.
+		// The sibling group kind converts in place (same rows, the
+		// other combinator); only the sentinels start from the
+		// registry default, since wrapping "always true" carries
+		// nothing worth keeping.
+		build: (p, ctx) => {
+			if (p.kind === "and") return p;
+			if (p.kind === "or") {
+				return and(p.clauses[0], p.clauses[1], ...p.clauses.slice(2));
+			}
+			if (p.kind === "match-all" || p.kind === "match-none") {
+				return predicateCardSchemas.and.defaultValue(ctx);
+			}
+			return and(p, predicateCardSchemas.eq.defaultValue(ctx));
+		},
 	},
 	{
 		id: "or",
@@ -402,7 +420,16 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 		description: "A group — at least one condition inside must match.",
 		schemaKind: "or",
 		isCurrent: (p) => p.kind === "or",
-		build: (_p, ctx) => predicateCardSchemas.or.defaultValue(ctx),
+		build: (p, ctx) => {
+			if (p.kind === "or") return p;
+			if (p.kind === "and") {
+				return or(p.clauses[0], p.clauses[1], ...p.clauses.slice(2));
+			}
+			if (p.kind === "match-all" || p.kind === "match-none") {
+				return predicateCardSchemas.or.defaultValue(ctx);
+			}
+			return or(p, predicateCardSchemas.eq.defaultValue(ctx));
+		},
 	},
 	{
 		id: "not",
@@ -450,7 +477,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 		id: "match-all",
 		label: "Always true",
 		icon: tablerAsterisk,
-		description: "Matches every case — a placeholder to build from.",
+		description: "Always passes — a placeholder to build from.",
 		schemaKind: "match-all",
 		isCurrent: (p) => p.kind === "match-all",
 		build: (_p, ctx) => predicateCardSchemas["match-all"].defaultValue(ctx),
@@ -459,7 +486,7 @@ const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 		id: "match-none",
 		label: "Always false",
 		icon: tablerSlash,
-		description: "Matches nothing — an explicit off switch.",
+		description: "Never passes — an explicit off switch.",
 		schemaKind: "match-none",
 		isCurrent: (p) => p.kind === "match-none",
 		build: (_p, ctx) => predicateCardSchemas["match-none"].defaultValue(ctx),

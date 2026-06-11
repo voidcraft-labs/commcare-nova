@@ -57,7 +57,7 @@ export function previewNotice(
 		case "paused":
 			return {
 				tone: "warning",
-				text: "Preview paused — fix the configuration errors to see live rows.",
+				text: "Preview paused — fix the errors marked on the tabs to see live rows.",
 			};
 		case "empty":
 			return {
@@ -69,7 +69,7 @@ export function previewNotice(
 		case "missing-case-type":
 			return {
 				tone: "warning",
-				text: `Case type "${preview.caseType}" is no longer in the blueprint. Refresh the page to re-resolve it.`,
+				text: `Case type "${preview.caseType}" is no longer in this app — refresh the page.`,
 			};
 		case "schema-not-synced":
 			return {

@@ -258,7 +258,7 @@ function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
 				ref={triggerRef}
 				id={triggerId}
 				aria-label={`Term source: ${activeItem.label}`}
-				className="group flex items-center gap-1.5 px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:border-nova-violet/30 hover:text-nova-text transition-colors cursor-pointer"
+				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:border-nova-violet/30 hover:text-nova-text transition-colors cursor-pointer"
 			>
 				<Icon
 					icon={activeItem.icon}
@@ -427,7 +427,7 @@ function InputRefMenu({ value, onChange, invalid }: InputRefMenuProps) {
 	const items = ctx.knownInputs;
 	const current = items.find((i) => i.name === value);
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
 			? "border-nova-error/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
@@ -540,7 +540,7 @@ function SessionContextMenu({
 	];
 	const current = items.find((i) => i.field === value) ?? items[0];
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
 			? "border-nova-error/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
@@ -662,7 +662,11 @@ function LiteralCardEditor({
 	};
 
 	return (
-		<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
+		// Always one row — the type chip + its input read as a single
+		// typed-value control ("NUMBER · 50"), and the pair fits even
+		// the inspector rail's narrow container. Stacking them made the
+		// value cost three rows in the rail.
+		<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
 			<LiteralShapeMenu shape={literalShape} setShape={setShape} />
 			<LiteralBodyInput
 				value={value}
@@ -761,7 +765,7 @@ function LiteralShapeMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Literal type: ${LITERAL_SHAPE_LABELS[shape]}`}
-				className="group flex items-center gap-1 px-2 py-1.5 text-[10px] uppercase tracking-wider rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="group flex items-center gap-1 px-2.5 min-h-11 text-[10px] uppercase tracking-wider rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 			>
 				<span>{LITERAL_SHAPE_LABELS[shape]}</span>
 				<svg
@@ -829,9 +833,9 @@ function LiteralShapeMenu({
 }
 
 const LITERAL_INPUT_CLS_VALID =
-	"w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 const LITERAL_INPUT_CLS_INVALID =
-	"w-full px-2 py-1.5 text-xs rounded-md border border-nova-error/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-error/60 focus:ring-nova-error/30 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-error/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-error/60 focus:ring-nova-error/30 transition-colors";
 
 function literalInputCls(invalid: boolean): string {
 	return invalid ? LITERAL_INPUT_CLS_INVALID : LITERAL_INPUT_CLS_VALID;
@@ -1025,7 +1029,7 @@ function LiteralBooleanToggle({
 }) {
 	const current = typeof value.value === "boolean" ? value.value : false;
 	const baseCls =
-		"flex-1 px-2 py-1.5 text-[11px] uppercase tracking-wider transition-colors cursor-pointer rounded-md";
+		"flex-1 px-2 min-h-11 text-[11px] uppercase tracking-wider transition-colors cursor-pointer rounded-md";
 	const activeCls = "text-nova-violet-bright bg-nova-violet/10";
 	const idleCls =
 		"text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]";
@@ -1130,7 +1134,7 @@ function UserFieldInput({
 	readonly invalid: boolean;
 }) {
 	const inputCls = [
-		"w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
+		"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
 			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",

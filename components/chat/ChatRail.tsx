@@ -22,7 +22,7 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 					type="button"
 					onClick={onExpand}
 					aria-label="Expand chat sidebar"
-					className="size-10 grid place-items-center rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
+					className="size-11 grid place-items-center rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerLayoutSidebarRightExpand} width="18" height="18" />
 				</button>
@@ -33,7 +33,7 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 					type="button"
 					onClick={onExpand}
 					aria-label="Open chat"
-					className="size-10 grid place-items-center rounded-lg text-nova-text-muted hover:text-nova-text-secondary hover:bg-white/[0.05] transition-colors cursor-pointer"
+					className="size-11 grid place-items-center rounded-lg text-nova-text-muted hover:text-nova-text-secondary hover:bg-white/[0.05] transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerMessageChatbot} width="17" height="17" />
 				</button>

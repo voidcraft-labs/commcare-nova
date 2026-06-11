@@ -118,7 +118,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 						onClick={() =>
 							setWhere(value.where === undefined ? matchAll() : undefined)
 						}
-						className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
 					>
 						{value.where === undefined ? "+ Add filter" : "Remove filter"}
 					</button>
@@ -166,7 +166,7 @@ function KindMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Quantifier: ${current.label}`}
-				className="group flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
+				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
 			>
 				<Icon
 					icon={current.icon}

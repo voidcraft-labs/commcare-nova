@@ -108,8 +108,8 @@ export function CardShell({
 					<button
 						type="button"
 						ref={dragHandleRef}
-						aria-label="Reorder card"
-						className="cursor-grab text-nova-text-muted/50 hover:text-nova-text-muted transition-colors -ml-1"
+						aria-label="Drag to reorder"
+						className="size-11 -ml-2.5 grid place-items-center rounded-md cursor-grab text-nova-text-muted/50 hover:text-nova-text-muted transition-colors"
 					>
 						<Icon icon={tablerGripVertical} width="14" height="14" />
 					</button>
@@ -135,7 +135,7 @@ export function CardShell({
 						<Menu.Trigger
 							ref={triggerRef}
 							aria-label="Card actions"
-							className="rounded p-0.5 text-nova-text-muted/60 hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
+							className="size-11 -mr-1.5 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
 						>
 							<Icon icon={tablerDotsVertical} width="14" height="14" />
 						</Menu.Trigger>

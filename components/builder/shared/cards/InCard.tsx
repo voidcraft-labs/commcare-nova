@@ -9,6 +9,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
+import { Tooltip } from "@/components/ui/Tooltip";
 import {
 	isIn,
 	type Literal,
@@ -115,9 +116,9 @@ export function InCard({ value, onChange, path }: InCardProps) {
 				<button
 					type="button"
 					onClick={append}
-					className="inline-flex items-center gap-1.5 px-2 py-1.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+					className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				>
-					<Icon icon={tablerPlus} width="11" height="11" />
+					<Icon icon={tablerPlus} width="14" height="14" />
 					<span>Add value</span>
 				</button>
 			</div>
@@ -156,14 +157,16 @@ function ValueRow({
 					/>
 				</div>
 				{!isOnlyOne && (
-					<button
-						type="button"
-						aria-label="Remove value"
-						onClick={onRemove}
-						className="mt-0.5 rounded text-nova-text-muted/60 hover:text-nova-error hover:bg-white/[0.05] p-1 cursor-pointer transition-colors"
-					>
-						<Icon icon={tablerX} width="12" height="12" />
-					</button>
+					<Tooltip content="Remove this value">
+						<button
+							type="button"
+							aria-label="Remove value"
+							onClick={onRemove}
+							className="size-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-rose hover:bg-white/[0.05] cursor-pointer transition-colors"
+						>
+							<Icon icon={tablerX} width="13" height="13" />
+						</button>
+					</Tooltip>
 				)}
 			</div>
 			<InlineError errors={errors} />

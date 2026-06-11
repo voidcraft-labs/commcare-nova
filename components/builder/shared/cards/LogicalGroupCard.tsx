@@ -556,7 +556,7 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 		<Menu.Root>
 			<Menu.Trigger
 				ref={triggerRef}
-				className="inline-flex items-center gap-1.5 px-2 py-1.5 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				aria-label="Add clause"
 			>
 				<Icon icon={tablerPlus} width="11" height="11" />

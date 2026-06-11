@@ -23,6 +23,7 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import {
 	BlueprintDocContext,
@@ -519,24 +520,37 @@ export function ChatSidebar({
 							ref={setPortalEl}
 							className="flex-1 min-h-0 flex flex-col overflow-hidden"
 						/>
-						<div className="flex items-center gap-2 px-4 h-9 border-t border-nova-border shrink-0">
-							<span className="text-[9px] font-mono tracking-[0.18em] text-nova-text-muted">
-								CHAT
-							</span>
-							{messages.length > 0 && (
-								<span className="px-1.5 py-px rounded-full bg-nova-violet/15 border border-nova-violet/25 text-[10px] leading-none text-nova-violet-bright">
-									{messages.length}
-								</span>
-							)}
+						{/* The condensed conversation's grab handle — ONE full-width
+						 *  row (not a label plus a small link) so the affordance is
+						 *  unmissable and the target spans the rail at full height.
+						 *  Clicking it closes the properties panel and gives the
+						 *  rail back to the conversation. */}
+						<Tooltip
+							content="Back to the conversation — closes properties"
+							placement="left"
+						>
 							<button
 								type="button"
 								onClick={closeInspector}
-								className="ml-auto inline-flex items-center gap-1 text-[11px] text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer py-1"
+								aria-label="Expand chat"
+								className="group w-full flex items-center gap-2 px-4 min-h-11 border-t border-nova-border shrink-0 text-left hover:bg-white/[0.03] transition-colors cursor-pointer"
 							>
-								<Icon icon={tablerChevronUp} width="12" height="12" />
-								expand
+								<span className="text-[9px] font-mono tracking-[0.18em] text-nova-text-muted">
+									CHAT
+								</span>
+								{messages.length > 0 && (
+									<span className="px-1.5 py-px rounded-full bg-nova-violet/15 border border-nova-violet/25 text-[10px] leading-none text-nova-violet-bright">
+										{messages.length}
+									</span>
+								)}
+								<Icon
+									icon={tablerChevronUp}
+									width="14"
+									height="14"
+									className="ml-auto text-nova-text-muted group-hover:text-nova-text transition-colors"
+								/>
 							</button>
-						</div>
+						</Tooltip>
 					</>
 				)}
 

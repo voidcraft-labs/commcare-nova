@@ -174,8 +174,8 @@ function TokenList({
 }) {
 	if (options.length === 0) {
 		return (
-			<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-				This property has no declared options to pick from
+			<div className="text-xs text-nova-text-muted/60 px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+				This property has no options to pick from yet.
 			</div>
 		);
 	}
@@ -223,7 +223,7 @@ function TokenChip({
 	const errors = useEditorErrorsAt(indexPath);
 	const invalid = errors.length > 0;
 	const cls = [
-		"group inline-flex items-center gap-1 pl-2 pr-1 py-1 text-[11px] rounded-md border transition-colors",
+		"group inline-flex items-center gap-1 pl-2.5 pr-0.5 min-h-11 text-[12px] rounded-lg border transition-colors",
 		invalid
 			? "border-nova-error/40 bg-nova-error/10 text-nova-error/90"
 			: "border-nova-violet/25 bg-nova-violet/10 text-nova-violet-bright",
@@ -241,9 +241,9 @@ function TokenChip({
 						type="button"
 						aria-label={`Remove ${label}`}
 						onClick={onRemove}
-						className="rounded text-current/70 hover:text-current hover:bg-white/[0.08] p-1 cursor-pointer"
+						className="size-11 grid place-items-center rounded-md text-current/70 hover:text-current hover:bg-white/[0.08] cursor-pointer"
 					>
-						<Icon icon={tablerX} width="10" height="10" />
+						<Icon icon={tablerX} width="12" height="12" />
 					</button>
 				)}
 			</span>
@@ -268,11 +268,11 @@ function OptionPicker({
 		<Menu.Root>
 			<Menu.Trigger
 				ref={triggerRef}
-				aria-label="Add token"
-				className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				aria-label="Add option"
+				className="inline-flex items-center gap-1.5 px-3 min-h-11 text-[12px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 			>
-				<Icon icon={tablerPlus} width="11" height="11" />
-				<span>Add token</span>
+				<Icon icon={tablerPlus} width="13" height="13" />
+				<span>Add option</span>
 			</Menu.Trigger>
 			<Menu.Portal>
 				<Menu.Positioner
