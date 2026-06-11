@@ -694,16 +694,27 @@ export type ClaimedBuildRun =
  * POSTs can never run two SA loops against one app.
  *
  * A non-paused `generating` row reads as owned ONLY while its
- * `updated_at` is inside the staleness window. Past it, the run is dead
- * (a hard kill the list/concurrency reapers haven't scanned yet — and a
- * retry POST runs neither of them, so without this arm the 429 would
- * repeat indefinitely while telling the user to wait for a run that no
- * longer exists). The claim settles the dead run exactly as
- * `reapStaleGenerating` would — refund-first off the marker's `settled`
- * flag, classification `internal` per the reaper's convention — and
- * claims in the same transaction, reporting `from: "error"` because
- * that IS the shape the reaper would have left for a bail-out to
- * restore.
+ * `updated_at` is inside the staleness window. Past it, the run is
+ * TREATED as dead — the same ten-minute mutation-silent inference
+ * `reapStaleGenerating` has always made (a hard kill the
+ * list/concurrency reapers haven't scanned yet — and a retry POST runs
+ * neither of them, so without this arm the 429 would repeat
+ * indefinitely while telling the user to wait for a run that no longer
+ * exists). The claim settles the inferred-dead run exactly as the
+ * reaper would — refund-first off the marker's `settled` flag,
+ * classification `internal` per the reaper's convention — and claims in
+ * the same transaction, reporting `from: "error"` because that IS the
+ * shape the reaper would have left for a bail-out to restore.
+ *
+ * When the inference is WRONG — a run still alive but mutation-silent
+ * past the window — the reaper would previously at worst refund it and
+ * flip the row to `error` out from under it; this arm additionally
+ * starts a SECOND SA loop against the same app while the first may
+ * still be draining, and the old run's finalize/failure funnel then
+ * touches the NEW run's marker (settling or refunding a hold it never
+ * booked). That consequence class is accepted with the premise: ten
+ * minutes without an intermediate save already reads as dead everywhere
+ * this system looks.
  *
  * The claim also SETTLES the displaced run's reservation marker —
  * EXCEPT when it displaces a paused run. The settle exists for the
