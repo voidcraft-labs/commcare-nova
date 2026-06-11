@@ -103,7 +103,7 @@ import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
 
 // ── Index primitives ────────────────────────────────────────────────
 
-export function emptyReferenceIndex(): ReferenceIndex {
+function emptyReferenceIndex(): ReferenceIndex {
 	return { in: {}, out: {}, decl: {}, local: {}, ctx: {} };
 }
 
@@ -791,7 +791,7 @@ export function ensureReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
  * O(doc) cost — so reference queries stay total over docs that never
  * passed a hydration site (read-only widenings, test fixtures).
  */
-export function getReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
+function getReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 	return doc.refIndex ?? buildReferenceIndex(doc);
 }
 
@@ -803,15 +803,6 @@ export function referencingCarrierUuids(
 	targetKey: string,
 ): string[] {
 	return Object.keys(getReferenceIndex(doc).in[targetKey] ?? {});
-}
-
-/** Carrier → slot-id map for `targetKey`, for consumers that need to
- *  know WHERE on each carrier the reference lives. */
-export function referencingCarrierSlots(
-	doc: BlueprintDoc,
-	targetKey: string,
-): Record<string, Record<string, true>> {
-	return getReferenceIndex(doc).in[targetKey] ?? {};
 }
 
 /** Field uuids declaring the `(caseType, property)` pair — the

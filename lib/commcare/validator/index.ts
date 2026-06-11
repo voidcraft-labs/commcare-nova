@@ -210,7 +210,7 @@ function withStoredRef(
  * `/data/...` path that XPath expressions may reference. The prefix is
  * extended by each container's `id` as the walk recurses.
  */
-export function collectValidPaths(
+function collectValidPaths(
 	doc: BlueprintDoc,
 	parentUuid: Uuid,
 	prefix = "/data",

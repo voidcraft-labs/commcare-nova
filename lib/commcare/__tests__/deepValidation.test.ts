@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asUuid, type CaseType, xpathFieldRef } from "@/lib/domain";
+import { asUuid, type CaseType } from "@/lib/domain";
 import {
 	buildDoc,
 	caseListConfig,
@@ -1360,7 +1360,7 @@ describe("INVALID_REF stored-reference classification", () => {
 			f({
 				kind: "hidden",
 				id: "total",
-				calculate: { parts: [xpathFieldRef(ghost)] },
+				calculate: { parts: [{ kind: "field-ref", uuid: ghost }] },
 			}),
 		]);
 		const deepErr = validateBlueprintDeep(doc).find(

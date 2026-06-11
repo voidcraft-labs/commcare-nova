@@ -851,9 +851,12 @@ Deltas vs the text below:
   throttled console tripwire at batch end (`devAssertReferenceIndexParity`),
   with the CI fuzzes carrying the load-bearing proof.
 - No Biome ban on the raw index module — the narrow query API
-  (`referencingCarrierUuids` / `referencingCarrierSlots` /
-  `declarersOf`) is the consumer surface, and every current consumer
-  lives inside `lib/doc`.
+  (`referencingCarrierUuids` / `declarersOf`) is the consumer surface,
+  and every current consumer lives inside `lib/doc`. The slot-level
+  query (`referencingCarrierSlots`) was retired in the residue sweep:
+  no production consumer ever needed the carrier → slot-id projection
+  as a public query, so it left with the same consumed-structure rule
+  that retired the `ids` bucket.
 
 Replay-only divergences vs the walk-driven rewriters (none reachable
 through the gated construction surface; every one removes an old

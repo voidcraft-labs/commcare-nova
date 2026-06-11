@@ -211,7 +211,7 @@ function blockedRetirementMessage(
  * are field / form / module, so the catalog has no carrier uuid to
  * index under.
  */
-export function findCaseTypeReferences(
+function findCaseTypeReferences(
 	doc: BlueprintDoc,
 	caseType: string,
 	opts: { excludeModuleUuid?: Uuid } = {},

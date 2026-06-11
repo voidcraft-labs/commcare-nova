@@ -23,7 +23,6 @@ import { applyMutations } from "@/lib/doc/mutations";
 import {
 	buildReferenceIndex,
 	declarersOf,
-	referencingCarrierSlots,
 	referencingCarrierUuids,
 } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
@@ -41,6 +40,15 @@ function uuidByFieldId(doc: BlueprintDoc, id: string): Uuid {
 	const found = Object.values(doc.fields).find((field) => field.id === id);
 	if (!found) throw new Error(`no field with id ${id} in fixture`);
 	return found.uuid;
+}
+
+/** Carrier → slot-id edges to `targetKey`, read straight off the
+ *  index's `in` bucket — the structure the slot assertions pin. */
+function slotsFor(
+	doc: BlueprintDoc,
+	targetKey: string,
+): Record<string, Record<string, true>> {
+	return (doc.refIndex ?? buildReferenceIndex(doc)).in[targetKey] ?? {};
 }
 
 /** Printed text of an AST-stored relevant slot. */
@@ -149,21 +157,22 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		expect(referencingCarrierUuids(doc, entityTargetKey(grp))).toEqual([
 			watcher,
 		]);
-		expect(referencingCarrierSlots(doc, entityTargetKey(grp))[watcher]).toEqual(
-			{ label: true },
-		);
-		expect(
-			referencingCarrierSlots(doc, entityTargetKey(inner))[watcher],
-		).toEqual({ relevant: true, label: true });
-		expect(
-			referencingCarrierSlots(doc, entityTargetKey(inner))[slashWatcher],
-		).toEqual({ relevant: true });
+		expect(slotsFor(doc, entityTargetKey(grp))[watcher]).toEqual({
+			label: true,
+		});
+		expect(slotsFor(doc, entityTargetKey(inner))[watcher]).toEqual({
+			relevant: true,
+			label: true,
+		});
+		expect(slotsFor(doc, entityTargetKey(inner))[slashWatcher]).toEqual({
+			relevant: true,
+		});
 
 		// `/data/case_name` resolves the same way.
 		const caseName = uuidByFieldId(doc, "case_name");
-		expect(
-			referencingCarrierSlots(doc, entityTargetKey(caseName))[watcher],
-		).toEqual({ relevant: true });
+		expect(slotsFor(doc, entityTargetKey(caseName))[watcher]).toEqual({
+			relevant: true,
+		});
 	});
 
 	it("keys explicit per-type hashtags as case-type AND case-property edges", () => {
@@ -185,9 +194,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		).toContain(ctxRef);
 		// `#case/…` follows the module's type rather than naming one — the
 		// retirement planner's distinction.
-		expect(
-			referencingCarrierSlots(doc, caseTypeTargetKey("patient"))[ctxRef],
-		).toBeUndefined();
+		expect(slotsFor(doc, caseTypeTargetKey("patient"))[ctxRef]).toBeUndefined();
 	});
 
 	it("keys AST PropertyRefs on the relation walk's destination type", () => {
@@ -359,9 +366,9 @@ describe("incremental maintenance — at-a-distance resolution shifts", () => {
 				} as never,
 			},
 		]);
-		expect(
-			referencingCarrierSlots(next, entityTargetKey(mintedUuid))[pending],
-		).toEqual({ label: true });
+		expect(slotsFor(next, entityTargetKey(mintedUuid))[pending]).toEqual({
+			label: true,
+		});
 		expect(next.refIndex).toEqual(buildReferenceIndex(next));
 	});
 
@@ -376,9 +383,7 @@ describe("incremental maintenance — at-a-distance resolution shifts", () => {
 			referencingCarrierUuids(next, casePropertyTargetKey("visit", "age")),
 		).toContain(ctxRef);
 		expect(
-			referencingCarrierSlots(next, casePropertyTargetKey("patient", "age"))[
-				ctxRef
-			],
+			slotsFor(next, casePropertyTargetKey("patient", "age"))[ctxRef],
 		).toBeUndefined();
 		expect(next.refIndex).toEqual(buildReferenceIndex(next));
 	});

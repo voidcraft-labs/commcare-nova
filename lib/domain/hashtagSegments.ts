@@ -43,7 +43,7 @@ export const HASHTAG_SEGMENT_SOURCE = "[A-Za-z_][A-Za-z0-9_-]*";
  * Regex source for a full hashtag reference: `#<namespace>(/<segment>)+`.
  * Group 1 captures the namespace (the token between `#` and the first `/`).
  */
-export const HASHTAG_REF_SOURCE = `#(${HASHTAG_SEGMENT_SOURCE})(?:\\/${HASHTAG_SEGMENT_SOURCE})+`;
+const HASHTAG_REF_SOURCE = `#(${HASHTAG_SEGMENT_SOURCE})(?:\\/${HASHTAG_SEGMENT_SOURCE})+`;
 
 /**
  * Build a fresh hashtag-reference RegExp. Returned WITHOUT the `g` flag by

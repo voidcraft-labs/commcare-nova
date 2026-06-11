@@ -26,7 +26,6 @@ import type { Mutation } from "@/lib/doc/types";
 import type {
 	AssetId,
 	BlueprintDoc,
-	CaseType,
 	Column,
 	ConnectConfig,
 	Field,
@@ -212,19 +211,11 @@ export function formSnapshot(
 	};
 }
 
-// ── Mutation builders — app level ───────────────────────────────────────
-
-/** Replace the app's case-type catalog wholesale. */
-export function setCaseTypesMutations(
-	caseTypes: CaseType[] | null,
-): Mutation[] {
-	return [{ kind: "setCaseTypes", caseTypes }];
-}
-
 // ── Mutation builders — modules ─────────────────────────────────────────
 
 /** Input shape for a new module. `uuid` may be supplied to pin identity
- *  (e.g. during scaffold), otherwise the helper mints one. */
+ *  (`createModule` pre-mints the uuid its later batch entries
+ *  reference), otherwise the helper mints one. */
 export interface NewModuleInput {
 	uuid?: string;
 	id?: string;

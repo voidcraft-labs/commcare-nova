@@ -57,7 +57,7 @@
 // concern.
 
 import { z } from "zod";
-import { type Uuid, uuidSchema } from "../uuid";
+import { uuidSchema } from "../uuid";
 
 const xpathTextPartSchema = z
 	.object({
@@ -104,7 +104,7 @@ const xpathRawRefPartSchema = z
 	})
 	.strict();
 
-export const xpathPartSchema = z.discriminatedUnion("kind", [
+const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathTextPartSchema,
 	xpathFieldRefPartSchema,
 	xpathPathRefPartSchema,
@@ -144,7 +144,7 @@ export function isXPathExpression(value: unknown): value is XPathExpression {
 }
 
 /** The empty expression — prints as `""`. */
-export function emptyXPathExpression(): XPathExpression {
+function emptyXPathExpression(): XPathExpression {
 	return { parts: [] };
 }
 
@@ -162,51 +162,4 @@ export function xpathRefParts(expr: XPathExpression): XPathRefPart[] {
 	return expr.parts.filter(
 		(part): part is XPathRefPart => part.kind !== "text",
 	);
-}
-
-/** Does the expression carry zero parts (prints as `""`)? */
-export function isEmptyXPathExpression(expr: XPathExpression): boolean {
-	return expr.parts.length === 0;
-}
-
-/** Deep-clone an expression. Leaves are copied VERBATIM — a cloned
- *  `field-ref` keeps pointing at the original target. `duplicateField`
- *  and every other clone path rely on this staying a plain structural
- *  copy with no re-pointing. */
-export function cloneXPathExpression(expr: XPathExpression): XPathExpression {
-	return {
-		parts: expr.parts.map((part) => {
-			switch (part.kind) {
-				case "text":
-					return { ...part };
-				case "field-ref":
-					return { ...part };
-				case "path-ref":
-					return { ...part, seps: [...part.seps] };
-				case "case-ref":
-					return { ...part };
-				case "user-ref":
-					return { ...part };
-				case "raw-ref":
-					return { ...part, segments: [...part.segments] };
-				default: {
-					const _exhaustive: never = part;
-					return _exhaustive;
-				}
-			}
-		}),
-	};
-}
-
-/** Build a resolved form-local reference leaf. */
-export function xpathFieldRef(uuid: Uuid): XPathFieldRefPart {
-	return { kind: "field-ref", uuid };
-}
-
-/** Build an explicit per-type case-property reference leaf. */
-export function xpathCaseRef(
-	caseType: string,
-	property: string,
-): XPathCaseRefPart {
-	return { kind: "case-ref", caseType, property };
 }

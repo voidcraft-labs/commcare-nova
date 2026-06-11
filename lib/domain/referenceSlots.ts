@@ -73,7 +73,7 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  *     or a relation walk's destination).
  *   - `case-type-ref` — names a case type by bare name.
  */
-export const REFERENCE_SURFACE_KINDS = [
+const REFERENCE_SURFACE_KINDS = [
 	"xpath-ast",
 	"prose",
 	"predicate-ast",
@@ -499,12 +499,6 @@ export const MODULE_REFERENCE_SLOTS = [
 		kind: "predicate-ast",
 	},
 ] as const satisfies readonly ModuleReferenceSlot[];
-
-export const REFERENCE_SLOTS: readonly ReferenceSlot[] = [
-	...FIELD_REFERENCE_SLOTS,
-	...FORM_REFERENCE_SLOTS,
-	...MODULE_REFERENCE_SLOTS,
-];
 
 // ── Slot-id projections ───────────────────────────────────────────
 //

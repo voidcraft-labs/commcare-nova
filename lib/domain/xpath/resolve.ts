@@ -42,8 +42,3 @@ export function fieldPathResolver(
 		return resolved;
 	};
 }
-
-/** A resolver that resolves nothing — every form reference parses to
- *  a raw leaf. For contexts with no form (module-level slots never
- *  carry form-local refs, but total readers still need a context). */
-export const NO_FIELD_PATHS: ResolveFieldPath = () => undefined;

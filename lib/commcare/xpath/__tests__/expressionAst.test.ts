@@ -6,7 +6,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-	cloneXPathExpression,
 	fieldPathResolver,
 	printXPath,
 	renameCasePropertyInXPath,
@@ -188,16 +187,5 @@ describe("structural case-property rename", () => {
 			{ contextualMatches: true },
 		);
 		expect(renamed).toBe(0);
-	});
-});
-
-describe("clone", () => {
-	it("copies leaves verbatim — a clone keeps pointing at the original target", () => {
-		const doc = makeDoc();
-		const expr = parse("#form/age + #mother/age", doc);
-		const clone = cloneXPathExpression(expr);
-		expect(clone).toEqual(expr);
-		expect(clone).not.toBe(expr);
-		expect(clone.parts[0]).not.toBe(expr.parts[0]);
 	});
 });
