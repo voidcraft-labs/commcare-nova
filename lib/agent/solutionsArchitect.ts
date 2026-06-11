@@ -75,6 +75,9 @@ import { updateModuleTool } from "./tools/updateModule";
  * whose name isn't in the live tool set (`Object.keys(sa.tools)`), which
  * covers build-only AND removed/renamed tools without a hand-kept list. So
  * this const is purely the compile-time tie for the build/edit tool split.
+ * (`completeBuild` is also build-only on the chat surface but lives in its
+ * own one-key record with its own `satisfies` tie — see the completion
+ * section in the factory.)
  */
 const BUILD_ONLY_TOOL_NAMES = ["generateSchema", "generateScaffold"] as const;
 
@@ -394,35 +397,44 @@ export function createSolutionsArchitect(
 		setAppLogo: wrapMutating(setAppLogoTool),
 		listMediaAssets: wrapRead(listMediaAssetsTool),
 		removeMediaAsset: wrapRead(removeMediaAssetTool),
+	};
 
-		// ── Completion ────────────────────────────────────────────────
+	// ── Completion (build mode only) ──────────────────────────────────
 
-		/* `completeBuild` stays bespoke because its wrapper layers two
-		 * chat-only concerns on top of the shared tool (which owns the
-		 * boundary evaluation + the awaited materialize + the status
-		 * flip — see `tools/completeBuild.ts` for the ordering contract):
-		 *
-		 *   1. `data-done` SSE emit on success — the UX signal carrying
-		 *      the full doc; the client's stream dispatcher reconciles
-		 *      its doc store against this snapshot and stamps
-		 *      `runCompletedAt`, which drives the Completed celebration
-		 *      phase. Emitted AFTER the shared body's awaited
-		 *      materialize, so a user-initiated case-store action that
-		 *      fires sub-second after the celebration sees a synced
-		 *      Postgres schema.
-		 *   2. The infrastructure-failure arm — a throw out of the shared
-		 *      body (Postgres outage, Firestore write failure) is
-		 *      unrecoverable from the SA's perspective. Letting it
-		 *      propagate to the AI SDK's `tool-error` part would push the
-		 *      SA into a retry loop that burns the 80-step `stopWhen`
-		 *      budget on a fault no edit fixes. The catch routes through
-		 *      the canonical `classifyError` + `ctx.emitError` + `failApp`
-		 *      path the chat route's `failRun` uses, so the client sees
-		 *      the error, the app flips to `error`, and the SA reads a
-		 *      clean instruction to stop.
-		 *
-		 * Both depend on `ctx.emit` / `ctx.emitError`, which only exist on
-		 * `GenerationContext` — so they can't live inside the shared tool. */
+	/* `completeBuild` is bespoke (not `wrapMutating`) because its wrapper
+	 * layers two chat-only concerns on top of the shared tool (which owns
+	 * the boundary evaluation + the awaited materialize + the guarded
+	 * status flip — see `tools/completeBuild.ts` for the ordering
+	 * contract):
+	 *
+	 *   1. `data-done` SSE emit on success — the UX signal carrying the
+	 *      full doc + the completion write's rotated basis token; the
+	 *      client's stream dispatcher reconciles its doc store against
+	 *      the snapshot, adopts the token as its auto-save basis, and
+	 *      stamps `runCompletedAt`, which drives the Completed
+	 *      celebration phase. Emitted AFTER the shared body's awaited
+	 *      materialize, so a user-initiated case-store action that fires
+	 *      sub-second after the celebration sees a synced Postgres
+	 *      schema.
+	 *   2. The infrastructure-failure arm — a throw out of the shared
+	 *      body (Postgres outage, Firestore write failure) is
+	 *      unrecoverable from the SA's perspective. Letting it propagate
+	 *      to the AI SDK's `tool-error` part would push the SA into a
+	 *      retry loop that burns the 80-step `stopWhen` budget on a fault
+	 *      no edit fixes. The catch routes through the canonical
+	 *      `classifyError` + `ctx.emitError` path the chat route's
+	 *      `failRun` uses, and flips the app to `error` ONLY while it is
+	 *      under construction — an app that is already complete keeps its
+	 *      status, whatever surface the call came from (demoting a
+	 *      working complete app over a transient outage is the exact
+	 *      brick the route's own failure path guards against).
+	 *
+	 * It lives in the BUILD-ONLY record: edit mode (a complete app) has
+	 * nothing to complete — per-commit gating owns edit validity, and the
+	 * edit preamble says so. The chat route's history strip drops the
+	 * tool's parts from edit-turn message history, the same machinery
+	 * every build-only tool rides. */
+	const completionTools = {
 		completeBuild: tool({
 			description: completeBuildTool.description,
 			inputSchema: completeBuildTool.inputSchema,
@@ -436,8 +448,11 @@ export function createSolutionsArchitect(
 						ctx.emitError(classified, "completeBuild");
 						/* `failApp` is fire-and-forget by design (it swallows
 						 * Firestore errors internally) — match the route's
-						 * `failRun` shape exactly. */
-						failApp(ctx.appId, classified.type);
+						 * `failRun` shape, including its under-construction-only
+						 * scope: never demote an already-complete app. */
+						if (ctx.commitPhase === "building") {
+							failApp(ctx.appId, classified.type);
+						}
 						/* Tag `infrastructure: true` so the SA can tell this apart
 						 * from unfinished work (the app evaluated clean; the fault
 						 * is a system outage no doc mutation repairs), and return
@@ -454,19 +469,30 @@ export function createSolutionsArchitect(
 						ctx.emit("data-done", {
 							doc: toPersistableDoc(doc),
 							success: true,
+							/* The completion write's rotated `blueprint_token` — the
+							 * builder client adopts it as its auto-save basis, so the
+							 * same tab keeps saving without bouncing off the
+							 * rotation. */
+							...(result.basisToken !== undefined && {
+								basisToken: result.basisToken,
+							}),
 						});
 						return { success: true };
 					}
 					return { success: false, errors: result.errors ?? [] };
 				}),
 		}),
-	};
+	} satisfies Record<"completeBuild", unknown>;
 
 	// ── Compose tools and build agent ────────────────────────────────
-	// Edit mode: only shared tools (read + mutation + validate).
-	// Build mode: shared tools + generation tools (schema → scaffold → columns).
+	// Edit mode: only shared tools (read + mutation) — a complete app has
+	// nothing to complete, so the completion tool is build-only.
+	// Build mode: shared tools + generation tools (schema → scaffold) +
+	// the completion tool.
 
-	const tools = editing ? sharedTools : { ...sharedTools, ...generationTools };
+	const tools = editing
+		? sharedTools
+		: { ...sharedTools, ...generationTools, ...completionTools };
 
 	const agent = new ToolLoopAgent({
 		model: ctx.model(SA_MODEL),

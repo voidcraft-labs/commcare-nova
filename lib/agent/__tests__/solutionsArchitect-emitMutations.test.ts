@@ -616,10 +616,40 @@ vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 }));
 
 describe("solutionsArchitect — completeBuild", () => {
+	// Build mode (`editing = false`) throughout: the completion tool is
+	// build-only on the chat surface — edit mode has nothing to complete.
+
+	it("is absent from the edit-mode tool set (a complete app has nothing to complete)", () => {
+		const { ctx } = buildCtx();
+		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		expect("completeBuild" in sa.tools).toBe(false);
+	});
+
+	it("never demotes an already-complete app, even when finalize throws", async () => {
+		// Reachable shape: a build-mode POST against an app whose status is
+		// already complete (phase "complete"). A transient Postgres outage
+		// during finalize must NOT flip a working app to error — the exact
+		// brick the route's own failure path guards against.
+		const { materializeCaseStoreSchemas } = await import(
+			"@/lib/db/materializeCaseStoreSchemas"
+		);
+		const { failApp } = await import("@/lib/db/apps");
+		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
+			throw new Error("simulated postgres outage");
+		});
+
+		const { ctx } = makeTestContext({ commitPhase: "complete" });
+		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), false);
+		const result = await runTool(sa, "completeBuild", {});
+
+		expect(result).toMatchObject({ success: false, infrastructure: true });
+		expect(vi.mocked(failApp)).not.toHaveBeenCalled();
+	});
+
 	it("emits data-done with the final doc on success", async () => {
 		const fixtureDoc = makeFixtureDoc();
 		const { ctx, writer } = buildCtx();
-		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, false);
 
 		await runTool(sa, "completeBuild", {});
 
@@ -627,8 +657,14 @@ describe("solutionsArchitect — completeBuild", () => {
 			(e) => e.type === "data-done",
 		);
 		expect(doneEvents).toHaveLength(1);
-		const payload = doneEvents[0].data as { success: boolean };
+		const payload = doneEvents[0].data as {
+			success: boolean;
+			basisToken?: string;
+		};
 		expect(payload.success).toBe(true);
+		// The completion write's rotated token rides along so the builder
+		// client adopts it as its auto-save basis.
+		expect(payload.basisToken).toBe("token-rotated");
 		expectNoLegacyEvents(writer);
 	});
 
@@ -670,7 +706,7 @@ describe("solutionsArchitect — completeBuild", () => {
 			if (event?.type === "data-done") order.push("data-done");
 		});
 
-		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, false);
 		await runTool(sa, "completeBuild", {});
 
 		expect(order).toEqual(["materialize", "completeApp", "data-done"]);
@@ -693,7 +729,7 @@ describe("solutionsArchitect — completeBuild", () => {
 
 		const fixtureDoc = makeFixtureDoc();
 		const { ctx, writer } = buildCtx();
-		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, false);
 		const result = await runTool(sa, "completeBuild", {});
 
 		expect(result).toMatchObject({ success: false });
@@ -729,7 +765,7 @@ describe("solutionsArchitect — completeBuild", () => {
 
 		const fixtureDoc = makeFixtureDoc();
 		const { ctx, writer } = buildCtx();
-		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, false);
 		const result = await runTool(sa, "completeBuild", {});
 
 		expect(result).toMatchObject({ success: false });
@@ -787,7 +823,7 @@ describe("solutionsArchitect — completeBuild", () => {
 			if (event?.type === "data-done") order.push("data-done");
 		});
 
-		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, false);
 		const result = await runTool(sa, "completeBuild", {});
 
 		// `completeApp` MUST NOT fire on the failure path — the

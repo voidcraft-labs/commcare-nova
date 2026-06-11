@@ -89,7 +89,7 @@ export interface CompleteBuildResult {
 
 export const completeBuildTool = {
 	description:
-		"Finish the build: run the full app review (every rule, including completeness and attached media) and mark the app complete. Call when the app is fully built or your edits are done. If anything is still unfinished, the findings come back in the response — finish that work with your normal tools, then call completeBuild again.",
+		"Finish the build: run the full app review (every rule, including completeness and attached media) and mark the app complete. Call once the app is fully built. If anything is still unfinished, the findings come back in the response — finish that work with your normal tools, then call completeBuild again. An app that is already complete needs no call: edits to it are checked as they land.",
 	inputSchema: completeBuildInputSchema,
 	async execute(
 		_input: CompleteBuildInput,
