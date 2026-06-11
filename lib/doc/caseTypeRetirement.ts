@@ -44,6 +44,7 @@ import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
 import {
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
+	MODULE_REFERENCE_SLOTS,
 	readSlotStrings,
 } from "@/lib/domain";
 import {
@@ -305,9 +306,18 @@ function collectFormSlotReferences(
  * Self-encoded case-type references in a module's case-list + case-search
  * config: `PropertyRef` AST leaves carry their case type (origin plus
  * optional relation-walk hints), and a simple search input's `via` can
- * hint a type. Contextual slots (`columns[].field`, a simple input's
- * `property`) follow the module's own type and are deliberately not
- * scanned — they never name a type.
+ * hint a type.
+ *
+ * Iterates `MODULE_REFERENCE_SLOTS` with an exhaustive switch on the slot
+ * id — the same registry-driven contract the field/form scans hold — so a
+ * future module slot fails this function at COMPILE time (the `never` arm)
+ * until someone decides how the planner reads it, rather than silently
+ * missing the retirement scan. The deliberately-skipped arms record their
+ * reasons: the module's own `case_type` is OWNERSHIP, adjudicated by the
+ * planner's other-owner check before this scan runs; contextual property
+ * names (`columns[].field`, a simple input's `property`) follow the
+ * module's current type and never name one themselves — the validator's
+ * property rules adjudicate them on the same batch.
  */
 function collectModuleConfigReferences(
 	mod: Module,
@@ -316,56 +326,103 @@ function collectModuleConfigReferences(
 ): void {
 	const where = `module "${mod.name}"`;
 	const list = mod.caseListConfig;
-	if (list) {
-		for (const col of list.columns) {
-			if (
-				col.kind === "calculated" &&
-				expressionRefsCaseType(col.expression, caseType)
-			) {
-				out.push(
-					`a calculated case-list column ("${col.header}") on ${where} reads a "${caseType}" property`,
-				);
-			}
-		}
-		if (list.filter && predicateRefsCaseType(list.filter, caseType)) {
-			out.push(
-				`the case-list filter on ${where} reads a "${caseType}" property`,
-			);
-		}
-		for (const input of list.searchInputs) {
-			const named = `search input "${input.name}" on ${where}`;
-			if (input.kind === "advanced") {
-				if (predicateRefsCaseType(input.predicate, caseType)) {
-					out.push(`${named} reads a "${caseType}" property`);
-				}
-			} else if (viaNamesCaseType(input.via, caseType)) {
-				out.push(`${named} walks through "${caseType}"`);
-			}
-			if (
-				input.default !== undefined &&
-				expressionRefsCaseType(input.default, caseType)
-			) {
-				out.push(`${named} defaults from a "${caseType}" property`);
-			}
-		}
-	}
 	const search = mod.caseSearchConfig;
-	if (search) {
-		if (
-			search.searchButtonDisplayCondition &&
-			predicateRefsCaseType(search.searchButtonDisplayCondition, caseType)
-		) {
-			out.push(
-				`the search-button display condition on ${where} reads a "${caseType}" property`,
-			);
-		}
-		if (
-			search.excludedOwnerIds &&
-			expressionRefsCaseType(search.excludedOwnerIds, caseType)
-		) {
-			out.push(
-				`the excluded-owners expression on ${where} reads a "${caseType}" property`,
-			);
+	const inputName = (name: string) => `search input "${name}" on ${where}`;
+
+	for (const slot of MODULE_REFERENCE_SLOTS) {
+		switch (slot.slot) {
+			case "case_type":
+				// Ownership, not a reference — `planRetirement`'s other-owner
+				// check already returned `none` when another module manages
+				// the type, so this slot has nothing left to say here.
+				break;
+			case "case_list_column_field":
+			case "search_input_property":
+				// Contextual property names — they follow the module's own
+				// type and never name a type.
+				break;
+			case "case_list_column_expression": {
+				for (const col of list?.columns ?? []) {
+					if (
+						col.kind === "calculated" &&
+						expressionRefsCaseType(col.expression, caseType)
+					) {
+						out.push(
+							`a calculated case-list column ("${col.header}") on ${where} reads a "${caseType}" property`,
+						);
+					}
+				}
+				break;
+			}
+			case "case_list_filter": {
+				if (list?.filter && predicateRefsCaseType(list.filter, caseType)) {
+					out.push(
+						`the case-list filter on ${where} reads a "${caseType}" property`,
+					);
+				}
+				break;
+			}
+			case "search_input_via": {
+				for (const input of list?.searchInputs ?? []) {
+					if (
+						input.kind === "simple" &&
+						viaNamesCaseType(input.via, caseType)
+					) {
+						out.push(`${inputName(input.name)} walks through "${caseType}"`);
+					}
+				}
+				break;
+			}
+			case "search_input_default": {
+				for (const input of list?.searchInputs ?? []) {
+					if (
+						input.default !== undefined &&
+						expressionRefsCaseType(input.default, caseType)
+					) {
+						out.push(
+							`${inputName(input.name)} defaults from a "${caseType}" property`,
+						);
+					}
+				}
+				break;
+			}
+			case "search_input_predicate": {
+				for (const input of list?.searchInputs ?? []) {
+					if (
+						input.kind === "advanced" &&
+						predicateRefsCaseType(input.predicate, caseType)
+					) {
+						out.push(`${inputName(input.name)} reads a "${caseType}" property`);
+					}
+				}
+				break;
+			}
+			case "search_button_display_condition": {
+				if (
+					search?.searchButtonDisplayCondition &&
+					predicateRefsCaseType(search.searchButtonDisplayCondition, caseType)
+				) {
+					out.push(
+						`the search-button display condition on ${where} reads a "${caseType}" property`,
+					);
+				}
+				break;
+			}
+			case "excluded_owner_ids": {
+				if (
+					search?.excludedOwnerIds &&
+					expressionRefsCaseType(search.excludedOwnerIds, caseType)
+				) {
+					out.push(
+						`the excluded-owners expression on ${where} reads a "${caseType}" property`,
+					);
+				}
+				break;
+			}
+			default: {
+				const _exhaustive: never = slot;
+				break;
+			}
 		}
 	}
 }
