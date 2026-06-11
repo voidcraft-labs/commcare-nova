@@ -153,6 +153,12 @@ export function applyStreamEvent(
 			if (doc) {
 				docStore.getState().load(doc);
 			}
+			/* The guarded completion write rotated the stored
+			 * `blueprint_token`; adopt it so this tab's next auto-save
+			 * carries the right basis instead of bouncing off the rotation. */
+			if (typeof data.basisToken === "string") {
+				sessionStore.getState().setSaveBasis(data.basisToken);
+			}
 			sessionStore.getState().markRunCompleted();
 			return;
 		}

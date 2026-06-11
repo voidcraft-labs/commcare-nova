@@ -204,6 +204,11 @@ export function registerSharedTool(
 					appId,
 					runId,
 					commitPhaseForAppStatus(loaded.app.status),
+					/* Completion basis from the SAME load as `loaded.doc` — the
+					 * guarded completion write compares against it, so a write
+					 * landing after this load bounces complete_build instead of
+					 * being erased by it. */
+					loaded.app.blueprint_token ?? null,
 					extra,
 				);
 

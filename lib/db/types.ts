@@ -286,19 +286,31 @@ export const appDocSchema = z.object({
 	/**
 	 * Optimistic-concurrency basis for whole-doc blueprint overwrites.
 	 *
-	 * Rotated (fresh random value) by the writers a live builder session
+	 * Rotated (fresh random value) by every writer a live builder session
 	 * CANNOT see land in its own doc: the browser auto-save PUT (another
-	 * tab) and the MCP guarded commit (an external agent). The builder
-	 * echoes the token it last observed on every PUT; a mismatch means the
-	 * stored doc advanced under it, and the overwrite is rejected
-	 * (`BlueprintBasisStaleError` → 409) instead of silently erasing the
-	 * other writer's work — the builder then reloads the server doc.
+	 * tab), the MCP guarded commit (an external agent), the guarded
+	 * completion write (`completeAppGuardedByBasis` — which also COMPARES
+	 * the basis captured with the snapshot it evaluated, so a builder edit
+	 * landing during the completion window bounces the completion instead
+	 * of being erased by it), and the `scripts/recover-app.ts` writer. The
+	 * builder echoes the token it last observed on every PUT; a mismatch
+	 * means the stored doc advanced under it, and the overwrite is
+	 * rejected (`BlueprintBasisStaleError` → 409) instead of silently
+	 * erasing the other writer's work — the builder then reloads the
+	 * server doc. A successful completion hands its rotated token to the
+	 * same-tab builder client via `data-done`, so the post-build session
+	 * keeps saving without a bounce.
 	 *
-	 * Chat-run writes (`updateAppForRun` / `completeApp`) deliberately do
-	 * NOT rotate it: the same browser session that drives a chat run also
+	 * Chat-run INTERMEDIATE saves (`updateAppForRun`) deliberately do NOT
+	 * rotate it: the same browser session that drives a chat run also
 	 * receives every mutation over SSE, so its doc already carries the
 	 * run's changes and its next auto-save is a faithful overwrite — a
 	 * rotation there would 409 the builder against its own companion run.
+	 * RECORDED CONSTRAINT — the one-tab assumption: that reasoning holds
+	 * for the tab driving the run; a SECOND builder tab open during a
+	 * chat run sees neither the SSE mutations nor a rotation, so its next
+	 * save can still blind-overwrite the run's writes. That shape is the
+	 * known unguarded remainder of the basis matrix.
 	 * Null on rows that predate the field and on never-PUT apps; a null
 	 * basis matches a null stored token, so first saves need no backfill.
 	 */

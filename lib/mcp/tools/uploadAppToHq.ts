@@ -275,6 +275,9 @@ export function registerUploadAppToHq(
 					appId,
 					runId,
 					commitPhaseForAppStatus(app.status),
+					/* Same-load completion basis — this tool never completes a
+					 * build, but the collaborator contract is uniform. */
+					app.blueprint_token ?? null,
 					extra,
 				);
 

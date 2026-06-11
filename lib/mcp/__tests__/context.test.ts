@@ -90,6 +90,7 @@ describe("McpContext", () => {
 			userId: "u",
 			runId: "r",
 			commitPhase: "complete",
+			completionBasis: null,
 			logWriter,
 			progress: mockProgress(),
 		});
@@ -124,6 +125,7 @@ describe("McpContext", () => {
 			userId: "u",
 			runId: "r",
 			commitPhase: "complete",
+			completionBasis: null,
 			logWriter: mockLogWriter(),
 			progress: mockProgress(),
 		});
@@ -158,6 +160,7 @@ describe("McpContext", () => {
 			userId: "u",
 			runId: "r",
 			commitPhase: "complete",
+			completionBasis: null,
 			logWriter,
 			progress: mockProgress(),
 		});
@@ -175,6 +178,7 @@ describe("McpContext", () => {
 			userId: "u",
 			runId: "r",
 			commitPhase: "complete",
+			completionBasis: null,
 			logWriter,
 			progress: mockProgress(),
 		});
@@ -211,6 +215,7 @@ describe("McpContext", () => {
 			userId: "u",
 			runId: "r",
 			commitPhase: "complete",
+			completionBasis: null,
 			logWriter,
 			progress: mockProgress(),
 		});

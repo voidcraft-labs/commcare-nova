@@ -27,6 +27,7 @@ function makeCtx(phase: "building" | "complete") {
 		commitPhase: phase,
 		recordMutations,
 		recordMutationStages: vi.fn().mockResolvedValue([]),
+		getCompletionBasis: vi.fn().mockResolvedValue(null),
 		recordConversation: vi.fn(),
 	};
 	return { ctx, recordMutations };

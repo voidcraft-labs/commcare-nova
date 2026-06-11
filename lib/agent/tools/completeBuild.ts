@@ -23,12 +23,20 @@
  *      saga usually synced incrementally already (the call re-syncs
  *      idempotently), on chat the fire-and-forget intermediate saves
  *      never did.
- *   2. `completeApp` — awaited. Flips the app's lifecycle status to
- *      `complete` (generating→complete for chat builds, draft→complete
- *      for MCP builds, error→complete for a retried build) and persists
- *      the final blueprint snapshot.
+ *   2. `completeAppGuardedByBasis` — awaited. Flips the app's lifecycle
+ *      status to `complete` (generating→complete for chat builds,
+ *      draft→complete for MCP builds, error→complete for a retried
+ *      build) and persists the final blueprint snapshot — guarded: the
+ *      basis token captured WITH the evaluated snapshot
+ *      (`ctx.getCompletionBasis`, taken before the evaluation starts)
+ *      is compared inside the write transaction, so a concurrent edit
+ *      landing during the multi-second evaluation window bounces the
+ *      completion ("the app changed while completing — run it again")
+ *      instead of being silently erased by it. The bounce is an
+ *      ordinary `success: false` result the agent re-runs from — never
+ *      an infrastructure failure, and nothing is written.
  *
- * Failures in either step PROPAGATE — they are infrastructure faults no
+ * Infrastructure failures in either step PROPAGATE — they are faults no
  * doc edit repairs. The chat wrapper catches and routes them through the
  * classified-error path (the SA stops instead of retrying); the MCP
  * adapter's catch returns them as a tool-error envelope.
@@ -41,7 +49,10 @@
 
 import { z } from "zod";
 import { errorToString } from "@/lib/commcare/validator/errors";
-import { completeApp } from "@/lib/db/apps";
+import {
+	BlueprintBasisStaleError,
+	completeAppGuardedByBasis,
+} from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -58,15 +69,22 @@ export type CompleteBuildInput = z.infer<typeof completeBuildInputSchema>;
  * via the same discriminator `switch` the mutate/read shapes use.
  *
  * - `success` — `true` only when the boundary evaluation came back clean
- *   AND the completion side effects (materialize + status flip)
- *   committed.
- * - `errors` — the remaining findings, person-to-person, when the
- *   evaluation refused; absent on success.
+ *   AND the completion side effects (materialize + the guarded status
+ *   flip) committed.
+ * - `errors` — when the evaluation refused, the remaining findings; when
+ *   the guarded completion write bounced on a stale basis, the
+ *   run-it-again message. Person-to-person either way; absent on
+ *   success.
+ * - `basisToken` — on success, the completion write's freshly rotated
+ *   `blueprint_token`. The chat wrapper hands it to the builder client
+ *   via `data-done` so the same tab's next auto-save carries the right
+ *   basis; the MCP projector drops it (MCP clients hold no save basis).
  */
 export interface CompleteBuildResult {
 	kind: "complete";
 	success: boolean;
 	errors?: string[];
+	basisToken?: string;
 }
 
 export const completeBuildTool = {
@@ -78,6 +96,11 @@ export const completeBuildTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<CompleteBuildResult> {
+		/* Capture the basis BEFORE the evaluation starts — the guarded
+		 * completion write proves the stored doc didn't advance under the
+		 * whole evaluation window, not just under the final write. */
+		const basisToken = await ctx.getCompletionBasis();
+
 		const violations = await collectBoundaryViolations(doc, ctx.userId);
 		if (violations.length > 0) {
 			return {
@@ -93,7 +116,29 @@ export const completeBuildTool = {
 			userId: ctx.userId,
 			blueprint: persistable,
 		});
-		await completeApp(ctx.appId, persistable, ctx.runId);
-		return { kind: "complete", success: true };
+		try {
+			const nextToken = await completeAppGuardedByBasis(
+				ctx.appId,
+				persistable,
+				basisToken,
+				ctx.runId,
+			);
+			return { kind: "complete", success: true, basisToken: nextToken };
+		} catch (err) {
+			if (err instanceof BlueprintBasisStaleError) {
+				/* A concurrent edit landed during the evaluation window.
+				 * Nothing was written; the materialize that already ran is an
+				 * idempotent upsert the re-run repeats. An ordinary outcome,
+				 * not a fault — never the infrastructure arm. */
+				return {
+					kind: "complete",
+					success: false,
+					errors: [
+						"The app changed while it was being completed — another editing session saved in the meantime, so nothing was finalized. Run completeBuild again to evaluate the app as it now stands.",
+					],
+				};
+			}
+			throw err;
+		}
 	},
 };

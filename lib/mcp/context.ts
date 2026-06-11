@@ -74,6 +74,11 @@ export interface McpContextOptions {
 	 * status via `commitPhaseForAppStatus`. See
 	 * `ToolExecutionContext.commitPhase`. */
 	commitPhase: CommitPhase;
+	/** The app's `blueprint_token` from the SAME load that produced the
+	 * tool's doc — the completion-basis capture is atomic with the
+	 * snapshot on this surface. See
+	 * `ToolExecutionContext.getCompletionBasis`. */
+	completionBasis: string | null;
 	/** Event-log sink. Always constructed with `source: "mcp"` by the adapter. */
 	logWriter: LogWriter;
 	/** MCP progress-notification emitter. No-op if the client didn't opt in. */
@@ -85,6 +90,7 @@ export class McpContext implements ToolExecutionContext {
 	readonly userId: string;
 	readonly runId: string;
 	readonly commitPhase: CommitPhase;
+	private readonly completionBasis: string | null;
 	readonly logWriter: LogWriter;
 	readonly progress: ProgressEmitter;
 	/**
@@ -102,6 +108,7 @@ export class McpContext implements ToolExecutionContext {
 		this.userId = opts.userId;
 		this.runId = opts.runId;
 		this.commitPhase = opts.commitPhase;
+		this.completionBasis = opts.completionBasis;
 		this.logWriter = opts.logWriter;
 		this.progress = opts.progress;
 	}
@@ -199,6 +206,16 @@ export class McpContext implements ToolExecutionContext {
 			...(stage !== undefined && { stage }),
 			mutation,
 		}));
+	}
+
+	/**
+	 * ToolExecutionContext implementation — returns the token captured in
+	 * the same Firestore load as the doc the tool received, so the basis
+	 * and the evaluated snapshot can't be split by a write landing between
+	 * two reads. See `ToolExecutionContext.getCompletionBasis`.
+	 */
+	async getCompletionBasis(): Promise<string | null> {
+		return this.completionBasis;
 	}
 
 	/**
@@ -322,6 +339,7 @@ export function initMcpCall(
 	appId: string,
 	runId: string,
 	commitPhase: CommitPhase,
+	completionBasis: string | null,
 	extra: McpCallExtra | undefined,
 ): InitMcpCallResult {
 	const progressToken = extra?._meta?.progressToken;
@@ -332,6 +350,7 @@ export function initMcpCall(
 		userId: ctx.userId,
 		runId,
 		commitPhase,
+		completionBasis,
 		logWriter,
 		progress,
 	});

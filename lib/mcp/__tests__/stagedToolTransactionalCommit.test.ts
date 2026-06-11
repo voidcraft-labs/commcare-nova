@@ -98,6 +98,7 @@ function makeMcpCtx() {
 		userId: "user-1",
 		runId: "run-1",
 		commitPhase: "complete",
+		completionBasis: null,
 		logWriter,
 		progress: { notify: vi.fn() },
 	});

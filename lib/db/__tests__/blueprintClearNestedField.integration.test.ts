@@ -6,7 +6,7 @@
  *
  * Covers the four form-level nullable fields (`connect`,
  * `closeCondition`, `postSubmit`, `purpose`) and the three persistence
- * helpers (`updateApp`, `updateAppForRun`, `completeApp`).
+ * helpers (`updateApp`, `updateAppForRun`, `completeAppGuardedByBasis`).
  *
  * Assertions check key absence (`'connect' in form === false`) rather
  * than `=== undefined`: the wire-level claim is that the key is GONE,
@@ -22,7 +22,12 @@ import type {
 	PersistableDoc,
 	PostSubmitDestination,
 } from "@/lib/domain";
-import { completeApp, createApp, updateApp, updateAppForRun } from "../apps";
+import {
+	completeAppGuardedByBasis,
+	createApp,
+	updateApp,
+	updateAppForRun,
+} from "../apps";
 import { getDb } from "../firestore";
 
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
@@ -331,25 +336,33 @@ describe.skipIf(!emulatorAvailable)(
 			expect("purpose" in form).toBe(false);
 		});
 
-		it("completeApp: clearing nested fields removes them AND status flips to complete", async () => {
+		it("completeAppGuardedByBasis: clearing nested fields removes them AND status flips to complete", async () => {
 			const { appId, moduleUuid, formUuid, runId } = await seedPopulatedApp();
 
-			/* `completeApp` is the generation-success boundary — the
-			 * SA emits it via fire-and-forget at end of `completeBuild`.
-			 * Seed leaves the app at `status: "generating"` (the
-			 * `createApp` default); after `completeApp` it MUST flip
-			 * to `"complete"` AND the cleared fields must vanish. */
+			/* The guarded completion write is the generation-success
+			 * boundary — `completeBuild` awaits it after a clean boundary
+			 * evaluation. Seed leaves the app at `status: "generating"`
+			 * with a null `blueprint_token` (the `createApp` defaults), so
+			 * a null basis matches; after the write it MUST flip to
+			 * `"complete"`, rotate the token, AND the cleared fields must
+			 * vanish. */
 			const cleared = buildClearedDoc(appId, moduleUuid, formUuid);
-			await completeApp(appId, cleared, runId);
+			const rotated = await completeAppGuardedByBasis(
+				appId,
+				cleared,
+				null,
+				runId,
+			);
 
 			const after = await readPersistedApp(appId);
 			expect(after.status).toBe("complete");
 			expect(after.run_id).toBe(runId);
+			expect(after.blueprint_token).toBe(rotated);
 
 			const form = (
 				after.blueprint as { forms: Record<string, Record<string, unknown>> }
 			).forms[formUuid];
-			if (!form) throw new Error(`Form ${formUuid} missing after completeApp`);
+			if (!form) throw new Error(`Form ${formUuid} missing after completion`);
 			expect("connect" in form).toBe(false);
 			expect("closeCondition" in form).toBe(false);
 			expect("postSubmit" in form).toBe(false);

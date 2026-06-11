@@ -192,6 +192,7 @@ export function makeMcpTestContext(
 		userId: opts.userId ?? "user-1",
 		runId: opts.runId ?? "run-1",
 		commitPhase: opts.commitPhase ?? "building",
+		completionBasis: null,
 		logWriter: logWriterStub,
 		progress: progressStub,
 	});

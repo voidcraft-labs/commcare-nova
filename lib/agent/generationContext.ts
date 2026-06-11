@@ -52,7 +52,7 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { updateAppForRun } from "@/lib/db/apps";
+import { loadBlueprintBasis, updateAppForRun } from "@/lib/db/apps";
 import type { UsageAccumulator } from "@/lib/db/usage";
 import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -560,6 +560,20 @@ export class GenerationContext implements ToolExecutionContext {
 	 */
 	pausedOnInput(): boolean {
 		return this._pausedOnInput;
+	}
+
+	/**
+	 * ToolExecutionContext implementation — the chat surface captures the
+	 * completion basis with a FRESH read at `completeBuild` call time. The
+	 * SA's working doc is the snapshot "as of this call": the run's own
+	 * intermediate saves never rotate the token, so the compare inside
+	 * `completeAppGuardedByBasis` flags exactly the rotating writers (a
+	 * builder tab's save, an MCP commit) that land during the evaluation
+	 * window. (The MCP surface instead injects the token from the same
+	 * load that produced the tool's doc — see `McpContext`.)
+	 */
+	async getCompletionBasis(): Promise<string | null> {
+		return loadBlueprintBasis(this.appId);
 	}
 
 	/**

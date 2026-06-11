@@ -88,6 +88,23 @@ export interface ToolExecutionContext {
 	 */
 	recordMutationStages(stages: StagedMutationBatch[]): Promise<MutationEvent[]>;
 
+	/**
+	 * The `blueprint_token` basis for the completion write — captured
+	 * together with the doc snapshot `completeBuild` evaluates, so the
+	 * guarded completion commit can prove the stored doc didn't advance
+	 * under the multi-second evaluation window (boundary check + media
+	 * manifest + materialize). Per surface:
+	 *
+	 *   - MCP: the token read in the SAME Firestore load as the doc the
+	 *     tool received — airtight against any write after the load.
+	 *   - Chat: a fresh read at call time. The SA's working doc is the
+	 *     snapshot "as of this call", and the run's own intermediate
+	 *     saves never rotate the token, so a rotating writer (a builder
+	 *     tab's save, an MCP commit) landing during the evaluation
+	 *     window is exactly what the compare catches.
+	 */
+	getCompletionBasis(): Promise<string | null>;
+
 	/** Persist a conversation event (assistant text/reasoning, tool
 	 * call/result, user message, error). */
 	recordConversation(payload: ConversationPayload): ConversationEvent;

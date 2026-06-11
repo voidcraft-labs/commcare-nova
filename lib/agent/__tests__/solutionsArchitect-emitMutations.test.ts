@@ -595,9 +595,13 @@ vi.mock("@/lib/media/boundaryValidation", () => ({
 }));
 
 vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
+	completeAppGuardedByBasis: vi.fn(() => Promise.resolve("token-rotated")),
+	loadBlueprintBasis: vi.fn(() => Promise.resolve(null)),
 	failApp: vi.fn(),
 	updateAppForRun: vi.fn(() => Promise.resolve()),
+	/* The guarded completion writer throws this on a stale basis; tests
+	 * that drive the bounce arm construct it via the real class. */
+	BlueprintBasisStaleError: class BlueprintBasisStaleError extends Error {},
 }));
 
 /* `completeBuild`'s success arm awaits `materializeCaseStoreSchemas` to
@@ -639,7 +643,9 @@ describe("solutionsArchitect — completeBuild", () => {
 		const { materializeCaseStoreSchemas } = await import(
 			"@/lib/db/materializeCaseStoreSchemas"
 		);
-		const { completeApp, failApp } = await import("@/lib/db/apps");
+		const { completeAppGuardedByBasis, failApp } = await import(
+			"@/lib/db/apps"
+		);
 		const fixtureDoc = makeFixtureDoc();
 
 		// Shared call-order array each spy pushes to as it runs.
@@ -654,8 +660,9 @@ describe("solutionsArchitect — completeBuild", () => {
 		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
 			order.push("materialize");
 		});
-		vi.mocked(completeApp).mockImplementationOnce(async () => {
+		vi.mocked(completeAppGuardedByBasis).mockImplementationOnce(async () => {
 			order.push("completeApp");
+			return "token-rotated";
 		});
 
 		const { ctx, writer } = buildCtx();
@@ -672,6 +679,37 @@ describe("solutionsArchitect — completeBuild", () => {
 		expect(vi.mocked(failApp)).not.toHaveBeenCalled();
 	});
 
+	it("a stale completion basis bounces as an ordinary run-again result — never failApp, nothing emitted", async () => {
+		// A concurrent edit landed during the evaluation window: the guarded
+		// completion write rejects on the basis compare. That is an ordinary
+		// outcome the agent re-runs from — the infrastructure arm (emitError
+		// + failApp) must NOT fire, and no celebration may go out for a
+		// completion that never committed.
+		const { completeAppGuardedByBasis, failApp, BlueprintBasisStaleError } =
+			await import("@/lib/db/apps");
+		vi.mocked(completeAppGuardedByBasis).mockImplementationOnce(async () => {
+			throw new BlueprintBasisStaleError();
+		});
+
+		const fixtureDoc = makeFixtureDoc();
+		const { ctx, writer } = buildCtx();
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		const result = await runTool(sa, "completeBuild", {});
+
+		expect(result).toMatchObject({ success: false });
+		expect(
+			(result as { errors: string[] }).errors.some((e) =>
+				e.includes("changed while it was being completed"),
+			),
+		).toBe(true);
+		expect("infrastructure" in (result as object)).toBe(false);
+		expect(vi.mocked(failApp)).not.toHaveBeenCalled();
+		const doneEvents = writtenEvents(writer).filter(
+			(e) => e.type === "data-done",
+		);
+		expect(doneEvents).toHaveLength(0);
+	});
+
 	it("returns the findings without any side effect when the evaluation refuses", async () => {
 		const { collectBoundaryViolations } = await import(
 			"@/lib/media/boundaryValidation"
@@ -679,7 +717,7 @@ describe("solutionsArchitect — completeBuild", () => {
 		const { materializeCaseStoreSchemas } = await import(
 			"@/lib/db/materializeCaseStoreSchemas"
 		);
-		const { completeApp } = await import("@/lib/db/apps");
+		const { completeAppGuardedByBasis } = await import("@/lib/db/apps");
 		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
 			{
 				code: "EMPTY_FORM",
@@ -703,7 +741,7 @@ describe("solutionsArchitect — completeBuild", () => {
 		// Nothing finalizes on a refusal — no materialize, no status flip,
 		// no celebration. The agent finishes the work and calls again.
 		expect(vi.mocked(materializeCaseStoreSchemas)).not.toHaveBeenCalled();
-		expect(vi.mocked(completeApp)).not.toHaveBeenCalled();
+		expect(vi.mocked(completeAppGuardedByBasis)).not.toHaveBeenCalled();
 		const doneEvents = writtenEvents(writer).filter(
 			(e) => e.type === "data-done",
 		);
@@ -723,7 +761,9 @@ describe("solutionsArchitect — completeBuild", () => {
 		const { materializeCaseStoreSchemas } = await import(
 			"@/lib/db/materializeCaseStoreSchemas"
 		);
-		const { completeApp, failApp } = await import("@/lib/db/apps");
+		const { completeAppGuardedByBasis, failApp } = await import(
+			"@/lib/db/apps"
+		);
 		const fixtureDoc = makeFixtureDoc();
 
 		const order: string[] = [];
@@ -731,8 +771,9 @@ describe("solutionsArchitect — completeBuild", () => {
 			order.push("materialize-throws");
 			throw new Error("simulated postgres outage");
 		});
-		vi.mocked(completeApp).mockImplementationOnce(async () => {
+		vi.mocked(completeAppGuardedByBasis).mockImplementationOnce(async () => {
 			order.push("completeApp");
+			return "token-rotated";
 		});
 		vi.mocked(failApp).mockImplementationOnce(() => {
 			order.push("failApp");
@@ -754,7 +795,7 @@ describe("solutionsArchitect — completeBuild", () => {
 		// to `error`. `data-done` MUST NOT fire either — the
 		// celebration only runs on a clean Postgres handoff.
 		expect(order).toEqual(["materialize-throws", "failApp"]);
-		expect(vi.mocked(completeApp)).not.toHaveBeenCalled();
+		expect(vi.mocked(completeAppGuardedByBasis)).not.toHaveBeenCalled();
 
 		// `failApp` was invoked with the SA's appId + the classified
 		// error type. Postgres errors don't match any of the typed
