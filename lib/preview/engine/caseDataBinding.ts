@@ -2,8 +2,10 @@
 //
 // Server Actions for the running-app view's case-data binding.
 // Each action resolves the request's session, constructs a
-// tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`,
-// and delegates to an I/O helper in `./caseDataBindingHelpers.ts`
+// tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`
+// wrapped in `schemaHealingCaseStore` (every individual store call
+// self-heals a missing schema row and retries itself once), and
+// delegates to an I/O helper in `./caseDataBindingHelpers.ts`
 // (server-only) or an error mapper in `./caseDataBindingClient.ts`
 // (client-bundle-safe). Tests bypass the actions and inject a
 // `CaseStore` directly. Centralizing session resolution here means
@@ -38,8 +40,8 @@ import {
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
+	schemaHealingCaseStore,
 	seedSampleCases,
-	withSchemaHeal,
 } from "./caseDataBindingHelpers";
 import type {
 	LoadCaseDataResult,
@@ -107,22 +109,21 @@ export async function loadCasesAction(args: {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId: args.appId, userId: session.user.id },
+		);
 		// Convert `BlueprintDoc → ReadonlyMap<string, CaseType>` at the
 		// request edge — `readCases` accepts the case-store's actual
 		// schema-resolution dependency directly, so the helper stays
 		// decoupled from the full blueprint shape.
-		return await withSchemaHeal(
-			{ appId: args.appId, userId: session.user.id },
-			() =>
-				readCases(store, {
-					appId: args.appId,
-					caseType: args.caseType,
-					caseTypeSchemas: buildCaseTypeMap(args.blueprint),
-					caseListConfig: args.caseListConfig,
-					inputValues: args.inputValues,
-				}),
-		);
+		return await readCases(store, {
+			appId: args.appId,
+			caseType: args.caseType,
+			caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+			caseListConfig: args.caseListConfig,
+			inputValues: args.inputValues,
+		});
 	} catch (err) {
 		return {
 			kind: "error",
@@ -139,10 +140,11 @@ export async function loadCaseDataAction(
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const store = await withOwnerContext(session.user.id);
-		return await withSchemaHeal({ appId, userId: session.user.id }, () =>
-			readCaseData(store, { appId, caseType, caseId }),
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId, userId: session.user.id },
 		);
+		return await readCaseData(store, { appId, caseType, caseId });
 	} catch (err) {
 		return {
 			kind: "error",
@@ -171,10 +173,11 @@ export async function populateSampleCasesAction(
 		if (!found) {
 			throw new CaseTypeNotInBlueprintError(appId, caseType);
 		}
-		const store = await withOwnerContext(session.user.id);
-		return await withSchemaHeal({ appId, userId: session.user.id }, () =>
-			seedSampleCases(store, { appId, caseType: found }),
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId, userId: session.user.id },
 		);
+		return await seedSampleCases(store, { appId, caseType: found });
 	} catch (err) {
 		return mapPopulateSampleCasesError(err);
 	}
@@ -207,10 +210,11 @@ export async function resetSampleCasesAction(
 		if (!found) {
 			throw new CaseTypeNotInBlueprintError(appId, caseType);
 		}
-		const store = await withOwnerContext(session.user.id);
-		return await withSchemaHeal({ appId, userId: session.user.id }, () =>
-			resetSampleCases(store, { appId, caseType: found }),
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId, userId: session.user.id },
 		);
+		return await resetSampleCases(store, { appId, caseType: found });
 	} catch (err) {
 		return mapPopulateSampleCasesError(err);
 	}
@@ -315,24 +319,23 @@ export async function loadCaseListPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId: args.appId, userId: session.user.id },
+		);
 		// Resolve the `name → CaseType` map once at the request edge —
 		// `readCaseListPreview` accepts the case-store's schema-resolution
 		// dependency directly so the helper stays decoupled from the full
 		// blueprint shape. `buildCaseTypeMap` reads only `caseTypes`, so
 		// the parsed persistable shape is passed verbatim (the stripped
 		// `fieldParent` index is not load-bearing here).
-		return await withSchemaHeal(
-			{ appId: args.appId, userId: session.user.id },
-			() =>
-				readCaseListPreview(store, {
-					appId: args.appId,
-					caseType: args.caseType,
-					limit: args.limit,
-					caseListConfig: parsedConfig.data,
-					caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
-				}),
-		);
+		return await readCaseListPreview(store, {
+			appId: args.appId,
+			caseType: args.caseType,
+			limit: args.limit,
+			caseListConfig: parsedConfig.data,
+			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
+		});
 	} catch (err) {
 		return mapCaseListPreviewError(err);
 	}
@@ -406,21 +409,20 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId: args.appId, userId: session.user.id },
+		);
 		// `buildCaseTypeMap` reads only `caseTypes`, so the parsed
 		// persistable shape goes through directly — same as
 		// `loadCaseListPreviewAction`.
-		return await withSchemaHeal(
-			{ appId: args.appId, userId: session.user.id },
-			() =>
-				readFilterPreview(store, {
-					appId: args.appId,
-					caseType: args.caseType,
-					limit: args.limit,
-					caseListConfig: parsedConfig.data,
-					caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
-				}),
-		);
+		return await readFilterPreview(store, {
+			appId: args.appId,
+			caseType: args.caseType,
+			limit: args.limit,
+			caseListConfig: parsedConfig.data,
+			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
+		});
 	} catch (err) {
 		return mapFilterPreviewError(err);
 	}
@@ -448,57 +450,56 @@ export async function submitFormAction(
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const store = await withOwnerContext(session.user.id);
-		// The whole dispatch sits inside the schema heal: a registration's
-		// insert is the canonical `SchemaNotSyncedError` producer, and the
-		// store throws it before any row lands, so a healed retry re-runs
-		// the mutation from a clean slate.
-		return await withSchemaHeal(
+		// The schema heal lives INSIDE the store (one heal per individual
+		// store call), never around this dispatch: followup/close run a
+		// primary update plus per-child inserts in separate transactions,
+		// so a dispatch-level retry would re-insert children that already
+		// landed. With the heal at the store call, the one write that threw
+		// retries and the dispatch resumes from where it stopped.
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
 			{ appId, userId: session.user.id },
-			async (): Promise<SubmissionResult> => {
-				switch (mutation.kind) {
-					case "registration": {
-						const { caseId, childCaseIds } = await applyRegistrationMutation(
-							store,
-							{ mutation, appId },
-						);
-						return { kind: "registration", caseId, childCaseIds };
-					}
-					case "followup": {
-						const { caseId, childCaseIds } = await applyFollowupMutation(
-							store,
-							{ mutation, appId },
-						);
-						return { kind: "followup", caseId, childCaseIds };
-					}
-					case "close": {
-						const { caseId, childCaseIds } = await applyCloseMutation(store, {
-							mutation,
-							appId,
-						});
-						return { kind: "close", caseId, childCaseIds };
-					}
-					case "survey":
-						return applySurveyMutation();
-					default: {
-						// Exhaustive switch — a future `SubmissionMutation` arm
-						// landing without a case here surfaces as the standard
-						// `unhandledKindMessage` shape rather than silently
-						// returning `undefined`.
-						const _exhaustive: never = mutation;
-						throw new Error(
-							unhandledKindMessage({
-								where: "preview.caseDataBinding.submitFormAction",
-								family: "SubmissionMutation",
-								received:
-									(_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-								knownKinds: ["registration", "followup", "close", "survey"],
-							}),
-						);
-					}
-				}
-			},
 		);
+		switch (mutation.kind) {
+			case "registration": {
+				const { caseId, childCaseIds } = await applyRegistrationMutation(
+					store,
+					{ mutation, appId },
+				);
+				return { kind: "registration", caseId, childCaseIds };
+			}
+			case "followup": {
+				const { caseId, childCaseIds } = await applyFollowupMutation(store, {
+					mutation,
+					appId,
+				});
+				return { kind: "followup", caseId, childCaseIds };
+			}
+			case "close": {
+				const { caseId, childCaseIds } = await applyCloseMutation(store, {
+					mutation,
+					appId,
+				});
+				return { kind: "close", caseId, childCaseIds };
+			}
+			case "survey":
+				return applySurveyMutation();
+			default: {
+				// Exhaustive switch — a future `SubmissionMutation` arm
+				// landing without a case here surfaces as the standard
+				// `unhandledKindMessage` shape rather than silently
+				// returning `undefined`.
+				const _exhaustive: never = mutation;
+				throw new Error(
+					unhandledKindMessage({
+						where: "preview.caseDataBinding.submitFormAction",
+						family: "SubmissionMutation",
+						received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+						knownKinds: ["registration", "followup", "close", "survey"],
+					}),
+				);
+			}
+		}
 	} catch (err) {
 		return mapSubmitFormError(err);
 	}
