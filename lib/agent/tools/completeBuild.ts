@@ -75,6 +75,14 @@ export type CompleteBuildInput = z.infer<typeof completeBuildInputSchema>;
  *   the guarded completion write bounced on a stale basis, the
  *   run-it-again message. Person-to-person either way; absent on
  *   success.
+ * - `staleBasis` — set on the basis-bounce failure so each surface can
+ *   apply its own recovery. On MCP "run it again" needs nothing more —
+ *   every `complete_build` call re-loads the stored doc. On chat the
+ *   wrapper MUST reload the run's working doc first: the SA's doc lives
+ *   in run memory and never reconciles on its own, so a bare retry would
+ *   adopt the rotated token and commit the stale working doc over the
+ *   very edit this bounce caught. The MCP projector drops the flag from
+ *   the wire (`{ success, errors }` is unchanged).
  * - `basisToken` — on success, the completion write's freshly rotated
  *   `blueprint_token`. The chat wrapper hands it to the builder client
  *   via `data-done` so the same tab's next auto-save carries the right
@@ -84,6 +92,7 @@ export interface CompleteBuildResult {
 	kind: "complete";
 	success: boolean;
 	errors?: string[];
+	staleBasis?: true;
 	basisToken?: string;
 }
 
@@ -129,10 +138,13 @@ export const completeBuildTool = {
 				/* A concurrent edit landed during the evaluation window.
 				 * Nothing was written; the materialize that already ran is an
 				 * idempotent upsert the re-run repeats. An ordinary outcome,
-				 * not a fault — never the infrastructure arm. */
+				 * not a fault — never the infrastructure arm. `staleBasis`
+				 * tells the chat wrapper to reload the working doc before the
+				 * advised re-run (see the result-shape doc above). */
 				return {
 					kind: "complete",
 					success: false,
+					staleBasis: true,
 					errors: [
 						"The app changed while it was being completed — another editing session saved in the meantime, so nothing was finalized. Run completeBuild again to evaluate the app as it now stands.",
 					],

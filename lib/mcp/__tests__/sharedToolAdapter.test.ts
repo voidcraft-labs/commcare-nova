@@ -318,6 +318,38 @@ describe("registerSharedTool — completeBuild projection", () => {
 		);
 	});
 
+	it("keeps the stale-basis flag off the wire — MCP clients just run complete_build again", async () => {
+		// `staleBasis` is the chat wrapper's reload signal (the chat run's
+		// working doc must reconcile before a retry); on MCP every call
+		// re-loads the stored doc, so the run-again message is the whole
+		// recovery and the flag would be noise on the wire shape.
+		const completeLike: SharedToolModule = {
+			description: "complete",
+			inputSchema: z.object({}),
+			async execute(_input, _ctx, _doc) {
+				return {
+					kind: "complete",
+					success: false,
+					staleBasis: true,
+					errors: ["the app changed — run complete_build again"],
+				};
+			},
+		};
+
+		const { server, capture } = makeFakeServer();
+		registerSharedTool(server, "complete_build", completeLike, toolCtx);
+
+		const out = (await capture()({ app_id: "a1" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+		};
+		expect(out.content[0]?.text).toBe(
+			JSON.stringify({
+				success: false,
+				errors: ["the app changed — run complete_build again"],
+			}),
+		);
+	});
+
 	it("surfaces app_id + app_name on a successful completion", async () => {
 		const completeLike: SharedToolModule = {
 			description: "complete",

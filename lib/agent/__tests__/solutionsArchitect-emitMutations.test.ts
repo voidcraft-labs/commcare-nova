@@ -599,6 +599,9 @@ vi.mock("@/lib/db/apps", () => ({
 	loadBlueprintBasis: vi.fn(() => Promise.resolve(null)),
 	failApp: vi.fn(),
 	updateAppForRun: vi.fn(() => Promise.resolve()),
+	/* The stale-basis recovery reloads the stored doc through this; the
+	 * bounce test installs a per-call resolved value. */
+	loadApp: vi.fn(),
 	/* The guarded completion writer throws this on a stale basis; tests
 	 * that drive the bounce arm construct it via the real class. */
 	BlueprintBasisStaleError: class BlueprintBasisStaleError extends Error {},
@@ -723,9 +726,13 @@ describe("solutionsArchitect — completeBuild", () => {
 		// completion that never committed.
 		const { completeAppGuardedByBasis, failApp, BlueprintBasisStaleError } =
 			await import("@/lib/db/apps");
+		const { loadApp } = await import("@/lib/db/apps");
 		vi.mocked(completeAppGuardedByBasis).mockImplementationOnce(async () => {
 			throw new BlueprintBasisStaleError();
 		});
+		vi.mocked(loadApp).mockResolvedValueOnce({
+			blueprint: makeFixtureDoc(),
+		} as never);
 
 		const fixtureDoc = makeFixtureDoc();
 		const { ctx, writer } = buildCtx();
@@ -744,6 +751,65 @@ describe("solutionsArchitect — completeBuild", () => {
 			(e) => e.type === "data-done",
 		);
 		expect(doneEvents).toHaveLength(0);
+	});
+
+	it("the bounce reloads the STORED doc into the working state, so the retry evaluates the concurrent edit", async () => {
+		// The erasure hazard the reload exists to kill: the SA's working doc
+		// never reconciles with Firestore on its own, so without the reload
+		// the advised retry would adopt the rotated token and commit the
+		// stale working doc over the very edit the guard caught. Drive the
+		// full bounce → retry sequence and assert the SECOND evaluation (and
+		// the data-done it produces) runs on the doc the store holds — the
+		// one carrying the concurrent edit — not the run's pre-bounce doc.
+		const {
+			completeAppGuardedByBasis,
+			loadApp,
+			loadBlueprintBasis,
+			BlueprintBasisStaleError,
+		} = await import("@/lib/db/apps");
+		const { collectBoundaryViolations } = await import(
+			"@/lib/media/boundaryValidation"
+		);
+		vi.mocked(collectBoundaryViolations).mockClear();
+		vi.mocked(completeAppGuardedByBasis)
+			.mockImplementationOnce(async () => {
+				throw new BlueprintBasisStaleError();
+			})
+			.mockImplementationOnce(async () => "token-rotated-2");
+		// The concurrent writer's doc, distinguishable by name.
+		const storedDoc = { ...makeFixtureDoc(), appName: "Edited Elsewhere" };
+		vi.mocked(loadApp).mockResolvedValueOnce({ blueprint: storedDoc } as never);
+		vi.mocked(loadBlueprintBasis)
+			.mockResolvedValueOnce("pre-bounce-token")
+			.mockResolvedValueOnce("rotated-token");
+
+		const { ctx, writer } = buildCtx();
+		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), false);
+
+		const bounce = await runTool(sa, "completeBuild", {});
+		expect(bounce).toMatchObject({ success: false });
+		expect(
+			(bounce as { errors: string[] }).errors.some((e) =>
+				e.includes("reloaded"),
+			),
+		).toBe(true);
+
+		const retry = await runTool(sa, "completeBuild", {});
+		expect(retry).toMatchObject({ success: true });
+
+		// The retry's boundary evaluation ran on the reloaded doc…
+		const evaluatedDocs = vi
+			.mocked(collectBoundaryViolations)
+			.mock.calls.map((c) => (c[0] as { appName: string }).appName);
+		expect(evaluatedDocs).toEqual(["Clinic Intake", "Edited Elsewhere"]);
+		// …and the celebration snapshot is that same reconciled doc.
+		const doneEvents = writtenEvents(writer).filter(
+			(e) => e.type === "data-done",
+		);
+		expect(doneEvents).toHaveLength(1);
+		expect(
+			(doneEvents[0].data as { doc: { appName: string } }).doc.appName,
+		).toBe("Edited Elsewhere");
 	});
 
 	it("returns the findings without any side effect when the evaluation refuses", async () => {

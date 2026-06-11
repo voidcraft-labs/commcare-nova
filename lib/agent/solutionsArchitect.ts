@@ -19,8 +19,8 @@
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent, tool } from "ai";
-import { failApp } from "@/lib/db/apps";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { failApp, loadApp } from "@/lib/db/apps";
+import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import { classifyError } from "./errorClassifier";
@@ -122,6 +122,41 @@ type ChatCompleteBuildResult =
  */
 export const INFRA_FAILURE_SA_INSTRUCTION =
 	"A system error interrupted finalizing the app — this is an infrastructure problem on our end, not a problem with the app you built. Editing the app will not fix it, and re-running completeBuild will hit the same error. Stop now: tell the user a system error interrupted saving their app (the app itself is sound) and to try again in a moment or contact support. Do not call completeBuild again.";
+
+/**
+ * The model-facing instruction for a chat-side stale-basis bounce, returned
+ * AFTER the wrapper has reloaded the working doc (see the completion
+ * section in the factory). It must say the working copy already includes
+ * the outside changes — the SA's in-memory picture of the app is stale, and
+ * without that line it would "re-apply" work the reload may have replaced.
+ */
+export const STALE_BASIS_SA_INSTRUCTION =
+	"The app changed while it was being completed — another editing session saved in the meantime, so nothing was finalized. Your working copy has been reloaded and now includes those outside changes. Re-read anything you need to verify (searchBlueprint / getForm), then run completeBuild again to evaluate the app as it now stands.";
+
+/**
+ * Load the stored blueprint into a fresh working doc — the chat-side
+ * stale-basis recovery. The SA's working doc lives in run memory and never
+ * reconciles with Firestore on its own, so after a concurrent writer
+ * rotates the basis the retry MUST evaluate the stored doc: completing from
+ * the unreconciled working doc would adopt the rotated token and commit it
+ * over the very edit the basis guard caught. Throws when the app row can't
+ * be read — the caller routes that through the infrastructure arm (a fault
+ * no doc edit repairs).
+ */
+async function reloadWorkingDoc(appId: string): Promise<BlueprintDoc> {
+	const stored = await loadApp(appId);
+	if (!stored) {
+		throw new Error(
+			`The stored app row for ${appId} is missing — the working doc can't be reloaded after the concurrent edit, so completion can't safely retry.`,
+		);
+	}
+	const next: BlueprintDoc = {
+		...structuredClone(stored.blueprint),
+		fieldParent: {},
+	};
+	rebuildFieldParent(next);
+	return next;
+}
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -402,7 +437,7 @@ export function createSolutionsArchitect(
 	// ── Completion (build mode only) ──────────────────────────────────
 
 	/* `completeBuild` is bespoke (not `wrapMutating`) because its wrapper
-	 * layers two chat-only concerns on top of the shared tool (which owns
+	 * layers three chat-only concerns on top of the shared tool (which owns
 	 * the boundary evaluation + the awaited materialize + the guarded
 	 * status flip — see `tools/completeBuild.ts` for the ordering
 	 * contract):
@@ -416,7 +451,12 @@ export function createSolutionsArchitect(
 	 *      materialize, so a user-initiated case-store action that fires
 	 *      sub-second after the celebration sees a synced Postgres
 	 *      schema.
-	 *   2. The infrastructure-failure arm — a throw out of the shared
+	 *   2. The stale-basis reload — a basis bounce means a concurrent
+	 *      writer's edit is in Firestore but NOT in this run's working
+	 *      doc, so the wrapper reloads the stored doc into the working
+	 *      state before the SA retries (MCP needs no equivalent: each
+	 *      `complete_build` call re-loads the stored doc).
+	 *   3. The infrastructure-failure arm — a throw out of the shared
 	 *      body (Postgres outage, Firestore write failure) is
 	 *      unrecoverable from the SA's perspective. Letting it propagate
 	 *      to the AI SDK's `tool-error` part would push the SA into a
@@ -443,6 +483,22 @@ export function createSolutionsArchitect(
 					let result: Awaited<ReturnType<typeof completeBuildTool.execute>>;
 					try {
 						result = await completeBuildTool.execute(input, ctx, doc);
+						if (!result.success && result.staleBasis) {
+							/* A concurrent writer (another tab's save, an MCP commit)
+							 * advanced the stored doc during the evaluation window.
+							 * "Run it again" is only sound once the run's working doc
+							 * INCLUDES that edit — on chat the working doc never
+							 * reconciles on its own, so a bare retry would adopt the
+							 * rotated token and commit this stale doc over the very
+							 * edit the guard caught. Reload before advising the
+							 * re-run; a reload failure falls to the infrastructure
+							 * arm below (Firestore down — no doc edit repairs it). */
+							doc = await reloadWorkingDoc(ctx.appId);
+							return {
+								success: false,
+								errors: [STALE_BASIS_SA_INSTRUCTION],
+							};
+						}
 					} catch (err) {
 						const classified = classifyError(err);
 						ctx.emitError(classified, "completeBuild");
