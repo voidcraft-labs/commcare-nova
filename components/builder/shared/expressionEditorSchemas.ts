@@ -302,7 +302,7 @@ export const expressionCardSchemas: {
 	// ── Date arithmetic / coercion ───────────────────────────────────
 	"date-add": {
 		kind: "date-add",
-		label: "Date shift",
+		label: "Date Shift",
 		icon: tablerCalendarPlus,
 		description: "A date moved by days, weeks, months, or years",
 		component: DateAddCard,
@@ -316,7 +316,7 @@ export const expressionCardSchemas: {
 	},
 	"date-coerce": {
 		kind: "date-coerce",
-		label: "Read as date",
+		label: "Read as Date",
 		icon: tablerCalendarStats,
 		description: "Treat a text value as a date",
 		component: DateCoerceCard,
@@ -330,7 +330,7 @@ export const expressionCardSchemas: {
 	},
 	"datetime-coerce": {
 		kind: "datetime-coerce",
-		label: "Read as date + time",
+		label: "Read as Date + Time",
 		icon: tablerCalendarStats,
 		description: "Treat a text value as a date and time",
 		component: DateCoerceCard,
@@ -341,7 +341,7 @@ export const expressionCardSchemas: {
 	// ── Numeric ──────────────────────────────────────────────────────
 	double: {
 		kind: "double",
-		label: "Read as number",
+		label: "Read as Number",
 		icon: tablerHash,
 		description: "Treat a value as a number",
 		component: DoubleCard,
@@ -361,7 +361,7 @@ export const expressionCardSchemas: {
 	// ── Text ─────────────────────────────────────────────────────────
 	concat: {
 		kind: "concat",
-		label: "Combine text",
+		label: "Combine Text",
 		icon: tablerAbc,
 		description: "Join several pieces of text into one",
 		component: ConcatCard,
@@ -372,7 +372,7 @@ export const expressionCardSchemas: {
 	// ── Conditional / dispatch ───────────────────────────────────────
 	coalesce: {
 		kind: "coalesce",
-		label: "First filled-in",
+		label: "First Filled-In",
 		icon: tablerCopy,
 		description: "The first value in the list that isn't blank",
 		component: CoalesceCard,
@@ -381,7 +381,7 @@ export const expressionCardSchemas: {
 	},
 	if: {
 		kind: "if",
-		label: "If / else",
+		label: "If / Else",
 		icon: tablerGitMerge,
 		description: "One value when a condition holds, another when it doesn't",
 		component: IfCard,
@@ -401,7 +401,7 @@ export const expressionCardSchemas: {
 	// ── Aggregation ──────────────────────────────────────────────────
 	count: {
 		kind: "count",
-		label: "Count related cases",
+		label: "Count Related Cases",
 		icon: tablerListSearch,
 		description: "How many connected cases match a condition",
 		component: CountCard,
@@ -423,7 +423,7 @@ export const expressionCardSchemas: {
 	// ── Sequence (round-trip-only) ───────────────────────────────────
 	"unwrap-list": {
 		kind: "unwrap-list",
-		label: "Unwrap list",
+		label: "Unwrap List",
 		icon: tablerForklift,
 		description:
 			"Pull a JSON-encoded array from a property as a sequence (CSQL only)",
@@ -443,7 +443,7 @@ export const expressionCardSchemas: {
 	// ── Date formatting ──────────────────────────────────────────────
 	"format-date": {
 		kind: "format-date",
-		label: "Format date",
+		label: "Format Date",
 		icon: tablerArrowsShuffle,
 		description: "Write a date out as text, in a format you pick",
 		component: FormatDateCard,

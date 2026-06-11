@@ -268,11 +268,11 @@ function OptionPicker({
 		<Menu.Root>
 			<Menu.Trigger
 				ref={triggerRef}
-				aria-label="Add option"
+				aria-label="Add Option"
 				className="inline-flex items-center gap-1.5 px-3 min-h-11 text-[12px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 			>
 				<Icon icon={tablerPlus} width="13" height="13" />
-				<span>Add option</span>
+				<span>Add Option</span>
 			</Menu.Trigger>
 			<Menu.Portal>
 				<Menu.Positioner

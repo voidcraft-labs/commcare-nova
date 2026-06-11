@@ -557,10 +557,10 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 			<Menu.Trigger
 				ref={triggerRef}
 				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				aria-label="Add clause"
+				aria-label="Add Condition"
 			>
-				<Icon icon={tablerPlus} width="11" height="11" />
-				<span>Add clause</span>
+				<Icon icon={tablerPlus} width="14" height="14" />
+				<span>Add Condition</span>
 			</Menu.Trigger>
 			<Menu.Portal>
 				<Menu.Positioner

@@ -41,7 +41,7 @@ const OP_LABELS: Record<ArithOp, { symbol: string; label: string }> = {
 	"-": { symbol: "−", label: "Subtract" },
 	"*": { symbol: "×", label: "Multiply" },
 	div: { symbol: "÷", label: "Divide" },
-	mod: { symbol: "%", label: "Modulo (remainder)" },
+	mod: { symbol: "%", label: "Modulo (Remainder)" },
 };
 
 /** Default `arith` — `0 + 0`. Both operands are int literals so the

@@ -227,24 +227,24 @@ function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
 		readonly { mode: TermMode; label: string; icon: IconifyIcon }[]
 	>(() => {
 		const base: { mode: TermMode; label: string; icon: IconifyIcon }[] = [
-			{ mode: "literal", label: "Typed value", icon: tablerVariable },
-			{ mode: "property", label: "Case property", icon: tablerDatabase },
+			{ mode: "literal", label: "Typed Value", icon: tablerVariable },
+			{ mode: "property", label: "Case Property", icon: tablerDatabase },
 		];
 		if (ctx.knownInputs.length > 0) {
 			base.push({
 				mode: "input",
-				label: "Search field",
+				label: "Search Field",
 				icon: tablerSwitch,
 			});
 		}
 		base.push({
 			mode: "session-context",
-			label: "Session field",
+			label: "Session Field",
 			icon: tablerUser,
 		});
 		base.push({
 			mode: "session-user",
-			label: "User-data field",
+			label: "User-Data Field",
 			icon: tablerSparkles,
 		});
 		return base;
@@ -536,7 +536,7 @@ function SessionContextMenu({
 		{ field: "userid", label: "User ID" },
 		{ field: "username", label: "Username" },
 		{ field: "deviceid", label: "Device ID" },
-		{ field: "appversion", label: "App version" },
+		{ field: "appversion", label: "App Version" },
 	];
 	const current = items.find((i) => i.field === value) ?? items[0];
 	const triggerClass = [
@@ -1147,7 +1147,7 @@ function UserFieldInput({
 			placeholder="user_field_name"
 			autoComplete="off"
 			data-1p-ignore
-			aria-label="User-data field"
+			aria-label="User-Data Field"
 			aria-invalid={invalid || undefined}
 			className={inputCls}
 		/>

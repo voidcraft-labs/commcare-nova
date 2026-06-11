@@ -232,13 +232,13 @@ export function ColumnEditor({
 
 			<InspectorSection label="Visibility">
 				<ToggleRow
-					label="Show in the case list"
+					label="Show in the Case List"
 					description="A column in the list itself."
 					checked={visibleInList}
 					onChange={setVisibleInList}
 				/>
 				<ToggleRow
-					label="Show in case detail"
+					label="Show in Case Detail"
 					description="A row on the screen that opens from the list."
 					checked={visibleInDetail}
 					onChange={setVisibleInDetail}
@@ -303,7 +303,7 @@ function SortOrderNote({
 					onClick={onEditSortOrder}
 					className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				>
-					Arrange the sort order…
+					Arrange the Sort Order…
 				</button>
 			)}
 		</div>

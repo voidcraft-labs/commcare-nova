@@ -97,8 +97,9 @@ export function SearchPanelInspectorBody({
 			<PredicateSlotCard
 				title="Display condition"
 				description="Hide the search button until this condition is met."
-				addLabel="Add display condition"
-				clearLabel="Clear display condition"
+				addLabel="Add a Display Condition"
+				clearLabel="Clear"
+				clearAriaLabel="Clear the display condition"
 				value={value?.searchButtonDisplayCondition}
 				onChange={setDisplayCondition}
 				caseTypes={caseTypes}
@@ -109,8 +110,9 @@ export function SearchPanelInspectorBody({
 			<OptionalSlotCard<ValueExpression>
 				title="Excluded owners"
 				description="Hide cases that belong to particular owner ids — they never appear in results."
-				addLabel="Add excluded owners"
-				clearLabel="Clear excluded owners"
+				addLabel="Add Excluded Owners"
+				clearLabel="Clear"
+				clearAriaLabel="Clear the excluded owners"
 				value={value?.excludedOwnerIds}
 				onChange={setExcludedOwners}
 				// Empty-string seed — the editor body renders a text

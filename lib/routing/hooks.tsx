@@ -250,14 +250,14 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		// The trailing crumb names the workspace tab, word-for-word
-		// ("Case list" / "Search" / "Case detail" / "Preview") — the
+		// ("Case List" / "Search" / "Case Detail" / "Preview") — the
 		// module crumb already carries the case-type context, so a
 		// "client search"-style prefix would just restate it in a
 		// different casing.
 		if (loc.kind === "cases") {
 			items.push({
 				key: `cases:${moduleUuid}`,
-				label: "Case list",
+				label: "Case List",
 				location: { kind: "cases", moduleUuid: loc.moduleUuid },
 			});
 			if (loc.caseId) {
@@ -282,7 +282,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		if (loc.kind === "detail-config") {
 			items.push({
 				key: `detail-config:${moduleUuid}`,
-				label: "Case detail",
+				label: "Case Detail",
 				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
 			});
 		}

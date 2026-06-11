@@ -180,7 +180,7 @@ export function SearchCanvas({
 				</div>
 
 				<AddGhostButton
-					label="Add search field"
+					label="Add Search Field"
 					onClick={(e) => {
 						e.stopPropagation();
 						onAddInput();

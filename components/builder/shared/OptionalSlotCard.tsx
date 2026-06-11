@@ -51,9 +51,14 @@ export interface OptionalSlotCardProps<T> {
 	 *  visible text AND `aria-label` so screen readers and visual
 	 *  readers see the same words. */
 	readonly addLabel: string;
-	/** Header "Clear ..." label — visible button text + `aria-label`.
-	 *  Surfaces only when `value !== undefined`. */
+	/** Header Clear button — short visible text (the section title
+	 *  beside it already names the slot). Surfaces only when
+	 *  `value !== undefined`. */
 	readonly clearLabel: string;
+	/** Screen-reader name for the Clear button — the specific action
+	 *  ("Clear the display condition"), since SRs don't get the
+	 *  visual adjacency to the section title. */
+	readonly clearAriaLabel: string;
 	/** Current slot value. `undefined` ≡ slot empty (the card surfaces
 	 *  the dashed Add affordance and reports trivially-valid). */
 	readonly value: T | undefined;
@@ -103,6 +108,7 @@ export function OptionalSlotCard<T>({
 	description,
 	addLabel,
 	clearLabel,
+	clearAriaLabel,
 	value,
 	onChange,
 	addSeed,
@@ -171,7 +177,13 @@ export function OptionalSlotCard<T>({
 						: undefined
 				}
 				clear={
-					slotPresent ? { onClick: handleClear, label: clearLabel } : undefined
+					slotPresent
+						? {
+								onClick: handleClear,
+								label: clearLabel,
+								ariaLabel: clearAriaLabel,
+							}
+						: undefined
 				}
 			/>
 			{collapse ? (

@@ -156,8 +156,8 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 			/>,
 		);
 		// Terms render UNBOXED — no slot title; the source chip
-		// ("Typed value") is the term's visible identity.
-		expect(container.textContent).toMatch(/Typed value/);
+		// ("Typed Value") is the term's visible identity.
+		expect(container.textContent).toMatch(/Typed Value/);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 });

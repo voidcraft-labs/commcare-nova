@@ -247,7 +247,7 @@ export function PreviewCanvas({
 				className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				Back to results
+				Back to Results
 			</button>
 			<h2 className="font-display font-bold text-xl tracking-tight text-nova-text mb-4">
 				{openCase.case_name || "Case"}
@@ -454,7 +454,7 @@ function ResultsBody({
 					/>
 					{generate.status.kind === "running"
 						? "Generating…"
-						: "Generate sample data"}
+						: "Generate Sample Data"}
 				</button>
 				{generate.status.kind === "error" && (
 					<p className="mt-3 text-xs text-nova-rose/90 whitespace-pre-line">
@@ -539,7 +539,7 @@ function NoMatchNotice({
 						className="inline-flex items-center gap-1.5 px-3 min-h-11 rounded-lg border border-nova-border-bright bg-nova-violet/[0.12] text-xs font-medium text-nova-violet-bright hover:bg-nova-violet/[0.2] transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerWand} width="13" height="13" />
-						Switch to fuzzy match
+						Switch to Fuzzy Match
 					</button>
 				</div>
 			)}

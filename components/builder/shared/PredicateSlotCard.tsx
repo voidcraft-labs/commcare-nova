@@ -39,8 +39,10 @@ export interface PredicateSlotCardProps {
 	readonly description: string;
 	/** Empty-state CTA label — visible button text + `aria-label`. */
 	readonly addLabel: string;
-	/** Header "Clear ..." label — visible button text + `aria-label`. */
+	/** Header Clear button's short visible text. */
 	readonly clearLabel: string;
+	/** Screen-reader name for the Clear button — the specific action. */
+	readonly clearAriaLabel: string;
 	/** Current Predicate slot value. `undefined` ≡ slot empty. */
 	readonly value: Predicate | undefined;
 	/** Fired when the slot transitions. Receives `undefined` on Clear;
@@ -76,6 +78,7 @@ export function PredicateSlotCard({
 	description,
 	addLabel,
 	clearLabel,
+	clearAriaLabel,
 	value,
 	onChange,
 	caseTypes,
@@ -89,6 +92,7 @@ export function PredicateSlotCard({
 			description={description}
 			addLabel={addLabel}
 			clearLabel={clearLabel}
+			clearAriaLabel={clearAriaLabel}
 			value={value}
 			onChange={onChange}
 			addSeed={matchAll()}

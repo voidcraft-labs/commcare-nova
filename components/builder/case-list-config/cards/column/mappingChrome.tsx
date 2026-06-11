@@ -47,7 +47,7 @@ export function AddMappingButton({ onClick }: { onClick: () => void }) {
 			className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 		>
 			<Icon icon={tablerPlus} width="14" height="14" />
-			<span>Add mapping</span>
+			<span>Add Mapping</span>
 		</button>
 	);
 }

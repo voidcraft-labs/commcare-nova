@@ -238,7 +238,7 @@ export const columnCardSchemas: {
 	},
 	phone: {
 		kind: "phone",
-		label: "Phone number",
+		label: "Phone Number",
 		icon: tablerPhone,
 		description: "Tap the number to call it.",
 		component: PhoneColumnCard,
@@ -248,7 +248,7 @@ export const columnCardSchemas: {
 	},
 	"id-mapping": {
 		kind: "id-mapping",
-		label: "Value labels",
+		label: "Value Labels",
 		icon: tablerListNumbers,
 		description: "Show a friendly label in place of each stored value.",
 		component: IdMappingCard,
@@ -259,7 +259,7 @@ export const columnCardSchemas: {
 	},
 	"image-map": {
 		kind: "image-map",
-		label: "Value images",
+		label: "Value Images",
 		icon: tablerPhoto,
 		description: "Show an image in place of each stored value.",
 		component: ImageMapColumnCard,
@@ -269,7 +269,7 @@ export const columnCardSchemas: {
 	},
 	interval: {
 		kind: "interval",
-		label: "Time since",
+		label: "Time Since",
 		icon: tablerHourglass,
 		description: "How long since (or until) the date, with an overdue flag.",
 		component: IntervalCard,

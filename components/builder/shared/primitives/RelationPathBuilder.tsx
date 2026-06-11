@@ -107,12 +107,12 @@ function classify(path: RelationPath): PathClassification {
 			if (path.ofCaseType === undefined) {
 				return { kind: "canonical", canonical: "subcase" };
 			}
-			return { kind: "badge", label: "Down to a specific case type" };
+			return { kind: "badge", label: "Down to a Specific Case Type" };
 		case "any-relation":
 			// `any-relation` is structurally distinct from `subcase` at
 			// the wire-emission boundary — collapsing it onto the
 			// composer's `subcase` mode would flip the discriminator.
-			return { kind: "badge", label: "Any connected case" };
+			return { kind: "badge", label: "Any Connected Case" };
 	}
 }
 
@@ -247,19 +247,19 @@ function KindMenu({
 	}[] = [
 		{
 			kind: "self",
-			label: "This case",
+			label: "This Case",
 			icon: tablerHierarchy,
 			description: "Stay on the case itself",
 		},
 		{
 			kind: "ancestor",
-			label: "Parent case",
+			label: "Parent Case",
 			icon: tablerHierarchy,
 			description: "Look at the case this one belongs to",
 		},
 		{
 			kind: "subcase",
-			label: "Child cases",
+			label: "Child Cases",
 			icon: tablerLink,
 			description: "Look at the cases that belong to this one",
 		},

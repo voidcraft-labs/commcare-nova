@@ -54,10 +54,10 @@ import {
 // ── Display labels ────────────────────────────────────────────────
 
 export const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
-	text: "Text box",
-	select: "Choice list",
-	date: "Date picker",
-	"date-range": "Date range",
+	text: "Text Box",
+	select: "Choice List",
+	date: "Date Picker",
+	"date-range": "Date Range",
 	barcode: "Barcode",
 };
 
@@ -88,9 +88,9 @@ export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
 export const SEARCH_MODE_LABELS: Record<SearchInputMode["kind"], string> = {
 	exact: "Exact",
 	fuzzy: "Fuzzy",
-	"starts-with": "Starts with",
-	phonetic: "Sounds like",
-	"fuzzy-date": "Fuzzy date",
+	"starts-with": "Starts With",
+	phonetic: "Sounds Like",
+	"fuzzy-date": "Fuzzy Date",
 	range: "Range",
 	"multi-select-contains": "Contains",
 };

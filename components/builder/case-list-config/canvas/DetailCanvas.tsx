@@ -141,7 +141,7 @@ export function DetailCanvas({
 				)}
 
 			<AddGhostButton
-				label="Add detail field"
+				label="Add Detail Field"
 				onClick={onAddDetailField}
 				disabledReason={addDisabledReason}
 				className="w-full mt-3"

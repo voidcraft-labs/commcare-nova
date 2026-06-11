@@ -45,13 +45,15 @@ export interface SlotCardHeaderCollapse {
 }
 
 /**
- * Optional Clear-affordance wiring. Label is the visible button text
- * AND the `aria-label` so screen readers and visual readers see the
- * same words.
+ * Optional Clear-affordance wiring. The visible label can stay short
+ * ("Clear" — the adjacent section title already names the slot);
+ * `ariaLabel` carries the specific action for screen readers, who
+ * don't get the visual adjacency.
  */
 export interface SlotCardHeaderClear {
 	readonly onClick: () => void;
 	readonly label: string;
+	readonly ariaLabel: string;
 }
 
 export interface SlotCardHeaderProps {
@@ -122,7 +124,7 @@ export function SlotCardHeader({
 						type="button"
 						onClick={clear.onClick}
 						className="shrink-0 inline-flex items-center gap-1 px-2.5 min-h-11 text-[10px] uppercase tracking-wider whitespace-nowrap rounded-md text-nova-text-muted/70 hover:text-nova-rose hover:bg-nova-rose/10 transition-colors cursor-pointer"
-						aria-label={clear.label}
+						aria-label={clear.ariaLabel}
 					>
 						<Icon icon={tablerX} width="11" height="11" />
 						<span>{clear.label}</span>

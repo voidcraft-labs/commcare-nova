@@ -541,7 +541,7 @@ export function SearchInputEditor({
 					)}
 				</FieldRow>
 
-				<RemoveRow label="Remove search field" onClick={onRemove} />
+				<RemoveRow label="Remove Search Field" onClick={onRemove} />
 			</div>
 		</PredicateEditProvider>
 	);
@@ -643,7 +643,7 @@ function BindingPicker({
 					onClick={() => onPick(row.property, "self")}
 					className="shrink-0 px-3 min-h-11 text-xs rounded-lg border border-white/[0.08] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				>
-					Search this case instead
+					Search This Case Instead
 				</button>
 			</div>
 		);
@@ -700,7 +700,7 @@ function BindingPicker({
 						className={`${MENU_POPUP_CLS} max-h-80 overflow-y-auto min-w-[16rem]`}
 					>
 						<PropertyGroup
-							heading={`This case — ${ct?.name ?? currentCaseType}`}
+							heading={`This Case — ${ct?.name ?? currentCaseType}`}
 							properties={ct?.properties ?? []}
 							isSelected={(p) => scope === "self" && p.name === row.property}
 							onPick={(p) => onPick(p.name, "self")}
@@ -709,7 +709,7 @@ function BindingPicker({
 						/>
 						{parentCt !== undefined && (
 							<PropertyGroup
-								heading={`Parent case — ${parentCt.name}`}
+								heading={`Parent Case — ${parentCt.name}`}
 								properties={parentCt.properties}
 								isSelected={(p) =>
 									scope === "parent" && p.name === row.property
@@ -1021,7 +1021,7 @@ function MatchPicker({
 	const effectiveKind =
 		value.kind === "simple" ? effectiveModeKind(value) : null;
 	const triggerLabel = isCustom
-		? "Custom condition"
+		? "Custom Condition"
 		: SEARCH_MODE_LABELS[effectiveKind ?? "exact"];
 
 	return (
@@ -1118,7 +1118,7 @@ function MatchPicker({
 								}
 							/>
 							<span className="flex-1 text-left">
-								<div>Custom condition</div>
+								<div>Custom Condition</div>
 								<div
 									className={`text-[11px] ${
 										isCustom
@@ -1177,7 +1177,7 @@ function DefaultValueSlot({
 				aria-label={`Add a default value for search field ${rowIndex + 1}`}
 			>
 				<Icon icon={tablerPlus} width="13" height="13" />
-				<span>Add a default value</span>
+				<span>Add a Default Value</span>
 			</button>
 		);
 	}
@@ -1201,7 +1201,7 @@ function DefaultValueSlot({
 					className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
 					aria-label={`Remove the default value for search field ${rowIndex + 1}`}
 				>
-					Remove default value
+					Remove Default Value
 				</button>
 			</div>
 		</FieldRow>

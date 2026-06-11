@@ -212,12 +212,12 @@ export function CaseListCanvas({
 								)}
 							</ReorderableRow>
 						))}
-						<Tooltip content={addColumnDisabledReason ?? "Add a column"}>
+						<Tooltip content={addColumnDisabledReason ?? "Add a Column"}>
 							<button
 								type="button"
 								onClick={onAddColumn}
 								disabled={addColumnDisabledReason !== undefined}
-								aria-label="Add a column"
+								aria-label="Add a Column"
 								className="grid place-items-center min-h-11 border-l border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 							>
 								<Icon icon={tablerPlus} width="16" height="16" />
@@ -302,7 +302,7 @@ export function CaseListCanvas({
 								/>
 								{generateSampleData.status.kind === "running"
 									? "Generating…"
-									: "Generate sample data"}
+									: "Generate Sample Data"}
 							</button>
 							{generateSampleData.status.kind === "error" && (
 								<p className="mt-3 text-xs text-nova-rose/90 whitespace-pre-line">

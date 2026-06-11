@@ -63,8 +63,8 @@ const DISPLAY_COPY: Record<
 };
 
 const DISPLAY_LABELS: Record<IntervalDisplay, string> = {
-	always: "Show interval",
-	flag: "Flag when overdue",
+	always: "Show Interval",
+	flag: "Flag When Overdue",
 };
 
 export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {

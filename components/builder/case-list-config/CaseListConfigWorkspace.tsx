@@ -415,8 +415,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			if (column === undefined) return null;
 			const title =
 				column.kind === "calculated"
-					? column.header || "Untitled column"
-					: column.header || column.field || "Untitled column";
+					? column.header || "Untitled Column"
+					: column.header || column.field || "Untitled Column";
 			return {
 				kicker: `Column ${index + 1} of ${config.columns.length}`,
 				title,
@@ -434,7 +434,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							onEditSortOrder={args.onSelectListPanel}
 						/>
 						<RemoveRow
-							label="Remove column"
+							label="Remove Column"
 							onClick={() => args.removeColumn(column.uuid)}
 						/>
 					</>
@@ -447,7 +447,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			if (input === undefined) return null;
 			return {
 				kicker: `Search field ${index + 1} of ${config.searchInputs.length}`,
-				title: input.label || input.name || "Untitled field",
+				title: input.label || input.name || "Untitled Field",
 				body: (
 					<SearchInputEditor
 						value={input}
@@ -522,8 +522,8 @@ const TAB_DEFS: ReadonlyArray<{
 	label: string;
 }> = [
 	{ id: "search", icon: tablerSearch, label: "Search" },
-	{ id: "list", icon: tablerListDetails, label: "Case list" },
-	{ id: "detail", icon: tablerId, label: "Case detail" },
+	{ id: "list", icon: tablerListDetails, label: "Case List" },
+	{ id: "detail", icon: tablerId, label: "Case Detail" },
 ];
 
 /**
