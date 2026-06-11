@@ -5,16 +5,15 @@
  * so BuilderLayout doesn't need to.
  *
  * This component is the layout-level rendering boundary: sidebar
- * toggle animations, reopen buttons, and width transitions all happen
- * here without cascading to the parent or to the preview/chat content.
+ * toggle animations, the collapsed icon rails on both edges, and width
+ * transitions all happen here without cascading to the parent or to
+ * the preview/chat content.
  *
  * Children (PreviewShell, CursorModeSelector, GenerationProgress) are
  * self-sufficient — they subscribe to their own state from the store.
  * This component only controls mount/unmount and animation wrappers.
  */
 "use client";
-import { Icon } from "@iconify/react/offline";
-import tablerMessageChatbot from "@iconify-icons/tabler/message-chatbot";
 import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { AppTreeRail } from "@/components/builder/appTree/AppTreeRail";
@@ -22,10 +21,10 @@ import { CursorModeSelector } from "@/components/builder/CursorModeSelector";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
 import { ChatContainer } from "@/components/chat/ChatContainer";
+import { ChatRail } from "@/components/chat/ChatRail";
 import { CHAT_SIDEBAR_WIDTH } from "@/components/chat/ChatSidebar";
 import { PreviewShell } from "@/components/preview/PreviewShell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
@@ -43,11 +42,12 @@ import { INSPECTOR_RAIL_WIDTH, useInspectorActive } from "@/lib/ui/inspector";
 /** Shared sidebar open/close animation config. */
 const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const;
 
-/** Width of the structure sidebar in pixels (w-80). */
-const STRUCTURE_SIDEBAR_WIDTH = 384;
+/** Width of the structure sidebar in pixels (w-88). */
+const STRUCTURE_SIDEBAR_WIDTH = 352;
 
-/** Width of the collapsed structure icon rail in pixels (w-14). */
-const STRUCTURE_RAIL_WIDTH = 56;
+/** Width of the collapsed icon rails (w-14) — structure and chat
+ *  share it, so the two edges read as one system. */
+const COLLAPSED_RAIL_WIDTH = 56;
 
 /** Height of the glassmorphic cursor mode pill (top-2.5 + py-1.5 + 34px control + py-1.5).
  *  Used as top inset on PreviewShell so content starts below the overlay. */
@@ -133,7 +133,7 @@ export function BuilderContentArea({
 						animate={{
 							width: structureOpen
 								? STRUCTURE_SIDEBAR_WIDTH
-								: STRUCTURE_RAIL_WIDTH,
+								: COLLAPSED_RAIL_WIDTH,
 						}}
 						exit={{ width: 0 }}
 						transition={SIDEBAR_TRANSITION}
@@ -158,31 +158,6 @@ export function BuilderContentArea({
 						exit={{ opacity: 0 }}
 						transition={{ duration: 0.3, delay: 0.15 }}
 					>
-						{/* Floating reopen button for the collapsed chat sidebar.
-						 *  Hidden in pointer mode — sidebars are force-closed for
-						 *  immersive testing, so an expand icon would be
-						 *  misleading. (The structure sidebar needs no floating
-						 *  button: its collapsed state is the icon rail.)
-						 *
-						 *  On case surfaces the workspace pins a sticky, near-opaque
-						 *  tab row (z-raised) across the canvas top; a top-3 button
-						 *  would sit underneath it — hidden AND click-shielded — so
-						 *  the affordance drops below the row's ~64px band there. */}
-						{cursorMode !== "pointer" && !chatOpen && !inspectorActive && (
-							<Tooltip content="Open chat" placement="left">
-								<button
-									type="button"
-									onClick={() => setSidebarOpen("chat", true)}
-									className={`absolute right-3 z-ground p-2 bg-nova-surface border border-nova-border rounded-lg hover:border-nova-border-bright transition-colors cursor-pointer ${
-										onCaseSurface ? "top-[4.5rem]" : "top-3"
-									}`}
-									aria-label="Open chat sidebar"
-								>
-									<Icon icon={tablerMessageChatbot} width="20" height="20" />
-								</button>
-							</Tooltip>
-						)}
-
 						<ErrorBoundary>
 							{isReady && hasData ? (
 								<PreviewShell
@@ -243,6 +218,31 @@ export function BuilderContentArea({
 					</ChatContainer>
 				</ErrorBoundary>
 			</motion.div>
+
+			{/* Collapsed chat = the icon rail at the right edge, the mirror
+			 *  of the structure side. The chat wrapper above stays mounted at
+			 *  width 0 (chat state survives collapse); this sibling column is
+			 *  purely the collapsed affordance. It steps aside whenever the
+			 *  inspector claims the rail (selection forces the rail open) and
+			 *  in pointer mode, where chrome is force-hidden. */}
+			<AnimatePresence initial={false}>
+				{!isCentered &&
+					hasData &&
+					cursorMode !== "pointer" &&
+					!chatOpen &&
+					!inspectorActive && (
+						<motion.div
+							key="chat-rail"
+							initial={{ width: 0 }}
+							animate={{ width: COLLAPSED_RAIL_WIDTH }}
+							exit={{ width: 0 }}
+							transition={SIDEBAR_TRANSITION}
+							className="shrink-0 overflow-hidden"
+						>
+							<ChatRail onExpand={() => setSidebarOpen("chat", true)} />
+						</motion.div>
+					)}
+			</AnimatePresence>
 		</div>
 	);
 }

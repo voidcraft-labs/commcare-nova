@@ -48,7 +48,7 @@ import {
 /** Rail width while the inspector is docked. Wider than the chat's
  *  resting width — the inspector hosts the column/predicate card
  *  editors, which need more room than a message column. */
-export const INSPECTOR_RAIL_WIDTH = 400;
+export const INSPECTOR_RAIL_WIDTH = 360;
 
 interface InspectorClaim {
 	readonly id: number;
