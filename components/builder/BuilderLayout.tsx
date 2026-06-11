@@ -13,8 +13,9 @@
  *
  * All content, data subscriptions, and interactive behavior live in
  * self-sufficient child components:
- * - BuilderSubheader — nav, breadcrumbs, undo/redo, save, export, Preview
- * - BuilderContentArea — sidebar wrappers, reopen buttons, preview, chat
+ * - BuilderHeader — logo, Preview toggle (centered), undo/redo, save,
+ *   export, account
+ * - BuilderContentArea — sidebar wrappers, breadcrumb strip, preview, chat
  * - ReplayController — replay transport bar
  * - ChatContainer — useChat lifecycle, stream effects
  * - GenerationProgress — generation stage/error/status
@@ -26,7 +27,6 @@
  * and replay mode toggle — not on messages, keystrokes, or clicks.
  */
 "use client";
-import { AnimatePresence, motion } from "motion/react";
 import {
 	useCallback,
 	useContext,
@@ -36,8 +36,8 @@ import {
 	useState,
 } from "react";
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
+import { BuilderHeader } from "@/components/builder/BuilderHeader";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
-import { BuilderSubheader } from "@/components/builder/BuilderSubheader";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
@@ -72,6 +72,10 @@ interface BuilderLayoutProps {
 	/** CommCare HQ settings read by the RSC page — drives the export
 	 *  dropdown's configured/unconfigured state and upload dialog domain. */
 	commcareSettings?: CommCareSettingsPublic;
+	/** Active impersonation info, or null/omitted when viewing as
+	 *  yourself — surfaces the banner in BuilderHeader, mirroring the
+	 *  site header. */
+	impersonating?: { userName: string; userEmail: string } | null;
 }
 
 /**
@@ -86,6 +90,7 @@ export function BuilderLayout({
 	children,
 	isExistingApp,
 	commcareSettings,
+	impersonating,
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
@@ -359,9 +364,17 @@ export function BuilderLayout({
 
 	if (phase === BuilderPhase.Loading) {
 		return (
-			<div className="h-full flex items-center justify-center">
-				<div className="animate-pulse">
-					<Logo size="md" />
+			<div className="h-full flex flex-col overflow-hidden">
+				<BuilderHeader
+					commcareConfigured={commcareConfigured}
+					commcareAvailableDomains={commcareAvailableDomains}
+					onSetPreviewing={handleSetPreviewing}
+					impersonating={impersonating ?? null}
+				/>
+				<div className="flex-1 flex items-center justify-center">
+					<div className="animate-pulse">
+						<Logo size="md" />
+					</div>
 				</div>
 			</div>
 		);
@@ -373,28 +386,14 @@ export function BuilderLayout({
 				{/* Replay controller — self-sufficient, reads/writes replay state from store */}
 				{inReplayMode && <ReplayController />}
 
-				{/* Builder subheader — self-sufficient, owns nav/breadcrumbs/undo/redo/export */}
-				<AnimatePresence>
-					{!isCentered && (
-						<motion.div
-							initial={{ opacity: 0, y: -8 }}
-							animate={{ opacity: 1, y: 0 }}
-							exit={{
-								opacity: 0,
-								y: -8,
-								transition: { duration: 0.15, ease: [0.4, 0, 0.2, 1] },
-							}}
-							transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-							className="flex items-center justify-between px-5 h-12 border-b border-nova-border shrink-0 bg-[#0c0c20]"
-						>
-							<BuilderSubheader
-								commcareConfigured={commcareConfigured}
-								commcareAvailableDomains={commcareAvailableDomains}
-								onSetPreviewing={handleSetPreviewing}
-							/>
-						</motion.div>
-					)}
-				</AnimatePresence>
+				{/* Builder header — logo, centered Preview toggle, doc tools, account.
+				 *  Always rendered: it replaces the site AppHeader inside /build. */}
+				<BuilderHeader
+					commcareConfigured={commcareConfigured}
+					commcareAvailableDomains={commcareAvailableDomains}
+					onSetPreviewing={handleSetPreviewing}
+					impersonating={impersonating ?? null}
+				/>
 
 				{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
 				<BuilderContentArea

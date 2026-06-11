@@ -17,6 +17,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { AppTreeRail } from "@/components/builder/appTree/AppTreeRail";
+import { BreadcrumbStrip } from "@/components/builder/BreadcrumbStrip";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
 import { ChatContainer } from "@/components/chat/ChatContainer";
@@ -128,15 +129,22 @@ export function BuilderContentArea({
 			<AnimatePresence>
 				{!isCentered && (
 					<motion.div
-						className="flex-1 overflow-hidden relative"
+						className="flex-1 overflow-hidden relative flex flex-col"
 						initial={{ opacity: 0 }}
 						animate={{ opacity: 1 }}
 						exit={{ opacity: 0 }}
 						transition={{ duration: 0.3, delay: 0.15 }}
 					>
+						{/* Breadcrumb strip — wayfinding lives in the canvas column,
+						 *  not the header, so the sidebars bound its width and a long
+						 *  trail collapses instead of reaching the centered Preview
+						 *  toggle. */}
+						{isReady && hasData && <BreadcrumbStrip />}
 						<ErrorBoundary>
 							{isReady && hasData ? (
-								<PreviewShell hideHeader onBack={() => navigate.back()} />
+								<div className="flex-1 min-h-0">
+									<PreviewShell hideHeader onBack={() => navigate.back()} />
+								</div>
 							) : null}
 						</ErrorBoundary>
 

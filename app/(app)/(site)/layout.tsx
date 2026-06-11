@@ -1,0 +1,42 @@
+/**
+ * Site layout — the global AppHeader for every non-builder surface
+ * (app list, admin, settings, consent).
+ *
+ * The builder is deliberately OUTSIDE this group: it renders its own
+ * chrome (`BuilderHeader`) with the document tools and the Preview
+ * toggle, so it doesn't carry the site nav (Apps/Admin links, Docs,
+ * Give Feedback) that has no job mid-build. Splitting at the route
+ * group keeps the suppression structural — no pathname checks.
+ */
+import { AppHeader } from "@/components/ui/AppHeader";
+import { getSession } from "@/lib/auth-utils";
+
+export default async function SiteLayout({
+	children,
+}: {
+	children: React.ReactNode;
+}) {
+	const session = await getSession();
+	/* Impersonated sessions are blocked from admin routes, so hide the nav link. */
+	const isAdmin =
+		session?.user?.role === "admin" && !session?.session?.impersonatedBy;
+
+	/* During impersonation, session.user is the target — pass their
+	 * identity so the header banner shows who is being viewed. */
+	const impersonating = session?.session?.impersonatedBy
+		? { userName: session.user.name, userEmail: session.user.email }
+		: null;
+
+	return (
+		<>
+			<AppHeader
+				isAdmin={isAdmin}
+				isAuthenticated={!!session}
+				impersonating={impersonating}
+			/>
+			<div id="main-content" className="flex-1 overflow-auto">
+				{children}
+			</div>
+		</>
+	);
+}

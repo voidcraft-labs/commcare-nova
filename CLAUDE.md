@@ -53,11 +53,11 @@ One Cloud Run service serves three hostnames, separated by `proxy.ts` on the `Ho
 
 ### Route groups
 
-- `(app)/` — authenticated builder; owns `getSession()`, header, providers.
+- `(app)/` — authenticated app shell (providers, toasts, noise). Chrome splits one level down: `(app)/(site)/` renders the global AppHeader for the app list / admin / settings; `(app)/build/` renders its own BuilderHeader (logo, centered Preview toggle, doc tools) — the builder never carries the site nav, and the split is structural, not a pathname check.
 - `(docs)/docs/` — public docs; never reads the session; forced dynamic so the per-request CSP nonce stamps onto inline RSC chunks (SSG would bake them nonceless and strict-dynamic CSP would kill hydration). Docs are product surface: when a change alters what users see or do, the docs move with it.
 - `(dev-only)/` — dev-only test pages gated by `NODE_ENV` in their own layout.
 
-Root `app/layout.tsx` stays minimal (html/body/fonts/CSS). Anything calling `getSession()` belongs in `(app)/layout.tsx` so public surfaces don't pay for session lookups.
+Root `app/layout.tsx` stays minimal (html/body/fonts/CSS). Anything calling `getSession()` belongs under `(app)/` so public surfaces don't pay for session lookups.
 
 ### Single agent, two endpoints
 
