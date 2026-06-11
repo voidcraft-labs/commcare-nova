@@ -8,19 +8,25 @@ import type { ConnectConfig, ConnectType, XPathExpression } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 
 /**
- * The staging step of the app-level Connect enable flow. Enabling
- * Connect (or switching its mode) commits as ONE batch — `setConnectType`
- * plus every form's connect block — and the commit gate rejects a flip
- * that leaves any form without its block. Forms whose block the session
- * stash already holds restore silently; this dialog collects the rest
- * FROM THE USER before anything commits. Nothing is pre-filled: a
- * Connect block's name and description are content the user writes, not
- * placeholders Nova invents.
+ * The staging step of the Connect enable flows. Enabling Connect (or
+ * switching its mode) commits as ONE batch — `setConnectType` plus each
+ * participating form's connect block — and the commit gate rejects a
+ * flip that leaves the app with no participating form. Participation is
+ * per form: a connect block opts the form INTO Connect; a form left
+ * without one stays auxiliary and needs nothing. Forms whose block the
+ * session stash already holds restore silently (they participate
+ * without appearing here); this dialog collects the rest FROM THE USER
+ * before anything commits. Nothing is pre-filled: a Connect block's
+ * name and description are content the user writes, not placeholders
+ * Nova invents.
  *
  * Per form, the user opts into the mode's sub-configs (learn: Learn
  * module / Assessment; deliver: Deliver unit / Task) and fills each
- * enabled one's fields. The confirm button stays disabled until every
- * form carries at least one complete sub-config — the same bar the
+ * enabled one's fields. Turning on a sub-config is what picks the form
+ * as participating; a form with none enabled is simply left out of the
+ * commit. The confirm button stays disabled until every enabled
+ * sub-config is complete AND at least one form participates (counting
+ * the stash-restored ones via `restoredFormCount`) — the same bar the
  * commit gate holds, surfaced before the commit instead of as a bounce.
  * Connect ids are not collected here: the commit path autofills valid,
  * app-unique ids the same way agent-side creation does.
@@ -68,27 +74,33 @@ export function parseTimeEstimate(raw: string): number | null {
 	return Number.isInteger(n) && n >= 1 ? n : null;
 }
 
-/** Whether one draft satisfies the gate's bar for `mode`: at least one
- *  sub-config enabled, and every enabled sub-config complete. An enabled
+/** Whether one draft PARTICIPATES: at least one sub-config is enabled.
+ *  A draft with none stays auxiliary and is left out of the commit. */
+function draftParticipates(draft: BlockDraft, mode: ConnectType): boolean {
+	return mode === "learn"
+		? draft.learnOn || draft.assessmentOn
+		: draft.deliverOn || draft.taskOn;
+}
+
+/** Whether every ENABLED sub-config in one draft is complete. An enabled
  *  assessment is always complete — its `user_score` is optional content
- *  (the wire layer substitutes the canonical default when unset). */
-function draftComplete(draft: BlockDraft, mode: ConnectType): boolean {
+ *  (the wire layer substitutes the canonical default when unset). A
+ *  draft with nothing enabled is trivially complete (it participates in
+ *  nothing). */
+function draftSectionsComplete(draft: BlockDraft, mode: ConnectType): boolean {
 	if (mode === "learn") {
 		const learnOk =
 			draft.learnName.trim().length > 0 &&
 			draft.learnDescription.trim().length > 0 &&
 			parseTimeEstimate(draft.learnTimeEstimate) !== null;
-		const enabledAreComplete = !draft.learnOn || learnOk;
-		return (draft.learnOn || draft.assessmentOn) && enabledAreComplete;
+		return !draft.learnOn || learnOk;
 	}
 	const unitOk = draft.deliverOn && draft.deliverName.trim().length > 0;
 	const taskOk =
 		draft.taskOn &&
 		draft.taskName.trim().length > 0 &&
 		draft.taskDescription.trim().length > 0;
-	const enabledAreComplete =
-		(!draft.deliverOn || unitOk) && (!draft.taskOn || taskOk);
-	return (draft.deliverOn || draft.taskOn) && enabledAreComplete;
+	return (!draft.deliverOn || unitOk) && (!draft.taskOn || taskOk);
 }
 
 /** Lower a complete draft to the `ConnectConfig` the commit path lands.
@@ -224,12 +236,17 @@ function SubConfigCard({
 export function ConnectEnableDialog({
 	mode,
 	targets,
+	restoredFormCount,
 	rejectionMessages,
 	onCancel,
 	onConfirm,
 }: {
 	mode: ConnectType;
 	targets: readonly ConnectStagingTarget[];
+	/** Forms whose block restores silently from the session stash — they
+	 *  participate without appearing in this dialog, so they count toward
+	 *  the at-least-one-participating-form bar the confirm enforces. */
+	restoredFormCount: number;
 	/** Findings from a confirm attempt the commit gate bounced — shown
 	 *  inline so the dialog explains itself without relying on the toast. */
 	rejectionMessages: readonly string[];
@@ -252,23 +269,35 @@ export function ConnectEnableDialog({
 		[],
 	);
 
-	const allComplete = targets.every((t) =>
-		draftComplete(drafts[t.formUuid] ?? EMPTY_DRAFT, mode),
+	const sectionsComplete = targets.every((t) =>
+		draftSectionsComplete(drafts[t.formUuid] ?? EMPTY_DRAFT, mode),
 	);
+	const participatingCount =
+		restoredFormCount +
+		targets.filter((t) =>
+			draftParticipates(drafts[t.formUuid] ?? EMPTY_DRAFT, mode),
+		).length;
+	const canConfirm = sectionsComplete && participatingCount >= 1;
 
 	const docApi = useBlueprintDocApi();
 	const confirm = () => {
 		// Each block's authored XPath resolves against ITS form, at the
-		// moment of the commit.
+		// moment of the commit. Non-participating forms are left out of the
+		// payload entirely — an empty block landing on them would read as a
+		// malformed participation claim, not as staying auxiliary.
 		const doc = docApi.getState();
 		onConfirm(
 			Object.fromEntries(
-				targets.map((t) => [
-					t.formUuid,
-					draftToConfig(drafts[t.formUuid] ?? EMPTY_DRAFT, mode, (text) =>
-						parseXPathForForm(doc, asUuid(t.formUuid), text),
-					),
-				]),
+				targets
+					.filter((t) =>
+						draftParticipates(drafts[t.formUuid] ?? EMPTY_DRAFT, mode),
+					)
+					.map((t) => [
+						t.formUuid,
+						draftToConfig(drafts[t.formUuid] ?? EMPTY_DRAFT, mode, (text) =>
+							parseXPathForForm(doc, asUuid(t.formUuid), text),
+						),
+					]),
 			),
 		);
 	};
@@ -312,12 +341,9 @@ export function ConnectEnableDialog({
 							Set up Connect {mode === "learn" ? "Learn" : "Deliver"}
 						</h3>
 						<p className="text-xs text-nova-text-secondary">
-							Every form in a Connect app carries its own Connect settings, and
-							they all turn on together. Fill in the{" "}
-							{targets.length === 1
-								? "form below"
-								: `${targets.length} forms below`}{" "}
-							to finish enabling.
+							{targets.length === 1 && restoredFormCount === 0
+								? "Turn on a section below and fill it in to make this form part of Connect."
+								: "Pick which forms take part in Connect by turning on their sections and filling them in. Forms you leave off stay out of Connect and need nothing — you can add them later from each form's settings."}
 						</p>
 					</div>
 
@@ -443,9 +469,11 @@ export function ConnectEnableDialog({
 						)}
 						<div className="flex items-center justify-between gap-2">
 							<span className="text-[10px] text-nova-text-muted">
-								{allComplete
-									? "Everything is filled in."
-									: "Each form needs at least one complete section."}
+								{!sectionsComplete
+									? "Finish the sections you've turned on."
+									: participatingCount < 1
+										? "Turn on a section for at least one form — a Connect app needs at least one participating form."
+										: "Ready to enable."}
 							</span>
 							<div className="flex gap-2">
 								<button
@@ -458,7 +486,7 @@ export function ConnectEnableDialog({
 								<button
 									type="button"
 									onClick={confirm}
-									disabled={!allComplete}
+									disabled={!canConfirm}
 									className="px-3 py-1.5 text-xs font-medium rounded-lg bg-nova-violet text-white transition-colors enabled:hover:brightness-110 enabled:cursor-pointer disabled:opacity-40"
 								>
 									Enable Connect

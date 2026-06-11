@@ -90,9 +90,9 @@ export function useSetSidebarOpen(): (
 // ── Connect stash ────────────────────────────────────────────────────────
 
 /** Composite action: switch the app-level connect mode — one gated batch
- *  (`setConnectType` + every form's block), stash lifecycle included.
- *  Returns the commit outcome so the caller's UI can react to a
- *  rejection. See `BuilderSessionState.switchConnectMode`. */
+ *  (`setConnectType` + each participating form's block), stash lifecycle
+ *  included. Returns the commit outcome so the caller's UI can react to
+ *  a rejection. See `BuilderSessionState.switchConnectMode`. */
 export function useSwitchConnectMode(): (
 	type: ConnectType | null | undefined,
 	stagedBlocks?: Record<string, ConnectConfig>,

@@ -286,6 +286,26 @@ describe("BuilderSession connect stash", () => {
 		expect(session.getState().connectStash.deliver).toEqual({});
 	});
 
+	it("1b. a partial staging commits — unpicked forms stay auxiliary (no block, no finding)", () => {
+		/* Participation is per form: the enable flow stages blocks only for
+		 * the forms the user picked, and the flip is legal as long as at
+		 * least one form participates. */
+		const { session, doc, formA, formB } = createConnectTestStores();
+
+		const outcome = session.getState().switchConnectMode("learn", {
+			[formA]: {
+				learn_module: { name: "Form A", description: "desc", time_estimate: 5 },
+			},
+		});
+
+		expect(outcome.ok).toBe(true);
+		expect(doc.getState().connectType).toBe("learn");
+		expect(doc.getState().forms[formA]?.connect?.learn_module?.name).toBe(
+			"Form A",
+		);
+		expect(doc.getState().forms[formB]?.connect).toBeUndefined();
+	});
+
 	it("2. switching learn->deliver stashes the learn configs and lands the staged deliver blocks", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 		session
@@ -423,8 +443,8 @@ describe("BuilderSession connect stash", () => {
 	it("9. an app with ZERO forms enables Connect as the bare type flip — nothing to stage", () => {
 		/* An MCP-born empty app is complete and opens in the builder; its
 		 * Connect toggle must work like the SA's `updateApp` flip on the
-		 * same empty app (no forms means no missing-block finding for the
-		 * gate to introduce), not silently no-op. */
+		 * same empty app (the participation floor binds only once forms
+		 * exist), not silently no-op. */
 		const docStore = createBlueprintDocStore();
 		docStore
 			.getState()

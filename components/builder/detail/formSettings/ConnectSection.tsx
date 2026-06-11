@@ -13,7 +13,7 @@ import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
-import { useFormConnectStash } from "@/lib/session/hooks";
+import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
 import { DeliverConfig } from "./DeliverConfig";
 import { LearnConfig } from "./LearnConfig";
 import type { FormSettingsSectionProps } from "./types";
@@ -22,14 +22,14 @@ import type { FormSettingsSectionProps } from "./types";
  * Connect-mode configuration section — only rendered when the app has a
  * connect type set. Owns:
  *
- * 1. The per-form Connect toggle. Its OFF direction is permanently
- *    closed on a Connect-typed app: every form must carry its block, so
- *    removing one introduces a finding the gate rejects — the toggle
- *    renders DISABLED with that reason rather than as a live control
- *    that always bounces (disable Connect for the whole app in App
- *    Settings instead). The ON direction stays live for a form that's
- *    missing its block (a doc persisted before the per-form obligation):
- *    a block stashed by an app-level mode switch restores silently — it
+ * 1. The per-form Connect PARTICIPATION toggle. A connect block opts the
+ *    form into Connect; a form without one is auxiliary and ships
+ *    nothing Connect-side, so both directions are ordinary gated edits.
+ *    OFF stashes the block (the user's work survives a round-trip) and
+ *    clears it — legal unless this is the app's LAST participating form,
+ *    in which case the gate bounces with the app-level finding naming
+ *    the alternatives (make another form participate, or turn Connect
+ *    off for the whole app). ON restores a stashed block silently — it
  *    is the user's own prior work — and otherwise the same
  *    collect-before-commit dialog the app-level enable flow uses gathers
  *    this one form's block FROM THE USER. Nothing is pre-filled: a
@@ -63,9 +63,10 @@ export function ConnectSection({
 		{ rejectionMessages: string[] } | undefined
 	>();
 
-	/* Session stash read — a block stashed by an app-level mode switch
-	 * restores here when the user re-adds a missing form's block. */
+	/* Session stash — a block stashed here (or by an app-level mode
+	 * switch) restores when the user toggles participation back on. */
 	const stashedConfig = useFormConnectStash(connectType ?? "learn", formUuid);
+	const stashFormConnect = useStashFormConnect();
 
 	const save = useCallback(
 		(config: ConnectConfig | null) => {
@@ -79,9 +80,21 @@ export function ConnectSection({
 	);
 
 	const toggle = useCallback(() => {
-		/* The OFF direction never reaches here — the toggle renders
-		 * disabled while a block is present (see the JSX below). */
-		if (enabled || !connectType) return;
+		if (!connectType) return;
+
+		if (enabled) {
+			// Toggle-off: an ordinary gated edit. Removing the app's LAST
+			// participating form's block bounces with the app-level finding
+			// (surfaced by the standard rejection toast); otherwise the form
+			// simply stops participating. The block is stashed only after
+			// the commit lands so toggling back on restores the user's work.
+			const removed = connect;
+			const outcome = save(null);
+			if (outcome.ok && removed) {
+				stashFormConnect(connectType, formUuid, removed);
+			}
+			return;
+		}
 
 		// Toggle-on. A stashed config is the user's own prior work for this
 		// mode — restore it through `dedupeRestoredConnectIds`, the single
@@ -103,8 +116,10 @@ export function ConnectSection({
 		setStaging({ rejectionMessages: [] });
 	}, [
 		enabled,
+		connect,
 		connectType,
 		stashedConfig,
+		stashFormConnect,
 		mod,
 		form,
 		formUuid,
@@ -157,19 +172,8 @@ export function ConnectSection({
 						{connectType}
 					</span>
 				</div>
-				<Toggle
-					enabled={enabled}
-					onToggle={toggle}
-					disabled={enabled}
-					disabledReason="Every form in a Connect app carries its Connect settings. To turn Connect off, switch it off for the whole app in App Settings."
-				/>
+				<Toggle enabled={enabled} onToggle={toggle} />
 			</div>
-			{enabled && (
-				<p className="pt-1.5 text-[10px] leading-snug text-nova-text-muted">
-					Every form in a Connect app keeps its Connect settings — turn Connect
-					off for the whole app in App Settings.
-				</p>
-			)}
 
 			<AnimatePresence>
 				{connect && (
@@ -209,6 +213,7 @@ export function ConnectSection({
 				<ConnectEnableDialog
 					mode={connectType}
 					targets={stagingTargets}
+					restoredFormCount={0}
 					rejectionMessages={staging.rejectionMessages}
 					onCancel={() => setStaging(undefined)}
 					onConfirm={confirmStaging}

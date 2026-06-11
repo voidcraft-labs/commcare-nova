@@ -23,18 +23,22 @@ import {
  *     the per-form work for a later re-enable).
  *   - Toggle on (and the learn / deliver pills) runs the STAGED enable
  *     flow: Connect lands as one atomic batch — `setConnectType` plus
- *     every form's connect block — so before anything commits, the flow
- *     restores each form's stashed block and collects the rest from the
- *     user in `ConnectEnableDialog`. Only when every form's block is in
- *     hand does the single gated commit run.
+ *     each participating form's connect block — so before anything
+ *     commits, the flow restores each form's stashed block and lets the
+ *     user pick which remaining forms participate (and fill their
+ *     blocks) in `ConnectEnableDialog`. Forms left unpicked stay
+ *     auxiliary and need nothing; the gate only insists at least one
+ *     form participates.
  */
 
-/** The in-flight enable request: the resolved mode, the forms whose
- *  blocks the user still has to write, and any gate findings from a
- *  bounced confirm. */
+/** The in-flight enable request: the resolved mode, the forms the stash
+ *  doesn't cover (the user picks which of them participate), how many
+ *  forms restore from the stash (they participate without appearing in
+ *  the dialog), and any gate findings from a bounced confirm. */
 interface StagingState {
 	mode: ConnectType;
 	targets: ConnectStagingTarget[];
+	restoredFormCount: number;
 	rejectionMessages: string[];
 }
 
@@ -49,16 +53,21 @@ export function AppConnectSection() {
 
 	/** Enable Connect in `target` mode (or the last-used mode). Commits
 	 *  directly when the stash covers every form; otherwise opens the
-	 *  staging dialog to collect the uncovered forms' blocks first. */
+	 *  staging dialog so the user picks which uncovered forms participate
+	 *  and fills their blocks. */
 	const requestMode = useCallback(
 		(target: ConnectType | undefined) => {
 			const mode = target ?? lastConnectType ?? "learn";
 			const doc = docApi.getState();
 			const stash = sessionApi.getState().connectStash[mode] ?? {};
 			const targets: ConnectStagingTarget[] = [];
+			let restoredFormCount = 0;
 			for (const moduleUuid of doc.moduleOrder) {
 				for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-					if (stash[formUuid]) continue;
+					if (stash[formUuid]) {
+						restoredFormCount++;
+						continue;
+					}
 					targets.push({
 						formUuid,
 						formName: doc.forms[formUuid]?.name ?? "",
@@ -72,7 +81,7 @@ export function AppConnectSection() {
 				switchMode(mode);
 				return;
 			}
-			setStaging({ mode, targets, rejectionMessages: [] });
+			setStaging({ mode, targets, restoredFormCount, rejectionMessages: [] });
 		},
 		[lastConnectType, docApi, sessionApi, switchMode],
 	);
@@ -162,6 +171,7 @@ export function AppConnectSection() {
 				<ConnectEnableDialog
 					mode={staging.mode}
 					targets={staging.targets}
+					restoredFormCount={staging.restoredFormCount}
 					rejectionMessages={staging.rejectionMessages}
 					onCancel={() => setStaging(undefined)}
 					onConfirm={confirmStaging}

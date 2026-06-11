@@ -255,15 +255,18 @@ export interface BuilderSessionState {
 	// ── Connect stash actions ────────────────────────────────────────────
 
 	/** Switch the app-level connect mode, or toggle it off/on — ONE gated
-	 *  batch: `setConnectType` plus every form's connect block.
+	 *  batch: `setConnectType` plus each participating form's connect
+	 *  block.
 	 *
 	 *  Passing a mode (`'learn'` or `'deliver'`) enables that mode — stashing
 	 *  the outgoing mode's form configs, restoring the incoming mode's stash,
-	 *  and landing the caller-collected `stagedBlocks` on forms the stash
-	 *  doesn't cover (the enable flow collects those from the user BEFORE
-	 *  anything commits — see `AppConnectSection`). Every incoming block
-	 *  routes through `dedupeRestoredConnectIds` under one accumulating id
-	 *  scope, so two forms can't land the same slug in one flip.
+	 *  and landing the caller-collected `stagedBlocks` on the forms the user
+	 *  picked as participating (the enable flow collects those BEFORE
+	 *  anything commits — see `AppConnectSection`). Forms with neither a
+	 *  stashed nor a staged block stay auxiliary — they carry no block and
+	 *  need nothing. Every incoming block routes through
+	 *  `dedupeRestoredConnectIds` under one accumulating id scope, so two
+	 *  forms can't land the same slug in one flip.
 	 *
 	 *  Passing `null` disables Connect entirely (always valid — standard
 	 *  apps need no blocks; the stash preserves the work). Passing
@@ -271,10 +274,10 @@ export interface BuilderSessionState {
 	 *  back to `'learn'`).
 	 *
 	 *  The whole batch runs the shared commit verdict before anything
-	 *  dispatches — a flip that would leave any form without its block is
-	 *  rejected (findings surfaced via the rejection toast, returned in the
-	 *  outcome) and the doc + stash stay untouched. A pass commits as one
-	 *  undo entry. */
+	 *  dispatches — a flip that would leave the app with NO participating
+	 *  form is rejected (findings surfaced via the rejection toast,
+	 *  returned in the outcome) and the doc + stash stay untouched. A pass
+	 *  commits as one undo entry. */
 	switchConnectMode: (
 		type: ConnectType | null | undefined,
 		stagedBlocks?: Record<string, ConnectConfig>,
@@ -556,9 +559,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const docState = docStoreRef.getState();
 					/* An app with zero forms has nothing to stage or stash — the
 					 * walks below collect no form mutations and the batch is the
-					 * bare `setConnectType` flip, which the gate passes (no forms
-					 * means no missing-block finding to introduce). The same flip
-					 * the SA's `updateApp` lands on an empty app. */
+					 * bare `setConnectType` flip, which the gate passes (the
+					 * participation floor binds only once forms exist). The same
+					 * flip the SA's `updateApp` lands on an empty app. */
 
 					const currentType = (docState.connectType ?? undefined) as
 						| ConnectType
@@ -591,9 +594,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					];
 
 					if (resolved) {
-						/* Land each form's incoming-mode block AND clear any
-						 * outgoing-mode block with no incoming config. Walk every
-						 * form once with three cases:
+						/* Land each participating form's incoming-mode block AND
+						 * clear any outgoing-mode block with no incoming config.
+						 * Walk every form once with three cases:
 						 *   - in the incoming stash, or covered by a caller-staged
 						 *     block → land that config (stash wins — it is the
 						 *     user's prior work for this mode);
@@ -601,7 +604,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						 *     it (a stray from the outgoing mode; the outgoing
 						 *     config was already stashed above, so switch-back
 						 *     recovers it — no work lost);
-						 *   - otherwise → no mutation.
+						 *   - otherwise → no mutation (the form stays auxiliary —
+						 *     a Connect app's forms participate per form, not
+						 *     wholesale).
 						 * Every incoming config routes through the shared
 						 * `dedupeRestoredConnectIds` under ONE accumulating id
 						 * scope: a stashed id another form claimed while the mode
@@ -670,10 +675,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					}
 
 					/* The shared commit verdict — the same gate every other write
-					 * surface runs. A flip that would leave a form without its
-					 * block (or land any other finding) rejects with NOTHING
-					 * dispatched: the doc and the stash stay exactly as they were,
-					 * and the findings surface as the standard rejection toast. */
+					 * surface runs. A flip that would leave the app with no
+					 * participating form (or land any other finding) rejects with
+					 * NOTHING dispatched: the doc and the stash stay exactly as
+					 * they were, and the findings surface as the standard
+					 * rejection toast. */
 					const verdict = mutationCommitVerdict(docState, mutations);
 					if (!verdict.ok) {
 						notifyRejectedCommit(verdict.introduced);
