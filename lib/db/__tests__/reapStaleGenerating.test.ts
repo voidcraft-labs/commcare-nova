@@ -239,6 +239,27 @@ describe("claimBuildRun", () => {
 		expect(payload).not.toHaveProperty("reservation");
 	});
 
+	it("leaves a displaced PAUSED run's unsettled marker untouched — it is a live hold, not a kept charge", async () => {
+		// The displaced paused run is restorable-ALIVE: a bail-out re-flags
+		// it, a later free continuation resumes it, and a failed resume
+		// refunds off exactly this marker (the route's post-flush
+		// `refundReservation`). Settling it here would foreclose that refund.
+		txGetMock.mockResolvedValue(
+			snapshotWith({
+				status: "generating",
+				awaiting_input: true,
+				reservation: { period: "2026-05", reserved: 100, settled: false },
+			}),
+		);
+		const { claimBuildRun } = await import("../apps");
+		const claim = await claimBuildRun("app-1");
+
+		expect(claim).toEqual({ from: "paused" });
+		const [, payload] = txUpdateMock.mock.calls[0];
+		expect(payload).not.toHaveProperty("reservation");
+		expect(txSetMock).not.toHaveBeenCalled();
+	});
+
 	it("claims a build PAUSED on questions, clearing the pause flag in the same transaction", async () => {
 		// A paused build (`generating` + `awaiting_input`) has no live
 		// process — a fresh chargeable instruction may take over its window.

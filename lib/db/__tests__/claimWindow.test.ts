@@ -151,4 +151,47 @@ describe("claim window — kept charges survive a hard kill; live holds still re
 			settled: true,
 		});
 	});
+
+	it("a displaced-then-restored PAUSED run's failed resume still refunds in full", async () => {
+		// The paused arm must NOT settle the displaced marker: it is the LIVE
+		// hold an earlier chargeable POST booked, and the route's failure
+		// funnel reads it back when a resume of the restored run fails. This
+		// drives that whole life: claim displaces the paused run, a bail-out
+		// restores the pause, a free continuation resumes it and fails, and
+		// the refund lands in full off the original marker.
+		const { claimBuildRun, setAwaitingInput } = await import("../apps");
+		const { refundReservation } = await import("../credits");
+
+		seedDoc(APP, {
+			owner: "user-1",
+			status: "generating",
+			awaiting_input: true,
+			error_type: null,
+			reservation: { period: PERIOD, reserved: 100, settled: false },
+		});
+
+		const claim = await claimBuildRun("app-1");
+		expect(claim).toEqual({ from: "paused" });
+		// The live hold survived the claim untouched.
+		expect(readDoc(APP)?.reservation).toEqual({
+			period: PERIOD,
+			reserved: 100,
+			settled: false,
+		});
+
+		/* Pre-stream bail-out — the route restores the pause. */
+		await setAwaitingInput("app-1", true);
+		expect(readDoc(APP)).toMatchObject({ awaiting_input: true });
+
+		/* A later free continuation resumes the run and FAILS — the failure
+		 * funnel's post-flush refund reads the hold off the marker. */
+		await refundReservation("app-1");
+
+		expect(readDoc(CREDITS)).toMatchObject({ consumed: 0 });
+		expect(readDoc(APP)?.reservation).toEqual({
+			period: PERIOD,
+			reserved: 100,
+			settled: true,
+		});
+	});
 });

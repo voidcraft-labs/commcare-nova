@@ -705,16 +705,24 @@ export type ClaimedBuildRun =
  * that IS the shape the reaper would have left for a bail-out to
  * restore.
  *
- * The claim also SETTLES the displaced run's reservation marker. Every
- * shape it displaces has already resolved its charge — `complete` kept
- * it, `error` was refunded (refund settles), a paused run kept it (the
- * pause policy), and the stale arm refunds it right here — so the
- * marker must read settled the moment the row flips: between this claim
- * and the new run's `reserveCredits` (which overwrites the marker with
- * its own fresh, unsettled one), a hard kill or a dropped bail-out
- * restore leaves a `generating` row the reaper WILL reap, and an
- * unsettled leftover marker there would hand back a charge that was
- * kept.
+ * The claim also SETTLES the displaced run's reservation marker —
+ * EXCEPT when it displaces a paused run. The settle exists for the
+ * `complete` arm's kept charge: between this claim and the new run's
+ * `reserveCredits` (which overwrites the marker with its own fresh,
+ * unsettled one), a hard kill or a dropped bail-out restore leaves a
+ * `generating` row the reaper WILL reap, and an unsettled leftover
+ * marker there would hand back a charge that was kept. An `error` row's
+ * marker is already settled (its refund settled it) and the stale arm
+ * settles via its own in-transaction refund. A PAUSED run's marker must
+ * stay untouched: the displaced run is restorable-ALIVE — a bail-out
+ * re-flags it, a later free continuation resumes it, and the chat
+ * route's failure funnel refunds that run's hold OFF THIS MARKER (the
+ * post-flush `refundReservation`: an earlier chargeable POST booked the
+ * hold, the failing continuation reads it back). Settling here would
+ * foreclose a refund the finalization invariant owes. The cost: a hard
+ * kill inside THIS claim's window over a paused displacement reaps with
+ * a refund of the paused run's hold — acceptable, since the run that
+ * hold charged never finished.
  *
  * Returns the shape the claim moved the app out of, for bail-out
  * restoration (see `ClaimedBuildRun`).
@@ -781,10 +789,14 @@ export async function claimBuildRun(appId: string): Promise<ClaimedBuildRun> {
 			error_type: null,
 			awaiting_input: false,
 			updated_at: FieldValue.serverTimestamp(),
-			/* Settle the displaced run's marker (see the docblock). Left
-			 * untouched when already settled or absent — `reserveCredits`
-			 * writes the new run's marker fresh either way. */
-			...(fresh.reservation && !fresh.reservation.settled
+			/* Settle the displaced run's marker (see the docblock) — except a
+			 * paused run's, which is a LIVE hold the resumed run's failure
+			 * funnel must still refund. Left untouched when already settled
+			 * or absent — `reserveCredits` writes the new run's marker fresh
+			 * either way. */
+			...(claimed.from !== "paused" &&
+			fresh.reservation &&
+			!fresh.reservation.settled
 				? { reservation: { ...fresh.reservation, settled: true } }
 				: {}),
 		});

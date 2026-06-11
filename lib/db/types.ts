@@ -326,14 +326,20 @@ export const appDocSchema = z.object({
 	 * `reapStaleGenerating`, which hand the hold back) and by `claimBuildRun`
 	 * when it displaces a finished run whose charge was KEPT. The claim-window
 	 * rule is what makes "stale `generating` + unsettled marker ⇒ refund it"
-	 * safe: a kept charge's marker stays unsettled only while its app sits at
-	 * rest (`complete` / paused — shapes the reaper never touches), and the
-	 * moment a new run claims that row back to `generating`, the claim
-	 * transaction marks the displaced marker settled-as-kept. So a `generating`
-	 * row's unsettled marker can only ever belong to the LIVE run's own charge
-	 * (re-written fresh by its `reserveCredits`), and the reaper refunding off
-	 * it can never un-book a charge a previous run kept — even when a hard kill
-	 * lands between the claim and the new reservation. `reserved` is the exact
+	 * safe: a KEPT charge's marker stays unsettled only while its app sits at
+	 * `complete` — a shape the reaper never touches — and the moment a new run
+	 * claims that row back to `generating`, the claim transaction marks the
+	 * displaced marker settled-as-kept. A PAUSED run's unsettled marker is
+	 * different in kind: it is a LIVE hold, not a kept charge — the run is
+	 * alive (spared from the reaper by the `awaiting_input` flag, never by
+	 * settlement), and a failed resume of it refunds off this marker (the chat
+	 * route's post-flush `refundReservation`) — so the claim deliberately
+	 * leaves it untouched when it displaces a paused run. Either way a
+	 * `generating` row's unsettled marker only ever belongs to a hold that is
+	 * still genuinely refundable (the live claim's own charge, or a
+	 * displaced-paused run's live hold), so the reaper refunding off it can
+	 * never un-book a charge a previous run kept — even when a hard kill lands
+	 * between the claim and the new reservation. `reserved` is the exact
 	 * amount to return; `period` is the month the hold actually hit (the reaper
 	 * refunds that month, not whatever month it happens to run in).
 	 *
