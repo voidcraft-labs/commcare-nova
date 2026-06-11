@@ -17,7 +17,7 @@ Same as `lib/doc`: the store is private. Consumers go through the named hooks in
 Three session fields describe "what phase is the builder in":
 
 - `events: Event[]` — the current active run's events. **Cleared at both `beginRun()` and `endRun()`**, so `events.length > 0` is itself the "a run is in progress" signal — no `agentActive` shadow flag, no mirror to drift. Live: stream dispatcher appends as `data-mutations` + `data-conversation-event` envelopes arrive. Replay: hydrator seeds + `ReplayController` replaces on scrub.
-- `runCompletedAt: number | undefined` — stamped by the dispatcher's `data-done` handler (whole-build success from `validateApp`). Cleared by `acknowledgeCompletion()` after the celebration timer. askQuestions / clarifying-text / edit-tool runs never stamp — they close silently.
+- `runCompletedAt: number | undefined` — stamped by the dispatcher's `data-done` handler (whole-build success from `completeBuild`). Cleared by `acknowledgeCompletion()` after the celebration timer. askQuestions / clarifying-text / edit-tool runs never stamp — they close silently.
 - `loading: boolean` — initial hydration flag (existing app load or replay).
 
 Run-boundary actions are orthogonal and atomic:

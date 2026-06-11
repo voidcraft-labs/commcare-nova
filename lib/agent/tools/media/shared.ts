@@ -22,7 +22,7 @@
  *
  * Asset existence is NOT checked here. The SA validation loop runs the
  * asset-context media rules (with a freshly resolved manifest) on every
- * `validateApp` pass, so a bad ref (deleted / pending / foreign-owned /
+ * `completeBuild` evaluation, so a bad ref (deleted / pending / foreign-owned /
  * kind-mismatched) surfaces with its carrier location through the same
  * rules every other media reference site uses — and the export boundary
  * gate rejects it outright. The tools persist the reference and let the

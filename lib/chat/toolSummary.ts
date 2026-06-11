@@ -39,6 +39,9 @@ const TOOL_ACTIONS: Record<string, string> = {
 	setCaseListFilter: "Set the case-list filter",
 	setCaseSearchAdvanced: "Updated advanced search",
 	setCaseSearchDisplay: "Updated the search screen",
+	completeBuild: "Finished the app",
+	// Historical threads only — the validate-fix loop is gone, but runs
+	// persisted before its retirement still carry these parts.
 	validateApp: "Validated the app",
 	searchBlueprint: "Searched the app",
 	getModule: "Inspected a module",
@@ -94,31 +97,38 @@ const outputOf = (part: ToolUIPart): MutationOutput | null => {
 		: null;
 };
 
-/** A failed `validateApp` OUTCOME: the call returns `{ success:false, errors }`.
+/** Tools whose OUTCOME is `{ success, errors? }` — `completeBuild` live,
+ *  `validateApp` on threads persisted before the fix loop's retirement. */
+const COMPLETION_TOOLS = new Set(["completeBuild", "validateApp"]);
+
+/** A refused completion OUTCOME: the call returns `{ success:false, errors }`.
  *  This is the one case where a completed tool call must read as a failure —
- *  the app didn't validate. Returns the error list, or null when not applicable.
- *  Exported so the transcript can render the list as collapsed bullets rather
- *  than dumping the joined string. */
-export const validateErrors = (part: ToolUIPart): string[] | null => {
-	if (toolName(part) !== "validateApp" || part.state !== "output-available") {
+ *  the app isn't finished. Returns the finding list, or null when not
+ *  applicable. Exported so the transcript can render the list as collapsed
+ *  bullets rather than dumping the joined string. */
+export const completionErrors = (part: ToolUIPart): string[] | null => {
+	if (
+		!COMPLETION_TOOLS.has(toolName(part)) ||
+		part.state !== "output-available"
+	) {
 		return null;
 	}
 	const out = part.output as
 		| { success?: boolean; errors?: string[] }
 		| undefined;
 	if (out?.success === false) {
-		return out.errors?.length ? out.errors : ["Validation failed."];
+		return out.errors?.length ? out.errors : ["The app isn't finished yet."];
 	}
 	return null;
 };
 
-/** Per-call status, treating a failed validateApp outcome and an `{ error }`
+/** Per-call status, treating a refused completion outcome and an `{ error }`
  *  result as failures even though the call itself executed. */
 export const toolStatus = (part: ToolUIPart): ToolStatus => {
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		return "pending";
 	}
-	if (part.state === "output-error" || validateErrors(part)) return "failed";
+	if (part.state === "output-error" || completionErrors(part)) return "failed";
 	if (outputOf(part)?.error !== undefined) return "failed";
 	return "done";
 };
@@ -143,15 +153,15 @@ export const toolAction = (part: ToolUIPart): string => {
 export const toolLocation = (part: ToolUIPart): string | null =>
 	outputOf(part)?.summary?.location ?? null;
 
-/** Secondary line beneath the action: an error to surface, validateApp's
+/** Secondary line beneath the action: an error to surface, a completion
  *  outcome, or — for a call without a structured summary (read tools, or one
  *  not yet wired) — its raw prose so nothing renders blank. Null when the
  *  action + location already say everything. */
 export const toolDetail = (part: ToolUIPart): string | null => {
-	const verrors = validateErrors(part);
-	if (verrors) return verrors.join("\n");
-	if (toolName(part) === "validateApp" && toolStatus(part) === "done") {
-		return "App successfully validated.";
+	const cerrors = completionErrors(part);
+	if (cerrors) return cerrors.join("\n");
+	if (COMPLETION_TOOLS.has(toolName(part)) && toolStatus(part) === "done") {
+		return "App complete and ready to use.";
 	}
 	// A tool that threw, or whose input the schema rejected, surfaces as
 	// `output-error` with the AI SDK's raw `errorText` (e.g. an

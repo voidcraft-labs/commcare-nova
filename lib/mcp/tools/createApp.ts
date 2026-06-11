@@ -1,6 +1,8 @@
 /**
- * `nova.create_app` — mint an empty Nova app owned by the authenticated
- * user.
+ * `nova.create_app` — mint an empty DRAFT Nova app owned by the
+ * authenticated user. The draft builds incrementally under the deferred-
+ * completeness window (exactly like a chat build); `complete_build`
+ * finishes it.
  *
  * Scope: `nova.write`.
  *
@@ -15,7 +17,7 @@
  * Run grouping: the new app doc is seeded with a freshly-minted run id.
  * Subsequent MCP tool calls that land within the sliding inactivity
  * window (see `lib/mcp/runId.ts`) read the id off the app doc and reuse
- * it, so the whole build — from creation through first `validate_app` —
+ * it, so the whole build — from creation through `complete_build` —
  * groups onto a single event-log run.
  *
  * **No event-log write on success.** `create_app` is atomic: the app
@@ -45,7 +47,7 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 		"create_app",
 		{
 			description:
-				"Create an empty Nova app owned by you. Returns the new app_id for use in subsequent tool calls.",
+				"Create an empty draft Nova app owned by you. Build it incrementally with the other tools, then call complete_build to finish it — exports stay unavailable until then. Returns the new app_id for use in subsequent tool calls.",
 			inputSchema: {
 				app_name: z
 					.string()
@@ -69,10 +71,15 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 				 * no visible way to rename. */
 				const appName = args.app_name?.trim() || undefined;
 
-				// Atomic creation — status "complete" keeps the staleness timer quiet.
+				/* MCP builds are born `draft`: the construction window
+				 * (completeness deferred per-commit) without the staleness
+				 * timer — an external agent works on its own clock, and
+				 * `draft` is outside the reaper's `generating` key, so a
+				 * slow build can never be inferred failed. `complete_build`
+				 * runs the boundary evaluation and flips it. */
 				const appId = await createApp(ctx.userId, runId, {
 					appName,
-					status: "complete",
+					status: "draft",
 				});
 				return {
 					content: [

@@ -165,6 +165,40 @@ describe("listApps", () => {
 		expect(statusById.killed).toBe("error"); // hard kill, reaped
 	});
 
+	it("never reaps or fails a stale draft — an MCP build runs on no liveness timer", async () => {
+		/* `draft` is the MCP build window. The staleness machinery keys on
+		 * `generating` (a chat build whose process must keep writing); an
+		 * external agent can leave a draft untouched for days and come
+		 * back, so a stale `updated_at` on a draft row means nothing. Pin
+		 * that the failure inference projects the row as `draft`, not
+		 * `error`, no matter how old its last write is. */
+		const stale = Timestamp.fromDate(new Date("2020-01-01T00:00:00Z"));
+		getMock.mockResolvedValueOnce({
+			docs: [
+				makeDoc("parked-draft", {
+					app_name: "Parked draft",
+					connect_type: null,
+					module_count: 1,
+					form_count: 1,
+					status: "draft",
+					error_type: null,
+					created_at: stale,
+					updated_at: stale,
+				}),
+			],
+			size: 1,
+		});
+
+		const { listApps } = await import("../apps");
+		const { apps } = await listApps("user-1", {
+			limit: 50,
+			sort: "updated_desc",
+		});
+
+		expect(apps[0]?.status).toBe("draft");
+		expect(apps[0]?.error_type).toBeNull();
+	});
+
 	it("emits next_cursor when Firestore returns exactly `limit` rows — every returned row is visible, so the signal is accurate", async () => {
 		/* Server-side filtering means `apps.length === snap.size`, so
 		 * the "maybe more" signal is exact: a present cursor genuinely

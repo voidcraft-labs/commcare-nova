@@ -56,17 +56,18 @@ export type { CommitPhase };
  * derivation every server surface shares (the chat route reads it off
  * the app doc it already loaded for ownership; the MCP adapter off the
  * doc it loaded for the tool call). Under construction — completeness
- * deferred — covers two statuses: `generating` (a chat build in flight)
- * and `error` (a FAILED build is an app still under construction, not a
- * complete one — the user retries it in the same thread, and the retry's
- * scaffold batches must gate exactly like the original build's; the
- * route's concurrency guard already passes retries through on the same
- * appId). Everything else is `complete` (the ratchet holds). The phase
- * is never taken from a client-supplied flag: the app doc is the
- * authority on its own build window.
+ * deferred — covers three statuses: `generating` (a chat build in
+ * flight), `draft` (an MCP build between `create_app` and
+ * `complete_build`), and `error` (a FAILED build is an app still under
+ * construction, not a complete one — the user retries it in the same
+ * thread, and the retry's scaffold batches must gate exactly like the
+ * original build's; the route's concurrency guard already passes retries
+ * through on the same appId). Everything else is `complete` (the ratchet
+ * holds). The phase is never taken from a client-supplied flag: the app
+ * doc is the authority on its own build window.
  */
 export function commitPhaseForAppStatus(status: AppDoc["status"]): CommitPhase {
-	return status === "generating" || status === "error"
+	return status === "generating" || status === "draft" || status === "error"
 		? "building"
 		: "complete";
 }

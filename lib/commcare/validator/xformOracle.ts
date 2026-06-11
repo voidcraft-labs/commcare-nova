@@ -1146,7 +1146,7 @@ function checkNamespacePrefixes(
  * Validate a generated XForm XML string against CommCare Core's parse-time
  * FATAL contract. Returns structured errors (empty array on a clean form). The
  * `(xml, formName, moduleName) → ValidationError[]` shape feeds the existing
- * error pipeline directly; call sites in `lib/agent/validationLoop.ts` and
+ * error pipeline directly; the emitter test suites and
  * `lib/commcare/compiler.ts` consume it unchanged.
  *
  * `mediaManifest`, when supplied, is the closed set of `commcare/<hash><ext>`

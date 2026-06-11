@@ -360,16 +360,18 @@ export interface CreateAppOptions {
 	 */
 	appName?: string;
 	/**
-	 * Initial lifecycle status. Limited to the two valid creation states:
+	 * Initial lifecycle status. Limited to the valid creation states:
 	 * `"generating"` arms the staleness timer in `listApps` (advanced on
 	 * every write; a 10-minute gap self-marks the app as `error`);
+	 * `"draft"` is the MCP build window — timer-exempt, because an
+	 * external agent builds on its own clock (`complete_build` flips it);
 	 * `"complete"` opts out for atomic creations with no follow-up writes.
 	 *
 	 * `"error"` is excluded — a fresh app has not failed at anything yet.
 	 * `"deleted"` is excluded — soft-delete is an out-of-band transition
 	 * via `softDeleteApp`, never a creation state.
 	 */
-	status?: "generating" | "complete";
+	status?: "generating" | "draft" | "complete";
 }
 
 /**
@@ -599,8 +601,10 @@ export async function updateAppGuardedByBasis(
  * Finalize an app on generation success.
  *
  * Writes blueprint, denormalized summary fields, `status: "complete"`,
- * `run_id`, and `updated_at`. Called by `validateApp` after the build
- * pipeline completes.
+ * `run_id`, and `updated_at`. Called by the shared `completeBuild` tool
+ * after the boundary evaluation comes back clean — on every surface, so
+ * the same call flips a chat build's `generating`, an MCP build's
+ * `draft`, and a retried build's `error`.
  */
 export async function completeApp(
 	appId: string,

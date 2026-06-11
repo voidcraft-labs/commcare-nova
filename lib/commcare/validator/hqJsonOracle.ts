@@ -724,7 +724,7 @@ function noteSearchConfig(_config: CaseSearchConfig): void {
  *
  * The oracle is a TEST ORACLE proving `expandDoc` total, never a user gate: a
  * finding is an `expandDoc` bug, never a fixable authoring state. It's run
- * alongside the XForm oracle in `lib/agent/validationLoop.ts::validateExpansion`
+ * alongside the XForm oracle from the emitter test suites
  * and exercised by the fuzzer in `__tests__/hqJsonOracle.fuzz.test.ts`.
  */
 export function validateHqJson(hqApp: HqApplication): ValidationError[] {

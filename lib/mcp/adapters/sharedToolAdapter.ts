@@ -32,7 +32,7 @@
  *      flush silently drops everything that hadn't hit the batch-size
  *      trigger yet.
  *   6. **Result projection** — three tagged-union shapes (`"read"` /
- *      `"mutate"` / `"validate"`) reduce to a single MCP text payload
+ *      `"mutate"` / `"complete"`) reduce to a single MCP text payload
  *      the LLM can reason over via an exhaustive `kind`-switch.
  *
  * **Hard invariant — the adapter MUST NOT re-persist mutations.**
@@ -58,7 +58,7 @@ import type {
 	MutatingToolResult,
 	ReadToolResult,
 } from "@/lib/agent/tools/common";
-import type { ValidateAppResult } from "@/lib/agent/tools/validateApp";
+import type { CompleteBuildResult } from "@/lib/agent/tools/completeBuild";
 import { commitPhaseForAppStatus } from "@/lib/doc/commitVerdicts";
 import type { BlueprintDoc } from "@/lib/domain";
 import { initMcpCall } from "../context";
@@ -84,7 +84,7 @@ type McpToolResult = McpToolSuccessResult | McpToolErrorResult;
 /**
  * Structural contract the adapter accepts. Every shared tool module
  * satisfies this — `execute` returns one of the three tagged shapes
- * (`MutatingToolResult` / `ReadToolResult` / `ValidateAppResult`),
+ * (`MutatingToolResult` / `ReadToolResult` / `CompleteBuildResult`),
  * collapsed at the union level so the adapter dispatches via a `switch`
  * on the `kind` discriminator. The per-tool generic `R` parameter is
  * erased at the boundary; `projectResult` re-emits the per-tool payload
@@ -104,7 +104,7 @@ export interface SharedToolModule {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<
-		MutatingToolResult<unknown> | ReadToolResult<unknown> | ValidateAppResult
+		MutatingToolResult<unknown> | ReadToolResult<unknown> | CompleteBuildResult
 	>;
 }
 
@@ -217,7 +217,7 @@ export function registerSharedTool(
 					const { app_id: _discardedAppId, ...toolInput } = args;
 					const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
 					/* Thread the loaded app's identity into projection so a
-					 * validate-success result can carry the canonical
+					 * complete-success result can carry the canonical
 					 * `app_id` + `app_name` (see `projectResult`). `appId` is
 					 * the requested target; `app_name` is the denormalized
 					 * display name off the loaded `AppDoc`. */
@@ -255,12 +255,12 @@ export function registerSharedTool(
  * adapter dispatches on it via a `switch`, and the type system catches
  * a future fourth variant at compile time rather than at runtime
  * structural inspection. See `lib/agent/tools/common.ts` and
- * `validateApp.ts` for the per-shape definitions.
+ * `completeBuild.ts` for the per-shape definitions.
  */
 type SharedToolReturn =
 	| MutatingToolResult<unknown>
 	| ReadToolResult<unknown>
-	| ValidateAppResult;
+	| CompleteBuildResult;
 
 /**
  * Map a shared tool's return value into the payload the MCP client's
@@ -273,18 +273,15 @@ type SharedToolReturn =
  *     needs (its SA wrapper advances its working-doc closure when
  *     mutations land); MCP callers re-read state via read tools, so
  *     surfacing them on the wire would be noise.
- *   - `"validate"` — project to `{ success, app_id, app_name }` on
- *     success (or `{ success, errors }` on failure), dropping `doc` +
- *     `hqJson`. The full doc + compiled HQ JSON would balloon the
- *     response by megabytes for no MCP benefit: callers re-read state
- *     via `get_app` or `compile_app` when they need it. The app
- *     identity rides the SUCCESS envelope so an autonomous caller can
- *     report the canonical `**"name" (id)**` line from its LAST tool
- *     result — by the time an autobuild architect finishes, its
- *     `create_app` return is hundreds of turns back in context, so
- *     re-surfacing the identifier at the completion gate is what makes
- *     the line reliable. Failure omits it: the run isn't done, so there
- *     is nothing to report yet.
+ *   - `"complete"` — project to `{ success, app_id, app_name }` on
+ *     success (or `{ success, errors }` on failure). The app identity
+ *     rides the SUCCESS envelope so an autonomous caller can report the
+ *     canonical `**"name" (id)**` line from its LAST tool result — by
+ *     the time an autobuild architect finishes, its `create_app` return
+ *     is hundreds of turns back in context, so re-surfacing the
+ *     identifier at the completion gate is what makes the line
+ *     reliable. Failure omits it: the run isn't done, so there is
+ *     nothing to report yet.
  *   - `"read"` — unwrap `data`, the bare per-tool payload.
  *
  * Exhaustive switch — TypeScript narrows `kind` to `never` in the
@@ -293,7 +290,7 @@ type SharedToolReturn =
  *
  * @param raw - The shared tool's tagged return value.
  * @param app - The loaded app's identity (`id` + display `name`). Only
- *   the validate-success branch consumes it; the read / mutate / failure
+ *   the complete-success branch consumes it; the read / mutate / failure
  *   branches ignore it. The adapter always has both on hand from the
  *   ownership-gated `loadAppBlueprint`, so it's a required param rather
  *   than an optional the caller could forget on the path that needs it.
@@ -326,7 +323,7 @@ export function projectResult(
 			}
 			return r;
 		}
-		case "validate":
+		case "complete":
 			if (raw.success)
 				return { success: true, app_id: app.id, app_name: app.name };
 			/* On failure we include `errors` even when empty — clients

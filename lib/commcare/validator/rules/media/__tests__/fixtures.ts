@@ -11,7 +11,7 @@
  * pending rows, which the production library list filters out — a
  * real-loader fixture for the kind/library surfaces wouldn't reach
  * those states. The validator's manifest loader
- * (`validationLoop.ts::loadManifestForLoop`) DOES include pending
+ * (`lib/media/boundaryValidation.ts::collectBoundaryViolations`) DOES include pending
  * rows, so this fixture matches production semantics for the SA
  * loop's manifest.
  */

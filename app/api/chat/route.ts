@@ -779,6 +779,12 @@ export async function POST(req: Request) {
 					 * `finalizeRun()` flushes it); the flag is cleared when that POST
 					 * resumes the run. */
 					await setAwaitingInput(appId, true);
+				} else if (editing) {
+					/* Tripwire, not a gate: with every committed batch ratcheted,
+					 * an edit run that ends with a completeness finding is
+					 * unreachable except through a bug — the warn is how one
+					 * would surface in production. */
+					ctx.warnIfEditRunIncomplete();
 				}
 			} catch (error) {
 				/* Init/build error around the stream setup (a bad message shape, an

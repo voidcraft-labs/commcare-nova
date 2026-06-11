@@ -71,7 +71,7 @@ export function LearnConfig({
 	// Every connect id set anywhere in the app. Connect ids share one
 	// app-wide namespace (each keys a per-kind DB slug + an XForm element
 	// name), so the uniqueness scope is app-wide — not just this form's
-	// co-located block. Same scope the SA tools + `validateApp` enforce.
+	// co-located block. Same scope the SA tools + the commit gate enforce.
 	const appConnectIds = useAppConnectIds();
 	const appWideExcept = useCallback(
 		(kind: "learn_module" | "assessment"): Set<string> =>

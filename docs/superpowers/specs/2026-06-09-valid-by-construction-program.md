@@ -529,11 +529,33 @@ the run log shows no fix chapter; the app exports cleanly.
 `1bad id` → inline rejection; deletes a referenced field → dialog names the
 referents, columns clean up in the same undo step.
 
-### Stage 4 — Lifecycle + loop removal
+### Stage 4 — Lifecycle + loop removal — SHIPPED
 
 Entry criterion (D14): the mutation-sequence fuzz is green and guard
 coverage for the four re-scoping mutation kinds is proven — both are tests
 in this branch, not production observations.
+
+Landed as specified, with these deltas vs the text below:
+- The proof landed wider than the four named kinds: guard coverage is a
+  `satisfies`-total table over EVERY mutation kind
+  (`lib/doc/__tests__/rescopingGuardCoverage.test.ts`), and the sequence
+  fuzz drives the real tools (`constructionFuzz.test.ts`), not bare
+  `applyMutations` batches.
+- `completeBuild`'s side-effect order is materialize → `completeApp`
+  (both awaited, in the shared body — MCP gets them too) → `data-done`
+  (chat wrapper). The status flip is awaited rather than
+  fire-and-forget: a flip that can't persist is an infrastructure
+  failure, surfaced via the preserved infra arm instead of parked on
+  the staleness reaper.
+- `createForm`/`createModule` widened in the SHARED schemas (both
+  modes, not edit-only): `fields` required on createForm; `forms` +
+  `case_list_columns` optional-but-gate-enforced on createModule; an
+  all-skipped fields list refuses rather than landing an empty form.
+- Draft apps additionally open in the browser builder under the
+  `building` gate phase (page passes `commitPhaseForAppStatus` into
+  `BuilderCommitPhaseBridge`).
+- The plugin skill text/version bump is the nova-plugin repo's follow-up,
+  not in this tree.
 
 1. Atomic edit-mode creation (D13): widened `createForm`/`createModule`
    schemas (verified via `scripts/test-schema.ts`); edit-mode per-call

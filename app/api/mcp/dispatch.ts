@@ -33,7 +33,7 @@ import type { ToolContext } from "@/lib/mcp/types";
  *
  * 300s (5 min) accommodates the longest realistic single tool call
  * the MCP route exposes — `upload_app_to_hq` (network upload to HQ
- * with a built `.ccz`), `validate_app` against a large blueprint, or
+ * with a built `.ccz`), `complete_build` against a large blueprint, or
  * an LLM-driven `generate_scaffold` — without leaving abandoned
  * requests to accumulate. External MCP clients drive the loop one
  * tool per request, so this ceiling is per-tool, not bundled.

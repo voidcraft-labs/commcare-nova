@@ -10,22 +10,18 @@
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
  * `case_property_on`. Tool args flow straight into the reducer helpers in
- * `blueprintHelpers.ts`. `validateAndFix` (in `validationLoop.ts`) reads
- * the normalized doc directly, runs XForm validation via
- * `lib/commcare/`, and returns a normalized doc with any auto-fixes
- * applied.
+ * `blueprintHelpers.ts`.
  *
  * Stream-event payloads carry fine-grained `data-mutations` events
  * emitted via `ctx.recordMutations` for every tool-level change; the
- * final `data-done` from `validateApp` carries a normalized doc snapshot.
+ * final `data-done` from `completeBuild` carries a normalized doc
+ * snapshot.
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent, tool } from "ai";
-import { completeApp, failApp } from "@/lib/db/apps";
-import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { failApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import { log } from "@/lib/logger";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import { classifyError } from "./errorClassifier";
 import type { GenerationContext } from "./generationContext";
@@ -45,6 +41,7 @@ import { updateSearchInputTool } from "./tools/case-list-config/updateSearchInpu
 import { setCaseSearchAdvancedTool } from "./tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "./tools/case-search-config/setCaseSearchDisplay";
 import type { MutatingToolResult, ReadToolResult } from "./tools/common";
+import { completeBuildTool } from "./tools/completeBuild";
 import { createFormTool } from "./tools/createForm";
 import { createModuleTool } from "./tools/createModule";
 import { editFieldTool } from "./tools/editField";
@@ -66,9 +63,6 @@ import { removeModuleTool } from "./tools/removeModule";
 import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
-import { validateAppTool } from "./tools/validateApp";
-
-export { validateAndFix } from "./validationLoop";
 
 /**
  * Names of SA tools exposed only in build mode. Declared as module-scope
@@ -87,41 +81,44 @@ const BUILD_ONLY_TOOL_NAMES = ["generateSchema", "generateScaffold"] as const;
 type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
 
 /**
- * Result the chat-side `validateApp` wrapper hands the model. Distinct
- * from the shared `ValidateAppResult` (`kind: "validate"`) that the MCP
- * adapter consumes — the chat wrapper collapses validation to a flat
- * success/failure and layers on the chat-only completion side effects
- * (materialize → data-done → completeApp). Three arms, and the
- * discriminator between the two failure arms is load-bearing:
+ * Result the chat-side `completeBuild` wrapper hands the model. Distinct
+ * from the shared `CompleteBuildResult` (`kind: "complete"`) that the MCP
+ * adapter consumes — the chat wrapper collapses completion to a flat
+ * success/failure and layers on the chat-only `data-done` handoff. Three
+ * arms, and the discriminator between the two failure arms is
+ * load-bearing:
  *
- *  - `{ success: true }` — validated AND the case-store schema
- *    materialized; the celebration handoff has fired.
- *  - `{ success: false; errors }` — the app has remaining authoring
- *    errors the SA can fix by mutating the doc. `errors` enumerates them;
- *    re-running `validateApp` after a fix is the intended loop.
- *  - `{ success: false; infrastructure: true; errors }` — validation
- *    PASSED, but a system fault (case-store Postgres outage) interrupted
- *    finalizing the app. The SA cannot repair this by editing the doc and
- *    re-running hits the same fault, so the arm is tagged
- *    `infrastructure: true`. Without the tag this is byte-identical to a
- *    validation failure, and the SA spends its `stopWhen` budget
- *    "fixing" an app that was never broken. The prompt's Error Recovery
- *    section keys off the tag to stop and surface a system error instead.
+ *  - `{ success: true }` — the boundary evaluation came back clean, the
+ *    case-store schema materialized, the app flipped to complete, and
+ *    the celebration handoff has fired.
+ *  - `{ success: false; errors }` — work remains (deferred completeness,
+ *    or a media/soundness finding in a legacy doc). `errors` enumerates
+ *    each finding; the SA finishes the work with its normal mutation
+ *    tools and calls `completeBuild` again.
+ *  - `{ success: false; infrastructure: true; errors }` — the evaluation
+ *    PASSED, but a system fault (case-store Postgres outage, a Firestore
+ *    write failure) interrupted finalizing the app. The SA cannot repair
+ *    this by editing the doc and re-running hits the same fault, so the
+ *    arm is tagged `infrastructure: true`. Without the tag this is
+ *    byte-identical to an unfinished-work failure, and the SA spends its
+ *    `stopWhen` budget "finishing" an app that was never unfinished. The
+ *    prompt's Error Recovery section keys off the tag to stop and
+ *    surface a system error instead.
  */
-type ChatValidateAppResult =
+type ChatCompleteBuildResult =
 	| { success: true }
 	| { success: false; errors: string[] }
 	| { success: false; infrastructure: true; errors: string[] };
 
 /**
- * The model-facing instruction returned in `validateApp`'s
+ * The model-facing instruction returned in `completeBuild`'s
  * infrastructure-failure arm. Distinct from the user-facing
  * `classified.message` that `emitError` ships — this text tells the SA what
  * to *do* (stop, don't retry, report a system error). Named so the arm and
  * its test assert one source of truth rather than each restating the prose.
  */
 export const INFRA_FAILURE_SA_INSTRUCTION =
-	"A system error interrupted finalizing the app — this is an infrastructure problem on our end, not a problem with the app you built. Editing the app will not fix it, and re-running validateApp will hit the same error. Stop now: tell the user a system error interrupted saving their app (the app itself is sound) and to try again in a moment or contact support. Do not call validateApp again.";
+	"A system error interrupted finalizing the app — this is an infrastructure problem on our end, not a problem with the app you built. Editing the app will not fix it, and re-running completeBuild will hit the same error. Stop now: tell the user a system error interrupted saving their app (the app itself is sound) and to try again in a moment or contact support. Do not call completeBuild again.";
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -398,129 +395,69 @@ export function createSolutionsArchitect(
 		listMediaAssets: wrapRead(listMediaAssetsTool),
 		removeMediaAsset: wrapRead(removeMediaAssetTool),
 
-		// ── Validation ────────────────────────────────────────────────
+		// ── Completion ────────────────────────────────────────────────
 
-		/* `validateApp` stays bespoke because its wrapper layers three
-		 * chat-only side effects on top of the flat shared result, in
-		 * this order:
+		/* `completeBuild` stays bespoke because its wrapper layers two
+		 * chat-only concerns on top of the shared tool (which owns the
+		 * boundary evaluation + the awaited materialize + the status
+		 * flip — see `tools/completeBuild.ts` for the ordering contract):
 		 *
-		 *   1. Awaited `materializeCaseStoreSchemas` — UPSERTs the
-		 *      `case_type_schemas` rows + per-property expression
-		 *      indexes for every case type the SA just generated. The
-		 *      chat-side intermediate save (`saveBlueprint`) is
-		 *      fire-and-forget by design (the SA fix-retry loop runs
-		 *      against an in-memory doc), so the case-store schema
-		 *      never materialized during streaming.
-		 *   2. `data-done` SSE emit — UX signal carrying the full doc +
-		 *      HQ JSON; the client's stream dispatcher stamps
-		 *      `runCompletedAt` on this event, which drives the
-		 *      Completed celebration phase.
-		 *   3. `completeApp` Firestore update — flips the app record's
-		 *      lifecycle status to `complete`. Stays fire-and-forget
-		 *      so the SA's stream return doesn't block on Firestore
-		 *      latency; the staleness reaper inside `listApps` is the
-		 *      backstop if this ever fails to land.
+		 *   1. `data-done` SSE emit on success — the UX signal carrying
+		 *      the full doc; the client's stream dispatcher reconciles
+		 *      its doc store against this snapshot and stamps
+		 *      `runCompletedAt`, which drives the Completed celebration
+		 *      phase. Emitted AFTER the shared body's awaited
+		 *      materialize, so a user-initiated case-store action that
+		 *      fires sub-second after the celebration sees a synced
+		 *      Postgres schema.
+		 *   2. The infrastructure-failure arm — a throw out of the shared
+		 *      body (Postgres outage, Firestore write failure) is
+		 *      unrecoverable from the SA's perspective. Letting it
+		 *      propagate to the AI SDK's `tool-error` part would push the
+		 *      SA into a retry loop that burns the 80-step `stopWhen`
+		 *      budget on a fault no edit fixes. The catch routes through
+		 *      the canonical `classifyError` + `ctx.emitError` + `failApp`
+		 *      path the chat route's `failRun` uses, so the client sees
+		 *      the error, the app flips to `error`, and the SA reads a
+		 *      clean instruction to stop.
 		 *
-		 * Materialization runs FIRST so any user-initiated case-store
-		 * action subsequent to the completion celebration (e.g. a
-		 * "Generate sample data" click sub-second after `data-done`
-		 * fires) sees a synced Postgres schema. Emitting `data-done`
-		 * before the await would leave a window where the celebration
-		 * UI signals "ready" but the schema row is still missing —
-		 * exactly the race this step exists to close.
-		 *
-		 * Materialization failure is unrecoverable from the SA's edit
-		 * perspective (a Postgres outage isn't something the SA can
-		 * fix by mutating the doc). Letting the throw propagate to
-		 * the AI SDK's `tool-error` content part would push the SA
-		 * into a retry loop that burns through the 80-step
-		 * `stopWhen` limit — same throw recurs until the model gives
-		 * up, with `data-done` re-firing on each iteration under any
-		 * ordering that emits before materializing. The catch arm
-		 * routes the failure through the canonical
-		 * `classifyError` + `ctx.emitError` + `failApp` path used by
-		 * `app/api/chat/route.ts`'s `failRun`, so the client
-		 * sees `data-error`, the app status flips to `error`
-		 * immediately, and the SA loop sees a clean `success: false`
-		 * return that doesn't invite another retry.
-		 *
-		 * All three side effects depend on `ctx.usage.runId`,
-		 * `ctx.appId`, `ctx.userId`, or `ctx.emit`, which only exist
-		 * on `GenerationContext` — so they can't live inside the
-		 * shared tool module. */
-		validateApp: tool({
-			description: validateAppTool.description,
-			inputSchema: validateAppTool.inputSchema,
+		 * Both depend on `ctx.emit` / `ctx.emitError`, which only exist on
+		 * `GenerationContext` — so they can't live inside the shared tool. */
+		completeBuild: tool({
+			description: completeBuildTool.description,
+			inputSchema: completeBuildTool.inputSchema,
 			execute: (input) =>
-				serial(async (): Promise<ChatValidateAppResult> => {
-					const result = await validateAppTool.execute(input, ctx, doc);
-					// Advance the working doc unconditionally — `validateAndFix`
-					// returns the post-loop doc even on failure so later tool
-					// calls see whatever partial fixes the registry applied
-					// before stopping.
-					doc = result.doc;
-
+				serial(async (): Promise<ChatCompleteBuildResult> => {
+					let result: Awaited<ReturnType<typeof completeBuildTool.execute>>;
+					try {
+						result = await completeBuildTool.execute(input, ctx, doc);
+					} catch (err) {
+						const classified = classifyError(err);
+						ctx.emitError(classified, "completeBuild");
+						/* `failApp` is fire-and-forget by design (it swallows
+						 * Firestore errors internally) — match the route's
+						 * `failRun` shape exactly. */
+						failApp(ctx.appId, classified.type);
+						/* Tag `infrastructure: true` so the SA can tell this apart
+						 * from unfinished work (the app evaluated clean; the fault
+						 * is a system outage no doc mutation repairs), and return
+						 * the model-facing instruction — NOT `classified.message`,
+						 * whose user-facing translation already shipped via
+						 * `emitError` above. */
+						return {
+							success: false,
+							infrastructure: true,
+							errors: [INFRA_FAILURE_SA_INSTRUCTION],
+						};
+					}
 					if (result.success) {
-						const persistable = toPersistableDoc(doc);
-						/* Materialize the case-store schema rows + indexes
-						 * BEFORE the celebration emit. The chat-side
-						 * intermediate save was fire-and-forget, so
-						 * `case_type_schemas` carries no row for the SA's
-						 * freshly-generated case types until this call
-						 * lands. Awaited so any user-initiated case-store
-						 * action that follows the celebration (sample-data
-						 * populate, form submit, live preview) sees a
-						 * synced schema. A Postgres failure here is
-						 * unrecoverable from the SA's perspective — route
-						 * through the same classified-error path the
-						 * chat route uses for stream errors so the SA
-						 * doesn't burn cycles retrying. */
-						try {
-							await materializeCaseStoreSchemas({
-								appId: ctx.appId,
-								userId: ctx.userId,
-								blueprint: persistable,
-							});
-						} catch (err) {
-							const classified = classifyError(err);
-							ctx.emitError(classified, "validateApp:materialize");
-							/* `failApp` is fire-and-forget by design (it
-							 * swallows Firestore errors internally) — match
-							 * the route's `failRun` shape exactly. */
-							failApp(ctx.appId, classified.type);
-							/* Tag `infrastructure: true` so the SA can tell this
-							 * apart from a validation failure (the app validated
-							 * clean; the fault is a system outage no doc mutation
-							 * repairs), and return the model-facing instruction —
-							 * NOT `classified.message`, whose user-facing
-							 * translation already shipped via `emitError` above. */
-							return {
-								success: false,
-								infrastructure: true,
-								errors: [INFRA_FAILURE_SA_INSTRUCTION],
-							};
-						}
 						ctx.emit("data-done", {
-							doc: persistable,
-							hqJson: result.hqJson ?? {},
+							doc: toPersistableDoc(doc),
 							success: true,
 						});
-						/* Flip the app record to its final state (fire-and-forget).
-						 * The app doc was created at the start of the request by
-						 * the route handler; `ctx.appId` is always present by
-						 * construction. `completeApp` accepts `PersistableDoc`,
-						 * so we pass the already-computed persistable value.
-						 * `ctx.usage.runId` is the shared run id the event log
-						 * already carries. */
-						completeApp(ctx.appId, persistable, ctx.usage.runId).catch((err) =>
-							log.error("[validateApp] app update failed", err),
-						);
 						return { success: true };
 					}
-					return {
-						success: false,
-						errors: result.errors ?? [],
-					};
+					return { success: false, errors: result.errors ?? [] };
 				}),
 		}),
 	};

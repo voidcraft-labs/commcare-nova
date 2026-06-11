@@ -32,6 +32,7 @@ import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContex
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { CommitPhaseProvider } from "@/lib/doc/commitPhaseContext";
+import type { CommitPhase } from "@/lib/doc/commitVerdicts";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { replayEventsSync } from "@/lib/log/replay";
@@ -60,6 +61,7 @@ export function BuilderProvider({
 	replay,
 	initialDoc,
 	initialSaveBasis,
+	initialCommitPhase,
 }: {
 	buildId: string;
 	children: ReactNode;
@@ -72,6 +74,12 @@ export function BuilderProvider({
 	 *  optimistic basis the builder echoes on its PUTs. Omitted for new
 	 *  builds and replay (nothing to save against yet). */
 	initialSaveBasis?: string | null;
+	/** The validity-gate phase derived from the app doc's status at server
+	 *  load (`commitPhaseForAppStatus`). `"building"` for a draft app (an
+	 *  MCP build in progress — the builder's edits must gate exactly like
+	 *  the MCP surface's, completeness deferred); defaults to
+	 *  `"complete"`, the stricter direction. */
+	initialCommitPhase?: CommitPhase;
 }) {
 	return (
 		<BuilderProviderInner
@@ -80,6 +88,7 @@ export function BuilderProvider({
 			replay={replay}
 			initialDoc={initialDoc}
 			initialSaveBasis={initialSaveBasis}
+			initialCommitPhase={initialCommitPhase}
 		>
 			{children}
 		</BuilderProviderInner>
@@ -99,12 +108,14 @@ function BuilderProviderInner({
 	replay,
 	initialDoc,
 	initialSaveBasis,
+	initialCommitPhase,
 }: {
 	buildId: string;
 	children: ReactNode;
 	replay?: ReplayInit;
 	initialDoc?: PersistableDoc;
 	initialSaveBasis?: string | null;
+	initialCommitPhase?: CommitPhase;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
 	 * phase on the very first render — `Loading` for existing apps and
@@ -139,7 +150,9 @@ function BuilderProviderInner({
 							{replay ? null : <LocationRecoveryEffect />}
 							{replay ? <ReplayHydrator replay={replay} /> : null}
 							{!replay && initialDoc ? <LoadAppHydrator /> : null}
-							<BuilderCommitPhaseBridge>{children}</BuilderCommitPhaseBridge>
+							<BuilderCommitPhaseBridge basePhase={initialCommitPhase}>
+								{children}
+							</BuilderCommitPhaseBridge>
 						</BuilderFormEngineProvider>
 					</EditGuardProvider>
 				</ScrollRegistryProvider>
@@ -245,18 +258,31 @@ function ReplayHydrator({ replay }: { replay: ReplayInit }) {
  * imports doc hooks; the reverse edge would close an import cycle), so
  * this bridge — which sits inside both providers — is where the two meet.
  *
- * Only `Generating` maps to the construction window (completeness
- * deferred); every other phase — including the transient `Completed`
- * celebration and `Loading` — gates as `complete`, the stricter
- * direction. The hydrators above write through the store directly and
- * never pass through the gate, so their position outside this provider
- * is irrelevant to them.
+ * The construction window opens two ways: `Generating` (a live chat
+ * build streaming into this session) or a `basePhase` of `"building"`
+ * (the server page loaded a `draft` app — an MCP build in progress, so
+ * the builder's own edits must gate exactly like the MCP surface's).
+ * Every other state — including the transient `Completed` celebration
+ * and `Loading` — gates as `complete`, the stricter direction. The
+ * hydrators above write through the store directly and never pass
+ * through the gate, so their position outside this provider is
+ * irrelevant to them.
  */
-function BuilderCommitPhaseBridge({ children }: { children: ReactNode }) {
+function BuilderCommitPhaseBridge({
+	basePhase,
+	children,
+}: {
+	basePhase?: CommitPhase;
+	children: ReactNode;
+}) {
 	const phase = useBuilderPhase();
 	return (
 		<CommitPhaseProvider
-			phase={phase === BuilderPhase.Generating ? "building" : "complete"}
+			phase={
+				phase === BuilderPhase.Generating || basePhase === "building"
+					? "building"
+					: "complete"
+			}
 		>
 			{children}
 		</CommitPhaseProvider>

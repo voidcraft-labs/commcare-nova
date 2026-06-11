@@ -25,19 +25,15 @@
  * any of them — catching the regression where a subagent misses a
  * migration spot.
  *
- * ## validationLoop
+ * ## completeBuild
  *
- * The validationLoop test mocks `runValidation`, `FIX_REGISTRY`, and
- * `expandBlueprint` via `vi.mock` so we can synthesize a single fix
- * iteration without plumbing a real CommCare-rule violation through. The
- * shortcut is fine: the live migration of `data-form-fixed` into
- * `ctx.emitMutations(..., "fix:attempt-N")` is a simple call-site change
- * and the safety-net test independently verifies no legacy wire event
- * leaks through.
+ * The completeBuild tests mock the boundary evaluation + the completion
+ * side effects via `vi.mock` so the wrapper reaches each arm (success /
+ * findings / infrastructure throw) without plumbing a real CommCare-rule
+ * violation or a database through.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ValidationError } from "@/lib/commcare/validator/errors";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
@@ -587,24 +583,16 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 });
 
-// ── validateApp — still emits data-done ─────────────────────────────────
+// ── completeBuild — emits data-done ─────────────────────────────────────
 //
-// `validateApp` keeps its full-doc `data-done` emission as the final
-// reconciliation handoff (validation autofixes can produce opaque deltas,
-// and a final snapshot is simpler than threading a per-fix mutation trail
-// through the fix registry). We mock the validation + expansion modules
-// so the tool reaches the success branch against a trivial fixture.
+// `completeBuild` keeps the full-doc `data-done` emission as the final
+// reconciliation + celebration handoff. We mock the boundary evaluation
+// + the completion side effects so the wrapper reaches each arm against
+// a trivial fixture.
 
-vi.mock("../validationLoop", async () => {
-	const mod =
-		await vi.importActual<typeof import("../validationLoop")>(
-			"../validationLoop",
-		);
-	return {
-		...mod,
-		validateAndFix: vi.fn(),
-	};
-});
+vi.mock("@/lib/media/boundaryValidation", () => ({
+	collectBoundaryViolations: vi.fn(() => Promise.resolve([])),
+}));
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -612,7 +600,7 @@ vi.mock("@/lib/db/apps", () => ({
 	updateAppForRun: vi.fn(() => Promise.resolve()),
 }));
 
-/* `validateApp`'s success arm awaits `materializeCaseStoreSchemas` to
+/* `completeBuild`'s success arm awaits `materializeCaseStoreSchemas` to
  * close the chat-completion → case-store-schema gap (the SA's chat-
  * side `saveBlueprint` is fire-and-forget by design, so
  * `case_type_schemas` carries no row until this call lands). The test
@@ -623,20 +611,13 @@ vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 	materializeCaseStoreSchemas: vi.fn(() => Promise.resolve()),
 }));
 
-describe("solutionsArchitect — validateApp", () => {
+describe("solutionsArchitect — completeBuild", () => {
 	it("emits data-done with the final doc on success", async () => {
-		const { validateAndFix } = await import("../validationLoop");
 		const fixtureDoc = makeFixtureDoc();
-		vi.mocked(validateAndFix).mockResolvedValue({
-			success: true,
-			doc: fixtureDoc,
-			hqJson: {} as never,
-		});
-
 		const { ctx, writer } = buildCtx();
 		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
 
-		await runTool(sa, "validateApp", {});
+		await runTool(sa, "completeBuild", {});
 
 		const doneEvents = writtenEvents(writer).filter(
 			(e) => e.type === "data-done",
@@ -647,25 +628,19 @@ describe("solutionsArchitect — validateApp", () => {
 		expectNoLegacyEvents(writer);
 	});
 
-	it("orders side effects: materialize → data-done → completeApp on success", async () => {
-		// The reordered wrapper runs `materializeCaseStoreSchemas`
-		// BEFORE the `data-done` SSE emit so the celebration
-		// animation never races a user-initiated case-store action.
-		// Pin that ordering structurally — a regression to "emit
-		// data-done first" would let a "Generate sample data" click
-		// sub-second after the celebration trip
+	it("orders side effects: materialize → completeApp → data-done on success", async () => {
+		// The shared tool body runs `materializeCaseStoreSchemas` and the
+		// awaited `completeApp` BEFORE the wrapper's `data-done` SSE emit,
+		// so the celebration animation never races a user-initiated
+		// case-store action. Pin that ordering structurally — a regression
+		// to "emit data-done first" would let a "Generate sample data"
+		// click sub-second after the celebration trip
 		// `SchemaNotSyncedError`.
-		const { validateAndFix } = await import("../validationLoop");
 		const { materializeCaseStoreSchemas } = await import(
 			"@/lib/db/materializeCaseStoreSchemas"
 		);
 		const { completeApp, failApp } = await import("@/lib/db/apps");
 		const fixtureDoc = makeFixtureDoc();
-		vi.mocked(validateAndFix).mockResolvedValue({
-			success: true,
-			doc: fixtureDoc,
-			hqJson: {} as never,
-		});
 
 		// Shared call-order array each spy pushes to as it runs.
 		// `data-done` detection rides the writer spy because the
@@ -684,21 +659,55 @@ describe("solutionsArchitect — validateApp", () => {
 		});
 
 		const { ctx, writer } = buildCtx();
-		// `writer.write` is a fresh `vi.fn()` from `buildCtx()` —
-		// no prior implementation to preserve. Push to the shared
-		// order array on `data-done` events; other event types
-		// pass through silently.
 		writer.write.mockImplementation((event: { type?: string }) => {
 			if (event?.type === "data-done") order.push("data-done");
 		});
 
 		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
-		await runTool(sa, "validateApp", {});
+		await runTool(sa, "completeBuild", {});
 
-		expect(order).toEqual(["materialize", "data-done", "completeApp"]);
+		expect(order).toEqual(["materialize", "completeApp", "data-done"]);
 		// `failApp` stays untouched on the success path — it's the
 		// failure-arm sibling of `completeApp`.
 		expect(vi.mocked(failApp)).not.toHaveBeenCalled();
+	});
+
+	it("returns the findings without any side effect when the evaluation refuses", async () => {
+		const { collectBoundaryViolations } = await import(
+			"@/lib/media/boundaryValidation"
+		);
+		const { materializeCaseStoreSchemas } = await import(
+			"@/lib/db/materializeCaseStoreSchemas"
+		);
+		const { completeApp } = await import("@/lib/db/apps");
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
+			{
+				code: "EMPTY_FORM",
+				scope: "form",
+				message: '"Visit" has no fields.',
+				location: { formName: "Visit" },
+			} as never,
+		]);
+
+		const fixtureDoc = makeFixtureDoc();
+		const { ctx, writer } = buildCtx();
+		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
+		const result = await runTool(sa, "completeBuild", {});
+
+		expect(result).toMatchObject({ success: false });
+		expect(
+			(result as { errors: string[] }).errors.some((e) =>
+				e.includes("has no fields"),
+			),
+		).toBe(true);
+		// Nothing finalizes on a refusal — no materialize, no status flip,
+		// no celebration. The agent finishes the work and calls again.
+		expect(vi.mocked(materializeCaseStoreSchemas)).not.toHaveBeenCalled();
+		expect(vi.mocked(completeApp)).not.toHaveBeenCalled();
+		const doneEvents = writtenEvents(writer).filter(
+			(e) => e.type === "data-done",
+		);
+		expect(doneEvents).toHaveLength(0);
 	});
 
 	it("classifies + fails the app and skips data-done when materialize throws", async () => {
@@ -708,28 +717,15 @@ describe("solutionsArchitect — validateApp", () => {
 		// `failApp` and return `success: false` so the SA loop
 		// doesn't retry into the staleness-reaper window. Letting
 		// the throw propagate to a `tool-error` content part would
-		// invite the SA to retry `validateApp`, burning through the
+		// invite the SA to retry `completeBuild`, burning through the
 		// 80-step `stopWhen` limit on a Postgres failure that no
 		// blueprint mutation can repair.
-		const { validateAndFix } = await import("../validationLoop");
 		const { materializeCaseStoreSchemas } = await import(
 			"@/lib/db/materializeCaseStoreSchemas"
 		);
 		const { completeApp, failApp } = await import("@/lib/db/apps");
 		const fixtureDoc = makeFixtureDoc();
-		vi.mocked(validateAndFix).mockResolvedValue({
-			success: true,
-			doc: fixtureDoc,
-			hqJson: {} as never,
-		});
 
-		// Mock bodies stay synchronous: an inner `await` would let
-		// the wrapper resolve before the push records, scrambling
-		// `order` and breaking the call-order assertion. The
-		// `throw` synchronously rejects the mock's returned promise
-		// without scheduling a microtask, so the `materialize-throws`
-		// push records before the wrapper's catch arm sees the
-		// rejection.
 		const order: string[] = [];
 		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
 			order.push("materialize-throws");
@@ -751,11 +747,11 @@ describe("solutionsArchitect — validateApp", () => {
 		});
 
 		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
-		const result = await runTool(sa, "validateApp", {});
+		const result = await runTool(sa, "completeBuild", {});
 
 		// `completeApp` MUST NOT fire on the failure path — the
-		// app stays in `generating` until `failApp` flips it to
-		// `error`. `data-done` MUST NOT fire either — the
+		// app stays in its construction status until `failApp` flips it
+		// to `error`. `data-done` MUST NOT fire either — the
 		// celebration only runs on a clean Postgres handoff.
 		expect(order).toEqual(["materialize-throws", "failApp"]);
 		expect(vi.mocked(completeApp)).not.toHaveBeenCalled();
@@ -768,10 +764,10 @@ describe("solutionsArchitect — validateApp", () => {
 		expect(vi.mocked(failApp).mock.calls[0]).toEqual(["test-app", "internal"]);
 
 		// The tool tags the failure `infrastructure: true` so the SA can
-		// tell a system outage (validation passed; finalize threw) apart
-		// from a fixable validation failure — without the tag the two
-		// returns are byte-identical and the SA burns its `stopWhen`
-		// budget "fixing" an app that was never broken. `errors` carries
+		// tell a system outage (the evaluation passed; finalize threw)
+		// apart from unfinished work — without the tag the two returns are
+		// byte-identical and the SA burns its `stopWhen` budget
+		// "finishing" an app that was never unfinished. `errors` carries
 		// the SA-facing stop-and-report instruction, NOT the raw
 		// `simulated postgres outage` (that user-facing translation went
 		// out via `emitError`).
@@ -780,230 +776,6 @@ describe("solutionsArchitect — validateApp", () => {
 			infrastructure: true,
 			errors: [INFRA_FAILURE_SA_INSTRUCTION],
 		});
-	});
-});
-
-// ── validationLoop fix pass — emits data-mutations, not data-form-fixed ──
-//
-// The loop is exercised with `runValidation`, `FIX_REGISTRY`, and
-// `expandDoc` stubbed at the module level so exactly one fix iteration
-// runs. The assertion under test is that the fix pass emits
-// `data-mutations` events (not the legacy `data-form-fixed` shape);
-// stubbing lets us verify that wiring without constructing a real
-// field-registry rule + fix pair that produces the error.
-
-vi.mock("@/lib/commcare/validator/runner", () => ({
-	// Default to "no findings" — every mutating tool now routes through the
-	// commit gate (`guardedMutate`), which calls `runValidation` twice per
-	// batch; a bare `vi.fn()` would return `undefined` and crash the gate
-	// inside every tool under test. The validationLoop tests below override
-	// per call to drive their fix iterations.
-	runValidation: vi.fn(() => []),
-}));
-
-vi.mock("@/lib/commcare/validator/fixes", () => ({
-	FIX_REGISTRY: new Map<string, (...args: unknown[]) => Mutation[]>(),
-}));
-
-vi.mock("@/lib/commcare/expander", () => ({
-	// `expandDoc` returns an `HqApplication`; the validationLoop's
-	// `validateHqJson` reads the app-level multimedia_map + logo_refs slots,
-	// so this stub must stamp them empty even though the test never
-	// exercises media — leaving them undefined would crash the oracle on
-	// `Object.entries(undefined)`. The empty-dict shape matches what the
-	// real `applicationShell` factory stamps on a media-free app.
-	expandDoc: vi.fn(() => ({
-		modules: [],
-		_attachments: {},
-		multimedia_map: {},
-		logo_refs: {},
-	})),
-}));
-
-vi.mock("@/lib/commcare/validator/xformOracle", () => ({
-	validateXForm: vi.fn(() => []),
-}));
-
-describe("validationLoop — fix pass emission", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
-	it("emits a single data-mutations batch per fix attempt with stage fix:attempt-N", async () => {
-		const runnerMod = await import("@/lib/commcare/validator/runner");
-		const fixesMod = await import("@/lib/commcare/validator/fixes");
-		// Load the real validationLoop. `importActual` bypasses the
-		// file-level mock regardless of cache state — the top-of-file
-		// `vi.mock("../validationLoop", ...)` only affects imports
-		// resolved through the normal path (which this test doesn't use).
-		const { validateAndFix } =
-			await vi.importActual<typeof import("../validationLoop")>(
-				"../validationLoop",
-			);
-
-		// First validation pass returns an error; second returns none so
-		// the loop terminates after exactly one fix iteration. The error
-		// shape is cast to `ValidationError[]` — we use a real code for
-		// typing purposes, but the registry mock picks it up by key so the
-		// code value itself only matters as a map lookup key.
-		const TEST_CODE = "EMPTY_APP_NAME";
-		const firstErrors = [
-			{
-				code: TEST_CODE,
-				scope: "form" as const,
-				message: "test",
-				location: { formUuid: FORM_A, formName: "Enroll Patient" },
-			},
-		] as ValidationError[];
-		const runValidationFn = vi.mocked(runnerMod.runValidation);
-		runValidationFn.mockReturnValueOnce(firstErrors).mockReturnValue([]);
-
-		// Single fix that returns a single setAppName mutation — keeps the
-		// assertion simple while still exercising the emission path.
-		const fixMutations: Mutation[] = [{ kind: "setAppName", name: "Fixed" }];
-		(fixesMod.FIX_REGISTRY as Map<string, unknown>).set(
-			TEST_CODE,
-			() => fixMutations,
-		);
-
-		const { ctx, writer } = buildCtx();
-		await validateAndFix(ctx, makeFixtureDoc());
-
-		// Lock in that the loop actually iterated — first pass saw errors,
-		// second pass saw none and returned success. Without this assertion,
-		// a mock-setup regression that returns `[]` on the first call would
-		// silently trivialize both the length + legacy-event checks below.
-		expect(runValidationFn).toHaveBeenCalledTimes(2);
-
-		const muts = mutationEvents(writer);
-		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("fix:attempt-1");
-		expect(muts[0].mutations).toEqual(fixMutations);
-		expectNoLegacyEvents(writer);
-	});
-
-	it("emits a data-mutations batch with stage connect-defaults when applyConnectDefaults runs", async () => {
-		// applyConnectDefaults must flow through ctx.emitMutations so the
-		// in-browser doc receives the same `updateForm(connect)` patch the
-		// server's working doc carries into the validator. Before this test
-		// landed, the loop applied the mutations locally via Immer +
-		// `applyMutations` but never emitted — the live builder ended up
-		// with an empty/partial connect block while the validator saw a
-		// fully defaulted one.
-		const runnerMod = await import("@/lib/commcare/validator/runner");
-		const { validateAndFix } =
-			await vi.importActual<typeof import("../validationLoop")>(
-				"../validationLoop",
-			);
-
-		// Validator returns no errors so the loop exits straight after
-		// applyConnectDefaults runs — isolates the connect-defaults emit
-		// from the fix:attempt-N path.
-		vi.mocked(runnerMod.runValidation).mockReturnValue([]);
-
-		const docWithConnect: BlueprintDoc = {
-			...makeFixtureDoc(),
-			connectType: "learn",
-			forms: {
-				[FORM_A]: {
-					uuid: FORM_A,
-					id: "enroll",
-					name: "Enroll Patient",
-					type: "registration",
-					connect: {
-						learn_module: {
-							name: "",
-							description: "",
-						} as unknown as {
-							name: string;
-							description: string;
-							time_estimate: number;
-						},
-					},
-				},
-			},
-		};
-
-		const { ctx, writer } = buildCtx();
-		await validateAndFix(ctx, docWithConnect);
-
-		const muts = mutationEvents(writer);
-		const connectMut = muts.find((m) => m.stage === "connect-defaults");
-		expect(connectMut).toBeDefined();
-		expect(connectMut?.mutations).toHaveLength(1);
-		expect(connectMut?.mutations[0]).toMatchObject({
-			kind: "updateForm",
-			uuid: FORM_A,
-		});
-		// The defaulted learn_module fills in id/name/description/time_estimate.
-		const patch = (
-			connectMut?.mutations[0] as Extract<Mutation, { kind: "updateForm" }>
-		).patch;
-		expect(patch.connect?.learn_module).toMatchObject({
-			id: "patient",
-			name: "Enroll Patient",
-			description: "Enroll Patient",
-			time_estimate: 1,
-		});
-		expectNoLegacyEvents(writer);
-	});
-
-	it("skips the connect-defaults emission when the derived config is structurally identical", async () => {
-		/* Log-bloat regression guard. `deriveConnectDefaults` builds a
-		 * fresh object graph on every call (`{ ...form.connect }` + sub-
-		 * config clones), so reference equality can never short-circuit
-		 * on its own. Without the structural-equality check in
-		 * `applyConnectDefaults`, re-running validation on an already-
-		 * fully-defaulted form would re-emit the same `updateForm`
-		 * mutation every time — one Firestore write per validateApp call
-		 * for a no-op reducer patch. This test fixes the form's connect
-		 * to the exact shape `deriveConnectDefaults` produces, so the
-		 * derived value is equal-but-not-identical and the pass should
-		 * skip emission. */
-		const runnerMod = await import("@/lib/commcare/validator/runner");
-		const { validateAndFix } =
-			await vi.importActual<typeof import("../validationLoop")>(
-				"../validationLoop",
-			);
-
-		// Validator returns no errors so the loop exits right after
-		// applyConnectDefaults runs — isolates this assertion from the
-		// fix:attempt-N path.
-		vi.mocked(runnerMod.runValidation).mockReturnValue([]);
-
-		/* A form whose learn_module already matches the defaults
-		 * `deriveConnectDefaults` would produce: `id = moduleSlug` (the
-		 * module's display name slugified), `name = form.name`,
-		 * `description = form.name`, `time_estimate = 1` (zero input
-		 * fields → Math.max(1, ceil(0/3))). */
-		const docWithSettledConnect: BlueprintDoc = {
-			...makeFixtureDoc(),
-			connectType: "learn",
-			forms: {
-				[FORM_A]: {
-					uuid: FORM_A,
-					id: "enroll",
-					name: "Enroll Patient",
-					type: "registration",
-					connect: {
-						learn_module: {
-							id: "patient",
-							name: "Enroll Patient",
-							description: "Enroll Patient",
-							time_estimate: 1,
-						},
-					},
-				},
-			},
-		};
-
-		const { ctx, writer } = buildCtx();
-		await validateAndFix(ctx, docWithSettledConnect);
-
-		const connectMuts = mutationEvents(writer).filter(
-			(m) => m.stage === "connect-defaults",
-		);
-		expect(connectMuts).toHaveLength(0);
 	});
 });
 

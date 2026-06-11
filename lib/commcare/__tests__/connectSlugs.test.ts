@@ -7,7 +7,7 @@
  * AND within 50 chars AND unique across the app. The redesign forces all
  * three correct at the SOURCE:
  *  - `connectIdError(id)` — the format/length verdict (shared by the UI
- *    commit guard and the `validate_app` rules).
+ *    commit guard and the validator's connect-id rules).
  *  - `connectIdConflictError(id, existingIds)` — the contextual uniqueness
  *    verdict for an explicit set.
  *  - `deriveConnectId(name, existingIds)` — the creation-time autofill:
@@ -705,7 +705,7 @@ describe("Connect id — validator valid-path set exposes the stored id", () => 
 // Returns a human-readable reason when an id is not a valid XML element
 // name (`XML_ELEMENT_NAME_REGEX`) OR is over `CONNECT_SLUG_MAX_LENGTH`,
 // else `null`. Shared by the field-level commit guard (`InlineField` via
-// `LearnConfig`) and the `validate_app` connect-id rules, so the two can
+// `LearnConfig`) and the validator's connect-id rules, so the two can
 // never disagree about what counts as a valid id.
 
 describe("connectIdError", () => {

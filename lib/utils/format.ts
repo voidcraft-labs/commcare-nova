@@ -58,7 +58,7 @@ export function formatPeriodLabel(period: string): string {
  * live errors without drawing attention.
  */
 export const STATUS_STYLES: Record<
-	"complete" | "generating" | "error" | "deleted",
+	"complete" | "generating" | "draft" | "error" | "deleted",
 	{ bg: string; text: string; label: string }
 > = {
 	complete: {
@@ -70,6 +70,15 @@ export const STATUS_STYLES: Record<
 		bg: "bg-nova-violet/15",
 		text: "text-violet-400",
 		label: "Generating",
+	},
+	/* An MCP build between create_app and complete_build — work in
+	 * progress driven by an external agent, on no timer. Violet like
+	 * `generating` (both are construction states), softened so the two
+	 * read as siblings, not the same state. */
+	draft: {
+		bg: "bg-nova-violet/10",
+		text: "text-violet-300",
+		label: "Draft",
 	},
 	error: { bg: "bg-nova-rose/15", text: "text-nova-rose", label: "Error" },
 	deleted: {

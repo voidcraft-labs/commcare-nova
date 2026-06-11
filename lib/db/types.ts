@@ -231,11 +231,17 @@ export const appDocSchema = z.object({
 	/**
 	 * Build lifecycle status.
 	 *
-	 * - `generating` — a build is in progress. `updated_at` advances on
-	 *   every intermediate write; a 10-minute gap trips the staleness
+	 * - `generating` — a chat build is in progress. `updated_at` advances
+	 *   on every intermediate write; a 10-minute gap trips the staleness
 	 *   inference in `listApps` and self-converts the row to `error`.
-	 * - `complete` — build finished successfully (or was created
-	 *   atomically, e.g. via `create_app`).
+	 * - `draft` — an MCP build between `create_app` and `complete_build`.
+	 *   Gates under the construction window (`commitPhaseForAppStatus`),
+	 *   stays OUT of the staleness reaper and the list failure inference
+	 *   (both key on `generating` — an external agent works on its own
+	 *   clock, so there is no liveness timer to satisfy), and exports
+	 *   honestly fail the zero-tolerance boundary until completed.
+	 * - `complete` — build finished (`completeBuild` ran the boundary
+	 *   evaluation clean and flipped it).
 	 * - `error` — generation failed; see `error_type` for the bucket.
 	 * - `deleted` — legacy marker, retained in the enum for back-compat
 	 *   with rows soft-deleted before the marker moved off `status`.
@@ -244,7 +250,7 @@ export const appDocSchema = z.object({
 	 *   independent axes (see `softDeleteApp` / `restoreApp`).
 	 */
 	status: z
-		.enum(["generating", "complete", "error", "deleted"])
+		.enum(["generating", "draft", "complete", "error", "deleted"])
 		.default("complete"),
 	/**
 	 * True while a build is PAUSED on an `askQuestions` round — the SA halted the

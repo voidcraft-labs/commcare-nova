@@ -50,6 +50,8 @@ import type {
 import { generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { Session } from "@/lib/auth";
+import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import { updateAppForRun } from "@/lib/db/apps";
 import type { UsageAccumulator } from "@/lib/db/usage";
 import type { CommitPhase } from "@/lib/doc/commitVerdicts";
@@ -192,6 +194,10 @@ export class GenerationContext implements ToolExecutionContext {
 	 * uniqueness is needed.
 	 */
 	private seq = 0;
+	/** The most recent post-mutation doc snapshot this run persisted —
+	 * what `warnIfEditRunIncomplete` evaluates after the drain. Absent
+	 * until the first mutation batch lands (a read-only turn). */
+	private _latestDoc: BlueprintDoc | undefined;
 	/* Flipped true when the SA emits an `askQuestions` tool-call — the client-side
 	 * tool with no `execute` that HALTS the agent loop to await the user's answer.
 	 * The chat route reads this after the drain to mark the app `awaiting_input`,
@@ -276,7 +282,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * Writes `run_id` on every intermediate save (via `updateAppForRun`
 	 * rather than `updateApp`) so the app doc's run_id reflects the
 	 * current chat run while it's in flight. Without this, an edit run
-	 * that mutates the doc but never reaches `validateApp` leaves
+	 * that mutates the doc but never reaches `completeBuild` leaves
 	 * `app.run_id` stuck at the prior `completeApp`'s id, and the MCP
 	 * surface's sliding-window run derivation (see
 	 * `lib/mcp/runId.ts`) would attach subsequent MCP events to a
@@ -340,7 +346,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * Used for one-shot lifecycle signals that live outside the
 	 * `data-mutations` / `data-conversation-event` streams:
 	 *
-	 *   - `data-done` — full-doc reconciliation from validateApp.
+	 *   - `data-done` — full-doc reconciliation from completeBuild.
 	 *   - `data-blueprint-updated` — edit-mode coarse-tool replacements.
 	 *   - `data-app-id` — one-shot appId announcement driving the
 	 *     `/build/new` → `/build/{id}` URL swap on new builds.
@@ -425,7 +431,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * invoke the interface method uniformly on either surface.
 	 *
 	 * The optional `stage` string is a semantic tag for the log
-	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"fix:attempt-N"`). It's
+	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"rename:0-0"`). It's
 	 * stamped on every MutationEvent envelope — both log and SSE see the
 	 * same tag, so lifecycle derivations over the client buffer match
 	 * replay derivations over the persisted log.
@@ -486,6 +492,7 @@ export class GenerationContext implements ToolExecutionContext {
 		 * staleness detector distinguishes "still generating" from "process
 		 * died". The caller owns the doc shape; we just persist whatever
 		 * post-mutation snapshot they handed us. */
+		this._latestDoc = doc;
 		this.saveBlueprint(doc);
 		/* Event log — write the same envelopes we just sent on SSE. */
 		for (const e of events) this.logWriter.logEvent(e);
@@ -553,6 +560,30 @@ export class GenerationContext implements ToolExecutionContext {
 	 */
 	pausedOnInput(): boolean {
 		return this._pausedOnInput;
+	}
+
+	/**
+	 * Edit-run completeness tripwire — called by the chat route after the
+	 * drain on EDIT turns. With every committed batch gated under the
+	 * complete-phase ratchet, an edit run that ends with a completeness
+	 * finding on the doc is unreachable except through a bug (a gate gap,
+	 * a reducer/validator drift); this warn is the alarm that finds one in
+	 * production. A no-op when the run persisted nothing (read-only turn).
+	 * Deliberately a warn, never a user-facing signal: the per-commit gate
+	 * already protected the user, and the doc on disk is whatever the
+	 * accepted commits produced.
+	 */
+	warnIfEditRunIncomplete(): void {
+		if (!this._latestDoc) return;
+		const completeness = runValidation(this._latestDoc)
+			.filter((err) => classifyValidityError(err.code) === "completeness")
+			.map((err) => err.code);
+		if (completeness.length === 0) return;
+		log.warn("[chat] edit run ended with completeness findings", {
+			appId: this.appId,
+			runId: this.runId,
+			codes: completeness,
+		});
 	}
 
 	/**

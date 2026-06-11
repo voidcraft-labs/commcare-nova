@@ -4,7 +4,7 @@
  * Populates sensible defaults for Connect config based on form content
  * (field count drives `time_estimate`; a hidden-kind field named like
  * `*score*` or `*assessment*` drives `assessment.user_score`). Called
- * from `validateAndFix` before the structural validator runs so every
+ * at authoring time before the structural validator runs so every
  * defaulted field is present when rules fire.
  *
  * Operates directly on `BlueprintDoc` — no wire-format round-trip.

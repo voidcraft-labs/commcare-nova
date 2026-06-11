@@ -335,7 +335,7 @@ describe.skipIf(!emulatorAvailable)(
 			const { appId, moduleUuid, formUuid, runId } = await seedPopulatedApp();
 
 			/* `completeApp` is the generation-success boundary — the
-			 * SA emits it via fire-and-forget at end of `validateApp`.
+			 * SA emits it via fire-and-forget at end of `completeBuild`.
 			 * Seed leaves the app at `status: "generating"` (the
 			 * `createApp` default); after `completeApp` it MUST flip
 			 * to `"complete"` AND the cleared fields must vanish. */

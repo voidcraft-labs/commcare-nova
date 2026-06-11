@@ -1,9 +1,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { applyMutations } from "@/lib/doc/mutations";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { buildDoc, caseListConfig, f } from "../../__tests__/docHelpers";
-import { FIX_REGISTRY } from "../validator/fixes";
 import { runValidation } from "../validator/runner";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -732,80 +730,6 @@ describe("field rules", () => {
 
 // ── Fix registry ───────────────────────────────────────────────────
 //
-// Fixes now emit Mutation[] — we apply via the production reducer and
-// assert on the post-mutation doc to verify the fix moved the needle.
-
-describe("fix registry", () => {
-	it("fixes invalid field ID", () => {
-		const doc = surveyDoc([f({ kind: "text", id: "123-bad", label: "Q" })]);
-		const errors = runValidation(doc);
-		const err = errors.find((e) => e.code === "INVALID_FIELD_ID");
-		if (!err) throw new Error("expected INVALID_FIELD_ID error");
-		const fix = FIX_REGISTRY.get("INVALID_FIELD_ID");
-		if (!fix) throw new Error("expected INVALID_FIELD_ID fix");
-		const muts = fix(err, doc);
-		expect(muts.length).toBeGreaterThan(0);
-		// Brace-wrap the recipe body so it returns void — `applyMutations`
-		// returns `MutationResult[]`, and Immer's `ValidRecipeReturnType`
-		// admits only `void | undefined | Draft<T>`. Immer mutates the
-		// draft in place; the caller gets the immutable next doc.
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, muts);
-		});
-		// The field should now carry the sanitized id.
-		const fieldUuid =
-			next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
-		expect(next.fields[fieldUuid].id).toBe("q_123_bad");
-	});
-
-	it("fixes NO_CASE_TYPE by deriving from module name", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Patient Records",
-					forms: [
-						{
-							name: "F",
-							type: "registration",
-							fields: [f({ kind: "text", id: "case_name", label: "N" })],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc);
-		const err = errors.find((e) => e.code === "NO_CASE_TYPE");
-		if (!err) throw new Error("expected NO_CASE_TYPE error");
-		const fix = FIX_REGISTRY.get("NO_CASE_TYPE");
-		if (!fix) throw new Error("expected NO_CASE_TYPE fix");
-		const muts = fix(err, doc);
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, muts);
-		});
-		expect(next.modules[next.moduleOrder[0]].caseType).toBe("patient_records");
-	});
-
-	it("fixes SELECT_NO_OPTIONS by adding defaults", () => {
-		const doc = surveyDoc([f({ kind: "single_select", id: "q", label: "Q" })]);
-		const errors = runValidation(doc);
-		const err = errors.find((e) => e.code === "SELECT_NO_OPTIONS");
-		if (!err) throw new Error("expected SELECT_NO_OPTIONS error");
-		const fix = FIX_REGISTRY.get("SELECT_NO_OPTIONS");
-		if (!fix) throw new Error("expected SELECT_NO_OPTIONS fix");
-		const muts = fix(err, doc);
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, muts);
-		});
-		const fieldUuid =
-			next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
-		const field = next.fields[fieldUuid];
-		if (field.kind !== "single_select")
-			throw new Error("expected single_select");
-		expect(field.options).toHaveLength(2);
-	});
-});
-
 // ── Post-submit validation ────────────────────────────────────────
 
 describe("post_submit validation", () => {

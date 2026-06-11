@@ -75,7 +75,7 @@ export interface BuilderSessionState {
 
 	/** Timestamp of the most recent whole-build completion — stamped by
 	 *  the dispatcher's `data-done` handler (the server-side marker from
-	 *  `validateApp`). Cleared on `acknowledgeCompletion()` (after the
+	 *  `completeBuild`). Cleared on `acknowledgeCompletion()` (after the
 	 *  celebration animation) and on `beginRun()` (new run starts clean).
 	 *  askQuestions / clarifying-text / edit-tool runs never stamp — they
 	 *  close silently. Drives the Completed phase. */
@@ -185,7 +185,7 @@ export interface BuilderSessionState {
 
 	/** Stamp `runCompletedAt` = now. Called by the stream dispatcher
 	 *  when `data-done` arrives — the server-side "whole build
-	 *  succeeded" marker from `validateApp`. Drives the Completed phase
+	 *  succeeded" marker from `completeBuild`. Drives the Completed phase
 	 *  + celebration animation until `acknowledgeCompletion()` clears
 	 *  it. */
 	markRunCompleted: () => void;
@@ -438,7 +438,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				markRunCompleted() {
-					/* `data-done` arrived — `validateApp` succeeded, the
+					/* `data-done` arrived — `completeBuild` succeeded, the
 					 * whole build is complete. Stamp the celebration. Phase
 					 * transitions to Completed and stays there until
 					 * `acknowledgeCompletion()` fires (3.5s after the

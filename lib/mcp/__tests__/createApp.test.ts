@@ -2,8 +2,9 @@
  * `registerCreateApp` unit tests.
  *
  * Verifies the four load-bearing behaviors of the MCP-only create tool:
- *   - Happy path with a name: forwards `{ appName, status: "complete" }`
- *     to the DB helper, surfaces the returned `app_id`, and emits the
+ *   - Happy path with a name: forwards `{ appName, status: "draft" }`
+ *     to the DB helper (MCP builds are born drafts — `complete_build`
+ *     finishes them), surfaces the returned `app_id`, and emits the
  *     `stage: "app_created"` marker for progress clients.
  *   - Happy path without a name: normalizes the omitted optional to
  *     `undefined` so the DB helper's `""` default kicks in.
@@ -51,7 +52,7 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerCreateApp — happy path with name", () => {
-	it("forwards the name and 'complete' status, returns the minted app_id", async () => {
+	it("forwards the name and 'draft' status, returns the minted app_id", async () => {
 		vi.mocked(createApp).mockResolvedValueOnce("app-123");
 
 		const { server, capture } = makeFakeServer();
@@ -68,7 +69,7 @@ describe("registerCreateApp — happy path with name", () => {
 		 * we don't pin a specific value. */
 		expect(typeof runId).toBe("string");
 		expect(runId).toMatch(UUID_RE);
-		expect(opts).toEqual({ appName: "My App", status: "complete" });
+		expect(opts).toEqual({ appName: "My App", status: "draft" });
 
 		/* Every structured signal rides in content JSON: the `stage`
 		 * marker the model branches on plus the minted `app_id`. */
@@ -92,7 +93,7 @@ describe("registerCreateApp — happy path without name", () => {
 		/* The DB helper's default `""` kicks in only when `appName` is
 		 * undefined on the options object. Explicit presence with
 		 * `undefined` is the expected shape. */
-		expect(opts).toEqual({ appName: undefined, status: "complete" });
+		expect(opts).toEqual({ appName: undefined, status: "draft" });
 	});
 });
 
@@ -106,7 +107,7 @@ describe("registerCreateApp — whitespace-only name", () => {
 		await capture()({ app_name: "   " }, {});
 
 		const [, , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
-		expect(opts).toEqual({ appName: undefined, status: "complete" });
+		expect(opts).toEqual({ appName: undefined, status: "draft" });
 	});
 });
 

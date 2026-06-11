@@ -1,9 +1,9 @@
 /**
- * Fix-registry dissolution proofs — one test per `FIX_REGISTRY` entry,
- * each showing the guarded construction path can no longer PRODUCE the
- * condition that fix exists to repair. While the registry exists, these
- * proofs are what make every entry redundant in practice — and they are
- * the per-entry pins any deletion of the registry stands on:
+ * Fix-registry dissolution proofs — one test per entry of the RETIRED
+ * `FIX_REGISTRY` (deleted with the validate-fix loop), each showing the
+ * guarded construction path cannot PRODUCE the condition that fix
+ * existed to repair. These per-entry pins are what the deletion stands
+ * on (alongside the sequence fuzz in `constructionFuzz.test.ts`):
  *
  *   - codes whose conditions the commit gate now rejects at the
  *     introducing batch (`guardedMutate` / the builder hook — same

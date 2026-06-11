@@ -19,7 +19,7 @@
  *      but a toast is the right UX for a stream-level failure.
  *
  *   3. **Whole-build completion** — `data-done`. Reconciles the doc
- *      against the final authoritative snapshot from `validateApp`
+ *      against the final authoritative snapshot from `completeBuild`
  *      AND stamps `runCompletedAt` (the celebration signal).
  *      Stream-close lifecycle is owned by ChatContainer's chat-status
  *      effect via `endRun` — separate concern.
@@ -128,7 +128,7 @@ export function applyStreamEvent(
 	switch (type) {
 		case "data-done": {
 			/*
-			 * Whole-build completion — `validateApp` succeeded on the
+			 * Whole-build completion — `completeBuild` succeeded on the
 			 * server. Two side-effects:
 			 *
 			 * 1. Reconcile the doc against the final authoritative

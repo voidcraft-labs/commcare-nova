@@ -53,9 +53,8 @@ import {
  * ready AND pending rows (owner-filtered). Pending rows must reach the
  * validator so `mediaAssetReady` can fire its "still uploading" message
  * rather than the manifest's `ready`-only view collapsing it into a
- * "not found" miss. This mirrors `validationLoop.ts::loadManifestForLoop`
- * exactly — two loads with different filters, one extra Firestore read
- * per upload/compile (the cost the SA path already pays).
+ * "not found" miss. Two loads with different filters, one extra
+ * Firestore read per upload/compile.
  *
  * Returns an empty array for a fully valid doc — the validator still
  * runs (cheap), and a media-free doc skips the Firestore read.

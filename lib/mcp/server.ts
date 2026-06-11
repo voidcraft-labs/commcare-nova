@@ -21,7 +21,7 @@
  *
  *   2. **Shared SA tools** (`lib/agent/tools/*`) — the blueprint
  *      readers + writers the chat-side Solutions Architect already uses
- *      (search, add_fields, edit_field, create_form, validate_app, …).
+ *      (search, add_fields, edit_field, create_form, complete_build, …).
  *      Those modules share a uniform contract (input schema, `execute`
  *      against a `BlueprintDoc` + `ToolExecutionContext`) so the MCP
  *      surface funnels them through one adapter: `registerSharedTool`
@@ -56,6 +56,7 @@ import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/upd
 import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import { completeBuildTool } from "@/lib/agent/tools/completeBuild";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
@@ -77,7 +78,6 @@ import { removeModuleTool } from "@/lib/agent/tools/removeModule";
 import { searchBlueprintTool } from "@/lib/agent/tools/searchBlueprint";
 import { updateFormTool } from "@/lib/agent/tools/updateForm";
 import { updateModuleTool } from "@/lib/agent/tools/updateModule";
-import { validateAppTool } from "@/lib/agent/tools/validateApp";
 import {
 	registerSharedTool,
 	type SharedToolModule,
@@ -165,7 +165,7 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	{ name: "remove_media_asset", tool: removeMediaAssetTool },
 	{ name: "update_form", tool: updateFormTool },
 	{ name: "update_module", tool: updateModuleTool },
-	{ name: "validate_app", tool: validateAppTool },
+	{ name: "complete_build", tool: completeBuildTool },
 ];
 
 /**

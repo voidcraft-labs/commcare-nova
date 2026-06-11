@@ -556,7 +556,7 @@ describe("generation lifecycle", () => {
 	});
 
 	it("markRunCompleted stamps runCompletedAt without clearing events", () => {
-		/* `data-done` fires mid-stream (from `validateApp`). The stream
+		/* `data-done` fires mid-stream (from `completeBuild`). The stream
 		 * is still open and the events buffer still has the run's
 		 * mutations. Only `runCompletedAt` flips. */
 		const { session } = createGenerationTestStores();
@@ -588,7 +588,7 @@ describe("generation lifecycle", () => {
 
 		session.getState().beginRun();
 
-		/* Mid-stream: `data-done` arrives from validateApp. */
+		/* Mid-stream: `data-done` arrives from completeBuild. */
 		session.getState().markRunCompleted();
 		expect(session.getState().runCompletedAt).toEqual(expect.any(Number));
 

@@ -31,8 +31,8 @@
  *
  * **Tool-name vocabulary.** `EDIT_PREAMBLE` and `SHARED_TAIL` in
  * `lib/agent/prompts.ts` reference the SA's camelCase tool names
- * (`searchBlueprint`, `validateApp`). The MCP surface exposes the same
- * tools under snake_case (`search_blueprint`, `validate_app`). The
+ * (`searchBlueprint`, `completeBuild`). The MCP surface exposes the same
+ * tools under snake_case (`search_blueprint`, `complete_build`). The
  * model resolves the two by name at call time.
  */
 

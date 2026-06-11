@@ -19,7 +19,7 @@
  *   - Live-preview panels that mount a `PostgresCaseStore` query.
  *
  * This helper is called once at the chat-completion boundary
- * (the `validateApp` success arm in `solutionsArchitect.ts`),
+ * (the shared `completeBuild` tool's success arm),
  * BEFORE the `data-done` SSE emit and BEFORE the
  * fire-and-forget `completeApp` Firestore write. The ordering
  * matters:
@@ -57,7 +57,7 @@
  * The helper itself surfaces throws unwrapped — a per-case-type
  * `applySchemaChange` failure stops the loop at the offending
  * case type and bubbles the error. The caller (`solutionsArchitect`'s
- * `validateApp` wrapper) is responsible for routing the throw
+ * `completeBuild` wrapper) is responsible for routing the throw
  * through the canonical `classifyError` + `ctx.emitError` +
  * `failApp` path so the client sees `data-error`, the app
  * status flips to `error` immediately, and the SA loop sees a
@@ -71,7 +71,7 @@ import type { PersistableDoc } from "@/lib/domain";
 
 /**
  * Arguments for `materializeCaseStoreSchemas`. The blueprint is
- * the freshly-completed snapshot from `validateAndFix`; it
+ * the freshly-completed snapshot the build produced; it
  * carries the canonical `caseTypes` list the helper iterates.
  * The SA wrapper passes the same snapshot into the subsequent
  * `data-done` SSE emit so the client's reconciliation matches

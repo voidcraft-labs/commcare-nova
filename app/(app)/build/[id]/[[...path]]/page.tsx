@@ -29,6 +29,7 @@ import {
 	type CommCareSettingsPublic,
 	getCommCareSettings,
 } from "@/lib/db/settings";
+import { commitPhaseForAppStatus } from "@/lib/doc/commitVerdicts";
 import { ThreadHistory } from "./thread-history";
 
 export default async function BuilderPage({
@@ -56,13 +57,19 @@ export default async function BuilderPage({
 
 	const app = await loadApp(id);
 	if (!app || app.owner !== session.user.id) notFound();
-	if (app.status !== "complete") redirect("/");
+	/* `complete` apps open normally; `draft` apps (an MCP build in
+	 * progress) open too — the user can watch and edit the work an
+	 * external agent is doing, under the same deferred-completeness gate
+	 * phase the MCP surface uses. `generating` / `error` builds redirect:
+	 * their lifecycle lives in the chat flow, not a direct page load. */
+	if (app.status !== "complete" && app.status !== "draft") redirect("/");
 
 	return (
 		<BuilderProvider
 			buildId={id}
 			initialDoc={app.blueprint}
 			initialSaveBasis={app.blueprint_token ?? null}
+			initialCommitPhase={commitPhaseForAppStatus(app.status)}
 		>
 			<BuilderLayout isExistingApp commcareSettings={commcareSettings}>
 				<Suspense fallback={null}>

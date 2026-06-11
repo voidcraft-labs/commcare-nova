@@ -2,7 +2,7 @@
  * `sharedToolAdapter` unit tests.
  *
  * Verifies the adapter's five load-bearing behaviors:
- *   - Read / mutating / validateApp result projection each produces the
+ *   - Read / mutating / completeBuild result projection each produces the
  *     right MCP text payload. The mutating branch also proves the
  *     hard invariant that the adapter does NOT re-persist: the fake
  *     tool's `ctx.recordMutations` call is tracked and the adapter
@@ -26,7 +26,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
-import type { ValidateAppResult } from "@/lib/agent/tools/validateApp";
+import type { CompleteBuildResult } from "@/lib/agent/tools/completeBuild";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { Mutation } from "@/lib/doc/types";
@@ -293,24 +293,22 @@ describe("registerSharedTool — mutating tools", () => {
 	});
 });
 
-describe("registerSharedTool — validateApp projection", () => {
-	it("drops doc + hqJson; surfaces success=false with errors", async () => {
-		const validateLike: SharedToolModule = {
-			description: "validate",
+describe("registerSharedTool — completeBuild projection", () => {
+	it("surfaces success=false with the remaining findings", async () => {
+		const completeLike: SharedToolModule = {
+			description: "complete",
 			inputSchema: z.object({}),
-			async execute(_input, _ctx, doc) {
+			async execute(_input, _ctx, _doc) {
 				return {
-					kind: "validate",
+					kind: "complete",
 					success: false,
-					doc, // full BlueprintDoc — must NOT appear in output
-					hqJson: { big: "payload" } as never, // must NOT appear in output
 					errors: ["e1"],
 				};
 			},
 		};
 
 		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "validate_app", validateLike, toolCtx);
+		registerSharedTool(server, "complete_build", completeLike, toolCtx);
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
@@ -320,12 +318,12 @@ describe("registerSharedTool — validateApp projection", () => {
 		);
 	});
 
-	it("surfaces app_id + app_name on a successful validation", async () => {
-		const validateLike: SharedToolModule = {
-			description: "validate",
+	it("surfaces app_id + app_name on a successful completion", async () => {
+		const completeLike: SharedToolModule = {
+			description: "complete",
 			inputSchema: z.object({}),
-			async execute(_input, _ctx, doc) {
-				return { kind: "validate", success: true, doc };
+			async execute(_input, _ctx, _doc) {
+				return { kind: "complete", success: true };
 			},
 		};
 
@@ -337,7 +335,7 @@ describe("registerSharedTool — validateApp projection", () => {
 		);
 
 		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "validate_app", validateLike, toolCtx);
+		registerSharedTool(server, "complete_build", completeLike, toolCtx);
 
 		/* `app_id` is the requested target ("a1"); `app_name` is read off the
 		 * loaded `AppDoc`. Together they let the autobuild architect emit its
@@ -470,25 +468,21 @@ describe("projectResult — direct", () => {
 		expect(projectResult(raw, APP)).toEqual({ ok: true });
 	});
 
-	it("projects a failed `validate` result to { success, errors } without app identity", () => {
-		const raw: ValidateAppResult = {
-			kind: "validate",
+	it("projects a failed `complete` result to { success, errors } without app identity", () => {
+		const raw: CompleteBuildResult = {
+			kind: "complete",
 			success: false,
-			doc: mockBlueprint() as unknown as BlueprintDoc,
-			hqJson: { huge: "payload" } as never,
 			errors: ["e"],
 		};
-		/* Failure means "not done yet" — the architect keeps fixing, so the
-		 * completion identifier is intentionally absent until success. */
+		/* Failure means "not done yet" — the architect keeps finishing, so
+		 * the completion identifier is intentionally absent until success. */
 		expect(projectResult(raw, APP)).toEqual({ success: false, errors: ["e"] });
 	});
 
-	it("projects a successful `validate` result with the app identity attached", () => {
-		const raw: ValidateAppResult = {
-			kind: "validate",
+	it("projects a successful `complete` result with the app identity attached", () => {
+		const raw: CompleteBuildResult = {
+			kind: "complete",
 			success: true,
-			doc: mockBlueprint() as unknown as BlueprintDoc,
-			hqJson: { huge: "payload" } as never,
 		};
 		/* Success carries `app_id` + `app_name` so an autonomous MCP caller
 		 * (the autobuild architect) can lift the canonical identifier into

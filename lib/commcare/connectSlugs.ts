@@ -17,12 +17,12 @@
  * never fixed up at emit. The same flat app-wide notion of "taken" (every
  * connect id on every form, regardless of kind) is used on every surface:
  *  - {@link connectIdError} is the format/length verdict, shared by the UI
- *    commit guard (`InlineField` in `LearnConfig`) and the `validate_app`
+ *    commit guard (`InlineField` in `LearnConfig`) and the per-commit
  *    format/length rules so they can't disagree.
  *  - {@link connectIdConflictError} is the contextual uniqueness verdict for
  *    an explicit set (rejected, never silently renamed). The UI guards
  *    (`LearnConfig`/`DeliverConfig`, via `useAppConnectIds`), the SA tools
- *    (`enforceConnectIds`), and the `CONNECT_ID_DUPLICATE` `validate_app`
+ *    (`enforceConnectIds`), and the `CONNECT_ID_DUPLICATE` validator
  *    rule all check it against the app-wide id set.
  *  - {@link deriveConnectId} is the creation-time autofill: an id-less block
  *    gets a valid, unique, name-derived id STORED in the doc.
@@ -90,7 +90,7 @@ export const CONNECT_ID_FIELD_DESCRIPTION =
  *
  * Shared by both enforcement surfaces so they can never disagree: the
  * field-level commit guard (`InlineField`, wired up in `LearnConfig`) blocks
- * the save and shows the reason inline, and the `validate_app` connect-id
+ * the save and shows the reason inline, and the validator's connect-id
  * rules wrap the same reason in a form-scoped error for the agent path
  * (`update_form`, which sets ids as a bare string and bypasses the field).
  * Callers that need to render the message themselves get the reason; the
