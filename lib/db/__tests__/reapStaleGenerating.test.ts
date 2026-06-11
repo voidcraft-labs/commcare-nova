@@ -104,3 +104,27 @@ describe("setAwaitingInput", () => {
 		expect(payload).toEqual({ awaiting_input: true });
 	});
 });
+
+describe("markAppGenerating", () => {
+	beforeEach(() => {
+		appSetMock.mockClear().mockResolvedValue(undefined);
+		appMock.mockClear().mockReturnValue({ set: appSetMock });
+	});
+
+	it("re-enters the build window with a FRESH staleness clock and a cleared error", async () => {
+		// A retry of a failed build flips error → generating before the
+		// route's concurrency check (write-then-check — the row is the
+		// lock). The fresh `updated_at` is load-bearing: the row's old
+		// timestamp belongs to the FAILED run and may already sit outside
+		// the staleness window, so without re-arming, a concurrent list
+		// scan could reap (and refund) the retry at birth.
+		const { markAppGenerating } = await import("../apps");
+		await markAppGenerating("app-1");
+
+		expect(appSetMock).toHaveBeenCalledTimes(1);
+		const [payload, options] = appSetMock.mock.calls[0];
+		expect(payload).toMatchObject({ status: "generating", error_type: null });
+		expect(payload).toHaveProperty("updated_at");
+		expect(options).toEqual({ merge: true });
+	});
+});

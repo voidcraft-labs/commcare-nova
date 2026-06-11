@@ -25,6 +25,7 @@ import {
 	failApp,
 	hasActiveGeneration,
 	loadAppOwnerAndStatus,
+	markAppGenerating,
 	setAwaitingInput,
 } from "@/lib/db/apps";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
@@ -194,6 +195,10 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	/* True when this POST revived a FAILED build (`error → generating`)
+	 * for a retry — the pre-stream rejection arms below must flip it back
+	 * to `error` on bail-out, mirroring how `appCreated` rows are failed. */
+	let revivedForRetry = false;
 	/* Validity-gate phase, derived server-side from the app doc's own
 	 * lifecycle status (`commitPhaseForAppStatus`) — never from the
 	 * client-reported `appReady` flag, which picks only the prompt/tool
@@ -226,6 +231,29 @@ export async function POST(req: Request) {
 			);
 		}
 		commitPhase = commitPhaseForAppStatus(access.status);
+		/* A BUILD-mode retry of a failed build re-enters `generating` HERE —
+		 * awaited, BEFORE the concurrency check below, the same
+		 * write-then-check ordering `createApp` uses (the durable row is the
+		 * lock; do not reorder). This is what puts the retry back under the
+		 * existing liveness machinery: the concurrency guard, the staleness
+		 * reaper's reservation refund for a hard-killed run, and the list
+		 * failure inference. The gate phase is unchanged (`error` and
+		 * `generating` both map to `building`). */
+		if (access.status === "error" && !parsed.data.appReady) {
+			try {
+				await markAppGenerating(appId);
+				revivedForRetry = true;
+			} catch (err) {
+				log.error("[chat] retry revival write failed", err, { appId });
+				return Response.json(
+					{
+						error: "Unable to restart this build. Please try again shortly.",
+						type: "internal",
+					},
+					{ status: 503 },
+				);
+			}
+		}
 		/* This POST runs against an existing app — if it's resuming a build that
 		 * paused on an `askQuestions` round, clear the pause flag now (before the
 		 * stream) so a resume that then hard-kills becomes reapable again. A no-op
@@ -244,7 +272,7 @@ export async function POST(req: Request) {
 	try {
 		const inFlight = await hasActiveGeneration(userId, appId);
 		if (inFlight) {
-			if (!parsed.data.appId) {
+			if (!parsed.data.appId || revivedForRetry) {
 				failApp(appId, "generation_in_progress");
 			}
 			return Response.json(
@@ -285,9 +313,11 @@ export async function POST(req: Request) {
 			if (err instanceof OutOfCreditsError) {
 				// Lost the rare race: passed the fast-fail balance read, then a
 				// concurrent reservation depleted the balance before this debit. Fail
-				// the just-created build doc (a retry on an existing app must not) and
-				// surface the same out-of-credits 429 the fast-fail read returns.
-				if (appCreated) {
+				// the just-created build doc — and flip a revived retry back to
+				// `error` (its `generating` was this POST's own lock write, now
+				// pointing at a run that never starts). An ordinary existing-app
+				// request stays untouched.
+				if (appCreated || revivedForRetry) {
 					failApp(appId, "out_of_credits");
 				}
 				return Response.json(

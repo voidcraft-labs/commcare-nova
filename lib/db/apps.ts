@@ -665,6 +665,33 @@ export async function loadBlueprintBasis(
 }
 
 /**
+ * Re-enter the build window for a RETRY of a failed build: flip
+ * `error → generating` with a FRESH `updated_at`, clearing `error_type`.
+ *
+ * The chat route awaits this BEFORE its concurrency check — the same
+ * write-then-check ordering `createApp` uses (the durable `generating`
+ * row IS the lock; checking first would reopen the TOCTOU the pattern
+ * closes). Re-entering `generating` is what re-arms ALL the existing
+ * build-liveness machinery for free: `hasActiveGeneration` blocks
+ * concurrent new builds while the retry runs, the staleness reaper
+ * refunds a hard-killed retry's reservation, and the list failure
+ * inference surfaces a dead one. The fresh timestamp matters — the
+ * row's old `updated_at` is from the FAILED run and may already be
+ * outside the staleness window, so without re-arming, a concurrent
+ * list scan could reap the retry at birth.
+ */
+export async function markAppGenerating(appId: string): Promise<void> {
+	await docs.app(appId).set(
+		{
+			status: "generating",
+			error_type: null,
+			updated_at: FieldValue.serverTimestamp(),
+		},
+		{ merge: true },
+	);
+}
+
+/**
  * Mark an app as failed after an error during generation.
  *
  * Fire-and-forget — a Firestore outage must never block the error response.
