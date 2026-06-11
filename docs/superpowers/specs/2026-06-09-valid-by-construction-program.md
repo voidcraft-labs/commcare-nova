@@ -710,6 +710,43 @@ via MCP → app is usable the moment its last commit lands (no finishing
 call); enabling Connect in App Settings on an app with forms opens the
 staging dialog and commits one batch.
 
+Round-5 review hardening (same stage, post-ship):
+- EVERY chargeable build-mode POST claims the run window transactionally
+  (`claimBuildRun` generalizes the error-retry compare-and-flip to
+  `complete` and paused `generating`+`awaiting_input` rows; loser 429s) —
+  a build run against an already-complete app now sits under the reaper's
+  refund coverage and the concurrency arbitration like any other, and the
+  pre-stream bail-outs restore exactly the shape the claim displaced (a
+  rejected request can never strand a complete app at `error`).
+- Retiring a case type's last owning module is satisfiable: the shared
+  planner (`lib/doc/caseTypeRetirement.ts`) retires an orphaned,
+  unreferenced record via an explicit `setCaseTypes` in the same gated
+  batch, and rejects a still-referenced one listing every reference
+  (parent_type declarations, `case_property_on` writers, `#type/…`
+  hashtags via the Lezer grammar, predicate-AST leaves). Consumed by the
+  SA/MCP `removeModule` + `updateModule` tools and the builder hook; the
+  cascade is batch-layer mutations, never a reducer side effect, so
+  historical replay is byte-stable.
+- The unknown-tool-part strip runs on EVERY continuation (build included)
+  so a build paused on `awaiting_input` across a deploy that retired
+  tools resumes instead of failing `validateUIMessages` forever.
+- `SchemaNotSyncedError` self-heals at the point of use: every
+  case-data-binding action re-materializes from the persisted blueprint
+  and retries once (`withSchemaHeal`); the edit-arm comments that claimed
+  auto-save re-sync now state this real path.
+- Builder Connect: the empty-app enable commits the bare type flip
+  (the zero-module early-return died), and the per-form ON-toggle heal
+  collects the block through the shared staging dialog instead of seeding
+  fabricated content.
+- The construction fuzz pool grew `removeModule` (cascade + NO_MODULES
+  rejection) and the whole case-list-config family, each with acceptance
+  floors; preludes grew standing targets (second column, search input,
+  third registration writer, second module). Media tools stay out — an
+  attach op writes an opaque asset id with no gate interplay to judge.
+- Scan + migrate script pair for legacy `status: "draft"` rows
+  (`--project`-pinned; migrate dry-run default, `--apply`). Dev-project
+  scan found zero rows.
+
 ### Stage 5 — The reference index
 
 Layer 2 as specified. Implementation order inside the stage: index module +
