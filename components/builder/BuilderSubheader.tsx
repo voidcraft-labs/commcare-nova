@@ -1,12 +1,18 @@
 /**
- * BuilderSubheader — navigation, breadcrumbs, undo/redo, save, and export
- * controls. Fully self-sufficient — subscribes to URL-driven location hooks
- * and doc-backed undo/redo. No callback props from BuilderLayout needed
- * for any interactive behavior.
+ * BuilderSubheader — navigation, breadcrumbs, undo/redo, save, export, and
+ * the Preview toggle. Self-sufficient except for `onSetPreviewing`:
+ * BuilderLayout owns that wrapper because the flipbook scroll anchor must
+ * be captured before the store flips.
  *
  * Navigation state comes from `useLocation` / `useNavigate` /
  * `useBreadcrumbs` (URL-driven). Undo/redo from `useUndoRedo` (doc
  * temporal).
+ *
+ * Right-cluster hierarchy is deliberate: the editing tools (save state,
+ * settings, undo/redo, export) are muted icon buttons; Preview sits last,
+ * past a divider, as the row's one accented control — run-your-app is the
+ * subheader's primary action, in the same top-right corner every
+ * comparable builder puts it.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -15,6 +21,7 @@ import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import { useMemo } from "react";
 import { AppSettingsButton } from "@/components/builder/detail/appSettings/AppSettingsButton";
 import { ExportPanel } from "@/components/builder/ExportPanel";
+import { PreviewToggle } from "@/components/builder/PreviewToggle";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
@@ -36,11 +43,15 @@ interface BuilderSubheaderProps {
 	commcareConfigured: boolean;
 	/** Every project space the key can upload to (drives the dialog picker). */
 	commcareAvailableDomains: { name: string; displayName: string }[];
+	/** Preview toggle handler — BuilderLayout's scroll-anchor-capturing
+	 *  wrapper around the store's `setPreviewing`. */
+	onSetPreviewing: (on: boolean) => void;
 }
 
 export function BuilderSubheader({
 	commcareConfigured,
 	commcareAvailableDomains,
+	onSetPreviewing,
 }: BuilderSubheaderProps) {
 	const hasData = useDocHasData();
 	const isReady = useBuilderIsReady();
@@ -132,6 +143,8 @@ export function BuilderSubheader({
 						commcareConfigured={commcareConfigured}
 						commcareAvailableDomains={commcareAvailableDomains}
 					/>
+					<div aria-hidden="true" className="mx-1.5 h-6 w-px bg-nova-border" />
+					<PreviewToggle onSetPreviewing={onSetPreviewing} />
 				</div>
 			)}
 		</>

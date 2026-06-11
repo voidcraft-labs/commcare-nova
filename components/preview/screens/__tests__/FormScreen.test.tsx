@@ -110,15 +110,14 @@ vi.mock("@/lib/session/hooks", async () => {
 	return {
 		...actual,
 		useAppId: () => currentAppId,
-		/* `test` mode mounts the submit row — every test in this file
+		/* Preview mode mounts the submit row — every test in this file
 		 *  asserts against the row's behavior. Mirroring CaseListScreen's
 		 *  hook mocks so the two screens share a session-mode contract.
-		 *  `useCursorMode` is mocked separately because `FormRenderer`
-		 *  reads it directly (not through `useEditMode`) to dispatch
-		 *  between virtualized + interactive paths; `pointer` mirrors
-		 *  the underlying source `useEditMode("test")` derives from. */
-		useEditMode: () => "test" as const,
-		useCursorMode: () => "pointer" as const,
+		 *  `usePreviewing` is mocked alongside because `TextEditable`
+		 *  reads it directly (not through `useEditMode`); `true` is the
+		 *  underlying source `useEditMode("preview")` derives from. */
+		useEditMode: () => "preview" as const,
+		usePreviewing: () => true,
 		useBuilderIsReady: () => true,
 	};
 });

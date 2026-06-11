@@ -19,7 +19,6 @@ const navigateMock = {
 	openCaseDetail: vi.fn(),
 	openSearchConfig: vi.fn(),
 	openDetailConfig: vi.fn(),
-	openCasePreview: vi.fn(),
 	openForm: vi.fn(),
 	push: vi.fn(),
 	replace: vi.fn(),

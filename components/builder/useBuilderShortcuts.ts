@@ -14,16 +14,15 @@ import {
 	useUndoRedo,
 } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
-import { useBuilderIsReady, useCursorMode } from "@/lib/session/hooks";
-import type { CursorMode } from "@/lib/session/types";
+import { useBuilderIsReady, usePreviewing } from "@/lib/session/hooks";
 import type { Shortcut } from "@/lib/ui/keyboardManager";
 
 /**
  * Builds a memoized keyboard shortcuts array for the builder layout.
  *
  * Returns an empty array when the builder is not in Ready/Completed phase.
- * When active, includes: Escape (deselect/exit pointer), V/E (switch cursor
- * mode), Tab/Shift+Tab (navigate fields in edit mode), Delete/Backspace
+ * When active, includes: Escape (deselect/exit preview), P (toggle
+ * preview), Tab/Shift+Tab (navigate fields while editing), Delete/Backspace
  * (delete field), Cmd+D (duplicate), ArrowUp/ArrowDown (reorder),
  * Shift+ArrowUp/Shift+ArrowDown (cross-level indent/outdent),
  * Cmd+Z/Cmd+Shift+Z (undo/redo).
@@ -36,7 +35,7 @@ import type { Shortcut } from "@/lib/ui/keyboardManager";
  * and always-fresh state beats any reactive re-render here.
  */
 export function useBuilderShortcuts(
-	handleCursorModeChange: (mode: CursorMode) => void,
+	setPreviewing: (on: boolean) => void,
 ): Shortcut[] {
 	const isReady = useBuilderIsReady();
 	const loc = useLocation();
@@ -45,7 +44,7 @@ export function useBuilderShortcuts(
 	const deleteSelected = useDeleteSelectedField();
 	const { undo, redo } = useUndoRedo();
 	const { duplicateField, moveField } = useBlueprintMutations();
-	const cursorMode = useCursorMode();
+	const previewing = usePreviewing();
 	/* Imperative store handle — handlers read the freshest doc snapshot at
 	 * fire time. The hook never subscribes to a slice, so keystrokes never
 	 * trigger a component re-render on unrelated mutations. */
@@ -62,7 +61,7 @@ export function useBuilderShortcuts(
 		};
 
 		return [
-			// Escape — deselect / exit pointer mode. Declines (returns
+			// Escape — deselect / exit preview. Declines (returns
 			// false) when neither applies so the key falls through to a
 			// more specific registration (e.g. the case-list workspace's
 			// inspector-closing Escape) instead of being eaten — this
@@ -72,8 +71,8 @@ export function useBuilderShortcuts(
 			{
 				key: "Escape",
 				handler: () => {
-					if (cursorMode === "pointer") {
-						handleCursorModeChange("edit");
+					if (previewing) {
+						setPreviewing(false);
 						return;
 					}
 					if (loc.kind === "form" && loc.selectedUuid) {
@@ -83,15 +82,14 @@ export function useBuilderShortcuts(
 					return false;
 				},
 			},
-			// V/E — switch cursor mode (Figma-style single-key shortcuts,
-			// suppressed when an input/editor is focused via keyboardManager)
-			{ key: "v", handler: () => handleCursorModeChange("pointer") },
-			{ key: "e", handler: () => handleCursorModeChange("edit") },
-			// Tab / Shift+Tab — navigate fields in depth-first order, edit mode only
+			// P — toggle preview (Figma-style single-key shortcut, suppressed
+			// when an input/editor is focused via keyboardManager)
+			{ key: "p", handler: () => setPreviewing(!previewing) },
+			// Tab / Shift+Tab — navigate fields in depth-first order, editing only
 			{
 				key: "Tab",
 				handler: () => {
-					if (cursorMode !== "edit") return;
+					if (previewing) return;
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
 					const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
 					if (!refs.length) return;
@@ -104,7 +102,7 @@ export function useBuilderShortcuts(
 				key: "Tab",
 				shift: true,
 				handler: () => {
-					if (cursorMode !== "edit") return;
+					if (previewing) return;
 					if (loc.kind !== "form" || !loc.selectedUuid) return;
 					const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
 					if (!refs.length) return;
@@ -221,12 +219,12 @@ export function useBuilderShortcuts(
 		docApi,
 		setPending,
 		select,
-		handleCursorModeChange,
+		setPreviewing,
 		deleteSelected,
 		undo,
 		redo,
 		duplicateField,
 		moveField,
-		cursorMode,
+		previewing,
 	]);
 }

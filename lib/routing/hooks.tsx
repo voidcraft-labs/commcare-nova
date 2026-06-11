@@ -130,12 +130,6 @@ export interface NavigateActions {
 	 * the case-list workspace alongside `openCaseList` / `openSearchConfig`.
 	 */
 	openDetailConfig: (moduleUuid: Uuid) => void;
-	/**
-	 * Open the case-list worker preview for `moduleUuid`. Routes to
-	 * `/build/{appId}/{moduleUuid}/case-preview` — the workspace's
-	 * first-class run-through tab.
-	 */
-	openCasePreview: (moduleUuid: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -162,7 +156,6 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 			loc.kind === "cases" ||
 			loc.kind === "search-config" ||
 			loc.kind === "detail-config" ||
-			loc.kind === "case-preview" ||
 			loc.kind === "form") &&
 		loc.moduleUuid === uuid
 	);
@@ -170,16 +163,15 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 
 /**
  * `true` when any of the case-list workspace's URLs (list / search /
- * detail / preview tab) is open for this module. Used by the tree
- * sidebar's Case List & Search node for highlight state.
+ * detail tab) is open for this module. Used by the tree sidebar's
+ * Case List & Search node for highlight state.
  */
 export function useIsCaseListSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return (
 		(loc.kind === "cases" ||
 			loc.kind === "search-config" ||
-			loc.kind === "detail-config" ||
-			loc.kind === "case-preview") &&
+			loc.kind === "detail-config") &&
 		loc.moduleUuid === uuid
 	);
 }
@@ -225,7 +217,6 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config" ||
-		loc.kind === "case-preview" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
@@ -250,10 +241,9 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		// The trailing crumb names the workspace tab, word-for-word
-		// ("Case List" / "Search" / "Case Detail" / "Preview") — the
-		// module crumb already carries the case-type context, so a
-		// "client search"-style prefix would just restate it in a
-		// different casing.
+		// ("Case List" / "Search" / "Case Detail") — the module crumb
+		// already carries the case-type context, so a "client search"-
+		// style prefix would just restate it in a different casing.
 		if (loc.kind === "cases") {
 			items.push({
 				key: `cases:${moduleUuid}`,
@@ -284,13 +274,6 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				key: `detail-config:${moduleUuid}`,
 				label: "Case Detail",
 				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
-			});
-		}
-		if (loc.kind === "case-preview") {
-			items.push({
-				key: `case-preview:${moduleUuid}`,
-				label: "Preview",
-				location: { kind: "case-preview", moduleUuid: loc.moduleUuid },
 			});
 		}
 		if (loc.kind === "form" && formUuid && moduleUuid) {
@@ -360,8 +343,6 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "search-config", moduleUuid }),
 			openDetailConfig: (moduleUuid: Uuid) =>
 				push({ kind: "detail-config", moduleUuid }),
-			openCasePreview: (moduleUuid: Uuid) =>
-				push({ kind: "case-preview", moduleUuid }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -395,7 +376,6 @@ export function parentLocation(loc: Location): Location | undefined {
 				: { kind: "module", moduleUuid: loc.moduleUuid };
 		case "search-config":
 		case "detail-config":
-		case "case-preview":
 			return { kind: "module", moduleUuid: loc.moduleUuid };
 		case "form":
 			return loc.selectedUuid

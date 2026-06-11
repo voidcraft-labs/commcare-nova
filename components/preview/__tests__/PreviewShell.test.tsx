@@ -10,9 +10,9 @@
 //     prop derived from the URL kind (`list` / `search` / `detail`);
 //     the running-app CaseListScreen is mounted but hidden by
 //     Activity so its internal state (scroll, fetched rows) survives.
-//   - Interact mode at any of the three → CaseListScreen is the
+//   - Preview mode at any of the three → CaseListScreen is the
 //     visible surface (search and detail are facets of the same case
-//     list, so the worker preview is always the assembled artifact);
+//     list, so the running preview is always the assembled artifact);
 //     the workspace is mounted but hidden so its selection + scroll
 //     survive the round-trip.
 //
@@ -33,7 +33,7 @@ const MODULE_UUID = asUuid("mod-1");
 
 // `useLocation` and `useEditMode` are the dispatch knobs; the rest of
 // the routing/session surface is forwarded from the real module.
-const editModeMock = vi.fn(() => "edit" as "edit" | "test");
+const editModeMock = vi.fn(() => "edit" as "edit" | "preview");
 const locationMock = vi.fn<() => Location>(() => ({
 	kind: "cases" as const,
 	moduleUuid: MODULE_UUID,
@@ -54,7 +54,6 @@ vi.mock("@/lib/routing/hooks", async () => {
 		openCaseDetail: vi.fn(),
 		openSearchConfig: vi.fn(),
 		openDetailConfig: vi.fn(),
-		openCasePreview: vi.fn(),
 		openForm: vi.fn(),
 		push: vi.fn(),
 		replace: vi.fn(),
@@ -194,8 +193,8 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 			expect(isVisible(getByTestId("legacy-case-list-stub"))).toBe(false);
 		});
 
-		it(`test mode at ${location.kind} → CaseListScreen visible; workspace hidden`, () => {
-			editModeMock.mockReturnValue("test");
+		it(`preview mode at ${location.kind} → CaseListScreen visible; workspace hidden`, () => {
+			editModeMock.mockReturnValue("preview");
 			locationMock.mockReturnValue(location);
 			const { getByTestId } = renderShell();
 			expect(isVisible(getByTestId("legacy-case-list-stub"))).toBe(true);
@@ -203,11 +202,11 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 		});
 	}
 
-	it("toggling from edit → test at /cases keeps the workspace mounted but hidden", () => {
+	it("toggling from edit → preview at /cases keeps the workspace mounted but hidden", () => {
 		// Both surfaces should retain state across mode toggles. The
 		// visited-ref pattern populates one ref per visited surface;
 		// once both have rendered visible at least once, both Activity
-		// boundaries persist. Driving edit → test in the same shell
+		// boundaries persist. Driving edit → preview in the same shell
 		// proves the gate keeps the workspace boundary alive.
 		editModeMock.mockReturnValue("edit");
 		locationMock.mockReturnValue({
@@ -216,11 +215,11 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 		});
 		const { getByTestId, rerender } = renderShell();
 		expect(isVisible(getByTestId("workspace-stub"))).toBe(true);
-		// Toggle to test mode, re-render the same root. The
+		// Toggle to preview mode, re-render the same root. The
 		// caseListWorkspaceRef ref persists across the re-render so
 		// the workspace boundary stays mounted (now hidden by
-		// Activity). The legacy CaseListScreen mounts visible.
-		editModeMock.mockReturnValue("test");
+		// Activity). The running CaseListScreen mounts visible.
+		editModeMock.mockReturnValue("preview");
 		rerender(
 			<BlueprintDocProvider
 				appId="app-preview-shell-test"

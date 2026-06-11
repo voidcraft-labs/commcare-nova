@@ -7,7 +7,7 @@
  * allow-list — the two stores have disjoint responsibilities.
  *
  * Types are organized by concern:
- *   - Cursor/sidebar primitives
+ *   - Preview/sidebar primitives
  *   - Generation lifecycle — stages, errors, partial scaffold
  *   - Replay — raw event log + derived chapter metadata
  */
@@ -16,14 +16,10 @@ import type { Event } from "@/lib/log/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
 
-/** Interaction mode. "edit" = click to select + inline text editing;
- *  "pointer" = live form-fill preview. */
-export type CursorMode = "edit" | "pointer";
-
 /**
  * Visibility + stash state for one sidebar column. `open` is current
- * visibility; `stashed` records whether we should reopen when leaving edit
- * mode. See `switchCursorMode` in the store.
+ * visibility; `stashed` records whether we should reopen when leaving
+ * preview mode. See `setPreviewing` in the store.
  */
 export type SidebarState = { open: boolean; stashed: boolean | undefined };
 

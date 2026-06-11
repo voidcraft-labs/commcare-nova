@@ -1,7 +1,7 @@
 /**
  * RepeatField — interactive rendering of a repeat container.
  *
- * Rendered only by `InteractiveFormRenderer` (pointer / test mode). The
+ * Rendered only by `InteractiveFormRenderer` (preview mode). The
  * edit-mode representation uses `GroupOpenRow` / `GroupCloseRow` on the
  * flat row list and never reaches this file.
  *

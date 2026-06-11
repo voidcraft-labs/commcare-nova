@@ -151,7 +151,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const prevModeRef = useRef(mode);
 	useEffect(() => {
-		if (prevModeRef.current === "test" && mode !== "test") {
+		if (prevModeRef.current === "preview" && mode !== "preview") {
 			controller.resetValidation();
 		}
 		prevModeRef.current = mode;
@@ -162,7 +162,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const formBodyRef = useCallback(
 		(el: HTMLDivElement | null) => {
 			formBodyElRef.current = el;
-			if (!el || mode !== "test") return;
+			if (!el || mode !== "preview") return;
 			if (!selectedUuid) return;
 			const raf = requestAnimationFrame(() => {
 				const qEl = el.querySelector(`[data-field-uuid="${selectedUuid}"]`);
@@ -308,7 +308,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	if (!form || !formUuid) return null;
 
 	/** A caseId-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
-	if (mode === "test" && CASE_LOADING_FORM_TYPES.has(form.type)) {
+	if (mode === "preview" && CASE_LOADING_FORM_TYPES.has(form.type)) {
 		if (caseDataState.kind === "unauthenticated") {
 			return (
 				<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
@@ -340,8 +340,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	}
 
-	/** Case-loading forms in test mode without a bound case — covers both "navigated from an empty list" and "URL had no caseId". Routing both `followup` and `close` through here keeps the engine's caseId invariant (`computeSubmissionMutation` throws when either runs without a bound id) unreachable from a user action. */
-	if (mode === "test" && CASE_LOADING_FORM_TYPES.has(form.type) && !caseId) {
+	/** Case-loading forms in preview mode without a bound case — covers both "navigated from an empty list" and "URL had no caseId". Routing both `followup` and `close` through here keeps the engine's caseId invariant (`computeSubmissionMutation` throws when either runs without a bound id) unreachable from a user action. */
+	if (mode === "preview" && CASE_LOADING_FORM_TYPES.has(form.type) && !caseId) {
 		return (
 			<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
 				<div className="text-center space-y-2">
@@ -405,7 +405,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			</div>
 
 			{/* Hidden in design mode where it's non-functional. */}
-			{mode === "test" && (
+			{mode === "preview" && (
 				<div className="border-t border-pv-input-border bg-pv-surface">
 					<div className="flex items-center justify-between px-6 py-3">
 						<button

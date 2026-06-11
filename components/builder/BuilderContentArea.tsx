@@ -1,7 +1,7 @@
 /**
  * BuilderContentArea — the flex row containing structure sidebar, main
  * preview content, and chat sidebar. Self-subscribes to all layout
- * visibility state (chatOpen, structureOpen, cursorMode, isReady, hasData)
+ * visibility state (chatOpen, structureOpen, previewing, isReady, hasData)
  * so BuilderLayout doesn't need to.
  *
  * This component is the layout-level rendering boundary: sidebar
@@ -9,15 +9,14 @@
  * transitions all happen here without cascading to the parent or to
  * the preview/chat content.
  *
- * Children (PreviewShell, CursorModeSelector, GenerationProgress) are
- * self-sufficient — they subscribe to their own state from the store.
- * This component only controls mount/unmount and animation wrappers.
+ * Children (PreviewShell, GenerationProgress) are self-sufficient —
+ * they subscribe to their own state from the store. This component only
+ * controls mount/unmount and animation wrappers.
  */
 "use client";
 import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { AppTreeRail } from "@/components/builder/appTree/AppTreeRail";
-import { CursorModeSelector } from "@/components/builder/CursorModeSelector";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
 import { ChatContainer } from "@/components/chat/ChatContainer";
@@ -26,17 +25,16 @@ import { CHAT_SIDEBAR_WIDTH } from "@/components/chat/ChatSidebar";
 import { PreviewShell } from "@/components/preview/PreviewShell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
-import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderIsReady,
 	useBuilderPhase,
-	useCursorMode,
 	useInReplayMode,
+	usePreviewing,
 	useSetSidebarOpen,
 	useSidebarState,
 } from "@/lib/session/hooks";
-import type { CursorMode } from "@/lib/session/types";
 import { INSPECTOR_RAIL_WIDTH, useInspectorActive } from "@/lib/ui/inspector";
 
 /** Shared sidebar open/close animation config. */
@@ -50,19 +48,10 @@ const STRUCTURE_SIDEBAR_WIDTH = 360;
  *  share it, so the two edges read as one system. */
 const COLLAPSED_RAIL_WIDTH = 56;
 
-/** Height of the glassmorphic cursor mode pill (top-2.5 + py-1.5 + 34px control + py-1.5).
- *  Used as top inset on PreviewShell so content starts below the overlay. */
-const TOOLBAR_INSET = 56;
-
 interface BuilderContentAreaProps {
 	/** Whether the layout is in centered mode (Idle phase). When centered,
 	 *  the preview area hides and chat takes full width. */
 	isCentered: boolean;
-	/** Scroll-anchor-capturing wrapper for cursor mode changes. BuilderLayout
-	 *  owns the scroll anchor state for flipbook sync because it coordinates
-	 *  the scroll container's ResizeObserver correction during width animation.
-	 *  This is the one piece of coordination that crosses the boundary. */
-	onCursorModeChange: (mode: CursorMode) => void;
 	/** Whether the app was loaded from Firestore (not a new build). */
 	isExistingApp: boolean;
 	/** Server-rendered thread history for ChatContainer. */
@@ -71,7 +60,6 @@ interface BuilderContentAreaProps {
 
 export function BuilderContentArea({
 	isCentered,
-	onCursorModeChange,
 	isExistingApp,
 	children,
 }: BuilderContentAreaProps) {
@@ -85,10 +73,10 @@ export function BuilderContentArea({
 	const navigate = useNavigate();
 
 	/* Layout visibility — these only change on deliberate user interactions
-	 * (sidebar toggle, cursor mode switch), not on every keystroke or message. */
+	 * (sidebar toggle, preview toggle), not on every keystroke or message. */
 	const { open: chatOpen } = useSidebarState("chat");
 	const { open: structureOpen } = useSidebarState("structure");
-	const cursorMode = useCursorMode();
+	const previewing = usePreviewing();
 	const setSidebarOpen = useSetSidebarOpen();
 
 	/* The right rail belongs to the inspector while a surface claims it:
@@ -106,28 +94,15 @@ export function BuilderContentArea({
 
 	const showProgress = phase === BuilderPhase.Generating && !inReplayMode;
 
-	/* The case-list workspace carries no cursor-mode toggle: selection
-	 * is its mode and Preview is a first-class tab, so the pill would
-	 * be a second, contradictory preview affordance. In pointer mode
-	 * the pill stays even on case URLs — it's the only exit. */
-	const loc = useLocation();
-	const onCaseSurface =
-		loc.kind === "cases" ||
-		loc.kind === "search-config" ||
-		loc.kind === "detail-config" ||
-		loc.kind === "case-preview";
-	const showToolbar =
-		isReady && hasData && !(onCaseSurface && cursorMode === "edit");
-
 	return (
 		<div className="relative flex-1 overflow-hidden flex">
 			{/* Structure sidebar (left) — full tree when open, icon rail when
 			 *  collapsed. The rail keeps every destination (modules, each
 			 *  case list, every form) one click away, so collapsing trades
-			 *  width for labels, never for reach. Pointer mode unmounts the
-			 *  whole strip — immersive testing hides builder chrome. */}
+			 *  width for labels, never for reach. Preview unmounts the
+			 *  whole strip — the running app gets the full canvas. */}
 			<AnimatePresence initial={false}>
-				{!isCentered && hasData && cursorMode !== "pointer" && (
+				{!isCentered && hasData && !previewing && (
 					<motion.div
 						key="structure"
 						initial={{ width: 0 }}
@@ -161,28 +136,9 @@ export function BuilderContentArea({
 					>
 						<ErrorBoundary>
 							{isReady && hasData ? (
-								<PreviewShell
-									hideHeader
-									topInset={showToolbar ? TOOLBAR_INSET : 0}
-									onBack={() => navigate.back()}
-								/>
+								<PreviewShell hideHeader onBack={() => navigate.back()} />
 							) : null}
 						</ErrorBoundary>
-
-						{/* Cursor mode pill — absolutely positioned centered pill over
-						 *  the scroll container so backdrop-filter samples the scrolling
-						 *  content beneath. */}
-						{showToolbar && (
-							<div className="absolute top-2.5 inset-x-0 z-raised flex justify-center pointer-events-none">
-								<div className="pointer-events-auto rounded-full bg-[rgba(93,88,167,0.25)] backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] border border-white/[0.1] shadow-[0_4px_20px_rgba(139,92,246,0.1),0_2px_8px_rgba(0,0,0,0.2)] px-1 py-1">
-									<CursorModeSelector
-										onChange={onCursorModeChange}
-										variant="horizontal"
-										glass
-									/>
-								</div>
-							</div>
-						)}
 
 						{/* Progress overlay */}
 						<AnimatePresence>
@@ -225,11 +181,11 @@ export function BuilderContentArea({
 			 *  width 0 (chat state survives collapse); this sibling column is
 			 *  purely the collapsed affordance. It steps aside whenever the
 			 *  inspector claims the rail (selection forces the rail open) and
-			 *  in pointer mode, where chrome is force-hidden. */}
+			 *  in preview, where chrome is force-hidden. */}
 			<AnimatePresence initial={false}>
 				{!isCentered &&
 					hasData &&
-					cursorMode !== "pointer" &&
+					!previewing &&
 					!chatOpen &&
 					!inspectorActive && (
 						<motion.div

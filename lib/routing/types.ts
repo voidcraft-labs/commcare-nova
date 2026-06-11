@@ -14,7 +14,6 @@
  *   /build/[id]/{moduleUuid}/cases/{caseId}       → case detail
  *   /build/[id]/{moduleUuid}/search-config        → case-search authoring
  *   /build/[id]/{moduleUuid}/detail-config        → case-detail authoring
- *   /build/[id]/{moduleUuid}/case-preview         → case-list worker preview
  *   /build/[id]/{formUuid}                        → form
  *   /build/[id]/{formUuid}/{fieldUuid}          → form + selected field
  *
@@ -32,12 +31,11 @@ import type { Uuid } from "@/lib/doc/types";
  * respective UUID params; a missing or unresolvable UUID collapses to
  * home.
  *
- * `cases` / `search-config` / `detail-config` / `case-preview` are
- * sibling kinds — the four tabs of the unified case-list workspace
- * (list / search / detail / worker preview). Each tab is its own URL
- * kind so tab switches are ordinary history navigation and the routing
- * dispatch branches on a single discriminator instead of carrying a
- * tab parameter.
+ * `cases` / `search-config` / `detail-config` are sibling kinds — the
+ * three tabs of the unified case-list workspace (list / search /
+ * detail). Each tab is its own URL kind so tab switches are ordinary
+ * history navigation and the routing dispatch branches on a single
+ * discriminator instead of carrying a tab parameter.
  */
 export type Location =
 	| { kind: "home" }
@@ -45,7 +43,6 @@ export type Location =
 	| { kind: "cases"; moduleUuid: Uuid; caseId?: string }
 	| { kind: "search-config"; moduleUuid: Uuid }
 	| { kind: "detail-config"; moduleUuid: Uuid }
-	| { kind: "case-preview"; moduleUuid: Uuid }
 	| {
 			kind: "form";
 			moduleUuid: Uuid;

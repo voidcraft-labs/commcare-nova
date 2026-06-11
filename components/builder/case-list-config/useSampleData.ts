@@ -13,7 +13,7 @@ import { useState } from "react";
 import {
 	describePopulateError,
 	type SampleDataStatus,
-} from "@/components/preview/screens/CaseListScreen";
+} from "@/components/preview/shared/sampleData";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
 import {

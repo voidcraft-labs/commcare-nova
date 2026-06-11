@@ -1,16 +1,13 @@
 // components/builder/case-list-config/CaseListConfigWorkspace.tsx
 //
 // The unified case-list authoring workspace — three focused config
-// tabs (Search / Case list / Case detail) plus a first-class Preview
-// tab. Each config tab is an artifact-first canvas where clicking a
-// thing configures that thing in the right-rail inspector; Preview is
-// the live run-through, a place (URL-addressed) rather than a
-// popup or a cursor mode. The tab IS the URL (`/cases`,
-// `/search-config`, `/detail-config`, `/case-preview`), so tab
-// switches are ordinary history navigation and deep links land on the
-// right canvas. This surface carries no cursor-mode toggle —
-// selection is its mode, and Preview covers the run-through
-// (`BuilderContentArea` suppresses the pill here).
+// tabs (Search / Case List / Case Detail). Each tab is an
+// artifact-first canvas where clicking a thing configures that thing
+// in the right-rail inspector. The tab IS the URL (`/cases`,
+// `/search-config`, `/detail-config`), so tab switches are ordinary
+// history navigation and deep links land on the right canvas. The
+// run-through lives behind the chrome's global Preview toggle —
+// this surface carries no preview affordance of its own.
 //
 // Selection is workspace-local state (case-list entities have no
 // standalone URLs the way fields do), keyed by module so navigating
@@ -28,7 +25,6 @@
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerId from "@iconify-icons/tabler/id";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
-import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
@@ -49,7 +45,6 @@ import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import { ColumnEditor } from "./ColumnEditor";
 import { CaseListCanvas } from "./canvas/CaseListCanvas";
 import { DetailCanvas } from "./canvas/DetailCanvas";
-import { PreviewCanvas } from "./canvas/PreviewCanvas";
 import { SearchCanvas } from "./canvas/SearchCanvas";
 import {
 	type CaseListConfigErrorAreas,
@@ -69,7 +64,7 @@ import type { WorkspaceSelection } from "./workspaceSelection";
 // ── Public types ──────────────────────────────────────────────────
 
 /** Which canvas is showing — derived from the URL location kind. */
-export type CaseListWorkspaceTab = "search" | "list" | "detail" | "preview";
+export type CaseListWorkspaceTab = "search" | "list" | "detail";
 
 export interface CaseListConfigWorkspaceProps {
 	/** The module whose case list is being authored. */
@@ -121,16 +116,6 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		if (prevTabRef.current === tab) return;
 		prevTabRef.current = tab;
 		setSel(null);
-	}, [tab]);
-
-	/* Where Preview toggles back to. Tracks the last config tab the
-	 * user was on so clicking the active Preview button returns them
-	 * exactly where they left off (defaults to the list). */
-	const lastConfigTabRef = useRef<Exclude<CaseListWorkspaceTab, "preview">>(
-		tab === "preview" ? "list" : tab,
-	);
-	useEffect(() => {
-		if (tab !== "preview") lastConfigTabRef.current = tab;
 	}, [tab]);
 
 	/* Escape closes the inspector. Routed through the shared keyboard
@@ -291,21 +276,11 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				detailMeta={`${detailFieldCount} ${detailFieldCount === 1 ? "field" : "fields"}`}
 				errorAreas={errorAreas}
 				onSelectTab={(next) => {
-					/* Preview is a toggle: clicking it while active returns to
-					 * the tab the user came from. Config tabs stay no-ops when
-					 * already active. */
-					if (next === tab) {
-						if (next !== "preview") return;
-						const back = lastConfigTabRef.current;
-						if (back === "search") navigate.openSearchConfig(moduleUuid);
-						else if (back === "detail") navigate.openDetailConfig(moduleUuid);
-						else navigate.openCaseList(moduleUuid);
-						return;
-					}
+					/* Tabs are no-ops when already active. */
+					if (next === tab) return;
 					if (next === "search") navigate.openSearchConfig(moduleUuid);
 					else if (next === "list") navigate.openCaseList(moduleUuid);
-					else if (next === "detail") navigate.openDetailConfig(moduleUuid);
-					else navigate.openCasePreview(moduleUuid);
+					else navigate.openDetailConfig(moduleUuid);
 				}}
 			/>
 
@@ -344,17 +319,6 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					onSelect={setSel}
 					onAddDetailField={() => addColumn({ visibleInList: false })}
 					addDisabledReason={addDisabledReason}
-				/>
-			)}
-			{tab === "preview" && (
-				<PreviewCanvas
-					moduleName={mod.name}
-					config={config}
-					searchConfig={searchConfig}
-					caseType={ct}
-					appId={appId}
-					onConfigChange={updateConfig}
-					warmRows={preview.kind === "rows" ? preview.rows : undefined}
 				/>
 			)}
 
@@ -517,7 +481,7 @@ interface WorkspaceTabsProps {
 }
 
 const TAB_DEFS: ReadonlyArray<{
-	id: Exclude<CaseListWorkspaceTab, "preview">;
+	id: CaseListWorkspaceTab;
 	icon: IconifyIcon;
 	label: string;
 }> = [
@@ -527,10 +491,9 @@ const TAB_DEFS: ReadonlyArray<{
 ];
 
 /**
- * Peer config tabs — no numbering, no implied order — plus the
- * Preview affordance on the right edge, visually distinct (violet,
- * play glyph) because it answers a different question: the config
- * tabs are workbenches; Preview is the composed running experience.
+ * Peer config tabs — no numbering, no implied order. The run-through
+ * lives behind the chrome's global Preview toggle, so the strip is
+ * pure workbench navigation.
  */
 function WorkspaceTabs({
 	tab,
@@ -540,12 +503,11 @@ function WorkspaceTabs({
 	errorAreas,
 	onSelectTab,
 }: WorkspaceTabsProps) {
-	const metas: Record<Exclude<CaseListWorkspaceTab, "preview">, string> = {
+	const metas: Record<CaseListWorkspaceTab, string> = {
 		search: searchMeta,
 		list: listMeta,
 		detail: detailMeta,
 	};
-	const previewActive = tab === "preview";
 	/* The canvas narrows when the inspector docks (and again with both
 	 * sidebars open), so the row compacts by container width: metas
 	 * drop first, then labels go icon-only with the tooltip carrying
@@ -623,30 +585,6 @@ function WorkspaceTabs({
 					</Tooltip>
 				);
 			})}
-			<Tooltip
-				content={
-					previewActive
-						? "Back to editing"
-						: "Try these screens exactly as your app runs them"
-				}
-				placement="bottom"
-			>
-				<button
-					type="button"
-					onClick={() => onSelectTab("preview")}
-					aria-pressed={previewActive}
-					className={`ml-auto inline-flex items-center gap-2 px-3 @xl:px-4 min-h-11 rounded-lg text-[13px] font-semibold whitespace-nowrap cursor-pointer border transition-all ${
-						previewActive
-							? "bg-nova-violet border-nova-violet text-white shadow-[0_0_16px_rgba(139,92,246,0.4)]"
-							: "bg-nova-violet/[0.12] border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.2]"
-					}`}
-				>
-					{/* 17px to match the config tabs' icons — one strip, one
-					 *  icon scale. */}
-					<Icon icon={tablerPlayerPlay} width="17" height="17" />
-					<span className="hidden @xl:inline">Preview</span>
-				</button>
-			</Tooltip>
 		</div>
 	);
 }

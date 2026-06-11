@@ -30,11 +30,6 @@
 //     `applyCloseMutation`; the case-store stamps `closed_on` to a
 //     non-null timestamp. `applyCloseMutation` passes no `status`
 //     patch, so `status` stays at its pre-close value.
-//   - Reset round-trip: clicking the Reset button + confirming the
-//     dialog routes through `resetSampleCasesAction` which delegates
-//     to `resetSampleCases` over `store.resetSampleData` — the atomic
-//     delete + regenerate lands real rows in Postgres and the
-//     case-list re-fires its load against the regenerated population.
 //
 // ## Mock strategy — Server Actions delegate to per-test store
 //
@@ -188,11 +183,11 @@ vi.mock("@/lib/session/hooks", async () => {
 	return {
 		...actual,
 		useAppId: () => APP_ID,
-		// `test` mode activates the running-app arms in both screens
+		// Preview mode activates the running-app arms in both screens
 		// (FormScreen mounts the submit row; CaseListScreen renders
 		// rows rather than the workspace).
-		useEditMode: () => "test" as const,
-		useCursorMode: () => "pointer" as const,
+		useEditMode: () => "preview" as const,
+		usePreviewing: () => true,
 		useBuilderIsReady: () => true,
 	};
 });
@@ -629,15 +624,14 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		// form, end-to-end against a real-Postgres render.
 		expect(screen.getByRole("heading", { name: MODULE_NAME })).toBeDefined();
 
-		// Sort order — `age desc` puts Bob (40) before Alice (25). The
-		// rows render in `<tr>` elements; the first body row holds
-		// Bob's case_name, the second holds Alice's. Filtering on
-		// `<tr>` directly is more robust than reading `<td>` text in
-		// order — the table header's `<tr>` would otherwise count as
-		// row zero.
+		// Sort order — `age desc` puts Bob (40) before Alice (25). Each
+		// data row renders as a clickable `<button>` whose text is the
+		// concatenated cell values; `getAllByRole` preserves DOM order,
+		// so filtering to the case-name-bearing buttons yields the body
+		// rows in their rendered order.
 		const bodyRows = screen
-			.getAllByRole("row")
-			.filter((row) => row.querySelector("td") !== null);
+			.getAllByRole("button")
+			.filter((row) => /Bob|Alice/.test(row.textContent ?? ""));
 		expect(bodyRows).toHaveLength(2);
 		expect(bodyRows[0]?.textContent).toContain("Bob");
 		expect(bodyRows[1]?.textContent).toContain("Alice");
@@ -645,13 +639,11 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		// Calc cell — `age + 1` evaluates at the SQL layer; the
 		// rendered cell is the materialized string. Pins the
 		// `calculated` SELECT projection through to the screen via
-		// `evaluateColumnValue`. Alice's row carries `age=25` → 26;
-		// Bob's carries `age=40` → 41. Both materialized cell values
-		// must land in the rendered DOM.
-		const calcCells = screen.getAllByRole("cell");
-		const calcCellTexts = calcCells.map((c) => c.textContent ?? "");
-		expect(calcCellTexts).toContain("41");
-		expect(calcCellTexts).toContain("26");
+		// `renderColumnCell`. Alice's row carries `age=25` → 26;
+		// Bob's carries `age=40` → 41. Row-scoped assertions pin each
+		// materialized value to its own case's row.
+		expect(bodyRows[0]?.textContent).toContain("41");
+		expect(bodyRows[1]?.textContent).toContain("26");
 
 		// Type "Alice" into the search input. `SearchInputForm`
 		// debounces 300 ms before emitting the new value bag;
@@ -850,18 +842,20 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 		await waitFor(() => {
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
-		const cells = screen.getAllByRole("cell");
-		const cellTexts = cells.map((c) => c.textContent ?? "");
-		// Plain Age column reads the patched property → "41".
-		expect(cellTexts).toContain("41");
-		// Calc column re-evaluates → 42 (age + 1).
-		expect(cellTexts).toContain("42");
+		// Alice's data row renders as one clickable button whose text
+		// concatenates the cell values in column order.
+		const aliceRow = screen.getByRole("button", { name: /Alice/ });
+		const rowText = aliceRow.textContent ?? "";
+		// Plain Age column reads the patched property → "41"; calc
+		// column re-evaluates → 42 (age + 1).
+		expect(rowText).toContain("41");
+		expect(rowText).toContain("42");
 		// Inversion: pre-patch age value `40` (and its calc 41 from
 		// the pre-patch row) must not survive the re-query. Asserting
 		// 40 is absent is the load-bearing pin — 41 is BOTH the new
 		// plain-Age cell AND the old calc value, so its presence
 		// alone wouldn't tell the two states apart.
-		expect(cellTexts).not.toContain("40");
+		expect(rowText).not.toContain("40");
 	});
 });
 

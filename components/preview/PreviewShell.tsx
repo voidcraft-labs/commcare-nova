@@ -56,10 +56,6 @@ import { ModuleScreen } from "./screens/ModuleScreen";
 interface PreviewShellProps {
 	actions?: React.ReactNode;
 	hideHeader?: boolean;
-	/** Pixels of top padding inside the scroll container — used by BuilderLayout
-	 *  to offset content below the absolutely-positioned glassmorphic toolbar so
-	 *  the first screen element isn't hidden behind the overlay on initial load. */
-	topInset?: number;
 	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
 	 *  Also used by FormScreen for post-submit navigation. */
 	onBack?: () => void;
@@ -95,13 +91,6 @@ function locationToScreen(
 		return { type: "detailConfig", moduleIndex };
 	}
 
-	if (loc.kind === "case-preview") {
-		/* The preview tab IS the case list as the running app shows it — sharing the
-		 * caseList screen identity keeps the legacy pipeline (scroll keys,
-		 * interact-mode dispatch) on one shape. */
-		return { type: "caseList", moduleIndex, formIndex: 0 };
-	}
-
 	/* Form screen — resolve formUuid to index within the module's form list. */
 	const formIds = formOrder[loc.moduleUuid] ?? [];
 	const formIndex = formIds.indexOf(loc.formUuid);
@@ -112,7 +101,6 @@ function locationToScreen(
 export function PreviewShell({
 	actions,
 	hideHeader,
-	topInset = 0,
 	onBack,
 }: PreviewShellProps) {
 	/* ── Location → PreviewScreen adapter ─────────────────────────────
@@ -185,11 +173,6 @@ export function PreviewShell({
 			moduleUuid: loc.moduleUuid,
 			tab: "detail",
 		};
-	} else if (loc.kind === "case-preview") {
-		caseListWorkspaceRef.current = {
-			moduleUuid: loc.moduleUuid,
-			tab: "preview",
-		};
 	}
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
@@ -207,7 +190,7 @@ export function PreviewShell({
 			break;
 		case "searchConfig":
 		case "detailConfig":
-			/* In interact mode all three case-list URLs render the same
+			/* In preview mode all three case-list URLs render the same
 			 * running-app `CaseListScreen` (the composed search +
 			 * list experience), so the sibling kinds synthesize the
 			 * integer-indexed caseList identity. */
@@ -261,7 +244,6 @@ export function PreviewShell({
 				ref={scrollContainerRef}
 				data-preview-scroll-container
 				className="flex-1 overflow-y-auto overflow-x-hidden bg-pv-bg [overflow-anchor:none]"
-				style={topInset ? { paddingTop: topInset } : undefined}
 			>
 				{/* Each screen is wrapped in an Activity boundary that preserves
 				 *  the component tree when hidden. Boundaries are only rendered

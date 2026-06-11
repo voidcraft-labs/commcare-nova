@@ -7,7 +7,7 @@
  * InlineTextEditor. On save, swaps back to static rendering. The text
  * cursor appears naturally when the TipTap editor opens.
  *
- * In interact mode: renders children as-is (zero overhead).
+ * In preview mode: renders children as-is (zero overhead).
  *
  * The `data-text-editable` attribute enables Tab navigation discovery —
  * InlineTextEditor's Tab handler queries all [data-text-editable] elements
@@ -16,7 +16,7 @@
 
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
-import { useCursorMode } from "@/lib/session/hooks";
+import { usePreviewing } from "@/lib/session/hooks";
 
 import type { FieldType } from "./fieldStyles";
 import { InlineTextEditor } from "./InlineTextEditor";
@@ -38,7 +38,7 @@ export function TextEditable({
 	fieldType,
 	children,
 }: TextEditableProps) {
-	const cursorMode = useCursorMode();
+	const previewing = usePreviewing();
 	const [editing, setEditing] = useState(false);
 	/** Viewport coordinates of the activation click — passed to the editor
 	 *  so it can place the cursor at the correct text position via posAtCoords. */
@@ -78,10 +78,10 @@ export function TextEditable({
 		}
 	}, []);
 
-	/* Not in edit mode or no save handler — render children as-is.
+	/* Previewing or no save handler — render children as-is.
 	 * Still wrap in a div with matching padding so content doesn't shift
-	 * when switching cursor modes (flipbook parity). */
-	if (cursorMode !== "edit" || !onSave) {
+	 * when toggling preview (flipbook parity). */
+	if (previewing || !onSave) {
 		return <div className="px-[5px] py-[5px]">{children}</div>;
 	}
 

@@ -11,7 +11,6 @@ The builder's "where you are" and "what's focused" state lives in the URL, not i
 /build/[id]/{moduleUuid}/cases/{caseId}       → case detail
 /build/[id]/{moduleUuid}/search-config        → case-search authoring
 /build/[id]/{moduleUuid}/detail-config        → case-detail authoring
-/build/[id]/{moduleUuid}/case-preview         → case-list worker preview
 /build/[id]/{formUuid}                        → form
 /build/[id]/{formUuid}/{fieldUuid}         → form with field selected
 ```

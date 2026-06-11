@@ -2,7 +2,7 @@
  * BuilderSession store — reducer-shaped action invariant tests.
  *
  * Tests exercise the store directly (no React, no provider) to verify:
- * - `switchCursorMode` preserves sidebar stash/restore semantics
+ * - `setPreviewing` preserves sidebar stash/restore semantics
  * - `switchConnectMode` composite action manages the connect stash + doc
  *   mutations atomically
  * - Generation lifecycle actions bracket agent writes correctly
@@ -21,56 +21,56 @@ import { createBuilderSessionStore } from "../store";
 import type { ReplayChapter } from "../types";
 
 describe("BuilderSession store", () => {
-	it("1. initial state: edit mode, both sidebars open, no stash", () => {
+	it("1. initial state: not previewing, both sidebars open, no stash", () => {
 		const store = createBuilderSessionStore();
 		const s = store.getState();
-		expect(s.cursorMode).toBe("edit");
+		expect(s.previewing).toBe(false);
 		expect(s.activeFieldId).toBeUndefined();
 		expect(s.sidebars.chat).toEqual({ open: true, stashed: undefined });
 		expect(s.sidebars.structure).toEqual({ open: true, stashed: undefined });
 	});
 
-	it("2. switchCursorMode('pointer') from edit: stashes open values, closes both", () => {
+	it("2. setPreviewing(true) from editing: stashes open values, closes both", () => {
 		const store = createBuilderSessionStore();
-		store.getState().switchCursorMode("pointer");
+		store.getState().setPreviewing(true);
 		const s = store.getState();
-		expect(s.cursorMode).toBe("pointer");
+		expect(s.previewing).toBe(true);
 		expect(s.sidebars.chat).toEqual({ open: false, stashed: true });
 		expect(s.sidebars.structure).toEqual({ open: false, stashed: true });
 	});
 
-	it("3. switchCursorMode('edit') after pointer: restores stashed values, clears stash", () => {
+	it("3. setPreviewing(false) after preview: restores stashed values, clears stash", () => {
 		const store = createBuilderSessionStore();
-		store.getState().switchCursorMode("pointer");
-		store.getState().switchCursorMode("edit");
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewing(false);
 		const s = store.getState();
-		expect(s.cursorMode).toBe("edit");
+		expect(s.previewing).toBe(false);
 		expect(s.sidebars.chat).toEqual({ open: true, stashed: undefined });
 		expect(s.sidebars.structure).toEqual({ open: true, stashed: undefined });
 	});
 
-	it("4. switchCursorMode('pointer') with chat already closed: restores chat-closed state exactly", () => {
+	it("4. setPreviewing(true) with chat already closed: restores chat-closed state exactly", () => {
 		const store = createBuilderSessionStore();
 
-		/* Close chat before entering pointer mode. */
+		/* Close chat before entering preview. */
 		store.getState().setSidebarOpen("chat", false);
 		expect(store.getState().sidebars.chat.open).toBe(false);
 
-		/* Enter pointer mode — stashes the current state (chat closed). */
-		store.getState().switchCursorMode("pointer");
-		const pointerState = store.getState();
-		expect(pointerState.sidebars.chat).toEqual({
+		/* Enter preview — stashes the current state (chat closed). */
+		store.getState().setPreviewing(true);
+		const previewState = store.getState();
+		expect(previewState.sidebars.chat).toEqual({
 			open: false,
 			stashed: false,
 		});
-		expect(pointerState.sidebars.structure).toEqual({
+		expect(previewState.sidebars.structure).toEqual({
 			open: false,
 			stashed: true,
 		});
 
-		/* Return to edit — restores the stashed values exactly: chat stays
-		 * closed (was closed before pointer), structure reopens. */
-		store.getState().switchCursorMode("edit");
+		/* Leave preview — restores the stashed values exactly: chat stays
+		 * closed (was closed before preview), structure reopens. */
+		store.getState().setPreviewing(false);
 		const editState = store.getState();
 		expect(editState.sidebars.chat).toEqual({
 			open: false,
@@ -82,23 +82,23 @@ describe("BuilderSession store", () => {
 		});
 	});
 
-	it("5. switchCursorMode('pointer') twice is a no-op on the second call", () => {
+	it("5. setPreviewing(true) twice is a no-op on the second call", () => {
 		const store = createBuilderSessionStore();
 
-		/* First switch: stashes both open values. */
-		store.getState().switchCursorMode("pointer");
+		/* First toggle: stashes both open values. */
+		store.getState().setPreviewing(true);
 		const afterFirst = store.getState();
 
-		/* Second switch: same mode → no-op. The stash must NOT be
+		/* Second toggle: same value → no-op. The stash must NOT be
 		 * overwritten with { stashed: false } (the currently-closed values). */
-		store.getState().switchCursorMode("pointer");
+		store.getState().setPreviewing(true);
 		const afterSecond = store.getState();
 
 		/* State must be identical (same object reference from Zustand). */
-		expect(afterSecond.cursorMode).toBe("pointer");
+		expect(afterSecond.previewing).toBe(true);
 		expect(afterSecond.sidebars).toEqual(afterFirst.sidebars);
 
-		/* Verify the stash still holds the original pre-pointer values, not
+		/* Verify the stash still holds the original pre-preview values, not
 		 * the post-close false values. */
 		expect(afterSecond.sidebars.chat.stashed).toBe(true);
 		expect(afterSecond.sidebars.structure.stashed).toBe(true);
@@ -114,18 +114,6 @@ describe("BuilderSession store", () => {
 		/* Structure sidebar unchanged. */
 		expect(s.sidebars.structure.open).toBe(true);
 		expect(s.sidebars.structure.stashed).toBeUndefined();
-	});
-
-	it("setCursorMode does not stash/restore sidebars", () => {
-		const store = createBuilderSessionStore();
-
-		/* Non-atomic setter: just sets the mode, no sidebar side-effects. */
-		store.getState().setCursorMode("pointer");
-		const s = store.getState();
-		expect(s.cursorMode).toBe("pointer");
-		/* Sidebars remain as initial state — no stash, still open. */
-		expect(s.sidebars.chat).toEqual({ open: true, stashed: undefined });
-		expect(s.sidebars.structure).toEqual({ open: true, stashed: undefined });
 	});
 
 	it("setActiveFieldId updates and no-ops on same value", () => {
@@ -892,7 +880,7 @@ describe("reset", () => {
 		session.getState().markNewField("q-1");
 		session.getState().setFocusHint("label");
 		session.getState().setSidebarOpen("chat", false);
-		session.getState().setCursorMode("pointer");
+		session.getState().setPreviewing(true);
 
 		/* Reset everything. */
 		session.getState().reset();
@@ -910,7 +898,7 @@ describe("reset", () => {
 		expect(s.replay).toBeUndefined();
 
 		/* Interaction */
-		expect(s.cursorMode).toBe("edit");
+		expect(s.previewing).toBe(false);
 		expect(s.activeFieldId).toBeUndefined();
 
 		/* Chrome */

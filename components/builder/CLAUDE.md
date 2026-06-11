@@ -4,9 +4,9 @@
 
 Edit is a frozen, stateless view: inputs empty, validation suppressed, submit bar hidden, and ALL fields render regardless of relevant conditions (hidden ones as compact cards) so the full structure stays editable. Preview is a persistent sandbox: values survive round-trips through edit; validation resets on exit; blueprint mutations recreate the engine but restore only user-touched values, so edited defaults show immediately.
 
-## Pointer mode
+## Preview mode
 
-Pointer mode hides both sidebars AND their collapsed rails atomically, stashing open-state in one set call so leaving restores the layout. Keep the early return on no-op mode switches — without it, entering pointer mode twice overwrites the stash with `{ false, false }`.
+One global Preview toggle (subheader far right, `P`, Escape exits) flips the whole canvas to the running app — there is no per-surface preview affordance and no cursor-mode pill. Entering hides both sidebars AND their collapsed rails atomically, stashing open-state in one set call so leaving restores the layout. Keep the early return on no-op toggles — without it, entering preview twice overwrites the stash with `{ false, false }`.
 
 ## Flipbook (edit ↔ live) invariants
 
@@ -19,7 +19,6 @@ prosemirror-view hardcodes a `<br class="ProseMirror-trailingBreak">` per block.
 
 ## Scroll, selection, navigation
 
-- The cursor-mode toolbar is absolutely positioned in the content wrapper, never `sticky` inside the scroll container (sticky-inside kills the glass effect and doubles scrollbars).
 - Scroll-to-selection is a rAF loop, not native smooth — panel mount/unmount layout shifts make the browser abandon native `scrollTo` mid-flight. Cross-screen navigation scrolls `"instant"`.
 - Clicking empty space never deselects (it would constantly dismiss the inspector).
 - Selection is a URL replace; scroll is a separate pending-target request the selected field's wrapper consumes. Undo/redo scrolls directly — never through the pending mechanism.
@@ -62,7 +61,7 @@ The right rail is the chat sidebar; the inspector borrows it via a claim model i
 
 ## Case-list workspace
 
-The unified case-list authoring surface: three config tabs (Case list / Search / Case detail) plus the Preview tab; **the tab IS the URL kind**, so tab switches are history navigation and deep links land on the right canvas. No cursor-mode pill here — selection is the mode, Preview is the run-through. Entry point is the structure tree's case-list node, not the module screen.
+The unified case-list authoring surface: three config tabs (Search / Case List / Case Detail); **the tab IS the URL kind**, so tab switches are history navigation and deep links land on the right canvas. Selection is the mode; the run-through is the chrome's global Preview toggle — all three URLs preview as the one assembled running case list (search beside results, detail-in-place, Continue into the first form). Entry point is the structure tree's case-list node, not the module screen.
 
 Canvases are artifact-first: the case list IS a live table, the search panel IS the app's search screen, the detail card IS the opened-case view. **Clicking a thing configures that thing** in the inspector rail. Selection is workspace-local state keyed by module, cleared on tab switches and Esc — Escape must register through `useKeyboardShortcuts` (the manager preventDefaults matched keys; a raw listener never fires, and later registrations win).
 
@@ -73,7 +72,7 @@ Rules that aren't enforced by tooling:
 - **Every interactive control is at least 44px tall, carries a visible text label, and hover text rides the shared `Tooltip`** — never a native `title=`.
 - **A body never re-titles its panel** — the inspector header already names the entity; bodies open with content, not a second heading. Removal is always the body's LAST row (shared `RemoveRow`).
 - **Counts are information, not success** — live readouts use the quiet mono `LIVE` treatment, never semantic green.
-- **Fill = pressable, and only Preview presses.** On edit canvases the search button renders as an outlined blueprint with no hover state or click handler of its own (clicks bubble to the panel selection). A fill or hover lift would promise a search the canvas can't run. No in-canvas navigation to Preview — the Preview tab is already fixed in the strip above.
+- **Fill = pressable, and only Preview presses.** On edit canvases the search button renders as an outlined blueprint with no hover state or click handler of its own (clicks bubble to the panel selection). A fill or hover lift would promise a search the canvas can't run. No in-canvas Preview affordance — the chrome's global toggle owns the run-through.
 - **Search fields are one source** (`caseListConfig.searchInputs`) across the search and list screens; screen labels/button condition/owner exclusions live in the separate `caseSearchConfig` slot.
 - **Preview gating is config-derived, not editor-derived** — only the inspected editor is mounted, so the gate re-derives the whole-config verdict purely, mirroring each editor's verdict source so they can't disagree. The same derivation drives the per-tab error dots.
 

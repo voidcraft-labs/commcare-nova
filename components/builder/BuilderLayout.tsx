@@ -13,12 +13,11 @@
  *
  * All content, data subscriptions, and interactive behavior live in
  * self-sufficient child components:
- * - BuilderSubheader — nav, breadcrumbs, undo/redo, save, export
+ * - BuilderSubheader — nav, breadcrumbs, undo/redo, save, export, Preview
  * - BuilderContentArea — sidebar wrappers, reopen buttons, preview, chat
  * - ReplayController — replay transport bar
  * - ChatContainer — useChat lifecycle, stream effects
  * - GenerationProgress — generation stage/error/status
- * - CursorModeSelector — cursor mode from store
  * - StructureSidebar — fully propless
  *
  * BuilderLayout subscribes to two store fields: `phase` and `inReplayMode`.
@@ -51,11 +50,10 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderPhase,
-	useCursorMode,
 	useInReplayMode,
-	useSwitchCursorMode,
+	usePreviewing,
+	useSetPreviewing,
 } from "@/lib/session/hooks";
-import type { CursorMode } from "@/lib/session/types";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 
 /** Extra space above the scroll target so the field isn't flush with the
@@ -105,8 +103,8 @@ export function BuilderLayout({
 		: EMPTY_DOMAINS;
 
 	// ── Flipbook scroll sync ──────────────────────────────────────────────
-	// Switching cursor modes preserves scroll position so the same field
-	// stays at the same pixel offset. This is the one piece of cross-component
+	// Toggling preview preserves scroll position so the same field stays
+	// at the same pixel offset. This is the one piece of cross-component
 	// coordination that BuilderLayout still owns because it needs to measure
 	// the DOM before the mode switch and correct scroll during the sidebar
 	// width animation that follows.
@@ -122,25 +120,25 @@ export function BuilderLayout({
 		allUuids: string[];
 	} | null>(null);
 
-	const switchCursorMode = useSwitchCursorMode();
+	const setPreviewing = useSetPreviewing();
 
-	/* Track current cursor mode in a ref so the stable handleCursorModeChange
-	 * callback can read it without adding cursorMode as a dependency. */
-	const cursorMode = useCursorMode();
-	const cursorModeRef = useRef(cursorMode);
-	cursorModeRef.current = cursorMode;
+	/* Track the current preview flag in a ref so the stable
+	 * handleSetPreviewing callback can read it without re-creating. */
+	const previewing = usePreviewing();
+	const previewingRef = useRef(previewing);
+	previewingRef.current = previewing;
 
-	/** Capture scroll anchor before cursor mode switch, then delegate
-	 *  the actual mode change to the session store's atomic switchCursorMode. */
-	const handleCursorModeChange = useCallback(
-		(mode: CursorMode) => {
-			/* Early exit on same-mode: avoids DOM measurement + scroll anchor
-			 * thrash that otherwise fires on every click of the already-active
-			 * CursorModeSelector button. The session store also guards against
-			 * same-mode no-ops internally, but by that point we've already run
-			 * querySelectorAll + getBoundingClientRect + setScrollAnchor, which
-			 * triggers a re-render and a useLayoutEffect that mutates scrollTop. */
-			if (mode === cursorModeRef.current) return;
+	/** Capture scroll anchor before the preview toggle, then delegate
+	 *  the actual flip to the session store's atomic setPreviewing. */
+	const handleSetPreviewing = useCallback(
+		(on: boolean) => {
+			/* Early exit on same-value: avoids DOM measurement + scroll anchor
+			 * thrash on a redundant toggle. The session store also guards
+			 * against same-value no-ops internally, but by that point we've
+			 * already run querySelectorAll + getBoundingClientRect +
+			 * setScrollAnchor, which triggers a re-render and a
+			 * useLayoutEffect that mutates scrollTop. */
+			if (on === previewingRef.current) return;
 
 			const scrollContainer = document.querySelector(
 				"[data-preview-scroll-container]",
@@ -165,9 +163,9 @@ export function BuilderLayout({
 				}
 			}
 
-			switchCursorMode(mode);
+			setPreviewing(on);
 		},
-		[switchCursorMode],
+		[setPreviewing],
 	);
 
 	/* Restore scroll position after mode switch. */
@@ -326,7 +324,7 @@ export function BuilderLayout({
 
 	// ── Keyboard shortcuts ──────────────────────────────────────────────
 
-	const shortcuts = useBuilderShortcuts(handleCursorModeChange);
+	const shortcuts = useBuilderShortcuts(handleSetPreviewing);
 
 	useKeyboardShortcuts("builder-layout", shortcuts);
 
@@ -392,6 +390,7 @@ export function BuilderLayout({
 							<BuilderSubheader
 								commcareConfigured={commcareConfigured}
 								commcareAvailableDomains={commcareAvailableDomains}
+								onSetPreviewing={handleSetPreviewing}
 							/>
 						</motion.div>
 					)}
@@ -400,7 +399,6 @@ export function BuilderLayout({
 				{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
 				<BuilderContentArea
 					isCentered={isCentered}
-					onCursorModeChange={handleCursorModeChange}
 					isExistingApp={!!isExistingApp}
 				>
 					{children}
