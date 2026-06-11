@@ -25,8 +25,8 @@ import type { ConnectConfig, Uuid } from "@/lib/domain";
  * Sub-configs that exist but contain only empty/default-sentinel values
  * are removed — preventing the XForm builder from emitting empty blocks.
  * Called from the agent's mutation builders in `lib/agent/blueprintHelpers.ts`
- * (`addFormMutations` / `updateFormMutations` / `setScaffoldMutations`) when
- * a connect block lands on a form.
+ * (`addFormMutations` / `updateFormMutations`) when a connect block lands
+ * on a form.
  */
 export function normalizeConnectConfig(
 	config: ConnectConfig,

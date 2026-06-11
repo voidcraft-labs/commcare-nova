@@ -450,7 +450,7 @@ describe("atomic creation on a complete Connect app", () => {
 // ── Connect-id source enforcement on the creation tools ──────────────
 //
 // The creation tools are connect-block writers, so they carry the same
-// at-source id contract `updateForm` / `generateScaffold` hold: an
+// at-source id contract `updateForm` holds: an
 // omitted id is autofilled (valid, unique, name-derived, STORED on the
 // doc) and an explicit invalid/duplicate id fails the call with nothing
 // persisted. Nothing downstream supplies a default — the emit resolver

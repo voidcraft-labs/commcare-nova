@@ -340,9 +340,10 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		// The completeness ratchet: a lone empty form may not land on a
-		// complete app (the building window defers this — that deferral is
-		// the design, and `completeBuild` is its backstop).
+		// An empty form may never land — the lone `addForm` introduces
+		// EMPTY_FORM on any app. Creation that satisfies the rule goes
+		// through the atomic `createForm`, whose required `fields` ride
+		// the same batch.
 		expectCodes: ["EMPTY_FORM"],
 	},
 	removeForm: {

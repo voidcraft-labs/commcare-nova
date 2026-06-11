@@ -426,14 +426,14 @@ describe("GenerationContext.emitError", () => {
 				recoverable: false,
 				raw: "Cloud SQL case store is missing required environment variables: NOVA_DB_NAME",
 			},
-			"completeBuild:materialize",
+			"route:finalize",
 		);
 		expect(log.error).toHaveBeenCalledWith(
 			expect.stringContaining("internal error"),
 			undefined,
 			expect.objectContaining({
 				raw: expect.stringContaining("missing required environment variables"),
-				context: "completeBuild:materialize",
+				context: "route:finalize",
 			}),
 		);
 	});

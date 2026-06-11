@@ -229,8 +229,9 @@ export function useSessionEventsEmpty(): boolean {
 	return useBuilderSession((s) => s.events.length === 0);
 }
 
-/** Whether the current run is a post-build edit (run in progress, no
- *  `schema` / `scaffold` mutations in this run, doc has data). */
+/** Whether the current run is a post-build edit — a run is in flight
+ *  (non-empty events buffer) and the doc already had data when it
+ *  started (`runStartedWithData`, captured at `beginRun`). */
 export function usePostBuildEdit(): boolean {
 	const events = useBuilderSession((s) => s.events);
 	const startedWithData = useBuilderSession((s) => s.runStartedWithData);
