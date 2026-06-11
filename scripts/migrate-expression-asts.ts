@@ -11,8 +11,15 @@
  * bytes exactly; anything else is REPORTED and left as-is. Event
  * payloads convert against the doc reduced forward from the app's own
  * stream, so each reference resolves with the namespace it had when
- * the mutation originally ran. Event identity and ordering are
- * untouched — only the `mutation` payload field changes.
+ * the mutation originally ran — and an event is WRITTEN only after the
+ * reducer advanced the doc through it. If a reducer throws (reducers
+ * are total, so this should be unreachable), the app's event
+ * conversion ABORTS at that event — converting past a doc that stopped
+ * advancing could resolve references against a stale namespace, and
+ * the round-trip gate can't see that (it prints against the same stale
+ * doc). Other apps continue; the run exits non-zero. Event identity
+ * and ordering are untouched — only the `mutation` payload field
+ * changes.
  *
  * Dry run by default — pass `--apply` to write.
  * `scan-expression-asts.ts` is the read-only twin. Idempotent:
@@ -101,6 +108,7 @@ async function main() {
 	const apps = await db.collection("apps").get();
 	let blueprintWrites = 0;
 	let eventWrites = 0;
+	const abortedApps: string[] = [];
 
 	for (const appSnap of apps.docs) {
 		const data = appSnap.data();
@@ -133,6 +141,18 @@ async function main() {
 		}
 
 		// ── Event log, reduced forward ───────────────────────────────
+		//
+		// Each event converts against the doc reduced forward from the
+		// app's own stream, and is WRITTEN only after the reducer has
+		// provably advanced the doc through it. A reducer throw should be
+		// unreachable (reducers are total) — but if one happens, the doc
+		// context stops advancing, and any later event would convert
+		// against a stale namespace: a reference could resolve to the
+		// WRONG identity leaf, and the per-slot round-trip check couldn't
+		// catch it because it prints against the same stale doc. So the
+		// only safe refusal is to abort THIS app's event conversion at the
+		// throwing event — nothing at or after it is converted or written
+		// — and continue with the other apps.
 		const events = await appSnap.ref
 			.collection("events")
 			.orderBy("ts")
@@ -149,21 +169,28 @@ async function main() {
 			const payload = structuredClone(event.mutation);
 			const result = migrateMutationExpressions(doc, payload);
 			reportFailures("    ", result);
-			if (result.converted > 0 || result.closeRefsConverted > 0) {
-				if (apply) {
-					await eventSnap.ref.update({ mutation: payload });
-					eventWrites++;
-				}
-				appEventWrites++;
-			}
 			try {
 				const next = structuredClone(doc);
 				applyMutations(next, [payload as unknown as Mutation]);
 				doc = next;
 			} catch (err) {
 				console.log(
-					`  ${label}: event ${eventSnap.id} — reducing the migrated payload threw, stream context stops advancing here: ${String(err)}`,
+					`\n✗ ${label}: ABORTED at event ${eventSnap.id} — replaying its mutation threw:\n` +
+						`    ${String(err)}\n` +
+						`  Reducers are total, so this stream holds a shape the current reducers can't replay.\n` +
+						`  Events before this one are ${apply ? "converted" : "reported"}; this event and everything after it were left untouched,\n` +
+						`  because converting them against a doc that stopped advancing here could resolve references\n` +
+						`  to the wrong fields. Fix the event (or the reducer gap it exposes), then re-run for this app.\n`,
 				);
+				abortedApps.push(`${label} (event ${eventSnap.id})`);
+				break;
+			}
+			if (result.converted > 0 || result.closeRefsConverted > 0) {
+				if (apply) {
+					await eventSnap.ref.update({ mutation: payload });
+					eventWrites++;
+				}
+				appEventWrites++;
 			}
 		}
 		if (appEventWrites > 0) {
@@ -176,6 +203,13 @@ async function main() {
 	console.log(
 		`\n${apply ? "Wrote" : "Would write"} ${blueprintWrites} blueprint(s) and ${eventWrites} event payload(s) across ${apps.size} app(s).`,
 	);
+	if (abortedApps.length > 0) {
+		console.log(
+			`\n✗ Event conversion ABORTED for ${abortedApps.length} app(s) — see the per-app reports above:\n` +
+				abortedApps.map((entry) => `  - ${entry}`).join("\n"),
+		);
+		process.exitCode = 1;
+	}
 	if (!apply) {
 		console.log("Re-run with --apply to write.");
 	}
