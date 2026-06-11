@@ -29,7 +29,7 @@ import type { ProgressEmitter } from "../progress";
  * Individual tests tweak the implementation via `mockImplementationOnce`
  * as needed. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn().mockResolvedValue(undefined),
+	applyBlueprintChange: vi.fn().mockResolvedValue({}),
 }));
 
 /**
@@ -79,7 +79,7 @@ function mockDoc(): BlueprintDoc {
  * next. */
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
-	vi.mocked(applyBlueprintChange).mockResolvedValue(undefined);
+	vi.mocked(applyBlueprintChange).mockResolvedValue({});
 });
 
 describe("McpContext", () => {
@@ -115,8 +115,8 @@ describe("McpContext", () => {
 		let resolveSave: () => void = () => {};
 		vi.mocked(applyBlueprintChange).mockImplementationOnce(
 			() =>
-				new Promise<void>((r) => {
-					resolveSave = r;
+				new Promise((r) => {
+					resolveSave = () => r({});
 				}),
 		);
 		const ctx = new McpContext({

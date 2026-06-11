@@ -79,6 +79,7 @@ import {
 	updateApp,
 	updateAppForRun,
 	updateAppForRunTransactional,
+	updateAppGuardedByBasis,
 } from "./apps";
 import {
 	type CaseTypeChangeEntry,
@@ -136,6 +137,30 @@ export interface ApplyBlueprintChangeArgs {
 		readonly mutations: Mutation[];
 		readonly commitPhase: CommitPhase;
 	};
+	/**
+	 * Optimistic-basis mode (the browser auto-save PUT): the Firestore
+	 * commit becomes a transactional compare-and-overwrite — the stored
+	 * `blueprint_token` must equal `token` (the basis the client's doc
+	 * snapshot was built on) or the write throws
+	 * {@link BlueprintBasisStaleError} with nothing written, so a blind
+	 * whole-doc save can't erase a write the client never saw (another
+	 * tab, an MCP commit). On success the token rotates; the new value
+	 * rides back on the result so the client advances its basis.
+	 * Mutually exclusive with `guard` (mutation-bearing writers re-verdict
+	 * instead of comparing a basis).
+	 */
+	readonly basis?: {
+		readonly token: string | null;
+	};
+}
+
+/**
+ * Result of `applyBlueprintChange`. `basisToken` is present only on the
+ * basis-guarded path — the freshly rotated token the client echoes on
+ * its next save.
+ */
+export interface ApplyBlueprintChangeResult {
+	readonly basisToken?: string;
 }
 
 /**
@@ -166,7 +191,7 @@ export class BlueprintCommitRejectedError extends Error {
  */
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
-): Promise<void> {
+): Promise<ApplyBlueprintChangeResult> {
 	const priorBlueprint = await resolvePriorBlueprint(args);
 	const prospectiveBlueprint = args.prospective as BlueprintDoc;
 
@@ -179,8 +204,7 @@ export async function applyBlueprintChange(
 	// Fast path — pure non-case-type mutation, skip Postgres
 	// entirely and commit Firestore directly.
 	if (entries.length === 0) {
-		await persistBlueprint(args);
-		return;
+		return await persistBlueprint(args);
 	}
 
 	const store = await withOwnerContext(args.userId);
@@ -213,7 +237,7 @@ export async function applyBlueprintChange(
 	// Phase 2: commit Firestore. On failure, compensate every
 	// already-applied Postgres entry against the prior blueprint.
 	try {
-		await persistBlueprint(args);
+		return await persistBlueprint(args);
 	} catch (commitErr) {
 		await compensate(args.appId, store, applied, priorBlueprint);
 		throw commitErr;
@@ -250,11 +274,15 @@ async function resolvePriorBlueprint(
 }
 
 /**
- * Commit the prospective blueprint to Firestore. Routes through
- * `updateAppForRun` when a `runId` is supplied (MCP tool calls
- * persist the run id alongside) and through `updateApp` otherwise.
+ * Commit the prospective blueprint to Firestore. Routes through the
+ * guarded transactional writer when a `guard` is supplied (MCP tool
+ * calls), the basis-compare writer when a `basis` is supplied (the
+ * auto-save PUT), `updateAppForRun` when only a `runId` is supplied, and
+ * `updateApp` otherwise.
  */
-async function persistBlueprint(args: ApplyBlueprintChangeArgs): Promise<void> {
+async function persistBlueprint(
+	args: ApplyBlueprintChangeArgs,
+): Promise<ApplyBlueprintChangeResult> {
 	if (args.guard !== undefined && args.runId !== undefined) {
 		const { mutations, commitPhase } = args.guard;
 		await updateAppForRunTransactional(args.appId, args.runId, (fresh) => {
@@ -275,13 +303,22 @@ async function persistBlueprint(args: ApplyBlueprintChangeArgs): Promise<void> {
 			}
 			return toPersistableDoc(verdict.nextDoc);
 		});
-		return;
+		return {};
+	}
+	if (args.basis !== undefined) {
+		const basisToken = await updateAppGuardedByBasis(
+			args.appId,
+			args.prospective,
+			args.basis.token,
+		);
+		return { basisToken };
 	}
 	if (args.runId !== undefined) {
 		await updateAppForRun(args.appId, args.prospective, args.runId);
 	} else {
 		await updateApp(args.appId, args.prospective);
 	}
+	return {};
 }
 
 /**

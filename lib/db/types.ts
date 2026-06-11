@@ -278,6 +278,26 @@ export const appDocSchema = z.object({
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
 	/**
+	 * Optimistic-concurrency basis for whole-doc blueprint overwrites.
+	 *
+	 * Rotated (fresh random value) by the writers a live builder session
+	 * CANNOT see land in its own doc: the browser auto-save PUT (another
+	 * tab) and the MCP guarded commit (an external agent). The builder
+	 * echoes the token it last observed on every PUT; a mismatch means the
+	 * stored doc advanced under it, and the overwrite is rejected
+	 * (`BlueprintBasisStaleError` → 409) instead of silently erasing the
+	 * other writer's work — the builder then reloads the server doc.
+	 *
+	 * Chat-run writes (`updateAppForRun` / `completeApp`) deliberately do
+	 * NOT rotate it: the same browser session that drives a chat run also
+	 * receives every mutation over SSE, so its doc already carries the
+	 * run's changes and its next auto-save is a faithful overwrite — a
+	 * rotation there would 409 the builder against its own companion run.
+	 * Null on rows that predate the field and on never-PUT apps; a null
+	 * basis matches a null stored token, so first saves need no backfill.
+	 */
+	blueprint_token: z.string().nullable().default(null),
+	/**
 	 * Durable credit-reservation marker for the refunding reaper.
 	 *
 	 * Written ATOMICALLY with the credit debit when a chargeable turn reserves

@@ -414,6 +414,9 @@ export async function createApp(
 		 * writes update existing fields rather than materializing them. */
 		deleted_at: null,
 		recoverable_until: null,
+		/* Auto-save basis starts null — a null basis matches a null stored
+		 * token, so the builder's first PUT passes without backfill. */
+		blueprint_token: null,
 		run_id: runId,
 		created_at: FieldValue.serverTimestamp(),
 		updated_at: FieldValue.serverTimestamp(),
@@ -469,12 +472,21 @@ async function persistBlueprintSnapshot(
 /**
  * The blueprint-snapshot field set — the ONE definition of what a
  * blueprint write touches, shared by the plain writers above and the
- * transactional writer below so the two can't drift on which
- * denormalized fields ride along.
+ * transactional writers below so they can't drift on which denormalized
+ * fields ride along.
+ *
+ * `basisToken` rotates the optimistic-concurrency basis (see
+ * `appDocSchema.blueprint_token` for which writers rotate and why the
+ * chat-run writers don't); writers that omit it leave the stored token
+ * untouched.
  */
 function blueprintSnapshotFields(
 	doc: PersistableDoc,
-	extra: { status?: AppDoc["status"]; runId?: string } = {},
+	extra: {
+		status?: AppDoc["status"];
+		runId?: string;
+		basisToken?: string;
+	} = {},
 ) {
 	return {
 		...denormalize(doc),
@@ -482,6 +494,9 @@ function blueprintSnapshotFields(
 		updated_at: FieldValue.serverTimestamp(),
 		...(extra.status !== undefined && { status: extra.status }),
 		...(extra.runId !== undefined && { run_id: extra.runId }),
+		...(extra.basisToken !== undefined && {
+			blueprint_token: extra.basisToken,
+		}),
 	};
 }
 
@@ -512,11 +527,72 @@ export async function updateAppForRunTransactional(
 			);
 		}
 		const next = body(fresh);
-		tx.update(docs.appRaw(appId), blueprintSnapshotFields(next, { runId }));
+		tx.update(
+			docs.appRaw(appId),
+			blueprintSnapshotFields(next, {
+				runId,
+				/* Rotate the auto-save basis: an MCP commit is exactly the
+				 * external write a live builder tab cannot see, so its next
+				 * blind PUT must be rejected and reload rather than erase
+				 * this commit. */
+				basisToken: crypto.randomUUID(),
+			}),
+		);
 		return next;
 	});
 	await syncMediaReferences(appId, committed);
 	return committed;
+}
+
+/**
+ * Thrown by `updateAppGuardedByBasis` when the stored `blueprint_token`
+ * no longer matches the basis the client's snapshot was built on — the
+ * server doc advanced under the client (another tab's save, an MCP
+ * commit), so the whole-doc overwrite would erase that writer's work.
+ * The auto-save route maps this to a 409; the builder reloads.
+ */
+export class BlueprintBasisStaleError extends Error {
+	constructor() {
+		super(
+			"This app changed outside this window since it was loaded — saving now would overwrite those changes.",
+		);
+		this.name = "BlueprintBasisStaleError";
+	}
+}
+
+/**
+ * Basis-guarded whole-doc blueprint write — the auto-save PUT's
+ * read-compare-write. Inside one Firestore transaction: read the fresh
+ * app doc, compare its `blueprint_token` to the basis the client echoed
+ * (both `null` for a never-PUT app — first saves need no backfill), and
+ * either commit the overwrite under a freshly rotated token or throw
+ * `BlueprintBasisStaleError` with nothing written. Returns the new token
+ * so the client advances its basis for the next save.
+ */
+export async function updateAppGuardedByBasis(
+	appId: string,
+	doc: PersistableDoc,
+	basisToken: string | null,
+): Promise<string> {
+	const nextToken = crypto.randomUUID();
+	await getDb().runTransaction(async (tx) => {
+		const snap = await tx.get(docs.app(appId));
+		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[updateAppGuardedByBasis] app document missing for appId=${appId}`,
+			);
+		}
+		if ((fresh.blueprint_token ?? null) !== basisToken) {
+			throw new BlueprintBasisStaleError();
+		}
+		tx.update(
+			docs.appRaw(appId),
+			blueprintSnapshotFields(doc, { basisToken: nextToken }),
+		);
+	});
+	await syncMediaReferences(appId, doc);
+	return nextToken;
 }
 
 /**

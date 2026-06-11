@@ -34,11 +34,13 @@ const {
 	updateAppMock,
 	updateAppForRunMock,
 	updateAppForRunTransactionalMock,
+	updateAppGuardedByBasisMock,
 } = vi.hoisted(() => ({
 	loadAppMock: vi.fn(),
 	updateAppMock: vi.fn(),
 	updateAppForRunMock: vi.fn(),
 	updateAppForRunTransactionalMock: vi.fn(),
+	updateAppGuardedByBasisMock: vi.fn(),
 }));
 
 const { applySchemaChangeMock, withOwnerContextMock } = vi.hoisted(() => ({
@@ -51,6 +53,8 @@ vi.mock("@/lib/db/apps", () => ({
 	updateApp: updateAppMock,
 	updateAppForRun: updateAppForRunMock,
 	updateAppForRunTransactional: updateAppForRunTransactionalMock,
+	updateAppGuardedByBasis: updateAppGuardedByBasisMock,
+	BlueprintBasisStaleError: class BlueprintBasisStaleError extends Error {},
 }));
 
 vi.mock("@/lib/case-store", async () => {
@@ -268,5 +272,48 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 			appId: "app-1",
 			caseType: "household",
 		});
+	});
+});
+
+describe("applyBlueprintChange — basis-guarded auto-save commit", () => {
+	it("routes a basis-bearing save through the basis writer and returns the rotated token", async () => {
+		const prior = minDoc();
+		updateAppGuardedByBasisMock.mockResolvedValue("token-next");
+
+		const result = await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective: toPersistableDoc(prior),
+			priorBlueprint: toPersistableDoc(prior),
+			basis: { token: "token-prev" },
+		});
+
+		expect(updateAppGuardedByBasisMock).toHaveBeenCalledTimes(1);
+		const [appId, , basisToken] = updateAppGuardedByBasisMock.mock.calls[0];
+		expect(appId).toBe("app-1");
+		expect(basisToken).toBe("token-prev");
+		expect(result.basisToken).toBe("token-next");
+		// The blind writers never ran — the basis compare is the commit path.
+		expect(updateAppMock).not.toHaveBeenCalled();
+		expect(updateAppForRunMock).not.toHaveBeenCalled();
+	});
+
+	it("propagates a stale-basis rejection without falling back to a blind write", async () => {
+		const prior = minDoc();
+		const stale = new Error("stale basis");
+		updateAppGuardedByBasisMock.mockRejectedValue(stale);
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				prospective: toPersistableDoc(prior),
+				priorBlueprint: toPersistableDoc(prior),
+				basis: { token: null },
+			}),
+		).rejects.toBe(stale);
+
+		expect(updateAppMock).not.toHaveBeenCalled();
+		expect(updateAppForRunMock).not.toHaveBeenCalled();
 	});
 });

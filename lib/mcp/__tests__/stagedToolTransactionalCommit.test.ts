@@ -39,7 +39,7 @@ vi.mock("@/lib/db/applyBlueprintChange", async () => {
 	)) as Record<string, unknown>;
 	return {
 		...actual,
-		applyBlueprintChange: vi.fn().mockResolvedValue(undefined),
+		applyBlueprintChange: vi.fn().mockResolvedValue({}),
 	};
 });
 
@@ -110,7 +110,7 @@ function makeMcpCtx() {
 
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
-	vi.mocked(applyBlueprintChange).mockResolvedValue(undefined);
+	vi.mocked(applyBlueprintChange).mockResolvedValue({});
 });
 
 describe("editField through McpContext — one transactional save per edit", () => {

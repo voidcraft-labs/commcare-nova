@@ -59,6 +59,7 @@ export function BuilderProvider({
 	children,
 	replay,
 	initialDoc,
+	initialSaveBasis,
 }: {
 	buildId: string;
 	children: ReactNode;
@@ -67,6 +68,10 @@ export function BuilderProvider({
 	 *  in the provider so the first render sees populated entities. Firestore
 	 *  now persists the normalized `BlueprintDoc` shape directly. */
 	initialDoc?: PersistableDoc;
+	/** The app doc's `blueprint_token` at server load — the auto-save
+	 *  optimistic basis the builder echoes on its PUTs. Omitted for new
+	 *  builds and replay (nothing to save against yet). */
+	initialSaveBasis?: string | null;
 }) {
 	return (
 		<BuilderProviderInner
@@ -74,6 +79,7 @@ export function BuilderProvider({
 			buildId={buildId}
 			replay={replay}
 			initialDoc={initialDoc}
+			initialSaveBasis={initialSaveBasis}
 		>
 			{children}
 		</BuilderProviderInner>
@@ -92,11 +98,13 @@ function BuilderProviderInner({
 	children,
 	replay,
 	initialDoc,
+	initialSaveBasis,
 }: {
 	buildId: string;
 	children: ReactNode;
 	replay?: ReplayInit;
 	initialDoc?: PersistableDoc;
+	initialSaveBasis?: string | null;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
 	 * phase on the very first render — `Loading` for existing apps and
@@ -106,6 +114,7 @@ function BuilderProviderInner({
 	const sessionInit = useState(() => ({
 		loading: hasExistingData,
 		appId: buildId === "new" ? undefined : buildId,
+		saveBasis: initialSaveBasis ?? null,
 	}))[0];
 
 	return (

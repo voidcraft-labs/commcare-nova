@@ -92,6 +92,13 @@ export interface BuilderSessionState {
 	 *  the app document is created. */
 	appId: string | undefined;
 
+	/** Auto-save optimistic basis — the server `blueprint_token` this
+	 *  client last observed (seeded from the build page's server load,
+	 *  advanced by each PUT response, re-synced on a stale-basis reload).
+	 *  `null` for an app no out-of-window writer has touched. Echoed on
+	 *  every auto-save PUT; see `useAutoSave`. */
+	saveBasis: string | null;
+
 	// ── Replay ───────────────────────────────────────────────────────────
 
 	/** Replay session data — present only during replay mode. Holds the
@@ -190,6 +197,11 @@ export interface BuilderSessionState {
 
 	/** Set the app ID for this builder session. No-ops when unchanged. */
 	setAppId: (id: string) => void;
+
+	/** Advance the auto-save optimistic basis (each PUT response carries
+	 *  the freshly rotated token; a stale-basis reload re-syncs from the
+	 *  GET). No-ops when unchanged. */
+	setSaveBasis: (token: string | null) => void;
 
 	/** Set the generic loading flag. No-ops when unchanged. */
 	setLoading: (loading: boolean) => void;
@@ -338,6 +350,10 @@ export interface SessionStoreInit {
 	loading?: boolean;
 	/** Pre-set the Firestore app document ID. */
 	appId?: string;
+	/** Pre-seed the auto-save basis (`blueprint_token`) from the build
+	 *  page's server load, so the first PUT echoes the right basis
+	 *  instead of bouncing off a token a prior session rotated. */
+	saveBasis?: string | null;
 }
 
 /** Create a scoped Zustand session store. Called once per BuilderProvider
@@ -363,6 +379,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				/* App identity */
 				appId: init?.appId as string | undefined,
+				saveBasis: init?.saveBasis ?? null,
 
 				/* Replay */
 				replay: undefined as ReplayData | undefined,
@@ -450,6 +467,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setAppId(id: string) {
 					if (id === get().appId) return;
 					set({ appId: id });
+				},
+
+				setSaveBasis(token: string | null) {
+					if (token === get().saveBasis) return;
+					set({ saveBasis: token });
 				},
 
 				setLoading(loading: boolean) {
@@ -711,6 +733,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* App identity */
 						appId: undefined,
+						saveBasis: null,
 
 						/* Replay */
 						replay: undefined,
