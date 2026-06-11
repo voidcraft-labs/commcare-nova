@@ -612,14 +612,20 @@ export interface NewFormInput {
 /** Build an `addForm` mutation. Mints a uuid when the caller doesn't
  *  supply one. Forms are keyed under their owning module via the
  *  `moduleUuid` argument — the reducer refuses to install a form whose
- *  module isn't registered. */
+ *  module isn't registered. `moduleAddedInBatch` skips the existence
+ *  check for a module an earlier mutation in the SAME batch creates
+ *  (`createModule`'s atomic module + forms + fields shape) — the caller
+ *  owns the uuid in that case, so an unknown-module guard would only
+ *  reject a module that is about to exist. */
 export function addFormMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	input: NewFormInput,
-	opts?: { index?: number },
+	opts?: { index?: number; moduleAddedInBatch?: boolean },
 ): Mutation[] {
-	if (doc.modules[moduleUuid] === undefined) return [];
+	if (!opts?.moduleAddedInBatch && doc.modules[moduleUuid] === undefined) {
+		return [];
+	}
 	const uuid = asUuid(
 		typeof input.uuid === "string" && input.uuid.length > 0
 			? input.uuid

@@ -21,7 +21,8 @@
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `addSearchInputs`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
- *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`, `updateModule`,
+ *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`, `createForm`,
+ *     `createModule`, `updateModule`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setModuleMedia`,
  *     `setFormMedia`, `setAppLogo`, `listMediaAssets`,
  *     `removeMediaAsset`, `uploadMediaAsset`.
@@ -42,6 +43,8 @@ import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/up
 import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import { createFormTool } from "../lib/agent/tools/createForm";
+import { createModuleTool } from "../lib/agent/tools/createModule";
 import { editFieldTool } from "../lib/agent/tools/editField";
 import { attachFieldMediaTool } from "../lib/agent/tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "../lib/agent/tools/media/attachOptionMedia";
@@ -173,6 +176,20 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: editFieldTool.inputSchema,
 		prompt:
 			"Use editField on module 0, form 0, field patient_name to set its help text to 'Enter the patient's full legal name.'",
+	},
+	{
+		name: "createForm",
+		description: createFormTool.description,
+		schema: createFormTool.inputSchema,
+		prompt:
+			"Use createForm on module 0 to add a followup form named 'Visit' with two fields: visit_date (a date labeled 'Visit date', case_property_on patient) and visit_notes (a text labeled 'Notes').",
+	},
+	{
+		name: "createModule",
+		description: createModuleTool.description,
+		schema: createModuleTool.inputSchema,
+		prompt:
+			"Use createModule to add a module named 'Households' with case_type household, one registration form named 'Register household' whose fields are case_name (text labeled 'Household name', case_property_on household) and head_name (text labeled 'Head of household', case_property_on household), and one plain case-list column on field case_name with header Name.",
 	},
 	/* Media tools — each new tool's input schema, exercised against the
 	 * compiler. The `Media` bundle is three optionals on a non-array

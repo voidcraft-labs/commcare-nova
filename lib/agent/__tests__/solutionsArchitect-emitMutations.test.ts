@@ -479,12 +479,15 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			moduleIndex: 0,
 			name: "Follow-up Visit",
 			type: "followup",
+			// Atomic creation: a form lands together with its fields.
+			fields: [{ kind: "text", id: "visit_notes", label: "Visit notes" }],
 		});
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe("module:0");
 		expect(muts[0].mutations.some((m) => m.kind === "addForm")).toBe(true);
+		expect(muts[0].mutations.some((m) => m.kind === "addField")).toBe(true);
 		expectNoLegacyEvents(writer);
 	});
 

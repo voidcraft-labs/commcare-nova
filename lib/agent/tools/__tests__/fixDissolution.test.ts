@@ -130,7 +130,12 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 	it("createForm(registration) on a case-typeless module fails the call, nothing persisted", async () => {
 		const { ctx, recordMutations } = makeCtx("building");
 		const out = await createFormTool.execute(
-			{ moduleIndex: 0, name: "Register", type: "registration" },
+			{
+				moduleIndex: 0,
+				name: "Register",
+				type: "registration",
+				fields: [{ kind: "text", id: "case_name", label: "Name" } as never],
+			},
 			ctx,
 			caseTypelessDoc(),
 		);
@@ -170,7 +175,19 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		expect("message" in fixed.result).toBe(true);
 
 		const out = await createFormTool.execute(
-			{ moduleIndex: 0, name: "Register", type: "registration" },
+			{
+				moduleIndex: 0,
+				name: "Register",
+				type: "registration",
+				fields: [
+					{
+						kind: "text",
+						id: "case_name",
+						label: "Name",
+						case_property_on: "respondent",
+					} as never,
+				],
+			},
 			ctx,
 			fixed.newDoc,
 		);

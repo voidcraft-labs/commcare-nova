@@ -37,7 +37,7 @@ These two cover the cold-start phase of a build: name the app, then lay out its 
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module. Configure its case list afterward via the case-list tools below. |
+| `create_module` | Add a new module together with its forms (each with fields) and case-list columns, in one call — a case-managing module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
 | `update_module` | Rename a module and/or set its case type — set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module. |
 | `get_module` | Show details for one module, including the structured case-list config. |
@@ -73,7 +73,7 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 | Tool | What it does |
 |---|---|
-| `create_form` | Add a new form to a module. |
+| `create_form` | Add a new form to a module together with its fields, in one call. |
 | `update_form` | Rename, change CommCare Connect config, set close condition or post-submit destination. |
 | `remove_form` | Delete a form. |
 | `get_form` | Show details for one form. |
