@@ -665,6 +665,21 @@ export async function loadBlueprintBasis(
 }
 
 /**
+ * Thrown by `markAppGenerating` when the app is no longer `error` at the
+ * transaction's read — another request already revived this build (or it
+ * completed in the meantime), so THIS contender must not run. The chat
+ * route maps it to the same 429 a cross-app concurrent build gets.
+ */
+export class GenerationRetryConflictError extends Error {
+	constructor() {
+		super(
+			"This build was already restarted by another request — only one run can work on an app at a time.",
+		);
+		this.name = "GenerationRetryConflictError";
+	}
+}
+
+/**
  * Re-enter the build window for a RETRY of a failed build: flip
  * `error → generating` with a FRESH `updated_at`, clearing `error_type`.
  *
@@ -679,16 +694,35 @@ export async function loadBlueprintBasis(
  * row's old `updated_at` is from the FAILED run and may already be
  * outside the staleness window, so without re-arming, a concurrent
  * list scan could reap the retry at birth.
+ *
+ * The flip is a TRANSACTION that moves ONLY `error → generating`. For a
+ * retry, same-app contenders share ONE row — `hasActiveGeneration`
+ * excludes the contender's own appId, so the row can't arbitrate between
+ * them the way per-contender `createApp` rows arbitrate new builds. The
+ * compare-and-flip is what makes the shared row a real lock: the first
+ * contender's transaction sees `error` and flips it; the loser's re-read
+ * sees `generating` and throws `GenerationRetryConflictError` with
+ * nothing written, so two double-clicked retries can never run two SA
+ * loops against one app.
  */
 export async function markAppGenerating(appId: string): Promise<void> {
-	await docs.app(appId).set(
-		{
+	await getDb().runTransaction(async (tx) => {
+		const snap = await tx.get(docs.app(appId));
+		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[markAppGenerating] app document missing for appId=${appId}`,
+			);
+		}
+		if (fresh.status !== "error") {
+			throw new GenerationRetryConflictError();
+		}
+		tx.update(docs.appRaw(appId), {
 			status: "generating",
 			error_type: null,
 			updated_at: FieldValue.serverTimestamp(),
-		},
-		{ merge: true },
-	);
+		});
+	});
 }
 
 /**
@@ -781,9 +815,10 @@ export function setAwaitingInput(
  * absent marker. Fire-and-forget at the call sites, like `failApp`: a transient
  * failure self-heals on the next scan.
  *
- * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only
- * `createApp` writes (a new build). A chargeable EDIT reserves credits but keeps
- * its app `complete`, so a hard-killed edit's 5-credit hold is never reaped — an
+ * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only the
+ * build paths write — `createApp` for a new build, `markAppGenerating` for a
+ * retry of a failed one. A chargeable EDIT reserves credits but keeps its app
+ * `complete`, so a hard-killed edit's 5-credit hold is never reaped — an
  * accepted residual (small and rare). Builds are the high-value case (100
  * credits) this reaper exists for.
  */

@@ -23,6 +23,7 @@ import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	createApp,
 	failApp,
+	GenerationRetryConflictError,
 	hasActiveGeneration,
 	loadAppOwnerAndStatus,
 	markAppGenerating,
@@ -238,12 +239,30 @@ export async function POST(req: Request) {
 		 * existing liveness machinery: the concurrency guard, the staleness
 		 * reaper's reservation refund for a hard-killed run, and the list
 		 * failure inference. The gate phase is unchanged (`error` and
-		 * `generating` both map to `building`). */
+		 * `generating` both map to `building`).
+		 *
+		 * The flip itself is the same-app lock: `hasActiveGeneration` below
+		 * excludes this appId (so a retry isn't blocked by its own row), which
+		 * means it can never arbitrate between two retries of the SAME app —
+		 * the transactional `error → generating` compare inside
+		 * `markAppGenerating` is what fails the loser. */
 		if (access.status === "error" && !parsed.data.appReady) {
 			try {
 				await markAppGenerating(appId);
 				revivedForRetry = true;
 			} catch (err) {
+				if (err instanceof GenerationRetryConflictError) {
+					/* Lost the revival race — another POST flipped this row first
+					 * and its run owns it now. 429 without touching the row:
+					 * failing the app here would kill the winner's live lock. */
+					return Response.json(
+						{
+							error: MESSAGES.generation_in_progress,
+							type: "generation_in_progress",
+						},
+						{ status: 429 },
+					);
+				}
 				log.error("[chat] retry revival write failed", err, { appId });
 				return Response.json(
 					{
