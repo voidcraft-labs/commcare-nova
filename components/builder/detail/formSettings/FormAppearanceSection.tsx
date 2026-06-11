@@ -33,6 +33,7 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 					<SingleAssetSlot
 						value={form.icon}
 						kind="image"
+						slotKey={`form:${formUuid}:icon`}
 						ariaLabel="Form menu icon"
 						onChange={(icon) =>
 							setFormMedia(uuid, {
@@ -49,6 +50,7 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 					<SingleAssetSlot
 						value={form.audioLabel}
 						kind="audio"
+						slotKey={`form:${formUuid}:audioLabel`}
 						ariaLabel="Form audio label"
 						onChange={(audioLabel) =>
 							setFormMedia(uuid, {

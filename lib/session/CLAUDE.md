@@ -1,6 +1,6 @@
 # lib/session — Builder ephemeral session store
 
-Transient UI state scoped to the builder route: cursor mode, sidebar visibility, agent run status, active field, connect-mode stash. None of it is undoable; none of it persists across page loads.
+Transient UI state scoped to the builder route: cursor mode, sidebar visibility, agent run status, active field, connect-mode stash, staged media uploads. None of it is undoable; none of it persists across page loads.
 
 ## Boundary rule
 
@@ -33,3 +33,7 @@ Run-boundary actions are orthogonal and atomic:
 **Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` — a run that opened on an empty doc is an initial build (Generating layout); one that opened on a populated doc is an edit (the builder stays Ready/interactive while the agent works).
 
 When adding a new lifecycle signal: add a derivation in `lifecycle.ts`, expose a named hook in `hooks.tsx`. Don't add a field to the store.
+
+## Staged media uploads
+
+`stagedUploads` is why a slot upload is session state and not doc state: the doc must never reference an asset that isn't `ready`, so a picked file lives here — keyed by carrier slot, with progress and an error state — until its upload confirms and the slot dispatches the normal gated attach (`components/builder/media/useStagedUpload.ts` is the driver). Abort handles are functions, so they live in a factory-closure registry beside the store (the `docStoreRef` pattern), never in serializable state; `cancelStagedUpload` aborts through it and `reset()` aborts everything (a torn-down session must not let an orphaned upload attach into a dead store). Keying by slot identity (not component instance) is what lets a slot that unmounts mid-upload re-render its chip from the store on remount.

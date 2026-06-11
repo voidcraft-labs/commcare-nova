@@ -73,6 +73,16 @@ export interface MediaPickerDialogProps {
 	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
 	/**
+	 * When provided, a validated file picked on the Upload tab is handed
+	 * OFF instead of uploaded inline: the dialog closes immediately and
+	 * the caller stages the upload on its slot (progress + cancel live on
+	 * the slot's chip; the attach dispatches on upload confirm). The
+	 * builder media slots pass this — the doc must never reference an
+	 * asset that isn't ready. The chat file manager omits it and keeps
+	 * the inline flow (its attachments are message refs, not doc state).
+	 */
+	onUploadStart?: (file: File, kind: AssetKind) => void;
+	/**
 	 * Asset ids currently staged elsewhere in the SAME surface that aren't held
 	 * in the blueprint — today, the chat composer's attachment chips. Deleting
 	 * one of these from the library is a valid action (chat attachments aren't an
@@ -94,6 +104,7 @@ export function MediaPickerDialog({
 	onOpenChange,
 	kinds,
 	onPick,
+	onUploadStart,
 	attachedAssetIds,
 	onAssetDeleted,
 }: MediaPickerDialogProps) {
@@ -115,6 +126,16 @@ export function MediaPickerDialog({
 							onPick(asset);
 							onOpenChange(false);
 						}}
+						onUploadStart={
+							onUploadStart &&
+							((file, kind) => {
+								// Hand the file off and close — the slot's staged chip
+								// takes over (progress + cancel); the picker has nothing
+								// left to show.
+								onUploadStart(file, kind);
+								onOpenChange(false);
+							})
+						}
 						attachedAssetIds={attachedAssetIds}
 						onAssetDeleted={onAssetDeleted}
 					/>
@@ -129,11 +150,13 @@ export function MediaPickerDialog({
 function PickerBody({
 	kinds,
 	onPick,
+	onUploadStart,
 	attachedAssetIds,
 	onAssetDeleted,
 }: {
 	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
+	onUploadStart?: (file: File, kind: AssetKind) => void;
 	attachedAssetIds?: readonly string[];
 	onAssetDeleted?: (assetId: string) => void;
 }) {
@@ -244,7 +267,11 @@ function PickerBody({
 
 			<div className="min-h-0 flex-1 overflow-y-auto p-4">
 				{tab === "upload" ? (
-					<UploadTab kinds={kinds} onUploaded={commit} />
+					<UploadTab
+						kinds={kinds}
+						onUploaded={commit}
+						onUploadStart={onUploadStart}
+					/>
 				) : (
 					<LibraryTab
 						assets={assets}
@@ -360,9 +387,13 @@ function describeKinds(kinds: readonly AssetKind[]): {
 function UploadTab({
 	kinds,
 	onUploaded,
+	onUploadStart,
 }: {
 	kinds: readonly AssetKind[];
 	onUploaded: (asset: MediaAssetView) => void;
+	/** Delegate a validated file to the caller's staged flow instead of
+	 *  uploading inline — see `MediaPickerDialogProps.onUploadStart`. */
+	onUploadStart?: (file: File, kind: AssetKind) => void;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [dragging, setDragging] = useState(false);
@@ -400,6 +431,14 @@ function UploadTab({
 			return;
 		}
 		setKindError(null);
+		// The validated file either hands off to the caller's staged flow
+		// (builder slots — the dialog closes and the slot chip owns
+		// progress/cancel/attach-on-confirm) or uploads inline (the chat
+		// file manager).
+		if (onUploadStart) {
+			onUploadStart(file, kind);
+			return;
+		}
 		const asset = await upload(file);
 		if (asset) onUploaded(asset);
 	};

@@ -10,6 +10,17 @@
 //  - `SingleAssetSlot` — one `AssetId` of a fixed kind (module icon,
 //    case-list icon, app logo). One chip, one "Attach" control.
 //
+// The doc never references an asset that isn't `ready`, so picking a
+// FILE doesn't attach: the picker hands it off (`onUploadStart`), the
+// slot stages it in the session store (`stagedUploads`, keyed by
+// `slotKey`), and a `StagedUploadChip` shows progress + cancel while the
+// upload runs. Only the confirm response — a ready asset — dispatches
+// the carrier's `onChange`; a failure shows on the chip with nothing
+// committed. Picking an already-ready LIBRARY asset attaches
+// immediately. `slotKey` is the carrier slot's stable identity (field
+// uuid + bundle key, `module:<uuid>:icon`, `app:logo`, …) so a
+// remounted slot re-renders its staged chip from the store.
+//
 // Controls name themselves by kind ("Remove image", "Preview audio");
 // `ariaLabel`, when a carrier passes it, names the GROUP those controls
 // belong to (the field/option/slot) — so a screen reader hears "Label
@@ -27,12 +38,21 @@ import { Icon } from "@iconify/react/offline";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerReplace from "@iconify-icons/tabler/replace";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useState } from "react";
+import tablerX from "@iconify-icons/tabler/x";
+import { useEffect, useRef, useState } from "react";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
 import {
 	isMediaKind,
 	type Media,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
+import { useStagedUpload, useStagedUploadsFor } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
+import type { StagedUpload } from "@/lib/session/types";
 import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_ELEVATED_CLS,
@@ -40,6 +60,7 @@ import {
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { MediaPickerDialog } from "./MediaPickerDialog";
 import { clearMediaSlot, mediaSrc, setMediaSlot } from "./mediaClient";
+import { useStagedSlotUpload } from "./useStagedUpload";
 
 // ── MediaSlot — the image/audio/video bundle ─────────────────────
 
@@ -48,6 +69,14 @@ export interface MediaSlotProps {
 	onChange: (next: Media | undefined) => void;
 	/** Which kinds this carrier can hold. Menu carriers omit "video". */
 	kinds: readonly MediaKind[];
+	/**
+	 * Stable identity of this carrier slot — keys the session store's
+	 * staged-upload records (per kind, under `<slotKey>/<kind>`), so a
+	 * remounted slot re-renders its in-flight chip and cancel still
+	 * reaches the transfer. Carriers derive it from their entity's uuid
+	 * plus the slot name (e.g. `field:<uuid>:label_media`).
+	 */
+	slotKey: string;
 	/**
 	 * Accessible name for the control GROUP — the field, option, or slot
 	 * these controls belong to (e.g. "Label Media", "Option 1"). Not
@@ -72,13 +101,31 @@ export function MediaSlot({
 	value,
 	onChange,
 	kinds,
+	slotKey,
 	ariaLabel,
 }: MediaSlotProps) {
 	const [picker, setPicker] = useState<PickerState>({ open: false, kinds });
+	const staged = useStagedUploadsFor(slotKey);
+	const session = useBuilderSessionApi();
+
+	// The confirm-time attach must compose against the carrier's CURRENT
+	// bundle (another kind may have attached while the upload ran), and the
+	// upload outlives any single render — latest-value refs bridge that.
+	const valueRef = useRef(value);
+	const onChangeRef = useRef(onChange);
+	useEffect(() => {
+		valueRef.current = value;
+		onChangeRef.current = onChange;
+	});
+	const startUpload = useStagedSlotUpload((asset, kind) => {
+		onChangeRef.current(setMediaSlot(valueRef.current, kind, asset.id));
+	});
+
 	// Attached kinds in the carrier's canonical order, so the chips read
 	// image → audio → video regardless of which was added first.
 	const attached = kinds.filter((kind) => value?.[kind]);
-	const allFilled = attached.length === kinds.length;
+	const stagedKinds = kinds.filter((kind) => staged[kind]);
+	const allBusy = kinds.every((kind) => value?.[kind] || staged[kind]);
 	const groupProps = ariaLabel
 		? ({ role: "group", "aria-label": ariaLabel } as const)
 		: {};
@@ -94,7 +141,20 @@ export function MediaSlot({
 					onRemove={() => onChange(clearMediaSlot(value, kind))}
 				/>
 			))}
-			{!allFilled && (
+			{stagedKinds.map((kind) => {
+				const upload = staged[kind];
+				if (!upload) return null;
+				const key = `${slotKey}/${kind}`;
+				return (
+					<StagedUploadChip
+						key={`staged-${kind}`}
+						upload={upload}
+						onCancel={() => session.getState().cancelStagedUpload(key)}
+						onDismiss={() => session.getState().clearStagedUpload(key)}
+					/>
+				);
+			})}
+			{!allBusy && (
 				<AttachButton
 					// Once something is attached, the control adds another kind
 					// rather than the first — "Add" reads truer than a second
@@ -116,6 +176,14 @@ export function MediaSlot({
 						onChange(setMediaSlot(value, asset.kind, asset.id));
 					}
 				}}
+				// A picked FILE stages instead of attaching: the upload runs
+				// against this slot's staged record, and the attach dispatches
+				// only on confirm (see the module header).
+				onUploadStart={(file, kind) => {
+					if (isMediaKind(kind)) {
+						startUpload(`${slotKey}/${kind}`, kind, file);
+					}
+				}}
 			/>
 		</div>
 	);
@@ -127,6 +195,9 @@ export interface SingleAssetSlotProps {
 	value: string | undefined;
 	onChange: (next: string | undefined) => void;
 	kind: MediaKind;
+	/** Stable identity of this carrier slot — see `MediaSlotProps.slotKey`.
+	 *  Single slots stage directly under it (the kind is fixed). */
+	slotKey: string;
 	/**
 	 * Accessible name for the control group. Standalone slots (form icon,
 	 * app logo) live outside a labelled editor section, so the kind alone
@@ -139,23 +210,43 @@ export function SingleAssetSlot({
 	value,
 	onChange,
 	kind,
+	slotKey,
 	ariaLabel,
 }: SingleAssetSlotProps) {
 	const [pickerOpen, setPickerOpen] = useState(false);
+	const staged = useStagedUpload(slotKey);
+	const session = useBuilderSessionApi();
+
+	const onChangeRef = useRef(onChange);
+	useEffect(() => {
+		onChangeRef.current = onChange;
+	});
+	const startUpload = useStagedSlotUpload((asset) => {
+		onChangeRef.current(asset.id);
+	});
+
 	const groupProps = ariaLabel
 		? ({ role: "group", "aria-label": ariaLabel } as const)
 		: {};
 
 	return (
 		<div className="flex flex-wrap items-center gap-1.5" {...groupProps}>
-			{value ? (
+			{value && (
 				<AssetChip
 					kind={kind}
 					assetId={value}
 					onReplace={() => setPickerOpen(true)}
 					onRemove={() => onChange(undefined)}
 				/>
-			) : (
+			)}
+			{staged && (
+				<StagedUploadChip
+					upload={staged}
+					onCancel={() => session.getState().cancelStagedUpload(slotKey)}
+					onDismiss={() => session.getState().clearStagedUpload(slotKey)}
+				/>
+			)}
+			{!value && !staged && (
 				<AttachButton label="Attach" onClick={() => setPickerOpen(true)} />
 			)}
 			<MediaPickerDialog
@@ -163,6 +254,11 @@ export function SingleAssetSlot({
 				onOpenChange={setPickerOpen}
 				kinds={[kind]}
 				onPick={(asset) => onChange(asset.id)}
+				onUploadStart={(file, pickedKind) => {
+					if (isMediaKind(pickedKind)) {
+						startUpload(slotKey, pickedKind, file);
+					}
+				}}
 			/>
 		</div>
 	);
@@ -187,6 +283,85 @@ function AttachButton({
 			<Icon icon={tablerPaperclip} className="size-3.5" />
 			{label}
 		</button>
+	);
+}
+
+/**
+ * A staged slot upload: kind glyph + filename with a live progress bar
+ * and a cancel — or, after a failure, the error with a dismiss. The chip
+ * is pure session state (`stagedUploads`); nothing it shows is in the
+ * doc, which is exactly the contract — the doc gets the reference only
+ * when the upload confirms.
+ */
+function StagedUploadChip({
+	upload,
+	onCancel,
+	onDismiss,
+}: {
+	upload: StagedUpload;
+	onCancel: () => void;
+	onDismiss: () => void;
+}) {
+	const meta = ASSET_KIND_META[upload.kind];
+	const status = upload.status;
+	const failed = status.state === "error";
+	return (
+		<div
+			role="status"
+			className={`flex max-w-64 items-center gap-2 self-start rounded-md border bg-nova-surface p-1 pr-2 ${
+				failed ? "border-nova-rose/40" : "border-nova-border"
+			}`}
+		>
+			<span className="flex size-7 shrink-0 items-center justify-center rounded bg-nova-deep">
+				<Icon
+					icon={meta.icon}
+					className={`size-4 ${failed ? "text-nova-rose" : "text-nova-text-muted"}`}
+				/>
+			</span>
+			<div className="min-w-0 flex-1">
+				<p className="truncate text-xs text-nova-text">{upload.filename}</p>
+				{status.state === "uploading" ? (
+					<div
+						role="progressbar"
+						aria-label={`Uploading ${upload.filename}`}
+						aria-valuemin={0}
+						aria-valuemax={100}
+						aria-valuenow={Math.round(status.progress * 100)}
+						className="mt-1 h-1 w-full min-w-20 overflow-hidden rounded bg-nova-deep"
+					>
+						<div
+							className="h-full rounded bg-nova-violet transition-[width]"
+							style={{ width: `${status.progress * 100}%` }}
+						/>
+					</div>
+				) : (
+					// The chip is narrow, so the message truncates — the tooltip
+					// carries the full Elm-shaped error.
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<p className="truncate text-[11px] leading-tight text-nova-rose">
+									{status.message}
+								</p>
+							}
+						/>
+						<TooltipContent>{status.message}</TooltipContent>
+					</Tooltip>
+				)}
+			</div>
+			<button
+				type="button"
+				onClick={failed ? onDismiss : onCancel}
+				aria-label={
+					failed
+						? `Dismiss failed upload of ${upload.filename}`
+						: `Cancel upload of ${upload.filename}`
+				}
+				className="shrink-0 rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-rose focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+			>
+				<Icon icon={tablerX} className="size-3.5" />
+			</button>
+		</div>
 	);
 }
 

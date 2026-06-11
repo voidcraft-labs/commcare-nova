@@ -19,7 +19,14 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { asUuid } from "@/lib/doc/types";
 import type { SelectOption, SingleSelectField } from "@/lib/domain";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 import { OptionsEditor } from "../OptionsEditor";
+
+/** Option rows mount `MediaSlot`, whose staged-upload chip reads the
+ *  session store — provide it the way the builder always does. */
+const wrapper = ({ children }: { children: React.ReactNode }) => (
+	<BuilderSessionProvider>{children}</BuilderSessionProvider>
+);
 
 const baseField: SingleSelectField = {
 	kind: "single_select",
@@ -71,6 +78,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		expect((screen.getByDisplayValue("Red") as HTMLInputElement).value).toBe(
 			"Red",
@@ -89,6 +97,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		expect(container.querySelector('[data-field-id="options"]')).not.toBeNull();
 	});
@@ -103,6 +112,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		fireEvent.click(screen.getByRole("button", { name: /Add option/i }));
 		expect(onChange).toHaveBeenCalled();
@@ -116,7 +126,9 @@ describe("OptionsEditor", () => {
 		// prop value, reproducing the real doc-store round-trip. A
 		// self-sync regression would regenerate draft ids on the echo,
 		// unmount the newly-mounted input, and drop focus.
-		render(<ControlledOptionsEditor initial={baseField.options} />);
+		render(<ControlledOptionsEditor initial={baseField.options} />, {
+			wrapper,
+		});
 		fireEvent.click(screen.getByRole("button", { name: /Add option/i }));
 		const labelInputs = screen.getAllByPlaceholderText(
 			"Label",
@@ -135,6 +147,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		const red = screen.getByDisplayValue("Red") as HTMLInputElement;
 		red.focus();
@@ -173,6 +186,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		// The per-row trash buttons and the Add button are all
 		// descendants of the fieldset; the row buttons come first, the
@@ -198,6 +212,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		// Remove one of two rows → the widget would try to save a
 		// 1-entry list, which the adapter collapses to `undefined` so

@@ -32,8 +32,9 @@ import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
+import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
-import type { CursorMode, ReplayData, ReplayInit } from "./types";
+import type { CursorMode, ReplayData, ReplayInit, StagedUpload } from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -156,6 +157,47 @@ export interface BuilderSessionState {
 	/** Last active connect type — restored on toggle off/on when the
 	 *  caller passes `undefined` to `switchConnectMode`. */
 	lastConnectType: ConnectType | undefined;
+
+	// ── Staged media uploads (ephemeral, never doc state) ────────────────
+
+	/** In-flight (or failed) slot uploads, keyed by carrier slot. The doc
+	 *  must never reference an asset that isn't `ready`, so a picked file
+	 *  lives HERE — progress, cancel, failure — until its upload confirms;
+	 *  only then does the slot dispatch the normal gated attach. Keys are
+	 *  carrier-slot identities (e.g. `field:<uuid>:label_media/image`,
+	 *  `app:logo`) so a remounted slot re-renders its staged chip from the
+	 *  store. The abort handles live OUTSIDE this state (a per-store
+	 *  closure registry, like `_setDocStore`'s ref) so devtools never
+	 *  serializes a function and cancel works from any mount. */
+	stagedUploads: Record<string, StagedUpload>;
+
+	/** Stage one slot upload: record `{ uploading, progress: 0 }` under
+	 *  `slotKey` and register its `abort` in the closure registry.
+	 *  Replaces any previous record on the same slot (a retry re-stages). */
+	stageUpload: (
+		slotKey: string,
+		upload: { filename: string; kind: MediaKind; abort: () => void },
+	) => void;
+
+	/** Advance a staged upload's byte progress (clamped 0..1). No-op when
+	 *  the slot isn't staged or already failed — a late progress event
+	 *  from an aborted transfer must not resurrect the record. */
+	setStagedUploadProgress: (slotKey: string, progress: number) => void;
+
+	/** Flip a staged upload to its error state (the chip shows `message`
+	 *  until dismissed or retried) and drop the abort handle — nothing is
+	 *  in flight anymore. No-op when the slot isn't staged (a cancel that
+	 *  raced the failure wins). */
+	failStagedUpload: (slotKey: string, message: string) => void;
+
+	/** Remove a staged record (upload confirmed and the attach dispatched,
+	 *  or the user dismissed an error). Drops the abort handle. */
+	clearStagedUpload: (slotKey: string) => void;
+
+	/** Cancel a staged upload: abort the in-flight transfer (if any) and
+	 *  remove the record. The upload driver sees the abort and stays
+	 *  silent — cancel already cleared the slot. */
+	cancelStagedUpload: (slotKey: string) => void;
 
 	// ── Transient UI hints (one-shot, consumed by a single component) ────
 
@@ -398,6 +440,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 	 * imperatively by `switchConnectMode`, `beginRun`, and `endRun`. */
 	let docStoreRef: BlueprintDocStore | null = null;
 
+	/* Abort handles for staged uploads — functions, so they live beside the
+	 * store (the `docStoreRef` pattern) rather than inside serializable
+	 * state. Keyed identically to `stagedUploads`; every record mutation
+	 * below keeps the two in step. */
+	const stagedUploadAborts = new Map<string, () => void>();
+
 	return createStore<BuilderSessionState>()(
 		devtools(
 			subscribeWithSelector((set, get) => ({
@@ -432,6 +480,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					Record<string, ConnectConfig>
 				>,
 				lastConnectType: undefined as ConnectType | undefined,
+
+				/* Staged media uploads */
+				stagedUploads: {} as Record<string, StagedUpload>,
 
 				/* UI hints */
 				focusHint: undefined as string | undefined,
@@ -790,6 +841,71 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				// ── Staged media upload actions ──────────────────────────
+
+				stageUpload(
+					slotKey: string,
+					upload: { filename: string; kind: MediaKind; abort: () => void },
+				) {
+					stagedUploadAborts.set(slotKey, upload.abort);
+					set((s) => ({
+						stagedUploads: {
+							...s.stagedUploads,
+							[slotKey]: {
+								filename: upload.filename,
+								kind: upload.kind,
+								status: { state: "uploading", progress: 0 },
+							},
+						},
+					}));
+				},
+
+				setStagedUploadProgress(slotKey: string, progress: number) {
+					const record = get().stagedUploads[slotKey];
+					if (!record || record.status.state !== "uploading") return;
+					const clamped = Math.min(Math.max(progress, 0), 1);
+					if (clamped === record.status.progress) return;
+					set((s) => ({
+						stagedUploads: {
+							...s.stagedUploads,
+							[slotKey]: {
+								...record,
+								status: { state: "uploading", progress: clamped },
+							},
+						},
+					}));
+				},
+
+				failStagedUpload(slotKey: string, message: string) {
+					const record = get().stagedUploads[slotKey];
+					if (!record) return;
+					stagedUploadAborts.delete(slotKey);
+					set((s) => ({
+						stagedUploads: {
+							...s.stagedUploads,
+							[slotKey]: { ...record, status: { state: "error", message } },
+						},
+					}));
+				},
+
+				clearStagedUpload(slotKey: string) {
+					stagedUploadAborts.delete(slotKey);
+					if (get().stagedUploads[slotKey] === undefined) return;
+					set((s) => {
+						const { [slotKey]: _dropped, ...rest } = s.stagedUploads;
+						return { stagedUploads: rest };
+					});
+				},
+
+				cancelStagedUpload(slotKey: string) {
+					const abort = stagedUploadAborts.get(slotKey);
+					/* Abort BEFORE clearing so the driver's rejection handler
+					 * observes the canceled signal against an already-removed
+					 * record — its "cancel wins" branch stays a no-op. */
+					abort?.();
+					get().clearStagedUpload(slotKey);
+				},
+
 				setFocusHint(fieldId: string | undefined) {
 					if (fieldId === get().focusHint) return;
 					set({ focusHint: fieldId });
@@ -814,6 +930,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				reset() {
+					/* Abort any in-flight staged uploads — their drivers hold
+					 * closures into a session that's being torn down, so letting
+					 * them run would attach into a dead store. */
+					for (const abort of stagedUploadAborts.values()) abort();
+					stagedUploadAborts.clear();
 					set({
 						/* Generation lifecycle */
 						events: [],
@@ -844,6 +965,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							Record<string, ConnectConfig>
 						>,
 						lastConnectType: undefined as ConnectType | undefined,
+
+						/* Staged media uploads */
+						stagedUploads: {} as Record<string, StagedUpload>,
 
 						/* UI hints */
 						focusHint: undefined as string | undefined,

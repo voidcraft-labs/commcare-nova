@@ -21,6 +21,7 @@ import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 
 export function MediaSlotEditor<F extends Field, K extends keyof F>({
+	field,
 	value,
 	onChange,
 	label,
@@ -49,6 +50,9 @@ export function MediaSlotEditor<F extends Field, K extends keyof F>({
 				value={value as Media | undefined}
 				onChange={(next) => onChange(next as F[K])}
 				kinds={MEDIA_KINDS}
+				// Field uuid (rename-stable) + the `<slot>_media` key — the
+				// staged-upload identity for this message slot.
+				slotKey={`field:${field.uuid}:${String(keyName)}`}
 				// Clean group label (no string surgery): the slot's controls
 				// name themselves by kind ("Remove image"); this names the
 				// group they belong to ("Label Media").

@@ -38,6 +38,9 @@ interface DraftOption extends SelectOption {
 interface OptionsEditorWidgetProps {
 	options: SelectOption[];
 	onSave: (options: SelectOption[]) => void;
+	/** Staged-upload identity base for the option rows' media slots —
+	 *  the owning field's uuid; each row scopes itself by option value. */
+	slotKeyBase: string;
 	/** When true, the first option label input receives focus on mount (undo/redo restore). */
 	autoFocus?: boolean;
 }
@@ -85,6 +88,7 @@ function serializeOptions(options: SelectOption[]): string {
 function OptionsEditorWidget({
 	options,
 	onSave,
+	slotKeyBase,
 	autoFocus,
 }: OptionsEditorWidgetProps) {
 	const [draft, setDraft] = useState<DraftOption[]>(() =>
@@ -273,6 +277,10 @@ function OptionsEditorWidget({
 								value={opt.media}
 								onChange={(media) => setOptionMedia(i, media)}
 								kinds={MEDIA_KINDS}
+								// Keyed by the option's VALUE (the same handle the SA
+								// tool addresses options by), so add/remove of sibling
+								// rows doesn't re-target a staged chip mid-upload.
+								slotKey={`option:${slotKeyBase}:${opt.value}`}
 								ariaLabel={opt.label.trim() || `Option ${i + 1}`}
 							/>
 						</div>
@@ -306,12 +314,13 @@ function OptionsEditorWidget({
 export function OptionsEditor<F extends Field>(
 	props: FieldEditorComponentProps<F, "options" & keyof F>,
 ) {
-	const { value, onChange, autoFocus } = props;
+	const { field, value, onChange, autoFocus } = props;
 	const current = Array.isArray(value) ? (value as SelectOption[]) : [];
 	return (
 		<div data-field-id="options">
 			<OptionsEditorWidget
 				options={current}
+				slotKeyBase={field.uuid}
 				autoFocus={autoFocus}
 				onSave={(next) => {
 					// Enforce the schema's `min(2)` at the adapter boundary —

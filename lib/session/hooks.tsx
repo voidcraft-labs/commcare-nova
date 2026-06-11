@@ -17,6 +17,7 @@ import type {
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
+import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
@@ -34,6 +35,7 @@ import type {
 	GenerationError,
 	GenerationStage,
 	ReplayData,
+	StagedUpload,
 } from "./types";
 
 // ── Cursor mode ───────────────────────────────────────────────────────────
@@ -127,6 +129,33 @@ export function useFormConnectStash(
 	formUuid: string,
 ): ConnectConfig | undefined {
 	return useBuilderSession((s) => s.connectStash[mode]?.[formUuid]);
+}
+
+// ── Staged media uploads ──────────────────────────────────────────────────
+
+/** The staged upload on one carrier slot, or `undefined` when nothing is
+ *  in flight there. Single-asset slots (module icon, app logo) subscribe
+ *  with their own slot key. */
+export function useStagedUpload(slotKey: string): StagedUpload | undefined {
+	return useBuilderSession((s) => s.stagedUploads[slotKey]);
+}
+
+/** The staged uploads under one bundle slot, keyed by media kind — the
+ *  `Media`-bundle carriers (`MediaSlot`) stage per kind under
+ *  `<baseKey>/<kind>`, and this collects every kind in flight there.
+ *  Shallow-compared: record references are stable across unrelated store
+ *  writes, so a fresh-but-equal pick doesn't re-render the slot. */
+export function useStagedUploadsFor(
+	baseKey: string,
+): Partial<Record<MediaKind, StagedUpload>> {
+	const prefix = `${baseKey}/`;
+	return useBuilderSessionShallow((s) => {
+		const out: Partial<Record<MediaKind, StagedUpload>> = {};
+		for (const [key, record] of Object.entries(s.stagedUploads)) {
+			if (key.startsWith(prefix)) out[record.kind] = record;
+		}
+		return out;
+	});
 }
 
 // ── Focus hint ───────────────────────────────────────────────────────────
