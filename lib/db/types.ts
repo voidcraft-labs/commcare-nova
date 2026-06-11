@@ -306,6 +306,11 @@ export const appDocSchema = z.object({
 	 * receives every mutation over SSE, so its doc already carries the
 	 * run's changes and its next auto-save is a faithful overwrite — a
 	 * rotation there would 409 the builder against its own companion run.
+	 * Those saves are also ORDERED against the guarded completion write:
+	 * `GenerationContext.saveBlueprint` chains them and the completion
+	 * basis read drains the chain, so a run's own in-flight save can't
+	 * land after `completeAppGuardedByBasis` and leave `status: complete`
+	 * pointing at a regressed blueprint.
 	 * RECORDED CONSTRAINT — the one-tab assumption: that reasoning holds
 	 * for the tab driving the run; a SECOND builder tab open during a
 	 * chat run sees neither the SSE mutations nor a rotation, so its next

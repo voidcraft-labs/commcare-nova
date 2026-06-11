@@ -27,9 +27,12 @@ import { makeMinimalDoc, makeTestContext } from "./fixtures";
  * call (the doc argument is the persistence target; the run id keeps
  * `app.run_id` in sync with the current chat run so MCP's sliding-
  * window derivation doesn't re-attach to a closed run). Stub it out at
- * the module level so the no-op save doesn't reach Firestore. */
+ * the module level so the no-op save doesn't reach Firestore.
+ * `loadBlueprintBasis` backs `getCompletionBasis`, which the save-chain
+ * tests below drive. */
 vi.mock("@/lib/db/apps", () => ({
 	updateAppForRun: vi.fn(() => Promise.resolve()),
+	loadBlueprintBasis: vi.fn(() => Promise.resolve("stored-token")),
 }));
 
 /* Mock the logger so `emitError`'s server-side cause-logging is silent in
@@ -211,12 +214,14 @@ describe("GenerationContext.emitMutations", () => {
 		);
 	});
 
-	it("dispatches a fire-and-forget Firestore save carrying the passed-in doc under the expected appId", () => {
+	it("dispatches a fire-and-forget Firestore save carrying the passed-in doc under the expected appId", async () => {
 		/* `emitMutations` persists the `doc` argument — every caller threads
 		 * a post-mutation snapshot through. A caller that forgets to advance
 		 * the doc would show up here as either the wrong appId or a body
-		 * shape that doesn't match what was handed in. */
+		 * shape that doesn't match what was handed in. The save rides the
+		 * chain (one microtask deep), so flush it before asserting. */
 		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		await Promise.resolve();
 		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
 		const [savedAppId, savedDoc] =
 			vi.mocked(updateAppForRun).mock.calls[0] ?? [];
@@ -229,7 +234,7 @@ describe("GenerationContext.emitMutations", () => {
 		});
 	});
 
-	it("strips fieldParent from the persisted payload even when populated", () => {
+	it("strips fieldParent from the persisted payload even when populated", async () => {
 		/* `fieldParent` is a derived reverse-index the client rebuilds from
 		 * `fieldOrder` in `docStore.load()`; it must never reach Firestore,
 		 * otherwise the persisted shape grows a second source of truth that
@@ -245,6 +250,7 @@ describe("GenerationContext.emitMutations", () => {
 			},
 		};
 		ctx.emitMutations([TEXT_FIELD_MUTATION], docWithParent);
+		await Promise.resolve();
 		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
 		const savedDoc = vi.mocked(updateAppForRun).mock.calls[0]?.[1];
 		expect(savedDoc).not.toHaveProperty("fieldParent");
@@ -253,6 +259,69 @@ describe("GenerationContext.emitMutations", () => {
 	it("skips the Firestore save on empty batches (no-op path)", () => {
 		ctx.emitMutations([], DOC, "form:0-0");
 		expect(vi.mocked(updateAppForRun)).not.toHaveBeenCalled();
+	});
+
+	it("chains intermediate saves — a later save's RPC starts only after the earlier one settled", async () => {
+		// Independent Firestore writes carry no ordering guarantee, so racing
+		// saves could land out of order and regress the stored snapshot
+		// mid-run. The chain serializes them: hold the FIRST save open and
+		// assert the second hasn't been issued, then release and watch it go.
+		let releaseFirst: () => void = () => {};
+		vi.mocked(updateAppForRun)
+			.mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						releaseFirst = resolve;
+					}),
+			)
+			.mockImplementationOnce(() => Promise.resolve());
+
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		ctx.emitMutations([SECOND_MUTATION], DOC);
+		await Promise.resolve(); // let the first chain link start
+		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
+
+		releaseFirst();
+		await vi.waitFor(() => {
+			expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("getCompletionBasis drains the save chain before reading the stored token", async () => {
+		// The lane this closes: an intermediate save still in flight when the
+		// guarded completion commits would land AFTER it and clobber the
+		// completed snapshot (status complete, regressed blueprint). The basis
+		// read must therefore resolve only once the run's own saves settled.
+		let releaseSave: () => void = () => {};
+		vi.mocked(updateAppForRun).mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					releaseSave = resolve;
+				}),
+		);
+
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		let basis: string | null | undefined;
+		const pending = ctx.getCompletionBasis().then((value) => {
+			basis = value;
+		});
+
+		// With the save still in flight, the basis read must not have settled.
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(basis).toBeUndefined();
+
+		releaseSave();
+		await pending;
+		expect(basis).toBe("stored-token");
+	});
+
+	it("getCompletionBasis still reads through after a save FAILED (the chain settles, never wedges)", async () => {
+		vi.mocked(updateAppForRun).mockImplementationOnce(() =>
+			Promise.reject(new Error("firestore hiccup")),
+		);
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		await expect(ctx.getCompletionBasis()).resolves.toBe("stored-token");
 	});
 });
 

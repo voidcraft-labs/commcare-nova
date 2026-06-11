@@ -204,6 +204,10 @@ export class GenerationContext implements ToolExecutionContext {
 	 * so the refunding reaper doesn't mistake a live build paused on a question for
 	 * a hard-killed one and refund its still-live hold. */
 	private _pausedOnInput = false;
+	/** Tail of the run's intermediate-save chain — see `saveBlueprint` for why
+	 * the saves serialize and `getCompletionBasis` for who awaits the tail.
+	 * Always settled (every link catches), so awaiting it never throws. */
+	private saveChain: Promise<void> = Promise.resolve();
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
@@ -296,11 +300,26 @@ export class GenerationContext implements ToolExecutionContext {
 	 * mirrors the same strip via the shared `toPersistableDoc` helper
 	 * but awaits the write (its fail-closed contract has no agent loop
 	 * to retry).
+	 *
+	 * Saves CHAIN onto each other (fire-and-forget relative to the
+	 * stream, sequential relative to one another) rather than racing as
+	 * independent RPCs. Two reasons:
+	 *  - independent writes carry no ordering guarantee, so save N could
+	 *    land after save N+1 and regress the stored snapshot mid-run;
+	 *  - the chain tail is what `getCompletionBasis` awaits, so by the
+	 *    time the guarded completion write commits, every one of this
+	 *    run's saves has SETTLED — an in-flight intermediate save can no
+	 *    longer land after the completion and leave `status: complete`
+	 *    pointing at a regressed blueprint (a state a closed-tab drained
+	 *    run would never heal).
+	 * The persistable snapshot is taken eagerly, before the chain link
+	 * runs, so a deferred write persists the doc as it was at call time.
 	 */
 	private saveBlueprint(doc: BlueprintDoc): void {
-		updateAppForRun(this.appId, toPersistableDoc(doc), this.usage.runId).catch(
-			(err) => log.error("[intermediate-save] failed", err),
-		);
+		const persistable = toPersistableDoc(doc);
+		this.saveChain = this.saveChain
+			.then(() => updateAppForRun(this.appId, persistable, this.usage.runId))
+			.catch((err) => log.error("[intermediate-save] failed", err));
 	}
 
 	/**
@@ -571,8 +590,17 @@ export class GenerationContext implements ToolExecutionContext {
 	 * builder tab's save, an MCP commit) that land during the evaluation
 	 * window. (The MCP surface instead injects the token from the same
 	 * load that produced the tool's doc — see `McpContext`.)
+	 *
+	 * The read waits for the run's own save chain to settle first. Tool
+	 * bodies are serialized, so every `saveBlueprint` this run issued was
+	 * issued BEFORE this call — draining the chain here means no own-save
+	 * is still in flight when the guarded completion commits, closing the
+	 * lane where a late-landing intermediate save clobbers the completed
+	 * snapshot (see `saveBlueprint`). The chain never rejects, so this
+	 * await can only delay the read, not fail it.
 	 */
 	async getCompletionBasis(): Promise<string | null> {
+		await this.saveChain;
 		return loadBlueprintBasis(this.appId);
 	}
 
