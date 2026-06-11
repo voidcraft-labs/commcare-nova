@@ -320,3 +320,199 @@ describe("expression migration — byte identity", () => {
 		).toBe("#form/years > 17 and /data/years != ''");
 	});
 });
+
+// ── Event-log migration — replay reproduces the migrated docs ──────
+
+import { produce } from "immer";
+import { migrateMutationExpressions } from "@/lib/doc/expressionMigration";
+import { parseXPathForForm } from "@/lib/doc/expressionText";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
+
+describe("event-log migration — replay of migrated events", () => {
+	/** The string-era event stream: grow a doc from birth with raw
+	 *  payloads exactly as old runs logged them. */
+	function legacyEventStream(): Record<string, unknown>[] {
+		return [
+			{ kind: "setAppName", name: "Replay Clinic" },
+			{
+				kind: "addModule",
+				module: {
+					uuid: "m-1",
+					id: "patients",
+					name: "Patients",
+					caseType: "patient",
+				},
+			},
+			{
+				kind: "addForm",
+				moduleUuid: "m-1",
+				form: {
+					uuid: "fo-1",
+					id: "register",
+					name: "Register",
+					type: "registration",
+				},
+			},
+			{
+				kind: "addField",
+				parentUuid: "fo-1",
+				field: { uuid: "fl-age", id: "age", kind: "int", label: "Age" },
+			},
+			{
+				kind: "addField",
+				parentUuid: "fo-1",
+				field: {
+					uuid: "fl-band",
+					id: "age_band",
+					kind: "hidden",
+					calculate: "if(#form/age >= 18, 'adult', 'minor')",
+				},
+			},
+			{
+				kind: "updateField",
+				uuid: "fl-age",
+				targetKind: "int",
+				patch: { validate: ". >= 0 and . <= 120", required: "true()" },
+			},
+			{ kind: "renameField", uuid: "fl-age", newId: "years" },
+		];
+	}
+
+	function reduceMigrated(events: Record<string, unknown>[]): BlueprintDoc {
+		let doc: BlueprintDoc = {
+			appId: "replay-app",
+			appName: "",
+			connectType: null,
+			caseTypes: null,
+			modules: {},
+			forms: {},
+			fields: {},
+			moduleOrder: [],
+			formOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
+		};
+		for (const event of events) {
+			const result = migrateMutationExpressions(doc, event);
+			expect(result.failures).toEqual([]);
+			doc = produce(doc, (draft) => {
+				applyMutations(draft, [event as unknown as Mutation]);
+			});
+		}
+		return doc;
+	}
+
+	it("reduces a migrated legacy stream to the doc the live path produces", () => {
+		const replayed = reduceMigrated(legacyEventStream());
+
+		// The live path: the same operations authored through the commit
+		// boundaries (parse against the doc of the moment), reduced by the
+		// same reducers.
+		let live: BlueprintDoc = {
+			appId: "replay-app",
+			appName: "",
+			connectType: null,
+			caseTypes: null,
+			modules: {},
+			forms: {},
+			fields: {},
+			moduleOrder: [],
+			formOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
+		};
+		const apply = (mutations: Mutation[]) => {
+			live = produce(live, (draft) => {
+				applyMutations(draft, mutations);
+			});
+		};
+		apply([{ kind: "setAppName", name: "Replay Clinic" } as Mutation]);
+		apply([
+			{
+				kind: "addModule",
+				module: {
+					uuid: "m-1",
+					id: "patients",
+					name: "Patients",
+					caseType: "patient",
+				},
+			} as unknown as Mutation,
+		]);
+		apply([
+			{
+				kind: "addForm",
+				moduleUuid: "m-1",
+				form: {
+					uuid: "fo-1",
+					id: "register",
+					name: "Register",
+					type: "registration",
+				},
+			} as unknown as Mutation,
+		]);
+		apply([
+			{
+				kind: "addField",
+				parentUuid: "fo-1",
+				field: { uuid: "fl-age", id: "age", kind: "int", label: "Age" },
+			} as unknown as Mutation,
+		]);
+		apply([
+			{
+				kind: "addField",
+				parentUuid: "fo-1",
+				field: {
+					uuid: "fl-band",
+					id: "age_band",
+					kind: "hidden",
+					calculate: parseXPathForForm(
+						live,
+						asUuid("fo-1"),
+						"if(#form/age >= 18, 'adult', 'minor')",
+					),
+				},
+			} as unknown as Mutation,
+		]);
+		apply([
+			{
+				kind: "updateField",
+				uuid: "fl-age",
+				targetKind: "int",
+				patch: {
+					validate: parseXPathForForm(
+						live,
+						asUuid("fo-1"),
+						". >= 0 and . <= 120",
+					),
+					required: parseXPathForForm(live, asUuid("fo-1"), "true()"),
+				},
+			} as unknown as Mutation,
+		]);
+		apply([
+			{ kind: "renameField", uuid: "fl-age", newId: "years" } as Mutation,
+		]);
+
+		// Identity: the persisted projections agree byte-for-byte —
+		// including the calculate, whose identity leaf resolved BEFORE the
+		// rename and therefore prints the new name on both sides.
+		const project = (doc: BlueprintDoc) =>
+			JSON.stringify({
+				fields: doc.fields,
+				forms: doc.forms,
+				modules: doc.modules,
+			});
+		expect(project(replayed)).toBe(project(live));
+		const band = replayed.fields["fl-band" as never];
+		expect(band && expressionSourceText(replayed, band)).toBe(
+			"if(#form/years >= 18, 'adult', 'minor')",
+		);
+	});
+});
+
+function expressionSourceText(doc: BlueprintDoc, field: { uuid: string }) {
+	const value = (field as { calculate?: unknown }).calculate;
+	return isXPathExpression(value)
+		? printXPath(value, xpathPrintContext(doc))
+		: undefined;
+}
