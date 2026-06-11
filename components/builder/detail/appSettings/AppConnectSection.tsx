@@ -1,8 +1,16 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useState } from "react";
 import { Toggle } from "@/components/ui/Toggle";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
-import { useSwitchConnectMode } from "@/lib/session/hooks";
+import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import { useLastConnectType, useSwitchConnectMode } from "@/lib/session/hooks";
+import { useBuilderSessionApi } from "@/lib/session/provider";
+import {
+	ConnectEnableDialog,
+	type ConnectStagingTarget,
+} from "./ConnectEnableDialog";
 
 /**
  * App-level CommCare Connect section in the App Settings panel. Mirrors the
@@ -10,21 +18,79 @@ import { useSwitchConnectMode } from "@/lib/session/hooks";
  * animated reveal beneath), but owns the APP's connect *type* rather than
  * a per-form config:
  *
- *   - Toggle off dispatches `null`, clearing the app connect type.
- *   - Toggle on dispatches `undefined`, which `switchConnectMode` resolves
- *     to the last-used mode (restoring the stashed app config) rather than
- *     forcing a fresh default.
- *   - The learn / deliver pills switch the active mode while enabled.
- *
- * Connect is meaningless without modules, but the App Settings panel only
- * mounts once the app has data (the subheader gates the whole toolbar on
- * `isReady && hasData`, and `hasData` means ≥1 module exists), so no
- * module-count guard is needed here.
+ *   - Toggle off dispatches `null`, clearing the app connect type —
+ *     always valid (standard apps carry no blocks; the stash preserves
+ *     the per-form work for a later re-enable).
+ *   - Toggle on (and the learn / deliver pills) runs the STAGED enable
+ *     flow: Connect lands as one atomic batch — `setConnectType` plus
+ *     every form's connect block — so before anything commits, the flow
+ *     restores each form's stashed block and collects the rest from the
+ *     user in `ConnectEnableDialog`. Only when every form's block is in
+ *     hand does the single gated commit run.
  */
+
+/** The in-flight enable request: the resolved mode, the forms whose
+ *  blocks the user still has to write, and any gate findings from a
+ *  bounced confirm. */
+interface StagingState {
+	mode: ConnectType;
+	targets: ConnectStagingTarget[];
+	rejectionMessages: string[];
+}
+
 export function AppConnectSection() {
 	const connectType = useConnectTypeOrUndefined();
+	const lastConnectType = useLastConnectType();
 	const switchMode = useSwitchConnectMode();
+	const docApi = useBlueprintDocApi();
+	const sessionApi = useBuilderSessionApi();
+	const [staging, setStaging] = useState<StagingState | undefined>();
 	const enabled = !!connectType;
+
+	/** Enable Connect in `target` mode (or the last-used mode). Commits
+	 *  directly when the stash covers every form; otherwise opens the
+	 *  staging dialog to collect the uncovered forms' blocks first. */
+	const requestMode = useCallback(
+		(target: ConnectType | undefined) => {
+			const mode = target ?? lastConnectType ?? "learn";
+			const doc = docApi.getState();
+			const stash = sessionApi.getState().connectStash[mode] ?? {};
+			const targets: ConnectStagingTarget[] = [];
+			for (const moduleUuid of doc.moduleOrder) {
+				for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+					if (stash[formUuid]) continue;
+					targets.push({
+						formUuid,
+						formName: doc.forms[formUuid]?.name ?? "",
+						moduleName: doc.modules[moduleUuid]?.name ?? "",
+					});
+				}
+			}
+			if (targets.length === 0) {
+				/* Every form restores from the stash — commit directly. A
+				 * rejection surfaces through the standard rejection toast. */
+				switchMode(mode);
+				return;
+			}
+			setStaging({ mode, targets, rejectionMessages: [] });
+		},
+		[lastConnectType, docApi, sessionApi, switchMode],
+	);
+
+	const confirmStaging = useCallback(
+		(blocks: Record<string, ConnectConfig>) => {
+			if (!staging) return;
+			const outcome = switchMode(staging.mode, blocks);
+			if (outcome.ok) {
+				setStaging(undefined);
+				return;
+			}
+			/* The gate refused — keep the dialog (and the user's drafts) on
+			 * screen with the findings inline, so the bounce explains itself. */
+			setStaging({ ...staging, rejectionMessages: outcome.messages });
+		},
+		[staging, switchMode],
+	);
 
 	return (
 		<div className="border-t border-white/[0.06] pt-3">
@@ -40,11 +106,13 @@ export function AppConnectSection() {
 						</span>
 					)}
 				</div>
-				{/* `undefined` re-enables with the last mode (resolved inside
-				 * switchConnectMode); `null` disables Connect entirely. */}
+				{/* Off is one always-valid commit; on runs the staged flow. */}
 				<Toggle
 					enabled={enabled}
-					onToggle={() => switchMode(enabled ? null : undefined)}
+					onToggle={() => {
+						if (enabled) switchMode(null);
+						else requestMode(undefined);
+					}}
 				/>
 			</div>
 
@@ -78,7 +146,7 @@ export function AppConnectSection() {
 											name="app-connect-type"
 											value={type}
 											checked={isActive}
-											onChange={() => switchMode(type)}
+											onChange={() => requestMode(type)}
 											className="sr-only"
 										/>
 										{type.charAt(0).toUpperCase() + type.slice(1)}
@@ -89,6 +157,16 @@ export function AppConnectSection() {
 					</motion.div>
 				)}
 			</AnimatePresence>
+
+			{staging && (
+				<ConnectEnableDialog
+					mode={staging.mode}
+					targets={staging.targets}
+					rejectionMessages={staging.rejectionMessages}
+					onCancel={() => setStaging(undefined)}
+					onConfirm={confirmStaging}
+				/>
+			)}
 		</div>
 	);
 }

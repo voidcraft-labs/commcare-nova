@@ -24,9 +24,13 @@
 
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
+import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
+import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
-import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
 import type { CursorMode, ReplayData, ReplayInit } from "./types";
 
@@ -240,17 +244,31 @@ export interface BuilderSessionState {
 
 	// ── Connect stash actions ────────────────────────────────────────────
 
-	/** Switch the app-level connect mode, or toggle it off/on.
+	/** Switch the app-level connect mode, or toggle it off/on — ONE gated
+	 *  batch: `setConnectType` plus every form's connect block.
 	 *
 	 *  Passing a mode (`'learn'` or `'deliver'`) enables that mode — stashing
-	 *  the outgoing mode's form configs and restoring the incoming mode's stash.
+	 *  the outgoing mode's form configs, restoring the incoming mode's stash,
+	 *  and landing the caller-collected `stagedBlocks` on forms the stash
+	 *  doesn't cover (the enable flow collects those from the user BEFORE
+	 *  anything commits — see `AppConnectSection`). Every incoming block
+	 *  routes through `dedupeRestoredConnectIds` under one accumulating id
+	 *  scope, so two forms can't land the same slug in one flip.
 	 *
-	 *  Passing `null` disables Connect entirely. Passing `undefined` re-enables
-	 *  with the user's last active mode (falling back to `'learn'`).
+	 *  Passing `null` disables Connect entirely (always valid — standard
+	 *  apps need no blocks; the stash preserves the work). Passing
+	 *  `undefined` re-enables with the user's last active mode (falling
+	 *  back to `'learn'`).
 	 *
-	 *  Dispatches all doc changes as a single `applyMany` batch so the entire
-	 *  mode switch collapses to one undo entry. */
-	switchConnectMode: (type: ConnectType | null | undefined) => void;
+	 *  The whole batch runs the shared commit verdict before anything
+	 *  dispatches — a flip that would leave any form without its block is
+	 *  rejected (findings surfaced via the rejection toast, returned in the
+	 *  outcome) and the doc + stash stay untouched. A pass commits as one
+	 *  undo entry. */
+	switchConnectMode: (
+		type: ConnectType | null | undefined,
+		stagedBlocks?: Record<string, ConnectConfig>,
+	) => CommitOutcome;
 
 	/** Stash a single form's connect config by uuid. Used by form-level
 	 *  toggles that disable connect on an individual form. */
@@ -511,11 +529,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				// ── Connect stash actions ───────────────────────────────
 
-				switchConnectMode(type: ConnectType | null | undefined) {
-					if (!docStoreRef) return;
+				switchConnectMode(
+					type: ConnectType | null | undefined,
+					stagedBlocks?: Record<string, ConnectConfig>,
+				): CommitOutcome {
+					if (!docStoreRef) return { ok: false, messages: [] };
 					const s = get();
 					const docState = docStoreRef.getState();
-					if (docState.moduleOrder.length === 0) return;
+					if (docState.moduleOrder.length === 0) {
+						return { ok: false, messages: [] };
+					}
 
 					const currentType = (docState.connectType ?? undefined) as
 						| ConnectType
@@ -524,7 +547,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						type === undefined ? (s.lastConnectType ?? "learn") : type;
 
 					/* Same-mode early return — no stash, no mutations. */
-					if (resolved === currentType) return;
+					if (resolved === currentType) return { ok: true };
 
 					/* Stash outgoing mode — walk the doc to collect live form configs. */
 					let nextStash = s.connectStash;
@@ -542,36 +565,64 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						nextStash = { ...nextStash, [currentType]: outgoing };
 					}
 
-					/* Build doc mutations: setConnectType + restore/clear. */
+					/* Build doc mutations: setConnectType + restore/stage/clear. */
 					const mutations: Mutation[] = [
 						{ kind: "setConnectType", connectType: resolved ?? null },
 					];
 
 					if (resolved) {
-						/* Restore the incoming mode's stash AND clear any
-						 * outgoing-mode block that has no incoming stash entry.
-						 * Walk every form once with three cases:
-						 *   - in the incoming stash → restore that config;
-						 *   - not in the stash but currently has `connect` → clear
+						/* Land each form's incoming-mode block AND clear any
+						 * outgoing-mode block with no incoming config. Walk every
+						 * form once with three cases:
+						 *   - in the incoming stash, or covered by a caller-staged
+						 *     block → land that config (stash wins — it is the
+						 *     user's prior work for this mode);
+						 *   - no incoming config but currently has `connect` → clear
 						 *     it (a stray from the outgoing mode; the outgoing
 						 *     config was already stashed above, so switch-back
 						 *     recovers it — no work lost);
 						 *   - otherwise → no mutation.
-						 * Without the clear, the outgoing-mode block would linger
-						 * as a cross-mode stray: `form.connect` is supposed to hold
-						 * only the active-mode config, and a stray makes the
-						 * uniqueness scopes (UI/SA see it; emit/validator skip
-						 * non-mode kinds) disagree. */
+						 * Every incoming config routes through the shared
+						 * `dedupeRestoredConnectIds` under ONE accumulating id
+						 * scope: a stashed id another form claimed while the mode
+						 * was off re-derives instead of landing a duplicate, and a
+						 * staged (id-less) block autofills a valid unique id —
+						 * same source enforcement as the agent path. */
 						const stashed = nextStash[resolved] ?? {};
+						const assigned: AppConnectId[] = [];
+						const recordAssigned = (
+							formUuid: Uuid,
+							config: ConnectConfig,
+						): void => {
+							for (const kind of [
+								"learn_module",
+								"assessment",
+								"deliver_unit",
+								"task",
+							] as const) {
+								const id = config[kind]?.id;
+								if (id) assigned.push({ formUuid, kind, id });
+							}
+						};
 						for (const moduleUuid of docState.moduleOrder) {
 							const formUuids = docState.formOrder[moduleUuid] ?? [];
 							for (const formUuid of formUuids) {
-								const stashedConfig = stashed[formUuid];
-								if (stashedConfig) {
+								const incoming = stashed[formUuid] ?? stagedBlocks?.[formUuid];
+								if (incoming) {
+									const config = dedupeRestoredConnectIds(
+										structuredClone(incoming),
+										{
+											formUuid,
+											appConnectIds: assigned,
+											moduleName: docState.modules[moduleUuid]?.name ?? "",
+											formName: docState.forms[formUuid]?.name ?? "",
+										},
+									);
+									recordAssigned(formUuid, config);
 									mutations.push({
 										kind: "updateForm",
 										uuid: formUuid,
-										patch: { connect: structuredClone(stashedConfig) },
+										patch: { connect: config },
 									});
 								} else if (docState.forms[formUuid]?.connect !== undefined) {
 									mutations.push({
@@ -598,15 +649,27 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						}
 					}
 
-					/* Commit doc first — applyMany is the operation that could fail.
-					 * If it throws (malformed mutation), session state stays consistent
-					 * with the pre-call doc state. The session stash update is a pure
-					 * state write that cannot fail. */
-					docStoreRef.getState().applyMany(mutations);
+					/* The shared commit verdict — the same gate every other write
+					 * surface runs. A flip that would leave a form without its
+					 * block (or land any other finding) rejects with NOTHING
+					 * dispatched: the doc and the stash stay exactly as they were,
+					 * and the findings surface as the standard rejection toast. */
+					const verdict = mutationCommitVerdict(docState, mutations);
+					if (!verdict.ok) {
+						notifyRejectedCommit(verdict.introduced);
+						return {
+							ok: false,
+							messages: verdict.introduced.map((err) => err.message),
+						};
+					}
+					/* Commit the validated candidate (one reducer run, one undo
+					 * entry), THEN the stash — a pure state write that can't fail. */
+					docStoreRef.getState().commitDoc(verdict.nextDoc);
 					set({
 						connectStash: nextStash,
 						lastConnectType: currentType ?? s.lastConnectType,
 					});
+					return { ok: true };
 				},
 
 				stashFormConnect(

@@ -9,7 +9,7 @@ import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
-import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
+import { useFormConnectStash } from "@/lib/session/hooks";
 import { DeliverConfig } from "./DeliverConfig";
 import { DEFAULT_LEARN_TIME_ESTIMATE, LearnConfig } from "./LearnConfig";
 import type { FormSettingsSectionProps } from "./types";
@@ -18,11 +18,15 @@ import type { FormSettingsSectionProps } from "./types";
  * Connect-mode configuration section — only rendered when the app has a
  * connect type set. Owns:
  *
- * 1. The app-level Connect toggle. Flipping it off stashes the current
- *    config keyed by form uuid so flipping it back on restores the
- *    user's work rather than regenerating a default. The stash lives in
- *    session state (ephemeral) so it survives toggle round-trips within
- *    a session but doesn't persist cross-session.
+ * 1. The per-form Connect toggle. Its OFF direction is permanently
+ *    closed on a Connect-typed app: every form must carry its block, so
+ *    removing one introduces a finding the gate rejects — the toggle
+ *    renders DISABLED with that reason rather than as a live control
+ *    that always bounces (disable Connect for the whole app in App
+ *    Settings instead). The ON direction stays live for a form that's
+ *    missing its block (a doc persisted before the per-form obligation):
+ *    adding the block heals the gap, restoring stashed work when the
+ *    session has it.
  * 2. Dispatch to `LearnConfig` or `DeliverConfig` based on the app's
  *    connect type. The sub-configs are structurally parallel (two
  *    independent sub-toggles each) but have distinct field shapes.
@@ -45,9 +49,8 @@ export function ConnectSection({
 	// construction — the toggle is a source, like LearnConfig/DeliverConfig.
 	const appConnectIds = useAppConnectIds();
 
-	/* Session hooks for connect stash — keyed by form uuid so the stash
-	 * remains stable across reorders and renames. */
-	const stashFormConnect = useStashFormConnect();
+	/* Session stash read — a block stashed by an app-level mode switch
+	 * restores here when the user re-adds a missing form's block. */
 	const stashedConfig = useFormConnectStash(connectType ?? "learn", formUuid);
 
 	const save = useCallback(
@@ -62,16 +65,9 @@ export function ConnectSection({
 	);
 
 	const toggle = useCallback(() => {
-		if (enabled) {
-			/* Stash the current config before clearing, so re-enabling
-			 * restores it instead of generating a new default. */
-			if (connect && connectType) {
-				stashFormConnect(connectType, formUuid, connect);
-			}
-			save(null);
-			return;
-		}
-		if (!connectType) return;
+		/* The OFF direction never reaches here — the toggle renders
+		 * disabled while a block is present (see the JSX below). */
+		if (enabled || !connectType) return;
 
 		// Toggle-on. Either restore the stashed config or seed a fresh pair of
 		// id-less blocks — both flow through `dedupeRestoredConnectIds`, the
@@ -110,9 +106,7 @@ export function ConnectSection({
 		);
 	}, [
 		enabled,
-		connect,
 		connectType,
-		stashFormConnect,
 		stashedConfig,
 		mod,
 		form,
@@ -135,8 +129,19 @@ export function ConnectSection({
 						{connectType}
 					</span>
 				</div>
-				<Toggle enabled={enabled} onToggle={toggle} />
+				<Toggle
+					enabled={enabled}
+					onToggle={toggle}
+					disabled={enabled}
+					disabledReason="Every form in a Connect app carries its Connect settings. To turn Connect off, switch it off for the whole app in App Settings."
+				/>
 			</div>
+			{enabled && (
+				<p className="pt-1.5 text-[10px] leading-snug text-nova-text-muted">
+					Every form in a Connect app keeps its Connect settings — turn Connect
+					off for the whole app in App Settings.
+				</p>
+			)}
 
 			<AnimatePresence>
 				{connect && (

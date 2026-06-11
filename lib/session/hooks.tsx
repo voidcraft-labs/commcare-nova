@@ -16,7 +16,7 @@ import type {
 } from "@/lib/chat/attachmentRefs";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
-import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
@@ -90,12 +90,23 @@ export function useSetSidebarOpen(): (
 
 // ── Connect stash ────────────────────────────────────────────────────────
 
-/** Composite action: switch the app-level connect mode, handling stash
- *  lifecycle and doc mutations atomically. See `BuilderSessionState.switchConnectMode`. */
+/** Composite action: switch the app-level connect mode — one gated batch
+ *  (`setConnectType` + every form's block), stash lifecycle included.
+ *  Returns the commit outcome so the caller's UI can react to a
+ *  rejection. See `BuilderSessionState.switchConnectMode`. */
 export function useSwitchConnectMode(): (
 	type: ConnectType | null | undefined,
-) => void {
+	stagedBlocks?: Record<string, ConnectConfig>,
+) => CommitOutcome {
 	return useBuilderSession((s) => s.switchConnectMode);
+}
+
+/** The last Connect mode the app was in before Connect was toggled off —
+ *  what a bare re-enable resolves to (falling back to `'learn'`). The
+ *  enable flow reads it to know which mode's blocks to collect BEFORE
+ *  committing. */
+export function useLastConnectType(): ConnectType | undefined {
+	return useBuilderSession((s) => s.lastConnectType);
 }
 
 /** Stash a single form's connect config by uuid. Used by form-level
