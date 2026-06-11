@@ -43,7 +43,10 @@ import {
 	RESERVED_XFORM_NODE_PREFIX,
 	supportsValidation,
 } from "@/lib/commcare";
-import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
+import {
+	effectiveAssessmentUserScore,
+	effectiveDeliverEntities,
+} from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import { readFieldString } from "@/lib/commcare/fieldProps";
@@ -286,7 +289,13 @@ function buildConnectBlocks(
 
 	if (connect.assessment) {
 		const assessId = connect.assessment.id;
-		instances.scanXPath(connect.assessment.user_score);
+		// `user_score` is optional in the domain. `effectiveAssessmentUserScore`
+		// resolves it against the canonical default — same helper the
+		// session-preload builder calls, so the bind XML and the
+		// case-references load map agree on which XPath actually runs at
+		// form-fill time.
+		const userScore = effectiveAssessmentUserScore(connect.assessment);
+		instances.scanXPath(userScore);
 		const assessPath = FormPath.root().child(assessId);
 		dataElements.push(
 			el(assessId, { "vellum:role": "ConnectAssessment" }, [
@@ -302,7 +311,7 @@ function buildConnectBlocks(
 			}),
 			el("bind", {
 				nodeset: assessPath.child("assessment").child("user_score").toXPath(),
-				calculate: expand(connect.assessment.user_score),
+				calculate: expand(userScore),
 			}),
 		);
 	}

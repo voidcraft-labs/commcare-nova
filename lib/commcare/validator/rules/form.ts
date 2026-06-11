@@ -723,16 +723,18 @@ function connectValidation(
 	//      pipeline rejects `<bind … calculate=""/>` outright. `undefined`
 	//      is NOT an error — the wire layer
 	//      (`lib/commcare/xform/builder.ts`) substitutes the canonical
-	//      defaults for missing `entity_id` / `entity_name`. Only the
-	//      explicit-empty-string state is a smell, indicating something
-	//      wrote a deliberate blank.
+	//      defaults for missing `entity_id` / `entity_name` / `user_score`.
+	//      Only the explicit-empty-string state is a smell, indicating
+	//      something wrote a deliberate blank.
 	//   2. Unquoted string literal → `CONNECT_UNQUOTED_XPATH`. Same shape
 	//      as the existing field-level rule: a bare word without quotes
 	//      parses as an XPath identifier, not a literal value.
 	type ConnectXPath = { label: string; expr: string | undefined };
 	const connectXPaths: ConnectXPath[] = [];
 	if (form.connect.assessment) {
-		// `user_score` is required in the domain — never undefined here.
+		// `user_score` is optional in the domain — an absent value skips both
+		// checks below (the wire layer substitutes the canonical default),
+		// same as the deliver entity slots.
 		connectXPaths.push({
 			label: "Connect assessment user_score",
 			expr: form.connect.assessment.user_score,

@@ -122,7 +122,14 @@ const connectLearnModuleSchema = z
 const connectAssessmentSchema = z
 	.object({
 		id: z.string().optional(),
-		user_score: z.string(),
+		// An XPath expression consumed only by the XForm bind emitter. Either
+		// side may set it (the SA points it at a hidden score field; the UI
+		// panel lets a user override), but if absent the wire layer in
+		// `lib/commcare/xform/builder.ts` emits the canonical default at bind
+		// time — the same contract `deliver_unit.entity_id` / `entity_name`
+		// hold. Optional here matches what's true: the doc tracks what was
+		// set, the wire layer fills the rest.
+		user_score: z.string().optional(),
 	})
 	.strict();
 const connectDeliverUnitSchema = z

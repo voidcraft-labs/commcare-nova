@@ -1,6 +1,10 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
+import {
+	DraftField,
+	parseTimeEstimate,
+} from "@/components/builder/detail/appSettings/ConnectEnableDialog";
 import { Toggle } from "@/components/ui/Toggle";
 import {
 	connectIdConflictError,
@@ -17,12 +21,13 @@ import type { Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, ConnectConfig } from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
+import { StagedCommitRow } from "./StagedCommitRow";
 import { useConnectLintContext } from "./useConnectLintContext";
 
 /**
  * Default minutes-to-complete for a freshly enabled Connect learn module.
- * Shared with the seed path in `ConnectSection` so the initial app-level
- * scaffold and the subsequent learn-mode seed produce identical defaults.
+ * Seeds the staged draft's time-estimate field — a config value with a
+ * sensible default, unlike the name/description content the user writes.
  */
 export const DEFAULT_LEARN_TIME_ESTIMATE = 5;
 
@@ -42,13 +47,27 @@ interface ConnectSubConfigProps {
 	formUuid: Uuid;
 }
 
+/** The learn-module staged draft — strings as typed, committed whole. */
+interface LearnDraft {
+	name: string;
+	description: string;
+	timeEstimate: string;
+}
+
 /**
  * Learn-mode connect sub-config: two independent sub-toggles for the
  * `learn_module` and `assessment` halves of a Connect learn app. Each
  * sub-toggle preserves the last-seen value in a ref so toggling off +
- * on restores the user's fields rather than regenerating defaults. When
- * the ref is empty, the toggle-on path seeds id/name/description from
- * the owning module / form name via `toSnakeId`.
+ * on restores the user's fields rather than regenerating defaults.
+ *
+ * With no restorable value, the learn toggle STAGES the block — the same
+ * collect-before-commit pattern the app-level enable dialog uses, scaled
+ * to one sub-config: a name and description are content the user writes,
+ * not placeholders Nova invents, so nothing commits until they exist.
+ * The assessment toggle commits immediately — its block carries only the
+ * derived identifier (autofilled, like every connect id) and an optional
+ * `user_score` the wire layer defaults when unset, so there is no content
+ * to collect.
  */
 export function LearnConfig({
 	connect,
@@ -67,6 +86,9 @@ export function LearnConfig({
 	if (lm) lastLearnRef.current = lm;
 	if (assessment) lastAssessmentRef.current = assessment;
 	const getLintContext = useConnectLintContext(formUuid);
+	/** The in-flight staged learn block — exists only until the user
+	 *  commits it (or toggles the staging off, which discards it). */
+	const [stagedLearn, setStagedLearn] = useState<LearnDraft | undefined>();
 
 	// Every connect id set anywhere in the app. Connect ids share one
 	// app-wide namespace (each keys a per-kind DB slug + an XForm element
@@ -121,7 +143,11 @@ export function LearnConfig({
 	);
 
 	const toggleLearn = useCallback(() => {
-		if (learnEnabled) {
+		if (stagedLearn) {
+			/* Toggling a STAGED block off discards the uncommitted draft —
+			 * nothing ever reached the doc. */
+			setStagedLearn(undefined);
+		} else if (learnEnabled) {
 			const { learn_module: _removed, ...rest } = connect;
 			save(rest as ConnectConfig);
 		} else {
@@ -129,19 +155,49 @@ export function LearnConfig({
 			if (restored?.name.trim()) {
 				save(restoreConfig({ ...connect, learn_module: restored }));
 			} else {
-				const { learnId } = defaultIds();
-				save({
-					...connect,
-					learn_module: {
-						id: learnId,
-						name: form?.name ?? "",
-						description: form?.name ?? "",
-						time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
-					},
+				/* No prior work to restore — stage the block and collect its
+				 * content from the user before anything commits. Only the
+				 * time estimate seeds (a config default); name/description
+				 * start empty because they are the user's content. */
+				setStagedLearn({
+					name: "",
+					description: "",
+					timeEstimate: String(DEFAULT_LEARN_TIME_ESTIMATE),
 				});
 			}
 		}
-	}, [learnEnabled, connect, save, form, defaultIds, restoreConfig]);
+	}, [stagedLearn, learnEnabled, connect, save, restoreConfig]);
+
+	const stagedLearnReady =
+		stagedLearn !== undefined &&
+		stagedLearn.name.trim().length > 0 &&
+		stagedLearn.description.trim().length > 0 &&
+		parseTimeEstimate(stagedLearn.timeEstimate) !== null;
+
+	const commitStagedLearn = useCallback(() => {
+		if (!stagedLearn) return;
+		const timeEstimate = parseTimeEstimate(stagedLearn.timeEstimate);
+		if (
+			!stagedLearn.name.trim() ||
+			!stagedLearn.description.trim() ||
+			timeEstimate === null
+		) {
+			return;
+		}
+		const { learnId } = defaultIds();
+		const outcome = save({
+			...connect,
+			learn_module: {
+				id: learnId,
+				name: stagedLearn.name.trim(),
+				description: stagedLearn.description.trim(),
+				time_estimate: timeEstimate,
+			},
+		});
+		/* A refused commit keeps the draft on screen — the gated dispatch's
+		 * error toast names the findings. */
+		if (outcome.ok) setStagedLearn(undefined);
+	}, [stagedLearn, connect, save, defaultIds]);
 
 	const toggleAssessment = useCallback(() => {
 		if (assessmentEnabled) {
@@ -149,14 +205,15 @@ export function LearnConfig({
 			save(rest as ConnectConfig);
 		} else {
 			const restored = lastAssessmentRef.current;
-			if (restored?.user_score.trim()) {
+			if (restored) {
 				save(restoreConfig({ ...connect, assessment: restored }));
 			} else {
 				const { assessmentId } = defaultIds();
-				save({
-					...connect,
-					assessment: { id: assessmentId, user_score: "100" },
-				});
+				/* The block lands with its derived identifier alone —
+				 * `user_score` is optional on the doc and the wire layer
+				 * substitutes the canonical default, so there is no content
+				 * to collect (or invent) before committing. */
+				save({ ...connect, assessment: { id: assessmentId } });
 			}
 		}
 	}, [assessmentEnabled, connect, save, defaultIds, restoreConfig]);
@@ -169,10 +226,14 @@ export function LearnConfig({
 					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Learn Module
 					</span>
-					<Toggle enabled={learnEnabled} onToggle={toggleLearn} variant="sub" />
+					<Toggle
+						enabled={learnEnabled || stagedLearn !== undefined}
+						onToggle={toggleLearn}
+						variant="sub"
+					/>
 				</div>
 				<AnimatePresence>
-					{lm && (
+					{(lm || stagedLearn) && (
 						<motion.div
 							initial={{ opacity: 0, height: 0 }}
 							animate={{ opacity: 1, height: "auto" }}
@@ -181,48 +242,91 @@ export function LearnConfig({
 							className="overflow-hidden"
 						>
 							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
-								<InlineField
-									label="Module ID"
-									// Show the real stored id — autofill stamps a valid one
-									// when the block is enabled, so this is never blank in
-									// practice. The commit guard rejects an invalid OR
-									// duplicate id (against every other connect id in the
-									// app), so a bad value can't be saved.
-									value={lm.id ?? ""}
-									onChange={(v) => updateLearnModule("id", v)}
-									validate={(v) =>
-										connectIdError(v) ??
-										connectIdConflictError(v, appWideExcept("learn_module"))
-									}
-									mono
-									required
-								/>
-								<InlineField
-									label="Name"
-									value={lm.name}
-									onChange={(v) => updateLearnModule("name", v)}
-									required
-								/>
-								<InlineField
-									label="Description"
-									value={lm.description}
-									onChange={(v) => updateLearnModule("description", v)}
-									multiline
-									required
-								/>
-								<InlineField
-									label="Time Estimate"
-									value={String(lm.time_estimate)}
-									onChange={(v) =>
-										updateLearnModule(
-											"time_estimate",
-											Math.max(1, parseInt(v, 10) || 1),
-										)
-									}
-									suffix="min"
-									type="number"
-									required
-								/>
+								{lm ? (
+									<>
+										<InlineField
+											label="Module ID"
+											// Show the real stored id — autofill stamps a valid one
+											// when the block is enabled, so this is never blank in
+											// practice. The commit guard rejects an invalid OR
+											// duplicate id (against every other connect id in the
+											// app), so a bad value can't be saved.
+											value={lm.id ?? ""}
+											onChange={(v) => updateLearnModule("id", v)}
+											validate={(v) =>
+												connectIdError(v) ??
+												connectIdConflictError(v, appWideExcept("learn_module"))
+											}
+											mono
+											required
+										/>
+										<InlineField
+											label="Name"
+											value={lm.name}
+											onChange={(v) => updateLearnModule("name", v)}
+											required
+										/>
+										<InlineField
+											label="Description"
+											value={lm.description}
+											onChange={(v) => updateLearnModule("description", v)}
+											multiline
+											required
+										/>
+										<InlineField
+											label="Time Estimate"
+											value={String(lm.time_estimate)}
+											onChange={(v) =>
+												updateLearnModule(
+													"time_estimate",
+													Math.max(1, parseInt(v, 10) || 1),
+												)
+											}
+											suffix="min"
+											type="number"
+											required
+										/>
+									</>
+								) : stagedLearn ? (
+									/* STAGED — the user writes the block's content here;
+									 * nothing reaches the doc until the commit row below.
+									 * The id is not collected: the commit derives a valid,
+									 * app-unique one, same as agent-side creation. */
+									<>
+										<DraftField
+											label="Name"
+											value={stagedLearn.name}
+											onChange={(v) =>
+												setStagedLearn((d) => d && { ...d, name: v })
+											}
+										/>
+										<DraftField
+											label="Description"
+											value={stagedLearn.description}
+											onChange={(v) =>
+												setStagedLearn((d) => d && { ...d, description: v })
+											}
+											multiline
+										/>
+										<DraftField
+											label="Time Estimate"
+											value={stagedLearn.timeEstimate}
+											onChange={(v) =>
+												setStagedLearn((d) => d && { ...d, timeEstimate: v })
+											}
+											suffix="min"
+										/>
+										<StagedCommitRow
+											ready={stagedLearnReady}
+											hint={
+												stagedLearnReady
+													? "Ready to add."
+													: "Name and description are needed first."
+											}
+											onCommit={commitStagedLearn}
+										/>
+									</>
+								) : null}
 							</div>
 						</motion.div>
 					)}
@@ -269,14 +373,22 @@ export function LearnConfig({
 								/>
 								<LabeledXPathField
 									label="User Score"
-									required
-									value={assessment.user_score}
+									/* No `required` flag: the field is optional on the
+									 * domain and the wire layer substitutes the canonical
+									 * default expression when the doc carries no explicit
+									 * value. Saving an empty value clears the key outright
+									 * so that fallback kicks in — writing `""` would trip
+									 * `CONNECT_EMPTY_XPATH`. */
+									value={assessment.user_score ?? ""}
 									onSave={(v) => {
 										if (v.trim())
 											return save({
 												...connect,
 												assessment: { ...assessment, user_score: v },
 											});
+										const { user_score: _removed, ...rest } = assessment;
+										save({ ...connect, assessment: rest });
+										return undefined;
 									}}
 									getLintContext={getLintContext}
 								/>

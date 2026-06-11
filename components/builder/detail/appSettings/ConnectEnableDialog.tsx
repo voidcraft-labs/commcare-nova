@@ -60,24 +60,22 @@ const EMPTY_DRAFT: BlockDraft = {
 };
 
 /** Parse the time-estimate draft: a positive integer (minutes) or null. */
-function parseTimeEstimate(raw: string): number | null {
+export function parseTimeEstimate(raw: string): number | null {
 	const n = Number(raw.trim());
 	return Number.isInteger(n) && n >= 1 ? n : null;
 }
 
 /** Whether one draft satisfies the gate's bar for `mode`: at least one
- *  sub-config enabled, and every enabled sub-config complete. */
+ *  sub-config enabled, and every enabled sub-config complete. An enabled
+ *  assessment is always complete — its `user_score` is optional content
+ *  (the wire layer substitutes the canonical default when unset). */
 function draftComplete(draft: BlockDraft, mode: ConnectType): boolean {
 	if (mode === "learn") {
 		const learnOk =
-			draft.learnOn &&
 			draft.learnName.trim().length > 0 &&
 			draft.learnDescription.trim().length > 0 &&
 			parseTimeEstimate(draft.learnTimeEstimate) !== null;
-		const assessmentOk =
-			draft.assessmentOn && draft.userScore.trim().length > 0;
-		const enabledAreComplete =
-			(!draft.learnOn || learnOk) && (!draft.assessmentOn || assessmentOk);
+		const enabledAreComplete = !draft.learnOn || learnOk;
 		return (draft.learnOn || draft.assessmentOn) && enabledAreComplete;
 	}
 	const unitOk = draft.deliverOn && draft.deliverName.trim().length > 0;
@@ -91,7 +89,9 @@ function draftComplete(draft: BlockDraft, mode: ConnectType): boolean {
 }
 
 /** Lower a complete draft to the `ConnectConfig` the commit path lands.
- *  Ids are deliberately absent — the commit path autofills them. */
+ *  Ids are deliberately absent — the commit path autofills them. A blank
+ *  user_score is likewise omitted so the wire-emit default applies
+ *  (writing `""` would trip the `CONNECT_EMPTY_XPATH` validator). */
 function draftToConfig(draft: BlockDraft, mode: ConnectType): ConnectConfig {
 	if (mode === "learn") {
 		return {
@@ -103,7 +103,11 @@ function draftToConfig(draft: BlockDraft, mode: ConnectType): ConnectConfig {
 				},
 			}),
 			...(draft.assessmentOn && {
-				assessment: { user_score: draft.userScore.trim() },
+				assessment: {
+					...(draft.userScore.trim() && {
+						user_score: draft.userScore.trim(),
+					}),
+				},
 			}),
 		};
 	}
@@ -120,9 +124,12 @@ function draftToConfig(draft: BlockDraft, mode: ConnectType): ConnectConfig {
 	};
 }
 
-/** Compact labeled input for the staging drafts — plain controlled state
- *  (the dialog commits everything at once, so there's no per-field save). */
-function DraftField({
+/** Compact labeled input for staged Connect drafts — plain controlled
+ *  state, no per-field save (the owner commits the whole block at once).
+ *  Shared by this dialog and the per-form sub-toggle staging in
+ *  `LearnConfig` / `DeliverConfig`, which scale the same
+ *  collect-before-commit pattern down to one sub-config. */
+export function DraftField({
 	label,
 	value,
 	onChange,
@@ -356,7 +363,7 @@ export function ConnectEnableDialog({
 												}
 											>
 												<DraftField
-													label="User Score"
+													label="User Score (optional)"
 													value={draft.userScore}
 													onChange={(v) =>
 														patchDraft(t.formUuid, { userScore: v })

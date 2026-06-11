@@ -30,7 +30,10 @@ import {
 	type Field,
 	type Uuid,
 } from "@/lib/domain";
-import { effectiveDeliverEntities } from "./connectDefaults";
+import {
+	effectiveAssessmentUserScore,
+	effectiveDeliverEntities,
+} from "./connectDefaults";
 import type { ResolvedConnectConfig } from "./connectSlugs";
 import { deriveCaseConfig } from "./deriveCaseConfig";
 import { readFieldString } from "./fieldProps";
@@ -373,9 +376,16 @@ export function buildCaseReferencesLoad(
 
 	// Connect assessment + deliver unit carry their own XPath fields
 	// keyed by the Connect wrapper ids.
-	if (connect?.assessment?.user_score) {
+	if (connect?.assessment) {
 		const assessId = connect.assessment.id;
-		const h = extractHashtags([connect.assessment.user_score]);
+		// `effectiveAssessmentUserScore` is the single source of truth for
+		// the wire-fallback policy — the bind emitter calls the same helper,
+		// so the load map's hashtag set always matches what the runtime will
+		// evaluate from that bind. (The default is a hashtag-free literal,
+		// so an unset user_score contributes no load entry.)
+		const h = extractHashtags([
+			effectiveAssessmentUserScore(connect.assessment),
+		]);
 		if (h.length > 0) {
 			load[
 				FormPath.root()

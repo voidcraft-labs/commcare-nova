@@ -12,8 +12,8 @@
  *
  * Connect-id autofill itself lives at `lib/commcare/connectSlugs.ts`
  * (`deriveConnectId`); wire-emit defaults for `deliver_unit.entity_id` /
- * `entity_name` live at `lib/commcare/connectDefaults.ts` and run at
- * bind-emit time only.
+ * `entity_name` / `assessment.user_score` live at
+ * `lib/commcare/connectDefaults.ts` and run at bind-emit time only.
  */
 import { deriveConnectId } from "@/lib/commcare/connectSlugs";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
