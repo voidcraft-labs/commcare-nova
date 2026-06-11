@@ -20,7 +20,6 @@ import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
-import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useId, useMemo } from "react";
 import {
@@ -51,8 +50,6 @@ export interface SearchCanvasProps {
 	/** Disabled-add hint — `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
 	readonly onReorderInputs: (next: readonly SearchInputDef[]) => void;
-	/** Jump to the Preview tab — where this screen actually runs. */
-	readonly onPreview: () => void;
 }
 
 export function SearchCanvas({
@@ -65,7 +62,6 @@ export function SearchCanvas({
 	onAddInput,
 	addInputDisabledReason,
 	onReorderInputs,
-	onPreview,
 }: SearchCanvasProps) {
 	const containerKey = useId();
 	const panelSelected = selection?.type === "search-panel";
@@ -194,42 +190,20 @@ export function SearchCanvas({
 				/>
 
 				{/* The screen's Search button, drawn as a blueprint of itself —
-				 *  outlined, never filled. The filled violet button is the
-				 *  pressable one in Preview; on this canvas clicking a thing
-				 *  configures that thing, so the artifact keeps the screen's
-				 *  shape while its click opens the panel settings that own the
-				 *  button's label and display condition. */}
-				<Tooltip content="The search button — click to set its label and when it appears">
-					<button
-						type="button"
-						onClick={(e) => {
-							e.stopPropagation();
-							onSelect({ type: "search-panel" });
-						}}
-						className="w-full inline-flex items-center justify-center gap-2 px-4 min-h-11 rounded-md border border-nova-violet/45 bg-nova-violet/[0.07] text-nova-violet-bright text-sm font-semibold cursor-pointer hover:border-nova-violet hover:bg-nova-violet/[0.13] transition-colors"
-					>
-						<Icon icon={tablerSearch} width="15" height="15" />
-						{buttonLabel}
-					</button>
-				</Tooltip>
+				 *  outlined, never filled, and with NO hover state of its own.
+				 *  The filled violet button is the pressable one in Preview; a
+				 *  hover lift here would hand the press-affordance right back.
+				 *  It's inert panel chrome: clicks bubble to the panel and open
+				 *  the settings that own its label and display condition. */}
+				<div className="w-full inline-flex items-center justify-center gap-2 px-4 min-h-11 rounded-md border border-nova-violet/45 bg-nova-violet/[0.07] text-nova-violet-bright text-sm font-semibold select-none">
+					<Icon icon={tablerSearch} width="15" height="15" />
+					{buttonLabel}
+				</div>
 				{displayConditionPhrase !== undefined && (
 					<p className="mt-2 px-1 text-[11px] text-nova-text-muted leading-relaxed first-letter:uppercase">
 						The button appears only when {displayConditionPhrase}.
 					</p>
 				)}
-			</div>
-
-			{/* Where the searching impulse lands — this canvas edits the
-			 *  screen; Preview runs it. */}
-			<div className="mt-3 flex justify-center">
-				<button
-					type="button"
-					onClick={onPreview}
-					className="inline-flex items-center gap-1.5 px-3 min-h-11 text-[12px] rounded-lg text-nova-text-muted hover:text-nova-violet-bright transition-colors cursor-pointer"
-				>
-					<Icon icon={tablerPlayerPlay} width="12" height="12" />
-					Try this screen in Preview
-				</button>
 			</div>
 		</div>
 	);

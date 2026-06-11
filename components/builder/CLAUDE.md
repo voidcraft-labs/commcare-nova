@@ -2,243 +2,91 @@
 
 ## Edit vs preview mode
 
-**Edit** is a frozen, stateless view: inputs appear empty, validation is suppressed, the submit bar is hidden. **All fields render regardless of relevant conditions** — hidden fields appear as compact cards so the full structure is always visible for editing. Engine state is preserved internally; only the display layer is suppressed.
+Edit is a frozen, stateless view: inputs empty, validation suppressed, submit bar hidden, and ALL fields render regardless of relevant conditions (hidden ones as compact cards) so the full structure stays editable. Preview is a persistent sandbox: values survive round-trips through edit; validation resets on exit; blueprint mutations recreate the engine but restore only user-touched values, so edited defaults show immediately.
 
-**Preview** is a persistent testing sandbox. Values survive round-trips through edit. Validation state resets on exit so fields start clean on re-entry; on switch back, rules re-evaluate against the persisted values. Blueprint mutations recreate the engine, but only user-touched values are restored — untouched fields pick up new defaults, so editing a default expression is immediately reflected.
+## Pointer mode
 
-## Pointer mode is immersive
+Pointer mode hides both sidebars AND their collapsed rails atomically, stashing open-state in one set call so leaving restores the layout. Keep the early return on no-op mode switches — without it, entering pointer mode twice overwrites the stash with `{ false, false }`.
 
-Pointer mode atomically hides both sidebars AND their collapsed affordances (the structure icon rail and the chat reopen button). The mode switcher stashes current sidebar open-state in a single set call so entering and leaving restores the user's layout exactly. An early return on no-op mode switches is required — without it, entering pointer mode twice overwrites the stash with `{ false, false }`.
+## Flipbook (edit ↔ live) invariants
 
-## Flipbook scroll sync
-
-Switching cursor modes preserves scroll: capture the topmost visible field + its offset **before** the mode change, correct `scrollTop` in a layout effect **after** the DOM updates. The anchor must be React state (not a ref) so the layout effect depends on it.
-
-- **Fallback when the anchor is hidden in the new mode** (e.g. a hidden field switching edit → pointer): search outward from the anchor index, backward first then forward. Backward-only misses the case where the anchor was the first field.
-- **ResizeObserver correction** — sidebar width animations run async (~200ms) after the initial correction. A ResizeObserver re-corrects during that window, then clears the pending anchor after 250ms so later unrelated resizes don't reapply it.
-
-## Flipbook layout parity
-
-Edit (`VirtualFormList`) and live (`InteractiveFormRenderer`) must land every row at the same X/Y so the user's reading position never shifts on mode switch. Scroll sync (above) can't rescue a layout that genuinely differs between modes.
-
-- **Group/repeat collapse lives in `FormLayoutContext`** (`components/preview/form/FormLayoutContext.tsx`), mounted once per form in `FormScreen`. Both branches read from it. Do not move collapse state back into `VirtualFormList` — cursor mode switches unmount that tree and would reset every fold.
-- **Every row uses `paddingRight: depthPadding(depth)`, not `depthPadding(0)`.** The right gutter scales with depth symmetrically so nested rows are inset from both sides of their container. `depthPadding(0)` on the right made children kiss the group's right border.
-- **Live-mode labels wrap `LabelContent` in `<div className="px-[5px] py-[5px]">`** to match `TextEditable`'s idle wrapper in edit mode. Without it every labelled row is 10px shorter in live mode and the flipbook drifts one row height per group/leaf.
+- Scroll sync captures the topmost visible field BEFORE the mode change and corrects `scrollTop` in a layout effect after; the anchor must be React state (the effect depends on it). If the anchor is hidden in the new mode, search outward from its index backward first. A ResizeObserver re-corrects during the ~200ms sidebar animation, then clears after 250ms.
+- Both renderers must land every row at identical X/Y — scroll sync can't rescue genuinely different layouts. Group/repeat collapse state lives in `FormLayoutContext` (mounted once per form), never in the virtual list, which unmounts on mode switch. Rows pad right with `depthPadding(depth)` (not `depthPadding(0)`), and live-mode labels wrap in `px-[5px] py-[5px]` to match edit mode's idle wrapper — without it every labelled row is 10px shorter live and the flipbook drifts.
 
 ## ProseMirror trailingBreak — CSS fix, not DOM
 
-ProseMirror injects `<br class="ProseMirror-trailingBreak">` at the end of every block for cursor positioning, and this is hardcoded in prosemirror-view. Two selectors hide it only where it adds phantom height:
+prosemirror-view hardcodes a `<br class="ProseMirror-trailingBreak">` per block. Hide it only where it adds phantom height: `.tiptap .ProseMirror-trailingBreak:not(:only-child)` (sole-child breaks must stay for cursor positioning) and `.tiptap:has(> :not(p)) > p:last-child > .ProseMirror-trailingBreak:only-child` (the structural paragraph after block elements). Preview markdown sets `white-space: break-spaces` + `position: relative` globally to match ProseMirror, so mode switches don't reflow. TipTap 3's class is `tiptap`, not `ProseMirror`.
 
-1. `.tiptap .ProseMirror-trailingBreak:not(:only-child)` — hide in non-empty paragraphs. In empty paragraphs (Enter keypress), the break is the sole child and must stay visible for cursor positioning.
-2. `.tiptap:has(> :not(p)) > p:last-child > .ProseMirror-trailingBreak:only-child` — collapse the structural trailing paragraph ProseMirror auto-appends after block-level elements (lists, blockquotes, tables). `:has(> :not(p))` only matches when non-paragraph children exist, so empty lines in a plain-paragraph document stay visible.
+## Scroll, selection, navigation
 
-Preview markdown sets `white-space: break-spaces` and `position: relative` globally to match ProseMirror's injected defaults, so no reflow occurs on mode switch. TipTap 3 uses class `tiptap`, not `ProseMirror`.
+- The cursor-mode toolbar is absolutely positioned in the content wrapper, never `sticky` inside the scroll container (sticky-inside kills the glass effect and doubles scrollbars).
+- Scroll-to-selection is a rAF loop, not native smooth — panel mount/unmount layout shifts make the browser abandon native `scrollTo` mid-flight. Cross-screen navigation scrolls `"instant"`.
+- Clicking empty space never deselects (it would constantly dismiss the inspector).
+- Selection is a URL replace; scroll is a separate pending-target request the selected field's wrapper consumes. Undo/redo scrolls directly — never through the pending mechanism.
+- The edit guard (XPath editor with unsaved invalid content) blocks navigation two-strike: first attempt warns, second lets through, any keystroke resets.
+- Field uuid is the stable UI identity (survives renames); the path is only for mutation calls.
 
-## Cursor mode toolbar — absolute, not sticky
+## Drag-and-drop
 
-The glassmorphic toolbar is absolutely positioned in the outer content wrapper, NOT as `sticky` inside the scroll container. Sticky-inside samples the opaque page background instead of scrolling content (kills the glass effect) and creates double scrollbars.
+`pragmatic-drag-and-drop` + TanStack Virtual. `@dnd-kit/react` was removed because its sorting plugin physically moves DOM nodes during drag, which fights the virtualizer's absolute layout; its `position: fixed` overlay also broke under `contain: strict`, which pragmatic DnD's browser-managed preview is immune to.
 
-## Scroll-to-selection — rAF loop, not native smooth
-
-Panel mount/unmount causes layout shifts that make the browser abandon native `scrollTo({ behavior: "smooth" })` mid-flight. A rAF loop recalculates the element's offset each frame and tracks the target correctly. Cross-screen navigation uses `"instant"` — smooth-scrolling between screens is disorienting. Do not switch back to native smooth.
-
-Scroll margin is adaptive: compact for non-text clicks, expanded when the click activated a text-editable zone (floating label toolbar needs clearance). The "has toolbar" flag threads from the click site through to the scroll request.
-
-## Sticky selection
-
-Clicking empty space does not deselect. Deselecting would constantly dismiss the field inspector panel. Selection only changes when the user clicks a different field or navigates away.
-
-## Selection + scroll flow
-
-Selection is a URL-state change (replace, no history entry); scroll is requested imperatively via a pending-target mechanism that the target field's wrapper consumes when it sees itself selected. This decouples "change the URL" from "scroll the canvas" so same-form and cross-screen navigation both flow through the same two calls. Tree sidebar clicks pass `"instant"` scroll behavior; in-canvas clicks default to `"smooth"`. Undo/redo scrolls directly — do NOT call into the pending mechanism from undo paths.
-
-**Edit guard.** An XPath editor with unsaved invalid content can block navigation via the edit-guard context. Two-strike pattern: first attempt warns (shake + tooltip), second lets through. Any keystroke resets the counter.
-
-**Field uuid is the stable UI identity** — it survives renames. Components compare by uuid to determine panel visibility and scroll targets. The field path is still carried for blueprint mutation calls.
-
-## Drag-and-drop — pragmatic-drag-and-drop + TanStack Virtual
-
-The edit-mode form editor uses Atlassian's `pragmatic-drag-and-drop` (native browser drag, framework-agnostic) with `@tanstack/react-virtual`. `@dnd-kit/react` was replaced because its `OptimisticSortingPlugin` physically moves DOM elements during drag, which fights the virtualizer's absolute-position layout and breaks the live drop-target indicator.
-
-- **Placeholder gap during drag.** The monitor's `onDrag` resolves which insertion row corresponds to the hover position, then REPLACES that insertion row with a taller `drop-placeholder` row (dashed violet outline). The row count stays the same; only the one swapped slot remeasures. The height difference pushes rows below apart, opening a visible gap. When the cursor is in dead space (the placeholder itself, which has no field-row drop target), the last valid position is preserved — clearing it would collapse the gap and trigger a flicker loop. Adjacency suppression prevents the placeholder from appearing next to the source item (a no-op drop).
-- **`pendingDropRef` bridges onDrag→onDrop.** At drop time the cursor is usually over the placeholder (not a field row), so `location.current.dropTargets` has no useful data. The monitor stashes the resolved `{drop, edge}` from `onDrag` into a ref that `onDrop` reads to build the `moveField` args. The placeholder row itself is registered as a `dropTargetForElements` so the browser accepts the native drop (no snap-back animation).
-- **One monitor owns the mutation.** `VirtualFormList` installs a single `monitorForElements` that receives every drag/drop for the form. `onDrag` computes the placeholder position; `onDrop` applies the real `moveField` mutation + selects the dropped field. Row components never call mutations directly.
-- **Drop targets are typed.** `dragData.ts` defines a discriminated union of drop-target payloads (`drop-field`, `drop-group-header`, `drop-empty-container`). The monitor reads the innermost target from `location.current.dropTargets[0]` and dispatches on `kind`. Keep new drop-target kinds in that file so the monitor stays a single switch.
-- **Shared `useRowDnd` hook.** Owns `draggable()` + `dropTargetForElements()` registration, self-drop rejection, cycle guard (`isUuidInSubtree`), and the custom native drag preview. Row components pass `buildDropData` + `cycleTargetContainerUuid` + `renderPreview` — the hook handles everything else identically across FieldRow, GroupOpenRow, and EmptyContainerRow.
-- **Custom native drag preview.** `setCustomNativeDragPreview` renders a lightweight `DragPreviewPill` into a library-owned offscreen container. The browser snapshots this instead of the source element, so the source stays at its original size — prevents the virtualizer's `measureElement` ResizeObserver from collapsing adjacent rows during drag. The preview portal lives in `useRowDnd`'s return value; callers must render `{preview}` in their JSX.
-- **`attachClosestEdge` on `getData`.** Field rows use `attachClosestEdge(..., { allowedEdges: ['top', 'bottom'] })` so the edge is available as `extractClosestEdge(self.data)` during `onDrag` and on drop. Group headers + empty containers have a single drop zone and don't need an edge.
-- **Auto-scroll is separate.** `autoScrollForElements({ element: scrollContainer })` in a dedicated effect handles near-edge scrolling during drag. It works across virtualized rows because it drives the scroll container, not any specific row.
-- **Cycle guard.** `canDrop` in every drop target + a defensive second check in the monitor's `onDrop` use `isUuidInSubtree` to prevent dragging a group onto its own descendant (which would create a cycle in `fieldOrder`). The guard reads the doc store imperatively on each `canDrop` invocation.
-- **Contained scroll + `contain: strict`.** Safe with pragmatic DnD because the drag preview is browser-managed. dnd-kit's `DragOverlay` used `position: fixed` and was broken by `contain: strict`; pragmatic DnD's approach is immune.
+- During drag, the hovered insertion row is REPLACED by a taller placeholder row (row count stays constant; one slot remeasures). When the cursor is over dead space, the last valid position is preserved — clearing it collapses the gap and flickers.
+- At drop time the cursor is over the placeholder, so drop targets carry no useful data: the monitor stashes the resolved position from `onDrag` in a ref that `onDrop` reads. The placeholder registers as a drop target so the native drop is accepted (no snap-back).
+- One monitor owns the mutation; row components never mutate. Drop-target payloads are a discriminated union in `dragData.ts` — add new kinds there so the monitor stays one switch.
+- The cycle guard (`isUuidInSubtree`) runs in every `canDrop` AND defensively in `onDrop`, reading the doc store imperatively.
+- The custom native drag preview renders into a library-owned offscreen container so the source element keeps its size — otherwise the virtualizer's ResizeObserver collapses adjacent rows mid-drag.
 
 ## Field wrapper is `div[role=button]`, not `<button>`
 
-Children contain nested interactive elements (insertion-point buttons, text-editable buttons, form inputs, fieldsets). HTML forbids interactive content inside `<button>`, and SSR parsers will mangle the tree. Do not "fix" this to a real button.
-
-## Edit mode is combined inspect + text editing
-
-The wrapper renders `div[role=button]` with `cursor-pointer` and wraps children in `pointer-events-none`. Text-editable zones punch through via CSS (`pointer-events: auto; cursor: text; z-index: 1`). The wrapper's `onClickCapture` handler checks for text-editable targets: if found, select the field but DON'T stop propagation, so inline editing also activates. Non-text clicks select and stop propagation as before.
+Children contain nested interactive elements; HTML forbids interactive content inside `<button>` and SSR parsers mangle the tree. Do not "fix" this. The wrapper sets `pointer-events-none` on children; text-editable zones punch back through via CSS, and the capture-phase click handler selects without stopping propagation for text targets so inline editing also activates.
 
 ## Undo / redo
 
-The undo/redo action runs: temporal store restore → `flushSync` (forces a React commit before DOM queries) → URL navigation to the affected field → scroll → violet flash highlight. Without `flushSync`, DOM elements toggled into existence by the undo aren't in the DOM yet when we try to focus them. Do NOT replace with `requestAnimationFrame`.
+The action runs temporal restore → `flushSync` → URL navigation → scroll → flash. `flushSync` is required (DOM nodes created by the undo must exist before focus queries); do not replace with rAF. Temporal store subscriptions use `useStoreWithEqualityFn` with `Object.is` — plain `useStore` re-renders on every temporal change. Focus restoration consumes a focus-hint string written by a delegated onFocus handler; never query `document.activeElement` (blur has already moved focus). Undo tracking is paused during hydration and agent writes — the empty→populated transition must not enter history, and an agent write is one undoable unit. Do not remove the pause/resume calls.
 
-**Temporal store subscriptions** use `useStoreWithEqualityFn` from `zustand/traditional` with `Object.is`, not plain `useStore`. Plain `useStore` re-renders on every temporal state change regardless of selector; `Object.is` correctly skips re-renders when a boolean result is stable.
+## Field editor
 
-**Focus restoration** uses a focus-hint string storing the active field's data-id. A delegated onFocus handler writes the active field to session state, so blur-triggered saves capture the correct field. The hint is consumed once by the matching editor section and cleared. Do not query `document.activeElement` — blur moves focus before the snapshot fires.
+Registry-driven: Zod schemas + kind metadata in `lib/domain/fields/<kind>.ts`, editor schemas keyed by `FieldKind` in `editor/fieldEditorSchemas.ts`. Adding a property = one schema entry; adding a kind = one domain file + registry entries. Move targets and first/last flags compute inline in the render body, not `useMemo` — reorder produces new Immer references without changing selection, so memoizing on selection misses it.
 
-## Editor
+## Settings popovers
 
-Field editing is registry-driven. The hierarchy:
-
-- `InlineSettingsPanel` — the violet glass drawer mounted under a selected
-  row. Renders chrome only (the focus-handler delegate that tracks active
-  fields for undo/redo). Composes `<FieldHeader>` + `<FieldEditorPanel>`.
-- `FieldHeader` (in `editor/`) — id input, type-icon adornment, kebab menu
-  (move/duplicate/convert/delete), trash button. Reads
-  `fieldRegistry[kind]` for icon/label/convertTargets.
-- `FieldEditorPanel` (in `editor/`) — composes three `FieldEditorSection`s
-  (Data / Logic / Appearance). Hides empty sections via `sectionHasContent`.
-- `FieldEditorSection` (in `editor/`) — partitions schema entries into
-  visible (rendered via their component) vs addable-but-hidden (rendered
-  as Add Property pills). Activation state lives in `useEntryActivation`;
-  an effect clears activation when a pending entry becomes independently
-  visible.
-- Per-key editor components in `editor/fields/` — each one knows how to
-  edit a single field key (XPathEditor, RequiredEditor, TextEditor,
-  CasePropertyEditor, OptionsEditor).
-
-The Zod schemas + kind metadata live in `lib/domain/fields/<kind>.ts`;
-the editor schemas keyed by `FieldKind` live in
-`components/builder/editor/fieldEditorSchemas.ts`. Adding a new property
-= adding one entry to a kind's schema. Adding a new kind = a new file
-in `lib/domain/fields/` + a new entry in `fieldEditorSchemas`.
-
-## Field header — compute move targets inline
-
-Move targets and `isFirst` / `isLast` flags are computed in the render body, NOT in `useMemo`. After a reorder, Immer produces new entity-map references that trigger a re-render, and inline computation picks up the fresh state. Memoizing on `[selected]` alone would miss the reorder because selection doesn't change on reorder.
-
-## App tree
-
-`components/builder/appTree/` holds the structure sidebar:
-
-- `AppTree.tsx` — shell (search input, scroll container, module dispatch).
-- `ModuleCard.tsx` / `FormCard.tsx` / `FieldRow.tsx` — three memoized row
-  components, one per entity level. Each subscribes to its own entity in
-  the doc store; Immer structural sharing means an edit to one field
-  re-renders only its `FieldRow`.
-- `useAppTreeSelection.ts` — produces the `handleSelect` callback. Field
-  selection primes a pending scroll BEFORE navigating so the target row's
-  `useFulfillPendingScroll` has a request waiting when `isSelected` flips.
-- `shared.tsx` — `TreeItemRow`, `CollapseChevron`, `HighlightedText`,
-  `FormIconContext`.
-
-Doc-subscription helpers used by the AppTree rows live with the other
-doc hooks in `lib/doc/hooks/`, not here: `useSearchFilter` (entity-map
-search with the `SEARCH_IDLE` sentinel), `useFieldIconMap` (per-form
-`{ path → icon }` for chip rendering), and `useFormDescendantCount`
-(recursive field count for the FormCard "N q" badge).
-
-## Form settings
-
-`components/builder/detail/formSettings/`:
-
-- `FormSettingsButton.tsx` — popover trigger (the public mount point).
-- `FormSettingsPanel.tsx` — drawer chrome + section list.
-- `CloseConditionSection.tsx` / `AfterSubmitSection.tsx` /
-  `ConnectSection.tsx` — three top-level features.
-- `LearnConfig.tsx` / `DeliverConfig.tsx` — two connect-mode sub-configs.
-- `SelectMenu.tsx` — shared dropdown primitive (chevron + corner-rounding
-  + anchor wiring). Used by close-mode, operator, value, and
-  after-submit-destination menus.
-- `InlineField.tsx` / `LabeledXPathField.tsx` — compact widgets.
-- `useConnectLintContext.ts` — XPath lint context for the form.
-- `findFieldById.ts` — depth-first lookup by semantic id.
-- `types.ts` — shared `FormSettingsSectionProps`.
-
-`detail/moduleSettings/` and `detail/appSettings/` are the module- and
-app-level analogs, each a `…SettingsButton` (Base UI popover trigger) →
-`…SettingsPanel` (`w-80` drawer chrome) → `…AppearanceSection` (the
-menu-tile / logo media slots). The app panel additionally hosts
-`AppConnectSection` — the app-level CommCare Connect mode toggle + learn/
-deliver type pills, styled to mirror the form `ConnectSection`. They carry
-no CodeMirror editor, so they
-use plain `open`/`onOpenChange` state — no outside-press dismissal guard.
-`ModuleSettingsButton` mounts on the module-home header (`ModuleScreen`,
-edit-mode only, the module analog of `FormSettingsButton` on the form
-header); `AppSettingsButton` mounts in `BuilderSubheader`. Module / form /
-app media each clears through its
-dedicated null-carrying mutation (`setModuleMedia` / `setFormMedia` /
-`setAppLogo`); the case-list appearance slots ride the wholesale
-`updateModule({ caseListConfig })` path instead — see the case-list
-workspace section below.
-
-## Virtual form list
-
-`VirtualFormList.tsx` (in `components/preview/form/virtual/`) is the
-edit-mode form renderer. The drag-lifecycle state + `monitorForElements`
-registration + cursor-velocity tracking live in `useDragIntent.ts`. The
-shell handles virtualization, row dispatch, and the field-picker menu.
-
-## BuilderProvider
-
-`BuilderProvider.tsx` mounts the complete provider stack for a builder session. `key={buildId}` forces a full unmount/remount when the build identity changes — no stale cross-store references can leak.
-
-Provider tree (outer → inner): BlueprintDocProvider → BuilderSessionProvider → ScrollRegistryProvider → EditGuardProvider → BuilderFormEngineProvider. Three lifecycle children: SyncBridge (wires doc store into session), ReplayHydrator (dispatches saved emissions for replay mode), LoadAppHydrator (clears loading flag for existing-app loads).
+Module/form/app media each clears through its dedicated null-carrying mutation; the case-list appearance slots instead ride wholesale `updateModule({ caseListConfig })`, which cannot carry nulls (see `setOptionalSlot` below).
 
 ## Inspector rail (right-rail properties panel)
 
-The right rail is the chat sidebar; the inspector borrows it. `lib/ui/inspector.tsx` owns the coordination state (claim stack + portal target + `INSPECTOR_RAIL_WIDTH`); `components/builder/inspector/InspectorSurface.tsx` is the declarative mount — a surface renders `<InspectorSurface kicker title onClose>{body}</InspectorSurface>` alongside its canvas and the rail docks: chat condenses to a strip (CHAT count + expand, then the existing SignalPanel + ChatInput) beneath the portaled panel, and `BuilderContentArea` keeps the rail open even when the chat sidebar is toggled closed. **The rail is ONE width in both modes** — `CHAT_SIDEBAR_WIDTH` aliases `INSPECTOR_RAIL_WIDTH`, so selecting something to inspect never reflows the canvas (content shifting as a side effect of a click reads as a glitch). If the rail ever feels cramped, widen the shared constant — never re-introduce a per-mode width.
+The right rail is the chat sidebar; the inspector borrows it via a claim model in `lib/ui/inspector.tsx`. **The rail is ONE width in both modes** — `CHAT_SIDEBAR_WIDTH` aliases `INSPECTOR_RAIL_WIDTH`, so selecting something never reflows the canvas. Widen the shared constant if cramped; never re-introduce a per-mode width.
 
-Three invariants:
+- Panel content portals from the OWNING surface's React tree — the rail never holds content state.
+- Claims are established in effects so React 19 `<Activity>` self-releases them (hiding a screen destroys effects → releases the claim). Claims stack last-wins because an incoming surface can claim before the outgoing one cleans up.
+- Escape closes only from outside the rail (`[data-inspector-rail]` check) — inside it, CodeMirror/menus own Escape.
 
-- **Content portals from the owning surface's tree** (into the slot `ChatSidebar` registers) — the rail never holds content state, so editors read fresh props/context and mutations flow through the surface's own handlers.
-- **Claims are established in effects** so React 19 `<Activity>` self-releases them: hiding a screen destroys its effects → releases its claim → un-docks the rail. Claims stack last-wins because an incoming surface can claim before the outgoing surface's cleanup runs during a screen transition.
-- **Escape closes only from outside the rail** (`[data-inspector-rail]` check) — inside it, CodeMirror/menus own Escape.
+## Case-list workspace
 
-The case-list workspace is the first consumer; the form editor's field properties (`InlineSettingsPanel`) are expected to migrate into the same surface.
+The unified case-list authoring surface: three config tabs (Case list / Search / Case detail) plus the Preview tab; **the tab IS the URL kind**, so tab switches are history navigation and deep links land on the right canvas. No cursor-mode pill here — selection is the mode, Preview is the run-through. Entry point is the structure tree's case-list node, not the module screen.
 
-## Case-list workspace (artifact-first)
+Canvases are artifact-first: the case list IS a live table, the search panel IS the app's search screen, the detail card IS the opened-case view. **Clicking a thing configures that thing** in the inspector rail. Selection is workspace-local state keyed by module, cleared on tab switches and Esc — Escape must register through `useKeyboardShortcuts` (the manager preventDefaults matched keys; a raw listener never fires, and later registrations win).
 
-`components/builder/case-list-config/` is the unified case-list authoring surface. `CaseListConfigWorkspace.tsx` mounts in edit mode for all four case-list URLs — `/cases`, `/search-config`, `/detail-config`, `/case-preview` — as three peer config tabs (Case list / Search / Case detail) plus the right-aligned violet **▶ Preview** tab, whose **tab is the URL kind** (tab switches are history navigation; deep links land on the right canvas). **This surface carries no cursor-mode pill** (`BuilderContentArea` suppresses it on case URLs in edit mode): selection is the mode, and Preview is the run-through — a place, never a popup and never a cursor mode. The pill still shows in pointer mode (it's the only exit), where all four URLs render the running-app `CaseListScreen`.
+Rules that aren't enforced by tooling:
 
-**Entry point lives in the structure tree, not the module screen.** `ModuleCard`'s `CaseListNode` ("Case List & Search" + the column-strip preview) navigates to `/cases` and highlights for any case-list URL; the collapsed sidebar is `AppTreeRail` (a 56px icon rail — expand, module, case-list, and form icons), so the workspace stays one click away even collapsed. `useAppTreeSelection` dispatches the `cases` target kind.
+- **Add affordances land WORKING entities.** Seeds bind a real property (never unbound — an unbound field matches nothing and reads as "search is broken"), take a human label and a legal unique wire name, match the widget to the property type, and give text properties fuzzy match. The same bar applies to custom→standard match conversion and property changes; hand-typed labels/names are never overwritten.
+- **Picker vocabulary is familiar words with exact descriptions**; items a property's type can't run are disabled with the reason, never selectable into a validation error.
+- **Every interactive control is at least 44px tall, carries a visible text label, and hover text rides the shared `Tooltip`** — never a native `title=`.
+- **A body never re-titles its panel** — the inspector header already names the entity; bodies open with content, not a second heading. Removal is always the body's LAST row (shared `RemoveRow`).
+- **Counts are information, not success** — live readouts use the quiet mono `LIVE` treatment, never semantic green.
+- **Fill = pressable, and only Preview presses.** On edit canvases the search button renders as an outlined blueprint with no hover state or click handler of its own (clicks bubble to the panel selection). A fill or hover lift would promise a search the canvas can't run. No in-canvas navigation to Preview — the Preview tab is already fixed in the strip above.
+- **Search fields are one source** (`caseListConfig.searchInputs`) across the search and list screens; screen labels/button condition/owner exclusions live in the separate `caseSearchConfig` slot.
+- **Preview gating is config-derived, not editor-derived** — only the inspected editor is mounted, so the gate re-derives the whole-config verdict purely, mirroring each editor's verdict source so they can't disagree. The same derivation drives the per-tab error dots.
 
-The canvases are artifact-first: the case list IS a live table, the search panel IS the app's search screen, the detail card IS the opened-case view. **Clicking a thing configures that thing** in the inspector rail; selection is workspace-local state (`workspaceSelection.ts`), keyed by module, cleared on tab switches and Esc (Escape registers through `useKeyboardShortcuts` — the shared manager preventDefaults matched keys, so a raw window listener would never fire; later registrations win, which is what lets the workspace's Escape layer over builder-layout's).
+## Predicate / expression card editor (shared)
 
-**Add affordances land WORKING entities.** `seeds.ts` owns the smart seeds: a new search field or column binds a real property (`case_name` first, then unused text, then any unused — never unbound, because an unbound field matches nothing at runtime and reads as "search is broken"), takes a human-worded label and a legal unique wire name, matches the widget to the property's data type, and seeds text-shaped properties with fuzzy match. The same bar applies to custom-condition→standard conversion (`SearchInputEditor`'s `toStandardMode` recovers the condition's anchored property or re-seeds) and to property changes (`setBinding` auto-fixes widget type/mode when the new pair is inadmissible and carries derived labels/names along — hand-typed ones are never overwritten).
+Cross-workspace authoring surface for Predicate / ValueExpression ASTs; lives under `shared/` so workspaces don't import each other's chrome.
 
-**Match/Type vocabulary is familiar words with exact descriptions** (`SEARCH_MODE_LABELS` / `SEARCH_MODE_DESCRIPTIONS` / `SEARCH_INPUT_TYPE_DESCRIPTIONS` in `searchInputResolution.ts`, mirrored in the shared `MatchCard`): "Fuzzy" (the term every search box taught people) with a description that states the real behavior (a typo or two per word, case-insensitive, never partial words — mirroring CommCare HQ's ES semantics and the case store's Postgres compiler), "Sounds like" for phonetic, every picker item carries a one-line description, and items the bound property's data type can't run are disabled with the reason instead of selectable into a validation error. The Preview tab's no-match card closes the loop: when a zero-match is explained by a letter-for-letter text field someone typed into, it says so and offers a one-click "Switch to fuzzy match" (a real, undoable config edit).
+- **Conditions are sentences**: subject (property) → verb → object (value), as headerless rows — nothing titles a row with its AST node name. ONE verb menu holds every behavior plus a Structure group. Changing a verb carries the subject (and value where the target holds one) — **changing how you compare never loses what you compare**. Wrapping shapes (groups, not, when-field-filled) wrap the current condition rather than replacing it; only the always-true/false sentinels rebuild from defaults. Container kinds keep titled cards — a box's identity isn't expressible inline.
+- Term values are unboxed: the term's source dropdown carries a "Computed" group with the expression kinds, so one menu answers "what is this value?".
+- Every kind in both discriminator unions has a card; round-trip preservation is structural — a saved AST must render and re-emit without destruction, so non-editable shapes get read-only badges with lossless recovery, never refusals.
+- Validity flows through `useValidityPropagator` (the shared parent-boundary hook) and a WeakMap per-row shadow that survives reorder. `OptionalSlotCard`'s slot-presence short-circuit is load-bearing: an undefined slot reports valid regardless of stale inner shadows.
+- `setOptionalSlot` drops cleared keys by destructuring — the doc store applies module patches via `Object.assign`, which would persist `key: undefined` as a real own property and break `key in config` checks.
 
-- **`canvas/CaseListCanvas.tsx`** — live table over `useCaseListPreview` rows (the same `loadCaseListPreviewAction` query the runtime shape uses). Headers click-to-select + drag-to-reorder (`ReorderableRow axis="horizontal"`), sort chips show direction + priority, a dashed ghost cell appends a column, the filter renders as a human-language phrase (`predicateSummary.ts` — "status isn't closed", never `status ≠ closed`) that selects the filter. Every column renders regardless of `visibleInList` — hidden ones dim with an eye-off glyph so the structure stays editable (the form editor's hidden-field rule). The empty-store arm carries a Generate-sample-data action inline (`useSampleData` — real case-store writes, then `reload`).
-- **`canvas/SearchCanvas.tsx`** — app-true depiction of the search screen: widget shape carried by the rendering (date-range = From/To pair, choice list = chevron, barcode = scan glyph), defaults pre-filled, match setting kept off the canvas (the running app never shows it — it lives in the inspector). Panel chrome selects the search panel; rows select their field through a full-height grab rail + click; rows with structural errors get a rose ring from the shared `searchInputResolution.ts` derivation. **The Search button renders as a blueprint of itself** — outlined, never filled (the filled violet button is the pressable one in Preview; a filled button on an edit canvas promises a search it can't run). Its click opens the panel settings that own its label and display condition, matching the canvas grammar (clicking a thing configures that thing — the fields don't type here either), and a quiet "Try this screen in Preview" link under the card catches the searching impulse and jumps to the tab where the button actually runs.
-- **`canvas/DetailCanvas.tsx`** — the opened-case view over the preview's first row. Detail fields ARE the columns (`visibleInDetail` picks inclusion), so rows open the same column inspector; "Add detail field" seeds `plainColumn({ visibleInList: false })`.
-- **`canvas/PreviewCanvas.tsx`** — the Preview tab: the real `SearchInputForm` widgets querying the real case store (`useCases`), a list filter box doing CommCare's case-list narrowing client-side (`components/preview/shared/listFilter.tsx` — per-word, case-insensitive, contains, across visible columns), results table, and the case detail opened IN PLACE (back affordance), composed search-beside-results when the canvas is wide and stacked when it isn't — width decides, like the running app, so authors never pick an export mode. Two flicker guards: the canvas measures its width synchronously in the ref callback (first paint is already split/stacked correctly), and `useCases` keeps the previous rows rendered while a re-query is in flight (`fetching` dims the table instead of unmounting it; the workspace's already-loaded rows stand in as `warmRows` until the tab's first own query settles, so Preview never opens on a spinner). The Preview tab button is a toggle — clicking it while active returns to the last config tab. The store's `empty` arm means "this query matched nothing" too, so the Generate affordance only shows when no search is active.
+## Preview data binding
 
-Inspector bodies (under `inspector/`) share the console chrome in `inspector/inspectorChrome.tsx` — etched mono section labels (`InspectorSection`), labeled switch rows (`ToggleRow`, the whole row toggles), segmented controls (`SegmentedRow`), the `CONSOLE_TRIGGER_CLS` full-width picker well, and `RemoveRow` (the shared footer action that takes the inspected thing out of the app — every body that supports removal renders it LAST so the destructive affordance always lives in the same place). **Every interactive control in the workspace and rail is at least 44px tall, carries a visible text label, and any supplementary hover text rides the shared `Tooltip` (never a native `title=`).** The inspector panel's header already names the inspected entity, so a body never re-titles itself — `FilterInspectorBody` opens with one hint line and mounts `PredicateCardEditor` directly on the rail background (no slot-card header, no wrapper well), followed by a live match count styled as the same quiet `LIVE` console readout the canvas footer uses (a count is information, not a success state — no emerald alert chrome) and `RemoveRow`; the count rides `loadFilterPreviewAction` with `limit: 1` and keeps the last settled number on screen during recounts. The column selection mounts `ColumnEditor`; `SearchInputEditor` is the single-view per-field editor (see below); `SearchPanelInspectorBody` owns every `caseSearchConfig` slot (title / markdown subtitle / button label / display condition / excluded owners); `ListPanelInspectorBody` (the list's title chrome) owns the `SortPriorityStack` (full-width drag-to-reorder rows), the Generate/Reset sample-data cluster (Reset takes an inline two-step confirm — it deletes every case in the type), and, on `caseListOnly` modules only, the case-list menu-link media slots (`icon` / `audioLabel` — wholesale `setOptionalSlot` rebuilds, since `updateModule({ caseListConfig })` has no null-carrying clear).
-
-**`SearchInputEditor` is ONE view — there is no advanced mode.** The editor walks Label → Searches (a grouped property picker covering this case's properties and the parent case's; picking a parent property carries the relation walk implicitly — no walk vocabulary) → Field type → Match → Default value → Reference name. The schema's simple/advanced arm split is storage shape only: "Custom condition" is the last choice in the Match picker (converts to the advanced arm, seeding `property = typed value` via an `input(name)` reference so the author edits the behavior they already had), and picking any standard match converts back, recovering the condition's anchored property or re-seeding a working one. Non-canonical `via` shapes authored elsewhere (subcase, multi-hop) render as a plain-words read-only row with a "Search this case instead" reset.
-
-**Preview gating is config-derived, not editor-derived.** Only the inspected entity's editor is mounted, so the magazine-era "aggregate mounted editors' validity" gate is impossible — `configValidity.ts` re-derives the whole-config verdict purely (column applicability via `columnEditorSchemas`, `checkPredicate`/`checkValueExpression` with the same contexts the editors build, structural input rows via `searchInputResolution`). Each check mirrors its editor's verdict source so the gate can't disagree with what the inspector shows. The same derivation returns per-tab `caseListConfigErrorAreas`, which the tab strip renders as a rose dot — a problem on an unopened tab is visible from anywhere in the workspace.
-
-`ColumnEditor.tsx` is registry-driven (`columnEditorSchemas.ts` is `Record<ColumnKind, ColumnCardSchema<K>>` — a missing kind fails to compile) and renders as three console sections: **Display** (a full-width "Display as" kind picker — every kind labeled and described, inapplicable kinds dimmed with what they need — plus the per-kind body), **Visibility** (two labeled switch rows for list / detail), and **Sorting** (an Off / Ascending / Descending segmented control plus the column's place in the sort order, with an "Arrange the sort order…" hop to the list settings when several columns sort). Seven per-kind cards live in `cards/column/`: `PlainColumnCard`, `DateColumnCard`, `PhoneColumnCard`, `IdMappingCard`, `ImageMapColumnCard` (the id-mapping card with an image `SingleAssetSlot` per row in place of the label input — both mapping cards share their list chrome through `cards/column/mappingChrome.tsx`: section label, empty notice, full-size move/remove row controls, Add CTA), `IntervalCard` (covers both relative-interval and threshold-flag UX, dispatched on `display: "always" | "flag"` with role-flipping `text` slot), and `CalculatedColumnCard` (mounts the `ExpressionCardEditor` on the column's `expression` slot — calc has no `field` slot, so no `ColumnFieldRow`). The column cards consume the shared editing primitives (`BlurCommitTextInput`, `CardShell`, `PropertyPicker`, `CustomDatePatternInput`, `nodeIdentity`) under `components/builder/shared/` — see the shared paragraph below.
-
-Search fields remain one source across the search and list screens — `caseListConfig.searchInputs` — edited from the search canvas. `caseSearchConfig` (screen labels, button condition, owner exclusions) is a separate module slot edited only through the search-panel inspector.
-
-`components/builder/shared/` holds primitives that more than one builder workspace consumes. The Predicate / ValueExpression card editor — the cross-family authoring surface for boolean and value-expression ASTs — lives here so any workspace can mount it without importing case-list-config's chrome.
-
-- **`PredicateCardEditor`** + **`ExpressionCardEditor`** — the top-level Predicate / ValueExpression authoring surfaces. Each composes the schema-driven `PredicateEditProvider` (caseTypes + currentCaseType + knownInputs + per-path validity index) and dispatches the root node into a tree of cards via the matching registry. Cross-family recursion works out of the box (a predicate's value slots compose `ExpressionPicker`; an expression's `if.cond` / `count.where` slots compose `ChildPredicateEditor`).
-  - **Conditions are sentences.** Sentence-shaped predicate kinds (comparisons, matches, membership, range, contains, near, blank/missing, the sentinels) render as headerless rows — subject (property) → verb → object (value) — through `PredicateRowShell`; nothing titles a row with its AST node name. The verb is `cards/PredicateVerbMenu`: ONE dropdown holding every behavior ("is", "is at least", "fuzzy matches", "is any of", "includes all of", …) plus a Structure group (groups, related-case, when-field-filled, always true/false). Picking a verb in-family rewrites the operator in place; cross-family carries the SUBJECT over (and the value where the target holds one) — changing how you compare never loses what you compare. The Structure group's wrapping shapes follow the same rule: "All of these…" / "Any of these…" wrap the current condition as the group's first row (with a fresh row beside it), the sibling group kind converts in place keeping every row, "Not…" and "When a search field is filled…" wrap the condition as their clause — only the always-true/false sentinels rebuild from the registry default, because wrapping a sentinel carries nothing worth keeping. Container kinds (groups, exists/missing, when-input) keep the titled `CardShell` + header kind-replace, because a box's identity isn't expressible inline. Term VALUES are unboxed the same way: no "(x) Value" slot card — the term's source dropdown ("Typed value / Case property / Search field / …") carries a "Computed" group with the expression kinds (math, if–then, today, …) injected by `ExpressionPicker`, so one menu answers "what is this value?". Computed expressions, once picked, render as titled container cards.
-  - **Predicate cards** at `cards/`: 13 cards covering every kind in the `Predicate` discriminator union (comparison / membership / null/blank / sentinel / logical group / when-input-present / relational quantifier / text-match / geo-distance), dispatched through `cards/ChildPredicateEditor` (sentence rows vs container cards, drag-reorder chrome on list children).
-  - **Expression cards** at `cards/expression/`: 13 cards covering every kind in the `ValueExpression` discriminator union (term / arith / if / switch / concat / coalesce / count / format-date / date-add / date-coerce / date-constants / double / unwrap-list).
-  - **Editing primitives** at `primitives/`: `CardShell` (shell chrome — icon, kind label, kebab, drag grip, error footer), `PropertyPicker` / `PropertyRefPicker` (property dropdowns scoped to the current case type), `ExpressionPicker` (kind-dispatch shell for expressions), `LiteralValueInput` (typed literal inputs), `RelationPathBuilder` (multi-step relation path picker for `exists.via` / `count.via`), `BlurCommitTextInput` (commit-on-blur text input), `CustomDatePatternInput` (preset toggle + free-text custom date pattern; consumed by both `DateColumnCard` and `FormatDateCard`), `HigherOrderBadge` (the small badge surfacing higher-order operands).
-  - **Editor support modules**: `editorContext.tsx` (PredicateEditProvider + per-path error lookup helpers), `path.ts` (path-encoding helpers mirroring the type checker's emission shape), `editorSchemas.ts` / `expressionEditorSchemas.ts` (the per-kind registries that drive dispatch), `nodeIdentity.ts` (stable node-key generation for drag-and-drop scoping), `literalRebuild.ts` (literal-preserving rebuilds during property swaps), `relationDestination.ts` (resolves a relation walk's destination case type), `dragData.ts` (typed pragmatic-drag-and-drop payloads for clause / list-item reorder), `useReorderableList.ts` (shared drag-and-drop hook for variadic editors and the case-list section reorder rows).
-- **`useInnerValidityShadow.ts`** — exports `useValidityPropagator` (the parent-validity boundary every editor with an `onValidityChange` prop consumes — handles the `useEffect([isValid]) → onValidityChangeRef.current(isValid)` pattern uniformly, eliminating the hand-rolled `onValidityChangeRef` triples that all carried the same reorder-desync bug class) and `useInnerValidityShadow` (a WeakMap-backed per-row validity shadow that auto-GCs entries when rows are removed and preserves per-row verdicts across reorder).
-- **`OptionalSlotCard<T>`** — the generic optional-slot primitive (header + dashed Add CTA + editor wrapper + slot-presence validity short-circuit + optional collapse). Consumers specialize with a typed `T`, a `renderEditor` render prop, and an `addSeed`. The slot-presence short-circuit is load-bearing: when the slot is `undefined` the card reports `valid: true` regardless of any stale inner shadow.
-- **`PredicateSlotCard`** — `OptionalSlotCard<Predicate>` specialization with `addSeed = matchAll()` and a `<PredicateCardEditor>` body. Hard-codes generic add/remove glyphs so consumers can't accidentally brand the affordance.
-- **`SlotCardHeader`** — header chrome for slot cards: etched mono console label (the same eyebrow style as `InspectorSection` / `OptionalTextRow`, so a slot section reads as a sibling of the plain rows around it), hint line, optional whole-row disclosure toggle (the full label row is the target, not a 12px chevron), optional `ml-auto` Clear button. Used by `OptionalSlotCard`; one home for the layout so consumers can't drift label styles and Clear glyphs.
-- **`setOptionalSlot`** — per-slot "set or drop" helper for parent objects with optional keys. `next === undefined` destructures the key out (the doc store applies module patches via `Object.assign`, which would otherwise persist `key: undefined` as a real own enumerable property and break downstream `key in config` presence checks).
-
-New cross-workspace primitives go here so workspace packages don't import each other's chrome.
-
-The case-list preview's binding helpers live at `lib/preview/engine/`. The split is load-bearing — `caseDataBindingHelpers.ts` carries `import "server-only"` and owns the server-only I/O helpers (`readCases` over `CaseStore.query`, `buildCaseTypeMap`); `caseDataBindingClient.ts` is the client-bundle-safe surface that pure projections + typed-error mappers compose against. The split exists because `@google-cloud/cloud-sql-connector` would otherwise leak into the client bundle through `caseDataBindingHelpers`'s value-import chain. Client components in this workspace route value imports through `caseDataBindingClient.ts`; type imports through `caseDataBindingTypes.ts`. The vitest config aliases `server-only` → its shipped `empty.js` shim because vitest doesn't honor the `react-server` export condition.
+Server-only I/O (`caseDataBindingHelpers`, `import "server-only"`) is split from the client-safe surface (`caseDataBindingClient`) because `@google-cloud/cloud-sql-connector` would otherwise leak into the client bundle. Client code imports values only through the client module; vitest aliases `server-only` to its shipped shim because vitest ignores the `react-server` export condition.

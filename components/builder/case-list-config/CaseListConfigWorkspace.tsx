@@ -320,7 +320,6 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					onAddInput={addInput}
 					addInputDisabledReason={addDisabledReason}
 					onReorderInputs={reorderInputs}
-					onPreview={() => navigate.openCasePreview(moduleUuid)}
 				/>
 			)}
 			{tab === "list" && (
