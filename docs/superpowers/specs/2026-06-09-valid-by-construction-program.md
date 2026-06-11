@@ -16,8 +16,13 @@ stages below are BUILD ORDER (real dependency sequencing), not shipping
 boundaries; no per-stage PRs, no transitional coexistence machinery whose
 only purpose is to make an intermediate merge production-coherent. The
 branch stays suite-green at every commit; user-runnable verification lines
-are checkpoints, not ship gates. (This worktree is behind
-main — rebase before implementation starts.)
+are checkpoints, not ship gates.
+
+**Status (2026-06-11): the program is complete on this branch.** Every
+stage below is SHIPPED (each heading carries its landed-state record,
+including the mid-flight 4.5 collapse that deleted Stage 4's own phase/
+draft/completion machinery). The only remaining work is the owner-run
+merge-time choreography at the end of the Stages section.
 
 ## Goal
 
@@ -336,6 +341,8 @@ indexed carriers.
   code + location uuids + surface.
 - **D2 — Completeness ratchet** (owner-approved): deferred while `building`,
   ratcheted while `complete`; zero-tolerance only at transaction boundaries.
+  *Superseded by Stage 4.5 (owner-confirmed): no phases — one introduced-error
+  rule in every app state; zero-tolerance at boundaries unchanged.*
 - **D3 — Per-call gating for the SA, never run-level buffering**: buffering
   breaks fail-closed persistence, live streaming, and crash recovery — all
   load-bearing. Per-call rejection converts the end-of-run error dump into
@@ -369,13 +376,18 @@ indexed carriers.
   defense in depth.
 - **D12 — MCP builds get `draft` status** (owner-approved): reaper-exempt,
   list-visible, `building`-phase; `complete_build` flips it. Complete-at-birth
-  dies.
+  dies. *Superseded by Stage 4.5 (owner-confirmed): complete-at-birth came
+  back — an empty app is at rest and valid; the draft status and
+  `complete_build` shipped in Stage 4 and were deleted in 4.5.*
 - **D13 — Atomic structural creation in edit mode** (owner-approved SA schema
   delta): `createForm` requires `fields` (registration units must include a
   case-name writer); `createModule` requires `forms` + case-list `columns`
   when case-managing. Tool use is not grammar-constrained, so the large inputs
   are legal; `scripts/test-schema.ts` proves acceptance. Build mode keeps the
-  staged scaffold flow under the `building` window.
+  staged scaffold flow under the `building` window. *The last sentence is
+  superseded by Stage 4.5: the scaffold flow and the `building` window are
+  gone — builds plan, then run atomic `createModule` calls under the same
+  one rule as edits.*
 - **D14 — Proof-based retirement of `validateApp`** (owner decision
   2026-06-10, superseding the earlier measured-retirement plan): no
   production observation window, no safety-net coexistence period — the
@@ -418,7 +430,10 @@ Stages are build order, not shipping boundaries — dependencies are real
 removal, index before migration), the merge is one PR at the end. Docs
 (CLAUDE.md + the public docs site) move with the work that changes behavior.
 
-### Stage 0 — Foundations (no behavior change)
+### Stage 0 — Foundations (no behavior change) — SHIPPED
+
+Landed as specified (see `docs/superpowers/plans/2026-06-09-vbc-stage-0-foundations.md`
+for the per-task SHIPPED record and the five review rounds that closed it).
 
 1. `gate.ts`: classification table (typed-total over all ~190 codes; the
    class assignments above are the seed — the task audits every domain code
@@ -458,7 +473,20 @@ follows (silently broke before); move a field into a group when a hashtag
 references it → the ref re-anchors as a nested hashtag and still renders
 (dangled before).
 
-### Stage 1 — Close the export hole (boundaries)
+### Stage 1 — Close the export hole (boundaries) — SHIPPED
+
+Landed as specified, with these deltas vs the text below:
+- The boundary entry point unified with media validation rather than
+  sitting beside it: `lib/media/boundaryValidation.ts::collectBoundaryViolations`
+  (renamed from `mediaValidation.ts`) runs the full validator with the
+  resolved asset manifest at every compile/upload entry, so "the
+  media-only gate" didn't get a sibling — it became the whole gate.
+- `scripts/scan-app-validity.ts` was never built as a standing script.
+  Legacy exposure was sized instead by the one-off replay of all 313
+  prod apps' event streams recorded under Stage 4.5 — the study that
+  drove the always-valid collapse — and the introduced-error
+  grandfather clause bounds the legacy remainder without any repair
+  migration to offer.
 
 1. `prepareCompileRequest.ts`, the HQ-upload route, MCP `compile_app` +
    `upload_app_to_hq`: replace the media-only gate with `evaluateBoundary`
@@ -478,7 +506,20 @@ references it → the ref re-anchors as a nested hashtag and still renders
 possible pre-Stage-3), clicks export `.ccz` → actionable error naming the form
 and rule instead of a download; reverts → export succeeds.
 
-### Stage 2 — SA per-call soundness gate (chat + MCP, one change)
+### Stage 2 — SA per-call soundness gate (chat + MCP, one change) — SHIPPED
+
+Landed as specified, with these deltas vs the text below (each a later
+stage superseding this one's machinery, recorded where it happened):
+- "phase from app status" died in Stage 4.5 — `evaluateCommit` takes no
+  phase; one rule in every app state.
+- The destructive-op ratchet's `complete`-conditioning died with the
+  phases. The referent-naming rejections it specified live on: the
+  one-rule gate rejects reference-breaking removals in every state, and
+  the case-type retirement planner (Stage 4.5 round 5) produces the
+  person-readable reference lists.
+- The per-fix dissolution proof is `lib/agent/tools/__tests__/
+  fixDissolution.test.ts` — one pin per retired `FIX_REGISTRY` entry —
+  beside the sequence fuzz.
 
 1. `guardedMutate` in `lib/agent/tools/common.ts`: compute `nextDoc`, run
    `evaluateCommit` (phase from app status), on introduction return the
@@ -502,7 +543,30 @@ deliberate error ("set the age field's display condition to `if(`") → the
 transcript shows the SA hitting the rejection and correcting in the same turn;
 the run log shows no fix chapter; the app exports cleanly.
 
-### Stage 3 — Builder UI commit gating (at-source + server backstop)
+### Stage 3 — Builder UI commit gating (at-source + server backstop) — SHIPPED
+
+Landed as specified, with these deltas vs the text below:
+- UI gating generalized past the per-workspace audits: EVERY builder
+  dispatch runs the shared verdict at the dispatch hook
+  (`useBlueprintMutations` → `commitDoc`), so the per-surface
+  commit-on-valid work became instances of one rule rather than a
+  checklist of panels. Refused edits keep their in-editor draft and
+  show the finding inline (`useCommitField` / `CommitOutcome`).
+- Item 5's server backstop landed on the mutation-bearing server
+  writers, not the browser PUT: the MCP transactional commit re-runs
+  the verdict against the fresh stored doc inside the transaction
+  (`applyBlueprintChange`), while the PUT — a whole-doc overwrite whose
+  every mutation already passed the dispatch-hook gate — carries the
+  optimistic `blueprint_token` basis guard (409 + reload on a stale
+  basis) against the cross-writer race that gate can't see. No PUT-side
+  `evaluateCommit`/422 or distinct `useAutoSave` "rejected" state
+  exists.
+- The `property: ""` schema slot did NOT tighten: legacy docs carrying
+  it must keep parsing, and the gate already rejects any commit that
+  would introduce the corresponding soundness finding
+  (`CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY`), so the schema-level
+  tightening had nothing left to enforce. The emitter degrades the
+  legacy shape to the bare-prompt wire form.
 
 1. Case-list / case-search workspaces: draft-until-valid commits using the
    existing `useValidityPropagator` verdicts; invalid drafts stay local with
@@ -893,7 +957,25 @@ parity, both with per-kind change floors and shape-tied occurrence
 floors); the retirement planner's pinned blocked-verdict suite unchanged;
 rename/move pinned suites unchanged.
 
-### Stage 6 — Representation migration, per surface
+### Stage 6 — Representation migration, per surface — SHIPPED
+
+Landed as specified, with these deltas vs the text below:
+- Surfaces landed grouped rather than strictly one-at-a-time: the AST
+  shape + round-trip law first, then ALL field expression slots in one
+  slab, then the Connect slots, then the close condition (uuid-stored)
+  and the last form-level slots — at which point the string-xpath slot
+  kind itself died. Each slab carried its own
+  representation-invariant + projected-read + wire-byte pins.
+- The wire regression is held by the migration byte-identity proof
+  (`lib/doc/__tests__/expressionMigration.test.ts` — `emit(legacy) ===
+  emit(migrate(legacy))` over XForm XML and the HQ-JSON expansion under
+  a deterministic id factory) plus the fuzz-pinned round-trip law,
+  rather than a standing pre/post `.ccz` corpus diff.
+- The scan/migrate pair (`scripts/scan-expression-asts.ts` /
+  `migrate-expression-asts.ts`) is built and verified; the owner runs
+  it against production at merge time (see the migration choreography
+  below), and the scripts are deleted in a follow-up commit after the
+  run per resolved decision 3.
 
 `calculate` → `relevant` → `validate`/`default_value`/`required` →
 `repeat_count`/`ids_query` → connect slots. Per surface: persist the typed AST
@@ -911,16 +993,58 @@ executes during the rename (reducer-path assertion). Wire regression: per-entry
 bytes of the `.ccz` (deterministic id factory; zip container headers ignored)
 identical pre/post migration across the corpus.
 
-### Stage 7 — Residue
+### Stage 7 — Residue — SHIPPED
 
-Index-backed ingest gate for out-of-band docs (schema parse + index build +
-reference-class verdicts on load, failures routed through the same resolution
-contract); rerun the validity scan on prod data (read-only; report); docs/
-drift sweep; the stale `validateAndFix` re-export comment in
-`lib/agent/index.ts` dies; oracle CI coverage confirmed unchanged.
+What the residue slab did:
+- Whole-branch drift sweep: every surviving reference to the retired
+  machinery (phases, draft status, `completeBuild`, `generateScaffold`,
+  `validateApp`, the fix loop) is either deleted or annotated as
+  historical-replay rendering (`toolSummary`, `replayChapters`, the
+  session lifecycle's Validate/Fix derivations, the log schema's
+  `validation-attempt` member). Comments that cited the spec doc as
+  authority restate the judgment itself.
+- Dead-export retirement under the index's consumed-structure rule:
+  `referencingCarrierSlots` (no production consumer — the slot pins
+  read the index's `in` bucket directly), `setCaseTypesMutations`
+  (stranded by `generateScaffold`'s deletion), and the zero-consumer
+  AST constructor sugar; internal-only helpers lost their `export`.
+- The draft-status scan/migrate pair was deleted: the dev scan found
+  zero rows and production never ran draft-writing code, so the pair
+  had nothing to migrate anywhere.
+- The public docs site was verified against the registered tool
+  surface (all 44 MCP tools, no `validate_app`/`complete_build`,
+  atomic creation, exports gated on findings) — no drift found beyond
+  what earlier stages had already moved.
+- The stale `validateAndFix` re-export comment in `lib/agent/index.ts`
+  died with the loop's deletion in Stage 4; oracle CI coverage
+  unchanged throughout.
+
+Two spec'd items landed as different shapes than this section
+originally projected:
+- "Index-backed ingest gate for out-of-band docs": every hydration
+  boundary builds the index from the doc alone, and an out-of-band doc
+  is adjudicated by the same introduced-error gate at its NEXT commit
+  (the grandfather clause bounds its legacy findings). No separate
+  load-time reference-class verdict exists — load stays total, the
+  gate stays the single rule.
+- "Rerun the validity scan on prod data": superseded the same way as
+  Stage 1's scan script — the 4.5 prod-replay study sized the legacy
+  exposure, and the grandfather clause bounds the remainder.
 
 **Verification:** docs at `docs.commcare.app` describe the new tool surface
-and lifecycle; `npm run test:leaks` green before final push.
+and lifecycle; full suite + lint + build green at every residue commit.
+
+### Merge-time choreography (the only remaining work)
+
+Owner-run, at or immediately around the merge to main:
+1. `npx tsx scripts/scan-expression-asts.ts --project <prod>` — size
+   the conversion, confirm zero round-trip failures.
+2. `npx tsx scripts/migrate-expression-asts.ts --project <prod>` (dry
+   run), then `--apply`.
+3. Delete the two scripts in a follow-up commit (scripts/ holds
+   re-runnable tools only).
+4. nova-plugin repo: sync the skill text to the new tool surface and
+   bump the plugin version (caches per-version).
 
 ## Testing strategy
 
@@ -941,8 +1065,9 @@ and lifecycle; `npm run test:leaks` green before final push.
 ## Risks
 
 - **Gate misfire on real data** → introduced-error semantics bound the blast
-  radius to new edits; the Stage-1 scan sizes legacy exposure before any
-  commit path tightens; PUT rejections are Sentry-loud.
+  radius to new edits; the 4.5 prod-replay study sized legacy exposure
+  before the commit paths tightened (the empty-shell scaffold pattern was
+  the only material cost, and it was deleted, not grandfathered).
 - **SA call-failure churn** (per-call rejection vs batched fixes) → message
   quality is already SA-tuned; rejection-message tests drive the same repro
   scenarios the fix loop used to repair, asserting the SA-visible error
@@ -963,17 +1088,20 @@ and lifecycle; `npm run test:leaks` green before final push.
   program; both paths gate against their own `prevDoc`; existing
   last-write-wins is orthogonal and explicitly out of scope.
 
-## What is deleted when the program lands
+## What the program deleted
 
-`validator/fixes.ts` (the 13-fix registry), the loop body of
+All landed: `validator/fixes.ts` (the 13-fix registry), the loop body of
 `validationLoop.ts::validateAndFix` (stuck signatures, `fix:attempt-N`),
 `lib/agent/tools/validateApp.ts`, the `validate_app` MCP registration, the
 validate-loop prompt instructions, validate-time connect defaulting, the
 media-only export gating (subsumed), the client-side duplicate peer scan, the
-single-segment-only rewriter restrictions, and — per migrated surface — the
-XPath string rewriters from the commit path. The validator rules, the oracles,
-the fuzzers, and the humanized error vocabulary all remain: they become the
-gate's engine instead of the loop's.
+single-segment-only rewriter restrictions, and the XPath string rewriters
+from the commit path. The mid-flight 4.5 collapse additionally deleted
+machinery this program itself had just built: the commit phases, the draft
+status, and `completeBuild`/`complete_build` shipped in Stage 4 and died in
+Stage 4.5 — the strict one-rule replay proved them unnecessary. The
+validator rules, the oracles, the fuzzers, and the humanized error
+vocabulary all remain: they became the gate's engine instead of the loop's.
 
 ## Non-goals
 
