@@ -112,6 +112,22 @@ vi.mock("@/lib/case-store", async () => {
 		withOwnerContext: vi.fn(),
 	};
 });
+// The schema heal's Firestore boundary, stubbed for the SAME reason the
+// auth boundary is: the actions wrap their store in
+// `schemaHealingCaseStore`, whose heal loads the persisted blueprint via
+// `loadApp` — the REAL one lazily constructs a Firestore client whose
+// ClientPool holds a never-settling promise, an async-resource leak no
+// unit test may create. The heal-reaching action test scripts these per
+// call; every other test never enters the heal (only
+// `SchemaNotSyncedError` does), so the stubs stay invisible to them.
+const { loadAppMock, materializeMock } = vi.hoisted(() => ({
+	loadAppMock: vi.fn(),
+	materializeMock: vi.fn(),
+}));
+vi.mock("@/lib/db/apps", () => ({ loadApp: loadAppMock }));
+vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
+	materializeCaseStoreSchemas: materializeMock,
+}));
 
 // ---------------------------------------------------------------
 // Per-test database lifecycle (mirrors PostgresCaseStore tests)
@@ -129,7 +145,8 @@ beforeEach(() => {
 	// that short-circuits before consuming its queued value would leak it
 	// to the next test and misattribute that test's failure. Reset every
 	// mock's queue so each test is diagnostically independent. (Only the
-	// two module mocks are vi.fn()s at this point; in-test spies/stubs are
+	// module mocks — auth, store context, and the heal's Firestore
+	// boundary — are vi.fn()s at this point; in-test spies/stubs are
 	// created inside the bodies that follow.)
 	vi.resetAllMocks();
 	applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
@@ -2272,14 +2289,20 @@ describe("resetSampleCasesAction", () => {
 		// `resetSampleData` reaches `getValidator` which throws
 		// `SchemaNotSyncedError` when the case-type's schema row
 		// hasn't been materialized via `applySchemaChange`. The
-		// action's catch path delegates to
-		// `mapPopulateSampleCasesError` which translates to the
-		// typed arm carrying the case type.
+		// action's healing store re-materializes from the persisted
+		// blueprint (the stubbed `loadApp` below) and retries the one
+		// store call; the retry throws again, and the catch path
+		// delegates to `mapPopulateSampleCasesError` which translates
+		// to the typed arm carrying the case type — the heal's honest
+		// backstop.
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withOwnerContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		loadAppMock.mockResolvedValueOnce({ owner: OWNER_A, blueprint });
+		materializeMock.mockResolvedValueOnce(undefined);
 		const stubStore = {
 			query: vi.fn(),
 			count: vi.fn(),
@@ -2291,22 +2314,24 @@ describe("resetSampleCasesAction", () => {
 			applySchemaChange: vi.fn(),
 			dropSchema: vi.fn(),
 			generateSampleData: vi.fn(),
+			// Persistent rejection — the healed retry must throw again for
+			// the typed arm to surface.
 			resetSampleData: vi
 				.fn()
-				.mockRejectedValueOnce(new SchemaNotSyncedError(APP_ID, "patient")),
+				.mockRejectedValue(new SchemaNotSyncedError(APP_ID, "patient")),
 		} satisfies CaseStore;
 		vi.mocked(withOwnerContext).mockResolvedValueOnce(stubStore);
 
 		const { resetSampleCasesAction } = await import("../caseDataBinding");
-		const result = await resetSampleCasesAction(
-			APP_ID,
-			"patient",
-			buildBlueprint([PATIENT_CASE_TYPE]),
-		);
+		const result = await resetSampleCasesAction(APP_ID, "patient", blueprint);
 		expect(result).toEqual({
 			kind: "schema-not-synced",
 			caseType: "patient",
 		});
+		// The heal genuinely ran before the backstop arm surfaced: one
+		// materialize from the persisted blueprint, exactly one retry.
+		expect(materializeMock).toHaveBeenCalledTimes(1);
+		expect(stubStore.resetSampleData).toHaveBeenCalledTimes(2);
 	});
 });
 
