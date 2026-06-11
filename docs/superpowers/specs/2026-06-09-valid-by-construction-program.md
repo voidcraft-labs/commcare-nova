@@ -799,21 +799,60 @@ Round-7 closing review (same stage, post-ship):
   when it is wrong: a second SA loop on the same app, the old run's
   funnel touching the new run's marker.
 
-### Stage 5 — The reference index
+### Stage 5 — The reference index — SHIPPED (write-path slab)
 
-Layer 2 as specified. Implementation order inside the stage: index module +
-generic maintenance hook + `buildReferenceIndex` + hydration sites +
-`toPersistableDoc` strip → dev assertion + CI fuzz green → swap consumers:
-rename cascade (peers via `refs.decl`, carriers via `refs.in`; the client-side
-duplicate peer scan deletes), move re-anchoring, delete-impact verdicts,
-cycle DFS, find-references/lint/autocomplete/chips as index projections.
-TriggerDag keeps its per-form runtime build but sources extraction from the
-shared registry extractors.
+Layer 2's locked contract landed in full: identity-keyed, carrier-keyed,
+span-free edges on `BlueprintDoc.refIndex` (shape + key vocabulary in
+`lib/domain/referenceIndex.ts`, builder/maintenance/queries in
+`lib/doc/referenceIndex.ts`), maintained per mutation inside
+`applyMutation(s)` and mid-batch current so reducers read it; seeded at
+every apply entry point and built eagerly at the hydration boundaries
+(`store.load`, `loadAppBlueprint`, the chat route's working doc);
+`toPersistableDoc` strips it and the three inline fieldParent
+destructures centralized on it. Converted consumers: the rename
+cascade (peers via the declarations index, rewrite carriers via the
+`c:` bucket, the close-condition unique-holder rule via the
+form-scoped id holders), `moveField`'s re-anchor pass, the retirement
+planner's reference scan (`t:` bucket, document-order placement,
+byte-identical blocked verdicts), and `findRenameSiblingConflict`'s
+peer scan. The oracle is the spec'd one: `buildReferenceIndex` is both
+hydration builder and fuzz oracle; `lib/doc/__tests__/
+referenceIndex.fuzz.test.ts` drives raw mutation batches (pinned seed,
+per-kind floors, occurrence floors for the at-a-distance arms) and the
+construction fuzz asserts the same parity over real tool sequences.
 
-**Verification:** the NODE_ENV-gated builder overlay shows index stats and the
-live incremental≡rebuild parity check staying green during editing; renaming a
-heavily-referenced case property in a large app is visibly immediate; the
-delete dialog's referent list is exact on a large fixture; CI fuzz green.
+Deltas vs the text below:
+- The index shape grew two maintenance buckets the batch-end design
+  didn't need but per-mutation currency does: `local[form]` (carriers
+  holding form-local ref text — re-extracted when a form's id/path
+  namespace changes, so a dangling `#form/…` ref that a later add
+  satisfies re-keys without its carrier being touched) and
+  `ctx[module]` (carriers whose extraction read the module's case
+  type — re-keyed on case-type changes and cross-module form moves).
+  `ids[form]` (form-scoped id holders) joined `decl` so the
+  close-condition unique-holder rule is a lookup too.
+- The chip resolve gate did NOT convert: it already resolves against
+  the root-level case-type catalog (no doc walk), the catalog is a
+  reducer-maintained superset of writer declarations, and the
+  validator's accept set reads the same catalog — re-keying chips to
+  live writers would create offer-then-reject drift. Recorded as a
+  DECIDED interim call in the owner-questions list.
+- Cycle DFS, find-references UI, and the lint/autocomplete/chip read
+  paths stay on their current derivations; TriggerDag untouched — the
+  authoritative Layer-2 contract scoped this slab to the write-path
+  consumers, with the rest available as index projections when their
+  surfaces are next touched.
+- No NODE_ENV builder overlay; the dev-mode parity check is a
+  throttled console tripwire at batch end (`devAssertReferenceIndexParity`),
+  with the CI fuzzes carrying the load-bearing proof.
+- No Biome ban on the raw index module — the narrow query API
+  (`referencingCarrierUuids` / `referencingCarrierSlots` /
+  `declarersOf` / `formIdHolders`) is the consumer surface, and every
+  current consumer lives inside `lib/doc`.
+
+**Verification:** CI fuzzes green (raw-mutation oracle + construction-fuzz
+parity); the retirement planner's pinned blocked-verdict suite unchanged;
+rename/move pinned suites unchanged.
 
 ### Stage 6 — Representation migration, per surface
 
