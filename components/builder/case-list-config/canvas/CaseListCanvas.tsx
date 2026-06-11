@@ -373,7 +373,11 @@ function HeaderCell({
 				onClick={onClick}
 				className={`flex items-center gap-1.5 px-3.5 min-h-11 w-full text-left font-semibold text-[13px] whitespace-nowrap overflow-hidden cursor-pointer border-r border-nova-border last:border-r-0 transition-colors ${
 					selected
-						? "bg-nova-violet/[0.14] shadow-[inset_0_0_0_1.5px_var(--nova-violet)] rounded-sm text-nova-text"
+						? /* Ring radius = the table wrapper's INNER corner curve
+						   (rounded-lg outer minus its 1px border), so a selected
+						   first column hugs the container corner instead of
+						   getting clipped against a curve it doesn't follow. */
+							"bg-nova-violet/[0.14] shadow-[inset_0_0_0_1.5px_var(--nova-violet)] rounded-[calc(var(--radius)-1px)] text-nova-text"
 						: "text-nova-text hover:bg-white/[0.03]"
 				} ${hidden ? "opacity-50" : ""}`}
 			>
