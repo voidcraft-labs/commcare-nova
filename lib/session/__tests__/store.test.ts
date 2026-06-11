@@ -419,6 +419,29 @@ describe("BuilderSession connect stash", () => {
 		expect(idB).toBeTruthy();
 		expect(idA).not.toBe(idB);
 	});
+
+	it("9. an app with ZERO forms enables Connect as the bare type flip — nothing to stage", () => {
+		/* An MCP-born empty app is complete and opens in the builder; its
+		 * Connect toggle must work like the SA's `updateApp` flip on the
+		 * same empty app (no forms means no missing-block finding for the
+		 * gate to introduce), not silently no-op. */
+		const docStore = createBlueprintDocStore();
+		docStore
+			.getState()
+			.load(buildDoc({ appId: "empty-app", appName: "Empty" }));
+		docStore.temporal.getState().resume();
+		const session = createBuilderSessionStore();
+		session.getState()._setDocStore(docStore);
+
+		const outcome = session.getState().switchConnectMode("learn");
+
+		expect(outcome).toEqual({ ok: true });
+		expect(docStore.getState().connectType).toBe("learn");
+
+		/* And the always-valid OFF direction still works on the same app. */
+		expect(session.getState().switchConnectMode(null)).toEqual({ ok: true });
+		expect(docStore.getState().connectType).toBeNull();
+	});
 });
 
 // ── Generation lifecycle ────────────────────────────────────────────────

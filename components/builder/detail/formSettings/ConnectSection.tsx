@@ -1,6 +1,10 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import {
+	ConnectEnableDialog,
+	type ConnectStagingTarget,
+} from "@/components/builder/detail/appSettings/ConnectEnableDialog";
 import { Toggle } from "@/components/ui/Toggle";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import { useAppConnectIds } from "@/lib/doc/hooks/useAppConnectIds";
@@ -11,7 +15,7 @@ import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
 import { useFormConnectStash } from "@/lib/session/hooks";
 import { DeliverConfig } from "./DeliverConfig";
-import { DEFAULT_LEARN_TIME_ESTIMATE, LearnConfig } from "./LearnConfig";
+import { LearnConfig } from "./LearnConfig";
 import type { FormSettingsSectionProps } from "./types";
 
 /**
@@ -25,8 +29,12 @@ import type { FormSettingsSectionProps } from "./types";
  *    that always bounces (disable Connect for the whole app in App
  *    Settings instead). The ON direction stays live for a form that's
  *    missing its block (a doc persisted before the per-form obligation):
- *    adding the block heals the gap, restoring stashed work when the
- *    session has it.
+ *    a block stashed by an app-level mode switch restores silently — it
+ *    is the user's own prior work — and otherwise the same
+ *    collect-before-commit dialog the app-level enable flow uses gathers
+ *    this one form's block FROM THE USER. Nothing is pre-filled: a
+ *    block's names and descriptions are content the user writes, not
+ *    placeholders Nova invents.
  * 2. Dispatch to `LearnConfig` or `DeliverConfig` based on the app's
  *    connect type. The sub-configs are structurally parallel (two
  *    independent sub-toggles each) but have distinct field shapes.
@@ -45,9 +53,15 @@ export function ConnectSection({
 	const connectType = useConnectTypeOrUndefined();
 	const connect = form?.connect;
 	const enabled = !!connect;
-	// App-wide connect ids so the seed below derives unique ids by
-	// construction — the toggle is a source, like LearnConfig/DeliverConfig.
+	// App-wide connect ids so a restored/collected block's ids derive
+	// unique by construction — the toggle is a source, like
+	// LearnConfig/DeliverConfig.
 	const appConnectIds = useAppConnectIds();
+	/** The in-flight staged enable; `rejectionMessages` carries the gate
+	 *  findings from a bounced confirm so the dialog explains itself. */
+	const [staging, setStaging] = useState<
+		{ rejectionMessages: string[] } | undefined
+	>();
 
 	/* Session stash read — a block stashed by an app-level mode switch
 	 * restores here when the user re-adds a missing form's block. */
@@ -69,41 +83,24 @@ export function ConnectSection({
 		 * disabled while a block is present (see the JSX below). */
 		if (enabled || !connectType) return;
 
-		// Toggle-on. Either restore the stashed config or seed a fresh pair of
-		// id-less blocks — both flow through `dedupeRestoredConnectIds`, the
-		// single source-enforcement path. It fills the seed's absent ids from
-		// the entity names (exactly as creation-time autofill would) and
-		// re-derives any stashed id that drifted into a collision while Connect
-		// was off, so a restore can never write a duplicate. Routing seed and
-		// restore through one path keeps them from drifting apart.
-		const name = form?.name ?? "";
-		const config: ConnectConfig =
-			stashedConfig ??
-			(connectType === "learn"
-				? {
-						learn_module: {
-							name,
-							description: name,
-							time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
-						},
-						assessment: { user_score: "100" },
-					}
-				: {
-						deliver_unit: {
-							name,
-							entity_id: "concat(#user/username, '-', today())",
-							entity_name: "#user/username",
-						},
-						task: { name, description: name },
-					});
-		save(
-			dedupeRestoredConnectIds(config, {
-				formUuid,
-				appConnectIds,
-				moduleName: mod?.name ?? "",
-				formName: name,
-			}),
-		);
+		// Toggle-on. A stashed config is the user's own prior work for this
+		// mode — restore it through `dedupeRestoredConnectIds`, the single
+		// source-enforcement path (a stashed id another form claimed while
+		// Connect was off re-derives instead of landing a duplicate). With
+		// no stash, the user writes the block: open the same staging dialog
+		// the app-level enable flow uses, scoped to this one form.
+		if (stashedConfig) {
+			save(
+				dedupeRestoredConnectIds(stashedConfig, {
+					formUuid,
+					appConnectIds,
+					moduleName: mod?.name ?? "",
+					formName: form?.name ?? "",
+				}),
+			);
+			return;
+		}
+		setStaging({ rejectionMessages: [] });
 	}, [
 		enabled,
 		connectType,
@@ -115,7 +112,38 @@ export function ConnectSection({
 		save,
 	]);
 
+	const confirmStaging = useCallback(
+		(blocks: Record<string, ConnectConfig>) => {
+			const block = blocks[formUuid];
+			if (!block) return;
+			const outcome = save(
+				dedupeRestoredConnectIds(block, {
+					formUuid,
+					appConnectIds,
+					moduleName: mod?.name ?? "",
+					formName: form?.name ?? "",
+				}),
+			);
+			if (outcome.ok) {
+				setStaging(undefined);
+				return;
+			}
+			/* The gate refused — keep the dialog (and the user's drafts) on
+			 * screen with the findings inline, so the bounce explains itself. */
+			setStaging({ rejectionMessages: outcome.messages });
+		},
+		[save, formUuid, appConnectIds, mod, form],
+	);
+
 	if (!connectType) return null;
+
+	const stagingTargets: ConnectStagingTarget[] = [
+		{
+			formUuid,
+			formName: form?.name ?? "",
+			moduleName: mod?.name ?? "",
+		},
+	];
 
 	return (
 		<div className="border-t border-white/[0.06] pt-3">
@@ -176,6 +204,16 @@ export function ConnectSection({
 					</motion.div>
 				)}
 			</AnimatePresence>
+
+			{staging && (
+				<ConnectEnableDialog
+					mode={connectType}
+					targets={stagingTargets}
+					rejectionMessages={staging.rejectionMessages}
+					onCancel={() => setStaging(undefined)}
+					onConfirm={confirmStaging}
+				/>
+			)}
 		</div>
 	);
 }

@@ -554,9 +554,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					if (!docStoreRef) return { ok: false, messages: [] };
 					const s = get();
 					const docState = docStoreRef.getState();
-					if (docState.moduleOrder.length === 0) {
-						return { ok: false, messages: [] };
-					}
+					/* An app with zero forms has nothing to stage or stash — the
+					 * walks below collect no form mutations and the batch is the
+					 * bare `setConnectType` flip, which the gate passes (no forms
+					 * means no missing-block finding to introduce). The same flip
+					 * the SA's `updateApp` lands on an empty app. */
 
 					const currentType = (docState.connectType ?? undefined) as
 						| ConnectType
