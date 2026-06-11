@@ -1,12 +1,11 @@
 /**
  * Materialize the case-store schema rows + per-property indexes
- * for every case type in a freshly-completed blueprint.
+ * for every case type a chat run's blueprint carries.
  *
  * ## What this closes
  *
  * The SA's chat-side `saveBlueprint` writes Firestore fire-and-
- * forget on every mutation (intentionally — the SA's fix-retry
- * loop covers missed intermediate saves and SSE latency must not
+ * forget on every mutation (intentionally — SSE latency must not
  * block on Firestore). That fire-and-forget path never calls
  * `applySchemaChange`, so `case_type_schemas` carries no row for
  * any case type the SA just generated. Until the user's first
@@ -18,16 +17,14 @@
  *   - `submitFormAction` (form submit).
  *   - Live-preview panels that mount a `PostgresCaseStore` query.
  *
- * This helper is called once at the chat-completion boundary
- * (the shared `completeBuild` tool's success arm),
- * BEFORE the awaited, basis-guarded completion write and BEFORE
- * the chat wrapper's `data-done` SSE emit. The ordering matters:
+ * The chat route's drain-end finalize calls this for the run's
+ * final persisted doc (builds AND edits), BEFORE the build arm's
+ * status flip and `data-done` SSE emit. The ordering matters:
  *
  *   1. Await this helper — UPSERTs the schema row + indexes for
  *      every case type. Blocks until Postgres is caught up.
- *   2. `completeAppGuardedByBasis` — the awaited transactional
- *      status flip (compare-and-rotate on `blueprint_token`).
- *   3. `data-done` SSE emit (chat only) — UX signal that the SA is
+ *   2. `completeApp` — the awaited status-only flip (builds).
+ *   3. `data-done` SSE emit — the UX signal that the build is
  *      done; the client's stream dispatcher stamps `runCompletedAt`
  *      on this event, which drives the Completed celebration phase.
  *
@@ -41,28 +38,28 @@
  * the materialization and trip `SchemaNotSyncedError`.
  * Sequencing the await before the SSE emit means any
  * user-initiated case-store action subsequent to the completion
- * celebration sees a synced schema.
+ * celebration sees a synced schema. (On MCP, the cross-store saga
+ * inside every guarded commit covers the same contract — a
+ * case-type-touching batch syncs its schema before the tool
+ * returns.)
  *
  * ## Why no saga
  *
- * Pure additive — every case type is freshly-introduced. There is
- * no prior Postgres state to revert to on Firestore failure (the
- * app was just generated; nothing reads from `case_type_schemas`
- * before this call). The compensation surface
- * `applyBlueprintChange.ts` builds for awaited writes is
- * irrelevant here.
+ * Idempotent UPSERT over whatever the blueprint carries — there is
+ * no per-row migration here and nothing to compensate on failure.
+ * The compensation surface `applyBlueprintChange.ts` builds for
+ * awaited writes is irrelevant here.
  *
  * ## Failure handling
  *
  * The helper itself surfaces throws unwrapped — a per-case-type
  * `applySchemaChange` failure stops the loop at the offending
- * case type and bubbles the error. The caller (`solutionsArchitect`'s
- * `completeBuild` wrapper) is responsible for routing the throw
- * through the canonical `classifyError` + `ctx.emitError` +
- * `failApp` path so the client sees `data-error`, the app
- * status flips to `error` immediately, and the SA loop sees a
- * clean `success: false` return that doesn't invite another
- * retry. Swallowing failures here would relocate the
+ * case type and bubbles the error. The chat route's build arm
+ * routes the throw through `failRun` (classify + emit + refund +
+ * `failApp`) so the client sees the error and no celebration fires
+ * over an unsynced store; the edit arm logs it (the edit itself
+ * succeeded, and the builder's next auto-save re-syncs through the
+ * saga). Swallowing failures here would relocate the
  * Schema-not-synced gap this helper exists to close.
  */
 
@@ -71,11 +68,10 @@ import type { PersistableDoc } from "@/lib/domain";
 
 /**
  * Arguments for `materializeCaseStoreSchemas`. The blueprint is
- * the freshly-completed snapshot the build produced; it
- * carries the canonical `caseTypes` list the helper iterates.
- * The SA wrapper passes the same snapshot into the subsequent
- * `data-done` SSE emit so the client's reconciliation matches
- * what Postgres just landed.
+ * the run's final persisted snapshot; it carries the canonical
+ * `caseTypes` list the helper iterates. The route passes the same
+ * snapshot into the subsequent `data-done` SSE emit so the
+ * client's reconciliation matches what Postgres just landed.
  */
 export interface MaterializeCaseStoreSchemasArgs {
 	readonly appId: string;
