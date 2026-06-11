@@ -21,7 +21,6 @@ import type { CaseProperty } from "@/lib/domain";
 import {
 	type Literal,
 	literal,
-	type MultiSelectQuantifier,
 	multiSelectAll,
 	multiSelectAny,
 	type Predicate,
@@ -39,6 +38,7 @@ import { nodeId } from "../nodeIdentity";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** Module-level filter so render-time identity stays stable —
  *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
@@ -111,16 +111,6 @@ export function MultiSelectContainsCard({
 		onChange(builder(next, literal(seed)));
 	};
 
-	const setQuantifier = (q: MultiSelectQuantifier) => {
-		// Switching quantifier rebuilds via the corresponding builder
-		// to keep the canonical AST shape. The values list is preserved
-		// verbatim — the meaning of the membership flips from "any of"
-		// to "all of" without losing the author's selections.
-		const builder = q === "all" ? multiSelectAll : multiSelectAny;
-		const [first, ...rest] = value.values;
-		onChange(builder(value.property, first, ...rest));
-	};
-
 	const toggleOption = (optionValue: string) => {
 		const next = selectedValues.has(optionValue)
 			? value.values.filter((v) => v.value !== optionValue)
@@ -150,10 +140,10 @@ export function MultiSelectContainsCard({
 					/>
 					<InlineError errors={propertyErrors} />
 				</div>
-				<QuantifierMenu
-					quantifier={value.quantifier}
-					setQuantifier={setQuantifier}
-				/>
+				{/* The verb carries the any/all quantifier — "includes any
+				 *  of" / "includes all of" are two verbs, not a verb plus a
+				 *  separate toggle. */}
+				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
 			{/* Token chip list. Each chip shows its label + X-to-remove;
@@ -166,84 +156,6 @@ export function MultiSelectContainsCard({
 				path={path}
 			/>
 		</div>
-	);
-}
-
-function QuantifierMenu({
-	quantifier,
-	setQuantifier,
-}: {
-	readonly quantifier: MultiSelectQuantifier;
-	readonly setQuantifier: (q: MultiSelectQuantifier) => void;
-}) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
-	const items: readonly { q: MultiSelectQuantifier; label: string }[] = [
-		{ q: "any", label: "Any of" },
-		{ q: "all", label: "All of" },
-	];
-	const current = items.find((i) => i.q === quantifier) ?? items[0];
-
-	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Quantifier: ${current.label}`}
-				className="group flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
-			>
-				<span>{current.label}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="end"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{items.map((it, i) => {
-							const isActive = it.q === quantifier;
-							const last = items.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							return (
-								<Menu.Item
-									key={it.q}
-									onClick={() => setQuantifier(it.q)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
-								>
-									<span>{it.label}</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
 	);
 }
 

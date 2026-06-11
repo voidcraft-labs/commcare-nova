@@ -27,6 +27,7 @@ import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 const UNIT_LABELS: Record<DistanceUnit, string> = {
 	miles: "miles",
@@ -83,16 +84,19 @@ export function WithinDistanceCard({
 
 	return (
 		<div className="space-y-2">
-			<div>
-				<PropertyRefPicker
-					mode="property-only"
-					value={value.property}
-					onChange={setProperty}
-					filter={GEOPOINT_PROPERTY_FILTER}
-					invalid={propertyErrors.length > 0}
-					ariaLabel="Geopoint property"
-				/>
-				<InlineError errors={propertyErrors} />
+			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
+				<div>
+					<PropertyRefPicker
+						mode="property-only"
+						value={value.property}
+						onChange={setProperty}
+						filter={GEOPOINT_PROPERTY_FILTER}
+						invalid={propertyErrors.length > 0}
+						ariaLabel="Geopoint property"
+					/>
+					<InlineError errors={propertyErrors} />
+				</div>
+				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
 			<div className="grid grid-cols-1 @md:grid-cols-[1.6fr_auto_auto] gap-2 items-start">

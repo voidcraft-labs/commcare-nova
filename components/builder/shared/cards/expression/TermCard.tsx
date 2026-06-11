@@ -86,6 +86,12 @@ interface TermCardProps {
 	readonly value: Extract<ValueExpression, { kind: "term" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
+	/** Extra entries the picker shell injects into the source menu —
+	 *  the computed expression kinds (math, if–then, today, …), so ONE
+	 *  dropdown answers "what is this value?" without a separate
+	 *  Change affordance. Built by `ExpressionPicker` (which owns the
+	 *  expression registry) to keep the module graph acyclic. */
+	readonly computedItems?: React.ReactNode;
 }
 
 /**
@@ -97,7 +103,12 @@ interface TermCardProps {
  * therefore looks up errors at its own path, not at a deeper
  * sub-segment.
  */
-export function TermCard({ value, onChange, path }: TermCardProps) {
+export function TermCard({
+	value,
+	onChange,
+	path,
+	computedItems,
+}: TermCardProps) {
 	const ctx = usePredicateEditContext();
 	// Term-side error rendering — two sources:
 	//
@@ -137,7 +148,7 @@ export function TermCard({ value, onChange, path }: TermCardProps) {
 	return (
 		<div className="space-y-1">
 			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
-				<ModeMenu mode={mode} setMode={setMode} />
+				<ModeMenu mode={mode} setMode={setMode} computedItems={computedItems} />
 				<TermBodyInput
 					term={term}
 					onChange={(t) => onChange(wrapTerm(t))}
@@ -204,9 +215,10 @@ function buildTermDefault(
 interface ModeMenuProps {
 	readonly mode: TermMode;
 	readonly setMode: (mode: TermMode) => void;
+	readonly computedItems?: React.ReactNode;
 }
 
-function ModeMenu({ mode, setMode }: ModeMenuProps) {
+function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const triggerId = useId();
 	const ctx = usePredicateEditContext();
@@ -215,13 +227,13 @@ function ModeMenu({ mode, setMode }: ModeMenuProps) {
 		readonly { mode: TermMode; label: string; icon: IconifyIcon }[]
 	>(() => {
 		const base: { mode: TermMode; label: string; icon: IconifyIcon }[] = [
-			{ mode: "literal", label: "Literal", icon: tablerVariable },
+			{ mode: "literal", label: "Typed value", icon: tablerVariable },
 			{ mode: "property", label: "Case property", icon: tablerDatabase },
 		];
 		if (ctx.knownInputs.length > 0) {
 			base.push({
 				mode: "input",
-				label: "Search input",
+				label: "Search field",
 				icon: tablerSwitch,
 			});
 		}
@@ -314,6 +326,17 @@ function ModeMenu({ mode, setMode }: ModeMenuProps) {
 								</Menu.Item>
 							);
 						})}
+						{computedItems !== undefined && (
+							<>
+								<div
+									className="px-3 pt-2.5 pb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-nova-text-muted border-t border-white/[0.06] mt-1"
+									role="presentation"
+								>
+									Computed
+								</div>
+								{computedItems}
+							</>
+						)}
 					</Menu.Popup>
 				</Menu.Positioner>
 			</Menu.Portal>

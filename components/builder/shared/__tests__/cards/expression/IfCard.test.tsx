@@ -43,9 +43,9 @@ describe("IfCard — cross-family Predicate cond", () => {
 				onValidityChange={onValidityChange}
 			/>,
 		);
-		// The cond's "Greater than" comparison card mounts inside the
-		// outer If card; the registry surfaces the matching label.
-		expect(container.textContent).toMatch(/Greater than/i);
+		// The cond's comparison mounts inside the outer If card as a
+		// sentence row — its verb chip reads "is more than".
+		expect(container.textContent).toMatch(/is more than/i);
 		// Both then/else are text-typed; the editor reports valid.
 		expect(onValidityChange).toHaveBeenCalledWith(true);
 	});

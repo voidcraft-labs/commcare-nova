@@ -272,7 +272,8 @@ export const expressionCardSchemas: {
 		kind: "term",
 		label: "Value",
 		icon: tablerVariable,
-		description: "A property, search input, session field, or literal value",
+		description:
+			"A typed value, a property, a search field, or a session field",
 		component: TermCard,
 		defaultValue: termDefault,
 		applicable: applicableAlways,
@@ -283,7 +284,7 @@ export const expressionCardSchemas: {
 		kind: "today",
 		label: "Today",
 		icon: tablerCalendarEvent,
-		description: "Project-timezone ISO date at evaluation time",
+		description: "Today's date, at the moment this runs",
 		component: TodayCard,
 		defaultValue: todayDefault,
 		applicable: applicableForDate,
@@ -292,7 +293,7 @@ export const expressionCardSchemas: {
 		kind: "now",
 		label: "Now",
 		icon: tablerClock,
-		description: "UTC ISO datetime at evaluation time",
+		description: "The exact date and time, at the moment this runs",
 		component: NowCard,
 		defaultValue: nowDefault,
 		applicable: applicableForDatetime,
@@ -301,9 +302,9 @@ export const expressionCardSchemas: {
 	// ── Date arithmetic / coercion ───────────────────────────────────
 	"date-add": {
 		kind: "date-add",
-		label: "Date arithmetic",
+		label: "Date shift",
 		icon: tablerCalendarPlus,
-		description: "Date plus an interval × quantity",
+		description: "A date moved by days, weeks, months, or years",
 		component: DateAddCard,
 		defaultValue: dateAddDefault,
 		// `date-add`'s result type follows the `date` operand —
@@ -315,9 +316,9 @@ export const expressionCardSchemas: {
 	},
 	"date-coerce": {
 		kind: "date-coerce",
-		label: "Date coerce",
+		label: "Read as date",
 		icon: tablerCalendarStats,
-		description: "Coerce a text value to a typed date",
+		description: "Treat a text value as a date",
 		component: DateCoerceCard,
 		defaultValue: dateCoerceDefault,
 		// `date-coerce` ↔ `datetime-coerce` is a structural-twin pair
@@ -329,9 +330,9 @@ export const expressionCardSchemas: {
 	},
 	"datetime-coerce": {
 		kind: "datetime-coerce",
-		label: "Datetime coerce",
+		label: "Read as date + time",
 		icon: tablerCalendarStats,
-		description: "Coerce a text value to a typed datetime",
+		description: "Treat a text value as a date and time",
 		component: DateCoerceCard,
 		defaultValue: datetimeCoerceDefault,
 		applicable: applicableForDateOrDatetime,
@@ -340,18 +341,18 @@ export const expressionCardSchemas: {
 	// ── Numeric ──────────────────────────────────────────────────────
 	double: {
 		kind: "double",
-		label: "Numeric coerce",
+		label: "Read as number",
 		icon: tablerHash,
-		description: "Forced numeric coercion via CSQL's double()",
+		description: "Treat a value as a number",
 		component: DoubleCard,
 		defaultValue: doubleDefault,
 		applicable: applicableForNumeric,
 	},
 	arith: {
 		kind: "arith",
-		label: "Arithmetic",
+		label: "Math",
 		icon: tablerCalculator,
-		description: "Five-op binary numeric arithmetic (+, -, *, div, mod)",
+		description: "Add, subtract, multiply, or divide two values",
 		component: ArithCard,
 		defaultValue: arithDefault,
 		applicable: applicableForNumeric,
@@ -360,9 +361,9 @@ export const expressionCardSchemas: {
 	// ── Text ─────────────────────────────────────────────────────────
 	concat: {
 		kind: "concat",
-		label: "Concatenate",
+		label: "Combine text",
 		icon: tablerAbc,
-		description: "Variadic string concatenation",
+		description: "Join several pieces of text into one",
 		component: ConcatCard,
 		defaultValue: concatDefault,
 		applicable: applicableForText,
@@ -371,9 +372,9 @@ export const expressionCardSchemas: {
 	// ── Conditional / dispatch ───────────────────────────────────────
 	coalesce: {
 		kind: "coalesce",
-		label: "Coalesce",
+		label: "First filled-in",
 		icon: tablerCopy,
-		description: "First non-empty value in a fallback chain",
+		description: "The first value in the list that isn't blank",
 		component: CoalesceCard,
 		defaultValue: coalesceDefault,
 		applicable: applicableAlways,
@@ -382,7 +383,7 @@ export const expressionCardSchemas: {
 		kind: "if",
 		label: "If / else",
 		icon: tablerGitMerge,
-		description: "Boolean conditional with eager evaluation of both branches",
+		description: "One value when a condition holds, another when it doesn't",
 		component: IfCard,
 		defaultValue: ifDefault,
 		applicable: applicableAlways,
@@ -391,7 +392,7 @@ export const expressionCardSchemas: {
 		kind: "switch",
 		label: "Switch",
 		icon: tablerSwitch,
-		description: "Value-driven multi-case selector with fallback",
+		description: "Pick a value by matching against several cases",
 		component: SwitchCard,
 		defaultValue: switchDefault,
 		applicable: applicableAlways,
@@ -400,9 +401,9 @@ export const expressionCardSchemas: {
 	// ── Aggregation ──────────────────────────────────────────────────
 	count: {
 		kind: "count",
-		label: "Count related",
+		label: "Count related cases",
 		icon: tablerListSearch,
-		description: "Count cases reachable along a relation walk",
+		description: "How many connected cases match a condition",
 		component: CountCard,
 		defaultValue: countDefault,
 		applicable: (ctx, expectedType) => {
@@ -444,7 +445,7 @@ export const expressionCardSchemas: {
 		kind: "format-date",
 		label: "Format date",
 		icon: tablerArrowsShuffle,
-		description: "Render a date or datetime as text",
+		description: "Write a date out as text, in a format you pick",
 		component: FormatDateCard,
 		defaultValue: formatDateDefault,
 		applicable: (ctx, expectedType) => {

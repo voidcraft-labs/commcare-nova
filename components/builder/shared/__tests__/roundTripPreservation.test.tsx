@@ -106,7 +106,7 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 		// Arithmetic card label appears on the right-side expression
 		// — the registry surfaced the arith arm via its dedicated
 		// card rather than through the old badge.
-		expect(container.textContent).toMatch(/Arithmetic/i);
+		expect(container.textContent).toMatch(/Math/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
@@ -155,9 +155,9 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// The kind picker label "Value" surfaces on the term-arm card
-		// (the registry's user-facing label for the `term` kind).
-		expect(container.textContent).toMatch(/Value/);
+		// Terms render UNBOXED — no slot title; the source chip
+		// ("Typed value") is the term's visible identity.
+		expect(container.textContent).toMatch(/Typed value/);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 });

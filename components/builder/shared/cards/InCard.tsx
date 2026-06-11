@@ -24,6 +24,7 @@ import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 export function inDefault(
 	ctx: PredicateEditContext,
@@ -78,15 +79,18 @@ export function InCard({ value, onChange, path }: InCardProps) {
 
 	return (
 		<div className="space-y-2">
-			<div>
-				<PropertyRefPicker
-					mode="left"
-					value={value.left}
-					onChange={setLeft}
-					invalid={leftErrors.length > 0}
-					ariaLabel="Property"
-				/>
-				<InlineError errors={leftErrors} />
+			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
+				<div>
+					<PropertyRefPicker
+						mode="left"
+						value={value.left}
+						onChange={setLeft}
+						invalid={leftErrors.length > 0}
+						ariaLabel="Property"
+					/>
+					<InlineError errors={leftErrors} />
+				</div>
+				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
 			<div className="space-y-1.5">

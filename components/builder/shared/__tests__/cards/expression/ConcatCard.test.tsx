@@ -67,7 +67,7 @@ describe("ConcatCard — drag handle wiring", () => {
 		// Each row threads a `dragHandleRef` into the card-shell grip,
 		// so we expect one grip per part — three in this case.
 		const grips = container.querySelectorAll(
-			'button[aria-label="Reorder card"]',
+			'button[aria-label="Drag to reorder"]',
 		);
 		expect(grips.length).toBe(3);
 	});
@@ -86,7 +86,7 @@ describe("ConcatCard — drag handle wiring", () => {
 			/>,
 		);
 		const grips = container.querySelectorAll(
-			'button[aria-label="Reorder card"]',
+			'button[aria-label="Drag to reorder"]',
 		);
 		expect(grips.length).toBe(1);
 	});

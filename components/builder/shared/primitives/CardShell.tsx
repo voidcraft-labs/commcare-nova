@@ -207,6 +207,111 @@ export function CardShell({
 	);
 }
 
+interface RowShellProps {
+	readonly dragHandleRef?: (el: HTMLElement | null) => void;
+	readonly onRemove?: () => void;
+	readonly errors?: readonly string[];
+	readonly variant?: "normal" | "nested";
+	readonly children: ReactNode;
+}
+
+/**
+ * Headerless shell for sentence-shaped condition rows. A condition
+ * reads as subject–verb–object ("age — is at least — 50"), so there
+ * is nothing for a title to add: the verb chip inside the row IS the
+ * operation, and naming the AST node above it ("GREATER THAN OR
+ * EQUAL") would say the same thing twice in implementation
+ * vocabulary. Container shapes (groups, related-case lookups) keep
+ * the titled `CardShell` — a box's identity isn't expressible
+ * inline.
+ *
+ * Row chrome that survives from the card shell: a full-height grab
+ * rail on the leading edge when the row is reorderable, a corner
+ * actions menu when it's removable, and the same aria-live error
+ * footer.
+ */
+export function PredicateRowShell({
+	dragHandleRef,
+	onRemove,
+	errors,
+	variant = "normal",
+	children,
+}: RowShellProps) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const hasErrors = errors !== undefined && errors.length > 0;
+
+	const surfaceCls = [
+		"group/card relative rounded-md border py-2.5 pr-3 transition-colors",
+		dragHandleRef !== undefined ? "pl-8" : "pl-3",
+		variant === "nested" ? "bg-nova-surface/30" : "bg-nova-surface/40",
+		hasErrors
+			? "border-nova-error/35 shadow-[inset_0_0_0_1px_rgba(255,90,120,0.12)]"
+			: "border-white/[0.04]",
+	].join(" ");
+
+	return (
+		<div className={surfaceCls}>
+			{dragHandleRef !== undefined && (
+				<button
+					type="button"
+					ref={dragHandleRef}
+					aria-label="Drag to reorder"
+					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-md cursor-grab text-nova-text-muted/40 hover:text-nova-text-muted transition-colors"
+				>
+					<Icon icon={tablerGripVertical} width="14" height="14" />
+				</button>
+			)}
+			<div className={`space-y-2 ${onRemove !== undefined ? "pr-8" : ""}`}>
+				{children}
+			</div>
+			{onRemove !== undefined && (
+				<Menu.Root>
+					<Menu.Trigger
+						ref={triggerRef}
+						aria-label="Condition actions"
+						className="absolute top-0 right-0 w-11 h-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-text transition-colors cursor-pointer"
+					>
+						<Icon icon={tablerDotsVertical} width="14" height="14" />
+					</Menu.Trigger>
+					<Menu.Portal>
+						<Menu.Positioner
+							side="bottom"
+							align="end"
+							sideOffset={4}
+							anchor={triggerRef}
+							className={MENU_POSITIONER_CLS}
+						>
+							<Menu.Popup className={MENU_POPUP_CLS}>
+								<Menu.Item
+									onClick={onRemove}
+									className={`rounded-xl ${MENU_ITEM_CLS} text-nova-error/90 hover:text-nova-error`}
+								>
+									<Icon icon={tablerTrash} width="14" height="14" />
+									<span>Delete</span>
+								</Menu.Item>
+							</Menu.Popup>
+						</Menu.Positioner>
+					</Menu.Portal>
+				</Menu.Root>
+			)}
+			<div
+				aria-live="polite"
+				aria-atomic="true"
+				className={hasErrors ? "mt-2 space-y-0.5" : "sr-only"}
+			>
+				{errors?.map((message) => (
+					<div
+						key={message}
+						className="text-[11px] leading-snug text-nova-error/90"
+					>
+						{message}
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
 interface InlineErrorProps {
 	readonly errors: readonly string[];
 }

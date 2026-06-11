@@ -25,6 +25,7 @@ import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** Module-level filter so render-time identity stays stable —
  *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
@@ -97,16 +98,19 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 
 	return (
 		<div className="space-y-2">
-			<div>
-				<PropertyRefPicker
-					mode="left"
-					value={value.left}
-					onChange={setLeft}
-					filter={ORDERED_PROPERTY_FILTER}
-					invalid={leftErrors.length > 0}
-					ariaLabel="Property"
-				/>
-				<InlineError errors={leftErrors} />
+			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
+				<div>
+					<PropertyRefPicker
+						mode="left"
+						value={value.left}
+						onChange={setLeft}
+						filter={ORDERED_PROPERTY_FILTER}
+						invalid={leftErrors.length > 0}
+						ariaLabel="Property"
+					/>
+					<InlineError errors={leftErrors} />
+				</div>
+				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
 			<div className="grid grid-cols-1 @md:grid-cols-2 gap-2">
