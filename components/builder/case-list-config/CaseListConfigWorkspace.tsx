@@ -641,7 +641,9 @@ function WorkspaceTabs({
 							: "bg-nova-violet/[0.12] border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.2]"
 					}`}
 				>
-					<Icon icon={tablerPlayerPlay} width="14" height="14" />
+					{/* 17px to match the config tabs' icons — one strip, one
+					 *  icon scale. */}
+					<Icon icon={tablerPlayerPlay} width="17" height="17" />
 					<span className="hidden @xl:inline">Preview</span>
 				</button>
 			</Tooltip>

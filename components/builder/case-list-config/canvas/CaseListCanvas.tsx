@@ -136,7 +136,7 @@ export function CaseListCanvas({
 				<button
 					type="button"
 					onClick={() => onSelect({ type: "filter" })}
-					className={`ml-auto inline-flex items-center gap-2 px-3 min-h-11 max-w-[55%] rounded-md cursor-pointer border transition-all text-xs ${
+					className={`ml-auto inline-flex items-center gap-2 px-3 min-h-11 max-w-[55%] rounded-lg cursor-pointer border transition-all text-xs ${
 						filterSelected
 							? "border-nova-violet bg-nova-violet/[0.14] shadow-[0_0_14px_rgba(139,92,246,0.25)]"
 							: "border-transparent hover:bg-white/[0.03]"

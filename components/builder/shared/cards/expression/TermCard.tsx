@@ -770,8 +770,8 @@ function LiteralShapeMenu({
 				<span>{LITERAL_SHAPE_LABELS[shape]}</span>
 				<svg
 					aria-hidden="true"
-					width="8"
-					height="8"
+					width="10"
+					height="10"
 					viewBox="0 0 10 10"
 					className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
 				>

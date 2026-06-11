@@ -315,10 +315,12 @@ body {
 	}
 }
 
-/* Etched label in the bottom bezel */
+/* Etched label in the bottom bezel — 9px is the etched-type floor
+   shared with the LIVE readouts and inspector kickers; 7px was the
+   scale's one outlier. */
 .nova-panel-etch {
 	font-family: var(--font-mono);
-	font-size: 7px;
+	font-size: 9px;
 	letter-spacing: 0.15em;
 	text-transform: uppercase;
 	color: rgba(140, 140, 175, 0.6);

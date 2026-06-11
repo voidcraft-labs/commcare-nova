@@ -158,8 +158,8 @@ describe("PreviewShell — case-list-authoring integration", () => {
 
 		// The three config tabs + the Preview affordance are present…
 		expect(screen.getByRole("button", { name: /Search/ })).toBeDefined();
-		expect(screen.getByRole("button", { name: /Case list/ })).toBeDefined();
-		expect(screen.getByRole("button", { name: /Case detail/ })).toBeDefined();
+		expect(screen.getByRole("button", { name: /Case List/ })).toBeDefined();
+		expect(screen.getByRole("button", { name: /Case Detail/ })).toBeDefined();
 		expect(screen.getByRole("button", { name: /Preview/ })).toBeDefined();
 		// …and the case-list canvas renders the module name as the
 		// artifact's title.
