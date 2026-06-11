@@ -39,9 +39,15 @@
  */
 
 import { parser } from "@/lib/commcare/xpath";
+import {
+	findContainingForm,
+	findFieldParent,
+} from "@/lib/doc/mutations/helpers";
+import { referencingCarrierUuids } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
 import {
+	caseTypeTargetKey,
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
 	MODULE_REFERENCE_SLOTS,
@@ -184,6 +190,24 @@ function blockedRetirementMessage(
  * descriptions. `excludeModuleUuid` skips one module's whole subtree
  * (forms + fields + case-list/search config) — the module a removal is
  * deleting, whose contents go with it.
+ *
+ * The carriers come from ONE reference-index lookup on the case type's
+ * name — never a doc walk. The index's `t:` bucket holds exactly the
+ * type-NAMING reference classes this planner adjudicates (a field's
+ * `case_property_on`, explicit `#<type>/…` hashtags in XPath and
+ * prose, AST origin types and relation-walk hints) and deliberately
+ * excludes the contextual shapes that follow a module's current type
+ * (`#case/…`, column `field`s, simple search-input properties). The
+ * per-entity collectors below then re-derive each carrier's
+ * person-readable descriptions — re-parsing only the named carrier's
+ * own slots — and the module's own `case_type` slot edge contributes
+ * nothing because the module collector treats ownership as the
+ * planner's other-owner check's concern, not a reference.
+ *
+ * The catalog's `parent_type` links stay a direct read of the
+ * root-level `doc.caseTypes` array — the registry's owning entities
+ * are field / form / module, so the catalog has no carrier uuid to
+ * index under.
  */
 export function findCaseTypeReferences(
 	doc: BlueprintDoc,
@@ -200,33 +224,124 @@ export function findCaseTypeReferences(
 		}
 	}
 
-	for (const moduleUuid of doc.moduleOrder) {
-		if (moduleUuid === opts.excludeModuleUuid) continue;
+	/* The blocked-verdict list reads in document order (modules in
+	 * `moduleOrder`, a module's own config before its forms, forms in
+	 * order, fields depth-first), so the looked-up carriers are placed
+	 * and sorted before their descriptions render. A carrier that can't
+	 * be placed (not reachable through the order arrays) is skipped —
+	 * the walk this lookup replaced never visited those either. */
+	const placed: CarrierPlacement[] = [];
+	for (const carrierUuid of referencingCarrierUuids(
+		doc,
+		caseTypeTargetKey(caseType),
+	)) {
+		const placement = placeCarrier(doc, carrierUuid as Uuid);
+		if (!placement) continue;
+		if (placement.moduleUuid === opts.excludeModuleUuid) continue;
+		placed.push(placement);
+	}
+	placed.sort((a, b) => compareRanks(a.rank, b.rank));
+
+	for (const { uuid, moduleUuid } of placed) {
 		const mod = doc.modules[moduleUuid];
 		if (!mod) continue;
-		collectModuleConfigReferences(mod, caseType, references);
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const form = doc.forms[formUuid];
+		if (uuid === moduleUuid) {
+			collectModuleConfigReferences(mod, caseType, references);
+			continue;
+		}
+		const field = doc.fields[uuid];
+		if (field) {
+			const formUuid = findContainingForm(doc, uuid);
+			const form = formUuid !== undefined ? doc.forms[formUuid] : undefined;
 			if (!form) continue;
 			const where = `form "${form.name}" (module "${mod.name}")`;
+			collectFieldReferences(field, caseType, where, references);
+			continue;
+		}
+		const form = doc.forms[uuid];
+		if (form) {
+			const where = `form "${form.name}" (module "${mod.name}")`;
 			collectFormSlotReferences(form, caseType, where, references);
-			for (const field of fieldsUnder(doc, formUuid)) {
-				collectFieldReferences(field, caseType, where, references);
-			}
 		}
 	}
 
 	return references;
 }
 
-/** Every field recursively under `parentUuid`, in document order. */
-function* fieldsUnder(doc: BlueprintDoc, parentUuid: Uuid): Generator<Field> {
-	for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		yield field;
-		yield* fieldsUnder(doc, uuid);
+/** One looked-up carrier, placed in document order. `rank` compares
+ *  lexicographically: `[moduleIndex, -1]` for the module's own config,
+ *  `[moduleIndex, formIndex, -1]` for a form's wiring, and
+ *  `[moduleIndex, formIndex, ...childIndices]` for a field — so a
+ *  module's config precedes its forms, a form's wiring precedes its
+ *  fields, and fields read depth-first (a container before its
+ *  children), exactly the order the doc walk used to produce. */
+interface CarrierPlacement {
+	uuid: Uuid;
+	moduleUuid: Uuid;
+	rank: number[];
+}
+
+function compareRanks(a: readonly number[], b: readonly number[]): number {
+	const len = Math.min(a.length, b.length);
+	for (let i = 0; i < len; i++) {
+		if (a[i] !== b[i]) return a[i] - b[i];
 	}
+	return a.length - b.length;
+}
+
+function placeCarrier(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+): CarrierPlacement | undefined {
+	if (doc.modules[uuid]) {
+		const moduleIndex = doc.moduleOrder.indexOf(uuid);
+		if (moduleIndex === -1) return undefined;
+		return { uuid, moduleUuid: uuid, rank: [moduleIndex, -1] };
+	}
+	if (doc.forms[uuid]) {
+		const position = formPosition(doc, uuid);
+		if (!position) return undefined;
+		return {
+			uuid,
+			moduleUuid: position.moduleUuid,
+			rank: [position.moduleIndex, position.formIndex, -1],
+		};
+	}
+	if (doc.fields[uuid]) {
+		// Climb to the containing form collecting each level's sibling
+		// index — the depth-first rank within the form.
+		const childIndices: number[] = [];
+		let cursor: Uuid = uuid;
+		const seen = new Set<Uuid>();
+		while (!seen.has(cursor)) {
+			seen.add(cursor);
+			const parent = findFieldParent(doc, cursor);
+			if (!parent) return undefined;
+			childIndices.unshift(parent.index);
+			if (doc.forms[parent.parentUuid]) {
+				const position = formPosition(doc, parent.parentUuid);
+				if (!position) return undefined;
+				return {
+					uuid,
+					moduleUuid: position.moduleUuid,
+					rank: [position.moduleIndex, position.formIndex, ...childIndices],
+				};
+			}
+			cursor = parent.parentUuid;
+		}
+	}
+	return undefined;
+}
+
+function formPosition(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): { moduleUuid: Uuid; moduleIndex: number; formIndex: number } | undefined {
+	for (const [moduleIndex, moduleUuid] of doc.moduleOrder.entries()) {
+		const formIndex = (doc.formOrder[moduleUuid] ?? []).indexOf(formUuid);
+		if (formIndex !== -1) return { moduleUuid, moduleIndex, formIndex };
+	}
+	return undefined;
 }
 
 function collectFieldReferences(

@@ -29,7 +29,12 @@ import {
 	RESERVED_XFORM_NODE_PREFIX,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { declarersOf } from "@/lib/doc/referenceIndex";
+import {
+	type BlueprintDoc,
+	fieldCasePropertyOn,
+	type Uuid,
+} from "@/lib/domain";
 
 /** Why an id was rejected. Useful for tests and for callers that brand
  *  failure classes differently; human-facing copy rides `message`. */
@@ -112,15 +117,6 @@ function parentHasSibling(
 		if (doc.fields[siblingUuid]?.id === proposedId) return true;
 	}
 	return false;
-}
-
-/** The case type a field's id writes to, or `undefined` when the field
- *  isn't case-bound. Mirrors the rename reducer's peer predicate (an
- *  empty string reads as not-set). */
-function casePropertyOn(field: { kind: string }): string | undefined {
-	const value = (field as { case_property_on?: string }).case_property_on;
-	if (typeof value !== "string" || value.length === 0) return undefined;
-	return value;
 }
 
 /** Walk `fieldParent` up from a parent handle (a form uuid or a
@@ -210,15 +206,18 @@ export function findRenameSiblingConflict(
 	if (!field) return undefined;
 
 	// Peers rename in lockstep with the primary — same id, same
-	// non-empty case_property_on. Mirrors the reducer's cascade
-	// predicate (`cascadeCasePropertyRename`).
-	const caseType = casePropertyOn(field);
+	// non-empty case_property_on. The candidates come from the reference
+	// index's declarations lookup (the same source the reducer's cascade
+	// consumes), each verified against the live doc so the verdict's
+	// peer set mirrors `cascadeCasePropertyRename`'s exactly.
+	const caseType = fieldCasePropertyOn(field);
 	const renaming = new Set<Uuid>([fieldUuid]);
 	if (caseType !== undefined) {
-		for (const [uuid, candidate] of Object.entries(doc.fields)) {
-			if (!candidate || uuid === fieldUuid) continue;
-			if (candidate.id !== field.id) continue;
-			if (casePropertyOn(candidate) !== caseType) continue;
+		for (const uuid of declarersOf(doc, caseType, field.id)) {
+			if (uuid === fieldUuid) continue;
+			const candidate = doc.fields[uuid as Uuid];
+			if (!candidate || candidate.id !== field.id) continue;
+			if (fieldCasePropertyOn(candidate) !== caseType) continue;
 			renaming.add(uuid as Uuid);
 		}
 	}

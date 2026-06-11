@@ -48,6 +48,7 @@ import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
+import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -926,6 +927,24 @@ function assertZeroFindings(doc: BlueprintDoc, context: string): void {
 	}
 }
 
+/**
+ * The reference-index parity invariant, asserted over the same
+ * tool-grown sequences: every committed doc carries an incrementally
+ * maintained index (the gate's candidate apply seeded it), and it must
+ * deep-equal a from-scratch rebuild. The dedicated raw-mutation fuzz
+ * (`lib/doc/__tests__/referenceIndex.fuzz.test.ts`) covers the kinds
+ * the tools don't drive; this run covers the real tool batches —
+ * atomic creations, the retirement cascade's `setCaseTypes` append,
+ * multi-stage edits — so the two alphabets meet in the middle.
+ */
+function assertIndexParity(doc: BlueprintDoc, context: string): void {
+	if (!doc.refIndex) return;
+	expect(
+		doc.refIndex,
+		`reference index diverged from rebuild at ${context}`,
+	).toEqual(buildReferenceIndex(doc));
+}
+
 // ── Preludes — the fixture state, GROWN through the real tools ──────────
 //
 // Each property starts from the birth doc and builds its baseline with
@@ -1330,6 +1349,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					const ctx = makeCtx();
 					let doc = await growStandardPrelude(ctx);
 					assertZeroFindings(doc, "standard prelude");
+					assertIndexParity(doc, "standard prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
 						const committed = next !== doc;
@@ -1337,6 +1357,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 						tallyRetirementArms(retirementArms, doc, next, op, committed);
 						doc = next;
 						assertZeroFindings(doc, `standard op#${i} ${op.type}`);
+						assertIndexParity(doc, `standard op#${i} ${op.type}`);
 					}
 				},
 			),
@@ -1374,6 +1395,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					const ctx = makeCtx();
 					let doc = await growConnectPrelude(ctx);
 					assertZeroFindings(doc, "connect prelude");
+					assertIndexParity(doc, "connect prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
 						if (next !== doc) {
@@ -1390,6 +1412,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 						}
 						doc = next;
 						assertZeroFindings(doc, `connect op#${i} ${op.type}`);
+						assertIndexParity(doc, `connect op#${i} ${op.type}`);
 					}
 				},
 			),
