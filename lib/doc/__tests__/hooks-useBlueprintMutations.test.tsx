@@ -28,6 +28,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
 import { assert, describe, expect, it, vi } from "vitest";
+import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
@@ -1065,8 +1066,10 @@ describe("useBlueprintMutations", () => {
 
 	// ── renameQuestion xpathFieldsRewritten ──────────────────────────────
 
-	it("renameQuestion returns xpathFieldsRewritten from the reducer", () => {
-		// Use a normalized doc with xpath refs to get a nonzero rewrite count.
+	it("renameQuestion returns the reducer's rewrite metadata", () => {
+		// The dep's calculate is an identity-leaf AST — a rename rewrites
+		// NOTHING (the new name arrives at print), so the surfaced count is
+		// zero. The metadata channel itself is what this pins.
 		const MOD4 = asUuid("module-4-uuid");
 		const FORM3 = asUuid("form-3-uuid");
 		const Q_SRC = asUuid("q-src-0000-0000-0000-000000000000");
@@ -1093,7 +1096,7 @@ describe("useBlueprintMutations", () => {
 					id: "dep",
 					kind: "hidden",
 					calculate: "/data/source + 1",
-				} as BlueprintDoc["fields"][typeof Q_DEP],
+				} as unknown as BlueprintDoc["fields"][typeof Q_DEP],
 			},
 			moduleOrder: [MOD4],
 			formOrder: { [MOD4]: [FORM3] },
@@ -1101,7 +1104,10 @@ describe("useBlueprintMutations", () => {
 			fieldParent: {},
 		};
 		const refWrapper = ({ children }: { children: ReactNode }) => (
-			<BlueprintDocProvider appId="t" initialDoc={bpWithRefs}>
+			<BlueprintDocProvider
+				appId="t"
+				initialDoc={resolveDocExpressions(bpWithRefs)}
+			>
 				{children}
 			</BlueprintDocProvider>
 		);
@@ -1121,7 +1127,7 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(captured.value).toBeDefined();
-		expect(captured.value?.xpathFieldsRewritten).toBeGreaterThan(0);
+		expect(captured.value?.xpathFieldsRewritten).toBe(0);
 	});
 
 	// ── moveField — extra options ─────────────────────────────────────────

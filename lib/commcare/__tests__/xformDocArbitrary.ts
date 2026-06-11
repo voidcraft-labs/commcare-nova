@@ -40,6 +40,7 @@ import {
 	type Form,
 	type Media,
 	type Module,
+	opaqueXPathExpression,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
@@ -252,7 +253,7 @@ export function buildField(
 			// Selects are validatable kinds; a type-matched `'a'` default exercises
 			// the setvalue path for the select shape too.
 			...(spec.wantsDefault
-				? { default_value: DEFAULT_VALUE_BY_KIND[kind] }
+				? { default_value: opaqueXPathExpression(DEFAULT_VALUE_BY_KIND[kind]) }
 				: {}),
 			...(labelMedia ? { label_media: labelMedia } : {}),
 		} as Field;
@@ -265,7 +266,9 @@ export function buildField(
 			uuid,
 			kind: "hidden",
 			id,
-			calculate: spec.calculate,
+			// Opaque AST — prints byte-identically, so emission over the
+			// generated text is unchanged.
+			calculate: opaqueXPathExpression(spec.calculate),
 		} as Field;
 		return;
 	}
@@ -348,15 +351,22 @@ export function buildField(
 		kind: spec.kind,
 		id,
 		label: spec.label,
-		...(spec.relevant ? { relevant: spec.relevant } : {}),
+		...(spec.relevant
+			? { relevant: opaqueXPathExpression(spec.relevant) }
+			: {}),
 		...(spec.required ? { required: spec.required } : {}),
 		...(spec.hint ? { hint: spec.hint } : {}),
 		...(validatable && spec.validate
-			? { validate: spec.validate, validate_msg: spec.validateMsg }
+			? {
+					validate: opaqueXPathExpression(spec.validate),
+					validate_msg: spec.validateMsg,
+				}
 			: {}),
 		// `default_value` is type-matched per kind (DEFAULT_VALUE_BY_KIND); a
 		// kind with no entry simply gets none.
-		...(typedDefault ? { default_value: typedDefault } : {}),
+		...(typedDefault
+			? { default_value: opaqueXPathExpression(typedDefault) }
+			: {}),
 		...(labelMedia ? { label_media: labelMedia } : {}),
 		...(hintMedia ? { hint_media: hintMedia } : {}),
 		...(helpMedia ? { help_media: helpMedia } : {}),

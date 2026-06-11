@@ -7,13 +7,13 @@
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema } from "./base";
+import { fieldBaseSchema, xpathExpressionSchema } from "./base";
 
 export const imageFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("image"),
 	hint: z.string().optional(),
 	required: z.string().optional(),
-	relevant: z.string().optional(),
+	relevant: xpathExpressionSchema.optional(),
 });
 
 export type ImageField = z.infer<typeof imageFieldSchema>;

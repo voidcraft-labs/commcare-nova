@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { fieldKinds, fieldRegistry, fieldSchema, isContainer } from "../fields";
 import { asUuid } from "../uuid";
+import { opaqueXPathExpression } from "../xpath";
 
 describe("fieldSchema", () => {
 	it("accepts a valid text field", () => {
@@ -82,7 +83,7 @@ describe("fieldSchema", () => {
 				kind: "hidden",
 				uuid: asUuid("abc"),
 				id: "computed",
-				calculate: "today()",
+				calculate: opaqueXPathExpression("today()"),
 			}).success,
 		).toBe(true);
 		expect(
@@ -90,7 +91,7 @@ describe("fieldSchema", () => {
 				kind: "hidden",
 				uuid: asUuid("abc"),
 				id: "seeded",
-				default_value: "today()",
+				default_value: opaqueXPathExpression("today()"),
 			}).success,
 		).toBe(true);
 	});
@@ -159,7 +160,7 @@ describe("fieldSchema", () => {
 			uuid: asUuid("abc"),
 			id: "h",
 			label: "should be rejected",
-			calculate: "today()",
+			calculate: opaqueXPathExpression("today()"),
 		});
 		expect(parsed.success).toBe(false);
 	});

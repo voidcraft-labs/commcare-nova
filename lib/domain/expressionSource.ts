@@ -16,14 +16,17 @@
 // (`predicate-ast`) or a bare name ref, so there is no expression
 // source text to read.
 //
-// Reads are TOTAL over the stored value: the accessor returns
-// whatever string the slot path resolves to (including the empty
-// string) and `undefined` for anything else, without consulting
-// per-kind applicability — mirroring the direct property reads it
-// replaces, so hand-built or partial docs that bypass Zod behave
-// exactly as before. Applicability gating lives only in the
-// registry-projection iterator (`expressionSurfaceReads`), whose
-// callers want "the slots a field of this kind carries".
+// Reads are TOTAL over the stored value and SHAPE-DRIVEN: a string
+// slot returns its stored text; an AST slot (`lib/domain/xpath`)
+// returns its PRINTED projection — identity leaves resolve against
+// the doc at read time, which is how a renamed field's new name
+// reaches every expression with no slot rewrite. Anything else
+// (including a string parked in a slot a degenerate doc never
+// migrated) reads as the string it is, so hand-built or partial docs
+// that bypass Zod behave exactly as before. Applicability gating
+// lives only in the registry-projection iterator
+// (`expressionSurfaceReads`), whose callers want "the slots a field
+// of this kind carries".
 
 import type { Field } from "./fields";
 import type { Form } from "./forms";
@@ -36,19 +39,26 @@ import {
 	fieldSlotApplies,
 	type ReferenceSurfaceKind,
 	readSlotStrings,
+	readSlotValues,
 	type SlotStringEntry,
 } from "./referenceSlots";
+import { isXPathExpression } from "./xpath/ast";
+import {
+	printXPath,
+	type XPathPrintableDoc,
+	xpathPrintContext,
+} from "./xpath/print";
 
 type FieldSlotEntry = (typeof FIELD_REFERENCE_SLOTS)[number];
 type FormSlotEntry = (typeof FORM_REFERENCE_SLOTS)[number];
 
 type FieldExpressionSlotEntry = Extract<
 	FieldSlotEntry,
-	{ kind: "xpath" | "prose" }
+	{ kind: "xpath" | "xpath-ast" | "prose" }
 >;
 type FormExpressionSlotEntry = Extract<
 	FormSlotEntry,
-	{ kind: "xpath" | "prose" }
+	{ kind: "xpath" | "xpath-ast" | "prose" }
 >;
 
 /** A slot path with at least one `[]` fan-out step. */
@@ -75,9 +85,11 @@ export type FormExpressionSlotId = FormExpressionSlotEntry["slot"];
 export type ScalarFormExpressionSlotId =
 	ScalarEntry<FormExpressionSlotEntry>["slot"];
 
-/** The surface kinds whose stored value is expression SOURCE TEXT. */
+/** The surface kinds whose read projection is expression SOURCE TEXT
+ *  — string-stored slots verbatim, AST-stored slots printed. */
 const EXPRESSION_SURFACE_KINDS: ReadonlySet<ReferenceSurfaceKind> = new Set([
 	"xpath",
+	"xpath-ast",
 	"prose",
 ]);
 
@@ -140,17 +152,33 @@ export function isScalarFieldExpressionSlotId(
 	return SCALAR_FIELD_EXPRESSION_SLOT_IDS.has(key);
 }
 
+/** Project one stored slot value to source text: strings verbatim,
+ *  expression ASTs printed against `doc`, anything else absent. */
+function projectSlotValue(
+	value: unknown,
+	doc: XPathPrintableDoc,
+): string | undefined {
+	if (typeof value === "string") return value;
+	if (isXPathExpression(value)) {
+		return printXPath(value, xpathPrintContext(doc));
+	}
+	return undefined;
+}
+
 /**
- * The source text stored in a scalar expression slot, or `undefined`
- * when the slot is absent (or holds a non-string). The empty string
- * is a real stored value and is returned as-is — blank-skip policy
- * belongs to callers.
+ * The source text a scalar expression slot reads as, or `undefined`
+ * when the slot is absent. String slots read verbatim; AST slots
+ * print against `doc` (identity leaves resolve to current names).
+ * The empty string / empty expression is a real stored value and is
+ * returned as-is — blank-skip policy belongs to callers.
  */
 export function expressionSource(
 	field: Field,
 	slot: ScalarFieldExpressionSlotId,
+	doc: XPathPrintableDoc,
 ): string | undefined {
-	return readSlotStrings(field, FIELD_SLOT_PATHS[slot])[0]?.text;
+	const value = readSlotValues(field, FIELD_SLOT_PATHS[slot])[0]?.value;
+	return projectSlotValue(value, doc);
 }
 
 /**
@@ -162,8 +190,17 @@ export function expressionSource(
 export function expressionSourceEntries(
 	field: Field,
 	slot: FieldExpressionSlotId,
+	doc: XPathPrintableDoc,
 ): SlotStringEntry[] {
-	return readSlotStrings(field, FIELD_SLOT_PATHS[slot]);
+	const entries: SlotStringEntry[] = [];
+	for (const { indices, value } of readSlotValues(
+		field,
+		FIELD_SLOT_PATHS[slot],
+	)) {
+		const text = projectSlotValue(value, doc);
+		if (text !== undefined) entries.push({ indices, text });
+	}
+	return entries;
 }
 
 /**
@@ -201,26 +238,38 @@ export interface ExpressionRead<
 export function expressionSurfaceReads(
 	field: Field,
 	surface: "xpath",
+	doc: XPathPrintableDoc,
 ): ExpressionRead<FieldXPathSlotId>[];
 export function expressionSurfaceReads(
 	field: Field,
 	surface: "prose",
+	doc: XPathPrintableDoc,
 ): ExpressionRead<FieldProseSlotId>[];
 export function expressionSurfaceReads(
 	field: Field,
 	surface: "xpath" | "prose",
+	doc: XPathPrintableDoc,
 ): ExpressionRead[] {
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	const reads: ExpressionRead[] = [];
 	for (const entry of FIELD_EXPRESSION_SLOT_ENTRIES) {
-		if (entry.kind !== surface) continue;
+		// The "xpath" surface spans both storage shapes — the read is
+		// text either way (AST slots print).
+		const matches =
+			surface === "xpath"
+				? entry.kind === "xpath" || entry.kind === "xpath-ast"
+				: entry.kind === "prose";
+		if (!matches) continue;
 		// The literal-tuple entries narrow to the declared interface for
 		// the applicability check (optional keys are absent on most
 		// literal members).
 		const slot: FieldReferenceSlot = entry;
 		if (!fieldSlotApplies(slot, field.kind, repeatMode)) continue;
-		for (const { text, indices } of readSlotStrings(field, entry.path)) {
-			reads.push({ slot: entry.slot, text, indices });
+		for (const { value, indices } of readSlotValues(field, entry.path)) {
+			const text = projectSlotValue(value, doc);
+			if (text !== undefined) {
+				reads.push({ slot: entry.slot, text, indices });
+			}
 		}
 	}
 	return reads;

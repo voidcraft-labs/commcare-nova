@@ -350,11 +350,11 @@ export function buildCaseReferencesLoad(
 			const nodePath = parentPath.child(field.id);
 
 			const xpathExprs = [
-				readFieldString(field, "relevant"),
-				readFieldString(field, "validate"),
-				readFieldString(field, "calculate"),
-				readFieldString(field, "default_value"),
-				readFieldString(field, "required"),
+				readFieldString(field, "relevant", doc),
+				readFieldString(field, "validate", doc),
+				readFieldString(field, "calculate", doc),
+				readFieldString(field, "default_value", doc),
+				readFieldString(field, "required", doc),
 			].filter((s): s is string => typeof s === "string");
 			const hashtags = extractHashtags(xpathExprs);
 			if (hashtags.length > 0) {

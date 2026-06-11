@@ -40,8 +40,10 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { asUuid } from "@/lib/doc/types";
-import type { TextField } from "@/lib/domain";
+import type { TextField, XPathExpression } from "@/lib/domain";
+import { printXPath } from "@/lib/domain";
 
 // Stub XPathField — the real implementation mounts CodeMirror and
 // requires a ReferenceProvider context. The stub renders an opaque
@@ -60,6 +62,19 @@ const updateFieldMock = vi.fn(
 );
 vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 	useBlueprintMutations: () => ({ updateField: updateFieldMock }),
+}));
+
+// The display/commit hooks subscribe to the doc store; the test mounts
+// no provider, so print/parse run against an empty resolution surface
+// (the fixture expression has no form refs).
+vi.mock("@/lib/doc/hooks/useXPathSlots", () => ({
+	useXPathText: (expr: XPathExpression | undefined) =>
+		expr === undefined
+			? ""
+			: printXPath(expr, { fieldPathSegments: () => undefined }),
+	useParseXPathForField: () => (text: string) => ({
+		parts: text.length === 0 ? [] : [{ kind: "text", text }],
+	}),
 }));
 
 // `useSessionFocusHint` returns the active focus-restore key. The
@@ -83,7 +98,7 @@ const baseField: TextField = {
 	uuid: asUuid("u1-text"),
 	id: "patient_age",
 	label: "Patient age",
-	validate: ". > 0",
+	validate: xp(". > 0"),
 };
 
 describe("XPathEditor — validate_msg clear-arm split", () => {
@@ -95,7 +110,7 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 		render(
 			<XPathEditor
 				field={baseField}
-				value=". > 0"
+				value={xp(". > 0")}
 				onChange={() => ({ ok: true }) as const}
 				label="Validation"
 				keyName="validate"
@@ -141,7 +156,7 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 		render(
 			<XPathEditor
 				field={{ ...baseField, validate_msg: "Must be greater than zero." }}
-				value=". > 0"
+				value={xp(". > 0")}
 				onChange={() => ({ ok: true }) as const}
 				label="Validation"
 				keyName="validate"

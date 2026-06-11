@@ -209,7 +209,7 @@ export function deriveCaseConfig(
 				field.kind === "repeat" && containerPath
 					? containerPath
 					: repeatAncestorPath;
-			const casePropertyOn = readFieldString(field, "case_property_on");
+			const casePropertyOn = readFieldString(field, "case_property_on", doc);
 
 			if (casePropertyOn) {
 				if (casePropertyOn === moduleCaseType) {

@@ -12,7 +12,7 @@
  * not on the field itself.
  */
 
-import { isContainer } from "../../lib/domain";
+import { expressionSource, isContainer } from "../../lib/domain";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "./types";
 
 // ── Result types ────────────────────────────────────────────────────
@@ -480,21 +480,27 @@ function walkForLogic(
 		const has: LogicField["has"] = [];
 		const expressions: Record<string, string> = {};
 
-		if ("calculate" in f && f.calculate) {
+		// AST-stored slots project to their printed text — `expressionSource`
+		// resolves identity leaves against the doc.
+		const calculate = expressionSource(f, "calculate", doc);
+		if (calculate) {
 			has.push("calculate");
-			expressions.calculate = f.calculate;
+			expressions.calculate = calculate;
 		}
-		if ("relevant" in f && f.relevant) {
+		const relevant = expressionSource(f, "relevant", doc);
+		if (relevant) {
 			has.push("relevant");
-			expressions.relevant = f.relevant;
+			expressions.relevant = relevant;
 		}
-		if ("default_value" in f && f.default_value) {
+		const defaultValue = expressionSource(f, "default_value", doc);
+		if (defaultValue) {
 			has.push("default");
-			expressions.default = f.default_value;
+			expressions.default = defaultValue;
 		}
-		if ("validate" in f && f.validate) {
+		const validate = expressionSource(f, "validate", doc);
+		if (validate) {
 			has.push("validate");
-			expressions.validate = f.validate;
+			expressions.validate = validate;
 		}
 		if ("required" in f && f.required && f.required !== "false()") {
 			has.push("required");

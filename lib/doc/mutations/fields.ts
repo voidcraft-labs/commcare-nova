@@ -467,10 +467,9 @@ export function applyFieldMutation(
 					)) {
 						const target = draft.fields[carrierUuid as Uuid];
 						if (!target) continue;
-						xpathFieldsRewritten += rewriteFieldReferenceSlots(
-							target,
-							moveRewriter,
-						);
+						xpathFieldsRewritten += rewriteFieldReferenceSlots(target, {
+							xpath: moveRewriter,
+						});
 					}
 					const form = draft.forms[formUuid];
 					if (form) {
@@ -934,7 +933,7 @@ function rewriteFormLocalRefs(
 		// `renameSingleField` — only field carriers rewrite here.
 		const target = doc.fields[carrierUuid as Uuid];
 		if (!target) continue;
-		if (rewriteFieldReferenceSlots(target, xpathRewriter) > 0) {
+		if (rewriteFieldReferenceSlots(target, { xpath: xpathRewriter }) > 0) {
 			tracking.touchedFields.add(carrierUuid as Uuid);
 			tracking.affectedForms.add(formUuid);
 		}
@@ -1149,7 +1148,11 @@ function cascadeCasePropertyRename(
 			: perTypeRewriter;
 		const field = doc.fields[carrierUuid as Uuid];
 		if (field) {
-			if (rewriteFieldReferenceSlots(field, rewriter) > 0) {
+			const fieldOps = {
+				xpath: rewriter,
+				caseLeafRename: { rename, contextualMatches: matchesCaseType },
+			};
+			if (rewriteFieldReferenceSlots(field, fieldOps) > 0) {
 				tracking.touchedFields.add(carrierUuid as Uuid);
 				tracking.affectedForms.add(formUuid);
 			}

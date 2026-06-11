@@ -30,6 +30,7 @@
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -125,7 +126,7 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 							kind: "updateField",
 							uuid,
 							targetKind: doc.fields[uuid].kind,
-							patch: { relevant },
+							patch: { relevant: xp(relevant) },
 						}) as Mutation,
 				),
 		);

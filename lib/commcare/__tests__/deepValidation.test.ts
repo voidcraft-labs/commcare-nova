@@ -598,7 +598,10 @@ function treeFromFields(fields: FieldSpec[]) {
 		modules: [{ name: "M", forms: [{ name: "F", type: "survey", fields }] }],
 	});
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	return buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
+	return {
+		tree: buildFieldTree(formUuid, doc.fields, doc.fieldOrder),
+		doc,
+	};
 }
 
 describe("TriggerDag.reportCycles", () => {
@@ -607,41 +610,35 @@ describe("TriggerDag.reportCycles", () => {
 	// The leaf the others read (`a`) is a plain user input — a visible `int`.
 	it("returns empty for acyclic graph", () => {
 		const dag = new TriggerDag();
-		const cycles = dag.reportCycles(
-			treeFromFields([
-				f({ kind: "int", id: "a", label: "A" }),
-				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
-			]),
-		);
-		expect(cycles).toEqual([]);
+		const { tree, doc } = treeFromFields([
+			f({ kind: "int", id: "a", label: "A" }),
+			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
+		]);
+		expect(dag.reportCycles(tree, doc)).toEqual([]);
 	});
 
 	it("detects A→B→A cycle", () => {
 		const dag = new TriggerDag();
-		const cycles = dag.reportCycles(
-			treeFromFields([
-				f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
-				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
-			]),
-		);
-		expect(cycles.length).toBeGreaterThan(0);
+		const { tree, doc } = treeFromFields([
+			f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
+			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
+		]);
+		expect(dag.reportCycles(tree, doc).length).toBeGreaterThan(0);
 	});
 
 	it("handles diamond dependency (no cycle)", () => {
 		const dag = new TriggerDag();
-		const cycles = dag.reportCycles(
-			treeFromFields([
-				f({ kind: "int", id: "a", label: "A" }),
-				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
-				f({ kind: "hidden", id: "c", calculate: "/data/a + 2" }),
-				f({
-					kind: "hidden",
-					id: "d",
-					calculate: "/data/b + /data/c",
-				}),
-			]),
-		);
-		expect(cycles).toEqual([]);
+		const { tree, doc } = treeFromFields([
+			f({ kind: "int", id: "a", label: "A" }),
+			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
+			f({ kind: "hidden", id: "c", calculate: "/data/a + 2" }),
+			f({
+				kind: "hidden",
+				id: "d",
+				calculate: "/data/b + /data/c",
+			}),
+		]);
+		expect(dag.reportCycles(tree, doc)).toEqual([]);
 	});
 });
 

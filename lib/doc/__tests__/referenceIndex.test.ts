@@ -18,6 +18,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	buildReferenceIndex,
@@ -32,6 +33,7 @@ import {
 	casePropertyTargetKey,
 	caseTypeTargetKey,
 	entityTargetKey,
+	expressionSource,
 	type Uuid,
 } from "@/lib/domain";
 import { eq, literal, prop, subcasePath } from "@/lib/domain/predicate";
@@ -40,6 +42,12 @@ function uuidByFieldId(doc: BlueprintDoc, id: string): Uuid {
 	const found = Object.values(doc.fields).find((field) => field.id === id);
 	if (!found) throw new Error(`no field with id ${id} in fixture`);
 	return found.uuid;
+}
+
+/** Printed text of an AST-stored relevant slot. */
+function printedRelevant(doc: BlueprintDoc, uuid: Uuid): string | undefined {
+	const field = doc.fields[uuid];
+	return field ? expressionSource(field, "relevant", doc) : undefined;
 }
 
 function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
@@ -102,7 +110,12 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "pending",
-								label: "Pending",
+								// The dangling ref rides PROSE — label refs resolve at
+								// extraction, so a later add re-keys the edge through
+								// the `local` bucket. The relevant's AST raw leaf
+								// extracts nothing by design (unresolved identity
+								// stays text forever).
+								label: "Pending #form/pending_x",
 								relevant: "#form/pending_x = '1'",
 							}),
 							f({
@@ -127,23 +140,25 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const inner = uuidByFieldId(doc, "inner");
 		const watcher = uuidByFieldId(doc, "watcher");
 
-		// `#form/grp/inner` (xpath + prose) AND the slash-path spelling
-		// `/data/grp/inner` carry edges to BOTH the container and the
-		// leaf — renaming/moving `grp` finds carriers of refs into its
-		// subtree with one lookup, whichever spelling they used. (Hashtag
-		// prefixes are emitted per resolved segment; slash-path prefixes
-		// arise from the nested path CST nodes — two mechanisms, one edge
-		// contract.)
+		// An AST-stored ref is ONE identity leaf to the field it lands on —
+		// `#form/grp/inner` / `/data/grp/inner` edge to `inner` alone, with
+		// no container prefix edge: nothing ever rewrites the slot (print
+		// re-derives the whole chain), so the container needs no carrier
+		// lookup. PROSE refs still resolve per segment prefix — the label's
+		// `#form/grp/inner` keeps the `grp` edge the prose rewriter needs.
 		const slashWatcher = uuidByFieldId(doc, "slash_watcher");
-		expect(referencingCarrierUuids(doc, entityTargetKey(grp)).sort()).toEqual(
-			[slashWatcher, watcher].sort(),
+		expect(referencingCarrierUuids(doc, entityTargetKey(grp))).toEqual([
+			watcher,
+		]);
+		expect(referencingCarrierSlots(doc, entityTargetKey(grp))[watcher]).toEqual(
+			{ label: true },
 		);
-		expect(
-			referencingCarrierSlots(doc, entityTargetKey(grp))[slashWatcher],
-		).toEqual({ relevant: true });
 		expect(
 			referencingCarrierSlots(doc, entityTargetKey(inner))[watcher],
 		).toEqual({ relevant: true, label: true });
+		expect(
+			referencingCarrierSlots(doc, entityTargetKey(inner))[slashWatcher],
+		).toEqual({ relevant: true });
 
 		// `/data/case_name` resolves the same way.
 		const caseName = uuidByFieldId(doc, "case_name");
@@ -245,9 +260,9 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 		const renamed = apply(doc, [
 			{ kind: "renameField", uuid: grp, newId: "grp2" },
 		]);
-		expect(
-			(renamed.fields[slashWatcher] as { relevant?: string }).relevant,
-		).toBe("/data/grp2/inner != ''");
+		expect(printedRelevant(renamed, slashWatcher)).toBe(
+			"/data/grp2/inner != ''",
+		);
 		expect(renamed.refIndex).toEqual(buildReferenceIndex(renamed));
 
 		const formUuid = renamed.moduleOrder.flatMap(
@@ -272,7 +287,7 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 				toIndex: 0,
 			},
 		]);
-		expect((moved.fields[slashWatcher] as { relevant?: string }).relevant).toBe(
+		expect(printedRelevant(moved, slashWatcher)).toBe(
 			"/data/outer/grp2/inner != ''",
 		);
 		expect(moved.refIndex).toEqual(buildReferenceIndex(moved));
@@ -281,7 +296,9 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 	it("a rename later in the SAME batch rewrites a ref the batch itself just added", () => {
 		// Mid-batch currency is what lets reducers be lookup-driven at all:
 		// the add's maintenance must land its edges BEFORE the rename's
-		// reducer looks carriers up, inside one applyMutations call.
+		// reducer looks carriers up, inside one applyMutations call. The
+		// fresh PROSE ref is what the rename rewrites; the AST relevant
+		// follows at print with no rewrite.
 		const doc = richDoc();
 		const caseName = uuidByFieldId(doc, "case_name");
 		const formUuid = doc.moduleOrder.flatMap((m) => doc.formOrder[m] ?? [])[0];
@@ -294,15 +311,18 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 					uuid: mintedUuid,
 					kind: "text",
 					id: "fresh_ref",
-					label: "Fresh",
-					relevant: "#form/case_name != ''",
+					label: "Fresh #form/case_name",
+					relevant: parseXPathForForm(doc, formUuid, "#form/case_name != ''"),
 				} as never,
 			},
 			{ kind: "renameField", uuid: caseName, newId: "full_name" },
 		]);
-		expect(
-			(next.fields[mintedUuid as never] as { relevant?: string }).relevant,
-		).toBe("#form/full_name != ''");
+		expect((next.fields[mintedUuid as never] as { label?: string }).label).toBe(
+			"Fresh #form/full_name",
+		);
+		expect(printedRelevant(next, mintedUuid as never)).toBe(
+			"#form/full_name != ''",
+		);
 		expect(next.refIndex).toEqual(buildReferenceIndex(next));
 	});
 });
@@ -341,7 +361,7 @@ describe("incremental maintenance — at-a-distance resolution shifts", () => {
 		]);
 		expect(
 			referencingCarrierSlots(next, entityTargetKey(mintedUuid))[pending],
-		).toEqual({ relevant: true });
+		).toEqual({ label: true });
 		expect(next.refIndex).toEqual(buildReferenceIndex(next));
 	});
 

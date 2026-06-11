@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { BlueprintDoc } from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
+import { expressionSource } from "@/lib/domain";
+
+/** Printed text of an AST-stored expression slot off the live store doc. */
+function calcText(doc: BlueprintDoc, uuid: Uuid): string | undefined {
+	const field = doc.fields[uuid];
+	return field ? expressionSource(field, "calculate", doc) : undefined;
+}
 
 // Fixed UUIDs for all entities in the fixture.
 const MOD = asUuid("module-1-uuid");
@@ -61,7 +69,7 @@ function fixture(): BlueprintDoc {
 				id: "ref",
 				kind: "hidden",
 				calculate: "/data/grp1/source + 1",
-			} as BlueprintDoc["fields"][typeof REF],
+			} as unknown as BlueprintDoc["fields"][typeof REF],
 		},
 		moduleOrder: [MOD],
 		formOrder: { [MOD]: [FORM] },
@@ -77,7 +85,7 @@ function fixture(): BlueprintDoc {
 describe("moveField + path rewrite", () => {
 	it("rewrites absolute-path references when a field moves across groups", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(fixture());
+		store.getState().load(resolveDocExpressions(fixture()));
 
 		store.getState().applyMany([
 			{
@@ -88,10 +96,7 @@ describe("moveField + path rewrite", () => {
 			},
 		]);
 
-		const ref = store.getState().fields[REF] as
-			| { calculate?: string }
-			| undefined;
-		expect(ref?.calculate).toBe("/data/grp2/source + 1");
+		expect(calcText(store.getState(), REF)).toBe("/data/grp2/source + 1");
 	});
 });
 
@@ -149,7 +154,7 @@ function containerFixture(): BlueprintDoc {
 				id: "watch",
 				kind: "hidden",
 				calculate: "#form/grp/child = '1' and /data/grp/child != ''",
-			} as BlueprintDoc["fields"][typeof WATCH],
+			} as unknown as BlueprintDoc["fields"][typeof WATCH],
 			[LABELED]: {
 				uuid: LABELED,
 				id: "labeled",
@@ -171,23 +176,20 @@ function containerFixture(): BlueprintDoc {
 describe("moveField re-anchors refs to a moved CONTAINER's descendants", () => {
 	it("rewrites descendant hashtag + absolute refs on XPath surfaces", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(containerFixture());
+		store.getState().load(resolveDocExpressions(containerFixture()));
 		store
 			.getState()
 			.applyMany([
 				{ kind: "moveField", uuid: GRP, toParentUuid: OUTER, toIndex: 0 },
 			]);
-		const watch = store.getState().fields[WATCH] as
-			| { calculate?: string }
-			| undefined;
-		expect(watch?.calculate).toBe(
+		expect(calcText(store.getState(), WATCH)).toBe(
 			"#form/outer/grp/child = '1' and /data/outer/grp/child != ''",
 		);
 	});
 
 	it("rewrites descendant hashtag refs embedded in prose surfaces", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(containerFixture());
+		store.getState().load(resolveDocExpressions(containerFixture()));
 		store
 			.getState()
 			.applyMany([
@@ -242,7 +244,7 @@ function crossFormFixture(): BlueprintDoc {
 				id: "watch_a",
 				kind: "hidden",
 				calculate: "/data/notes != ''",
-			} as BlueprintDoc["fields"][typeof WATCH_A],
+			} as unknown as BlueprintDoc["fields"][typeof WATCH_A],
 			[NOTES_B]: {
 				uuid: NOTES_B,
 				id: "notes",
@@ -254,7 +256,7 @@ function crossFormFixture(): BlueprintDoc {
 				id: "watch_b",
 				kind: "hidden",
 				calculate: "/data/notes = 'yes'",
-			} as BlueprintDoc["fields"][typeof WATCH_B],
+			} as unknown as BlueprintDoc["fields"][typeof WATCH_B],
 		},
 		moduleOrder: [MOD],
 		formOrder: { [MOD]: [FORM, FORM_B] },
@@ -269,7 +271,7 @@ function crossFormFixture(): BlueprintDoc {
 describe("moveField across forms is warn-and-skipped (undesigned operation)", () => {
 	it("skips a move whose destination is another FORM and leaves the doc unchanged", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(crossFormFixture());
+		store.getState().load(resolveDocExpressions(crossFormFixture()));
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const [result] = store
 			.getState()
@@ -285,12 +287,8 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		expect(state.fields[NOTES_A]?.id).toBe("notes");
 		expect(state.fieldOrder[FORM]).toEqual([NOTES_A, WATCH_A]);
 		expect(state.fieldOrder[FORM_B]).toEqual([NOTES_B, WATCH_B]);
-		expect((state.fields[WATCH_A] as { calculate?: string })?.calculate).toBe(
-			"/data/notes != ''",
-		);
-		expect((state.fields[WATCH_B] as { calculate?: string })?.calculate).toBe(
-			"/data/notes = 'yes'",
-		);
+		expect(calcText(state, WATCH_A)).toBe("/data/notes != ''");
+		expect(calcText(state, WATCH_B)).toBe("/data/notes = 'yes'");
 	});
 
 	it("skips a move whose destination CONTAINER lives in another form", () => {
@@ -318,7 +316,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 			id: "b",
 			kind: "hidden",
 			calculate: "/data/grp/a + 1",
-		} as BlueprintDoc["fields"][typeof SUB_B];
+		} as unknown as BlueprintDoc["fields"][typeof SUB_B];
 		doc.fields[SEC] = {
 			uuid: SEC,
 			id: "sec",
@@ -331,7 +329,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		doc.fieldOrder[SEC] = [];
 
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		store.getState().load(resolveDocExpressions(doc));
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const [result] = store
 			.getState()
@@ -345,9 +343,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		const state = store.getState();
 		expect(state.fieldOrder[FORM]).toEqual([NOTES_A, WATCH_A, GRP]);
 		expect(state.fieldOrder[SEC]).toEqual([]);
-		expect((state.fields[SUB_B] as { calculate?: string })?.calculate).toBe(
-			"/data/grp/a + 1",
-		);
+		expect(calcText(state, SUB_B)).toBe("/data/grp/a + 1");
 	});
 
 	it("skips a move whose destination container is reachable from NO form (fail closed)", () => {
@@ -367,7 +363,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		} as BlueprintDoc["fields"][typeof ORPHAN];
 
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		store.getState().load(resolveDocExpressions(doc));
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const [result] = store
 			.getState()
@@ -381,9 +377,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		const state = store.getState();
 		expect(state.fieldOrder[GRP1]).toEqual([SRC]);
 		expect(state.fieldOrder[ORPHAN]).toBeUndefined();
-		expect((state.fields[REF] as { calculate?: string })?.calculate).toBe(
-			"/data/grp1/source + 1",
-		);
+		expect(calcText(state, REF)).toBe("/data/grp1/source + 1");
 	});
 });
 

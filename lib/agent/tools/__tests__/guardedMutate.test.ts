@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -92,7 +92,7 @@ function badRelevantMutation(doc: BlueprintDoc): Mutation[] {
 			kind: "updateField",
 			uuid: target?.uuid,
 			targetKind: "text",
-			patch: { relevant: "if(" },
+			patch: { relevant: xp("if(") },
 		} as Mutation,
 	];
 }

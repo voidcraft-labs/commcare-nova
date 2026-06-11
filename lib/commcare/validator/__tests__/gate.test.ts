@@ -6,7 +6,7 @@ import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc, type Field, type Uuid } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain/multimedia";
-import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "../../../__tests__/docHelpers";
 import { MEDIA_VALIDATION_CODES, type ValidationError } from "../errors";
 import {
 	classifyError,
@@ -432,7 +432,7 @@ describe("evaluateCommit", () => {
 				kind: "updateField",
 				uuid: fieldUuid,
 				targetKind: "text",
-				patch: { relevant: "#form/does_not_exist = 'x'" },
+				patch: { relevant: xp("#form/does_not_exist = 'x'") },
 			} as Mutation,
 		]);
 		expect(verdict.ok).toBe(false);

@@ -8,13 +8,13 @@
 import tablerSignature from "@iconify-icons/tabler/signature";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema } from "./base";
+import { fieldBaseSchema, xpathExpressionSchema } from "./base";
 
 export const signatureFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("signature"),
 	hint: z.string().optional(),
 	required: z.string().optional(),
-	relevant: z.string().optional(),
+	relevant: xpathExpressionSchema.optional(),
 });
 
 export type SignatureField = z.infer<typeof signatureFieldSchema>;

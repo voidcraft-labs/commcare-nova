@@ -12,6 +12,7 @@
  * whatever keys that variant supports.
  */
 
+import { parseXPathExpression } from "@/lib/commcare/xpath";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
 	asUuid,
@@ -22,10 +23,33 @@ import {
 	type FieldKind,
 	type Form,
 	type FormLink,
+	fieldPathResolver,
 	type Module,
 	plainColumn,
 	type Uuid,
+	type XPathExpression,
 } from "@/lib/domain";
+
+/**
+ * Parse expression text to its stored AST with NO form resolution —
+ * form-namespace refs stay raw leaves (case/user refs classify fine;
+ * they need no doc). For fixtures whose form refs must resolve to
+ * identity leaves, use `xpIn` or author the slot as a string in a
+ * `buildDoc` spec (converted against the complete doc).
+ */
+export function xp(text: string): XPathExpression {
+	return parseXPathExpression(text, () => undefined);
+}
+
+/** Parse expression text against a built doc, scoped to a form — the
+ *  same resolution every live commit surface performs. */
+export function xpIn(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	text: string,
+): XPathExpression {
+	return parseXPathExpression(text, fieldPathResolver(doc, formUuid));
+}
 
 /** Monotonic counter keeps auto-assigned uuids stable + readable per test run. */
 let counter = 0;
@@ -203,6 +227,43 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 		fieldParent: {},
 	};
 	rebuildFieldParent(doc);
+	resolveDocExpressions(doc);
+	return doc;
+}
+
+/**
+ * Fixtures author expression slots as XPath TEXT (the concise spec
+ * shape); the canonical stored form is the expression AST. Convert
+ * after assembly so references resolve against the COMPLETE built doc
+ * — exactly the contract every live commit surface follows. Exported
+ * for tests that hand-assemble docs instead of using `buildDoc`;
+ * mutates in place and returns the doc for inline wrapping.
+ */
+export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
+	const AST_SLOTS = [
+		"relevant",
+		"validate",
+		"calculate",
+		"default_value",
+	] as const;
+	for (const [formUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
+		if (doc.forms[formUuid] === undefined) continue;
+		const resolve = fieldPathResolver(doc, formUuid);
+		const stack = [...fieldUuids];
+		while (stack.length > 0) {
+			const uuid = stack.pop();
+			if (uuid === undefined) continue;
+			const field = doc.fields[uuid] as unknown as Record<string, unknown>;
+			if (!field) continue;
+			for (const slot of AST_SLOTS) {
+				const value = field[slot];
+				if (typeof value === "string") {
+					field[slot] = parseXPathExpression(value, resolve);
+				}
+			}
+			for (const child of doc.fieldOrder[uuid] ?? []) stack.push(child);
+		}
+	}
 	return doc;
 }
 

@@ -37,6 +37,7 @@
  */
 
 import { z } from "zod";
+import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -44,6 +45,7 @@ import type {
 	FieldKind,
 	FieldPatchFor,
 	Uuid,
+	XPathExpression,
 } from "@/lib/domain";
 import { getConvertibleTypes } from "@/lib/domain";
 import {
@@ -113,14 +115,17 @@ type EditUpdatesPatch = Omit<
 
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
+	parseExpr: (text: string) => XPathExpression,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
 	// Plain scalars: SA passes a new value, `null` to clear, or omits to
 	// leave unchanged. A `null` is preserved as `null` (the reducer deletes
-	// the key on it). The XPath-valued scalars (`relevant`, `calculate`,
-	// `default_value`, `required`) get HTML-entity unescape on the way
-	// through — same treatment `applyDefaults` applies on the add path, so
-	// the same SA payload produces the same stored entity through both tools.
+	// the key on it). The XPath-valued scalars get HTML-entity unescape on
+	// the way through — same treatment `applyDefaults` applies on the add
+	// path, so the same SA payload produces the same stored entity through
+	// both tools — and the AST-stored slots (`relevant`, `calculate`,
+	// `default_value`) additionally parse to their stored expression form.
+	const astScalarKeys = new Set(["relevant", "calculate", "default_value"]);
 	const xpathScalarKeys = new Set([
 		"relevant",
 		"calculate",
@@ -145,7 +150,9 @@ function editPatchToFieldPatch(
 	for (const key of scalarKeys) {
 		const value = updates[key];
 		if (value === undefined) continue;
-		if (typeof value === "string" && xpathScalarKeys.has(key)) {
+		if (typeof value === "string" && astScalarKeys.has(key)) {
+			patch[key] = parseExpr(unescapeXPath(value));
+		} else if (typeof value === "string" && xpathScalarKeys.has(key)) {
 			patch[key] = unescapeXPath(value);
 		} else {
 			// A string sets the property; `null` clears it (preserved as
@@ -167,7 +174,7 @@ function editPatchToFieldPatch(
 			patch.validate = null;
 			patch.validate_msg = null;
 		} else {
-			patch.validate = unescapeXPath(updates.validate.expr);
+			patch.validate = parseExpr(unescapeXPath(updates.validate.expr));
 			patch.validate_msg = updates.validate.msg ?? null;
 		}
 	}
@@ -366,7 +373,14 @@ export const editFieldTool = {
 				// infers its conditionally-present keys as `unknown`, so bridge
 				// to the wide patch shape (sound — the arm is a structural
 				// subset).
-				const patch = editPatchToFieldPatch(fieldUpdates as EditUpdatesPatch);
+				// Expression text resolves against the doc as the patch will
+				// see it (post-convert/rename stages), scoped to the field's
+				// containing form.
+				const patch = editPatchToFieldPatch(
+					fieldUpdates as EditUpdatesPatch,
+					(text) =>
+						parseXPathForField(workingDoc, afterRename.field.uuid, text),
+				);
 				if (Object.keys(patch).length > 0) {
 					// `afterRename.field.kind` is the kind after any
 					// just-applied conversion — pass it as `targetKind` so

@@ -27,7 +27,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import { type BlueprintDoc, fieldSchema } from "@/lib/domain";
@@ -315,7 +315,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 				kind: "updateField",
 				uuid: target.uuid,
 				targetKind: "text",
-				patch: { relevant: expr },
+				patch: { relevant: xp(expr) },
 			} as Mutation,
 		]);
 	}
@@ -330,7 +330,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 				kind: "updateField",
 				uuid: target.uuid,
 				targetKind: "text",
-				patch: { default_value: "approved" },
+				patch: { default_value: xp("approved") },
 			} as Mutation,
 		]);
 		expect(verdict.ok).toBe(false);

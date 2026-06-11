@@ -78,11 +78,14 @@ import {
 	type Form,
 	fieldCasePropertyOn,
 	fieldReferenceSlotsFor,
+	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
 	type Module,
 	type ReferenceIndex,
 	readSlotStrings,
+	readSlotValues,
 	type Uuid,
+	type XPathExpression,
 } from "@/lib/domain";
 import {
 	type Predicate,
@@ -363,6 +366,13 @@ function extractFieldEdges(
 					extractXPathRefs(sink, doc, ctx, value.text, slot.slot);
 				}
 				break;
+			case "xpath-ast":
+				for (const value of readSlotValues(field, slot.path)) {
+					if (isXPathExpression(value.value)) {
+						extractAstRefs(sink, ctx, value.value, slot.slot);
+					}
+				}
+				break;
 			case "prose":
 				for (const value of readSlotStrings(field, slot.path)) {
 					extractProseRefs(sink, doc, ctx, value.text, slot.slot);
@@ -637,6 +647,65 @@ function expressionEdges(
 			`referenceIndex: couldn't walk the "${slot}" expression for references — the stored shape has a node the walker doesn't recognize, so its references are not indexed.`,
 			err,
 		);
+	}
+}
+
+// ── Expression-AST leaf extraction ──────────────────────────────────
+
+/**
+ * Edges for one stored expression AST — a pure leaf walk, no parse:
+ *
+ *   - `field-ref` / `path-ref` carry the target's uuid directly. No
+ *     `local` mark: identity edges cannot shift with the form's id
+ *     namespace, which is the whole point of the representation.
+ *   - `case-ref` names its type (`t:`) and reads its property (`c:`).
+ *   - `raw-ref` keeps the string extractor's namespace dispatch: a
+ *     contextual `#case/<prop>` keys under the owning module's CURRENT
+ *     type and marks the carrier context-dependent; an explicit
+ *     namespace (always multi-segment here — single-segment explicit
+ *     refs parse to `case-ref` leaves) names its type; dangling
+ *     `#form/…` and `#user/…` shapes contribute nothing — an
+ *     unresolved leaf stays text forever, so there is no resolution
+ *     to track.
+ */
+function extractAstRefs(
+	sink: EdgeSink,
+	ctx: CarrierContext,
+	expr: XPathExpression,
+	slot: string,
+): void {
+	for (const part of expr.parts) {
+		switch (part.kind) {
+			case "text":
+				break;
+			case "field-ref":
+			case "path-ref":
+				sink.edge(entityTargetKey(part.uuid), slot);
+				break;
+			case "case-ref":
+				sink.edge(caseTypeTargetKey(part.caseType), slot);
+				sink.edge(casePropertyTargetKey(part.caseType, part.property), slot);
+				break;
+			case "user-ref":
+				break;
+			case "raw-ref":
+				if (part.namespace === "case") {
+					sink.markCtx();
+					if (part.segments.length === 1 && ctx.moduleCaseType) {
+						sink.edge(
+							casePropertyTargetKey(ctx.moduleCaseType, part.segments[0]),
+							slot,
+						);
+					}
+				} else if (part.namespace !== "form" && part.namespace !== "user") {
+					sink.edge(caseTypeTargetKey(part.namespace), slot);
+				}
+				break;
+			default: {
+				const _exhaustive: never = part;
+				break;
+			}
+		}
 	}
 }
 

@@ -19,7 +19,7 @@ import {
 } from "@/lib/commcare";
 import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
-import { fieldRegistry } from "@/lib/domain";
+import { expressionSource, fieldRegistry } from "@/lib/domain";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
 
@@ -49,13 +49,18 @@ const FIELD_DESCRIPTIONS: Record<XPathFieldKey, string> = {
 };
 
 /**
- * Read an XPath-bearing property off a Field union member. Returns the
- * value only when it is a non-empty string, otherwise `undefined` — keeps
- * the per-rule code free of manual type guards.
+ * Read an XPath-bearing slot's TEXT off a Field union member — the
+ * shared accessor projects AST-stored slots to their printed form and
+ * passes string-stored slots through. Returns the text only when
+ * non-empty, keeping the per-rule code free of manual type guards.
  */
-function readXPath(field: Field, key: XPathFieldKey): string | undefined {
-	const value = (field as unknown as Record<string, unknown>)[key];
-	return typeof value === "string" && value.length > 0 ? value : undefined;
+function readXPath(
+	field: Field,
+	key: XPathFieldKey,
+	ctx: FieldContext,
+): string | undefined {
+	const value = expressionSource(field, key, ctx.doc);
+	return value !== undefined && value.length > 0 ? value : undefined;
 }
 
 /**
@@ -97,6 +102,8 @@ interface FieldContext {
 	moduleName: string;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
+	/** The whole doc — AST-stored expression slots print against it. */
+	doc: BlueprintDoc;
 }
 
 // ── Rules ──────────────────────────────────────────────────────────
@@ -191,7 +198,7 @@ function calculateOnVisibleInput(
 	ctx: FieldContext,
 ): ValidationError[] {
 	if (field.kind === "hidden") return [];
-	const calculate = readString(field, "calculate");
+	const calculate = readXPath(field, "calculate", ctx);
 	if (!calculate) return [];
 	return [
 		validationError(
@@ -216,7 +223,7 @@ function unquotedStringLiteral(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	for (const key of XPATH_FIELDS) {
-		const value = readXPath(field, key);
+		const value = readXPath(field, key, ctx);
 		if (!value) continue;
 		const bare = detectUnquotedStringLiteral(value);
 		if (!bare) continue;
@@ -253,7 +260,7 @@ function validationOnNonInputType(
 	ctx: FieldContext,
 ): ValidationError[] {
 	if (supportsValidation(field.kind)) return [];
-	const validateExpr = readString(field, "validate");
+	const validateExpr = readXPath(field, "validate", ctx);
 	const validateMsg = readString(field, "validate_msg");
 	if (!validateExpr && !validateMsg) return [];
 	const reported = validateExpr ? "validate" : "validate_msg";
@@ -523,7 +530,7 @@ function fixtureReferenceNotModeled(
 	};
 
 	for (const key of XPATH_FIELDS) {
-		flag(FIELD_DESCRIPTIONS[key], readXPath(field, key));
+		flag(FIELD_DESCRIPTIONS[key], readXPath(field, key, ctx));
 	}
 
 	// Repeat-cardinality XPath surfaces — both flow through the wire-emit
@@ -566,14 +573,15 @@ const FIELD_RULES = [
 export function runFieldRules(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	ctx: FieldContext,
+	ctx: Omit<FieldContext, "doc">,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const fullCtx: FieldContext = { ...ctx, doc };
 	const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
 	const walk = (nodes: typeof tree): void => {
 		for (const node of nodes) {
 			for (const rule of FIELD_RULES) {
-				errors.push(...rule(node.field, ctx));
+				errors.push(...rule(node.field, fullCtx));
 			}
 			if (node.children) walk(node.children);
 		}

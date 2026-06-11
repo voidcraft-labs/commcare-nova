@@ -26,11 +26,11 @@
 import tablerFolder from "@iconify-icons/tabler/folder";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { containerFieldBase } from "./base";
+import { containerFieldBase, xpathExpressionSchema } from "./base";
 
 export const groupFieldSchema = containerFieldBase.extend({
 	kind: z.literal("group"),
-	relevant: z.string().optional(),
+	relevant: xpathExpressionSchema.optional(),
 });
 
 export type GroupField = z.infer<typeof groupFieldSchema>;

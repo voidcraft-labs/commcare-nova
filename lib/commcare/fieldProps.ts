@@ -24,19 +24,24 @@
  *     itself a `string`.
  */
 
-import type { Field } from "@/lib/domain";
+import type { Field, XPathPrintableDoc } from "@/lib/domain";
 import { expressionSource, isScalarFieldExpressionSlotId } from "@/lib/domain";
 
 /**
  * Read the string slot `key` names off `field` as `string | undefined`.
  * Expression-slot ids resolve through `expressionSource` (which also
- * handles the nested `ids_query` path); other keys read the property
- * directly. Non-string values (and keys the field's variant doesn't
- * declare) surface as `undefined`.
+ * handles the nested `ids_query` path, and prints AST-stored slots
+ * against `doc` so identity references read as current names); other
+ * keys read the property directly. Non-string values (and keys the
+ * field's variant doesn't declare) surface as `undefined`.
  */
-export function readFieldString(field: Field, key: string): string | undefined {
+export function readFieldString(
+	field: Field,
+	key: string,
+	doc: XPathPrintableDoc,
+): string | undefined {
 	if (isScalarFieldExpressionSlotId(key)) {
-		return expressionSource(field, key);
+		return expressionSource(field, key, doc);
 	}
 	const value = (field as unknown as Record<string, unknown>)[key];
 	return typeof value === "string" ? value : undefined;

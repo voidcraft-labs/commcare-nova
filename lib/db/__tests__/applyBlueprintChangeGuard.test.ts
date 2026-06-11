@@ -19,7 +19,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { AppDoc } from "@/lib/db/types";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
@@ -205,7 +205,7 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 				uuid: target?.uuid,
 				targetKind: "text",
 				// Unparseable XPath — soundness, rejected in every phase.
-				patch: { relevant: "if(" },
+				patch: { relevant: xp("if(") },
 			} as Mutation,
 		];
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
@@ -244,7 +244,7 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 				kind: "updateField",
 				uuid: target?.uuid,
 				targetKind: "text",
-				patch: { relevant: "if(" },
+				patch: { relevant: xp("if(") },
 			} as Mutation,
 		];
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });

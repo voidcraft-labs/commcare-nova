@@ -16,11 +16,13 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { FieldRenameMeta } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
+import { expressionSource } from "@/lib/domain";
 import {
 	ancestorPath,
 	eq,
@@ -68,6 +70,16 @@ type AnyField =
 
 const asField = (f: Field | undefined): AnyField => f as AnyField;
 
+/** Printed text of an AST-stored expression slot. */
+function printedSlot(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	slot: "calculate" | "relevant" | "validate" | "default_value",
+): string | undefined {
+	const field = doc.fields[uuid];
+	return field ? expressionSource(field, slot, doc) : undefined;
+}
+
 function docWithForm(form: Partial<Form> = {}): BlueprintDoc {
 	return {
 		appId: "test",
@@ -98,7 +110,7 @@ function rename(
 	newId: string,
 ): { next: BlueprintDoc; meta: FieldRenameMeta | undefined } {
 	let meta: FieldRenameMeta | undefined;
-	const next = produce(start, (d) => {
+	const next = produce(resolveDocExpressions(start), (d) => {
 		meta = applyMutation(d, { kind: "renameField", uuid, newId }) as
 			| FieldRenameMeta
 			| undefined;
@@ -200,7 +212,7 @@ describe("renameField rewrites help/validate_msg/option-label prose (live bug)",
 			"Must exceed #form/years.",
 		);
 		// The paired validate XPath rewrites too (pre-existing coverage).
-		expect(asField(next.fields[Q("ref")])?.validate).toBe(". > #form/years");
+		expect(printedSlot(next, Q("ref"), "validate")).toBe(". > #form/years");
 	});
 
 	it("rewrites hashtag refs in select option labels, leaving values alone", () => {
@@ -835,7 +847,7 @@ describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () 
 			},
 		};
 		const { next } = rename(start, Q("grp"), "grp2");
-		expect(asField(next.fields[Q("ref")])?.relevant).toBe(
+		expect(printedSlot(next, Q("ref"), "relevant")).toBe(
 			"#form/grp2/inner = '1' and /data/grp2/inner != ''",
 		);
 	});
@@ -882,7 +894,7 @@ describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () 
 			},
 		};
 		const { next } = rename(start, Q("grp"), "grp2");
-		expect(asField(next.fields[Q("ref")])?.relevant).toBe(
+		expect(printedSlot(next, Q("ref"), "relevant")).toBe(
 			"#form/other/inner = '1'",
 		);
 	});

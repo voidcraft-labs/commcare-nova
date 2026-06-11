@@ -1015,10 +1015,10 @@ function caseHashtagOnCreateForm(
 			if (!field) continue;
 			const fieldRef = `field "${field.id}"`;
 			for (const surface of XPATH_FIELD_SURFACES) {
-				flag("xpath", surface, fieldRef, readFieldString(field, surface));
+				flag("xpath", surface, fieldRef, readFieldString(field, surface, doc));
 			}
 			for (const surface of PROSE_FIELD_SURFACES) {
-				flag("prose", surface, fieldRef, readFieldString(field, surface));
+				flag("prose", surface, fieldRef, readFieldString(field, surface, doc));
 			}
 			// Repeat-cardinality surfaces — XPath the wire emitter threads
 			// through the hashtag expander on both count-bound and
@@ -1113,7 +1113,7 @@ function primaryCaseFieldInRepeat(
 		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[uuid];
 			if (!field) continue;
-			const casePropertyOn = readFieldString(field, "case_property_on");
+			const casePropertyOn = readFieldString(field, "case_property_on", doc);
 			if (repeatAncestor && casePropertyOn === mod.caseType) {
 				errors.push(
 					validationError(

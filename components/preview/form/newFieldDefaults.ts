@@ -75,5 +75,9 @@ export const NEW_FIELD_BUILDERS: {
 	// seed because it stays inert if the user then adds a calculate (the
 	// computed value simply wins), whereas a seeded calculate would
 	// continuously clobber any default the user typed until removed.
-	hidden: (id) => ({ kind: "hidden", id, default_value: "''" }),
+	hidden: (id) => ({
+		kind: "hidden",
+		id,
+		default_value: { parts: [{ kind: "text", text: "''" }] },
+	}),
 };

@@ -328,6 +328,7 @@ export function validateBlueprintDeep(
 
 			// Per-field XPath validation — recursive walk over the tree.
 			validateTreeXPath(
+				doc,
 				tree,
 				validPaths,
 				caseTypeProps,
@@ -346,7 +347,14 @@ export function validateBlueprintDeep(
 			// uses, so prose and XPath can never disagree on which refs are
 			// live. Skipped when the form has no reachable case type.
 			if (caseTypeProps) {
-				validateTreeProse(tree, caseTypeProps, isRegistrationForm, loc, errors);
+				validateTreeProse(
+					doc,
+					tree,
+					caseTypeProps,
+					isRegistrationForm,
+					loc,
+					errors,
+				);
 			}
 
 			// Connect-block XPath expressions. The expressions themselves
@@ -376,7 +384,7 @@ export function validateBlueprintDeep(
 			// same rose tree we already built. The cycle (a list of field ids)
 			// travels structured; the runner formats it.
 			const dag = new TriggerDag();
-			for (const cycle of dag.reportCycles(tree)) {
+			for (const cycle of dag.reportCycles(tree, doc)) {
 				errors.push({ ...loc, kind: "cycle", cycle });
 			}
 		}
@@ -392,6 +400,7 @@ export function validateBlueprintDeep(
  * underlying `XPathError` all travel structured to the runner.
  */
 function validateTreeXPath(
+	doc: BlueprintDoc,
 	nodes: FieldTreeNode[],
 	validPaths: Set<string>,
 	caseTypeProps: Map<string, Set<string>> | undefined,
@@ -421,7 +430,11 @@ function validateTreeXPath(
 		// `repeat_mode` for repeats) drives the walk, so a new
 		// expression-bearing slot enters validation by being registered,
 		// never by extending a hand-rolled key list here.
-		for (const { slot, text } of expressionSurfaceReads(node.field, "xpath")) {
+		for (const { slot, text } of expressionSurfaceReads(
+			node.field,
+			"xpath",
+			doc,
+		)) {
 			// Blank-skip policy is per slot: empty `repeat_count` /
 			// `ids_query` values (including whitespace-only — hence trim)
 			// are caught by `EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY` at the
@@ -444,6 +457,7 @@ function validateTreeXPath(
 		}
 		if (node.children) {
 			validateTreeXPath(
+				doc,
 				node.children,
 				validPaths,
 				caseTypeProps,
@@ -475,6 +489,7 @@ const PROSE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
  * emitter ships it as literal text (`xform/builder.ts::buildLabelNodes`).
  */
 function validateTreeProse(
+	doc: BlueprintDoc,
 	nodes: FieldTreeNode[],
 	caseTypeProps: Map<string, Set<string>>,
 	isRegistrationForm: boolean,
@@ -519,11 +534,12 @@ function validateTreeProse(
 		// including the fan-out `option_label` slot, whose per-option
 		// labels lower to itext just like a field label, so an embedded
 		// case ref there must resolve too.
-		for (const { slot, text } of expressionSurfaceReads(field, "prose")) {
+		for (const { slot, text } of expressionSurfaceReads(field, "prose", doc)) {
 			scan(field, slot, text);
 		}
 		if (node.children) {
 			validateTreeProse(
+				doc,
 				node.children,
 				caseTypeProps,
 				isRegistrationForm,

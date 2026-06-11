@@ -16,6 +16,7 @@ import {
 	moduleSchema,
 	selectOptionSchema,
 } from "@/lib/domain";
+import { opaqueXPathExpression } from "../xpath";
 
 const NEUTRAL_MEDIA = {
 	image: "media-asset-1",
@@ -91,7 +92,7 @@ describe("field schema — media slots", () => {
 			uuid: "field-uuid-int",
 			id: "age",
 			label: "Age",
-			validate: ". >= 0 and . <= 120",
+			validate: opaqueXPathExpression(". >= 0 and . <= 120"),
 			validate_msg: "Enter a realistic age (0–120).",
 			validate_msg_media: { audio: "media-asset-9" },
 		});

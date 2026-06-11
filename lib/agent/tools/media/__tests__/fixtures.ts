@@ -11,6 +11,7 @@
  * is the MCP-surface sibling for cross-surface parity.
  */
 
+import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -74,7 +75,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		uuid: HIDDEN_FIELD,
 		id: "computed_score",
 		kind: "hidden",
-		calculate: "0",
+		calculate: xp("0"),
 	} as Field;
 	return {
 		appId: "test-app",

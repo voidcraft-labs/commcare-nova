@@ -22,8 +22,12 @@ import type { Field, Form, Module } from "@/lib/domain";
 import {
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
+	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
+	readSlotValues,
+	renameCasePropertyInXPath,
 	rewriteSlotStrings,
+	type XPathCasePropertyRename,
 } from "@/lib/domain";
 import {
 	type CasePropertyRename,
@@ -34,12 +38,34 @@ import {
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 
 /**
- * Apply `rewriter` to every reference-carrying slot a field of this
- * kind declares — XPath slots get the raw expression; prose slots are
- * regex-located first so only the embedded hashtag substrings are
- * parsed, never the surrounding text as XPath. Returns the number of
- * slot values changed (an option list counts one per rewritten
- * option label).
+ * What one field-slot rewrite pass carries:
+ *
+ *   - `xpath` — the string rewriter for string-stored XPath slots and
+ *     for the hashtag substrings embedded in prose (prose is located
+ *     by the shared matcher first; surrounding text is never parsed
+ *     as XPath).
+ *   - `caseLeafRename` — present only on the case-property cascade:
+ *     AST-stored slots rename matching leaves STRUCTURALLY
+ *     (`renameCasePropertyInXPath`). Form-local rename/move passes
+ *     leave it absent because AST slots need nothing from them —
+ *     identity leaves resolve at print, so there is no rewrite.
+ */
+export interface FieldSlotRewriteOps {
+	xpath: (expr: string) => string;
+	caseLeafRename?: {
+		rename: XPathCasePropertyRename;
+		/** True when the carrier's owning module has the renamed case
+		 *  type — gates the transitional contextual `#case/…` leaves,
+		 *  which follow the module's type rather than naming one. */
+		contextualMatches: boolean;
+	};
+}
+
+/**
+ * Apply one rewrite pass to every reference-carrying slot a field of
+ * this kind declares. Returns the number of slot values changed (an
+ * option list counts one per rewritten option label; an AST slot
+ * counts one per slot whose leaves changed).
  *
  * The slot list is the registry's per-kind projection
  * (`fieldReferenceSlotsFor`), narrowed by `repeat_mode` for the
@@ -47,18 +73,32 @@ import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
  */
 export function rewriteFieldReferenceSlots(
 	field: Field,
-	rewriter: (expr: string) => string,
+	ops: FieldSlotRewriteOps,
 ): number {
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	let changed = 0;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
 			case "xpath":
-				changed += rewriteSlotStrings(field, slot.path, rewriter);
+				changed += rewriteSlotStrings(field, slot.path, ops.xpath);
 				break;
+			case "xpath-ast": {
+				const leafRename = ops.caseLeafRename;
+				if (leafRename === undefined) break;
+				for (const entry of readSlotValues(field, slot.path)) {
+					if (!isXPathExpression(entry.value)) continue;
+					const renamed = renameCasePropertyInXPath(
+						entry.value,
+						leafRename.rename,
+						{ contextualMatches: leafRename.contextualMatches },
+					);
+					if (renamed > 0) changed++;
+				}
+				break;
+			}
 			case "prose":
 				changed += rewriteSlotStrings(field, slot.path, (text) =>
-					transformBareHashtags(text, rewriter),
+					transformBareHashtags(text, ops.xpath),
 				);
 				break;
 			case "case-type-ref":

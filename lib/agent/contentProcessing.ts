@@ -27,7 +27,13 @@
  * their domain equivalents when seeding a field's defaults.
  */
 import type { z } from "zod";
-import type { CaseType, Field, FieldKind, Uuid } from "@/lib/domain";
+import type {
+	CaseType,
+	Field,
+	FieldKind,
+	Uuid,
+	XPathExpression,
+} from "@/lib/domain";
 import {
 	fieldKindDeclaresKey,
 	fieldKinds,
@@ -317,6 +323,7 @@ function describeFieldFailure(
 export function flatFieldToField(
 	q: Partial<FlatField>,
 	uuid: Uuid,
+	parseExpr: (text: string) => XPathExpression,
 ): FlatFieldResult {
 	const candidate: Record<string, unknown> = {
 		kind: q.kind,
@@ -333,7 +340,7 @@ export function flatFieldToField(
 			}),
 		...(typeof q.relevant === "string" &&
 			q.relevant.length > 0 && {
-				relevant: q.relevant,
+				relevant: parseExpr(q.relevant),
 			}),
 		// Nested validate config: SA passes `validate: { expr, msg? }`;
 		// the schema stores `validate` (string) + `validate_msg`
@@ -344,7 +351,7 @@ export function flatFieldToField(
 		...(q.validate &&
 			typeof q.validate.expr === "string" &&
 			q.validate.expr.length > 0 && {
-				validate: unescapeXPath(q.validate.expr),
+				validate: parseExpr(unescapeXPath(q.validate.expr)),
 				...(typeof q.validate.msg === "string" &&
 					q.validate.msg.length > 0 && {
 						validate_msg: q.validate.msg,
@@ -352,11 +359,11 @@ export function flatFieldToField(
 			}),
 		...(typeof q.calculate === "string" &&
 			q.calculate.length > 0 && {
-				calculate: q.calculate,
+				calculate: parseExpr(q.calculate),
 			}),
 		...(typeof q.default_value === "string" &&
 			q.default_value.length > 0 && {
-				default_value: q.default_value,
+				default_value: parseExpr(q.default_value),
 			}),
 		...(Array.isArray(q.options) &&
 			q.options.length > 0 && {

@@ -44,11 +44,14 @@
 import { z } from "zod";
 import { type Media, mediaSchema } from "../multimedia";
 import { type Uuid, uuidSchema } from "../uuid";
+import { type XPathExpression, xpathExpressionSchema } from "../xpath";
 
 // Re-exported so the per-kind schema files (which extend the bases
 // here) can attach `validate_msg_media` next to their `validate_msg`
-// without each reaching across to the multimedia module directly.
-export { mediaSchema };
+// (and the expression-AST schema next to their `validate` /
+// `default_value`) without each reaching across to the owning modules
+// directly.
+export { mediaSchema, xpathExpressionSchema };
 
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
@@ -126,7 +129,7 @@ export type InputFieldBase = FieldBase & {
 	help?: string;
 	help_media?: Media;
 	required?: string; // XPath expression or "true()"
-	relevant?: string; // XPath expression
+	relevant?: XPathExpression;
 	case_property_on?: string; // case type name this field writes to
 };
 
@@ -136,7 +139,7 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	help: z.string().optional(),
 	help_media: mediaSchema.optional(),
 	required: z.string().optional(),
-	relevant: z.string().optional(),
+	relevant: xpathExpressionSchema.optional(),
 	case_property_on: z.string().optional(),
 });
 

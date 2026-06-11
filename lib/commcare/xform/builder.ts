@@ -740,15 +740,15 @@ function buildFieldParts(
 	// `jr:itext('...')` reference this field emits derives from this one value.
 	const itextKey = itextKeyPrefix + field.id;
 
-	const relevant = readFieldString(field, "relevant");
-	const validate = readFieldString(field, "validate");
-	const validateMsg = readFieldString(field, "validate_msg");
-	const calculate = readFieldString(field, "calculate");
-	const defaultValue = readFieldString(field, "default_value");
-	const required = readFieldString(field, "required");
-	const label = readFieldString(field, "label");
-	const hint = readFieldString(field, "hint");
-	const help = readFieldString(field, "help");
+	const relevant = readFieldString(field, "relevant", doc);
+	const validate = readFieldString(field, "validate", doc);
+	const validateMsg = readFieldString(field, "validate_msg", doc);
+	const calculate = readFieldString(field, "calculate", doc);
+	const defaultValue = readFieldString(field, "default_value", doc);
+	const required = readFieldString(field, "required", doc);
+	const label = readFieldString(field, "label", doc);
+	const hint = readFieldString(field, "hint", doc);
+	const help = readFieldString(field, "help", doc);
 
 	// Per-message media slots. Each registers `<value form="...">` siblings
 	// on its itext entry (via `addItext`), and `hint`/`help` body refs emit

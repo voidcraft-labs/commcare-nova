@@ -90,9 +90,11 @@ function expectIdentityOverRegistry(
 }
 
 describe("validator surface unions ≡ registry projections", () => {
-	it("XPathSurface ≡ the field slots of kind `xpath`", () => {
+	it("XPathSurface ≡ the field slots carrying XPath (string + AST stored)", () => {
+		// One union across both storage shapes — the validator walks the
+		// projected TEXT either way, so the surface vocabulary spans both.
 		const registrySlots = FIELD_REFERENCE_SLOTS.filter(
-			(s) => s.kind === "xpath",
+			(s) => s.kind === "xpath" || s.kind === "xpath-ast",
 		).map((s) => s.slot);
 		expectIdentityOverRegistry(XPATH_SURFACE_BY_SLOT, registrySlots);
 		expectIdentityOverRegistry(SLOT_BY_XPATH_SURFACE, registrySlots);

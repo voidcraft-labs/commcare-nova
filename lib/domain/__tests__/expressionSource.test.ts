@@ -57,8 +57,13 @@ import {
 	FIELD_REFERENCE_SLOTS,
 	type FieldReferenceSlot,
 } from "../referenceSlots";
+import { opaqueXPathExpression } from "../xpath";
 
 // ── Fixtures ──────────────────────────────────────────────────────
+
+/** Planted values are strings or opaque ASTs — nothing resolves, so an
+ *  empty print surface suffices for every read in this file. */
+const EMPTY_DOC = { forms: {}, fields: {}, fieldOrder: {} };
 
 const KIND_SCHEMAS = {
 	text: textFieldSchema,
@@ -149,7 +154,7 @@ function parseFixture(
 function plantAtPath(
 	entity: Record<string, unknown>,
 	path: string,
-	make: (indices: readonly number[]) => string,
+	make: (indices: readonly number[]) => unknown,
 ): void {
 	const walk = (
 		node: Record<string, unknown>,
@@ -188,7 +193,8 @@ function plantedText(slot: string, indices: readonly number[]): string {
 
 const fieldSlots: readonly FieldReferenceSlot[] = FIELD_REFERENCE_SLOTS;
 const expressionSlots = fieldSlots.filter(
-	(slot) => slot.kind === "xpath" || slot.kind === "prose",
+	(slot) =>
+		slot.kind === "xpath" || slot.kind === "xpath-ast" || slot.kind === "prose",
 );
 
 describe("expressionSource resolves every registry xpath/prose slot", () => {
@@ -199,14 +205,19 @@ describe("expressionSource resolves every registry xpath/prose slot", () => {
 			for (const mode of modes) {
 				it(`${slot.slot} on ${kind}${mode ? ` (${mode})` : ""}`, () => {
 					const raw = rawFixture(kind, mode);
+					// AST slots store the expression structurally; the planted
+					// opaque run projects back to the same text on read.
 					plantAtPath(raw, slot.path, (indices) =>
-						plantedText(slot.slot, indices),
+						slot.kind === "xpath-ast"
+							? opaqueXPathExpression(plantedText(slot.slot, indices))
+							: plantedText(slot.slot, indices),
 					);
 					const field = parseFixture(raw, kind, mode);
 
 					const entries = expressionSourceEntries(
 						field,
 						slot.slot as FieldExpressionSlotId,
+						EMPTY_DOC,
 					);
 					expect(entries.length).toBeGreaterThan(0);
 					for (const entry of entries) {
@@ -216,7 +227,11 @@ describe("expressionSource resolves every registry xpath/prose slot", () => {
 					if (!slot.path.includes("[]")) {
 						expect(entries).toHaveLength(1);
 						expect(
-							expressionSource(field, slot.slot as ScalarFieldExpressionSlotId),
+							expressionSource(
+								field,
+								slot.slot as ScalarFieldExpressionSlotId,
+								EMPTY_DOC,
+							),
 						).toBe(plantedText(slot.slot, []));
 					}
 				});
@@ -230,7 +245,7 @@ describe("expressionSource resolves every registry xpath/prose slot", () => {
 			plantedText("option_label", indices),
 		);
 		const field = parseFixture(raw, "single_select");
-		expect(expressionSourceEntries(field, "option_label")).toEqual([
+		expect(expressionSourceEntries(field, "option_label", EMPTY_DOC)).toEqual([
 			{ indices: [0], text: "planted option_label [0]" },
 			{ indices: [1], text: "planted option_label [1]" },
 		]);
@@ -242,16 +257,16 @@ describe("expressionSource resolves every registry xpath/prose slot", () => {
 describe("single-slot reads are total", () => {
 	it("absent slot reads as undefined / zero entries", () => {
 		const field = parseFixture(rawFixture("text"), "text");
-		expect(expressionSource(field, "relevant")).toBeUndefined();
-		expect(expressionSourceEntries(field, "relevant")).toEqual([]);
-		expect(expressionSource(field, "calculate")).toBeUndefined();
+		expect(expressionSource(field, "relevant", EMPTY_DOC)).toBeUndefined();
+		expect(expressionSourceEntries(field, "relevant", EMPTY_DOC)).toEqual([]);
+		expect(expressionSource(field, "calculate", EMPTY_DOC)).toBeUndefined();
 	});
 
-	it("the empty string is a stored value, returned as-is", () => {
+	it("the empty expression is a stored value, projecting as the empty string", () => {
 		const raw = rawFixture("text");
-		plantAtPath(raw, "relevant", () => "");
+		plantAtPath(raw, "relevant", () => opaqueXPathExpression(""));
 		const field = parseFixture(raw, "text");
-		expect(expressionSource(field, "relevant")).toBe("");
+		expect(expressionSource(field, "relevant", EMPTY_DOC)).toBe("");
 	});
 
 	it("reads whatever is stored even when the kind's schema lacks the slot", () => {
@@ -260,7 +275,7 @@ describe("single-slot reads are total", () => {
 		// replaced: the value is visible to a single-slot read…
 		const field = parseFixture(rawFixture("text"), "text");
 		(field as Record<string, unknown>).calculate = "1 + 1";
-		expect(expressionSource(field, "calculate")).toBe("1 + 1");
+		expect(expressionSource(field, "calculate", EMPTY_DOC)).toBe("1 + 1");
 	});
 });
 
@@ -269,16 +284,14 @@ describe("single-slot reads are total", () => {
 describe("expressionSurfaceReads", () => {
 	it("walks xpath slots in registry order", () => {
 		const raw = rawFixture("text");
-		for (const path of ["relevant", "validate", "default_value", "required"]) {
-			plantAtPath(raw, path, () => `expr ${path}`);
+		for (const path of ["relevant", "validate", "default_value"]) {
+			plantAtPath(raw, path, () => opaqueXPathExpression(`expr ${path}`));
 		}
+		plantAtPath(raw, "required", () => "expr required");
 		const field = parseFixture(raw, "text");
-		expect(expressionSurfaceReads(field, "xpath").map((r) => r.slot)).toEqual([
-			"relevant",
-			"validate",
-			"default_value",
-			"required",
-		]);
+		expect(
+			expressionSurfaceReads(field, "xpath", EMPTY_DOC).map((r) => r.slot),
+		).toEqual(["relevant", "validate", "default_value", "required"]);
 	});
 
 	it("walks prose slots in registry order, options fanned out last", () => {
@@ -288,7 +301,10 @@ describe("expressionSurfaceReads", () => {
 		}
 		const field = parseFixture(raw, "single_select");
 		expect(
-			expressionSurfaceReads(field, "prose").map((r) => [r.slot, ...r.indices]),
+			expressionSurfaceReads(field, "prose", EMPTY_DOC).map((r) => [
+				r.slot,
+				...r.indices,
+			]),
 		).toEqual([
 			["label"],
 			["hint"],
@@ -306,7 +322,7 @@ describe("expressionSurfaceReads", () => {
 			"count_bound",
 		);
 		expect(
-			expressionSurfaceReads(countBound, "xpath").map((r) => r.slot),
+			expressionSurfaceReads(countBound, "xpath", EMPTY_DOC).map((r) => r.slot),
 		).toEqual(["repeat_count"]);
 
 		const queryBound = parseFixture(
@@ -315,7 +331,7 @@ describe("expressionSurfaceReads", () => {
 			"query_bound",
 		);
 		expect(
-			expressionSurfaceReads(queryBound, "xpath").map((r) => r.slot),
+			expressionSurfaceReads(queryBound, "xpath", EMPTY_DOC).map((r) => r.slot),
 		).toEqual(["ids_query"]);
 
 		const userControlled = parseFixture(
@@ -323,7 +339,9 @@ describe("expressionSurfaceReads", () => {
 			"repeat",
 			"user_controlled",
 		);
-		expect(expressionSurfaceReads(userControlled, "xpath")).toEqual([]);
+		expect(expressionSurfaceReads(userControlled, "xpath", EMPTY_DOC)).toEqual(
+			[],
+		);
 	});
 
 	it("does not surface a value parked on a kind whose schema lacks the slot", () => {
@@ -332,7 +350,7 @@ describe("expressionSurfaceReads", () => {
 		const field = parseFixture(rawFixture("text"), "text");
 		(field as Record<string, unknown>).calculate = "1 + 1";
 		expect(
-			expressionSurfaceReads(field, "xpath").map((r) => r.slot),
+			expressionSurfaceReads(field, "xpath", EMPTY_DOC).map((r) => r.slot),
 		).not.toContain("calculate");
 	});
 });

@@ -20,7 +20,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig, Form, Module } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+import { asUuid, expressionSource } from "@/lib/domain";
 import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
 import { makeMcpTestContext, makeTestContext } from "../fixtures";
@@ -225,7 +225,12 @@ describe("addFields add-path pipeline", () => {
 				m.kind === "addField",
 		);
 
-		expect(addedBatch?.field).toMatchObject({ validate: expectedValidate });
+		// The stored slot is the expression AST; the unescape is visible in
+		// its printed projection.
+		const storedValidate = addedBatch
+			? expressionSource(addedBatch.field, "validate", doc)
+			: undefined;
+		expect(storedValidate).toBe(expectedValidate);
 	});
 
 	it("inserts the batch's top-level fields at a `beforeFieldId` anchor", async () => {

@@ -1,4 +1,8 @@
-import { expressionSource, type Field } from "@/lib/domain";
+import {
+	expressionSource,
+	type Field,
+	type XPathPrintableDoc,
+} from "@/lib/domain";
 import { extractPathRefs } from "../xpath/dependencies";
 import type { FieldTreeNode } from "./fieldTree";
 import { parseBareHashtags } from "./labelRefs";
@@ -31,9 +35,15 @@ export class TriggerDag {
 	private dependedOnBy = new Map<string, Set<string>>();
 	/** Topologically sorted evaluation order */
 	private sortedPaths: string[] = [];
+	/** Doc surface the expression reads print against — AST slots
+	 *  resolve identity leaves through it. Set by `build`. */
+	private doc: XPathPrintableDoc = { forms: {}, fields: {}, fieldOrder: {} };
 
-	/** Build the DAG from a field tree. */
-	build(tree: FieldTreeNode[], prefix = "/data"): void {
+	/** Build the DAG from a field tree. `doc` is the surface the
+	 *  tree's fields live on (the engine's input slice / the
+	 *  validator's blueprint). */
+	build(tree: FieldTreeNode[], doc: XPathPrintableDoc, prefix = "/data"): void {
+		this.doc = doc;
 		this.nodes.clear();
 		this.dependedOnBy.clear();
 		this.collectExpressions(tree, prefix);
@@ -42,8 +52,12 @@ export class TriggerDag {
 	}
 
 	/** Rebuild the DAG (e.g., after repeat add/remove). */
-	rebuild(tree: FieldTreeNode[], prefix = "/data"): void {
-		this.build(tree, prefix);
+	rebuild(
+		tree: FieldTreeNode[],
+		doc: XPathPrintableDoc,
+		prefix = "/data",
+	): void {
+		this.build(tree, doc, prefix);
 	}
 
 	/**
@@ -107,15 +121,15 @@ export class TriggerDag {
 		// and the prose slots (label/hint) live on different Field
 		// variants — `expressionSource` reads each through the union so a
 		// slot a variant doesn't declare reads as `undefined`.
-		const relevant = expressionSource(f, "relevant");
+		const relevant = expressionSource(f, "relevant", this.doc);
 		if (relevant) expressions.push({ type: "relevant", expr: relevant });
-		const calculate = expressionSource(f, "calculate");
+		const calculate = expressionSource(f, "calculate", this.doc);
 		if (calculate) expressions.push({ type: "calculate", expr: calculate });
-		const required = expressionSource(f, "required");
+		const required = expressionSource(f, "required", this.doc);
 		if (required && required !== "true()" && required !== "false()") {
 			expressions.push({ type: "required", expr: required });
 		}
-		const validate = expressionSource(f, "validate");
+		const validate = expressionSource(f, "validate", this.doc);
 		if (validate) expressions.push({ type: "validation", expr: validate });
 
 		// Collect all XPath expressions that create dependency edges
@@ -123,8 +137,8 @@ export class TriggerDag {
 
 		// Scan label and hint for bare hashtag refs (#form/x, #case/x, #user/x)
 		const allLabelRefs = parseBareHashtags(
-			expressionSource(f, "label") ?? "",
-		).concat(parseBareHashtags(expressionSource(f, "hint") ?? ""));
+			expressionSource(f, "label", this.doc) ?? "",
+		).concat(parseBareHashtags(expressionSource(f, "hint", this.doc) ?? ""));
 		if (allLabelRefs.length > 0) {
 			expressions.push({ type: "output", expr: "" });
 			for (const ref of allLabelRefs) allDepExprs.push(ref);
@@ -154,7 +168,12 @@ export class TriggerDag {
 	 * Returns an array of cycle paths (e.g. ['/data/a', '/data/b', '/data/a']).
 	 * Must be called after collectExpressions() and before detectAndBreakCycles().
 	 */
-	reportCycles(tree: FieldTreeNode[], prefix = "/data"): string[][] {
+	reportCycles(
+		tree: FieldTreeNode[],
+		doc: XPathPrintableDoc,
+		prefix = "/data",
+	): string[][] {
+		this.doc = doc;
 		// Build a fresh graph for cycle detection without mutating the instance
 		const nodes = new Map<string, DagNode>();
 		const dependedOnBy = new Map<string, Set<string>>();

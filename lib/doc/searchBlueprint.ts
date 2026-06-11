@@ -187,7 +187,7 @@ function searchFields(
 		if (field.id.toLowerCase().includes(query)) {
 			matchFields.push({ field: "id", value: field.id });
 		}
-		const label = expressionSource(field, "label");
+		const label = expressionSource(field, "label", doc);
 		if (label?.toLowerCase().includes(query)) {
 			matchFields.push({ field: "label", value: label });
 		}
@@ -212,7 +212,7 @@ function searchFields(
 			"validate_msg",
 			"hint",
 		] as const) {
-			const v = expressionSource(field, key);
+			const v = expressionSource(field, key, doc);
 			if (v?.toLowerCase().includes(query)) {
 				matchFields.push({ field: key, value: v });
 			}
@@ -223,7 +223,7 @@ function searchFields(
 		const opts = anyField.options;
 		if (Array.isArray(opts)) {
 			const labelByOption = new Map<number, string>();
-			for (const entry of expressionSourceEntries(field, "option_label")) {
+			for (const entry of expressionSourceEntries(field, "option_label", doc)) {
 				const index = entry.indices[0];
 				if (index !== undefined) labelByOption.set(index, entry.text);
 			}

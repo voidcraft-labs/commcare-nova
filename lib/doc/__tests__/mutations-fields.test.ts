@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
+import { resolveDocExpressions, xp } from "@/lib/__tests__/docHelpers";
 import { applyMutation } from "@/lib/doc/mutations";
 import type {
 	FieldRenameMeta,
@@ -8,6 +9,7 @@ import type {
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid, mutationSchema } from "@/lib/doc/types";
 import type { Column, Field, Form, Module } from "@/lib/domain";
+import { expressionSource } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
@@ -26,7 +28,9 @@ const C = (s: string) => asUuid(`col${s}-0000-0000-0000-000000000000`);
 function field_(
 	uuid: Uuid,
 	id: string,
-	patch: Partial<Field> & { kind?: Field["kind"] } = {},
+	// Wide on purpose: fixtures author expression slots as STRINGS and
+	// `resolveDocExpressions` converts them against the assembled doc.
+	patch: Record<string, unknown> & { kind?: Field["kind"] } = {},
 ): Field {
 	const { kind = "text", ...rest } = patch;
 	return { uuid, id, kind, label: id, ...rest } as unknown as Field;
@@ -56,6 +60,17 @@ type AnyField =
 	| undefined;
 
 const asField = (f: Field | undefined): AnyField => f as AnyField;
+
+/** The printed text of an AST-stored expression slot — what the old
+ *  string assertions used to read directly off the field. */
+function slotText(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	slot: "calculate" | "relevant" | "validate" | "default_value",
+): string | undefined {
+	const field = doc.fields[uuid];
+	return field ? expressionSource(field, slot, doc) : undefined;
+}
 
 /**
  * Narrow a column off the `calculated` arm of the `Column` discriminated
@@ -115,7 +130,7 @@ describe("addField", () => {
 			fields: { [Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }) },
 			fieldOrder: { [F("1")]: [Q("grp")], [Q("grp")]: [] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "addField",
 				parentUuid: Q("grp"),
@@ -134,7 +149,7 @@ describe("addField", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("a"), Q("c")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "addField",
 				parentUuid: F("1"),
@@ -164,7 +179,7 @@ describe("updateField", () => {
 			fields: { [Q("a")]: field_(Q("a"), "name") },
 			fieldOrder: { [F("1")]: [Q("a")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("a"),
@@ -194,7 +209,7 @@ describe("updateField", () => {
 			fieldOrder: { [F("1")]: [Q("h")] },
 		};
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("h"),
@@ -204,13 +219,13 @@ describe("updateField", () => {
 				// the runtime guard catches the parallel-batch race where a
 				// `convertField` lands between queue and dispatch.
 				targetKind: "text",
-				patch: { label: "oops", default_value: "2" },
+				patch: { label: "oops", default_value: xp("2") },
 			});
 		});
 		expect(warn).toHaveBeenCalled();
 		warn.mockRestore();
 		// Field unchanged — original calculate preserved.
-		expect(asField(next.fields[Q("h")])?.calculate).toBe("1");
+		expect(slotText(next, Q("h"), "calculate")).toBe("1");
 		expect(next.fields[Q("h")]?.kind).toBe("hidden");
 	});
 
@@ -229,7 +244,7 @@ describe("updateField", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("grp")], [Q("grp")]: [Q("kid")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("grp"),
@@ -262,13 +277,13 @@ describe("updateField", () => {
 			targetKind: "text",
 			patch: { kind: "int", hint: "patched" },
 		} as unknown as Parameters<typeof applyMutation>[1];
-		const inProcess = produce(start, (d) => {
+		const inProcess = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, mut);
 		});
 		const roundTripped = mutationSchema.parse(
 			JSON.parse(JSON.stringify(mut)),
 		) as Parameters<typeof applyMutation>[1];
-		const replayed = produce(start, (d) => {
+		const replayed = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, roundTripped);
 		});
 		expect(JSON.stringify(inProcess)).toBe(JSON.stringify(replayed));
@@ -297,7 +312,7 @@ describe("updateField", () => {
 			fieldOrder: { [F("1")]: [Q("r")] },
 		};
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("r"),
@@ -326,7 +341,7 @@ describe("updateField", () => {
 			fieldOrder: { [F("1")]: [Q("a")] },
 		};
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("a"),
@@ -357,7 +372,7 @@ describe("updateField", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("a")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("a"),
@@ -380,7 +395,7 @@ describe("updateField", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("a")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "updateField",
 				uuid: Q("a"),
@@ -421,7 +436,7 @@ describe("removeField", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("a"), Q("b")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, { kind: "removeField", uuid: Q("a") });
 		});
 		expect(next.fields[Q("a")]).toBeUndefined();
@@ -442,7 +457,7 @@ describe("removeField", () => {
 				[Q("grp")]: [Q("c1"), Q("c2")],
 			},
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, { kind: "removeField", uuid: Q("grp") });
 		});
 		expect(next.fields[Q("grp")]).toBeUndefined();
@@ -470,7 +485,7 @@ describe("moveField", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("a"), Q("b"), Q("c")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("a"),
@@ -493,7 +508,7 @@ describe("moveField", () => {
 				[Q("grp")]: [],
 			},
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("x"),
@@ -518,7 +533,7 @@ describe("moveField", () => {
 				[Q("grp")]: [Q("name_b")],
 			},
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("name_a"),
@@ -549,7 +564,7 @@ describe("moveField", () => {
 				[Q("grp")]: [],
 			},
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("src"),
@@ -557,11 +572,10 @@ describe("moveField", () => {
 				toIndex: 0,
 			});
 		});
-		// Path changed from `/data/source` to `/data/grp/source` — the
-		// path-to-path rewriter updates matching absolute-path references.
-		expect(asField(next.fields[Q("ref")])?.calculate).toBe(
-			"/data/grp/source + 1",
-		);
+		// Path changed from `/data/source` to `/data/grp/source`. Nothing
+		// rewrote the stored slot — the reference is an identity leaf, and
+		// printing resolves it to the moved field's current path.
+		expect(slotText(next, Q("ref"), "calculate")).toBe("/data/grp/source + 1");
 	});
 
 	it("is a no-op when the target parent doesn't exist", () => {
@@ -570,7 +584,7 @@ describe("moveField", () => {
 			fields: { [Q("a")]: field_(Q("a"), "a") },
 			fieldOrder: { [F("1")]: [Q("a")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("a"),
@@ -589,7 +603,7 @@ describe("renameField", () => {
 			fields: { [Q("a")]: field_(Q("a"), "old_name") },
 			fieldOrder: { [F("1")]: [Q("a")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("a"),
@@ -611,15 +625,15 @@ describe("renameField", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("src"), Q("ref")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
 				newId: "primary",
 			});
 		});
-		expect(asField(next.fields[Q("ref")])?.calculate).toContain("primary");
-		expect(asField(next.fields[Q("ref")])?.calculate).not.toContain("source");
+		expect(slotText(next, Q("ref"), "calculate")).toContain("primary");
+		expect(slotText(next, Q("ref"), "calculate")).not.toContain("source");
 	});
 
 	it("is a no-op when the field doesn't exist", () => {
@@ -641,7 +655,7 @@ describe("duplicateField", () => {
 			fields: { [Q("a")]: field_(Q("a"), "name") },
 			fieldOrder: { [F("1")]: [Q("a")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, { kind: "duplicateField", uuid: Q("a") });
 		});
 		// Original still exists
@@ -664,7 +678,7 @@ describe("duplicateField", () => {
 			},
 			fieldOrder: { [F("1")]: [Q("a"), Q("b")] },
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, { kind: "duplicateField", uuid: Q("a") });
 		});
 		expect(next.fieldOrder[F("1")]).toHaveLength(3);
@@ -687,7 +701,7 @@ describe("duplicateField", () => {
 				[Q("grp")]: [Q("c")],
 			},
 		};
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, { kind: "duplicateField", uuid: Q("grp") });
 		});
 		// Two top-level groups
@@ -728,7 +742,7 @@ describe("moveField result metadata", () => {
 		};
 
 		let result: MoveFieldResult | undefined;
-		produce(start, (d) => {
+		produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("name_root"),
@@ -744,12 +758,13 @@ describe("moveField result metadata", () => {
 		expect(typeof result?.renamed?.xpathFieldsRewritten).toBe("number");
 	});
 
-	it("returns renamed.xpathFieldsRewritten > 0 when refs are rewritten", () => {
+	it("identity refs follow a dedup-renaming move with zero rewrites", () => {
 		// `ref` has a calculate that references `/data/source`. Moving `source`
 		// into the group changes its path from `/data/source` to
 		// `/data/grp/source`. Additionally, the group already has a `source`
-		// field, so the moved one dedup'd to `source_2` — the rewriter
-		// updates the reference to `/data/grp/source_2`.
+		// field, so the moved one dedup'd to `source_2`. The stored slot is
+		// an identity leaf, so NO rewrite happens — the printed text simply
+		// resolves to `/data/grp/source_2`.
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
@@ -768,7 +783,7 @@ describe("moveField result metadata", () => {
 		};
 
 		let result: MoveFieldResult | undefined;
-		produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("src_a"),
@@ -778,7 +793,10 @@ describe("moveField result metadata", () => {
 		});
 
 		expect(result?.renamed).toBeDefined();
-		expect(result?.renamed?.xpathFieldsRewritten).toBeGreaterThan(0);
+		expect(result?.renamed?.xpathFieldsRewritten).toBe(0);
+		expect(slotText(next, Q("ref"), "calculate")).toBe(
+			"/data/grp/source_2 + 1",
+		);
 	});
 
 	it("returns renamed === undefined when no dedup is needed", () => {
@@ -795,7 +813,7 @@ describe("moveField result metadata", () => {
 		};
 
 		let result: MoveFieldResult | undefined;
-		produce(start, (d) => {
+		produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("x"),
@@ -835,7 +853,7 @@ describe("moveField result metadata", () => {
 			},
 		};
 
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("src"),
@@ -847,9 +865,7 @@ describe("moveField result metadata", () => {
 		expect(asField(next.fields[Q("ref")])?.label).toBe(
 			"See #form/grp/source for details",
 		);
-		expect(asField(next.fields[Q("ref")])?.relevant).toBe(
-			"#form/grp/source != ''",
-		);
+		expect(slotText(next, Q("ref"), "relevant")).toBe("#form/grp/source != ''");
 	});
 
 	it("re-anchors hashtag refs on a nested → top-level move", () => {
@@ -868,7 +884,7 @@ describe("moveField result metadata", () => {
 			},
 		};
 
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "moveField",
 				uuid: Q("src"),
@@ -884,7 +900,7 @@ describe("moveField result metadata", () => {
 });
 
 describe("renameField result metadata", () => {
-	it("returns xpathFieldsRewritten > 0 when sibling references exist", () => {
+	it("counts zero rewrites for sibling identity refs — they follow at print", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
@@ -898,7 +914,7 @@ describe("renameField result metadata", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -907,7 +923,8 @@ describe("renameField result metadata", () => {
 		});
 
 		expect(result).toBeDefined();
-		expect(result?.xpathFieldsRewritten).toBeGreaterThan(0);
+		expect(result?.xpathFieldsRewritten).toBe(0);
+		expect(slotText(next, Q("ref"), "calculate")).toBe("/data/primary * 2");
 		// No case_property_on set on the renamed field → cascade counts stay zero.
 		expect(result?.peerFieldsRenamed).toBe(0);
 		expect(result?.columnsRewritten).toBe(0);
@@ -925,7 +942,7 @@ describe("renameField result metadata", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		produce(start, (d) => {
+		produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("a"),
@@ -952,7 +969,7 @@ describe("renameField result metadata", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		produce(start, (d) => {
+		produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("a"),
@@ -1052,7 +1069,7 @@ describe("renameField case-property cascade", () => {
 			},
 		};
 
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1090,7 +1107,7 @@ describe("renameField case-property cascade", () => {
 			},
 		};
 
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1098,8 +1115,8 @@ describe("renameField case-property cascade", () => {
 			});
 		});
 
-		expect(asField(next.fields[Q("ref")])?.calculate).toBe("#case/age_1 >= 18");
-		expect(asField(next.fields[Q("ref")])?.relevant).toBe("#case/age_1 > 0");
+		expect(slotText(next, Q("ref"), "calculate")).toBe("#case/age_1 >= 18");
+		expect(slotText(next, Q("ref"), "relevant")).toBe("#case/age_1 > 0");
 	});
 
 	it("rewrites #<caseType>/<oldId> per-type refs app-wide, leaving other types alone", () => {
@@ -1150,7 +1167,7 @@ describe("renameField case-property cascade", () => {
 			fieldParent: {},
 		};
 
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1161,7 +1178,7 @@ describe("renameField case-property cascade", () => {
 		expect(next.fields[Q("src")]?.id).toBe("age_years");
 		// `#mother/age` rewritten even though the ref lives in the CHILD
 		// module's form (app-wide scope); `#pregnancy/age` left verbatim.
-		expect(asField(next.fields[Q("ref")])?.relevant).toBe(
+		expect(slotText(next, Q("ref"), "relevant")).toBe(
 			"#mother/age_years + #pregnancy/age",
 		);
 		// Prose ref rewritten the same way.
@@ -1180,7 +1197,7 @@ describe("renameField case-property cascade", () => {
 			fieldOrder: { [F("1")]: [Q("src")] },
 		};
 
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1258,7 +1275,7 @@ describe("renameField case-property cascade", () => {
 			fieldParent: {},
 		};
 
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1330,7 +1347,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1382,7 +1399,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1420,7 +1437,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		produce(start, (d) => {
+		produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1459,7 +1476,7 @@ describe("renameField case-property cascade", () => {
 			},
 		};
 
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src_a"),
@@ -1467,14 +1484,10 @@ describe("renameField case-property cascade", () => {
 			});
 		});
 
-		// Form 1 ref rewritten.
-		expect(asField(next.fields[Q("ref_a")])?.calculate).toBe(
-			"/data/primary + 1",
-		);
-		// Form 2 ref untouched — same path string, different form.
-		expect(asField(next.fields[Q("ref_b")])?.calculate).toBe(
-			"/data/source + 1",
-		);
+		// Form 1 ref resolves to the new name at print.
+		expect(slotText(next, Q("ref_a"), "calculate")).toBe("/data/primary + 1");
+		// Form 2 ref untouched — same path text, different form.
+		expect(slotText(next, Q("ref_b"), "calculate")).toBe("/data/source + 1");
 	});
 
 	it("counts a field with both /data/ and #case/ refs exactly once", () => {
@@ -1501,7 +1514,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1510,7 +1523,7 @@ describe("renameField case-property cascade", () => {
 		});
 
 		// Both refs updated…
-		expect(asField(next.fields[Q("ref")])?.relevant).toBe("/data/age_1 > 1");
+		expect(slotText(next, Q("ref"), "relevant")).toBe("/data/age_1 > 1");
 		expect(asField(next.fields[Q("ref")])?.label).toBe("Age: #case/age_1");
 		// …but `ref` is still exactly one field → count is 1.
 		expect(result?.xpathFieldsRewritten).toBe(1);
@@ -1545,7 +1558,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		produce(start, (d) => {
+		produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1571,7 +1584,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		produce(start, (d) => {
+		produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1674,7 +1687,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1728,7 +1741,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("a"),
@@ -1800,7 +1813,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("primary"),
@@ -1863,7 +1876,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		let result: FieldRenameMeta | undefined;
-		const next = produce(start, (d) => {
+		const next = produce(resolveDocExpressions(start), (d) => {
 			result = applyMutation(d, {
 				kind: "renameField",
 				uuid: Q("src"),
@@ -1904,7 +1917,7 @@ describe("renameField case-property cascade", () => {
 		};
 
 		expect(() =>
-			produce(start, (d) => {
+			produce(resolveDocExpressions(start), (d) => {
 				applyMutation(d, {
 					kind: "renameField",
 					uuid: Q("orphan"),

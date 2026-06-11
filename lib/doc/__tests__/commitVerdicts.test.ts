@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
 	describeIntroducedErrors,
@@ -104,7 +104,7 @@ describe("mutationCommitVerdict", () => {
 				// (`relevant`, not `calculate`: text fields carry no
 				// `calculate` slot, so that patch key would be dropped by the
 				// reducer's schema parse and nothing would be introduced.)
-				patch: { relevant: "if(" },
+				patch: { relevant: xp("if(") },
 			} as Mutation,
 		];
 

@@ -32,7 +32,12 @@ import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	parseXPathForField,
+	parseXPathForForm,
+} from "@/lib/doc/expressionText";
 import { applyMutations } from "@/lib/doc/mutations";
+import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -143,7 +148,12 @@ function seedDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "pending",
-								label: "Pending",
+								// The standing dangling ref lives in PROSE: label refs
+								// resolve at extraction, so a later add re-keys the
+								// edge through the `local` bucket. The relevant's AST
+								// raw leaf deliberately extracts nothing — unresolved
+								// identity stays text forever.
+								label: "Pending #form/pending_x",
 								relevant: "#form/pending_x = '1'",
 							}),
 							f({
@@ -462,6 +472,16 @@ function pickParent(doc: BlueprintDoc, pick: number): Uuid | undefined {
 	return parents.length > 0 ? parents[pick % parents.length] : undefined;
 }
 
+/** Parse a pool expression against the running doc, scoped to the
+ *  form containing `parentUuid` — the same resolution the live commit
+ *  surfaces perform before a mutation carries an expression. */
+function parseRelevant(doc: BlueprintDoc, parentUuid: Uuid, pick: number) {
+	const formUuid = doc.forms[parentUuid]
+		? parentUuid
+		: findContainingForm(doc, parentUuid);
+	return parseXPathForForm(doc, formUuid, XPATH_POOL[pick]);
+}
+
 let minted = 0;
 function mintUuid(): string {
 	minted++;
@@ -488,7 +508,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						kind: "text",
 						id: ID_POOL[op.idPick],
 						label: LABEL_POOL[op.labelPick],
-						relevant: XPATH_POOL[op.relevantPick],
+						relevant: parseRelevant(doc, parentUuid, op.relevantPick),
 						...(caseProp && { case_property_on: caseProp }),
 					} as never);
 			return [{ kind: "addField", parentUuid, field }];
@@ -534,7 +554,11 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 					uuid,
 					targetKind: "text",
 					patch: {
-						relevant: XPATH_POOL[op.relevantPick],
+						relevant: parseXPathForField(
+							doc,
+							uuid,
+							XPATH_POOL[op.relevantPick],
+						),
 						label: LABEL_POOL[op.labelPick],
 					},
 				} as Mutation,
@@ -652,8 +676,15 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						uuid: mintUuid(),
 						kind: "text",
 						id: "fresh_ref",
-						label: "Fresh",
-						relevant: `#form/${targetId} != ''`,
+						// The prose ref is what the rename REWRITES (AST refs
+						// follow at print with no rewrite), so the mid-batch
+						// lookup must surface this fresh carrier.
+						label: `Fresh #form/${targetId}`,
+						relevant: parseXPathForForm(
+							doc,
+							formUuid,
+							`#form/${targetId} != ''`,
+						),
 					} as never,
 				},
 				{ kind: "renameField", uuid: target, newId: ID_POOL[op.idPick] },

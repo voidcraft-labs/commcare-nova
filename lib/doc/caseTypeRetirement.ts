@@ -50,8 +50,11 @@ import {
 	caseTypeTargetKey,
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
+	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
 	readSlotStrings,
+	readSlotValues,
+	xpathRefParts,
 } from "@/lib/domain";
 import {
 	type Predicate,
@@ -366,6 +369,29 @@ function collectFieldReferences(
 			case "xpath": {
 				for (const entry of readSlotStrings(field, slot.path)) {
 					if (expressionNamesCaseType(entry.text, caseType)) {
+						out.push(
+							`field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" expression`,
+						);
+					}
+				}
+				break;
+			}
+			case "xpath-ast": {
+				// Identity leaves name their case type directly — a leaf walk,
+				// never a re-parse. Explicit multi-segment raw refs keep their
+				// namespace as a type name, matching the string scan's rule.
+				for (const entry of readSlotValues(field, slot.path)) {
+					if (!isXPathExpression(entry.value)) continue;
+					const names = xpathRefParts(entry.value).some(
+						(part) =>
+							(part.kind === "case-ref" && part.caseType === caseType) ||
+							(part.kind === "raw-ref" &&
+								part.namespace === caseType &&
+								part.namespace !== "form" &&
+								part.namespace !== "user" &&
+								part.namespace !== "case"),
+					);
+					if (names) {
 						out.push(
 							`field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" expression`,
 						);

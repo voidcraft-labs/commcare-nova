@@ -57,6 +57,11 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  *   - `xpath` — a string XPath expression; refs travel as hashtags
  *     (`#form/...`, `#<case_type>/<prop>`, `#user/<prop>`) and are
  *     read via the Lezer grammar.
+ *   - `xpath-ast` — an XPath expression stored as the typed AST
+ *     (`lib/domain/xpath`): references are identity leaves walked
+ *     structurally; source text is a PROJECTION (`printXPath`), so
+ *     consumers that speak text read the printed form and consumers
+ *     that follow references walk the leaves — never a re-parse.
  *   - `prose` — markdown/plain text that may embed bare hashtag refs;
  *     only the hashtag substrings are reference-bearing, never the
  *     surrounding text.
@@ -74,6 +79,7 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  */
 export const REFERENCE_SURFACE_KINDS = [
 	"xpath",
+	"xpath-ast",
 	"prose",
 	"predicate-ast",
 	"field-id-ref",
@@ -259,21 +265,21 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "relevant",
 		path: "relevant",
-		kind: "xpath",
+		kind: "xpath-ast",
 		appliesTo: RELEVANT_KINDS,
 	},
 	{
 		entity: "field",
 		slot: "validate",
 		path: "validate",
-		kind: "xpath",
+		kind: "xpath-ast",
 		appliesTo: VALIDATED_INPUT_KINDS,
 	},
 	{
 		entity: "field",
 		slot: "calculate",
 		path: "calculate",
-		kind: "xpath",
+		kind: "xpath-ast",
 		// Computed values live on hidden fields only — a `calculate` bind
 		// makes a control read-only, so visible kinds carry `default_value`
 		// (a one-shot seed) instead.
@@ -283,7 +289,7 @@ export const FIELD_REFERENCE_SLOTS = [
 		entity: "field",
 		slot: "default_value",
 		path: "default_value",
-		kind: "xpath",
+		kind: "xpath-ast",
 		appliesTo: [...VALIDATED_INPUT_KINDS, "geopoint", "hidden"],
 	},
 	{
@@ -514,11 +520,19 @@ type FieldSlotEntry = (typeof FIELD_REFERENCE_SLOTS)[number];
 type FormSlotEntry = (typeof FORM_REFERENCE_SLOTS)[number];
 type ModuleSlotEntry = (typeof MODULE_REFERENCE_SLOTS)[number];
 
-/** Field slot ids carrying XPath — the registry side of the
- *  validator's `XPathSurface` union. */
+/** Field slot ids carrying an XPath expression — string-stored
+ *  (`xpath`) and AST-stored (`xpath-ast`) alike. One union on purpose:
+ *  the read surface is expression TEXT either way (AST slots print),
+ *  so the validator's `XPathSurface` vocabulary spans both. */
 export type FieldXPathSlotId = Extract<
 	FieldSlotEntry,
-	{ kind: "xpath" }
+	{ kind: "xpath" | "xpath-ast" }
+>["slot"];
+
+/** The field slot ids whose stored value is the expression AST. */
+export type FieldXPathAstSlotId = Extract<
+	FieldSlotEntry,
+	{ kind: "xpath-ast" }
 >["slot"];
 
 /** Field slot ids carrying prose — the registry side of the
@@ -636,6 +650,52 @@ export function readSlotStrings(
 	return entries;
 }
 
+/** One non-absent value a slot path resolved to — the shape-agnostic
+ *  sibling of `SlotStringEntry` for slots whose stored value is a
+ *  structure (the expression AST) rather than a string. */
+export interface SlotValueEntry {
+	readonly indices: readonly number[];
+	readonly value: unknown;
+}
+
+/**
+ * Read every present value a registry slot `path` resolves to,
+ * whatever its shape. Absent keys resolve to zero visits; the caller
+ * owns narrowing the value (`isXPathExpression` et al).
+ */
+export function readSlotValues(
+	entity: unknown,
+	path: string,
+): SlotValueEntry[] {
+	const entries: SlotValueEntry[] = [];
+	walkSlotValues(entity, path.split("."), [], (_holder, _key, value, indices) =>
+		entries.push({ indices, value }),
+	);
+	return entries;
+}
+
+/**
+ * Replace every present value a registry slot `path` resolves to, in
+ * place. `rewrite` returns the replacement (returning the same
+ * reference leaves the slot untouched). The migration converter and
+ * shape-changing one-time passes drive this; steady-state code reads
+ * via `readSlotValues` and mutates leaves structurally.
+ */
+export function rewriteSlotValues(
+	entity: unknown,
+	path: string,
+	rewrite: (value: unknown) => unknown,
+): number {
+	let changed = 0;
+	walkSlotValues(entity, path.split("."), [], (holder, key, value) => {
+		const next = rewrite(value);
+		if (next === value) return;
+		holder[key] = next;
+		changed++;
+	});
+	return changed;
+}
+
 function walkSlotStrings(
 	node: unknown,
 	segments: readonly string[],
@@ -644,6 +704,22 @@ function walkSlotStrings(
 		holder: Record<string, unknown>,
 		key: string,
 		value: string,
+		indices: readonly number[],
+	) => void,
+): void {
+	walkSlotValues(node, segments, indices, (holder, key, value, at) => {
+		if (typeof value === "string") visit(holder, key, value, at);
+	});
+}
+
+function walkSlotValues(
+	node: unknown,
+	segments: readonly string[],
+	indices: readonly number[],
+	visit: (
+		holder: Record<string, unknown>,
+		key: string,
+		value: unknown,
 		indices: readonly number[],
 	) => void,
 ): void {
@@ -659,17 +735,17 @@ function walkSlotStrings(
 	if (fanOut) {
 		if (!Array.isArray(value)) return;
 		value.forEach((element, index) => {
-			walkSlotStrings(element, rest, [...indices, index], visit);
+			walkSlotValues(element, rest, [...indices, index], visit);
 		});
 		return;
 	}
 
 	if (rest.length > 0) {
-		walkSlotStrings(value, rest, indices, visit);
+		walkSlotValues(value, rest, indices, visit);
 		return;
 	}
 
-	if (typeof value !== "string") return;
+	if (value === undefined) return;
 	visit(node as Record<string, unknown>, key, value, indices);
 }
 

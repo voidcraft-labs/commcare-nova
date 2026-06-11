@@ -46,7 +46,7 @@
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { containerFieldBase } from "./base";
+import { containerFieldBase, xpathExpressionSchema } from "./base";
 
 /**
  * Shared shape for all three repeat variants — `kind` discriminator,
@@ -56,7 +56,7 @@ import { containerFieldBase } from "./base";
  */
 const repeatBase = containerFieldBase.extend({
 	kind: z.literal("repeat"),
-	relevant: z.string().optional(),
+	relevant: xpathExpressionSchema.optional(),
 });
 
 /**

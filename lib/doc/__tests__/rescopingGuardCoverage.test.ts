@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -154,7 +154,7 @@ function caseRefDoc(): BlueprintDoc {
 			...doc.fields,
 			[status.uuid]: {
 				...status,
-				relevant: "#patient/village = 'riverside'",
+				relevant: xp("#patient/village = 'riverside'"),
 			} as Field,
 		},
 	};

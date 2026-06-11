@@ -24,16 +24,28 @@
  * a partial batch would leave it guessing which fields landed.
  */
 
+import { parseXPathExpression } from "@/lib/commcare/xpath";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { asUuid, isContainer } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	Field,
+	Uuid,
+	XPathPrintableDoc,
+} from "@/lib/domain";
+import {
+	asUuid,
+	fieldPathResolver,
+	isContainer,
+	opaqueXPathExpression,
+} from "@/lib/domain";
 import { findFieldByBareId } from "../../blueprintHelpers";
 import {
 	applyDefaults,
 	type FlatField,
 	flatFieldToField,
 	stripEmpty,
+	unescapeXPath,
 } from "../../contentProcessing";
 
 export interface FieldAssemblyArgs {
@@ -115,6 +127,12 @@ export function assembleFieldMutations(
 	const skipped: Array<{ id: string; reason: string }> = [];
 	const rejected: Array<{ id: string; reason: string }> = [];
 	const pendingByParent = new Map<Uuid, Set<string>>();
+	// Expression slots resolve in a SECOND pass against the whole
+	// batch's planned tree (a calculate may reference a field that lands
+	// later in the same call), so assembly first installs the authored
+	// text as opaque runs and `resolveBatchExpressions` re-parses each
+	// landed field's slots once every sibling is known.
+	const landed: Array<{ field: Field; processed: Partial<FlatField> }> = [];
 
 	for (const raw of items) {
 		// `stripEmpty` narrows `parentId?: string | null` (sentinel empty
@@ -146,7 +164,11 @@ export function assembleFieldMutations(
 		}
 
 		const fieldUuid = asUuid(crypto.randomUUID());
-		const assembled = flatFieldToField(processed, fieldUuid);
+		const assembled = flatFieldToField(
+			processed,
+			fieldUuid,
+			opaqueXPathExpression,
+		);
 		if (!assembled.ok) {
 			// The payload didn't assemble into a valid Field for its kind.
 			// Carry the specific reason so the caller reports WHY each field
@@ -188,10 +210,73 @@ export function assembleFieldMutations(
 		} else {
 			mutations.push({ kind: "addField", parentUuid, field });
 		}
+		landed.push({ field, processed });
 	}
 
 	if (rejected.length > 0) return { ok: false, rejected };
+	resolveBatchExpressions(doc, formUuid, mutations, landed);
 	return { ok: true, mutations, skipped };
+}
+
+/**
+ * Second assembly pass: re-parse every landed field's expression slots
+ * against the doc PLUS the whole batch's planned tree, so a reference
+ * to any field in the same call — earlier or later — resolves to an
+ * identity leaf exactly as it would once the batch has applied.
+ */
+function resolveBatchExpressions(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	mutations: readonly Mutation[],
+	landed: ReadonlyArray<{ field: Field; processed: Partial<FlatField> }>,
+): void {
+	const fields: Record<string, { id: string } | undefined> = { ...doc.fields };
+	const fieldOrder: Record<string, string[] | undefined> = {};
+	for (const [parent, order] of Object.entries(doc.fieldOrder)) {
+		fieldOrder[parent] = [...order];
+	}
+	// The insertion form may be minted by an earlier mutation in the same
+	// batch (createForm / createModule) — give it a resolution root.
+	const forms: Record<string, unknown> = doc.forms[formUuid]
+		? doc.forms
+		: { ...doc.forms, [formUuid]: {} };
+	for (const mut of mutations) {
+		if (mut.kind !== "addField") continue;
+		fields[mut.field.uuid] = mut.field;
+		const order = fieldOrder[mut.parentUuid] ?? [];
+		const index =
+			mut.index === undefined
+				? order.length
+				: Math.max(0, Math.min(mut.index, order.length));
+		order.splice(index, 0, mut.field.uuid);
+		fieldOrder[mut.parentUuid] = order;
+		if (mut.field.kind === "group" || mut.field.kind === "repeat") {
+			fieldOrder[mut.field.uuid] ??= [];
+		}
+	}
+	const overlay: XPathPrintableDoc = { forms, fields, fieldOrder };
+	const resolve = fieldPathResolver(overlay, formUuid);
+
+	for (const { field, processed } of landed) {
+		const carrier = field as unknown as Record<string, unknown>;
+		for (const slot of ["relevant", "calculate", "default_value"] as const) {
+			const text = processed[slot];
+			if (typeof text === "string" && text.length > 0 && slot in carrier) {
+				carrier[slot] = parseXPathExpression(text, resolve);
+			}
+		}
+		const validateExpr = processed.validate?.expr;
+		if (
+			typeof validateExpr === "string" &&
+			validateExpr.length > 0 &&
+			"validate" in carrier
+		) {
+			carrier.validate = parseXPathExpression(
+				unescapeXPath(validateExpr),
+				resolve,
+			);
+		}
+	}
 }
 
 /**
