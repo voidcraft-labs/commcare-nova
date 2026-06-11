@@ -557,6 +557,29 @@ Landed as specified, with these deltas vs the text below:
 - The plugin skill text/version bump is the nova-plugin repo's follow-up,
   not in this tree.
 
+Round-3 review hardening (same stage, post-ship):
+- The completion write is basis-guarded on both surfaces
+  (`completeAppGuardedByBasis`): the token captured with the evaluated
+  snapshot is compared in the write transaction and rotated on commit; a
+  mismatch bounces as an ordinary run-again result. The rotated token
+  rides `data-done` so the driving tab's auto-save basis stays current.
+- `createForm`/`createModule` accept the per-form `connect` block (shared
+  `connectFormConfigSchema`, extracted from the scaffold schema) so
+  complete Connect apps can grow structure atomically.
+- `completeBuild` is build-only on the chat surface (edit mode has
+  nothing to complete) and its infrastructure arm never demotes a
+  complete app; `get_agent_prompt` keys build-vs-edit on app status so
+  resumed drafts get the completion guidance.
+- A build-mode retry of an `error` app flips `error → generating`
+  (awaited, fresh `updated_at`, before the concurrency check) so the
+  reaper/refund/concurrency machinery covers retries.
+- Exports gate on findings, not status — docs say so; a content-complete
+  draft exports without `complete_build`.
+- The fuzz routes inputs through the tools' own Zod schemas, covers a
+  media kind, pins EMPTY_FORM under the ratchet, runs a Connect-app
+  property, and its generators were probe-rebalanced so every op type
+  lands real commits.
+
 1. Atomic edit-mode creation (D13): widened `createForm`/`createModule`
    schemas (verified via `scripts/test-schema.ts`); edit-mode per-call
    completeness goes zero-tolerance; build mode unchanged.
