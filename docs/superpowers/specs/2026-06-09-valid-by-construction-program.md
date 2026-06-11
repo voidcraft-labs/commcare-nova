@@ -749,18 +749,21 @@ Round-5 review hardening (same stage, post-ship):
 
 Round-6 review hardening (same stage, post-ship):
 - The claim window's full charge contract: `claimBuildRun` SETTLES the
-  displaced run's reservation marker in the claim transaction (every
-  displaced shape already resolved its charge), so a hard kill between
-  the claim and the new run's `reserveCredits` can never refund a kept
-  charge; a stale non-paused `generating` row is displaceable — the
-  claim settles it exactly as `reapStaleGenerating` would (refund-first
-  off the marker, `internal`) in the same transaction, ending the
-  indefinite-429 dead end on a hard-killed app; the `error` arm of
-  `ClaimedBuildRun` carries the displaced classification so a bail-out
-  restore writes back why the build originally failed; and the
-  free-continuation pause-flag clear runs only after every pre-stream
-  bail-out gate. `claimWindow.test.ts` composes the real claim/reaper/
-  credits functions over one in-memory store for both arms.
+  displaced run's reservation marker in the claim transaction — for the
+  `complete` arm's kept charge (round 7 narrowed the rule: a displaced
+  PAUSED run's marker stays untouched, it is the live hold a failed
+  resume refunds off; `error` is already settled; the stale arm settles
+  via its own refund) — so a hard kill between the claim and the new
+  run's `reserveCredits` can never refund a kept charge; a stale
+  non-paused `generating` row is displaceable — the claim settles it
+  exactly as `reapStaleGenerating` would (refund-first off the marker,
+  `internal`) in the same transaction, ending the indefinite-429 dead
+  end on a hard-killed app; the `error` arm of `ClaimedBuildRun`
+  carries the displaced classification so a bail-out restore writes
+  back why the build originally failed; and the free-continuation
+  pause-flag clear runs only after every pre-stream bail-out gate.
+  `claimWindow.test.ts` composes the real claim/reaper/credits
+  functions over one in-memory store.
 - The schema heal moved DOWN to the individual case-store write
   (`schemaHealingCaseStore`): each store operation heals-and-retries
   just itself, so a followup/close submission's partial progress is
@@ -780,6 +783,21 @@ Round-6 review hardening (same stage, post-ship):
   (`DEFAULT_ASSESSMENT_USER_SCORE`, byte-identical to the previously
   seeded "100"), making the assessment toggle commit-immediate with
   its derived identifier alone.
+
+Round-7 closing review (same stage, post-ship):
+- The paused arm of `claimBuildRun` no longer settles the displaced
+  marker — it is a LIVE hold the restored run's failed resume refunds
+  off (the route's post-flush `refundReservation`); the unit suite pins
+  the untouched marker and the composed suite drives claim → restore →
+  failed-resume refund in full.
+- `claimWindow.test.ts`'s fake enforces the server SDK's
+  read-before-write transaction rule (a get after any write throws) and
+  grew a composed stale-displacement arm, so the deferred-refund
+  ordering is held by the harness, not just by review.
+- The stale-displacement docblock records the inference ("treated as
+  dead", the reaper's ten-minute premise) and the accepted consequence
+  when it is wrong: a second SA loop on the same app, the old run's
+  funnel touching the new run's marker.
 
 ### Stage 5 — The reference index
 
