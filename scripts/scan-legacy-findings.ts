@@ -18,9 +18,13 @@
  * What is evaluated: the full validator at full scope — the same
  * evaluation `collectBoundaryViolations` performs MINUS the media-asset
  * manifest arm (asset existence / readiness / kind and the export byte
- * budget). Asset state is environment, not blueprint content, and media
- * readiness is being fixed at its own source. One further carve-out, by
- * design: an EMPTY app keeps its birth findings (reported as a note,
+ * budget). Asset state is environment, not blueprint content, so the
+ * media arm runs as its own opt-in pass: `--media` resolves each app's
+ * referenced assets against the live `mediaAssets` rows and reports
+ * dead references (row missing, or stuck pending past the one-day
+ * upload window — `scripts/lib/legacyMediaRefs.ts` owns the judgment)
+ * and the ambiguous ones the owner must decide. One further carve-out,
+ * by design: an EMPTY app keeps its birth findings (reported as a note,
  * never counted — an empty app is at rest and its export refusal is
  * intentional).
  *
@@ -33,16 +37,24 @@ import type {
 	ValidationErrorCode,
 } from "../lib/commcare/validator/errors";
 import { VALIDITY_CLASS_BY_CODE } from "../lib/commcare/validator/gate";
+import { collectAssetRefs } from "../lib/domain/mediaRefs";
 import {
 	describeFindingLocation,
 	evaluateLegacyFindings,
 	judgmentFor,
 	toLegacyBlueprintView,
 } from "./lib/legacyFindingRepairs";
+import {
+	classifyMediaRefs,
+	describeMediaRef,
+	loadAssetRowsForScan,
+	type MediaRefReport,
+} from "./lib/legacyMediaRefs";
 import { runMain } from "./lib/main";
 
 interface ScanOptions {
 	project: string;
+	media?: boolean;
 }
 
 const program = new Command();
@@ -51,20 +63,26 @@ program
 	.description(
 		"Report every standing validator finding in stored apps (read-only) — the legacy debris the zero-tolerance export boundary would refuse. " +
 			"One-time: run against production before repair-legacy-findings.ts, and again after it (the re-scan must report zero findings). " +
-			"Evaluates the export boundary's full validation MINUS the media-asset manifest arm (asset state is environment, not blueprint content; media readiness is fixed at its own source).",
+			"Evaluates the export boundary's full validation MINUS the media-asset manifest arm (asset state is environment, not blueprint content); " +
+			"--media runs that arm as its own reference scan.",
 	)
 	.requiredOption(
 		"--project <id>",
 		'GCP project to scan (e.g. "commcare-nova-dev") — explicit so a scan can never land on an unintended project',
 	)
+	.option(
+		"--media",
+		"also resolve each app's referenced media assets and report dead references — asset row missing, or stuck pending past the one-day upload window (reads the mediaAssets rows; still read-only)",
+	)
 	.addHelpText(
 		"after",
 		"\nExamples:\n" +
-			"  $ npx tsx scripts/scan-legacy-findings.ts --project commcare-nova-dev\n",
+			"  $ npx tsx scripts/scan-legacy-findings.ts --project commcare-nova-dev\n" +
+			"  $ npx tsx scripts/scan-legacy-findings.ts --project commcare-nova-dev --media\n",
 	);
 
 program.parse();
-const { project } = program.opts<ScanOptions>();
+const { project, media } = program.opts<ScanOptions>();
 
 const JUDGMENT_LABEL = {
 	mechanical: "REPAIRABLE",
@@ -89,6 +107,9 @@ async function main() {
 	let emptyApps = 0;
 	let blueprintless = 0;
 	let conversionFailures = 0;
+	let deadRefTotal = 0;
+	let ambiguousRefTotal = 0;
+	let refTotal = 0;
 	const tally = new Map<ValidationErrorCode, number>();
 
 	for (const appSnap of apps.docs) {
@@ -113,16 +134,54 @@ async function main() {
 		}
 
 		const { findings, birth } = evaluateLegacyFindings(doc);
-		if (findings.length === 0) {
+
+		// The --media arm: resolve every referenced asset and judge each
+		// reference. Independent of the blueprint findings — an app can be
+		// clean on one axis and not the other.
+		let mediaReport: MediaRefReport | undefined;
+		if (media) {
+			const ids = [...collectAssetRefs(doc)];
+			const rows =
+				ids.length === 0 ? new Map() : await loadAssetRowsForScan(db, ids);
+			mediaReport = classifyMediaRefs(
+				doc,
+				typeof data.owner === "string" ? data.owner : undefined,
+				rows,
+				{ nowMs: Date.now() },
+			);
+			refTotal += mediaReport.total;
+			deadRefTotal += mediaReport.dead.length;
+			ambiguousRefTotal += mediaReport.needsOwner.length;
+		}
+		const mediaFindingCount = mediaReport
+			? mediaReport.dead.length + mediaReport.needsOwner.length
+			: 0;
+
+		if (findings.length === 0 && mediaFindingCount === 0) {
 			if (birth.length > 0) emptyApps++;
 			continue;
 		}
 
 		appsWithFindings++;
-		console.log(`${label} — ${findings.length} finding(s)`);
+		console.log(
+			`${label} — ${findings.length} finding(s)` +
+				(mediaFindingCount > 0
+					? ` + ${mediaFindingCount} media reference(s)`
+					: ""),
+		);
 		for (const err of findings) {
 			tally.set(err.code, (tally.get(err.code) ?? 0) + 1);
 			console.log(findingLine(err));
+		}
+		if (mediaReport) {
+			for (const entry of mediaReport.dead) {
+				console.log(
+					`  [media] DEAD ${describeMediaRef(entry)}\n      REPAIRABLE — repair-legacy-findings.ts --media clears it.`,
+				);
+			}
+			for (const entry of mediaReport.needsOwner) {
+				console.log(`  [media] NEEDS OWNER ${describeMediaRef(entry)}`);
+			}
 		}
 		if (birth.length > 0) {
 			console.log(
@@ -152,14 +211,23 @@ async function main() {
 			`${emptyApps} empty (birth state, by design); ${blueprintless} with no stored blueprint; ` +
 			`${conversionFailures} expression round-trip failure(s).`,
 	);
+	if (media) {
+		console.log(
+			`Media references: ${refTotal} walked; ${deadRefTotal} dead (repairable); ${ambiguousRefTotal} need the owner.`,
+		);
+	}
 	if (appsWithFindings > 0) {
 		console.log(
-			`\nRepair with: npx tsx scripts/repair-legacy-findings.ts --project ${project} (dry run; add --apply to write, --apply-proposed for the proposed tier)`,
+			`\nRepair with: npx tsx scripts/repair-legacy-findings.ts --project ${project} (dry run; add --apply to write, --apply-proposed for the proposed tier` +
+				(deadRefTotal > 0 ? ", --media for the dead media references" : "") +
+				")",
 		);
 		process.exitCode = 1;
 	} else {
 		console.log(
-			"\nNo legacy findings — every stored app passes the export boundary's blueprint checks.",
+			"\nNo legacy findings — every stored app passes the export boundary's blueprint checks" +
+				(media ? " and every media reference resolves" : "") +
+				".",
 		);
 	}
 }
