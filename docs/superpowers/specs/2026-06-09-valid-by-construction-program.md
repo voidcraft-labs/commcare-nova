@@ -638,6 +638,78 @@ after; `/nova:edit` "delete the visit form" where it's the module's only
 form → the agent relays the refusal naming the consequence;
 `git grep validateAndFix FIX_REGISTRY` returns nothing.
 
+### Stage 4.5 — The always-valid collapse — SHIPPED
+
+Owner-confirmed end state (2026-06-10), superseding Stage 4's phase/draft
+machinery. Evidence: a replay of all 313 prod apps' event streams through
+the strict rule showed the only material cost was the empty-shell scaffold
+pattern, which this stage deletes.
+
+- ONE rule on every surface: `evaluateCommit` lost its phase — a commit may
+  never INTRODUCE a shape/soundness/completeness finding, in any app state.
+  Deleted: `CommitPhase`, `commitPhaseForAppStatus`,
+  `ToolExecutionContext.commitPhase`, the chat route's + MCP adapter's
+  phase plumbing, `commitPhaseContext.tsx` + `BuilderCommitPhaseBridge`.
+  The introduced-error identity diff is the grandfather clause; birth
+  findings (nameless, moduleless) only ever shrink. `evaluateBoundary`
+  (zero-tolerance at export) unchanged.
+- The draft lifecycle is gone: MCP `create_app` births `complete` (an
+  empty app is at rest and valid; status never feeds gating), the `draft`
+  status left the schema and every list/badge surface, and
+  `complete_build` / the shared `completeBuild` tool / the chat wrapper —
+  with the completion-basis machinery (`getCompletionBasis`,
+  `completeAppGuardedByBasis`, the stale-basis bounce + reload) — are
+  deleted. What survives untouched: the auto-save PUT's `blueprint_token`
+  basis, the MCP transactional guarded commits, the save chaining, and
+  `markAppGenerating`'s transactional retry flip (those guard concurrent
+  WRITERS, not phases). `error` survives as pure run-liveness.
+- Chat build finalization moved to the route's drain end: drain the save
+  chain → `materializeCaseStoreSchemas` → `completeApp`
+  (`generating → complete`, STATUS-ONLY so it can't blind-overwrite a
+  concurrent editor's blueprint) → `data-done` (doc snapshot, no basis
+  token — nothing rotates). Edit runs also materialize at drain end
+  (log-only failure). On MCP, materialize rides every case-type-touching
+  guarded commit via the cross-store saga — no completion event needed.
+- Planning survives; the empty-shell COMMIT pattern dissolved.
+  `generateSchema` is a PURE planning tool (same describe-rich schema,
+  zero mutations); `planAppDesign` replaced `generateScaffold` carrying
+  everything scaffold's input carried. Execution: `updateApp` (name +
+  connect type — new shared tool, also the SA/MCP carrier for the
+  app-level Connect flip) then one `createModule` per planned module.
+- Case-type records commit WITH their module: `createModule` gained
+  `case_type_record` (name must equal `case_type`; re-declaring an
+  existing record rejects; the call's own field assembly sees the record
+  for catalog defaulting), making the replay's batch-0
+  `MISSING_CHILD_CASE_MODULE` bounce structurally unreachable.
+  `updateModule` gained a `case_list_columns` seed (applied only when the
+  module has none) so the case-type flip's obligations are satisfiable in
+  the same call.
+- Connect atomicity — the last bypass died: `switchConnectMode` runs the
+  shared verdict and commits `setConnectType` + every form's block as ONE
+  batch (stash restores + the blocks `ConnectEnableDialog` collects from
+  the user up front; all incoming blocks dedup ids under one accumulating
+  scope). Disable stays always-valid. The per-form Connect toggle's OFF
+  direction renders explained-disabled on Connect apps.
+- The proof is the strongest available invariant: the construction fuzz
+  grows docs from BIRTH through the real tools (preludes included) and
+  asserts ZERO findings once the first module lands — subsuming the
+  registry-code pins; the phase-split properties and RATCHETED sets are
+  gone. The deterministic per-op acceptance floors and Connect floors
+  stay exactly as landed. `rescopingGuardCoverage` stays total over all
+  mutation kinds.
+- No mutation kind was deleted: historical event logs (`setCaseTypes`,
+  empty-`addForm`, scaffold-era batches) replay forever; only the tool
+  surface stopped emitting the retired shapes, and historical thread
+  rendering keeps its labels (`toolSummary`).
+
+**Verification:** full suite green; `npx tsx scripts/test-schema.ts`
+passes for `generateSchema`, `planAppDesign`, `updateApp`, and the
+extended `createModule`; user builds end-to-end via chat → the route's
+drain-end finalize fires `data-done` and the app exports; `/nova:autobuild`
+via MCP → app is usable the moment its last commit lands (no finishing
+call); enabling Connect in App Settings on an app with forms opens the
+staging dialog and commits one batch.
+
 ### Stage 5 — The reference index
 
 Layer 2 as specified. Implementation order inside the stage: index module +

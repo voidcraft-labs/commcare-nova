@@ -73,22 +73,28 @@ function attachmentPrep(
 // ── stageTagToGenerationStage ─────────────────────────────────────────────
 
 describe("stageTagToGenerationStage", () => {
-	it("maps schema/scaffold/module:N/form:M-F/fix:attempt-N", () => {
+	it("maps the live build stages (app / module:create / module:N / form:M-F)", () => {
+		expect(stageTagToGenerationStage("app")).toBe(GenerationStage.Structure);
+		expect(stageTagToGenerationStage("module:create")).toBe(
+			GenerationStage.Modules,
+		);
+		expect(stageTagToGenerationStage("module:0")).toBe(GenerationStage.Modules);
+		expect(stageTagToGenerationStage("form:0-1")).toBe(GenerationStage.Forms);
+	});
+
+	it("maps the historical stages (schema / scaffold / fix) so old logs still render", () => {
 		expect(stageTagToGenerationStage("schema")).toBe(GenerationStage.DataModel);
 		expect(stageTagToGenerationStage("scaffold")).toBe(
 			GenerationStage.Structure,
 		);
-		expect(stageTagToGenerationStage("module:0")).toBe(GenerationStage.Modules);
-		expect(stageTagToGenerationStage("form:0-1")).toBe(GenerationStage.Forms);
 		expect(stageTagToGenerationStage("fix:attempt-2")).toBe(
 			GenerationStage.Fix,
 		);
 	});
 
-	it("returns null for edit-family tags", () => {
+	it("returns null for tags with no narrate-worthy phase", () => {
 		expect(stageTagToGenerationStage("edit:0-1")).toBeNull();
 		expect(stageTagToGenerationStage("rename:0-1")).toBeNull();
-		expect(stageTagToGenerationStage("module:create")).toBeNull();
 		expect(stageTagToGenerationStage("module:remove:2")).toBeNull();
 	});
 });
@@ -116,17 +122,17 @@ describe("deriveAgentStage", () => {
 		);
 	});
 
-	it("walks past edit-family tags to find a generation stage", () => {
-		/* edit:* / rename:* / module:create don't resolve to a generation
+	it("walks past phase-less tags to find a generation stage", () => {
+		/* edit:* / rename:* / module:remove:N don't resolve to a generation
 		 * stage — the walker should continue past them to find the latest
-		 * schema/scaffold/module:N/form:M-F/fix instead. */
+		 * resolving tag instead. */
 		expect(
 			deriveAgentStage([
-				mut("schema", 0),
-				mut("module:create", 1),
+				mut("app", 0),
+				mut("module:remove:1", 1),
 				mut("edit:0-1", 2),
 			]),
-		).toBe(GenerationStage.DataModel);
+		).toBe(GenerationStage.Structure);
 	});
 });
 
@@ -265,23 +271,22 @@ describe("derivePostBuildEdit", () => {
 		expect(derivePostBuildEdit([], true)).toBe(false);
 	});
 
-	it("false when doc has no data (no app to edit)", () => {
-		expect(derivePostBuildEdit([mut("edit:0-1", 0)], false)).toBe(false);
+	it("false when the run opened on an empty doc (an initial build)", () => {
+		expect(derivePostBuildEdit([mut("app", 0)], false)).toBe(false);
+		expect(derivePostBuildEdit([mut("module:create", 0)], false)).toBe(false);
 	});
 
-	it("false during initial build (schema/scaffold in buffer)", () => {
-		expect(derivePostBuildEdit([mut("schema", 0)], true)).toBe(false);
-		expect(derivePostBuildEdit([mut("scaffold", 0)], true)).toBe(false);
-	});
-
-	it("true when buffer has edit-family events, no foundation, doc has data", () => {
+	it("true when a run is in progress and it opened on a populated doc", () => {
 		expect(derivePostBuildEdit([mut("edit:0-1", 0)], true)).toBe(true);
+		/* Edits emit the same construction tags builds do — the run-start
+		 * capture, not the tag, is the discriminator. */
+		expect(derivePostBuildEdit([mut("module:create", 0)], true)).toBe(true);
 	});
 
 	it("true even if buffer only has conversation events (askQuestions mid-edit)", () => {
 		/* User mid-edit asking a clarifying question — buffer has
-		 * tool-call but no mutations. Doc already has data. Still a
-		 * post-build edit in progress. */
+		 * tool-call but no mutations. The run opened on a populated doc.
+		 * Still a post-build edit in progress. */
 		const events: Event[] = [
 			{
 				kind: "conversation",

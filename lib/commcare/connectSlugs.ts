@@ -63,7 +63,7 @@ export const CONNECT_SLUG_MAX_LENGTH = 50;
  * SA-facing schema description for every connect `id` field.
  *
  * The id is `.optional()` on every connect sub-config across the agent's
- * tool schemas (`updateForm`, `generateScaffold`, and the atomic creation
+ * tool schemas (`updateForm` and the atomic creation
  * tools `createForm` / `createModule`). Without telling the SA
  * *why* it's optional, the model would either set an id on every block (and
  * risk a fail-the-call on a bad value) or omit it and wonder if the call

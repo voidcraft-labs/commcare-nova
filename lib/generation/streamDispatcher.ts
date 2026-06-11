@@ -19,7 +19,7 @@
  *      but a toast is the right UX for a stream-level failure.
  *
  *   3. **Whole-build completion** — `data-done`. Reconciles the doc
- *      against the final authoritative snapshot from `completeBuild`
+ *      against the final snapshot the route's drain-end finalize ships
  *      AND stamps `runCompletedAt` (the celebration signal).
  *      Stream-close lifecycle is owned by ChatContainer's chat-status
  *      effect via `endRun` — separate concern.
@@ -128,20 +128,18 @@ export function applyStreamEvent(
 	switch (type) {
 		case "data-done": {
 			/*
-			 * Whole-build completion — `completeBuild` succeeded on the
-			 * server. Two side-effects:
+			 * Whole-build completion — the route's drain-end finalize
+			 * finished a build run. Two side-effects:
 			 *
-			 * 1. Reconcile the doc against the final authoritative
-			 *    snapshot from the SA. Streaming may leave the doc
-			 *    slightly diverged from the server's canonical result
-			 *    (e.g. silent fix-loop mutations that never surfaced as
-			 *    incremental events). `load()` replaces the entire doc
-			 *    and clears + pauses undo history.
+			 * 1. Reconcile the doc against the run's final persisted
+			 *    snapshot. Streaming may leave the doc slightly diverged
+			 *    from the server's canonical result. `load()` replaces the
+			 *    entire doc and clears + pauses undo history.
 			 *
 			 * 2. Stamp `runCompletedAt` — this, not stream-close, is the
 			 *    "a full build just finished" signal that drives the
 			 *    Completed celebration phase. askQuestions runs,
-			 *    clarifying-text runs, and post-build edits never emit
+			 *    clarifying-text runs, and edit runs never emit
 			 *    `data-done`, so they close silently back to Idle / Ready
 			 *    without celebration.
 			 *
@@ -152,12 +150,6 @@ export function applyStreamEvent(
 			const doc = data.doc as PersistableDoc | undefined;
 			if (doc) {
 				docStore.getState().load(doc);
-			}
-			/* The guarded completion write rotated the stored
-			 * `blueprint_token`; adopt it so this tab's next auto-save
-			 * carries the right basis instead of bouncing off the rotation. */
-			if (typeof data.basisToken === "string") {
-				sessionStore.getState().setSaveBasis(data.basisToken);
 			}
 			sessionStore.getState().markRunCompleted();
 			return;

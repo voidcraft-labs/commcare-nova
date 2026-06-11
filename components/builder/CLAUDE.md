@@ -184,7 +184,7 @@ shell handles virtualization, row dispatch, and the field-picker menu.
 
 `BuilderProvider.tsx` mounts the complete provider stack for a builder session. `key={buildId}` forces a full unmount/remount when the build identity changes — no stale cross-store references can leak.
 
-Provider tree (outer → inner): BlueprintDocProvider → BuilderSessionProvider → ScrollRegistryProvider → EditGuardProvider → BuilderFormEngineProvider. Three lifecycle children: SyncBridge (wires doc store into session), ReplayHydrator (dispatches saved emissions for replay mode), LoadAppHydrator (clears loading flag for existing-app loads). `BuilderCommitPhaseBridge` wraps `{children}` and feeds the session-derived builder phase into the doc layer's `CommitPhaseProvider` — the construction window opens for a live chat build (Generating) OR when the page passed `initialCommitPhase: "building"` (a `draft` app — an MCP build in progress, so the builder's edits gate exactly like the MCP surface's); everything else → `complete`. The bridge exists because `lib/doc` can't import `lib/session` without closing an import cycle.
+Provider tree (outer → inner): BlueprintDocProvider → BuilderSessionProvider → ScrollRegistryProvider → EditGuardProvider → BuilderFormEngineProvider. Three lifecycle children: SyncBridge (wires doc store into session), ReplayHydrator (dispatches saved emissions for replay mode), LoadAppHydrator (clears loading flag for existing-app loads).
 
 ## Case-list-config workspace
 

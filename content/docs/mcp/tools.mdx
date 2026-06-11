@@ -21,24 +21,25 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 | Tool | What it does |
 |---|---|
-| `create_app` | Create a new empty app in **Draft** status and return its ID. Build it up with the other tools, then mark it finished with `complete_build`. |
+| `create_app` | Create a new empty app and return its ID. Build it up with the other tools — every change is checked as it lands, so there's no separate finishing step. |
 | `delete_app` | Soft-delete an app. Recoverable within the returned window. |
 
 ## Building a new app from a description
 
-These two cover the cold-start phase of a build: name the app, then lay out its modules, forms, and fields. Once they're done, your agent moves into the editing tools below for everything else.
+A new app is planned first, then built module by module. The two planning tools record the design in the conversation — they don't change the app; the app grows through `update_app` and `create_module`, each call checked as it lands.
 
 | Tool | What it does |
 |---|---|
-| `generate_schema` | Set the app name and case-type catalog. First step. |
-| `generate_scaffold` | Define the module + form + field structure. Run after `generate_schema`. |
+| `generate_schema` | Plan the data model: case types and their properties. First step; changes nothing. |
+| `plan_app_design` | Plan the app design: modules, forms, purposes, per-form design notes (and Connect settings on Connect apps). Run after `generate_schema`; changes nothing. |
+| `update_app` | Set the app's name and/or its CommCare Connect type. On a Connect build, set the type before creating modules. |
 
 ## Working on modules
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module together with its forms (each with fields) and case-list columns, in one call — a case-managing module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
-| `update_module` | Rename a module and/or set its case type — set the case type before adding registration, follow-up, or close forms to a module created without one. |
+| `create_module` | Add a new module together with its forms (each with fields), its case-list columns, and — when its case type is new to the app — the case type's record, in one call. A module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
+| `update_module` | Rename a module and/or set its case type (with starter case-list columns when the module has none) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module. |
 | `get_module` | Show details for one module, including the structured case-list config. |
 
@@ -105,11 +106,10 @@ You can attach images, audio, and video to parts of an app — a field's label o
 | `set_form_media` | Set or clear a form's menu icon and audio label. |
 | `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
 
-## Finishing and uploading
+## Exporting and uploading
 
 | Tool | What it does |
 |---|---|
-| `complete_build` | Finish the build: run the full app review (every rule, including unfinished pieces and attached media), mark the app Complete, and ready its case database. Anything still unfinished comes back as a list — your agent finishes that work and calls again. |
 | `compile_app` | Compile to CommCare HQ format — the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which project spaces (domains) it can reach. |
 | `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL. |
@@ -119,5 +119,5 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova 
 </Callout>
 
 <Callout type="warn">
-Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist — fails with a message naming each problem, and nothing is saved; fix the input and call again. While an app is a Draft, unfinished pieces are allowed between calls — but `create_form` and `create_module` still require each new form to arrive with its fields (and a case-managing module with its case-list columns), so structure always lands whole. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one — a Draft whose content already passes that review exports fine. `complete_build` is what marks the app finished and readies its case database; it isn't a gate the exports wait on.
+Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns) — fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms, case-list columns, and (for a new case type) the case type's record, so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
 </Callout>

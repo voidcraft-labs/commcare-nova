@@ -20,7 +20,6 @@ import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
-	bufferHasBuildFoundation,
 	deriveAgentError,
 	deriveAgentStage,
 	deriveAttachmentPrep,
@@ -234,8 +233,11 @@ export function useSessionEventsEmpty(): boolean {
  *  `schema` / `scaffold` mutations in this run, doc has data). */
 export function usePostBuildEdit(): boolean {
 	const events = useBuilderSession((s) => s.events);
-	const hasData = useBlueprintDoc(docHasData);
-	return useMemo(() => derivePostBuildEdit(events, hasData), [events, hasData]);
+	const startedWithData = useBuilderSession((s) => s.runStartedWithData);
+	return useMemo(
+		() => derivePostBuildEdit(events, startedWithData),
+		[events, startedWithData],
+	);
 }
 
 /** Firestore app document ID for the current builder session.
@@ -529,6 +531,7 @@ export interface DerivePhaseSession {
 	loading: boolean;
 	runCompletedAt: number | undefined;
 	events: readonly Event[];
+	runStartedWithData: boolean;
 }
 
 /**
@@ -541,11 +544,12 @@ export interface DerivePhaseSession {
  * - **Completed** — `runCompletedAt` stamped by `data-done`; cleared
  *   by `acknowledgeCompletion()` after the done-animation settles.
  * - **Generating** — a generation-stage mutation is in the buffer AND
- *   the buffer contains the foundation (schema/scaffold) of an initial
- *   build. The foundation check distinguishes a build from a
- *   post-build edit — both can emit `form:M-F` tagged mutations, so
- *   stage alone is ambiguous. An active run with no build foundation
- *   yet (askQuestions window, or a pure edit) stays in Idle / Ready.
+ *   the run opened on an EMPTY doc (`runStartedWithData` false — an
+ *   initial build). The run-start capture distinguishes a build from a
+ *   post-build edit — both emit the same stage tags (`module:create`,
+ *   `form:M-F`), so stage alone is ambiguous. An active run with no
+ *   stage yet (the planning / askQuestions window) stays in Idle;
+ *   edits stay in Ready while the agent works.
  * - **Ready** — doc has data (a usable blueprint exists).
  * - **Idle** — otherwise (fresh builder, or SA mid-askQuestions with
  *   no doc data yet).
@@ -565,7 +569,7 @@ export function derivePhase(
 	if (session.runCompletedAt !== undefined) return BuilderPhase.Completed;
 
 	const stage = deriveAgentStage(session.events);
-	if (stage !== null && bufferHasBuildFoundation(session.events)) {
+	if (stage !== null && !session.runStartedWithData) {
 		return BuilderPhase.Generating;
 	}
 	if (docHasData) return BuilderPhase.Ready;
@@ -582,6 +586,7 @@ export function useBuilderPhase(): BuilderPhase {
 		loading: s.loading,
 		runCompletedAt: s.runCompletedAt,
 		events: s.events,
+		runStartedWithData: s.runStartedWithData,
 	}));
 	/* Single-source predicate — see `lib/doc/predicates.ts::docHasData`.
 	 * Identical to `useDocHasData`, inlined here to avoid coupling the

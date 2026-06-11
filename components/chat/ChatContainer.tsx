@@ -104,14 +104,16 @@ function createChatInstance(
 				 * Completed both imply "app is usable, this is an edit-mode
 				 * request." Generating / Idle / Loading all mean "don't strip
 				 * tools." This handles the askQuestions-auto-resend during an
-				 * initial build correctly: the buffer still contains the
-				 * build's schema/scaffold events, so phase stays Generating
-				 * → appReady=false → gen tools remain available. */
+				 * initial build correctly: the buffer still carries the
+				 * build's stage-tagged events and the run opened on an empty
+				 * doc, so phase stays Generating → appReady=false → the
+				 * planning tools remain available. */
 				const phase = derivePhase(
 					{
 						loading: sessionState.loading,
 						runCompletedAt: sessionState.runCompletedAt,
 						events: sessionState.events,
+						runStartedWithData: sessionState.runStartedWithData,
 					},
 					hasData,
 				);

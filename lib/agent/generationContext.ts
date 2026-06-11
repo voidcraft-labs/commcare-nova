@@ -280,8 +280,8 @@ export class GenerationContext implements ToolExecutionContext {
 	 * Writes `run_id` on every intermediate save (via `updateAppForRun`
 	 * rather than `updateApp`) so the app doc's run_id reflects the
 	 * current chat run while it's in flight. Without this, an edit run
-	 * that mutates the doc but never reaches `completeBuild` leaves
-	 * `app.run_id` stuck at the prior `completeApp`'s id, and the MCP
+	 * that mutates the doc leaves
+	 * `app.run_id` stuck at a prior run's id, and the MCP
 	 * surface's sliding-window run derivation (see
 	 * `lib/mcp/runId.ts`) would attach subsequent MCP events to a
 	 * closed chat run within the inactivity window.

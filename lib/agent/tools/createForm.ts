@@ -14,7 +14,7 @@
  * identically on both tools.
  *
  * A `connect` block runs through `enforceConnectIds` (the agent-path
- * source guard, same as `updateForm` / `generateScaffold`) BEFORE the
+ * source guard, same as `updateForm` / `createModule`) BEFORE the
  * batch is built: an omitted connect id is autofilled with a valid,
  * unique, name-derived id (stored on the doc from then on), and an
  * explicit invalid or duplicate id fails the call — the schema's "leave

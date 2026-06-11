@@ -75,6 +75,7 @@ function createGridController(
 					loading: s.loading,
 					runCompletedAt: s.runCompletedAt,
 					events: s.events,
+					runStartedWithData: s.runStartedWithData,
 				},
 				hasData,
 			);

@@ -679,7 +679,7 @@ export async function POST(req: Request) {
 				 * names a tool absent from THIS request's tool set would make
 				 * Anthropic reject the request ("tool not found in tools array").
 				 * Two ways a historical part can name an absent tool: a build-only
-				 * generation tool (`generateSchema` / `generateScaffold`) carried into
+				 * planning tool (`generateSchema` / `planAppDesign`) carried into
 				 * an edit turn, or a tool that has since been removed or renamed (a
 				 * build thread predating a deploy that changed the tool surface — e.g.
 				 * the old singular `addCaseListColumn` / `addSearchInput` / `addField`).

@@ -19,17 +19,23 @@ import type { GenerationError } from "./types";
 import { GenerationStage, STAGE_LABELS } from "./types";
 
 /**
- * Map an event-log `stage` tag to the `GenerationStage` enum. Only tags
- * that belong to an initial-build phase resolve — edit-family tags
- * (`edit:*`, `rename:*`, `module:create`, `module:remove:N`) return
- * null so the phase derivation can distinguish post-build edits.
+ * Map an event-log `stage` tag to the `GenerationStage` enum. Stages
+ * that carry no narrate-worthy phase (`edit:*`, `rename:*`,
+ * `module:remove:N`) return null. The `schema` / `scaffold` rows exist
+ * for HISTORICAL buffers only — runs persisted by the retired
+ * generation tools still replay; live builds open with `app`
+ * (updateApp) and build through `module:create` (createModule).
+ * Build-vs-edit is NOT this function's job — `derivePhase` keys that on
+ * `runStartedWithData`, so an edit-mode createModule resolving to
+ * `Modules` only drives the status text, never the layout.
  */
 export function stageTagToGenerationStage(
 	stage: string,
 ): GenerationStage | null {
+	if (stage === "app") return GenerationStage.Structure;
 	if (stage === "schema") return GenerationStage.DataModel;
 	if (stage === "scaffold") return GenerationStage.Structure;
-	if (stage === "module:create") return null;
+	if (stage === "module:create") return GenerationStage.Modules;
 	if (stage.startsWith("module:remove:")) return null;
 	if (stage.startsWith("module:")) return GenerationStage.Modules;
 	if (stage.startsWith("form:")) return GenerationStage.Forms;
@@ -123,35 +129,23 @@ export function deriveAttachmentPrep(events: readonly Event[]): boolean {
 }
 
 /**
- * Whether the buffer contains a `schema` or `scaffold` mutation —
- * the foundational stages of an initial build. Used to distinguish
- * "initial build in progress" from "post-build edit in progress",
- * which share stage tags like `form:M-F` (addFields during build
- * vs updateForm during edit).
- */
-export function bufferHasBuildFoundation(events: readonly Event[]): boolean {
-	for (const e of events) {
-		if (e.kind !== "mutation" || !e.stage) continue;
-		if (e.stage === "schema" || e.stage === "scaffold") return true;
-	}
-	return false;
-}
-
-/**
  * Whether the active run is a post-build edit. True iff a run is in
- * progress (buffer non-empty — see `BuilderSessionState.events`), no
- * `schema` / `scaffold` mutation has landed yet, AND the doc already
- * has data. The empty-buffer check catches the between-runs window,
- * matching the semantics of the pre-refactor `agentActive` latch
- * without maintaining a separate flag.
+ * progress (buffer non-empty — see `BuilderSessionState.events`) AND
+ * the run OPENED on a doc that already had data (`runStartedWithData`,
+ * captured by `beginRun`). Initial builds and edits share every stage
+ * tag now (both build through `createModule` / `addFields`), so the
+ * run-start capture is the discriminator — a build's own mutations
+ * populating the doc mid-run can't flip the derivation. The
+ * empty-buffer check catches the between-runs window, matching the
+ * semantics of the pre-refactor `agentActive` latch without
+ * maintaining a separate flag.
  */
 export function derivePostBuildEdit(
 	events: readonly Event[],
-	docHasData: boolean,
+	runStartedWithData: boolean,
 ): boolean {
-	if (!docHasData) return false;
-	if (events.length === 0) return false;
-	return !bufferHasBuildFoundation(events);
+	if (!runStartedWithData) return false;
+	return events.length > 0;
 }
 
 /**

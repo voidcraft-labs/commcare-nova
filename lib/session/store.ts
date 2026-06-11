@@ -28,6 +28,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
+import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
@@ -77,9 +78,18 @@ export interface BuilderSessionState {
 	 *  state updates in `beginRun`/`endRun`. */
 	events: Event[];
 
+	/** Whether the doc already had data when the current run OPENED —
+	 *  captured once in `beginRun()`. The build-vs-edit discriminator for
+	 *  the lifecycle derivations: a run that started on an empty doc is an
+	 *  initial build (its structural stages drive the Generating layout);
+	 *  a run that started on a populated doc is a post-build edit (the
+	 *  builder stays interactive while the agent works). Stays `false`
+	 *  outside a run and for replay (which always replays builds). */
+	runStartedWithData: boolean;
+
 	/** Timestamp of the most recent whole-build completion — stamped by
 	 *  the dispatcher's `data-done` handler (the server-side marker from
-	 *  `completeBuild`). Cleared on `acknowledgeCompletion()` (after the
+	 *  the route's drain-end finalize). Cleared on `acknowledgeCompletion()` (after the
 	 *  celebration animation) and on `beginRun()` (new run starts clean).
 	 *  askQuestions / clarifying-text / edit-tool runs never stamp — they
 	 *  close silently. Drives the Completed phase. */
@@ -189,7 +199,7 @@ export interface BuilderSessionState {
 
 	/** Stamp `runCompletedAt` = now. Called by the stream dispatcher
 	 *  when `data-done` arrives — the server-side "whole build
-	 *  succeeded" marker from `completeBuild`. Drives the Completed phase
+	 *  succeeded" marker from the route's drain-end finalize. Drives the Completed phase
 	 *  + celebration animation until `acknowledgeCompletion()` clears
 	 *  it. */
 	markRunCompleted: () => void;
@@ -392,6 +402,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				/* Generation lifecycle */
 				events: [] as Event[],
+				runStartedWithData: false,
 				runCompletedAt: undefined as number | undefined,
 				loading: init?.loading ?? false,
 
@@ -434,12 +445,19 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				beginRun() {
 					/* Open a run atomically: pause doc undo (whole run
 					 * collapses into one undoable unit on resume), clear the
-					 * events buffer, clear any stale completion stamp. The
+					 * events buffer, clear any stale completion stamp, and
+					 * capture the build-vs-edit discriminator (whether the doc
+					 * already has data) for the lifecycle derivations. The
 					 * non-empty buffer that accumulates from here is the
 					 * "a run is in progress" signal — no agentActive mirror
 					 * to maintain. */
-					docStoreRef?.getState().beginAgentWrite();
-					set({ events: [], runCompletedAt: undefined });
+					const docState = docStoreRef?.getState();
+					docState?.beginAgentWrite();
+					set({
+						events: [],
+						runCompletedAt: undefined,
+						runStartedWithData: docState ? docHasData(docState) : false,
+					});
 				},
 
 				endRun() {
@@ -456,7 +474,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				markRunCompleted() {
-					/* `data-done` arrived — `completeBuild` succeeded, the
+					/* `data-done` arrived — the build run finished, the
 					 * whole build is complete. Stamp the celebration. Phase
 					 * transitions to Completed and stays there until
 					 * `acknowledgeCompletion()` fires (3.5s after the
@@ -791,6 +809,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						/* Generation lifecycle */
 						events: [],
+						runStartedWithData: false,
 						runCompletedAt: undefined,
 						loading: false,
 

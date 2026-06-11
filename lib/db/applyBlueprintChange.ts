@@ -45,10 +45,9 @@
  * The chat-side intermediate save (`generationContext.saveBlueprint`)
  * stays fire-and-forget by design — the SA's fix-retry discipline
  * covers missed intermediate saves and SSE latency must not block
- * on Firestore. Initial-generation writes are additive-only by
- * construction (case types are set once via `generateScaffold`,
- * then never mutated mid-stream), so the cross-store saga has no
- * compensation work to do on the chat path.
+ * on Firestore. The chat route's drain-end finalize re-syncs the
+ * case-store schemas for whatever the run persisted, so the chat
+ * path needs no per-save saga.
  *
  * ## Loading the prior state
  *

@@ -53,6 +53,7 @@ function derivePhaseLocal(
 			loading: s.loading,
 			runCompletedAt: s.runCompletedAt,
 			events: s.events,
+			runStartedWithData: s.runStartedWithData,
 		},
 		docHasData(docStore.getState()),
 	);
