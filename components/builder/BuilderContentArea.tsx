@@ -44,7 +44,7 @@ import { INSPECTOR_RAIL_WIDTH, useInspectorActive } from "@/lib/ui/inspector";
 const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const;
 
 /** Width of the structure sidebar in pixels (w-80). */
-const STRUCTURE_SIDEBAR_WIDTH = 320;
+const STRUCTURE_SIDEBAR_WIDTH = 384;
 
 /** Width of the collapsed structure icon rail in pixels (w-14). */
 const STRUCTURE_RAIL_WIDTH = 56;
@@ -91,9 +91,11 @@ export function BuilderContentArea({
 	const setSidebarOpen = useSetSidebarOpen();
 
 	/* The right rail belongs to the inspector while a surface claims it:
-	 * it widens past the chat's resting width and stays open even when
-	 * the chat sidebar is toggled closed — a selection without a visible
-	 * properties panel would be dead UI. */
+	 * it stays open even when the chat sidebar is toggled closed — a
+	 * selection without a visible properties panel would be dead UI.
+	 * Chat and inspector share ONE width (CHAT_SIDEBAR_WIDTH aliases
+	 * INSPECTOR_RAIL_WIDTH), so claiming the rail never reflows the
+	 * canvas. */
 	const inspectorActive = useInspectorActive();
 	const railWidth = inspectorActive
 		? INSPECTOR_RAIL_WIDTH

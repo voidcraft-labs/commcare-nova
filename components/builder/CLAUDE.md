@@ -188,7 +188,7 @@ Provider tree (outer → inner): BlueprintDocProvider → BuilderSessionProvider
 
 ## Inspector rail (right-rail properties panel)
 
-The right rail is the chat sidebar; the inspector borrows it. `lib/ui/inspector.tsx` owns the coordination state (claim stack + portal target + `INSPECTOR_RAIL_WIDTH`); `components/builder/inspector/InspectorSurface.tsx` is the declarative mount — a surface renders `<InspectorSurface kicker title onClose>{body}</InspectorSurface>` alongside its canvas and the rail docks: chat condenses to a strip (CHAT count + expand, then the existing SignalPanel + ChatInput) beneath the portaled panel, and `BuilderContentArea` widens the rail from `CHAT_SIDEBAR_WIDTH` to `INSPECTOR_RAIL_WIDTH` (forcing it open even when the chat sidebar is toggled closed).
+The right rail is the chat sidebar; the inspector borrows it. `lib/ui/inspector.tsx` owns the coordination state (claim stack + portal target + `INSPECTOR_RAIL_WIDTH`); `components/builder/inspector/InspectorSurface.tsx` is the declarative mount — a surface renders `<InspectorSurface kicker title onClose>{body}</InspectorSurface>` alongside its canvas and the rail docks: chat condenses to a strip (CHAT count + expand, then the existing SignalPanel + ChatInput) beneath the portaled panel, and `BuilderContentArea` keeps the rail open even when the chat sidebar is toggled closed. **The rail is ONE width in both modes** — `CHAT_SIDEBAR_WIDTH` aliases `INSPECTOR_RAIL_WIDTH`, so selecting something to inspect never reflows the canvas (content shifting as a side effect of a click reads as a glitch). If the rail ever feels cramped, widen the shared constant — never re-introduce a per-mode width.
 
 Three invariants:
 

@@ -55,7 +55,12 @@ import { computeScaffoldProgress } from "./scaffoldProgress";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
-export const CHAT_SIDEBAR_WIDTH = 320;
+/** The right rail is ONE width in both of its modes — full chat and
+ *  docked-under-inspector. Selecting something to inspect must never
+ *  change the canvas width (content reflowing as a side effect of a
+ *  click reads as a glitch), so the chat's resting width IS the
+ *  inspector rail's width. */
+export const CHAT_SIDEBAR_WIDTH = INSPECTOR_RAIL_WIDTH;
 
 /** Create a SignalGridController whose energy callbacks drain the module-level
  *  signalGrid nanostore. Scaffold progress is computed on each poll from the

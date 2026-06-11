@@ -598,7 +598,7 @@ function WorkspaceTabs({
 								>
 									{label}
 								</span>
-								<span className="hidden @3xl:block text-[10px] text-nova-text-muted leading-tight">
+								<span className="hidden @min-[40rem]:block text-[10px] text-nova-text-muted leading-tight">
 									{metas[id]}
 								</span>
 							</span>
