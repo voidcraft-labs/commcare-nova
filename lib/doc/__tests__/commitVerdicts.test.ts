@@ -220,3 +220,106 @@ describe("describeIntroducedErrors", () => {
 		expect(message).toContain("this problem");
 	});
 });
+
+// ── Stored-reference bounces — the repair the prose must name ────────
+
+describe("stored-reference bounce prose", () => {
+	/** minDoc plus a hidden total whose calculate references `village`.
+	 *  `raw` keeps the reference as plain text (the never-re-resolved
+	 *  legacy shape); otherwise it resolves to an identity leaf — the two
+	 *  storage shapes whose bounces need different repairs. */
+	function docWithReference(raw: boolean): BlueprintDoc {
+		return buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Form",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "text",
+									id: "village",
+									label: "Village",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "hidden",
+									id: "total",
+									calculate: raw ? xp("#form/village") : "#form/village",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "village", label: "Village" },
+					],
+				},
+			],
+		});
+	}
+
+	it("rename bounce on a plain-text leaf names the carrier and the re-commit repair", () => {
+		const doc = docWithReference(true);
+		// Valid as it stands — the raw leaf's target exists.
+		expect(mutationCommitVerdict(doc, []).ok).toBe(true);
+		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
+		const verdict = mutationCommitVerdict(doc, [
+			{ kind: "renameField", uuid: village?.uuid as never, newId: "town" },
+		]);
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) return;
+		const message = describeIntroducedErrors(verdict.introduced);
+		// The repair is performable: the carrier expression is named, and
+		// the user is told to re-commit it before the rename can land.
+		expect(message).toContain('Field "total"');
+		expect(message).toContain("calculated value");
+		expect(message).toContain("plain text");
+		expect(message).toContain("re-commit");
+	});
+
+	it("delete bounce on an identity reference names the carrier, never the bare uuid", () => {
+		const doc = docWithReference(false);
+		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
+		const verdict = mutationCommitVerdict(doc, [
+			{ kind: "removeField", uuid: village?.uuid as never },
+		]);
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) return;
+		const message = describeIntroducedErrors(verdict.introduced);
+		expect(message).toContain('Field "total"');
+		expect(message).toContain("calculated value");
+		expect(message).toContain("no longer exists");
+		// The dangling leaf prints as the target's uuid — an internal id,
+		// not a path anyone can find — so it must not reach the prose.
+		expect(message).not.toContain(village?.uuid as string);
+	});
+
+	it("a same-batch rename of a resolved reference still lands (identity needs no repair)", () => {
+		const doc = docWithReference(false);
+		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
+		const verdict = mutationCommitVerdict(doc, [
+			{ kind: "renameField", uuid: village?.uuid as never, newId: "town" },
+		]);
+		// The identity leaf re-prints under the new name — nothing dangles.
+		expect(verdict.ok).toBe(true);
+	});
+});

@@ -41,7 +41,7 @@ import {
 	readSlotValues,
 	type SlotStringEntry,
 } from "./referenceSlots";
-import { isXPathExpression } from "./xpath/ast";
+import { isXPathExpression, type XPathExpression } from "./xpath/ast";
 import {
 	printXPath,
 	type XPathPrintableDoc,
@@ -216,6 +216,21 @@ export function formExpressionSource(
 }
 
 /**
+ * The stored expression AST behind a scalar form expression slot, when
+ * the slot is AST-stored — the structural twin of
+ * `formExpressionSource` for consumers that classify the stored shape
+ * (the deep validator's stored-reference diagnosis). A prose/legacy
+ * string has no AST and reads as `undefined`.
+ */
+export function formExpressionValue(
+	form: Form,
+	slot: ScalarFormExpressionSlotId,
+): XPathExpression | undefined {
+	const value = readSlotValues(form, FORM_SLOT_PATHS[slot])[0]?.value;
+	return isXPathExpression(value) ? value : undefined;
+}
+
+/**
  * One expression-source read off a field: which slot it came from and
  * the stored text (plus fan-out `indices` for `option_label`).
  */
@@ -225,6 +240,14 @@ export interface ExpressionRead<
 	readonly slot: S;
 	readonly text: string;
 	readonly indices: readonly number[];
+	/**
+	 * The stored expression AST when the slot is AST-stored — `text` is
+	 * its printed projection. Absent for prose slots and for legacy
+	 * strings a degenerate doc never migrated. Consumers that classify
+	 * how a reference is STORED (the deep validator's stored-reference
+	 * diagnosis) read this; text-only consumers ignore it.
+	 */
+	readonly expr?: XPathExpression;
 }
 
 /**
@@ -267,7 +290,12 @@ export function expressionSurfaceReads(
 		for (const { value, indices } of readSlotValues(field, entry.path)) {
 			const text = projectSlotValue(value, doc);
 			if (text !== undefined) {
-				reads.push({ slot: entry.slot, text, indices });
+				reads.push({
+					slot: entry.slot,
+					text,
+					indices,
+					...(isXPathExpression(value) && { expr: value }),
+				});
 			}
 		}
 	}

@@ -22,9 +22,11 @@ import {
 	type FieldProseSlotId,
 	type FieldXPathSlotId,
 	formExpressionSource,
+	formExpressionValue,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
+	type XPathExpression,
 } from "@/lib/domain";
 import {
 	buildFieldTree,
@@ -151,6 +153,57 @@ export type DeepValidationError =
 			error: XPathError;
 	  })
 	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
+
+/**
+ * Classify how an INVALID_REF's failing `/data/...` reference is STORED
+ * in the slot's expression AST, so the runner can render the repair that
+ * actually fixes it (`XPathError.storedRef`). The match is exact against
+ * each leaf's printed expansion:
+ *
+ *   - a raw `#form/...` leaf (plain text the migration could not
+ *     re-resolve) expands to `/data/<segments>` — `"raw-text"`: the
+ *     reference doesn't follow its field through renames, and
+ *     re-committing the expression is the repair;
+ *   - an identity leaf whose target no longer resolves prints the bare
+ *     uuid (`#form/<uuid>` / `/data/<uuid>` — the printer's total
+ *     fallback), expanding to `/data/<uuid>` — `"dangling-identity"`:
+ *     the printed text is an internal id, not a path a person can look
+ *     up, so the runner must not present it as one.
+ *
+ * A failing ref matching neither (a typo'd reference, a cross-form
+ * path) classifies as `undefined` and keeps the generic prose. The
+ * dangling check needs no doc resolution: a RESOLVED leaf prints its
+ * segments, so the bare-uuid expansion exists exactly when resolution
+ * failed.
+ */
+function classifyStoredRef(
+	expr: XPathExpression | undefined,
+	failingRef: string | undefined,
+): "raw-text" | "dangling-identity" | undefined {
+	if (expr === undefined || failingRef === undefined) return undefined;
+	for (const part of expr.parts) {
+		if (part.kind === "raw-ref" && part.namespace === "form") {
+			if (failingRef === `/data/${part.segments.join("/")}`) {
+				return "raw-text";
+			}
+		}
+		if (part.kind === "field-ref" || part.kind === "path-ref") {
+			if (failingRef === `/data/${part.uuid}`) return "dangling-identity";
+		}
+	}
+	return undefined;
+}
+
+/** Stamp `storedRef` onto an INVALID_REF the slot's stored AST can
+ *  explain; every other error passes through untouched. */
+function withStoredRef(
+	error: XPathError,
+	expr: XPathExpression | undefined,
+): XPathError {
+	if (error.code !== "INVALID_REF") return error;
+	const storedRef = classifyStoredRef(expr, error.ref);
+	return storedRef === undefined ? error : { ...error, storedRef };
+}
 
 /**
  * Walk a field subtree (rooted at `parentUuid`) and collect every valid
@@ -363,19 +416,22 @@ export function validateBlueprintDeep(
 			// resolved config. Each entry carries a TYPED `ConnectXPathSlot`,
 			// not a prose label.
 			if (connect) {
-				const connectXPaths: Array<[ConnectXPathSlot, string]> = [];
 				for (const slot of CONNECT_XPATH_SLOT_IDS) {
-					const expr = formExpressionSource(form, slot, doc);
-					if (expr) connectXPaths.push([slot, expr]);
-				}
-				for (const [slot, expr] of connectXPaths) {
+					const text = formExpressionSource(form, slot, doc);
+					if (!text) continue;
+					const expr = formExpressionValue(form, slot);
 					for (const error of validateXPath(
-						expr,
+						text,
 						validPaths,
 						caseTypeProps,
 						isRegistrationForm,
 					)) {
-						errors.push({ ...loc, kind: "connect-xpath", slot, error });
+						errors.push({
+							...loc,
+							kind: "connect-xpath",
+							slot,
+							error: withStoredRef(error, expr),
+						});
 					}
 				}
 			}
@@ -430,7 +486,7 @@ function validateTreeXPath(
 		// `repeat_mode` for repeats) drives the walk, so a new
 		// expression-bearing slot enters validation by being registered,
 		// never by extending a hand-rolled key list here.
-		for (const { slot, text } of expressionSurfaceReads(
+		for (const { slot, text, expr } of expressionSurfaceReads(
 			node.field,
 			"xpath",
 			doc,
@@ -452,7 +508,7 @@ function validateTreeXPath(
 				caseTypeProps,
 				isRegistrationForm,
 			)) {
-				pushFieldError(node.field, slot, error);
+				pushFieldError(node.field, slot, withStoredRef(error, expr));
 			}
 		}
 		if (node.children) {

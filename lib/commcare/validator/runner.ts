@@ -364,6 +364,14 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			return `${where} calls a function with the wrong number of arguments: ${error.message}.`;
 
 		case "INVALID_REF": {
+			// The slot's stored shape changes what the repair IS — see
+			// `XPathError.storedRef`. A dangling identity reference must not
+			// present its printed text as a path: the text is the internal id
+			// of a field that's gone, not something a person can look up, so
+			// the message names the carrier and slot (`where`) instead.
+			if (error.storedRef === "dangling-identity") {
+				return `${where} references a field that no longer exists in this form. The expression tracks the exact field it pointed at, and that field is gone — if this change is what removes it, the expression has to let go of it first. Edit that expression to drop the reference or point it at an existing field, then retry this change.`;
+			}
 			// When an existing field shares the unknown ref's leaf id, the SA
 			// almost certainly wrote the bare id and dropped the field's group
 			// path — point at the real path(s) in the SA's own `#form/...`
@@ -371,6 +379,17 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			// the dominant authoring mistake: `#form/consent` for a field that
 			// lives at `#form/consent_grp/consent`.
 			const hint = suggestionHint(error.suggestions);
+			// A reference held as plain text doesn't follow its field through
+			// renames — the visible-field-yet-unknown-path bounce. When no
+			// nesting suggestion explains it, the performable repair is to
+			// re-commit the referencing expression (which re-links the
+			// reference to the field) before retrying the bounced change.
+			if (error.storedRef === "raw-text") {
+				return `${where} has a reference that doesn't exist in this form: ${error.message}. That expression holds the reference as plain text, so it doesn't follow its field through renames. ${
+					hint ??
+					"If the field it names exists in the form right now, re-commit that expression first — open it on the named field and save it again unchanged, which links the reference to the field — then retry this change. If it doesn't, fix the reference to name an existing field."
+				}`;
+			}
 			if (hint) {
 				return `${where} has a reference that doesn't exist in this form: ${error.message}. ${hint}`;
 			}
