@@ -88,6 +88,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"MISSING_CHILD_CASE_MODULE",
 	"FORM_LINK_CIRCULAR",
 	"CONNECT_ID_DUPLICATE",
+	"CONNECT_NO_PARTICIPATING_FORMS",
 	"FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 	"FIELD_KIND_WRITERS_DISAGREE",
 	// Asset-context media rules + the export-budget aggregate guard.

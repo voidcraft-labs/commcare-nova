@@ -13,6 +13,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import { printXPathInDoc } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -20,6 +21,7 @@ import { blueprintDocSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { createFormTool } from "../createForm";
 import { createModuleTool } from "../createModule";
+import { updateFormTool } from "../updateForm";
 
 function makeCtx() {
 	// Every persisted doc must survive the SAME Zod gate the next load
@@ -386,12 +388,16 @@ describe("atomic creation on a complete Connect app", () => {
 		expect(recordMutations).toHaveBeenCalledTimes(1);
 	});
 
-	it("createForm WITHOUT a connect block is rejected with guidance the same call satisfies", async () => {
+	it("createForm WITHOUT a connect block commits — the form is auxiliary, not malformed", async () => {
+		/* A connect block marks participation; omitting it keeps the form
+		 * out of Connect, which Connect's per-form ingestion scan handles
+		 * by simply not finding a block there. The app keeps its existing
+		 * participating form, so the participation floor holds. */
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
 				moduleIndex: 0,
-				name: "Lesson two",
+				name: "Reference sheet",
 				type: "followup",
 				fields: [
 					{
@@ -406,12 +412,72 @@ describe("atomic creation on a complete Connect app", () => {
 			completeConnectDoc(),
 		);
 
+		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
+		expect(recordMutations).toHaveBeenCalledTimes(1);
+		const addForm = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
+		);
+		expect(addForm?.form.connect).toBeUndefined();
+		expect(runValidation(out.newDoc)).toEqual([]);
+	});
+
+	it("removing the LAST participating form's block bounces with the app-level participation finding", async () => {
+		/* The fixture's only form carries the only learn block. Clearing it
+		 * leaves a Connect app with zero participation — the one state the
+		 * relaxation still forbids. */
+		const { ctx, recordMutations } = makeCtx();
+		const out = await updateFormTool.execute(
+			{ moduleIndex: 0, formIndex: 0, connect: null },
+			ctx,
+			completeConnectDoc(),
+		);
+
 		const error = "error" in out.result ? out.result.error : "";
-		expect(error).toContain("Connect");
-		// The named repair is satisfiable on THIS call — the creation tools
-		// accept `connect` directly.
-		expect(error).toContain("connect");
+		expect(error).toContain("at least one participating");
 		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("clearing one form's block commits while another form still participates", async () => {
+		/* Same clear, but the app gained a second participating form first —
+		 * the toggle-off is an ordinary edit whenever participation
+		 * survives it. */
+		const { ctx } = makeCtx();
+		const doc = completeConnectDoc();
+		const grown = await createFormTool.execute(
+			{
+				moduleIndex: 0,
+				name: "Lesson two",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "lesson_notes",
+						label: "Notes",
+						case_property_on: "trainee",
+					} as never,
+				],
+				connect: {
+					learn_module: {
+						id: "lesson_two",
+						name: "Lesson two",
+						description: "Follow-up content",
+						time_estimate: 20,
+					},
+				},
+			},
+			ctx,
+			doc,
+		);
+		expect("message" in grown.result).toBe(true);
+
+		const out = await updateFormTool.execute(
+			{ moduleIndex: 0, formIndex: 0, connect: null },
+			ctx,
+			grown.newDoc,
+		);
+
+		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
+		expect(runValidation(out.newDoc)).toEqual([]);
 	});
 
 	it("createForm parses assessment.user_score text to the expression AST, resolving a same-call field to an identity leaf", async () => {

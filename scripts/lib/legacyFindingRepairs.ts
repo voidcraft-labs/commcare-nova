@@ -30,18 +30,10 @@
  * media-asset manifest arm (asset existence / readiness / kind, and the
  * export byte budget). Asset state is environment, not blueprint
  * content, and media readiness is being fixed at its own source.
- * Two carve-outs, both by design rather than legacy debris:
- *
- *   - an EMPTY app (zero modules) keeps its birth findings
- *     (`NO_MODULES`, and `EMPTY_APP_NAME` while still moduleless) — an
- *     empty app is at rest and valid, and the export refusal is
- *     reachable for it on purpose;
- *   - `CONNECT_FORM_MISSING_BLOCK` is RULE-RETIRING: CommCare Connect's
- *     ingestion reads connect blocks per form and silently skips forms
- *     without one, so the every-form rule was Nova's invention and is
- *     being removed from the validator (relaxing to "≥1 sub-config of
- *     the app's type app-wide"). Those findings vanish with no data
- *     change; they are reported but never repaired.
+ * One carve-out, by design rather than legacy debris: an EMPTY app
+ * (zero modules) keeps its birth findings (`NO_MODULES`, and
+ * `EMPTY_APP_NAME` while still moduleless) — an empty app is at rest
+ * and valid, and the export refusal is reachable for it on purpose.
  *
  * ## The honesty boundary
  *
@@ -116,11 +108,7 @@ import {
 
 // ── Judgments — the REPAIRABLE / PROPOSED / NEEDS-OWNER table ────────
 
-export type RepairJudgmentKind =
-	| "mechanical"
-	| "proposed"
-	| "needs-owner"
-	| "rule-retiring";
+export type RepairJudgmentKind = "mechanical" | "proposed" | "needs-owner";
 
 export interface RepairJudgment {
 	kind: RepairJudgmentKind;
@@ -168,6 +156,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	),
 	RESERVED_CASE_TYPE_NAME: owner(
 		"renaming a case type re-keys the case database and every cross-reference; no single mutation owns that cascade",
+	),
+	CONNECT_NO_PARTICIPATING_FORMS: owner(
+		"which form should participate in Connect — and the sub-config names/descriptions it carries — is content the user writes",
 	),
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: owner(
@@ -321,11 +312,6 @@ export const REPAIR_JUDGMENTS: Readonly<
 	FORM_LINK_SELF_REFERENCE: owner(
 		"whether the form should loop to itself or go elsewhere is content",
 	),
-	CONNECT_FORM_MISSING_BLOCK: {
-		kind: "rule-retiring",
-		reason:
-			"CommCare Connect's ingestion reads connect blocks per form and silently skips forms without one — the every-form rule was Nova's invention and is being removed from the validator (relaxing to ≥1 sub-config of the app's type app-wide), so these findings vanish with no data change",
-	},
 	CONNECT_MISSING_LEARN: owner(
 		"sub-config names and descriptions are content — collected from the user, never invented",
 	),

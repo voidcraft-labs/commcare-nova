@@ -77,7 +77,8 @@ export type ValidityClass =
  *     NO_CASE_NAME_FIELD, REGISTRATION_NO_CASE_PROPS,
  *     CHILD_CASE_NO_NAME_FIELD, MISSING_CHILD_CASE_MODULE,
  *     CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE, the Connect
- *     missing-block family). NO_FORMS_OR_CASE_LIST reads "unfinished"
+ *     participation floor + per-block sub-config family).
+ *     NO_FORMS_OR_CASE_LIST reads "unfinished"
  *     too but stays soundness — module creation is expected to land
  *     with its forms, so a formless module is a broken commit, not
  *     work in progress.
@@ -102,6 +103,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	DUPLICATE_MODULE_NAME: "soundness",
 	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
+	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: "soundness",
 	CASE_LIST_ONLY_HAS_FORMS: "soundness",
@@ -160,7 +162,6 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	FORM_LINK_CIRCULAR: "soundness",
 	FORM_LINK_NO_FALLBACK: "soundness",
 	FORM_LINK_SELF_REFERENCE: "soundness",
-	CONNECT_FORM_MISSING_BLOCK: "completeness",
 	CONNECT_MISSING_LEARN: "completeness",
 	CONNECT_MISSING_DELIVER: "completeness",
 	CONNECT_UNQUOTED_XPATH: "soundness",

@@ -20,8 +20,8 @@
  * strictly-decreasing oracle must hold — finding count strictly down,
  * zero introduced identities (`diffIntroduced`) — or the app is
  * reported and NOT written. The judgment table (which classes are
- * mechanical / proposed / needs-owner / rule-retiring, and why) lives
- * in `scripts/lib/legacyFindingRepairs.ts`.
+ * mechanical / proposed / needs-owner, and why) lives in
+ * `scripts/lib/legacyFindingRepairs.ts`.
  *
  * A written blueprint lands in the expression-AST shape (the converter
  * runs as part of the load) — `migrate-expression-asts.ts` later reads
@@ -143,10 +143,8 @@ async function main() {
 				continue; // already reported above as proposed/rejected/uncleared
 			}
 			needsOwnerTotal++;
-			const tag =
-				judgment.kind === "rule-retiring" ? "RULE-RETIRING" : "NEEDS OWNER";
 			console.log(
-				`  ${tag} ${finding.code} — ${describeFindingLocation(finding)}\n` +
+				`  NEEDS OWNER ${finding.code} — ${describeFindingLocation(finding)}\n` +
 					`      ${finding.message}\n` +
 					`      (${judgment.reason})`,
 			);

@@ -270,7 +270,11 @@ const fieldItemArb = fc
  *  `__same_call_field__` marker (resolved by `resolveConnectScoreRef` to a
  *  reference to a field landing in the same call — the batch-overlay
  *  resolution shape), and a dangling reference (a gate bounce).
- *  `fc.option` keeps the no-block arm. */
+ *  `fc.option` keeps the no-block arm — on a Connect app that arm creates
+ *  an AUXILIARY form (no participation, a legal commit), so the property
+ *  exercises mixed apps alongside fully participating ones; `freq: 3`
+ *  draws it often enough that auxiliary creations land real commits under
+ *  the pinned seed (the default left it starved to garbage-only draws). */
 const connectArb = fc.option(
 	fc
 		.record({
@@ -310,7 +314,7 @@ const connectArb = fc.option(
 				},
 			}),
 		})),
-	{ nil: undefined },
+	{ freq: 3, nil: undefined },
 );
 
 const opArb = fc.oneof(
@@ -1167,8 +1171,9 @@ async function growConnectPrelude(
 ): Promise<BlueprintDoc> {
 	let doc = birthDoc();
 	/* Connect-typed from the first mutation — on an empty app the flip
-	 * introduces nothing, and every later creation must then carry its
-	 * per-form connect block. */
+	 * introduces nothing. Later creations choose per form whether to carry
+	 * a connect block (participate in Connect) or not (stay auxiliary);
+	 * the gate only insists the app keeps ≥1 participating form. */
 	doc = await runParsed(
 		updateAppTool,
 		{ name: "Fuzz Training", connect_type: "learn" },
@@ -1239,8 +1244,32 @@ async function growConnectPrelude(
 		ctx,
 		doc,
 	);
-	/* Standing removeModule target — see the standard prelude. Carries
-	 * its learn block like every form on a Connect app. */
+	/* Deliberately NO connect block, through the real createForm tool: an
+	 * AUXILIARY form is a legal commit on a Connect app, the prelude itself
+	 * becomes a MIXED app (participating + auxiliary forms), and the
+	 * zero-findings assert right after the prelude pins that the mix is a
+	 * legal committed state. Deterministic here because under the pinned
+	 * seed fast-check's per-run bias clusters the property's no-block draws
+	 * with garbage field draws — a sampled commit floor for this arm would
+	 * starve. */
+	doc = await runParsed(
+		createFormTool,
+		{
+			moduleIndex: 0,
+			name: "Reference sheet",
+			type: "survey",
+			fields: [{ kind: "text", id: "tips", label: "Tips" }],
+		},
+		ctx,
+		doc,
+	);
+	expect(
+		doc.formOrder[doc.moduleOrder[0]],
+		"the auxiliary (blockless) createForm must commit on the Connect app",
+	).toHaveLength(3);
+	/* Standing removeModule target — see the standard prelude. Its form
+	 * participates (carries a learn block) so removing the module is a
+	 * legal commit whenever the Lessons module still participates. */
 	doc = await runParsed(
 		createModuleTool,
 		{
@@ -1481,12 +1510,17 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 	it("Connect learn app: creations carrying (or missing) connect blocks hold the same invariant", async () => {
 		const tally = newCommitTally();
 		/* The Connect-specific floors: this run exists to prove creations work
-		 * under the per-form block obligation + the id enforcement + the
-		 * user_score parse boundary, which is only proven if the matching
-		 * creations actually COMMIT — the omitted-id arm (the autofill path),
-		 * the assessment arm (the text → AST boundary), and the same-call
-		 * reference arm (the batch-overlay resolution that must land an
-		 * identity leaf, the exact shape the unparsed-cast regression hid). */
+		 * under participation semantics (a block is opt-in per form) + the id
+		 * enforcement + the user_score parse boundary, which is only proven
+		 * if the matching creations actually COMMIT — the omitted-id arm
+		 * (the autofill path), the assessment arm (the text → AST boundary),
+		 * and the same-call reference arm (the batch-overlay resolution that
+		 * must land an identity leaf, the exact shape the unparsed-cast
+		 * regression hid). The auxiliary (blockless) creation commit is
+		 * pinned DETERMINISTICALLY in `growConnectPrelude` — under the
+		 * pinned seed, fast-check's per-run bias clusters the no-block draw
+		 * with garbage field draws, so a sampled floor for it would starve —
+		 * and every property op then runs against that mixed app. */
 		let connectCreationCommits = 0;
 		let omittedIdCreationCommits = 0;
 		let assessmentCreationCommits = 0;

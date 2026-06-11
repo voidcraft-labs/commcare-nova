@@ -732,8 +732,9 @@ export function fieldSpecArb(depth: number): fc.Arbitrary<FieldGenSpec> {
  * A Connect app's `connectType` ("learn" / "deliver") picks which sub-config
  * kinds are LIVE — the emitter (`buildConnectSlugMap`) only ships blocks
  * matching the mode, and the validator's `CONNECT_MISSING_LEARN` /
- * `CONNECT_MISSING_DELIVER` rules require ≥1 live sub-config per form. So each
- * form on a Connect doc carries one of the legal shapes for its mode:
+ * `CONNECT_MISSING_DELIVER` rules require ≥1 live sub-config on a block that
+ * is PRESENT. So each participating form carries one of the legal shapes for
+ * its mode:
  *   - learn  → learn_module, assessment, or both;
  *   - deliver→ deliver_unit, task, or both.
  * Both kinds are independent (the "sub-configs are independent" contract), so
@@ -856,9 +857,12 @@ export const FORM_TYPES = [
  * from this spec so id minting + normalization happen once.
  *
  * `connectType` is `null` for a plain app or "learn" / "deliver" for a Connect
- * app. When it's set, EVERY form carries a `connect` selection (`CONNECT_FORM`
- * requires a block on every form of a Connect app); when it's `null`, no form
- * carries one.
+ * app. When it's set, the FIRST form always carries a `connect` selection (the
+ * app-level `CONNECT_NO_PARTICIPATING_FORMS` floor needs ≥1 participating
+ * form) and every later form draws participating-or-auxiliary — a blockless
+ * form on a Connect app is a legal authoring state the emitter must handle
+ * (it simply contributes nothing for Connect's per-form ingestion scan to
+ * find). When `connectType` is `null`, no form carries one.
  */
 /**
  * Per-form subcase injection — when present, lowers into a repeat at
@@ -989,17 +993,28 @@ const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc
 		}
 		// Connect app: draw one mode-matched selection per form. Collect every
 		// form's selection arbitrary in document order, sample them as one
-		// tuple, then redistribute back onto the module/form tree.
+		// tuple, then redistribute back onto the module/form tree. The FIRST
+		// form always participates so the doc satisfies the app-level
+		// participation floor; every later form may come out auxiliary
+		// (no selection → no `connect` block), which exercises the
+		// emitter's skip path on a Connect-typed doc.
 		const formArb = connectType === "learn" ? learnFormArb : deliverFormArb;
-		const perFormArbs = modules.flatMap((m) => m.forms.map(() => formArb));
+		const perFormArbs: fc.Arbitrary<ConnectFormSpec | undefined>[] =
+			modules.flatMap((m, mIdx) =>
+				m.forms.map((_form, fIdx) =>
+					mIdx === 0 && fIdx === 0
+						? formArb
+						: fc.option(formArb, { nil: undefined }),
+				),
+			);
 		return fc.tuple(...perFormArbs).map((selections) => {
 			let cursor = 0;
 			const withConnect = modules.map((m) => ({
 				...m,
-				forms: m.forms.map((form) => ({
-					...form,
-					connect: selections[cursor++],
-				})),
+				forms: m.forms.map((form) => {
+					const selection = selections[cursor++];
+					return selection ? { ...form, connect: selection } : { ...form };
+				}),
 			}));
 			return { connectType, hasLogo, modules: withConnect };
 		});
@@ -1078,9 +1093,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				id: `f${mIdx}_${fIdx}`,
 				name: `Form ${mIdx}-${fIdx}`,
 				type: formSpec.type,
-				// Connect apps carry a per-form `connect` block (every form, per
-				// `CONNECT_FORM_MISSING_BLOCK`); ids are minted globally-unique
-				// here so the `runValidation` guardrail — which does NOT run the
+				// A participating form carries its `connect` block; a form whose
+				// spec drew no selection stays auxiliary (no block — legal on a
+				// Connect app). Ids are minted globally-unique here so the
+				// `runValidation` guardrail — which does NOT run the
 				// validate-time autofill — sees a complete, valid config.
 				...(formSpec.connect
 					? { connect: buildConnectConfig(minter, formSpec.connect) }

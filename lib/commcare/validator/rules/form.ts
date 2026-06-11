@@ -603,31 +603,19 @@ function connectValidation(
 	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
 
-	// A Connect-typed app expects every form to carry a `connect` block —
-	// the per-form sub-config is what feeds `<learn:module>` / `<deliver>`
-	// markers into the CCZ that Connect's sync endpoints scan. A missing
-	// block silently strips the form from Connect's view; CCHQ accepts the
-	// upload but the opportunity gets stuck without payment units. Flag it
-	// here so the validator catches the autobuild miss at the same gate as
-	// every other surface (interactive build, MCP edit, manual import).
-	if (!form.connect) {
-		const guidance =
-			doc.connectType === "learn"
-				? "Give the form a connect block with a learn_module (educational content), an assessment (quiz/test), or both — on the call creating the form (create_form / create_module accept `connect`), or via update_form on an existing one."
-				: "Give the form a connect block with a deliver_unit (and optionally a task) — on the call creating the form (create_form / create_module accept `connect`), or via update_form on an existing one.";
-		errors.push(
-			validationError(
-				"CONNECT_FORM_MISSING_BLOCK",
-				"form",
-				`"${ctx.formName}" is in a Connect ${doc.connectType} app but has no Connect configuration. ${guidance}`,
-				loc,
-			),
-		);
-		// Skip downstream sub-config checks — they all dereference
-		// `form.connect`, and we'd just produce a redundant cascade of
-		// errors that all resolve once the missing block lands.
-		return errors;
-	}
+	// A form WITHOUT a connect block is a legal, meaningful state on a
+	// Connect app: the block marks that the form PARTICIPATES in Connect,
+	// and omitting it makes the form auxiliary. Connect's own ingestion is
+	// coverage-blind — `commcare_connect/opportunity/app_xml.py::
+	// extract_modules` / `::extract_deliver_unit` / `::extract_task_unit`
+	// scan each form's XML for connect-namespace blocks and silently skip
+	// forms without them, and `opportunity/tasks.py::
+	// create_learn_modules_and_deliver_units` upserts whatever was found
+	// with no per-form coverage check. The app-wide floor (≥1 participating
+	// form, without which progress/payment have nothing to key on) is the
+	// app-scoped `CONNECT_NO_PARTICIPATING_FORMS` rule in `rules/app.ts`;
+	// everything below adjudicates a block that IS present.
+	if (!form.connect) return errors;
 
 	// A Connect id becomes an XML element name in the emitted form (the
 	// wrapper `<id vellum:role=...>` and the Connect-namespaced `id=`

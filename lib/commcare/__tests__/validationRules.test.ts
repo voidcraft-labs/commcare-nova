@@ -2216,37 +2216,40 @@ describe("connect rules", () => {
 		});
 	}
 
-	it("flags a Connect-typed app whose form has no connect block", () => {
-		/* When `connect_type` lands on the app but a form has no
-		 * per-form `connect`, CCHQ still accepts the upload — it has
-		 * no concept of "Connect form" — but Connect's
-		 * `extract_deliver_unit` / `extract_learn_module` find zero
-		 * markers in the CCZ and the opportunity is unusable. Validator
-		 * must catch this before upload-prep so the SA / caller can
-		 * attach the missing block via `update_form`. */
+	/* A connect block marks that a form PARTICIPATES in Connect; a form
+	 * without one is auxiliary, which is a legal wire state — Connect's
+	 * ingestion (commcare_connect/opportunity/app_xml.py::extract_modules /
+	 * ::extract_deliver_unit / ::extract_task_unit) scans per form and
+	 * silently skips blockless forms. What an app cannot survive is ZERO
+	 * participation: learn progress and payment key on the ingested rows,
+	 * so an app contributing none of its mode's blocks can never progress
+	 * or pay. That floor is the app-scoped rule under test here. */
+
+	it("flags a Connect app whose forms ALL lack blocks — zero participation — once, app-scoped", () => {
 		const doc = connectDoc({ connectType: "deliver" });
 		const errors = runValidation(doc);
-		const missingBlock = errors.filter(
-			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+		const noParticipation = errors.filter(
+			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 		);
-		expect(missingBlock).toHaveLength(1);
-		expect(missingBlock[0].message).toContain("Connect deliver app");
-		expect(missingBlock[0].message).toContain("First Form");
+		expect(noParticipation).toHaveLength(1);
+		expect(noParticipation[0].scope).toBe("app");
+		expect(noParticipation[0].message).toContain("at least one participating");
 	});
 
 	it("guidance text differs by connectType so the SA picks the right sub-config", () => {
-		/* The error message tells the SA which sub-config to add. For a
-		 * learn app the SA may pick learn_module, assessment, or both; for
-		 * a deliver app it's deliver_unit and/or task. The two messages
-		 * must be distinguishable on `connectType` so the SA's prompt
-		 * doesn't have to fall back to inferring from the app's name. */
+		/* The error message tells the SA which sub-config family makes a
+		 * form participate. For a learn app that's learn_module and/or
+		 * assessment; for a deliver app deliver_unit and/or task. The two
+		 * messages must be distinguishable on `connectType` so the SA's
+		 * prompt doesn't have to fall back to inferring from the app's
+		 * name. */
 		const learnDoc = connectDoc({ connectType: "learn" });
 		const deliverDoc = connectDoc({ connectType: "deliver" });
 		const learnMsg = runValidation(learnDoc).find(
-			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 		)?.message;
 		const deliverMsg = runValidation(deliverDoc).find(
-			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 		)?.message;
 		expect(learnMsg).toContain("learn_module");
 		expect(learnMsg).toContain("assessment");
@@ -2254,12 +2257,67 @@ describe("connect rules", () => {
 		expect(deliverMsg).toContain("task");
 	});
 
-	it("does not double-fire CONNECT_MISSING_DELIVER when the whole connect block is absent", () => {
-		/* When `form.connect` is absent we only emit the higher-level
-		 * `CONNECT_FORM_MISSING_BLOCK` error and skip downstream sub-
-		 * config checks. Otherwise the SA would see two errors for the
-		 * same root cause, both of which dissolve once it adds the
-		 * missing block. */
+	it("accepts a mixed app — one participating form, one auxiliary form — with zero Connect findings", () => {
+		const doc = buildDoc({
+			appName: "Connect App",
+			connectType: "deliver",
+			modules: [
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "Paid visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q1", label: "Q" })],
+							connect: { deliver_unit: { id: "visit", name: "Visit" } },
+						},
+						{
+							name: "Reference sheet",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q2", label: "Q" })],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc).filter((e) =>
+			e.code.startsWith("CONNECT_"),
+		);
+		expect(errors).toEqual([]);
+	});
+
+	it("keeps an EMPTY Connect app clean — the floor binds only once forms exist", () => {
+		/* A Connect build flips `connect_type` first, on the empty app
+		 * (`updateApp`), then creates participating forms with their
+		 * blocks. Firing the floor on the empty app would bounce that
+		 * documented first move. */
+		const doc = buildDoc({ appName: "Connect App", connectType: "learn" });
+		expect(
+			runValidation(doc).some(
+				(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
+			),
+		).toBe(false);
+	});
+
+	it("a cross-mode stray block does not count as participation", () => {
+		/* A learn app's form carrying only a deliver_unit contributes
+		 * nothing Connect's learn ingestion reads — the app still has zero
+		 * participation, and the stray block's own malformedness is the
+		 * per-form CONNECT_MISSING_LEARN finding. */
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: { deliver_unit: { id: "stray", name: "Stray" } },
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.some((e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS"),
+		).toBe(true);
+		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(true);
+	});
+
+	it("does not fire the per-form sub-config rules when the whole connect block is absent", () => {
+		/* A blockless form is auxiliary, not malformed — CONNECT_MISSING_*
+		 * adjudicate a block that IS present. */
 		const doc = connectDoc({ connectType: "deliver" });
 		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
@@ -2327,7 +2385,7 @@ describe("connect rules", () => {
 	it("does not flag a fully populated deliver_unit", () => {
 		/* Sanity check: the rule fires only on empties. A fully
 		 * populated deliver_unit should pass cleanly without spurious
-		 * CONNECT_EMPTY_XPATH or CONNECT_FORM_MISSING_BLOCK errors. */
+		 * CONNECT_EMPTY_XPATH (or any other CONNECT_*) errors. */
 		const doc = connectDoc({
 			connectType: "deliver",
 			formConnect: {

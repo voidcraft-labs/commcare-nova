@@ -19,13 +19,10 @@
  * evaluation `collectBoundaryViolations` performs MINUS the media-asset
  * manifest arm (asset existence / readiness / kind and the export byte
  * budget). Asset state is environment, not blueprint content, and media
- * readiness is being fixed at its own source. Two further carve-outs,
- * both by design: an EMPTY app keeps its birth findings (reported as a
- * note, never counted — an empty app is at rest and its export refusal
- * is intentional), and CONNECT_FORM_MISSING_BLOCK is annotated
- * RULE-RETIRING (Connect's ingestion skips blockless forms, the rule is
- * being removed from the validator, the findings vanish with no data
- * change).
+ * readiness is being fixed at its own source. One further carve-out, by
+ * design: an EMPTY app keeps its birth findings (reported as a note,
+ * never counted — an empty app is at rest and its export refusal is
+ * intentional).
  *
  * Exits non-zero when any findings exist. Run with `--help` for flags.
  */
@@ -73,7 +70,6 @@ const JUDGMENT_LABEL = {
 	mechanical: "REPAIRABLE",
 	proposed: "PROPOSED",
 	"needs-owner": "NEEDS OWNER",
-	"rule-retiring": "RULE RETIRING",
 } as const;
 
 function findingLine(err: ValidationError): string {

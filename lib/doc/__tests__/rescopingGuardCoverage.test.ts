@@ -589,13 +589,14 @@ const GUARD_COVERAGE = {
 	setConnectType: {
 		build: () => ({
 			doc: richDoc(),
-			// Enabling Connect on a complete app introduces the per-form
-			// missing-block completeness findings — the gate fires; the one
-			// LIVE bypass for this shape is the session store's
-			// switchConnectMode (documented in lib/doc/commitVerdicts.ts).
+			// Enabling Connect on an app whose forms all lack blocks leaves
+			// the app with ZERO participating forms — the app-level
+			// completeness floor fires. The session store's
+			// switchConnectMode passes this same gate by landing the staged
+			// participating blocks in the same batch as the flip.
 			batch: [{ kind: "setConnectType", connectType: "learn" }],
 		}),
-		expectCodes: ["CONNECT_FORM_MISSING_BLOCK", "CONNECT_MISSING_LEARN"],
+		expectCodes: ["CONNECT_NO_PARTICIPATING_FORMS"],
 		fullScope: true,
 	},
 	setCaseTypes: {
