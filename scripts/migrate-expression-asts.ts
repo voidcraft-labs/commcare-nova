@@ -25,6 +25,11 @@
  * `scan-expression-asts.ts` is the read-only twin. Idempotent:
  * a converted slot reads as already-current on a re-run.
  *
+ * One-time migration: the deployed code reads ONLY the AST shape, so
+ * the owner runs this against production when deploying the
+ * expression-AST representation over data written before it — scan
+ * first, then dry run, then `--apply`.
+ *
  * Run with `--help` for flags.
  */
 import { Firestore } from "@google-cloud/firestore";
@@ -48,7 +53,8 @@ const program = new Command();
 program
 	.name("migrate-expression-asts")
 	.description(
-		"Convert stored blueprints + event logs to the expression-AST representation. Defaults to a dry run — pass --apply to write.",
+		"Convert stored blueprints + event logs to the expression-AST representation. Defaults to a dry run — pass --apply to write. " +
+			"One-time: run against production when deploying the expression-AST code over pre-AST data (scan-expression-asts.ts first).",
 	)
 	.requiredOption(
 		"--project <id>",

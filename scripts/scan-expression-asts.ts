@@ -2,6 +2,11 @@
  * READ-ONLY — size the expression-AST migration across every app's
  * stored blueprint AND event log.
  *
+ * One-time migration pair: the deployed code reads ONLY the AST shape,
+ * so the owner runs this scan against production when deploying the
+ * expression-AST representation over data written before it, then
+ * `migrate-expression-asts.ts` (dry-run first, then `--apply`).
+ *
  * For each app this runs the shared converter (`migrateDocExpressions`
  * / `migrateMutationExpressions`) on CLONES and reports, per app:
  *
@@ -39,7 +44,8 @@ const program = new Command();
 program
 	.name("scan-expression-asts")
 	.description(
-		"Report what the expression-AST migration would change per app (read-only).",
+		"Report what the expression-AST migration would change per app (read-only). " +
+			"One-time: run against production when deploying the expression-AST code over pre-AST data, before migrate-expression-asts.ts.",
 	)
 	.requiredOption(
 		"--project <id>",

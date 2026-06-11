@@ -745,7 +745,9 @@ Round-5 review hardening (same stage, post-ship):
   attach op writes an opaque asset id with no gate interplay to judge.
 - Scan + migrate script pair for legacy `status: "draft"` rows
   (`--project`-pinned; migrate dry-run default, `--apply`). Dev-project
-  scan found zero rows.
+  scan found zero rows — and production never ran draft-writing code at
+  all, so the pair migrated nothing anywhere and was `git rm`'d in the
+  residue sweep (scripts/ holds re-runnable tools only).
 
 Round-6 review hardening (same stage, post-ship):
 - The claim window's full charge contract: `claimBuildRun` SETTLES the

@@ -165,22 +165,21 @@ describe("listApps", () => {
 		expect(statusById.killed).toBe("error"); // hard kill, reaped
 	});
 
-	it("never reaps or fails a stale draft — an MCP build runs on no liveness timer", async () => {
-		/* `draft` is the MCP build window. The staleness machinery keys on
-		 * `generating` (a chat build whose process must keep writing); an
-		 * external agent can leave a draft untouched for days and come
-		 * back, so a stale `updated_at` on a draft row means nothing. Pin
-		 * that the failure inference projects the row as `draft`, not
-		 * `error`, no matter how old its last write is. */
+	it("never reaps or fails a stale complete app — only a live build runs on the liveness timer", async () => {
+		/* The staleness machinery keys on `generating` (a chat build whose
+		 * process must keep writing). An app at rest can sit untouched for
+		 * months, so a stale `updated_at` on a `complete` row means
+		 * nothing — pin that the failure inference leaves it `complete`,
+		 * never `error`, no matter how old its last write is. */
 		const stale = Timestamp.fromDate(new Date("2020-01-01T00:00:00Z"));
 		getMock.mockResolvedValueOnce({
 			docs: [
-				makeDoc("parked-draft", {
-					app_name: "Parked draft",
+				makeDoc("at-rest", {
+					app_name: "At rest",
 					connect_type: null,
 					module_count: 1,
 					form_count: 1,
-					status: "draft",
+					status: "complete",
 					error_type: null,
 					created_at: stale,
 					updated_at: stale,
@@ -195,7 +194,7 @@ describe("listApps", () => {
 			sort: "updated_desc",
 		});
 
-		expect(apps[0]?.status).toBe("draft");
+		expect(apps[0]?.status).toBe("complete");
 		expect(apps[0]?.error_type).toBeNull();
 	});
 
