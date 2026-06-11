@@ -14,7 +14,11 @@ import Fuse from "fuse.js";
 import type { ErrorType } from "@/lib/agent";
 import { log } from "@/lib/logger";
 import { toPersistableDoc } from "../doc/fieldParent";
-import type { BlueprintDoc, PersistableDoc } from "../domain/blueprint";
+import type {
+	BlueprintDoc,
+	PersistableDoc,
+	PersistedBlueprint,
+} from "../domain/blueprint";
 import { asWalkableDoc, collectAssetRefs } from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
@@ -467,7 +471,7 @@ export async function createApp(
  */
 async function persistBlueprintSnapshot(
 	appId: string,
-	doc: PersistableDoc,
+	doc: PersistedBlueprint,
 	extra: { status?: AppDoc["status"]; runId?: string } = {},
 ): Promise<void> {
 	await docs.app(appId).update(blueprintSnapshotFields(doc, extra));
@@ -486,7 +490,7 @@ async function persistBlueprintSnapshot(
  * untouched.
  */
 function blueprintSnapshotFields(
-	doc: PersistableDoc,
+	doc: PersistedBlueprint,
 	extra: {
 		status?: AppDoc["status"];
 		runId?: string;
@@ -521,7 +525,7 @@ function blueprintSnapshotFields(
 export async function updateAppForRunTransactional(
 	appId: string,
 	runId: string,
-	body: (fresh: AppDoc) => PersistableDoc,
+	body: (fresh: AppDoc) => PersistedBlueprint,
 ): Promise<PersistableDoc> {
 	const committed = await getDb().runTransaction(async (tx) => {
 		const snap = await tx.get(docs.app(appId));
@@ -576,7 +580,7 @@ export class BlueprintBasisStaleError extends Error {
  */
 export async function updateAppGuardedByBasis(
 	appId: string,
-	doc: PersistableDoc,
+	doc: PersistedBlueprint,
 	basisToken: string | null,
 ): Promise<string> {
 	const nextToken = crypto.randomUUID();
@@ -936,15 +940,15 @@ export async function reapStaleGenerating(appId: string): Promise<void> {
  * Writes blueprint, denormalized summary fields, and `updated_at`.
  * Called by the auto-save route (`PUT /api/apps/{id}`) after user edits
  * and by `GenerationContext.saveBlueprint` for intermediate saves
- * during generation. Accepts `PersistableDoc` (the Zod-validated
- * on-disk shape without `fieldParent`) so the route can pass
- * `blueprintDocSchema.safeParse` results directly. `BlueprintDoc`
- * (in-memory with `fieldParent`) is also assignable since it extends
- * `PersistableDoc`.
+ * during generation. Takes `PersistedBlueprint` — the type-level wall
+ * that rejects an unstripped in-memory `BlueprintDoc` at compile time
+ * (its derived `fieldParent` / reference index must never serialize) —
+ * while the route's `blueprintDocSchema.safeParse` results and
+ * `toPersistableDoc` outputs pass directly.
  */
 export async function updateApp(
 	appId: string,
-	doc: PersistableDoc,
+	doc: PersistedBlueprint,
 ): Promise<void> {
 	await persistBlueprintSnapshot(appId, doc);
 }
@@ -964,7 +968,7 @@ export async function updateApp(
  */
 export async function updateAppForRun(
 	appId: string,
-	doc: PersistableDoc,
+	doc: PersistedBlueprint,
 	runId: string,
 ): Promise<void> {
 	await persistBlueprintSnapshot(appId, doc, { runId });

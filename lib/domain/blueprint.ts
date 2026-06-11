@@ -122,6 +122,25 @@ export const blueprintDocSchema = z
  */
 export type PersistableDoc = z.infer<typeof blueprintDocSchema>;
 
+/**
+ * The blueprint as it crosses the persistence boundary — a
+ * `PersistableDoc` PROVABLY free of the in-memory derived state.
+ *
+ * `BlueprintDoc` is structurally assignable to `PersistableDoc` (extra
+ * properties don't break TS assignability), so a writer parameter typed
+ * `PersistableDoc` would happily accept an unstripped in-memory doc and
+ * serialize `fieldParent` + the reference index into Firestore. The
+ * `never`-typed slots are the compile-time wall: a value whose TYPE
+ * declares either property is rejected at the call site, while the
+ * output of `toPersistableDoc` (and any Zod-parsed wire payload)
+ * passes untouched. Every direct blueprint writer takes this shape, so
+ * the strip chokepoint is type-enforced rather than discipline.
+ */
+export type PersistedBlueprint = PersistableDoc & {
+	fieldParent?: never;
+	refIndex?: never;
+};
+
 export type BlueprintDoc = PersistableDoc & {
 	/** Reverse index: field uuid → parent uuid (form or container). Maintained
 	 *  atomically by every mutation that touches fieldOrder. Rebuilt by

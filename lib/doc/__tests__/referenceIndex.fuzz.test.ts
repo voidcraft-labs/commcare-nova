@@ -7,22 +7,26 @@
  * a correctness bug by definition — the maintenance missed a carrier
  * some mutation could change.
  *
- * The generator drives raw mutation batches (1–3 mutations each, so
- * intra-batch dependencies occur: an add followed by a rename of what
- * it referenced) over a reference-rich seed doc, with picks resolved
- * against the RUNNING doc the way the construction fuzz resolves its
- * ops. Reducers are total, so the alphabet deliberately includes
- * shapes the commit gate would reject (sibling-id collisions via
- * rename, dangling refs, case-type flips on referenced types) — the
- * index must stay rebuild-equal through every degenerate state replay
- * can produce, not just gated ones.
+ * The generator drives one op per applyMutations batch over a
+ * reference-rich seed doc, with picks resolved against the RUNNING doc
+ * the way the construction fuzz resolves its ops; the `addThenRename`
+ * compound op lowers to a TWO-mutation batch with an intra-batch
+ * dependency (the add lands a ref, the same batch renames its target),
+ * pinning mid-batch index currency. Reducers are total, so the
+ * alphabet deliberately includes shapes the commit gate would reject
+ * (sibling-id collisions via rename, dangling refs, case-type flips on
+ * referenced types) — the index must stay rebuild-equal through every
+ * degenerate state replay can produce, not just gated ones.
  *
  * Floors per the fuzz doctrine: the seed is pinned, and the run
- * asserts every mutation kind in the alphabet actually changed the doc
- * at least once — plus occurrence floors for the three at-a-distance
- * arms that motivated the maintenance buckets (a dangling `#form` ref
- * resolving via a later add, a case-bound rename re-keying property
- * edges, and a cross-module form move re-keying `#case` context).
+ * asserts every op kind INDIVIDUALLY changed the doc at least once
+ * (one op per batch, so a kind whose lowering always no-ops can't ride
+ * a changing batch) — plus occurrence floors for the three
+ * at-a-distance arms that motivated the maintenance buckets, each
+ * tied to the shape it names: a root add of the pending id that
+ * provably materialized the standing dangling carrier's edge, a
+ * case-bound rename with a genuinely new id, and a cross-module form
+ * move.
  */
 import * as fc from "fast-check";
 import { produce } from "immer";
@@ -34,6 +38,7 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
 	type BlueprintDoc,
+	entityTargetKey,
 	fieldCasePropertyOn,
 	type Uuid,
 } from "@/lib/domain";
@@ -269,7 +274,13 @@ type FuzzOp =
 	| { kind: "renameModule"; modulePick: number }
 	| { kind: "updateModule"; modulePick: number; caseTypePick: number }
 	| { kind: "setCaseTypes"; drop: boolean }
-	| { kind: "setAppName" };
+	| { kind: "setAppName" }
+	| {
+			kind: "addThenRename";
+			formPick: number;
+			targetPick: number;
+			idPick: number;
+	  };
 
 const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 	{
@@ -409,6 +420,16 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 			.map((r) => ({ kind: "setCaseTypes" as const, ...r })),
 	},
 	{ weight: 1, arbitrary: fc.constant({ kind: "setAppName" as const }) },
+	{
+		weight: 2,
+		arbitrary: fc
+			.record({
+				formPick: fc.nat({ max: 6 }),
+				targetPick: fc.nat({ max: 9 }),
+				idPick: fc.nat({ max: ID_POOL.length - 1 }),
+			})
+			.map((r) => ({ kind: "addThenRename" as const, ...r })),
+	},
 );
 
 // ── Pick resolution against the running doc ─────────────────────────
@@ -610,6 +631,34 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			];
 		case "setAppName":
 			return [{ kind: "setAppName", name: "Renamed app" }];
+		case "addThenRename": {
+			// TWO mutations in ONE batch with an intra-batch dependency: the
+			// add lands a ref to an existing root-level field, then the SAME
+			// batch renames that field — the rename's reducer lookup only
+			// finds the fresh carrier if the add's maintenance ran before it
+			// (mid-batch currency).
+			const formUuid = pickForm(doc, op.formPick);
+			if (!formUuid) return [];
+			const roots = doc.fieldOrder[formUuid] ?? [];
+			if (roots.length === 0) return [];
+			const target = roots[op.targetPick % roots.length];
+			const targetId = doc.fields[target]?.id;
+			if (!targetId) return [];
+			return [
+				{
+					kind: "addField",
+					parentUuid: formUuid,
+					field: {
+						uuid: mintUuid(),
+						kind: "text",
+						id: "fresh_ref",
+						label: "Fresh",
+						relevant: `#form/${targetId} != ''`,
+					} as never,
+				},
+				{ kind: "renameField", uuid: target, newId: ID_POOL[op.idPick] },
+			];
+		}
 	}
 }
 
@@ -635,6 +684,7 @@ const OP_KINDS = [
 	"updateModule",
 	"setCaseTypes",
 	"setAppName",
+	"addThenRename",
 ] as const satisfies readonly FuzzOp["kind"][];
 
 describe("reference index fuzz — incremental ≡ rebuild after every batch", () => {
@@ -648,51 +698,74 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 
 		fc.assert(
 			fc.property(
-				// Batches of 1–3 ops give intra-batch dependencies (an add
-				// then a rename of what it referenced) — the index must be
-				// current MID-batch for the second mutation's own lookups.
-				fc.array(fc.array(opArb, { minLength: 1, maxLength: 3 }), {
-					minLength: 1,
-					maxLength: 12,
-				}),
-				(batches) => {
+				// One op per applyMutations batch, so the per-kind floor
+				// credits exactly the op that changed the doc — a kind whose
+				// lowering always no-ops can't ride a changing batch. The
+				// multi-mutation/mid-batch-currency coverage lives in the
+				// `addThenRename` compound op, whose single lowering IS a
+				// two-mutation batch with an intra-batch dependency.
+				fc.array(opArb, { minLength: 1, maxLength: 24 }),
+				(ops) => {
 					let doc = seedDoc();
-					for (const batch of batches) {
-						const prev = doc;
-						const mutations = batch.flatMap((op) => {
-							const lowered = lower(doc, op);
-							// Occurrence tallies for the at-a-distance arms.
-							for (const mut of lowered) {
+					/* Seed landmarks for the dangling-ref tally: the standing
+					 * `#form/pending_x` ref lives on the `pending` field at the
+					 * Register form's ROOT, so only a root add of `pending_x`
+					 * THERE can satisfy it. Uuids are stable, so the landmarks
+					 * survive renames/moves; if the sequence deletes them the
+					 * edge check below simply never credits. */
+					const registerRoot = doc.formOrder[doc.moduleOrder[0]]?.[0];
+					const pendingUuid = Object.values(doc.fields).find(
+						(field) => field.id === "pending",
+					)?.uuid;
+					for (const op of ops) {
+						const lowered = lower(doc, op);
+						// Pre-state facts for the occurrence tallies.
+						let satisfyingAddUuid: string | undefined;
+						for (const mut of lowered) {
+							if (
+								mut.kind === "addField" &&
+								(mut.field as { id?: string }).id === "pending_x" &&
+								mut.parentUuid === registerRoot
+							) {
+								satisfyingAddUuid = (mut.field as { uuid: string }).uuid;
+							}
+							if (mut.kind === "renameField") {
+								const field = doc.fields[mut.uuid];
 								if (
-									mut.kind === "addField" &&
-									(mut.field as { id?: string }).id === "pending_x"
+									field &&
+									field.id !== mut.newId &&
+									fieldCasePropertyOn(field) !== undefined
 								) {
-									danglingSatisfiedAdds++;
-								}
-								if (mut.kind === "renameField") {
-									const field = doc.fields[mut.uuid];
-									if (field && fieldCasePropertyOn(field) !== undefined) {
-										caseBoundRenames++;
-									}
-								}
-								if (mut.kind === "moveForm") {
-									const owner = Object.entries(doc.formOrder).find(([, list]) =>
-										list.includes(mut.uuid),
-									)?.[0];
-									if (owner !== undefined && owner !== mut.toModuleUuid) {
-										crossModuleFormMoves++;
-									}
+									caseBoundRenames++;
 								}
 							}
-							return lowered;
-						});
+							if (mut.kind === "moveForm") {
+								const owner = Object.entries(doc.formOrder).find(([, list]) =>
+									list.includes(mut.uuid),
+								)?.[0];
+								if (owner !== undefined && owner !== mut.toModuleUuid) {
+									crossModuleFormMoves++;
+								}
+							}
+						}
+						const prev = doc;
 						doc = produce(doc, (draft) => {
-							applyMutations(draft, mutations);
+							applyMutations(draft, lowered);
 						});
 						if (doc !== prev) {
-							for (const op of batch) {
-								changedTally.set(op.kind, (changedTally.get(op.kind) ?? 0) + 1);
-							}
+							changedTally.set(op.kind, (changedTally.get(op.kind) ?? 0) + 1);
+						}
+						/* Credit the dangling arm only when the add actually
+						 * satisfied the ref: the standing carrier now holds an
+						 * edge to the minted field. */
+						if (
+							satisfyingAddUuid !== undefined &&
+							pendingUuid !== undefined &&
+							doc.refIndex?.in[entityTargetKey(satisfyingAddUuid)]?.[
+								pendingUuid
+							] !== undefined
+						) {
+							danglingSatisfiedAdds++;
 						}
 						// THE invariant: the maintained index equals a rebuild.
 						expect(doc.refIndex).toEqual(buildReferenceIndex(doc));

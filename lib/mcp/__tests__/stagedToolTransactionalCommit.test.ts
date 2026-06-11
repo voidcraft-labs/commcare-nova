@@ -29,7 +29,7 @@ import {
 	applyBlueprintChange,
 	BlueprintCommitRejectedError,
 } from "@/lib/db/applyBlueprintChange";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
 
@@ -142,7 +142,7 @@ describe("editField through McpContext — one transactional save per edit", () 
 		expect(kinds).toContain("renameField");
 		expect(kinds).toContain("updateField");
 		// The persisted snapshot is the FINAL doc — rename and patch applied.
-		const persisted = args?.prospective as BlueprintDoc;
+		const persisted = args?.prospective as PersistableDoc;
 		const renamed = Object.values(persisted.fields).find(
 			(fl) => fl.id === "village_name",
 		);

@@ -70,7 +70,11 @@ import {
 } from "@/lib/doc/commitVerdicts";
 import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	PersistableDoc,
+	PersistedBlueprint,
+} from "@/lib/domain";
 import { log } from "@/lib/logger";
 import {
 	loadApp,
@@ -110,7 +114,7 @@ import {
 export interface ApplyBlueprintChangeArgs {
 	readonly appId: string;
 	readonly userId: string;
-	readonly prospective: PersistableDoc;
+	readonly prospective: PersistedBlueprint;
 	readonly runId?: string;
 	readonly hint?: SchemaChangeHint;
 	readonly priorBlueprint?: PersistableDoc;
@@ -190,7 +194,13 @@ export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
 ): Promise<ApplyBlueprintChangeResult> {
 	const priorBlueprint = await resolvePriorBlueprint(args);
-	const prospectiveBlueprint = args.prospective as BlueprintDoc;
+	/* Read-only widening for the case-type diff below — the same single
+	 * seam `resolvePriorBlueprint` documents. The double hop steps the
+	 * walled `PersistedBlueprint` back up to `PersistableDoc` first; a
+	 * direct cast can't compile because the wall's `never` slots don't
+	 * overlap `BlueprintDoc`'s required `fieldParent`. */
+	const prospectiveBlueprint =
+		args.prospective as PersistableDoc as BlueprintDoc;
 
 	const entries = classifyCaseTypeChanges({
 		prior: priorBlueprint,
@@ -286,7 +296,15 @@ async function persistBlueprint(
 			/* Re-apply against the FRESH stored blueprint and re-run the
 			 * verdict inside the transaction. Firestore re-runs this body on
 			 * contention, so the verdict always holds against the doc the
-			 * write replaces. */
+			 * write replaces.
+			 *
+			 * Cost shape: the fresh doc carries no reference index (it never
+			 * persists), so the verdict's candidate apply seeds one from
+			 * scratch — an O(doc) extraction pass per transaction attempt,
+			 * on top of the verdict's own validation. That bracketing cost
+			 * is the accepted price of re-deriving everything from the doc
+			 * the write actually replaces; the reference LOOKUPS the verdict
+			 * and reducers make stay O(1) against the seeded index. */
 			const freshDoc: BlueprintDoc = {
 				...(fresh.blueprint as PersistableDoc),
 				fieldParent: {},

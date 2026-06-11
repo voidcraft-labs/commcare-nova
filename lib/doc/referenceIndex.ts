@@ -167,6 +167,17 @@ interface CarrierContext {
  * structural (never a cached mirror) so the incremental path and the
  * rebuild resolve identically — including in degenerate docs where a
  * mirror could have gone stale.
+ *
+ * Cost shape: `findContainingForm` walks parents via order-array scans,
+ * so maintenance brackets at O(touched carriers × doc structure) per
+ * mutation. The carrier entry DOES hold a `form` mirror that would make
+ * this O(1), but reading it here is rejected deliberately: total
+ * reducers can replay degenerate states (an addField whose uuid already
+ * sits under another parent leaves one uuid in two order arrays), and
+ * there a stale mirror and a structural walk resolve differently —
+ * breaking the incremental ≡ rebuild oracle, which is worth more than
+ * the bracket. Reference LOOKUPS are unaffected either way: they read
+ * the maintained buckets in O(1).
  */
 function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 	const mod = doc.modules[carrier];

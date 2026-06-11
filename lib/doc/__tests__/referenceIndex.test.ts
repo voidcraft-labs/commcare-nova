@@ -95,6 +95,12 @@ function richDoc(): BlueprintDoc {
 							}),
 							f({
 								kind: "text",
+								id: "slash_watcher",
+								label: "Slash",
+								relevant: "/data/grp/inner != ''",
+							}),
+							f({
+								kind: "text",
 								id: "pending",
 								label: "Pending",
 								relevant: "#form/pending_x = '1'",
@@ -121,12 +127,20 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const inner = uuidByFieldId(doc, "inner");
 		const watcher = uuidByFieldId(doc, "watcher");
 
-		// `#form/grp/inner` (xpath + prose) carries edges to BOTH the
-		// container and the leaf — renaming/moving `grp` finds carriers of
-		// refs into its subtree with one lookup.
-		expect(referencingCarrierUuids(doc, entityTargetKey(grp))).toEqual([
-			watcher,
-		]);
+		// `#form/grp/inner` (xpath + prose) AND the slash-path spelling
+		// `/data/grp/inner` carry edges to BOTH the container and the
+		// leaf — renaming/moving `grp` finds carriers of refs into its
+		// subtree with one lookup, whichever spelling they used. (Hashtag
+		// prefixes are emitted per resolved segment; slash-path prefixes
+		// arise from the nested path CST nodes — two mechanisms, one edge
+		// contract.)
+		const slashWatcher = uuidByFieldId(doc, "slash_watcher");
+		expect(referencingCarrierUuids(doc, entityTargetKey(grp)).sort()).toEqual(
+			[slashWatcher, watcher].sort(),
+		);
+		expect(
+			referencingCarrierSlots(doc, entityTargetKey(grp))[slashWatcher],
+		).toEqual({ relevant: true });
 		expect(
 			referencingCarrierSlots(doc, entityTargetKey(inner))[watcher],
 		).toEqual({ relevant: true, label: true });
@@ -219,6 +233,77 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		]);
 		expect(referencingCarrierUuids(next, entityTargetKey(outcome))).toEqual([]);
 		expect(formIdHolders(next, formUuid, "outcome")).toHaveLength(2);
+	});
+});
+
+describe("index-driven rewrites — slash-path descendants and mid-batch currency", () => {
+	it("re-anchors a /data/… descendant ref when its container renames, and again when it moves", () => {
+		const doc = richDoc();
+		const grp = uuidByFieldId(doc, "grp");
+		const slashWatcher = uuidByFieldId(doc, "slash_watcher");
+
+		const renamed = apply(doc, [
+			{ kind: "renameField", uuid: grp, newId: "grp2" },
+		]);
+		expect(
+			(renamed.fields[slashWatcher] as { relevant?: string }).relevant,
+		).toBe("/data/grp2/inner != ''");
+		expect(renamed.refIndex).toEqual(buildReferenceIndex(renamed));
+
+		const formUuid = renamed.moduleOrder.flatMap(
+			(m) => renamed.formOrder[m] ?? [],
+		)[0];
+		const outerUuid = "33333333-3333-4333-8333-333333333333";
+		const moved = apply(renamed, [
+			{
+				kind: "addField",
+				parentUuid: formUuid,
+				field: {
+					uuid: outerUuid,
+					kind: "group",
+					id: "outer",
+					label: "Outer",
+				} as never,
+			},
+			{
+				kind: "moveField",
+				uuid: grp,
+				toParentUuid: outerUuid as never,
+				toIndex: 0,
+			},
+		]);
+		expect((moved.fields[slashWatcher] as { relevant?: string }).relevant).toBe(
+			"/data/outer/grp2/inner != ''",
+		);
+		expect(moved.refIndex).toEqual(buildReferenceIndex(moved));
+	});
+
+	it("a rename later in the SAME batch rewrites a ref the batch itself just added", () => {
+		// Mid-batch currency is what lets reducers be lookup-driven at all:
+		// the add's maintenance must land its edges BEFORE the rename's
+		// reducer looks carriers up, inside one applyMutations call.
+		const doc = richDoc();
+		const caseName = uuidByFieldId(doc, "case_name");
+		const formUuid = doc.moduleOrder.flatMap((m) => doc.formOrder[m] ?? [])[0];
+		const mintedUuid = "44444444-4444-4444-8444-444444444444";
+		const next = apply(doc, [
+			{
+				kind: "addField",
+				parentUuid: formUuid,
+				field: {
+					uuid: mintedUuid,
+					kind: "text",
+					id: "fresh_ref",
+					label: "Fresh",
+					relevant: "#form/case_name != ''",
+				} as never,
+			},
+			{ kind: "renameField", uuid: caseName, newId: "full_name" },
+		]);
+		expect(
+			(next.fields[mintedUuid as never] as { relevant?: string }).relevant,
+		).toBe("#form/full_name != ''");
+		expect(next.refIndex).toEqual(buildReferenceIndex(next));
 	});
 });
 

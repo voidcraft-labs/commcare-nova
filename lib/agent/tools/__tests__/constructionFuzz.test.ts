@@ -938,7 +938,15 @@ function assertZeroFindings(doc: BlueprintDoc, context: string): void {
  * multi-stage edits — so the two alphabets meet in the middle.
  */
 function assertIndexParity(doc: BlueprintDoc, context: string): void {
-	if (!doc.refIndex) return;
+	// Presence is asserted, not assumed: every doc this fuzz sees after
+	// the preludes was produced by the gated tool path, whose candidate
+	// apply seeds the index — if a refactor ever stops that seeding, the
+	// parity check below must fail loudly rather than become a green
+	// no-op over `undefined`.
+	expect(
+		doc.refIndex,
+		`the tool path stopped carrying a reference index at ${context} — every parity assertion in this suite is vacuous without it`,
+	).toBeDefined();
 	expect(
 		doc.refIndex,
 		`reference index diverged from rebuild at ${context}`,

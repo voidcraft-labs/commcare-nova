@@ -37,7 +37,7 @@ import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMig
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import type { AppDoc } from "@/lib/db/types";
-import type { BlueprintDoc, CaseType } from "@/lib/domain";
+import type { CaseType, PersistableDoc } from "@/lib/domain";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
 //
@@ -125,7 +125,10 @@ afterEach(() => {
 const APP_ID = "app-saga";
 const OWNER_ID = "owner-saga";
 
-function makeBlueprint(caseTypes: CaseType[] | null): BlueprintDoc {
+/** The persisted (stripped) shape — what real callers hand the saga.
+ *  `PersistedBlueprint`'s compile-time wall on `prospective` rejects an
+ *  in-memory `BlueprintDoc` here, the same way it does in production. */
+function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 	return {
 		appId: APP_ID,
 		appName: "Saga Test",
@@ -137,11 +140,10 @@ function makeBlueprint(caseTypes: CaseType[] | null): BlueprintDoc {
 		moduleOrder: [],
 		formOrder: {},
 		fieldOrder: {},
-		fieldParent: {},
 	};
 }
 
-function makeAppDoc(blueprint: BlueprintDoc): AppDoc {
+function makeAppDoc(blueprint: PersistableDoc): AppDoc {
 	// `loadApp` returns the full `AppDoc` shape; the saga reads
 	// only `blueprint`. The `AppDoc` schema doesn't expose every
 	// denormalized list field as a typed slot, so the cast through
