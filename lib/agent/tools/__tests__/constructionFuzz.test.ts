@@ -25,21 +25,29 @@
  * optionally carrying their per-form `connect` blocks.
  *
  * The op pool spans the structural tools (create/remove module + form,
- * field mutations — `removeModule` included, so the case-type
- * retirement cascade and the NO_MODULES re-introduction rejection are
- * both exercised) and the whole case-list-config family (column
- * add/update/remove/reorder, the filter, search-input
- * add/update/remove/reorder). The media tools stay out: their inputs
- * are opaque asset ids with no gate interplay (attach-time existence
- * is deliberately unchecked — the export boundary adjudicates against
- * the resolved manifest), so a media op would only ever write an
- * arbitrary id the invariant can't judge.
+ * field mutations — `removeModule` included) and the whole
+ * case-list-config family (column add/update/remove/reorder, the
+ * filter, search-input add/update/remove/reorder). The case-type
+ * retirement machinery is exercised BY ASSERTION, not by sampling
+ * luck: the standard run tallies its arms per op and requires, under
+ * the pinned seed, ≥1 retire-cascade commit (a commit that shrank the
+ * case-type catalog), ≥1 blocked-verdict bounce (a displacement the
+ * planner refused over live references), and ≥1 NO_MODULES bounce (an
+ * only-module removal the gate rejected). The media tools stay out:
+ * their inputs are opaque asset ids with no gate interplay
+ * (attach-time existence is deliberately unchecked — the export
+ * boundary adjudicates against the resolved manifest), so a media op
+ * would only ever write an arbitrary id the invariant can't judge.
  */
 
 import * as fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import {
+	planCaseTypeRetirementOnRemove,
+	planCaseTypeRetirementOnRetype,
+} from "@/lib/doc/caseTypeRetirement";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -755,7 +763,8 @@ async function applyOp(
 		case "removeModule":
 			/* Exercises the case-type retirement cascade (the prelude module is
 			 * its type's only owner) AND the NO_MODULES re-introduction
-			 * rejection (removing the only module bounces at the gate). */
+			 * rejection (removing the only module bounces at the gate) — both
+			 * occurrences asserted by the retirement-arm tallies. */
 			return runParsed(
 				removeModuleTool,
 				{ moduleIndex: op.moduleIndex },
@@ -1235,9 +1244,85 @@ function opCarriesConnect(op: FuzzOp): boolean {
 	return false;
 }
 
+// ── Retirement-arm occurrence tallies ───────────────────────────────────
+//
+// The acceptance floor above proves each op TYPE commits, but a
+// `removeModule` commit can be the caseless prelude module — never
+// touching the retirement machinery. These tallies classify each
+// module-displacing op's outcome so the run can assert the three
+// retirement arms each actually OCCURRED (≥1 each, occurrence assertions
+// under the pinned seed — not per-run floors): the cascade committed (the
+// catalog shrank — `setCaseTypes` is reachable only through the cascade
+// on this op pool), the planner blocked a displacement over live
+// references, and the gate bounced an only-module removal (NO_MODULES).
+
+interface RetirementArmTally {
+	retireCascadeCommits: number;
+	blockedBounces: number;
+	noModulesBounces: number;
+}
+
+/** Mirrors `applyOp`'s createModule steering — only a coherent type
+ *  reaches the planner through the real tools, so only those classify. */
+const COHERENT_TYPE = /^[a-z][a-z0-9_-]*$/;
+
+/** Classify one op's retirement-arm outcome into `tally`. `committed`
+ *  is the `next !== doc` signal the acceptance floor already uses. */
+function tallyRetirementArms(
+	tally: RetirementArmTally,
+	doc: BlueprintDoc,
+	next: BlueprintDoc,
+	op: FuzzOp,
+	committed: boolean,
+): void {
+	if (committed) {
+		if ((doc.caseTypes?.length ?? 0) > (next.caseTypes?.length ?? 0)) {
+			tally.retireCascadeCommits++;
+		}
+		return;
+	}
+	if (op.type === "removeModule") {
+		const moduleUuid = doc.moduleOrder[op.moduleIndex];
+		if (moduleUuid === undefined) return;
+		if (doc.moduleOrder.length === 1) {
+			// Removing the only module re-introduces NO_MODULES whatever the
+			// retirement plan says — the gate's bounce, not the planner's.
+			tally.noModulesBounces++;
+		} else if (
+			planCaseTypeRetirementOnRemove(doc, moduleUuid).kind === "blocked"
+		) {
+			tally.blockedBounces++;
+		}
+		return;
+	}
+	if (op.type === "updateModule") {
+		const moduleUuid = doc.moduleOrder[op.moduleIndex];
+		const caseType =
+			op.caseType === "__own__"
+				? doc.modules[moduleUuid]?.caseType
+				: op.caseType;
+		// Only a schema-clean type reaches the gate (a malformed one is a
+		// Zod refusal before any planner runs) — classify only those.
+		if (
+			moduleUuid !== undefined &&
+			caseType !== undefined &&
+			COHERENT_TYPE.test(caseType) &&
+			planCaseTypeRetirementOnRetype(doc, moduleUuid, caseType).kind ===
+				"blocked"
+		) {
+			tally.blockedBounces++;
+		}
+	}
+}
+
 describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 	it("standard app: every accepted sequence from birth keeps the doc finding-free", async () => {
 		const tally = newCommitTally();
+		const retirementArms: RetirementArmTally = {
+			retireCascadeCommits: 0,
+			blockedBounces: 0,
+			noModulesBounces: 0,
+		};
 		await fc.assert(
 			fc.asyncProperty(
 				fc.array(opArb, { minLength: 1, maxLength: 14 }),
@@ -1247,7 +1332,9 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					assertZeroFindings(doc, "standard prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
-						if (next !== doc) tally.set(op.type, (tally.get(op.type) ?? 0) + 1);
+						const committed = next !== doc;
+						if (committed) tally.set(op.type, (tally.get(op.type) ?? 0) + 1);
+						tallyRetirementArms(retirementArms, doc, next, op, committed);
 						doc = next;
 						assertZeroFindings(doc, `standard op#${i} ${op.type}`);
 					}
@@ -1256,6 +1343,20 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 			{ numRuns: 60, seed: 20260610 },
 		);
 		assertCommitFloor(tally, "standard app");
+		// The retirement arms each occurred — see the tally section above
+		// for why the per-op-type floor alone can't claim this.
+		expect(
+			retirementArms.retireCascadeCommits,
+			"no committed op ever retired a case-type record — the cascade's retire arm went unexercised",
+		).toBeGreaterThan(0);
+		expect(
+			retirementArms.blockedBounces,
+			"no module displacement was ever blocked over live references — the planner's blocked arm went unexercised",
+		).toBeGreaterThan(0);
+		expect(
+			retirementArms.noModulesBounces,
+			"no only-module removal ever bounced — the NO_MODULES re-introduction rejection went unexercised",
+		).toBeGreaterThan(0);
 	});
 
 	it("Connect learn app: creations carrying (or missing) connect blocks hold the same invariant", async () => {
