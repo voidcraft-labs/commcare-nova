@@ -58,9 +58,13 @@
  * routes the throw through `failRun` (classify + emit + refund +
  * `failApp`) so the client sees the error and no celebration fires
  * over an unsynced store; the edit arm logs it (the edit itself
- * succeeded, and the builder's next auto-save re-syncs through the
- * saga). Swallowing failures here would relocate the
- * Schema-not-synced gap this helper exists to close.
+ * succeeded), and the gap closes at the point of use — every
+ * case-store consumer that can hit `SchemaNotSyncedError`
+ * (sample-populate, form submit, live preview) re-runs this helper
+ * from the persisted blueprint and retries once (`withSchemaHeal`
+ * in `lib/preview/engine/caseDataBindingHelpers.ts`). Swallowing
+ * failures here would relocate the Schema-not-synced gap this
+ * helper exists to close.
  */
 
 import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";

@@ -29,10 +29,14 @@ import type {
 	SortKey as CaseStoreSortKey,
 	CaseUpdate,
 } from "@/lib/case-store";
+import { SchemaNotSyncedError } from "@/lib/case-store/errors";
+import { loadApp } from "@/lib/db/apps";
+import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { log } from "@/lib/logger";
 import type {
 	JsonObject,
 	LoadCaseDataResult,
@@ -661,6 +665,53 @@ export function applySurveyMutation(): Extract<
 	{ kind: "survey" }
 > {
 	return { kind: "survey" };
+}
+
+/**
+ * Self-heal a case-store call whose `case_type_schemas` row is missing:
+ * re-materialize the schemas from the app's PERSISTED blueprint and run
+ * the call once more.
+ *
+ * `SchemaNotSyncedError` means a blueprint writer's case-store sync
+ * never landed (the canonical producer: a transient Postgres failure at
+ * an edit run's drain-end materialize — the chat surface's saves are
+ * Firestore-only, so nothing re-attempts the sync until a
+ * case-type-touching commit happens to run the cross-store saga). The
+ * Firestore blueprint is the source of truth and the materialize is an
+ * idempotent UPSERT, so the right response at the point of use is to
+ * materialize and retry, not to surface "not synced yet" and wait for an
+ * unrelated edit. The persisted blueprint (not the caller's wire copy)
+ * drives the heal — the schema rows must mirror what is stored.
+ *
+ * One retry only: a second `SchemaNotSyncedError` (or a heal that itself
+ * fails — Postgres still down, app gone, foreign owner) rethrows the
+ * ORIGINAL error so the action's typed `schema-not-synced` arm stays the
+ * honest backstop.
+ */
+export async function withSchemaHeal<T>(
+	args: { appId: string; userId: string },
+	run: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await run();
+	} catch (err) {
+		if (!(err instanceof SchemaNotSyncedError)) throw err;
+		try {
+			const app = await loadApp(args.appId);
+			if (!app || app.owner !== args.userId) throw err;
+			await materializeCaseStoreSchemas({
+				appId: args.appId,
+				userId: args.userId,
+				blueprint: app.blueprint,
+			});
+		} catch (healErr) {
+			log.error("[caseDataBinding] schema heal failed", healErr, {
+				appId: args.appId,
+			});
+			throw err;
+		}
+		return await run();
+	}
 }
 
 /**

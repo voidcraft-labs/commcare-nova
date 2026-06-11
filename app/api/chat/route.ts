@@ -876,8 +876,11 @@ export async function POST(req: Request) {
 					 * here, the same "any case-store action after a commit sees a
 					 * synced schema" contract the build arm holds. Idempotent
 					 * upsert; failure is log-only because the edit itself succeeded
-					 * and the builder's next auto-save re-syncs through the
-					 * cross-store saga. */
+					 * and the case-store consumers self-heal at the point of use —
+					 * a `SchemaNotSyncedError` on sample-populate / form submit /
+					 * live preview re-materializes from the persisted blueprint and
+					 * retries once (`withSchemaHeal` in the case-data-binding
+					 * actions). */
 					const editDoc = ctx.latestPersistedDoc();
 					if (editDoc) {
 						try {
