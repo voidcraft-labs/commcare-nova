@@ -180,6 +180,23 @@ export const createModuleTool = {
 						},
 					};
 				}
+				if (assembly.mutations.length === 0) {
+					// Every supplied field failed assembly — landing the form
+					// would land it EMPTY, the dead shape atomic creation exists
+					// to prevent. Name each skip so the corrected re-issue
+					// carries usable fields.
+					const reasons = assembly.skipped
+						.map((s) => `- "${s.id}": ${s.reason}`)
+						.join("\n");
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Module "${name}" wasn't created — none of form "${formInput.name}"'s ${formInput.fields.length} field(s) could be assembled, so the form would have no content:\n${reasons}\nFix the listed field(s) and re-issue the call.`,
+						},
+					};
+				}
 				mutations.push(...assembly.mutations);
 				fieldCount += assembly.mutations.length;
 				skipped.push(...assembly.skipped);

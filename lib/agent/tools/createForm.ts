@@ -134,6 +134,23 @@ export const createFormTool = {
 					},
 				};
 			}
+			if (assembly.mutations.length === 0) {
+				// Every supplied field failed assembly — landing the form would
+				// land it EMPTY, which is exactly the dead shape atomic creation
+				// exists to prevent. Name each skip so the corrected re-issue
+				// carries usable fields.
+				const reasons = assembly.skipped
+					.map((s) => `- "${s.id}": ${s.reason}`)
+					.join("\n");
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `"${name}" wasn't created — none of its ${fields.length} field(s) could be assembled, so the form would have no content:\n${reasons}\nFix the listed field(s) and re-issue the call.`,
+					},
+				};
+			}
 
 			// Tag under the parent module — the event log groups this
 			// creation event with the rest of that module's activity so the
