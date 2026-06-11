@@ -19,6 +19,10 @@
 // (passes/) are implementation details — not exported.
 
 export { detectUnquotedStringLiteral } from "./detectUnquotedStringLiteral";
+export {
+	parseXPathExpression,
+	type ResolveFieldPath,
+} from "./expressionAst";
 export { parser } from "./parser";
 export * from "./parser.terms";
 export { transpile } from "./transpiler";

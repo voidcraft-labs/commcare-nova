@@ -16,3 +16,4 @@ export * from "./multimedia";
 export * from "./referenceIndex";
 export * from "./referenceSlots";
 export * from "./uuid";
+export * from "./xpath";
