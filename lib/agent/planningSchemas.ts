@@ -136,9 +136,13 @@ export const caseTypesOutputSchema = z.object({
 /**
  * Per-form Connect config — the ONE SA-facing input shape for a form's
  * `connect` block, shared by the `planAppDesign` plan and the atomic
- * creation tools (`createForm` / `createModule`). On a Connect-typed
- * app, a form without its block introduces CONNECT_FORM_MISSING_BLOCK,
- * so the creation call is where the block must land.
+ * creation tools (`createForm` / `createModule`). A block marks that
+ * the form PARTICIPATES in Connect; a form without one is auxiliary —
+ * Connect's ingestion scans per form and silently skips blockless
+ * forms (`commcare_connect/opportunity/app_xml.py::extract_modules`).
+ * The validator's only coverage demand is the app-level floor of one
+ * participating form (`CONNECT_NO_PARTICIPATING_FORMS`), so the
+ * creation call is where a participating form's block lands.
  */
 export const connectFormConfigSchema = z.object({
 	learn_module: z
@@ -178,7 +182,7 @@ export const connectFormConfigSchema = z.object({
 		})
 		.optional()
 		.describe(
-			"Set on every form in a Connect deliver app. Connect's deliver-unit picker reads these from the released CCZ.",
+			"Set on a deliver-app form that counts as a payable delivery. Connect's deliver-unit picker reads these from the released CCZ.",
 		),
 	task: z
 		.object({
@@ -241,7 +245,7 @@ export const appDesignPlanSchema = z.object({
 					connect: connectFormConfigSchema
 						.optional()
 						.describe(
-							"Per-form Connect config. REQUIRED on every form when the app's `connect_type` is `learn` or `deliver`; omit entirely on standard apps. Pick sub-configs by content: `learn_module` for educational content, `assessment` for quizzes, `deliver_unit` for every deliver-app form, optional `task` for delivery descriptions.",
+							"Per-form Connect config. A block opts the form INTO Connect; a form that shouldn't participate (a reference sheet, an admin form) simply omits it — a Connect app just needs at least one participating form. Omit entirely on standard apps. Pick sub-configs by content: `learn_module` for educational content, `assessment` for quizzes, `deliver_unit` for payable deliver-app forms, optional `task` for delivery descriptions.",
 						),
 					formDesign: z
 						.string()

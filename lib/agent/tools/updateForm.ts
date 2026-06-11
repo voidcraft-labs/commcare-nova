@@ -141,7 +141,7 @@ export const updateFormInputSchema = z
 					.strict()
 					.optional()
 					.describe(
-						"Set for forms in a Connect deliver app. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
+						"Set on a deliver-app form that counts as a payable delivery. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
 					),
 				task: z
 					.object({
@@ -156,7 +156,7 @@ export const updateFormInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
+				"Set Connect config on this form — a block opts the form into Connect. null removes it (the form stops participating; rejected only when it is the app's last participating form). Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
 			),
 	})
 	.strict();

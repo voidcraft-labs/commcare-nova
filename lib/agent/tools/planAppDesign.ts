@@ -52,7 +52,7 @@ export interface PlanAppDesignResult {
 
 export const planAppDesignTool = {
 	description:
-		"Plan the app's design: every module, its forms, each form's purpose and design spec, case-type assignments, and (for Connect apps) per-form Connect blocks. Call after generateSchema. This records the plan in the conversation — it does not change the app. Execute it afterward with one createModule call per planned module, following the plan's sections.",
+		"Plan the app's design: every module, its forms, each form's purpose and design spec, case-type assignments, and (for Connect apps) each participating form's Connect block. Call after generateSchema. This records the plan in the conversation — it does not change the app. Execute it afterward with one createModule call per planned module, following the plan's sections.",
 	inputSchema: planAppDesignInputSchema,
 	async execute(
 		input: PlanAppDesignInput,

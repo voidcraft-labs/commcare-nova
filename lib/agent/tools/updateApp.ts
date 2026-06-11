@@ -9,12 +9,13 @@
  *     pre-existing finding that this call resolves).
  *   - `connect_type` — `"learn"` / `"deliver"` enables Connect, `null`
  *     disables it. The gate adjudicates the flip like any other commit:
- *     enabling Connect on an app whose forms lack Connect blocks would
- *     introduce CONNECT_FORM_MISSING_BLOCK per form and is rejected —
- *     land each form's block first (creation tools' `connect`, or
- *     `updateForm`), then flip. On an empty app the flip introduces
- *     nothing, which is why a Connect build sets the type up front and
- *     then creates every form WITH its block.
+ *     enabling Connect on an app with forms but ZERO connect blocks
+ *     would introduce CONNECT_NO_PARTICIPATING_FORMS and is rejected —
+ *     give at least one form its block first (creation tools'
+ *     `connect`, or `updateForm`), then flip. On an empty app the flip
+ *     introduces nothing, which is why a Connect build sets the type up
+ *     front and then creates each participating form WITH its block;
+ *     forms that shouldn't participate just omit one.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface.
@@ -42,7 +43,7 @@ export const updateAppInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				'CommCare Connect type: "learn" for training/certification, "deliver" for paid service delivery, null to make this a standard app. Set it before creating a Connect app\'s modules — every form must then land with its connect block.',
+				'CommCare Connect type: "learn" for training/certification, "deliver" for paid service delivery, null to make this a standard app. Set it before creating a Connect app\'s modules — each participating form then lands with its connect block, and at least one form must participate.',
 			),
 	})
 	.strict();
@@ -54,7 +55,7 @@ export type UpdateAppResult = MutationSuccess | { error: string };
 
 export const updateAppTool = {
 	description:
-		"Set the app's name and/or its CommCare Connect type (learn / deliver / null for standard). Enabling Connect requires every existing form to already carry its connect block — on a new build, set the type before creating modules.",
+		"Set the app's name and/or its CommCare Connect type (learn / deliver / null for standard). Enabling Connect on an app with forms requires at least one of them to already carry its connect block (a Connect app needs one participating form; the rest may stay out) — on a new build, set the type before creating modules.",
 	inputSchema: updateAppInputSchema,
 	async execute(
 		input: UpdateAppInput,

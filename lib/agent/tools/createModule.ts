@@ -104,7 +104,7 @@ const createModuleFormSchema = z
 		connect: connectFormConfigSchema
 			.optional()
 			.describe(
-				"Per-form Connect config — REQUIRED when the app's connect_type is learn or deliver (a Connect form lands with its block in this call); omit on standard apps.",
+				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Omit it on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
 			),
 	})
 	.strict();
