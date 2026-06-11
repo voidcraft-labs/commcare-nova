@@ -42,6 +42,11 @@
 "use client";
 
 import { useContext, useMemo } from "react";
+import {
+	type CaseTypeRetirement,
+	planCaseTypeRetirementOnRemove,
+	planCaseTypeRetirementOnRetype,
+} from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
@@ -787,7 +792,25 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("updateModule", { uuid });
 					return NOOP_REJECTION;
 				}
-				return toOutcome(guardedApply([{ kind: "updateModule", uuid, patch }]));
+				/* A case-type change (or clear — the key present, value
+				 * undefined) can orphan the OLD type's record; the shared
+				 * planner retires it in the same batch or rejects naming what
+				 * still references it. Same cascade the SA's `updateModule`
+				 * tool runs — every surface inherits it identically. */
+				const retirement: CaseTypeRetirement =
+					"caseType" in patch
+						? planCaseTypeRetirementOnRetype(doc, uuid, patch.caseType)
+						: { kind: "none" };
+				if (retirement.kind === "blocked") {
+					notifyRejectedCommit([{ message: retirement.message }]);
+					return { ok: false, messages: [retirement.message] };
+				}
+				return toOutcome(
+					guardedApply([
+						{ kind: "updateModule", uuid, patch },
+						...(retirement.kind === "retire" ? retirement.mutations : []),
+					]),
+				);
 			},
 
 			setModuleMedia(uuid, media) {
@@ -814,7 +837,21 @@ export function useBlueprintMutations(): BlueprintMutations {
 					warnUnresolved("removeModule", { uuid });
 					return NOOP_REJECTION;
 				}
-				return toOutcome(guardedApply([{ kind: "removeModule", uuid }]));
+				/* When this module is the last owner of its case-type record,
+				 * the same batch retires the record — or the removal rejects
+				 * naming what still references the type. Same cascade the SA's
+				 * `removeModule` tool runs (`lib/doc/caseTypeRetirement.ts`). */
+				const retirement = planCaseTypeRetirementOnRemove(doc, uuid);
+				if (retirement.kind === "blocked") {
+					notifyRejectedCommit([{ message: retirement.message }]);
+					return { ok: false, messages: [retirement.message] };
+				}
+				return toOutcome(
+					guardedApply([
+						{ kind: "removeModule", uuid },
+						...(retirement.kind === "retire" ? retirement.mutations : []),
+					]),
+				);
 			},
 
 			updateApp(patch) {

@@ -70,6 +70,7 @@
 				"!lib/codemirror/**",
 				"!lib/commcare/**",
 				"!lib/db/settings.ts",
+				"!lib/doc/caseTypeRetirement.ts",
 				"!lib/doc/commitVerdicts.ts",
 				"!lib/doc/connectConfig.ts",
 				"!lib/doc/identifierVerdicts.ts",
@@ -87,12 +88,12 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/mcp, lib/media/boundaryValidation, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/mcp, lib/media/boundaryValidation, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
 								},
 								"patterns": [
 									{
 										"group": ["@/lib/commcare/*", "@/lib/commcare/**/*"],
-										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/mcp, lib/media/boundaryValidation, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/mcp, lib/media/boundaryValidation, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
 									}
 								]
 							}

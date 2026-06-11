@@ -37,6 +37,7 @@
  */
 
 import { z } from "zod";
+import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import type { BlueprintDoc } from "@/lib/domain";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -95,7 +96,8 @@ export const updateModuleTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: "Nothing to update — pass `name`, `case_type`, or both.",
+						error:
+							"Nothing to update — pass `name` and/or `case_type` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
 					},
 				};
 			}
@@ -122,6 +124,27 @@ export const updateModuleTool = {
 				};
 			}
 
+			/* Case-type retirement: a case-type change can leave the OLD type's
+			 * record with no owning module. When nothing else references the
+			 * old type, the same batch retires its record; when references
+			 * remain (this module's own fields included — they stay), the call
+			 * fails naming each one. Shared planner with `removeModule` and
+			 * the builder UI (`lib/doc/caseTypeRetirement.ts`); the cascade is
+			 * explicit mutations at this batch-building layer, never a reducer
+			 * side effect (historical event-log replay stays byte-stable). */
+			const retirement =
+				case_type !== undefined
+					? planCaseTypeRetirementOnRetype(doc, moduleUuid, case_type)
+					: { kind: "none" as const };
+			if (retirement.kind === "blocked") {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: retirement.message },
+				};
+			}
+
 			/* Seed columns only when the module has none — an existing config
 			 * is authored state the case-list-config tools own, and a
 			 * wholesale replace here would silently drop sort/search work. */
@@ -130,16 +153,19 @@ export const updateModuleTool = {
 				(mod.caseListConfig?.columns ?? []).length === 0
 					? case_list_columns.map((c) => stampColumnUuid(c, newUuid()))
 					: undefined;
-			const mutations = updateModuleMutations(mod, {
-				...(name !== undefined && { name }),
-				...(case_type !== undefined && { caseType: case_type }),
-				...(seedColumns && {
-					caseListConfig: {
-						...(mod.caseListConfig ?? { searchInputs: [] }),
-						columns: seedColumns,
-					},
+			const mutations = [
+				...updateModuleMutations(mod, {
+					...(name !== undefined && { name }),
+					...(case_type !== undefined && { caseType: case_type }),
+					...(seedColumns && {
+						caseListConfig: {
+							...(mod.caseListConfig ?? { searchInputs: [] }),
+							columns: seedColumns,
+						},
+					}),
 				}),
-			});
+				...(retirement.kind === "retire" ? retirement.mutations : []),
+			];
 			const commit = await guardedMutate(
 				ctx,
 				doc,
