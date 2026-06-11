@@ -2,7 +2,9 @@
  * `nova.create_app` — mint an empty DRAFT Nova app owned by the
  * authenticated user. The draft builds incrementally under the deferred-
  * completeness window (exactly like a chat build); `complete_build`
- * finishes it.
+ * finishes it — marking it complete and materializing its case store.
+ * Exports gate on FINDINGS, not status: a draft whose content already
+ * passes the boundary review exports fine.
  *
  * Scope: `nova.write`.
  *
@@ -47,7 +49,7 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 		"create_app",
 		{
 			description:
-				"Create an empty draft Nova app owned by you. Build it incrementally with the other tools, then call complete_build to finish it — exports stay unavailable until then. Returns the new app_id for use in subsequent tool calls.",
+				"Create an empty draft Nova app owned by you. Build it incrementally with the other tools, then call complete_build to finish it — that runs the full review, marks the app complete, and readies its case database. Exports (compile_app / upload_app_to_hq) succeed once the content passes that same review, finished or not. Returns the new app_id for use in subsequent tool calls.",
 			inputSchema: {
 				app_name: z
 					.string()
@@ -76,7 +78,8 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 				 * timer — an external agent works on its own clock, and
 				 * `draft` is outside the reaper's `generating` key, so a
 				 * slow build can never be inferred failed. `complete_build`
-				 * runs the boundary evaluation and flips it. */
+				 * runs the boundary evaluation and flips it; exports gate on
+				 * findings, not on the flip. */
 				const appId = await createApp(ctx.userId, runId, {
 					appName,
 					status: "draft",

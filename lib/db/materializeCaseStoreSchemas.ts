@@ -20,16 +20,16 @@
  *
  * This helper is called once at the chat-completion boundary
  * (the shared `completeBuild` tool's success arm),
- * BEFORE the `data-done` SSE emit and BEFORE the
- * fire-and-forget `completeApp` Firestore write. The ordering
- * matters:
+ * BEFORE the awaited, basis-guarded completion write and BEFORE
+ * the chat wrapper's `data-done` SSE emit. The ordering matters:
  *
  *   1. Await this helper — UPSERTs the schema row + indexes for
  *      every case type. Blocks until Postgres is caught up.
- *   2. `data-done` SSE emit — UX signal that the SA is done; the
- *      client's stream dispatcher stamps `runCompletedAt` on
- *      this event, which drives the Completed celebration phase.
- *   3. `completeApp` — fire-and-forget Firestore status flip.
+ *   2. `completeAppGuardedByBasis` — the awaited transactional
+ *      status flip (compare-and-rotate on `blueprint_token`).
+ *   3. `data-done` SSE emit (chat only) — UX signal that the SA is
+ *      done; the client's stream dispatcher stamps `runCompletedAt`
+ *      on this event, which drives the Completed celebration phase.
  *
  * Materializing BEFORE `data-done` is load-bearing. The
  * case-store consumers (`populateSampleCasesAction`,

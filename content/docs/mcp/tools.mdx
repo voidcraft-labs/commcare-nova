@@ -21,7 +21,7 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 | Tool | What it does |
 |---|---|
-| `create_app` | Create a new empty app in **Draft** status and return its ID. Build it up with the other tools, then finish it with `complete_build`. |
+| `create_app` | Create a new empty app in **Draft** status and return its ID. Build it up with the other tools, then mark it finished with `complete_build`. |
 | `delete_app` | Soft-delete an app. Recoverable within the returned window. |
 
 ## Building a new app from a description
@@ -109,7 +109,7 @@ You can attach images, audio, and video to parts of an app — a field's label o
 
 | Tool | What it does |
 |---|---|
-| `complete_build` | Finish the build: run the full app review (every rule, including unfinished pieces and attached media) and mark the app Complete. Anything still unfinished comes back as a list — your agent finishes that work and calls again. |
+| `complete_build` | Finish the build: run the full app review (every rule, including unfinished pieces and attached media), mark the app Complete, and ready its case database. Anything still unfinished comes back as a list — your agent finishes that work and calls again. |
 | `compile_app` | Compile to CommCare HQ format — the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which project spaces (domains) it can reach. |
 | `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL. |
@@ -119,5 +119,5 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova 
 </Callout>
 
 <Callout type="warn">
-Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist — fails with a message naming each problem, and nothing is saved; fix the input and call again. While an app is a Draft, unfinished pieces are allowed between calls — but `create_form` and `create_module` still require each new form to arrive with its fields (and a case-managing module with its case-list columns), so structure always lands whole. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) until `complete_build` passes, listing each unresolved issue, so a broken app never reaches a device or HQ.
+Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist — fails with a message naming each problem, and nothing is saved; fix the input and call again. While an app is a Draft, unfinished pieces are allowed between calls — but `create_form` and `create_module` still require each new form to arrive with its fields (and a case-managing module with its case-list columns), so structure always lands whole. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one — a Draft whose content already passes that review exports fine. `complete_build` is what marks the app finished and readies its case database; it isn't a gate the exports wait on.
 </Callout>
