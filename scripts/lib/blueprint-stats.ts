@@ -4,8 +4,7 @@
  * Operates on the normalized `BlueprintDoc` shape persisted in Firestore.
  * Each form is visited in a single DFS pass — the collected `Field[]` is
  * reused across every per-form metric (kind counts, logic counts, case
- * property count, quality flags). This is a deliberate departure from
- * the first draft which made six independent walks per form.
+ * property count, quality flags) rather than one walk per metric.
  *
  * Field discriminator is `kind`; validation key is `validate`; case
  * linkage is `case_property_on`. Children live in `fieldOrder[parentUuid]`,

@@ -128,7 +128,7 @@ describe("classification table", () => {
 		);
 	});
 
-	it("matches the spec's completeness list exactly", () => {
+	it("pins the completeness classification set exactly", () => {
 		const completeness = Object.entries(VALIDITY_CLASS_BY_CODE)
 			.filter(([, cls]) => cls === "completeness")
 			.map(([code]) => code)
@@ -150,7 +150,7 @@ describe("classification table", () => {
 		);
 	});
 
-	it("matches the spec's environment list (asset-context rules + the export-budget guard)", () => {
+	it("pins the environment classification set (asset-context rules + the export-budget guard)", () => {
 		const environment = Object.entries(VALIDITY_CLASS_BY_CODE)
 			.filter(([, cls]) => cls === "environment")
 			.map(([code]) => code)

@@ -208,8 +208,9 @@ export function useAttachmentPrep(): boolean {
 	return useMemo(() => deriveAttachmentPrep(events), [events]);
 }
 
-/** Latest validation-attempt context (attempt number + error count), or
- *  null when no validation pass has run in the current run. */
+/** Latest validation-attempt context (attempt number + error count) —
+ *  non-null only when replaying a run logged by the retired
+ *  validate-fix loop; always null on a live buffer. */
 export function useValidationAttempt(): {
 	attempt: number;
 	errorCount: number;

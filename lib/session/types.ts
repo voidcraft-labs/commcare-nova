@@ -29,8 +29,12 @@ export type SidebarState = { open: boolean; stashed: boolean | undefined };
 
 // ── Generation lifecycle ─────────────────────────────────────────────────
 
-/** Progress stages within a generation run. Mirrors the SA's tool sequence:
- *  data model → structure → modules → forms → validate → fix. */
+/** Progress stages within a generation run. Live builds move
+ *  data model → structure → modules → forms (plan, then one
+ *  `createModule` per planned module). `Validate` / `Fix` are
+ *  HISTORICAL ONLY — stages of the retired validate-fix loop, kept so
+ *  runs logged before its retirement still replay with their original
+ *  progress states. */
 export enum GenerationStage {
 	DataModel = "data-model",
 	Structure = "structure",

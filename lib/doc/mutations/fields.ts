@@ -42,9 +42,9 @@ import {
  * descendant container — the splice would create a `fieldOrder` cycle
  * that detaches the subtree from every walk). Cross-form moves were never
  * designed: references are form-scoped, so a field that changes forms has
- * no defined meaning for its inbound OR outbound references; designing
- * the operation is future work that has to pick outbound-ref semantics
- * first.
+ * no defined meaning for its inbound OR outbound references — the
+ * operation has no semantics to implement until someone chooses what an
+ * outbound ref means across the boundary.
  *
  * `renamed` is populated when a cross-level move triggers sibling-id
  * deduplication (CommCare requires unique IDs per parent level). Within

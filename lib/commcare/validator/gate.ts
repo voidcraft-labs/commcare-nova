@@ -72,13 +72,15 @@ export type ValidityClass =
  * Classifications were audited per rule implementation (not per name);
  * the judgment calls, recorded:
  *
- *   - The completeness set is exactly the spec's list (NO_MODULES,
- *     EMPTY_FORM, MISSING_CASE_LIST_COLUMNS, NO_CASE_NAME_FIELD,
- *     REGISTRATION_NO_CASE_PROPS, CHILD_CASE_NO_NAME_FIELD,
- *     MISSING_CHILD_CASE_MODULE, CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE,
- *     the Connect missing-block family). NO_FORMS_OR_CASE_LIST reads
- *     "unfinished" too but is NOT on the spec's list, so it stays
- *     soundness — module creation is expected to land with its forms.
+ *   - The completeness rows are the unfinished-content findings
+ *     (NO_MODULES, EMPTY_FORM, MISSING_CASE_LIST_COLUMNS,
+ *     NO_CASE_NAME_FIELD, REGISTRATION_NO_CASE_PROPS,
+ *     CHILD_CASE_NO_NAME_FIELD, MISSING_CHILD_CASE_MODULE,
+ *     CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE, the Connect
+ *     missing-block family). NO_FORMS_OR_CASE_LIST reads "unfinished"
+ *     too but stays soundness — module creation is expected to land
+ *     with its forms, so a formless module is a broken commit, not
+ *     work in progress.
  *   - `shape` rows are the rules whose own doc-comments declare them
  *     backstops for schema-unrepresentable states, verified against the
  *     domain schemas: `required`/`calculate`/`validate` are absent from

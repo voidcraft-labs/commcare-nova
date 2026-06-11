@@ -13,7 +13,7 @@
  *
  *   2. **Conversation event** — `data-conversation-event`. Carries a
  *      full `ConversationEvent` envelope (user / assistant text / tool
- *      call+result / error / validation-attempt). Pushed onto the buffer
+ *      call+result / error / attachment-prep). Pushed onto the buffer
  *      verbatim. `error` payloads also trigger a toast — the signal
  *      panel will reflect the same info via the derived `agentError`,
  *      but a toast is the right UX for a stream-level failure.

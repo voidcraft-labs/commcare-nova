@@ -724,7 +724,7 @@ export async function POST(req: Request) {
 				 * document still needs reading: an already-extracted doc resolves from
 				 * its stored extract instantly and must not flash the status (an image /
 				 * doc-free turn does no narrate-worthy work either). The events also land
-				 * in the run log (like `validation-attempt`). */
+				 * in the run log as run annotations, not chat-visible content. */
 				const docsToReadCount = countDocumentsNeedingRead(messagesToSend);
 				if (docsToReadCount > 0) {
 					ctx.emitConversation({

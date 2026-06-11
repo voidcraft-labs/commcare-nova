@@ -21,10 +21,11 @@ import { GenerationStage, STAGE_LABELS } from "./types";
 /**
  * Map an event-log `stage` tag to the `GenerationStage` enum. Stages
  * that carry no narrate-worthy phase (`edit:*`, `rename:*`,
- * `module:remove:N`) return null. The `schema` / `scaffold` rows exist
- * for HISTORICAL buffers only — runs persisted by the retired
- * generation tools still replay; live builds open with `app`
- * (updateApp) and build through `module:create` (createModule).
+ * `module:remove:N`) return null. The `schema` / `scaffold` / `fix:…`
+ * rows exist for HISTORICAL buffers only — runs persisted by the
+ * retired generation tools and validate-fix loop still replay; live
+ * builds open with `app` (updateApp) and build through
+ * `module:create` (createModule).
  * Build-vs-edit is NOT this function's job — `derivePhase` keys that on
  * `runStartedWithData`, so an edit-mode createModule resolving to
  * `Modules` only drives the status text, never the layout.
@@ -84,15 +85,12 @@ export function deriveAgentError(events: readonly Event[]): GenerationError {
 }
 
 /**
- * Latest `validation-attempt` conversation event in the buffer — carries
- * the attempt number and the count of errors the attempt was
- * responding to. Returns null when no validation pass has run in the
- * current run (the buffer is cleared by `beginRun`, so prior runs
- * never leak in).
- *
- * Used by `deriveStatusMessage` to compose "Fixing N errors, attempt
- * M" and by log readers / admin inspectors to reconstruct which errors
- * drove which fix batch.
+ * Latest `validation-attempt` conversation event in the buffer —
+ * HISTORICAL replays only. Live runs never emit the event (the
+ * validate-fix loop is retired); a replayed buffer of a run logged
+ * before that retirement still carries them, and this derivation lets
+ * `deriveStatusMessage` compose the "Fixing N errors, attempt M"
+ * status those runs showed. Returns null on every live buffer.
  */
 export function deriveValidationAttempt(
 	events: readonly Event[],
@@ -150,10 +148,10 @@ export function derivePostBuildEdit(
 
 /**
  * Status message shown in the signal panel bezel. Errors win over
- * stage labels; `Fix` stage composes "Fixing N errors, attempt M"
- * when a `validation-attempt` event is available, and falls back to
- * the generic `STAGE_LABELS[Fix]` otherwise (e.g. the pre-first-attempt
- * window).
+ * stage labels; the `Fix` stage (historical replays only) composes
+ * "Fixing N errors, attempt M" when a `validation-attempt` event is
+ * available, and falls back to the generic `STAGE_LABELS[Fix]`
+ * otherwise.
  */
 export function deriveStatusMessage(
 	stage: GenerationStage | null,

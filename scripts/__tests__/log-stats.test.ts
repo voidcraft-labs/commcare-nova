@@ -92,8 +92,8 @@ describe("computeToolUsage", () => {
 
 	it("counts a null/void tool result as 4 bytes ('null') without throwing", () => {
 		const events: Event[] = [
-			toolCall("validateApp"),
-			toolResult("validateApp", null),
+			toolCall("removeField"),
+			toolResult("removeField", null),
 		];
 		const [row] = computeToolUsage(events);
 		expect(row.results).toBe(1);

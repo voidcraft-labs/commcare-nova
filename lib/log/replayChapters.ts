@@ -25,12 +25,14 @@ import type { Event } from "./types";
 /**
  * Map a `stage` tag on a MutationEvent to a chapter header.
  *
- * The SA emits compound stage tags like "fix:attempt-1",
+ * The SA emits compound stage tags like "module:create",
  * "rename:0-2", "edit:0-3" — `startsWith` collapses each family onto
- * one header. Exact `"schema"` / `"scaffold"` comparisons cover the
- * schema + scaffold phases which are not compound. If a future stage
- * name accidentally collides (e.g. "fixture") the prefix match will
- * over-group — audit stage tags when adding new phases.
+ * one header. The "schema" / "scaffold" / "fix:…" families are
+ * HISTORICAL ONLY — stages of the retired scaffold build and
+ * validate-fix loop, kept mapped so runs logged before their
+ * retirement replay with their original chapter headers. If a future
+ * stage name accidentally collides (e.g. "fixture") the prefix match
+ * will over-group — audit stage tags when adding new ones.
  */
 function headerForStage(stage: string | undefined): string {
 	if (!stage) return "Update";

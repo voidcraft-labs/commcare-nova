@@ -821,7 +821,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		expect(meta?.cascadedAcrossForms).toBe(true);
 	});
 
-	it("rewrites case hashtags in another form's form-level wiring (phase-2 pass)", () => {
+	it("rewrites case hashtags in another form's form-level wiring", () => {
 		// A form in a matching-caseType module references the renamed
 		// case property in its form-link condition via `#case/` — the
 		// cascade's hashtag pass must reach form-level slots, not just

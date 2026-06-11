@@ -20,7 +20,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 
 // HQ unique_ids/xmlns are random per expansion — pin them to a
 // deterministic counter so the pre/post comparison is over CONTENT
-// bytes, exactly the spec's deterministic-id-factory regression shape.
+// bytes, not per-run id noise.
 let idCounter = 0;
 vi.mock("@/lib/commcare/ids", () => ({
 	genHexId: () => `${(++idCounter).toString(16).padStart(40, "0")}`,
