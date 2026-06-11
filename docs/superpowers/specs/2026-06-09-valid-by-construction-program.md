@@ -850,8 +850,37 @@ Deltas vs the text below:
   `declarersOf` / `formIdHolders`) is the consumer surface, and every
   current consumer lives inside `lib/doc`.
 
+Replay-only divergences vs the walk-driven rewriters (none reachable
+through the gated construction surface; every one removes an old
+false positive or wrong rewrite rather than adding behavior):
+- Duplicate sibling ids (gate-rejected, replayable): the index-driven
+  rename rewrites the refs that RESOLVE to the renamed field instead
+  of text-matching every same-path ref — the old walk also retargeted
+  refs that still resolved to the surviving duplicate.
+- Namespace shadowing: case-type names literally `case`/`form`/`user`
+  ARE gate-legal (`invalidCaseTypeFormat` enforces shape only), but
+  they are shadowed by the fixed hashtag namespaces — `#form/x` is a
+  form-field ref and `#case/x` follows its module's CURRENT type, so
+  neither ever NAMED a type. The old planner's substring matcher
+  counted them as references to a type by that name (a false-positive
+  retirement block), and the old cascade for a type named `case`
+  rewrote `#case/…` refs in every module app-wide (a cross-type
+  corruption); the index keys both by namespace family, so the
+  divergence only removes those false positives.
+- Orphan-form carriers (a form in `doc.forms` absent from every
+  module's `formOrder`): the old cascade walked `moduleOrder` →
+  `formOrder` and never visited them, leaving their explicit
+  `#<type>/<prop>` refs stale through a property rename; the index's
+  carrier lookup includes them, so they rewrite (and count in
+  `FieldRenameMeta`) like any other carrier.
+- A rename whose old id is the empty string no longer collects
+  empty-id "peers": the declarations index only registers non-empty
+  ids, where the old full-fields scan matched `id === ""` fields
+  sharing the `case_property_on` and renamed them along.
+
 **Verification:** CI fuzzes green (raw-mutation oracle + construction-fuzz
-parity); the retirement planner's pinned blocked-verdict suite unchanged;
+parity, both with per-kind change floors and shape-tied occurrence
+floors); the retirement planner's pinned blocked-verdict suite unchanged;
 rename/move pinned suites unchanged.
 
 ### Stage 6 — Representation migration, per surface
