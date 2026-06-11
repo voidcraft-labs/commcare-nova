@@ -466,23 +466,36 @@ describe("compilePredicate — match", () => {
 		expect(compiled.parameters).toContain("100% pure");
 	});
 
-	it("emits pg_trgm `%` operator for fuzzy mode", () => {
+	it("emits the term-level fuzzy + exact-token-overlap shape for fuzzy mode", () => {
 		const pred = match(prop("patient", "name"), "Alise", "fuzzy");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		// pg_trgm similarity operator. The space-bounded match
-		// distinguishes it from the JSONB `?` (key-exists) operator
-		// — `%` here should be the pg_trgm one, surrounded by
-		// spaces.
-		expect(compiled.sql).toContain(" % ");
+		const sql = compiled.sql.toLowerCase();
+		// Clause (a): a correlated `EXISTS (... unnest(...) ...)` over
+		// the property tokens, checking `levenshtein` against the
+		// whole lowered query string. Tokenization runs through
+		// `regexp_split_to_array` + `array_remove`.
+		expect(sql).toContain("levenshtein(");
+		expect(sql).toContain("unnest(");
+		expect(sql).toContain("regexp_split_to_array(");
+		expect(sql).toContain("array_remove(");
+		// Clause (b): exact-token overlap via the array `&&` operator.
+		expect(sql).toContain(" && ");
+		// pg_trgm's whole-string `%` similarity is GONE — the old
+		// behavior matched partial strings HQ never would.
+		expect(sql).not.toContain(" % ");
 		expect(compiled.parameters).toContain("Alise");
 	});
 
-	it("emits dmetaphone equality for phonetic mode", () => {
+	it("emits per-token soundex equality for phonetic mode", () => {
 		const pred = match(prop("patient", "name"), "Alice", "phonetic");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		// fuzzystrmatch's Double Metaphone function on both sides
-		// of the equality.
-		expect(compiled.sql.toLowerCase()).toContain("dmetaphone(");
+		const sql = compiled.sql.toLowerCase();
+		// fuzzystrmatch's `soundex` (HQ's phonetic encoder), compared
+		// per-token across the two `unnest(...)` token sources — NOT
+		// the old whole-string `dmetaphone`.
+		expect(sql).toContain("soundex(");
+		expect(sql).toContain("unnest(");
+		expect(sql).not.toContain("dmetaphone(");
 		expect(compiled.parameters).toContain("Alice");
 	});
 

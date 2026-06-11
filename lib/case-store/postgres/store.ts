@@ -1775,8 +1775,15 @@ function findRemovedOptionConflict(
  * property carrying multiple modes (e.g. text with both fuzzy and
  * starts-with) maps to a distinct index per mode.
  *
- * - `fuzzy` — pg_trgm GIN. Covers `match` (fuzzy / phonetic /
- *   starts-with) + fuzzy-date permutation lookup.
+ * - `fuzzy` — pg_trgm GIN on the text read, built for every text
+ *   property. The `match` modes no longer route through it: `fuzzy`
+ *   and `phonetic` now evaluate token-wise (per-token `levenshtein`
+ *   / `soundex` over `unnest`ed tokens, faithful to HQ's case-search
+ *   rather than whole-string trigram similarity), and `starts-with`
+ *   uses `starts_with(...)` — none of which a trigram GIN serves. At
+ *   preview-scale row counts those scan sequentially; the index is
+ *   retained as the established text-property index slot, and
+ *   dropping it is a separate schema-migration decision.
  * - `btree` — btree on the typed cast. Covers `compare` / `between`
  *   for `int` / `decimal`.
  * - `contains` — jsonb_ops GIN. Covers `multi-select-contains`

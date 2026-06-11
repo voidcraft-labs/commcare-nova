@@ -9,10 +9,12 @@
 //
 //   - JSONB operators (`?`, `?|`, `?&`) that Postgres parses but
 //     the cold suite would accept as opaque tokens.
-//   - pg_trgm `%` similarity operator dispatching against the
-//     extension-installed engine.
-//   - fuzzystrmatch's `dmetaphone` function returning the right
-//     phonetic key for two inputs that "sound alike".
+//   - The `fuzzy` / `phonetic` match modes returning the same row
+//     set CommCare HQ's Elasticsearch case-search would: token-wise
+//     `levenshtein` (AUTO fuzziness + prefix) and array overlap for
+//     `fuzzy`, per-token `soundex` for `phonetic`, both over the
+//     `regexp_split_to_array` + `array_remove` + `unnest` token
+//     machinery the extension-installed engine has to actually run.
 //   - PostGIS `ST_DWithin` returning the correct geographic
 //     distance result against `ST_MakePoint(lon, lat)::geography`.
 //   - The Postgres-strict null semantic — four distinct cases
@@ -23,8 +25,8 @@
 // Cold tests use Kysely's `DummyDriver` and assert on the
 // `.compile()` output's string shape. They never execute. A
 // regression that produced a syntactically-valid but semantically-
-// wrong operator (e.g. `dmetphone(...)` instead of `dmetaphone(...)`)
-// would still pass every `toContain("dmetaphone(")` check the cold
+// wrong operator (e.g. `soundx(...)` instead of `soundex(...)`)
+// would still pass every `toContain("soundex(")` check the cold
 // suite makes — the cold suite answers "does the SQL contain these
 // tokens", not "does Postgres parse and execute it correctly". This
 // file's tests answer the second question.
@@ -346,6 +348,35 @@ describe("compilePredicate — round-trip — comparison operators", () => {
 			);
 			expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 		}
+	});
+
+	test("text equality is case-sensitive (bob does not equal-match Bob)", async ({
+		db,
+	}) => {
+		// `eq` mirrors HQ's exact text query, which compares against
+		// the case-sensitive `.exact` keyword subfield — so a lower-
+		// case query does not equal-match a capitalized stored value.
+		// (The `fuzzy` / `phonetic` modes case-fold; `eq` does not.)
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "Bob" }),
+				}),
+			)
+			.execute();
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(
+				eq(prop("patient", "name"), literal("bob")),
+				makeCtx(db),
+			),
+		);
+		expect(rows).toEqual([]);
 	});
 });
 
@@ -925,17 +956,18 @@ describe("compilePredicate — round-trip — match", () => {
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 	});
 
-	test("fuzzy matches rows whose property is similar via pg_trgm", async ({
+	// `fuzzy` mirrors CommCare HQ's case-search fuzzy branch (the OR
+	// of a term-level fuzzy query and an exact analyzed match), so
+	// preview search behaves the same as the exported app. The tests
+	// below pin both clauses and the edges where the old pg_trgm
+	// whole-string similarity diverged from HQ.
+
+	test("fuzzy term-level match accepts a within-AUTO edit (smith ~ smyth)", async ({
 		db,
-		pgClient,
 	}) => {
-		// pg_trgm's similarity threshold defaults to 0.3. The
-		// `Alise` query against the `Alice` stored value has
-		// trigram similarity around 0.45 — above the threshold.
-		// Lower the threshold inside the test transaction so the
-		// match is robust to engine-version variations of the
-		// default; the rollback restores it.
-		await pgClient.query(`SET LOCAL pg_trgm.similarity_threshold = 0.3`);
+		// "smith" (5 chars → AUTO budget of 1 edit) reaches "smyth":
+		// one substitution, and they share the first two characters
+		// ("sm") ES never edits (prefix_length=2).
 		await db
 			.insertInto("cases")
 			.values([
@@ -944,30 +976,145 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					owner_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ name: "Smyth" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					owner_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Zelda" }),
+					properties: JSON.stringify({ name: "Bob" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "Alise", "fuzzy");
+		const pred = match(prop("patient", "name"), "smith", "fuzzy");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
 		);
-		// pg_trgm's `Alise` ~ `Alice` similarity is ~0.45;
-		// `Alise` ~ `Zelda` is far below 0.3.
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("fuzzy is case-folded (BOB matches bob)", async ({ db }) => {
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "bob" }),
+				}),
+				makeCaseRow({
+					case_id: PATIENT_2_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "alice" }),
+				}),
+			])
+			.execute();
+		const pred = match(prop("patient", "name"), "BOB", "fuzzy");
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("fuzzy 2-char query gets a 0-edit budget — 'bo' does NOT match 'bob'", async ({
+		db,
+	}) => {
+		// The old pg_trgm whole-string `%` matched "bo" against "bob".
+		// HQ's AUTO fuzziness gives a 2-char query 0 edits, and there
+		// is no exact token equality, so the row must NOT match.
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "bob" }),
+				}),
+			])
+			.execute();
+		const pred = match(prop("patient", "name"), "bo", "fuzzy");
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([]);
+	});
+
+	test("fuzzy matches a multi-word value via an exact shared token, but a near-miss token alone does not", async ({
+		db,
+	}) => {
+		// "Felipe Khan" tokenizes to {felipe, khan}. A query of
+		// "felipe kan" matches via the exact-token-overlap clause (its
+		// "felipe" token equals a property token). A query of "kan"
+		// alone matches neither clause: it shares no exact token, and
+		// its "ka" prefix differs from "khan"'s "kh", so the term-
+		// level fuzzy clause never even considers the edit distance.
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "Felipe Khan" }),
+				}),
+			])
+			.execute();
+
+		const matches = await executeAgainstPredicate(
+			db,
+			compilePredicate(
+				match(prop("patient", "name"), "felipe kan", "fuzzy"),
+				makeCtx(db),
+			),
+		);
+		expect(matches).toEqual([{ case_id: PATIENT_CASE_ID }]);
+
+		const noMatch = await executeAgainstPredicate(
+			db,
+			compilePredicate(
+				match(prop("patient", "name"), "kan", "fuzzy"),
+				makeCtx(db),
+			),
+		);
+		expect(noMatch).toEqual([]);
+	});
+
+	test("fuzzy does not match a value nothing like the query (xyz vs bob)", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "bob" }),
+				}),
+			])
+			.execute();
+		const pred = match(prop("patient", "name"), "xyz", "fuzzy");
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([]);
 	});
 
 	test("fuzzy with a search-input ref drives the match value at runtime", async ({
 		db,
-		pgClient,
 	}) => {
 		// The widened `match.value: ValueExpression` (per the schema
 		// at types.ts § matchSchema) lets a search-input ref drive
@@ -976,8 +1123,8 @@ describe("compilePredicate — round-trip — match", () => {
 		// typed value into the predicate context's `searchInputs`
 		// map; `compileTerm` resolves the input ref to its bound
 		// value, and the match dispatch consumes the resolved value
-		// just as it would a literal.
-		await pgClient.query(`SET LOCAL pg_trgm.similarity_threshold = 0.3`);
+		// just as it would a literal — including computing the AUTO
+		// fuzziness budget from the bound value's length in SQL.
 		await db
 			.insertInto("cases")
 			.values([
@@ -997,13 +1144,8 @@ describe("compilePredicate — round-trip — match", () => {
 				}),
 			])
 			.execute();
-		// `match(prop, term(input("name_search")), "fuzzy")` —
-		// builder accepts any `Term | ValueExpression` for the
-		// value slot; here it carries a search-input ref. The
-		// context's bindings map resolves the ref to "Alise" at
-		// compile time (the foundation's compileTerm does the
-		// resolution; the wider runtime would bind from the field
-		// worker's typed input).
+		// "Alise" (5 chars → 1 edit) reaches "Alice" via the term-
+		// level fuzzy clause; "Zelda" shares neither prefix nor token.
 		const pred = match(
 			prop("patient", "name"),
 			term(input("name_search")),
@@ -1021,12 +1163,12 @@ describe("compilePredicate — round-trip — match", () => {
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
 	});
 
-	test("phonetic matches rows whose property sounds alike via dmetaphone", async ({
+	test("fuzzy with a query that tokenizes to zero tokens matches nothing without erroring", async ({
 		db,
 	}) => {
-		// `Smith` and `Smyth` share the same Double Metaphone key
-		// (SM0); the predicate matches the row even though the
-		// strings differ.
+		// A punctuation-only query ("—") tokenizes to an empty array;
+		// the empty-array `unnest` / `&&` must produce no match and no
+		// SQL error.
 		await db
 			.insertInto("cases")
 			.values([
@@ -1035,7 +1177,34 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					owner_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Smith" }),
+					properties: JSON.stringify({ name: "bob" }),
+				}),
+			])
+			.execute();
+		const pred = match(prop("patient", "name"), "—", "fuzzy");
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([]);
+	});
+
+	test("phonetic matches rows that sound alike per-token via soundex (smith ~ Smyth)", async ({
+		db,
+	}) => {
+		// "Smith" and "Smyth" share the Soundex code S530; the
+		// predicate matches even though the strings differ. HQ's
+		// phonetic analyzer encodes with Soundex (not Double
+		// Metaphone).
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "Smyth" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
@@ -1046,12 +1215,93 @@ describe("compilePredicate — round-trip — match", () => {
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "Smyth", "phonetic");
+		const pred = match(prop("patient", "name"), "smith", "phonetic");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
 		);
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("phonetic matches per-token inside a multi-word value (bob ~ 'bob smith')", async ({
+		db,
+	}) => {
+		// Whole-string phonetic encoding would miss this; HQ encodes
+		// per-token, so the query token "bob" matches the "bob" token
+		// of "bob smith".
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "bob smith" }),
+				}),
+				makeCaseRow({
+					case_id: PATIENT_2_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "alice" }),
+				}),
+			])
+			.execute();
+		const pred = match(prop("patient", "name"), "bob", "phonetic");
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
+	});
+
+	test("phonetic does not match a value that sounds different (bob vs alice)", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "alice" }),
+				}),
+			])
+			.execute();
+		const pred = match(prop("patient", "name"), "bob", "phonetic");
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([]);
+	});
+
+	test("phonetic with a query that tokenizes to zero tokens matches nothing without erroring", async ({
+		db,
+	}) => {
+		// Exercises the empty-array `unnest` on the query-token side of
+		// the two-source cross join.
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					owner_id: OWNER_ID,
+					properties: JSON.stringify({ name: "bob" }),
+				}),
+			])
+			.execute();
+		const pred = match(prop("patient", "name"), "—", "phonetic");
+		const rows = await executeAgainstPredicate(
+			db,
+			compilePredicate(pred, makeCtx(db)),
+		);
+		expect(rows).toEqual([]);
 	});
 
 	test("fuzzy-date matches the digit-permutation set", async ({ db }) => {

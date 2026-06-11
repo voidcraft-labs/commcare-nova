@@ -257,7 +257,7 @@ at the blueprint layer.
 
 | Property `data_type` | Postgres index | Reasoning |
 |---|---|---|
-| `text` | `GIN ((properties->>'<key>')) gin_trgm_ops` partial on `case_type` | Covers `match` (`fuzzy` / `phonetic` / `starts-with`) and `compare` against text |
+| `text` | `GIN ((properties->>'<key>')) gin_trgm_ops` partial on `case_type` | The text-property index slot. The `match` modes no longer route through it — `fuzzy` / `phonetic` evaluate token-wise (`levenshtein` / `soundex` over `unnest`ed tokens) and `starts-with` uses `starts_with(...)`, all of which scan sequentially at preview scale. Retained as the established text slot; dropping it is a separate schema decision |
 | `int` / `decimal` | `BTREE (((properties->>'<key>')::<cast>))` partial on `case_type` | Covers `compare` / `between` against typed numerics |
 | `multi_select` | `GIN ((properties->'<key>')) jsonb_ops` partial on `case_type` | Covers `multi-select-contains` (`?` / `?\|` / `?&` / `@>`); `jsonb_path_ops` only covers `@>` and would force a sequential scan for `?` / `?\|` / `?&` |
 | `single_select` | None | Equality on a small option set is fast without an expression index |
@@ -467,10 +467,12 @@ ORDER BY executed_at DESC;
 
 The case-store's compiler stack depends on three extensions:
 
-- `pg_trgm` — `match(mode: fuzzy)` (Postgres `%` similarity);
-  required by the `text` GIN index's `gin_trgm_ops` opclass.
-- `fuzzystrmatch` — `match(mode: phonetic)` (Soundex / Metaphone
-  via `dmetaphone`).
+- `pg_trgm` — required by the `text` GIN index's `gin_trgm_ops`
+  opclass. (The `match` modes no longer emit Postgres `%`
+  similarity; the index is retained as the text-property slot.)
+- `fuzzystrmatch` — `match(mode: fuzzy)` (`levenshtein` for the
+  term-level AUTO-fuzziness clause) and `match(mode: phonetic)`
+  (`soundex`, the encoder CommCare HQ's phonetic analyzer uses).
 - `postgis` — `match(mode: within-distance)` (`ST_GeogFromText`
   + `ST_DWithin`).
 
