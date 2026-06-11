@@ -7,17 +7,24 @@
  *
  * What this proves that the per-function unit suites can't: the window
  * between `claimBuildRun` and `reserveCredits` is the one stretch where
- * a `generating` row carries the PREVIOUS run's marker. The claim settles
- * that marker (the displaced charge was kept), so a hard kill inside the
- * window reaps to `error` with NO refund — and the normal path's fresh
- * reservation still refunds a failed run in full. Both arms run here
- * against the same store.
+ * a `generating` row carries the PREVIOUS run's marker. Composed here:
+ * the complete-displacement hard kill reaps with NO refund (the kept
+ * charge stays booked), the normal path's fresh reservation refunds a
+ * failed run in full, a displaced-then-restored paused run's failed
+ * resume refunds off its untouched marker, and a stale displacement
+ * refunds the dead run's hold inside the claim transaction itself.
  *
  * The fake transaction applies writes immediately (single-threaded
  * tests have no contention to model) and merges shallowly — every write
  * under test replaces whole top-level fields, so the semantics match.
+ * It DOES enforce the server SDK's read-before-write rule: a `get` after
+ * any write in the same transaction throws, exactly as production would
+ * — that ordering is what `claimBuildRun`'s deferred refund write
+ * exists to satisfy, so a regression re-inlining it must fail here, not
+ * in production.
  */
 
+import { Timestamp } from "@google-cloud/firestore";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCurrentPeriod } from "../period";
 
@@ -44,18 +51,40 @@ const { firestoreMock, seedDoc, readDoc, resetStore } = vi.hoisted(() => {
 		store.set(path, { ...existing, ...data });
 	};
 
-	const tx = {
-		get: async (ref: { path: string }) => snapshotOf(ref.path),
-		set: (
-			ref: { path: string },
-			data: Record<string, unknown>,
-			opts?: { merge?: boolean },
-		) => applySet(ref.path, data, opts),
-		update: (ref: { path: string }, data: Record<string, unknown>) =>
-			applyUpdate(ref.path, data),
-	};
 	const db = {
-		runTransaction: (body: (t: typeof tx) => Promise<unknown>) => body(tx),
+		runTransaction: (
+			body: (t: {
+				get: (ref: { path: string }) => Promise<unknown>;
+				set: (
+					ref: { path: string },
+					data: Record<string, unknown>,
+					opts?: { merge?: boolean },
+				) => void;
+				update: (ref: { path: string }, data: Record<string, unknown>) => void;
+			}) => Promise<unknown>,
+		) => {
+			/* Per-transaction write latch — the real server SDK rejects any
+			 * read once the transaction has written. */
+			let wrote = false;
+			return body({
+				get: async (ref) => {
+					if (wrote) {
+						throw new Error(
+							`This transaction already wrote and then tried to read ${ref.path}. Firestore server-SDK transactions require every read to precede every write — defer the write (a closure) until all reads are done.`,
+						);
+					}
+					return snapshotOf(ref.path);
+				},
+				set: (ref, data, opts) => {
+					wrote = true;
+					applySet(ref.path, data, opts);
+				},
+				update: (ref, data) => {
+					wrote = true;
+					applyUpdate(ref.path, data);
+				},
+			});
+		},
 	};
 	const makeRef = (path: string) => ({
 		path,
@@ -77,8 +106,12 @@ const { firestoreMock, seedDoc, readDoc, resetStore } = vi.hoisted(() => {
 			},
 			collections: {},
 		},
+		/* Shallow copy, not structuredClone — seeds may carry a Timestamp
+		 * instance (`updated_at`), and cloning would strip its prototype
+		 * (no `.toDate()`). Writers replace top-level fields wholesale and
+		 * never mutate nested values, so sharing them is safe here. */
 		seedDoc: (path: string, data: Record<string, unknown>) => {
-			store.set(path, structuredClone(data));
+			store.set(path, { ...data });
 		},
 		readDoc: (path: string) => store.get(path),
 		resetStore: () => store.clear(),
@@ -188,6 +221,40 @@ describe("claim window — kept charges survive a hard kill; live holds still re
 		await refundReservation("app-1");
 
 		expect(readDoc(CREDITS)).toMatchObject({ consumed: 0 });
+		expect(readDoc(APP)?.reservation).toEqual({
+			period: PERIOD,
+			reserved: 100,
+			settled: true,
+		});
+	});
+
+	it("a retry POST displaces a stale dead run — refund and claim land in one transaction", async () => {
+		// The composed shape of the stale-displacement arm: a hard-killed
+		// run's row sits `generating` past the staleness window with its
+		// hold unsettled, and the retry's claim refunds that hold + takes
+		// the window in one transaction. This is also the arm that proves
+		// the deferred-refund ordering against the fake's read-before-write
+		// rule: the claim reads the credit doc BEFORE its first write, so a
+		// regression re-inlining the credit write after the row update
+		// throws here exactly as production would.
+		const { claimBuildRun } = await import("../apps");
+
+		seedDoc(APP, {
+			owner: "user-1",
+			status: "generating",
+			error_type: null,
+			updated_at: Timestamp.fromDate(new Date(Date.now() - 11 * 60_000)),
+			reservation: { period: PERIOD, reserved: 100, settled: false },
+		});
+
+		const claim = await claimBuildRun("app-1");
+
+		// The shape the reaper would have left, for a bail-out restore.
+		expect(claim).toEqual({ from: "error", errorType: "internal" });
+		// The dead run's hold refunded and its marker settled, atomically
+		// with the claim.
+		expect(readDoc(CREDITS)).toMatchObject({ consumed: 0 });
+		expect(readDoc(APP)).toMatchObject({ status: "generating" });
 		expect(readDoc(APP)?.reservation).toEqual({
 			period: PERIOD,
 			reserved: 100,
