@@ -58,10 +58,6 @@ import type { Uuid } from "./uuid";
 export interface ReferenceCarrierEntry {
 	/** targetKey → slot ids on this carrier referencing it. */
 	edges: Record<string, Record<string, true>>;
-	/** Fields only: the containing form (the `ids` bucket key). */
-	form?: string;
-	/** Fields only: the field's semantic id, mirrored into `ids`. */
-	fieldId?: string;
 	/** Fields only: the `<caseType>/<property>` pair this field
 	 *  declares via `case_property_on` + id, mirrored into `decl`. */
 	decl?: string;
@@ -96,10 +92,6 @@ export interface ReferenceIndex {
 	/** `<caseType>/<property>` → declaring field uuids (each field's
 	 *  `case_property_on` contribution). The case-property peer lookup. */
 	decl: Record<string, Record<string, true>>;
-	/** form uuid → field id → holder field uuids. The form-scoped
-	 *  id-declaration lookup (close-condition resolution, the rename
-	 *  pass's unique-holder rule). */
-	ids: Record<string, Record<string, Record<string, true>>>;
 	/** form uuid → carriers holding form-local reference text. */
 	local: Record<string, Record<string, true>>;
 	/** module uuid → carriers whose extraction read the module's

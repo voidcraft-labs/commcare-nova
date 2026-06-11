@@ -23,7 +23,6 @@ import { applyMutations } from "@/lib/doc/mutations";
 import {
 	buildReferenceIndex,
 	declarersOf,
-	formIdHolders,
 	referencingCarrierSlots,
 	referencingCarrierUuids,
 } from "@/lib/doc/referenceIndex";
@@ -226,7 +225,6 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const doc = richDoc();
 		const formUuid = doc.moduleOrder.flatMap((m) => doc.formOrder[m] ?? [])[0];
 		const outcome = uuidByFieldId(doc, "outcome");
-		expect(formIdHolders(doc, formUuid, "outcome")).toEqual([outcome]);
 		expect(referencingCarrierUuids(doc, entityTargetKey(outcome))).toEqual([
 			formUuid,
 		]);
@@ -250,7 +248,6 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		expect(referencingCarrierUuids(next, entityTargetKey(outcome))).toEqual([
 			formUuid,
 		]);
-		expect(formIdHolders(next, formUuid, "outcome")).toHaveLength(2);
 	});
 });
 

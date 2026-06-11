@@ -104,7 +104,7 @@ import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
 // ── Index primitives ────────────────────────────────────────────────
 
 export function emptyReferenceIndex(): ReferenceIndex {
-	return { in: {}, out: {}, decl: {}, ids: {}, local: {}, ctx: {} };
+	return { in: {}, out: {}, decl: {}, local: {}, ctx: {} };
 }
 
 function isEmptyRecord(record: object): boolean {
@@ -154,14 +154,14 @@ interface CarrierContext {
  *
  * Cost shape: `findContainingForm` walks parents via order-array scans,
  * so maintenance brackets at O(touched carriers × doc structure) per
- * mutation. The carrier entry DOES hold a `form` mirror that would make
- * this O(1), but reading it here is rejected deliberately: total
- * reducers can replay degenerate states (an addField whose uuid already
- * sits under another parent leaves one uuid in two order arrays), and
- * there a stale mirror and a structural walk resolve differently —
- * breaking the incremental ≡ rebuild oracle, which is worth more than
- * the bracket. Reference LOOKUPS are unaffected either way: they read
- * the maintained buckets in O(1).
+ * mutation. Caching a per-carrier form mirror on the index entry would
+ * make this O(1) but is rejected deliberately: total reducers can
+ * replay degenerate states (an addField whose uuid already sits under
+ * another parent leaves one uuid in two order arrays), and there a
+ * stale mirror and a structural walk resolve differently — breaking
+ * the incremental ≡ rebuild oracle, which is worth more than the
+ * bracket. Reference LOOKUPS are unaffected either way: they read the
+ * maintained buckets in O(1).
  */
 function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 	const mod = doc.modules[carrier];
@@ -215,13 +215,6 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
 	if (entry.decl !== undefined) {
 		removeFromBucket(index.decl, entry.decl, carrier);
 	}
-	if (entry.fieldId !== undefined && entry.form !== undefined) {
-		const byId = index.ids[entry.form];
-		if (byId) {
-			removeFromBucket(byId, entry.fieldId, carrier);
-			if (isEmptyRecord(byId)) delete index.ids[entry.form];
-		}
-	}
 	if (entry.local !== undefined) {
 		removeFromBucket(index.local, entry.local, carrier);
 	}
@@ -230,8 +223,7 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
 }
 
 /**
- * Register a field's declarations: its id in the containing form's
- * namespace (`ids`) and its `(case_property_on, id)` case-property
+ * Register a field's `(case_property_on, id)` case-property
  * contribution (`decl`). Runs for EVERY (re-)indexed field BEFORE any
  * edge extraction in the same pass.
  */
@@ -239,28 +231,16 @@ function registerFieldDeclarations(
 	index: ReferenceIndex,
 	doc: BlueprintDoc,
 	carrier: string,
-	formUuid: Uuid | undefined,
 ): void {
 	const field = doc.fields[carrier];
 	if (!field || field.id.length === 0) return;
-	const needsEntry =
-		formUuid !== undefined || fieldCasePropertyOn(field) !== undefined;
-	if (!needsEntry) return;
+	const caseType = fieldCasePropertyOn(field);
+	if (caseType === undefined) return;
 	const entry = index.out[carrier] ?? { edges: {} };
 	index.out[carrier] = entry;
-	if (formUuid !== undefined) {
-		entry.form = formUuid;
-		entry.fieldId = field.id;
-		const byId = index.ids[formUuid] ?? {};
-		index.ids[formUuid] = byId;
-		addToBucket(byId, field.id, carrier);
-	}
-	const caseType = fieldCasePropertyOn(field);
-	if (caseType !== undefined) {
-		const key = casePropertyDeclKey(caseType, field.id);
-		entry.decl = key;
-		addToBucket(index.decl, key, carrier);
-	}
+	const key = casePropertyDeclKey(caseType, field.id);
+	entry.decl = key;
+	addToBucket(index.decl, key, carrier);
 }
 
 // ── Edge sink ───────────────────────────────────────────────────────
@@ -774,9 +754,9 @@ function resolveIdChain(
 /**
  * Derive the whole index from the doc alone — the hydration builder
  * AND the oracle the incremental maintenance is fuzz-proven against.
- * Two phases: declarations first (every field's form-id and
- * case-property contribution), then edges — close-condition edges
- * resolve against the settled `ids` bucket.
+ * Two phases: declarations first (every field's case-property
+ * contribution), then edges — same order the maintenance pass keeps,
+ * so the two builders settle identical structures.
  */
 export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 	const index = emptyReferenceIndex();
@@ -790,12 +770,7 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 		contexts.set(carrier, carrierContext(doc, carrier));
 	}
 	for (const carrier of Object.keys(doc.fields)) {
-		registerFieldDeclarations(
-			index,
-			doc,
-			carrier,
-			contexts.get(carrier)?.formUuid,
-		);
+		registerFieldDeclarations(index, doc, carrier);
 	}
 	for (const carrier of carriers) {
 		extractCarrierEdges(index, doc, carrier, contexts.get(carrier) ?? {});
@@ -850,15 +825,6 @@ export function declarersOf(
 	return Object.keys(
 		getReferenceIndex(doc).decl[casePropertyDeclKey(caseType, property)] ?? {},
 	);
-}
-
-/** Field uuids holding semantic id `id` within `formUuid`. */
-export function formIdHolders(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	id: string,
-): string[] {
-	return Object.keys(getReferenceIndex(doc).ids[formUuid]?.[id] ?? {});
 }
 
 // ── Per-mutation maintenance ────────────────────────────────────────
@@ -1072,10 +1038,9 @@ function findParentOf(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 
 /**
  * Re-derive the planned carriers against post-reducer state: resolve
- * contexts, un-index, re-register declarations (all of them, before any
- * edge extraction — close-condition edges read the settled `ids`
- * bucket), then extract edges. A carrier the reducer deleted simply
- * extracts to nothing.
+ * contexts, un-index, re-register declarations (all of them, before
+ * any edge extraction — same phase order as the rebuild), then extract
+ * edges. A carrier the reducer deleted simply extracts to nothing.
  */
 export function applyReferenceIndexMaintenance(
 	doc: BlueprintDoc,
@@ -1101,12 +1066,7 @@ export function applyReferenceIndexMaintenance(
 	}
 	for (const carrier of carriers) unindexCarrier(index, carrier);
 	for (const carrier of carriers) {
-		registerFieldDeclarations(
-			index,
-			doc,
-			carrier,
-			contexts.get(carrier)?.formUuid,
-		);
+		registerFieldDeclarations(index, doc, carrier);
 	}
 	for (const carrier of carriers) {
 		extractCarrierEdges(index, doc, carrier, contexts.get(carrier) ?? {});

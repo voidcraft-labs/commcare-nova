@@ -830,7 +830,12 @@ Deltas vs the text below:
   `ctx[module]` (carriers whose extraction read the module's case
   type — re-keyed on case-type changes and cross-module form moves).
   `ids[form]` (form-scoped id holders) joined `decl` so the
-  close-condition unique-holder rule is a lookup too.
+  close-condition unique-holder rule is a lookup too — and was RETIRED
+  in the Layer-3 review pass: the close-condition rework (uuid-stored
+  refs) deleted that rule, its last production consumer, so the `ids`
+  bucket and the `formIdHolders` query left both builders. The index
+  carries only consumed structure; re-adding the bucket later is
+  cheap.
 - The chip resolve gate did NOT convert: it already resolves against
   the root-level case-type catalog (no doc walk), the catalog is a
   reducer-maintained superset of writer declarations, and the
@@ -847,8 +852,8 @@ Deltas vs the text below:
   with the CI fuzzes carrying the load-bearing proof.
 - No Biome ban on the raw index module — the narrow query API
   (`referencingCarrierUuids` / `referencingCarrierSlots` /
-  `declarersOf` / `formIdHolders`) is the consumer surface, and every
-  current consumer lives inside `lib/doc`.
+  `declarersOf`) is the consumer surface, and every current consumer
+  lives inside `lib/doc`.
 
 Replay-only divergences vs the walk-driven rewriters (none reachable
 through the gated construction surface; every one removes an old
