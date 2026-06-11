@@ -301,7 +301,9 @@ describe("createModule — atomic module + forms + case list", () => {
 
 // ── Atomic creation on complete Connect apps ─────────────────────────
 
-/** A COMPLETE Connect learn app: every form carries its connect block. */
+/** A COMPLETE Connect learn app: its only form participates (carries the
+ *  app's only learn block), so clearing that block is the last-participant
+ *  case. */
 function completeConnectDoc(): BlueprintDoc {
 	return buildDoc({
 		appName: "Training",

@@ -970,10 +970,11 @@ const moduleCoreArb = fc.record({
 });
 
 /**
- * Roll the app-level Connect mode (one of null / learn / deliver), then layer a
- * mode-matched Connect selection onto every form when the app is Connect-typed.
- * Roughly two-thirds of generated docs end up Connect (learn or deliver), split
- * across both modes — enough to exercise `buildConnectBlocks` heavily while the
+ * Roll the app-level Connect mode (one of null / learn / deliver), then layer
+ * mode-matched Connect selections onto the forms when the app is Connect-typed
+ * (first form always, later forms participating-or-auxiliary). Roughly
+ * two-thirds of generated docs end up Connect (learn or deliver), split across
+ * both modes — enough to exercise `buildConnectBlocks` heavily while the
  * remaining third keeps the non-Connect structural coverage intact.
  */
 const docGenSpecArb: fc.Arbitrary<DocGenSpec> = fc

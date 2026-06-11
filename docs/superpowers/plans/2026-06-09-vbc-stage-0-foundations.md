@@ -456,7 +456,9 @@ NOTHING consumes the gate yet (Stage 1+ wires it). Pure lib + tests.
   (exactly the spec's list — NO_MODULES, EMPTY_FORM,
   MISSING_CASE_LIST_COLUMNS, NO_CASE_NAME_FIELD, REGISTRATION_NO_CASE_PROPS,
   CHILD_CASE_NO_NAME_FIELD, MISSING_CHILD_CASE_MODULE,
-  CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE, CONNECT_FORM_MISSING_BLOCK,
+  CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE, CONNECT_FORM_MISSING_BLOCK
+  [retired by the spec's Connect participation relaxation stage —
+  replaced by the app-level CONNECT_NO_PARTICIPATING_FORMS],
   CONNECT_MISSING_LEARN, CONNECT_MISSING_DELIVER), 4 environment (the three
   asset-context rules + MEDIA_EXPORT_TOO_LARGE — external-state-dependent,
   boundary-only, never producible by a commit-path run), 95 oracle (XFORM 28

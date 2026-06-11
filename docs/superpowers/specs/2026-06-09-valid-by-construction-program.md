@@ -1034,6 +1034,57 @@ originally projected:
 **Verification:** docs at `docs.commcare.app` describe the new tool surface
 and lifecycle; full suite + lint + build green at every residue commit.
 
+### Stage 8 — Connect participation relaxation — SHIPPED
+
+`CONNECT_FORM_MISSING_BLOCK` (every form on a Connect app must carry a
+connect block) was Nova's invention, not the owning system's rule —
+verified in ~/code/commcare-connect: ingestion
+(`commcare_connect/opportunity/app_xml.py::extract_modules` /
+`::extract_deliver_unit` / `::extract_task_unit`) finds connect-namespace
+blocks per form and silently skips forms without them; opportunity
+creation (`opportunity/tasks.py::create_learn_modules_and_deliver_units`)
+upserts whatever was found with no coverage validation; learn-progress
+and payment math key on the ingested rows (`opportunity/models.py::
+OpportunityAccess.learn_progress`, `opportunity/helpers.py` completion
+queries), never on form counts. A connect block marks that a form
+PARTICIPATES; omitting it makes the form auxiliary — a legal, meaningful
+wire state.
+
+What shipped:
+- The validator rule, its classification row, and its legacy-repair
+  RULE-RETIRING entry (the whole tier died with its only member) are
+  deleted. The replacement is the app-level participation floor
+  `CONNECT_NO_PARTICIPATING_FORMS` (completeness, scope-exempt APP_RULES
+  product): a Connect app with forms must have ≥1 form carrying a
+  sub-config of its mode family (learn → learn_module/assessment;
+  deliver → deliver_unit/task — zero learn modules makes progress
+  meaningless, zero deliver units pays nothing). An EMPTY Connect app
+  stays clean, preserving the connect-type-first build flow.
+  Well-formed-where-present rules (connect ids, XPath slots, per-block
+  CONNECT_MISSING_*) are untouched.
+- The per-form Connect toggle went live in BOTH directions (supersedes
+  Stage 4.5's explained-disabled OFF): OFF stashes + clears the block as
+  an ordinary gated commit, bouncing with the app-level finding only on
+  the last participating form; ON keeps stash-restore + the
+  collect-before-commit dialog. The enable flow shrank to "pick which
+  forms participate (≥1), fill their blocks" — unpicked forms are
+  omitted from the commit payload entirely; `restoredFormCount` counts
+  stash-covered forms toward the dialog's ≥1 bar. `switchConnectMode`
+  needed no behavior change.
+- The SA surface (prompts, planning + creation + updateApp/updateForm
+  descriptions) corrected from the every-form mandate to participation
+  framing; content-based sub-config assignment guidance unchanged.
+- Tests: mixed apps (participating + auxiliary) pinned zero-findings
+  deterministically (construction-fuzz prelude grows the auxiliary form
+  through the real createForm; atomicCreation pins blockless-create
+  commits, last-block-clear bounce, non-last clear commit); the wire
+  fuzz generator draws auxiliary forms on Connect docs.
+
+**Verification:** full suite + lint + build green; `scripts/test-schema.ts`
+27/27; toggling a form's Connect off in the builder commits (and bounces
+with the participation message only on the last participating form);
+enabling Connect collects only the picked forms' blocks.
+
 ### Merge-time choreography (the only remaining work)
 
 Owner-run, at or immediately around the merge to main:
