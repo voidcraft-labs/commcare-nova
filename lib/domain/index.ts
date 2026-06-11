@@ -13,5 +13,6 @@ export * from "./hashtagSegments";
 export * from "./kinds";
 export * from "./modules";
 export * from "./multimedia";
+export * from "./referenceIndex";
 export * from "./referenceSlots";
 export * from "./uuid";

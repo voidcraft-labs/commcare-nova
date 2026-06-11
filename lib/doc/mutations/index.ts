@@ -20,6 +20,12 @@
 
 import type { Draft } from "immer";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import {
+	applyReferenceIndexMaintenance,
+	devAssertReferenceIndexParity,
+	ensureReferenceIndex,
+	planReferenceIndexMaintenance,
+} from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
 import { assertNever } from "@/lib/utils/assertNever";
 import { applyAppMutation } from "./app";
@@ -79,19 +85,41 @@ function dispatchMutation(
 }
 
 /**
+ * Internal: one mutation's full application — the reference-index
+ * maintenance bracketing the reducer. The plan captures pre-state facts
+ * only the doc-before-the-reducer can answer (removed subtrees, the
+ * carriers a rename re-keys); the apply step re-derives those carriers
+ * from post-reducer state. The index is therefore CURRENT after every
+ * mutation, not just at batch end — reducers later in the same batch
+ * (a rename following an add that referenced it) read fresh lookups,
+ * which is what lets them be lookup-driven at all.
+ */
+function applyOne(draft: Draft<BlueprintDoc>, mut: Mutation): MutationResult {
+	const doc = draft as unknown as BlueprintDoc;
+	const plan = planReferenceIndexMaintenance(doc, mut);
+	const result = dispatchMutation(draft, mut);
+	applyReferenceIndexMaintenance(doc, plan);
+	return result;
+}
+
+/**
  * Apply a single mutation to an Immer draft and return any metadata the
  * reducer produces. `moveField` returns `MoveFieldResult`;
  * `renameField` returns `FieldRenameMeta`; all others return `undefined`.
  *
- * After the reducer runs, the `fieldParent` reverse index is rebuilt so
- * consumers observing the post-mutation draft see a consistent index.
+ * The reference index is seeded (built from the full doc) on first
+ * contact and maintained incrementally by the mutation's application;
+ * after the reducer runs, the `fieldParent` reverse index is rebuilt so
+ * consumers observing the post-mutation draft see consistent indexes.
  */
 export function applyMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
 ): MutationResult {
-	const result = dispatchMutation(draft, mut);
+	ensureReferenceIndex(draft as unknown as BlueprintDoc);
+	const result = applyOne(draft, mut);
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
+	devAssertReferenceIndexParity(draft as unknown as BlueprintDoc);
 	return result;
 }
 
@@ -104,15 +132,22 @@ export function applyMutation(
  * agent streams land hundreds of mutations in one batch. Mid-batch reads
  * of `fieldParent` would see stale data, but no reducer reads it —
  * structural lookups use `fieldOrder` directly.
+ *
+ * The reference index is the opposite: maintained PER MUTATION (see
+ * `applyOne`), because reducers inside the batch read it — its
+ * increments are scoped to what each mutation touched, so the batch
+ * cost stays proportional to the batch's own changes.
  */
 export function applyMutations(
 	draft: Draft<BlueprintDoc>,
 	muts: Mutation[],
 ): MutationResult[] {
+	ensureReferenceIndex(draft as unknown as BlueprintDoc);
 	const results: MutationResult[] = [];
 	for (const mut of muts) {
-		results.push(dispatchMutation(draft, mut));
+		results.push(applyOne(draft, mut));
 	}
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
+	devAssertReferenceIndexParity(draft as unknown as BlueprintDoc);
 	return results;
 }

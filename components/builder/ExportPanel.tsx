@@ -18,8 +18,9 @@ import { memo, useCallback, useContext, useMemo, useState } from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import type { PersistableDoc } from "@/lib/domain";
 import {
 	apiFailureToastMessage,
 	describeApiFailure,
@@ -31,18 +32,6 @@ interface ExportPanelProps {
 	commcareConfigured: boolean;
 	/** Every project space the key can upload to (drives the dialog picker). */
 	commcareAvailableDomains: { name: string; displayName: string }[];
-}
-
-/**
- * Strip the transient `fieldParent` reverse-index before serializing the
- * doc over the network. `fieldParent` is derived on load (not persisted),
- * and shipping it redundantly would waste bandwidth and muddle the wire
- * contract — the server's `blueprintDocSchema` parse rejects unknown
- * keys on the persistable shape.
- */
-function toPersistable(doc: BlueprintDoc): PersistableDoc {
-	const { fieldParent: _fp, ...persistable } = doc;
-	return persistable;
 }
 
 /**
@@ -145,7 +134,7 @@ export const ExportPanel = memo(function ExportPanel({
 				"ExportPanel.getDoc called before BlueprintDocProvider mounted",
 			);
 		}
-		return toPersistable(s);
+		return toPersistableDoc(s);
 	}, [docStore]);
 
 	const handleExportCcz = useCallback(async () => {
@@ -154,7 +143,7 @@ export const ExportPanel = memo(function ExportPanel({
 		// The compile endpoint returns the `.ccz` bytes inline — one request, no
 		// separate download round-trip.
 		await exportDoc({
-			doc: toPersistable(s),
+			doc: toPersistableDoc(s),
 			endpoint: "/api/compile",
 			fileLabel: "the .ccz file",
 			filename: () => `${s.appName || "app"}.ccz`,
@@ -165,7 +154,7 @@ export const ExportPanel = memo(function ExportPanel({
 		const s = docStore?.getState();
 		if (!s || s.moduleOrder.length === 0) return;
 		await exportDoc({
-			doc: toPersistable(s),
+			doc: toPersistableDoc(s),
 			endpoint: "/api/compile/json",
 			fileLabel: "the JSON file",
 			// Media-aware: a media-free app comes back as a plain `.json`; an app

@@ -25,6 +25,7 @@ import {
 } from "@/lib/chat/attachmentRefs";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -88,16 +89,10 @@ function createChatInstance(
 				const sessionState = session.getState();
 				const hasData = (doc?.moduleOrder.length ?? 0) > 0;
 				/* Send the normalized doc directly — the route converts to the
-				 * SA's wire format server-side. `fieldParent` is a derived,
-				 * non-persisted field, so we omit it from the wire payload
+				 * SA's wire format server-side. The derived state (fieldParent
+				 * + the reference index) is omitted from the wire payload
 				 * (matches Firestore's persistence contract). */
-				const wireDoc =
-					doc && hasData
-						? (() => {
-								const { fieldParent: _fp, ...persistable } = doc;
-								return persistable;
-							})()
-						: undefined;
+				const wireDoc = doc && hasData ? toPersistableDoc(doc) : undefined;
 				/* `appReady` gates whether the server strips generation tools
 				 * (editing mode) vs exposes them (build mode). We use the
 				 * derived phase as the single source of truth — Ready or

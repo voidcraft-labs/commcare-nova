@@ -28,6 +28,7 @@ import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
+import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 
@@ -244,9 +245,14 @@ export function createBlueprintDocStore() {
 								// Immer records each assignment through its proxy and produces
 								// the next state with structural sharing.
 								Object.assign(draft as BlueprintDoc, next);
-								// Rebuild the reverse-parent index so hooks can read
-								// fieldParent immediately after load.
+								// Rebuild the derived state so hooks and the pre-dispatch
+								// verdict layer read indexes for THIS doc immediately after
+								// load. The reference index is assigned (not merged): `next`
+								// carries no `refIndex` key, so the Object.assign above would
+								// otherwise leave a prior app's stale index in place.
 								rebuildFieldParent(draft as unknown as BlueprintDoc);
+								(draft as unknown as BlueprintDoc).refIndex =
+									buildReferenceIndex(draft as unknown as BlueprintDoc);
 							});
 							// Clear any undo history accumulated since last load (e.g.
 							// stale entries from a prior session in the same store instance).

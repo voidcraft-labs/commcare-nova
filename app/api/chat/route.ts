@@ -42,6 +42,7 @@ import {
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
 import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
@@ -510,6 +511,11 @@ export async function POST(req: Request) {
 						fieldParent: {},
 					};
 			rebuildFieldParent(sessionDoc);
+			/* Hydrate the reference index alongside — the SA's tool layer
+			 * answers "who references / declares X" through it (retirement
+			 * planning, rename verdicts, the rename cascade) from the first
+			 * tool call. */
+			ensureReferenceIndex(sessionDoc);
 
 			const ctx = new GenerationContext({
 				apiKey: keyResult.apiKey,

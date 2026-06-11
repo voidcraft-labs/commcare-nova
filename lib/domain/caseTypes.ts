@@ -87,6 +87,26 @@ export function caseDataTypeForFieldKind(
 }
 
 /**
+ * Read a field's `case_property_on` value in a kind-agnostic way — the
+ * case type the field's id writes a property to, or `undefined` when
+ * the field isn't case-bound. `case_property_on` lives on the
+ * input-field mixin but not on structural kinds, so a narrow structural
+ * read beats walking the discriminated union at every consumer. An
+ * empty string reads as not-set (the clear shape) — that rule is what
+ * keeps a cleared pointer from triggering rename cascades or peer
+ * matches, so every consumer (the rename reducer, the peer-aware
+ * rename verdict, the reference index's declarations) shares this one
+ * definition.
+ */
+export function fieldCasePropertyOn(field: {
+	kind: string;
+}): string | undefined {
+	const value = (field as { case_property_on?: string }).case_property_on;
+	if (typeof value !== "string" || value.length === 0) return undefined;
+	return value;
+}
+
+/**
  * Returns the case type names a module can write to: its own primary
  * case type plus any child types that declare the module's type as
  * their `parent_type`. Used by both the inspect panel's case-property

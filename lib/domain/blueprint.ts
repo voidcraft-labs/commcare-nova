@@ -16,6 +16,7 @@ import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { assetIdSchema } from "./multimedia";
+import type { ReferenceIndex } from "./referenceIndex";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // Re-exports — `casePropertyDataTypes` / `CasePropertyDataType` /
@@ -126,4 +127,18 @@ export type BlueprintDoc = PersistableDoc & {
 	 *  atomically by every mutation that touches fieldOrder. Rebuilt by
 	 *  rebuildFieldParent() on load. Not persisted. */
 	fieldParent: Record<Uuid, Uuid | null>;
+	/**
+	 * The reference + declarations index (`lib/domain/referenceIndex.ts`)
+	 * — derived state, never persisted. Seeded by every apply entry
+	 * point (`lib/doc/mutations`' `applyMutation(s)` build it on first
+	 * contact) and by the hydration boundaries (`store.load`, the MCP
+	 * blueprint load, the chat route's working doc), then maintained
+	 * incrementally per mutation. Optional so the many read-only
+	 * `PersistableDoc → BlueprintDoc` widenings (compile, upload,
+	 * preview) stay valid without paying a build they never read;
+	 * reference operations go through `lib/doc/referenceIndex.ts`'s
+	 * accessor, which falls back to a fresh build when the slot is
+	 * absent.
+	 */
+	refIndex?: ReferenceIndex;
 };

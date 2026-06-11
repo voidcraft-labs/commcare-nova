@@ -1,0 +1,724 @@
+/**
+ * The reference index's load-bearing proof: after EVERY applied
+ * mutation batch, the incrementally maintained index deep-equals a
+ * from-scratch rebuild of the same doc. `buildReferenceIndex` is the
+ * oracle (it derives everything from the doc alone); the incremental
+ * path is `applyMutations`' per-mutation maintenance. A divergence is
+ * a correctness bug by definition — the maintenance missed a carrier
+ * some mutation could change.
+ *
+ * The generator drives raw mutation batches (1–3 mutations each, so
+ * intra-batch dependencies occur: an add followed by a rename of what
+ * it referenced) over a reference-rich seed doc, with picks resolved
+ * against the RUNNING doc the way the construction fuzz resolves its
+ * ops. Reducers are total, so the alphabet deliberately includes
+ * shapes the commit gate would reject (sibling-id collisions via
+ * rename, dangling refs, case-type flips on referenced types) — the
+ * index must stay rebuild-equal through every degenerate state replay
+ * can produce, not just gated ones.
+ *
+ * Floors per the fuzz doctrine: the seed is pinned, and the run
+ * asserts every mutation kind in the alphabet actually changed the doc
+ * at least once — plus occurrence floors for the three at-a-distance
+ * arms that motivated the maintenance buckets (a dangling `#form` ref
+ * resolving via a later add, a case-bound rename re-keying property
+ * edges, and a cross-module form move re-keying `#case` context).
+ */
+import * as fc from "fast-check";
+import { produce } from "immer";
+import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { applyMutations } from "@/lib/doc/mutations";
+import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
+import type { Mutation } from "@/lib/doc/types";
+import {
+	asUuid,
+	type BlueprintDoc,
+	fieldCasePropertyOn,
+	type Uuid,
+} from "@/lib/domain";
+import { eq, literal, prop, subcasePath, term } from "@/lib/domain/predicate";
+
+/** Reference-rich seed: two modules, every reference surface kind, and
+ *  a standing dangling `#form/pending_x` ref the add pool can satisfy. */
+function seedDoc(): BlueprintDoc {
+	return buildDoc({
+		appName: "Fuzz Clinic",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: "Name" },
+					{ name: "age", label: "Age" },
+					{ name: "village", label: "Village" },
+				],
+			},
+			{ name: "household", properties: [{ name: "region", label: "Region" }] },
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					columns: [
+						{
+							uuid: asUuid("col00000-0000-4000-8000-000000000001"),
+							kind: "plain",
+							field: "case_name",
+							header: "Name",
+						},
+						{
+							uuid: asUuid("col00000-0000-4000-8000-000000000002"),
+							kind: "calculated",
+							header: "Age calc",
+							expression: term(prop("patient", "age")),
+						},
+					],
+					searchInputs: [
+						{
+							uuid: asUuid("sin00000-0000-4000-8000-000000000001"),
+							kind: "simple",
+							name: "by_village",
+							label: "Village",
+							type: "text",
+							property: "village",
+						},
+						{
+							uuid: asUuid("sin00000-0000-4000-8000-000000000002"),
+							kind: "advanced",
+							name: "age_filter",
+							label: "Age",
+							type: "text",
+							predicate: eq(prop("patient", "age"), literal("18")),
+							default: term(prop("patient", "village")),
+						},
+					],
+					filter: eq(prop("patient", "age"), literal("1")),
+				},
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						closeCondition: { field: "outcome", answer: "done" },
+						formLinks: [
+							{
+								condition: "#form/age > 17 and #patient/age > 17",
+								target: {
+									type: "module",
+									moduleUuid: asUuid("mod00000-0000-4000-8000-00000000000a"),
+								},
+								datums: [{ name: "case_id", xpath: "/data/age" }],
+							},
+						],
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "patient",
+							}),
+							f({
+								kind: "int",
+								id: "age",
+								label: "Age",
+								case_property_on: "patient",
+							}),
+							f({
+								kind: "group",
+								id: "grp",
+								children: [f({ kind: "text", id: "inner", label: "Inner" })],
+							}),
+							f({
+								kind: "text",
+								id: "watcher",
+								label: "See #patient/age and #form/grp/inner",
+								relevant: "#form/grp/inner != '' and /data/age > 0",
+								required: "/data/case_name != ''",
+							}),
+							f({
+								kind: "text",
+								id: "pending",
+								label: "Pending",
+								relevant: "#form/pending_x = '1'",
+							}),
+							f({
+								kind: "text",
+								id: "ctx_ref",
+								label: "Ctx #case/age",
+								relevant: "#case/age > 1",
+							}),
+							f({ kind: "text", id: "outcome", label: "Outcome" }),
+						],
+					},
+					{
+						name: "Follow up",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "village",
+								label: "Village",
+								case_property_on: "patient",
+							}),
+							f({
+								kind: "hidden",
+								id: "age_copy",
+								calculate: "#patient/age + 0",
+							}),
+						],
+					},
+				],
+			},
+			{
+				uuid: "mod00000-0000-4000-8000-00000000000a",
+				name: "Households",
+				caseType: "household",
+				caseListConfig: {
+					columns: [],
+					searchInputs: [],
+					filter: eq(
+						prop("household", "age", subcasePath("parent", "patient")),
+						literal("1"),
+					),
+				},
+				forms: [
+					{
+						name: "Visit household",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "region",
+								label: "Region",
+								case_property_on: "household",
+							}),
+							f({
+								kind: "text",
+								id: "hh_ctx",
+								label: "HH",
+								relevant: "#case/region != ''",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+// ── Pools ───────────────────────────────────────────────────────────
+
+const ID_POOL = [
+	"pending_x", // satisfies the seed's standing dangling ref
+	"age",
+	"village",
+	"note",
+	"status",
+	"grp",
+	"inner",
+	"outcome",
+];
+const XPATH_POOL = [
+	"#form/age > 17",
+	"#form/grp/inner = '1'",
+	"/data/village != ''",
+	"#patient/age > 0",
+	"#case/age = '1'",
+	"#user/username != ''",
+	"string-length(#form/pending_x) > 0",
+	"if(", // unparseable — extraction and rewriters see the same tree
+	"",
+];
+const LABEL_POOL = [
+	"Plain label",
+	"See #patient/age",
+	"Check #form/grp/inner then #case/village",
+	"Trailing #household/region.",
+];
+const CASE_TYPE_POOL = ["patient", "household", "visit", undefined];
+
+type FuzzOp =
+	| {
+			kind: "addField";
+			parentPick: number;
+			idPick: number;
+			relevantPick: number;
+			labelPick: number;
+			casePropPick: number;
+			asGroup: boolean;
+	  }
+	| { kind: "removeField"; fieldPick: number }
+	| { kind: "renameField"; fieldPick: number; idPick: number }
+	| { kind: "moveField"; fieldPick: number; parentPick: number; index: number }
+	| { kind: "duplicateField"; fieldPick: number }
+	| { kind: "convertField"; fieldPick: number }
+	| {
+			kind: "updateField";
+			fieldPick: number;
+			relevantPick: number;
+			labelPick: number;
+	  }
+	| { kind: "addForm"; modulePick: number; withClose: boolean }
+	| { kind: "removeForm"; formPick: number }
+	| { kind: "moveForm"; formPick: number; modulePick: number; index: number }
+	| { kind: "renameForm"; formPick: number }
+	| { kind: "updateForm"; formPick: number; closeIdPick: number }
+	| { kind: "addModule"; caseTypePick: number }
+	| { kind: "removeModule"; modulePick: number }
+	| { kind: "moveModule"; modulePick: number; index: number }
+	| { kind: "renameModule"; modulePick: number }
+	| { kind: "updateModule"; modulePick: number; caseTypePick: number }
+	| { kind: "setCaseTypes"; drop: boolean }
+	| { kind: "setAppName" };
+
+const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
+	{
+		weight: 5,
+		arbitrary: fc
+			.record({
+				parentPick: fc.nat({ max: 9 }),
+				idPick: fc.nat({ max: ID_POOL.length - 1 }),
+				relevantPick: fc.nat({ max: XPATH_POOL.length - 1 }),
+				labelPick: fc.nat({ max: LABEL_POOL.length - 1 }),
+				casePropPick: fc.nat({ max: CASE_TYPE_POOL.length - 1 }),
+				asGroup: fc.boolean(),
+			})
+			.map((r) => ({ kind: "addField" as const, ...r })),
+	},
+	{
+		weight: 2,
+		arbitrary: fc
+			.record({ fieldPick: fc.nat({ max: 30 }) })
+			.map((r) => ({ kind: "removeField" as const, ...r })),
+	},
+	{
+		weight: 4,
+		arbitrary: fc
+			.record({
+				fieldPick: fc.nat({ max: 30 }),
+				idPick: fc.nat({ max: ID_POOL.length - 1 }),
+			})
+			.map((r) => ({ kind: "renameField" as const, ...r })),
+	},
+	{
+		weight: 3,
+		arbitrary: fc
+			.record({
+				fieldPick: fc.nat({ max: 30 }),
+				parentPick: fc.nat({ max: 9 }),
+				index: fc.nat({ max: 6 }),
+			})
+			.map((r) => ({ kind: "moveField" as const, ...r })),
+	},
+	{
+		weight: 2,
+		arbitrary: fc
+			.record({ fieldPick: fc.nat({ max: 30 }) })
+			.map((r) => ({ kind: "duplicateField" as const, ...r })),
+	},
+	{
+		weight: 1,
+		arbitrary: fc
+			.record({ fieldPick: fc.nat({ max: 30 }) })
+			.map((r) => ({ kind: "convertField" as const, ...r })),
+	},
+	{
+		weight: 3,
+		arbitrary: fc
+			.record({
+				fieldPick: fc.nat({ max: 30 }),
+				relevantPick: fc.nat({ max: XPATH_POOL.length - 1 }),
+				labelPick: fc.nat({ max: LABEL_POOL.length - 1 }),
+			})
+			.map((r) => ({ kind: "updateField" as const, ...r })),
+	},
+	{
+		weight: 2,
+		arbitrary: fc
+			.record({ modulePick: fc.nat({ max: 3 }), withClose: fc.boolean() })
+			.map((r) => ({ kind: "addForm" as const, ...r })),
+	},
+	{
+		weight: 1,
+		arbitrary: fc
+			.record({ formPick: fc.nat({ max: 6 }) })
+			.map((r) => ({ kind: "removeForm" as const, ...r })),
+	},
+	{
+		weight: 2,
+		arbitrary: fc
+			.record({
+				formPick: fc.nat({ max: 6 }),
+				modulePick: fc.nat({ max: 3 }),
+				index: fc.nat({ max: 3 }),
+			})
+			.map((r) => ({ kind: "moveForm" as const, ...r })),
+	},
+	{
+		weight: 1,
+		arbitrary: fc
+			.record({ formPick: fc.nat({ max: 6 }) })
+			.map((r) => ({ kind: "renameForm" as const, ...r })),
+	},
+	{
+		weight: 2,
+		arbitrary: fc
+			.record({
+				formPick: fc.nat({ max: 6 }),
+				closeIdPick: fc.nat({ max: ID_POOL.length - 1 }),
+			})
+			.map((r) => ({ kind: "updateForm" as const, ...r })),
+	},
+	{
+		weight: 1,
+		arbitrary: fc
+			.record({ caseTypePick: fc.nat({ max: CASE_TYPE_POOL.length - 1 }) })
+			.map((r) => ({ kind: "addModule" as const, ...r })),
+	},
+	{
+		weight: 1,
+		arbitrary: fc
+			.record({ modulePick: fc.nat({ max: 3 }) })
+			.map((r) => ({ kind: "removeModule" as const, ...r })),
+	},
+	{
+		weight: 1,
+		arbitrary: fc
+			.record({ modulePick: fc.nat({ max: 3 }), index: fc.nat({ max: 3 }) })
+			.map((r) => ({ kind: "moveModule" as const, ...r })),
+	},
+	{
+		weight: 1,
+		arbitrary: fc
+			.record({ modulePick: fc.nat({ max: 3 }) })
+			.map((r) => ({ kind: "renameModule" as const, ...r })),
+	},
+	{
+		weight: 2,
+		arbitrary: fc
+			.record({
+				modulePick: fc.nat({ max: 3 }),
+				caseTypePick: fc.nat({ max: CASE_TYPE_POOL.length - 1 }),
+			})
+			.map((r) => ({ kind: "updateModule" as const, ...r })),
+	},
+	{
+		weight: 1,
+		arbitrary: fc
+			.record({ drop: fc.boolean() })
+			.map((r) => ({ kind: "setCaseTypes" as const, ...r })),
+	},
+	{ weight: 1, arbitrary: fc.constant({ kind: "setAppName" as const }) },
+);
+
+// ── Pick resolution against the running doc ─────────────────────────
+
+function pickField(doc: BlueprintDoc, pick: number): Uuid | undefined {
+	const uuids = Object.keys(doc.fields) as Uuid[];
+	return uuids.length > 0 ? uuids[pick % uuids.length] : undefined;
+}
+
+function pickForm(doc: BlueprintDoc, pick: number): Uuid | undefined {
+	const uuids = Object.keys(doc.forms) as Uuid[];
+	return uuids.length > 0 ? uuids[pick % uuids.length] : undefined;
+}
+
+function pickModule(doc: BlueprintDoc, pick: number): Uuid | undefined {
+	return doc.moduleOrder.length > 0
+		? doc.moduleOrder[pick % doc.moduleOrder.length]
+		: undefined;
+}
+
+/** Field parents: every form plus every group/repeat container. */
+function pickParent(doc: BlueprintDoc, pick: number): Uuid | undefined {
+	const parents = [
+		...(Object.keys(doc.forms) as Uuid[]),
+		...(Object.keys(doc.fields) as Uuid[]).filter((uuid) => {
+			const kind = doc.fields[uuid]?.kind;
+			return kind === "group" || kind === "repeat";
+		}),
+	];
+	return parents.length > 0 ? parents[pick % parents.length] : undefined;
+}
+
+let minted = 0;
+function mintUuid(): string {
+	minted++;
+	return `fz000000-0000-4000-8000-${minted.toString().padStart(12, "0")}`;
+}
+
+/** Lower one abstract op to concrete mutations against `doc` — or none
+ *  when the pick can't resolve (an empty batch is itself an arm). */
+function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
+	switch (op.kind) {
+		case "addField": {
+			const parentUuid = pickParent(doc, op.parentPick);
+			if (!parentUuid) return [];
+			const caseProp = CASE_TYPE_POOL[op.casePropPick];
+			const field = op.asGroup
+				? ({
+						uuid: mintUuid(),
+						kind: "group",
+						id: ID_POOL[op.idPick],
+						label: "Group",
+					} as never)
+				: ({
+						uuid: mintUuid(),
+						kind: "text",
+						id: ID_POOL[op.idPick],
+						label: LABEL_POOL[op.labelPick],
+						relevant: XPATH_POOL[op.relevantPick],
+						...(caseProp && { case_property_on: caseProp }),
+					} as never);
+			return [{ kind: "addField", parentUuid, field }];
+		}
+		case "removeField": {
+			const uuid = pickField(doc, op.fieldPick);
+			return uuid ? [{ kind: "removeField", uuid }] : [];
+		}
+		case "renameField": {
+			const uuid = pickField(doc, op.fieldPick);
+			return uuid
+				? [{ kind: "renameField", uuid, newId: ID_POOL[op.idPick] }]
+				: [];
+		}
+		case "moveField": {
+			const uuid = pickField(doc, op.fieldPick);
+			const toParentUuid = pickParent(doc, op.parentPick);
+			if (!uuid || !toParentUuid) return [];
+			return [{ kind: "moveField", uuid, toParentUuid, toIndex: op.index }];
+		}
+		case "duplicateField": {
+			const uuid = pickField(doc, op.fieldPick);
+			return uuid ? [{ kind: "duplicateField", uuid }] : [];
+		}
+		case "convertField": {
+			const uuid = pickField(doc, op.fieldPick);
+			if (!uuid) return [];
+			const kind = doc.fields[uuid]?.kind;
+			// text → secret and int → decimal are the registry's live
+			// targets; anything else exercises the warn-and-skip arm.
+			const toKind =
+				kind === "text" ? "secret" : kind === "int" ? "decimal" : "secret";
+			return [{ kind: "convertField", uuid, toKind }];
+		}
+		case "updateField": {
+			const uuid = pickField(doc, op.fieldPick);
+			if (!uuid) return [];
+			const kind = doc.fields[uuid]?.kind;
+			if (kind !== "text") return [];
+			return [
+				{
+					kind: "updateField",
+					uuid,
+					targetKind: "text",
+					patch: {
+						relevant: XPATH_POOL[op.relevantPick],
+						label: LABEL_POOL[op.labelPick],
+					},
+				} as Mutation,
+			];
+		}
+		case "addForm": {
+			const moduleUuid = pickModule(doc, op.modulePick);
+			if (!moduleUuid) return [];
+			return [
+				{
+					kind: "addForm",
+					moduleUuid,
+					form: {
+						uuid: mintUuid(),
+						name: "Fuzz form",
+						type: op.withClose ? "close" : "followup",
+						...(op.withClose && {
+							closeCondition: { field: "outcome", answer: "done" },
+						}),
+					} as never,
+				},
+			];
+		}
+		case "removeForm": {
+			const uuid = pickForm(doc, op.formPick);
+			return uuid ? [{ kind: "removeForm", uuid }] : [];
+		}
+		case "moveForm": {
+			const uuid = pickForm(doc, op.formPick);
+			const toModuleUuid = pickModule(doc, op.modulePick);
+			if (!uuid || !toModuleUuid) return [];
+			return [{ kind: "moveForm", uuid, toModuleUuid, toIndex: op.index }];
+		}
+		case "renameForm": {
+			const uuid = pickForm(doc, op.formPick);
+			return uuid ? [{ kind: "renameForm", uuid, newId: "Renamed form" }] : [];
+		}
+		case "updateForm": {
+			const uuid = pickForm(doc, op.formPick);
+			if (!uuid) return [];
+			return [
+				{
+					kind: "updateForm",
+					uuid,
+					patch: {
+						closeCondition: {
+							field: ID_POOL[op.closeIdPick],
+							answer: "done",
+						},
+					},
+				},
+			];
+		}
+		case "addModule": {
+			const caseType = CASE_TYPE_POOL[op.caseTypePick];
+			return [
+				{
+					kind: "addModule",
+					module: {
+						uuid: mintUuid(),
+						id: "fuzz_module",
+						name: "Fuzz module",
+						...(caseType && { caseType }),
+					} as never,
+				},
+			];
+		}
+		case "removeModule": {
+			const uuid = pickModule(doc, op.modulePick);
+			return uuid ? [{ kind: "removeModule", uuid }] : [];
+		}
+		case "moveModule": {
+			const uuid = pickModule(doc, op.modulePick);
+			return uuid ? [{ kind: "moveModule", uuid, toIndex: op.index }] : [];
+		}
+		case "renameModule": {
+			const uuid = pickModule(doc, op.modulePick);
+			return uuid
+				? [{ kind: "renameModule", uuid, newId: "Renamed module" }]
+				: [];
+		}
+		case "updateModule": {
+			const uuid = pickModule(doc, op.modulePick);
+			if (!uuid) return [];
+			const caseType = CASE_TYPE_POOL[op.caseTypePick];
+			return [{ kind: "updateModule", uuid, patch: { caseType } }];
+		}
+		case "setCaseTypes":
+			return [
+				{
+					kind: "setCaseTypes",
+					caseTypes: op.drop ? null : [{ name: "patient", properties: [] }],
+				},
+			];
+		case "setAppName":
+			return [{ kind: "setAppName", name: "Renamed app" }];
+	}
+}
+
+// ── The property ────────────────────────────────────────────────────
+
+const OP_KINDS = [
+	"addField",
+	"removeField",
+	"renameField",
+	"moveField",
+	"duplicateField",
+	"convertField",
+	"updateField",
+	"addForm",
+	"removeForm",
+	"moveForm",
+	"renameForm",
+	"updateForm",
+	"addModule",
+	"removeModule",
+	"moveModule",
+	"renameModule",
+	"updateModule",
+	"setCaseTypes",
+	"setAppName",
+] as const satisfies readonly FuzzOp["kind"][];
+
+describe("reference index fuzz — incremental ≡ rebuild after every batch", () => {
+	it("holds over random mutation sequences from a reference-rich seed", () => {
+		const changedTally = new Map<FuzzOp["kind"], number>(
+			OP_KINDS.map((k) => [k, 0]),
+		);
+		let danglingSatisfiedAdds = 0;
+		let caseBoundRenames = 0;
+		let crossModuleFormMoves = 0;
+
+		fc.assert(
+			fc.property(
+				// Batches of 1–3 ops give intra-batch dependencies (an add
+				// then a rename of what it referenced) — the index must be
+				// current MID-batch for the second mutation's own lookups.
+				fc.array(fc.array(opArb, { minLength: 1, maxLength: 3 }), {
+					minLength: 1,
+					maxLength: 12,
+				}),
+				(batches) => {
+					let doc = seedDoc();
+					for (const batch of batches) {
+						const prev = doc;
+						const mutations = batch.flatMap((op) => {
+							const lowered = lower(doc, op);
+							// Occurrence tallies for the at-a-distance arms.
+							for (const mut of lowered) {
+								if (
+									mut.kind === "addField" &&
+									(mut.field as { id?: string }).id === "pending_x"
+								) {
+									danglingSatisfiedAdds++;
+								}
+								if (mut.kind === "renameField") {
+									const field = doc.fields[mut.uuid];
+									if (field && fieldCasePropertyOn(field) !== undefined) {
+										caseBoundRenames++;
+									}
+								}
+								if (mut.kind === "moveForm") {
+									const owner = Object.entries(doc.formOrder).find(([, list]) =>
+										list.includes(mut.uuid),
+									)?.[0];
+									if (owner !== undefined && owner !== mut.toModuleUuid) {
+										crossModuleFormMoves++;
+									}
+								}
+							}
+							return lowered;
+						});
+						doc = produce(doc, (draft) => {
+							applyMutations(draft, mutations);
+						});
+						if (doc !== prev) {
+							for (const op of batch) {
+								changedTally.set(op.kind, (changedTally.get(op.kind) ?? 0) + 1);
+							}
+						}
+						// THE invariant: the maintained index equals a rebuild.
+						expect(doc.refIndex).toEqual(buildReferenceIndex(doc));
+					}
+				},
+			),
+			{ numRuns: 120, seed: 20260611 },
+		);
+
+		for (const kind of OP_KINDS) {
+			expect(
+				changedTally.get(kind) ?? 0,
+				`op kind "${kind}" never landed a doc change — the fuzz no longer exercises its maintenance arm`,
+			).toBeGreaterThan(0);
+		}
+		expect(
+			danglingSatisfiedAdds,
+			"no add ever satisfied the standing dangling #form/pending_x ref",
+		).toBeGreaterThan(0);
+		expect(
+			caseBoundRenames,
+			"no rename ever hit a case-bound field — the c:-edge re-key arm went unexercised",
+		).toBeGreaterThan(0);
+		expect(
+			crossModuleFormMoves,
+			"no form ever moved across modules — the ctx re-key arm went unexercised",
+		).toBeGreaterThan(0);
+	});
+});

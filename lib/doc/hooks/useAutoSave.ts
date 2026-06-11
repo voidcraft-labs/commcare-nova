@@ -25,6 +25,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
@@ -156,9 +157,10 @@ export function useAutoSave(): SaveState {
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
 
-			/* Strip the derived fieldParent before sending — the server rebuilds it
-			 * from fieldOrder on load and should not store it. */
-			const { fieldParent: _fp, ...persistable } = doc;
+			/* Strip the derived state (fieldParent + the reference index)
+			 * before sending — the server rebuilds both on load and the
+			 * strict persistable schema rejects unknown keys. */
+			const persistable = toPersistableDoc(doc);
 
 			inFlightRef.current = true;
 			if (!unmountedRef.current) {
