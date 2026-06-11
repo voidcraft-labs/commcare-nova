@@ -48,6 +48,10 @@ const { applySchemaChangeMock, withOwnerContextMock } = vi.hoisted(() => ({
 	withOwnerContextMock: vi.fn(),
 }));
 
+const { getAssetsInTransactionMock } = vi.hoisted(() => ({
+	getAssetsInTransactionMock: vi.fn(),
+}));
+
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: loadAppMock,
 	updateApp: updateAppMock,
@@ -55,6 +59,11 @@ vi.mock("@/lib/db/apps", () => ({
 	updateAppForRunTransactional: updateAppForRunTransactionalMock,
 	updateAppGuardedByBasis: updateAppGuardedByBasisMock,
 	BlueprintBasisStaleError: class BlueprintBasisStaleError extends Error {},
+}));
+
+vi.mock("@/lib/db/mediaAssets", () => ({
+	getAssetsInTransaction: getAssetsInTransactionMock,
+	loadAssetsByIds: vi.fn(),
 }));
 
 vi.mock("@/lib/case-store", async () => {
@@ -121,20 +130,26 @@ function freshAppDoc(blueprint: BlueprintDoc): AppDoc {
 	} as unknown as AppDoc;
 }
 
-/** Drive the mock transaction: the body runs against `fresh`. */
+/** Drive the mock transaction: the body runs against `fresh`. The fake
+ *  `tx` is inert — the body's only transactional read
+ *  (`getAssetsInTransaction`) is itself mocked. */
 function armTransactionalWith(fresh: BlueprintDoc) {
 	updateAppForRunTransactionalMock.mockImplementation(
 		async (
 			_appId: string,
 			_runId: string,
-			body: (doc: AppDoc) => PersistableDoc,
-		) => body(freshAppDoc(fresh)),
+			body: (
+				doc: AppDoc,
+				tx: unknown,
+			) => PersistableDoc | Promise<PersistableDoc>,
+		) => body(freshAppDoc(fresh), {}),
 	);
 }
 
 beforeEach(() => {
 	vi.clearAllMocks();
 	loadAppMock.mockImplementation(async () => null);
+	getAssetsInTransactionMock.mockResolvedValue(new Map());
 	withOwnerContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
 		dropSchema: vi.fn(),
@@ -272,6 +287,64 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 			appId: "app-1",
 			caseType: "household",
 		});
+	});
+
+	it("re-verifies media expectations inside the transaction and rejects a vanished asset", async () => {
+		const prior = minDoc();
+		armTransactionalWith(prior);
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		// The asset the tool's pre-commit verdict approved is GONE by the
+		// time the transaction reads it (a delete raced the attach).
+		getAssetsInTransactionMock.mockResolvedValue(new Map());
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				prospective: toPersistableDoc(prior),
+				runId: "run-1",
+				guard: {
+					mutations: [{ kind: "setAppLogo", logo: "asset-raced" } as Mutation],
+					mediaExpectations: [
+						{ assetId: "asset-raced", kind: "image", slot: "the app logo" },
+					],
+				},
+			}),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+
+		expect(getAssetsInTransactionMock).toHaveBeenCalledWith(expect.anything(), [
+			"asset-raced",
+		]);
+		expect(updateAppForRunMock).not.toHaveBeenCalled();
+		expect(updateAppMock).not.toHaveBeenCalled();
+	});
+
+	it("commits when the transactional media re-check passes", async () => {
+		const prior = minDoc();
+		armTransactionalWith(prior);
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		getAssetsInTransactionMock.mockResolvedValue(
+			new Map([
+				["asset-live", { owner: "user-1", status: "ready", kind: "image" }],
+			]),
+		);
+
+		await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective: toPersistableDoc(prior),
+			runId: "run-1",
+			guard: {
+				mutations: [{ kind: "setAppLogo", logo: "asset-live" } as Mutation],
+				mediaExpectations: [
+					{ assetId: "asset-live", kind: "image", slot: "the app logo" },
+				],
+			},
+		});
+
+		const committed =
+			await updateAppForRunTransactionalMock.mock.results[0]?.value;
+		expect(committed.logo).toBe("asset-live");
 	});
 });
 

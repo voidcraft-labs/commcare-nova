@@ -26,15 +26,17 @@
  * clear). `setFieldMedia` carries `media: Media | null` and the reducer
  * maps `null → undefined`, so both set and clear survive the wire.
  *
- * Asset existence is not checked here — the SA validation loop's media
- * rules surface a bad reference (deleted / pending / foreign-owned /
- * kind-mismatched) with this carrier's location. The tool persists the
- * reference and lets the loop adjudicate.
+ * Every set runs the at-source asset verdict before the gated commit
+ * (`attachGuardedMutate` — exists / owned / ready / kind-matched /
+ * inside the export ceiling), so a committed reference can't dangle; a
+ * clear (empty bundle) carries no expectations and skips the asset
+ * read.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext`. Three exit branches: field not found →
- * `{ error }`; slot unsupported on the field's kind → `{ error }`;
- * success → a human-readable summary.
+ * shared `ToolExecutionContext`. Four exit branches: field not found →
+ * `{ error }`; slot unsupported on the field's kind → `{ error }`; a
+ * failed asset verdict → `{ error }`; success → a human-readable
+ * summary.
  */
 
 import { z } from "zod";
@@ -45,9 +47,11 @@ import {
 	setFieldMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
+import type { MutatingToolResult } from "../common";
 import {
+	attachGuardedMutate,
 	brandMediaBundle,
+	bundleExpectations,
 	FIELD_MEDIA_SLOTS,
 	type FieldMediaSlot,
 	mediaBundleInput,
@@ -144,11 +148,12 @@ export const attachFieldMediaTool = {
 				slot,
 				hasAny ? branded : null,
 			);
-			const commit = await guardedMutate(
+			const commit = await attachGuardedMutate(
 				ctx,
 				doc,
 				mutations,
 				`media:field:${moduleIndex}-${formIndex}`,
+				bundleExpectations(branded, `the ${slot} media on field "${fieldId}"`),
 			);
 			if (!commit.ok) {
 				return {

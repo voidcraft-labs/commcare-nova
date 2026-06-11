@@ -12,6 +12,17 @@
 // CommCare HQ" hold even for docs persisted before the commit gates
 // existed.
 //
+// Division of labor with the at-source media verdict
+// (`lib/media/attachVerdicts.ts`): every live attach already verified
+// its asset (exists / owned / ready / kind-matched / inside the export
+// budget) before committing, and an asset can't go bad after attach
+// (deletion of a referenced asset is refused, `ready` is terminal,
+// owner and kind are immutable — the verdict module's header carries
+// the citations). So this gate's media arm is defense-in-depth: it
+// catches references committed before the verdict existed (legacy
+// docs) and ops disasters (a hand-deleted row, a reaped object) — the
+// same role the rest of the boundary plays for the commit gate.
+//
 // It also owns the aggregate export budget: the media-ON paths load
 // every referenced ready asset's bytes into one in-memory manifest, so
 // the referenced-asset count and byte total are bounded HERE, before a

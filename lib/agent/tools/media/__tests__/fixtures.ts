@@ -19,12 +19,79 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
+import type { AssetKind, MediaAssetStatus } from "@/lib/domain/multimedia";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
 	makeTestContext,
 	type TestContextHandles,
 } from "../../../__tests__/fixtures";
+
+// ── In-memory asset table behind the `@/lib/db/mediaAssets` mock ─────
+//
+// The attach tools verify the asset row before committing
+// (`attachGuardedMutate` → `mediaAttachVerdict` → `loadAssetsByIds`),
+// so the test files mock `@/lib/db/mediaAssets` at the import boundary
+// (Firestore never constructs) and point `loadAssetsByIds` at this
+// table. `resetTestAssets()` (call it in `beforeEach`) restores the
+// canonical READY rows the happy-path tests attach; a test exercising a
+// rejection seeds its own row via `seedTestAsset` or simply names an id
+// that isn't here.
+
+/** The row fields the attach verdict reads, plus the id. */
+export interface TestAssetRow {
+	id: string;
+	owner: string;
+	status: MediaAssetStatus;
+	kind: AssetKind;
+	sizeBytes: number;
+}
+
+const testAssetRows = new Map<string, TestAssetRow>();
+
+/** The ready, owner-matched rows every happy-path attach test relies on. */
+const CANONICAL_ASSETS: ReadonlyArray<[string, AssetKind]> = [
+	["asset-img-1", "image"],
+	["asset-aud-1", "audio"],
+	["asset-icon", "image"],
+	["asset-audio", "audio"],
+	["asset-logo", "image"],
+];
+
+/** Seed (or overwrite) one asset row. Defaults: owner "user-1" (the test
+ *  contexts' user), ready, 1 KiB. */
+export function seedTestAsset(
+	id: string,
+	kind: AssetKind,
+	overrides: Partial<Omit<TestAssetRow, "id" | "kind">> = {},
+): void {
+	testAssetRows.set(id, {
+		id,
+		kind,
+		owner: overrides.owner ?? "user-1",
+		status: overrides.status ?? "ready",
+		sizeBytes: overrides.sizeBytes ?? 1024,
+	});
+}
+
+/** Restore the canonical ready rows (dropping any per-test seeds). */
+export function resetTestAssets(): void {
+	testAssetRows.clear();
+	for (const [id, kind] of CANONICAL_ASSETS) seedTestAsset(id, kind);
+}
+resetTestAssets();
+
+/** Mock implementation of `loadAssetsByIds` — owner-filtered like the
+ *  real one (a foreign row reads as missing). */
+export async function loadAssetsByIdsMock(
+	owner: string,
+	ids: readonly string[],
+): Promise<TestAssetRow[]> {
+	return [...new Set(ids)]
+		.map((id) => testAssetRows.get(id))
+		.filter((row): row is TestAssetRow => row !== undefined)
+		.filter((row) => row.owner === owner);
+}
 
 /* Stable uuids the per-tool tests reference against the post-mutation
  * doc. */

@@ -20,6 +20,8 @@ import {
 	MOD_A,
 	makeMediaFixture,
 	makeMediaMcpFixture,
+	resetTestAssets,
+	seedTestAsset,
 } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -30,9 +32,16 @@ vi.mock("@/lib/db/apps", () => ({
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(() => Promise.resolve()),
 }));
+// Firestore-constructing module stubbed at the import boundary; the
+// attach verdict's asset reads resolve against the fixtures' in-memory
+// table instead.
+vi.mock("@/lib/db/mediaAssets", async () => ({
+	loadAssetsByIds: (await import("./fixtures")).loadAssetsByIdsMock,
+}));
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	resetTestAssets();
 });
 
 describe("setModuleMedia", () => {
@@ -254,5 +263,57 @@ describe("setAppLogo", () => {
 			doc,
 		);
 		expect(r1.mutations).toEqual(r2.mutations);
+	});
+});
+
+describe("menu-media attach verdict", () => {
+	it("setModuleMedia refuses a kind mismatch on either slot", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		// An IMAGE asset placed in the audio-label slot.
+		const result = await setModuleMediaTool.execute(
+			{ moduleIndex: 0, icon: "asset-icon", audioLabel: "asset-icon" },
+			ctx,
+			doc,
+		);
+		expect(result.mutations).toEqual([]);
+		if (typeof result.result === "string") {
+			throw new Error("expected error result");
+		}
+		expect(result.result.error).toContain("audio label");
+		expect(result.result.error).toContain("an image");
+	});
+
+	it("setFormMedia refuses an asset still uploading", async () => {
+		seedTestAsset("asset-pending", "image", { status: "pending" });
+		const { doc, ctx } = makeMediaFixture();
+		const result = await setFormMediaTool.execute(
+			{ moduleIndex: 0, formIndex: 0, icon: "asset-pending", audioLabel: null },
+			ctx,
+			doc,
+		);
+		expect(result.mutations).toEqual([]);
+		if (typeof result.result === "string") {
+			throw new Error("expected error result");
+		}
+		expect(result.result.error).toContain("upload hasn't finished");
+	});
+
+	it("setAppLogo refuses an asset id that isn't in the library, and a null clear still passes", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const missing = await setAppLogoTool.execute(
+			{ logo: "asset-nope" },
+			ctx,
+			doc,
+		);
+		expect(missing.mutations).toEqual([]);
+		if (typeof missing.result === "string") {
+			throw new Error("expected error result");
+		}
+		expect(missing.result.error).toContain("library");
+
+		// A clear carries no expectations — it commits whatever the table holds.
+		const cleared = await setAppLogoTool.execute({ logo: null }, ctx, doc);
+		expect(cleared.kind).toBe("mutate");
+		expect(typeof cleared.result).toBe("string");
 	});
 });

@@ -10,9 +10,10 @@
  * `setAppLogo` mutation maps `null → undefined` so a cleared logo drops
  * off the doc rather than persisting as a literal `null`.
  *
- * Asset existence is not checked here — the SA validation loop's media
- * rules surface a bad reference at the `app_logo` location. The tool
- * persists the reference and lets the loop adjudicate.
+ * A set runs the at-source asset verdict before the gated commit
+ * (`attachGuardedMutate` — exists / owned / ready / kind-matched /
+ * inside the export ceiling), so a committed reference can't dangle; a
+ * `null` clear carries no expectations and skips the asset read.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext`.
@@ -22,8 +23,13 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { setAppLogoMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
-import { brandAssetSlot, nullableAssetSlot } from "./shared";
+import type { MutatingToolResult } from "../common";
+import {
+	attachGuardedMutate,
+	brandAssetSlot,
+	nullableAssetSlot,
+	slotExpectation,
+} from "./shared";
 
 export const setAppLogoInputSchema = z
 	.object({
@@ -52,7 +58,13 @@ export const setAppLogoTool = {
 		const { logo } = input;
 		try {
 			const mutations = setAppLogoMutations(brandAssetSlot(logo));
-			const commit = await guardedMutate(ctx, doc, mutations, "media:app-logo");
+			const commit = await attachGuardedMutate(
+				ctx,
+				doc,
+				mutations,
+				"media:app-logo",
+				slotExpectation(logo, "image", "the app logo"),
+			);
 			if (!commit.ok) {
 				return {
 					kind: "mutate" as const,

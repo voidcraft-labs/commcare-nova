@@ -93,7 +93,7 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 
 ## Working with media
 
-You can attach images, audio, and video to parts of an app — a field's label or hint, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id.
+You can attach images, audio, and video to parts of an app — a field's label or hint, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id. Every attach checks the asset before anything saves: it must be in your library, fully uploaded, and the right type for the slot (an audio file can't become a menu icon), and the app's total attached media must stay within the export limit. A bad id fails the call with a message saying what to fix, and nothing is saved.
 
 | Tool | What it does |
 |---|---|

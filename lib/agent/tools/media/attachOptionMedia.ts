@@ -12,9 +12,11 @@
  * kind is rejected with an Elm-shape error. A `value` that isn't among
  * the field's options is likewise rejected, naming the values that exist.
  *
- * Asset existence is not checked here — the SA validation loop's media
- * rules surface a bad reference with this option's location. The tool
- * persists the reference and lets the loop adjudicate.
+ * Every set runs the at-source asset verdict before the gated commit
+ * (`attachGuardedMutate` — exists / owned / ready / kind-matched /
+ * inside the export ceiling), so a committed reference can't dangle; a
+ * clear (empty bundle) carries no expectations and skips the asset
+ * read.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext`.
@@ -27,8 +29,13 @@ import {
 	updateFieldMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
-import { brandMediaBundle, mediaBundleInput } from "./shared";
+import type { MutatingToolResult } from "../common";
+import {
+	attachGuardedMutate,
+	brandMediaBundle,
+	bundleExpectations,
+	mediaBundleInput,
+} from "./shared";
 
 export const attachOptionMediaInputSchema = z
 	.object({
@@ -136,11 +143,15 @@ export const attachOptionMediaTool = {
 				field.kind,
 				patch,
 			);
-			const commit = await guardedMutate(
+			const commit = await attachGuardedMutate(
 				ctx,
 				doc,
 				mutations,
 				`media:option:${moduleIndex}-${formIndex}`,
+				bundleExpectations(
+					branded,
+					`option "${optionValue}" of field "${fieldId}"`,
+				),
 			);
 			if (!commit.ok) {
 				return {

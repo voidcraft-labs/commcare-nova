@@ -8,9 +8,12 @@
  * (asset id sets, `null` clears). To touch only one slot, read the other
  * (via getForm) and pass it back.
  *
- * Asset existence is not checked here — the SA validation loop's media
- * rules surface a bad reference with this form's location. The tool
- * persists the reference and lets the loop adjudicate.
+ * Every set runs the at-source asset verdict before the gated commit
+ * (`attachGuardedMutate` — exists / owned / ready / kind-matched /
+ * inside the export ceiling), so a committed reference can't dangle.
+ * Re-passing the other slot's current value re-verifies it too — a
+ * legacy bad ref passed back surfaces here with a fix (clear it) rather
+ * than riding along silently. `null` slots carry no expectations.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext`.
@@ -20,8 +23,13 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { resolveFormUuid, setFormMediaMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
-import { brandAssetSlot, nullableAssetSlot } from "./shared";
+import type { MutatingToolResult } from "../common";
+import {
+	attachGuardedMutate,
+	brandAssetSlot,
+	nullableAssetSlot,
+	slotExpectation,
+} from "./shared";
 
 export const setFormMediaInputSchema = z
 	.object({
@@ -76,11 +84,25 @@ export const setFormMediaTool = {
 				brandAssetSlot(icon),
 				brandAssetSlot(audioLabel),
 			);
-			const commit = await guardedMutate(
+			const carrierName =
+				doc.forms[formUuid]?.name ?? `m${moduleIndex}-f${formIndex}`;
+			const commit = await attachGuardedMutate(
 				ctx,
 				doc,
 				mutations,
 				`media:form:${moduleIndex}-${formIndex}`,
+				[
+					...slotExpectation(
+						icon,
+						"image",
+						`the icon on form "${carrierName}"`,
+					),
+					...slotExpectation(
+						audioLabel,
+						"audio",
+						`the audio label on form "${carrierName}"`,
+					),
+				],
 			);
 			if (!commit.ok) {
 				return {

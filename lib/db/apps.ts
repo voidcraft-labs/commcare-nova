@@ -9,7 +9,11 @@
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
-import { FieldValue, Timestamp } from "@google-cloud/firestore";
+import {
+	FieldValue,
+	Timestamp,
+	type Transaction,
+} from "@google-cloud/firestore";
 import Fuse from "fuse.js";
 import type { ErrorType } from "@/lib/agent";
 import { log } from "@/lib/logger";
@@ -519,13 +523,22 @@ function blueprintSnapshotFields(
  * the write actually replaces — a concurrent committed batch can't be
  * silently erased by a verdict taken against a stale snapshot.
  *
+ * `body` also receives the transaction so it can fold further reads
+ * into the same read set (the media attach re-check reads asset rows
+ * this way) — every read must happen before `body` returns, because
+ * the write below is the transaction's first write and Firestore
+ * forbids reads after it.
+ *
  * The media reverse-index sync runs after the commit with the same
  * best-effort contract as the plain writers (`persistBlueprintSnapshot`).
  */
 export async function updateAppForRunTransactional(
 	appId: string,
 	runId: string,
-	body: (fresh: AppDoc) => PersistedBlueprint,
+	body: (
+		fresh: AppDoc,
+		tx: Transaction,
+	) => PersistedBlueprint | Promise<PersistedBlueprint>,
 ): Promise<PersistableDoc> {
 	const committed = await getDb().runTransaction(async (tx) => {
 		const snap = await tx.get(docs.app(appId));
@@ -535,7 +548,7 @@ export async function updateAppForRunTransactional(
 				`[updateAppForRunTransactional] app document missing for appId=${appId}`,
 			);
 		}
-		const next = body(fresh);
+		const next = await body(fresh, tx);
 		tx.update(
 			docs.appRaw(appId),
 			blueprintSnapshotFields(next, {

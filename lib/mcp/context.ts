@@ -52,6 +52,7 @@ import type {
 	MutationEvent,
 } from "@/lib/log/types";
 import { LogWriter } from "@/lib/log/writer";
+import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import { createProgressEmitter, type ProgressEmitter } from "./progress";
 import type { ToolContext } from "./types";
 
@@ -125,13 +126,14 @@ export class McpContext implements ToolExecutionContext {
 		mutations: Mutation[],
 		doc: BlueprintDoc,
 		stage?: string,
+		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<MutationEvent[]> {
 		if (mutations.length === 0) return [];
 		/* Persist FIRST, log second: the guarded transactional commit can
 		 * still reject (or throw on a transport fault), and an event log
 		 * that recorded a batch the blueprint never absorbed would make a
 		 * replay diverge from the persisted doc. */
-		await this.saveBlueprint(doc, mutations);
+		await this.saveBlueprint(doc, mutations, mediaExpectations);
 		const events = this.buildEnvelopes(mutations, stage);
 		for (const e of events) this.logWriter.logEvent(e);
 		return events;
@@ -245,6 +247,7 @@ export class McpContext implements ToolExecutionContext {
 	private async saveBlueprint(
 		doc: BlueprintDoc,
 		mutations: Mutation[],
+		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<void> {
 		await applyBlueprintChange({
 			appId: this.appId,
@@ -256,8 +259,11 @@ export class McpContext implements ToolExecutionContext {
 			 * verdict inside a transaction — two concurrent gate-approved
 			 * batches serialize instead of last-writer-wins, and a batch the
 			 * fresh doc rejects throws (the tool returns its `{ error }`
-			 * envelope) rather than erasing the concurrent commit. */
-			guard: { mutations },
+			 * envelope) rather than erasing the concurrent commit. A media
+			 * attach's per-asset expectations re-verify inside the SAME
+			 * transaction (the asset rows join its read set), so an asset
+			 * delete racing the attach serializes against this commit. */
+			guard: { mutations, ...(mediaExpectations && { mediaExpectations }) },
 		});
 	}
 }

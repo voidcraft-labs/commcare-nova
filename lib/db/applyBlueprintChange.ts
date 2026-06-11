@@ -77,6 +77,10 @@ import type {
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import {
+	describeMediaExpectationFailures,
+	type MediaAttachExpectation,
+} from "@/lib/media/attachVerdicts";
+import {
 	loadApp,
 	updateApp,
 	updateAppForRun,
@@ -88,6 +92,7 @@ import {
 	classifyCaseTypeChanges,
 	type SchemaChangeHint,
 } from "./classifyCaseTypeChanges";
+import { getAssetsInTransaction } from "./mediaAssets";
 
 /**
  * Arguments for `applyBlueprintChange`.
@@ -137,6 +142,16 @@ export interface ApplyBlueprintChangeArgs {
 	 */
 	readonly guard?: {
 		readonly mutations: Mutation[];
+		/**
+		 * Media-attach expectations to re-verify INSIDE the transaction
+		 * (see `lib/media/attachVerdicts.ts`). The asset rows are read via
+		 * the transaction itself — joining its read set — so an asset
+		 * delete racing the attach serializes against this commit instead
+		 * of leaving a dangling reference. A failed expectation throws
+		 * {@link BlueprintCommitRejectedError} with the same
+		 * person-to-person message the pre-commit verdict produces.
+		 */
+		readonly mediaExpectations?: readonly MediaAttachExpectation[];
 	};
 	/**
 	 * Optimistic-basis mode (the browser auto-save PUT): the Firestore
@@ -291,33 +306,57 @@ async function persistBlueprint(
 	args: ApplyBlueprintChangeArgs,
 ): Promise<ApplyBlueprintChangeResult> {
 	if (args.guard !== undefined && args.runId !== undefined) {
-		const { mutations } = args.guard;
-		await updateAppForRunTransactional(args.appId, args.runId, (fresh) => {
-			/* Re-apply against the FRESH stored blueprint and re-run the
-			 * verdict inside the transaction. Firestore re-runs this body on
-			 * contention, so the verdict always holds against the doc the
-			 * write replaces.
-			 *
-			 * Cost shape: the fresh doc carries no reference index (it never
-			 * persists), so the verdict's candidate apply seeds one from
-			 * scratch — an O(doc) extraction pass per transaction attempt,
-			 * on top of the verdict's own validation. That bracketing cost
-			 * is the accepted price of re-deriving everything from the doc
-			 * the write actually replaces; the reference LOOKUPS the verdict
-			 * and reducers make stay O(1) against the seeded index. */
-			const freshDoc: BlueprintDoc = {
-				...(fresh.blueprint as PersistableDoc),
-				fieldParent: {},
-			} as BlueprintDoc;
-			rebuildFieldParent(freshDoc);
-			const verdict = mutationCommitVerdict(freshDoc, mutations);
-			if (!verdict.ok) {
-				throw new BlueprintCommitRejectedError(
-					describeIntroducedErrors(verdict.introduced),
-				);
-			}
-			return toPersistableDoc(verdict.nextDoc);
-		});
+		const { mutations, mediaExpectations } = args.guard;
+		await updateAppForRunTransactional(
+			args.appId,
+			args.runId,
+			async (fresh, tx) => {
+				/* Re-apply against the FRESH stored blueprint and re-run the
+				 * verdict inside the transaction. Firestore re-runs this body on
+				 * contention, so the verdict always holds against the doc the
+				 * write replaces.
+				 *
+				 * Cost shape: the fresh doc carries no reference index (it never
+				 * persists), so the verdict's candidate apply seeds one from
+				 * scratch — an O(doc) extraction pass per transaction attempt,
+				 * on top of the verdict's own validation. That bracketing cost
+				 * is the accepted price of re-deriving everything from the doc
+				 * the write actually replaces; the reference LOOKUPS the verdict
+				 * and reducers make stay O(1) against the seeded index. */
+				/* Media re-check FIRST: it is the transaction's only extra read,
+				 * and Firestore forbids reads after the first write. Reading the
+				 * asset rows through `tx` puts them in the transaction's read
+				 * set, so the rows the judgment approved are the rows this
+				 * commit serializes against. Same judgment as the tool's
+				 * pre-commit verdict — only the read moves into the transaction. */
+				if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
+					const rows = await getAssetsInTransaction(
+						tx,
+						mediaExpectations.map((e) => e.assetId),
+					);
+					const failure = describeMediaExpectationFailures(
+						mediaExpectations,
+						rows,
+						args.userId,
+					);
+					if (failure !== null) {
+						throw new BlueprintCommitRejectedError(failure);
+					}
+				}
+				const freshDoc: BlueprintDoc = {
+					...(fresh.blueprint as PersistableDoc),
+					fieldParent: {},
+				} as BlueprintDoc;
+				rebuildFieldParent(freshDoc);
+				const verdict = mutationCommitVerdict(freshDoc, mutations);
+				if (!verdict.ok) {
+					throw new BlueprintCommitRejectedError(
+						describeIntroducedErrors(verdict.introduced),
+					);
+				}
+				return toPersistableDoc(verdict.nextDoc);
+			},
+		);
 		return {};
 	}
 	if (args.basis !== undefined) {

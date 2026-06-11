@@ -15,6 +15,7 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import type {
 	StagedMutationBatch,
 	ToolExecutionContext,
@@ -66,19 +67,31 @@ export type GuardedMutateOutcome =
  * `applyToDoc` + `ctx.recordMutations` themselves — a direct write would
  * skip the gate. (`applyToDoc` stays exported for non-commit candidate
  * computation, e.g. `editField`'s convert pre-check.)
+ *
+ * `mediaExpectations` rides through to `ctx.recordMutations` when the
+ * batch attaches media references: the media tools have already run the
+ * pre-commit asset verdict (`mediaAttachVerdict`), and the MCP surface's
+ * transactional save re-applies the per-asset judgment inside the same
+ * transaction that re-verdicts the batch (see `toolExecutionContext.ts`).
  */
 export async function guardedMutate(
 	ctx: ToolExecutionContext,
 	prevDoc: BlueprintDoc,
 	mutations: Mutation[],
 	stage?: string,
+	mediaExpectations?: readonly MediaAttachExpectation[],
 ): Promise<GuardedMutateOutcome> {
 	const verdict = mutationCommitVerdict(prevDoc, mutations);
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
 	if (mutations.length > 0) {
-		await ctx.recordMutations(mutations, verdict.nextDoc, stage);
+		await ctx.recordMutations(
+			mutations,
+			verdict.nextDoc,
+			stage,
+			mediaExpectations,
+		);
 	}
 	return { ok: true, newDoc: verdict.nextDoc };
 }
