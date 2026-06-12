@@ -17,6 +17,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerId from "@iconify-icons/tabler/id";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { CaseListConfig } from "@/lib/domain";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { renderColumnCell } from "../columnCellRenderer";
@@ -50,7 +51,7 @@ export function DetailCanvas({
 		preview.kind === "rows" ? preview.rows[0] : undefined;
 
 	return (
-		<div className="max-w-lg mx-auto px-6 pt-6 pb-24">
+		<ContentFrame width="lg" className="px-6 pt-6 pb-24">
 			<p className="mb-5 text-[13px] text-nova-text-muted">
 				What opens after choosing a case from the list — click a row to set it
 				up.
@@ -146,6 +147,6 @@ export function DetailCanvas({
 				disabledReason={addDisabledReason}
 				className="w-full mt-3"
 			/>
-		</div>
+		</ContentFrame>
 	);
 }

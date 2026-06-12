@@ -4,10 +4,30 @@
  * visibility state (chatOpen, structureOpen, previewing, isReady, hasData)
  * so BuilderLayout doesn't need to.
  *
- * This component is the layout-level rendering boundary: sidebar
- * toggle animations, the collapsed icon rails on both edges, and width
- * transitions all happen here without cascading to the parent or to
- * the preview/chat content.
+ * ## Mode-flip choreography (see ContentFrame.tsx for the full why)
+ *
+ * Toggling Preview commits the final layout in a SINGLE render, then
+ * everything that visually travels does so via transforms on the shared
+ * `SIDEBAR_TRANSITION`:
+ *
+ *   - The structure column and the collapsed chat rail mount/unmount
+ *     through `AnimatePresence mode="popLayout"` — an exiting column is
+ *     popped out of the flex flow instantly (the canvas gets its final
+ *     width in one commit) while the popped element slides off-screen;
+ *     an entering column takes its layout slot immediately and slides
+ *     in from off-screen into it.
+ *   - The chat panel must NEVER unmount (ChatContainer owns the live
+ *     useChat stream, the draft, and run-boundary refs — unmounting
+ *     would sever an active run), so it can't ride popLayout. Instead
+ *     it is an absolutely-positioned right dock that slides via `x`,
+ *     with an in-flow SPACER owning its layout width. The spacer snaps
+ *     on mode flips (one layout commit) and tweens on manual open/close
+ *     and inspector claims, mirroring the panel's slide.
+ *   - Centered canvas content glides through `ModeFlipGlideProvider` +
+ *     `ContentFrame`.
+ *
+ * Manual sidebar toggles (collapse to rail, open/close chat) keep the
+ * plain width tween — one-sided, small travel, content reflows natively.
  *
  * Children (PreviewShell, GenerationProgress) are self-sufficient —
  * they subscribe to their own state from the store. This component only
@@ -18,6 +38,10 @@ import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { AppTreeRail } from "@/components/builder/appTree/AppTreeRail";
 import { BreadcrumbStrip } from "@/components/builder/BreadcrumbStrip";
+import {
+	ModeFlipGlideProvider,
+	SIDEBAR_TRANSITION,
+} from "@/components/builder/ContentFrame";
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
 import { ChatContainer } from "@/components/chat/ChatContainer";
@@ -37,9 +61,6 @@ import {
 	useSidebarState,
 } from "@/lib/session/hooks";
 import { INSPECTOR_RAIL_WIDTH, useInspectorActive } from "@/lib/ui/inspector";
-
-/** Shared sidebar open/close animation config. */
-const SIDEBAR_TRANSITION = { duration: 0.2, ease: [0.4, 0, 0.2, 1] } as const;
 
 /** Width of the structure sidebar in pixels (w-90) — the same width
  *  as the right rail, so the two edges frame the canvas evenly. */
@@ -93,57 +114,68 @@ export function BuilderContentArea({
 			? CHAT_SIDEBAR_WIDTH
 			: 0;
 
-	/* The preview toggle is a CUT, not a glide. Centered content cannot
-	 * track a sliding edge: while the column is wider than the content's
-	 * max-width frame the frame stays pinned to the viewport center,
-	 * then does all its travel in the tail of the tween — chrome and
-	 * content visibly desynchronize. So a mode flip switches layout in
-	 * a single frame (everything lands together, in sync by
-	 * construction) while manual sidebar toggles keep the slide.
-	 * `modeFlip` is true only on the render where `previewing` changed —
-	 * exactly the render whose width targets it must snap. */
+	/* Flank widths as the flex row will actually lay them out THIS render —
+	 * these feed the glide geometry, so they must mirror the JSX below. */
+	const showFlanks = !isCentered && hasData;
+	const structureColumnVisible = showFlanks && !previewing;
+	const structureWidth = structureColumnVisible
+		? structureOpen
+			? STRUCTURE_SIDEBAR_WIDTH
+			: COLLAPSED_RAIL_WIDTH
+		: 0;
+	const chatRailWidth =
+		structureColumnVisible && !chatOpen && !inspectorActive
+			? COLLAPSED_RAIL_WIDTH
+			: 0;
+	const spacerWidth = isCentered || previewing ? 0 : railWidth;
+	const rightWidth = spacerWidth + chatRailWidth;
+
+	/* True only on the render where `previewing` changed — the render
+	 * whose layout the flip must commit in one frame. The chat spacer
+	 * snaps its width on exactly that render; everything else animates
+	 * via transforms. */
 	const prevPreviewingRef = useRef(previewing);
 	const modeFlip = previewing !== prevPreviewingRef.current;
 	useEffect(() => {
 		prevPreviewingRef.current = previewing;
 	});
-	const widthTransition = modeFlip ? { duration: 0 } : SIDEBAR_TRANSITION;
 
+	/* Parked = the chat panel is fully off-screen right: preview mode, or
+	 * closed with no inspector claim. `inert` keeps its focusables out of
+	 * the tab order while parked (off-screen ≠ unfocusable). */
+	const chatParked = !isCentered && (previewing || railWidth === 0);
+
+	const rowRef = useRef<HTMLDivElement>(null);
 	const showProgress = phase === BuilderPhase.Generating && !inReplayMode;
 
 	return (
-		<div className="relative flex-1 overflow-hidden flex">
+		<div ref={rowRef} className="relative flex-1 overflow-hidden flex">
 			{/* Structure sidebar (left) — full tree when open, icon rail when
 			 *  collapsed. The rail keeps every destination (modules, each
 			 *  case list, every form) one click away, so collapsing trades
-			 *  width for labels, never for reach. Preview empties the strip
-			 *  to width 0 — the wrapper stays mounted so the mode cut can
-			 *  control the transition directly (an AnimatePresence exit
-			 *  would replay the previous render's tween). */}
-			<AnimatePresence initial={false}>
-				{!isCentered && hasData && (
+			 *  width for labels, never for reach. popLayout pops the exiting
+			 *  column out of the flow while it slides off-screen; the exit
+			 *  carries z-raised because the canvas column behind it is a
+			 *  positioned sibling LATER in the DOM, which would otherwise
+			 *  paint its full-width strips over the departing panel. Exit
+			 *  only — a resting z would form a stacking context that flattens
+			 *  the sidebar's own popovers below canvas ones. */}
+			<AnimatePresence initial={false} mode="popLayout">
+				{structureColumnVisible && (
 					<motion.div
 						key="structure"
-						initial={{ width: 0 }}
-						animate={{
-							width: previewing
-								? 0
-								: structureOpen
-									? STRUCTURE_SIDEBAR_WIDTH
-									: COLLAPSED_RAIL_WIDTH,
-						}}
-						exit={{ width: 0 }}
-						transition={widthTransition}
-						className="shrink-0 overflow-hidden"
+						className="h-full shrink-0 overflow-hidden"
+						style={{ width: structureWidth }}
+						initial={{ x: "-100%" }}
+						animate={{ x: 0, width: structureWidth }}
+						exit={{ x: "-100%", zIndex: "var(--z-raised)" }}
+						transition={SIDEBAR_TRANSITION}
 					>
-						{!previewing &&
-							(structureOpen ? (
-								<StructureSidebar />
-							) : (
-								<AppTreeRail
-									onExpand={() => setSidebarOpen("structure", true)}
-								/>
-							))}
+						{structureOpen ? (
+							<StructureSidebar />
+						) : (
+							<AppTreeRail onExpand={() => setSidebarOpen("structure", true)} />
+						)}
 					</motion.div>
 				)}
 			</AnimatePresence>
@@ -158,18 +190,25 @@ export function BuilderContentArea({
 						exit={{ opacity: 0 }}
 						transition={{ duration: 0.3, delay: 0.15 }}
 					>
-						{/* Breadcrumb strip — wayfinding lives in the canvas column,
-						 *  not the header, so the sidebars bound its width and a long
-						 *  trail collapses instead of reaching the centered Preview
-						 *  toggle. */}
-						{isReady && hasData && <BreadcrumbStrip />}
-						<ErrorBoundary>
-							{isReady && hasData ? (
-								<div className="flex-1 min-h-0">
-									<PreviewShell hideHeader onBack={() => navigate.back()} />
-								</div>
-							) : null}
-						</ErrorBoundary>
+						<ModeFlipGlideProvider
+							previewing={previewing}
+							leftWidth={structureWidth}
+							rightWidth={rightWidth}
+							rowRef={rowRef}
+						>
+							{/* Breadcrumb strip — wayfinding lives in the canvas column,
+							 *  not the header, so the sidebars bound its width and a long
+							 *  trail collapses instead of reaching the centered Preview
+							 *  toggle. */}
+							{isReady && hasData && <BreadcrumbStrip />}
+							<ErrorBoundary>
+								{isReady && hasData ? (
+									<div className="flex-1 min-h-0">
+										<PreviewShell hideHeader onBack={() => navigate.back()} />
+									</div>
+								) : null}
+							</ErrorBoundary>
+						</ModeFlipGlideProvider>
 
 						{/* Progress overlay */}
 						<AnimatePresence>
@@ -189,16 +228,70 @@ export function BuilderContentArea({
 				)}
 			</AnimatePresence>
 
-			{/* Chat sidebar — always mounted, width-animated for open/close.
-			 *  In centered mode the wrapper is invisible to layout (auto width,
-			 *  no overflow clip) so ChatSidebar's absolute positioning works. */}
+			{/* Chat spacer — owns the chat panel's LAYOUT width (the visual
+			 *  panel is the absolute dock below). A plain div, NOT a motion
+			 *  one: on a mode flip its width must change in the same React
+			 *  commit as the popped sidebars (Motion applies even duration-0
+			 *  targets a frame later, which paints one half-committed frame),
+			 *  so the flip render disables the CSS transition and writes the
+			 *  width synchronously. Manual open/close and inspector claims
+			 *  tween via the CSS transition, mirroring the panel's slide. */}
+			{!isCentered && (
+				<div
+					className="shrink-0"
+					style={{
+						width: spacerWidth,
+						transition: modeFlip
+							? "none"
+							: "width 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+					}}
+				/>
+			)}
+
+			{/* Collapsed chat = the icon rail at the right edge, the mirror
+			 *  of the structure side. It steps aside (width 0, still mounted)
+			 *  whenever the inspector claims the rail or chat opens; mode
+			 *  flips unmount it through the same popLayout slide as the
+			 *  structure column. */}
+			<AnimatePresence initial={false} mode="popLayout">
+				{structureColumnVisible && (
+					<motion.div
+						key="chat-rail"
+						className="h-full shrink-0 overflow-hidden"
+						style={{ width: chatRailWidth }}
+						initial={{ x: "100%" }}
+						animate={{ x: 0, width: chatRailWidth }}
+						exit={{ x: "100%" }}
+						transition={SIDEBAR_TRANSITION}
+					>
+						<ChatRail onExpand={() => setSidebarOpen("chat", true)} />
+					</motion.div>
+				)}
+			</AnimatePresence>
+
+			{/* Chat panel — ALWAYS mounted: ChatContainer owns the live
+			 *  useChat stream, the composer draft, and run-boundary refs, so
+			 *  unmounting would sever an active run. In builder mode it's an
+			 *  absolute right dock sliding via transform over the spacer's
+			 *  reserved gap; parked, it sits past the row's right edge
+			 *  (clipped by the row's overflow-hidden). z-raised only while
+			 *  previewing — it must paint above the canvas as it slides out,
+			 *  but at rest it must NOT form a stacking context that would
+			 *  flatten the inspector's popovers/tooltips below canvas ones.
+			 *  In centered mode the wrapper is invisible to layout (auto
+			 *  width, no positioning) so ChatSidebar's absolute centered
+			 *  composer works. */}
 			<motion.div
 				initial={false}
-				animate={{
-					width: isCentered ? "auto" : railWidth,
-				}}
-				transition={isCentered ? { duration: 0 } : widthTransition}
-				className={isCentered ? "" : "shrink-0 overflow-hidden"}
+				animate={{ x: !isCentered && chatParked ? "100%" : 0 }}
+				transition={isCentered ? { duration: 0 } : SIDEBAR_TRANSITION}
+				className={
+					isCentered
+						? ""
+						: `absolute right-0 inset-y-0${previewing ? " z-raised" : ""}`
+				}
+				style={isCentered ? undefined : { width: CHAT_SIDEBAR_WIDTH }}
+				inert={chatParked}
 			>
 				<ErrorBoundary>
 					<ChatContainer centered={isCentered} isExistingApp={isExistingApp}>
@@ -206,35 +299,6 @@ export function BuilderContentArea({
 					</ChatContainer>
 				</ErrorBoundary>
 			</motion.div>
-
-			{/* Collapsed chat = the icon rail at the right edge, the mirror
-			 *  of the structure side. The chat wrapper above stays mounted at
-			 *  width 0 (chat state survives collapse); this sibling column is
-			 *  purely the collapsed affordance. It steps aside whenever the
-			 *  inspector claims the rail (selection forces the rail open) and
-			 *  in preview, where chrome is force-hidden — width 0 via the
-			 *  same mode-cut transition as the other flanks. */}
-			<AnimatePresence initial={false}>
-				{!isCentered && hasData && (
-					<motion.div
-						key="chat-rail"
-						initial={{ width: 0 }}
-						animate={{
-							width:
-								!previewing && !chatOpen && !inspectorActive
-									? COLLAPSED_RAIL_WIDTH
-									: 0,
-						}}
-						exit={{ width: 0 }}
-						transition={widthTransition}
-						className="shrink-0 overflow-hidden"
-					>
-						{!previewing && (
-							<ChatRail onExpand={() => setSidebarOpen("chat", true)} />
-						)}
-					</motion.div>
-				)}
-			</AnimatePresence>
 		</div>
 	);
 }

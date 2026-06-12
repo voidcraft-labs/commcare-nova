@@ -27,6 +27,7 @@ import tablerId from "@iconify-icons/tabler/id";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -512,12 +513,15 @@ function WorkspaceTabs({
 	 * sidebars open), so the row compacts by container width: metas
 	 * drop first, then labels go icon-only with the tooltip carrying
 	 * the name. The bar spans the column (sticky, border); its contents
-	 * sit in the workspace's shared frame — the same `max-w-5xl px-8`
+	 * sit in the workspace's shared ContentFrame — the same `5xl` frame
 	 * the case-list canvas, the breadcrumb strip, and the preview
 	 * run-through use, so every layer shares one left edge. */
 	return (
 		<div className="sticky top-0 z-raised py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
-			<div className="mx-auto w-full max-w-5xl px-8 flex items-center gap-1.5 @2xl:gap-2">
+			<ContentFrame
+				width="5xl"
+				className="px-8 flex items-center gap-1.5 @2xl:gap-2"
+			>
 				{TAB_DEFS.map(({ id, icon, label }) => {
 					const active = tab === id;
 					const hasErrors = errorAreas[id];
@@ -589,7 +593,7 @@ function WorkspaceTabs({
 						</Tooltip>
 					);
 				})}
-			</div>
+			</ContentFrame>
 		</div>
 	);
 }

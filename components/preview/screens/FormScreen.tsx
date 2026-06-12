@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
@@ -455,10 +456,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	return (
 		<div className="h-full">
-			<div className="flex flex-col h-full max-w-3xl mx-auto w-full">
+			<ContentFrame width="3xl" className="flex flex-col h-full">
 				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
 				<FormLayoutProvider>{formBody}</FormLayoutProvider>
-			</div>
+			</ContentFrame>
 		</div>
 	);
 }

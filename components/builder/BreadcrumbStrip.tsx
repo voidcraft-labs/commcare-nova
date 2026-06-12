@@ -9,14 +9,13 @@
  * Self-sufficient: navigation state from `useLocation` / `useNavigate`
  * / `useBreadcrumbs` (URL-driven), names from the doc store.
  *
- * The row adopts the same centered container as the screen below it,
- * so the trail's left edge tracks the content's left edge in BOTH
- * modes — and because `mx-auto` re-centers continuously while the
- * sidebar widths animate, toggling preview never snaps the crumbs to
- * the window edge and back.
+ * The row is a ContentFrame matching the screen below it, so the
+ * trail's left edge tracks the content's left edge in BOTH modes — and
+ * glides with it through the mode flip (see ContentFrame.tsx).
  */
 "use client";
 import { useMemo } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
@@ -35,17 +34,14 @@ export function BreadcrumbStrip() {
 	const canGoBack = loc.kind !== "home";
 	const canGoUp = loc.kind !== "home";
 
-	/* Match the screen's own centered container so the strip's left
-	 * edge tracks the content's left edge: the case-list surfaces
-	 * render at `max-w-5xl px-8`; home / module / form screens at
-	 * `max-w-3xl` with 24px side padding. */
+	/* Match the screen's own centered frame so the strip's left edge
+	 * tracks the content's left edge: the case-list surfaces render at
+	 * `5xl` with 32px side padding; home / module / form screens at
+	 * `3xl` with 24px. */
 	const onCaseSurface =
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config";
-	const rowClass = onCaseSurface
-		? "mx-auto w-full max-w-5xl px-8"
-		: "mx-auto w-full max-w-3xl px-6";
 
 	/* Breadcrumbs derived from URL + doc entity names. */
 	const breadcrumbs = useBreadcrumbs();
@@ -75,7 +71,10 @@ export function BreadcrumbStrip() {
 
 	return (
 		<div className="shrink-0 h-12 border-b border-nova-border bg-pv-bg">
-			<div className={`flex items-center gap-2 min-w-0 h-full ${rowClass}`}>
+			<ContentFrame
+				width={onCaseSurface ? "5xl" : "3xl"}
+				className={`flex items-center gap-2 min-w-0 h-full ${onCaseSurface ? "px-8" : "px-6"}`}
+			>
 				{hasData && (
 					<ScreenNavButtons
 						canGoBack={canGoBack}
@@ -85,7 +84,7 @@ export function BreadcrumbStrip() {
 					/>
 				)}
 				<CollapsibleBreadcrumb parts={breadcrumbParts} />
-			</div>
+			</ContentFrame>
 		</div>
 	);
 }

@@ -26,6 +26,7 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useId } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import {
 	ReorderableRow,
 	useReorderableList,
@@ -109,7 +110,7 @@ export function CaseListCanvas({
 	const sortSummary = describeSortOrder(columns);
 
 	return (
-		<div className="max-w-5xl mx-auto px-8 pt-6 pb-24">
+		<ContentFrame width="5xl" className="px-8 pt-6 pb-24">
 			<p className="mb-5 text-[13px] text-nova-text-muted">
 				The case list, live from your data — click a column to set it up, or
 				drag headers to reorder.
@@ -339,7 +340,7 @@ export function CaseListCanvas({
 					)}
 				</div>
 			)}
-		</div>
+		</ContentFrame>
 	);
 }
 

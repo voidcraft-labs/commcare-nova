@@ -2,6 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
@@ -52,7 +53,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const canEdit = mode === "edit" && isReady;
 
 	return (
-		<div className="p-6 space-y-4 max-w-3xl mx-auto">
+		<ContentFrame width="3xl" className="p-6 space-y-4">
 			<div className="flex items-center gap-2">
 				{canEdit ? (
 					<EditableTitle
@@ -127,6 +128,6 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 					);
 				})}
 			</div>
-		</div>
+		</ContentFrame>
 	);
 }

@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { Badge } from "@/components/ui/Badge";
@@ -47,7 +48,7 @@ export function HomeScreen() {
 	const canEdit = mode === "edit" && isReady;
 
 	return (
-		<div className="p-6 space-y-4 max-w-3xl mx-auto">
+		<ContentFrame width="3xl" className="p-6 space-y-4">
 			{/* The web-apps logo banner — CommCare shows the app logo at the top
 			    of the home screen. */}
 			{logo && (
@@ -122,6 +123,6 @@ export function HomeScreen() {
 					);
 				})}
 			</div>
-		</div>
+		</ContentFrame>
 	);
 }

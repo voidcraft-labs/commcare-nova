@@ -35,6 +35,7 @@ import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerWand from "@iconify-icons/tabler/wand";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
 import { effectiveModeKind } from "@/components/builder/case-list-config/searchInputResolution";
 import { useSampleData } from "@/components/builder/case-list-config/useSampleData";
@@ -393,7 +394,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	);
 
 	return (
-		<div ref={containerRef} className="max-w-5xl mx-auto px-8 pt-6 pb-24">
+		<ContentFrame ref={containerRef} width="5xl" className="px-8 pt-6 pb-24">
 			<div
 				className={`flex gap-5 ${split ? "flex-row items-start" : "flex-col"}`}
 			>
@@ -402,7 +403,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				{(split || openCase === null) && searchPane}
 				{openCase !== null ? detailPane : resultsPane}
 			</div>
-		</div>
+		</ContentFrame>
 	);
 }
 

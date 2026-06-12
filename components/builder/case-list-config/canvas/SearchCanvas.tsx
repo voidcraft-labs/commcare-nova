@@ -22,6 +22,7 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useId, useMemo } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import {
 	ReorderableRow,
 	useReorderableList,
@@ -87,7 +88,7 @@ export function SearchCanvas({
 	);
 
 	return (
-		<div className="max-w-md mx-auto px-6 pt-6 pb-24">
+		<ContentFrame width="md" className="px-6 pt-6 pb-24">
 			<p className="mb-5 text-[13px] text-nova-text-muted">
 				The search screen, as your app shows it — click any part to set it up.
 			</p>
@@ -205,7 +206,7 @@ export function SearchCanvas({
 					</p>
 				)}
 			</div>
-		</div>
+		</ContentFrame>
 	);
 }
 
