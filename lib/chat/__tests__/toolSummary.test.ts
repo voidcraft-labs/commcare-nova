@@ -1,0 +1,79 @@
+import type { ToolUIPart } from "ai";
+import { describe, expect, it } from "vitest";
+import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
+import { toolAction, toolDetail, toolLocation } from "../toolSummary";
+
+/** A completed tool part carrying a mutating-success output. */
+const donePart = (tool: string, summary: ToolCallSummary): ToolUIPart =>
+	({
+		type: `tool-${tool}`,
+		toolCallId: "call_1",
+		state: "output-available",
+		input: {},
+		output: { message: "prose for the model", summary },
+	}) as ToolUIPart;
+
+describe("updateApp transcript row", () => {
+	it("reads 'Named the app' with the title on the → line for a first name", () => {
+		const part = donePart("updateApp", {
+			subject: "Client Registration",
+			nameChange: "named",
+		});
+		expect(toolAction(part)).toBe("Named the app");
+		expect(toolLocation(part)).toBe("Client Registration");
+		expect(toolDetail(part)).toBeNull();
+	});
+
+	it("reads 'Renamed the app' for a replacement name", () => {
+		const part = donePart("updateApp", {
+			subject: "Village Health",
+			nameChange: "renamed",
+		});
+		expect(toolAction(part)).toBe("Renamed the app");
+		expect(toolLocation(part)).toBe("Village Health");
+	});
+
+	it("names the Connect flip directly when only connect changed", () => {
+		expect(toolAction(donePart("updateApp", { connect: "learn" }))).toBe(
+			"Set CommCare Connect to Learn",
+		);
+		expect(toolAction(donePart("updateApp", { connect: "off" }))).toBe(
+			"Turned off CommCare Connect",
+		);
+		// A connect-only change has no name to point at.
+		expect(
+			toolLocation(donePart("updateApp", { connect: "learn" })),
+		).toBeNull();
+	});
+
+	it("surfaces the Connect flip on the detail line when both slots changed", () => {
+		const part = donePart("updateApp", {
+			subject: "Outreach",
+			nameChange: "named",
+			connect: "deliver",
+		});
+		expect(toolAction(part)).toBe("Named the app");
+		expect(toolLocation(part)).toBe("Outreach");
+		expect(toolDetail(part)).toBe("Set CommCare Connect to Deliver");
+	});
+
+	it("falls back to the generic phrase for a row recorded before the facts existed", () => {
+		// Threads persisted before the tool reported nameChange/connect carry
+		// only `subject` — the name still moves to the → line, never truncating
+		// the headline.
+		const part = donePart("updateApp", { subject: "Client Registration" });
+		expect(toolAction(part)).toBe("Updated app settings");
+		expect(toolLocation(part)).toBe("Client Registration");
+	});
+});
+
+describe("scoped-edit rows are unchanged", () => {
+	it("keeps the subject inline and the container on the → line", () => {
+		const part = donePart("updateForm", {
+			subject: "Register Client",
+			location: "Clients",
+		});
+		expect(toolAction(part)).toBe('Updated form "Register Client"');
+		expect(toolLocation(part)).toBe("Clients");
+	});
+});

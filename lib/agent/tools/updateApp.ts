@@ -103,15 +103,26 @@ export const updateAppTool = {
 						: `Connect type to ${input.connect_type}`,
 				);
 			}
+			// The summary reports only what this call CHANGED — the transcript's
+			// verb hangs off these facts, so claiming the app name as subject on a
+			// connect-only flip would read as a rename that never happened. The
+			// named-vs-renamed split needs the pre-commit doc, which only this
+			// execution sees (`doc.appName` is "" until the birth finding resolves).
+			const summary: ToolCallSummary = {};
+			if (input.name !== undefined) {
+				summary.subject = input.name;
+				summary.nameChange = doc.appName ? "renamed" : "named";
+			}
+			if (input.connect_type !== undefined) {
+				summary.connect = input.connect_type ?? "off";
+			}
 			return {
 				kind: "mutate" as const,
 				mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Successfully set the app's ${changes.join(" and ")}.`,
-					summary: {
-						subject: input.name ?? commit.newDoc.appName,
-					} satisfies ToolCallSummary,
+					summary,
 				},
 			};
 		} catch (err) {

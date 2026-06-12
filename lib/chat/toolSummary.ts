@@ -50,6 +50,29 @@ const TOOL_ACTIONS: Record<string, string> = {
 	getField: "Inspected a field",
 };
 
+/** Verb phrases for the app-level Connect flip, keyed by the resulting state
+ *  the tool reported (`summary.connect`). The fact is the RESULT, not the
+ *  transition, so the set/switch cases share one honest "Set …" phrasing. */
+const CONNECT_ACTIONS: Record<string, string> = {
+	learn: "Set CommCare Connect to Learn",
+	deliver: "Set CommCare Connect to Deliver",
+	off: "Turned off CommCare Connect",
+};
+
+/** `updateApp` has exactly two slots (name, connect type), so its row names the
+ *  act itself — "Named the app" / "Renamed the app" / a Connect phrase — instead
+ *  of the generic "Updated app settings". The name renders on the secondary "→"
+ *  line (see `toolLocation`), never inline where a long title truncates the
+ *  headline. Falls back to the generic phrase for a row recorded before the
+ *  tool reported these facts. */
+const updateAppAction = (summary: ToolCallSummary | undefined): string => {
+	if (summary?.nameChange) {
+		return summary.nameChange === "named" ? "Named the app" : "Renamed the app";
+	}
+	if (summary?.connect) return CONNECT_ACTIONS[summary.connect];
+	return TOOL_ACTIONS.updateApp;
+};
+
 /** Tools whose single call performs a MULTI-ITEM action — the friendly action
  *  folds in `summary.count` ("Added 3 fields", "Reordered 5 columns"), each
  *  pluralizing its own noun. Falls back to the static `TOOL_ACTIONS` phrase when
@@ -142,6 +165,7 @@ export const toolStatus = (part: ToolUIPart): ToolStatus => {
 export const toolAction = (part: ToolUIPart): string => {
 	const name = toolName(part);
 	const summary = outputOf(part)?.summary;
+	if (name === "updateApp") return updateAppAction(summary);
 	// Multi-item actions fold the count into the verb+noun ("Added 3 fields").
 	const countable = COUNTABLE_ACTIONS[name];
 	if (countable && typeof summary?.count === "number") {
@@ -151,10 +175,17 @@ export const toolAction = (part: ToolUIPart): string => {
 	return summary?.subject ? `${action} "${summary.subject}"` : action;
 };
 
-/** The container breadcrumb ("Clients") shown beneath the action, or null when
- *  the act is top-level (creating a module) or the call carries no summary. */
-export const toolLocation = (part: ToolUIPart): string | null =>
-	outputOf(part)?.summary?.location ?? null;
+/** The secondary "→" line beneath the action: the container breadcrumb
+ *  ("Clients") for a scoped edit, or — for the app-level `updateApp`, which has
+ *  no container — the app's new name, so the row reads "Named the app →
+ *  Client Registration" with the full title on its own line. Null when the act
+ *  is top-level with nothing to point at or the call carries no summary. */
+export const toolLocation = (part: ToolUIPart): string | null => {
+	const summary = outputOf(part)?.summary;
+	if (!summary) return null;
+	if (toolName(part) === "updateApp") return summary.subject ?? null;
+	return summary.location ?? null;
+};
 
 /** Secondary line beneath the action: an error to surface, a completion
  *  outcome, or — for a call without a structured summary (read tools, or one
@@ -178,6 +209,14 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	const out = part.output;
 	if (typeof out === "object" && out !== null && "error" in out) {
 		return String((out as { error: unknown }).error);
+	}
+	// updateApp's headline carries the name verb when BOTH slots changed —
+	// surface the Connect flip on the detail line so neither change is hidden.
+	if (toolName(part) === "updateApp") {
+		const summary = outputOf(part)?.summary;
+		if (summary?.nameChange && summary.connect) {
+			return CONNECT_ACTIONS[summary.connect];
+		}
 	}
 	// A structured summary already drives the action + breadcrumb — no prose
 	// needed. Only fall back to the prose `message` (or a bare-string result)
