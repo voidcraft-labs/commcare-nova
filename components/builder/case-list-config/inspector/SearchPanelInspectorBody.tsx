@@ -44,7 +44,7 @@ export interface SearchPanelInspectorBodyProps {
 	readonly onChange: (next: CaseSearchConfig) => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
-	/** Search-input declarations — lets the display condition and the
+	/** Search-input declarations — lets the show-when condition and the
 	 *  excluded-owners expression reference `input(...)` bindings. */
 	readonly knownInputs?: readonly SearchInputDecl[];
 }
@@ -95,11 +95,11 @@ export function SearchPanelInspectorBody({
 			/>
 
 			<PredicateSlotCard
-				title="Display condition"
-				description="Hide the search button until this condition is met."
-				addLabel="Add a Display Condition"
+				title="Show when"
+				description="Show the search button only when this condition is met."
+				addLabel="Add a Condition"
 				clearLabel="Clear"
-				clearAriaLabel="Clear the display condition"
+				clearAriaLabel="Clear the show-when condition"
 				value={value?.searchButtonDisplayCondition}
 				onChange={setDisplayCondition}
 				caseTypes={caseTypes}

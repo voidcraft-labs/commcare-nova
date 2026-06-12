@@ -195,7 +195,7 @@ export function SearchCanvas({
 				 *  The filled violet button is the pressable one in Preview; a
 				 *  hover lift here would hand the press-affordance right back.
 				 *  It's inert panel chrome: clicks bubble to the panel and open
-				 *  the settings that own its label and display condition. */}
+				 *  the settings that own its label and show-when condition. */}
 				<div className="w-full inline-flex items-center justify-center gap-2 px-4 min-h-11 rounded-md border border-nova-violet/45 bg-nova-violet/[0.07] text-nova-violet-bright text-sm font-semibold select-none">
 					<Icon icon={tablerSearch} width="15" height="15" />
 					{buttonLabel}

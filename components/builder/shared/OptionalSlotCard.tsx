@@ -42,7 +42,7 @@ export interface OptionalSlotCardCollapse {
 
 export interface OptionalSlotCardProps<T> {
 	/** Header title — short label rendered as the section's etched
-	 *  console eyebrow (e.g., "Display condition"). */
+	 *  console eyebrow (e.g., "Excluded owners"). */
 	readonly title: string;
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */
@@ -56,7 +56,7 @@ export interface OptionalSlotCardProps<T> {
 	 *  `value !== undefined`. */
 	readonly clearLabel: string;
 	/** Screen-reader name for the Clear button — the specific action
-	 *  ("Clear the display condition"), since SRs don't get the
+	 *  ("Clear the excluded owners"), since SRs don't get the
 	 *  visual adjacency to the section title. */
 	readonly clearAriaLabel: string;
 	/** Current slot value. `undefined` ≡ slot empty (the card surfaces

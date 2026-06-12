@@ -58,7 +58,7 @@ export interface SlotCardHeaderClear {
 
 export interface SlotCardHeaderProps {
 	/** Header title — short label rendered as the section's etched
-	 *  console eyebrow (e.g., "Display condition", "Excluded owners"). */
+	 *  console eyebrow (e.g., "Show when", "Excluded owners"). */
 	readonly title: string;
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */

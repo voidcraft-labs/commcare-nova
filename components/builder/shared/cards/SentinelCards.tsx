@@ -43,7 +43,7 @@ export function MatchAllCard({ value, onChange }: MatchAllCardProps) {
 				/>
 				{/* Context-neutral wording — this sentinel seeds the list
 				 *  filter AND non-case slots like the search button's
-				 *  display condition, so it can't say "matches every
+				 *  show-when condition, so it can't say "matches every
 				 *  case". */}
 				Always true — pick a verb to turn this into a real condition.
 			</div>
