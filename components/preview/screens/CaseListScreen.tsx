@@ -339,15 +339,21 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				</h2>
 				{state.kind === "rows" && (
 					<span className="ml-auto inline-flex items-center gap-1.5 text-xs text-nova-text-muted whitespace-nowrap">
-						{fetching && (
-							<Icon
-								icon={tablerLoader2}
-								width="12"
-								height="12"
-								className="animate-spin"
-							/>
-						)}
 						{filteredRows.length} {filteredRows.length === 1 ? "case" : "cases"}
+						{/* Trailing, always-reserved spinner slot. The count text must
+						 *  stay the span's FIRST flex item: the row aligns by baseline,
+						 *  and a flex container's baseline comes from its first item —
+						 *  an SVG's baseline is its bottom edge (~2px off the text
+						 *  baseline), so a leading or unmounting spinner bounces the
+						 *  count vertically every time fetching toggles. */}
+						<Icon
+							icon={tablerLoader2}
+							width="12"
+							height="12"
+							className={fetching ? "animate-spin" : "invisible"}
+							aria-label={fetching ? "Updating" : undefined}
+							aria-hidden={!fetching}
+						/>
 					</span>
 				)}
 				<button
