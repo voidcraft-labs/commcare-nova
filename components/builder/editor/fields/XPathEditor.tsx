@@ -104,7 +104,12 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	// `as` cast widens the literal-key patch back to the kind's partial
 	// shape — TS can't prove `validate_msg` belongs on `F` from inside
 	// this generic body.
-	const { updateField } = useBlueprintMutations();
+	/* Inline flavor: the validate-message editor renders the returned
+	 * outcome itself (EditableText's notice), and the clear arm removes a
+	 * message string — a removal no validator rule can object to. */
+	const {
+		inline: { updateField },
+	} = useBlueprintMutations();
 	const saveValidateMsg = useCallback(
 		(next: string) => {
 			const outcome = updateField(field.uuid, field.kind, {

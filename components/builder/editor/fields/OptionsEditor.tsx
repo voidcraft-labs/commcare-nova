@@ -21,7 +21,8 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useRef, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
-import type { Field, SelectOption } from "@/lib/domain";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
+import type { CommitOutcome, Field, SelectOption } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 
@@ -37,7 +38,10 @@ interface DraftOption extends SelectOption {
 
 interface OptionsEditorWidgetProps {
 	options: SelectOption[];
-	onSave: (options: SelectOption[]) => void;
+	/** Persist the next options. May return the gated dispatch's outcome —
+	 *  a refusal keeps the widget's draft (the committed-key ref only
+	 *  advances on a landed save); `void` reads as committed. */
+	onSave: (options: SelectOption[]) => CommitOutcome | undefined;
 	/** Staged-upload identity base for the option rows' media slots —
 	 *  the owning field's uuid; each row scopes itself by option value. */
 	slotKeyBase: string;
@@ -121,9 +125,11 @@ function OptionsEditorWidget({
 		setFocusIndex(null);
 	}
 
-	// Commit the draft to the parent, stripping empty rows. Records
-	// the committed key before dispatch so the sync block above
-	// recognizes the echoed prop as a self-write.
+	// Commit the draft to the parent, stripping empty rows. The committed
+	// key advances only when the save LANDED — on a gate refusal the doc
+	// is unchanged, so advancing it optimistically would make the
+	// external-change sync block above read the unchanged prop as foreign
+	// and revert the user's draft right as the notice explains the bounce.
 	const commit = useCallback(
 		(updated: DraftOption[]) => {
 			const cleaned = toOptions(updated).filter(
@@ -133,8 +139,10 @@ function OptionsEditorWidget({
 				// reference along with the row.
 				(o) => o.label.trim() || o.value.trim() || o.media,
 			);
-			lastCommittedKeyRef.current = serializeOptions(cleaned);
-			onSave(cleaned);
+			const outcome = onSave(cleaned);
+			if (!outcome || outcome.ok) {
+				lastCommittedKeyRef.current = serializeOptions(cleaned);
+			}
 		},
 		[onSave],
 	);
@@ -316,6 +324,12 @@ export function OptionsEditor<F extends Field>(
 ) {
 	const { field, value, onChange, autoFocus } = props;
 	const current = Array.isArray(value) ? (value as SelectOption[]) : [];
+	/* The widget's `onSave` has no inline channel of its own, so the
+	 * adapter holds the gate's finding and renders it beneath the rows —
+	 * the section dispatches through the inline (no-toast) flavor on the
+	 * promise that every editor presents its own rejections. Cleared on
+	 * the next save that lands. */
+	const [rejection, setRejection] = useState<string | null>(null);
 	return (
 		<div data-field-id="options">
 			<OptionsEditorWidget
@@ -327,9 +341,14 @@ export function OptionsEditor<F extends Field>(
 					// any sub-minimum draft becomes `undefined` (removal patch).
 					const persisted =
 						next.length >= 2 ? next : (undefined as SelectOption[] | undefined);
-					onChange(persisted as F["options" & keyof F]);
+					const outcome = onChange(persisted as F["options" & keyof F]);
+					setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+					// The widget gates its committed-key ref on this — a refusal
+					// must keep the user's draft rows on screen.
+					return outcome;
 				}}
 			/>
+			<RejectionInline message={rejection} />
 		</div>
 	);
 }

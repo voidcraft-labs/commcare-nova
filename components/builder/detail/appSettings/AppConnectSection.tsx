@@ -89,7 +89,9 @@ export function AppConnectSection() {
 	const confirmStaging = useCallback(
 		(blocks: Record<string, ConnectConfig>) => {
 			if (!staging) return;
-			const outcome = switchMode(staging.mode, blocks);
+			/* announce:false — the dialog's footer renders the findings, so
+			 * the rejection toast stays quiet. One rejection, one surface. */
+			const outcome = switchMode(staging.mode, blocks, { announce: false });
 			if (outcome.ok) {
 				setStaging(undefined);
 				return;

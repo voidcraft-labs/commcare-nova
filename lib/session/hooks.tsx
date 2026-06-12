@@ -98,6 +98,7 @@ export function useSetSidebarOpen(): (
 export function useSwitchConnectMode(): (
 	type: ConnectType | null | undefined,
 	stagedBlocks?: Record<string, ConnectConfig>,
+	opts?: { announce?: boolean },
 ) => CommitOutcome {
 	return useBuilderSession((s) => s.switchConnectMode);
 }

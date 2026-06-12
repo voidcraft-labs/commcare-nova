@@ -1,5 +1,5 @@
 /**
- * `describeApiFailure` / `apiFailureToastMessage` — the pure transformation
+ * `describeApiFailure` / `apiFailureToastBody` — the pure transformation
  * between an API error body and what the triggering affordance displays.
  * The boundary-gate rejections ride this path (export toast, upload
  * dialog), so the contract under test is: the validator's per-finding
@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { apiFailureToastMessage, describeApiFailure } from "../apiFailure";
+import { apiFailureToastBody, describeApiFailure } from "../apiFailure";
 
 describe("describeApiFailure", () => {
 	it("passes a gate rejection's headline + detail lines through", () => {
@@ -59,16 +59,17 @@ describe("describeApiFailure", () => {
 	});
 });
 
-describe("apiFailureToastMessage", () => {
-	it("joins detail lines one-per-line for the toast body", () => {
+describe("apiFailureToastBody", () => {
+	it("rides detail lines on the structured lines slot", () => {
 		expect(
-			apiFailureToastMessage({ message: "headline", details: ["a", "b"] }),
-		).toBe("a\nb");
+			apiFailureToastBody({ message: "headline", details: ["a", "b"] }),
+		).toEqual({ message: undefined, lines: ["a", "b"] });
 	});
 
-	it("falls back to the message when there are no details", () => {
-		expect(apiFailureToastMessage({ message: "headline", details: [] })).toBe(
-			"headline",
-		);
+	it("falls back to the plain message when there are no details", () => {
+		expect(apiFailureToastBody({ message: "headline", details: [] })).toEqual({
+			message: "headline",
+			lines: undefined,
+		});
 	});
 });

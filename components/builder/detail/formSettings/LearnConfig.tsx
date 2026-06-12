@@ -5,6 +5,7 @@ import {
 	DraftField,
 	parseTimeEstimate,
 } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
 import {
 	connectIdConflictError,
@@ -97,6 +98,18 @@ export function LearnConfig({
 	/** The in-flight staged learn block — exists only until the user
 	 *  commits it (or toggles the staging off, which discards it). */
 	const [stagedLearn, setStagedLearn] = useState<LearnDraft | undefined>();
+	/** A refusal from a gesture with no input of its own — the sub-toggles,
+	 *  restores, and the staged Add — rendered beneath the cards. The field
+	 *  editors present their own outcomes and bypass this. */
+	const [saveRejection, setSaveRejection] = useState<string | null>(null);
+	const dispatchSave = useCallback(
+		(config: ConnectConfig) => {
+			const outcome = save(config);
+			setSaveRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+			return outcome;
+		},
+		[save],
+	);
 
 	// Every connect id set anywhere in the app. Connect ids share one
 	// app-wide namespace (each keys a per-kind DB slug + an XForm element
@@ -153,15 +166,16 @@ export function LearnConfig({
 	const toggleLearn = useCallback(() => {
 		if (stagedLearn) {
 			/* Toggling a STAGED block off discards the uncommitted draft —
-			 * nothing ever reached the doc. */
+			 * nothing ever reached the doc, so nothing refused remains. */
 			setStagedLearn(undefined);
+			setSaveRejection(null);
 		} else if (learnEnabled) {
 			const { learn_module: _removed, ...rest } = connect;
-			save(rest as ConnectConfig);
+			dispatchSave(rest as ConnectConfig);
 		} else {
 			const restored = lastLearnRef.current;
 			if (restored?.name.trim()) {
-				save(restoreConfig({ ...connect, learn_module: restored }));
+				dispatchSave(restoreConfig({ ...connect, learn_module: restored }));
 			} else {
 				/* No prior work to restore — stage the block and collect its
 				 * content from the user before anything commits. Only the
@@ -174,7 +188,7 @@ export function LearnConfig({
 				});
 			}
 		}
-	}, [stagedLearn, learnEnabled, connect, save, restoreConfig]);
+	}, [stagedLearn, learnEnabled, connect, dispatchSave, restoreConfig]);
 
 	const stagedLearnReady =
 		stagedLearn !== undefined &&
@@ -193,7 +207,7 @@ export function LearnConfig({
 			return;
 		}
 		const { learnId } = defaultIds();
-		const outcome = save({
+		const outcome = dispatchSave({
 			...connect,
 			learn_module: {
 				id: learnId,
@@ -202,29 +216,29 @@ export function LearnConfig({
 				time_estimate: timeEstimate,
 			},
 		});
-		/* A refused commit keeps the draft on screen — the gated dispatch's
-		 * error toast names the findings. */
+		/* A refused commit keeps the draft on screen with the finding in
+		 * the notice beneath the cards. */
 		if (outcome.ok) setStagedLearn(undefined);
-	}, [stagedLearn, connect, save, defaultIds]);
+	}, [stagedLearn, connect, dispatchSave, defaultIds]);
 
 	const toggleAssessment = useCallback(() => {
 		if (assessmentEnabled) {
 			const { assessment: _removed, ...rest } = connect;
-			save(rest as ConnectConfig);
+			dispatchSave(rest as ConnectConfig);
 		} else {
 			const restored = lastAssessmentRef.current;
 			if (restored) {
-				save(restoreConfig({ ...connect, assessment: restored }));
+				dispatchSave(restoreConfig({ ...connect, assessment: restored }));
 			} else {
 				const { assessmentId } = defaultIds();
 				/* The block lands with its derived identifier alone —
 				 * `user_score` is optional on the doc and the wire layer
 				 * substitutes the canonical default, so there is no content
 				 * to collect (or invent) before committing. */
-				save({ ...connect, assessment: { id: assessmentId } });
+				dispatchSave({ ...connect, assessment: { id: assessmentId } });
 			}
 		}
-	}, [assessmentEnabled, connect, save, defaultIds, restoreConfig]);
+	}, [assessmentEnabled, connect, dispatchSave, defaultIds, restoreConfig]);
 
 	return (
 		<div className="space-y-2">
@@ -398,7 +412,10 @@ export function LearnConfig({
 												},
 											});
 										const { user_score: _removed, ...rest } = assessment;
-										save({ ...connect, assessment: rest });
+										/* The clear has no editor left open to anchor a
+										 * refusal to — route it to the section notice,
+										 * matching DeliverConfig's clear arm. */
+										dispatchSave({ ...connect, assessment: rest });
 										return undefined;
 									}}
 									getLintContext={getLintContext}
@@ -408,6 +425,10 @@ export function LearnConfig({
 					)}
 				</AnimatePresence>
 			</div>
+
+			{/* A refused toggle/restore/Add explains itself here — those
+			 * gestures have no input to anchor the finding to. */}
+			<RejectionInline message={saveRejection} />
 		</div>
 	);
 }

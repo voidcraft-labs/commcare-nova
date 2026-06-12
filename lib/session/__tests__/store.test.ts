@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Event } from "@/lib/log/types";
+import { toastStore } from "@/lib/ui/toastStore";
 import { createBuilderSessionStore } from "../store";
 import type { ReplayChapter } from "../types";
 
@@ -257,6 +258,7 @@ describe("BuilderSession connect stash", () => {
 
 	it("0. enabling with no blocks in hand is REJECTED — the doc and stash stay untouched", () => {
 		const { session, doc } = createConnectTestStores();
+		toastStore.clear();
 
 		const outcome = session.getState().switchConnectMode("learn");
 
@@ -264,6 +266,24 @@ describe("BuilderSession connect stash", () => {
 		if (!outcome.ok) expect(outcome.messages.length).toBeGreaterThan(0);
 		expect(doc.getState().connectType).toBeNull();
 		expect(session.getState().connectStash.learn).toEqual({});
+		// The default flavor announces — a rejection with no presenting
+		// caller must never vanish silently.
+		expect(toastStore.toasts.at(-1)?.title).toBe("Change not applied");
+		toastStore.clear();
+	});
+
+	it("0b. announce:false rejects identically but stays quiet — the dialog presents the findings itself", () => {
+		const { session, doc } = createConnectTestStores();
+		toastStore.clear();
+
+		const outcome = session
+			.getState()
+			.switchConnectMode("learn", undefined, { announce: false });
+
+		expect(outcome.ok).toBe(false);
+		if (!outcome.ok) expect(outcome.messages.length).toBeGreaterThan(0);
+		expect(doc.getState().connectType).toBeNull();
+		expect(toastStore.toasts).toHaveLength(0);
 	});
 
 	it("1. switchConnectMode('learn', staged) sets the type AND lands every form's block in one commit", () => {

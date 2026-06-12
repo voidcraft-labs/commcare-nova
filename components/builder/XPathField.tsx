@@ -11,6 +11,10 @@ import { EditorView, keymap, tooltips } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRegisterEditGuard } from "@/components/builder/contexts/EditGuardContext";
+import {
+	REJECTION_SURFACE_CLS,
+	RejectionBody,
+} from "@/components/builder/RejectionNotice";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
 import { xpathChips } from "@/lib/codemirror/xpath-chips";
 import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
@@ -606,14 +610,12 @@ function InlineXPathEditor({
 						<Popover.Popup className={POPOVER_POPUP_CLS}>
 							<div
 								role="alert"
-								className="px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] border border-nova-rose/20 shadow-lg max-w-xs"
+								className={`px-3 py-2.5 max-w-sm ${REJECTION_SURFACE_CLS}`}
 							>
-								<p className="text-xs text-nova-rose font-mono leading-snug">
-									{tooltipMessage}
-								</p>
-								<p className="text-[10px] text-nova-text-muted mt-0.5">
-									Press Esc to discard changes
-								</p>
+								<RejectionBody
+									message={tooltipMessage ?? ""}
+									hint="Press Esc to discard changes"
+								/>
 							</div>
 						</Popover.Popup>
 					</Popover.Positioner>

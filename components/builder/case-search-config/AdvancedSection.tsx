@@ -20,10 +20,12 @@
 
 "use client";
 import tablerForbid from "@iconify-icons/tabler/forbid";
+import { useState } from "react";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { OptionalSlotCard } from "@/components/builder/shared/OptionalSlotCard";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
-import type { CaseSearchConfig, CaseType } from "@/lib/domain";
+import type { CaseSearchConfig, CaseType, CommitOutcome } from "@/lib/domain";
 import {
 	literal,
 	type SearchInputDecl,
@@ -41,8 +43,9 @@ export interface AdvancedSectionProps {
 	readonly value: CaseSearchConfig | undefined;
 	/** Fired with the next configuration. The parent applies the
 	 *  next config to its source-of-truth (the doc store's module
-	 *  `caseSearchConfig` slot). */
-	readonly onChange: (next: CaseSearchConfig) => void;
+	 *  `caseSearchConfig` slot) and returns the gated outcome so a
+	 *  refused commit surfaces beneath the card. */
+	readonly onChange: (next: CaseSearchConfig) => CommitOutcome | undefined;
 	/** Blueprint case-type definitions — drives the property pickers
 	 *  inside the expression editor. */
 	readonly caseTypes: readonly CaseType[];
@@ -77,8 +80,14 @@ export function AdvancedSection({
 	knownInputs = [],
 	onValidityChange,
 }: AdvancedSectionProps) {
+	/* The slot card has no inline channel of its own, so this section
+	 * holds the gate's finding and renders it beneath the card — a
+	 * whole-doc refusal the expression editor's own type check can't
+	 * see. Cleared on the next commit that lands. */
+	const [rejection, setRejection] = useState<string | null>(null);
 	const setExcludedOwners = (next: ValueExpression | undefined) => {
-		onChange(setOptionalSlot(value, "excludedOwnerIds", next));
+		const outcome = onChange(setOptionalSlot(value, "excludedOwnerIds", next));
+		setRejection(outcome && !outcome.ok ? (outcome.messages[0] ?? null) : null);
 	};
 
 	return (
@@ -121,6 +130,9 @@ export function AdvancedSection({
 				}}
 				onValidityChange={onValidityChange}
 			/>
+			{/* The gate refused the last slot commit — the card above still
+			 * shows the authored expression; this names the finding. */}
+			<RejectionInline message={rejection} />
 		</div>
 	);
 }

@@ -336,12 +336,15 @@ export interface BuilderSessionState {
 	 *
 	 *  The whole batch runs the shared commit verdict before anything
 	 *  dispatches — a flip that would leave the app with NO participating
-	 *  form is rejected (findings surfaced via the rejection toast,
-	 *  returned in the outcome) and the doc + stash stay untouched. A pass
-	 *  commits as one undo entry. */
+	 *  form is rejected (findings returned in the outcome) and the doc +
+	 *  stash stay untouched. A pass commits as one undo entry. A rejection
+	 *  announces via the error toast unless the caller opts out with
+	 *  `announce: false` because it presents the outcome itself (the
+	 *  enable dialog's footer) — one rejection, one presentation. */
 	switchConnectMode: (
 		type: ConnectType | null | undefined,
 		stagedBlocks?: Record<string, ConnectConfig>,
+		opts?: { announce?: boolean },
 	) => CommitOutcome;
 
 	/** Stash a single form's connect config by uuid. Used by form-level
@@ -624,6 +627,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				switchConnectMode(
 					type: ConnectType | null | undefined,
 					stagedBlocks?: Record<string, ConnectConfig>,
+					opts?: { announce?: boolean },
 				): CommitOutcome {
 					if (!docStoreRef) return { ok: false, messages: [] };
 					const s = get();
@@ -749,11 +753,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * surface runs. A flip that would leave the app with no
 					 * participating form (or land any other finding) rejects with
 					 * NOTHING dispatched: the doc and the stash stay exactly as
-					 * they were, and the findings surface as the standard
-					 * rejection toast. */
+					 * they were. The findings announce as the error toast unless
+					 * the caller renders them itself (`announce: false` — the
+					 * enable dialog's footer). */
 					const verdict = mutationCommitVerdict(docState, mutations);
 					if (!verdict.ok) {
-						notifyRejectedCommit(verdict.introduced);
+						if (opts?.announce !== false) {
+							notifyRejectedCommit(verdict.introduced);
+						}
 						return {
 							ok: false,
 							messages: verdict.introduced.map((err) => err.message),

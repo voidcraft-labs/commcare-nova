@@ -23,7 +23,7 @@ export function HomeScreen() {
 	 * one field keeps the reference cheap. */
 	const { formOrder } = useAppStructure();
 	const navigate = useNavigate();
-	const { updateApp } = useBlueprintMutations();
+	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const hasData = useDocHasData();
@@ -34,8 +34,8 @@ export function HomeScreen() {
 	 * editor open with the draft and surfaces the finding inline; the
 	 * saved checkmark only fires on a committed rename. */
 	const saveAppName = useCallback(
-		(name: string) => updateApp({ app_name: name }),
-		[updateApp],
+		(name: string) => inline.updateApp({ app_name: name }),
+		[inline],
 	);
 
 	if (!hasData) return null;

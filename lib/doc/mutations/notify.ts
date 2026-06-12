@@ -17,19 +17,22 @@ export function notifyMoveRename(result: MoveFieldResult): void {
 
 /**
  * Show the error toast for an edit the validity gate rejected — the
- * builder analog of the SA tools' `{ error }` envelope. Each finding's
- * `message` is the validator's own person-to-person sentence (what's
- * wrong, where it lives, what to look at); the toast body lists them one
- * per line so the user can fix the edit without guessing. Typed against
- * the message shape (not the validator's error type) so this UI emitter
- * stays outside the `@/lib/commcare` boundary.
+ * builder analog of the SA tools' `{ error }` envelope, used by dispatch
+ * surfaces with NO contextual anchor to hang the rejection on (toggles,
+ * deletes, drag moves). Call sites that render the returned outcome
+ * beside the control (inline notices, editor tooltips, dialog footers)
+ * dispatch through the `inline` flavor instead and never reach this.
+ *
+ * Each finding's `message` is the validator's own person-to-person
+ * sentence (what's wrong, where it lives, what to look at); they ride
+ * the toast's structured `lines` so each finding reads as its own row.
+ * Typed against the message shape (not the validator's error type) so
+ * this UI emitter stays outside the `@/lib/commcare` boundary.
  */
 export function notifyRejectedCommit(
 	introduced: ReadonlyArray<{ message: string }>,
 ): void {
-	showToast(
-		"error",
-		"That change would break the app, so it wasn't applied",
-		introduced.map((err) => err.message).join("\n"),
-	);
+	showToast("error", "Change not applied", undefined, {
+		lines: introduced.map((err) => err.message),
+	});
 }

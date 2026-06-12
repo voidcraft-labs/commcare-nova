@@ -3,8 +3,10 @@ import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef } from "react";
+import { RejectionCallout } from "@/components/builder/RejectionNotice";
 import type { CommitOutcome } from "@/lib/domain";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
+import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 
 // Shared className constants — single source of truth for the typographic and box-model
 // properties that must be identical across the readOnly and editable render paths.
@@ -63,6 +65,7 @@ export function EditableTitle({ value, onSave, readOnly }: EditableTitleProps) {
 		focused,
 		saved,
 		rejection,
+		rejectionNonce,
 		ref: hookRef,
 		handleFocus,
 		handleBlur,
@@ -75,6 +78,7 @@ export function EditableTitle({ value, onSave, readOnly }: EditableTitleProps) {
 		required: true,
 		selectAll: false,
 	});
+	const shakeProps = useRejectionShake(rejectionNonce);
 
 	const setInputRef = useCallback(
 		(el: HTMLInputElement | null) => {
@@ -137,24 +141,23 @@ export function EditableTitle({ value, onSave, readOnly }: EditableTitleProps) {
 				onBlur={handleBlur}
 				onKeyDown={handleKeyDown}
 				onClick={(e) => e.stopPropagation()}
-				className={`${INPUT_BASE_CLASS} transition-colors min-w-0 ${
+				onAnimationEnd={shakeProps.onAnimationEnd}
+				className={`${INPUT_BASE_CLASS} transition-colors min-w-0 ${shakeProps.className} ${
 					focused
-						? "border-nova-violet/60 bg-nova-surface"
+						? rejection
+							? "border-nova-rose/60 bg-nova-surface"
+							: "border-nova-violet/60 bg-nova-surface"
 						: "border-transparent cursor-text hover:border-nova-border bg-transparent"
 				}`}
 				autoComplete="off"
 				data-1p-ignore
 			/>
 			<SavedCheck visible={saved && !focused} />
-			{rejection && (
-				/* The validity gate refused the rename — the draft is still in
-				 * the input (useCommitField restored editing); this chip tells
-				 * the user what to fix, in the rule's own words. Absolutely
-				 * positioned so the header row's layout never jumps. */
-				<span className="absolute left-0 top-full mt-1 z-10 max-w-md rounded border border-nova-rose/30 bg-nova-deep/95 px-2 py-1 text-xs font-sans font-normal text-nova-rose leading-snug">
-					{rejection}
-				</span>
-			)}
+			{/* The validity gate refused the rename — the draft is still in
+			 * the input (useCommitField restored editing); the callout tells
+			 * the user what to fix, in the rule's own words. Floats below so
+			 * the header row's layout never jumps. */}
+			<RejectionCallout message={rejection} />
 		</span>
 	);
 }

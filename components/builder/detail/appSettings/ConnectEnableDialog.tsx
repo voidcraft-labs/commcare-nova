@@ -1,6 +1,7 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useId, useRef, useState } from "react";
+import { RejectionBody } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -461,9 +462,12 @@ export function ConnectEnableDialog({
 
 					<div className="p-5 pt-3 space-y-2">
 						{rejectionMessages.length > 0 && (
-							<div className="text-[11px] text-nova-rose space-y-1">
+							/* The gate refused the confirm — the drafts above are
+							 * intact; each finding reads in the shared rejection
+							 * anatomy. */
+							<div className="rounded-md border border-nova-rose/15 bg-nova-rose/[0.06] px-2.5 py-2 space-y-2">
 								{rejectionMessages.map((m) => (
-									<p key={m}>{m}</p>
+									<RejectionBody key={m} message={m} label={null} />
 								))}
 							</div>
 						)}

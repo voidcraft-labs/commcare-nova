@@ -1,5 +1,9 @@
 "use client";
+import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
+import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
+import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
+import tablerShieldX from "@iconify-icons/tabler/shield-x";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef } from "react";
@@ -12,16 +16,31 @@ const AUTO_DISMISS_MS: Record<ToastSeverity, number> = {
 	info: 5000,
 };
 
-const ACCENT_COLORS: Record<ToastSeverity, string> = {
-	error: "bg-nova-rose",
-	warning: "bg-nova-amber",
-	info: "bg-nova-violet",
-};
-
-const BORDER_COLORS: Record<ToastSeverity, string> = {
-	error: "border-nova-rose/30",
-	warning: "border-nova-amber/30",
-	info: "border-nova-violet/30",
+/* Each severity gets an icon in a soft tinted chip — the icon names the
+ * register (guarded / caution / informational) so the title doesn't have
+ * to, and the tint keeps the semantic hue an accent rather than a wash.
+ * Error uses the shield: in this app an error toast almost always means
+ * the validity gate kept a change out, and the shield says "guardrail,
+ * not breakage". */
+const SEVERITY_CHROME: Record<
+	ToastSeverity,
+	{ icon: IconifyIcon; chip: string; border: string }
+> = {
+	error: {
+		icon: tablerShieldX,
+		chip: "bg-nova-rose/10 text-nova-rose",
+		border: "border-nova-rose/20",
+	},
+	warning: {
+		icon: tablerAlertTriangle,
+		chip: "bg-nova-amber/10 text-nova-amber",
+		border: "border-nova-amber/20",
+	},
+	info: {
+		icon: tablerInfoCircle,
+		chip: "bg-nova-violet/10 text-nova-violet-bright",
+		border: "border-nova-violet/20",
+	},
 };
 
 function ToastItem({
@@ -50,6 +69,9 @@ function ToastItem({
 		return clearTimer;
 	}, [startTimer, clearTimer]);
 
+	const chrome = SEVERITY_CHROME[toast.severity];
+	const lines = toast.lines ?? [];
+
 	return (
 		<motion.div
 			layout
@@ -65,33 +87,52 @@ function ToastItem({
 				hovering.current = false;
 				startTimer();
 			}}
-			className={`relative flex gap-2.5 w-80 rounded-lg bg-nova-deep/95 backdrop-blur-xl border ${BORDER_COLORS[toast.severity]} p-3 pr-8 shadow-lg`}
+			className={`relative flex gap-3 w-[22rem] rounded-xl bg-nova-deep/95 backdrop-blur-xl border ${chrome.border} p-3.5 pr-9 shadow-[0_8px_32px_rgba(0,0,0,0.45)]`}
 		>
-			{/* Left accent bar */}
 			<div
-				className={`shrink-0 w-1 rounded-full self-stretch ${ACCENT_COLORS[toast.severity]}`}
-			/>
+				className={`shrink-0 flex items-center justify-center size-7 rounded-lg ${chrome.chip}`}
+			>
+				<Icon icon={chrome.icon} width={16} height={16} />
+			</div>
 
-			{/* Content */}
-			<div className="min-w-0">
+			<div className="min-w-0 pt-0.5">
 				<p className="text-sm font-medium text-nova-text leading-tight">
 					{toast.title}
 				</p>
 				{toast.message && (
-					/* whitespace-pre-line: multi-line messages (e.g. the export
-					 * boundary gate's one-finding-per-line details) render as
-					 * separate lines instead of collapsing into one run-on. */
-					<p className="mt-0.5 text-xs text-nova-text-secondary leading-snug whitespace-pre-line">
+					/* whitespace-pre-line: legacy multi-line messages render as
+					 * separate lines instead of collapsing into one run-on.
+					 * Structured multi-row content should ride `lines`. */
+					<p className="mt-1 text-xs text-nova-text-secondary leading-relaxed whitespace-pre-line">
 						{toast.message}
 					</p>
 				)}
+				{lines.length > 0 && (
+					<ul className="mt-1.5 space-y-1.5">
+						{lines.map((line, i) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: static finding list for one render; messages can legitimately repeat across forms
+							<li key={i} className="flex gap-2">
+								{/* Row marker only when there are rows to tell apart —
+								 * a single finding reads as the toast's one sentence. */}
+								{lines.length > 1 && (
+									<span
+										aria-hidden
+										className="mt-[7px] size-1 shrink-0 rounded-full bg-nova-text-muted/60"
+									/>
+								)}
+								<span className="text-xs text-nova-text-secondary leading-relaxed break-words">
+									{line}
+								</span>
+							</li>
+						))}
+					</ul>
+				)}
 			</div>
 
-			{/* Close button */}
 			<button
 				type="button"
 				onClick={() => onDismiss(toast.id)}
-				className="absolute top-2 right-2 p-0.5 rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+				className="absolute top-2.5 right-2.5 p-1 rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
 			>
 				<Icon icon={tablerX} width={14} height={14} />
 			</button>

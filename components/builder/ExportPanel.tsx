@@ -21,10 +21,7 @@ import { ExportDropdown } from "@/components/ui/ExportDropdown";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain";
-import {
-	apiFailureToastMessage,
-	describeApiFailure,
-} from "@/lib/ui/apiFailure";
+import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
 import { showToast } from "@/lib/ui/toastStore";
 
 interface ExportPanelProps {
@@ -84,10 +81,12 @@ async function exportDoc(opts: {
 			/* With detail lines, the server's headline titles the toast and the
 			 * findings fill the body; without them, fall back to a generic title
 			 * so the headline isn't repeated as its own body. */
+			const toastBody = apiFailureToastBody(failure);
 			showToast(
 				"error",
 				failure.details.length > 0 ? failure.message : "Export failed",
-				apiFailureToastMessage(failure),
+				toastBody.message,
+				{ lines: toastBody.lines },
 			);
 			return;
 		}

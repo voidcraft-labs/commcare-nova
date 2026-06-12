@@ -27,6 +27,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import type { CommitOutcome, Field, FieldPatchFor } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
 import { AddPropertyButton } from "./AddPropertyButton";
@@ -50,7 +51,13 @@ export function FieldEditorSection<F extends Field>({
 	section,
 	entries,
 }: FieldEditorSectionProps<F>) {
-	const { updateField } = useBlueprintMutations();
+	/* Inline flavor: every per-key editor mounted in this section renders
+	 * the returned outcome contextually (the XPath tooltip, the text
+	 * editors' inline notice, the options/case-property adapters' local
+	 * notice), so the rejection toast stays quiet. */
+	const {
+		inline: { updateField },
+	} = useBlueprintMutations();
 	// `useSectionActivation` owns activation state, the partition, and
 	// both clear paths (pending-satisfied + empty-commit). The section
 	// is a pure renderer over the returned `visible` / `pills` arrays
@@ -161,10 +168,19 @@ export function FieldEditorSection<F extends Field>({
 								// the user can immediately start typing.
 								onClick={() => {
 									if (entry.valueOnAdd !== undefined) {
-										setKey(
+										const outcome = setKey(
 											entry.key as keyof F & string,
 											entry.valueOnAdd as F[keyof F & string],
 										);
+										/* A refused direct-add has NO editor mounted to
+										 * anchor the finding to (the editor only mounts
+										 * on success) — announce, the no-anchor
+										 * fallback. */
+										if (!outcome.ok && outcome.messages.length > 0) {
+											notifyRejectedCommit(
+												outcome.messages.map((message) => ({ message })),
+											);
+										}
 										return;
 									}
 									activate(entry.key as string);

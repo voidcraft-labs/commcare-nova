@@ -66,6 +66,13 @@ interface UseCommitFieldResult {
 	 * input.
 	 */
 	rejection: string | null;
+	/**
+	 * Increments on every refused commit — including a repeat refusal of
+	 * the SAME draft, which leaves `rejection` textually unchanged.
+	 * Consumers key the physical feedback (input shake) on this so a
+	 * second Enter on an unchanged bad value still visibly bounces.
+	 */
+	rejectionNonce: number;
 	/** Callback ref to attach to the input/textarea element. */
 	ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => void;
 	/** Wire to the input's onFocus. */
@@ -103,6 +110,7 @@ export function useCommitField({
 	const [focused, setFocused] = useState(false);
 	const [saved, setSaved] = useState(false);
 	const [rejection, setRejection] = useState<string | null>(null);
+	const [rejectionNonce, setRejectionNonce] = useState(0);
 
 	// Guards against double-commit: set before imperative .blur() so handleBlur
 	// knows not to re-commit after Enter or Escape already fired.
@@ -158,6 +166,7 @@ export function useCommitField({
 				if (outcome.messages.length > 0) {
 					committedRef.current = false;
 					setRejection(outcome.messages[0]);
+					setRejectionNonce((n) => n + 1);
 					setFocused(true);
 					restoringRef.current = true;
 					inputRef.current?.focus();
@@ -171,6 +180,9 @@ export function useCommitField({
 
 	const cancel = useCallback(() => {
 		committedRef.current = true;
+		// Escape reverts to the persisted value — nothing refused remains on
+		// screen, so the rejection notice must leave with the draft.
+		setRejection(null);
 		setFocused(false);
 		inputRef.current?.blur();
 		// If the field had no value to begin with, cancel still removes the item.
@@ -240,6 +252,7 @@ export function useCommitField({
 		focused,
 		saved,
 		rejection,
+		rejectionNonce,
 		ref,
 		handleFocus,
 		handleBlur,

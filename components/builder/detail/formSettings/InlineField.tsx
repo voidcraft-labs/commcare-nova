@@ -1,8 +1,10 @@
 "use client";
 import { useId } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import type { CommitOutcome } from "@/lib/domain";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
+import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 
 /**
  * Compact labeled text field used inside the form settings panel. Shares
@@ -57,6 +59,7 @@ export function InlineField({
 		focused,
 		saved,
 		rejection,
+		rejectionNonce,
 		ref,
 		handleFocus,
 		handleBlur,
@@ -70,13 +73,17 @@ export function InlineField({
 		required,
 		multiline,
 	});
+	const shakeProps = useRejectionShake(rejectionNonce);
 
 	// Compute the reason against the in-progress draft so the message
 	// tracks what the user is typing. Only surfaced while focused — at rest
 	// the field shows the persisted (valid) value, so no error chrome
 	// lingers. A gate `rejection` (the commit bounced AFTER local
-	// validation passed) shares the same display channel.
-	const reason = (validate && focused ? validate(draft) : null) ?? rejection;
+	// validation passed) shares the same display channel — but only the
+	// bounced commit carries the "Not saved" register line; a live reason
+	// is a pre-commit hint, nothing was refused yet.
+	const liveReason = validate && focused ? validate(draft) : null;
+	const reason = liveReason ?? rejection;
 
 	// `aria-describedby` ties the message to the input for assistive tech;
 	// only set when a reason is actually showing.
@@ -108,6 +115,7 @@ export function InlineField({
 					onFocus={handleFocus}
 					onBlur={handleBlur}
 					onKeyDown={handleKeyDown}
+					onAnimationEnd={shakeProps.onAnimationEnd}
 					placeholder={placeholder}
 					autoComplete="off"
 					data-1p-ignore
@@ -115,11 +123,11 @@ export function InlineField({
 					min={type === "number" ? 1 : undefined}
 					aria-invalid={reason ? true : undefined}
 					aria-describedby={reason ? reasonId : undefined}
-					className={`w-full text-xs px-2 py-1.5 rounded-md border transition-colors outline-none resize-none ${
+					className={`w-full text-xs px-2 py-1.5 rounded-md border transition-colors outline-none resize-none ${shakeProps.className} ${
 						mono ? "font-mono text-nova-violet-bright" : "text-nova-text"
 					} ${
 						reason
-							? "bg-nova-surface border-nova-rose/60 shadow-[0_0_0_1px_rgba(244,63,94,0.15)]"
+							? "bg-nova-surface border-nova-rose/60 shadow-[0_0_0_1px_rgba(212,112,143,0.15)]"
 							: focused
 								? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
 								: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
@@ -131,11 +139,11 @@ export function InlineField({
 					</span>
 				)}
 			</div>
-			{reason && (
-				<p id={reasonId} className="mt-0.5 text-[10px] text-nova-rose">
-					{reason}
-				</p>
-			)}
+			<RejectionInline
+				id={reasonId}
+				message={reason}
+				label={liveReason ? null : undefined}
+			/>
 		</div>
 	);
 }

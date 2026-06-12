@@ -27,7 +27,7 @@ interface ModuleScreenProps {
 export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const { updateModule } = useBlueprintMutations();
+	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 
@@ -43,8 +43,8 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	 * checkmark only fires on a committed rename. */
 	const saveModuleName = useCallback(
 		(name: string) =>
-			moduleUuid ? updateModule(moduleUuid, { name }) : undefined,
-		[updateModule, moduleUuid],
+			moduleUuid ? inline.updateModule(moduleUuid, { name }) : undefined,
+		[inline, moduleUuid],
 	);
 
 	if (!mod) return null;

@@ -39,11 +39,14 @@ export function describeApiFailure(
 	return { message, details };
 }
 
-/** Render an `ApiFailure` as the body text of a toast — the detail lines
- *  joined one-per-line (the toast renderer preserves line breaks), or the
- *  bare message when the response carried no details. */
-export function apiFailureToastMessage(failure: ApiFailure): string {
+/** Project an `ApiFailure` onto the toast's body shape: detail lines ride
+ *  the structured `lines` option (each finding gets its own row chrome);
+ *  a detail-less failure rides the plain `message`. */
+export function apiFailureToastBody(failure: ApiFailure): {
+	message: string | undefined;
+	lines: string[] | undefined;
+} {
 	return failure.details.length > 0
-		? failure.details.join("\n")
-		: failure.message;
+		? { message: undefined, lines: failure.details }
+		: { message: failure.message, lines: undefined };
 }

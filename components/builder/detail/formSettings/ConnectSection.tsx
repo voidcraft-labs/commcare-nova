@@ -5,6 +5,7 @@ import {
 	ConnectEnableDialog,
 	type ConnectStagingTarget,
 } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import { useAppConnectIds } from "@/lib/doc/hooks/useAppConnectIds";
@@ -49,7 +50,11 @@ export function ConnectSection({
 }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
-	const { updateForm: updateFormAction } = useBlueprintMutations();
+	/* Inline flavor throughout: every rejection in this section has a
+	 * contextual surface — the sub-config editors keep refused drafts with
+	 * the finding, the staging dialog shows findings in its footer, and a
+	 * refused toggle-off renders its notice right under the toggle row. */
+	const { inline } = useBlueprintMutations();
 	const connectType = useConnectTypeOrUndefined();
 	const connect = form?.connect;
 	const enabled = !!connect;
@@ -62,6 +67,10 @@ export function ConnectSection({
 	const [staging, setStaging] = useState<
 		{ rejectionMessages: string[] } | undefined
 	>();
+	/** The gate's finding from a refused toggle-OFF (removing the app's
+	 *  last participating form's block) — rendered under the toggle row,
+	 *  cleared on the next toggle gesture. */
+	const [disableRejection, setDisableRejection] = useState<string | null>(null);
 
 	/* Session stash — a block stashed here (or by an app-level mode
 	 * switch) restores when the user toggles participation back on. */
@@ -72,26 +81,29 @@ export function ConnectSection({
 		(config: ConnectConfig | null) => {
 			// Forward the gated outcome so sub-config editors keep a refused
 			// draft on screen with the finding.
-			return updateFormAction(asUuid(formUuid), {
+			return inline.updateForm(asUuid(formUuid), {
 				connect: config ?? undefined,
 			});
 		},
-		[updateFormAction, formUuid],
+		[inline, formUuid],
 	);
 
 	const toggle = useCallback(() => {
 		if (!connectType) return;
+		setDisableRejection(null);
 
 		if (enabled) {
 			// Toggle-off: an ordinary gated edit. Removing the app's LAST
-			// participating form's block bounces with the app-level finding
-			// (surfaced by the standard rejection toast); otherwise the form
-			// simply stops participating. The block is stashed only after
-			// the commit lands so toggling back on restores the user's work.
+			// participating form's block bounces with the app-level finding,
+			// shown right under the toggle row; otherwise the form simply
+			// stops participating. The block is stashed only after the
+			// commit lands so toggling back on restores the user's work.
 			const removed = connect;
 			const outcome = save(null);
-			if (outcome.ok && removed) {
-				stashFormConnect(connectType, formUuid, removed);
+			if (outcome.ok) {
+				if (removed) stashFormConnect(connectType, formUuid, removed);
+			} else {
+				setDisableRejection(outcome.messages[0] ?? null);
 			}
 			return;
 		}
@@ -174,6 +186,10 @@ export function ConnectSection({
 				</div>
 				<Toggle enabled={enabled} onToggle={toggle} />
 			</div>
+
+			{/* A refused toggle-off explains itself where the gesture happened —
+			 * the label keeps the toggle's own vocabulary. */}
+			<RejectionInline message={disableRejection} label="Still participating" />
 
 			<AnimatePresence>
 				{connect && (

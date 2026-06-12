@@ -61,7 +61,12 @@ const updateFieldMock = vi.fn(
 	(_uuid: unknown, _kind: unknown, _patch: unknown) => ({ ok: true }) as const,
 );
 vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
-	useBlueprintMutations: () => ({ updateField: updateFieldMock }),
+	// The editor dispatches through the inline (no-toast) flavor — mirror
+	// the hook's announcing + inline twin shape.
+	useBlueprintMutations: () => ({
+		updateField: updateFieldMock,
+		inline: { updateField: updateFieldMock },
+	}),
 }));
 
 // The display/commit hooks subscribe to the doc store; the test mounts

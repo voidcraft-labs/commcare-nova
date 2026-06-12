@@ -107,7 +107,9 @@ describe("OptionsEditor", () => {
 	});
 
 	it("dispatches the expanded list when Add option is clicked", () => {
-		const onChange = vi.fn();
+		const onChange = vi.fn(
+			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+		);
 		render(
 			<OptionsEditor
 				field={baseField}
@@ -142,7 +144,9 @@ describe("OptionsEditor", () => {
 	});
 
 	it("dispatches the updated list when a label is edited and the group blurs", async () => {
-		const onChange = vi.fn();
+		const onChange = vi.fn(
+			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+		);
 		render(
 			<OptionsEditor
 				field={baseField}
@@ -165,12 +169,14 @@ describe("OptionsEditor", () => {
 		);
 		expect(onChange).toHaveBeenCalled();
 		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-		expect(last[0]).toEqual({ value: "red", label: "Crimson" });
-		expect(last[1]).toEqual({ value: "blue", label: "Blue" });
+		expect(last?.[0]).toEqual({ value: "red", label: "Crimson" });
+		expect(last?.[1]).toEqual({ value: "blue", label: "Blue" });
 	});
 
 	it("dispatches a shorter list when an option row is removed", () => {
-		const onChange = vi.fn();
+		const onChange = vi.fn(
+			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+		);
 		render(
 			<OptionsEditor
 				field={{
@@ -203,11 +209,13 @@ describe("OptionsEditor", () => {
 		expect(onChange).toHaveBeenCalled();
 		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
 		expect(last).toHaveLength(2);
-		expect(last[0]).toEqual({ value: "blue", label: "Blue" });
+		expect(last?.[0]).toEqual({ value: "blue", label: "Blue" });
 	});
 
 	it("clamps drafts below min(2) to undefined at the adapter boundary", () => {
-		const onChange = vi.fn();
+		const onChange = vi.fn(
+			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+		);
 		render(
 			<OptionsEditor
 				field={baseField}

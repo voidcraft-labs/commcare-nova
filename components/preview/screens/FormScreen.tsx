@@ -111,7 +111,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const caseId = screen.caseId;
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const { updateForm } = useBlueprintMutations();
+	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const appId = useAppId();
@@ -374,7 +374,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							 * finding inline; the saved checkmark only fires on a
 							 * committed rename. */
 							onSave={(name) =>
-								formUuid ? updateForm(formUuid, { name }) : undefined
+								formUuid ? inline.updateForm(formUuid, { name }) : undefined
 							}
 						/>
 					) : (

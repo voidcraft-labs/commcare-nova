@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import { DraftField } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
 import { deriveConnectId } from "@/lib/commcare/connectSlugs";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
@@ -80,6 +81,18 @@ export function DeliverConfig({
 	const [stagedTask, setStagedTask] = useState<
 		{ name: string; description: string } | undefined
 	>();
+	/** A refusal from a gesture with no input of its own — the sub-toggles,
+	 *  restores, clears, and the staged Add — rendered beneath the cards.
+	 *  The field editors present their own outcomes and bypass this. */
+	const [saveRejection, setSaveRejection] = useState<string | null>(null);
+	const dispatchSave = useCallback(
+		(config: ConnectConfig) => {
+			const outcome = save(config);
+			setSaveRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+			return outcome;
+		},
+		[save],
+	);
 
 	// Name-derived defaults for a freshly enabled sub-config, unique against
 	// every other connect id in the app (connect ids share one app-wide
@@ -138,12 +151,12 @@ export function DeliverConfig({
 		(field: "entity_id" | "entity_name") => {
 			if (!connect.deliver_unit) return;
 			const { [field]: _removed, ...rest } = connect.deliver_unit;
-			save({
+			dispatchSave({
 				...connect,
 				deliver_unit: rest as NonNullable<ConnectConfig["deliver_unit"]>,
 			});
 		},
-		[connect, save],
+		[connect, dispatchSave],
 	);
 
 	const updateTask = useCallback(
@@ -156,22 +169,24 @@ export function DeliverConfig({
 
 	const toggleDeliver = useCallback(() => {
 		if (stagedDeliver) {
-			/* Discard the uncommitted draft — nothing ever reached the doc. */
+			/* Discard the uncommitted draft — nothing ever reached the doc,
+			 * so nothing refused remains. */
 			setStagedDeliver(undefined);
+			setSaveRejection(null);
 		} else if (deliverEnabled) {
 			const { deliver_unit: _removed, ...rest } = connect;
-			save(rest as ConnectConfig);
+			dispatchSave(rest as ConnectConfig);
 		} else {
 			const restored = lastDeliverRef.current;
 			if (restored?.name.trim()) {
-				save(restoreConfig({ ...connect, deliver_unit: restored }));
+				dispatchSave(restoreConfig({ ...connect, deliver_unit: restored }));
 			} else {
 				/* No prior work to restore — stage and collect the name from
 				 * the user before anything commits. */
 				setStagedDeliver({ name: "" });
 			}
 		}
-	}, [stagedDeliver, deliverEnabled, connect, save, restoreConfig]);
+	}, [stagedDeliver, deliverEnabled, connect, dispatchSave, restoreConfig]);
 
 	const commitStagedDeliver = useCallback(() => {
 		if (!stagedDeliver?.name.trim()) return;
@@ -182,28 +197,29 @@ export function DeliverConfig({
 		 * single home for the canonical default XPath expressions —
 		 * duplicating those literals here would silently bake stale strings
 		 * into the persisted doc if the canonical defaults ever evolve. */
-		const outcome = save({
+		const outcome = dispatchSave({
 			...connect,
 			deliver_unit: { id: deliverId, name: stagedDeliver.name.trim() },
 		});
 		if (outcome.ok) setStagedDeliver(undefined);
-	}, [stagedDeliver, connect, save, defaultIds]);
+	}, [stagedDeliver, connect, dispatchSave, defaultIds]);
 
 	const toggleTask = useCallback(() => {
 		if (stagedTask) {
 			setStagedTask(undefined);
+			setSaveRejection(null);
 		} else if (taskEnabled) {
 			const { task: _removed, ...rest } = connect;
-			save(rest as ConnectConfig);
+			dispatchSave(rest as ConnectConfig);
 		} else {
 			const restored = lastTaskRef.current;
 			if (restored && (restored.name.trim() || restored.description.trim())) {
-				save(restoreConfig({ ...connect, task: restored }));
+				dispatchSave(restoreConfig({ ...connect, task: restored }));
 			} else {
 				setStagedTask({ name: "", description: "" });
 			}
 		}
-	}, [stagedTask, taskEnabled, connect, save, restoreConfig]);
+	}, [stagedTask, taskEnabled, connect, dispatchSave, restoreConfig]);
 
 	const stagedTaskReady =
 		stagedTask !== undefined &&
@@ -213,7 +229,7 @@ export function DeliverConfig({
 	const commitStagedTask = useCallback(() => {
 		if (!stagedTask?.name.trim() || !stagedTask.description.trim()) return;
 		const { taskId } = defaultIds();
-		const outcome = save({
+		const outcome = dispatchSave({
 			...connect,
 			task: {
 				id: taskId,
@@ -222,7 +238,7 @@ export function DeliverConfig({
 			},
 		});
 		if (outcome.ok) setStagedTask(undefined);
-	}, [stagedTask, connect, save, defaultIds]);
+	}, [stagedTask, connect, dispatchSave, defaultIds]);
 
 	return (
 		<div className="space-y-2">
@@ -392,6 +408,10 @@ export function DeliverConfig({
 					)}
 				</AnimatePresence>
 			</div>
+
+			{/* A refused toggle/restore/clear/Add explains itself here — those
+			 * gestures have no input to anchor the finding to. */}
+			<RejectionInline message={saveRejection} />
 		</div>
 	);
 }

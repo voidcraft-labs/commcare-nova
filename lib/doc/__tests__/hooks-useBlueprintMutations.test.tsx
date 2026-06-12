@@ -1348,11 +1348,41 @@ describe("useBlueprintMutations — commit gate", () => {
 		expect(returned.messages[0]).toContain("has no fields");
 		const s = result.current.store?.getState();
 		expect(s?.forms[asUuid("form-gated-uuid")]).toBeUndefined();
-		// The rejection surfaced person-to-person, not silently.
+		// The rejection surfaced person-to-person, not silently — each
+		// finding rides the toast's structured lines.
 		const toast = toastStore.toasts.at(-1);
 		expect(toast?.severity).toBe("error");
-		expect(toast?.message).toContain("has no fields");
+		expect(toast?.title).toBe("Change not applied");
+		expect(toast?.lines?.[0]).toContain("has no fields");
 		toastStore.clear();
+	});
+
+	it("inline flavor: same rejection, same no-op return, NO toast (the caller presents it)", () => {
+		toastStore.clear();
+		const { result } = renderHook(() => useMutationsWithStore(), {
+			wrapper: wrapper,
+		});
+
+		let returned = { ok: true, uuid: "unset" as Uuid } as AddCommitOutcome;
+		act(() => {
+			const s = result.current.store?.getState();
+			assert(s);
+			returned = result.current.mutations.inline.addForm(s.moduleOrder[0], {
+				uuid: "form-gated-inline-uuid",
+				id: "gated_inline",
+				name: "Gated Inline",
+				type: "survey",
+			});
+		});
+
+		// Identical gate semantics — findings returned for the caller's
+		// contextual surface…
+		assert(!returned.ok);
+		expect(returned.messages[0]).toContain("has no fields");
+		const s = result.current.store?.getState();
+		expect(s?.forms[asUuid("form-gated-inline-uuid")]).toBeUndefined();
+		// …and the toast stays quiet: one rejection, one presentation.
+		expect(toastStore.toasts).toHaveLength(0);
 	});
 
 	it("dispatches a clean edit unchanged (the gate is transparent on pass)", () => {
