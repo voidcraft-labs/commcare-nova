@@ -34,6 +34,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { OptionalMarkdownRow } from "./OptionalMarkdownRow";
 import { OptionalTextRow } from "./OptionalTextRow";
 
 export interface SearchPanelInspectorBodyProps {
@@ -77,13 +78,11 @@ export function SearchPanelInspectorBody({
 				placeholder="Find a patient"
 			/>
 
-			<OptionalTextRow
+			<OptionalMarkdownRow
 				label="Subtitle"
-				hint="Shown below the title. Supports markdown — bold, links, and lists."
+				hint="Shown below the title."
 				value={value?.searchScreenSubtitle}
 				onCommit={setSubtitle}
-				placeholder="Search by name, date of birth, or village."
-				markdown
 			/>
 
 			<OptionalTextRow
