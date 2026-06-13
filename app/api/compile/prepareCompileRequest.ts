@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { ApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { errorToString } from "@/lib/commcare/validator/errors";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
@@ -77,10 +77,13 @@ export async function prepareCompileRequest(
 		session.user.id,
 	);
 	if (violations.length > 0) {
+		// The concise builder copy on the detail lines — this is a
+		// user-facing failure. (The SA's compile path reads the verbose
+		// `message` through its own envelope, not this route.)
 		throw new ApiError(
 			`This app isn't ready to ${boundaryErrorVerb} — fix the issues below, then try again.`,
 			422,
-			violations.map(errorToString),
+			violations.map(userFacingError),
 		);
 	}
 

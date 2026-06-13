@@ -101,7 +101,7 @@ describe("POST /api/compile — boundary gate", () => {
 		const body = (await res.json()) as { error: string; details?: string[] };
 
 		expect(res.status).toBe(422);
-		expect(body.details?.[0]).toContain("audio file");
+		expect(body.details?.[0]).toContain("wrong type");
 		/* The gate short-circuits BEFORE expand + compile — neither runs
 		 * on a media-invalid doc. */
 		expect(expandDoc).not.toHaveBeenCalled();

@@ -67,6 +67,23 @@ import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 
 // ── Outcome shape ───────────────────────────────────────────────────────
 
+/** A blocked retirement's reference site, rendered for TWO audiences:
+ *  `verbose` keeps the wire spelling the SA self-corrects on (the raw
+ *  `case_property_on` slot key, the literal `#<type>/…` hashtag);
+ *  `concise` is the jargon-free line the builder toast shows. Equal for
+ *  sites that never carried wire vocabulary (the case type name itself is
+ *  a user concept). */
+interface RetirementReference {
+	verbose: string;
+	concise: string;
+}
+
+/** A reference site whose description is identical for both audiences. */
+const sameRef = (line: string): RetirementReference => ({
+	verbose: line,
+	concise: line,
+});
+
 /** The cascade decision for a batch that displaces a module's case type. */
 export type CaseTypeRetirement =
 	/** No record is being orphaned — the batch needs no cascade. */
@@ -75,13 +92,15 @@ export type CaseTypeRetirement =
 	 *  `mutations` to the same batch to retire it. */
 	| { kind: "retire"; caseType: string; mutations: Mutation[] }
 	/** The displaced type's record is orphaned but still referenced —
-	 *  the batch must not run; `message` names every reference and the
-	 *  repair. */
+	 *  the batch must not run. `message` names every reference and the
+	 *  repair for the SA (wire spelling intact); `userMessage` is the same
+	 *  frame in the concise builder voice. */
 	| {
 			kind: "blocked";
 			caseType: string;
 			references: string[];
 			message: string;
+			userMessage: string;
 	  };
 
 /**
@@ -148,8 +167,19 @@ function planRetirement(
 		return {
 			kind: "blocked",
 			caseType: displaced,
-			references,
-			message: blockedRetirementMessage(opts.action, displaced, references),
+			// The field keeps the verbose strings (SA / introspection); the
+			// two renderings differ only in the per-reference lines.
+			references: references.map((r) => r.verbose),
+			message: blockedRetirementMessage(
+				opts.action,
+				displaced,
+				references.map((r) => r.verbose),
+			),
+			userMessage: blockedRetirementMessage(
+				opts.action,
+				displaced,
+				references.map((r) => r.concise),
+			),
 		};
 	}
 
@@ -215,13 +245,13 @@ function findCaseTypeReferences(
 	doc: BlueprintDoc,
 	caseType: string,
 	opts: { excludeModuleUuid?: Uuid } = {},
-): string[] {
-	const references: string[] = [];
+): RetirementReference[] {
+	const references: RetirementReference[] = [];
 
 	for (const ct of doc.caseTypes ?? []) {
 		if (ct.name !== caseType && ct.parent_type === caseType) {
 			references.push(
-				`case type "${ct.name}" declares "${caseType}" as its parent`,
+				sameRef(`case type "${ct.name}" declares "${caseType}" as its parent`),
 			);
 		}
 	}
@@ -350,7 +380,7 @@ function collectFieldReferences(
 	field: Field,
 	caseType: string,
 	where: string,
-	out: string[],
+	out: RetirementReference[],
 ): void {
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
@@ -358,9 +388,10 @@ function collectFieldReferences(
 			case "case-type-ref": {
 				for (const entry of readSlotStrings(field, slot.path)) {
 					if (entry.text === caseType) {
-						out.push(
-							`field "${field.id}" in ${where} saves to it (case_property_on)`,
-						);
+						out.push({
+							verbose: `field "${field.id}" in ${where} saves to it (case_property_on)`,
+							concise: `field "${field.id}" in ${where} saves to it`,
+						});
 					}
 				}
 				break;
@@ -381,9 +412,10 @@ function collectFieldReferences(
 								part.namespace !== "case"),
 					);
 					if (names) {
-						out.push(
-							`field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" expression`,
-						);
+						out.push({
+							verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" expression`,
+							concise: `field "${field.id}" in ${where} uses it in its "${slot.slot}"`,
+						});
 					}
 				}
 				break;
@@ -391,9 +423,10 @@ function collectFieldReferences(
 			case "prose": {
 				for (const entry of readSlotStrings(field, slot.path)) {
 					if (proseNamesCaseType(entry.text, caseType)) {
-						out.push(
-							`field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" text`,
-						);
+						out.push({
+							verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" text`,
+							concise: `field "${field.id}" in ${where} mentions it in its "${slot.slot}" text`,
+						});
 					}
 				}
 				break;
@@ -417,7 +450,7 @@ function collectFormSlotReferences(
 	form: Form,
 	caseType: string,
 	where: string,
-	out: string[],
+	out: RetirementReference[],
 ): void {
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		if (slot.kind !== "xpath-ast") continue;
@@ -433,9 +466,10 @@ function collectFormSlotReferences(
 						part.namespace !== "case"),
 			);
 			if (names) {
-				out.push(
-					`${where} references #${caseType}/… in its "${slot.slot}" expression`,
-				);
+				out.push({
+					verbose: `${where} references #${caseType}/… in its "${slot.slot}" expression`,
+					concise: `${where} uses it in its "${slot.slot}"`,
+				});
 			}
 		}
 	}
@@ -461,7 +495,7 @@ function collectFormSlotReferences(
 function collectModuleConfigReferences(
 	mod: Module,
 	caseType: string,
-	out: string[],
+	out: RetirementReference[],
 ): void {
 	const where = `module "${mod.name}"`;
 	const list = mod.caseListConfig;
@@ -487,7 +521,9 @@ function collectModuleConfigReferences(
 						expressionRefsCaseType(col.expression, caseType)
 					) {
 						out.push(
-							`a calculated case-list column ("${col.header}") on ${where} reads a "${caseType}" property`,
+							sameRef(
+								`a calculated case-list column ("${col.header}") on ${where} reads a "${caseType}" property`,
+							),
 						);
 					}
 				}
@@ -496,7 +532,9 @@ function collectModuleConfigReferences(
 			case "case_list_filter": {
 				if (list?.filter && predicateRefsCaseType(list.filter, caseType)) {
 					out.push(
-						`the case-list filter on ${where} reads a "${caseType}" property`,
+						sameRef(
+							`the case-list filter on ${where} reads a "${caseType}" property`,
+						),
 					);
 				}
 				break;
@@ -507,7 +545,9 @@ function collectModuleConfigReferences(
 						input.kind === "simple" &&
 						viaNamesCaseType(input.via, caseType)
 					) {
-						out.push(`${inputName(input.name)} walks through "${caseType}"`);
+						out.push(
+							sameRef(`${inputName(input.name)} walks through "${caseType}"`),
+						);
 					}
 				}
 				break;
@@ -519,7 +559,9 @@ function collectModuleConfigReferences(
 						expressionRefsCaseType(input.default, caseType)
 					) {
 						out.push(
-							`${inputName(input.name)} defaults from a "${caseType}" property`,
+							sameRef(
+								`${inputName(input.name)} defaults from a "${caseType}" property`,
+							),
 						);
 					}
 				}
@@ -531,7 +573,11 @@ function collectModuleConfigReferences(
 						input.kind === "advanced" &&
 						predicateRefsCaseType(input.predicate, caseType)
 					) {
-						out.push(`${inputName(input.name)} reads a "${caseType}" property`);
+						out.push(
+							sameRef(
+								`${inputName(input.name)} reads a "${caseType}" property`,
+							),
+						);
 					}
 				}
 				break;
@@ -542,7 +588,9 @@ function collectModuleConfigReferences(
 					predicateRefsCaseType(search.searchButtonDisplayCondition, caseType)
 				) {
 					out.push(
-						`the search-button display condition on ${where} reads a "${caseType}" property`,
+						sameRef(
+							`the search-button display condition on ${where} reads a "${caseType}" property`,
+						),
 					);
 				}
 				break;
@@ -553,7 +601,9 @@ function collectModuleConfigReferences(
 					expressionRefsCaseType(search.excludedOwnerIds, caseType)
 				) {
 					out.push(
-						`the excluded-owners expression on ${where} reads a "${caseType}" property`,
+						sameRef(
+							`the excluded-owners expression on ${where} reads a "${caseType}" property`,
+						),
 					);
 				}
 				break;

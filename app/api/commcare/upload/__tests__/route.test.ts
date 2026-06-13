@@ -139,7 +139,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		const body = (await res.json()) as { error: string; details?: string[] };
 
 		expect(res.status).toBe(422);
-		expect(body.details?.[0]).toContain("still uploading");
+		expect(body.details?.[0]).toContain("uploading");
 		/* The gate must short-circuit BEFORE import — an invalid app
 		 * never reaches HQ. */
 		expect(importApp).not.toHaveBeenCalled();

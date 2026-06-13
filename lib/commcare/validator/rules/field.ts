@@ -382,7 +382,7 @@ function reservedFieldIdPrefix(
 		validationError(
 			"RESERVED_FIELD_ID_PREFIX",
 			"field",
-			`Field "${field.id}" in "${ctx.formName}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes CommCare-Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}" — anything else, like dropping the leading "${RESERVED_XFORM_NODE_PREFIX}", works.`,
+			`Field "${field.id}" in "${ctx.formName}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}" — anything else, like dropping the leading "${RESERVED_XFORM_NODE_PREFIX}", works.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,

@@ -174,12 +174,11 @@ export function FieldEditorSection<F extends Field>({
 										);
 										/* A refused direct-add has NO editor mounted to
 										 * anchor the finding to (the editor only mounts
-										 * on success) — announce, the no-anchor
-										 * fallback. */
+										 * on success) — announce, the no-anchor fallback.
+										 * `messages` is already the concise builder copy
+										 * (the inline flavor rendered it). */
 										if (!outcome.ok && outcome.messages.length > 0) {
-											notifyRejectedCommit(
-												outcome.messages.map((message) => ({ message })),
-											);
+											notifyRejectedCommit(outcome.messages);
 										}
 										return;
 									}

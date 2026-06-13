@@ -152,7 +152,7 @@ describe("POST /api/compile/json", () => {
 
 		expect(res.status).toBe(422);
 		expect(body.error).toContain("isn't ready to export");
-		expect(body.details?.[0]).toContain("audio file");
+		expect(body.details?.[0]).toContain("wrong type");
 		// The boundary gate short-circuits before expand.
 		expect(expandDoc).not.toHaveBeenCalled();
 	});

@@ -26,9 +26,9 @@ import {
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
-import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
 			throw new ApiError(
 				"This app isn't ready to upload — fix the issues below, then try again.",
 				422,
-				violations.map(errorToString),
+				violations.map(userFacingError),
 			);
 		}
 

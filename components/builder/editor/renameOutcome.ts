@@ -42,11 +42,12 @@ interface ClassifyArgs {
 export function classifyRenameOutcome(args: ClassifyArgs): RenameOutcome {
 	if (!args.newId) return { kind: "noop" };
 	if (!args.verdict.ok) {
-		// The verdict's message embeds the offending id verbatim so the
-		// user sees exactly which value was rejected — important when the
-		// input wrapper is small enough that the live value isn't also
-		// visible while the popover is open.
-		return { kind: "rejected", message: args.verdict.message };
+		// The verdict's CONCISE `userMessage` (not the SA-facing verbose
+		// `message`) — this is the builder surface. It embeds the offending
+		// id verbatim so the user sees exactly which value was rejected,
+		// important when the input wrapper is small enough that the live
+		// value isn't also visible while the popover is open.
+		return { kind: "rejected", message: args.verdict.userMessage };
 	}
 	return { kind: "success" };
 }

@@ -31,8 +31,9 @@
  * (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` — the
  * `identifierVerdicts` pattern generalized to the whole validator). An
  * edit that would introduce a validator finding is rejected: nothing
- * dispatches, the rejection toast lists each finding's
- * person-to-person message, and the method returns its no-op shape.
+ * dispatches, the rejection surfaces each finding's CONCISE builder copy
+ * (`userFacingErrors` — the SA keeps the verbose `ValidationError.message`),
+ * and the method returns its no-op shape.
  * Undo/redo (the temporal store), hydration (`load`), the agent stream
  * (`streamDispatcher`), and replay all write through other paths and
  * deliberately bypass this gate — they replay already-committed
@@ -60,6 +61,7 @@ import type {
 	MutationResult,
 	Uuid,
 } from "@/lib/doc/types";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
 	type AssetId,
 	asUuid,
@@ -456,11 +458,12 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				| { ok: false; messages: string[] } => {
 				const verdict = mutationCommitVerdict(get(), mutations);
 				if (!verdict.ok) {
-					if (announce) notifyRejectedCommit(verdict.introduced);
-					return {
-						ok: false,
-						messages: verdict.introduced.map((err) => err.message),
-					};
+					// Render to the concise BUILDER copy once — both the toast
+					// and the returned `CommitOutcome.messages` speak it. The
+					// SA path keeps the verbose `ValidationError.message`.
+					const lines = userFacingErrors(verdict.introduced);
+					if (announce) notifyRejectedCommit(lines);
+					return { ok: false, messages: lines };
 				}
 				store.getState().commitDoc(verdict.nextDoc);
 				return { ok: true, results: verdict.results };
@@ -827,9 +830,8 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 							? planCaseTypeRetirementOnRetype(doc, uuid, patch.caseType)
 							: { kind: "none" };
 					if (retirement.kind === "blocked") {
-						if (announce)
-							notifyRejectedCommit([{ message: retirement.message }]);
-						return { ok: false, messages: [retirement.message] };
+						if (announce) notifyRejectedCommit([retirement.userMessage]);
+						return { ok: false, messages: [retirement.userMessage] };
 					}
 					return toOutcome(
 						guardedApply([
@@ -869,9 +871,8 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					 * `removeModule` tool runs (`lib/doc/caseTypeRetirement.ts`). */
 					const retirement = planCaseTypeRetirementOnRemove(doc, uuid);
 					if (retirement.kind === "blocked") {
-						if (announce)
-							notifyRejectedCommit([{ message: retirement.message }]);
-						return { ok: false, messages: [retirement.message] };
+						if (announce) notifyRejectedCommit([retirement.userMessage]);
+						return { ok: false, messages: [retirement.userMessage] };
 					}
 					return toOutcome(
 						guardedApply([

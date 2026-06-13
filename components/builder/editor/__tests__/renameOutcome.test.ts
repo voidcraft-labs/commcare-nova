@@ -22,7 +22,12 @@ const okVerdict: FieldIdVerdict = { ok: true };
 const conflictVerdict: FieldIdVerdict = {
 	ok: false,
 	code: "sibling_conflict",
-	message: 'Another field at the same level is already named "occupied".',
+	// Verbose (SA) message + the concise builder line; the classifier
+	// surfaces the latter, since this is the rename popover surface.
+	message:
+		'Another field at the same level is already named "occupied". Fields that sit side by side share an XML path, so each needs a unique id.',
+	userMessage:
+		'Another field is already named "occupied". Pick a different id.',
 };
 
 describe("classifyRenameOutcome", () => {
@@ -35,15 +40,16 @@ describe("classifyRenameOutcome", () => {
 		});
 	});
 
-	it("returns rejected carrying the verdict's message verbatim", () => {
-		// The verdict's message embeds the offending id, so the header
-		// renders it untouched — the classifier must not rewrap or
-		// truncate it.
+	it("returns rejected carrying the verdict's CONCISE userMessage", () => {
+		// This is the builder rename popover — the classifier surfaces the
+		// verdict's concise `userMessage` (not the SA-facing verbose
+		// `message`), embedding the offending id, untouched.
 		expect(
 			classifyRenameOutcome({ newId: "occupied", verdict: conflictVerdict }),
 		).toEqual({
 			kind: "rejected",
-			message: 'Another field at the same level is already named "occupied".',
+			message:
+				'Another field is already named "occupied". Pick a different id.',
 		});
 	});
 

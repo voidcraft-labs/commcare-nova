@@ -31,6 +31,7 @@ import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
@@ -758,13 +759,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * enable dialog's footer). */
 					const verdict = mutationCommitVerdict(docState, mutations);
 					if (!verdict.ok) {
+						// Concise builder copy for both the toast and the returned
+						// outcome (the dialog footer reads it); the SA keeps the
+						// verbose `ValidationError.message`.
+						const lines = userFacingErrors(verdict.introduced);
 						if (opts?.announce !== false) {
-							notifyRejectedCommit(verdict.introduced);
+							notifyRejectedCommit(lines);
 						}
-						return {
-							ok: false,
-							messages: verdict.introduced.map((err) => err.message),
-						};
+						return { ok: false, messages: lines };
 					}
 					/* Commit the validated candidate (one reducer run, one undo
 					 * entry), THEN the stash — a pure state write that can't fail. */

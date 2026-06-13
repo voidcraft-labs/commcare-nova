@@ -241,6 +241,40 @@ describe("planCaseTypeRetirementOnRemove", () => {
 		]);
 	});
 
+	it("two-voice split: message keeps the wire spelling, userMessage is jargon-free", () => {
+		// The same blocked verdict feeds the SA `{ error }` envelope (verbose
+		// `message` — the raw `case_property_on` slot key, the `#type/…`
+		// reference shape) AND the builder toast (`userMessage` — neither).
+		const doc = twoModuleDoc({
+			patientExtraFields: [
+				f({
+					kind: "text",
+					id: "summary",
+					label: "Last visit was #visit/case_name",
+					case_property_on: "visit",
+				}),
+			],
+		});
+		const plan = planCaseTypeRetirementOnRemove(
+			doc,
+			moduleUuidByName(doc, "Visits"),
+		);
+		expect(plan.kind).toBe("blocked");
+		if (plan.kind !== "blocked") return;
+
+		// SA voice keeps the detail it self-corrects on.
+		expect(plan.message).toContain("(case_property_on)");
+		expect(plan.message).toContain("#visit/");
+
+		// Builder voice carries neither — same facts, no wire vocabulary.
+		expect(plan.userMessage).not.toContain("case_property_on");
+		expect(plan.userMessage).not.toContain("#visit/");
+		expect(plan.userMessage).toContain('field "summary"');
+		expect(plan.userMessage).toContain("saves to it");
+		// The repair frame stays the same plain-English shape in both.
+		expect(plan.userMessage).toContain("Remove or retarget");
+	});
+
 	it("blocks on a #type/… hashtag in another module's XPath and prose slots", () => {
 		const doc = twoModuleDoc({
 			patientExtraFields: [

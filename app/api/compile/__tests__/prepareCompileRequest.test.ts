@@ -121,10 +121,12 @@ describe("prepareCompileRequest", () => {
 		expect((compileErr as ApiError).message).toBe(
 			"This app isn't ready to compile — fix the issues below, then try again.",
 		);
-		// One detail line per finding, in the validator's own words.
+		// One detail line per finding, rendered in the CONCISE builder
+		// voice (`userFacingError`) — not the verbose validator message the
+		// SA reads. Each line names the finding's entity, no wire detail.
 		expect((compileErr as ApiError).details).toEqual([
-			'"Reg" in "Patients" has no fields.',
-			"stale ref",
+			'"Reg" has no fields yet. Add at least one before you can use it.',
+			"An attached file is the wrong type for its slot. Replace it, or clear the slot.",
 		]);
 
 		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([

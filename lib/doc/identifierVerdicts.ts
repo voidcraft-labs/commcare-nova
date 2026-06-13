@@ -37,7 +37,8 @@ import {
 } from "@/lib/domain";
 
 /** Why an id was rejected. Useful for tests and for callers that brand
- *  failure classes differently; human-facing copy rides `message`. */
+ *  failure classes differently; human-facing copy rides `message` /
+ *  `userMessage`. */
 export type FieldIdRejectionCode =
 	| "illegal_xml_name"
 	| "reserved_prefix"
@@ -45,14 +46,30 @@ export type FieldIdRejectionCode =
 	| "sibling_conflict";
 
 /**
- * The one verdict shape every caller consumes. The UI renders `message`
- * inline (shake + popover); the SA/MCP tool layer maps it to the
- * standard `{ error }` envelope. Messages are written person-to-person:
- * what was tried, what's expected, what to look at.
+ * The one verdict shape every caller consumes — carrying TWO renderings
+ * of the same rejection for two audiences:
+ *
+ *   - `message` — the verbose, person-to-person sentence that names the
+ *     underlying constraint (it's an XML element name, the case-property
+ *     cap, …). The SA/MCP tool layer reads this; the agent acts on the
+ *     "why", and the detail is what lets it self-correct.
+ *   - `userMessage` — the concise builder-UI line. A person renaming a
+ *     field doesn't need to know an id is also an XML element name — only
+ *     that this one won't work and what to do instead. No platform
+ *     mechanics, no wire vocabulary.
+ *
+ * Same rejection, two voices: deepen the explanation in `message`, never
+ * in `userMessage`. The UI renders `userMessage`; the agent reads
+ * `message`.
  */
 export type FieldIdVerdict =
 	| { ok: true }
-	| { ok: false; code: FieldIdRejectionCode; message: string };
+	| {
+			ok: false;
+			code: FieldIdRejectionCode;
+			message: string;
+			userMessage: string;
+	  };
 
 const OK: FieldIdVerdict = { ok: true };
 
@@ -67,6 +84,8 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			code: "illegal_xml_name",
 			message:
 				"A field id can't be empty. The id becomes the question's name in the form and the case property it saves to — give it a short name like \"first_name\".",
+			userMessage:
+				'A field id can\'t be blank. Give it a short name like "first_name".',
 		};
 	}
 	if (!XML_ELEMENT_NAME_REGEX.test(proposedId)) {
@@ -74,13 +93,15 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			ok: false,
 			code: "illegal_xml_name",
 			message: `"${proposedId}" can't be a field id. Ids become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores — no spaces, hyphens, or special characters.`,
+			userMessage: `"${proposedId}" can't be a field id. Use letters, numbers, and underscores only, starting with a letter — no spaces or punctuation.`,
 		};
 	}
 	if (isReservedXFormNodeName(proposedId)) {
 		return {
 			ok: false,
 			code: "reserved_prefix",
-			message: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes CommCare-Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}".`,
+			message: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}".`,
+			userMessage: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved. Pick an id that starts with something else.`,
 		};
 	}
 	if (proposedId.length > MAX_CASE_PROPERTY_LENGTH) {
@@ -88,6 +109,7 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			ok: false,
 			code: "too_long",
 			message: `"${proposedId.slice(0, 40)}…" is ${proposedId.length} characters long. A field id is also the name of the case property it saves to, and CommCare caps property names at ${MAX_CASE_PROPERTY_LENGTH} characters. Use a shorter, more concise id.`,
+			userMessage: `That id is too long (${proposedId.length} characters). Keep it to ${MAX_CASE_PROPERTY_LENGTH} or fewer.`,
 		};
 	}
 	return OK;
@@ -101,6 +123,7 @@ function siblingConflict(proposedId: string, where = ""): FieldIdVerdict {
 		ok: false,
 		code: "sibling_conflict",
 		message: `Another field at the same level${where} is already named "${proposedId}". Fields that sit side by side share an XML path, so each needs a unique id — pick a different one or rename the other field first.`,
+		userMessage: `Another field${where} is already named "${proposedId}". Pick a different id.`,
 	};
 }
 

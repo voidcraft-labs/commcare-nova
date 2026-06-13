@@ -18,14 +18,16 @@ import { showToast } from "@/lib/ui/toastStore";
 // sentence, so each rejection presentation can be exercised and eyeballed
 // in isolation: type into a control, press Enter, watch the bounce.
 
+// The CONCISE builder copy these surfaces now render (lib/doc/userFacingErrors.ts
+// + the field-id verdict's userMessage) — not the verbose SA-facing messages.
 const DUPLICATE_MODULE =
-	'Module "Clients" appears twice (modules 1 and 2). Each module needs a unique name because CommCare uses it to build the navigation menu — duplicate names would make two menu items indistinguishable.';
+	'Another module is already named "Clients". Give each module a different name.';
 const HIDDEN_NO_VALUE =
-	'Field "visit_score" in form "Follow-up" is a hidden field but has no calculate expression or default_value — it would never receive a value. Give it a calculate expression, a default value, or remove it.';
+	'"visit_score" in "Follow-up" is a hidden field with nothing to fill it in, so it stays blank. Give it a calculated value or a default.';
 const LAST_PARTICIPATING =
-	"This is a Connect learn app, but no form carries a learn module or assessment. A Connect app needs at least one participating form — a form without a connect block simply stays out of Connect, which is fine for the rest.";
+	"This Connect app has no form taking part in Connect yet. Give at least one form a Connect block, or turn Connect off for the app.";
 const ID_TOO_LONG =
-	'"household_registration_followup_visit_notes" is 44 characters; case property names cap at 40 on the wire. Shorten the id.';
+	"That id is too long (44 characters). Keep it to 40 or fewer.";
 
 const alwaysReject =
 	(message: string) =>

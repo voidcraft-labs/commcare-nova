@@ -23,16 +23,13 @@ export function notifyMoveRename(result: MoveFieldResult): void {
  * beside the control (inline notices, editor tooltips, dialog footers)
  * dispatch through the `inline` flavor instead and never reach this.
  *
- * Each finding's `message` is the validator's own person-to-person
- * sentence (what's wrong, where it lives, what to look at); they ride
- * the toast's structured `lines` so each finding reads as its own row.
- * Typed against the message shape (not the validator's error type) so
- * this UI emitter stays outside the `@/lib/commcare` boundary.
+ * Takes already-rendered USER lines — each caller projects its findings
+ * through `lib/doc/userFacingErrors.ts::userFacingError` before getting
+ * here, so the toast and the caller's inline `CommitOutcome.messages`
+ * speak the identical concise copy (the SA keeps the verbose
+ * `ValidationError.message`; this surface never does). Pure presentation:
+ * no validator types cross into this emitter.
  */
-export function notifyRejectedCommit(
-	introduced: ReadonlyArray<{ message: string }>,
-): void {
-	showToast("error", "Change not applied", undefined, {
-		lines: introduced.map((err) => err.message),
-	});
+export function notifyRejectedCommit(lines: string[]): void {
+	showToast("error", "Change not applied", undefined, { lines });
 }
