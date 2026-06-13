@@ -8,9 +8,12 @@
 // the case list so the worker journey starts from a case.
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
+
+/** Edit/preview knob — defaults to edit; the redirect test flips it. */
+const editModeMock = vi.fn<() => "edit" | "preview">(() => "edit");
 
 const navigateMock = {
 	goHome: vi.fn(),
@@ -47,7 +50,7 @@ vi.mock("@/lib/session/hooks", async () => {
 	);
 	return {
 		...actual,
-		useEditMode: () => "edit" as const,
+		useEditMode: () => editModeMock(),
 		useBuilderIsReady: () => true,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 	};
@@ -59,7 +62,37 @@ const MODULE_UUID = asUuid("mod-1");
 const REG_FORM_UUID = asUuid("form-reg");
 const FOLLOWUP_FORM_UUID = asUuid("form-fup");
 
-function renderModuleScreen(opts: { caseType?: string } = {}) {
+function renderModuleScreen(
+	opts: { caseType?: string; caseFirst?: boolean } = {},
+) {
+	/* caseFirst drops the registration form so every form is case-loading —
+	 * the shape that makes the running app hoist the case selection. */
+	const forms = opts.caseFirst
+		? {
+				[FOLLOWUP_FORM_UUID]: {
+					uuid: FOLLOWUP_FORM_UUID,
+					id: "followup_patient",
+					name: "Follow Up",
+					type: "followup" as const,
+				},
+			}
+		: {
+				[REG_FORM_UUID]: {
+					uuid: REG_FORM_UUID,
+					id: "register_patient",
+					name: "Register Patient",
+					type: "registration" as const,
+				},
+				[FOLLOWUP_FORM_UUID]: {
+					uuid: FOLLOWUP_FORM_UUID,
+					id: "followup_patient",
+					name: "Follow Up",
+					type: "followup" as const,
+				},
+			};
+	const order = opts.caseFirst
+		? [FOLLOWUP_FORM_UUID]
+		: [REG_FORM_UUID, FOLLOWUP_FORM_UUID];
 	return render(
 		<BlueprintDocProvider
 			appId="app-module-screen-test"
@@ -76,30 +109,21 @@ function renderModuleScreen(opts: { caseType?: string } = {}) {
 						caseType: opts.caseType,
 					},
 				},
-				forms: {
-					[REG_FORM_UUID]: {
-						uuid: REG_FORM_UUID,
-						id: "register_patient",
-						name: "Register Patient",
-						type: "registration",
-					},
-					[FOLLOWUP_FORM_UUID]: {
-						uuid: FOLLOWUP_FORM_UUID,
-						id: "followup_patient",
-						name: "Follow Up",
-						type: "followup",
-					},
-				},
+				forms,
 				fields: {},
 				moduleOrder: [MODULE_UUID],
-				formOrder: { [MODULE_UUID]: [REG_FORM_UUID, FOLLOWUP_FORM_UUID] },
-				fieldOrder: { [REG_FORM_UUID]: [], [FOLLOWUP_FORM_UUID]: [] },
+				formOrder: { [MODULE_UUID]: order },
+				fieldOrder: Object.fromEntries(order.map((u) => [u, []])),
 			}}
 		>
 			<ModuleScreen screen={{ type: "module", moduleIndex: 0 }} />
 		</BlueprintDocProvider>,
 	);
 }
+
+beforeEach(() => {
+	editModeMock.mockReturnValue("edit");
+});
 
 describe("ModuleScreen", () => {
 	it("renders the form list without a Case List & Search card (the tree owns that entry)", () => {
@@ -135,5 +159,24 @@ describe("ModuleScreen", () => {
 			MODULE_UUID,
 			REG_FORM_UUID,
 		);
+	});
+
+	it("in preview, redirects a case-first module (all forms case-loading) to its case list", () => {
+		// Every form is case-loading → the running app's landing is the case
+		// list, not this form menu. The home screen already routes there; this
+		// covers landing on the module URL directly in preview.
+		editModeMock.mockReturnValue("preview");
+		navigateMock.openCaseList.mockClear();
+		renderModuleScreen({ caseType: "patient", caseFirst: true });
+		expect(navigateMock.openCaseList).toHaveBeenCalledWith(MODULE_UUID);
+	});
+
+	it("does NOT redirect a case-first module in edit mode (the form menu is the authoring surface)", () => {
+		editModeMock.mockReturnValue("edit");
+		navigateMock.openCaseList.mockClear();
+		renderModuleScreen({ caseType: "patient", caseFirst: true });
+		expect(navigateMock.openCaseList).not.toHaveBeenCalled();
+		// The form list still renders.
+		expect(screen.getByText("Follow Up")).toBeDefined();
 	});
 });

@@ -166,6 +166,10 @@ function makeRow(
  *  the module's. `searchInputs` defaults to the empty array so the
  *  pre-Task-4 test suite keeps its zero-search-input shape; tests
  *  exercising the search form pass the array explicitly. */
+/** Second case-loading form's uuid — only added to the fixture when a test
+ *  needs the multi-form (form-menu) path. */
+const CLOSE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a04");
+
 function renderCaseListScreen(opts: {
 	columns: NonNullable<
 		Parameters<typeof BlueprintDocProvider>[0]["initialDoc"]
@@ -181,7 +185,21 @@ function renderCaseListScreen(opts: {
 			? X
 			: never
 		: never;
+	/** Add a second case-loading form (Close Case) to exercise the
+	 *  post-selection form menu. */
+	secondCaseLoadingForm?: boolean;
 }) {
+	const extraForms = opts.secondCaseLoadingForm
+		? {
+				[CLOSE_FORM_UUID]: {
+					uuid: CLOSE_FORM_UUID,
+					id: "close_form",
+					name: "Close Case",
+					type: "close" as const,
+				},
+			}
+		: {};
+	const extraFormOrder = opts.secondCaseLoadingForm ? [CLOSE_FORM_UUID] : [];
 	return render(
 		<BlueprintDocProvider
 			appId={APP_ID}
@@ -223,10 +241,13 @@ function renderCaseListScreen(opts: {
 						name: "Follow-up Visit",
 						type: "followup",
 					},
+					...extraForms,
 				},
 				fields: {},
 				moduleOrder: [MODULE_UUID],
-				formOrder: { [MODULE_UUID]: [FORM_UUID, FOLLOWUP_FORM_UUID] },
+				formOrder: {
+					[MODULE_UUID]: [FORM_UUID, FOLLOWUP_FORM_UUID, ...extraFormOrder],
+				},
 				fieldOrder: {},
 			}}
 		>
@@ -645,6 +666,79 @@ describe("CaseListScreen — detail confirm step", () => {
 			formUuid: FOLLOWUP_FORM_UUID,
 			caseId: SELECTED_CASE_ID,
 		});
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			FOLLOWUP_FORM_UUID,
+		);
+	});
+});
+
+// ── Form menu (case-first, multiple case-loading forms) ───────────
+
+describe("CaseListScreen — post-selection form menu", () => {
+	it("shows a form menu after selecting a case when the module has more than one case-loading form, and continues into the chosen form with the case", async () => {
+		// Two case-loading forms (Follow-up Visit + Close Case) share the
+		// case list. With no specific form seeded (case-first entry), CommCare
+		// shows the case list, then a menu of those forms — so selecting a case
+		// must NOT silently pick one.
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice", age: 30 })],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_AGE_UUID, "age", "Age"),
+			],
+			secondCaseLoadingForm: true,
+		});
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+		});
+
+		// Row → detail confirm → Continue.
+		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+		fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+		// No navigation yet — the form menu is shown instead.
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+		const followupChoice = screen.getByRole("button", {
+			name: /Follow-up Visit/,
+		});
+		const closeChoice = screen.getByRole("button", { name: /Close Case/ });
+		expect(followupChoice).toBeDefined();
+		expect(closeChoice).toBeDefined();
+
+		// Choosing Close Case carries the selected case into that form.
+		fireEvent.click(closeChoice);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: CLOSE_FORM_UUID,
+			caseId: SELECTED_CASE_ID,
+		});
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			CLOSE_FORM_UUID,
+		);
+	});
+
+	it("skips the menu and goes straight to the form when only one case-loading form exists", async () => {
+		// The single-form module: no menu, the case goes straight into the form.
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name", { visibleInDetail: false }),
+			],
+		});
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+		// Straight to the form — no Close Case choice rendered.
+		expect(screen.queryByRole("button", { name: /Close Case/ })).toBeNull();
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			MODULE_UUID,
 			FOLLOWUP_FORM_UUID,

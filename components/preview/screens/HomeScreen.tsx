@@ -12,7 +12,10 @@ import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
-import { useOrderedModules } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useCaseFirstModuleUuids,
+	useOrderedModules,
+} from "@/lib/doc/hooks/useModuleIds";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
@@ -29,6 +32,9 @@ export function HomeScreen() {
 	const mode = useEditMode();
 	const hasData = useDocHasData();
 	const modules = useOrderedModules();
+	/* Case-first modules (every form case-loading) land on the case list,
+	 * not a form menu — the running app hoists the shared case selection. */
+	const caseFirstModules = useCaseFirstModuleUuids();
 	const logo = useAppLogo();
 
 	const [saved, setSaved] = useState(false);
@@ -84,7 +90,11 @@ export function HomeScreen() {
 								duration: 0.3,
 								ease: [0.16, 1, 0.3, 1],
 							}}
-							onClick={() => navigate.openModule(mod.uuid)}
+							onClick={() =>
+								caseFirstModules.has(mod.uuid)
+									? navigate.openCaseList(mod.uuid)
+									: navigate.openModule(mod.uuid)
+							}
 							className="w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>
 							{mod.icon ? (

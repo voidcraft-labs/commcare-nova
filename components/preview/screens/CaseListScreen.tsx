@@ -8,12 +8,16 @@
 // list narrows through its own filter box (the same per-word,
 // case-insensitive narrowing CommCare's case list runs), and rows open
 // the case detail IN PLACE. From the detail, Continue carries the
-// selected case into the module's CASE-LOADING form (followup / close —
-// never registration), the same case-select → confirm → form flow the
-// shipped app runs. Modules with no detail fields skip the confirm step
-// and go straight to that form with the case in hand; modules with no
+// selected case into a CASE-LOADING form (followup / close — never
+// registration), the same case-select → confirm → form flow the shipped
+// app runs. When the module has more than one case-loading form and no
+// specific form was chosen first (a case-first entry), Continue lands on
+// a FORM MENU — the running app's post-selection "which form?" screen.
+// Modules with no detail fields skip the confirm step; modules with no
 // case-loading form have nowhere to continue, so the list is
-// informational. See `targetFormUuid` for how the destination is derived.
+// informational. The destination is read from the running app's
+// navigation, never defaulted — see the `seededFormUuid` / `proceedWithCase`
+// derivation and `isCaseFirstModule`.
 //
 // Composition is width-driven: search beside the results when the
 // canvas is wide, stacked when it isn't — the same responsive truth
@@ -62,6 +66,7 @@ import {
 	type SimpleSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
@@ -103,14 +108,24 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			? loc.moduleUuid
 			: undefined;
 
-	/* Where selecting a case leads: a CASE-LOADING form (followup / close —
-	 * the form types that consume a selected case), never registration or
-	 * survey. The destination is derived, not fixed: if the user arrived by
-	 * tapping a specific case-loading form in the module menu, the preview
-	 * target names it (and we honor that exact form); otherwise — previewing
-	 * the case list directly from the workspace — we default to the module's
-	 * first case-loading form. A module with no case-loading form has nowhere
-	 * to continue, so the list reads as informational. */
+	/* Where selecting a case leads — read from the running app's own
+	 * navigation, not a default. Selecting a case always continues into a
+	 * CASE-LOADING form (followup / close — the form types that consume a
+	 * case), never registration or survey:
+	 *
+	 *   - Forms-first entry (the worker tapped a specific case-loading form in
+	 *     the module menu): `previewCaseTarget` names that form, and we go
+	 *     straight to it. This is the mixed-module path (registration + a
+	 *     case-loading form), where the form is chosen before the case.
+	 *   - Case-first entry (an all-case-loading module's landing, or the
+	 *     workspace case-list preview): no form was chosen yet. With exactly
+	 *     one case-loading form we go straight to it; with more than one, the
+	 *     app shows a FORM MENU after the case is picked (CommCare hoists the
+	 *     shared case datum, then asks which form — see `isCaseFirstModule`),
+	 *     so we render that menu.
+	 *
+	 * A module with no case-loading form has nowhere to continue, so the
+	 * list reads as informational. */
 	const orderedForms = useOrderedForms((moduleUuid ?? "") as Uuid);
 	const previewCaseTarget = usePreviewCaseTarget();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
@@ -118,13 +133,17 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		() => orderedForms.filter((f) => CASE_LOADING_FORM_TYPES.has(f.type)),
 		[orderedForms],
 	);
-	const targetFormUuid = useMemo(() => {
+	/** The form a forms-first entry tapped to get here, when it's a real
+	 *  case-loading form in this module — otherwise undefined (case-first). */
+	const seededFormUuid = useMemo(() => {
 		const seeded = previewCaseTarget?.formUuid;
-		if (seeded && caseLoadingForms.some((f) => f.uuid === seeded)) {
-			return seeded;
-		}
-		return caseLoadingForms[0]?.uuid;
+		return seeded && caseLoadingForms.some((f) => f.uuid === seeded)
+			? seeded
+			: undefined;
 	}, [previewCaseTarget?.formUuid, caseLoadingForms]);
+	/** Whether selecting a case can continue at all. */
+	const canContinue =
+		seededFormUuid !== undefined || caseLoadingForms.length > 0;
 
 	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
@@ -165,6 +184,11 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	);
 	const [filterText, setFilterText] = useState("");
 	const [openCase, setOpenCase] = useState<CaseRowWithCalculated | null>(null);
+	/** When set, the case has been picked (and confirmed) and the running app
+	 *  is on the form menu — choosing among the module's case-loading forms.
+	 *  Only reached on a case-first entry with more than one such form. */
+	const [formMenuCase, setFormMenuCase] =
+		useState<CaseRowWithCalculated | null>(null);
 
 	const { state, fetching, reload } = useCases({
 		appId,
@@ -184,6 +208,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		setInputValues(new Map());
 		setFilterText("");
 		setOpenCase(null);
+		setFormMenuCase(null);
 	};
 
 	const visibleColumns = (config?.columns ?? []).filter(
@@ -253,29 +278,39 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		);
 	}
 
-	/* Continue into the case-loading form with the selected case in hand:
+	/* Open a specific case-loading form with the selected case in hand:
 	 * record the case datum on the preview target so PreviewShell preloads
-	 * the form, then navigate. This is the preview's equivalent of CommCare
-	 * passing the selected case down the navigation stack. */
-	const continueToForm = (row: CaseRowWithCalculated) => {
-		if (!moduleUuid || !targetFormUuid) return;
-		setPreviewCaseTarget({ formUuid: targetFormUuid, caseId: row.case_id });
-		navigate.openForm(moduleUuid, targetFormUuid);
+	 * the form, then navigate. The preview's equivalent of CommCare passing
+	 * the selected case down the navigation stack. */
+	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) => {
+		if (!moduleUuid) return;
+		setPreviewCaseTarget({ formUuid, caseId: row.case_id });
+		navigate.openForm(moduleUuid, formUuid);
 	};
 
-	/* The running app's row click: a configured detail opens the
-	 * confirm step in place; no detail fields means the row continues
-	 * straight into the form; a module with no case-loading form has
-	 * nowhere to go (the list is informational). */
+	/* Proceed once a case is chosen (after the detail confirm, or directly
+	 * when there's no detail). Forms-first → straight into the tapped form;
+	 * case-first → the single case-loading form, or the form menu when there
+	 * are several. */
+	const proceedWithCase = (row: CaseRowWithCalculated) => {
+		if (seededFormUuid !== undefined) {
+			openFormWithCase(seededFormUuid, row);
+		} else if (caseLoadingForms.length === 1) {
+			openFormWithCase(caseLoadingForms[0].uuid, row);
+		} else if (caseLoadingForms.length > 1) {
+			setFormMenuCase(row);
+		}
+	};
+
+	/* The running app's row click: a configured detail opens the confirm
+	 * step in place; no detail fields means the row proceeds straight on;
+	 * a module with no case-loading form has nowhere to go (the list is
+	 * informational). */
 	const rowAction: "detail" | "form" | "none" =
-		detailColumns.length > 0
-			? "detail"
-			: targetFormUuid !== undefined
-				? "form"
-				: "none";
+		detailColumns.length > 0 ? "detail" : canContinue ? "form" : "none";
 	const handleOpenCase = (row: CaseRowWithCalculated) => {
 		if (rowAction === "detail") setOpenCase(row);
-		else if (rowAction === "form") continueToForm(row);
+		else if (rowAction === "form") proceedWithCase(row);
 	};
 
 	const title = searchConfig?.searchScreenTitle ?? "Search";
@@ -346,20 +381,73 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 					);
 				})}
 			</div>
-			{/* The running app's confirm step ends in Continue — into the
-			 *  module's case-loading form with this case in hand. A module
-			 *  with no case-loading form has nowhere to continue, so the
-			 *  detail is the end of the road and no button renders. */}
-			{targetFormUuid !== undefined && (
+			{/* The running app's confirm step ends in Continue — on to the
+			 *  case-loading form (or the form menu, when the module has more
+			 *  than one). A module with no case-loading form has nowhere to
+			 *  continue, so the detail is the end of the road and no button
+			 *  renders. */}
+			{canContinue && (
 				<button
 					type="button"
-					onClick={() => continueToForm(openCase)}
+					onClick={() => proceedWithCase(openCase)}
 					className="mt-4 inline-flex items-center gap-2 px-4 min-h-11 rounded-lg bg-nova-violet text-white text-[13px] font-semibold hover:brightness-110 transition-all cursor-pointer"
 				>
 					Continue
 					<Icon icon={tablerArrowRight} width="15" height="15" />
 				</button>
 			)}
+		</div>
+	);
+
+	/* Form menu — the running app's post-selection screen for a case-first
+	 *  module with more than one case-loading form: the worker picked a case,
+	 *  now picks which form to run for it (Follow-up / Close / …). Mirrors
+	 *  CommCare resolving the shared case datum and THEN asking for the
+	 *  command. Each choice carries the chosen case into the form. */
+	const formMenuPane = formMenuCase !== null && (
+		<div className="max-w-lg min-w-0 flex-1">
+			{/* Back returns to whatever sits beneath the menu — the case
+			 *  detail when one is configured, otherwise the results list. */}
+			<button
+				type="button"
+				onClick={() => setFormMenuCase(null)}
+				className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
+			>
+				<Icon icon={tablerChevronLeft} width="15" height="15" />
+				{openCase !== null ? "Back" : "Back to Results"}
+			</button>
+			<h2 className="font-display font-bold text-xl tracking-tight text-nova-text mb-1">
+				{formMenuCase.case_name || "Case"}
+			</h2>
+			<p className="mb-4 text-[13px] text-nova-text-muted">
+				Choose what to do with this case.
+			</p>
+			<div className="grid gap-2">
+				{caseLoadingForms.map((form) => (
+					<button
+						key={form.uuid}
+						type="button"
+						onClick={() => openFormWithCase(form.uuid, formMenuCase)}
+						className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
+					>
+						<Icon
+							icon={formTypeIcons[form.type]}
+							width="18"
+							height="18"
+							className="text-nova-text-muted group-hover:text-pv-accent transition-colors shrink-0"
+						/>
+						<span className="flex-1 min-w-0 text-sm font-medium text-nova-text">
+							{form.name}
+						</span>
+						<Icon
+							icon={tablerArrowRight}
+							width="15"
+							height="15"
+							className="text-nova-text-muted shrink-0"
+						/>
+					</button>
+				))}
+			</div>
 		</div>
 	);
 
@@ -431,15 +519,23 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		</div>
 	);
 
+	/* Right-hand pane priority mirrors the running app's screen stack: the
+	 * form menu (post-selection) sits above the detail confirm, which sits
+	 * above the results list. */
+	const onSubScreen = formMenuCase !== null || openCase !== null;
 	return (
 		<ContentFrame ref={containerRef} width="5xl" className="px-8 pt-6 pb-24">
 			<div
 				className={`flex gap-5 ${split ? "flex-row items-start" : "flex-col"}`}
 			>
-				{/* Stacked + detail open = the narrow experience: the detail
-				 *  takes the whole canvas, search waits behind Back. */}
-				{(split || openCase === null) && searchPane}
-				{openCase !== null ? detailPane : resultsPane}
+				{/* Stacked + a sub-screen open = the narrow experience: the
+				 *  sub-screen takes the whole canvas, search waits behind Back. */}
+				{(split || !onSubScreen) && searchPane}
+				{formMenuCase !== null
+					? formMenuPane
+					: openCase !== null
+						? detailPane
+						: resultsPane}
 			</div>
 		</ContentFrame>
 	);

@@ -1,14 +1,17 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { motion } from "motion/react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
-import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useIsCaseFirstModule,
+	useOrderedForms,
+} from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
@@ -40,6 +43,19 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
 
+	/* A case-first module's real landing is the case list, not this form
+	 * menu (the running app hoists the shared case selection). The home
+	 * screen already routes there; this redirect covers landing on the
+	 * module URL directly (e.g. flipping to preview while on /module). Edit
+	 * mode keeps the form menu — it's the authoring surface. */
+	const isCaseFirst = useIsCaseFirstModule(moduleUuid);
+	const redirectToCaseList = mode !== "edit" && isCaseFirst && !!moduleUuid;
+	useEffect(() => {
+		if (redirectToCaseList && moduleUuid) {
+			navigate.openCaseList(moduleUuid);
+		}
+	}, [redirectToCaseList, moduleUuid, navigate]);
+
 	const [saved, setSaved] = useState(false);
 	const saveModuleName = useCallback(
 		(name: string) => {
@@ -53,6 +69,8 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	}, []);
 
 	if (!mod) return null;
+	/* Suppress the form-menu flash while the redirect above navigates away. */
+	if (redirectToCaseList) return null;
 
 	const hasCase = !!mod.caseType;
 	const canEdit = mode === "edit" && isReady;

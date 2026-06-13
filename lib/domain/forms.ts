@@ -22,6 +22,31 @@ export const CASE_LOADING_FORM_TYPES: ReadonlySet<FormType> = new Set([
 	"close",
 ]);
 
+/**
+ * Whether a module's running-app navigation is "case-first" — entering it
+ * shows the case list (then, when more than one form, a form menu) instead
+ * of a form list.
+ *
+ * Mirrors CommCare's runtime exactly (`commcare-core`
+ * `CommCareSession.getDataNeededByAllEntries`): the case selection is
+ * hoisted ahead of the form choice only when EVERY form in the module needs
+ * the same `case_id` datum — i.e. every form is case-loading
+ * (followup/close). A registration form needs a fresh `case_id_new_*` datum
+ * and a survey form needs none, so either one breaks the shared datum and
+ * the module becomes forms-first (the worker picks the form, then its case).
+ * A module with no case type or no forms is never case-first.
+ */
+export function isCaseFirstModule(
+	formTypes: readonly FormType[],
+	hasCaseType: boolean,
+): boolean {
+	return (
+		hasCaseType &&
+		formTypes.length > 0 &&
+		formTypes.every((t) => CASE_LOADING_FORM_TYPES.has(t))
+	);
+}
+
 export const POST_SUBMIT_DESTINATIONS = [
 	"app_home",
 	"root",
