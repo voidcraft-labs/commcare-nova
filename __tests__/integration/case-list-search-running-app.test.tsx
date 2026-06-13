@@ -189,6 +189,11 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "preview" as const,
 		usePreviewing: () => true,
 		useBuilderIsReady: () => true,
+		// No seeded target — CaseListScreen defaults to the fixture's
+		// followup form. This test mounts FormScreen directly with an
+		// explicit caseId, so it doesn't exercise the target handoff.
+		usePreviewCaseTarget: () => undefined,
+		useSetPreviewCaseTarget: () => vi.fn(),
 	};
 });
 

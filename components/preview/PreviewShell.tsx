@@ -46,7 +46,7 @@ import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import type { Location } from "@/lib/routing/types";
-import { useEditMode } from "@/lib/session/hooks";
+import { useEditMode, usePreviewCaseTarget } from "@/lib/session/hooks";
 import { PreviewHeader } from "./PreviewHeader";
 import { CaseListScreen } from "./screens/CaseListScreen";
 import { FormScreen } from "./screens/FormScreen";
@@ -117,10 +117,25 @@ export function PreviewShell({
 	 * otherwise fall back to URL-driven `navigate.back()`. */
 	const handleBack = onBack ?? (() => navigate.back());
 
-	const zustandScreen: PreviewScreen = useMemo(
-		() => locationToScreen(loc, moduleOrder, formOrder),
-		[loc, moduleOrder, formOrder],
-	);
+	/* The case the running-app case list passed into a case-loading form.
+	 * The URL tracks which form; this ephemeral target carries the selected
+	 * case (running-app state, like the search inputs and filter — it never
+	 * goes in the URL). We graft its `caseId` onto the form screen below when
+	 * it names the form we're showing, so `FormScreen` preloads the case. */
+	const previewCaseTarget = usePreviewCaseTarget();
+
+	const zustandScreen: PreviewScreen = useMemo(() => {
+		const screen = locationToScreen(loc, moduleOrder, formOrder);
+		if (
+			screen.type === "form" &&
+			loc.kind === "form" &&
+			previewCaseTarget?.caseId !== undefined &&
+			previewCaseTarget.formUuid === loc.formUuid
+		) {
+			return { ...screen, caseId: previewCaseTarget.caseId };
+		}
+		return screen;
+	}, [loc, moduleOrder, formOrder, previewCaseTarget]);
 
 	/* ── Concurrent screen transition ──────────────────────────────────
 	 * `zustandScreen` updates immediately on URL change. `screen` is the

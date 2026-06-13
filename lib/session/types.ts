@@ -12,6 +12,7 @@
  *   - Replay — raw event log + derived chapter metadata
  */
 
+import type { Uuid } from "@/lib/doc/types";
 import type { Event } from "@/lib/log/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
@@ -22,6 +23,23 @@ import type { Event } from "@/lib/log/types";
  * preview mode. See `setPreviewing` in the store.
  */
 export type SidebarState = { open: boolean; stashed: boolean | undefined };
+
+/**
+ * The case-loading form a running-app case list feeds, plus the case the
+ * user picked for it — the preview-mode equivalent of CommCare passing the
+ * selected case datum down the navigation stack.
+ *
+ * `formUuid` is the destination form: seeded when the user taps a
+ * case-loading form in the module menu, or defaulted by the case list to
+ * the module's first case-loading form when previewing the list directly.
+ * `caseId` is filled once the user picks a case and continues. PreviewShell
+ * reads this to preload that form with the chosen case; it's cleared on
+ * every preview-mode toggle so each preview session starts caseless.
+ */
+export interface PreviewCaseTarget {
+	formUuid: Uuid;
+	caseId?: string;
+}
 
 // ── Generation lifecycle ─────────────────────────────────────────────────
 

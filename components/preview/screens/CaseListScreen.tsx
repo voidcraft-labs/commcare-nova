@@ -7,10 +7,13 @@
 // `SearchInputForm` widgets query the real case store as you type, the
 // list narrows through its own filter box (the same per-word,
 // case-insensitive narrowing CommCare's case list runs), and rows open
-// the case detail IN PLACE. From the detail, Continue opens the
-// module's first form — the same case-select → confirm → form flow the
-// shipped app runs. Modules with no detail fields skip the confirm
-// step and go straight to the form, exactly as CommCare does.
+// the case detail IN PLACE. From the detail, Continue carries the
+// selected case into the module's CASE-LOADING form (followup / close —
+// never registration), the same case-select → confirm → form flow the
+// shipped app runs. Modules with no detail fields skip the confirm step
+// and go straight to that form with the case in hand; modules with no
+// case-loading form have nowhere to continue, so the list is
+// informational. See `targetFormUuid` for how the destination is derived.
 //
 // Composition is width-driven: search beside the results when the
 // canvas is wide, stacked when it isn't — the same responsive truth
@@ -48,8 +51,10 @@ import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
-import { useFirstFormForModule } from "@/lib/doc/hooks/useFirstFormForModule";
+import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import type { Uuid } from "@/lib/doc/types";
 import {
+	CASE_LOADING_FORM_TYPES,
 	type CaseListConfig,
 	effectiveDataType,
 	fuzzyMode,
@@ -64,7 +69,11 @@ import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { useAppId } from "@/lib/session/hooks";
+import {
+	useAppId,
+	usePreviewCaseTarget,
+	useSetPreviewCaseTarget,
+} from "@/lib/session/hooks";
 
 /** Canvas width where search sits beside the results instead of above
  *  them — the same responsive truth the running app follows. */
@@ -94,10 +103,28 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			? loc.moduleUuid
 			: undefined;
 
-	/** The detail's Continue (and detail-less row clicks) open the
-	 *  module's first form — the case-loading form. */
-	const firstForm = useFirstFormForModule(moduleUuid);
-	const firstFormUuid = firstForm?.uuid;
+	/* Where selecting a case leads: a CASE-LOADING form (followup / close —
+	 * the form types that consume a selected case), never registration or
+	 * survey. The destination is derived, not fixed: if the user arrived by
+	 * tapping a specific case-loading form in the module menu, the preview
+	 * target names it (and we honor that exact form); otherwise — previewing
+	 * the case list directly from the workspace — we default to the module's
+	 * first case-loading form. A module with no case-loading form has nowhere
+	 * to continue, so the list reads as informational. */
+	const orderedForms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const previewCaseTarget = usePreviewCaseTarget();
+	const setPreviewCaseTarget = useSetPreviewCaseTarget();
+	const caseLoadingForms = useMemo(
+		() => orderedForms.filter((f) => CASE_LOADING_FORM_TYPES.has(f.type)),
+		[orderedForms],
+	);
+	const targetFormUuid = useMemo(() => {
+		const seeded = previewCaseTarget?.formUuid;
+		if (seeded && caseLoadingForms.some((f) => f.uuid === seeded)) {
+			return seeded;
+		}
+		return caseLoadingForms[0]?.uuid;
+	}, [previewCaseTarget?.formUuid, caseLoadingForms]);
 
 	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
@@ -226,24 +253,29 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		);
 	}
 
-	const openFirstForm = () => {
-		if (!moduleUuid || !firstFormUuid) return;
-		navigate.openForm(moduleUuid, firstFormUuid);
+	/* Continue into the case-loading form with the selected case in hand:
+	 * record the case datum on the preview target so PreviewShell preloads
+	 * the form, then navigate. This is the preview's equivalent of CommCare
+	 * passing the selected case down the navigation stack. */
+	const continueToForm = (row: CaseRowWithCalculated) => {
+		if (!moduleUuid || !targetFormUuid) return;
+		setPreviewCaseTarget({ formUuid: targetFormUuid, caseId: row.case_id });
+		navigate.openForm(moduleUuid, targetFormUuid);
 	};
 
 	/* The running app's row click: a configured detail opens the
 	 * confirm step in place; no detail fields means the row continues
-	 * straight into the form; a case-list-only module with no detail
-	 * has nowhere to go. */
+	 * straight into the form; a module with no case-loading form has
+	 * nowhere to go (the list is informational). */
 	const rowAction: "detail" | "form" | "none" =
 		detailColumns.length > 0
 			? "detail"
-			: firstFormUuid !== undefined
+			: targetFormUuid !== undefined
 				? "form"
 				: "none";
 	const handleOpenCase = (row: CaseRowWithCalculated) => {
 		if (rowAction === "detail") setOpenCase(row);
-		else if (rowAction === "form") openFirstForm();
+		else if (rowAction === "form") continueToForm(row);
 	};
 
 	const title = searchConfig?.searchScreenTitle ?? "Search";
@@ -314,14 +346,14 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 					);
 				})}
 			</div>
-			{/* The running app's confirm step ends in Continue — straight
-			 *  into the module's first form with this case in hand. A
-			 *  case-list-only module has no form, so the detail is the
-			 *  end of the road and no button renders. */}
-			{firstFormUuid !== undefined && (
+			{/* The running app's confirm step ends in Continue — into the
+			 *  module's case-loading form with this case in hand. A module
+			 *  with no case-loading form has nowhere to continue, so the
+			 *  detail is the end of the road and no button renders. */}
+			{targetFormUuid !== undefined && (
 				<button
 					type="button"
-					onClick={openFirstForm}
+					onClick={() => continueToForm(openCase)}
 					className="mt-4 inline-flex items-center gap-2 px-4 min-h-11 rounded-lg bg-nova-violet text-white text-[13px] font-semibold hover:brightness-110 transition-all cursor-pointer"
 				>
 					Continue

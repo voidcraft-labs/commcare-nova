@@ -30,7 +30,12 @@ import {
 } from "./lifecycle";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
-import type { GenerationError, GenerationStage, ReplayData } from "./types";
+import type {
+	GenerationError,
+	GenerationStage,
+	PreviewCaseTarget,
+	ReplayData,
+} from "./types";
 
 // ── Preview mode ──────────────────────────────────────────────────────────
 
@@ -44,6 +49,21 @@ export function usePreviewing(): boolean {
  *  sidebars, leaving restores the stashed layout. */
 export function useSetPreviewing(): (on: boolean) => void {
 	return useBuilderSession((s) => s.setPreviewing);
+}
+
+/** The running-app preview's case target — the case-loading form the case
+ *  list feeds and the case selected for it. `undefined` outside a
+ *  case-selection flow. PreviewShell reads it to preload the form. */
+export function usePreviewCaseTarget(): PreviewCaseTarget | undefined {
+	return useBuilderSession((s) => s.previewCaseTarget);
+}
+
+/** Setter for the preview case target. The module menu sets the destination
+ *  form; the case list's Continue adds the selected case. */
+export function useSetPreviewCaseTarget(): (
+	target: PreviewCaseTarget | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewCaseTarget);
 }
 
 // ── Active field ──────────────────────────────────────────────────────────

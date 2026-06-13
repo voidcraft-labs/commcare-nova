@@ -14,7 +14,11 @@ import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
+import {
+	useBuilderIsReady,
+	useEditMode,
+	useSetPreviewCaseTarget,
+} from "@/lib/session/hooks";
 
 interface ModuleScreenProps {
 	/** This screen's identity — which module is being displayed. Passed from
@@ -28,6 +32,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const { updateModule } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
+	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 
 	/** Module uuid from the URL — used for uuid-first mutations and navigation. */
 	const moduleUuid = loc.kind === "module" ? loc.moduleUuid : undefined;
@@ -82,7 +87,11 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 					const handleClick = () => {
 						if (!moduleUuid) return;
 						if (CASE_LOADING_FORM_TYPES.has(form.type) && hasCase) {
-							/* Case-loading forms show the case list first — selecting a row opens the form */
+							/* Case-loading forms select a case first. Name this form
+							 * as the case list's continue target so picking a case
+							 * leads back to THIS form (not the module's first
+							 * case-loading form), then open the list. */
+							setPreviewCaseTarget({ formUuid: form.uuid });
 							navigate.openCaseList(moduleUuid);
 						} else {
 							navigate.openForm(moduleUuid, form.uuid);

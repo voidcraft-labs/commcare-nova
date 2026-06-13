@@ -28,7 +28,7 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
-import type { ReplayData, ReplayInit } from "./types";
+import type { PreviewCaseTarget, ReplayData, ReplayInit } from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -110,6 +110,14 @@ export interface BuilderSessionState {
 	 *  not undoable. Used by composite undo/redo to restore focus after the
 	 *  temporal state rolls back. */
 	activeFieldId: string | undefined;
+
+	/** In a running-app preview, the case-loading form the case list feeds
+	 *  and the case the user selected for it — preview's stand-in for the
+	 *  navigation-stack case datum. Set by the module menu (which form) and
+	 *  the case list's Continue (which case); read by PreviewShell to preload
+	 *  the form. Cleared on every preview-mode toggle (see `setPreviewing`)
+	 *  so previewing a form fresh never reloads a stale case. */
+	previewCaseTarget: PreviewCaseTarget | undefined;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
 
@@ -270,6 +278,11 @@ export interface BuilderSessionState {
 	 *  avoid unnecessary subscriber notifications. */
 	setActiveFieldId: (fieldId: string | undefined) => void;
 
+	/** Set (or clear) the preview case target — the case-loading form the
+	 *  case list feeds and the selected case. No-ops when shallow-equal so
+	 *  repeated sets don't notify subscribers. */
+	setPreviewCaseTarget: (target: PreviewCaseTarget | undefined) => void;
+
 	/** Set one sidebar's visibility. Preserves the other sidebar + all stash
 	 *  values. No-ops when the value is unchanged. */
 	setSidebarOpen: (kind: SidebarKind, open: boolean) => void;
@@ -367,6 +380,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				/* Interaction */
 				previewing: false,
 				activeFieldId: undefined,
+				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
 
 				/* Chrome */
 				sidebars: {
@@ -619,9 +633,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 					if (on) {
 						/* Stash current open values, then close both for the
-						 * immersive full-bleed preview. */
+						 * immersive full-bleed preview. Clear any case target so
+						 * the preview session starts caseless. */
 						set({
 							previewing: true,
+							previewCaseTarget: undefined,
 							sidebars: {
 								chat: {
 									open: false,
@@ -637,11 +653,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					}
 
 					/* Leaving preview: restore stashed values if present,
-					 * otherwise leave sidebars as-is. */
+					 * otherwise leave sidebars as-is. Drop the case target —
+					 * it's running-app state with no meaning outside preview. */
 					const chatStashed = s.sidebars.chat.stashed;
 					const structureStashed = s.sidebars.structure.stashed;
 					set({
 						previewing: false,
+						previewCaseTarget: undefined,
 						sidebars: {
 							chat: {
 								open: chatStashed ?? s.sidebars.chat.open,
@@ -658,6 +676,19 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setActiveFieldId(fieldId: string | undefined) {
 					if (fieldId === get().activeFieldId) return;
 					set({ activeFieldId: fieldId });
+				},
+
+				setPreviewCaseTarget(target: PreviewCaseTarget | undefined) {
+					const current = get().previewCaseTarget;
+					/* Shallow no-op guard — the two fields fully describe the
+					 * target, so equal formUuid + caseId means nothing changed. */
+					if (
+						current?.formUuid === target?.formUuid &&
+						current?.caseId === target?.caseId
+					) {
+						return;
+					}
+					set({ previewCaseTarget: target });
 				},
 
 				setSidebarOpen(kind: SidebarKind, open: boolean) {
@@ -710,6 +741,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						/* Interaction */
 						previewing: false,
 						activeFieldId: undefined,
+						previewCaseTarget: undefined,
 
 						/* Chrome */
 						sidebars: {

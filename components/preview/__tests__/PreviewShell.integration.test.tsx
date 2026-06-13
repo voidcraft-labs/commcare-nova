@@ -77,6 +77,8 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "edit" as const,
 		useAppId: () => "app-integration-test",
 		useBuilderIsReady: () => true,
+		usePreviewCaseTarget: () => undefined,
+		useSetPreviewCaseTarget: () => vi.fn(),
 	};
 });
 

@@ -28,16 +28,23 @@ import { describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { Location } from "@/lib/routing/types";
+import type { PreviewCaseTarget } from "@/lib/session/types";
 
 const MODULE_UUID = asUuid("mod-1");
+const FORM_UUID = asUuid("form-1");
 
 // `useLocation` and `useEditMode` are the dispatch knobs; the rest of
 // the routing/session surface is forwarded from the real module.
+// `previewCaseTargetMock` drives the case-datum injection onto the form
+// screen (default: no target).
 const editModeMock = vi.fn(() => "edit" as "edit" | "preview");
 const locationMock = vi.fn<() => Location>(() => ({
 	kind: "cases" as const,
 	moduleUuid: MODULE_UUID,
 }));
+const previewCaseTargetMock = vi.fn<() => PreviewCaseTarget | undefined>(
+	() => undefined,
+);
 
 vi.mock("@/lib/routing/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/routing/hooks")>(
@@ -76,6 +83,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => editModeMock(),
 		useAppId: () => "app-preview-shell-test",
 		useBuilderIsReady: () => true,
+		usePreviewCaseTarget: () => previewCaseTargetMock(),
 	};
 });
 
@@ -104,7 +112,13 @@ vi.mock("../screens/ModuleScreen", () => ({
 	ModuleScreen: () => <div data-testid="module-stub">ModuleScreen</div>,
 }));
 vi.mock("../screens/FormScreen", () => ({
-	FormScreen: () => <div data-testid="form-stub">FormScreen</div>,
+	// Surface the screen's `caseId` so the case-datum injection is
+	// assertable — `""` when absent (an attribute can't hold undefined).
+	FormScreen: ({ screen }: { screen: { caseId?: string } }) => (
+		<div data-testid="form-stub" data-case-id={screen.caseId ?? ""}>
+			FormScreen
+		</div>
+	),
 }));
 vi.mock("../PreviewHeader", () => ({
 	PreviewHeader: () => <div data-testid="header-stub">PreviewHeader</div>,
@@ -134,10 +148,17 @@ function renderShell() {
 						caseType: "patient",
 					},
 				},
-				forms: {},
+				forms: {
+					[FORM_UUID]: {
+						uuid: FORM_UUID,
+						id: "followup_form",
+						name: "Follow-up",
+						type: "followup",
+					},
+				},
 				fields: {},
 				moduleOrder: [MODULE_UUID],
-				formOrder: { [MODULE_UUID]: [] },
+				formOrder: { [MODULE_UUID]: [FORM_UUID] },
 				fieldOrder: {},
 			}}
 		>
@@ -252,5 +273,45 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 		const legacy = getByTestId("legacy-case-list-stub");
 		expect(isVisible(legacy)).toBe(true);
 		expect(isVisible(workspace)).toBe(false);
+	});
+});
+
+describe("PreviewShell — preview case-datum injection", () => {
+	const FORM_LOCATION: Location = {
+		kind: "form",
+		moduleUuid: MODULE_UUID,
+		formUuid: FORM_UUID,
+	};
+
+	it("grafts the selected caseId onto the form screen when the target names this form", () => {
+		editModeMock.mockReturnValue("preview");
+		locationMock.mockReturnValue(FORM_LOCATION);
+		previewCaseTargetMock.mockReturnValue({
+			formUuid: FORM_UUID,
+			caseId: "case-xyz",
+		});
+		const { getByTestId } = renderShell();
+		expect(getByTestId("form-stub").getAttribute("data-case-id")).toBe(
+			"case-xyz",
+		);
+	});
+
+	it("leaves the form caseless when the target names a different form", () => {
+		editModeMock.mockReturnValue("preview");
+		locationMock.mockReturnValue(FORM_LOCATION);
+		previewCaseTargetMock.mockReturnValue({
+			formUuid: asUuid("some-other-form"),
+			caseId: "case-xyz",
+		});
+		const { getByTestId } = renderShell();
+		expect(getByTestId("form-stub").getAttribute("data-case-id")).toBe("");
+	});
+
+	it("leaves the form caseless when there is no target", () => {
+		editModeMock.mockReturnValue("preview");
+		locationMock.mockReturnValue(FORM_LOCATION);
+		previewCaseTargetMock.mockReturnValue(undefined);
+		const { getByTestId } = renderShell();
+		expect(getByTestId("form-stub").getAttribute("data-case-id")).toBe("");
 	});
 });

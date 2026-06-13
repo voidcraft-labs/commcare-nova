@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import { asUuid } from "@/lib/doc/types";
 import type { Event } from "@/lib/log/types";
 import { createBuilderSessionStore } from "../store";
 import type { ReplayChapter } from "../types";
@@ -138,6 +139,42 @@ describe("BuilderSession store", () => {
 		/* Chat is already open — setting to true is a no-op. */
 		store.getState().setSidebarOpen("chat", true);
 		expect(store.getState()).toBe(prev);
+	});
+
+	it("setPreviewCaseTarget sets the target and no-ops on a shallow-equal value", () => {
+		const store = createBuilderSessionStore();
+		const formUuid = asUuid("form-1");
+
+		store.getState().setPreviewCaseTarget({ formUuid });
+		expect(store.getState().previewCaseTarget).toEqual({ formUuid });
+
+		/* Same formUuid + caseId — no new state object. */
+		const prev = store.getState();
+		store.getState().setPreviewCaseTarget({ formUuid });
+		expect(store.getState()).toBe(prev);
+
+		/* Adding the caseId is a real change. */
+		store.getState().setPreviewCaseTarget({ formUuid, caseId: "case-1" });
+		expect(store.getState().previewCaseTarget).toEqual({
+			formUuid,
+			caseId: "case-1",
+		});
+	});
+
+	it("setPreviewing clears the case target on both transitions", () => {
+		const store = createBuilderSessionStore();
+		const formUuid = asUuid("form-1");
+
+		/* Entering preview clears any stray target. */
+		store.getState().setPreviewCaseTarget({ formUuid, caseId: "case-1" });
+		store.getState().setPreviewing(true);
+		expect(store.getState().previewCaseTarget).toBeUndefined();
+
+		/* Leaving preview clears the in-session selection — it's running-app
+		 * state with no meaning outside preview. */
+		store.getState().setPreviewCaseTarget({ formUuid, caseId: "case-2" });
+		store.getState().setPreviewing(false);
+		expect(store.getState().previewCaseTarget).toBeUndefined();
 	});
 });
 

@@ -26,6 +26,10 @@ const navigateMock = {
 	up: vi.fn(),
 };
 
+/** Mocked `useSetPreviewCaseTarget` — asserts a case-loading form click
+ *  seeds the case list's continue target with that form. */
+const setPreviewCaseTargetMock = vi.fn();
+
 vi.mock("@/lib/routing/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/routing/hooks")>(
 		"@/lib/routing/hooks",
@@ -45,6 +49,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		...actual,
 		useEditMode: () => "edit" as const,
 		useBuilderIsReady: () => true,
+		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 	};
 });
 
@@ -106,11 +111,17 @@ describe("ModuleScreen", () => {
 		).toBeNull();
 	});
 
-	it("routes a case-loading form click through the case list (worker journey starts from a case)", () => {
+	it("routes a case-loading form click through the case list and seeds it as the continue target", () => {
 		navigateMock.openCaseList.mockClear();
 		navigateMock.openForm.mockClear();
+		setPreviewCaseTargetMock.mockClear();
 		renderModuleScreen({ caseType: "patient" });
 		fireEvent.click(screen.getByText("Follow Up"));
+		// The clicked form is recorded so the case list continues into THIS
+		// form, not the module's first case-loading form.
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: FOLLOWUP_FORM_UUID,
+		});
 		expect(navigateMock.openCaseList).toHaveBeenCalledWith(MODULE_UUID);
 		expect(navigateMock.openForm).not.toHaveBeenCalled();
 	});

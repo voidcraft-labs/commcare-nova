@@ -46,7 +46,16 @@ import type { Location } from "@/lib/routing/types";
 
 const APP_ID = "app-case-list-screen-test";
 const MODULE_UUID = asUuid("00000000-0000-0000-0000-000000000a01");
+/** The module's registration form — first in order, but NOT a case-loading
+ *  form, so selecting a case must never continue into it. */
 const FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a02");
+/** The followup form — the case-loading form a selected case continues into. */
+const FOLLOWUP_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a03");
+const SELECTED_CASE_ID = "11111111-1111-1111-1111-111111111111";
+
+/** Mocked `useSetPreviewCaseTarget` — asserts the selected case datum is
+ *  recorded for the form before navigation. */
+const setPreviewCaseTargetMock = vi.fn();
 
 // Routing — mounting the screen reads `useLocation()` to derive
 // `moduleUuid`. The screen branches on `loc.kind === "cases"`,
@@ -87,6 +96,8 @@ vi.mock("@/lib/session/hooks", async () => {
 		useAppId: () => APP_ID,
 		useEditMode: () => "preview" as const,
 		useBuilderIsReady: () => true,
+		usePreviewCaseTarget: () => undefined,
+		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 	};
 });
 
@@ -206,10 +217,16 @@ function renderCaseListScreen(opts: {
 						name: FIRST_FORM_NAME,
 						type: "registration",
 					},
+					[FOLLOWUP_FORM_UUID]: {
+						uuid: FOLLOWUP_FORM_UUID,
+						id: "followup_form",
+						name: "Follow-up Visit",
+						type: "followup",
+					},
 				},
 				fields: {},
 				moduleOrder: [MODULE_UUID],
-				formOrder: { [MODULE_UUID]: [FORM_UUID] },
+				formOrder: { [MODULE_UUID]: [FORM_UUID, FOLLOWUP_FORM_UUID] },
 				fieldOrder: {},
 			}}
 		>
@@ -558,14 +575,14 @@ describe("CaseListScreen — search-input form", () => {
 // ── Row click → detail → Continue ────────────────────────────────
 
 describe("CaseListScreen — detail confirm step", () => {
-	it("row click opens the detail in place; Continue fires openForm with the first form", async () => {
+	it("row click opens the detail in place; Continue fires openForm with the case-loading form and records the selected case", async () => {
 		// Both columns default `visibleInDetail` → the detail confirm
 		// step is configured, so the row click opens it in place
 		// rather than navigating.
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			kind: "rows",
 			rows: [
-				makeRow("11111111-1111-1111-1111-111111111111", {
+				makeRow(SELECTED_CASE_ID, {
 					name: "Alice",
 					age: 30,
 				}),
@@ -590,20 +607,27 @@ describe("CaseListScreen — detail confirm step", () => {
 			screen.getByRole("button", { name: /Back to Results/ }),
 		).toBeDefined();
 
-		// Continue — the confirm step ends in the module's first form.
+		// Continue — the confirm step ends in the module's case-loading
+		// form (the followup, NOT the order-zero registration form), with
+		// the selected case datum recorded for preload.
 		fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
-		expect(navigateMock.openForm).toHaveBeenCalledWith(MODULE_UUID, FORM_UUID);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: FOLLOWUP_FORM_UUID,
+			caseId: SELECTED_CASE_ID,
+		});
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			FOLLOWUP_FORM_UUID,
+		);
 	});
 
-	it("row click navigates straight to the first form when no detail fields are configured", async () => {
+	it("row click navigates straight to the case-loading form when no detail fields are configured", async () => {
 		// Every column opts out of the detail — CommCare skips the
 		// confirm step in this shape, so the row click goes straight
-		// into the form.
+		// into the form with the case in hand.
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			kind: "rows",
-			rows: [
-				makeRow("11111111-1111-1111-1111-111111111111", { name: "Alice" }),
-			],
+			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
 		});
 		renderCaseListScreen({
 			columns: [
@@ -617,6 +641,13 @@ describe("CaseListScreen — detail confirm step", () => {
 		});
 
 		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
-		expect(navigateMock.openForm).toHaveBeenCalledWith(MODULE_UUID, FORM_UUID);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: FOLLOWUP_FORM_UUID,
+			caseId: SELECTED_CASE_ID,
+		});
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			FOLLOWUP_FORM_UUID,
+		);
 	});
 });
