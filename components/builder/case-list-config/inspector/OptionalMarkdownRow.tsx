@@ -156,15 +156,18 @@ export function OptionalMarkdownRow({
 			</label>
 			<Tiptap editor={editor}>
 				<div className="rounded-lg border border-white/[0.06] bg-nova-deep/50 focus-within:border-nova-violet/40 focus-within:ring-1 focus-within:ring-nova-violet/30 transition-colors overflow-hidden">
-					{/* `onMouseDown` preventDefault keeps toolbar clicks from
-					 *  stealing focus (which would blur-commit mid-format); the
-					 *  tiptap-ui buttons act on `onClick`, which still fires. */}
+					{/* `fixed` is the primitive's single-line variant: the full
+					 *  control set stays on one row and scrolls horizontally
+					 *  (scrollbar hidden) rather than wrapping at the rail's
+					 *  narrow width. `onMouseDown` preventDefault keeps toolbar
+					 *  clicks from stealing focus (which would blur-commit
+					 *  mid-format); the tiptap-ui buttons act on `onClick`,
+					 *  which still fires. */}
 					<Toolbar
-						variant="floating"
+						variant="fixed"
 						data-inline-toolbar
 						aria-label={`${label} formatting`}
 						className="border-b border-white/[0.06]"
-						style={{ flexWrap: "wrap" }}
 						onMouseDown={(e) => e.preventDefault()}
 					>
 						<ToolbarGroup>

@@ -88,7 +88,7 @@ export function SearchCanvas({
 	);
 
 	return (
-		<ContentFrame width="md" className="px-6 pt-6 pb-24">
+		<ContentFrame width="lg" className="px-6 pt-6 pb-24">
 			<p className="mb-5 text-[13px] text-nova-text-muted">
 				The search screen, as your app shows it — click any part to set it up.
 			</p>
