@@ -1345,7 +1345,7 @@ describe("useBlueprintMutations — commit gate", () => {
 		// The rejection is honest — no fabricated uuid, the findings ride
 		// along for inline display.
 		assert(!returned.ok);
-		expect(returned.messages[0]).toContain("has no fields");
+		expect(returned.messages[0]).toContain("doesn't have any fields");
 		const s = result.current.store?.getState();
 		expect(s?.forms[asUuid("form-gated-uuid")]).toBeUndefined();
 		// The rejection surfaced person-to-person, not silently — each
@@ -1353,7 +1353,7 @@ describe("useBlueprintMutations — commit gate", () => {
 		const toast = toastStore.toasts.at(-1);
 		expect(toast?.severity).toBe("error");
 		expect(toast?.title).toBe("Change not applied");
-		expect(toast?.lines?.[0]).toContain("has no fields");
+		expect(toast?.lines?.[0]).toContain("doesn't have any fields");
 		toastStore.clear();
 	});
 
@@ -1378,7 +1378,7 @@ describe("useBlueprintMutations — commit gate", () => {
 		// Identical gate semantics — findings returned for the caller's
 		// contextual surface…
 		assert(!returned.ok);
-		expect(returned.messages[0]).toContain("has no fields");
+		expect(returned.messages[0]).toContain("doesn't have any fields");
 		const s = result.current.store?.getState();
 		expect(s?.forms[asUuid("form-gated-inline-uuid")]).toBeUndefined();
 		// …and the toast stays quiet: one rejection, one presentation.

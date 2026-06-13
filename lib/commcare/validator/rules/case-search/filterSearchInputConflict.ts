@@ -173,7 +173,7 @@ function buildConflictError(
 	return validationError(
 		"CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 		"module",
-		`Module "${mod.name}" binds the property "${propertyName}" on case type "${destinationCaseType}" in both \`caseListConfig.filter\` (the always-on filter) and a simple-arm search input on \`caseListConfig.searchInputs\`. The two clauses AND-compose into one wire-layer query — at runtime the always-on filter narrows the search results before the typed value is matched, and the two filters rarely agree, so the user sees an unexpectedly empty result set whenever the always-on value and the typed value disagree. One of the two clauses is likely meant to replace the other. Either remove "${propertyName}" from the filter predicate (and let the typed search drive the comparison) or remove the search input that targets "${propertyName}" (and let the always-on filter pin the value) so the runtime path "${destinationCaseType}.${propertyName}" binds at exactly one site.`,
+		`Module "${mod.name}" binds the property "${propertyName}" on case type "${destinationCaseType}" in both \`caseListConfig.filter\` and a simple-arm search input — the two AND-compose, so they can return nothing when they disagree, and one is likely meant to replace the other. Either remove "${propertyName}" from the filter, or remove the search input that targets it, so "${destinationCaseType}.${propertyName}" binds at exactly one site.`,
 		{ moduleUuid, moduleName: mod.name },
 		{ destinationCaseType, property: propertyName },
 	);

@@ -84,6 +84,34 @@ const sameRef = (line: string): RetirementReference => ({
 	concise: line,
 });
 
+/** Friendly names for the reference-slot registry keys, for the CONCISE
+ *  (builder-toast) reference lines only. The verbose SA line keeps the raw
+ *  slot key (`repeat_count`, `validate_msg`, …); the user never sees those
+ *  wire-internal names. Any key not mapped falls back to its spaced form so
+ *  a new slot can't leak an underscored key into the toast. */
+const SLOT_LABEL: Readonly<Record<string, string>> = {
+	relevant: "display condition",
+	validate: "validation rule",
+	validate_msg: "validation message",
+	calculate: "calculation",
+	default_value: "default value",
+	required: "required rule",
+	repeat_count: "repeat count",
+	ids_query: "list of records",
+	label: "label",
+	hint: "hint",
+	help: "help text",
+	option_label: "option label",
+	form_link_condition: "follow-on link condition",
+	form_link_datum_xpath: "follow-on link value",
+	assessment_user_score: "Connect score",
+	deliver_entity_id: "Connect entity id",
+	deliver_entity_name: "Connect entity name",
+};
+
+const slotLabel = (slot: string): string =>
+	SLOT_LABEL[slot] ?? slot.replace(/_/g, " ");
+
 /** The cascade decision for a batch that displaces a module's case type. */
 export type CaseTypeRetirement =
 	/** No record is being orphaned — the batch needs no cascade. */
@@ -175,7 +203,7 @@ function planRetirement(
 				displaced,
 				references.map((r) => r.verbose),
 			),
-			userMessage: blockedRetirementMessage(
+			userMessage: userBlockedRetirementMessage(
 				opts.action,
 				displaced,
 				references.map((r) => r.concise),
@@ -199,8 +227,9 @@ function planRetirement(
 	};
 }
 
-/** One person-to-person rejection both the tool envelope and the builder
- *  toast carry — what was tried, why it can't run, and the repair. */
+/** The SA / introspection rejection — what was tried, why it can't run,
+ *  and the repair, in the verbose voice (the reference lines keep their
+ *  wire spelling). */
 function blockedRetirementMessage(
 	action: string,
 	caseType: string,
@@ -212,6 +241,25 @@ function blockedRetirementMessage(
 		`but ${references.length === 1 ? "something still references" : `${references.length} things still reference`} "${caseType}":\n` +
 		`${lines}\n` +
 		`Remove or retarget ${references.length === 1 ? "that reference" : "those references"} first, or keep a module that manages "${caseType}".`
+	);
+}
+
+/** The builder-toast twin of {@link blockedRetirementMessage}: the same
+ *  facts and the same concise reference list, framed in plain English —
+ *  no "retire" / "manages" / "retarget", which read as internal jargon to
+ *  a person. */
+function userBlockedRetirementMessage(
+	action: string,
+	caseType: string,
+	references: string[],
+): string {
+	const lines = references.map((r) => `  • ${r}`).join("\n");
+	const one = references.length === 1;
+	return (
+		`${action} would leave the "${caseType}" case type with no module — ` +
+		`but ${one ? "something" : `${references.length} things`} still ${one ? "uses" : "use"} it:\n` +
+		`${lines}\n` +
+		`${one ? "Update or remove that first" : "Update or remove those first"}, or keep a module for "${caseType}".`
 	);
 }
 
@@ -414,7 +462,7 @@ function collectFieldReferences(
 					if (names) {
 						out.push({
 							verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" expression`,
-							concise: `field "${field.id}" in ${where} uses it in its "${slot.slot}"`,
+							concise: `field "${field.id}" in ${where} uses it in its ${slotLabel(slot.slot)}`,
 						});
 					}
 				}
@@ -425,7 +473,7 @@ function collectFieldReferences(
 					if (proseNamesCaseType(entry.text, caseType)) {
 						out.push({
 							verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" text`,
-							concise: `field "${field.id}" in ${where} mentions it in its "${slot.slot}" text`,
+							concise: `field "${field.id}" in ${where} mentions it in its ${slotLabel(slot.slot)} text`,
 						});
 					}
 				}
@@ -468,7 +516,7 @@ function collectFormSlotReferences(
 			if (names) {
 				out.push({
 					verbose: `${where} references #${caseType}/… in its "${slot.slot}" expression`,
-					concise: `${where} uses it in its "${slot.slot}"`,
+					concise: `${where} uses it in its ${slotLabel(slot.slot)}`,
 				});
 			}
 		}

@@ -271,8 +271,10 @@ describe("planCaseTypeRetirementOnRemove", () => {
 		expect(plan.userMessage).not.toContain("#visit/");
 		expect(plan.userMessage).toContain('field "summary"');
 		expect(plan.userMessage).toContain("saves to it");
-		// The repair frame stays the same plain-English shape in both.
-		expect(plan.userMessage).toContain("Remove or retarget");
+		// The user frame drops the "retire / manages / retarget" wording for
+		// plain English — the SA `message` keeps it (asserted above).
+		expect(plan.userMessage).toContain("Update or remove");
+		expect(plan.userMessage).not.toContain("retire");
 	});
 
 	it("blocks on a #type/… hashtag in another module's XPath and prose slots", () => {

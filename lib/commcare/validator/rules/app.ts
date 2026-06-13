@@ -53,7 +53,7 @@ function duplicateModuleNames(doc: BlueprintDoc): ValidationError[] {
 				validationError(
 					"DUPLICATE_MODULE_NAME",
 					"app",
-					`Module "${mod.name}" appears twice (modules ${prev + 1} and ${i + 1}). Each module needs a unique name because CommCare uses it to build the navigation menu — duplicate names would make two menu items indistinguishable.`,
+					`Module "${mod.name}" appears twice (modules ${prev + 1} and ${i + 1}). Module names must be unique — rename one of them.`,
 					{ moduleUuid: mod.uuid, moduleName: mod.name },
 				),
 			);
@@ -89,7 +89,7 @@ function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
 			validationError(
 				"RESERVED_CASE_TYPE_NAME",
 				"app",
-				`Case type "${name}" collides with a reserved reference namespace. CommCare's hashtag system reserves "#form/", "#user/", "#case/", and "#parent/", and the wire resolves those before any project case type — so "#${name}/<property>" would always resolve to the built-in "${lower}" namespace, never to this case type, silently emitting against the wrong target. Rename the case type to something project-specific (e.g. "${name}_record").`,
+				`Case type "${name}" collides with a reserved reference namespace. CommCare's hashtag system reserves #form/, #user/, #case/, and #parent/ — "#${name}/<property>" would resolve to the built-in "${lower}" namespace, not this case type. Rename it to something project-specific (e.g. "${name}_record").`,
 				location,
 				{ caseType: name },
 			),

@@ -316,7 +316,7 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 				validationError(
 					"EMPTY_REPEAT_COUNT",
 					"field",
-					`Field "${field.id}" in "${ctx.formName}" is a count-bound repeat but has no \`repeat_count\` expression. Set it to an XPath that resolves to the number of iterations — a hashtag reference like \`#form/desired_count\` for a user-supplied count, or a literal like \`5\` for a fixed count. CommCare HQ rejects builds whose \`jr:count\` attribute parses to an empty XPath, so leaving this blank breaks the upload.`,
+					`Field "${field.id}" in "${ctx.formName}" is a count-bound repeat but has no \`repeat_count\` expression. Set it to an XPath that resolves to the number of iterations — a hashtag reference like \`#form/desired_count\` for a user-supplied count, or a literal like \`5\` for a fixed count.`,
 					{ ...loc, field: "repeat_count" },
 					{ field: "repeat_count" },
 				),
@@ -329,7 +329,7 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 				validationError(
 					"EMPTY_IDS_QUERY",
 					"field",
-					`Field "${field.id}" in "${ctx.formName}" is a query-bound repeat but has no \`data_source.ids_query\` expression. Set it to an XPath that resolves to a list of case ids the runtime should iterate over — typically a casedb filter like \`instance('casedb')/casedb/case[@case_type='visit'][@status='open']/@case_id\`. CommCare HQ rejects builds with malformed setvalue expressions, so leaving this blank breaks the upload.`,
+					`Field "${field.id}" in "${ctx.formName}" is a query-bound repeat but has no \`data_source.ids_query\` expression. Set it to an XPath that resolves to a list of case ids the runtime should iterate over — typically a casedb filter like \`instance('casedb')/casedb/case[@case_type='visit'][@status='open']/@case_id\`.`,
 					{ ...loc, field: "ids_query" },
 					{ field: "ids_query" },
 				),

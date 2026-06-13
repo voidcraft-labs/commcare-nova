@@ -775,7 +775,7 @@ describe("post_submit validation", () => {
 			(e) => e.code === "POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
 		);
 		expect(err).toBeDefined();
-		expect(err?.message).toContain("doesn't have a parent module");
+		expect(err?.message).toContain("has no parent module");
 		expect(err?.message).toContain('"module"');
 		expect(err?.message).toContain('"previous"');
 	});

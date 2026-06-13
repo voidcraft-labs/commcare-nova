@@ -85,7 +85,7 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			message:
 				"A field id can't be empty. The id becomes the question's name in the form and the case property it saves to — give it a short name like \"first_name\".",
 			userMessage:
-				'A field id can\'t be blank. Give it a short name like "first_name".',
+				'A field needs an id. Try something short, like "first_name".',
 		};
 	}
 	if (!XML_ELEMENT_NAME_REGEX.test(proposedId)) {
@@ -93,7 +93,7 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			ok: false,
 			code: "illegal_xml_name",
 			message: `"${proposedId}" can't be a field id. Ids become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores — no spaces, hyphens, or special characters.`,
-			userMessage: `"${proposedId}" can't be a field id. Use letters, numbers, and underscores only, starting with a letter — no spaces or punctuation.`,
+			userMessage: `"${proposedId}" won't work as a field id. Stick to letters, numbers, and underscores, starting with a letter — no spaces or punctuation.`,
 		};
 	}
 	if (isReservedXFormNodeName(proposedId)) {
@@ -109,7 +109,7 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			ok: false,
 			code: "too_long",
 			message: `"${proposedId.slice(0, 40)}…" is ${proposedId.length} characters long. A field id is also the name of the case property it saves to, and CommCare caps property names at ${MAX_CASE_PROPERTY_LENGTH} characters. Use a shorter, more concise id.`,
-			userMessage: `That id is too long (${proposedId.length} characters). Keep it to ${MAX_CASE_PROPERTY_LENGTH} or fewer.`,
+			userMessage: `That id's a bit too long (${proposedId.length} characters). Keep it to ${MAX_CASE_PROPERTY_LENGTH} or fewer.`,
 		};
 	}
 	return OK;
@@ -123,7 +123,7 @@ function siblingConflict(proposedId: string, where = ""): FieldIdVerdict {
 		ok: false,
 		code: "sibling_conflict",
 		message: `Another field at the same level${where} is already named "${proposedId}". Fields that sit side by side share an XML path, so each needs a unique id — pick a different one or rename the other field first.`,
-		userMessage: `Another field${where} is already named "${proposedId}". Pick a different id.`,
+		userMessage: `Another field${where} is already named "${proposedId}". Give this one a different id, or rename that one first.`,
 	};
 }
 

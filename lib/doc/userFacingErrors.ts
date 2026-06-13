@@ -4,18 +4,29 @@
  * A `ValidationError` carries TWO things at once: a stable `code` (+ a
  * `location` and structured `details`) and a verbose, person-to-person
  * `message`. That `message` is written for the AGENT and the logs — it
- * names the underlying constraint in full ("ids become XML element
- * names", "CommCare builds the navigation menu from module names"),
- * because the detail is what lets the SA self-correct and what a
- * developer reading a report needs.
+ * names the underlying constraint in full, because that detail is what
+ * lets the SA self-correct and what a developer reading a report needs.
  *
- * That detail is the WRONG shape at the builder surface. A person
- * renaming a module doesn't need to know CommCare renders a menu from the
- * name — only that this name is taken and to pick another. So this module
- * is the other rendering of the same finding: concise, present-tense,
- * naming the offending entity, free of wire/platform vocabulary (no XML,
- * XForm, XPath, suite, nodes, "the navigation menu", JavaRosa). What the
- * user can't do + what to do about it, and nothing else.
+ * That detail is the WRONG shape at the builder surface. A person who
+ * just hit a wall is already a little frustrated; the copy's job is to
+ * make the stop feel like a nudge from a helpful colleague, not a fault
+ * report from a machine. So this module is the other rendering of the
+ * same finding:
+ *
+ *   - Warm and conversational — what you'd actually say out loud, not a
+ *     spec sentence. Contractions, plain words, no stiffness.
+ *   - Pointed at the RIGHT fix. The instruction names the one move that
+ *     actually clears it. A name collision is the canonical trap: "give
+ *     each module a different name" wrongly implies renaming BOTH — the
+ *     real fix is "rename this one, or the other one." Every "duplicate"
+ *     code here frames the fix as acting on ONE thing, a choice, never a
+ *     blanket "make them all unique."
+ *   - Free of wire/platform vocabulary (no XML, XForm, XPath, suite,
+ *     nodes, "the navigation menu", JavaRosa, raw slot keys). The user
+ *     never needs to know WHY CommCare can't do a thing — only what they
+ *     can do about it.
+ *   - Short. The situation, then the move. No "before you can use or
+ *     export it" tails — the user knows why they were stopped.
  *
  * The split, by audience:
  *   - SA / MCP tools, server logs, `describeIntroducedErrors` → the
@@ -87,185 +98,188 @@ const USER_MESSAGE_BY_CODE: Partial<
 > = {
 	// ── App-level ────────────────────────────────────────────────────
 	NO_MODULES: () =>
-		"Your app has no modules yet. Add at least one before you can use or export it.",
-	EMPTY_APP_NAME: () =>
-		"Your app needs a name. Give it one before you can use or export it.",
+		"Every app needs at least one module to do anything. Add one to get started.",
+	EMPTY_APP_NAME: () => "Your app needs a name. Add one to get started.",
 	DUPLICATE_MODULE_NAME: (e) =>
-		`Another module is already named ${q(modName(e))}. Give each module a different name.`,
+		`There's already a module named ${q(modName(e))}. Give this one a different name, or rename the other module first if you'd rather reuse it.`,
 	RESERVED_CASE_TYPE_NAME: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct
-			? `${q(ct)} is a reserved name and can't be used as a case type. Try something more specific, like ${q(`${ct}_record`)}.`
-			: 'That case type uses a reserved name. Try something more specific, like adding "_record".';
+			? `${q(ct)} is a reserved word, so it can't be a case type. Try something more specific, like ${q(`${ct}_record`)}.`
+			: 'That case type uses a reserved word. Try something more specific, like adding "_record".';
 	},
 	MISSING_CHILD_CASE_MODULE: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct
-			? `The ${q(ct)} cases your forms create have nowhere to show. Add a module for ${q(ct)}.`
-			: "Some child cases your forms create have nowhere to show. Add a module for that case type.";
+			? `Your forms create ${q(ct)} cases, but there's no module showing them yet. Add a module for ${q(ct)}.`
+			: "Some of your forms create child cases that have nowhere to show. Add a module for that case type.";
 	},
 	FORM_LINK_CIRCULAR: () =>
-		"Your form links loop back on themselves, which would leave people stuck after submitting. Point one of the links at a module instead of a form.",
+		"Your follow-on links loop in a circle, so people would get stuck going form to form. Point one of them at a module instead of another form to break the loop.",
 	CONNECT_ID_DUPLICATE: (e) =>
-		`The Connect id ${q(det(e, "connectId", ""))} is already used by another form. Give each Connect block a unique id.`,
+		`The Connect id ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different id, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
-		"This Connect app has no form taking part in Connect yet. Give at least one form a Connect block, or turn Connect off for the app.",
+		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
 
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: (e) =>
-		`${q(modName(e))} has forms that work with cases but no case type set. Choose the case type it manages, like "patient" or "household".`,
+		`${q(modName(e))} has forms that work with cases, but you haven't picked a case type for it yet. Choose the kind of case it manages, like "patient" or "household".`,
 	CASE_LIST_ONLY_HAS_FORMS: (e) =>
-		`${q(modName(e))} is set to only show a case list, but it also has forms. Remove the forms, or turn off the list-only setting.`,
+		`${q(modName(e))} is set to just show a case list, but it still has forms. Either remove the forms, or turn off the list-only setting.`,
 	CASE_LIST_ONLY_NO_CASE_TYPE: (e) =>
-		`${q(modName(e))} is set to show a case list but has no case type to display. Choose which case type it lists.`,
+		`${q(modName(e))} is set to show a case list, but you haven't said which case type to list. Pick one.`,
 	NO_FORMS_OR_CASE_LIST: (e) =>
-		`${q(modName(e))} has a case type but nothing to do. Add a form, or set it to show a case list.`,
+		`${q(modName(e))} has a case type but nothing to do with it yet. Add a form, or set it to show a case list.`,
 	INVALID_CASE_TYPE_FORMAT: (e) =>
-		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} isn't a valid name. Start it with a letter and use only letters, numbers, underscores, or hyphens.`,
+		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} isn't a valid name. Start it with a letter and stick to letters, numbers, underscores, and hyphens.`,
 	CASE_TYPE_TOO_LONG: (e) =>
-		`${q(modName(e))}'s case type name is too long. Use a shorter name.`,
+		`${q(modName(e))}'s case type name is too long. Try a shorter one.`,
 	MISSING_CASE_LIST_COLUMNS: (e) =>
-		`${q(modName(e))}'s case list has no columns, so people can't tell cases apart. Add at least one column, like a name.`,
+		`${q(modName(e))}'s case list doesn't have any columns yet, so there's no way to tell cases apart. Add at least one — a name column is a good start.`,
 
 	// ── Case-list config ─────────────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: (e) =>
-		`A case list column in ${q(modName(e))} shows ${q(det(e, "field", "a property"))}, which isn't a property on this case type. Point it at an existing property.`,
+		`One of ${q(modName(e))}'s case list columns shows ${q(det(e, "field", "a property"))}, which isn't a property on this case type. Point it at one that exists.`,
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
-		`A calculated column in ${q(modName(e))} has a calculation that doesn't add up. Open the column and fix it.`,
+		`A calculated column in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and take a look.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
-		`The case list filter in ${q(modName(e))} has an error — the values it compares don't fit together. Open the filter and fix it.`,
+		`The case list filter in ${q(modName(e))} is comparing values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_ID_MAPPING_EMPTY_VALUE: (e) =>
-		`A value-mapping column in ${q(modName(e))} has a row with no value to match. Fill it in, or remove the row.`,
+		`A value-mapping column in ${q(modName(e))} has a row with no value to match on. Fill it in, or remove the row.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
-		`Two case list columns in ${q(modName(e))} sort at the same priority. Give each sorted column a different priority.`,
+		`Two case list columns in ${q(modName(e))} are sorting at the same priority. Change one of them, or drop the sort from one.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
-		`An image column in ${q(modName(e))} has two rows with the value ${q(det(e, "value", ""))}, so only the first image shows. Change or remove one.`,
+		`An image column in ${q(modName(e))} has two rows with the value ${q(det(e, "value", ""))}, so only the first image shows up. Change or remove one of them.`,
 	CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED: (e) =>
-		`Search input ${q(det(e, "inputName", "in this module"))} uses a dropdown, which isn't supported here. Change it to a text input.`,
+		`The search input ${q(det(e, "inputName", "in this module"))} is set to a dropdown, which isn't supported here. Switch it to a plain text input.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>
-		`Search input ${q(det(e, "inputName", "in this module"))} has a condition that doesn't add up. Open the input and fix it.`,
+		`The search input ${q(det(e, "inputName", "in this module"))} has a condition that doesn't add up. Open it and fix the condition.`,
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: (e) =>
-		`Search input ${q(det(e, "inputName", "in this module"))} searches ${q(det(e, "property", "a property"))}, which doesn't exist on that case type. Point it at an existing property.`,
+		`The search input ${q(det(e, "inputName", "in this module"))} searches ${q(det(e, "property", "a property"))}, which doesn't exist on that case type. Point it at one that does.`,
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: (e) =>
-		`Search input ${q(det(e, "inputName", "in this module"))} uses a search mode that doesn't fit the property's type. Pick a different mode, or a property that fits.`,
+		`The search input ${q(det(e, "inputName", "in this module"))} uses a search mode that doesn't fit the property it's searching. Pick a different mode, or search a property that fits.`,
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: (e) =>
-		`Search input ${q(det(e, "inputName", "in this module"))} uses an input type that doesn't fit the property it searches — like a date picker against text. Change one so they match.`,
+		`The search input ${q(det(e, "inputName", "in this module"))} uses an input type that doesn't match the property it searches — like a date picker on a text field. Change one so they line up.`,
 	CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR: (e) =>
-		`Search input ${q(det(e, "inputName", "in this module"))} has a default value that doesn't match its input type. Fix the default, or remove it.`,
+		`The search input ${q(det(e, "inputName", "in this module"))} has a default value that doesn't match its input type. Fix the default, or clear it.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
-		`Two search inputs in ${q(modName(e))} share the name ${q(det(e, "inputName", ""))}. Rename one.`,
-	CASE_LIST_BARE_SEARCH_INPUT_REF: (e) =>
-		`A condition in ${q(modName(e))} uses search input ${q(det(e, "inputName", ""))} in a way that matches empty values. Only apply it when the input has a value.`,
+		`Two search inputs in ${q(modName(e))} share the name ${q(det(e, "inputName", ""))}. Rename one of them.`,
+	CASE_LIST_BARE_SEARCH_INPUT_REF: (e) => {
+		const input = q(det(e, "inputName", "the search box"));
+		return det(e, "mode", "") === "forbids-input-ref"
+			? `A setting in ${q(modName(e))} reads ${input}, but it runs before anyone searches — so it always comes back empty. Remove that reference.`
+			: `A filter in ${q(modName(e))} checks ${input} before anyone's typed in it, so it matches empty values too. Have it apply only once ${input} has something in it.`;
+	},
 	CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE: (e) =>
-		`Search input ${q(det(e, "inputName", "in this module"))} uses a mode the case list can't support this way. Switch to a single-value mode like "exact", or build it as an advanced search input.`,
+		`The search input ${q(det(e, "inputName", "in this module"))} uses a mode the case list can't handle this way. Switch to a single-value mode like "exact", or build it as an advanced search input.`,
 	CASE_LIST_MATCH_MODE_NOT_ON_DEVICE: (e) =>
-		`A search in ${q(modName(e))} uses a match type that isn't available where it runs, so the case list won't load. Use "starts-with" here, or move it to an advanced search input.`,
+		`A search in ${q(modName(e))} uses a match type that isn't available where it runs, so the case list won't load. Use "starts-with" here instead, or move it to an advanced search input.`,
 	CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE: (e) =>
-		`A search condition in ${q(modName(e))} matches against a value with spaces, which splits it into separate words and matches more broadly than intended. Use a single word, or "starts-with".`,
+		`A search in ${q(modName(e))} matches against a value with spaces in it, which splits into separate words and matches more than you'd expect. Use a single word, or "starts-with".`,
 	CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK: (e) =>
-		`A search condition in ${q(modName(e))} nests a child-case check inside a parent-case check, which the search can't run. Make them side by side, or separate inputs.`,
+		`A search in ${q(modName(e))} tucks a child-case check inside a parent-case check, which it can't run. Put them side by side instead, or split them into separate inputs.`,
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, but its type doesn't match how that property is set up. Change the field's type, or save to a different property.`,
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, but its type doesn't match how that property is set up. Change the field's type, or save it somewhere else.`,
 	FIELD_KIND_WRITERS_DISAGREE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} in a different format than other fields that write to it. Make them all use the same type.`,
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} in a different format than the other fields that use it. Change this one to match them, or save it somewhere else.`,
 
 	// ── Case-search config ───────────────────────────────────────────
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
-		`${q(modName(e))} has search turned on but no case type chosen. Pick what kind of case the search returns, or turn search off.`,
+		`${q(modName(e))} has search turned on but no case type picked. Choose what kind of case the search should return, or turn search off.`,
 	CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE: (e) =>
-		`Search is on for ${q(modName(e))} but there's nothing to search by. Add a search field or a default filter, or turn search off.`,
+		`Search is on for ${q(modName(e))}, but there's nothing to search by yet. Add a search input or a default filter, or turn search off.`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: (e) =>
-		`The excluded-owners setting on ${q(modName(e))} doesn't produce valid text. Fix the expression, or clear it.`,
+		`The excluded-owners setting on ${q(modName(e))} isn't coming out as text. Check the formula, or clear it.`,
 	CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT: (e) =>
-		`${q(modName(e))} filters on ${q(det(e, "property", "a property"))} in both its default filter and a search field, which can return nothing. Keep just one.`,
+		`${q(modName(e))} filters on ${q(det(e, "property", "a property"))} in both its default filter and a search input, which can come back empty. Keep just one.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		`The condition for when ${q(modName(e))}'s search button shows has an error. Fix it, or clear it to always show the button.`,
 
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>
-		`${q(formName(e))} has no fields yet. Add at least one before you can use it.`,
+		`${q(formName(e))} doesn't have any fields yet. Add at least one.`,
 	NO_CASE_NAME_FIELD: (e) =>
-		`${q(formName(e))} creates cases but nothing provides the case name. Add a field with the id "case_name".`,
+		`${q(formName(e))} creates cases, but nothing's giving them a name. Add a field with the id "case_name".`,
 	CASE_NAME_FIELD_MISSING: (e) =>
-		`${q(formName(e))} expects a field to provide the case name, but it's missing. Add it, or rename an existing field to "case_name".`,
+		`${q(formName(e))} needs a field named "case_name" to name its cases, but there isn't one. Add it, or rename an existing field to "case_name".`,
 	RESERVED_CASE_PROPERTY: (e) =>
-		`${q(formName(e))} saves a field to ${q(det(e, "reservedName", "a reserved name"))}, which is reserved. Rename that field's save target.`,
+		`${q(formName(e))} has a field that saves to ${q(det(e, "reservedName", "a reserved name"))}, which is a reserved name. Have it save somewhere else.`,
 	CASE_PROPERTY_MISSING_FIELD: (e) =>
-		`${q(formName(e))} saves a case property from a field that no longer exists. Remove the mapping, or add the field back.`,
+		`${q(formName(e))} still saves a value from a field that's no longer there. Remove that, or add the field back.`,
 	MEDIA_CASE_PROPERTY: (e) =>
-		`${q(formName(e))} tries to save a media field to the case property ${q(det(e, "property", ""))}. Images, audio, and video can't be saved as case data — clear that field's save target.`,
+		`${q(formName(e))} is trying to save a media field to the case. Images, audio, and video can't be saved as case data, so don't have that field save to the case.`,
 	CASE_PRELOAD_MISSING_FIELD: (e) =>
-		`${q(formName(e))} loads a saved value into a field that doesn't exist. Add the field, or remove the preload.`,
+		`${q(formName(e))} loads a saved value into a field that isn't there. Add the field back, or remove that load.`,
 	CASE_PRELOAD_RESERVED: (e) =>
 		`${q(formName(e))} loads a value into a reserved property name. Use a custom property instead.`,
 	DUPLICATE_CASE_PROPERTY: (e) =>
-		`In ${q(formName(e))}, two fields save to ${q(det(e, "property", "the same case property"))} and would overwrite each other. Give each a different save target.`,
+		`In ${q(formName(e))}, two fields save to ${q(det(e, "property", "the same case property"))} and would overwrite each other. Rename one of them, or point it somewhere else.`,
 	REGISTRATION_NO_CASE_PROPS: (e) =>
-		`${q(formName(e))} creates cases but saves no information to them. Set at least one field to save to the case.`,
+		`${q(formName(e))} creates cases but doesn't save anything to them. Set at least one field to save to the case.`,
 	CLOSE_CONDITION_WRONG_TYPE: (e) =>
-		`${q(formName(e))} has a close condition but isn't a close form. Make it a close form, or remove the condition.`,
+		`${q(formName(e))} has a close condition but isn't a close form. Make it a close form, or drop the condition.`,
 	CLOSE_FORM_NO_CASE_TYPE: (e) =>
-		`${q(formName(e))} is a close form but its module has no case type. Give the module a case type, or change the form type.`,
+		`${q(formName(e))} is a close form, but its module has no case type. Give the module a case type, or change the form's type.`,
 	CLOSE_CONDITION_INCOMPLETE: (e) =>
 		`${q(formName(e))}'s close condition needs both a field and an answer. Fill in both, or remove it to always close.`,
 	CLOSE_CONDITION_FIELD_NOT_FOUND: (e) =>
-		`${q(formName(e))}'s close condition checks a field that isn't in the form. Point it at an existing field.`,
+		`${q(formName(e))}'s close condition points at a field that isn't in the form. Point it at one that is.`,
 	INVALID_POST_SUBMIT: (e) =>
-		`${q(formName(e))} has an unrecognized destination for after submitting. Choose one of the available options.`,
+		`${q(formName(e))}'s after-submit spot isn't one of the options. Pick one.`,
 	POST_SUBMIT_PARENT_MODULE_UNSUPPORTED: (e) =>
-		`${q(formName(e))} is set to go to the parent menu after submitting, but its module has no parent. Pick a different destination.`,
+		`${q(formName(e))} is set to go to its parent module after submitting, but it doesn't have one. Pick a different spot to land.`,
 	POST_SUBMIT_MODULE_CASE_LIST_ONLY: (e) =>
-		`${q(formName(e))} is set to return to its module after submitting, but that module has no form list. Choose "previous" or the app home instead.`,
+		`${q(formName(e))} is set to head back to its module after submitting, but that module has no form list to land on. Send people to "previous" or the app home instead.`,
 	FORM_LINK_EMPTY: (e) =>
-		`${q(formName(e))} has an empty set of follow-on links. Add a link, or turn the setting off.`,
+		`${q(formName(e))} has follow-on links turned on but none added. Add a link, or turn the setting off.`,
 	FORM_LINK_NO_FALLBACK: (e) =>
-		`${q(formName(e))} has conditional follow-on links but no fallback. Set where to go when none of the conditions match.`,
+		`${q(formName(e))} has conditional follow-on links but no fallback. Set where people go when none of the conditions match.`,
 	FORM_LINK_TARGET_NOT_FOUND: (e) =>
-		`A follow-on link in ${q(formName(e))} points to a form or module that no longer exists. Update it.`,
+		`A follow-on link in ${q(formName(e))} points to a form or module that's gone. Update it.`,
 	FORM_LINK_SELF_REFERENCE: (e) =>
-		`A follow-on link in ${q(formName(e))} points back to the same form. Point it somewhere else.`,
+		`A follow-on link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
 	CONNECT_ID_MISSING: (e) =>
-		`The Connect ${det(e, "connectKind", "")} block in ${q(formName(e))} needs an id. Set one — unique across the app, 50 characters or fewer.`,
+		`The Connect ${det(e, "connectKind", "")} in ${q(formName(e))} needs an id. Give it one — unique across the app, 50 characters or fewer.`,
 	CONNECT_ID_TOO_LONG: (e) =>
-		`The Connect id ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Use 50 characters or fewer.`,
+		`The Connect id ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
 	CONNECT_ID_INVALID_FORMAT: (e) =>
-		`The Connect id ${q(det(e, "connectId", ""))} in ${q(formName(e))} isn't valid. Use letters, numbers, and underscores, starting with a letter.`,
+		`The Connect id ${q(det(e, "connectId", ""))} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`,
 	CONNECT_MISSING_LEARN: (e) =>
-		`${q(formName(e))} takes part in Connect but has no learn module or assessment turned on. Turn on at least one.`,
+		`${q(formName(e))} is set up for Connect but has no learn module or assessment turned on. Turn on at least one.`,
 	CONNECT_MISSING_DELIVER: (e) =>
-		`${q(formName(e))} takes part in Connect but has no deliver unit or task turned on. Turn on at least one.`,
+		`${q(formName(e))} is set up for Connect but has no deliver unit or task turned on. Turn on at least one.`,
 	CONNECT_EMPTY_XPATH: (e) =>
-		`A Connect setting on ${q(formName(e))} was left blank. Fill it in, or remove that sub-config.`,
+		`A Connect setting on ${q(formName(e))} was left blank. Fill it in, or remove that piece.`,
 	CONNECT_UNQUOTED_XPATH: (e) =>
-		`A Connect setting on ${q(formName(e))} looks like text but isn't quoted. Put single quotes around the value.`,
+		`A Connect setting on ${q(formName(e))} looks like text but isn't quoted. Wrap the value in single quotes.`,
 	DUPLICATE_FIELD_ID: (e) =>
-		`${q(formName(e))} has two fields with the same id at the same level. Rename one so each is unique.`,
+		`${q(formName(e))} has two fields with the same id at the same level. Rename one of them.`,
 	CASE_PROPERTY_BAD_FORMAT: (e) =>
-		`${q(formName(e))} saves to the case property ${q(det(e, "property", ""))}, which isn't a valid name. Use letters, numbers, underscores, or hyphens, starting with a letter.`,
+		`${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, which isn't a valid name. Use letters, numbers, underscores, or hyphens, starting with a letter.`,
 	CASE_PROPERTY_TOO_LONG: (e) =>
-		`${q(formName(e))} has a case property name that's too long. Shorten ${q(det(e, "property", "it"))}.`,
+		`${q(formName(e))} saves to a name that's way too long. Give it a shorter one.`,
 	CASE_HASHTAG_ON_CREATE_FORM: (e) =>
-		`${q(formName(e))} creates a new case but reads from a case that doesn't exist yet (${det(e, "hashtag", "a case reference")}). Reference a form question instead.`,
+		`${q(formName(e))} creates a new case but reads from one that doesn't exist yet (${det(e, "hashtag", "a case reference")}). Point it at a form question instead.`,
 	PRIMARY_CASE_FIELD_IN_REPEAT: (e) => {
 		const f = det(e, "fieldId", "a field");
-		return `In ${q(formName(e))}, ${q(f)} sits inside a repeating section but saves to the form's main case, which a repeat can't do. Move it out of the repeat, or save it to a child case.`;
+		return `In ${q(formName(e))}, ${q(f)} is inside a repeating section but saves to the form's main case — which a repeat can't do. Move it out of the repeat, or save it to a child case instead.`;
 	},
 	CHILD_CASE_NO_NAME_FIELD: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct
-			? `${q(formName(e))} creates ${q(ct)} child cases but nothing provides their name. Add a field with the id "case_name" that saves to ${q(ct)}.`
-			: `${q(formName(e))} creates child cases but nothing provides their name. Add a field with the id "case_name" that saves to that case type.`;
+			? `${q(formName(e))} creates ${q(ct)} cases but nothing's giving them a name. Add a field with the id "case_name" that saves to ${q(ct)}.`
+			: `${q(formName(e))} creates child cases but nothing's giving them a name. Add a field with the id "case_name" that saves to that case type.`;
 	},
 
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_NO_OPTIONS: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no options. Add at least one.`,
+		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
 	HIDDEN_NO_VALUE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} is a hidden field with nothing to fill it in, so it stays blank. Give it a calculated value or a default.`,
+		`${q(fieldName(e))} in ${q(formName(e))} is hidden but has no value, so it'll always stay blank. Give it a default or a calculated value.`,
 	REQUIRED_ON_HIDDEN: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required — no one can fill it in. Turn off required, or make it visible.`,
+		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required — no one can fill it in. Turn off required, or make the field visible.`,
 	CALCULATE_ON_VISIBLE_INPUT: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has a calculated value, but only hidden fields can — on a visible field, what people type is ignored. Move it to a hidden field, or remove the calculation.`,
+		`${q(fieldName(e))} in ${q(formName(e))} has a calculated value, but only hidden fields can — on a visible field, whatever someone types gets ignored. Move it to a hidden field, or drop the calculation.`,
 	UNQUOTED_STRING_LITERAL: (e) =>
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} looks like plain text. If you meant the words ${q(det(e, "bareWord", ""))}, put quotes around them.`,
 	VALIDATION_ON_NON_INPUT_KIND: (e) =>
@@ -273,43 +287,43 @@ const USER_MESSAGE_BY_CODE: Partial<
 	EMPTY_REPEAT_COUNT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen. Choose the records it repeats over.`,
+		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen yet. Pick the records it should repeat over.`,
 	INVALID_FIELD_ID: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has an invalid id. Use letters, numbers, and underscores, starting with a letter.`,
+		`${q(fieldName(e))} in ${q(formName(e))} has an id that won't work. Use letters, numbers, and underscores, starting with a letter.`,
 	RESERVED_FIELD_ID_PREFIX: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} uses an id prefix reserved for fields Nova creates. Pick a different id.`,
+		`${q(fieldName(e))} in ${q(formName(e))} uses an id prefix that's reserved for fields Nova creates. Pick a different id.`,
 	FIXTURE_REFERENCE_NOT_MODELED: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} uses a data source Nova doesn't support. For a fixed set of choices, add them as select options instead.`,
+		`${q(fieldName(e))} in ${q(formName(e))} pulls from a data source Nova doesn't support. For a fixed set of choices, add them as options on the field instead.`,
 
 	// ── XPath / formula deep validation ──────────────────────────────
 	XPATH_SYNTAX: (e) =>
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} can't be read. Check for unbalanced parentheses or stray characters.`,
 	UNKNOWN_FUNCTION: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses a function that doesn't exist. Check the spelling.`,
+		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses a function that doesn't exist. Double-check the spelling.`,
 	WRONG_ARITY: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} gives a function the wrong number of inputs.`,
+		`A formula on ${q(fieldName(e))} in ${q(formName(e))} gives a function the wrong number of inputs. Check how many it expects.`,
 	INVALID_REF: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} refers to a field that isn't here. Check for a typo or a renamed field.`,
+		`A formula on ${q(fieldName(e))} in ${q(formName(e))} points to a field that isn't here. Check for a typo, or a field that was renamed or removed.`,
 	INVALID_CASE_REF: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} refers to a case value this form can't read. Check the spelling, or make sure a field saves it.`,
+		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
 	CYCLE: (e) =>
-		`Some calculated fields in ${q(formName(e))} depend on each other in a loop, so none can be worked out. Remove one of the references.`,
+		`Some calculated fields in ${q(formName(e))} depend on each other in a loop, so none of them can be worked out. Remove one of the references to break it.`,
 	TYPE_ERROR: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses text where a number is expected, so the result may be wrong.`,
+		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses text where it needs a number, so the result might come out wrong. Check the values it's working with.`,
 
 	// ── Media (export boundary) ──────────────────────────────────────
 	MEDIA_ASSET_NOT_FOUND: () =>
-		"An attached media file can't be found and may have been deleted. Open the slot and pick another file, or clear it.",
+		"An attached media file is missing — it may have been deleted. Open the slot and pick another file, or clear it.",
 	MEDIA_ASSET_NOT_READY: () =>
-		"An attached media file hasn't finished uploading. Wait for it to finish, or clear the slot.",
+		"An attached media file hasn't finished uploading yet. Give it a moment, or clear the slot.",
 	MEDIA_KIND_MISMATCH: (e) => {
 		const kind = det(e, "expectedKind", "");
 		return kind
-			? `An attached file is the wrong type — this slot takes ${kind}. Replace it, or clear the slot.`
-			: "An attached file is the wrong type for its slot. Replace it, or clear the slot.";
+			? `An attached file is the wrong type — this slot takes ${kind}. Swap it out, or clear the slot.`
+			: "An attached file is the wrong type for its slot. Swap it out, or clear the slot.";
 	},
 	MEDIA_EXPORT_TOO_LARGE: () =>
-		"This app has too much media to export at once. Remove or shrink some attachments, then try again.",
+		"This app has more media than it can export at once. Remove or shrink some attachments and try again.",
 };
 
 /** The line shown when a finding has no builder — an `oracle` code, which

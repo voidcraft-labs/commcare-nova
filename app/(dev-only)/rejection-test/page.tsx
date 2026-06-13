@@ -21,13 +21,13 @@ import { showToast } from "@/lib/ui/toastStore";
 // The CONCISE builder copy these surfaces now render (lib/doc/userFacingErrors.ts
 // + the field-id verdict's userMessage) — not the verbose SA-facing messages.
 const DUPLICATE_MODULE =
-	'Another module is already named "Clients". Give each module a different name.';
+	"There's already a module named \"Clients\". Give this one a different name, or rename the other module first if you'd rather reuse it.";
 const HIDDEN_NO_VALUE =
-	'"visit_score" in "Follow-up" is a hidden field with nothing to fill it in, so it stays blank. Give it a calculated value or a default.';
+	'"visit_score" in "Follow-up" is hidden but has no value, so it\'ll always stay blank. Give it a default or a calculated value.';
 const LAST_PARTICIPATING =
-	"This Connect app has no form taking part in Connect yet. Give at least one form a Connect block, or turn Connect off for the app.";
+	"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.";
 const ID_TOO_LONG =
-	"That id is too long (44 characters). Keep it to 40 or fewer.";
+	"That id's a bit too long (44 characters). Keep it to 40 or fewer.";
 
 const alwaysReject =
 	(message: string) =>
@@ -149,7 +149,7 @@ export default function RejectionTestPage() {
 				>
 					<div className={`px-3 py-2.5 max-w-sm ${REJECTION_SURFACE_CLS}`}>
 						<RejectionBody
-							message="This expression creates a loop: visit_score depends on risk_level, which depends on visit_score. Break the cycle by removing one of the references."
+							message='Some calculated fields in "Follow-up" depend on each other in a loop, so none of them can be worked out. Remove one of the references to break it.'
 							hint="Press Esc to discard changes"
 						/>
 					</div>

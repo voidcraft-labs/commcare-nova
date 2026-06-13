@@ -429,13 +429,7 @@ function postSubmitValidation(
 			validationError(
 				"INVALID_POST_SUBMIT",
 				"form",
-				`"${ctx.formName}" has post_submit set to "${dest}", which is not a recognized destination.\n\n` +
-					`The valid options are:\n` +
-					`  "app_home"       — Navigate to the app home screen\n` +
-					`  "root"           — Navigate to the first menu (module select)\n` +
-					`  "module"         — Navigate back to this module's form list\n` +
-					`  "parent_module"  — Navigate to the parent module's menu\n` +
-					`  "previous"       — Navigate to the screen before this form`,
+				`"${ctx.formName}" has post_submit set to "${dest}", which isn't a recognized destination. Use one of: "app_home", "root", "module", "parent_module", "previous".`,
 				loc,
 				{ value: String(dest) },
 			),
@@ -451,14 +445,7 @@ function postSubmitValidation(
 			validationError(
 				"POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
 				"form",
-				`"${ctx.formName}" has post_submit set to "parent_module", but "${ctx.moduleName}" doesn't have a parent module.\n\n` +
-					`"parent_module" navigates to the parent module's menu after form submission. ` +
-					`This requires the module to be nested under another module (a feature that isn't configured here). ` +
-					`In the meantime, this will behave the same as "module" (navigating back to "${ctx.moduleName}").\n\n` +
-					`If you intended a different destination, the options are:\n` +
-					`  "module"    — Stay in "${ctx.moduleName}" (same behavior, explicit)\n` +
-					`  "previous"  — Go back to where the user was before this form\n` +
-					`  "app_home"  — Go to the app home screen`,
+				`"${ctx.formName}" has post_submit set to "parent_module", but "${ctx.moduleName}" has no parent module (parent modules aren't modeled yet). Use "module", "previous", or "app_home" instead.`,
 				loc,
 			),
 		);
@@ -470,9 +457,7 @@ function postSubmitValidation(
 			validationError(
 				"POST_SUBMIT_MODULE_CASE_LIST_ONLY",
 				"form",
-				`"${ctx.formName}" has post_submit set to "module", but "${ctx.moduleName}" is a case-list-only module with no form list to navigate to.\n\n` +
-					`After submitting this form, the user would land on an empty module menu. ` +
-					`Consider using "previous" to return the user to where they were, or "app_home" to go home.`,
+				`"${ctx.formName}" has post_submit set to "module", but "${ctx.moduleName}" is case-list-only and has no form list to return to. Use "previous" or "app_home" instead.`,
 				loc,
 			),
 		);
@@ -500,10 +485,7 @@ function formLinkValidation(
 			validationError(
 				"FORM_LINK_EMPTY",
 				"form",
-				`"${ctx.formName}" has form_links set to an empty array.\n\n` +
-					`form_links is meant to hold one or more navigation links to other forms or modules. ` +
-					`An empty array has no effect — either add links or remove the form_links field entirely.\n\n` +
-					`Without form_links, the form will use its post_submit destination ("${form.postSubmit ?? "form-type default"}").`,
+				`"${ctx.formName}" has form_links set to an empty array. Add at least one link, or remove form_links entirely.`,
 				loc,
 			),
 		);
@@ -516,10 +498,7 @@ function formLinkValidation(
 			validationError(
 				"FORM_LINK_NO_FALLBACK",
 				"form",
-				`"${ctx.formName}" has conditional form links but no post_submit fallback.\n\n` +
-					`When form links have XPath conditions, CommCare evaluates them after submission. ` +
-					`If none of the conditions match, the user needs somewhere to go — that's what post_submit provides.\n\n` +
-					`Set post_submit to a destination like "module" or "app_home" so there's always a valid navigation path.`,
+				`"${ctx.formName}" has conditional form links but no post_submit fallback for when none match. Set post_submit to a destination like "module" or "app_home".`,
 				loc,
 			),
 		);
@@ -567,10 +546,7 @@ function formLinkValidation(
 					validationError(
 						"FORM_LINK_SELF_REFERENCE",
 						"form",
-						`"${ctx.formName}" ${linkLabel} links back to itself.\n\n` +
-							`After submitting this form, the user would immediately re-enter the same form. ` +
-							`This creates a confusing loop. If you need the user to fill this form again, ` +
-							`consider linking to the module menu instead so they can choose to re-enter.`,
+						`"${ctx.formName}" ${linkLabel} links back to itself, which would loop the user straight back into this form. Point it at the module menu or another form instead.`,
 						loc,
 					),
 				);
@@ -676,7 +652,7 @@ function connectValidation(
 					validationError(
 						"CONNECT_ID_MISSING",
 						"form",
-						`The Connect ${label} block in "${ctx.formName}" has no id. Every Connect block needs one — it becomes the block's database slug on Connect and its XForm element name, so the app can't export without it. Nova fills the id in when a block is created through the normal paths; set one on this block (letters, numbers, and underscores, 50 characters or fewer, unique across the app) via update_form or the form's Connect settings.`,
+						`The Connect ${label} block in "${ctx.formName}" has no id. Set one — letters, numbers, and underscores, 50 characters or fewer, unique across the app — via update_form or the form's Connect settings.`,
 						loc,
 						{ connectKind: label },
 					),

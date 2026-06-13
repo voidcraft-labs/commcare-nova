@@ -27,7 +27,7 @@ const conflictVerdict: FieldIdVerdict = {
 	message:
 		'Another field at the same level is already named "occupied". Fields that sit side by side share an XML path, so each needs a unique id.',
 	userMessage:
-		'Another field is already named "occupied". Pick a different id.',
+		'Another field is already named "occupied". Give this one a different id, or rename that one first.',
 };
 
 describe("classifyRenameOutcome", () => {
@@ -49,7 +49,7 @@ describe("classifyRenameOutcome", () => {
 		).toEqual({
 			kind: "rejected",
 			message:
-				'Another field is already named "occupied". Pick a different id.',
+				'Another field is already named "occupied". Give this one a different id, or rename that one first.',
 		});
 	});
 

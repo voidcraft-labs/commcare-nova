@@ -50,7 +50,7 @@ export function sortPriorityUniqueness(
 			validationError(
 				"CASE_LIST_DUPLICATE_SORT_PRIORITY",
 				"module",
-				`Module "${mod.name}" has two sorted columns sharing sort priority ${priority}: ${firstLabel} and ${duplicateLabel}. The runtime orders rows by priority ascending and tie-breaks to source-array index when two columns share a priority, so the silent ordering would pick up whichever column lands first in the source array — usually not the intent. Either change one of the priorities so each sorted column ranks uniquely, or remove the sort directive from the column that shouldn't participate in the ordering.`,
+				`Module "${mod.name}" has two sorted columns sharing sort priority ${priority}: ${firstLabel} and ${duplicateLabel}. Change one of the priorities, or remove the sort from the column that shouldn't be ordered.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					priority: String(priority),

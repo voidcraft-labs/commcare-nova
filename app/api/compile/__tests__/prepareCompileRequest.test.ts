@@ -125,8 +125,8 @@ describe("prepareCompileRequest", () => {
 		// voice (`userFacingError`) — not the verbose validator message the
 		// SA reads. Each line names the finding's entity, no wire detail.
 		expect((compileErr as ApiError).details).toEqual([
-			'"Reg" has no fields yet. Add at least one before you can use it.',
-			"An attached file is the wrong type for its slot. Replace it, or clear the slot.",
+			'"Reg" doesn\'t have any fields yet. Add at least one.',
+			"An attached file is the wrong type for its slot. Swap it out, or clear the slot.",
 		]);
 
 		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
