@@ -33,8 +33,8 @@ import { validationError } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { SCOPES } from "../scopes";
@@ -74,8 +74,8 @@ vi.mock("@/lib/media/manifest", () => ({
 /* The media-validation gate reads Firestore; mock it so the unit suite
  * stays hermetic. Default `[]` = no media issues = proceed past the gate;
  * the media-rejection test overrides per-call. */
-vi.mock("@/lib/media/mediaValidation", () => ({
-	collectMediaValidationErrors: vi.fn(),
+vi.mock("@/lib/media/boundaryValidation", () => ({
+	collectBoundaryViolations: vi.fn(),
 }));
 vi.mock("../loadApp", () => ({
 	loadAppBlueprint: vi.fn(),
@@ -133,6 +133,7 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
+		blueprint_token: null,
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],
 		...overrides,
@@ -184,7 +185,7 @@ beforeEach(() => {
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(uploadAppMediaBundle).mockReset();
-	vi.mocked(collectMediaValidationErrors).mockReset();
+	vi.mocked(collectBoundaryViolations).mockReset();
 	LogWriterMock.instances = [];
 
 	/* Default happy-path mocks — individual tests override via
@@ -204,7 +205,7 @@ beforeEach(() => {
 	});
 	/* Media gate transparent by default — no stale references. The
 	 * media-rejection test overrides with `mockResolvedValueOnce`. */
-	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
+	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -583,13 +584,13 @@ describe("registerUploadAppToHq — gate 3: HQ upload failed", () => {
 	});
 });
 
-describe("registerUploadAppToHq — media validation gate", () => {
+describe("registerUploadAppToHq — boundary gate", () => {
 	it("returns invalid_input (not an opaque internal error) when a media ref is stale", async () => {
 		/* A stale media ref — the kind of issue that would otherwise make
 		 * the media-ON `expandDoc` throw `requireAssetRef`, surfacing as a
 		 * generic `internal` error. The gate surfaces the rule's
 		 * actionable message as `invalid_input` instead. */
-		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
 			validationError(
 				"MEDIA_ASSET_NOT_FOUND",
 				"field",
@@ -623,8 +624,8 @@ describe("registerUploadAppToHq — media validation gate", () => {
 		expect(LogWriterMock.instances).toHaveLength(0);
 	});
 
-	it("proceeds to import + upload when media validation is clean", async () => {
-		/* `collectMediaValidationErrors` defaults to `[]` (beforeEach) —
+	it("proceeds to import + upload when the boundary gate is clean", async () => {
+		/* `collectBoundaryViolations` defaults to `[]` (beforeEach) —
 		 * the gate is transparent and the normal flow runs. */
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
@@ -646,7 +647,7 @@ describe("registerUploadAppToHq — media validation gate", () => {
 		};
 		expect(parsed.stage).toBe("upload_complete");
 		expect(parsed.hq_app_id).toBe("hq-clean");
-		expect(collectMediaValidationErrors).toHaveBeenCalledTimes(1);
+		expect(collectBoundaryViolations).toHaveBeenCalledTimes(1);
 		expect(importApp).toHaveBeenCalledTimes(1);
 	});
 });

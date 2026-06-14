@@ -11,7 +11,7 @@
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
-import { loadApp } from "@/lib/db/apps";
+import { BlueprintBasisStaleError, loadApp } from "@/lib/db/apps";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { log } from "@/lib/logger";
 
@@ -31,12 +31,14 @@ export async function GET(
 		}
 		/* Return only the fields the client needs for hydration. Firestore Timestamp
 		 * objects on created_at/updated_at don't JSON-serialize cleanly, and the client
-		 * only needs the blueprint to hydrate the builder. */
+		 * only needs the blueprint to hydrate the builder. `basis_token` is the
+		 * optimistic-save basis the builder echoes on its PUTs. */
 		return Response.json({
 			blueprint: app.blueprint,
 			app_name: app.app_name,
 			status: app.status,
 			error_type: app.error_type,
+			basis_token: app.blueprint_token ?? null,
 		});
 	} catch (err) {
 		return handleApiError(
@@ -91,6 +93,16 @@ export async function PUT(
 			throw new ApiError("Invalid blueprint", 400);
 		}
 
+		/* Optimistic-save basis — the `blueprint_token` the client last
+		 * observed (from the GET, or its previous PUT's response). Absent
+		 * reads as null, which matches a never-PUT app's stored token, so
+		 * first saves need no backfill. The compare runs transactionally
+		 * inside the write (`updateAppGuardedByBasis`); a mismatch means a
+		 * writer this client never saw advanced the doc (another tab, an
+		 * MCP commit), and the overwrite is rejected instead of erasing it. */
+		const rawBasis = (body as Record<string, unknown>)?.basisToken;
+		const basisToken = typeof rawBasis === "string" ? rawBasis : null;
+
 		/* Route through the cross-store saga so a property-surface
 		 * mutation in this auto-save (e.g. a renamed case property
 		 * landing via the doc store's mutation pipeline) syncs the
@@ -101,14 +113,25 @@ export async function PUT(
 		 * compensation contract. The pre-loaded `app.blueprint`
 		 * threads through as `priorBlueprint` so the saga doesn't
 		 * re-read the document. */
-		await applyBlueprintChange({
+		const result = await applyBlueprintChange({
 			appId: id,
 			userId: session.user.id,
 			prospective: parsed.data,
 			priorBlueprint: app.blueprint,
+			basis: { token: basisToken },
 		});
-		return Response.json({ ok: true });
+		return Response.json({ ok: true, basisToken: result.basisToken });
 	} catch (err) {
+		if (err instanceof BlueprintBasisStaleError) {
+			/* Not a failure of this request so much as a fact about the
+			 * world: the doc moved under the client. 409 with a typed body;
+			 * the builder reloads the server doc and tells the user. */
+			log.warn(`[apps] save rejected (409): stale basis`);
+			return Response.json(
+				{ error: err.message, type: "stale_basis" },
+				{ status: 409 },
+			);
+		}
 		/* Save failures mean silent data loss — log every rejection so they're
 		 * visible in Cloud Logging regardless of whether the client report fires.
 		 * handleApiError already logs unhandled Errors; this covers ApiError (401,

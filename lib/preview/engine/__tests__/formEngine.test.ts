@@ -743,6 +743,36 @@ describe("FormEngine", () => {
 			);
 		});
 
+		it("resolves multi-segment hashtag refs to fields nested in groups", () => {
+			// A re-anchored ref (`#form/demographics/name` after a move into a
+			// group) must keep resolving in preview — label AND calculate.
+			const input = dTree([
+				{
+					id: "demographics",
+					kind: "group",
+					label: "Demographics",
+					children: [{ id: "name", kind: "text", label: "Name" }],
+				},
+				{
+					id: "summary",
+					kind: "label",
+					label: "You entered: #form/demographics/name",
+				},
+				{
+					id: "echo",
+					kind: "hidden",
+					calculate: "#form/demographics/name",
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/demographics/name", "Alice");
+			expect(engine.getState("/data/summary").resolvedLabel).toBe(
+				"You entered: Alice",
+			);
+			expect(engine.getState("/data/echo").value).toBe("Alice");
+		});
+
 		it("resolves multiple hashtag refs in one label", () => {
 			const input = dTree([
 				{ id: "first", kind: "text", label: "First" },

@@ -20,17 +20,32 @@
  *     — see `lib/domain/multimedia.ts::mediaSchema`'s docstring for why
  *     menu carriers don't use the bundle.
  *
- * Asset existence is NOT checked here. The SA validation loop runs
- * `collectMediaValidationErrors` after every mutation batch, so a bad ref
- * (deleted / pending / foreign-owned / kind-mismatched) surfaces with its
- * carrier location through the same gate every other media reference site
- * uses. The tools persist the reference and let the loop adjudicate.
- * (`remove_media_asset` is the one exception — it guards against
- * orphaning a live reference at the source.)
+ * Every attach runs the at-source asset verdict BEFORE its gated commit
+ * (`attachGuardedMutate` below → `lib/media/attachVerdicts.ts`): the
+ * asset must exist in the caller's library, be `ready`, match the slot's
+ * kind, and keep the app's referenced-media aggregate inside the export
+ * ceiling — so a committed reference can't dangle, and the export
+ * boundary's media rules become defense-in-depth (legacy refs, ops
+ * disasters) rather than the gate a live attach relies on. Clears carry
+ * no expectations and skip the asset read entirely.
+ * (`remove_media_asset` is the deletion-side twin — it refuses to orphan
+ * a live reference at the source.)
  */
 
 import { z } from "zod";
-import { type AssetId, type Media, mediaSchema } from "@/lib/domain";
+import type { Mutation } from "@/lib/doc/types";
+import {
+	type AssetId,
+	type BlueprintDoc,
+	type Media,
+	mediaSchema,
+} from "@/lib/domain";
+import {
+	type MediaAttachExpectation,
+	mediaAttachVerdict,
+} from "@/lib/media/attachVerdicts";
+import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { type GuardedMutateOutcome, guardedMutate } from "../common";
 
 /**
  * The full image/audio/video bundle carried by question-message slots and
@@ -107,4 +122,82 @@ export type FieldMediaKey = `${FieldMediaSlot}_media`;
 /** Map a slot name to its `<slot>_media` field key. */
 export function mediaKeyForSlot(slot: FieldMediaSlot): FieldMediaKey {
 	return `${slot}_media`;
+}
+
+/**
+ * The expectations a `Media` bundle's SET slots impose — one per
+ * populated kind, each naming the carrier (`carrierPhrase`, e.g.
+ * `the label media on field "x"`) so a rejection points at the exact
+ * slot. An empty bundle (a clear) imposes none.
+ */
+export function bundleExpectations(
+	media: Media,
+	carrierPhrase: string,
+): MediaAttachExpectation[] {
+	const out: MediaAttachExpectation[] = [];
+	if (media.image !== undefined) {
+		out.push({
+			assetId: media.image,
+			kind: "image",
+			slot: `the image on ${carrierPhrase}`,
+		});
+	}
+	if (media.audio !== undefined) {
+		out.push({
+			assetId: media.audio,
+			kind: "audio",
+			slot: `the audio on ${carrierPhrase}`,
+		});
+	}
+	if (media.video !== undefined) {
+		out.push({
+			assetId: media.video,
+			kind: "video",
+			slot: `the video on ${carrierPhrase}`,
+		});
+	}
+	return out;
+}
+
+/**
+ * The expectation a single nullable asset slot imposes — present iff the
+ * call SETS the slot (a `null` clear imposes none). `slotPhrase` names
+ * the carrier slot itself (`the icon on module "x"`).
+ */
+export function slotExpectation(
+	value: string | null,
+	kind: MediaAttachExpectation["kind"],
+	slotPhrase: string,
+): MediaAttachExpectation[] {
+	return value === null ? [] : [{ assetId: value, kind, slot: slotPhrase }];
+}
+
+/**
+ * The one commit path for the attach tools: run the at-source asset
+ * verdict over `expectations` (exists / owned / ready / kind-matched /
+ * inside the export ceiling — `lib/media/attachVerdicts.ts`), then the
+ * standard validity-gated commit. The expectations ride through to
+ * `ctx.recordMutations` so the MCP surface re-verifies them inside its
+ * transactional save. A verdict failure returns the same `{ ok: false }`
+ * shape as a gate rejection — the tool surfaces it in its `{ error }`
+ * envelope and nothing is written.
+ *
+ * Clears pass an empty `expectations` and skip the asset read entirely.
+ */
+export async function attachGuardedMutate(
+	ctx: ToolExecutionContext,
+	doc: BlueprintDoc,
+	mutations: Mutation[],
+	stage: string,
+	expectations: readonly MediaAttachExpectation[],
+): Promise<GuardedMutateOutcome> {
+	if (expectations.length > 0) {
+		const verdict = await mediaAttachVerdict({
+			owner: ctx.userId,
+			doc,
+			expectations,
+		});
+		if (!verdict.ok) return { ok: false, error: verdict.error };
+	}
+	return guardedMutate(ctx, doc, mutations, stage, expectations);
 }

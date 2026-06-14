@@ -24,7 +24,11 @@ import { useFormLintContext } from "@/components/builder/editor/fields/useFormLi
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { Toggle } from "@/components/ui/Toggle";
-import type { Field } from "@/lib/domain";
+import {
+	useParseXPathForField,
+	useXPathText,
+} from "@/lib/doc/hooks/useXPathSlots";
+import type { Field, XPathExpression } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
 import {
@@ -50,9 +54,20 @@ export function RequiredEditor<F extends Field>({
 	label,
 	autoFocus,
 }: FieldEditorComponentProps<F, "required" & keyof F>) {
-	const required = typeof value === "string" ? value : undefined;
-	const { enabled, hasCondition, conditionValue } =
-		deriveRequiredState(required);
+	// The slot stores the expression AST; the tri-state model and the
+	// nested editor both speak its printed TEXT, and every transition's
+	// next value parses back at the commit boundary.
+	const requiredText = useXPathText(value as XPathExpression | undefined);
+	const parseForField = useParseXPathForField(field.uuid);
+	const toStored = useCallback(
+		(next: string | undefined) =>
+			(next === undefined ? undefined : parseForField(next)) as F["required" &
+				keyof F],
+		[parseForField],
+	);
+	const { enabled, hasCondition, conditionValue } = deriveRequiredState(
+		requiredText || undefined,
+	);
 
 	// `field.uuid` is already branded `Uuid` by the Field type — no
 	// second cast is needed before calling into the doc-store hook.
@@ -83,42 +98,36 @@ export function RequiredEditor<F extends Field>({
 	// sentinel-vs-undefined logic stays in one tested place.
 
 	const handleToggleOff = useCallback(() => {
-		onChange(
-			nextRequiredValue({ type: "toggle-off" }) as F["required" & keyof F],
-		);
+		onChange(toStored(nextRequiredValue({ type: "toggle-off" })));
 		setAddingCondition(false);
 		setEditing(false);
-	}, [onChange]);
+	}, [onChange, toStored]);
 
 	const handleToggleOn = useCallback(() => {
-		onChange(
-			nextRequiredValue({ type: "toggle-on" }) as F["required" & keyof F],
-		);
-	}, [onChange]);
+		onChange(toStored(nextRequiredValue({ type: "toggle-on" })));
+	}, [onChange, toStored]);
 
 	const handleConditionSave = useCallback(
 		(next: string) => {
-			onChange(
-				nextRequiredValue({
-					type: "save-condition",
-					next,
-				}) as F["required" & keyof F],
+			const outcome = onChange(
+				toStored(nextRequiredValue({ type: "save-condition", next })),
 			);
-			setAddingCondition(false);
-			if (!next) setEditing(false);
+			// Keep the add-condition editor open when the gate refuses — the
+			// outcome flows back to XPathField, which holds the draft.
+			if (outcome.ok) {
+				setAddingCondition(false);
+				if (!next) setEditing(false);
+			}
+			return outcome;
 		},
-		[onChange],
+		[onChange, toStored],
 	);
 
 	const handleConditionRemove = useCallback(() => {
-		onChange(
-			nextRequiredValue({
-				type: "remove-condition",
-			}) as F["required" & keyof F],
-		);
+		onChange(toStored(nextRequiredValue({ type: "remove-condition" })));
 		setAddingCondition(false);
 		setEditing(false);
-	}, [onChange]);
+	}, [onChange, toStored]);
 
 	const showEditor = shouldShowConditionEditor({
 		enabled,

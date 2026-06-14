@@ -22,15 +22,36 @@
  *      returned `MutationResult[]`.
  *
  * Missing references (unknown uuid) are silently swallowed with a
- * dev-mode `console.warn`. The engine behaved the same way: no-op rather
- * than throw, so the UI never crashes on a stale selection held over a
+ * `console.warn`. The engine behaved the same way: no-op rather than
+ * throw, so the UI never crashes on a stale selection held over a
  * reload or undo.
+ *
+ * **Every dispatch is gated.** Before any batch reaches `applyMany`, it
+ * runs through the shared commit verdict
+ * (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` — the
+ * `identifierVerdicts` pattern generalized to the whole validator). An
+ * edit that would introduce a validator finding is rejected: nothing
+ * dispatches, the rejection surfaces each finding's CONCISE builder copy
+ * (`userFacingErrors` — the SA keeps the verbose `ValidationError.message`),
+ * and the method returns its no-op shape.
+ * Undo/redo (the temporal store), hydration (`load`), the agent stream
+ * (`streamDispatcher`), and replay all write through other paths and
+ * deliberately bypass this gate — they replay already-committed
+ * states.
  */
 
 "use client";
 
 import { useContext, useMemo } from "react";
+import {
+	type CaseTypeRetirement,
+	planCaseTypeRetirementOnRemove,
+	planCaseTypeRetirementOnRetype,
+} from "@/lib/doc/caseTypeRetirement";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
+import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type {
 	BlueprintDoc,
@@ -40,11 +61,13 @@ import type {
 	MutationResult,
 	Uuid,
 } from "@/lib/doc/types";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
 	type AssetId,
 	asUuid,
 	type CaseProperty,
 	type CaseType,
+	type CommitOutcome,
 	type ConnectType,
 	type Field,
 	type FieldKind,
@@ -52,7 +75,26 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
-import { type LogContext, log } from "@/lib/logger";
+
+/**
+ * Outcome of an entity-adding dispatch: the minted uuid on success, the
+ * gate's findings on a rejection (`messages` empty for a silent no-op —
+ * an unresolvable parent/target the dispatch couldn't act on).
+ */
+export type AddCommitOutcome =
+	| { ok: true; uuid: Uuid }
+	| { ok: false; messages: string[] };
+
+export type { CommitOutcome };
+
+const COMMITTED: CommitOutcome = { ok: true };
+
+/** The silent-no-op rejection (a stale uuid, nothing dispatched) — no
+ *  messages, so editors keep the legacy quiet behavior. */
+const NOOP_REJECTION: CommitOutcome & { ok: false } = {
+	ok: false,
+	messages: [],
+};
 
 /**
  * Result of a `renameField` dispatch.
@@ -73,9 +115,15 @@ export interface FieldRenameResult {
 	xpathFieldsRewritten: number;
 	peerFieldsRenamed: number;
 	columnsRewritten: number;
+	formWiringRewritten: number;
+	moduleRefsRewritten: number;
 	catalogEntryRenamed: boolean;
 	cascadedAcrossForms: boolean;
 	conflict?: boolean;
+	/** Present when the commit gate rejected the rename — the findings'
+	 *  person-to-person messages. The rename never ran; the caller keeps
+	 *  the user's typed id on screen and surfaces these inline. */
+	rejected?: string[];
 }
 
 /**
@@ -90,6 +138,8 @@ function emptyFieldRenameResult(): FieldRenameResult {
 		xpathFieldsRewritten: 0,
 		peerFieldsRenamed: 0,
 		columnsRewritten: 0,
+		formWiringRewritten: 0,
+		moduleRefsRewritten: 0,
 		catalogEntryRenamed: false,
 		cascadedAcrossForms: false,
 	};
@@ -120,9 +170,9 @@ export interface BlueprintMutations {
 	/**
 	 * Insert a new field into a parent container (form or group/repeat).
 	 *
-	 * Returns the new field's uuid so callers can drive selection or
-	 * navigation. Returns the empty string (branded as `Uuid`) on a no-op
-	 * (e.g. unrecognized `parentUuid`).
+	 * Returns the minted uuid on success so callers can drive selection
+	 * or navigation, and the honest rejection otherwise — never a
+	 * fabricated sentinel a caller could mistake for an identity.
 	 *
 	 * Accepts a Field without uuid — the hook mints one via
 	 * `crypto.randomUUID()`. Callers that already own a uuid (e.g. the
@@ -139,7 +189,7 @@ export interface BlueprintMutations {
 			beforeUuid?: Uuid;
 			atIndex?: number;
 		},
-	) => Uuid;
+	) => AddCommitOutcome;
 	/**
 	 * Update fields on an existing field entity. Callers pass `undefined` for
 	 * any field value to clear it — no `null` coercion needed.
@@ -157,8 +207,16 @@ export interface BlueprintMutations {
 		uuid: Uuid,
 		targetKind: K,
 		patch: FieldPatchFor<K>,
-	) => void;
-	removeField: (uuid: Uuid) => void;
+	) => CommitOutcome;
+	/**
+	 * Remove a field (and its subtree). `ok: false` when it didn't
+	 * dispatch — an unknown uuid (empty `messages`), or the commit gate
+	 * rejecting a removal that would take the app incomplete (e.g.
+	 * deleting a form's only field on a complete app). Callers that
+	 * follow up with selection moves gate on `ok` so the UI never
+	 * deselects a field that's still there.
+	 */
+	removeField: (uuid: Uuid) => CommitOutcome;
 	renameField: (uuid: Uuid, newId: string) => FieldRenameResult;
 	moveField: (
 		uuid: Uuid,
@@ -182,20 +240,21 @@ export interface BlueprintMutations {
 	 * Silently no-ops when the uuid is unknown or when the source kind
 	 * equals the target kind.
 	 */
-	convertField: (uuid: Uuid, toKind: FieldKind) => void;
+	convertField: (uuid: Uuid, toKind: FieldKind) => CommitOutcome;
 
 	// ── Form mutations ────────────────────────────────────────────────────
-	/** Insert a new form into a module. Returns the new form's uuid.
-	 *  Accepts a form without a uuid — the hook mints one for the new entity. */
+	/** Insert a new form into a module. Returns the minted uuid on
+	 *  success, the rejection otherwise. Accepts a form without a uuid —
+	 *  the hook mints one for the new entity. */
 	addForm: (
 		moduleUuid: Uuid,
 		form: Omit<Form, "uuid"> & { uuid?: string },
-	) => Uuid;
+	) => AddCommitOutcome;
 	/**
 	 * Update fields on an existing form. Patches use camelCase domain property
 	 * names (e.g. `closeCondition`, `postSubmit`).
 	 */
-	updateForm: (uuid: Uuid, patch: Partial<Omit<Form, "uuid">>) => void;
+	updateForm: (uuid: Uuid, patch: Partial<Omit<Form, "uuid">>) => CommitOutcome;
 	/**
 	 * Set or clear form menu media via the dedicated null-carrying mutation
 	 * so clears survive JSON replay.
@@ -203,14 +262,19 @@ export interface BlueprintMutations {
 	setFormMedia: (
 		uuid: Uuid,
 		media: { icon: AssetId | null; audioLabel: AssetId | null },
-	) => void;
-	removeForm: (uuid: Uuid) => void;
+	) => CommitOutcome;
+	removeForm: (uuid: Uuid) => CommitOutcome;
 
 	// ── Module mutations ──────────────────────────────────────────────────
 	/** Insert a new module. Returns the new module's uuid.
 	 *  Accepts a module without a uuid — the hook mints one for the new entity. */
-	addModule: (module: Omit<Module, "uuid"> & { uuid?: string }) => Uuid;
-	updateModule: (uuid: Uuid, patch: Partial<Omit<Module, "uuid">>) => void;
+	addModule: (
+		module: Omit<Module, "uuid"> & { uuid?: string },
+	) => AddCommitOutcome;
+	updateModule: (
+		uuid: Uuid,
+		patch: Partial<Omit<Module, "uuid">>,
+	) => CommitOutcome;
 	/**
 	 * Set or clear the module menu-tile media (home-screen `icon` +
 	 * `audioLabel`) via the dedicated null-carrying mutation. Mirrors
@@ -224,8 +288,8 @@ export interface BlueprintMutations {
 	setModuleMedia: (
 		uuid: Uuid,
 		media: { icon: AssetId | null; audioLabel: AssetId | null },
-	) => void;
-	removeModule: (uuid: Uuid) => void;
+	) => CommitOutcome;
+	removeModule: (uuid: Uuid) => CommitOutcome;
 
 	// ── App-level ─────────────────────────────────────────────────────────
 	/**
@@ -236,7 +300,7 @@ export interface BlueprintMutations {
 	updateApp: (patch: {
 		app_name?: string;
 		connect_type?: ConnectType | null;
-	}) => void;
+	}) => CommitOutcome;
 	/**
 	 * Set or clear the app-level logo (the single image shown on the
 	 * web-apps login + home screens) via the dedicated null-carrying
@@ -249,8 +313,8 @@ export interface BlueprintMutations {
 	 * the logo is a single app-level slot, so there is no entity to
 	 * validate (mirrors `setCaseTypes`, not `setFormMedia`).
 	 */
-	setAppLogo: (logo: AssetId | null) => void;
-	setCaseTypes: (caseTypes: CaseType[] | null) => void;
+	setAppLogo: (logo: AssetId | null) => CommitOutcome;
+	setCaseTypes: (caseTypes: CaseType[] | null) => CommitOutcome;
 	/**
 	 * Update a single property on a case type's property list.
 	 *
@@ -264,7 +328,7 @@ export interface BlueprintMutations {
 		caseTypeName: string,
 		propertyName: string,
 		updates: Partial<Omit<CaseProperty, "name">>,
-	) => void;
+	) => CommitOutcome;
 
 	// ── Batch ─────────────────────────────────────────────────────────────
 	/**
@@ -282,17 +346,39 @@ export interface BlueprintMutations {
 }
 
 /**
- * Warning for silent no-ops, routed through the structured logger.
+ * The hook's full surface: the announcing dispatch plus its `inline`
+ * twin. Same methods, same gate, one difference — a rejection from an
+ * `inline.*` call is NOT announced via the error toast, because the call
+ * site renders the returned outcome beside the control (inline notice,
+ * editor tooltip, dialog footer). One rejection, one presentation: a
+ * surface that shows the finding contextually dispatches through
+ * `inline`; everything else stays on the announcing flavor so a refused
+ * edit can never disappear silently.
+ */
+export type GatedBlueprintMutations = BlueprintMutations & {
+	inline: BlueprintMutations;
+};
+
+/**
+ * Warning for silent no-ops.
  *
  * Every mutation method bails out silently when a uuid can't be found
  * in the current doc — matching the legacy engine's behavior, which the
  * UI relies on so stale selections don't crash the tree. We still want
  * visibility into which lookups are failing so bugs don't hide behind
- * the fail-open contract. The logger decides per-environment whether
- * to print locally or emit structured JSON to Cloud Logging.
+ * the fail-open contract.
+ *
+ * `console.warn`, not the structured logger: this hook is client-only,
+ * and the logger's production path writes to `process.stdout`, which
+ * Next's browser process shim doesn't define — it would throw on the
+ * exact degraded path (a stale selection racing an agent edit) this
+ * warn exists to soften.
  */
-function warnUnresolved(method: string, context: LogContext): void {
-	log.warn(`[useBlueprintMutations.${method}] unresolved uuid`, context);
+function warnUnresolved(
+	method: string,
+	context: Record<string, unknown>,
+): void {
+	console.warn(`[useBlueprintMutations.${method}] unresolved uuid`, context);
 }
 
 /**
@@ -329,7 +415,7 @@ function computePathForUuid(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 	return undefined;
 }
 
-export function useBlueprintMutations(): BlueprintMutations {
+export function useBlueprintMutations(): GatedBlueprintMutations {
 	const store = useContext(BlueprintDocContext);
 	if (!store) {
 		throw new Error(
@@ -341,493 +427,557 @@ export function useBlueprintMutations(): BlueprintMutations {
 	// reference-stable across re-renders. A consumer storing this in a
 	// useEffect dependency array sees it as unchanging for the lifetime of
 	// the provider.
-	return useMemo<BlueprintMutations>(() => {
+	return useMemo<GatedBlueprintMutations>(() => {
 		// Lazy snapshot accessor — reads the freshest state at dispatch time,
 		// never at hook construction. This is critical: without it, a mutation
 		// made immediately after another would validate against stale state.
 		const get = () => store.getState();
 
-		return {
-			addField(parentUuid, field, opts) {
-				const doc = get();
-				// Verify parent exists — must be either a form or a group/repeat
-				// field that can contain children.
-				if (
-					doc.forms[parentUuid] === undefined &&
-					doc.fields[parentUuid] === undefined
-				) {
-					warnUnresolved("addField", { parentUuid });
-					return "" as Uuid;
+		/* Two flavors of the same dispatch, differing only in who PRESENTS
+		 * a rejection. The default (`announce: true`) shows the findings as
+		 * the error toast — the fail-safe for call sites with no contextual
+		 * anchor (toggles, deletes, drag moves), where an unannounced
+		 * rejection would just vanish. The `inline` flavor returns the
+		 * findings without announcing, for call sites that render the
+		 * outcome beside the control (the `useCommitField` notices, the
+		 * editor tooltips, the Connect dialog footer) — one rejection, one
+		 * presentation, never both. */
+		const makeApi = (announce: boolean): BlueprintMutations => {
+			/* The gated dispatch every method routes through. Runs the shared
+			 * commit verdict against the freshest doc; on rejection, shows the
+			 * findings and returns `undefined` so the caller maps to its no-op
+			 * return shape — the batch never reaches the store. On a pass, the
+			 * VALIDATED CANDIDATE commits directly (`commitDoc`) with the
+			 * candidate run's own reducer results — one reducer run per
+			 * dispatch, and the committed doc is exactly the doc the gate
+			 * validated (load-bearing for `duplicateField`'s minted uuid). */
+			const guardedApply = (
+				mutations: Mutation[],
+			):
+				| { ok: true; results: MutationResult[] }
+				| { ok: false; messages: string[] } => {
+				const verdict = mutationCommitVerdict(get(), mutations);
+				if (!verdict.ok) {
+					// Render to the concise BUILDER copy once — both the toast
+					// and the returned `CommitOutcome.messages` speak it. The
+					// SA path keeps the verbose `ValidationError.message`.
+					const lines = userFacingErrors(verdict.introduced);
+					if (announce) notifyRejectedCommit(lines);
+					return { ok: false, messages: lines };
 				}
+				store.getState().commitDoc(verdict.nextDoc);
+				return { ok: true, results: verdict.results };
+			};
 
-				// Resolve insertion index from afterUuid / beforeUuid / atIndex.
-				// atIndex takes precedence (matches legacy semantics where
-				// numeric index is documented as authoritative).
-				const order = doc.fieldOrder[parentUuid] ?? [];
-				let index: number | undefined;
-				if (opts?.atIndex !== undefined) {
-					index = opts.atIndex;
-				} else if (opts?.beforeUuid) {
-					const i = order.indexOf(opts.beforeUuid);
-					if (i >= 0) index = i;
-				} else if (opts?.afterUuid) {
-					const i = order.indexOf(opts.afterUuid);
-					if (i >= 0) index = i + 1;
-				}
+			/** Project a `guardedApply` result onto the plain commit outcome. */
+			const toOutcome = (
+				applied: ReturnType<typeof guardedApply>,
+			): CommitOutcome => (applied.ok ? COMMITTED : applied);
 
-				// Mint a uuid if the caller didn't supply one. FieldTypePicker
-				// and the SA tool handlers pass shapes without uuids and rely on
-				// the store to generate identity.
-				const maybeUuid = field.uuid;
-				const uuid = asUuid(
-					typeof maybeUuid === "string" && maybeUuid.length > 0
-						? maybeUuid
-						: crypto.randomUUID(),
-				);
-				// Field is a discriminated union; the narrowed generic input is a
-				// specific variant's Omit — we stamp the uuid and cast via
-				// `unknown` because the distributive Omit shape doesn't round-trip
-				// back to the full union narrowly (TS limitation around Omit +
-				// discriminated unions).
-				const entity = { ...field, uuid } as unknown as Field;
-
-				store.getState().applyMany([
-					{
-						kind: "addField",
-						parentUuid,
-						field: entity,
-						index,
-					},
-				]);
-				return uuid;
-			},
-
-			updateField(uuid, targetKind, patch) {
-				const doc = get();
-				if (!doc.fields[uuid]) {
-					warnUnresolved("updateField", { uuid, targetKind });
-					return;
-				}
-				// `targetKind` + `patch` are typed against the same variant via
-				// the generic, so the spread into the mutation literal lands on
-				// the discriminated `updateField` arm without further narrowing.
-				// The intermediate cast is required because TypeScript can't
-				// match the generic `K` back to the union of literal-keyed arms
-				// in `Mutation` — at the value level the shape is structurally
-				// identical, but TS treats the union arms as distinct types
-				// rather than a parameterized one.
-				store.getState().applyMany([
-					{
-						kind: "updateField",
-						uuid,
-						targetKind,
-						patch,
-					} as Mutation,
-				]);
-			},
-
-			removeField(uuid) {
-				const doc = get();
-				if (!doc.fields[uuid]) {
-					warnUnresolved("removeField", { uuid });
-					return;
-				}
-				store.getState().applyMany([{ kind: "removeField", uuid }]);
-			},
-
-			renameField(uuid, newId) {
-				const doc = get();
-				const field = doc.fields[uuid];
-				if (!field) {
-					warnUnresolved("renameField", { uuid });
-					return emptyFieldRenameResult();
-				}
-
-				// Conflict check: reject the rename before dispatching so the
-				// UI can surface a "name already taken" message without
-				// unwinding a half-applied mutation.
-				//
-				// Scope: the primary field's parent AND the parent of every
-				// peer that will cascade-rename to `newId`. Skipping peers'
-				// parents would let the reducer silently create duplicate
-				// sibling ids in a different form — same case_property_on means
-				// both (primary + peer) rename together, so the collision
-				// check must consider every destination parent. Peers are
-				// identified by matching (id, case_property_on) on the primary.
-				const casePropertyOn = (field as { case_property_on?: string })
-					.case_property_on;
-				const peerUuids: Uuid[] = [];
-				if (typeof casePropertyOn === "string" && casePropertyOn.length > 0) {
-					for (const [fuuid, f] of Object.entries(doc.fields)) {
-						if (!f || fuuid === uuid) continue;
-						if (f.id !== field.id) continue;
-						const cp = (f as { case_property_on?: string }).case_property_on;
-						if (cp !== casePropertyOn) continue;
-						peerUuids.push(fuuid as Uuid);
+			return {
+				addField(parentUuid, field, opts) {
+					const doc = get();
+					// Verify parent exists — must be either a form or a group/repeat
+					// field that can contain children.
+					if (
+						doc.forms[parentUuid] === undefined &&
+						doc.fields[parentUuid] === undefined
+					) {
+						warnUnresolved("addField", { parentUuid });
+						return NOOP_REJECTION;
 					}
-				}
 
-				// Build the set of uuids that will be renamed — any sibling
-				// already in this set is NOT a conflict (it will become
-				// `newId` in lockstep). Everything else with `id === newId`
-				// in any destination parent IS a conflict.
-				const renamingUuids = new Set<Uuid>([uuid, ...peerUuids]);
-				const parentsToCheck = new Set<Uuid>();
-				const primaryParent = doc.fieldParent[uuid] ?? undefined;
-				if (primaryParent !== undefined) parentsToCheck.add(primaryParent);
-				for (const peer of peerUuids) {
-					const pp = doc.fieldParent[peer] ?? undefined;
-					if (pp !== undefined) parentsToCheck.add(pp);
-				}
-				for (const parent of parentsToCheck) {
-					const siblings = doc.fieldOrder[parent] ?? [];
-					for (const sibUuid of siblings) {
-						if (renamingUuids.has(sibUuid)) continue;
-						if (doc.fields[sibUuid]?.id === newId) {
-							return { ...emptyFieldRenameResult(), conflict: true };
-						}
+					// Resolve insertion index from afterUuid / beforeUuid / atIndex.
+					// atIndex takes precedence (matches legacy semantics where
+					// numeric index is documented as authoritative).
+					const order = doc.fieldOrder[parentUuid] ?? [];
+					let index: number | undefined;
+					if (opts?.atIndex !== undefined) {
+						index = opts.atIndex;
+					} else if (opts?.beforeUuid) {
+						const i = order.indexOf(opts.beforeUuid);
+						if (i >= 0) index = i;
+					} else if (opts?.afterUuid) {
+						const i = order.indexOf(opts.afterUuid);
+						if (i >= 0) index = i + 1;
 					}
-				}
 
-				// Dispatch via the single write path. Position `[0]` of the
-				// returned array carries the reducer's per-mutation result —
-				// narrow it to `FieldRenameMeta` so we can read the cascade
-				// counts. The reducer returns `undefined` if the target entity
-				// vanishes between our pre-check and the Immer draft —
-				// defensive fallback to zero counts so callers always see a
-				// valid result shape.
-				const [result] = store
-					.getState()
-					.applyMany([{ kind: "renameField", uuid, newId }]);
-				const meta = result as FieldRenameMeta | undefined;
+					// Mint a uuid if the caller didn't supply one. FieldTypePicker
+					// and the SA tool handlers pass shapes without uuids and rely on
+					// the store to generate identity.
+					const maybeUuid = field.uuid;
+					const uuid = asUuid(
+						typeof maybeUuid === "string" && maybeUuid.length > 0
+							? maybeUuid
+							: crypto.randomUUID(),
+					);
+					// Field is a discriminated union; the narrowed generic input is a
+					// specific variant's Omit — we stamp the uuid and cast via
+					// `unknown` because the distributive Omit shape doesn't round-trip
+					// back to the full union narrowly (TS limitation around Omit +
+					// discriminated unions).
+					const entity = { ...field, uuid } as unknown as Field;
 
-				/* Compute the new path AFTER dispatch — the semantic id has
-				 * changed. `renameField` doesn't reparent, so `fieldParent`
-				 * is unchanged, but the walk needs the post-dispatch snapshot
-				 * of `fields` to read the new id. */
-				const after = get();
-				const newPath = (computePathForUuid(after, uuid) ?? "") as FieldPath;
-				return {
-					newPath,
-					xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
-					peerFieldsRenamed: meta?.peerFieldsRenamed ?? 0,
-					columnsRewritten: meta?.columnsRewritten ?? 0,
-					catalogEntryRenamed: meta?.catalogEntryRenamed ?? false,
-					cascadedAcrossForms: meta?.cascadedAcrossForms ?? false,
-				};
-			},
+					const applied = guardedApply([
+						{
+							kind: "addField",
+							parentUuid,
+							field: entity,
+							index,
+						},
+					]);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid };
+				},
 
-			moveField(uuid, opts) {
-				const doc = get();
-				const field = doc.fields[uuid];
-				if (!field) {
-					warnUnresolved("moveField", { uuid });
-					return { droppedCrossDepthRefs: 0 };
-				}
-
-				// Default destination: the field's current parent (same-parent
-				// reorder). Fall back to the field's own uuid as a guard — this
-				// is unreachable in practice because every field has a parent
-				// entry in `fieldOrder`. Read the parent directly from the
-				// store-maintained `fieldParent` reverse index (O(1)).
-				const toParentUuid = opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
-
-				// Virtual post-splice order when same-parent move. When the source
-				// uuid appears in the destination parent, emulate the post-splice
-				// state so the returned index aligns with where the reducer will
-				// actually insert after it removes the source uuid.
-				const base = doc.fieldOrder[toParentUuid] ?? [];
-				const virtual = base.includes(uuid)
-					? base.filter((u) => u !== uuid)
-					: base;
-
-				// Default: append at the end of the destination parent.
-				let toIndex = virtual.length;
-				if (opts.toIndex !== undefined) {
-					toIndex = opts.toIndex;
-				} else if (opts.beforeUuid) {
-					const i = virtual.indexOf(opts.beforeUuid);
-					if (i >= 0) toIndex = i;
-				} else if (opts.afterUuid) {
-					const i = virtual.indexOf(opts.afterUuid);
-					if (i >= 0) toIndex = i + 1;
-				}
-
-				// Dispatch via the single write path. Position `[0]` of the
-				// returned array carries the reducer's rename metadata (populated
-				// when cross-level dedup changes the id). The reducer returns
-				// `undefined` if the target entity vanishes between our pre-check
-				// and the Immer draft — fallback to a zeroed result so callers
-				// always see a valid `MoveFieldResult`.
-				const [result] = store
-					.getState()
-					.applyMany([{ kind: "moveField", uuid, toParentUuid, toIndex }]);
-				return (
-					(result as MoveFieldResult | undefined) ?? {
-						droppedCrossDepthRefs: 0,
+				updateField(uuid, targetKind, patch) {
+					const doc = get();
+					if (!doc.fields[uuid]) {
+						warnUnresolved("updateField", { uuid, targetKind });
+						return NOOP_REJECTION;
 					}
-				);
-			},
+					// `targetKind` + `patch` are typed against the same variant via
+					// the generic, so the spread into the mutation literal lands on
+					// the discriminated `updateField` arm without further narrowing.
+					// The intermediate cast is required because TypeScript can't
+					// match the generic `K` back to the union of literal-keyed arms
+					// in `Mutation` — at the value level the shape is structurally
+					// identical, but TS treats the union arms as distinct types
+					// rather than a parameterized one.
+					return toOutcome(
+						guardedApply([
+							{
+								kind: "updateField",
+								uuid,
+								targetKind,
+								patch,
+							} as Mutation,
+						]),
+					);
+				},
 
-			duplicateField(uuid) {
-				const doc = get();
-				if (!doc.fields[uuid]) {
-					warnUnresolved("duplicateField", { uuid });
-					return undefined;
-				}
+				removeField(uuid) {
+					const doc = get();
+					if (!doc.fields[uuid]) {
+						warnUnresolved("removeField", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(guardedApply([{ kind: "removeField", uuid }]));
+				},
 
-				// Snapshot the parent's order BEFORE dispatch so we can diff and
-				// recover the new clone's uuid. The reducer splices the clone
-				// right after the source; the post-dispatch order will contain
-				// exactly one uuid that wasn't present before.
-				const parentUuid = doc.fieldParent[uuid] ?? undefined;
-				if (parentUuid === undefined) {
-					warnUnresolved("duplicateField", {
-						uuid,
-						reason: "no parent",
-					});
-					return undefined;
-				}
-				const beforeOrder = [...(doc.fieldOrder[parentUuid] ?? [])];
-				const beforeSet = new Set(beforeOrder);
+				renameField(uuid, newId) {
+					const doc = get();
+					const field = doc.fields[uuid];
+					if (!field) {
+						warnUnresolved("renameField", { uuid });
+						return emptyFieldRenameResult();
+					}
 
-				store.getState().applyMany([{ kind: "duplicateField", uuid }]);
+					// Conflict check: reject the rename before dispatching so the
+					// UI can surface a "name already taken" message without
+					// unwinding a half-applied mutation. The peer-aware scan (the
+					// renamed field's parent plus the parent of every
+					// case-property peer that cascade-renames in lockstep) lives
+					// in the shared verdict module — the same definition of
+					// "conflict" the UI commit guard and the SA tools consult —
+					// so the store-level backstop can't drift from the surfaces
+					// it backs.
+					if (findRenameSiblingConflict(doc, uuid, newId) !== undefined) {
+						return { ...emptyFieldRenameResult(), conflict: true };
+					}
 
-				// Diff the post-dispatch order against the snapshot to find the
-				// new clone. Only one uuid should be new.
-				const afterDoc = get();
-				const afterOrder = afterDoc.fieldOrder[parentUuid] ?? [];
-				const newUuid = afterOrder.find((u) => !beforeSet.has(u));
-				if (!newUuid) return undefined;
+					// Dispatch via the single write path. Position `[0]` of the
+					// returned array carries the reducer's per-mutation result —
+					// narrow it to `FieldRenameMeta` so we can read the cascade
+					// counts. The reducer returns `undefined` if the target entity
+					// vanishes between our pre-check and the Immer draft —
+					// defensive fallback to zero counts so callers always see a
+					// valid result shape.
+					const applied = guardedApply([{ kind: "renameField", uuid, newId }]);
+					if (!applied.ok) {
+						return { ...emptyFieldRenameResult(), rejected: applied.messages };
+					}
+					const meta = applied.results[0] as FieldRenameMeta | undefined;
 
-				// Rebuild the new path: parent path (if any) + new field id.
-				// `fieldParent` is already up to date on `afterDoc` — the
-				// dispatcher rebuilds it after the reducer runs.
-				const cloneEntity = afterDoc.fields[newUuid];
-				if (!cloneEntity) return undefined;
-				const parentPath = afterDoc.forms[parentUuid]
-					? "" // parent is the form root
-					: (computePathForUuid(afterDoc, parentUuid) ?? "");
-				const newPath = (
-					parentPath ? `${parentPath}/${cloneEntity.id}` : cloneEntity.id
-				) as FieldPath;
-
-				return { newPath, newUuid: newUuid as string };
-			},
-
-			convertField(uuid, toKind) {
-				const doc = get();
-				if (!doc.fields[uuid]) {
-					// Include `toKind` so the dev-mode warn disambiguates the caller's
-					// intent — a stale UI closure and a drifted SA dispatch present
-					// identically without it. Matches the debug payload shape the
-					// other multi-arg mutations (updateCaseProperty, etc.) use.
-					warnUnresolved("convertField", { uuid, toKind });
-					return;
-				}
-				store.getState().applyMany([{ kind: "convertField", uuid, toKind }]);
-			},
-
-			addForm(moduleUuid, form) {
-				const doc = get();
-				if (!doc.modules[moduleUuid]) {
-					warnUnresolved("addForm", { moduleUuid });
-					return "" as Uuid;
-				}
-				const maybeUuid = form.uuid;
-				const formUuid = asUuid(
-					typeof maybeUuid === "string" && maybeUuid.length > 0
-						? maybeUuid
-						: crypto.randomUUID(),
-				);
-				store.getState().applyMany([
-					{
-						kind: "addForm",
-						moduleUuid,
-						form: { ...form, uuid: formUuid } as Form,
-					},
-				]);
-				return formUuid;
-			},
-
-			updateForm(uuid, patch) {
-				const doc = get();
-				if (!doc.forms[uuid]) {
-					warnUnresolved("updateForm", { uuid });
-					return;
-				}
-				store.getState().applyMany([
-					{
-						kind: "updateForm",
-						uuid,
-						patch,
-					},
-				]);
-			},
-
-			setFormMedia(uuid, media) {
-				const doc = get();
-				if (!doc.forms[uuid]) {
-					warnUnresolved("setFormMedia", { uuid });
-					return;
-				}
-				store.getState().applyMany([
-					{
-						kind: "setFormMedia",
-						uuid,
-						icon: media.icon,
-						audioLabel: media.audioLabel,
-					},
-				]);
-			},
-
-			removeForm(uuid) {
-				const doc = get();
-				if (!doc.forms[uuid]) {
-					warnUnresolved("removeForm", { uuid });
-					return;
-				}
-				store.getState().applyMany([{ kind: "removeForm", uuid }]);
-			},
-
-			addModule(module) {
-				const maybeUuid = module.uuid;
-				const moduleUuid = asUuid(
-					typeof maybeUuid === "string" && maybeUuid.length > 0
-						? maybeUuid
-						: crypto.randomUUID(),
-				);
-				store.getState().applyMany([
-					{
-						kind: "addModule",
-						module: { ...module, uuid: moduleUuid } as Module,
-					},
-				]);
-				return moduleUuid;
-			},
-
-			updateModule(uuid, patch) {
-				const doc = get();
-				if (!doc.modules[uuid]) {
-					warnUnresolved("updateModule", { uuid });
-					return;
-				}
-				store.getState().applyMany([{ kind: "updateModule", uuid, patch }]);
-			},
-
-			setModuleMedia(uuid, media) {
-				const doc = get();
-				if (!doc.modules[uuid]) {
-					warnUnresolved("setModuleMedia", { uuid });
-					return;
-				}
-				store.getState().applyMany([
-					{
-						kind: "setModuleMedia",
-						uuid,
-						icon: media.icon,
-						audioLabel: media.audioLabel,
-					},
-				]);
-			},
-
-			removeModule(uuid) {
-				const doc = get();
-				if (!doc.modules[uuid]) {
-					warnUnresolved("removeModule", { uuid });
-					return;
-				}
-				store.getState().applyMany([{ kind: "removeModule", uuid }]);
-			},
-
-			updateApp(patch) {
-				// Collapse the combined patch into a single `applyMany` so zundo
-				// records exactly one undo entry. Dispatching `setAppName` and
-				// `setConnectType` individually would produce TWO undo entries per
-				// call — the user would have to hit ctrl-z twice to roll back a
-				// single "Rename + toggle" edit.
-				const mutations: Mutation[] = [];
-				if (patch.app_name !== undefined) {
-					mutations.push({ kind: "setAppName", name: patch.app_name });
-				}
-				if (patch.connect_type !== undefined) {
-					// ConnectType | null is the narrower type; null means "connect
-					// disabled" (absent connect_type in the blueprint schema).
-					mutations.push({
-						kind: "setConnectType",
-						connectType: patch.connect_type,
-					});
-				}
-				if (mutations.length > 0) {
-					store.getState().applyMany(mutations);
-				}
-			},
-
-			setAppLogo(logo) {
-				// No uuid to validate — the logo is a single app-level slot, so
-				// this mirrors `setCaseTypes` (bare dispatch) rather than the
-				// entity-guarded `setFormMedia` / `setModuleMedia`. The payload
-				// carries an explicit `AssetId | null`; the reducer maps `null →
-				// undefined` so a clear drops the optional key off the doc.
-				store.getState().applyMany([{ kind: "setAppLogo", logo }]);
-			},
-
-			setCaseTypes(caseTypes) {
-				store.getState().applyMany([{ kind: "setCaseTypes", caseTypes }]);
-			},
-
-			updateCaseProperty(caseTypeName, propertyName, updates) {
-				const doc = get();
-				const currentCaseTypes = doc.caseTypes;
-				if (!currentCaseTypes) {
-					warnUnresolved("updateCaseProperty", { caseTypeName, propertyName });
-					return;
-				}
-				const ctIndex = currentCaseTypes.findIndex(
-					(ct) => ct.name === caseTypeName,
-				);
-				if (ctIndex === -1) {
-					warnUnresolved("updateCaseProperty", {
-						caseTypeName,
-						reason: "case type not found",
-					});
-					return;
-				}
-				const ct = currentCaseTypes[ctIndex];
-				const propIndex = ct.properties.findIndex(
-					(p) => p.name === propertyName,
-				);
-				if (propIndex === -1) {
-					warnUnresolved("updateCaseProperty", {
-						caseTypeName,
-						propertyName,
-						reason: "property not found",
-					});
-					return;
-				}
-				// Build a new caseTypes array with the updated property. Immutable
-				// construction avoids mutating the Immer-frozen snapshot.
-				const nextCaseTypes = currentCaseTypes.map((caseType, i) => {
-					if (i !== ctIndex) return caseType;
+					/* Compute the new path AFTER dispatch — the semantic id has
+					 * changed. `renameField` doesn't reparent, so `fieldParent`
+					 * is unchanged, but the walk needs the post-dispatch snapshot
+					 * of `fields` to read the new id. */
+					const after = get();
+					const newPath = (computePathForUuid(after, uuid) ?? "") as FieldPath;
 					return {
-						...caseType,
-						properties: caseType.properties.map((p, j) =>
-							j === propIndex ? { ...p, ...updates } : p,
-						),
+						newPath,
+						xpathFieldsRewritten: meta?.xpathFieldsRewritten ?? 0,
+						peerFieldsRenamed: meta?.peerFieldsRenamed ?? 0,
+						columnsRewritten: meta?.columnsRewritten ?? 0,
+						formWiringRewritten: meta?.formWiringRewritten ?? 0,
+						moduleRefsRewritten: meta?.moduleRefsRewritten ?? 0,
+						catalogEntryRenamed: meta?.catalogEntryRenamed ?? false,
+						cascadedAcrossForms: meta?.cascadedAcrossForms ?? false,
 					};
-				});
-				store
-					.getState()
-					.applyMany([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]);
-			},
+				},
 
-			applyMany(mutations) {
-				// Batch dispatch — the store's `applyMany` wraps the whole set
-				// in one `set()` call so zundo records exactly one undo entry.
-				// Returns the reducer's per-mutation results in input order;
-				// surfaced here so callers can narrow specific positions.
-				return store.getState().applyMany(mutations);
-			},
+				moveField(uuid, opts) {
+					const doc = get();
+					const field = doc.fields[uuid];
+					if (!field) {
+						warnUnresolved("moveField", { uuid });
+						return {};
+					}
+
+					// Default destination: the field's current parent (same-parent
+					// reorder). Fall back to the field's own uuid as a guard — this
+					// is unreachable in practice because every field has a parent
+					// entry in `fieldOrder`. Read the parent directly from the
+					// store-maintained `fieldParent` reverse index (O(1)).
+					const toParentUuid =
+						opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
+
+					// Virtual post-splice order when same-parent move. When the source
+					// uuid appears in the destination parent, emulate the post-splice
+					// state so the returned index aligns with where the reducer will
+					// actually insert after it removes the source uuid.
+					const base = doc.fieldOrder[toParentUuid] ?? [];
+					const virtual = base.includes(uuid)
+						? base.filter((u) => u !== uuid)
+						: base;
+
+					// Default: append at the end of the destination parent.
+					let toIndex = virtual.length;
+					if (opts.toIndex !== undefined) {
+						toIndex = opts.toIndex;
+					} else if (opts.beforeUuid) {
+						const i = virtual.indexOf(opts.beforeUuid);
+						if (i >= 0) toIndex = i;
+					} else if (opts.afterUuid) {
+						const i = virtual.indexOf(opts.afterUuid);
+						if (i >= 0) toIndex = i + 1;
+					}
+
+					// Dispatch via the single write path. Position `[0]` of the
+					// returned array carries the reducer's rename metadata (populated
+					// when cross-level dedup changes the id). The reducer returns
+					// `undefined` if the target entity vanishes between our pre-check
+					// and the Immer draft — fallback to a zeroed result so callers
+					// always see a valid `MoveFieldResult`.
+					const applied = guardedApply([
+						{ kind: "moveField", uuid, toParentUuid, toIndex },
+					]);
+					if (!applied.ok) return {};
+					return (applied.results[0] as MoveFieldResult | undefined) ?? {};
+				},
+
+				duplicateField(uuid) {
+					const doc = get();
+					if (!doc.fields[uuid]) {
+						warnUnresolved("duplicateField", { uuid });
+						return undefined;
+					}
+
+					// Snapshot the parent's order BEFORE dispatch so we can diff and
+					// recover the new clone's uuid. The reducer splices the clone
+					// right after the source; the post-dispatch order will contain
+					// exactly one uuid that wasn't present before.
+					const parentUuid = doc.fieldParent[uuid] ?? undefined;
+					if (parentUuid === undefined) {
+						warnUnresolved("duplicateField", {
+							uuid,
+							reason: "no parent",
+						});
+						return undefined;
+					}
+					const beforeOrder = [...(doc.fieldOrder[parentUuid] ?? [])];
+					const beforeSet = new Set(beforeOrder);
+
+					if (!guardedApply([{ kind: "duplicateField", uuid }]).ok) {
+						return undefined;
+					}
+
+					// Diff the post-dispatch order against the snapshot to find the
+					// new clone. Only one uuid should be new.
+					const afterDoc = get();
+					const afterOrder = afterDoc.fieldOrder[parentUuid] ?? [];
+					const newUuid = afterOrder.find((u) => !beforeSet.has(u));
+					if (!newUuid) return undefined;
+
+					// Rebuild the new path: parent path (if any) + new field id.
+					// `fieldParent` is already up to date on `afterDoc` — the
+					// dispatcher rebuilds it after the reducer runs.
+					const cloneEntity = afterDoc.fields[newUuid];
+					if (!cloneEntity) return undefined;
+					const parentPath = afterDoc.forms[parentUuid]
+						? "" // parent is the form root
+						: (computePathForUuid(afterDoc, parentUuid) ?? "");
+					const newPath = (
+						parentPath ? `${parentPath}/${cloneEntity.id}` : cloneEntity.id
+					) as FieldPath;
+
+					return { newPath, newUuid: newUuid as string };
+				},
+
+				convertField(uuid, toKind) {
+					const doc = get();
+					if (!doc.fields[uuid]) {
+						// Include `toKind` so the dev-mode warn disambiguates the caller's
+						// intent — a stale UI closure and a drifted SA dispatch present
+						// identically without it. Matches the debug payload shape the
+						// other multi-arg mutations (updateCaseProperty, etc.) use.
+						warnUnresolved("convertField", { uuid, toKind });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([{ kind: "convertField", uuid, toKind }]),
+					);
+				},
+
+				addForm(moduleUuid, form) {
+					const doc = get();
+					if (!doc.modules[moduleUuid]) {
+						warnUnresolved("addForm", { moduleUuid });
+						return NOOP_REJECTION;
+					}
+					const maybeUuid = form.uuid;
+					const formUuid = asUuid(
+						typeof maybeUuid === "string" && maybeUuid.length > 0
+							? maybeUuid
+							: crypto.randomUUID(),
+					);
+					const applied = guardedApply([
+						{
+							kind: "addForm",
+							moduleUuid,
+							form: { ...form, uuid: formUuid } as Form,
+						},
+					]);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid: formUuid };
+				},
+
+				updateForm(uuid, patch) {
+					const doc = get();
+					if (!doc.forms[uuid]) {
+						warnUnresolved("updateForm", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([
+							{
+								kind: "updateForm",
+								uuid,
+								patch,
+							},
+						]),
+					);
+				},
+
+				setFormMedia(uuid, media) {
+					const doc = get();
+					if (!doc.forms[uuid]) {
+						warnUnresolved("setFormMedia", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([
+							{
+								kind: "setFormMedia",
+								uuid,
+								icon: media.icon,
+								audioLabel: media.audioLabel,
+							},
+						]),
+					);
+				},
+
+				removeForm(uuid) {
+					const doc = get();
+					if (!doc.forms[uuid]) {
+						warnUnresolved("removeForm", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(guardedApply([{ kind: "removeForm", uuid }]));
+				},
+
+				addModule(module) {
+					const maybeUuid = module.uuid;
+					const moduleUuid = asUuid(
+						typeof maybeUuid === "string" && maybeUuid.length > 0
+							? maybeUuid
+							: crypto.randomUUID(),
+					);
+					const applied = guardedApply([
+						{
+							kind: "addModule",
+							module: { ...module, uuid: moduleUuid } as Module,
+						},
+					]);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid: moduleUuid };
+				},
+
+				updateModule(uuid, patch) {
+					const doc = get();
+					if (!doc.modules[uuid]) {
+						warnUnresolved("updateModule", { uuid });
+						return NOOP_REJECTION;
+					}
+					/* A case-type change (or clear — the key present, value
+					 * undefined) can orphan the OLD type's record; the shared
+					 * planner retires it in the same batch or rejects naming what
+					 * still references it. Same cascade the SA's `updateModule`
+					 * tool runs — every surface inherits it identically. */
+					const retirement: CaseTypeRetirement =
+						"caseType" in patch
+							? planCaseTypeRetirementOnRetype(doc, uuid, patch.caseType)
+							: { kind: "none" };
+					if (retirement.kind === "blocked") {
+						if (announce) notifyRejectedCommit([retirement.userMessage]);
+						return { ok: false, messages: [retirement.userMessage] };
+					}
+					return toOutcome(
+						guardedApply([
+							{ kind: "updateModule", uuid, patch },
+							...(retirement.kind === "retire" ? retirement.mutations : []),
+						]),
+					);
+				},
+
+				setModuleMedia(uuid, media) {
+					const doc = get();
+					if (!doc.modules[uuid]) {
+						warnUnresolved("setModuleMedia", { uuid });
+						return NOOP_REJECTION;
+					}
+					return toOutcome(
+						guardedApply([
+							{
+								kind: "setModuleMedia",
+								uuid,
+								icon: media.icon,
+								audioLabel: media.audioLabel,
+							},
+						]),
+					);
+				},
+
+				removeModule(uuid) {
+					const doc = get();
+					if (!doc.modules[uuid]) {
+						warnUnresolved("removeModule", { uuid });
+						return NOOP_REJECTION;
+					}
+					/* When this module is the last owner of its case-type record,
+					 * the same batch retires the record — or the removal rejects
+					 * naming what still references the type. Same cascade the SA's
+					 * `removeModule` tool runs (`lib/doc/caseTypeRetirement.ts`). */
+					const retirement = planCaseTypeRetirementOnRemove(doc, uuid);
+					if (retirement.kind === "blocked") {
+						if (announce) notifyRejectedCommit([retirement.userMessage]);
+						return { ok: false, messages: [retirement.userMessage] };
+					}
+					return toOutcome(
+						guardedApply([
+							{ kind: "removeModule", uuid },
+							...(retirement.kind === "retire" ? retirement.mutations : []),
+						]),
+					);
+				},
+
+				updateApp(patch) {
+					// Collapse the combined patch into a single `applyMany` so zundo
+					// records exactly one undo entry. Dispatching `setAppName` and
+					// `setConnectType` individually would produce TWO undo entries per
+					// call — the user would have to hit ctrl-z twice to roll back a
+					// single "Rename + toggle" edit.
+					const mutations: Mutation[] = [];
+					if (patch.app_name !== undefined) {
+						mutations.push({ kind: "setAppName", name: patch.app_name });
+					}
+					if (patch.connect_type !== undefined) {
+						// ConnectType | null is the narrower type; null means "connect
+						// disabled" (absent connect_type in the blueprint schema).
+						mutations.push({
+							kind: "setConnectType",
+							connectType: patch.connect_type,
+						});
+					}
+					if (mutations.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(mutations));
+				},
+
+				setAppLogo(logo) {
+					// No uuid to validate — the logo is a single app-level slot, so
+					// this mirrors `setCaseTypes` (bare dispatch) rather than the
+					// entity-guarded `setFormMedia` / `setModuleMedia`. The payload
+					// carries an explicit `AssetId | null`; the reducer maps `null →
+					// undefined` so a clear drops the optional key off the doc.
+					return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
+				},
+
+				setCaseTypes(caseTypes) {
+					return toOutcome(guardedApply([{ kind: "setCaseTypes", caseTypes }]));
+				},
+
+				updateCaseProperty(caseTypeName, propertyName, updates) {
+					const doc = get();
+					const currentCaseTypes = doc.caseTypes;
+					if (!currentCaseTypes) {
+						warnUnresolved("updateCaseProperty", {
+							caseTypeName,
+							propertyName,
+						});
+						return NOOP_REJECTION;
+					}
+					const ctIndex = currentCaseTypes.findIndex(
+						(ct) => ct.name === caseTypeName,
+					);
+					if (ctIndex === -1) {
+						warnUnresolved("updateCaseProperty", {
+							caseTypeName,
+							reason: "case type not found",
+						});
+						return NOOP_REJECTION;
+					}
+					const ct = currentCaseTypes[ctIndex];
+					const propIndex = ct.properties.findIndex(
+						(p) => p.name === propertyName,
+					);
+					if (propIndex === -1) {
+						warnUnresolved("updateCaseProperty", {
+							caseTypeName,
+							propertyName,
+							reason: "property not found",
+						});
+						return NOOP_REJECTION;
+					}
+					// Build a new caseTypes array with the updated property. Immutable
+					// construction avoids mutating the Immer-frozen snapshot.
+					const nextCaseTypes = currentCaseTypes.map((caseType, i) => {
+						if (i !== ctIndex) return caseType;
+						return {
+							...caseType,
+							properties: caseType.properties.map((p, j) =>
+								j === propIndex ? { ...p, ...updates } : p,
+							),
+						};
+					});
+					return toOutcome(
+						guardedApply([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]),
+					);
+				},
+
+				applyMany(mutations) {
+					// Batch dispatch — the store's `applyMany` wraps the whole set
+					// in one `set()` call so zundo records exactly one undo entry.
+					// Returns the reducer's per-mutation results in input order;
+					// surfaced here so callers can narrow specific positions. A
+					// gate rejection returns an empty array (positional reads see
+					// `undefined`, the same shape a no-op reducer produces).
+					const applied = guardedApply(mutations);
+					return applied.ok ? applied.results : [];
+				},
+			};
 		};
+
+		return { ...makeApi(true), inline: makeApi(false) };
 	}, [store]);
 }

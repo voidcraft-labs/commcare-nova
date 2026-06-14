@@ -13,11 +13,11 @@
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { inputFieldBaseSchema } from "./base";
+import { inputFieldBaseSchema, xpathExpressionSchema } from "./base";
 
 export const geopointFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("geopoint"),
-	default_value: z.string().optional(),
+	default_value: xpathExpressionSchema.optional(),
 });
 
 export type GeopointField = z.infer<typeof geopointFieldSchema>;

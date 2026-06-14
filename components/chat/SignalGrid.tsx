@@ -2,7 +2,6 @@
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef } from "react";
 import { type FieldPath, fpathId } from "@/lib/doc/fieldPath";
-import { docHasData } from "@/lib/doc/predicates";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -155,7 +154,7 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		/* `derivePostBuildEdit` returns true only while a run is in
 		 * progress (events buffer non-empty), so a separate "agent
 		 * active" check would be redundant. */
-		if (doc && derivePostBuildEdit(s.events, docHasData(doc))) {
+		if (doc && derivePostBuildEdit(s.events, s.runStartedWithData)) {
 			/* computeEditFocus needs the blueprint's ordering maps to
 			 * convert scope indices into a 0–1 focus range. */
 			controller.setEditFocus(

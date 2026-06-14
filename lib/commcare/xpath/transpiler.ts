@@ -23,7 +23,7 @@
  *            emits a list of SourceEdits)
  *                      │
  *                      ▼
- *              applyEdits(source, edits)
+ *       applyEditsRejectingOverlaps(source, edits)
  *                      │
  *                      ▼
  *            CommCare-compatible XPath 1.0
@@ -55,6 +55,11 @@ import { inferTypes } from "./typeInfer";
 /**
  * A single source-level edit: replace the character range
  * `[from, to)` with `replacement`.
+ *
+ * Deliberately the transpiler's OWN edit shape, distinct from the
+ * rewriters' `SourceEdit` (`lib/preview/xpath/rewrite.ts`, field `text`):
+ * this one is part of the public `Pass` contract, whose edits carry the
+ * non-overlap promise `applyEditsRejectingOverlaps` enforces below.
  */
 export interface SourceEdit {
 	from: number;
@@ -118,17 +123,28 @@ export function transpile(source: string): string {
 	}
 
 	if (allEdits.length === 0) return source;
-	return applyEdits(trimmed, allEdits);
+	return applyEditsRejectingOverlaps(trimmed, allEdits);
 }
 
 // ── Edit application ────────────────────────────────────────────────
 
 /**
  * Apply a set of non-overlapping source edits to produce the
- * transformed string. Edits are sorted back-to-front so that earlier
- * offsets remain valid after later replacements.
+ * transformed string. Edits are sorted back-to-front (on a copy — the
+ * caller's array is never reordered) so that earlier offsets remain
+ * valid after later replacements.
+ *
+ * Deliberately NOT the rewriters' `applyEdits`
+ * (`lib/preview/xpath/rewrite.ts`): passes promise non-overlapping
+ * edits (see `Pass`), so an overlap here is a transpiler BUG and must
+ * THROW — the oracle posture — where the rewriters' helper applies
+ * whatever its matchers produced (they never overlap by construction:
+ * the walkers stop recursing into a matched span).
  */
-function applyEdits(source: string, edits: SourceEdit[]): string {
+function applyEditsRejectingOverlaps(
+	source: string,
+	edits: SourceEdit[],
+): string {
 	/* Sort descending by `from` — apply from end to preserve offsets */
 	const sorted = [...edits].sort((a, b) => b.from - a.from);
 

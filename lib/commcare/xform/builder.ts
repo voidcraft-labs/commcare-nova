@@ -43,7 +43,10 @@ import {
 	RESERVED_XFORM_NODE_PREFIX,
 	supportsValidation,
 } from "@/lib/commcare";
-import { effectiveDeliverEntities } from "@/lib/commcare/connectDefaults";
+import {
+	effectiveAssessmentUserScore,
+	effectiveDeliverEntities,
+} from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import { readFieldString } from "@/lib/commcare/fieldProps";
@@ -249,6 +252,7 @@ const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
  * a bind per declared sub-node so CommCare has paths to write to.
  */
 function buildConnectBlocks(
+	doc: BlueprintDoc,
 	connect: ResolvedConnectConfig | undefined,
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
@@ -286,7 +290,13 @@ function buildConnectBlocks(
 
 	if (connect.assessment) {
 		const assessId = connect.assessment.id;
-		instances.scanXPath(connect.assessment.user_score);
+		// `user_score` is optional in the domain. `effectiveAssessmentUserScore`
+		// resolves it against the canonical default — same helper the
+		// session-preload builder calls, so the bind XML and the
+		// case-references load map agree on which XPath actually runs at
+		// form-fill time.
+		const userScore = effectiveAssessmentUserScore(connect.assessment, doc);
+		instances.scanXPath(userScore);
 		const assessPath = FormPath.root().child(assessId);
 		dataElements.push(
 			el(assessId, { "vellum:role": "ConnectAssessment" }, [
@@ -302,7 +312,7 @@ function buildConnectBlocks(
 			}),
 			el("bind", {
 				nodeset: assessPath.child("assessment").child("user_score").toXPath(),
-				calculate: expand(connect.assessment.user_score),
+				calculate: expand(userScore),
 			}),
 		);
 	}
@@ -315,7 +325,7 @@ function buildConnectBlocks(
 		// defaults — same helper the session-preload builder calls, so
 		// the bind XML and the case-references load map agree on which
 		// XPaths actually run at form-fill time.
-		const { entityId, entityName } = effectiveDeliverEntities(du);
+		const { entityId, entityName } = effectiveDeliverEntities(du, doc);
 		instances.scanXPath(entityId);
 		instances.scanXPath(entityName);
 		const duPath = FormPath.root().child(duId);
@@ -538,7 +548,7 @@ export function buildXForm(
 	}
 
 	// Connect data + binds are data-only (no body elements).
-	const connectParts = buildConnectBlocks(opts.connect, instances, expand);
+	const connectParts = buildConnectBlocks(doc, opts.connect, instances, expand);
 	dataElements.push(...connectParts.dataElements);
 	binds.push(...connectParts.binds);
 
@@ -731,15 +741,15 @@ function buildFieldParts(
 	// `jr:itext('...')` reference this field emits derives from this one value.
 	const itextKey = itextKeyPrefix + field.id;
 
-	const relevant = readFieldString(field, "relevant");
-	const validate = readFieldString(field, "validate");
-	const validateMsg = readFieldString(field, "validate_msg");
-	const calculate = readFieldString(field, "calculate");
-	const defaultValue = readFieldString(field, "default_value");
-	const required = readFieldString(field, "required");
-	const label = readFieldString(field, "label");
-	const hint = readFieldString(field, "hint");
-	const help = readFieldString(field, "help");
+	const relevant = readFieldString(field, "relevant", doc);
+	const validate = readFieldString(field, "validate", doc);
+	const validateMsg = readFieldString(field, "validate_msg", doc);
+	const calculate = readFieldString(field, "calculate", doc);
+	const defaultValue = readFieldString(field, "default_value", doc);
+	const required = readFieldString(field, "required", doc);
+	const label = readFieldString(field, "label", doc);
+	const hint = readFieldString(field, "hint", doc);
+	const help = readFieldString(field, "help", doc);
 
 	// Per-message media slots. Each registers `<value form="...">` siblings
 	// on its itext entry (via `addItext`), and `hint`/`help` body refs emit
@@ -1202,6 +1212,7 @@ function buildContainer(
 	if (field.kind === "repeat") {
 		bodyElements.push(
 			buildRepeatBody(
+				doc,
 				field,
 				nodePath,
 				labelEl,
@@ -1262,6 +1273,7 @@ function buildContainer(
  *     data-element rewrite).
  */
 function buildRepeatBody(
+	doc: BlueprintDoc,
 	field: Field & { kind: "repeat" },
 	nodePath: FormPath,
 	labelEl: Element | undefined,
@@ -1278,9 +1290,12 @@ function buildRepeatBody(
 	const repeatAttribs: Record<string, string> = {};
 
 	if (field.repeat_mode === "count_bound") {
-		const expandedCount = expand(field.repeat_count);
+		// The stored AST projects to text once; every use below (expand,
+		// instance scan, the vellum round-trip attribute) shares it.
+		const repeatCount = readFieldString(field, "repeat_count", doc) ?? "";
+		const expandedCount = expand(repeatCount);
 		// Hashtags inside repeat_count may reference casedb/session.
-		instances.scanXPath(field.repeat_count);
+		instances.scanXPath(repeatCount);
 
 		// JavaRosa parses the `jr:count` attribute through
 		// `new XPathReference(countRef)`, which throws
@@ -1302,8 +1317,8 @@ function buildRepeatBody(
 			// round-tripping back into the editor. Insertion order matches the
 			// prior emitter: vellum:count (when present), then jr:count, then
 			// jr:noAddRemove.
-			if (hasHashtags(field.repeat_count)) {
-				repeatAttribs["vellum:count"] = field.repeat_count;
+			if (hasHashtags(repeatCount)) {
+				repeatAttribs["vellum:count"] = repeatCount;
 			}
 			repeatAttribs["jr:count"] = expandedCount;
 			repeatAttribs["jr:noAddRemove"] = "true()";
@@ -1362,7 +1377,7 @@ function buildRepeatBody(
 			// `vellum:*` attrs opportunistically and tolerates a non-path value
 			// here. Insertion order matches the prior emitter: vellum:count,
 			// jr:count, jr:noAddRemove.
-			repeatAttribs["vellum:count"] = field.repeat_count;
+			repeatAttribs["vellum:count"] = repeatCount;
 			repeatAttribs["jr:count"] = countNodeXPath;
 			repeatAttribs["jr:noAddRemove"] = "true()";
 		}
@@ -1376,7 +1391,8 @@ function buildRepeatBody(
 		repeatNodeset = itemPath.toXPath();
 		repeatAttribs["jr:count"] = countAttrPath;
 		repeatAttribs["jr:noAddRemove"] = "true()";
-		const expandedIdsQuery = expand(field.data_source.ids_query);
+		const idsQuery = readFieldString(field, "ids_query", doc) ?? "";
+		const expandedIdsQuery = expand(idsQuery);
 		const idsValue = `join(' ', ${expandedIdsQuery})`;
 		const countValue = `count-selected(${idsAttrPath})`;
 		const indexValue = `int(${currentIndexAttrPath})`;
@@ -1424,7 +1440,7 @@ function buildRepeatBody(
 			}),
 		);
 		// ids_query may reference casedb / commcaresession.
-		instances.scanXPath(field.data_source.ids_query);
+		instances.scanXPath(idsQuery);
 	}
 
 	// The `<repeat>` itself, then the surrounding `<group>` wrapper that holds

@@ -19,7 +19,7 @@ import {
 } from "@/lib/commcare";
 import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
 import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
-import { fieldRegistry } from "@/lib/domain";
+import { expressionSource, fieldRegistry } from "@/lib/domain";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
 
@@ -49,13 +49,18 @@ const FIELD_DESCRIPTIONS: Record<XPathFieldKey, string> = {
 };
 
 /**
- * Read an XPath-bearing property off a Field union member. Returns the
- * value only when it is a non-empty string, otherwise `undefined` — keeps
- * the per-rule code free of manual type guards.
+ * Read an XPath-bearing slot's TEXT off a Field union member — the
+ * shared accessor projects AST-stored slots to their printed form and
+ * passes string-stored slots through. Returns the text only when
+ * non-empty, keeping the per-rule code free of manual type guards.
  */
-function readXPath(field: Field, key: XPathFieldKey): string | undefined {
-	const value = (field as unknown as Record<string, unknown>)[key];
-	return typeof value === "string" && value.length > 0 ? value : undefined;
+function readXPath(
+	field: Field,
+	key: XPathFieldKey | "repeat_count" | "ids_query",
+	ctx: FieldContext,
+): string | undefined {
+	const value = expressionSource(field, key, ctx.doc);
+	return value !== undefined && value.length > 0 ? value : undefined;
 }
 
 /**
@@ -97,6 +102,8 @@ interface FieldContext {
 	moduleName: string;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
+	/** The whole doc — AST-stored expression slots print against it. */
+	doc: BlueprintDoc;
 }
 
 // ── Rules ──────────────────────────────────────────────────────────
@@ -156,7 +163,7 @@ function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
  */
 function requiredOnHidden(field: Field, ctx: FieldContext): ValidationError[] {
 	if (field.kind !== "hidden") return [];
-	const required = readString(field, "required");
+	const required = readXPath(field, "required", ctx);
 	if (!required) return [];
 	return [
 		validationError(
@@ -191,7 +198,7 @@ function calculateOnVisibleInput(
 	ctx: FieldContext,
 ): ValidationError[] {
 	if (field.kind === "hidden") return [];
-	const calculate = readString(field, "calculate");
+	const calculate = readXPath(field, "calculate", ctx);
 	if (!calculate) return [];
 	return [
 		validationError(
@@ -216,7 +223,7 @@ function unquotedStringLiteral(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	for (const key of XPATH_FIELDS) {
-		const value = readXPath(field, key);
+		const value = readXPath(field, key, ctx);
 		if (!value) continue;
 		const bare = detectUnquotedStringLiteral(value);
 		if (!bare) continue;
@@ -253,7 +260,7 @@ function validationOnNonInputType(
 	ctx: FieldContext,
 ): ValidationError[] {
 	if (supportsValidation(field.kind)) return [];
-	const validateExpr = readString(field, "validate");
+	const validateExpr = readXPath(field, "validate", ctx);
 	const validateMsg = readString(field, "validate_msg");
 	if (!validateExpr && !validateMsg) return [];
 	const reported = validateExpr ? "validate" : "validate_msg";
@@ -303,26 +310,26 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 	};
 
 	if (field.repeat_mode === "count_bound") {
-		const expr = field.repeat_count;
-		if (typeof expr !== "string" || expr.trim().length === 0) {
+		const expr = readXPath(field, "repeat_count", ctx);
+		if (expr === undefined || expr.trim().length === 0) {
 			errors.push(
 				validationError(
 					"EMPTY_REPEAT_COUNT",
 					"field",
-					`Field "${field.id}" in "${ctx.formName}" is a count-bound repeat but has no \`repeat_count\` expression. Set it to an XPath that resolves to the number of iterations — a hashtag reference like \`#form/desired_count\` for a user-supplied count, or a literal like \`5\` for a fixed count. CommCare HQ rejects builds whose \`jr:count\` attribute parses to an empty XPath, so leaving this blank breaks the upload.`,
+					`Field "${field.id}" in "${ctx.formName}" is a count-bound repeat but has no \`repeat_count\` expression. Set it to an XPath that resolves to the number of iterations — a hashtag reference like \`#form/desired_count\` for a user-supplied count, or a literal like \`5\` for a fixed count.`,
 					{ ...loc, field: "repeat_count" },
 					{ field: "repeat_count" },
 				),
 			);
 		}
 	} else if (field.repeat_mode === "query_bound") {
-		const expr = field.data_source?.ids_query;
-		if (typeof expr !== "string" || expr.trim().length === 0) {
+		const expr = readXPath(field, "ids_query", ctx);
+		if (expr === undefined || expr.trim().length === 0) {
 			errors.push(
 				validationError(
 					"EMPTY_IDS_QUERY",
 					"field",
-					`Field "${field.id}" in "${ctx.formName}" is a query-bound repeat but has no \`data_source.ids_query\` expression. Set it to an XPath that resolves to a list of case ids the runtime should iterate over — typically a casedb filter like \`instance('casedb')/casedb/case[@case_type='visit'][@status='open']/@case_id\`. CommCare HQ rejects builds with malformed setvalue expressions, so leaving this blank breaks the upload.`,
+					`Field "${field.id}" in "${ctx.formName}" is a query-bound repeat but has no \`data_source.ids_query\` expression. Set it to an XPath that resolves to a list of case ids the runtime should iterate over — typically a casedb filter like \`instance('casedb')/casedb/case[@case_type='visit'][@status='open']/@case_id\`.`,
 					{ ...loc, field: "ids_query" },
 					{ field: "ids_query" },
 				),
@@ -375,7 +382,7 @@ function reservedFieldIdPrefix(
 		validationError(
 			"RESERVED_FIELD_ID_PREFIX",
 			"field",
-			`Field "${field.id}" in "${ctx.formName}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes CommCare-Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}" — anything else, like dropping the leading "${RESERVED_XFORM_NODE_PREFIX}", works.`,
+			`Field "${field.id}" in "${ctx.formName}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}" — anything else, like dropping the leading "${RESERVED_XFORM_NODE_PREFIX}", works.`,
 			{
 				moduleUuid: ctx.moduleUuid,
 				moduleName: ctx.moduleName,
@@ -523,7 +530,7 @@ function fixtureReferenceNotModeled(
 	};
 
 	for (const key of XPATH_FIELDS) {
-		flag(FIELD_DESCRIPTIONS[key], readXPath(field, key));
+		flag(FIELD_DESCRIPTIONS[key], readXPath(field, key, ctx));
 	}
 
 	// Repeat-cardinality XPath surfaces — both flow through the wire-emit
@@ -536,9 +543,9 @@ function fixtureReferenceNotModeled(
 	// invalid."
 	if (field.kind === "repeat") {
 		if (field.repeat_mode === "count_bound") {
-			flag("repeat count expression", field.repeat_count);
+			flag("repeat count expression", readXPath(field, "repeat_count", ctx));
 		} else if (field.repeat_mode === "query_bound") {
-			flag("repeat ids-query expression", field.data_source.ids_query);
+			flag("repeat ids-query expression", readXPath(field, "ids_query", ctx));
 		}
 	}
 
@@ -566,14 +573,15 @@ const FIELD_RULES = [
 export function runFieldRules(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	ctx: FieldContext,
+	ctx: Omit<FieldContext, "doc">,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const fullCtx: FieldContext = { ...ctx, doc };
 	const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
 	const walk = (nodes: typeof tree): void => {
 		for (const node of nodes) {
 			for (const rule of FIELD_RULES) {
-				errors.push(...rule(node.field, ctx));
+				errors.push(...rule(node.field, fullCtx));
 			}
 			if (node.children) walk(node.children);
 		}

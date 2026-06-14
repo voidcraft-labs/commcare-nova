@@ -19,8 +19,17 @@
  * `ALWAYS_REQUIRED` means.
  */
 
+import type { XPathExpression } from "@/lib/domain";
+
 /** CommCare sentinel: "required with no XPath condition" — i.e. always required. */
 export const ALWAYS_REQUIRED = "true()";
+
+/** The sentinel in its stored shape — one verbatim text run. The slot
+ *  stores the expression AST; this constant is what the add-pill and
+ *  the toggle-on transition write. */
+export const ALWAYS_REQUIRED_EXPRESSION: XPathExpression = {
+	parts: [{ kind: "text", text: ALWAYS_REQUIRED }],
+};
 
 /** Derived UI state describing what the editor should render for a given
  *  raw `required` value. */

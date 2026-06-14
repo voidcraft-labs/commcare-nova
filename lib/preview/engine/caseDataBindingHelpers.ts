@@ -29,10 +29,14 @@ import type {
 	SortKey as CaseStoreSortKey,
 	CaseUpdate,
 } from "@/lib/case-store";
+import { SchemaNotSyncedError } from "@/lib/case-store/errors";
+import { loadApp } from "@/lib/db/apps";
+import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { log } from "@/lib/logger";
 import type {
 	JsonObject,
 	LoadCaseDataResult,
@@ -661,6 +665,101 @@ export function applySurveyMutation(): Extract<
 	{ kind: "survey" }
 > {
 	return { kind: "survey" };
+}
+
+/**
+ * Self-heal a case-store call whose `case_type_schemas` row is missing:
+ * re-materialize the schemas from the app's PERSISTED blueprint and run
+ * the call once more.
+ *
+ * `SchemaNotSyncedError` means a blueprint writer's case-store sync
+ * never landed (the canonical producer: a transient Postgres failure at
+ * an edit run's drain-end materialize — the chat surface's saves are
+ * Firestore-only, so nothing re-attempts the sync until a
+ * case-type-touching commit happens to run the cross-store saga). The
+ * Firestore blueprint is the source of truth and the materialize is an
+ * idempotent UPSERT, so the right response at the point of use is to
+ * materialize and retry, not to surface "not synced yet" and wait for an
+ * unrelated edit. The persisted blueprint (not the caller's wire copy)
+ * drives the heal — the schema rows must mirror what is stored.
+ *
+ * `run` MUST be a single store operation, never a multi-write dispatch —
+ * the granularity is the retry-safety argument. Each store method is
+ * atomic (one statement or one Postgres transaction) and throws this
+ * error before its own write lands, so the operation that threw is by
+ * definition the one that didn't land and re-running just it is
+ * idempotent. Re-running a whole followup/close dispatch would re-insert
+ * the child rows that already committed in their own transactions.
+ * Production code reaches this through `schemaHealingCaseStore`, which
+ * holds that granularity by construction.
+ *
+ * One retry only: a second `SchemaNotSyncedError` (or a heal that itself
+ * fails — Postgres still down, app gone, foreign owner) rethrows the
+ * ORIGINAL error so the action's typed `schema-not-synced` arm stays the
+ * honest backstop.
+ */
+export async function withSchemaHeal<T>(
+	args: { appId: string; userId: string },
+	run: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await run();
+	} catch (err) {
+		if (!(err instanceof SchemaNotSyncedError)) throw err;
+		try {
+			const app = await loadApp(args.appId);
+			if (!app || app.owner !== args.userId) throw err;
+			await materializeCaseStoreSchemas({
+				appId: args.appId,
+				userId: args.userId,
+				blueprint: app.blueprint,
+			});
+		} catch (healErr) {
+			log.error("[caseDataBinding] schema heal failed", healErr, {
+				appId: args.appId,
+			});
+			throw err;
+		}
+		return await run();
+	}
+}
+
+/**
+ * A `CaseStore` whose every operation self-heals a missing
+ * `case_type_schemas` row via {@link withSchemaHeal} — the heal lives at
+ * the INDIVIDUAL store call, so a multi-write flow (a followup/close
+ * submission: primary update, then per-child inserts in separate
+ * transactions) resumes from the write that threw instead of re-running
+ * writes that already landed. The per-case-type validator acquisition is
+ * what throws, before the failing operation's own write commits, so
+ * retrying just that operation is idempotent at exactly this granularity.
+ *
+ * `applySchemaChange` / `dropSchema` delegate un-healed: they are the
+ * schema-row writers themselves (`applySchemaChange` IS the heal's
+ * remedy), so a self-heal there would recurse the remedy into itself.
+ *
+ * Typed as a full `CaseStore` so a new store method fails compilation
+ * here until someone decides which side of the heal it belongs on.
+ */
+export function schemaHealingCaseStore(
+	store: CaseStore,
+	args: { appId: string; userId: string },
+): CaseStore {
+	const heal = <T>(run: () => Promise<T>): Promise<T> =>
+		withSchemaHeal(args, run);
+	return {
+		query: (a) => heal(() => store.query(a)),
+		count: (a) => heal(() => store.count(a)),
+		insert: (a) => heal(() => store.insert(a)),
+		insertWithChildren: (a) => heal(() => store.insertWithChildren(a)),
+		update: (a) => heal(() => store.update(a)),
+		close: (a) => heal(() => store.close(a)),
+		traverse: (a) => heal(() => store.traverse(a)),
+		applySchemaChange: (a) => store.applySchemaChange(a),
+		dropSchema: (a) => store.dropSchema(a),
+		generateSampleData: (a) => heal(() => store.generateSampleData(a)),
+		resetSampleData: (a) => heal(() => store.resetSampleData(a)),
+	};
 }
 
 /**

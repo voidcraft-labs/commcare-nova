@@ -380,3 +380,51 @@ describe("fieldKindMatchesPropertyType", () => {
 		).toBe(true);
 	});
 });
+
+describe("tuple-key encoding is collision-free over arbitrary docs", () => {
+	it("does not fabricate a cross-writer conflict for distinct tuples whose parts contain '::'", () => {
+		// The validator is total over arbitrary docs (reducers are total;
+		// event-log replay bypasses the identifier verdicts), so identifiers
+		// containing ':' reach this rule. ('a::b', 'c') and ('a', 'b::c')
+		// must stay DISTINCT tuples — a delimiter-joined key would alias
+		// them into one writers bucket and emit a fabricated
+		// FIELD_KIND_WRITERS_DISAGREE against both fields.
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "c",
+									label: "C",
+									case_property_on: "a::b",
+								}),
+								f({
+									kind: "int",
+									id: "b::c",
+									label: "BC",
+									case_property_on: "a",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		// Other rules legitimately flag the malformed identifiers; this
+		// rule must not invent a writer disagreement between them.
+		expect(
+			runValidation(doc).some((e) => e.code === "FIELD_KIND_WRITERS_DISAGREE"),
+		).toBe(false);
+	});
+});

@@ -201,23 +201,23 @@ describe("useDeleteSelectedField", () => {
 		);
 	});
 
-	it("deleting the only remaining field clears the selection", () => {
+	it("refuses to delete the only remaining field (commit gate) and keeps the selection", () => {
 		const store = makeStore();
 		store.getState().applyMany([{ kind: "removeField", uuid: asUuid(Q_B) }]);
 		store.getState().applyMany([{ kind: "removeField", uuid: asUuid(Q_C) }]);
 
-		const { formUuid } = setFormUrl(store, Q_A);
+		setFormUrl(store, Q_A);
 		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),
 		});
 		act(() => result.current());
 
-		expect(store.getState().fields[asUuid(Q_A)]).toBeUndefined();
-		expect(replaceStateSpy).toHaveBeenCalledWith(
-			null,
-			"",
-			`${pathname}/${formUuid}`,
-		);
+		/* Removing a form's only field would take the form incomplete — the
+		 * complete-phase ratchet rejects the removal (toast carries the
+		 * finding), the field survives, and the selection stays on it
+		 * rather than deselecting a field that's still on screen. */
+		expect(store.getState().fields[asUuid(Q_A)]).toBeDefined();
+		expect(replaceStateSpy).not.toHaveBeenCalled();
 	});
 
 	it("drops selection when selected uuid is stale / not in refs (regression for idx<0 guard)", () => {

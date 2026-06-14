@@ -39,7 +39,7 @@ export function idMappingValueRequired(
 				validationError(
 					"CASE_LIST_ID_MAPPING_EMPTY_VALUE",
 					"module",
-					`ID-mapping column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has an unfilled entry at row ${entryIndex + 1} (its \`value\` slot is empty). The wire layer matches the entry via \`selected(field, '<value>')\`, and CCHQ's \`selected()\` against an empty string matches every absent / cleared / empty property — so leaving the slot empty would silently apply this entry's label to every missing-property row. Either fill the row with the case property value it should match, or remove the row from the mapping.`,
+					`ID-mapping column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has an empty value at row ${entryIndex + 1} — an empty value would match every case missing that property. Fill the row with the case property value it should match, or remove the row.`,
 					{ moduleUuid, moduleName: mod.name },
 					{
 						columnIndex: String(columnIndex),

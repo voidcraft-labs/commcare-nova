@@ -7,14 +7,18 @@
 import tablerClock from "@iconify-icons/tabler/clock";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { inputFieldBaseSchema, mediaSchema } from "./base";
+import {
+	inputFieldBaseSchema,
+	mediaSchema,
+	xpathExpressionSchema,
+} from "./base";
 
 export const timeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("time"),
-	validate: z.string().optional(),
+	validate: xpathExpressionSchema.optional(),
 	validate_msg: z.string().optional(),
 	validate_msg_media: mediaSchema.optional(),
-	default_value: z.string().optional(),
+	default_value: xpathExpressionSchema.optional(),
 });
 
 export type TimeField = z.infer<typeof timeFieldSchema>;

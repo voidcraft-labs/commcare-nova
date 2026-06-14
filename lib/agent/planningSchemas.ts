@@ -1,6 +1,7 @@
 /**
- * SA-facing input schemas for the initial-build generation tools
- * (`generateSchema`, `generateScaffold`).
+ * SA-facing input schemas for the initial-build PLANNING tools
+ * (`generateSchema`, `planAppDesign`) and the per-form Connect block
+ * the creation tools share.
  *
  * Separate from the field-mutation tool schemas in `toolSchemas.ts`
  * because these describe whole-app structure at the module / case
@@ -11,8 +12,8 @@
  *
  * The shapes here are structurally compatible with the corresponding
  * domain Zod schemas (e.g. `casePropertySchema` in
- * `lib/domain/blueprint.ts`) so a successful SA tool call round-trips
- * into `setCaseTypesMutations` without reshaping.
+ * `lib/domain/blueprint.ts`) so a plan's case-type entries paste
+ * verbatim into `createModule`'s `case_type_record` without reshaping.
  */
 
 import { z } from "zod";
@@ -93,7 +94,12 @@ const casePropertyDescribed = z.object({
 		.describe("Options for single_select/multi_select properties."),
 });
 
-const caseTypeDescribed = z.object({
+/**
+ * One case-type record — the shape a `generateSchema` plan entry carries
+ * AND the shape `createModule`'s `case_type_record` accepts, so a plan
+ * section pastes into the creation call verbatim.
+ */
+export const caseTypeRecordSchema = z.object({
 	name: z
 		.string()
 		.describe('Case type name in snake_case (e.g., "patient", "household")'),
@@ -121,14 +127,77 @@ const caseTypeDescribed = z.object({
 /** Input shape for the `generateSchema` tool (first build step). */
 export const caseTypesOutputSchema = z.object({
 	case_types: z
-		.array(caseTypeDescribed)
+		.array(caseTypeRecordSchema)
 		.describe("Case types and their properties"),
 });
 
-// ── generateScaffold input ──────────────────────────────────────────
+// ── planAppDesign input ─────────────────────────────────────────────
 
-/** Input shape for the `generateScaffold` tool (second build step). */
-export const scaffoldModulesSchema = z.object({
+/**
+ * Per-form Connect config — the ONE SA-facing input shape for a form's
+ * `connect` block, shared by the `planAppDesign` plan and the atomic
+ * creation tools (`createForm` / `createModule`). A block marks that
+ * the form PARTICIPATES in Connect; a form without one is auxiliary —
+ * Connect's ingestion scans per form and silently skips blockless
+ * forms (`commcare_connect/opportunity/app_xml.py::extract_modules`).
+ * The validator's only coverage demand is the app-level floor of one
+ * participating form (`CONNECT_NO_PARTICIPATING_FORMS`), so the
+ * creation call is where a participating form's block lands.
+ */
+export const connectFormConfigSchema = z.object({
+	learn_module: z
+		.object({
+			id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string(),
+			description: z.string(),
+			// Match the domain's `connectLearnModuleSchema`: time estimate is
+			// in minutes and must be a positive integer. The reducer applies
+			// the patch via `Object.assign` without a Zod re-parse, so the
+			// SA-facing schema is the only gate against `0` / negatives /
+			// floats landing on the persisted doc.
+			time_estimate: z
+				.number()
+				.refine(
+					(n) => Number.isInteger(n) && n >= 1,
+					"time_estimate must be a positive integer (minutes).",
+				),
+		})
+		.optional()
+		.describe(
+			"Set on forms with educational/training content. Omit on quiz-only forms.",
+		),
+	assessment: z
+		.object({
+			id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+			user_score: z.string(),
+		})
+		.optional()
+		.describe(
+			"Set on forms with a quiz/test. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
+		),
+	deliver_unit: z
+		.object({
+			id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string(),
+		})
+		.optional()
+		.describe(
+			"Set on a deliver-app form that counts as a payable delivery. Connect's deliver-unit picker reads these from the released CCZ.",
+		),
+	task: z
+		.object({
+			id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string(),
+			description: z.string(),
+		})
+		.optional()
+		.describe(
+			"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
+		),
+});
+
+/** Input shape for the `planAppDesign` tool (second planning step). */
+export const appDesignPlanSchema = z.object({
 	app_name: z.string().describe("Name of the CommCare application"),
 	description: z
 		.string()
@@ -173,75 +242,10 @@ export const scaffoldModulesSchema = z.object({
 						.describe(
 							'Where the user goes after submitting. Defaults to "previous" for followup forms, "app_home" for registration/survey. Only set to override.',
 						),
-					connect: z
-						.object({
-							learn_module: z
-								.object({
-									id: z
-										.string()
-										.optional()
-										.describe(CONNECT_ID_FIELD_DESCRIPTION),
-									name: z.string(),
-									description: z.string(),
-									// Match the domain's `connectLearnModuleSchema`:
-									// time estimate is in minutes and must be a
-									// positive integer. The reducer applies the
-									// patch via `Object.assign` without a Zod
-									// re-parse, so the SA-facing schema is the
-									// only gate against `0` / negatives / floats
-									// landing on the persisted doc.
-									time_estimate: z
-										.number()
-										.refine(
-											(n) => Number.isInteger(n) && n >= 1,
-											"time_estimate must be a positive integer (minutes).",
-										),
-								})
-								.optional()
-								.describe(
-									"Set on forms with educational/training content. Omit on quiz-only forms.",
-								),
-							assessment: z
-								.object({
-									id: z
-										.string()
-										.optional()
-										.describe(CONNECT_ID_FIELD_DESCRIPTION),
-									user_score: z.string(),
-								})
-								.optional()
-								.describe(
-									"Set on forms with a quiz/test. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
-								),
-							deliver_unit: z
-								.object({
-									id: z
-										.string()
-										.optional()
-										.describe(CONNECT_ID_FIELD_DESCRIPTION),
-									name: z.string(),
-								})
-								.optional()
-								.describe(
-									"Set on every form in a Connect deliver app. Connect's deliver-unit picker reads these from the released CCZ.",
-								),
-							task: z
-								.object({
-									id: z
-										.string()
-										.optional()
-										.describe(CONNECT_ID_FIELD_DESCRIPTION),
-									name: z.string(),
-									description: z.string(),
-								})
-								.optional()
-								.describe(
-									"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
-								),
-						})
+					connect: connectFormConfigSchema
 						.optional()
 						.describe(
-							"Per-form Connect config. REQUIRED on every form when the app's `connect_type` is `learn` or `deliver`; omit entirely on standard apps. Pick sub-configs by content: `learn_module` for educational content, `assessment` for quizzes, `deliver_unit` for every deliver-app form, optional `task` for delivery descriptions.",
+							"Per-form Connect config. A block opts the form INTO Connect; a form that shouldn't participate (a reference sheet, an admin form) simply omits it — a Connect app just needs at least one participating form. Omit entirely on standard apps. Pick sub-configs by content: `learn_module` for educational content, `assessment` for quizzes, `deliver_unit` for payable deliver-app forms, optional `task` for delivery descriptions.",
 						),
 					formDesign: z
 						.string()
@@ -258,4 +262,4 @@ export const scaffoldModulesSchema = z.object({
 
 // ── Inferred TS types ───────────────────────────────────────────────
 
-export type Scaffold = z.infer<typeof scaffoldModulesSchema>;
+export type AppDesignPlan = z.infer<typeof appDesignPlanSchema>;

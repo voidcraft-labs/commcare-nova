@@ -1,6 +1,8 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
+import { DraftField } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
 import { deriveConnectId } from "@/lib/commcare/connectSlugs";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
@@ -9,10 +11,19 @@ import {
 	useAppConnectIds,
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
+import {
+	useParseXPathForForm,
+	useXPathText,
+} from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
-import type { ConnectConfig } from "@/lib/domain";
+import type {
+	CommitOutcome,
+	ConnectConfig,
+	XPathExpression,
+} from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
+import { StagedCommitRow } from "./StagedCommitRow";
 import { useConnectLintContext } from "./useConnectLintContext";
 
 /**
@@ -21,7 +32,10 @@ import { useConnectLintContext } from "./useConnectLintContext";
  */
 interface ConnectSubConfigProps {
 	connect: ConnectConfig;
-	save: (c: ConnectConfig) => void;
+	/** Persist the new config through the gated form update —
+	 *  returns the commit outcome so a refused edit keeps the
+	 *  inline editor's draft + finding on screen. */
+	save: (c: ConnectConfig) => CommitOutcome;
 	moduleUuid: Uuid;
 	formUuid: Uuid;
 }
@@ -30,9 +44,12 @@ interface ConnectSubConfigProps {
  * Deliver-mode connect sub-config: two independent sub-toggles for the
  * `deliver_unit` and `task` halves of a Connect deliver app. Structurally
  * parallel to LearnConfig — each sub-toggle remembers the last populated
- * value in a ref so off+on restores rather than resets. Default ids for
- * the entity_id / entity_name XPaths seed from `#user/username` because
- * delivery entries are typically per-FLW-per-day.
+ * value in a ref so off+on restores rather than resets, and with no
+ * restorable value STAGES the block: the names and descriptions are
+ * content the user writes (the same collect-before-commit pattern the
+ * app-level enable dialog uses, scaled to one sub-config), so nothing
+ * commits until they exist. Identifiers are derived at commit; the
+ * deliver entity XPaths stay absent so the wire-emit defaults apply.
  */
 export function DeliverConfig({
 	connect,
@@ -51,6 +68,31 @@ export function DeliverConfig({
 	if (du) lastDeliverRef.current = du;
 	if (task) lastTaskRef.current = task;
 	const getLintContext = useConnectLintContext(formUuid);
+	// AST-stored slots ⇄ text: display prints against the live doc,
+	// commit parses against the doc of the moment.
+	const entityIdText = useXPathText(du?.entity_id);
+	const entityNameText = useXPathText(du?.entity_name);
+	const parseForForm = useParseXPathForForm(formUuid);
+	/** In-flight staged blocks — component state only, until committed
+	 *  (or toggled off, which discards). */
+	const [stagedDeliver, setStagedDeliver] = useState<
+		{ name: string } | undefined
+	>();
+	const [stagedTask, setStagedTask] = useState<
+		{ name: string; description: string } | undefined
+	>();
+	/** A refusal from a gesture with no input of its own — the sub-toggles,
+	 *  restores, clears, and the staged Add — rendered beneath the cards.
+	 *  The field editors present their own outcomes and bypass this. */
+	const [saveRejection, setSaveRejection] = useState<string | null>(null);
+	const dispatchSave = useCallback(
+		(config: ConnectConfig) => {
+			const outcome = save(config);
+			setSaveRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+			return outcome;
+		},
+		[save],
+	);
 
 	// Name-derived defaults for a freshly enabled sub-config, unique against
 	// every other connect id in the app (connect ids share one app-wide
@@ -86,13 +128,13 @@ export function DeliverConfig({
 	);
 
 	const updateDeliverUnit = useCallback(
-		(field: string, value: string) => {
+		(field: string, value: string | XPathExpression) => {
 			/* Defensive fallback for the rare case the deliver_unit was
 			 * stripped between render and edit. Only `name` is required
 			 * on the domain shape; `entity_id` / `entity_name` are
 			 * optional and default at wire-emit time. */
 			const current = connect.deliver_unit ?? { name: "" };
-			save({ ...connect, deliver_unit: { ...current, [field]: value } });
+			return save({ ...connect, deliver_unit: { ...current, [field]: value } });
 		},
 		[connect, save],
 	);
@@ -109,71 +151,94 @@ export function DeliverConfig({
 		(field: "entity_id" | "entity_name") => {
 			if (!connect.deliver_unit) return;
 			const { [field]: _removed, ...rest } = connect.deliver_unit;
-			save({
+			dispatchSave({
 				...connect,
 				deliver_unit: rest as NonNullable<ConnectConfig["deliver_unit"]>,
 			});
 		},
-		[connect, save],
+		[connect, dispatchSave],
 	);
 
 	const updateTask = useCallback(
 		(field: string, value: string) => {
 			const current = connect.task ?? { name: "", description: "" };
-			save({ ...connect, task: { ...current, [field]: value } });
+			return save({ ...connect, task: { ...current, [field]: value } });
 		},
 		[connect, save],
 	);
 
 	const toggleDeliver = useCallback(() => {
-		if (deliverEnabled) {
+		if (stagedDeliver) {
+			/* Discard the uncommitted draft — nothing ever reached the doc,
+			 * so nothing refused remains. */
+			setStagedDeliver(undefined);
+			setSaveRejection(null);
+		} else if (deliverEnabled) {
 			const { deliver_unit: _removed, ...rest } = connect;
-			save(rest as ConnectConfig);
+			dispatchSave(rest as ConnectConfig);
 		} else {
 			const restored = lastDeliverRef.current;
 			if (restored?.name.trim()) {
-				save(restoreConfig({ ...connect, deliver_unit: restored }));
+				dispatchSave(restoreConfig({ ...connect, deliver_unit: restored }));
 			} else {
-				const { deliverId } = defaultIds();
-				/* Seed only the user-semantic fields. `entity_id` and
-				 * `entity_name` are intentionally left undefined so the
-				 * wire-emit fallback in `lib/commcare/xform/builder.ts`
-				 * is the single home for the canonical default XPath
-				 * expressions — duplicating those literals here would
-				 * silently bake stale strings into the persisted doc if
-				 * the canonical defaults ever evolve. */
-				save({
-					...connect,
-					deliver_unit: {
-						id: deliverId,
-						name: form?.name ?? "",
-					},
-				});
+				/* No prior work to restore — stage and collect the name from
+				 * the user before anything commits. */
+				setStagedDeliver({ name: "" });
 			}
 		}
-	}, [deliverEnabled, connect, save, form, defaultIds, restoreConfig]);
+	}, [stagedDeliver, deliverEnabled, connect, dispatchSave, restoreConfig]);
+
+	const commitStagedDeliver = useCallback(() => {
+		if (!stagedDeliver?.name.trim()) return;
+		const { deliverId } = defaultIds();
+		/* Commit only the user-written name plus the derived id. `entity_id`
+		 * and `entity_name` are intentionally left undefined so the
+		 * wire-emit fallback in `lib/commcare/xform/builder.ts` is the
+		 * single home for the canonical default XPath expressions —
+		 * duplicating those literals here would silently bake stale strings
+		 * into the persisted doc if the canonical defaults ever evolve. */
+		const outcome = dispatchSave({
+			...connect,
+			deliver_unit: { id: deliverId, name: stagedDeliver.name.trim() },
+		});
+		if (outcome.ok) setStagedDeliver(undefined);
+	}, [stagedDeliver, connect, dispatchSave, defaultIds]);
 
 	const toggleTask = useCallback(() => {
-		if (taskEnabled) {
+		if (stagedTask) {
+			setStagedTask(undefined);
+			setSaveRejection(null);
+		} else if (taskEnabled) {
 			const { task: _removed, ...rest } = connect;
-			save(rest as ConnectConfig);
+			dispatchSave(rest as ConnectConfig);
 		} else {
 			const restored = lastTaskRef.current;
 			if (restored && (restored.name.trim() || restored.description.trim())) {
-				save(restoreConfig({ ...connect, task: restored }));
+				dispatchSave(restoreConfig({ ...connect, task: restored }));
 			} else {
-				const { taskId } = defaultIds();
-				save({
-					...connect,
-					task: {
-						id: taskId,
-						name: form?.name ?? "",
-						description: form?.name ?? "",
-					},
-				});
+				setStagedTask({ name: "", description: "" });
 			}
 		}
-	}, [taskEnabled, connect, save, form, defaultIds, restoreConfig]);
+	}, [stagedTask, taskEnabled, connect, dispatchSave, restoreConfig]);
+
+	const stagedTaskReady =
+		stagedTask !== undefined &&
+		stagedTask.name.trim().length > 0 &&
+		stagedTask.description.trim().length > 0;
+
+	const commitStagedTask = useCallback(() => {
+		if (!stagedTask?.name.trim() || !stagedTask.description.trim()) return;
+		const { taskId } = defaultIds();
+		const outcome = dispatchSave({
+			...connect,
+			task: {
+				id: taskId,
+				name: stagedTask.name.trim(),
+				description: stagedTask.description.trim(),
+			},
+		});
+		if (outcome.ok) setStagedTask(undefined);
+	}, [stagedTask, connect, dispatchSave, defaultIds]);
 
 	return (
 		<div className="space-y-2">
@@ -184,13 +249,13 @@ export function DeliverConfig({
 						Deliver Unit
 					</span>
 					<Toggle
-						enabled={deliverEnabled}
+						enabled={deliverEnabled || stagedDeliver !== undefined}
 						onToggle={toggleDeliver}
 						variant="sub"
 					/>
 				</div>
 				<AnimatePresence>
-					{du && (
+					{(du || stagedDeliver) && (
 						<motion.div
 							initial={{ opacity: 0, height: 0 }}
 							animate={{ opacity: 1, height: "auto" }}
@@ -199,39 +264,73 @@ export function DeliverConfig({
 							className="overflow-hidden"
 						>
 							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
-								<InlineField
-									label="Name"
-									value={du.name}
-									onChange={(v) => updateDeliverUnit("name", v)}
-									required
-								/>
-								<LabeledXPathField
-									label="Entity ID"
-									/* No `required` flag: the field is optional
-									 * on the domain and the wire layer
-									 * substitutes the canonical default XPath
-									 * when the doc carries no explicit value.
-									 * Marking required would tell the user a
-									 * lie. Saving an empty value clears the key
-									 * outright (via `clearDeliverField`) so the
-									 * wire-emit fallback kicks in — writing
-									 * `""` would trip `CONNECT_EMPTY_XPATH`. */
-									value={du.entity_id ?? ""}
-									onSave={(v) => {
-										if (v.trim()) updateDeliverUnit("entity_id", v);
-										else clearDeliverField("entity_id");
-									}}
-									getLintContext={getLintContext}
-								/>
-								<LabeledXPathField
-									label="Entity Name"
-									value={du.entity_name ?? ""}
-									onSave={(v) => {
-										if (v.trim()) updateDeliverUnit("entity_name", v);
-										else clearDeliverField("entity_name");
-									}}
-									getLintContext={getLintContext}
-								/>
+								{du ? (
+									<>
+										<InlineField
+											label="Name"
+											value={du.name}
+											onChange={(v) => updateDeliverUnit("name", v)}
+											required
+										/>
+										<LabeledXPathField
+											label="Entity ID"
+											/* No `required` flag: the field is optional
+											 * on the domain and the wire layer
+											 * substitutes the canonical default XPath
+											 * when the doc carries no explicit value.
+											 * Marking required would tell the user a
+											 * lie. Saving an empty value clears the key
+											 * outright (via `clearDeliverField`) so the
+											 * wire-emit fallback kicks in — writing
+											 * `""` would trip `CONNECT_EMPTY_XPATH`. */
+											value={entityIdText}
+											onSave={(v) => {
+												if (v.trim())
+													return updateDeliverUnit(
+														"entity_id",
+														parseForForm(v),
+													);
+												clearDeliverField("entity_id");
+												return undefined;
+											}}
+											getLintContext={getLintContext}
+										/>
+										<LabeledXPathField
+											label="Entity Name"
+											value={entityNameText}
+											onSave={(v) => {
+												if (v.trim())
+													return updateDeliverUnit(
+														"entity_name",
+														parseForForm(v),
+													);
+												clearDeliverField("entity_name");
+												return undefined;
+											}}
+											getLintContext={getLintContext}
+										/>
+									</>
+								) : stagedDeliver ? (
+									/* STAGED — collect the name before anything commits;
+									 * the id derives at commit, the entity XPaths stay on
+									 * the wire-emit defaults. */
+									<>
+										<DraftField
+											label="Name"
+											value={stagedDeliver.name}
+											onChange={(v) => setStagedDeliver({ name: v })}
+										/>
+										<StagedCommitRow
+											ready={stagedDeliver.name.trim().length > 0}
+											hint={
+												stagedDeliver.name.trim().length > 0
+													? "Ready to add."
+													: "A name is needed first."
+											}
+											onCommit={commitStagedDeliver}
+										/>
+									</>
+								) : null}
 							</div>
 						</motion.div>
 					)}
@@ -244,10 +343,14 @@ export function DeliverConfig({
 					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Task
 					</span>
-					<Toggle enabled={taskEnabled} onToggle={toggleTask} variant="sub" />
+					<Toggle
+						enabled={taskEnabled || stagedTask !== undefined}
+						onToggle={toggleTask}
+						variant="sub"
+					/>
 				</div>
 				<AnimatePresence>
-					{task && (
+					{(task || stagedTask) && (
 						<motion.div
 							initial={{ opacity: 0, height: 0 }}
 							animate={{ opacity: 1, height: "auto" }}
@@ -256,24 +359,59 @@ export function DeliverConfig({
 							className="overflow-hidden"
 						>
 							<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
-								<InlineField
-									label="Task Name"
-									value={task.name}
-									onChange={(v) => updateTask("name", v)}
-									required
-								/>
-								<InlineField
-									label="Task Description"
-									value={task.description}
-									onChange={(v) => updateTask("description", v)}
-									multiline
-									required
-								/>
+								{task ? (
+									<>
+										<InlineField
+											label="Task Name"
+											value={task.name}
+											onChange={(v) => updateTask("name", v)}
+											required
+										/>
+										<InlineField
+											label="Task Description"
+											value={task.description}
+											onChange={(v) => updateTask("description", v)}
+											multiline
+											required
+										/>
+									</>
+								) : stagedTask ? (
+									<>
+										<DraftField
+											label="Task Name"
+											value={stagedTask.name}
+											onChange={(v) =>
+												setStagedTask((d) => d && { ...d, name: v })
+											}
+										/>
+										<DraftField
+											label="Task Description"
+											value={stagedTask.description}
+											onChange={(v) =>
+												setStagedTask((d) => d && { ...d, description: v })
+											}
+											multiline
+										/>
+										<StagedCommitRow
+											ready={stagedTaskReady}
+											hint={
+												stagedTaskReady
+													? "Ready to add."
+													: "Name and description are needed first."
+											}
+											onCommit={commitStagedTask}
+										/>
+									</>
+								) : null}
 							</div>
 						</motion.div>
 					)}
 				</AnimatePresence>
 			</div>
+
+			{/* A refused toggle/restore/clear/Add explains itself here — those
+			 * gestures have no input to anchor the finding to. */}
+			<RejectionInline message={saveRejection} />
 		</div>
 	);
 }

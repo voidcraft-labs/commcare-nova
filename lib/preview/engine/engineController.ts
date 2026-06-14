@@ -180,22 +180,27 @@ function classifyChange(
 
 	// Expression-carrying keys live on most but not all variants. Reading
 	// through the variants' common intersection keeps the access type-safe
-	// without switching on `kind` for every property.
+	// without switching on `kind` for every property. The AST-stored slots
+	// (`calculate` / `relevant` / `required` / `validate` / `default_value`)
+	// compare by REFERENCE: an untouched slot keeps its object identity
+	// through Immer, and any commit installs a freshly parsed value — so
+	// identity diff ≡ "this slot was written", which is exactly the rebuild
+	// trigger.
 	const cur = current as Field & {
-		calculate?: string;
-		relevant?: string;
-		required?: string;
-		validate?: string;
-		default_value?: string;
+		calculate?: unknown;
+		relevant?: unknown;
+		required?: unknown;
+		validate?: unknown;
+		default_value?: unknown;
 		label?: string;
 		hint?: string;
 	};
 	const prev = previous as Field & {
-		calculate?: string;
-		relevant?: string;
-		required?: string;
-		validate?: string;
-		default_value?: string;
+		calculate?: unknown;
+		relevant?: unknown;
+		required?: unknown;
+		validate?: unknown;
+		default_value?: unknown;
 		label?: string;
 		hint?: string;
 	};

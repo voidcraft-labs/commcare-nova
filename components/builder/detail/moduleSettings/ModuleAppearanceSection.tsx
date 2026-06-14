@@ -40,6 +40,7 @@ export function ModuleAppearanceSection({
 					<SingleAssetSlot
 						value={module.icon}
 						kind="image"
+						slotKey={`module:${moduleUuid}:icon`}
 						ariaLabel="Module menu icon"
 						onChange={(icon) =>
 							/* Both slots are reconstructed from current state on every
@@ -61,6 +62,7 @@ export function ModuleAppearanceSection({
 					<SingleAssetSlot
 						value={module.audioLabel}
 						kind="audio"
+						slotKey={`module:${moduleUuid}:audioLabel`}
 						ariaLabel="Module audio label"
 						onChange={(audioLabel) =>
 							setModuleMedia(uuid, {

@@ -7,13 +7,13 @@
 import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema } from "./base";
+import { fieldBaseSchema, xpathExpressionSchema } from "./base";
 
 export const videoFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("video"),
 	hint: z.string().optional(),
-	required: z.string().optional(),
-	relevant: z.string().optional(),
+	required: xpathExpressionSchema.optional(),
+	relevant: xpathExpressionSchema.optional(),
 });
 
 export type VideoField = z.infer<typeof videoFieldSchema>;

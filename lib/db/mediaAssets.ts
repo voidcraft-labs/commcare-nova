@@ -16,7 +16,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { FieldPath, FieldValue, Timestamp } from "@google-cloud/firestore";
+import {
+	FieldPath,
+	FieldValue,
+	Timestamp,
+	type Transaction,
+} from "@google-cloud/firestore";
 import {
 	type AssetId,
 	type AssetKind,
@@ -404,6 +409,35 @@ export async function loadAssetsByIds(
 				out.push({ ...data, id: asAssetId(d.id) });
 			}
 		}
+	}
+	return out;
+}
+
+/**
+ * Read a set of asset rows INSIDE a Firestore transaction — the MCP
+ * guarded commit's media re-check. Reading through `tx.getAll` (rather
+ * than a plain query) makes the rows part of the transaction's read set,
+ * so a concurrent write to any of them (a delete racing the attach)
+ * serializes against the blueprint commit instead of slipping between a
+ * pre-commit check and the write.
+ *
+ * Missing rows are simply absent from the returned map — the caller's
+ * judgment (`describeMediaExpectationFailures`) owns the missing/foreign
+ * distinction, including the privacy rule that both read as "not found".
+ */
+export async function getAssetsInTransaction(
+	tx: Transaction,
+	ids: readonly string[],
+): Promise<Map<string, MediaAssetRecord>> {
+	const unique = [...new Set(ids)];
+	const out = new Map<string, MediaAssetRecord>();
+	if (unique.length === 0) return out;
+	const snaps = await tx.getAll(
+		...unique.map((id) => docs.mediaAsset(asAssetId(id))),
+	);
+	for (const snap of snaps) {
+		const data = snap.data();
+		if (data) out.set(snap.id, { ...data, id: asAssetId(snap.id) });
 	}
 	return out;
 }

@@ -9,17 +9,25 @@
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
-import { FieldValue, Timestamp } from "@google-cloud/firestore";
+import {
+	FieldValue,
+	Timestamp,
+	type Transaction,
+} from "@google-cloud/firestore";
 import Fuse from "fuse.js";
 import type { ErrorType } from "@/lib/agent";
 import { log } from "@/lib/logger";
 import { toPersistableDoc } from "../doc/fieldParent";
-import type { BlueprintDoc, PersistableDoc } from "../domain/blueprint";
+import type {
+	BlueprintDoc,
+	PersistableDoc,
+	PersistedBlueprint,
+} from "../domain/blueprint";
 import { asWalkableDoc, collectAssetRefs } from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
 import { addReferencingApp } from "./mediaAssets";
-import type { AppDoc } from "./types";
+import type { AppDoc, CreditMonthDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -360,10 +368,13 @@ export interface CreateAppOptions {
 	 */
 	appName?: string;
 	/**
-	 * Initial lifecycle status. Limited to the two valid creation states:
+	 * Initial lifecycle status. Limited to the valid creation states:
 	 * `"generating"` arms the staleness timer in `listApps` (advanced on
-	 * every write; a 10-minute gap self-marks the app as `error`);
-	 * `"complete"` opts out for atomic creations with no follow-up writes.
+	 * every write; a 10-minute gap self-marks the app as `error`) — the
+	 * chat build's run-liveness marker; `"complete"` is the at-rest
+	 * default for every other creation (MCP `create_app`, atomic
+	 * creations) — an empty app is at rest and valid, and status never
+	 * feeds the validity gate.
 	 *
 	 * `"error"` is excluded — a fresh app has not failed at anything yet.
 	 * `"deleted"` is excluded — soft-delete is an out-of-band transition
@@ -414,6 +425,9 @@ export async function createApp(
 		 * writes update existing fields rather than materializing them. */
 		deleted_at: null,
 		recoverable_until: null,
+		/* Auto-save basis starts null — a null basis matches a null stored
+		 * token, so the builder's first PUT passes without backfill. */
+		blueprint_token: null,
 		run_id: runId,
 		created_at: FieldValue.serverTimestamp(),
 		updated_at: FieldValue.serverTimestamp(),
@@ -423,8 +437,10 @@ export async function createApp(
 
 // ── Blueprint snapshot writers ─────────────────────────────────────
 //
-// `completeApp`, `updateApp`, and `updateAppForRun` all overwrite the
-// blueprint + denormalized summary fields on an existing app row. They
+// `updateApp` and `updateAppForRun` (plain) plus the transactional
+// writers (`updateAppForRunTransactional`, `updateAppGuardedByBasis`)
+// all overwrite the blueprint +
+// denormalized summary fields on an existing app row. They
 // use Firestore `update()` so the top-level `blueprint` map is replaced
 // wholesale — the Firestore client's `ignoreUndefinedProperties: true`
 // strips cleared nested keys from the payload, and `update()` (unlike
@@ -437,14 +453,14 @@ export async function createApp(
 // Every call site is fronted by a `createApp` write that materializes
 // the row, so `update()`'s "doc must exist" precondition holds.
 //
-// All three route through `persistBlueprintSnapshot` — the ONE place the
-// blueprint + summary write and the media-index sync are coupled. That
-// coupling is load-bearing: the delete reference guard trusts the index, so a
-// blueprint write that doesn't sync would silently rot it. Funnelling the three
-// writers through one helper means a future writer physically can't persist a
-// blueprint without the sync (there is no other `update({ blueprint })` here to
-// copy). Each writer differs only in the extra top-level fields it sets
-// (`status` / `run_id`), passed via `extra`.
+// The plain writers route through `persistBlueprintSnapshot` and the
+// transactional ones through `blueprintSnapshotFields` + their own
+// post-commit `syncMediaReferences` — either way the blueprint + summary
+// write and the media-index sync stay coupled. That coupling is
+// load-bearing: the delete reference guard trusts the index, so a
+// blueprint write that doesn't sync would silently rot it. Each writer
+// differs only in the extra top-level fields it sets (`status` /
+// `run_id` / `blueprint_token`), passed via `extra`.
 
 /**
  * The single blueprint-snapshot write: denormalized summary + `blueprint` +
@@ -459,34 +475,368 @@ export async function createApp(
  */
 async function persistBlueprintSnapshot(
 	appId: string,
-	doc: PersistableDoc,
+	doc: PersistedBlueprint,
 	extra: { status?: AppDoc["status"]; runId?: string } = {},
 ): Promise<void> {
-	await docs.app(appId).update({
+	await docs.app(appId).update(blueprintSnapshotFields(doc, extra));
+	await syncMediaReferences(appId, doc);
+}
+
+/**
+ * The blueprint-snapshot field set — the ONE definition of what a
+ * blueprint write touches, shared by the plain writers above and the
+ * transactional writers below so they can't drift on which denormalized
+ * fields ride along.
+ *
+ * `basisToken` rotates the optimistic-concurrency basis (see
+ * `appDocSchema.blueprint_token` for which writers rotate and why the
+ * chat-run writers don't); writers that omit it leave the stored token
+ * untouched.
+ *
+ * Exported for the one-time migration writers (`repair-legacy-findings`,
+ * `migrate-expression-asts`), which run on their own `--project`-pinned
+ * Firestore client and therefore can't call the `getDb()`-bound writers
+ * here — but must honor the same write contract: an owner-run migration
+ * is exactly the external write a live builder tab can't see, so it
+ * rotates the basis and a stale tab's next auto-save 409s and reloads
+ * instead of silently overwriting the migration.
+ */
+export function blueprintSnapshotFields(
+	doc: PersistedBlueprint,
+	extra: {
+		status?: AppDoc["status"];
+		runId?: string;
+		basisToken?: string;
+	} = {},
+) {
+	return {
 		...denormalize(doc),
 		blueprint: doc,
 		updated_at: FieldValue.serverTimestamp(),
 		...(extra.status !== undefined && { status: extra.status }),
 		...(extra.runId !== undefined && { run_id: extra.runId }),
-	});
-	await syncMediaReferences(appId, doc);
+		...(extra.basisToken !== undefined && {
+			blueprint_token: extra.basisToken,
+		}),
+	};
 }
 
 /**
- * Finalize an app on generation success.
+ * Transactional blueprint write — the guarded MCP commit's
+ * read-evaluate-write. Runs `body` with the FRESH app doc inside a
+ * Firestore transaction: `body` returns the next persistable doc to
+ * commit, or throws to abort with nothing written. Firestore re-runs
+ * the body against the newest read on contention, so whatever decision
+ * `body` makes (the validity re-verdict) always holds against the doc
+ * the write actually replaces — a concurrent committed batch can't be
+ * silently erased by a verdict taken against a stale snapshot.
  *
- * Writes blueprint, denormalized summary fields, `status: "complete"`,
- * `run_id`, and `updated_at`. Called by `validateApp` after the build
- * pipeline completes.
+ * `body` also receives the transaction so it can fold further reads
+ * into the same read set (the media attach re-check reads asset rows
+ * this way) — every read must happen before `body` returns, because
+ * the write below is the transaction's first write and Firestore
+ * forbids reads after it.
+ *
+ * The media reverse-index sync runs after the commit with the same
+ * best-effort contract as the plain writers (`persistBlueprintSnapshot`).
  */
-export async function completeApp(
+export async function updateAppForRunTransactional(
 	appId: string,
-	doc: PersistableDoc,
 	runId: string,
-): Promise<void> {
-	await persistBlueprintSnapshot(appId, doc, {
-		status: "complete",
-		runId,
+	body: (
+		fresh: AppDoc,
+		tx: Transaction,
+	) => PersistedBlueprint | Promise<PersistedBlueprint>,
+): Promise<PersistableDoc> {
+	const committed = await getDb().runTransaction(async (tx) => {
+		const snap = await tx.get(docs.app(appId));
+		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[updateAppForRunTransactional] app document missing for appId=${appId}`,
+			);
+		}
+		const next = await body(fresh, tx);
+		tx.update(
+			docs.appRaw(appId),
+			blueprintSnapshotFields(next, {
+				runId,
+				/* Rotate the auto-save basis: an MCP commit is exactly the
+				 * external write a live builder tab cannot see, so its next
+				 * blind PUT must be rejected and reload rather than erase
+				 * this commit. */
+				basisToken: crypto.randomUUID(),
+			}),
+		);
+		return next;
+	});
+	await syncMediaReferences(appId, committed);
+	return committed;
+}
+
+/**
+ * Thrown by `updateAppGuardedByBasis` when the stored `blueprint_token`
+ * no longer matches the basis the client's snapshot was built on — the
+ * server doc advanced under the client (another tab's save, an MCP
+ * commit), so the whole-doc overwrite would erase that writer's work.
+ * The auto-save route maps this to a 409; the builder reloads.
+ */
+export class BlueprintBasisStaleError extends Error {
+	constructor() {
+		super(
+			"This app changed outside this window since it was loaded — saving now would overwrite those changes.",
+		);
+		this.name = "BlueprintBasisStaleError";
+	}
+}
+
+/**
+ * Basis-guarded whole-doc blueprint write — the auto-save PUT's
+ * read-compare-write. Inside one Firestore transaction: read the fresh
+ * app doc, compare its `blueprint_token` to the basis the client echoed
+ * (both `null` for a never-PUT app — first saves need no backfill), and
+ * either commit the overwrite under a freshly rotated token or throw
+ * `BlueprintBasisStaleError` with nothing written. Returns the new token
+ * so the client advances its basis for the next save.
+ */
+export async function updateAppGuardedByBasis(
+	appId: string,
+	doc: PersistedBlueprint,
+	basisToken: string | null,
+): Promise<string> {
+	const nextToken = crypto.randomUUID();
+	await getDb().runTransaction(async (tx) => {
+		const snap = await tx.get(docs.app(appId));
+		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[updateAppGuardedByBasis] app document missing for appId=${appId}`,
+			);
+		}
+		if ((fresh.blueprint_token ?? null) !== basisToken) {
+			throw new BlueprintBasisStaleError();
+		}
+		tx.update(
+			docs.appRaw(appId),
+			blueprintSnapshotFields(doc, { basisToken: nextToken }),
+		);
+	});
+	await syncMediaReferences(appId, doc);
+	return nextToken;
+}
+
+/**
+ * Mark a build finished — the chat route's drain-end status flip.
+ *
+ * STATUS-ONLY by design: the run's chained intermediate saves already
+ * persisted the blueprint (the route drains the chain first), so this
+ * write carries no doc snapshot and can never blind-overwrite a
+ * concurrent editor's blueprint. Status is pure run-liveness — it never
+ * feeds the validity gate — so a plain merge-set is enough; there is no
+ * basis to compare. `error_type` clears alongside so a retried build's
+ * stale classification doesn't linger on the now-finished row.
+ *
+ * Awaited (unlike `failApp`): the route emits `data-done` only after the
+ * flip lands, so a page load right after the celebration never sees a
+ * still-`generating` row and bounce off the build page's redirect.
+ */
+export async function completeApp(appId: string): Promise<void> {
+	await docs.app(appId).set(
+		{
+			status: "complete",
+			error_type: null,
+		},
+		{ merge: true },
+	);
+}
+
+/**
+ * Thrown by `claimBuildRun` when the app's run window is already owned at
+ * the transaction's read — another request's build run is live on this
+ * app, so THIS contender must not run. The chat route maps it to the
+ * same 429 a cross-app concurrent build gets.
+ */
+export class BuildRunConflictError extends Error {
+	constructor() {
+		super(
+			"Another request is already running a build on this app — only one run can work on an app at a time.",
+		);
+		this.name = "BuildRunConflictError";
+	}
+}
+
+/**
+ * The at-rest shape `claimBuildRun` moved the app out of. The chat route
+ * holds this so a pre-stream bail-out (concurrency 429, out-of-credits,
+ * reservation failure) can put the app back exactly where the claim
+ * found it — flipping a previously-`complete` app to `error` over a
+ * rejected request would brick a working app.
+ */
+export type ClaimedBuildRun =
+	| { from: "complete" }
+	/** A failed build awaiting retry. `errorType` is the displaced
+	 *  classification (cleared by the claim's `error_type: null`), carried
+	 *  so a bail-out restore puts back what the row actually said —
+	 *  overwriting a `model_error` with the bail-out's own reason would
+	 *  lose why the build originally failed. `null` only on a legacy row
+	 *  that reached `error` without a classification. The read-side
+	 *  narrowing to `ErrorType` is sound because `failApp` (typed
+	 *  `ErrorType`) is the only writer of non-null `error_type`. */
+	| { from: "error"; errorType: ErrorType | null }
+	/** A build paused on an `askQuestions` round — `generating` with
+	 *  `awaiting_input`. The claim cleared the pause flag; restoring
+	 *  means re-setting it so the paused run stays alive and unreapable. */
+	| { from: "paused" };
+
+/**
+ * Claim the app's build-run window: transactionally flip the row to
+ * `generating` with a FRESH `updated_at`, clearing `error_type` and the
+ * `awaiting_input` pause flag. Every chargeable build-mode POST against
+ * an existing app runs this — a retry of a failed build (`error`), a new
+ * instruction into a finished one (`complete`), and a fresh instruction
+ * into a build paused on questions (`generating` + `awaiting_input`) all
+ * enter the window through the same compare-and-flip, so every build run
+ * sits under the liveness machinery uniformly: `hasActiveGeneration`
+ * blocks concurrent new builds while it runs, the staleness reaper
+ * refunds a hard-killed run's reservation, and the list failure
+ * inference surfaces a dead one. The fresh timestamp matters — the row's
+ * old `updated_at` belongs to the PREVIOUS run and may already sit
+ * outside the staleness window, so without re-arming, a concurrent list
+ * scan could reap the new run at birth.
+ *
+ * The chat route awaits this BEFORE its concurrency check — the same
+ * write-then-check ordering `createApp` uses (the durable `generating`
+ * row IS the lock; checking first would reopen the TOCTOU the pattern
+ * closes).
+ *
+ * The claim is a TRANSACTION because same-app contenders share ONE row —
+ * `hasActiveGeneration` excludes the contender's own appId, so the row
+ * can't arbitrate between them the way per-contender `createApp` rows
+ * arbitrate new builds. The compare-and-flip is the lock: the first
+ * contender's transaction sees a claimable shape and flips it; the
+ * loser's re-read sees a live `generating` (no pause flag) and throws
+ * `BuildRunConflictError` with nothing written, so two near-simultaneous
+ * POSTs can never run two SA loops against one app.
+ *
+ * A non-paused `generating` row reads as owned ONLY while its
+ * `updated_at` is inside the staleness window. Past it, the run is
+ * TREATED as dead — the same ten-minute mutation-silent inference
+ * `reapStaleGenerating` has always made (a hard kill the
+ * list/concurrency reapers haven't scanned yet — and a retry POST runs
+ * neither of them, so without this arm the 429 would repeat
+ * indefinitely while telling the user to wait for a run that no longer
+ * exists). The claim settles the inferred-dead run exactly as the
+ * reaper would — refund-first off the marker's `settled` flag,
+ * classification `internal` per the reaper's convention — and claims in
+ * the same transaction, reporting `from: "error"` because that IS the
+ * shape the reaper would have left for a bail-out to restore.
+ *
+ * When the inference is WRONG — a run still alive but mutation-silent
+ * past the window — the reaper would previously at worst refund it and
+ * flip the row to `error` out from under it; this arm additionally
+ * starts a SECOND SA loop against the same app while the first may
+ * still be draining, and the old run's finalize/failure funnel then
+ * touches the NEW run's marker (settling or refunding a hold it never
+ * booked). That consequence class is accepted with the premise: ten
+ * minutes without an intermediate save already reads as dead everywhere
+ * this system looks.
+ *
+ * The claim also SETTLES the displaced run's reservation marker —
+ * EXCEPT when it displaces a paused run. The settle exists for the
+ * `complete` arm's kept charge: between this claim and the new run's
+ * `reserveCredits` (which overwrites the marker with its own fresh,
+ * unsettled one), a hard kill or a dropped bail-out restore leaves a
+ * `generating` row the reaper WILL reap, and an unsettled leftover
+ * marker there would hand back a charge that was kept. An `error` row's
+ * marker is already settled (its refund settled it) and the stale arm
+ * settles via its own in-transaction refund. A PAUSED run's marker must
+ * stay untouched: the displaced run is restorable-ALIVE — a bail-out
+ * re-flags it, a later free continuation resumes it, and the chat
+ * route's failure funnel refunds that run's hold OFF THIS MARKER (the
+ * post-flush `refundReservation`: an earlier chargeable POST booked the
+ * hold, the failing continuation reads it back). Settling here would
+ * foreclose a refund the finalization invariant owes. The cost: a hard
+ * kill inside THIS claim's window over a paused displacement reaps with
+ * a refund of the paused run's hold — acceptable, since the run that
+ * hold charged never finished.
+ *
+ * Returns the shape the claim moved the app out of, for bail-out
+ * restoration (see `ClaimedBuildRun`).
+ */
+export async function claimBuildRun(appId: string): Promise<ClaimedBuildRun> {
+	return await getDb().runTransaction(async (tx) => {
+		const snap = await tx.get(docs.app(appId));
+		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[claimBuildRun] app document missing for appId=${appId}`,
+			);
+		}
+		let claimed: ClaimedBuildRun | undefined =
+			fresh.status === "complete"
+				? { from: "complete" }
+				: fresh.status === "error"
+					? { from: "error", errorType: fresh.error_type as ErrorType | null }
+					: fresh.status === "generating" && fresh.awaiting_input
+						? { from: "paused" }
+						: undefined;
+
+		/* Deferred refund write for the stale-displacement arm — Firestore
+		 * transactions require every read to precede every write, so the
+		 * credit-doc read happens here and its write below. */
+		let refundCredits: (() => void) | undefined;
+		if (claimed === undefined) {
+			const updatedAt = fresh.updated_at.toDate();
+			const stale =
+				Date.now() - updatedAt.getTime() > MAX_GENERATION_MINUTES * 60_000;
+			if (!stale) {
+				throw new BuildRunConflictError();
+			}
+			/* A dead run's stranded hold refunds before anything else touches
+			 * the row — the same refund-first discipline `reapStaleGenerating`
+			 * holds, here made atomic with the claim: the transaction either
+			 * refunds AND claims or leaves the row reapable. A settled or
+			 * absent marker has nothing to hand back (a missing credit doc
+			 * likewise — the marker still settles below so nothing revisits). */
+			const marker = fresh.reservation;
+			if (marker && !marker.settled) {
+				const creditRef = docs.creditMonthRaw(fresh.owner, marker.period);
+				const creditSnap = await tx.get(creditRef);
+				if (creditSnap.exists) {
+					const consumed =
+						(creditSnap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
+					refundCredits = () =>
+						tx.set(
+							creditRef,
+							{
+								consumed: Math.max(0, consumed - marker.reserved),
+								updated_at: FieldValue.serverTimestamp(),
+							},
+							{ merge: true },
+						);
+				}
+			}
+			claimed = { from: "error", errorType: "internal" };
+		}
+
+		refundCredits?.();
+		tx.update(docs.appRaw(appId), {
+			status: "generating",
+			error_type: null,
+			awaiting_input: false,
+			updated_at: FieldValue.serverTimestamp(),
+			/* Settle the displaced run's marker (see the docblock) — except a
+			 * paused run's, which is a LIVE hold the resumed run's failure
+			 * funnel must still refund. Left untouched when already settled
+			 * or absent — `reserveCredits` writes the new run's marker fresh
+			 * either way. */
+			...(claimed.from !== "paused" &&
+			fresh.reservation &&
+			!fresh.reservation.settled
+				? { reservation: { ...fresh.reservation, settled: true } }
+				: {}),
+		});
+		return claimed;
 	});
 }
 
@@ -580,11 +930,16 @@ export function setAwaitingInput(
  * absent marker. Fire-and-forget at the call sites, like `failApp`: a transient
  * failure self-heals on the next scan.
  *
- * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only
- * `createApp` writes (a new build). A chargeable EDIT reserves credits but keeps
- * its app `complete`, so a hard-killed edit's 5-credit hold is never reaped — an
- * accepted residual (small and rare). Builds are the high-value case (100
- * credits) this reaper exists for.
+ * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only the
+ * build paths write — `createApp` for a new build, `claimBuildRun` for every
+ * chargeable build POST against an existing app (a retry of a failed build, a
+ * new instruction into a finished one, a takeover of a paused one). A
+ * chargeable EDIT reserves credits but keeps its app `complete`, so a
+ * hard-killed edit's 5-credit hold is never reaped — an accepted residual
+ * (small and rare). Builds are the high-value case (100 credits) this reaper
+ * exists for. `claimBuildRun`'s stale-displacement arm performs this same
+ * settle (refund-first, `internal`) inline when a retry POST lands on a dead
+ * row before any list/concurrency scan has.
  */
 export async function reapStaleGenerating(appId: string): Promise<void> {
 	try {
@@ -606,15 +961,15 @@ export async function reapStaleGenerating(appId: string): Promise<void> {
  * Writes blueprint, denormalized summary fields, and `updated_at`.
  * Called by the auto-save route (`PUT /api/apps/{id}`) after user edits
  * and by `GenerationContext.saveBlueprint` for intermediate saves
- * during generation. Accepts `PersistableDoc` (the Zod-validated
- * on-disk shape without `fieldParent`) so the route can pass
- * `blueprintDocSchema.safeParse` results directly. `BlueprintDoc`
- * (in-memory with `fieldParent`) is also assignable since it extends
- * `PersistableDoc`.
+ * during generation. Takes `PersistedBlueprint` — the type-level wall
+ * that rejects an unstripped in-memory `BlueprintDoc` at compile time
+ * (its derived `fieldParent` / reference index must never serialize) —
+ * while the route's `blueprintDocSchema.safeParse` results and
+ * `toPersistableDoc` outputs pass directly.
  */
 export async function updateApp(
 	appId: string,
-	doc: PersistableDoc,
+	doc: PersistedBlueprint,
 ): Promise<void> {
 	await persistBlueprintSnapshot(appId, doc);
 }
@@ -634,7 +989,7 @@ export async function updateApp(
  */
 export async function updateAppForRun(
 	appId: string,
-	doc: PersistableDoc,
+	doc: PersistedBlueprint,
 	runId: string,
 ): Promise<void> {
 	await persistBlueprintSnapshot(appId, doc, { runId });

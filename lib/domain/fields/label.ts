@@ -9,11 +9,11 @@
 import tablerTag from "@iconify-icons/tabler/tag";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema } from "./base";
+import { fieldBaseSchema, xpathExpressionSchema } from "./base";
 
 export const labelFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("label"),
-	relevant: z.string().optional(),
+	relevant: xpathExpressionSchema.optional(),
 });
 
 export type LabelField = z.infer<typeof labelFieldSchema>;

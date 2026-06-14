@@ -8,6 +8,7 @@
 import type { IconifyIcon } from "@iconify/react/offline";
 import type { ComponentType } from "react";
 import type { Field, FieldKind } from "./fields";
+import type { XPathExpression } from "./xpath";
 
 /** XForm control element emitted by the compiler for a given field kind. */
 export type XFormControlKind =
@@ -99,10 +100,28 @@ export type FieldKindMetadata<K extends FieldKind> = {
  * the editor has just been made visible in response to a user action and
  * the user would naturally expect the new input to receive keyboard focus.
  */
+/**
+ * Result of a gated commit, as seen by editor components. Mirrors the
+ * doc layer's mutation-gate verdict structurally (declared here rather
+ * than imported so the domain package keeps no edge into `lib/doc`):
+ *
+ *   - `ok: true` — the edit dispatched.
+ *   - `ok: false` — the edit did NOT dispatch. `messages` carries the
+ *     gate's person-to-person findings when the validity gate rejected
+ *     it; an EMPTY `messages` means a silent no-op (a stale uuid the
+ *     dispatch couldn't resolve) — editors keep the legacy quiet
+ *     behavior for that case and render inline errors only when there
+ *     are messages to show.
+ */
+export type CommitOutcome = { ok: true } | { ok: false; messages: string[] };
+
 export type FieldEditorComponentProps<F extends Field, K extends keyof F> = {
 	field: F;
 	value: F[K];
-	onChange: (next: F[K]) => void;
+	/** Dispatch the new value through the gated mutation hook. Returns
+	 *  the commit outcome so draft-holding editors can keep the user's
+	 *  typed input and surface the findings inline on a rejection. */
+	onChange: (next: F[K]) => CommitOutcome;
 	label: string;
 	keyName: K;
 	autoFocus?: boolean;
@@ -136,20 +155,14 @@ export type OptionalStringKeys<F extends Field> = {
 	string;
 
 /**
- * Keys of `F` whose declared type is `string` — either required (`string`)
- * or optional (`string | undefined`). Covers every XPath-valued property
- * the XPathEditor might be mounted on, including `hidden.calculate`
- * which the schema declares as required.
- *
- * The editor's cast `next as F[K]` is sound when `F[K]` includes
- * `undefined` and tolerated when it doesn't — the caller-side registry
- * invariant is the authoritative guarantee that each key's runtime
- * value is always a string or undefined, and the reducer accepts
- * both shapes as a removal-or-replace patch regardless of the schema's
- * optionality declaration.
+ * Keys of `F` whose stored value is the XPath expression AST
+ * (`relevant`, `validate`, `calculate`, `default_value`, `required`,
+ * `repeat_count`). The XPathEditor mounts on these: it PRINTS the
+ * stored AST for display and parses the committed text back, so its
+ * surface stays text while the slot's canonical form is structural.
  */
-export type XPathStringKeys<F extends Field> = {
-	[K in keyof F]-?: F[K] extends string | undefined ? K : never;
+export type XPathExpressionKeys<F extends Field> = {
+	[K in keyof F]-?: F[K] extends XPathExpression | undefined ? K : never;
 }[keyof F] &
 	string;
 

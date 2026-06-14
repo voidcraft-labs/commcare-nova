@@ -1,8 +1,19 @@
 /**
  * SA tool: `updateModule` — patch module-level metadata.
  *
- * Module-scoped name patches only. Case list authoring lives on the
- * typed case-list-config tools (`addCaseListColumns` /
+ * Module-scoped patches: display name and `case_type`. The case-type
+ * slot is the SA's repair path when the commit gate rejects adding a
+ * case form to a module that never declared one (`NO_CASE_TYPE` names
+ * exactly this fix) — without it the only correction would be
+ * remove-and-recreate. Setting a case type on a module that has forms
+ * but no case-list columns introduces MISSING_CASE_LIST_COLUMNS, so the
+ * optional `case_list_columns` rides the SAME call (seeded only when the
+ * module has none) — the rejection's findings stay satisfiable by
+ * adjusting this call, the atomic-creation property. A case-type change
+ * re-scopes what every form's references resolve to, so the gate
+ * validates the batch under a full run (`scopeOfMutations` maps the
+ * patch to `"full"`). Ongoing case list
+ * authoring lives on the typed case-list-config tools (`addCaseListColumns` /
  * `updateCaseListColumn` / `removeCaseListColumn` /
  * `reorderCaseListColumns`, the matching search-input family, and the
  * wholesale `setCaseListFilter`) — those preserve the typed `Column`
@@ -26,10 +37,16 @@
  */
 
 import { z } from "zod";
+import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import type { BlueprintDoc } from "@/lib/domain";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import {
+	columnInputSchema,
+	newUuid,
+	stampColumnUuid,
+} from "./case-list-config/shared";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -38,7 +55,22 @@ import type {
 export const updateModuleInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
-		name: z.string().describe("New module name"),
+		name: z
+			.string()
+			.optional()
+			.describe("New module display name. Omit to leave unchanged."),
+		case_type: z
+			.string()
+			.optional()
+			.describe(
+				'The case type this module manages (e.g. "patient"). A module needs one before it can hold registration/followup/close forms. Omit to leave unchanged.',
+			),
+		case_list_columns: z
+			.array(columnInputSchema)
+			.optional()
+			.describe(
+				"Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools.",
+			),
 	})
 	.strict();
 
@@ -48,15 +80,27 @@ export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 export type UpdateModuleResult = MutationSuccess | { error: string };
 
 export const updateModuleTool = {
-	description: "Update a module's display name.",
+	description:
+		"Update a module's display name and/or its case type. Set case_type before adding registration/followup/close forms to a module created without one.",
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateModuleResult>> {
-		const { moduleIndex, name } = input;
+		const { moduleIndex, name, case_type, case_list_columns } = input;
 		try {
+			if (name === undefined && case_type === undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error:
+							"Nothing to update — pass `name` and/or `case_type` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
+					},
+				};
+			}
 			const moduleUuid = doc.moduleOrder[moduleIndex];
 			if (!moduleUuid) {
 				return {
@@ -80,9 +124,63 @@ export const updateModuleTool = {
 				};
 			}
 
-			const mutations = updateModuleMutations(mod, { name });
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(mutations, newDoc, `module:${moduleIndex}`);
+			/* Case-type retirement: a case-type change can leave the OLD type's
+			 * record with no owning module. When nothing else references the
+			 * old type, the same batch retires its record; when references
+			 * remain (this module's own fields included — they stay), the call
+			 * fails naming each one. Shared planner with `removeModule` and
+			 * the builder UI (`lib/doc/caseTypeRetirement.ts`); the cascade is
+			 * explicit mutations at this batch-building layer, never a reducer
+			 * side effect (historical event-log replay stays byte-stable). */
+			const retirement =
+				case_type !== undefined
+					? planCaseTypeRetirementOnRetype(doc, moduleUuid, case_type)
+					: { kind: "none" as const };
+			if (retirement.kind === "blocked") {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: retirement.message },
+				};
+			}
+
+			/* Seed columns only when the module has none — an existing config
+			 * is authored state the case-list-config tools own, and a
+			 * wholesale replace here would silently drop sort/search work. */
+			const seedColumns =
+				case_list_columns !== undefined &&
+				(mod.caseListConfig?.columns ?? []).length === 0
+					? case_list_columns.map((c) => stampColumnUuid(c, newUuid()))
+					: undefined;
+			const mutations = [
+				...updateModuleMutations(mod, {
+					...(name !== undefined && { name }),
+					...(case_type !== undefined && { caseType: case_type }),
+					...(seedColumns && {
+						caseListConfig: {
+							...(mod.caseListConfig ?? { searchInputs: [] }),
+							columns: seedColumns,
+						},
+					}),
+				}),
+				...(retirement.kind === "retire" ? retirement.mutations : []),
+			];
+			const commit = await guardedMutate(
+				ctx,
+				doc,
+				mutations,
+				`module:${moduleIndex}`,
+			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			// Read back from the post-mutation doc so the summary reflects
 			// the values the SA can expect on a follow-up read — the patch
@@ -101,7 +199,9 @@ export const updateModuleTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully renamed module to "${newMod.name}" (index ${moduleIndex}).`,
+					message: `Successfully updated module "${newMod.name}" (index ${moduleIndex})${
+						case_type !== undefined ? ` — case type: ${newMod.caseType}` : ""
+					}.`,
 					summary: { subject: newMod.name } satisfies ToolCallSummary,
 				},
 			};

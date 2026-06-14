@@ -41,29 +41,6 @@ function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 	];
 }
 
-function duplicateModuleNames(doc: BlueprintDoc): ValidationError[] {
-	const errors: ValidationError[] = [];
-	const seen = new Map<string, number>();
-
-	for (let i = 0; i < doc.moduleOrder.length; i++) {
-		const mod = doc.modules[doc.moduleOrder[i]];
-		const prev = seen.get(mod.name);
-		if (prev !== undefined) {
-			errors.push(
-				validationError(
-					"DUPLICATE_MODULE_NAME",
-					"app",
-					`Module "${mod.name}" appears twice (modules ${prev + 1} and ${i + 1}). Each module needs a unique name because CommCare uses it to build the navigation menu — duplicate names would make two menu items indistinguishable.`,
-					{ moduleUuid: mod.uuid, moduleName: mod.name },
-				),
-			);
-		} else {
-			seen.set(mod.name, i);
-		}
-	}
-	return errors;
-}
-
 /**
  * Reject a case type named after a reserved reference namespace
  * (`form` / `user` / `case` / `parent`, case-insensitive). Such a name
@@ -89,7 +66,7 @@ function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
 			validationError(
 				"RESERVED_CASE_TYPE_NAME",
 				"app",
-				`Case type "${name}" collides with a reserved reference namespace. CommCare's hashtag system reserves "#form/", "#user/", "#case/", and "#parent/", and the wire resolves those before any project case type — so "#${name}/<property>" would always resolve to the built-in "${lower}" namespace, never to this case type, silently emitting against the wrong target. Rename the case type to something project-specific (e.g. "${name}_record").`,
+				`Case type "${name}" collides with a reserved reference namespace. CommCare's hashtag system reserves #form/, #user/, #case/, and #parent/ — "#${name}/<property>" would resolve to the built-in "${lower}" namespace, not this case type. Rename it to something project-specific (e.g. "${name}_record").`,
 				location,
 				{ caseType: name },
 			),
@@ -267,14 +244,69 @@ function duplicateConnectIds(doc: BlueprintDoc): ValidationError[] {
 	return errors;
 }
 
+/**
+ * A Connect app needs at least one PARTICIPATING form — one whose connect
+ * block carries a sub-config of the app's mode family (learn →
+ * learn_module / assessment; deliver → deliver_unit / task).
+ *
+ * Participation is per form and optional: CommCare Connect's ingestion is
+ * coverage-blind (`commcare_connect/opportunity/app_xml.py::extract_modules`
+ * scans each form for connect-namespace blocks and silently skips forms
+ * without them), and `opportunity/tasks.py::
+ * create_learn_modules_and_deliver_units` upserts whatever was found with
+ * no coverage validation — so a blockless form is simply auxiliary, never
+ * an error. What Connect cannot survive is ZERO participation: learn
+ * progress is a percentage over the ingested learn-module rows
+ * (`opportunity/models.py::OpportunityAccess.learn_progress`) and payment
+ * groups submissions by the ingested deliver units, so an app contributing
+ * no rows of its mode produces an opportunity that can never progress or
+ * pay. That floor is this rule.
+ *
+ * An app with no forms at all stays clean: an empty Connect app is the
+ * documented starting state of a Connect build (`updateApp` flips
+ * `connect_type` first, then each creation lands participating forms with
+ * their blocks), so the floor only binds once forms exist.
+ */
+function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
+	if (!doc.connectType) return [];
+	const isLearn = doc.connectType === "learn";
+	let formCount = 0;
+	for (const moduleUuid of doc.moduleOrder) {
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			formCount++;
+			const connect = doc.forms[formUuid]?.connect;
+			if (!connect) continue;
+			const participates = isLearn
+				? connect.learn_module || connect.assessment
+				: connect.deliver_unit || connect.task;
+			if (participates) return [];
+		}
+	}
+	if (formCount === 0) return [];
+	const detail = isLearn
+		? "no form carries a learn module or an assessment, so there is nothing for workers to complete and learning progress can never move"
+		: "no form carries a deliver unit or a task, so there is nothing payable to deliver";
+	const fix = isLearn
+		? "Give at least one form a connect block (a learn_module for educational content, an assessment for a quiz, or both — via the form's Connect settings or update_form)"
+		: "Give at least one form a connect block (a deliver_unit, and optionally a task — via the form's Connect settings or update_form)";
+	return [
+		validationError(
+			"CONNECT_NO_PARTICIPATING_FORMS",
+			"app",
+			`This is a Connect ${doc.connectType} app, but ${detail}. A Connect app needs at least one participating form — a form without a connect block simply stays out of Connect, which is fine for the rest. ${fix}, or turn Connect off for the whole app (App Settings, or update_app with connect_type null).`,
+			{},
+		),
+	];
+}
+
 export const APP_RULES = [
 	noModules,
 	emptyAppName,
-	duplicateModuleNames,
 	reservedCaseTypeName,
 	childCaseTypeMissingModule,
 	circularFormLinks,
 	duplicateConnectIds,
+	connectNoParticipatingForms,
 	// Cross-form rule — multi-writer disagreement detection requires the
 	// full app's writer set, so the rule is app-scoped rather than
 	// module-scoped.

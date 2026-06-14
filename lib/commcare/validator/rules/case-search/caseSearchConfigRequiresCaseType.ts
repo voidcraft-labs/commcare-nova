@@ -34,7 +34,7 @@ export function caseSearchConfigRequiresCaseType(
 		validationError(
 			"CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE",
 			"module",
-			`Module "${mod.name}" carries a \`caseSearchConfig\` but has no \`caseType\`. CommCare's \`<remote-request>\` wire shape carries a mandatory \`case_type\` slot — the search command can't run without one. Open the module editor and set a case type to the kind of case this search should return, or remove \`caseSearchConfig\` so the search button stops rendering.`,
+			`Module "${mod.name}" carries a \`caseSearchConfig\` but has no \`caseType\` — the search can't run without one. Set a case type to the kind of case this search should return, or remove \`caseSearchConfig\`.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];

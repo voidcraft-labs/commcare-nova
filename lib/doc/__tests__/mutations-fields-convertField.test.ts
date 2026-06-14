@@ -15,10 +15,16 @@
  */
 
 import { produce } from "immer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutation } from "@/lib/doc/mutations";
-import { asUuid } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
+import {
+	asUuid,
+	isXPathExpression,
+	printXPath,
+	xpathPrintContext,
+} from "@/lib/domain";
 
 // ---------------------------------------------------------------------------
 // Shared fixture builder
@@ -53,6 +59,13 @@ function docWithField(field: Parameters<typeof f>[0]) {
 // 1. Text ↔ Secret — text input family
 // ---------------------------------------------------------------------------
 
+/** Printed text of an AST-stored slot value off a converted field. */
+function printSlot(value: unknown, doc: BlueprintDoc): string | undefined {
+	return isXPathExpression(value)
+		? printXPath(value, xpathPrintContext(doc))
+		: (value as string | undefined);
+}
+
 describe("convertField — text / secret family", () => {
 	it("text → secret preserves id, label, uuid, hint, required, validate", () => {
 		const doc = docWithField({
@@ -77,8 +90,8 @@ describe("convertField — text / secret family", () => {
 		expect(converted.label).toBe("PIN");
 		expect(converted.uuid).toBe("q-1");
 		expect(converted.hint).toBe("four digits");
-		expect(converted.required).toBe("true()");
-		expect(converted.validate).toBe("string-length(.) = 4");
+		expect(printSlot(converted.required, next)).toBe("true()");
+		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 4");
 		// `calculate` exists on text but not secret — must be stripped.
 		expect(converted.calculate).toBeUndefined();
 	});
@@ -103,7 +116,7 @@ describe("convertField — text / secret family", () => {
 		expect(converted.kind).toBe("text");
 		expect(converted.id).toBe("token");
 		expect(converted.hint).toBe("enter token");
-		expect(converted.validate).toBe("string-length(.) > 0");
+		expect(printSlot(converted.validate, next)).toBe("string-length(.) > 0");
 	});
 });
 
@@ -131,7 +144,7 @@ describe("convertField — int / decimal family", () => {
 		expect(converted.kind).toBe("decimal");
 		expect(converted.id).toBe("age");
 		expect(converted.uuid).toBe("q-1");
-		expect(converted.validate).toBe(". > 0");
+		expect(printSlot(converted.validate, next)).toBe(". > 0");
 	});
 
 	it("decimal → int preserves relevant and required", () => {
@@ -152,8 +165,10 @@ describe("convertField — int / decimal family", () => {
 		});
 		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("int");
-		expect(converted.relevant).toBe("/data/show_price = 'yes'");
-		expect(converted.required).toBe("true()");
+		expect(printSlot(converted.relevant, next)).toBe(
+			"/data/show_price = 'yes'",
+		);
+		expect(printSlot(converted.required, next)).toBe("true()");
 	});
 });
 
@@ -200,7 +215,7 @@ describe("convertField — temporal family", () => {
 		});
 		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("date");
-		expect(converted.relevant).toBe(". != ''");
+		expect(printSlot(converted.relevant, next)).toBe(". != ''");
 		expect(converted.case_property_on).toBe("appointment_dt");
 	});
 });
@@ -287,7 +302,9 @@ describe("convertField — media family", () => {
 		expect(converted.id).toBe("photo");
 		expect(converted.uuid).toBe("q-1");
 		expect(converted.hint).toBe("take a clear photo");
-		expect(converted.relevant).toBe("/data/needs_photo = 'yes'");
+		expect(printSlot(converted.relevant, next)).toBe(
+			"/data/needs_photo = 'yes'",
+		);
 	});
 
 	it("video → signature preserves id and label", () => {
@@ -402,7 +419,9 @@ describe("convertField — structural family", () => {
 		const converted = next.fields[asUuid("r-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("group");
 		expect(converted.id).toBe("visits");
-		expect(converted.relevant).toBe("/data/has_visits = 'yes'");
+		expect(printSlot(converted.relevant, next)).toBe(
+			"/data/has_visits = 'yes'",
+		);
 	});
 });
 
@@ -482,6 +501,9 @@ describe("convertField — invariants", () => {
 			id: "name",
 			label: "Name",
 		});
+		// The convertibility gate console.warns on the skip (the reducer's
+		// client-safe degraded-path convention); silence the expected noise.
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
@@ -489,6 +511,8 @@ describe("convertField — invariants", () => {
 				toKind: "group",
 			});
 		});
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
 		// Immer returns the original object unchanged when no mutation occurs.
 		expect(next.fields[asUuid("q-1")]).toBe(doc.fields[asUuid("q-1")]);
 	});
@@ -530,6 +554,7 @@ describe("convertField — invariants", () => {
 				},
 			],
 		});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
@@ -537,6 +562,8 @@ describe("convertField — invariants", () => {
 				toKind: "text",
 			});
 		});
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
 		// Group must remain a group — the entity, its fieldOrder entry, and
 		// its child must all be unchanged.
 		expect(next.fields[asUuid("g-1")]?.kind).toBe("group");

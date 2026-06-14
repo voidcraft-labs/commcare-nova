@@ -19,10 +19,14 @@
  *   - required path swallows empty commit without onSave
  *   - saved flag flips true → false after the timer; cleanup on unmount
  *   - selectAll calls `.select()` synchronously on focus
+ *   - rejection lifecycle: refused commit keeps the draft + sets
+ *     `rejection`/`rejectionNonce`; Escape and the next keystroke clear;
+ *     a landed commit clears and fires `saved`
  */
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CommitOutcome } from "@/lib/domain";
 import { useCommitField } from "../hooks/useCommitField";
 
 // Lightweight key-event factory — the hook reads only `.key`, `.metaKey`,
@@ -299,5 +303,108 @@ describe("useCommitField — selectAll on focus", () => {
 		result.current.ref(input);
 		act(() => result.current.handleFocus());
 		expect(selectSpy).not.toHaveBeenCalled();
+	});
+});
+
+describe("useCommitField — rejection lifecycle", () => {
+	// The contract the rejection-presentation rework rides on: a refusal
+	// keeps the user's draft on screen with the finding; nothing refused
+	// outlives the draft it refers to.
+
+	const refuse = (): CommitOutcome => ({
+		ok: false,
+		messages: ["the finding"],
+	});
+
+	it("a refused commit keeps the draft, sets rejection, and bumps the nonce", () => {
+		const { result } = renderHook(() =>
+			useCommitField({ value: "original", onSave: refuse }),
+		);
+		act(() => result.current.handleFocus());
+		act(() => result.current.setDraft("bad value"));
+		act(() => result.current.handleKeyDown(key("Enter")));
+
+		expect(result.current.rejection).toBe("the finding");
+		expect(result.current.rejectionNonce).toBe(1);
+		expect(result.current.focused).toBe(true);
+		expect(result.current.draft).toBe("bad value");
+		expect(result.current.saved).toBe(false);
+	});
+
+	it("a repeat refusal of the UNCHANGED draft still bumps the nonce (re-shake)", () => {
+		const { result } = renderHook(() =>
+			useCommitField({ value: "original", onSave: refuse }),
+		);
+		act(() => result.current.handleFocus());
+		act(() => result.current.setDraft("bad value"));
+		act(() => result.current.handleKeyDown(key("Enter")));
+		act(() => result.current.handleKeyDown(key("Enter")));
+
+		expect(result.current.rejection).toBe("the finding");
+		expect(result.current.rejectionNonce).toBe(2);
+		expect(result.current.draft).toBe("bad value");
+	});
+
+	it("Escape reverts the draft AND clears the rejection", () => {
+		const { result } = renderHook(() =>
+			useCommitField({ value: "original", onSave: refuse }),
+		);
+		act(() => result.current.handleFocus());
+		act(() => result.current.setDraft("bad value"));
+		act(() => result.current.handleKeyDown(key("Enter")));
+		act(() => result.current.handleKeyDown(key("Escape")));
+
+		expect(result.current.rejection).toBeNull();
+		expect(result.current.focused).toBe(false);
+		// Blurred → the hook surfaces the authoritative persisted value.
+		expect(result.current.draft).toBe("original");
+	});
+
+	it("the next keystroke clears the rejection", () => {
+		const { result } = renderHook(() =>
+			useCommitField({ value: "original", onSave: refuse }),
+		);
+		act(() => result.current.handleFocus());
+		act(() => result.current.setDraft("bad value"));
+		act(() => result.current.handleKeyDown(key("Enter")));
+		act(() => result.current.setDraft("bad value 2"));
+
+		expect(result.current.rejection).toBeNull();
+		expect(result.current.draft).toBe("bad value 2");
+	});
+
+	it("a landed commit clears the rejection and fires saved", () => {
+		const onSave = vi
+			.fn<(v: string) => CommitOutcome | undefined>()
+			.mockReturnValueOnce({ ok: false, messages: ["the finding"] })
+			.mockReturnValueOnce(undefined);
+		const { result } = renderHook(() =>
+			useCommitField({ value: "original", onSave }),
+		);
+		act(() => result.current.handleFocus());
+		act(() => result.current.setDraft("eventually fine"));
+		act(() => result.current.handleKeyDown(key("Enter")));
+		expect(result.current.rejection).toBe("the finding");
+
+		act(() => result.current.handleKeyDown(key("Enter")));
+		expect(result.current.rejection).toBeNull();
+		expect(result.current.saved).toBe(true);
+	});
+
+	it("a messageless refusal is a silent no-op revert (stale-uuid contract)", () => {
+		const { result } = renderHook(() =>
+			useCommitField({
+				value: "original",
+				onSave: () => ({ ok: false, messages: [] }),
+			}),
+		);
+		act(() => result.current.handleFocus());
+		act(() => result.current.setDraft("anything"));
+		act(() => result.current.handleKeyDown(key("Enter")));
+
+		expect(result.current.rejection).toBeNull();
+		expect(result.current.rejectionNonce).toBe(0);
+		expect(result.current.focused).toBe(false);
+		expect(result.current.draft).toBe("original");
 	});
 });

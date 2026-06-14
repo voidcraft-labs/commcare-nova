@@ -229,14 +229,22 @@ export const appDocSchema = z.object({
 	/** Number of forms across all modules — denormalized for list display. */
 	form_count: z.number().default(0),
 	/**
-	 * Build lifecycle status.
+	 * Run-liveness status. Never feeds the validity gate — every commit
+	 * gates identically whatever the status; this field exists for the
+	 * liveness machinery (the concurrency guard, the staleness reaper,
+	 * list display) and nothing else.
 	 *
-	 * - `generating` — a build is in progress. `updated_at` advances on
-	 *   every intermediate write; a 10-minute gap trips the staleness
-	 *   inference in `listApps` and self-converts the row to `error`.
-	 * - `complete` — build finished successfully (or was created
-	 *   atomically, e.g. via `create_app`).
-	 * - `error` — generation failed; see `error_type` for the bucket.
+	 * - `generating` — a chat build run is in flight. `updated_at`
+	 *   advances on every intermediate write; a 10-minute gap trips the
+	 *   staleness inference in `listApps` and self-converts the row to
+	 *   `error`.
+	 * - `complete` — the at-rest state: no run is working on the app.
+	 *   Every non-chat creation (MCP `create_app` included) is born here,
+	 *   and the chat route flips a finished build here at drain end.
+	 * - `error` — a build run failed; see `error_type` for the bucket.
+	 *   Every chargeable build POST against an existing app — a retry of
+	 *   a failed build or a new instruction into a finished one — claims
+	 *   the run window back to `generating` (`claimBuildRun`).
 	 * - `deleted` — legacy marker, retained in the enum for back-compat
 	 *   with rows soft-deleted before the marker moved off `status`.
 	 *   New code uses `deleted_at != null` as the soft-delete signal
@@ -278,17 +286,60 @@ export const appDocSchema = z.object({
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
 	/**
+	 * Optimistic-concurrency basis for whole-doc blueprint overwrites.
+	 *
+	 * Rotated (fresh random value) by every writer a live builder session
+	 * CANNOT see land in its own doc: the browser auto-save PUT (another
+	 * tab), the MCP guarded commit (an external agent), and the
+	 * `scripts/recover-app.ts` writer. The
+	 * builder echoes the token it last observed on every PUT; a mismatch
+	 * means the stored doc advanced under it, and the overwrite is
+	 * rejected (`BlueprintBasisStaleError` → 409) instead of silently
+	 * erasing the other writer's work — the builder then reloads the
+	 * server doc.
+	 *
+	 * Chat-run INTERMEDIATE saves (`updateAppForRun`) deliberately do NOT
+	 * rotate it: the same browser session that drives a chat run also
+	 * receives every mutation over SSE, so its doc already carries the
+	 * run's changes and its next auto-save is a faithful overwrite — a
+	 * rotation there would 409 the builder against its own companion run.
+	 * Those saves are also ORDERED against the drain-end finish
+	 * (`completeApp` is status-only and lands after the route drains the
+	 * save chain), so `status: complete` never points at a blueprint the
+	 * run hadn't finished persisting.
+	 * RECORDED CONSTRAINT — the one-tab assumption: that reasoning holds
+	 * for the tab driving the run; a SECOND builder tab open during a
+	 * chat run sees neither the SSE mutations nor a rotation, so its next
+	 * save can still blind-overwrite the run's writes. That shape is the
+	 * known unguarded remainder of the basis matrix.
+	 * Null on rows that predate the field and on never-PUT apps; a null
+	 * basis matches a null stored token, so first saves need no backfill.
+	 */
+	blueprint_token: z.string().nullable().default(null),
+	/**
 	 * Durable credit-reservation marker for the refunding reaper.
 	 *
 	 * Written ATOMICALLY with the credit debit when a chargeable turn reserves
 	 * (same `reserveCredits` transaction), so a committed charge always carries
-	 * the marker its refund needs. `settled` means the hold was REFUNDED (handed
-	 * back) — set by the live finalize path or by the reaper. A KEPT charge (a
-	 * successful or otherwise-paid run) intentionally leaves the marker unsettled;
-	 * that is harmless because the reaper only ever reaps `generating` rows, never a
-	 * `complete` charged app. So a stale `generating` app with an UNSETTLED marker
-	 * is a build the process never finished (hard kill / OOM / scale-in);
-	 * `reapStaleGenerating` refunds the stranded hold. `reserved` is the exact
+	 * the marker its refund needs. `settled` means the hold is RESOLVED — no
+	 * refund is owed: set by the live refund paths (flush / `failRun` /
+	 * `reapStaleGenerating`, which hand the hold back) and by `claimBuildRun`
+	 * when it displaces a finished run whose charge was KEPT. The claim-window
+	 * rule is what makes "stale `generating` + unsettled marker ⇒ refund it"
+	 * safe: a KEPT charge's marker stays unsettled only while its app sits at
+	 * `complete` — a shape the reaper never touches — and the moment a new run
+	 * claims that row back to `generating`, the claim transaction marks the
+	 * displaced marker settled-as-kept. A PAUSED run's unsettled marker is
+	 * different in kind: it is a LIVE hold, not a kept charge — the run is
+	 * alive (spared from the reaper by the `awaiting_input` flag, never by
+	 * settlement), and a failed resume of it refunds off this marker (the chat
+	 * route's post-flush `refundReservation`) — so the claim deliberately
+	 * leaves it untouched when it displaces a paused run. Either way a
+	 * `generating` row's unsettled marker only ever belongs to a hold that is
+	 * still genuinely refundable (the live claim's own charge, or a
+	 * displaced-paused run's live hold), so the reaper refunding off it can
+	 * never un-book a charge a previous run kept — even when a hard kill lands
+	 * between the claim and the new reservation. `reserved` is the exact
 	 * amount to return; `period` is the month the hold actually hit (the reaper
 	 * refunds that month, not whatever month it happens to run in).
 	 *

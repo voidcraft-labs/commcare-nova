@@ -2,7 +2,7 @@
  * `sharedToolAdapter` unit tests.
  *
  * Verifies the adapter's five load-bearing behaviors:
- *   - Read / mutating / validateApp result projection each produces the
+ *   - Read / mutating result projection each produces the
  *     right MCP text payload. The mutating branch also proves the
  *     hard invariant that the adapter does NOT re-persist: the fake
  *     tool's `ctx.recordMutations` call is tracked and the adapter
@@ -26,7 +26,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
-import type { ValidateAppResult } from "@/lib/agent/tools/validateApp";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { Mutation } from "@/lib/doc/types";
@@ -178,6 +177,7 @@ function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
+		blueprint_token: null,
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],
 		...overrides,
@@ -292,69 +292,6 @@ describe("registerSharedTool — mutating tools", () => {
 	});
 });
 
-describe("registerSharedTool — validateApp projection", () => {
-	it("drops doc + hqJson; surfaces success=false with errors", async () => {
-		const validateLike: SharedToolModule = {
-			description: "validate",
-			inputSchema: z.object({}),
-			async execute(_input, _ctx, doc) {
-				return {
-					kind: "validate",
-					success: false,
-					doc, // full BlueprintDoc — must NOT appear in output
-					hqJson: { big: "payload" } as never, // must NOT appear in output
-					errors: ["e1"],
-				};
-			},
-		};
-
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "validate_app", validateLike, toolCtx);
-
-		const out = (await capture()({ app_id: "a1" }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		expect(out.content[0]?.text).toBe(
-			JSON.stringify({ success: false, errors: ["e1"] }),
-		);
-	});
-
-	it("surfaces app_id + app_name on a successful validation", async () => {
-		const validateLike: SharedToolModule = {
-			description: "validate",
-			inputSchema: z.object({}),
-			async execute(_input, _ctx, doc) {
-				return { kind: "validate", success: true, doc };
-			},
-		};
-
-		/* Resolve a DISTINCT `app_name` for this call so the assertion proves
-		 * the value flows from the loaded `AppDoc` — not from coincidental
-		 * equality with the fixture default. */
-		vi.mocked(loadApp).mockResolvedValueOnce(
-			buildLoadedApp({ app_name: "Malaria ITN FGD" }),
-		);
-
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "validate_app", validateLike, toolCtx);
-
-		/* `app_id` is the requested target ("a1"); `app_name` is read off the
-		 * loaded `AppDoc`. Together they let the autobuild architect emit its
-		 * canonical completion line from its LAST tool result rather than a
-		 * stale create_app return. */
-		const out = (await capture()({ app_id: "a1" }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		expect(out.content[0]?.text).toBe(
-			JSON.stringify({
-				success: true,
-				app_id: "a1",
-				app_name: "Malaria ITN FGD",
-			}),
-		);
-	});
-});
-
 describe("registerSharedTool — ownership failure", () => {
 	it("returns an MCP error envelope when the app row is missing", async () => {
 		vi.mocked(loadApp).mockResolvedValueOnce(null);
@@ -448,14 +385,9 @@ describe("registerSharedTool — app_id stripping", () => {
 });
 
 describe("projectResult — direct", () => {
-	/* App identity the adapter always threads in from the loaded `AppDoc`.
-	 * Only the validate-success branch consumes it; the read/mutate branches
-	 * ignore it, so passing a constant here is safe across every case. */
-	const APP = { id: "a1", name: "Test" } as const;
-
 	it("unwraps a `read` result to its `data` field", () => {
 		const data = { query: "x", results: [1, 2, 3] };
-		expect(projectResult({ kind: "read", data }, APP)).toBe(data);
+		expect(projectResult({ kind: "read", data })).toBe(data);
 	});
 
 	it("unwraps a `mutate` result to its `result` field", () => {
@@ -466,38 +398,7 @@ describe("projectResult — direct", () => {
 			newDoc,
 			result: { ok: true },
 		};
-		expect(projectResult(raw, APP)).toEqual({ ok: true });
-	});
-
-	it("projects a failed `validate` result to { success, errors } without app identity", () => {
-		const raw: ValidateAppResult = {
-			kind: "validate",
-			success: false,
-			doc: mockBlueprint() as unknown as BlueprintDoc,
-			hqJson: { huge: "payload" } as never,
-			errors: ["e"],
-		};
-		/* Failure means "not done yet" — the architect keeps fixing, so the
-		 * completion identifier is intentionally absent until success. */
-		expect(projectResult(raw, APP)).toEqual({ success: false, errors: ["e"] });
-	});
-
-	it("projects a successful `validate` result with the app identity attached", () => {
-		const raw: ValidateAppResult = {
-			kind: "validate",
-			success: true,
-			doc: mockBlueprint() as unknown as BlueprintDoc,
-			hqJson: { huge: "payload" } as never,
-		};
-		/* Success carries `app_id` + `app_name` so an autonomous MCP caller
-		 * (the autobuild architect) can lift the canonical identifier into
-		 * its completion message — its create_app result is far back in
-		 * context by the time the build finishes. */
-		expect(projectResult(raw, APP)).toEqual({
-			success: true,
-			app_id: "a1",
-			app_name: "Test",
-		});
+		expect(projectResult(raw)).toEqual({ ok: true });
 	});
 });
 
@@ -624,6 +525,7 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			deleted_at: null,
 			recoverable_until: null,
 			run_id: null,
+			blueprint_token: null,
 			created_at: new Date() as unknown as AppDoc["created_at"],
 			updated_at: new Date() as unknown as AppDoc["updated_at"],
 		});
@@ -661,6 +563,60 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			McpContext.prototype.recordMutations = originalRecord;
 		}
 	});
+
+	it("rejects a duplicate sibling id through the adapter and persists nothing", async () => {
+		/* The identifier guard lives INSIDE the shared tool body
+		 * (`lib/doc/identifierVerdicts.ts` consumed by `addFieldsTool`),
+		 * so an MCP client adding a field whose id collides with an
+		 * existing sibling must get the verdict's `{ error }` envelope
+		 * with zero persistence — proving the MCP wire path hits the
+		 * same guard the chat surface does. */
+		const { addFieldsTool } = await import("@/lib/agent/tools/addFields");
+
+		/* One-module-one-form fixture seeded with an existing `age`
+		 * field so the incoming duplicate has a sibling to collide
+		 * with. */
+		const { blueprint, formUuid } = mockBlueprintWithForm();
+		const existingUuid = asUuid("66666666-6666-6666-6666-666666666666");
+		blueprint.fields[existingUuid] = {
+			uuid: existingUuid,
+			id: "age",
+			kind: "int",
+			label: "Age",
+		} as BlueprintDoc["fields"][Uuid];
+		blueprint.fieldOrder[formUuid] = [existingUuid];
+		vi.mocked(loadApp).mockResolvedValueOnce(
+			buildLoadedApp({ blueprint: blueprint as unknown as BlueprintDoc }),
+		);
+
+		const { McpContext } = await import("../context");
+		const originalRecord = McpContext.prototype.recordMutations;
+		const recordSpy = vi.fn().mockResolvedValue([]);
+		McpContext.prototype.recordMutations = recordSpy;
+
+		try {
+			const { server, capture } = makeFakeServer();
+			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx);
+
+			const out = (await capture()(
+				{
+					app_id: "a1",
+					moduleIndex: 0,
+					formIndex: 0,
+					fields: [{ id: "age", kind: "text", label: "Age again" }],
+				},
+				{},
+			)) as { content: Array<{ type: "text"; text: string }> };
+
+			const parsed = JSON.parse(out.content[0]?.text ?? "{}") as {
+				error?: string;
+			};
+			expect(parsed.error).toContain('"age"');
+			expect(recordSpy).not.toHaveBeenCalled();
+		} finally {
+			McpContext.prototype.recordMutations = originalRecord;
+		}
+	});
 });
 
 describe("registerSharedTool — IDOR byte-parity regression lock", () => {
@@ -692,6 +648,7 @@ describe("registerSharedTool — IDOR byte-parity regression lock", () => {
 			deleted_at: null,
 			recoverable_until: null,
 			run_id: null,
+			blueprint_token: null,
 			created_at: new Date() as unknown as AppDoc["created_at"],
 			updated_at: new Date() as unknown as AppDoc["updated_at"],
 		});

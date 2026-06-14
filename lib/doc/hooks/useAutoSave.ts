@@ -25,12 +25,15 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import type { PersistableDoc } from "@/lib/domain";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { derivePhase } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
+import { showToast } from "@/lib/ui/toastStore";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -154,9 +157,10 @@ export function useAutoSave(): SaveState {
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
 
-			/* Strip the derived fieldParent before sending — the server rebuilds it
-			 * from fieldOrder on load and should not store it. */
-			const { fieldParent: _fp, ...persistable } = doc;
+			/* Strip the derived state (fieldParent + the reference index)
+			 * before sending — the server rebuilds both on load and the
+			 * strict persistable schema rejects unknown keys. */
+			const persistable = toPersistableDoc(doc);
 
 			inFlightRef.current = true;
 			if (!unmountedRef.current) {
@@ -175,12 +179,37 @@ export function useAutoSave(): SaveState {
 					headers: { "Content-Type": "application/json" },
 					// Send under the `blueprint` key so the API route's body parsing
 					// stays consistent. The value is a normalized BlueprintDoc
-					// (minus fieldParent — rebuilt on load).
-					body: JSON.stringify({ blueprint: persistable }),
+					// (minus fieldParent — rebuilt on load). `basisToken` is the
+					// optimistic-save basis — the server `blueprint_token` this
+					// client last observed; the server compares it transactionally
+					// and rejects with 409 when the doc advanced under us.
+					body: JSON.stringify({
+						blueprint: persistable,
+						basisToken: session.getState().saveBasis,
+					}),
 				});
 				if (!stillCurrent()) return;
 				if (res.ok) {
+					/* Advance the basis to the freshly rotated token so the next
+					 * save's precondition compares against the doc THIS save just
+					 * wrote. */
+					try {
+						const body = await res.json();
+						if (typeof body?.basisToken === "string") {
+							session.getState().setSaveBasis(body.basisToken);
+						}
+					} catch {
+						/* body unreadable — the next save's stale basis will 409 and
+						 * recover via the reload path below. */
+					}
 					setState({ status: "saved", savedAt: Date.now() });
+				} else if (res.status === 409) {
+					/* Stale basis: a writer this window never saw advanced the doc
+					 * (another tab's save, an agent working over MCP). Saving would
+					 * have erased that work, so the server refused. Recover by
+					 * reloading the server's version and telling the user what
+					 * happened — their last local change here is discarded. */
+					await reloadAfterStaleBasis(appIdAtStart, stillCurrent);
 				} else {
 					let detail = `HTTP ${res.status}`;
 					try {
@@ -218,6 +247,59 @@ export function useAutoSave(): SaveState {
 				 * even on a stale save because the next leading-edge call
 				 * still queues correctly via pendingTrailingRef. */
 				if (!unmountedRef.current) startCooldown();
+			}
+		}
+
+		/**
+		 * Recover from a 409 stale-basis rejection: fetch the server's
+		 * current doc, replace the local one with it, re-sync the basis, and
+		 * tell the user in plain language what happened. The local doc was
+		 * built on a snapshot another writer has since replaced, so the
+		 * server's version is the one source of truth worth keeping — the
+		 * user's most recent local change is the cost, and the toast says so.
+		 */
+		async function reloadAfterStaleBasis(
+			appId: string,
+			stillCurrent: () => boolean,
+		): Promise<void> {
+			try {
+				const res = await fetch(`/api/apps/${appId}`);
+				if (!stillCurrent()) return;
+				if (!res.ok) throw new Error(`reload failed: HTTP ${res.status}`);
+				const data = (await res.json()) as {
+					blueprint: PersistableDoc;
+					basis_token: string | null;
+				};
+				if (!stillCurrent() || !docStore) return;
+				/* `load()` clears + re-pauses undo tracking (the empty→populated
+				 * swap must not enter history); resume right after so the user's
+				 * next edit is undoable again. */
+				docStore.getState().load(data.blueprint);
+				docStore.temporal.getState().resume();
+				session.getState().setSaveBasis(data.basis_token ?? null);
+				setState(IDLE_STATE);
+				showToast(
+					"warning",
+					"App reloaded",
+					"This app was changed outside this window — by an agent connection or another tab. We loaded the latest version so nothing gets overwritten; your last change here wasn't saved, so redo it if you still want it.",
+				);
+			} catch (err) {
+				/* The reload itself failed — surface as a save error so the
+				 * indicator shows something is wrong; the next mutation retries
+				 * the whole save → 409 → reload sequence. */
+				reportClientError(
+					{
+						message: `Auto-save stale-basis reload failed: ${
+							err instanceof Error ? err.message : String(err)
+						}`,
+						source: "manual",
+						url: window.location.href,
+					},
+					err,
+				);
+				if (stillCurrent()) {
+					setState((prev) => ({ ...prev, status: "error" }));
+				}
 			}
 		}
 

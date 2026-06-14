@@ -95,6 +95,7 @@ export function AppearanceSection({ moduleUuid }: AppearanceSectionProps) {
 						<SingleAssetSlot
 							value={config.icon}
 							kind="image"
+							slotKey={`caselist:${moduleUuid}:icon`}
 							ariaLabel="Case list icon"
 							onChange={(icon) => setSlot("icon", icon)}
 						/>
@@ -106,6 +107,7 @@ export function AppearanceSection({ moduleUuid }: AppearanceSectionProps) {
 						<SingleAssetSlot
 							value={config.audioLabel}
 							kind="audio"
+							slotKey={`caselist:${moduleUuid}:audioLabel`}
 							ariaLabel="Case list audio label"
 							onChange={(audioLabel) => setSlot("audioLabel", audioLabel)}
 						/>

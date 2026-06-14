@@ -9,6 +9,7 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	type AppConnectId,
 	connectIdsExcept,
@@ -50,7 +51,7 @@ function setup() {
 						description: "x",
 						time_estimate: 5,
 					},
-					assessment: { id: "intro_quiz", user_score: "100" },
+					assessment: { id: "intro_quiz", user_score: xp("100") },
 				},
 			},
 			[FORM_B]: {

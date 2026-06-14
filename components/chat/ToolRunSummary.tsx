@@ -12,19 +12,19 @@ import {
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
 import {
+	completionErrors,
 	runStatus,
 	type ToolStatus,
 	toolAction,
 	toolDetail,
 	toolLocation,
 	toolStatus,
-	validateErrors,
 } from "@/lib/chat/toolSummary";
 import { cn } from "@/lib/utils";
 
 /** Status glyph + tint, shared by the run header and each per-call row.
  *  Emerald = done, rose (Nova's destructive) = failed (incl. a failed
- *  validateApp outcome), spinner = in-flight. */
+ *  completion outcome), spinner = in-flight. */
 const STATUS: Record<
 	ToolStatus,
 	{ icon: typeof tablerCircleCheck; tint: string }
@@ -37,7 +37,7 @@ const STATUS: Record<
 /**
  * One tool call rendered as: a status glyph, the friendly action
  * (`Added column "Age"`), a `→ Clients` container breadcrumb, and any
- * secondary detail (a validateApp outcome, an error, or — for a call with no
+ * secondary detail (a completion outcome, an error, or — for a call with no
  * structured summary — its raw prose). The breadcrumb leads the location rather
  * than letting it trail the sentence, which was the whole point of the
  * structured summary. `headline` sizes the row up for the single-call case
@@ -53,7 +53,7 @@ function ToolCallRow({
 }) {
 	const status = toolStatus(part);
 	const location = toolLocation(part);
-	const errors = validateErrors(part);
+	const errors = completionErrors(part);
 	const detail = toolDetail(part);
 
 	return (
@@ -76,7 +76,7 @@ function ToolCallRow({
 						<span className="truncate">{location}</span>
 					</div>
 				)}
-				{/* A failed validateApp can carry many errors — tuck them behind a
+				{/* A refused completion can carry many findings — tuck them behind a
 				 *  collapsed "N issues" disclosure (bulleted) instead of dumping the
 				 *  whole wall inline. Any other call's detail renders plainly. */}
 				{errors ? (
@@ -98,7 +98,7 @@ function ToolCallRow({
 	);
 }
 
-/** The validateApp error list as a collapsed-by-default disclosure with bulleted
+/** The completion finding list as a collapsed-by-default disclosure with bulleted
  *  items, so a failing first pass doesn't flood the transcript with a wall of
  *  rose text. No keyframe-animation classes on the panel (Base UI's Collapsible
  *  warns + breaks when CSS animation and transition are both present). */

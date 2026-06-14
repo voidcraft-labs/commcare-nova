@@ -53,6 +53,7 @@ function derivePhaseLocal(
 			loading: s.loading,
 			runCompletedAt: s.runCompletedAt,
 			events: s.events,
+			runStartedWithData: s.runStartedWithData,
 		},
 		docHasData(docStore.getState()),
 	);
@@ -268,7 +269,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 	});
 
-	it("fix loop: validation-attempt conversation event + fix:attempt-N mutations", () => {
+	it("historical fix-loop events (validation-attempt + fix:attempt-N) still derive — replay of pre-retirement runs", () => {
 		const { docStore, sessionStore } = createStores();
 		const s = () => sessionStore.getState();
 

@@ -17,9 +17,20 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { SelectOption, SingleSelectField } from "@/lib/domain";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 import { OptionsEditor } from "../OptionsEditor";
+
+/** Option rows mount `MediaSlot`, whose staged-upload chip reads the
+ *  session store and whose attach budget check reads the doc store —
+ *  provide both the way the builder always does. */
+const wrapper = ({ children }: { children: React.ReactNode }) => (
+	<BlueprintDocProvider>
+		<BuilderSessionProvider>{children}</BuilderSessionProvider>
+	</BlueprintDocProvider>
+);
 
 const baseField: SingleSelectField = {
 	kind: "single_select",
@@ -53,6 +64,7 @@ function ControlledOptionsEditor({
 			onChange={(next) => {
 				setValue(next as SelectOption[] | undefined);
 				onDispatch?.(next as SelectOption[] | undefined);
+				return { ok: true } as const;
 			}}
 			label="Options"
 			keyName="options"
@@ -66,10 +78,11 @@ describe("OptionsEditor", () => {
 			<OptionsEditor
 				field={baseField}
 				value={baseField.options}
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		expect((screen.getByDisplayValue("Red") as HTMLInputElement).value).toBe(
 			"Red",
@@ -84,16 +97,19 @@ describe("OptionsEditor", () => {
 			<OptionsEditor
 				field={baseField}
 				value={baseField.options}
-				onChange={() => {}}
+				onChange={() => ({ ok: true }) as const}
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		expect(container.querySelector('[data-field-id="options"]')).not.toBeNull();
 	});
 
 	it("dispatches the expanded list when Add option is clicked", () => {
-		const onChange = vi.fn();
+		const onChange = vi.fn(
+			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+		);
 		render(
 			<OptionsEditor
 				field={baseField}
@@ -102,6 +118,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		fireEvent.click(screen.getByRole("button", { name: /Add option/i }));
 		expect(onChange).toHaveBeenCalled();
@@ -115,7 +132,9 @@ describe("OptionsEditor", () => {
 		// prop value, reproducing the real doc-store round-trip. A
 		// self-sync regression would regenerate draft ids on the echo,
 		// unmount the newly-mounted input, and drop focus.
-		render(<ControlledOptionsEditor initial={baseField.options} />);
+		render(<ControlledOptionsEditor initial={baseField.options} />, {
+			wrapper,
+		});
 		fireEvent.click(screen.getByRole("button", { name: /Add option/i }));
 		const labelInputs = screen.getAllByPlaceholderText(
 			"Label",
@@ -125,7 +144,9 @@ describe("OptionsEditor", () => {
 	});
 
 	it("dispatches the updated list when a label is edited and the group blurs", async () => {
-		const onChange = vi.fn();
+		const onChange = vi.fn(
+			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+		);
 		render(
 			<OptionsEditor
 				field={baseField}
@@ -134,6 +155,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		const red = screen.getByDisplayValue("Red") as HTMLInputElement;
 		red.focus();
@@ -147,12 +169,14 @@ describe("OptionsEditor", () => {
 		);
 		expect(onChange).toHaveBeenCalled();
 		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-		expect(last[0]).toEqual({ value: "red", label: "Crimson" });
-		expect(last[1]).toEqual({ value: "blue", label: "Blue" });
+		expect(last?.[0]).toEqual({ value: "red", label: "Crimson" });
+		expect(last?.[1]).toEqual({ value: "blue", label: "Blue" });
 	});
 
 	it("dispatches a shorter list when an option row is removed", () => {
-		const onChange = vi.fn();
+		const onChange = vi.fn(
+			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+		);
 		render(
 			<OptionsEditor
 				field={{
@@ -172,6 +196,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		// The per-row trash buttons and the Add button are all
 		// descendants of the fieldset; the row buttons come first, the
@@ -184,11 +209,13 @@ describe("OptionsEditor", () => {
 		expect(onChange).toHaveBeenCalled();
 		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
 		expect(last).toHaveLength(2);
-		expect(last[0]).toEqual({ value: "blue", label: "Blue" });
+		expect(last?.[0]).toEqual({ value: "blue", label: "Blue" });
 	});
 
 	it("clamps drafts below min(2) to undefined at the adapter boundary", () => {
-		const onChange = vi.fn();
+		const onChange = vi.fn(
+			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+		);
 		render(
 			<OptionsEditor
 				field={baseField}
@@ -197,6 +224,7 @@ describe("OptionsEditor", () => {
 				label="Options"
 				keyName="options"
 			/>,
+			{ wrapper },
 		);
 		// Remove one of two rows → the widget would try to save a
 		// 1-entry list, which the adapter collapses to `undefined` so

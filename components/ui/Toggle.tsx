@@ -9,6 +9,14 @@ interface ToggleProps {
 	autoFocus?: boolean;
 	/** Undo/redo scroll + flash target — placed on the button element. */
 	dataFieldId?: string;
+	/** Render as a non-interactive control. Pair with `disabledReason` so
+	 *  the control explains itself (native tooltip + accessible name) —
+	 *  a disabled toggle must never read as a live one that silently
+	 *  no-ops. */
+	disabled?: boolean;
+	/** Why the toggle can't be flipped right now — shown as the button's
+	 *  `title`. Only meaningful with `disabled`. */
+	disabledReason?: string;
 }
 
 export function Toggle({
@@ -17,6 +25,8 @@ export function Toggle({
 	variant = "default",
 	autoFocus,
 	dataFieldId,
+	disabled,
+	disabledReason,
 }: ToggleProps) {
 	const isSub = variant === "sub";
 
@@ -38,7 +48,11 @@ export function Toggle({
 			aria-checked={enabled}
 			onClick={onToggle}
 			data-field-id={dataFieldId}
-			className={`relative inline-flex shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+			disabled={disabled}
+			title={disabled ? disabledReason : undefined}
+			className={`relative inline-flex shrink-0 items-center rounded-full transition-colors ${
+				disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+			} ${
 				isSub
 					? `h-4 w-7 ${enabled ? "bg-nova-violet" : "bg-nova-border"}`
 					: `h-5 w-9 ${enabled ? "bg-nova-violet" : "bg-nova-border"}`

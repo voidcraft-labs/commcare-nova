@@ -8,7 +8,7 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
 /**
  * CCZ compile endpoint — the binary twin of `/api/compile/json`.
  *
- * Shares the auth + parse + media-gate + manifest preamble with the JSON twin
+ * Shares the auth + parse + boundary-gate + manifest preamble with the JSON twin
  * via `prepareCompileRequest`, then expands the doc to HQ JSON, packages it with
  * `compileCcz`, and returns the `.ccz` archive bytes directly as the response
  * body. Returning the bytes inline (rather than persisting them and handing back
@@ -22,7 +22,7 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
 export async function POST(req: NextRequest) {
 	try {
 		const { doc, assets } = await prepareCompileRequest(req, {
-			mediaErrorVerb: "compile",
+			boundaryErrorVerb: "compile",
 		});
 
 		// Compile is always media-ON — the archive bundles whatever the manifest

@@ -12,6 +12,7 @@
  *   - Replay — raw event log + derived chapter metadata
  */
 
+import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
@@ -27,10 +28,42 @@ export type CursorMode = "edit" | "pointer";
  */
 export type SidebarState = { open: boolean; stashed: boolean | undefined };
 
+// ── Staged media uploads ─────────────────────────────────────────────────
+
+/**
+ * Lifecycle of one staged slot upload. `uploading` carries the byte-level
+ * PUT progress (0..1); `error` holds the person-readable failure the slot
+ * chip shows until the user dismisses or retries. There is no terminal
+ * success state — a confirmed upload dispatches the gated attach and the
+ * staged record is REMOVED (the doc's committed reference takes over as
+ * the slot's truth).
+ */
+export type StagedUploadStatus =
+	| { state: "uploading"; progress: number }
+	| { state: "error"; message: string };
+
+/**
+ * One in-flight (or failed) slot upload, keyed in the store by the
+ * carrier slot it will attach to. Ephemeral by design: the doc must never
+ * hold a reference to an asset that isn't `ready`, so until the upload
+ * confirms (the hash → signed-PUT → confirm flow flips the row to ready)
+ * the only trace of it anywhere is this session record — cancel or
+ * failure leaves the doc untouched because nothing was ever committed.
+ */
+export interface StagedUpload {
+	filename: string;
+	kind: MediaKind;
+	status: StagedUploadStatus;
+}
+
 // ── Generation lifecycle ─────────────────────────────────────────────────
 
-/** Progress stages within a generation run. Mirrors the SA's tool sequence:
- *  data model → structure → modules → forms → validate → fix. */
+/** Progress stages within a generation run. Live builds move
+ *  data model → structure → modules → forms (plan, then one
+ *  `createModule` per planned module). `Validate` / `Fix` are
+ *  HISTORICAL ONLY — stages of the retired validate-fix loop, kept so
+ *  runs logged before its retirement still replay with their original
+ *  progress states. */
 export enum GenerationStage {
 	DataModel = "data-model",
 	Structure = "structure",

@@ -21,24 +21,25 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 | Tool | What it does |
 |---|---|
-| `create_app` | Create a new empty app and return its ID. |
+| `create_app` | Create a new empty app and return its ID. Build it up with the other tools — every change is checked as it lands, so there's no separate finishing step. |
 | `delete_app` | Soft-delete an app. Recoverable within the returned window. |
 
 ## Building a new app from a description
 
-These two cover the cold-start phase of a build: name the app, then lay out its modules, forms, and fields. Once they're done, your agent moves into the editing tools below for everything else.
+A new app is planned first, then built module by module. The two planning tools record the design in the conversation — they don't change the app; the app grows through `update_app` and `create_module`, each call checked as it lands.
 
 | Tool | What it does |
 |---|---|
-| `generate_schema` | Set the app name and case-type catalog. First step. |
-| `generate_scaffold` | Define the module + form + field structure. Run after `generate_schema`. |
+| `generate_schema` | Plan the data model: case types and their properties. First step; changes nothing. |
+| `plan_app_design` | Plan the app design: modules, forms, purposes, per-form design notes (and, on Connect apps, Connect settings for each form that takes part — forms can stay out of Connect). Run after `generate_schema`; changes nothing. |
+| `update_app` | Set the app's name and/or its CommCare Connect type. On a Connect build, set the type before creating modules. |
 
 ## Working on modules
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module. Configure its case list afterward via the case-list tools below. |
-| `update_module` | Rename a module. |
+| `create_module` | Add a new module together with its forms (each with fields), its case-list columns, and — when its case type is new to the app — the case type's record, in one call. A module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
+| `update_module` | Rename a module and/or set its case type (with starter case-list columns when the module has none) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module. |
 | `get_module` | Show details for one module, including the structured case-list config. |
 
@@ -73,7 +74,7 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 | Tool | What it does |
 |---|---|
-| `create_form` | Add a new form to a module. |
+| `create_form` | Add a new form to a module together with its fields, in one call. |
 | `update_form` | Rename, change CommCare Connect config, set close condition or post-submit destination. |
 | `remove_form` | Delete a form. |
 | `get_form` | Show details for one form. |
@@ -92,7 +93,7 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 
 ## Working with media
 
-You can attach images, audio, and video to parts of an app — a field's label or hint, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id.
+You can attach images, audio, and video to parts of an app — a field's label or hint, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id. Every attach checks the asset before anything saves: it must be in your library, fully uploaded, and the right type for the slot (an audio file can't become a menu icon), and the app's total attached media must stay within the export limit. A bad id fails the call with a message saying what to fix, and nothing is saved.
 
 | Tool | What it does |
 |---|---|
@@ -105,15 +106,18 @@ You can attach images, audio, and video to parts of an app — a field's label o
 | `set_form_media` | Set or clear a form's menu icon and audio label. |
 | `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
 
-## Validating and uploading
+## Exporting and uploading
 
 | Tool | What it does |
 |---|---|
-| `validate_app` | Run Nova's validation pass. The loop auto-fixes common issues; remaining errors come back in the response. |
 | `compile_app` | Compile to CommCare HQ format — the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which project spaces (domains) it can reach. |
 | `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL. |
 
 <Callout type="info">
 HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova copy doesn't change. To retire the previous HQ version, archive it on HQ.
+</Callout>
+
+<Callout type="warn">
+Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns) — fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms, case-list columns, and (for a new case type) the case type's record, so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
 </Callout>

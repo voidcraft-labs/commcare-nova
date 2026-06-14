@@ -1,7 +1,8 @@
 // lib/domain/forms.ts
 import { z } from "zod";
 import { assetIdSchema } from "./multimedia";
-import { uuidSchema } from "./uuid";
+import { type Uuid, uuidSchema } from "./uuid";
+import { xpathExpressionSchema } from "./xpath";
 
 export const FORM_TYPES = [
 	"registration",
@@ -58,7 +59,13 @@ export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
 
 const closeConditionSchema = z
 	.object({
-		field: z.string(),
+		// The checked field, by stable uuid — rename-proof identity, the
+		// same contract as form-link targets. The schema stays permissive
+		// over the string (a legacy doc can carry an unresolvable id or a
+		// transient empty value); the validator's close-condition rules
+		// adjudicate resolution, and every reader resolves through
+		// `doc.fields` with the verbatim text as the dangling fallback.
+		field: z.string().transform((s) => s as Uuid),
 		answer: z.string(),
 		operator: z.enum(["=", "selected"]).optional(),
 	})
@@ -67,7 +74,7 @@ const closeConditionSchema = z
 const formLinkDatumSchema = z
 	.object({
 		name: z.string(),
-		xpath: z.string(),
+		xpath: xpathExpressionSchema,
 	})
 	.strict();
 
@@ -89,13 +96,12 @@ const formLinkTargetSchema = z.discriminatedUnion("type", [
 
 const formLinkSchema = z
 	.object({
-		// Empty string is semantically meaningless — the session emitter's
-		// truthy check (`if (link.condition)`) treats "" as "unconditional"
-		// while the expander's presence check (`!== undefined`) treats it as
-		// "set" and emits `condition: ""` to HQ. Rejecting "" at the schema
-		// keeps those two views trivially in agreement: the field is either
-		// absent or a non-empty XPath expression.
-		condition: z.string().min(1).optional(),
+		// An empty condition is semantically meaningless (the emitters
+		// treat absence as "unconditional"), so the slot is either absent
+		// or a non-empty expression — the printed projection of an empty
+		// AST is "", and the boundary that parses authored text never
+		// stores one (an empty commit clears the slot).
+		condition: xpathExpressionSchema.optional(),
 		target: formLinkTargetSchema,
 		datums: z.array(formLinkDatumSchema).optional(),
 	})
@@ -122,7 +128,14 @@ const connectLearnModuleSchema = z
 const connectAssessmentSchema = z
 	.object({
 		id: z.string().optional(),
-		user_score: z.string(),
+		// An XPath expression consumed only by the XForm bind emitter. Either
+		// side may set it (the SA points it at a hidden score field; the UI
+		// panel lets a user override), but if absent the wire layer in
+		// `lib/commcare/xform/builder.ts` emits the canonical default at bind
+		// time — the same contract `deliver_unit.entity_id` / `entity_name`
+		// hold. Optional here matches what's true: the doc tracks what was
+		// set, the wire layer fills the rest.
+		user_score: xpathExpressionSchema.optional(),
 	})
 	.strict();
 const connectDeliverUnitSchema = z
@@ -136,8 +149,8 @@ const connectDeliverUnitSchema = z
 		// emits the canonical defaults at bind time. Optional here matches
 		// what's true: the doc tracks what was set, the wire layer fills
 		// the rest.
-		entity_id: z.string().optional(),
-		entity_name: z.string().optional(),
+		entity_id: xpathExpressionSchema.optional(),
+		entity_name: xpathExpressionSchema.optional(),
 	})
 	.strict();
 const connectTaskSchema = z

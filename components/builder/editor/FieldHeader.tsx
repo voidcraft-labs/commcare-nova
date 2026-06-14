@@ -32,17 +32,27 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import {
+	REJECTION_SURFACE_CLS,
+	RejectionBody,
+} from "@/components/builder/RejectionNotice";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import {
 	type CrossLevelFieldMoveTarget,
 	getCrossLevelFieldMoveTargets,
 	getFieldMoveTargets,
 } from "@/lib/doc/navigation";
 import { asUuid } from "@/lib/doc/types";
-import { type Field, fieldRegistry, getConvertibleTypes } from "@/lib/domain";
+import {
+	type CommitOutcome,
+	type Field,
+	fieldRegistry,
+	getConvertibleTypes,
+} from "@/lib/domain";
 import { shortcutLabel } from "@/lib/platform";
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
@@ -112,7 +122,11 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 		moveField,
 		duplicateField,
 		convertField,
-		renameField: renameFieldAction,
+		// Rename rejections render in this header's own popover, so the
+		// dispatch is the inline flavor — the toast stays quiet. The menu
+		// actions (move/duplicate/convert) have no contextual anchor and
+		// stay on the announcing flavor.
+		inline: { renameField: renameFieldAction },
 	} = useBlueprintMutations();
 
 	/* Imperative doc handle. The grandparent row (`FieldRow`) subscribes
@@ -163,54 +177,83 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 		return () => clearTimeout(timer);
 	}, [idNotice]);
 
-	/** Attempts the rename and returns false if blocked by a sibling conflict.
-	 * On success the mutation has already been applied by the store.
-	 * Rename doesn't change uuid, so no selection update is needed. The
+	/** Runs the shared identifier verdict and, on a clean verdict,
+	 * dispatches the rename. Rename doesn't change uuid, so no selection
+	 * update is needed. The verdict (`renameFieldIdVerdict`) is the same
+	 * one the SA tools enforce — XML-name legality, the reserved
+	 * `__nova_` prefix, the case-property length cap, and the peer-aware
+	 * sibling-conflict scan — so UI and agent renames can't drift. The
 	 * outcome classification is owned by `classifyRenameOutcome` so the
-	 * conflict-message wording + branching is testable without mounting
-	 * the header. */
-	const validateRename = useCallback(
-		(newId: string): boolean => {
-			if (!selectedUuid) return false;
+	 * branching is testable without mounting the header.
+	 *
+	 * Wired as `useCommitField`'s `onSave` (NOT `validate`): an
+	 * `ok: false` return runs the hook's draft-preserving restore — the
+	 * typed id stays in the input alongside the shake + popover — where
+	 * a `validate` false would snap the input back to the old id. */
+	const commitRename = useCallback(
+		(newId: string): CommitOutcome | undefined => {
+			if (!selectedUuid) return undefined;
 
-			const result = renameFieldAction(asUuid(selectedUuid), newId);
-			const outcome = classifyRenameOutcome({
+			const verdict = renameFieldIdVerdict({
+				doc: docApi.getState(),
+				fieldUuid: asUuid(selectedUuid),
 				newId,
-				hasConflict: !!result.conflict,
 			});
+			const outcome = classifyRenameOutcome({ newId, verdict });
 
 			switch (outcome.kind) {
 				case "noop":
-					return false;
-				case "conflict":
-					/* Store blocked the rename — two siblings would now share
-					 * the same id, which CommCare forbids. Surface the
-					 * collision with a quick shake on the input wrapper plus
-					 * an error popover anchored to it. The `onAnimationEnd`
-					 * handler on the wrapper clears `shaking` when the CSS
-					 * keyframe completes. */
+					/* Hardening only — empty/no-op commits short-circuit inside
+					 * the hook before `onSave` fires. A messageless rejection
+					 * reads as a silent revert. */
+					return { ok: false, messages: [] };
+				case "rejected":
+					/* The verdict blocked the rename — an illegal, reserved,
+					 * over-long, or sibling-conflicting id. Surface it with a
+					 * quick shake on the input wrapper plus an error popover
+					 * anchored to it. The `onAnimationEnd` handler on the
+					 * wrapper clears `shaking` when the CSS keyframe
+					 * completes. */
 					setShaking(true);
 					setIdNotice({
 						severity: "error",
 						message: outcome.message,
 					});
-					return false;
-				case "success":
-					/* Rename succeeded — uuid stays the same, selection is
-					 * stable. Clear the new-field highlight so subsequent
-					 * edits are normal. */
+					return { ok: false, messages: [outcome.message] };
+				case "success": {
+					/* Verdict clean — dispatch the rename (the store re-runs
+					 * the conflict scan as its own backstop, and the commit
+					 * gate can still refuse for findings only the whole-doc
+					 * validator sees). Uuid stays the same, selection is
+					 * stable. */
+					const result = renameFieldAction(asUuid(selectedUuid), newId);
+					if (result.rejected && result.rejected.length > 0) {
+						/* The commit gate refused — same shake + popover chrome
+						 * as an identifier rejection, with the gate's own
+						 * finding. */
+						setShaking(true);
+						setIdNotice({
+							severity: "error",
+							message: result.rejected[0],
+						});
+						return { ok: false, messages: result.rejected };
+					}
+					/* Clear the new-field highlight so subsequent edits are
+					 * normal. */
 					setIdNotice(null);
 					clearNewField();
-					return true;
+					return undefined;
+				}
 			}
 		},
-		[selectedUuid, renameFieldAction, clearNewField],
+		[selectedUuid, docApi, renameFieldAction, clearNewField],
 	);
 
 	const idField = useCommitField({
 		value: field.id,
-		validate: validateRename,
-		onSave: () => {},
+		// `commitRename` owns the verdict + dispatch and returns the
+		// outcome — a refusal rides the hook's draft-preserving restore.
+		onSave: commitRename,
 	});
 
 	/** Callback ref for the ID input — merges the commit hook ref with
@@ -399,24 +442,27 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 								className="z-popover-top"
 							>
 								<Popover.Popup className={POPOVER_POPUP_CLS}>
-									<div
-										role="alert"
-										className={`px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] shadow-lg max-w-xs border ${
-											idNotice?.severity === "error"
-												? "border-nova-rose/20"
-												: "border-nova-violet/20"
-										}`}
-									>
-										<p
-											className={`text-xs font-mono leading-snug ${
-												idNotice?.severity === "error"
-													? "text-nova-rose"
-													: "text-nova-violet-bright"
-											}`}
+									{idNotice?.severity === "error" ? (
+										<div
+											role="alert"
+											className={`px-3 py-2.5 max-w-sm ${REJECTION_SURFACE_CLS}`}
 										>
-											{idNotice?.message}
-										</p>
-									</div>
+											<RejectionBody message={idNotice.message} />
+										</div>
+									) : (
+										/* Info notices (auto-rename after a cross-level
+										 * move) keep the violet register — nothing was
+										 * refused, the system did something on the
+										 * user's behalf. */
+										<div
+											role="alert"
+											className="px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] shadow-lg max-w-xs border border-nova-violet/20"
+										>
+											<p className="text-xs font-mono leading-snug text-nova-violet-bright">
+												{idNotice?.message}
+											</p>
+										</div>
+									)}
 								</Popover.Popup>
 							</Popover.Positioner>
 						</Popover.Portal>

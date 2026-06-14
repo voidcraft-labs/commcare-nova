@@ -106,6 +106,10 @@
 //                        write-time validator
 //   - `./reduction`    — `reduceAnd` / `reduceOr` / `reduceNot`
 //                        invariants the builders apply
+//   - `./rewrite`      — `renameCasePropertyInPredicate` /
+//                        `renameCasePropertyInExpression` /
+//                        `relationDestinationCaseType` — structural
+//                        case-property rename over stored ASTs
 //
 // ## Wholesale re-export rationale
 //
@@ -123,6 +127,7 @@ export * from "./builders";
 export * from "./errors";
 export * from "./jsonSchema";
 export * from "./reduction";
+export * from "./rewrite";
 export * from "./typeChecker";
 export * from "./types";
 export * from "./walk";

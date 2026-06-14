@@ -39,8 +39,8 @@ import { validationError } from "@/lib/commcare/validator/errors";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain/multimedia";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { registerCompileApp } from "../tools/compileApp";
@@ -62,8 +62,8 @@ vi.mock("@/lib/commcare/compiler", () => ({
 /* The media-validation gate reads Firestore; mock it so the unit suite
  * stays hermetic. Default `[]` = no media issues = proceed; the
  * media-rejection test overrides per-call. */
-vi.mock("@/lib/media/mediaValidation", () => ({
-	collectMediaValidationErrors: vi.fn(),
+vi.mock("@/lib/media/boundaryValidation", () => ({
+	collectBoundaryViolations: vi.fn(),
 }));
 /* The manifest resolver reads Firestore + GCS; mock it so tests pin the
  * media set. Default empty `Map` = media-free; the media-bearing json test
@@ -113,6 +113,7 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
+		blueprint_token: null,
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],
 		...overrides,
@@ -148,11 +149,11 @@ beforeEach(() => {
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
-	vi.mocked(collectMediaValidationErrors).mockReset();
+	vi.mocked(collectBoundaryViolations).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	/* Default: no media issues → the gate is transparent. Tests that
 	 * exercise the rejection path override with `mockResolvedValueOnce`. */
-	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
+	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	/* Default: media-free → empty manifest. The media-bearing json test
 	 * overrides with a populated `Map`. */
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
@@ -322,7 +323,7 @@ describe("registerCompileApp — media validation gate", () => {
 		/* A stale media ref — the kind of issue that would otherwise make
 		 * `expandDoc`'s `requireAssetRef` throw an opaque internal error.
 		 * The gate surfaces the rule's actionable message instead. */
-		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
 			validationError(
 				"MEDIA_ASSET_NOT_READY",
 				"field",
@@ -356,7 +357,7 @@ describe("registerCompileApp — media validation gate", () => {
 		expect(compileCcz).not.toHaveBeenCalled();
 	});
 
-	it("proceeds to compile when ccz media validation is clean", async () => {
+	it("proceeds to compile when the ccz boundary gate is clean", async () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
 		vi.mocked(compileCcz).mockReturnValueOnce(Buffer.from("ccz"));
@@ -373,16 +374,16 @@ describe("registerCompileApp — media validation gate", () => {
 			format: string;
 		};
 		expect(payload.format).toBe("ccz");
-		expect(collectMediaValidationErrors).toHaveBeenCalledTimes(1);
+		expect(collectBoundaryViolations).toHaveBeenCalledTimes(1);
 		expect(compileCcz).toHaveBeenCalledTimes(1);
 	});
 
-	it("runs the media gate for the json format too", async () => {
+	it("runs the boundary gate for the json format too", async () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(fixtureLoadedApp());
 		/* A stale ref on a json compile would make the bundle emit
 		 * references to bytes the manifest can't supply — so the json path
 		 * runs the SAME gate as ccz and surfaces `invalid_input`. */
-		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
 			validationError(
 				"MEDIA_ASSET_NOT_READY",
 				"field",
@@ -404,7 +405,7 @@ describe("registerCompileApp — media validation gate", () => {
 			error_type: string;
 		};
 		expect(payload.error_type).toBe("invalid_input");
-		expect(collectMediaValidationErrors).toHaveBeenCalledTimes(1);
+		expect(collectBoundaryViolations).toHaveBeenCalledTimes(1);
 		/* Gate fires before expand — no broken bundle is built. */
 		expect(expandDoc).not.toHaveBeenCalled();
 	});

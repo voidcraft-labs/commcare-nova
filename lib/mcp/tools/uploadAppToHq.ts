@@ -39,12 +39,13 @@
  *   4. `domain_ambiguous`       — multi-space key with no `domain` supplied;
  *                                 the tool names the spaces and asks the
  *                                 caller to choose rather than guessing.
- *   5. `invalid_input`          — the app references media that isn't ready
- *                                 to upload (a deleted, still-uploading,
- *                                 foreign-owned, or kind-mismatched asset).
- *                                 Fires after domain resolution, before the
- *                                 HQ network call; the message carries the
- *                                 media rule's Elm-shape text.
+ *   5. `invalid_input`          — the zero-tolerance boundary gate found
+ *                                 validator issues (a soundness error,
+ *                                 unfinished completeness work, or a stale
+ *                                 media reference). Fires after domain
+ *                                 resolution, before the HQ network call;
+ *                                 the message carries each rule's
+ *                                 actionable text.
  *   6. `hq_upload_failed`       — `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx). A thrown transport fault
@@ -74,8 +75,8 @@ import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { log } from "@/lib/logger";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { initMcpCall } from "../context";
 import {
 	McpInvalidInputError,
@@ -233,20 +234,19 @@ export function registerUploadAppToHq(
 						appId,
 					);
 				}
-				/* Media gate — this upload is media-ON, so a stale media
-				 * reference (deleted, still-uploading, foreign-owned, or
-				 * kind-mismatched asset) would make `expandDoc` throw
-				 * `requireAssetRef`, surfacing as an opaque `internal`
-				 * error. Run the media rules first and throw the actionable
-				 * message as `McpInvalidInputError` so the outer catch's
-				 * `toMcpErrorResult` emits an `invalid_input` envelope with
-				 * the rule's Elm-shape text. Thrown before run-id derivation
-				 * + `initMcpCall` so a media-invalid doc never allocates a
-				 * LogWriter. */
-				const mediaErrors = await collectMediaValidationErrors(doc, ctx.userId);
-				if (mediaErrors.length > 0) {
+				/* Boundary gate — zero tolerance before the HQ network call.
+				 * Every validator finding (soundness, completeness, media-
+				 * state) rejects the upload as `McpInvalidInputError` so the
+				 * outer catch's `toMcpErrorResult` emits an `invalid_input`
+				 * envelope with each rule's actionable message — an invalid
+				 * app must never reach HQ, and a stale media reference would
+				 * otherwise surface as `expandDoc`'s opaque `requireAssetRef`
+				 * throw. Thrown before run-id derivation + `initMcpCall` so
+				 * an invalid doc never allocates a LogWriter. */
+				const violations = await collectBoundaryViolations(doc, ctx.userId);
+				if (violations.length > 0) {
 					throw new McpInvalidInputError(
-						`This app references media that isn't ready to upload: ${mediaErrors
+						`This app isn't ready to upload — fix these first: ${violations
 							.map(errorToString)
 							.join(" ")}`,
 					);

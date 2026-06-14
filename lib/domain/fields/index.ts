@@ -56,8 +56,10 @@ import {
 	type QueryBoundRepeatField,
 	queryBoundRepeatSchema,
 	type RepeatField,
+	type RepeatMode,
 	repeatFieldMetadata,
 	repeatFieldSchema,
+	repeatModes,
 	type UserControlledRepeatField,
 	userControlledRepeatSchema,
 } from "./repeat";
@@ -179,14 +181,15 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	repeat: repeatFieldMetadata,
 };
 
-/**
- * The three repeat-mode discriminator literals. The repeat kind's schema
- * is a `z.discriminatedUnion("repeat_mode", [...])` over these three
- * variants — each carries its own key set (`repeat_count` for count-
- * bound, `data_source` for query-bound) — and the umbrella
- * `repeatFieldSchema` has no `.shape` of its own.
- */
-type RepeatMode = "user_controlled" | "count_bound" | "query_bound";
+export type { RepeatMode };
+// `RepeatMode` (the three `repeat_mode` discriminator literals) comes
+// from `./repeat`, where the `repeatModes` tuple is declared beside the
+// variant schemas it names. The repeat kind's schema is a
+// `z.discriminatedUnion("repeat_mode", [...])` over those variants —
+// each carries its own key set (`repeat_count` for count-bound,
+// `data_source` for query-bound) — and the umbrella `repeatFieldSchema`
+// has no `.shape` of its own.
+export { repeatModes };
 
 /**
  * Per-kind key sets — every property name the `kind`'s schema declares.

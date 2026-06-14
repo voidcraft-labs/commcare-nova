@@ -137,8 +137,18 @@ export function expandCaseHashtag(segments: string[]): string {
 	return expandCaseToWire(hops, propPath);
 }
 
-/** Apply edits in reverse order to preserve source offsets. */
-function applyEdits(
+/**
+ * Apply ALREADY-POSITION-SORTED edits in reverse order to preserve
+ * source offsets.
+ *
+ * Deliberately NOT the rewriters' self-sorting `applyEdits`
+ * (`lib/preview/xpath/rewrite.ts`): the sole producer here is
+ * `tree.iterate`, which visits `HashtagRef`s in document order, so the
+ * edit list arrives sorted by construction and this helper leans on
+ * that precondition instead of re-sorting — the name carries the
+ * contract.
+ */
+function applyPresortedEdits(
 	source: string,
 	edits: Array<{ from: number; to: number; text: string }>,
 ): string {
@@ -191,7 +201,7 @@ export function rewriteHashtags(
 		},
 	});
 
-	return applyEdits(expr, edits);
+	return applyPresortedEdits(expr, edits);
 }
 
 /**

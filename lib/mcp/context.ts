@@ -38,7 +38,10 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
+import type {
+	StagedMutationBatch,
+	ToolExecutionContext,
+} from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
@@ -49,6 +52,7 @@ import type {
 	MutationEvent,
 } from "@/lib/log/types";
 import { LogWriter } from "@/lib/log/writer";
+import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import { createProgressEmitter, type ProgressEmitter } from "./progress";
 import type { ToolContext } from "./types";
 
@@ -122,9 +126,61 @@ export class McpContext implements ToolExecutionContext {
 		mutations: Mutation[],
 		doc: BlueprintDoc,
 		stage?: string,
+		mediaExpectations?: readonly MediaAttachExpectation[],
 	): Promise<MutationEvent[]> {
 		if (mutations.length === 0) return [];
-		const events: MutationEvent[] = mutations.map((mutation) => ({
+		/* Persist FIRST, log second: the guarded transactional commit can
+		 * still reject (or throw on a transport fault), and an event log
+		 * that recorded a batch the blueprint never absorbed would make a
+		 * replay diverge from the persisted doc. */
+		await this.saveBlueprint(doc, mutations, mediaExpectations);
+		const events = this.buildEnvelopes(mutations, stage);
+		for (const e of events) this.logWriter.logEvent(e);
+		return events;
+	}
+
+	/**
+	 * Persist a multi-stage sequence as ONE transactional guarded save.
+	 *
+	 * The whole point of this method on the MCP surface: the guarded
+	 * commit re-applies the batch to the FRESH stored blueprint and
+	 * re-runs the validity verdict inside the Firestore transaction, and
+	 * that re-verdict must see the SAME candidate the optimistic gate
+	 * approved — the concatenated sequence, once. Saving stage-by-stage
+	 * would instead run an independent transaction per stage, so a
+	 * mid-sequence rejection (a concurrent commit landing between
+	 * transactions) would leave the earlier stages PERSISTED while the
+	 * tool reports "nothing was saved" — and an intermediate-state finding
+	 * a later stage resolves would reject at a per-stage re-verdict even
+	 * though the whole edit is valid. One save, one re-verdict, zero
+	 * committed prefix on any rejection.
+	 *
+	 * The persisted snapshot is the final stage's doc; the event-log
+	 * envelopes keep each stage's own tag. Same persist-first/log-second
+	 * ordering as `recordMutations`.
+	 */
+	async recordMutationStages(
+		stages: StagedMutationBatch[],
+	): Promise<MutationEvent[]> {
+		const nonEmpty = stages.filter((s) => s.mutations.length > 0);
+		if (nonEmpty.length === 0) return [];
+		const finalDoc = nonEmpty[nonEmpty.length - 1].doc;
+		const allMutations = nonEmpty.flatMap((s) => s.mutations);
+		await this.saveBlueprint(finalDoc, allMutations);
+		const events = nonEmpty.flatMap((s) =>
+			this.buildEnvelopes(s.mutations, s.stage),
+		);
+		for (const e of events) this.logWriter.logEvent(e);
+		return events;
+	}
+
+	/** Build the `MutationEvent` envelopes for one batch under one stage
+	 *  tag, allocating from the per-request `seq` counter. */
+	private buildEnvelopes(
+		mutations: Mutation[],
+		stage?: string,
+	): MutationEvent[] {
+		return mutations.map((mutation) => ({
 			kind: "mutation",
 			runId: this.runId,
 			ts: Date.now(),
@@ -138,9 +194,6 @@ export class McpContext implements ToolExecutionContext {
 			...(stage !== undefined && { stage }),
 			mutation,
 		}));
-		for (const e of events) this.logWriter.logEvent(e);
-		await this.saveBlueprint(doc);
-		return events;
 	}
 
 	/**
@@ -191,12 +244,26 @@ export class McpContext implements ToolExecutionContext {
 	 * argument routes the Firestore commit through `updateAppForRun`
 	 * so the run id persists alongside the blueprint.
 	 */
-	private async saveBlueprint(doc: BlueprintDoc): Promise<void> {
+	private async saveBlueprint(
+		doc: BlueprintDoc,
+		mutations: Mutation[],
+		mediaExpectations?: readonly MediaAttachExpectation[],
+	): Promise<void> {
 		await applyBlueprintChange({
 			appId: this.appId,
 			userId: this.userId,
 			prospective: toPersistableDoc(doc),
 			runId: this.runId,
+			/* Guarded commit: the saga's Firestore write re-reads the stored
+			 * blueprint, re-applies this batch, and re-runs the validity
+			 * verdict inside a transaction — two concurrent gate-approved
+			 * batches serialize instead of last-writer-wins, and a batch the
+			 * fresh doc rejects throws (the tool returns its `{ error }`
+			 * envelope) rather than erasing the concurrent commit. A media
+			 * attach's per-asset expectations re-verify inside the SAME
+			 * transaction (the asset rows join its read set), so an asset
+			 * delete racing the attach serializes against this commit. */
+			guard: { mutations, ...(mediaExpectations && { mediaExpectations }) },
 		});
 	}
 }

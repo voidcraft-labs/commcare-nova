@@ -2,8 +2,10 @@
 //
 // Server Actions for the running-app view's case-data binding.
 // Each action resolves the request's session, constructs a
-// tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`,
-// and delegates to an I/O helper in `./caseDataBindingHelpers.ts`
+// tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`
+// wrapped in `schemaHealingCaseStore` (every individual store call
+// self-heals a missing schema row and retries itself once), and
+// delegates to an I/O helper in `./caseDataBindingHelpers.ts`
 // (server-only) or an error mapper in `./caseDataBindingClient.ts`
 // (client-bundle-safe). Tests bypass the actions and inject a
 // `CaseStore` directly. Centralizing session resolution here means
@@ -38,6 +40,7 @@ import {
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
+	schemaHealingCaseStore,
 	seedSampleCases,
 } from "./caseDataBindingHelpers";
 import type {
@@ -106,7 +109,10 @@ export async function loadCasesAction(args: {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId: args.appId, userId: session.user.id },
+		);
 		// Convert `BlueprintDoc → ReadonlyMap<string, CaseType>` at the
 		// request edge — `readCases` accepts the case-store's actual
 		// schema-resolution dependency directly, so the helper stays
@@ -134,7 +140,10 @@ export async function loadCaseDataAction(
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId, userId: session.user.id },
+		);
 		return await readCaseData(store, { appId, caseType, caseId });
 	} catch (err) {
 		return {
@@ -164,7 +173,10 @@ export async function populateSampleCasesAction(
 		if (!found) {
 			throw new CaseTypeNotInBlueprintError(appId, caseType);
 		}
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId, userId: session.user.id },
+		);
 		return await seedSampleCases(store, { appId, caseType: found });
 	} catch (err) {
 		return mapPopulateSampleCasesError(err);
@@ -198,7 +210,10 @@ export async function resetSampleCasesAction(
 		if (!found) {
 			throw new CaseTypeNotInBlueprintError(appId, caseType);
 		}
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId, userId: session.user.id },
+		);
 		return await resetSampleCases(store, { appId, caseType: found });
 	} catch (err) {
 		return mapPopulateSampleCasesError(err);
@@ -304,7 +319,10 @@ export async function loadCaseListPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId: args.appId, userId: session.user.id },
+		);
 		// Resolve the `name → CaseType` map once at the request edge —
 		// `readCaseListPreview` accepts the case-store's schema-resolution
 		// dependency directly so the helper stays decoupled from the full
@@ -391,7 +409,10 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const store = await withOwnerContext(session.user.id);
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId: args.appId, userId: session.user.id },
+		);
 		// `buildCaseTypeMap` reads only `caseTypes`, so the parsed
 		// persistable shape goes through directly — same as
 		// `loadCaseListPreviewAction`.
@@ -429,7 +450,16 @@ export async function submitFormAction(
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const store = await withOwnerContext(session.user.id);
+		// The schema heal lives INSIDE the store (one heal per individual
+		// store call), never around this dispatch: followup/close run a
+		// primary update plus per-child inserts in separate transactions,
+		// so a dispatch-level retry would re-insert children that already
+		// landed. With the heal at the store call, the one write that threw
+		// retries and the dispatch resumes from where it stopped.
+		const store = schemaHealingCaseStore(
+			await withOwnerContext(session.user.id),
+			{ appId, userId: session.user.id },
+		);
 		switch (mutation.kind) {
 			case "registration": {
 				const { caseId, childCaseIds } = await applyRegistrationMutation(

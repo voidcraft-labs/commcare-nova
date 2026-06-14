@@ -101,11 +101,15 @@ async function main() {
 		return;
 	}
 
-	/* Write. */
+	/* Write. Rotating `blueprint_token` makes any open builder tab's next
+	 * auto-save bounce (409 → reload) instead of blind-overwriting the
+	 * recovered state — recovery is exactly the out-of-window write the
+	 * basis exists to surface. */
 	await ref.set(
 		{
 			status: "complete",
 			error_type: null,
+			blueprint_token: crypto.randomUUID(),
 			updated_at: FieldValue.serverTimestamp(),
 		},
 		{ merge: true },

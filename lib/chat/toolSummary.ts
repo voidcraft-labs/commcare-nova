@@ -39,11 +39,38 @@ const TOOL_ACTIONS: Record<string, string> = {
 	setCaseListFilter: "Set the case-list filter",
 	setCaseSearchAdvanced: "Updated advanced search",
 	setCaseSearchDisplay: "Updated the search screen",
+	updateApp: "Updated app settings",
+	// Historical threads only — these tools are retired, but runs
+	// persisted before their retirement still carry these parts.
+	completeBuild: "Finished the app",
 	validateApp: "Validated the app",
 	searchBlueprint: "Searched the app",
 	getModule: "Inspected a module",
 	getForm: "Inspected a form",
 	getField: "Inspected a field",
+};
+
+/** Verb phrases for the app-level Connect flip, keyed by the resulting state
+ *  the tool reported (`summary.connect`). The fact is the RESULT, not the
+ *  transition, so the set/switch cases share one honest "Set …" phrasing. */
+const CONNECT_ACTIONS: Record<string, string> = {
+	learn: "Set CommCare Connect to Learn",
+	deliver: "Set CommCare Connect to Deliver",
+	off: "Turned off CommCare Connect",
+};
+
+/** `updateApp` has exactly two slots (name, connect type), so its row names the
+ *  act itself — "Named the app" / "Renamed the app" / a Connect phrase — instead
+ *  of the generic "Updated app settings". The name renders on the secondary "→"
+ *  line (see `toolLocation`), never inline where a long title truncates the
+ *  headline. Falls back to the generic phrase for a row recorded before the
+ *  tool reported these facts. */
+const updateAppAction = (summary: ToolCallSummary | undefined): string => {
+	if (summary?.nameChange) {
+		return summary.nameChange === "named" ? "Named the app" : "Renamed the app";
+	}
+	if (summary?.connect) return CONNECT_ACTIONS[summary.connect];
+	return TOOL_ACTIONS.updateApp;
 };
 
 /** Tools whose single call performs a MULTI-ITEM action — the friendly action
@@ -73,6 +100,8 @@ export const isEditToolPart = (part: { type: string }): boolean =>
 	part.type.startsWith("tool-") &&
 	part.type !== "tool-askQuestions" &&
 	part.type !== "tool-generateSchema" &&
+	part.type !== "tool-planAppDesign" &&
+	// Historical threads only — the retired scaffold generator.
 	part.type !== "tool-generateScaffold";
 
 /** The mutating-tool success shape we read for presentation. All fields are
@@ -94,31 +123,38 @@ const outputOf = (part: ToolUIPart): MutationOutput | null => {
 		: null;
 };
 
-/** A failed `validateApp` OUTCOME: the call returns `{ success:false, errors }`.
+/** Tools whose OUTCOME is `{ success, errors? }` — both retired, both
+ *  still present on threads persisted before their retirement. */
+const COMPLETION_TOOLS = new Set(["completeBuild", "validateApp"]);
+
+/** A refused completion OUTCOME: the call returns `{ success:false, errors }`.
  *  This is the one case where a completed tool call must read as a failure —
- *  the app didn't validate. Returns the error list, or null when not applicable.
- *  Exported so the transcript can render the list as collapsed bullets rather
- *  than dumping the joined string. */
-export const validateErrors = (part: ToolUIPart): string[] | null => {
-	if (toolName(part) !== "validateApp" || part.state !== "output-available") {
+ *  the app isn't finished. Returns the finding list, or null when not
+ *  applicable. Exported so the transcript can render the list as collapsed
+ *  bullets rather than dumping the joined string. */
+export const completionErrors = (part: ToolUIPart): string[] | null => {
+	if (
+		!COMPLETION_TOOLS.has(toolName(part)) ||
+		part.state !== "output-available"
+	) {
 		return null;
 	}
 	const out = part.output as
 		| { success?: boolean; errors?: string[] }
 		| undefined;
 	if (out?.success === false) {
-		return out.errors?.length ? out.errors : ["Validation failed."];
+		return out.errors?.length ? out.errors : ["The app isn't finished yet."];
 	}
 	return null;
 };
 
-/** Per-call status, treating a failed validateApp outcome and an `{ error }`
+/** Per-call status, treating a refused completion outcome and an `{ error }`
  *  result as failures even though the call itself executed. */
 export const toolStatus = (part: ToolUIPart): ToolStatus => {
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		return "pending";
 	}
-	if (part.state === "output-error" || validateErrors(part)) return "failed";
+	if (part.state === "output-error" || completionErrors(part)) return "failed";
 	if (outputOf(part)?.error !== undefined) return "failed";
 	return "done";
 };
@@ -129,6 +165,7 @@ export const toolStatus = (part: ToolUIPart): ToolStatus => {
 export const toolAction = (part: ToolUIPart): string => {
 	const name = toolName(part);
 	const summary = outputOf(part)?.summary;
+	if (name === "updateApp") return updateAppAction(summary);
 	// Multi-item actions fold the count into the verb+noun ("Added 3 fields").
 	const countable = COUNTABLE_ACTIONS[name];
 	if (countable && typeof summary?.count === "number") {
@@ -138,20 +175,27 @@ export const toolAction = (part: ToolUIPart): string => {
 	return summary?.subject ? `${action} "${summary.subject}"` : action;
 };
 
-/** The container breadcrumb ("Clients") shown beneath the action, or null when
- *  the act is top-level (creating a module) or the call carries no summary. */
-export const toolLocation = (part: ToolUIPart): string | null =>
-	outputOf(part)?.summary?.location ?? null;
+/** The secondary "→" line beneath the action: the container breadcrumb
+ *  ("Clients") for a scoped edit, or — for the app-level `updateApp`, which has
+ *  no container — the app's new name, so the row reads "Named the app →
+ *  Client Registration" with the full title on its own line. Null when the act
+ *  is top-level with nothing to point at or the call carries no summary. */
+export const toolLocation = (part: ToolUIPart): string | null => {
+	const summary = outputOf(part)?.summary;
+	if (!summary) return null;
+	if (toolName(part) === "updateApp") return summary.subject ?? null;
+	return summary.location ?? null;
+};
 
-/** Secondary line beneath the action: an error to surface, validateApp's
+/** Secondary line beneath the action: an error to surface, a completion
  *  outcome, or — for a call without a structured summary (read tools, or one
  *  not yet wired) — its raw prose so nothing renders blank. Null when the
  *  action + location already say everything. */
 export const toolDetail = (part: ToolUIPart): string | null => {
-	const verrors = validateErrors(part);
-	if (verrors) return verrors.join("\n");
-	if (toolName(part) === "validateApp" && toolStatus(part) === "done") {
-		return "App successfully validated.";
+	const cerrors = completionErrors(part);
+	if (cerrors) return cerrors.join("\n");
+	if (COMPLETION_TOOLS.has(toolName(part)) && toolStatus(part) === "done") {
+		return "App complete and ready to use.";
 	}
 	// A tool that threw, or whose input the schema rejected, surfaces as
 	// `output-error` with the AI SDK's raw `errorText` (e.g. an
@@ -165,6 +209,14 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	const out = part.output;
 	if (typeof out === "object" && out !== null && "error" in out) {
 		return String((out as { error: unknown }).error);
+	}
+	// updateApp's headline carries the name verb when BOTH slots changed —
+	// surface the Connect flip on the detail line so neither change is hidden.
+	if (toolName(part) === "updateApp") {
+		const summary = outputOf(part)?.summary;
+		if (summary?.nameChange && summary.connect) {
+			return CONNECT_ACTIONS[summary.connect];
+		}
 	}
 	// A structured summary already drives the action + breadcrumb — no prose
 	// needed. Only fall back to the prose `message` (or a bare-string result)

@@ -39,13 +39,15 @@
 "use client";
 import tablerEye from "@iconify-icons/tabler/eye";
 import { useId, useState } from "react";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import type { CaseSearchConfig, CaseType } from "@/lib/domain";
+import type { CaseSearchConfig, CaseType, CommitOutcome } from "@/lib/domain";
 import type { Predicate, SearchInputDecl } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
+import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -57,8 +59,9 @@ export interface DisplaySectionProps {
 	readonly value: CaseSearchConfig | undefined;
 	/** Fired with the next configuration. The parent applies the
 	 *  next config to its source-of-truth (the doc store's module
-	 *  `caseSearchConfig` slot). */
-	readonly onChange: (next: CaseSearchConfig) => void;
+	 *  `caseSearchConfig` slot) and returns the gated outcome so the
+	 *  text rows keep a refused draft + finding inline. */
+	readonly onChange: (next: CaseSearchConfig) => CommitOutcome | undefined;
 	/** Blueprint case-type definitions — drives the property pickers
 	 *  inside the predicate editor mounted on the
 	 *  `searchButtonDisplayCondition` slot. */
@@ -104,7 +107,10 @@ interface OptionalTextRowProps {
 	readonly label: string;
 	readonly hint: string;
 	readonly value: string | undefined;
-	readonly onCommit: (next: string | undefined) => void;
+	/** Commit the slot. Returns the gated outcome (or void for callers
+	 *  with nothing to report) so a refused edit keeps the draft +
+	 *  finding inline. */
+	readonly onCommit: (next: string | undefined) => CommitOutcome | undefined;
 	readonly placeholder?: string;
 	/** When `true`, the row renders a `<textarea>` + a "Markdown"
 	 *  badge + a live `<PreviewMarkdown />` panel beneath. When
@@ -137,17 +143,26 @@ function OptionalTextRow({
 	// contract is "delete on empty"; this site needs "no-op on
 	// never-set" — when the slot started absent and ends absent, no
 	// parent emit fires.
-	const { draft, setDraft, ref, handleFocus, handleBlur, handleKeyDown } =
-		useCommitField({
-			value: value ?? "",
-			onSave: (next) => onCommit(next),
-			onEmpty: () => {
-				if (value !== undefined) {
-					onCommit(undefined);
-				}
-			},
-			multiline: markdown,
-		});
+	const {
+		draft,
+		setDraft,
+		rejection,
+		rejectionNonce,
+		ref,
+		handleFocus,
+		handleBlur,
+		handleKeyDown,
+	} = useCommitField({
+		value: value ?? "",
+		onSave: (next) => onCommit(next),
+		onEmpty: () => {
+			if (value !== undefined) {
+				onCommit(undefined);
+			}
+		},
+		multiline: markdown,
+	});
+	const shakeProps = useRejectionShake(rejectionNonce);
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -177,11 +192,16 @@ function OptionalTextRow({
 					onFocus={handleFocus}
 					onBlur={handleBlur}
 					onKeyDown={handleKeyDown}
+					onAnimationEnd={shakeProps.onAnimationEnd}
 					autoComplete="off"
 					data-1p-ignore
 					placeholder={placeholder}
 					rows={3}
-					className="w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors resize-none"
+					className={`w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors resize-none ${shakeProps.className} ${
+						rejection
+							? "border-nova-rose/60 focus:border-nova-rose/60 focus:ring-nova-rose/30"
+							: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30"
+					}`}
 				/>
 			) : (
 				<input
@@ -193,12 +213,20 @@ function OptionalTextRow({
 					onFocus={handleFocus}
 					onBlur={handleBlur}
 					onKeyDown={handleKeyDown}
+					onAnimationEnd={shakeProps.onAnimationEnd}
 					autoComplete="off"
 					data-1p-ignore
 					placeholder={placeholder}
-					className="w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
+					className={`w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors ${shakeProps.className} ${
+						rejection
+							? "border-nova-rose/60 focus:border-nova-rose/60 focus:ring-nova-rose/30"
+							: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30"
+					}`}
 				/>
 			)}
+			{/* The gate refused the commit — the draft is still in the input;
+			 * the notice tells the author what to fix. */}
+			<RejectionInline message={rejection} />
 			<span className="text-[10px] text-nova-text-muted/70">{hint}</span>
 			{markdown && draft.trim().length > 0 ? (
 				// Live preview of the markdown the author is typing.
@@ -249,16 +277,27 @@ export function DisplaySection({
 	// source would land as a real own enumerable property and break
 	// the `key in config` genuine-presence check).
 	const setSearchScreenTitle = (next: string | undefined) => {
-		onChange(setOptionalSlot(value, "searchScreenTitle", next));
+		return onChange(setOptionalSlot(value, "searchScreenTitle", next));
 	};
 	const setSearchScreenSubtitle = (next: string | undefined) => {
-		onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
+		return onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
 	};
 	const setSearchButtonLabel = (next: string | undefined) => {
-		onChange(setOptionalSlot(value, "searchButtonLabel", next));
+		return onChange(setOptionalSlot(value, "searchButtonLabel", next));
 	};
+	/* The predicate card has no inline channel of its own — capture the
+	 * gate outcome and render it beneath the card, mirroring
+	 * AdvancedSection's excluded-owners slot. */
+	const [predicateRejection, setPredicateRejection] = useState<string | null>(
+		null,
+	);
 	const setSearchButtonDisplayCondition = (next: Predicate | undefined) => {
-		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
+		const outcome = onChange(
+			setOptionalSlot(value, "searchButtonDisplayCondition", next),
+		);
+		setPredicateRejection(
+			outcome && !outcome.ok ? (outcome.messages[0] ?? null) : null,
+		);
 	};
 
 	return (
@@ -315,6 +354,9 @@ export function DisplaySection({
 				knownInputs={knownInputs}
 				onValidityChange={setPredicateValid}
 			/>
+			{/* The gate refused the last condition commit — the card above
+			 * still shows the authored predicate; this names the finding. */}
+			<RejectionInline message={predicateRejection} />
 		</div>
 	);
 }

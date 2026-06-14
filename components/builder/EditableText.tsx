@@ -1,13 +1,19 @@
 "use client";
 import { useCallback, useId } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
+import type { CommitOutcome } from "@/lib/domain";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
+import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 
 interface EditableTextProps {
 	label: string;
 	value: string;
-	onSave: (value: string) => void;
+	/** Commit the trimmed value. Returning the gated dispatch's
+	 *  `CommitOutcome` lets a refused edit keep the draft + show the
+	 *  finding inline (see `useCommitField`); `void` reads as committed. */
+	onSave: (value: string) => CommitOutcome | undefined;
 	onEmpty?: () => void;
 	mono?: boolean;
 	color?: string;
@@ -42,6 +48,8 @@ export function EditableText({
 		setDraft,
 		focused,
 		saved,
+		rejection,
+		rejectionNonce,
 		ref,
 		handleFocus,
 		handleBlur,
@@ -53,6 +61,7 @@ export function EditableText({
 		multiline,
 		selectAll,
 	});
+	const shakeProps = useRejectionShake(rejectionNonce);
 
 	// Callback ref wrapping the hook's ref so we can also drive imperative
 	// focus on mount. The programmatic `.focus()` triggers React's onFocus,
@@ -72,8 +81,12 @@ export function EditableText({
 	);
 
 	const fontClass = mono ? "font-mono" : "";
-	const baseCls = `w-full text-sm ${fontClass} rounded-md px-2 py-1.5 border outline-none transition-colors`;
-	const focusedCls = `${baseCls} bg-nova-surface text-nova-text border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]`;
+	const baseCls = `w-full text-sm ${fontClass} rounded-md px-2 py-1.5 border outline-none transition-colors ${shakeProps.className}`;
+	const focusedCls = `${baseCls} bg-nova-surface text-nova-text ${
+		rejection
+			? "border-nova-rose/60 shadow-[0_0_0_1px_rgba(212,112,143,0.12)]"
+			: "border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+	}`;
 	const unfocusedCls = `${baseCls} bg-nova-deep/50 border-white/[0.06] cursor-text ${color || ""} ${!draft && placeholder ? "text-nova-text-muted italic" : "font-medium"} hover:border-nova-violet/30`;
 	const cls = focused ? focusedCls : unfocusedCls;
 
@@ -108,6 +121,7 @@ export function EditableText({
 					onFocus={handleFocus}
 					onBlur={handleBlur}
 					onKeyDown={handleKeyDown}
+					onAnimationEnd={shakeProps.onAnimationEnd}
 					className={`${cls} resize-none`}
 					rows={rows}
 					placeholder={placeholder}
@@ -124,6 +138,7 @@ export function EditableText({
 					onFocus={handleFocus}
 					onBlur={handleBlur}
 					onKeyDown={handleKeyDown}
+					onAnimationEnd={shakeProps.onAnimationEnd}
 					className={cls}
 					placeholder={placeholder}
 					autoComplete="off"
@@ -131,6 +146,10 @@ export function EditableText({
 					data-field-id={dataFieldId}
 				/>
 			)}
+			{/* The validity gate refused the last commit — the draft is still
+			 * in the input (useCommitField restored editing); the notice tells
+			 * the user what to fix, in the rule's own words. */}
+			<RejectionInline message={rejection} />
 		</div>
 	);
 }

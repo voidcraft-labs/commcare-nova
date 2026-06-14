@@ -24,16 +24,16 @@
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { structuralFieldBase } from "./base";
+import { structuralFieldBase, xpathExpressionSchema } from "./base";
 
 export const hiddenFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("hidden"),
 	// A hidden field's value comes from `calculate` (computed) OR
 	// `default_value` (a one-shot seed) — both optional; the `HIDDEN_NO_VALUE`
 	// validator enforces that at least one is present.
-	calculate: z.string().optional(),
-	default_value: z.string().optional(),
-	relevant: z.string().optional(),
+	calculate: xpathExpressionSchema.optional(),
+	default_value: xpathExpressionSchema.optional(),
+	relevant: xpathExpressionSchema.optional(),
 	case_property_on: z.string().optional(),
 });
 

@@ -1,12 +1,13 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { FieldPicker } from "@/components/ui/FieldPicker";
+import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
 import { asUuid } from "@/lib/doc/types";
-import { findFieldById } from "./findFieldById";
 import { InlineField } from "./InlineField";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import type { FormSettingsSectionProps } from "./types";
@@ -43,7 +44,10 @@ const OPERATOR_OPTIONS: ReadonlyArray<SelectMenuOption<CloseOperator>> = [
  */
 export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
-	const { updateForm: updateFormAction } = useBlueprintMutations();
+	/* Two flavors: the mode SelectMenu has no contextual error surface, so
+	 * its dispatch announces (toast); the condition editors forward their
+	 * outcome inline, so theirs stays quiet. */
+	const { updateForm: updateFormAction, inline } = useBlueprintMutations();
 	const triggerId = useId();
 
 	/* Subscribe to the doc's normalized field + order maps. `useFieldsAndOrder`
@@ -53,18 +57,30 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	 * FieldPicker + close-field resolution both consume the same slice so
 	 * the doc walks once per render. */
 	const { fields, fieldOrder } = useFieldsAndOrder();
-	const closeFieldId = form?.closeCondition?.field;
+	/** A refusal from the picker or the operator/value menus — controls
+	 *  with no inline channel of their own — rendered beneath the
+	 *  condition card. The free-text answer `InlineField` presents its
+	 *  own outcome and bypasses this. */
+	const [conditionRejection, setConditionRejection] = useState<string | null>(
+		null,
+	);
+	/* The stored ref is the checked field's stable uuid (a legacy
+	 * dangler keeps its id text — `fields[ref]` then misses and the
+	 * editor shows the text verbatim). */
+	const closeFieldRef = form?.closeCondition?.field;
+	const closeField = closeFieldRef ? fields[closeFieldRef] : undefined;
+	const closeFieldId = closeField?.id ?? closeFieldRef;
 
 	/* Resolve the referenced field to check if it has selectable options. */
 	const selectedFieldOptions = useMemo(() => {
-		if (!closeFieldId) return undefined;
-		const found = findFieldById(fields, fieldOrder, formUuid, closeFieldId);
-		if (!found) return undefined;
+		if (!closeField) return undefined;
 		// `options` only exists on select kinds; narrow via `in`.
-		return "options" in found && found.options && found.options.length > 0
-			? found.options
+		return "options" in closeField &&
+			closeField.options &&
+			closeField.options.length > 0
+			? closeField.options
 			: undefined;
-	}, [closeFieldId, fields, fieldOrder, formUuid]);
+	}, [closeField]);
 
 	if (form?.type !== "close") return null;
 
@@ -72,13 +88,30 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	const operator: CloseOperator = form.closeCondition?.operator ?? "=";
 
 	const handleSelect = (mode: CloseMode) => {
+		// The mode flip replaces (or removes) the whole condition — any
+		// refusal that pointed at the old condition no longer applies.
+		setConditionRejection(null);
 		if (mode === "always") {
 			updateFormAction(asUuid(formUuid), { closeCondition: undefined });
 		} else {
 			updateFormAction(asUuid(formUuid), {
-				closeCondition: { field: "", answer: "" },
+				closeCondition: { field: asUuid(""), answer: "" },
 			});
 		}
+	};
+
+	/* Dispatch wrapper for the picker and the operator/value menus —
+	 * controls with no inline channel of their own. The refusal lands in
+	 * the section-level notice beneath the condition card. */
+	const updateConditionWithNotice = (
+		patch: Partial<{
+			field: string;
+			answer: string;
+			operator: CloseOperator;
+		}>,
+	) => {
+		const outcome = updateCondition(patch);
+		setConditionRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
 	};
 
 	const updateCondition = (
@@ -88,9 +121,24 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 			operator: CloseOperator;
 		}>,
 	) => {
-		const current = form.closeCondition ?? { field: "", answer: "" };
-		updateFormAction(asUuid(formUuid), {
-			closeCondition: { ...current, ...patch },
+		const current = form.closeCondition ?? { field: asUuid(""), answer: "" };
+		// The picker speaks field ids; the stored ref is the field's stable
+		// uuid. Resolution happens here at the commit boundary — an id
+		// nothing answers to stays verbatim and the gate adjudicates.
+		const { field: pickedId, ...rest } = patch;
+		const resolved: Partial<typeof current> = {
+			...rest,
+			...(pickedId !== undefined && {
+				field: asUuid(
+					resolveCloseFieldRef({ fields, fieldOrder }, formUuid, pickedId),
+				),
+			}),
+		};
+		// Forward the gated outcome so the inline editors keep a refused
+		// draft on screen with the finding (e.g. a value field naming a
+		// nonexistent close field).
+		return inline.updateForm(asUuid(formUuid), {
+			closeCondition: { ...current, ...resolved },
 		});
 	};
 
@@ -127,8 +175,8 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 							<FieldPicker
 								source={{ fields, fieldOrder }}
 								parentUuid={formUuid}
-								value={form.closeCondition.field}
-								onChange={(v) => updateCondition({ field: v })}
+								value={closeFieldId ?? ""}
+								onChange={(v) => updateConditionWithNotice({ field: v })}
 								label="Field"
 								placeholder="Search fields..."
 								required
@@ -142,7 +190,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 								<SelectMenu
 									value={operator}
 									options={OPERATOR_OPTIONS}
-									onChange={(v) => updateCondition({ operator: v })}
+									onChange={(v) => updateConditionWithNotice({ operator: v })}
 								/>
 							</div>
 
@@ -157,7 +205,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 									<SelectMenu
 										value={answer}
 										options={selectedFieldOptions}
-										onChange={(v) => updateCondition({ answer: v })}
+										onChange={(v) => updateConditionWithNotice({ answer: v })}
 										renderTrigger={(v) => {
 											const opt = selectedFieldOptions.find(
 												(o) => o.value === v,
@@ -203,6 +251,11 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 									placeholder="Plain text value"
 								/>
 							)}
+
+							{/* A refusal from the picker or menus explains itself
+							 * here — those controls have no input of their own to
+							 * anchor the finding to. */}
+							<RejectionInline message={conditionRejection} />
 						</div>
 					</motion.div>
 				)}

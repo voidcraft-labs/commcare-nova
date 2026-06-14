@@ -25,6 +25,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -88,7 +89,7 @@ function mockBlueprint(
 				/* `required` on an input field is an XPath string, not a
 				 * boolean — "true()" is the canonical always-required
 				 * form used throughout the blueprint. */
-				required: "true()",
+				required: xp("true()"),
 			},
 		},
 		moduleOrder: [modUuid],
@@ -126,6 +127,7 @@ function mockAppDoc(
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
+		blueprint_token: null,
 		// Tool doesn't read timestamps — any placeholder works; casting through
 		// `unknown` avoids pulling in the Firestore Admin SDK just to fabricate
 		// real `Timestamp` instances in a unit test.

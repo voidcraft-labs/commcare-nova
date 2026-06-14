@@ -1,27 +1,34 @@
 /**
- * `GET /api/media/library` — kind-filter acceptance tests.
+ * `GET /api/media/library` — query acceptance tests for both modes.
  *
- * The library backs both the carrier pickers (media kinds) and the chat file
- * manager (document kinds), so the repeated `kind` query param must accept any
- * `AssetKind` — including `pdf`/`text`/`docx`/`xlsx` — and collect SEVERAL into
- * a kind set (`?kind=image&kind=pdf`) for a picker's "All" view. This pins that
- * the kinds reach the owner-scoped query as a set, that no `kind` param means
- * "every kind" (an empty set, never an `in []`), and that a kind outside the
- * accepted set is rejected as a 400 client error rather than collapsing to a 500.
+ * List mode: the library backs both the carrier pickers (media kinds) and the
+ * chat file manager (document kinds), so the repeated `kind` query param must
+ * accept any `AssetKind` — including `pdf`/`text`/`docx`/`xlsx` — and collect
+ * SEVERAL into a kind set (`?kind=image&kind=pdf`) for a picker's "All" view.
+ * This pins that the kinds reach the owner-scoped query as a set, that no
+ * `kind` param means "every kind" (an empty set, never an `in []`), and that a
+ * kind outside the accepted set is rejected as a 400 client error rather than
+ * collapsing to a 500.
+ *
+ * Resolve mode: repeated `?id=` routes to the owner-filtered id lookup
+ * (backing the browser attach budget check) and never touches the lister.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listReadyAssetsForOwner } from "@/lib/db/mediaAssets";
+import { listReadyAssetsForOwner, loadAssetsByIds } from "@/lib/db/mediaAssets";
 import { GET } from "../route";
 
-const { requireSessionMock, listReadyAssetsForOwnerMock } = vi.hoisted(() => ({
-	requireSessionMock: vi.fn(),
-	listReadyAssetsForOwnerMock: vi.fn(),
-}));
+const { requireSessionMock, listReadyAssetsForOwnerMock, loadAssetsByIdsMock } =
+	vi.hoisted(() => ({
+		requireSessionMock: vi.fn(),
+		listReadyAssetsForOwnerMock: vi.fn(),
+		loadAssetsByIdsMock: vi.fn(),
+	}));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	listReadyAssetsForOwner: listReadyAssetsForOwnerMock,
+	loadAssetsByIds: loadAssetsByIdsMock,
 	// The route catches this specific class and maps it to a 400; a plain
 	// stand-in is enough for the happy/invalid paths exercised here.
 	MalformedCursorError: class extends Error {},
@@ -111,6 +118,26 @@ describe("GET /api/media/library kind filter", () => {
 		const res = await GET(reqWith("?kind=image&kind=exe"));
 		expect(res.status).toBe(400);
 		expect(listReadyAssetsForOwner).not.toHaveBeenCalled();
+		await drainBody(res);
+	});
+});
+
+describe("GET /api/media/library resolve mode", () => {
+	it("routes repeated ?id= to the owner-filtered id lookup, never the lister", async () => {
+		loadAssetsByIdsMock.mockResolvedValue([{ id: "a" }, { id: "b" }]);
+		const res = await GET(reqWith("?id=a&id=b"));
+		expect(res.status).toBe(200);
+		expect(loadAssetsByIds).toHaveBeenCalledWith("user-1", ["a", "b"]);
+		expect(listReadyAssetsForOwner).not.toHaveBeenCalled();
+		const body = JSON.parse(await drainBody(res));
+		expect(body.assets).toHaveLength(2);
+		expect(body.nextCursor).toBeNull();
+	});
+
+	it("rejects an empty id value as a 400", async () => {
+		const res = await GET(reqWith("?id="));
+		expect(res.status).toBe(400);
+		expect(loadAssetsByIds).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
 });

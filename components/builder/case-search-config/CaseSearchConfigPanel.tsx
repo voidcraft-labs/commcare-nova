@@ -106,7 +106,11 @@ export function CaseSearchConfigPanel({
 }: CaseSearchConfigPanelProps) {
 	const mod = useModule(moduleUuid);
 	const caseTypes = useCaseTypes();
-	const { updateModule } = useBlueprintMutations();
+	/* Two flavors: the display/advanced sections render the returned
+	 * outcome on their inline text rows (quiet dispatch); the search-input
+	 * rows have their own pre-gate validity and no rejection surface, so
+	 * their dispatch announces. */
+	const { updateModule, inline } = useBlueprintMutations();
 
 	// Per-section verdicts. Default `true` so the composite verdict
 	// fires `true` on a clean module — the section-level effects then
@@ -133,9 +137,11 @@ export function CaseSearchConfigPanel({
 
 	const handleSearchConfigChange = useCallback(
 		(next: CaseSearchConfig) => {
-			updateModule(moduleUuid, { caseSearchConfig: next });
+			// Forward the gated outcome so the sections' inline text rows
+			// keep a refused draft on screen with the finding.
+			return inline.updateModule(moduleUuid, { caseSearchConfig: next });
 		},
-		[updateModule, moduleUuid],
+		[inline, moduleUuid],
 	);
 
 	// Cross-binding mutator. Writes flow through `caseListConfig` —

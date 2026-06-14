@@ -1,9 +1,8 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { applyMutations } from "@/lib/doc/mutations";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
-import { buildDoc, caseListConfig, f } from "../../__tests__/docHelpers";
-import { FIX_REGISTRY } from "../validator/fixes";
+import { buildDoc, caseListConfig, f, xp } from "../../__tests__/docHelpers";
+import { errorIdentity, evaluateBoundary } from "../validator/gate";
 import { runValidation } from "../validator/runner";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -92,7 +91,12 @@ describe("app rules", () => {
 		);
 	});
 
-	it("catches duplicate module names", () => {
+	it("allows duplicate module names — CommCare keys modules by id, not name", () => {
+		// Module names are display labels in app_strings keyed by position
+		// (`modules.m0`, `m1`); the suite refs menus by index id. CommCare's
+		// build validator (`app_manager/helpers/validators.py`) checks
+		// duplicate form xmlns but NOT duplicate module/form names. Two
+		// "Surveys" menus is a valid app, so Nova must not block it.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -118,9 +122,7 @@ describe("app rules", () => {
 				},
 			],
 		});
-		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_MODULE_NAME"),
-		).toBe(true);
+		expect(runValidation(doc)).toEqual([]);
 	});
 
 	it("catches child case type missing module", () => {
@@ -732,80 +734,6 @@ describe("field rules", () => {
 
 // ── Fix registry ───────────────────────────────────────────────────
 //
-// Fixes now emit Mutation[] — we apply via the production reducer and
-// assert on the post-mutation doc to verify the fix moved the needle.
-
-describe("fix registry", () => {
-	it("fixes invalid field ID", () => {
-		const doc = surveyDoc([f({ kind: "text", id: "123-bad", label: "Q" })]);
-		const errors = runValidation(doc);
-		const err = errors.find((e) => e.code === "INVALID_FIELD_ID");
-		if (!err) throw new Error("expected INVALID_FIELD_ID error");
-		const fix = FIX_REGISTRY.get("INVALID_FIELD_ID");
-		if (!fix) throw new Error("expected INVALID_FIELD_ID fix");
-		const muts = fix(err, doc);
-		expect(muts.length).toBeGreaterThan(0);
-		// Brace-wrap the recipe body so it returns void — `applyMutations`
-		// returns `MutationResult[]`, and Immer's `ValidRecipeReturnType`
-		// admits only `void | undefined | Draft<T>`. Immer mutates the
-		// draft in place; the caller gets the immutable next doc.
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, muts);
-		});
-		// The field should now carry the sanitized id.
-		const fieldUuid =
-			next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
-		expect(next.fields[fieldUuid].id).toBe("q_123_bad");
-	});
-
-	it("fixes NO_CASE_TYPE by deriving from module name", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Patient Records",
-					forms: [
-						{
-							name: "F",
-							type: "registration",
-							fields: [f({ kind: "text", id: "case_name", label: "N" })],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc);
-		const err = errors.find((e) => e.code === "NO_CASE_TYPE");
-		if (!err) throw new Error("expected NO_CASE_TYPE error");
-		const fix = FIX_REGISTRY.get("NO_CASE_TYPE");
-		if (!fix) throw new Error("expected NO_CASE_TYPE fix");
-		const muts = fix(err, doc);
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, muts);
-		});
-		expect(next.modules[next.moduleOrder[0]].caseType).toBe("patient_records");
-	});
-
-	it("fixes SELECT_NO_OPTIONS by adding defaults", () => {
-		const doc = surveyDoc([f({ kind: "single_select", id: "q", label: "Q" })]);
-		const errors = runValidation(doc);
-		const err = errors.find((e) => e.code === "SELECT_NO_OPTIONS");
-		if (!err) throw new Error("expected SELECT_NO_OPTIONS error");
-		const fix = FIX_REGISTRY.get("SELECT_NO_OPTIONS");
-		if (!fix) throw new Error("expected SELECT_NO_OPTIONS fix");
-		const muts = fix(err, doc);
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, muts);
-		});
-		const fieldUuid =
-			next.fieldOrder[next.formOrder[next.moduleOrder[0]][0]][0];
-		const field = next.fields[fieldUuid];
-		if (field.kind !== "single_select")
-			throw new Error("expected single_select");
-		expect(field.options).toHaveLength(2);
-	});
-});
-
 // ── Post-submit validation ────────────────────────────────────────
 
 describe("post_submit validation", () => {
@@ -850,7 +778,7 @@ describe("post_submit validation", () => {
 			(e) => e.code === "POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
 		);
 		expect(err).toBeDefined();
-		expect(err?.message).toContain("doesn't have a parent module");
+		expect(err?.message).toContain("has no parent module");
 		expect(err?.message).toContain('"module"');
 		expect(err?.message).toContain('"previous"');
 	});
@@ -997,7 +925,7 @@ describe("form_links validation", () => {
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
 				{
-					condition: "x = 1",
+					condition: xp("x = 1"),
 					target: { type: "form", moduleUuid, formUuid: f1Uuid },
 				},
 			];
@@ -1035,7 +963,7 @@ describe("form_links validation", () => {
 		const doc2 = update(doc, (d) => {
 			d.forms[f0Uuid].formLinks = [
 				{
-					condition: "x = 1",
+					condition: xp("x = 1"),
 					target: { type: "form", moduleUuid, formUuid: f1Uuid },
 				},
 			];
@@ -2291,37 +2219,40 @@ describe("connect rules", () => {
 		});
 	}
 
-	it("flags a Connect-typed app whose form has no connect block", () => {
-		/* When `connect_type` lands on the app but a form has no
-		 * per-form `connect`, CCHQ still accepts the upload — it has
-		 * no concept of "Connect form" — but Connect's
-		 * `extract_deliver_unit` / `extract_learn_module` find zero
-		 * markers in the CCZ and the opportunity is unusable. Validator
-		 * must catch this before upload-prep so the SA / caller can
-		 * attach the missing block via `update_form`. */
+	/* A connect block marks that a form PARTICIPATES in Connect; a form
+	 * without one is auxiliary, which is a legal wire state — Connect's
+	 * ingestion (commcare_connect/opportunity/app_xml.py::extract_modules /
+	 * ::extract_deliver_unit / ::extract_task_unit) scans per form and
+	 * silently skips blockless forms. What an app cannot survive is ZERO
+	 * participation: learn progress and payment key on the ingested rows,
+	 * so an app contributing none of its mode's blocks can never progress
+	 * or pay. That floor is the app-scoped rule under test here. */
+
+	it("flags a Connect app whose forms ALL lack blocks — zero participation — once, app-scoped", () => {
 		const doc = connectDoc({ connectType: "deliver" });
 		const errors = runValidation(doc);
-		const missingBlock = errors.filter(
-			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+		const noParticipation = errors.filter(
+			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 		);
-		expect(missingBlock).toHaveLength(1);
-		expect(missingBlock[0].message).toContain("Connect deliver app");
-		expect(missingBlock[0].message).toContain("First Form");
+		expect(noParticipation).toHaveLength(1);
+		expect(noParticipation[0].scope).toBe("app");
+		expect(noParticipation[0].message).toContain("at least one participating");
 	});
 
 	it("guidance text differs by connectType so the SA picks the right sub-config", () => {
-		/* The error message tells the SA which sub-config to add. For a
-		 * learn app the SA may pick learn_module, assessment, or both; for
-		 * a deliver app it's deliver_unit and/or task. The two messages
-		 * must be distinguishable on `connectType` so the SA's prompt
-		 * doesn't have to fall back to inferring from the app's name. */
+		/* The error message tells the SA which sub-config family makes a
+		 * form participate. For a learn app that's learn_module and/or
+		 * assessment; for a deliver app deliver_unit and/or task. The two
+		 * messages must be distinguishable on `connectType` so the SA's
+		 * prompt doesn't have to fall back to inferring from the app's
+		 * name. */
 		const learnDoc = connectDoc({ connectType: "learn" });
 		const deliverDoc = connectDoc({ connectType: "deliver" });
 		const learnMsg = runValidation(learnDoc).find(
-			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 		)?.message;
 		const deliverMsg = runValidation(deliverDoc).find(
-			(e) => e.code === "CONNECT_FORM_MISSING_BLOCK",
+			(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
 		)?.message;
 		expect(learnMsg).toContain("learn_module");
 		expect(learnMsg).toContain("assessment");
@@ -2329,12 +2260,67 @@ describe("connect rules", () => {
 		expect(deliverMsg).toContain("task");
 	});
 
-	it("does not double-fire CONNECT_MISSING_DELIVER when the whole connect block is absent", () => {
-		/* When `form.connect` is absent we only emit the higher-level
-		 * `CONNECT_FORM_MISSING_BLOCK` error and skip downstream sub-
-		 * config checks. Otherwise the SA would see two errors for the
-		 * same root cause, both of which dissolve once it adds the
-		 * missing block. */
+	it("accepts a mixed app — one participating form, one auxiliary form — with zero Connect findings", () => {
+		const doc = buildDoc({
+			appName: "Connect App",
+			connectType: "deliver",
+			modules: [
+				{
+					name: "Main",
+					forms: [
+						{
+							name: "Paid visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q1", label: "Q" })],
+							connect: { deliver_unit: { id: "visit", name: "Visit" } },
+						},
+						{
+							name: "Reference sheet",
+							type: "survey",
+							fields: [f({ kind: "text", id: "q2", label: "Q" })],
+						},
+					],
+				},
+			],
+		});
+		const errors = runValidation(doc).filter((e) =>
+			e.code.startsWith("CONNECT_"),
+		);
+		expect(errors).toEqual([]);
+	});
+
+	it("keeps an EMPTY Connect app clean — the floor binds only once forms exist", () => {
+		/* A Connect build flips `connect_type` first, on the empty app
+		 * (`updateApp`), then creates participating forms with their
+		 * blocks. Firing the floor on the empty app would bounce that
+		 * documented first move. */
+		const doc = buildDoc({ appName: "Connect App", connectType: "learn" });
+		expect(
+			runValidation(doc).some(
+				(e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS",
+			),
+		).toBe(false);
+	});
+
+	it("a cross-mode stray block does not count as participation", () => {
+		/* A learn app's form carrying only a deliver_unit contributes
+		 * nothing Connect's learn ingestion reads — the app still has zero
+		 * participation, and the stray block's own malformedness is the
+		 * per-form CONNECT_MISSING_LEARN finding. */
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: { deliver_unit: { id: "stray", name: "Stray" } },
+		});
+		const errors = runValidation(doc);
+		expect(
+			errors.some((e) => e.code === "CONNECT_NO_PARTICIPATING_FORMS"),
+		).toBe(true);
+		expect(errors.some((e) => e.code === "CONNECT_MISSING_LEARN")).toBe(true);
+	});
+
+	it("does not fire the per-form sub-config rules when the whole connect block is absent", () => {
+		/* A blockless form is auxiliary, not malformed — CONNECT_MISSING_*
+		 * adjudicate a block that IS present. */
 		const doc = connectDoc({ connectType: "deliver" });
 		const errors = runValidation(doc);
 		expect(errors.some((e) => e.code === "CONNECT_MISSING_DELIVER")).toBe(
@@ -2357,8 +2343,8 @@ describe("connect rules", () => {
 				deliver_unit: {
 					id: "vendor",
 					name: "Visit",
-					entity_id: "",
-					entity_name: "#user/username",
+					entity_id: xp(""),
+					entity_name: xp("#user/username"),
 				},
 			},
 		});
@@ -2375,8 +2361,8 @@ describe("connect rules", () => {
 				deliver_unit: {
 					id: "vendor",
 					name: "Visit",
-					entity_id: "concat(#user/username, '-', today())",
-					entity_name: "",
+					entity_id: xp("concat(#user/username, '-', today())"),
+					entity_name: xp(""),
 				},
 			},
 		});
@@ -2390,7 +2376,7 @@ describe("connect rules", () => {
 		const doc = connectDoc({
 			connectType: "learn",
 			formConnect: {
-				assessment: { id: "quiz", user_score: "" },
+				assessment: { id: "quiz", user_score: xp("") },
 			},
 		});
 		const errors = runValidation(doc);
@@ -2402,15 +2388,15 @@ describe("connect rules", () => {
 	it("does not flag a fully populated deliver_unit", () => {
 		/* Sanity check: the rule fires only on empties. A fully
 		 * populated deliver_unit should pass cleanly without spurious
-		 * CONNECT_EMPTY_XPATH or CONNECT_FORM_MISSING_BLOCK errors. */
+		 * CONNECT_EMPTY_XPATH (or any other CONNECT_*) errors. */
 		const doc = connectDoc({
 			connectType: "deliver",
 			formConnect: {
 				deliver_unit: {
 					id: "vendor",
 					name: "Visit",
-					entity_id: "concat(#user/username, '-', today())",
-					entity_name: "#user/username",
+					entity_id: xp("concat(#user/username, '-', today())"),
+					entity_name: xp("#user/username"),
 				},
 			},
 		});
@@ -2488,20 +2474,81 @@ describe("connect rules", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("does not flag an id-less connect block (resolver derives a valid id)", () => {
-		// Empty/unset id means "use the default" — the emit-time resolver
-		// derives a legal name slug. The rule must skip these so a normal
-		// id-less learn_module never trips it.
+	it("reports an id-less connect block as CONNECT_ID_MISSING, not a format error", () => {
+		// Every source path leaves the id set (tool autofill, UI seed/restore)
+		// and nothing downstream supplies a default — the emit resolver THROWS
+		// on a missing id. So an id-less block in a stored doc is its own
+		// finding here, the backstop that turns the would-be export 500 into
+		// an actionable message. The format rule still skips it (there is no
+		// id value to judge).
 		const doc = connectDoc({
 			connectType: "learn",
 			formConnect: {
 				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
 			},
 		});
-		const errors = runValidation(doc).filter(
-			(e) => e.code === "CONNECT_ID_INVALID_FORMAT",
+		const errors = runValidation(doc);
+		expect(
+			errors.filter((e) => e.code === "CONNECT_ID_INVALID_FORMAT"),
+		).toEqual([]);
+		const missing = errors.filter((e) => e.code === "CONNECT_ID_MISSING");
+		expect(missing).toHaveLength(1);
+		expect(missing[0].message).toContain("learn-module");
+		expect(missing[0].message).toContain("First Form");
+	});
+
+	it("keeps two id-less blocks on one form as distinct CONNECT_ID_MISSING findings", () => {
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
+				assessment: { user_score: xp("100") },
+			},
+		});
+		const missing = runValidation(doc).filter(
+			(e) => e.code === "CONNECT_ID_MISSING",
 		);
-		expect(errors).toEqual([]);
+		expect(missing).toHaveLength(2);
+		// The identity discriminator is the sub-config kind — the gate must
+		// never collapse the two into one finding.
+		expect(new Set(missing.map((e) => errorIdentity(e))).size).toBe(2);
+	});
+
+	it("does not flag an id-less CROSS-MODE stray (it never emits, so its id breaks nothing)", () => {
+		// Mirrors the emit resolver: only mode-matching kinds ship, so a stray
+		// deliver_unit on a learn app needs no id. The learn arm still needs
+		// its block — give it a valid one so the only candidate finding is the
+		// stray's.
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: {
+					id: "intake",
+					name: "Intake",
+					description: "x",
+					time_estimate: 5,
+				},
+				deliver_unit: { name: "Stray" },
+			},
+		});
+		expect(
+			runValidation(doc).filter((e) => e.code === "CONNECT_ID_MISSING"),
+		).toEqual([]);
+	});
+
+	it("surfaces the id-less block at the export boundary as a finding, never the emitter throw", () => {
+		// The zero-tolerance boundary run is what every export entry point
+		// consults BEFORE expansion — it must report the state the emit
+		// resolver would otherwise throw on, so a stored id-less doc gets an
+		// actionable rejection instead of a 500.
+		const doc = connectDoc({
+			connectType: "learn",
+			formConnect: {
+				learn_module: { name: "Intake", description: "x", time_estimate: 5 },
+			},
+		});
+		const findings = evaluateBoundary(doc, new Map());
+		expect(findings.some((e) => e.code === "CONNECT_ID_MISSING")).toBe(true);
 	});
 
 	it("flags bad ids on assessment, deliver_unit, and task too", () => {
@@ -2516,7 +2563,7 @@ describe("connect rules", () => {
 					description: "x",
 					time_estimate: 5,
 				},
-				assessment: { id: "bad id", user_score: "100" },
+				assessment: { id: "bad id", user_score: xp("100") },
 			},
 		});
 		const deliverDoc = connectDoc({
@@ -2591,7 +2638,7 @@ describe("connect rules", () => {
 		const learnDoc = connectDoc({
 			connectType: "learn",
 			formConnect: {
-				assessment: { id: longId, user_score: "100" },
+				assessment: { id: longId, user_score: xp("100") },
 			},
 		});
 		const deliverDoc = connectDoc({

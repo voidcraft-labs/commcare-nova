@@ -12,9 +12,9 @@ export type ValidationErrorCode =
 	// App-level
 	| "EMPTY_APP_NAME"
 	| "NO_MODULES"
-	| "DUPLICATE_MODULE_NAME"
 	| "MISSING_CHILD_CASE_MODULE"
 	| "RESERVED_CASE_TYPE_NAME"
+	| "CONNECT_NO_PARTICIPATING_FORMS"
 	// Module-level
 	| "NO_CASE_TYPE"
 	| "CASE_LIST_ONLY_HAS_FORMS"
@@ -76,13 +76,13 @@ export type ValidationErrorCode =
 	| "FORM_LINK_CIRCULAR"
 	| "FORM_LINK_NO_FALLBACK"
 	| "FORM_LINK_SELF_REFERENCE"
-	| "CONNECT_FORM_MISSING_BLOCK"
 	| "CONNECT_MISSING_LEARN"
 	| "CONNECT_MISSING_DELIVER"
 	| "CONNECT_UNQUOTED_XPATH"
 	| "CONNECT_EMPTY_XPATH"
 	| "CONNECT_ID_INVALID_FORMAT"
 	| "CONNECT_ID_TOO_LONG"
+	| "CONNECT_ID_MISSING"
 	| "CONNECT_ID_DUPLICATE"
 	| "CASE_HASHTAG_ON_CREATE_FORM"
 	| "PRIMARY_CASE_FIELD_IN_REPEAT"
@@ -250,7 +250,7 @@ export type ValidationErrorCode =
 	// Aggregate export-budget guard (not a per-ref rule): the media-ON
 	// compile / HQ-upload paths load every referenced ready asset into
 	// memory at once, so the total count + bytes are bounded before any
-	// download. Fires from `collectMediaValidationErrors`, not a rule file.
+	// download. Fires from `collectBoundaryViolations`, not a rule file.
 	| "MEDIA_EXPORT_TOO_LARGE"
 	// XPath deep (from existing pipeline)
 	| "XPATH_SYNTAX"
@@ -333,13 +333,11 @@ export function errorToString(err: ValidationError): string {
  *     rule by shape) — listed explicitly here because a prefix-based
  *     filter would silently drop it.
  *
- * Single source of truth for the media-validation entry-point guard,
- * which runs FULL `runValidation` but surfaces only the issues in this
- * set. The full run is deliberate (a media rule like `imageMapValueUnique`
- * lives in `MODULE_RULES`, so a subset run would re-implement runner
- * internals); the filter keeps the guard from newly blocking
- * previously-working non-media uploads on those entry points. A new
- * media rule adds its code here beside its `ValidationErrorCode` entry.
+ * The export boundary gate no longer filters to this set (it rejects on
+ * EVERY validator finding — `gate.ts::evaluateBoundary`); the set remains
+ * the named definition of the media category, pinned by the gate tests so
+ * the environment-class classification can't silently drift. A new media
+ * rule adds its code here beside its `ValidationErrorCode` entry.
  */
 export const MEDIA_VALIDATION_CODES: ReadonlySet<ValidationErrorCode> = new Set(
 	[
@@ -349,8 +347,3 @@ export const MEDIA_VALIDATION_CODES: ReadonlySet<ValidationErrorCode> = new Set(
 		"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
 	],
 );
-
-/** Whether a validation error belongs to the media category. */
-export function isMediaValidationError(err: ValidationError): boolean {
-	return MEDIA_VALIDATION_CODES.has(err.code);
-}

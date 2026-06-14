@@ -1,12 +1,12 @@
 /**
- * Tests for `collectMediaValidationErrors` — the shared media-validation
- * gate the four media-ON entry points delegate to.
+ * Tests for `collectBoundaryViolations` — the zero-tolerance boundary
+ * gate the four export entry points delegate to.
  *
  * Only `loadAssetsByIds` is mocked (it reads Firestore); the REAL
- * `runValidation` runs so these tests prove the actual rule wiring +
- * the media-category filter, not a restatement of the helper's own
- * assumptions. Each case covers one stale-reference shape that would
- * otherwise make media-ON `expandDoc` throw `requireAssetRef`:
+ * validator runs so these tests prove the actual rule wiring, not a
+ * restatement of the helper's own assumptions. The media cases cover the
+ * stale-reference shapes that would otherwise make media-ON `expandDoc`
+ * throw `requireAssetRef`:
  *
  *   - deleted / foreign-owned asset (absent row) → MEDIA_ASSET_NOT_FOUND
  *   - still-uploading asset (pending row returned) → MEDIA_ASSET_NOT_READY
@@ -14,24 +14,21 @@
  *     pending rows, NOT the ready-only manifest)
  *   - kind mismatch (audio asset in an image slot) → MEDIA_KIND_MISMATCH
  *
- * Plus the load-bearing filter test: a doc carrying BOTH a media error
- * and a non-media error returns ONLY the media code — proof the gate
- * can't newly block previously-working non-media uploads.
+ * Plus the load-bearing zero-tolerance test: a doc carrying BOTH a media
+ * error and a non-media error returns BOTH — the boundary rejects on any
+ * validator finding, never just the media subset.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import {
-	makeAssetRecord,
-	makeManifest,
-} from "@/lib/commcare/validator/rules/media/__tests__/fixtures";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { makeAssetRecord } from "@/lib/commcare/validator/rules/media/__tests__/fixtures";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import { MAX_MEDIA_EXPORT_BYTES } from "@/lib/domain/multimedia";
-import { collectMediaValidationErrors } from "../mediaValidation";
+import { collectBoundaryViolations } from "../boundaryValidation";
 
 const OWNER = "owner-1";
 
-/* Only the Firestore read is mocked — `runValidation` runs for real. */
+/* Only the Firestore read is mocked — the validator runs for real. */
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetsByIds: vi.fn(),
 }));
@@ -41,17 +38,31 @@ beforeEach(() => {
 	vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 });
 
-/** A doc whose field label image references `assetId`. */
-function docWithLabelImage(assetId: string) {
+/**
+ * A doc that passes the boundary clean when its media resolves: one
+ * registration module/form writing two case properties, a case list with
+ * a column. The optional `assetId` attaches a label image so each media
+ * case introduces exactly one failure mode against this baseline.
+ */
+function validDoc(assetId?: string) {
 	return buildDoc({
 		appName: "T",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: "Name" },
+					{ name: "village", label: "Village" },
+				],
+			},
 		],
 		modules: [
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						name: "Reg",
@@ -62,7 +73,13 @@ function docWithLabelImage(assetId: string) {
 								id: "case_name",
 								label: "Name",
 								case_property_on: "patient",
-								label_media: { image: assetId },
+								...(assetId && { label_media: { image: assetId } }),
+							}),
+							f({
+								kind: "text",
+								id: "village",
+								label: "Village",
+								case_property_on: "patient",
 							}),
 						],
 					},
@@ -72,14 +89,25 @@ function docWithLabelImage(assetId: string) {
 	});
 }
 
-describe("collectMediaValidationErrors", () => {
+describe("collectBoundaryViolations", () => {
+	it("returns no violations for a fully valid doc with resolved media", async () => {
+		vi.mocked(loadAssetsByIds).mockResolvedValue([
+			makeAssetRecord("good-asset"),
+		]);
+		const errors = await collectBoundaryViolations(
+			validDoc("good-asset"),
+			OWNER,
+		);
+		expect(errors).toHaveLength(0);
+	});
+
 	it("flags a deleted / foreign-owned asset as MEDIA_ASSET_NOT_FOUND", async () => {
 		// The loader returns no row (deleted, or owner-filtered out) — the
 		// reference can't resolve, so a media-ON expand would throw.
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 
-		const errors = await collectMediaValidationErrors(
-			docWithLabelImage("ghost-asset"),
+		const errors = await collectBoundaryViolations(
+			validDoc("ghost-asset"),
 			OWNER,
 		);
 
@@ -96,8 +124,8 @@ describe("collectMediaValidationErrors", () => {
 			makeAssetRecord("pending-asset", { status: "pending" }),
 		]);
 
-		const errors = await collectMediaValidationErrors(
-			docWithLabelImage("pending-asset"),
+		const errors = await collectBoundaryViolations(
+			validDoc("pending-asset"),
 			OWNER,
 		);
 
@@ -116,8 +144,8 @@ describe("collectMediaValidationErrors", () => {
 			}),
 		]);
 
-		const errors = await collectMediaValidationErrors(
-			docWithLabelImage("wrong-kind"),
+		const errors = await collectBoundaryViolations(
+			validDoc("wrong-kind"),
 			OWNER,
 		);
 
@@ -125,11 +153,11 @@ describe("collectMediaValidationErrors", () => {
 		expect(errors[0].code).toBe("MEDIA_KIND_MISMATCH");
 	});
 
-	it("returns ONLY media-category errors when the doc also has a non-media error", async () => {
-		// A form with zero fields trips EMPTY_FORM (a non-media rule). The
-		// gate must surface the media issue but NOT the EMPTY_FORM — these
-		// entry points historically ran only schema parse, so surfacing a
-		// non-media error would newly block a previously-working upload.
+	it("returns EVERY finding — media and non-media alike (zero tolerance)", async () => {
+		// A doc with an image-map column referencing a missing asset (media
+		// error) AND an empty form (the non-media completeness error
+		// EMPTY_FORM). The boundary must reject on both: a broken artifact
+		// is broken regardless of which rule caught it.
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
@@ -139,7 +167,6 @@ describe("collectMediaValidationErrors", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					// Image-map column referencing a missing asset = media error.
 					caseListConfig: {
 						columns: [
 							{
@@ -152,40 +179,15 @@ describe("collectMediaValidationErrors", () => {
 						],
 						searchInputs: [],
 					},
-					forms: [
-						// An empty form = the non-media EMPTY_FORM error.
-						{ name: "Empty", type: "survey", fields: [] },
-					],
+					forms: [{ name: "Empty", type: "survey", fields: [] }],
 				},
 			],
 		});
 
-		// Sanity: the full runner DOES see the non-media error, so the
-		// filter (not an empty doc) is what scopes the result.
-		const { runValidation } = await import("@/lib/commcare/validator/runner");
-		const allCodes = runValidation(doc, {
-			mediaAssets: makeManifest([]),
-		}).map((e) => e.code);
-		expect(allCodes).toContain("EMPTY_FORM");
-
-		const errors = await collectMediaValidationErrors(doc, OWNER);
+		const errors = await collectBoundaryViolations(doc, OWNER);
 		const codes = errors.map((e) => e.code);
-		// The media error survives the filter…
 		expect(codes).toContain("MEDIA_ASSET_NOT_FOUND");
-		// …and the non-media EMPTY_FORM is dropped — the gate doesn't newly
-		// block a previously-working non-media upload.
-		expect(codes).not.toContain("EMPTY_FORM");
-		// Every returned code is in the media category.
-		expect(
-			codes.every((c) =>
-				[
-					"MEDIA_ASSET_NOT_FOUND",
-					"MEDIA_ASSET_NOT_READY",
-					"MEDIA_KIND_MISMATCH",
-					"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
-				].includes(c),
-			),
-		).toBe(true);
+		expect(codes).toContain("EMPTY_FORM");
 	});
 
 	it("flags an over-budget export as MEDIA_EXPORT_TOO_LARGE before any download", async () => {
@@ -200,8 +202,8 @@ describe("collectMediaValidationErrors", () => {
 			makeAssetRecord("huge-asset", { sizeBytes: MAX_MEDIA_EXPORT_BYTES + 1 }),
 		]);
 
-		const errors = await collectMediaValidationErrors(
-			docWithLabelImage("huge-asset"),
+		const errors = await collectBoundaryViolations(
+			validDoc("huge-asset"),
 			OWNER,
 		);
 
@@ -211,35 +213,8 @@ describe("collectMediaValidationErrors", () => {
 		expect(errors[0].scope).toBe("app");
 	});
 
-	it("returns no errors and skips the Firestore read for a media-free doc", async () => {
-		const doc = buildDoc({
-			appName: "T",
-			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
-			],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: "Name",
-									case_property_on: "patient",
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-
-		const errors = await collectMediaValidationErrors(doc, OWNER);
+	it("returns no errors and skips the Firestore read for a valid media-free doc", async () => {
+		const errors = await collectBoundaryViolations(validDoc(), OWNER);
 		expect(errors).toHaveLength(0);
 		// No media refs → no asset load (the early-skip in the helper).
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
@@ -247,7 +222,7 @@ describe("collectMediaValidationErrors", () => {
 
 	it("passes the owner through to the loader", async () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
-		await collectMediaValidationErrors(docWithLabelImage("some-asset"), OWNER);
+		await collectBoundaryViolations(validDoc("some-asset"), OWNER);
 		expect(loadAssetsByIds).toHaveBeenCalledWith(OWNER, ["some-asset"]);
 	});
 });

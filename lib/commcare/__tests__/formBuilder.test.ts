@@ -10,7 +10,7 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, xpIn } from "@/lib/__tests__/docHelpers";
 import {
 	addFieldMutations,
 	findFieldByBareId,
@@ -21,6 +21,7 @@ import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form, FormType } from "@/lib/domain";
+import { expressionSource } from "@/lib/domain";
 
 // ── Fixture builders ──────────────────────────────────────────────────
 
@@ -186,7 +187,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 				uuid: asUuid(crypto.randomUUID()),
 				id: "age_group",
 				kind: "hidden",
-				calculate: "if(/data/age < 18, 'child', 'adult')",
+				calculate: xpIn(doc, FORM, "if(/data/age < 18, 'child', 'adult')"),
 				case_property_on: "age_group",
 			} as Field;
 			doc = apply(
@@ -197,9 +198,9 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			const found = findFieldByBareId(doc, FORM, "age_group");
 			expect(found).toBeDefined();
 			expect(found?.field.kind).toBe("hidden");
-			expect((found?.field as { calculate?: string }).calculate).toBe(
-				"if(/data/age < 18, 'child', 'adult')",
-			);
+			expect(
+				found ? expressionSource(found.field, "calculate", doc) : undefined,
+			).toBe("if(/data/age < 18, 'child', 'adult')");
 		});
 
 		it("nests fields inside a group container", () => {
@@ -280,7 +281,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("sets a close_condition on a close form", () => {
 			const doc0 = makeShellDoc("close");
 			const muts = updateFormMutations(doc0, FORM, {
-				closeCondition: { field: "discharge", answer: "yes" },
+				closeCondition: { field: asUuid("discharge"), answer: "yes" },
 			});
 			const doc1 = apply(doc0, muts);
 			expect(doc1.forms[FORM].closeCondition).toEqual({
@@ -295,7 +296,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			doc = apply(
 				doc,
 				updateFormMutations(doc, FORM, {
-					closeCondition: { field: "x", answer: "y" },
+					closeCondition: { field: asUuid("x"), answer: "y" },
 				}),
 			);
 			expect(doc.forms[FORM].closeCondition).toBeDefined();

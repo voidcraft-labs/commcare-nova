@@ -48,15 +48,17 @@ function liveKinds(doc: BlueprintDoc): readonly ConnectKind[] {
 }
 
 /**
- * Every connect id currently set anywhere in the doc EXCEPT the form being
- * edited (its own ids must not read as conflicts with themselves). Only the
- * doc's live (mode-matching) kinds count, so the SA scope matches the UI /
- * emit / validator scopes. Feeds both autofill uniqueness and the
- * explicit-duplicate rejection.
+ * Every connect id currently set anywhere in the doc, optionally excluding
+ * one form. The edit path (`updateForm`) excludes the form being edited so
+ * its own ids don't read as conflicts with themselves; the creation paths
+ * (`createForm` / `createModule`) pass no exclusion — their forms don't
+ * exist in the doc yet. Only the doc's live (mode-matching) kinds count, so
+ * the SA scope matches the UI / emit / validator scopes. Feeds both
+ * autofill uniqueness and the explicit-duplicate rejection.
  */
-export function collectConnectIdsExcept(
+export function collectConnectIds(
 	doc: BlueprintDoc,
-	exceptFormUuid: Uuid,
+	exceptFormUuid?: Uuid,
 ): Set<string> {
 	const ids = new Set<string>();
 	const kinds = liveKinds(doc);
@@ -148,79 +150,4 @@ export function enforceConnectIds(
 		};
 	}
 	return { ok: true, config: out };
-}
-
-/** A scaffold-shaped slice: just the module/form structure carrying the
- *  per-form connect blocks `enforceScaffoldConnectIds` needs to walk. */
-interface ScaffoldConnectShape {
-	connect_type?: string | null;
-	modules: ReadonlyArray<{
-		name: string;
-		forms: ReadonlyArray<{ name: string; connect?: ConnectConfig }>;
-	}>;
-}
-
-/** Outcome of {@link enforceScaffoldConnectIds}: the scaffold with every
- *  connect id filled + valid, or a fail-the-call error. The returned
- *  scaffold preserves the caller's concrete type via the generic. */
-export type EnforceScaffoldResult<S> =
-	| { ok: true; scaffold: S }
-	| { ok: false; error: string };
-
-/**
- * Enforce connect-id correctness across an entire scaffold before any
- * mutation is built.
- *
- * Walks every form in document order, threading one app-wide `existingIds`
- * set so autofilled ids stay unique across the whole scaffold (mirrors the
- * incremental accumulation the validate-time pass does). Returns the
- * scaffold with each present connect block's ids autofilled/validated, or a
- * single error naming the first form whose explicit id is invalid (the
- * whole call fails and writes nothing — the SA fixes its input and re-issues).
- *
- * Non-Connect scaffolds (`connect_type` absent/`none`) pass through
- * unchanged — there are no connect blocks to enforce.
- */
-export function enforceScaffoldConnectIds<S extends ScaffoldConnectShape>(
-	scaffold: S,
-): EnforceScaffoldResult<S> {
-	if (
-		scaffold.connect_type !== "learn" &&
-		scaffold.connect_type !== "deliver"
-	) {
-		return { ok: true, scaffold };
-	}
-
-	// One app-wide set threaded through every form in document order so
-	// autofilled ids stay unique across the whole scaffold.
-	const existingIds = new Set<string>();
-	const modules: ScaffoldConnectShape["modules"][number][] = [];
-
-	for (const mod of scaffold.modules) {
-		const forms: ScaffoldConnectShape["modules"][number]["forms"][number][] =
-			[];
-		for (const form of mod.forms) {
-			if (!form.connect) {
-				forms.push(form);
-				continue;
-			}
-			const enforced = enforceConnectIds(
-				form.connect,
-				mod.name,
-				form.name,
-				existingIds,
-			);
-			if (!enforced.ok) {
-				// First invalid explicit id fails the whole call — writes nothing.
-				return {
-					ok: false,
-					error: `"${form.name}" in "${mod.name}": ${enforced.error}`,
-				};
-			}
-			forms.push({ ...form, connect: enforced.config });
-		}
-		modules.push({ ...mod, forms });
-	}
-
-	return { ok: true, scaffold: { ...scaffold, modules } };
 }

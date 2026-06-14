@@ -30,7 +30,10 @@ import {
 	type Field,
 	type Uuid,
 } from "@/lib/domain";
-import { effectiveDeliverEntities } from "./connectDefaults";
+import {
+	effectiveAssessmentUserScore,
+	effectiveDeliverEntities,
+} from "./connectDefaults";
 import type { ResolvedConnectConfig } from "./connectSlugs";
 import { deriveCaseConfig } from "./deriveCaseConfig";
 import { readFieldString } from "./fieldProps";
@@ -222,10 +225,16 @@ export function buildFormActions(
 	// Close-case action (close forms only — form.type IS the signal).
 	if (form.type === "close") {
 		if (form.closeCondition?.field && form.closeCondition?.answer) {
+			// The stored ref is the checked field's stable uuid; resolve it
+			// to the field's CURRENT id for the path walk. A legacy dangler
+			// (unresolvable text) walks as the id it carries — the same
+			// root-anchored fallback the id-stored era emitted.
+			const closeFieldId =
+				doc.fields[form.closeCondition.field]?.id ?? form.closeCondition.field;
 			base.close_case = {
 				doc_type: "FormAction",
 				condition: ifCondition(
-					resolvePath(doc, formUuid, form.closeCondition.field).toXPath(),
+					resolvePath(doc, formUuid, closeFieldId).toXPath(),
 					form.closeCondition.answer,
 					form.closeCondition.operator ?? "=",
 				),
@@ -347,11 +356,11 @@ export function buildCaseReferencesLoad(
 			const nodePath = parentPath.child(field.id);
 
 			const xpathExprs = [
-				readFieldString(field, "relevant"),
-				readFieldString(field, "validate"),
-				readFieldString(field, "calculate"),
-				readFieldString(field, "default_value"),
-				readFieldString(field, "required"),
+				readFieldString(field, "relevant", doc),
+				readFieldString(field, "validate", doc),
+				readFieldString(field, "calculate", doc),
+				readFieldString(field, "default_value", doc),
+				readFieldString(field, "required", doc),
 			].filter((s): s is string => typeof s === "string");
 			const hashtags = extractHashtags(xpathExprs);
 			if (hashtags.length > 0) {
@@ -373,9 +382,16 @@ export function buildCaseReferencesLoad(
 
 	// Connect assessment + deliver unit carry their own XPath fields
 	// keyed by the Connect wrapper ids.
-	if (connect?.assessment?.user_score) {
+	if (connect?.assessment) {
 		const assessId = connect.assessment.id;
-		const h = extractHashtags([connect.assessment.user_score]);
+		// `effectiveAssessmentUserScore` is the single source of truth for
+		// the wire-fallback policy — the bind emitter calls the same helper,
+		// so the load map's hashtag set always matches what the runtime will
+		// evaluate from that bind. (The default is a hashtag-free literal,
+		// so an unset user_score contributes no load entry.)
+		const h = extractHashtags([
+			effectiveAssessmentUserScore(connect.assessment, doc),
+		]);
 		if (h.length > 0) {
 			load[
 				FormPath.root()
@@ -394,6 +410,7 @@ export function buildCaseReferencesLoad(
 		// runtime will evaluate from those binds.
 		const { entityId, entityName } = effectiveDeliverEntities(
 			connect.deliver_unit,
+			doc,
 		);
 		const deliverPath = FormPath.root().child(duId).child("deliver");
 		const idH = extractHashtags([entityId]);

@@ -24,7 +24,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { CaseSearchConfig, CaseType } from "@/lib/domain";
+import type { CaseSearchConfig, CaseType, CommitOutcome } from "@/lib/domain";
 import {
 	literal,
 	prop,
@@ -51,7 +51,7 @@ describe("AdvancedSection — empty state", () => {
 		render(
 			<AdvancedSection
 				value={undefined}
-				onChange={() => {}}
+				onChange={() => undefined}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 			/>,
@@ -94,7 +94,7 @@ describe("AdvancedSection — add path", () => {
 		render(
 			<AdvancedSection
 				value={undefined}
-				onChange={() => {}}
+				onChange={() => undefined}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 			/>,
@@ -123,7 +123,8 @@ describe("AdvancedSection — add path", () => {
 		// carrying only the freshly-seeded excluded-owners slot. Every slot on
 		// `caseSearchConfigSchema` is optional, so an otherwise-empty
 		// config is a valid persisted shape.
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		const onChange =
+			vi.fn<(next: CaseSearchConfig) => CommitOutcome | undefined>();
 		render(
 			<AdvancedSection
 				value={undefined}
@@ -155,7 +156,8 @@ describe("AdvancedSection — add path", () => {
 		// presence on the emitted config pins the spread is in place
 		// (without it the parent's strict parse would lose the title
 		// on the next save).
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		const onChange =
+			vi.fn<(next: CaseSearchConfig) => CommitOutcome | undefined>();
 		render(
 			<AdvancedSection
 				value={{
@@ -196,7 +198,7 @@ describe("AdvancedSection — populated round-trip", () => {
 				value={{
 					excludedOwnerIds: term(literal("owner-a owner-b")),
 				}}
-				onChange={() => {}}
+				onChange={() => undefined}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 			/>,
@@ -224,7 +226,7 @@ describe("AdvancedSection — populated round-trip", () => {
 				value={{
 					excludedOwnerIds: term(literal("owner-a")),
 				}}
-				onChange={() => {}}
+				onChange={() => undefined}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 			/>,
@@ -272,7 +274,8 @@ describe("AdvancedSection — populated round-trip", () => {
 		// Pins the user-actionable contract: a populated slot can be
 		// cleared in one click without expanding the body, including
 		// on a backend-loaded mount that lands default-collapsed.
-		const onChange = vi.fn<(next: CaseSearchConfig) => void>();
+		const onChange =
+			vi.fn<(next: CaseSearchConfig) => CommitOutcome | undefined>();
 		render(
 			<AdvancedSection
 				value={{
@@ -312,7 +315,7 @@ describe("AdvancedSection — validity propagation", () => {
 		render(
 			<AdvancedSection
 				value={{}}
-				onChange={() => {}}
+				onChange={() => undefined}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 				onValidityChange={onValidityChange}
@@ -332,7 +335,7 @@ describe("AdvancedSection — validity propagation", () => {
 		render(
 			<AdvancedSection
 				value={undefined}
-				onChange={() => {}}
+				onChange={() => undefined}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 				onValidityChange={onValidityChange}
@@ -355,7 +358,7 @@ describe("AdvancedSection — validity propagation", () => {
 				value={{
 					excludedOwnerIds: invalidExpression,
 				}}
-				onChange={() => {}}
+				onChange={() => undefined}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 				onValidityChange={onValidityChange}

@@ -22,10 +22,14 @@ import { useFormLintContext } from "@/components/builder/editor/fields/useFormLi
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { Field, FieldPatchFor } from "@/lib/domain";
+import {
+	useParseXPathForField,
+	useXPathText,
+} from "@/lib/doc/hooks/useXPathSlots";
+import type { Field, FieldPatchFor, XPathExpression } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
-	XPathStringKeys,
+	XPathExpressionKeys,
 } from "@/lib/domain/kinds";
 import { useSessionFocusHint } from "@/lib/session/hooks";
 import {
@@ -34,21 +38,20 @@ import {
 } from "./validateMsgVisibility";
 
 /**
- * `K extends XPathStringKeys<F>` admits both optional (`string |
- * undefined`) and required (`string`) XPath-valued keys. Only one
- * kind carries a required XPath key at the time of writing —
- * `hidden.calculate` — and the reducer tolerates a removal patch on
- * it the same way as on an optional key, so this editor treats both
- * shapes uniformly. The `as F[K]` casts that pass through `undefined`
- * lie at the type level for required keys; the caller-side registry
- * invariant (every value is a string or undefined, the reducer
- * accepts both) is the authoritative guarantee.
+ * The slot's stored form is the expression AST; this editor's surface
+ * stays TEXT. Display prints the stored value against the live doc
+ * (a rename of a referenced field updates the shown text with no slot
+ * write); commit parses the authored text back. The `as F[K]` casts
+ * widen through the generic — the editor only mounts on
+ * `XPathExpressionKeys`, so the runtime value is always an expression
+ * or undefined.
  */
-export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
+export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
 	const { field, value, onChange, label, autoFocus, keyName } = props;
-	const current = typeof value === "string" ? value : "";
+	const current = useXPathText(value as XPathExpression | undefined);
+	const parseForField = useParseXPathForField(field.uuid);
 
 	// `field.uuid` is already branded `Uuid` by the Field type.
 	const getLintContext = useFormLintContext(field.uuid);
@@ -57,9 +60,12 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 
 	const handleSave = useCallback(
 		(next: string) => {
-			onChange((next === "" ? undefined : next) as F[K]);
+			// Forward the gated outcome — XPathField keeps the editor open
+			// with the draft + an inline message when the gate refuses (e.g.
+			// a dependency cycle only the whole-doc validator can see).
+			return onChange((next === "" ? undefined : parseForField(next)) as F[K]);
 		},
-		[onChange],
+		[onChange, parseForField],
 	);
 
 	// `validate_msg` is a nested property owned by the validate editor
@@ -98,13 +104,19 @@ export function XPathEditor<F extends Field, K extends XPathStringKeys<F>>(
 	// `as` cast widens the literal-key patch back to the kind's partial
 	// shape — TS can't prove `validate_msg` belongs on `F` from inside
 	// this generic body.
-	const { updateField } = useBlueprintMutations();
+	/* Inline flavor: the validate-message editor renders the returned
+	 * outcome itself (EditableText's notice), and the clear arm removes a
+	 * message string — a removal no validator rule can object to. */
+	const {
+		inline: { updateField },
+	} = useBlueprintMutations();
 	const saveValidateMsg = useCallback(
 		(next: string) => {
-			updateField(field.uuid, field.kind, {
+			const outcome = updateField(field.uuid, field.kind, {
 				validate_msg: next === "" ? undefined : next,
 			} as unknown as FieldPatchFor<F["kind"]>);
-			setAddingMsg(false);
+			if (outcome.ok) setAddingMsg(false);
+			return outcome;
 		},
 		[updateField, field.uuid, field.kind],
 	);

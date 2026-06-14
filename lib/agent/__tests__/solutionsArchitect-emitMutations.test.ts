@@ -25,27 +25,19 @@
  * any of them — catching the regression where a subagent misses a
  * migration spot.
  *
- * ## validationLoop
+ * ## Planning tools
  *
- * The validationLoop test mocks `runValidation`, `FIX_REGISTRY`, and
- * `expandBlueprint` via `vi.mock` so we can synthesize a single fix
- * iteration without plumbing a real CommCare-rule violation through. The
- * shortcut is fine: the live migration of `data-form-fixed` into
- * `ctx.emitMutations(..., "fix:attempt-N")` is a simple call-site change
- * and the safety-net test independently verifies no legacy wire event
- * leaks through.
+ * `generateSchema` and `planAppDesign` are pure planning steps — the
+ * tests pin that neither writes a mutation event (their plans live in
+ * the conversation, not on the doc).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ValidationError } from "@/lib/commcare/validator/errors";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
-import {
-	createSolutionsArchitect,
-	INFRA_FAILURE_SA_INSTRUCTION,
-} from "../solutionsArchitect";
+import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
 
 // ── Forbidden legacy events ──────────────────────────────────────────────
@@ -214,88 +206,37 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		writer = built.writer;
 	});
 
-	it("generateSchema emits data-mutations with setAppName + setCaseTypes mutations", async () => {
-		// Start from an empty doc so `setCaseTypes` has no prior catalog to
-		// collapse against — the emission should show both the app-name
-		// change and the catalog change in one `data-mutations` batch,
-		// tagged with the "schema" stage.
-		const emptyDoc: BlueprintDoc = {
-			appId: "test-app",
-			appName: "",
-			connectType: null,
-			caseTypes: null,
-			modules: {},
-			forms: {},
-			fields: {},
-			moduleOrder: [],
-			formOrder: {},
-			fieldOrder: {},
-			fieldParent: {},
-		};
-		const sa = createSolutionsArchitect(ctx, emptyDoc, false);
+	it("generateSchema is a pure plan — a structured echo, zero mutations on the wire", async () => {
+		const sa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
 
-		await runTool(sa, "generateSchema", {
+		const result = await runTool(sa, "generateSchema", {
 			appName: "Trial Intake",
 			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
-			],
-		});
-
-		const muts = mutationEvents(writer);
-		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("schema");
-		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
-			"setAppName",
-			"setCaseTypes",
-		]);
-		expectNoLegacyEvents(writer);
-	});
-
-	it("generateScaffold emits data-mutations and not data-scaffold", async () => {
-		// Scaffold tool only runs in build mode; start from empty doc.
-		const emptyDoc = makeEmptyDoc();
-		const sa = createSolutionsArchitect(ctx, emptyDoc, false);
-
-		await runTool(sa, "generateScaffold", {
-			app_name: "Trial Intake",
-			description: "Clinical trial enrollment",
-			connect_type: "",
-			modules: [
 				{
-					name: "Patients",
-					case_type: "patient",
-					case_list_only: false,
-					purpose: "Track patient enrollment",
-					forms: [
-						{
-							name: "Enroll",
-							type: "registration",
-							purpose: "Capture new patient",
-							formDesign: "Name + DOB",
-						},
-					],
+					name: "visit",
+					parent_type: "patient",
+					properties: [{ name: "case_name", label: "Visit" }],
 				},
 			],
 		});
 
-		const muts = mutationEvents(writer);
-		expect(muts.length).toBeGreaterThan(0);
-		expect(muts[0].stage).toBe("scaffold");
+		expect(result).toMatchObject({
+			planned: true,
+			appName: "Trial Intake",
+			caseTypes: [
+				{ name: "patient", properties: ["case_name"] },
+				{ name: "visit", parent_type: "patient", properties: ["case_name"] },
+			],
+		});
+		expect(mutationEvents(writer)).toHaveLength(0);
 		expectNoLegacyEvents(writer);
 	});
 
-	it("generateScaffold carries per-form connect through to the addForm mutation", async () => {
-		/* `connect` is on the per-form scaffold schema, so an SA
-		 * generateScaffold call that supplies it must end up on the
-		 * constructed `Form` entity carried by the matching `addForm`
-		 * mutation. Without this assertion, a regression that drops
-		 * `sf.connect` in `setScaffoldMutations` — the same dead-
-		 * schema-field shape that can hit any SA-facing field on the
-		 * scaffold form — would slip past silently. */
-		const emptyDoc = makeEmptyDoc();
-		const sa = createSolutionsArchitect(ctx, emptyDoc, false);
+	it("planAppDesign is a pure plan — a structured index, zero mutations on the wire", async () => {
+		const sa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
 
-		await runTool(sa, "generateScaffold", {
+		const result = await runTool(sa, "planAppDesign", {
 			app_name: "Vendor Visits",
 			description: "Connect deliver app",
 			connect_type: "deliver",
@@ -320,65 +261,45 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			],
 		});
 
-		const events = mutationEvents(writer);
-		// Locate the addForm mutation in the scaffold batch (each
-		// event carries an array; the scaffold batch contains
-		// setAppName, setConnectType, addModule, then addForm).
-		const addFormMut = events
-			.flatMap((e) => e.mutations)
-			.find((m) => m.kind === "addForm") as
-			| Extract<Mutation, { kind: "addForm" }>
-			| undefined;
-		expect(addFormMut).toBeDefined();
-		// Source-correctness: the id-less deliver_unit is autofilled from
-		// the module name ("Visits" → "visits") before the scaffold
-		// mutations are built, so it lands on the doc with a valid id.
-		expect(addFormMut?.form.connect?.deliver_unit).toEqual({
-			id: "visits",
-			name: "Vendor visit",
-		});
-	});
-
-	it("generateScaffold carries per-form post_submit through to the addForm mutation", async () => {
-		/* `post_submit` is on the per-form scaffold schema and must reach
-		 * the constructed `Form` entity. Companion to the `connect` test
-		 * above — same dead-schema-field shape, same assertion shape.
-		 * Locks the construction site against silently dropping any
-		 * scalar SA-set form property. */
-		const emptyDoc = makeEmptyDoc();
-		const sa = createSolutionsArchitect(ctx, emptyDoc, false);
-
-		await runTool(sa, "generateScaffold", {
-			app_name: "Visit Tracker",
-			description: "Survey-only flow",
-			connect_type: "",
+		expect(result).toMatchObject({
+			planned: true,
+			appName: "Vendor Visits",
+			connectType: "deliver",
 			modules: [
 				{
+					index: 0,
 					name: "Visits",
-					case_type: null,
-					case_list_only: false,
-					purpose: "Capture vendor visits",
 					forms: [
 						{
+							index: 0,
 							name: "Vendor visit",
 							type: "survey",
-							purpose: "Visit form",
-							post_submit: "module",
-							formDesign: "Vendor + photo",
+							connectKinds: ["deliver_unit"],
 						},
 					],
 				},
 			],
 		});
+		expect(mutationEvents(writer)).toHaveLength(0);
+		expectNoLegacyEvents(writer);
+	});
 
-		const events = mutationEvents(writer);
-		const addFormMut = events
-			.flatMap((e) => e.mutations)
-			.find((m) => m.kind === "addForm") as
-			| Extract<Mutation, { kind: "addForm" }>
-			| undefined;
-		expect(addFormMut).toBeDefined();
-		expect(addFormMut?.form.postSubmit).toBe("module");
+	it("updateApp emits one data-mutations batch carrying setAppName + setConnectType", async () => {
+		const sa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
+
+		await runTool(sa, "updateApp", {
+			name: "Vendor Visits",
+			connect_type: "deliver",
+		});
+
+		const muts = mutationEvents(writer);
+		expect(muts).toHaveLength(1);
+		expect(muts[0].stage).toBe("app");
+		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
+			"setAppName",
+			"setConnectType",
+		]);
+		expectNoLegacyEvents(writer);
 	});
 
 	it("addCaseListColumns emits data-mutations tagged module:M:caseList:column:add", async () => {
@@ -435,15 +356,28 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("editField with id rename emits rename + update as two separate data-mutations batches", async () => {
-		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		/* Rename a non-case_name field: renaming the registration form's
+		 * case_name writer away would introduce NO_CASE_NAME_FIELD and the
+		 * gate would rightly reject the whole edit. */
+		const VILLAGE = asUuid("55555555-5555-5555-5555-555555555555");
+		const doc = makeFixtureDoc();
+		doc.fields[VILLAGE] = {
+			uuid: VILLAGE,
+			id: "village",
+			kind: "text",
+			label: "Village",
+		} as Field;
+		doc.fieldOrder[FORM_A] = [...doc.fieldOrder[FORM_A], VILLAGE];
+		doc.fieldParent[VILLAGE] = FORM_A;
+		const sa = createSolutionsArchitect(ctx, doc, true);
 
 		await runTool(sa, "editField", {
 			moduleIndex: 0,
 			formIndex: 0,
-			fieldId: "case_name",
+			fieldId: "village",
 			updates: {
-				id: "full_name", // triggers the rename batch
-				label: "Full patient name", // triggers the second batch
+				id: "hamlet", // triggers the rename batch
+				label: "Hamlet", // triggers the second batch
 			},
 		});
 
@@ -479,12 +413,15 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			moduleIndex: 0,
 			name: "Follow-up Visit",
 			type: "followup",
+			// Atomic creation: a form lands together with its fields.
+			fields: [{ kind: "text", id: "visit_notes", label: "Visit notes" }],
 		});
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe("module:0");
 		expect(muts[0].mutations.some((m) => m.kind === "addForm")).toBe(true);
+		expect(muts[0].mutations.some((m) => m.kind === "addField")).toBe(true);
 		expectNoLegacyEvents(writer);
 	});
 
@@ -508,13 +445,21 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// sneaked into.
 		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), false);
 
-		// Generation tools (build mode only).
+		// Planning tools (build mode only) — pure, but walked so a future
+		// regression that makes them emit shows up here.
 		await runTool(sa, "generateSchema", {
 			appName: "App",
 			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
+		await runTool(sa, "planAppDesign", {
+			app_name: "App",
+			description: "Safety-net walk",
+			connect_type: "",
+			modules: [],
+		});
+		await runTool(sa, "updateApp", { name: "App" });
 
 		// Case-list-config write tool — covers the typed-AST surface that
 		// replaced the deleted `addModule` SA tool. Walking it here keeps
@@ -584,418 +529,37 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 });
 
-// ── validateApp — still emits data-done ─────────────────────────────────
+// ── No finishing tool ────────────────────────────────────────────────────
 //
-// `validateApp` keeps its full-doc `data-done` emission as the final
-// reconciliation handoff (validation autofixes can produce opaque deltas,
-// and a final snapshot is simpler than threading a per-fix mutation trail
-// through the fix registry). We mock the validation + expansion modules
-// so the tool reaches the success branch against a trivial fixture.
+// Completion moved to the chat route's drain-end finalize — the SA's tool
+// set carries no completeBuild on either mode, and no tool emits
+// `data-done` (that signal is the route's).
 
-vi.mock("../validationLoop", async () => {
-	const mod =
-		await vi.importActual<typeof import("../validationLoop")>(
-			"../validationLoop",
-		);
-	return {
-		...mod,
-		validateAndFix: vi.fn(),
-	};
-});
-
+/* `emitMutations` fires a fire-and-forget `updateAppForRun` on every
+ * mutating tool call; stub the apps module so no save reaches Firestore. */
 vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-	failApp: vi.fn(),
 	updateAppForRun: vi.fn(() => Promise.resolve()),
 }));
 
-/* `validateApp`'s success arm awaits `materializeCaseStoreSchemas` to
- * close the chat-completion → case-store-schema gap (the SA's chat-
- * side `saveBlueprint` is fire-and-forget by design, so
- * `case_type_schemas` carries no row until this call lands). The test
- * doesn't reach Postgres; mocking the helper to a resolved no-op
- * lets the success arm complete without standing up a per-test
- * database. */
-vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
-	materializeCaseStoreSchemas: vi.fn(() => Promise.resolve()),
-}));
-
-describe("solutionsArchitect — validateApp", () => {
-	it("emits data-done with the final doc on success", async () => {
-		const { validateAndFix } = await import("../validationLoop");
-		const fixtureDoc = makeFixtureDoc();
-		vi.mocked(validateAndFix).mockResolvedValue({
-			success: true,
-			doc: fixtureDoc,
-			hqJson: {} as never,
-		});
-
-		const { ctx, writer } = buildCtx();
-		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
-
-		await runTool(sa, "validateApp", {});
-
-		const doneEvents = writtenEvents(writer).filter(
-			(e) => e.type === "data-done",
-		);
-		expect(doneEvents).toHaveLength(1);
-		const payload = doneEvents[0].data as { success: boolean };
-		expect(payload.success).toBe(true);
-		expectNoLegacyEvents(writer);
+describe("solutionsArchitect — no finishing tool", () => {
+	it("completeBuild is absent from both tool sets", () => {
+		const { ctx } = buildCtx();
+		const buildSa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
+		const editSa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		expect("completeBuild" in buildSa.tools).toBe(false);
+		expect("completeBuild" in editSa.tools).toBe(false);
 	});
 
-	it("orders side effects: materialize → data-done → completeApp on success", async () => {
-		// The reordered wrapper runs `materializeCaseStoreSchemas`
-		// BEFORE the `data-done` SSE emit so the celebration
-		// animation never races a user-initiated case-store action.
-		// Pin that ordering structurally — a regression to "emit
-		// data-done first" would let a "Generate sample data" click
-		// sub-second after the celebration trip
-		// `SchemaNotSyncedError`.
-		const { validateAndFix } = await import("../validationLoop");
-		const { materializeCaseStoreSchemas } = await import(
-			"@/lib/db/materializeCaseStoreSchemas"
-		);
-		const { completeApp, failApp } = await import("@/lib/db/apps");
-		const fixtureDoc = makeFixtureDoc();
-		vi.mocked(validateAndFix).mockResolvedValue({
-			success: true,
-			doc: fixtureDoc,
-			hqJson: {} as never,
-		});
-
-		// Shared call-order array each spy pushes to as it runs.
-		// `data-done` detection rides the writer spy because the
-		// SSE emit goes through `writer.write`, not a dedicated
-		// helper.
-		//
-		// Mock bodies stay synchronous: an inner `await` would let
-		// the wrapper resolve before the push records, scrambling
-		// `order` and breaking the call-order assertion.
-		const order: string[] = [];
-		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
-			order.push("materialize");
-		});
-		vi.mocked(completeApp).mockImplementationOnce(async () => {
-			order.push("completeApp");
-		});
-
-		const { ctx, writer } = buildCtx();
-		// `writer.write` is a fresh `vi.fn()` from `buildCtx()` —
-		// no prior implementation to preserve. Push to the shared
-		// order array on `data-done` events; other event types
-		// pass through silently.
-		writer.write.mockImplementation((event: { type?: string }) => {
-			if (event?.type === "data-done") order.push("data-done");
-		});
-
-		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
-		await runTool(sa, "validateApp", {});
-
-		expect(order).toEqual(["materialize", "data-done", "completeApp"]);
-		// `failApp` stays untouched on the success path — it's the
-		// failure-arm sibling of `completeApp`.
-		expect(vi.mocked(failApp)).not.toHaveBeenCalled();
-	});
-
-	it("classifies + fails the app and skips data-done when materialize throws", async () => {
-		// A Postgres outage during materialization is unrecoverable
-		// from the SA's edit perspective — the wrapper must route
-		// the failure through `classifyError` + `ctx.emitError` +
-		// `failApp` and return `success: false` so the SA loop
-		// doesn't retry into the staleness-reaper window. Letting
-		// the throw propagate to a `tool-error` content part would
-		// invite the SA to retry `validateApp`, burning through the
-		// 80-step `stopWhen` limit on a Postgres failure that no
-		// blueprint mutation can repair.
-		const { validateAndFix } = await import("../validationLoop");
-		const { materializeCaseStoreSchemas } = await import(
-			"@/lib/db/materializeCaseStoreSchemas"
-		);
-		const { completeApp, failApp } = await import("@/lib/db/apps");
-		const fixtureDoc = makeFixtureDoc();
-		vi.mocked(validateAndFix).mockResolvedValue({
-			success: true,
-			doc: fixtureDoc,
-			hqJson: {} as never,
-		});
-
-		// Mock bodies stay synchronous: an inner `await` would let
-		// the wrapper resolve before the push records, scrambling
-		// `order` and breaking the call-order assertion. The
-		// `throw` synchronously rejects the mock's returned promise
-		// without scheduling a microtask, so the `materialize-throws`
-		// push records before the wrapper's catch arm sees the
-		// rejection.
-		const order: string[] = [];
-		vi.mocked(materializeCaseStoreSchemas).mockImplementationOnce(async () => {
-			order.push("materialize-throws");
-			throw new Error("simulated postgres outage");
-		});
-		vi.mocked(completeApp).mockImplementationOnce(async () => {
-			order.push("completeApp");
-		});
-		vi.mocked(failApp).mockImplementationOnce(() => {
-			order.push("failApp");
-		});
-
-		const { ctx, writer } = buildCtx();
-		// Push to the shared order array on `data-done` events. The
-		// failure path SHOULD NOT emit `data-done` — the absence of
-		// the entry in `order` is what the assertion below pins.
-		writer.write.mockImplementation((event: { type?: string }) => {
-			if (event?.type === "data-done") order.push("data-done");
-		});
-
-		const sa = createSolutionsArchitect(ctx, fixtureDoc, true);
-		const result = await runTool(sa, "validateApp", {});
-
-		// `completeApp` MUST NOT fire on the failure path — the
-		// app stays in `generating` until `failApp` flips it to
-		// `error`. `data-done` MUST NOT fire either — the
-		// celebration only runs on a clean Postgres handoff.
-		expect(order).toEqual(["materialize-throws", "failApp"]);
-		expect(vi.mocked(completeApp)).not.toHaveBeenCalled();
-
-		// `failApp` was invoked with the SA's appId + the classified
-		// error type. Postgres errors don't match any of the typed
-		// API arms, so they fall through to `internal` per
-		// `lib/agent/errorClassifier.ts`.
-		expect(vi.mocked(failApp)).toHaveBeenCalledTimes(1);
-		expect(vi.mocked(failApp).mock.calls[0]).toEqual(["test-app", "internal"]);
-
-		// The tool tags the failure `infrastructure: true` so the SA can
-		// tell a system outage (validation passed; finalize threw) apart
-		// from a fixable validation failure — without the tag the two
-		// returns are byte-identical and the SA burns its `stopWhen`
-		// budget "fixing" an app that was never broken. `errors` carries
-		// the SA-facing stop-and-report instruction, NOT the raw
-		// `simulated postgres outage` (that user-facing translation went
-		// out via `emitError`).
-		expect(result).toMatchObject({
-			success: false,
-			infrastructure: true,
-			errors: [INFRA_FAILURE_SA_INSTRUCTION],
-		});
-	});
-});
-
-// ── validationLoop fix pass — emits data-mutations, not data-form-fixed ──
-//
-// The loop is exercised with `runValidation`, `FIX_REGISTRY`, and
-// `expandDoc` stubbed at the module level so exactly one fix iteration
-// runs. The assertion under test is that the fix pass emits
-// `data-mutations` events (not the legacy `data-form-fixed` shape);
-// stubbing lets us verify that wiring without constructing a real
-// field-registry rule + fix pair that produces the error.
-
-vi.mock("@/lib/commcare/validator/runner", () => ({
-	runValidation: vi.fn(),
-}));
-
-vi.mock("@/lib/commcare/validator/fixes", () => ({
-	FIX_REGISTRY: new Map<string, (...args: unknown[]) => Mutation[]>(),
-}));
-
-vi.mock("@/lib/commcare/expander", () => ({
-	// `expandDoc` returns an `HqApplication`; the validationLoop's
-	// `validateHqJson` reads the app-level multimedia_map + logo_refs slots,
-	// so this stub must stamp them empty even though the test never
-	// exercises media — leaving them undefined would crash the oracle on
-	// `Object.entries(undefined)`. The empty-dict shape matches what the
-	// real `applicationShell` factory stamps on a media-free app.
-	expandDoc: vi.fn(() => ({
-		modules: [],
-		_attachments: {},
-		multimedia_map: {},
-		logo_refs: {},
-	})),
-}));
-
-vi.mock("@/lib/commcare/validator/xformOracle", () => ({
-	validateXForm: vi.fn(() => []),
-}));
-
-describe("validationLoop — fix pass emission", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
-	it("emits a single data-mutations batch per fix attempt with stage fix:attempt-N", async () => {
-		const runnerMod = await import("@/lib/commcare/validator/runner");
-		const fixesMod = await import("@/lib/commcare/validator/fixes");
-		// Load the real validationLoop. `importActual` bypasses the
-		// file-level mock regardless of cache state — the top-of-file
-		// `vi.mock("../validationLoop", ...)` only affects imports
-		// resolved through the normal path (which this test doesn't use).
-		const { validateAndFix } =
-			await vi.importActual<typeof import("../validationLoop")>(
-				"../validationLoop",
-			);
-
-		// First validation pass returns an error; second returns none so
-		// the loop terminates after exactly one fix iteration. The error
-		// shape is cast to `ValidationError[]` — we use a real code for
-		// typing purposes, but the registry mock picks it up by key so the
-		// code value itself only matters as a map lookup key.
-		const TEST_CODE = "EMPTY_APP_NAME";
-		const firstErrors = [
-			{
-				code: TEST_CODE,
-				scope: "form" as const,
-				message: "test",
-				location: { formUuid: FORM_A, formName: "Enroll Patient" },
-			},
-		] as ValidationError[];
-		const runValidationFn = vi.mocked(runnerMod.runValidation);
-		runValidationFn.mockReturnValueOnce(firstErrors).mockReturnValue([]);
-
-		// Single fix that returns a single setAppName mutation — keeps the
-		// assertion simple while still exercising the emission path.
-		const fixMutations: Mutation[] = [{ kind: "setAppName", name: "Fixed" }];
-		(fixesMod.FIX_REGISTRY as Map<string, unknown>).set(
-			TEST_CODE,
-			() => fixMutations,
-		);
-
-		const { ctx, writer } = buildCtx();
-		await validateAndFix(ctx, makeFixtureDoc());
-
-		// Lock in that the loop actually iterated — first pass saw errors,
-		// second pass saw none and returned success. Without this assertion,
-		// a mock-setup regression that returns `[]` on the first call would
-		// silently trivialize both the length + legacy-event checks below.
-		expect(runValidationFn).toHaveBeenCalledTimes(2);
-
-		const muts = mutationEvents(writer);
-		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("fix:attempt-1");
-		expect(muts[0].mutations).toEqual(fixMutations);
-		expectNoLegacyEvents(writer);
-	});
-
-	it("emits a data-mutations batch with stage connect-defaults when applyConnectDefaults runs", async () => {
-		// applyConnectDefaults must flow through ctx.emitMutations so the
-		// in-browser doc receives the same `updateForm(connect)` patch the
-		// server's working doc carries into the validator. Before this test
-		// landed, the loop applied the mutations locally via Immer +
-		// `applyMutations` but never emitted — the live builder ended up
-		// with an empty/partial connect block while the validator saw a
-		// fully defaulted one.
-		const runnerMod = await import("@/lib/commcare/validator/runner");
-		const { validateAndFix } =
-			await vi.importActual<typeof import("../validationLoop")>(
-				"../validationLoop",
-			);
-
-		// Validator returns no errors so the loop exits straight after
-		// applyConnectDefaults runs — isolates the connect-defaults emit
-		// from the fix:attempt-N path.
-		vi.mocked(runnerMod.runValidation).mockReturnValue([]);
-
-		const docWithConnect: BlueprintDoc = {
-			...makeFixtureDoc(),
-			connectType: "learn",
-			forms: {
-				[FORM_A]: {
-					uuid: FORM_A,
-					id: "enroll",
-					name: "Enroll Patient",
-					type: "registration",
-					connect: {
-						learn_module: {
-							name: "",
-							description: "",
-						} as unknown as {
-							name: string;
-							description: string;
-							time_estimate: number;
-						},
-					},
-				},
-			},
-		};
-
-		const { ctx, writer } = buildCtx();
-		await validateAndFix(ctx, docWithConnect);
-
-		const muts = mutationEvents(writer);
-		const connectMut = muts.find((m) => m.stage === "connect-defaults");
-		expect(connectMut).toBeDefined();
-		expect(connectMut?.mutations).toHaveLength(1);
-		expect(connectMut?.mutations[0]).toMatchObject({
-			kind: "updateForm",
-			uuid: FORM_A,
-		});
-		// The defaulted learn_module fills in id/name/description/time_estimate.
-		const patch = (
-			connectMut?.mutations[0] as Extract<Mutation, { kind: "updateForm" }>
-		).patch;
-		expect(patch.connect?.learn_module).toMatchObject({
-			id: "patient",
-			name: "Enroll Patient",
-			description: "Enroll Patient",
-			time_estimate: 1,
-		});
-		expectNoLegacyEvents(writer);
-	});
-
-	it("skips the connect-defaults emission when the derived config is structurally identical", async () => {
-		/* Log-bloat regression guard. `deriveConnectDefaults` builds a
-		 * fresh object graph on every call (`{ ...form.connect }` + sub-
-		 * config clones), so reference equality can never short-circuit
-		 * on its own. Without the structural-equality check in
-		 * `applyConnectDefaults`, re-running validation on an already-
-		 * fully-defaulted form would re-emit the same `updateForm`
-		 * mutation every time — one Firestore write per validateApp call
-		 * for a no-op reducer patch. This test fixes the form's connect
-		 * to the exact shape `deriveConnectDefaults` produces, so the
-		 * derived value is equal-but-not-identical and the pass should
-		 * skip emission. */
-		const runnerMod = await import("@/lib/commcare/validator/runner");
-		const { validateAndFix } =
-			await vi.importActual<typeof import("../validationLoop")>(
-				"../validationLoop",
-			);
-
-		// Validator returns no errors so the loop exits right after
-		// applyConnectDefaults runs — isolates this assertion from the
-		// fix:attempt-N path.
-		vi.mocked(runnerMod.runValidation).mockReturnValue([]);
-
-		/* A form whose learn_module already matches the defaults
-		 * `deriveConnectDefaults` would produce: `id = moduleSlug` (the
-		 * module's display name slugified), `name = form.name`,
-		 * `description = form.name`, `time_estimate = 1` (zero input
-		 * fields → Math.max(1, ceil(0/3))). */
-		const docWithSettledConnect: BlueprintDoc = {
-			...makeFixtureDoc(),
-			connectType: "learn",
-			forms: {
-				[FORM_A]: {
-					uuid: FORM_A,
-					id: "enroll",
-					name: "Enroll Patient",
-					type: "registration",
-					connect: {
-						learn_module: {
-							id: "patient",
-							name: "Enroll Patient",
-							description: "Enroll Patient",
-							time_estimate: 1,
-						},
-					},
-				},
-			},
-		};
-
-		const { ctx, writer } = buildCtx();
-		await validateAndFix(ctx, docWithSettledConnect);
-
-		const connectMuts = mutationEvents(writer).filter(
-			(m) => m.stage === "connect-defaults",
-		);
-		expect(connectMuts).toHaveLength(0);
+	it("planning tools are build-only; updateApp is shared", () => {
+		const { ctx } = buildCtx();
+		const buildSa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
+		const editSa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		expect("generateSchema" in buildSa.tools).toBe(true);
+		expect("planAppDesign" in buildSa.tools).toBe(true);
+		expect("generateSchema" in editSa.tools).toBe(false);
+		expect("planAppDesign" in editSa.tools).toBe(false);
+		expect("updateApp" in buildSa.tools).toBe(true);
+		expect("updateApp" in editSa.tools).toBe(true);
 	});
 });
 

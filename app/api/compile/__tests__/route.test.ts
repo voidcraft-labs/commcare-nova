@@ -1,14 +1,14 @@
 /**
- * `POST /api/compile` (.ccz compile) — media-validation gate + inline-return tests.
+ * `POST /api/compile` (.ccz compile) — boundary gate + inline-return tests.
  *
- * This route is media-ON (the archive bundles media bytes): a stale
- * media reference would make `expandDoc` throw `requireAssetRef` → 500.
- * The gate runs media validation first and returns an actionable 400
- * instead. Tests prove the gate fires AND that the handler returns on it
+ * This route is media-ON (the archive bundles media bytes) and boundary-
+ * gated: any validator finding returns an actionable 422 before expand
+ * (a stale media reference would otherwise make `expandDoc` throw
+ * `requireAssetRef` → 500). Tests prove the gate fires AND that the handler returns on it
  * (no fall-through into expand/compile), and that a clean compile returns
  * the archive bytes inline (octet-stream) rather than a download URL.
  *
- * Boundaries mocked: `requireSession`, the media gate, manifest, expand,
+ * Boundaries mocked: `requireSession`, the boundary gate, manifest, expand,
  * and compile. The route runs the REAL `blueprintDocSchema` (fixture built
  * via `buildDoc`).
  */
@@ -19,13 +19,13 @@ import { requireSession } from "@/lib/auth-utils";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/media/mediaValidation", () => ({
-	collectMediaValidationErrors: vi.fn(),
+vi.mock("@/lib/media/boundaryValidation", () => ({
+	collectBoundaryViolations: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
 vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
@@ -74,21 +74,21 @@ function reqWith(body: unknown) {
 
 beforeEach(() => {
 	vi.mocked(requireSession).mockReset();
-	vi.mocked(collectMediaValidationErrors).mockReset();
+	vi.mocked(collectBoundaryViolations).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
 
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
-	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
+	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 	vi.mocked(expandDoc).mockReturnValue({} as never);
 	vi.mocked(compileCcz).mockReturnValue(Buffer.from("ccz-bytes"));
 });
 
-describe("POST /api/compile — media validation gate", () => {
-	it("returns 400 with the rule's message (not a 500) when a media ref is stale", async () => {
-		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+describe("POST /api/compile — boundary gate", () => {
+	it("returns 422 with the rule's message (not a 500) when a media ref is stale", async () => {
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
 			validationError(
 				"MEDIA_KIND_MISMATCH",
 				"field",
@@ -100,8 +100,8 @@ describe("POST /api/compile — media validation gate", () => {
 		const res = await POST(reqWith({ doc: validDoc() }));
 		const body = (await res.json()) as { error: string; details?: string[] };
 
-		expect(res.status).toBe(400);
-		expect(body.details?.[0]).toContain("audio file");
+		expect(res.status).toBe(422);
+		expect(body.details?.[0]).toContain("wrong type");
 		/* The gate short-circuits BEFORE expand + compile — neither runs
 		 * on a media-invalid doc. */
 		expect(expandDoc).not.toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe("POST /api/compile — media validation gate", () => {
 });
 
 describe("POST /api/compile — inline archive return", () => {
-	it("returns the compiled .ccz bytes inline (octet-stream) when media validation is clean", async () => {
+	it("returns the compiled .ccz bytes inline (octet-stream) when the boundary gate is clean", async () => {
 		const res = await POST(reqWith({ doc: validDoc() }));
 
 		expect(res.status).toBe(200);
@@ -124,7 +124,7 @@ describe("POST /api/compile — inline archive return", () => {
 		expect(bytes.toString()).toBe("ccz-bytes");
 		expect(res.headers.get("content-length")).toBe(String(bytes.length));
 
-		expect(collectMediaValidationErrors).toHaveBeenCalledWith(
+		expect(collectBoundaryViolations).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
 			"u1",
 		);

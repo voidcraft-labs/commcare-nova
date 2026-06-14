@@ -4,6 +4,12 @@ import {
 	configDefaults as vitestConfigDefaults,
 } from "vitest/config";
 
+// `import.meta.dirname`, not `__dirname`: vite accepts three config
+// loaders (bundle / runner / native) and only the bundle loader shims CJS
+// globals — this file stays strict-ESM-clean so it loads identically under
+// all three, whichever any tool or future default picks.
+const configDir = import.meta.dirname;
+
 export default defineConfig({
 	test: {
 		globals: true,
@@ -47,7 +53,7 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: {
-			"@": path.resolve(__dirname, "."),
+			"@": path.resolve(configDir, "."),
 			// Resolve `server-only` to its own no-op shim so tests of
 			// server modules (which mark themselves with the import as
 			// a build-time client-bundle defense) can load under
@@ -59,7 +65,7 @@ export default defineConfig({
 			// file keeps the marker import functional in production
 			// builds while letting test-time imports pass through.
 			"server-only": path.resolve(
-				__dirname,
+				configDir,
 				"node_modules/server-only/empty.js",
 			),
 		},

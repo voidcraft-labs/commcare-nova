@@ -12,6 +12,8 @@
  * whatever keys that variant supports.
  */
 
+import { parseXPathExpression } from "@/lib/commcare/xpath";
+import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
 	asUuid,
@@ -20,12 +22,37 @@ import {
 	type ConnectType,
 	type Field,
 	type FieldKind,
+	FORM_REFERENCE_SLOTS,
 	type Form,
 	type FormLink,
+	fieldPathResolver,
 	type Module,
 	plainColumn,
+	rewriteSlotValues,
 	type Uuid,
+	type XPathExpression,
 } from "@/lib/domain";
+
+/**
+ * Parse expression text to its stored AST with NO form resolution —
+ * form-namespace refs stay raw leaves (case/user refs classify fine;
+ * they need no doc). For fixtures whose form refs must resolve to
+ * identity leaves, use `xpIn` or author the slot as a string in a
+ * `buildDoc` spec (converted against the complete doc).
+ */
+export function xp(text: string): XPathExpression {
+	return parseXPathExpression(text, () => undefined);
+}
+
+/** Parse expression text against a built doc, scoped to a form — the
+ *  same resolution every live commit surface performs. */
+export function xpIn(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	text: string,
+): XPathExpression {
+	return parseXPathExpression(text, fieldPathResolver(doc, formUuid));
+}
 
 /** Monotonic counter keeps auto-assigned uuids stable + readable per test run. */
 let counter = 0;
@@ -68,10 +95,22 @@ export interface FormSpec {
 	name: string;
 	type: Form["type"];
 	purpose?: string;
-	closeCondition?: Form["closeCondition"];
+	/** Authored with a field ID (the concise spec shape); `buildDoc`
+	 *  resolves it to the field's uuid against the assembled form. */
+	closeCondition?: {
+		field: string;
+		answer: string;
+		operator?: "=" | "selected";
+	};
 	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
-	formLinks?: FormLink[];
+	/** Authored with string conditions/datum XPaths (the concise spec
+	 *  shape); `buildDoc` parses them against the assembled form. */
+	formLinks?: Array<{
+		condition?: string;
+		target: FormLink["target"];
+		datums?: Array<{ name: string; xpath: string }>;
+	}>;
 	fields?: FieldSpec[];
 }
 
@@ -174,14 +213,14 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				type: formSpec.type,
 				...(formSpec.purpose !== undefined && { purpose: formSpec.purpose }),
 				...(formSpec.closeCondition !== undefined && {
-					closeCondition: formSpec.closeCondition,
+					closeCondition: formSpec.closeCondition as Form["closeCondition"],
 				}),
 				...(formSpec.connect !== undefined && { connect: formSpec.connect }),
 				...(formSpec.postSubmit !== undefined && {
 					postSubmit: formSpec.postSubmit,
 				}),
 				...(formSpec.formLinks !== undefined && {
-					formLinks: formSpec.formLinks,
+					formLinks: formSpec.formLinks as unknown as FormLink[],
 				}),
 			};
 
@@ -203,6 +242,72 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 		fieldParent: {},
 	};
 	rebuildFieldParent(doc);
+	resolveDocExpressions(doc);
+	for (const [formUuid, form] of Object.entries(doc.forms)) {
+		if (form.closeCondition && form.closeCondition.field.length > 0) {
+			form.closeCondition.field = asUuid(
+				resolveCloseFieldRef(doc, formUuid, form.closeCondition.field),
+			);
+		}
+	}
+	return doc;
+}
+
+/**
+ * Fixtures author expression slots as XPath TEXT (the concise spec
+ * shape); the canonical stored form is the expression AST. Convert
+ * after assembly so references resolve against the COMPLETE built doc
+ * — exactly the contract every live commit surface follows. Exported
+ * for tests that hand-assemble docs instead of using `buildDoc`;
+ * mutates in place and returns the doc for inline wrapping.
+ */
+export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
+	const AST_SLOTS = [
+		"relevant",
+		"validate",
+		"calculate",
+		"default_value",
+		"required",
+		"repeat_count",
+	] as const;
+	for (const [formUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
+		if (doc.forms[formUuid] === undefined) continue;
+		const resolve = fieldPathResolver(doc, formUuid);
+		const stack = [...fieldUuids];
+		while (stack.length > 0) {
+			const uuid = stack.pop();
+			if (uuid === undefined) continue;
+			const field = doc.fields[uuid] as unknown as Record<string, unknown>;
+			if (!field) continue;
+			for (const slot of AST_SLOTS) {
+				const value = field[slot];
+				if (typeof value === "string") {
+					field[slot] = parseXPathExpression(value, resolve);
+				}
+			}
+			const dataSource = field.data_source as
+				| { ids_query?: unknown }
+				| undefined;
+			if (dataSource && typeof dataSource.ids_query === "string") {
+				dataSource.ids_query = parseXPathExpression(
+					dataSource.ids_query,
+					resolve,
+				);
+			}
+			for (const child of doc.fieldOrder[uuid] ?? []) stack.push(child);
+		}
+	}
+	for (const [formUuid, form] of Object.entries(doc.forms)) {
+		const resolve = fieldPathResolver(doc, formUuid);
+		for (const entry of FORM_REFERENCE_SLOTS) {
+			if ((entry.kind as string) !== "xpath-ast") continue;
+			rewriteSlotValues(form, entry.path, (value) =>
+				typeof value === "string"
+					? parseXPathExpression(value, resolve)
+					: value,
+			);
+		}
+	}
 	return doc;
 }
 

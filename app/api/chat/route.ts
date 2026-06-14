@@ -21,6 +21,10 @@ import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
+	BuildRunConflictError,
+	type ClaimedBuildRun,
+	claimBuildRun,
+	completeApp,
 	createApp,
 	failApp,
 	hasActiveGeneration,
@@ -35,8 +39,10 @@ import {
 	refundReservation,
 	reserveCredits,
 } from "@/lib/db/credits";
+import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
@@ -190,6 +196,17 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	/* Set when this POST claimed an existing app's build-run window
+	 * (`claimBuildRun` flipped it to `generating`). Carries the shape the
+	 * claim moved the app out of, so the pre-stream rejection arms below
+	 * can put the row back exactly where the claim found it — failing a
+	 * previously-`complete` app to `error` over a rejected request would
+	 * brick a working app. */
+	let claimedRun: ClaimedBuildRun | undefined;
+	/* Set when this POST may be resuming a paused build WITHOUT claiming
+	 * (a free continuation / an edit). The actual clear runs after every
+	 * pre-stream bail-out gate has passed — see the branch that sets it. */
+	let clearPauseFlagAfterGates = false;
 	if (!appId) {
 		try {
 			appId = await createApp(userId, effectiveRunId);
@@ -209,19 +226,104 @@ export async function POST(req: Request) {
 		 * longer scopes writes to the authenticated user. Without this check,
 		 * a crafted request with another user's appId would overwrite their app. */
 		const owner = await loadAppOwner(appId);
-		if (!owner || owner !== userId) {
+		if (owner !== userId) {
 			return Response.json(
 				{ error: "App not found", type: "not_found" },
 				{ status: 404 },
 			);
 		}
-		/* This POST runs against an existing app — if it's resuming a build that
-		 * paused on an `askQuestions` round, clear the pause flag now (before the
-		 * stream) so a resume that then hard-kills becomes reapable again. A no-op
-		 * for an ordinary edit (the field is absent). The run re-sets it below if it
-		 * pauses on a question again. */
-		void setAwaitingInput(appId, false);
+		if (!parsed.data.appReady && chargeable) {
+			/* EVERY chargeable BUILD-mode POST against an existing app claims
+			 * the run window HERE — awaited, BEFORE the concurrency check
+			 * below, the same write-then-check ordering `createApp` uses (the
+			 * durable `generating` row is the lock; do not reorder). One
+			 * mechanism for every shape the row can be in: a retry of a
+			 * failed build (`error`), a new instruction into a finished one
+			 * (`complete` — e.g. the reply after a purely conversational
+			 * first turn), and a fresh instruction into a build paused on
+			 * questions (`generating` + `awaiting_input`). The claim is what
+			 * puts the run under the liveness machinery: the concurrency
+			 * guard, the staleness reaper's reservation refund for a
+			 * hard-killed run, and the list failure inference.
+			 *
+			 * The claim itself is the same-app lock: `hasActiveGeneration`
+			 * below excludes this appId (so a run isn't blocked by its own
+			 * row), which means it can never arbitrate between two POSTs on
+			 * the SAME app — the transactional compare-and-flip inside
+			 * `claimBuildRun` is what fails the loser. */
+			try {
+				claimedRun = await claimBuildRun(appId);
+			} catch (err) {
+				if (err instanceof BuildRunConflictError) {
+					/* Lost the claim race — another POST owns this row's run now.
+					 * 429 without touching the row: failing the app here would
+					 * kill the winner's live lock. */
+					return Response.json(
+						{
+							error: MESSAGES.generation_in_progress,
+							type: "generation_in_progress",
+						},
+						{ status: 429 },
+					);
+				}
+				log.error("[chat] build-run claim write failed", err, { appId });
+				return Response.json(
+					{
+						error: "Unable to start this build. Please try again shortly.",
+						type: "internal",
+					},
+					{ status: 503 },
+				);
+			}
+		} else {
+			/* A free continuation or an edit against an existing app — if it's
+			 * resuming a build that paused on an `askQuestions` round, the pause
+			 * flag must clear so a resume that then hard-kills becomes reapable
+			 * again. The clear itself runs AFTER the last pre-stream bail-out
+			 * gate (below the reservation block): clearing here would leave a
+			 * 429'd/503'd request's paused run as an unflagged `generating` row
+			 * the reaper kills ten minutes later — refunding and erroring a
+			 * build that is still politely waiting on its questions. (A
+			 * chargeable build POST took the claim branch above, whose
+			 * transaction already cleared the flag — and whose bail-outs
+			 * restore it.) */
+			clearPauseFlagAfterGates = true;
+		}
 	}
+
+	/**
+	 * Put a claimed run window back where `claimBuildRun` found it — the
+	 * pre-stream bail-out arms (concurrency 429, out-of-credits,
+	 * reservation failure) call this so a rejected request leaves the app
+	 * exactly as it was. Fire-and-forget like `failApp`: a rejection
+	 * response must not block on Firestore, and a dropped restore degrades
+	 * to the reaper settling the still-`generating` row (refund-first).
+	 */
+	const restoreClaimedRun = (
+		claim: ClaimedBuildRun,
+		reason: ErrorType,
+	): void => {
+		switch (claim.from) {
+			case "error":
+				/* Write back the DISPLACED classification — the row's original
+				 * failure (model_error, …) is what the user retried, and the
+				 * bail-out's own reason describes this rejected request, not
+				 * that build. The fallback covers a legacy row that reached
+				 * `error` with no classification recorded. */
+				failApp(appId, claim.errorType ?? reason);
+				return;
+			case "complete":
+				completeApp(appId).catch((err) =>
+					log.error("[chat] claimed-run restore to complete failed", err, {
+						appId,
+					}),
+				);
+				return;
+			case "paused":
+				void setAwaitingInput(appId, true);
+				return;
+		}
+	};
 
 	// Concurrency guard — only one generation at a time per user. Prevents
 	// concurrent requests from racing past the credit gate and works across
@@ -235,6 +337,8 @@ export async function POST(req: Request) {
 		if (inFlight) {
 			if (!parsed.data.appId) {
 				failApp(appId, "generation_in_progress");
+			} else if (claimedRun) {
+				restoreClaimedRun(claimedRun, "generation_in_progress");
 			}
 			return Response.json(
 				{
@@ -274,10 +378,14 @@ export async function POST(req: Request) {
 			if (err instanceof OutOfCreditsError) {
 				// Lost the rare race: passed the fast-fail balance read, then a
 				// concurrent reservation depleted the balance before this debit. Fail
-				// the just-created build doc (a retry on an existing app must not) and
-				// surface the same out-of-credits 429 the fast-fail read returns.
+				// the just-created build doc — and put a claimed run window back
+				// where the claim found it (its `generating` was this POST's own
+				// lock write, now pointing at a run that never starts). An ordinary
+				// existing-app request stays untouched.
 				if (appCreated) {
 					failApp(appId, "out_of_credits");
+				} else if (claimedRun) {
+					restoreClaimedRun(claimedRun, "out_of_credits");
 				}
 				return Response.json(
 					{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
@@ -286,7 +394,13 @@ export async function POST(req: Request) {
 			}
 			// Any other failure is infrastructure (Firestore down / transaction
 			// contention exhausted). Fail closed — never silently skip the charge
-			// and let an uncharged generation through.
+			// and let an uncharged generation through. A claimed run window is
+			// put back first — leaving it `generating` would hand a working app
+			// to the reaper (which would settle it to `error`) over a request
+			// that never ran.
+			if (claimedRun) {
+				restoreClaimedRun(claimedRun, "internal");
+			}
 			log.error("[chat] credit reservation failed", err);
 			return Response.json(
 				{
@@ -296,6 +410,16 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+	}
+
+	/* Every pre-stream bail-out gate has passed — a request that reaches
+	 * here WILL run. Only now may an unclaimed resume clear the pause flag:
+	 * the flag (not the timestamp) is what spares a paused build from the
+	 * reaper, so it must survive any rejection above. The run re-sets it if
+	 * it pauses on a question again; a no-op for an ordinary edit (the
+	 * field is absent). Fire-and-forget — see `setAwaitingInput`. */
+	if (clearPauseFlagAfterGates) {
+		void setAwaitingInput(appId, false);
 	}
 
 	/* Two collaborators replace the legacy EventLogger:
@@ -387,6 +511,11 @@ export async function POST(req: Request) {
 						fieldParent: {},
 					};
 			rebuildFieldParent(sessionDoc);
+			/* Hydrate the reference index alongside — the SA's tool layer
+			 * answers "who references / declares X" through it (retirement
+			 * planning, rename verdicts, the rename cascade) from the first
+			 * tool call. */
+			ensureReferenceIndex(sessionDoc);
 
 			const ctx = new GenerationContext({
 				apiKey: keyResult.apiKey,
@@ -595,7 +724,7 @@ export async function POST(req: Request) {
 				 * document still needs reading: an already-extracted doc resolves from
 				 * its stored extract instantly and must not flash the status (an image /
 				 * doc-free turn does no narrate-worthy work either). The events also land
-				 * in the run log (like `validation-attempt`). */
+				 * in the run log as run annotations, not chat-visible content. */
 				const docsToReadCount = countDocumentsNeedingRead(messagesToSend);
 				if (docsToReadCount > 0) {
 					ctx.emitConversation({
@@ -625,26 +754,30 @@ export async function POST(req: Request) {
 					ctx.emitConversation({ type: "attachment-prep", phase: "done" });
 				}
 
-				/* Live-cache edits send full history. Any tool-use/result part that
-				 * names a tool absent from THIS request's tool set would make
-				 * Anthropic reject the request ("tool not found in tools array").
-				 * Two ways a historical part can name an absent tool: a build-only
-				 * generation tool (`generateSchema` / `generateScaffold`) carried into
-				 * an edit turn, or a tool that has since been removed or renamed (a
-				 * build thread predating a deploy that changed the tool surface — e.g.
-				 * the old singular `addCaseListColumn` / `addSearchInput` / `addField`).
-				 * Strip any `tool-<name>` part whose `<name>` isn't a currently-
-				 * registered tool, keyed on `sa.tools` so the filter never drifts from
-				 * the active set (more robust than a hardcoded legacy-name list).
-				 * Stripping by part type removes both the call and its output in one
-				 * step — the AI SDK keeps both sides of a tool invocation on the same
-				 * part — so the converted Anthropic messages keep matched
-				 * `tool_use` / `tool_result` pairs for the tools that remain.
-				 * Assistant turns that collapse to zero parts are dropped so the wire
-				 * carries no empty turns. Deterministic in its inputs, so successive
-				 * edit requests produce identical cacheable prefixes. (Expired-cache
-				 * edits already trimmed to the last user message above, so this is a
-				 * no-op for them — hence it runs only for the live-cache edit branch.) */
+				/* Strip historical tool parts that name a tool absent from THIS
+				 * request's tool set — any such part would make Anthropic reject the
+				 * request ("tool not found in tools array"). Two ways history carries
+				 * an absent tool: a build-only planning tool (`generateSchema` /
+				 * `planAppDesign`) carried into an edit turn, or a tool that has since
+				 * been removed or renamed (a thread predating a deploy that changed
+				 * the tool surface — e.g. the old singular `addCaseListColumn` /
+				 * `addSearchInput` / `addField`, or the retired `generateScaffold` /
+				 * `completeBuild`). The strip runs on EVERY continuation: build
+				 * continuations always send full history, and a build paused on
+				 * `awaiting_input` is exactly the shape designed to SURVIVE a deploy —
+				 * gating the strip to edits would brick its resume on
+				 * `validateUIMessages`, fail+refund the run, and re-poison every
+				 * retry with the same history. (An expired-cache edit was already
+				 * trimmed to the last user message above, so it strips nothing.)
+				 * Keyed on `sa.tools` so the filter never drifts from the active set
+				 * (more robust than a hardcoded legacy-name list). Stripping by part
+				 * type removes both the call and its output in one step — the AI SDK
+				 * keeps both sides of a tool invocation on the same part — so the
+				 * converted Anthropic messages keep matched `tool_use` /
+				 * `tool_result` pairs for the tools that remain. Assistant turns that
+				 * collapse to zero parts are dropped so the wire carries no empty
+				 * turns. Deterministic in its inputs, so successive requests produce
+				 * identical cacheable prefixes. */
 				const activeToolPartTypes = new Set<string>(
 					Object.keys(sa.tools).map((name) => `tool-${name}`),
 				);
@@ -661,12 +794,9 @@ export async function POST(req: Request) {
 						? m
 						: { ...m, parts: nextParts };
 				};
-				const effectiveMessages =
-					editing && !cacheExpired
-						? preparedMessages
-								.map(stripUnknownToolParts)
-								.filter((m): m is NovaUIMessage => m !== undefined)
-						: preparedMessages;
+				const effectiveMessages = preparedMessages
+					.map(stripUnknownToolParts)
+					.filter((m): m is NovaUIMessage => m !== undefined);
 
 				/* Record the input-context composition for the per-run finalize
 				 * log: how many messages were actually sent (after the cache-expiry
@@ -763,6 +893,87 @@ export async function POST(req: Request) {
 					 * `finalizeRun()` flushes it); the flag is cleared when that POST
 					 * resumes the run. */
 					await setAwaitingInput(appId, true);
+				} else if (editing) {
+					/* Tripwire, not a gate: with every committed batch gated against
+					 * introducing findings, an edit run that ends with a NEW
+					 * completeness finding is unreachable except through a bug — the
+					 * warn is how one would surface in production. */
+					ctx.warnIfEditRunIncomplete();
+					/* An edit run can land case-type records (`createModule` with
+					 * `case_type_record`), and the chat surface's fire-and-forget
+					 * saves never touch Postgres — so sync the case-store schemas
+					 * here, the same "any case-store action after a commit sees a
+					 * synced schema" contract the build arm holds. Idempotent
+					 * upsert; failure is log-only because the edit itself succeeded
+					 * and the case-store consumers self-heal at the point of use —
+					 * a `SchemaNotSyncedError` on sample-populate / form submit /
+					 * live preview re-materializes from the persisted blueprint and
+					 * retries once (`withSchemaHeal` in the case-data-binding
+					 * actions). */
+					const editDoc = ctx.latestPersistedDoc();
+					if (editDoc) {
+						try {
+							await ctx.drainIntermediateSaves();
+							await materializeCaseStoreSchemas({
+								appId,
+								userId,
+								blueprint: toPersistableDoc(editDoc),
+							});
+						} catch (error) {
+							log.error("[chat] edit-run case-store sync failed", error, {
+								appId,
+							});
+						}
+					}
+				} else {
+					/* BUILD finalization — the drain ended cleanly, so the run is
+					 * done and the app is at rest. There is no finishing tool: the
+					 * route owns the three finishing moves, in this order.
+					 *
+					 *  1. Drain the run's chained intermediate saves, so the stored
+					 *     blueprint is the run's final snapshot before anything
+					 *     signals "finished".
+					 *  2. Materialize the case-store schemas for whatever the run
+					 *     persisted (awaited) — a user-initiated case-store action
+					 *     sub-second after the celebration (sample-data populate,
+					 *     form submit, live preview) must see a synced Postgres
+					 *     schema. The case-store consumers don't gate on status, so
+					 *     this MUST precede `data-done`.
+					 *  3. Flip `generating → complete` (status-only — the blueprint
+					 *     was already persisted by the chained saves, so this write
+					 *     can't blind-overwrite a concurrent editor) and emit
+					 *     `data-done`, the celebration + doc-reconciliation signal.
+					 *
+					 * A run that persisted nothing (a purely conversational build
+					 * turn) still flips to complete — an empty app is at rest and
+					 * valid, and status never feeds gating — but emits no
+					 * `data-done`: nothing was built, so there is nothing to
+					 * celebrate or reconcile.
+					 *
+					 * A throw out of any step funnels through `failRun` — the same
+					 * infrastructure arm a mid-run fault takes (the app flips to
+					 * `error`, the reservation refunds, the user sees the classified
+					 * error). */
+					try {
+						await ctx.drainIntermediateSaves();
+						const finalDoc = ctx.latestPersistedDoc();
+						if (finalDoc) {
+							await materializeCaseStoreSchemas({
+								appId,
+								userId,
+								blueprint: toPersistableDoc(finalDoc),
+							});
+						}
+						await completeApp(appId);
+						if (finalDoc) {
+							ctx.emit("data-done", {
+								doc: toPersistableDoc(finalDoc),
+								success: true,
+							});
+						}
+					} catch (error) {
+						await failRun(error, "route:finalize");
+					}
 				}
 			} catch (error) {
 				/* Init/build error around the stream setup (a bad message shape, an

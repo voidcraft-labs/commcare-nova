@@ -53,7 +53,7 @@ describe("caseSearchConfigRequiresCaseType", () => {
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("caseSearchConfig");
-		expect(hits[0].message).toContain("case_type");
+		expect(hits[0].message).toContain("caseType");
 	});
 
 	it("is silent when caseSearchConfig is present alongside a caseType", () => {

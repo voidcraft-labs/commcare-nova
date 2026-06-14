@@ -10,7 +10,11 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { isContainer } from "@/lib/domain";
+import {
+	expressionSource,
+	expressionSourceEntries,
+	isContainer,
+} from "@/lib/domain";
 
 /**
  * A single match from `searchBlueprint`. The surface preserves the
@@ -183,8 +187,9 @@ function searchFields(
 		if (field.id.toLowerCase().includes(query)) {
 			matchFields.push({ field: "id", value: field.id });
 		}
-		if ("label" in field && field.label?.toLowerCase().includes(query)) {
-			matchFields.push({ field: "label", value: field.label });
+		const label = expressionSource(field, "label", doc);
+		if (label?.toLowerCase().includes(query)) {
+			matchFields.push({ field: "label", value: label });
 		}
 		const anyField = field as Record<string, unknown>;
 		if (
@@ -196,6 +201,9 @@ function searchFields(
 				value: `${field.id}→${anyField.case_property_on}`,
 			});
 		}
+		// The expression slots this search surface covers — a UX choice of
+		// which slots are worth surfacing, not a slot-resolution list (the
+		// accessor owns that).
 		for (const key of [
 			"validate",
 			"relevant",
@@ -204,23 +212,32 @@ function searchFields(
 			"validate_msg",
 			"hint",
 		] as const) {
-			const v = anyField[key];
-			if (typeof v === "string" && v.toLowerCase().includes(query)) {
+			const v = expressionSource(field, key, doc);
+			if (v?.toLowerCase().includes(query)) {
 				matchFields.push({ field: key, value: v });
 			}
 		}
+		// Option labels read through the fan-out accessor; each entry's
+		// index pairs the label with its option's sibling `value` literal
+		// (a data literal, not an expression slot — read directly).
 		const opts = anyField.options;
 		if (Array.isArray(opts)) {
-			for (const opt of opts) {
-				const o = opt as { value?: unknown; label?: unknown };
+			const labelByOption = new Map<number, string>();
+			for (const entry of expressionSourceEntries(field, "option_label", doc)) {
+				const index = entry.indices[0];
+				if (index !== undefined) labelByOption.set(index, entry.text);
+			}
+			for (let i = 0; i < opts.length; i++) {
+				const o = opts[i] as { value?: unknown };
+				const optLabel = labelByOption.get(i);
 				if (
 					(typeof o.value === "string" &&
 						o.value.toLowerCase().includes(query)) ||
-					(typeof o.label === "string" && o.label.toLowerCase().includes(query))
+					optLabel?.toLowerCase().includes(query)
 				) {
 					matchFields.push({
 						field: "option",
-						value: `${String(o.value)}: ${String(o.label)}`,
+						value: `${String(o.value)}: ${optLabel}`,
 					});
 					break;
 				}

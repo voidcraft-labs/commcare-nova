@@ -4,15 +4,14 @@
  * Operates on the normalized `BlueprintDoc` shape persisted in Firestore.
  * Each form is visited in a single DFS pass — the collected `Field[]` is
  * reused across every per-form metric (kind counts, logic counts, case
- * property count, quality flags). This is a deliberate departure from
- * the first draft which made six independent walks per form.
+ * property count, quality flags) rather than one walk per metric.
  *
  * Field discriminator is `kind`; validation key is `validate`; case
  * linkage is `case_property_on`. Children live in `fieldOrder[parentUuid]`,
  * not on the field itself.
  */
 
-import { isContainer } from "../../lib/domain";
+import { expressionSource, isContainer } from "../../lib/domain";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "./types";
 
 // ── Result types ────────────────────────────────────────────────────
@@ -192,7 +191,7 @@ function countKindsFromList(fields: Field[]): FieldKindCounts {
  * every key — reads are guarded via `in` because the discriminated
  * union doesn't narrow across per-key access.
  */
-function countLogicFromList(fields: Field[]): LogicCounts {
+function countLogicFromList(doc: BlueprintDoc, fields: Field[]): LogicCounts {
 	const counts: LogicCounts = {
 		calculates: 0,
 		relevants: 0,
@@ -224,7 +223,8 @@ function countLogicFromList(fields: Field[]): LogicCounts {
 			hasAny = true;
 		}
 		/* required = "true()" is meaningful; "false()" is the default / absent. */
-		if ("required" in f && f.required && f.required !== "false()") {
+		const requiredText = expressionSource(f, "required", doc);
+		if (requiredText && requiredText !== "false()") {
 			counts.requireds++;
 			hasAny = true;
 		}
@@ -276,7 +276,7 @@ function analyzeForm(doc: BlueprintDoc, form: Form): FormAnalysis {
 		type: form.type,
 		fieldCount: fields.length,
 		fieldKinds: countKindsFromList(fields),
-		logic: countLogicFromList(fields),
+		logic: countLogicFromList(doc, fields),
 		hasPostSubmit: form.postSubmit !== undefined,
 		postSubmitValue: form.postSubmit,
 		hasCloseCase: form.type === "close",
@@ -480,25 +480,32 @@ function walkForLogic(
 		const has: LogicField["has"] = [];
 		const expressions: Record<string, string> = {};
 
-		if ("calculate" in f && f.calculate) {
+		// AST-stored slots project to their printed text — `expressionSource`
+		// resolves identity leaves against the doc.
+		const calculate = expressionSource(f, "calculate", doc);
+		if (calculate) {
 			has.push("calculate");
-			expressions.calculate = f.calculate;
+			expressions.calculate = calculate;
 		}
-		if ("relevant" in f && f.relevant) {
+		const relevant = expressionSource(f, "relevant", doc);
+		if (relevant) {
 			has.push("relevant");
-			expressions.relevant = f.relevant;
+			expressions.relevant = relevant;
 		}
-		if ("default_value" in f && f.default_value) {
+		const defaultValue = expressionSource(f, "default_value", doc);
+		if (defaultValue) {
 			has.push("default");
-			expressions.default = f.default_value;
+			expressions.default = defaultValue;
 		}
-		if ("validate" in f && f.validate) {
+		const validate = expressionSource(f, "validate", doc);
+		if (validate) {
 			has.push("validate");
-			expressions.validate = f.validate;
+			expressions.validate = validate;
 		}
-		if ("required" in f && f.required && f.required !== "false()") {
+		const required = expressionSource(f, "required", doc);
+		if (required && required !== "false()") {
 			has.push("required");
-			expressions.required = f.required;
+			expressions.required = required;
 		}
 		if ("hint" in f && f.hint) {
 			has.push("hint");
