@@ -202,10 +202,11 @@ export function scopeOfMutations(
 				acc.full = true;
 				break;
 			case "moveModule":
-				// Pure reorder of `moduleOrder` — no module/form finding
-				// reads module position (the one order-sensitive rule,
-				// duplicate module names, is an always-run app rule whose
-				// identity is name-keyed). App rules alone cover it.
+				// Pure reorder of `moduleOrder` adds nothing to scope: no
+				// finding reads module position (there's no order-sensitive
+				// module rule), so a reorder can neither introduce nor clear
+				// one, and the always-run app rules already cover every
+				// app-level finding regardless of walk order.
 				break;
 			case "renameModule":
 				acc.moduleUuids.add(mut.uuid);

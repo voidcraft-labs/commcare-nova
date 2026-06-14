@@ -62,7 +62,7 @@ export interface RunValidationOptions {
  * a scope never filters them:
  *
  *   - the `APP_RULES` products — app rules are cheap, their findings span
- *     entities (duplicate module names, form-link cycles, cross-form
+ *     entities (reserved case-type names, form-link cycles, cross-form
  *     case-property writer disagreement), and several anchor their
  *     location at whichever site happened to be walked first, so scoping
  *     them would make findings flicker with entity order;

@@ -105,7 +105,7 @@ const SLOT_LABEL: Readonly<Record<string, string>> = {
 	form_link_condition: "follow-on link condition",
 	form_link_datum_xpath: "follow-on link value",
 	assessment_user_score: "Connect score",
-	deliver_entity_id: "Connect entity id",
+	deliver_entity_id: "Connect entity ID",
 	deliver_entity_name: "Connect entity name",
 };
 

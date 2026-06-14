@@ -17,9 +17,9 @@ import { showToast } from "@/lib/ui/toastStore";
 // rejection surface, wired to a gate stub that always refuses, so the bounce
 // can be eyeballed in isolation: type into a control, press Enter, watch it.
 //
-// Each sample is a REAL current builder message (lib/doc/userFacingErrors.ts +
-// the field-ID verdict's userMessage), paired with the surface that actually
-// shows it in the app:
+// Each sample is REAL current builder copy (lib/doc/userFacingErrors.ts, the
+// field-ID verdict's userMessage, and lib/commcare/connectSlugs.ts for the
+// Connect ID), paired with the surface that actually shows it in the app:
 //   - EditableTitle edits the app / module / form NAME (home, module, form
 //     screens) — clearing the app name is the refusable title edit.
 //   - EditableText is the inline text / formula editor (XPathEditor) — a bad
@@ -35,8 +35,16 @@ const FIELD_ID_TAKEN =
 	'Another field is already named "age". Give this one a different ID, or rename that one first.';
 const HIDDEN_NO_VALUE =
 	'"visit_score" in "Follow-up" is hidden but has no value, so it\'ll always stay blank. Give it a default or a calculated value.';
-const ID_TOO_LONG =
-	"That ID's a bit too long (44 characters). Keep it to 40 or fewer.";
+// Mirrors lib/commcare/connectSlugs.ts::connectIdError's over-length branch,
+// recomputed live so the character count tracks the draft — the way the real
+// form-settings Connect ID field validates while you type. The CommCare
+// boundary keeps lib/commcare out of this dev page, so the copy and the
+// 50-char cap (CONNECT_SLUG_MAX_LENGTH) are mirrored here.
+const CONNECT_ID_MAX = 50;
+const connectIdTooLong = (v: string): string | null =>
+	v.length > CONNECT_ID_MAX
+		? `"${v}" is ${v.length} characters — Connect stores ids in a column limited to ${CONNECT_ID_MAX}. Shorten it to ${CONNECT_ID_MAX} characters or fewer.`
+		: null;
 const CONNECT_ID_DUP =
 	'The Connect ID "learn_intro" is already used by another form. Give this one a different ID, or change the other form\'s first.';
 const CONNECT_NO_FORMS =
@@ -108,9 +116,9 @@ export default function RejectionTestPage() {
 					<div className="grid grid-cols-2 gap-4 max-w-lg">
 						<InlineField
 							label="Connect ID"
-							value="learn_intro_module_for_client_onboarding_v2"
+							value="learn_intro_module_for_client_onboarding_session_v2"
 							onChange={() => ({ ok: true }) as CommitOutcome}
-							validate={(v) => (v.length > 40 ? ID_TOO_LONG : null)}
+							validate={connectIdTooLong}
 							mono
 						/>
 						<InlineField
@@ -190,7 +198,7 @@ export default function RejectionTestPage() {
 							className="px-3 py-1.5 text-xs rounded-md border border-white/[0.08] hover:border-nova-violet/40 cursor-pointer"
 							onClick={() =>
 								showToast("error", "Change not applied", undefined, {
-									lines: [HIDDEN_NO_VALUE, CONNECT_NO_FORMS, ID_TOO_LONG],
+									lines: [HIDDEN_NO_VALUE, CONNECT_NO_FORMS, FORMULA_BAD_REF],
 								})
 							}
 						>
