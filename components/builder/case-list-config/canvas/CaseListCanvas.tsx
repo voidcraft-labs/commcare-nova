@@ -232,9 +232,11 @@ export function CaseListCanvas({
 							</Tooltip>
 						</div>
 
-						{/* Live rows align to the header grid. Every non-rows state
+						{/* Live rows align to the header grid. Every non-rows state —
+						 *  and a column-less config, whose rows would be empty grids —
 						 *  renders as a notice below, outside this scroller. */}
-						{preview.kind === "rows" &&
+						{columns.length > 0 &&
+							preview.kind === "rows" &&
 							rows.map((row) => (
 								<div
 									key={row.case_id}

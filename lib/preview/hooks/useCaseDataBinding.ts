@@ -20,7 +20,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import {
 	loadCaseDataAction,
@@ -34,6 +34,7 @@ import type {
 	PopulateSampleCasesResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 
 /**
  * Adds `idle` / `loading` arms to a load result. `idle` covers
@@ -88,68 +89,28 @@ export function useCases(args: {
 	reload: () => Promise<void>;
 } {
 	const { appId, caseType, blueprint, caseListConfig, inputValues } = args;
-	const [state, setState] = useState<LoadingState<LoadCasesResult>>({
-		kind: "idle",
+	return useReloadableResource<LoadingState<LoadCasesResult>>({
+		prepare: () =>
+			!appId || !caseType
+				? { notReady: { kind: "idle" } }
+				: {
+						fetch: () =>
+							loadCasesAction({
+								appId,
+								caseType,
+								blueprint,
+								caseListConfig,
+								inputValues,
+							}),
+					},
+		loading: { kind: "loading" },
+		toError: (err) => ({
+			kind: "error",
+			message: err instanceof Error ? err.message : "Failed to load cases.",
+		}),
+		keepStale: (prev) => prev.kind === "rows" || prev.kind === "empty",
+		deps: [appId, caseType, blueprint, caseListConfig, inputValues],
 	});
-	const [fetching, setFetching] = useState(false);
-	const requestId = useRef(0);
-
-	/* One async load drives both the dep-change effect and the manual
-	 * `reload`. A monotonic request token gives last-write-wins, so a
-	 * reload racing the effect (or an unmount) can't commit a stale settle —
-	 * and because `reload` simply IS this promise, callers can await it to
-	 * learn when the fresh rows are on screen, not merely when the write
-	 * returned. */
-	const load = useCallback(async (): Promise<void> => {
-		if (!appId || !caseType) {
-			setState({ kind: "idle" });
-			setFetching(false);
-			return;
-		}
-		requestId.current += 1;
-		const id = requestId.current;
-		/* Stale-while-revalidate: settled data arms (`rows` / `empty`) stay
-		 * on screen through the reload; only never-settled states fall back
-		 * to the spinner. */
-		setState((prev) =>
-			prev.kind === "rows" || prev.kind === "empty"
-				? prev
-				: { kind: "loading" },
-		);
-		setFetching(true);
-		let next: LoadCasesResult;
-		try {
-			next = await loadCasesAction({
-				appId,
-				caseType,
-				blueprint,
-				caseListConfig,
-				inputValues,
-			});
-		} catch (err: unknown) {
-			/* Wire-level rejections (HTTP 500, network, RSC serialization at the
-			 * boundary) become the `error` arm — otherwise the hook would stick
-			 * on `loading` forever. */
-			next = {
-				kind: "error",
-				message: err instanceof Error ? err.message : "Failed to load cases.",
-			};
-		}
-		if (id !== requestId.current) return; // a newer load / unmount superseded us
-		setState(next);
-		setFetching(false);
-	}, [appId, caseType, blueprint, caseListConfig, inputValues]);
-
-	useEffect(() => {
-		void load();
-		// Invalidate any in-flight load on unmount / dep change so its settle
-		// is dropped rather than committed to a gone or superseded view.
-		return () => {
-			requestId.current += 1;
-		};
-	}, [load]);
-
-	return { state, fetching, reload: load };
 }
 
 /**
