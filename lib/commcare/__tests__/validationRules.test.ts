@@ -91,7 +91,12 @@ describe("app rules", () => {
 		);
 	});
 
-	it("catches duplicate module names", () => {
+	it("allows duplicate module names — CommCare keys modules by id, not name", () => {
+		// Module names are display labels in app_strings keyed by position
+		// (`modules.m0`, `m1`); the suite refs menus by index id. CommCare's
+		// build validator (`app_manager/helpers/validators.py`) checks
+		// duplicate form xmlns but NOT duplicate module/form names. Two
+		// "Surveys" menus is a valid app, so Nova must not block it.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -117,9 +122,7 @@ describe("app rules", () => {
 				},
 			],
 		});
-		expect(
-			runValidation(doc).some((e) => e.code === "DUPLICATE_MODULE_NAME"),
-		).toBe(true);
+		expect(runValidation(doc)).toEqual([]);
 	});
 
 	it("catches child case type missing module", () => {

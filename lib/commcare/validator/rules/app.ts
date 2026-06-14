@@ -41,29 +41,6 @@ function emptyAppName(doc: BlueprintDoc): ValidationError[] {
 	];
 }
 
-function duplicateModuleNames(doc: BlueprintDoc): ValidationError[] {
-	const errors: ValidationError[] = [];
-	const seen = new Map<string, number>();
-
-	for (let i = 0; i < doc.moduleOrder.length; i++) {
-		const mod = doc.modules[doc.moduleOrder[i]];
-		const prev = seen.get(mod.name);
-		if (prev !== undefined) {
-			errors.push(
-				validationError(
-					"DUPLICATE_MODULE_NAME",
-					"app",
-					`Module "${mod.name}" appears twice (modules ${prev + 1} and ${i + 1}). Module names must be unique — rename one of them.`,
-					{ moduleUuid: mod.uuid, moduleName: mod.name },
-				),
-			);
-		} else {
-			seen.set(mod.name, i);
-		}
-	}
-	return errors;
-}
-
 /**
  * Reject a case type named after a reserved reference namespace
  * (`form` / `user` / `case` / `parent`, case-insensitive). Such a name
@@ -325,7 +302,6 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 export const APP_RULES = [
 	noModules,
 	emptyAppName,
-	duplicateModuleNames,
 	reservedCaseTypeName,
 	childCaseTypeMissingModule,
 	circularFormLinks,

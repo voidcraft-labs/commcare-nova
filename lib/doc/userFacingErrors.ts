@@ -100,8 +100,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 	NO_MODULES: () =>
 		"Every app needs at least one module to do anything. Add one to get started.",
 	EMPTY_APP_NAME: () => "Your app needs a name. Add one to get started.",
-	DUPLICATE_MODULE_NAME: (e) =>
-		`There's already a module named ${q(modName(e))}. Give this one a different name, or rename the other module first if you'd rather reuse it.`,
 	RESERVED_CASE_TYPE_NAME: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct

@@ -273,7 +273,7 @@ const GUARD_COVERAGE = {
 	},
 	renameModule: {
 		neverGates:
-			"renames the module's SEMANTIC id, which no validator rule reads — display names (DUPLICATE_MODULE_NAME) ride updateModule patches",
+			"renames the module's SEMANTIC id, which no validator rule reads — display names ride updateModule patches and no rule gates on them",
 		build: () => {
 			const doc = richDoc();
 			return {

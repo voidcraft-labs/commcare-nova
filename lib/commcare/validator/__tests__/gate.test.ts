@@ -202,8 +202,8 @@ describe("classification table", () => {
 		expect(byClass.get("environment")).toHaveLength(4);
 		expect(byClass.get("oracle")).toHaveLength(95);
 		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(75);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(191);
+		expect(byClass.get("soundness")).toHaveLength(74);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(190);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
@@ -256,12 +256,17 @@ describe("errorIdentity", () => {
 		expect(after).toEqual(before);
 	});
 
-	it("keys duplicate-module-name findings by the duplicated name, stable under reorder", () => {
+	it("keys value-keyed findings by their value, stable under reorder", () => {
+		// A reserved case-type name reported across two modules dedups to one
+		// finding whose identity is the NAME, not the flagged site — so
+		// reordering the modules can't make a pre-existing finding read as
+		// introduced. (Pins the location-free identity for value-keyed codes.)
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
 				{
-					name: "Same",
+					name: "One",
+					caseType: "case",
 					forms: [
 						{
 							name: "A",
@@ -271,7 +276,8 @@ describe("errorIdentity", () => {
 					],
 				},
 				{
-					name: "Same",
+					name: "Two",
+					caseType: "case",
 					forms: [
 						{
 							name: "B",
@@ -283,14 +289,14 @@ describe("errorIdentity", () => {
 			],
 		});
 		const before = runValidation(doc)
-			.filter((e) => e.code === "DUPLICATE_MODULE_NAME")
+			.filter((e) => e.code === "RESERVED_CASE_TYPE_NAME")
 			.map(errorIdentity);
 		expect(before).toHaveLength(1);
 		const reordered = apply(doc, [
 			{ kind: "moveModule", uuid: doc.moduleOrder[1], toIndex: 0 },
 		]);
 		const after = runValidation(reordered)
-			.filter((e) => e.code === "DUPLICATE_MODULE_NAME")
+			.filter((e) => e.code === "RESERVED_CASE_TYPE_NAME")
 			.map(errorIdentity);
 		expect(after).toEqual(before);
 	});
@@ -315,24 +321,23 @@ describe("errorIdentity", () => {
 		// must render a key, never throw — a throwing encoder would crash
 		// `diffIntroduced` / `evaluateCommit` instead of producing a verdict.
 		const err: ValidationError = {
-			code: "DUPLICATE_MODULE_NAME",
+			code: "RESERVED_CASE_TYPE_NAME",
 			scope: "app",
-			message: "duplicate",
-			location: {
-				moduleUuid: asUuid("m-1"),
-				moduleName: "Visits \ud83d",
-			},
+			message: "reserved",
+			location: {},
+			details: { caseType: "case \ud83d" },
 		};
 		expect(() => errorIdentity(err)).not.toThrow();
 		expect(errorIdentity(err)).toBe(errorIdentity({ ...err }));
 		expect(diffIntroduced([], [err])).toEqual([err]);
-		// Well-formed strings keep their exact pre-existing identity shape.
+		// Well-formed strings keep their exact pre-existing identity shape
+		// (the rule keys on the lowercased case-type name).
 		const wellFormed: ValidationError = {
 			...err,
-			location: { moduleUuid: asUuid("m-1"), moduleName: "Visites cliniques" },
+			details: { caseType: "Patient" },
 		};
 		expect(errorIdentity(wellFormed)).toBe(
-			`DUPLICATE_MODULE_NAME|name=${encodeURIComponent("Visites cliniques")}`,
+			`RESERVED_CASE_TYPE_NAME|caseType=${encodeURIComponent("patient")}`,
 		);
 	});
 

@@ -148,9 +148,6 @@ export const REPAIR_JUDGMENTS: Readonly<
 	NO_MODULES: owner(
 		"the at-rest birth state of an empty app — by design it can't export; excluded from the tally",
 	),
-	DUPLICATE_MODULE_NAME: owner(
-		"module names are user-visible menu text — renaming one is a content edit",
-	),
 	MISSING_CHILD_CASE_MODULE: owner(
 		"the fix is a new module managing the child case type — content",
 	),

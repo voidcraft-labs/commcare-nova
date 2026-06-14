@@ -100,7 +100,6 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	// ── App-level ────────────────────────────────────────────────────
 	EMPTY_APP_NAME: "soundness",
 	NO_MODULES: "completeness",
-	DUPLICATE_MODULE_NAME: "soundness",
 	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
 	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
@@ -382,7 +381,6 @@ function part(tag: string, value: string | undefined): string {
  *   - Value-keyed dedup findings drop their location anchor — the rules
  *     anchor "first occurrence wins", so the flagged SITE flips under
  *     reorders while the FINDING (this name/id is duplicated) persists:
- *     DUPLICATE_MODULE_NAME → the duplicated name;
  *     RESERVED_CASE_TYPE_NAME / MISSING_CHILD_CASE_MODULE → the case type;
  *     CONNECT_ID_DUPLICATE → the colliding id.
  *   - Case-list/search findings add the stable sub-entity uuid the error's
@@ -414,9 +412,6 @@ export function errorIdentity(err: ValidationError): string {
 
 	switch (err.code) {
 		// Value-keyed, location-free (see doc comment).
-		case "DUPLICATE_MODULE_NAME":
-			parts.push(part("name", loc.moduleName));
-			break;
 		case "RESERVED_CASE_TYPE_NAME":
 			parts.push(part("caseType", det?.caseType?.toLowerCase()));
 			break;
