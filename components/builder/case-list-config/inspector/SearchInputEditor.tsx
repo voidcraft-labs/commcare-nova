@@ -78,6 +78,7 @@ import {
 	computeKnownInputsForRow,
 	effectiveModeKind,
 	expectedTypeForDefault,
+	NO_SEARCH_INPUTS,
 	type PropertyState,
 	type ResolvedRow,
 	recoverAnchoredProperty,
@@ -1144,18 +1145,14 @@ function DefaultValueSlot({
 			hint="The field starts out filled with this — anyone can change it."
 		>
 			<div className="rounded-lg border border-white/[0.04] bg-nova-deep/30 p-2.5 space-y-2">
-				{/* No search inputs offered as a value source: the default
-				    fills the field before the search screen opens, so an
-				    `input(...)` ref would resolve to empty and the gate
-				    (`CASE_LIST_BARE_SEARCH_INPUT_REF`, forbids-input-ref)
-				    rejects it with no valid resolution. Session / user-data
-				    fields stay available — they're bound at default time. */}
+				{/* Forbids input refs — the default fills the field before
+				    the search screen opens. See NO_SEARCH_INPUTS. */}
 				<ExpressionCardEditor
 					value={value}
 					onChange={onChange}
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
-					knownInputs={[]}
+					knownInputs={NO_SEARCH_INPUTS}
 					expectedType={expectedType}
 				/>
 				<button

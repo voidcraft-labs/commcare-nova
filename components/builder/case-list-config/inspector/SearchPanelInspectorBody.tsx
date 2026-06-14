@@ -34,6 +34,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { NO_SEARCH_INPUTS } from "../searchInputResolution";
 import { OptionalMarkdownRow } from "./OptionalMarkdownRow";
 import { OptionalTextRow } from "./OptionalTextRow";
 
@@ -105,10 +106,9 @@ export function SearchPanelInspectorBody({
 				onChange={setDisplayCondition}
 				caseTypes={caseTypes}
 				currentCaseType={currentCaseType}
-				// No search inputs offered: this condition runs on the case
-				// list before search, so an `input(...)` ref always resolves
-				// to empty and the gate (forbids-input-ref) rejects it.
-				knownInputs={[]}
+				// Forbids input refs — runs on the case list before search.
+				// See NO_SEARCH_INPUTS.
+				knownInputs={NO_SEARCH_INPUTS}
 			/>
 
 			<OptionalSlotCard<ValueExpression>

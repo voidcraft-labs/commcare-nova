@@ -85,6 +85,28 @@ describe("seedCustomCondition", () => {
 		);
 		expect(seedCustomCondition(row, CASE_TYPE)).toEqual(matchAll());
 	});
+
+	it("preserves a parent-case walk in the seeded property ref", () => {
+		// A row bound to a parent property keeps its relation walk, so
+		// the seed reads the property on the case it actually searches —
+		// not on the current case type, which may not even declare it.
+		const via = ancestorPath(relationStep("parent"));
+		const row = simpleSearchInputDef(
+			asUuid("si-1"),
+			"region",
+			"Region",
+			"text",
+			"region",
+			{ via },
+		);
+		const seeded = seedCustomCondition(row, "patient");
+		expect(seeded).toEqual(
+			whenInput(
+				input("region"),
+				eq(prop("patient", "region", via), input("region")),
+			),
+		);
+	});
 });
 
 describe("recoverAnchoredProperty", () => {
