@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { CaseListConfig } from "@/lib/domain";
 import { loadCaseListPreviewAction } from "@/lib/preview/engine/caseDataBinding";
@@ -32,75 +32,74 @@ export function useCaseListPreview(args: {
 	caseListConfig: CaseListConfig;
 	currentCaseType: string;
 	configValid: boolean;
-}): { state: CaseListPreviewState; fetching: boolean; reload: () => void } {
+}): {
+	state: CaseListPreviewState;
+	fetching: boolean;
+	/** Re-runs the load; the returned promise resolves once the re-fired
+	 *  load SETTLES, so the sample-data action can hold its spinner until
+	 *  the fresh rows are on screen rather than the write merely returning. */
+	reload: () => Promise<void>;
+} {
 	const { appId, caseListConfig, currentCaseType, configValid } = args;
 	const docApi = useBlueprintDocApi();
 
 	const [state, setState] = useState<CaseListPreviewState>({ kind: "idle" });
 	const [fetching, setFetching] = useState(false);
+	const requestId = useRef(0);
 
-	/* Bumps to re-fire the load after an out-of-band data change —
-	 * generating or resetting sample data writes rows the config-driven
-	 * deps can't see. */
-	const [reloadKey, setReloadKey] = useState(0);
-	const reload = useCallback(() => setReloadKey((k) => k + 1), []);
-
-	// Re-fire on every config / validity / case-type change. The
-	// `cancelled` flag handles in-flight cancellation — a fresh effect
-	// fires before the previous resolved.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `reloadKey` is in deps on PURPOSE — it re-fires the load after sample-data writes the effect's own deps can't see.
-	useEffect(() => {
+	/* One async load drives both the config-change effect and the manual
+	 * `reload` (which sample-data generation calls — it writes rows the
+	 * config deps can't see). A monotonic request token gives last-write-wins
+	 * across that race, and because `reload` IS this promise, the generate
+	 * action can await it to hold its spinner until the fresh rows land.
+	 *
+	 * `docApi.getState` is a stable bound method on the doc-store singleton,
+	 * so `load` only re-creates (and the effect only re-fires) on a real
+	 * config / case-type / validity change. */
+	const load = useCallback(async (): Promise<void> => {
 		if (!configValid) {
+			/* An invalid expression AST would throw at the SQL layer — the
+			 * validity gate is the structural defense, not a hint. */
 			setState({ kind: "paused" });
 			setFetching(false);
 			return;
 		}
-		let cancelled = false;
-		/* Stale-while-revalidate: every config keystroke re-fires this
-		 * effect, and blanking the live table to a spinner per edit
-		 * reads as flicker. Settled data arms stay rendered through
-		 * the reload; `fetching` carries the in-flight signal. */
+		requestId.current += 1;
+		const id = requestId.current;
+		/* Stale-while-revalidate: every config keystroke re-runs this load,
+		 * and blanking the live table to a spinner per edit reads as flicker.
+		 * Settled data arms stay on screen; `fetching` carries the signal. */
 		setState((prev) =>
 			prev.kind === "rows" || prev.kind === "empty"
 				? prev
 				: { kind: "loading" },
 		);
 		setFetching(true);
-		const blueprint = pickBlueprintDoc(docApi.getState());
-		loadCaseListPreviewAction({
-			appId,
-			caseType: currentCaseType,
-			blueprint,
-			caseListConfig,
-		})
-			.then((result) => {
-				if (cancelled) return;
-				setState(result);
-				setFetching(false);
-			})
-			.catch((err: unknown) => {
-				if (cancelled) return;
-				setState({
-					kind: "error",
-					message:
-						err instanceof Error ? err.message : "Failed to load preview.",
-				});
-				setFetching(false);
+		let next: CaseListPreviewState;
+		try {
+			next = await loadCaseListPreviewAction({
+				appId,
+				caseType: currentCaseType,
+				blueprint: pickBlueprintDoc(docApi.getState()),
+				caseListConfig,
 			});
-		return () => {
-			cancelled = true;
-		};
-		// `docApi.getState` is a stable bound method on the doc-store API
-		// singleton — in deps to satisfy the exhaustive-deps linter; its
-		// identity never changes so it doesn't re-fire the effect.
-	}, [
-		appId,
-		caseListConfig,
-		currentCaseType,
-		configValid,
-		reloadKey,
-		docApi.getState,
-	]);
+		} catch (err: unknown) {
+			next = {
+				kind: "error",
+				message: err instanceof Error ? err.message : "Failed to load preview.",
+			};
+		}
+		if (id !== requestId.current) return; // a newer load / unmount superseded us
+		setState(next);
+		setFetching(false);
+	}, [appId, caseListConfig, currentCaseType, configValid, docApi.getState]);
 
-	return { state, fetching, reload };
+	useEffect(() => {
+		void load();
+		return () => {
+			requestId.current += 1;
+		};
+	}, [load]);
+
+	return { state, fetching, reload: load };
 }

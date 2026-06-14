@@ -20,7 +20,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import {
 	loadCaseDataAction,
@@ -81,63 +81,75 @@ export function useCases(args: {
 	 *  Render the stale rows dimmed (or with an inline spinner)
 	 *  rather than unmounting them. */
 	fetching: boolean;
-	reload: () => void;
+	/** Re-runs the load. The returned promise resolves only once the
+	 *  re-fired load SETTLES, so the caller (the sample-data action) can
+	 *  hold its pressed/spinning state until the fresh rows are on screen,
+	 *  not merely until the write returned. */
+	reload: () => Promise<void>;
 } {
 	const { appId, caseType, blueprint, caseListConfig, inputValues } = args;
 	const [state, setState] = useState<LoadingState<LoadCasesResult>>({
 		kind: "idle",
 	});
 	const [fetching, setFetching] = useState(false);
-	/* `reloadKey` increments to re-fire the effect after a
-	 * successful sample-data populate. The biome-ignore is
-	 * intentional — the rule mis-classifies trigger-only deps. */
-	const [reloadKey, setReloadKey] = useState(0);
+	const requestId = useRef(0);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey is the trigger that re-fires this effect; not read in the body.
-	useEffect(() => {
+	/* One async load drives both the dep-change effect and the manual
+	 * `reload`. A monotonic request token gives last-write-wins, so a
+	 * reload racing the effect (or an unmount) can't commit a stale settle —
+	 * and because `reload` simply IS this promise, callers can await it to
+	 * learn when the fresh rows are on screen, not merely when the write
+	 * returned. */
+	const load = useCallback(async (): Promise<void> => {
 		if (!appId || !caseType) {
 			setState({ kind: "idle" });
 			setFetching(false);
 			return;
 		}
-		let cancelled = false;
-		/* Stale-while-revalidate: settled data arms (`rows` / `empty`)
-		 * stay rendered through the reload; only the never-settled
-		 * states drop to the spinner arm. */
+		requestId.current += 1;
+		const id = requestId.current;
+		/* Stale-while-revalidate: settled data arms (`rows` / `empty`) stay
+		 * on screen through the reload; only never-settled states fall back
+		 * to the spinner. */
 		setState((prev) =>
 			prev.kind === "rows" || prev.kind === "empty"
 				? prev
 				: { kind: "loading" },
 		);
 		setFetching(true);
-		/* `.catch` maps wire-level rejections (HTTP 500, network
-		 * failure, RSC serialization error at the boundary) to the
-		 * `error` arm — without it, the hook would stick on
-		 * `loading` forever. */
-		loadCasesAction({ appId, caseType, blueprint, caseListConfig, inputValues })
-			.then((result) => {
-				if (cancelled) return;
-				setState(result);
-				setFetching(false);
-			})
-			.catch((err: unknown) => {
-				if (cancelled) return;
-				setState({
-					kind: "error",
-					message: err instanceof Error ? err.message : "Failed to load cases.",
-				});
-				setFetching(false);
+		let next: LoadCasesResult;
+		try {
+			next = await loadCasesAction({
+				appId,
+				caseType,
+				blueprint,
+				caseListConfig,
+				inputValues,
 			});
+		} catch (err: unknown) {
+			/* Wire-level rejections (HTTP 500, network, RSC serialization at the
+			 * boundary) become the `error` arm — otherwise the hook would stick
+			 * on `loading` forever. */
+			next = {
+				kind: "error",
+				message: err instanceof Error ? err.message : "Failed to load cases.",
+			};
+		}
+		if (id !== requestId.current) return; // a newer load / unmount superseded us
+		setState(next);
+		setFetching(false);
+	}, [appId, caseType, blueprint, caseListConfig, inputValues]);
+
+	useEffect(() => {
+		void load();
+		// Invalidate any in-flight load on unmount / dep change so its settle
+		// is dropped rather than committed to a gone or superseded view.
 		return () => {
-			cancelled = true;
+			requestId.current += 1;
 		};
-	}, [appId, caseType, blueprint, caseListConfig, inputValues, reloadKey]);
+	}, [load]);
 
-	const reload = useCallback(() => {
-		setReloadKey((n) => n + 1);
-	}, []);
-
-	return { state, fetching, reload };
+	return { state, fetching, reload: load };
 }
 
 /**

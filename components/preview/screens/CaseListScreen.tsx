@@ -601,6 +601,22 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 
 // ── Results body ──────────────────────────────────────────────────
 
+/** The list's loading arm — shown before the first settle and while a
+ *  stale-empty view revalidates. */
+function CasesLoading() {
+	return (
+		<div className="flex items-center justify-center gap-2 py-12 text-xs text-nova-text-muted">
+			<Icon
+				icon={tablerLoader2}
+				width="14"
+				height="14"
+				className="animate-spin"
+			/>
+			Loading cases…
+		</div>
+	);
+}
+
 function ResultsBody({
 	state,
 	fetching,
@@ -632,17 +648,7 @@ function ResultsBody({
 	readonly onMakeFuzzy: () => void;
 }) {
 	if (state.kind === "idle" || state.kind === "loading") {
-		return (
-			<div className="flex items-center justify-center gap-2 py-12 text-xs text-nova-text-muted">
-				<Icon
-					icon={tablerLoader2}
-					width="14"
-					height="14"
-					className="animate-spin"
-				/>
-				Loading cases…
-			</div>
-		);
+		return <CasesLoading />;
 	}
 
 	if (state.kind === "error") {
@@ -673,6 +679,14 @@ function ResultsBody({
 	}
 
 	if (state.kind === "empty") {
+		// Revalidating a stale "empty" — e.g. re-entering preview after rows
+		// were generated elsewhere, which re-runs the load. Show the loader,
+		// not a generate button that's about to be replaced by rows. A
+		// user-initiated generate keeps its own "Generating…" affordance
+		// (status running), so don't swallow that.
+		if (fetching && generate.status.kind !== "running") {
+			return <CasesLoading />;
+		}
 		// The case type has no rows at all — a dead-end preview. When the
 		// module has a search panel the generate affordance lives THERE
 		// (this body just names the gap and points at it); without one it
