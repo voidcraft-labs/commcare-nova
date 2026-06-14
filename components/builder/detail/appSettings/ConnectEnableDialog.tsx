@@ -1,6 +1,8 @@
 "use client";
-import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useId, useRef, useState } from "react";
+import { Dialog } from "@base-ui/react/dialog";
+import { Icon } from "@iconify/react/offline";
+import tablerX from "@iconify-icons/tabler/x";
+import { useCallback, useId, useState } from "react";
 import { RejectionBody } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
@@ -9,29 +11,39 @@ import type { ConnectConfig, ConnectType, XPathExpression } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 
 /**
- * The staging step of the Connect enable flows. Enabling Connect (or
- * switching its mode) commits as ONE batch — `setConnectType` plus each
- * participating form's connect block — and the commit gate rejects a
- * flip that leaves the app with no participating form. Participation is
- * per form: a connect block opts the form INTO Connect; a form left
- * without one stays auxiliary and needs nothing. Forms whose block the
- * session stash already holds restore silently (they participate
- * without appearing here); this dialog collects the rest FROM THE USER
- * before anything commits. Nothing is pre-filled: a Connect block's
- * name and description are content the user writes, not placeholders
- * Nova invents.
+ * The staging step of the Connect enable flows, rendered as a real
+ * centered modal. Enabling Connect (or switching its mode) commits as ONE
+ * batch — `setConnectType` plus each participating form's connect block —
+ * and the commit gate rejects a flip that leaves the app with no
+ * participating form. Participation is per form: a connect block opts the
+ * form INTO Connect; a form left without one stays auxiliary and needs
+ * nothing. Forms whose block the session stash already holds restore
+ * silently (they participate without appearing here); this dialog
+ * collects the rest FROM THE USER before anything commits. Nothing is
+ * pre-filled: a Connect block's name and description are content the user
+ * writes, not placeholders Nova invents.
  *
  * Per form, the user opts into the mode's sub-configs (learn: Learn
  * module / Assessment; deliver: Deliver unit / Task) and fills each
- * enabled one's fields. Turning on a sub-config is what picks the form
- * as participating; a form with none enabled is simply left out of the
+ * enabled one's fields. Turning on a sub-config is what picks the form as
+ * participating; a form with none enabled is simply left out of the
  * commit. The confirm button stays disabled until every enabled
- * sub-config is complete AND at least one form participates (counting
- * the stash-restored ones via `restoredFormCount`) — the same bar the
- * commit gate holds, surfaced before the commit instead of as a bounce.
- * Connect ids are not collected here: the commit path autofills valid,
- * app-unique ids the same way agent-side creation does.
+ * sub-config is complete AND at least one form participates (counting the
+ * stash-restored ones via `restoredFormCount`) — the same bar the commit
+ * gate holds, surfaced before the commit instead of as a bounce. Connect
+ * ids are not collected here: the commit path autofills valid, app-unique
+ * ids the same way agent-side creation does.
+ *
+ * The dialog mounts through `Dialog.Portal` (the media picker's pattern)
+ * so it escapes the app-settings popover's transformed positioner — the
+ * reason a hand-rolled `position: fixed` here rendered against the popover
+ * instead of the viewport.
  */
+
+const BACKDROP_CLS =
+	"fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
+const POPUP_CLS =
+	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 /** One form the stash doesn't cover — the dialog collects its block. */
 export interface ConnectStagingTarget {
@@ -85,8 +97,8 @@ function draftParticipates(draft: BlockDraft, mode: ConnectType): boolean {
 
 /** Whether every ENABLED sub-config in one draft is complete. An enabled
  *  assessment is always complete — its `user_score` is optional content
- *  (the wire layer substitutes the canonical default when unset). A
- *  draft with nothing enabled is trivially complete (it participates in
+ *  (the wire layer substitutes the canonical default when unset). A draft
+ *  with nothing enabled is trivially complete (it participates in
  *  nothing). */
 function draftSectionsComplete(draft: BlockDraft, mode: ConnectType): boolean {
 	if (mode === "learn") {
@@ -218,15 +230,15 @@ function SubConfigCard({
 	children?: React.ReactNode;
 }) {
 	return (
-		<div className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-2.5 py-2">
+		<div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
 			<div className="flex items-center justify-between">
-				<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
+				<span className="text-[11px] font-medium text-nova-text-secondary uppercase tracking-wider">
 					{title}
 				</span>
 				<Toggle enabled={enabled} onToggle={onToggle} variant="sub" />
 			</div>
 			{enabled && children && (
-				<div className="space-y-2 pt-2.5 mt-2 border-t border-white/[0.05]">
+				<div className="space-y-2 pt-2.5 mt-2.5 border-t border-white/[0.06]">
 					{children}
 				</div>
 			)}
@@ -234,31 +246,156 @@ function SubConfigCard({
 	);
 }
 
-export function ConnectEnableDialog({
+/** The learn / deliver sub-config pair for one form's draft. */
+function FormSubConfigs({
 	mode,
-	targets,
-	restoredFormCount,
-	rejectionMessages,
-	onCancel,
-	onConfirm,
+	draft,
+	onPatch,
 }: {
 	mode: ConnectType;
-	targets: readonly ConnectStagingTarget[];
+	draft: BlockDraft;
+	onPatch: (patch: Partial<BlockDraft>) => void;
+}) {
+	if (mode === "learn") {
+		return (
+			<>
+				<SubConfigCard
+					title="Learn Module"
+					enabled={draft.learnOn}
+					onToggle={() => onPatch({ learnOn: !draft.learnOn })}
+				>
+					<DraftField
+						label="Name"
+						value={draft.learnName}
+						onChange={(v) => onPatch({ learnName: v })}
+					/>
+					<DraftField
+						label="Description"
+						value={draft.learnDescription}
+						onChange={(v) => onPatch({ learnDescription: v })}
+						multiline
+					/>
+					<DraftField
+						label="Time Estimate"
+						value={draft.learnTimeEstimate}
+						onChange={(v) => onPatch({ learnTimeEstimate: v })}
+						suffix="min"
+					/>
+				</SubConfigCard>
+				<SubConfigCard
+					title="Assessment"
+					enabled={draft.assessmentOn}
+					onToggle={() => onPatch({ assessmentOn: !draft.assessmentOn })}
+				>
+					<DraftField
+						label="User Score (optional)"
+						value={draft.userScore}
+						onChange={(v) => onPatch({ userScore: v })}
+					/>
+				</SubConfigCard>
+			</>
+		);
+	}
+	return (
+		<>
+			<SubConfigCard
+				title="Deliver Unit"
+				enabled={draft.deliverOn}
+				onToggle={() => onPatch({ deliverOn: !draft.deliverOn })}
+			>
+				<DraftField
+					label="Name"
+					value={draft.deliverName}
+					onChange={(v) => onPatch({ deliverName: v })}
+				/>
+			</SubConfigCard>
+			<SubConfigCard
+				title="Task"
+				enabled={draft.taskOn}
+				onToggle={() => onPatch({ taskOn: !draft.taskOn })}
+			>
+				<DraftField
+					label="Name"
+					value={draft.taskName}
+					onChange={(v) => onPatch({ taskName: v })}
+				/>
+				<DraftField
+					label="Description"
+					value={draft.taskDescription}
+					onChange={(v) => onPatch({ taskDescription: v })}
+					multiline
+				/>
+			</SubConfigCard>
+		</>
+	);
+}
+
+/** The staging request the dialog renders; `undefined` closes it. Mirrors
+ *  `AppConnectSection`'s `StagingState`, so that state passes straight
+ *  through as the request. */
+export interface ConnectEnableRequest {
+	mode: ConnectType;
 	/** Forms whose block restores silently from the session stash — they
 	 *  participate without appearing in this dialog, so they count toward
 	 *  the at-least-one-participating-form bar the confirm enforces. */
+	targets: readonly ConnectStagingTarget[];
 	restoredFormCount: number;
 	/** Findings from a confirm attempt the commit gate bounced — shown
 	 *  inline so the dialog explains itself without relying on the toast. */
 	rejectionMessages: readonly string[];
+}
+
+export function ConnectEnableDialog({
+	request,
+	onCancel,
+	onConfirm,
+}: {
+	request: ConnectEnableRequest | undefined;
 	onCancel: () => void;
 	onConfirm: (blocks: Record<string, ConnectConfig>) => void;
 }) {
+	// Stays mounted across open/close so Base UI plays BOTH transitions
+	// (`data-[starting-style]` on open, `data-[ending-style]` on close) —
+	// the media picker's pattern. The stateful body mounts only while the
+	// Popup is open, so its per-form drafts reset on every open.
+	return (
+		<Dialog.Root
+			open={request !== undefined}
+			onOpenChange={(next) => {
+				if (!next) onCancel();
+			}}
+		>
+			<Dialog.Portal>
+				<Dialog.Backdrop className={BACKDROP_CLS} />
+				<Dialog.Popup className={POPUP_CLS}>
+					{request && (
+						<DialogBody
+							request={request}
+							onCancel={onCancel}
+							onConfirm={onConfirm}
+						/>
+					)}
+				</Dialog.Popup>
+			</Dialog.Portal>
+		</Dialog.Root>
+	);
+}
+
+/** The dialog's content — a child of `Dialog.Popup`, so Base UI mounts it
+ *  only while open and the per-form drafts start fresh each time. */
+function DialogBody({
+	request,
+	onCancel,
+	onConfirm,
+}: {
+	request: ConnectEnableRequest;
+	onCancel: () => void;
+	onConfirm: (blocks: Record<string, ConnectConfig>) => void;
+}) {
+	const { mode, targets, restoredFormCount, rejectionMessages } = request;
 	const [drafts, setDrafts] = useState<Record<string, BlockDraft>>(() =>
 		Object.fromEntries(targets.map((t) => [t.formUuid, EMPTY_DRAFT])),
 	);
-	const onCancelRef = useRef(onCancel);
-	onCancelRef.current = onCancel;
 
 	const patchDraft = useCallback(
 		(formUuid: string, patch: Partial<BlockDraft>) => {
@@ -303,203 +440,102 @@ export function ConnectEnableDialog({
 		);
 	};
 
-	const dialogRef = useCallback((el: HTMLDivElement | null) => {
-		if (!el) return;
-		const handler = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onCancelRef.current();
-		};
-		document.addEventListener("keydown", handler);
-		return () => document.removeEventListener("keydown", handler);
-	}, []);
+	const single = targets.length === 1 && restoredFormCount === 0;
+	const hint = !sectionsComplete
+		? "Finish the sections you've turned on."
+		: participatingCount < 1
+			? single
+				? "Turn on a section to add this form to Connect."
+				: "Turn on a section for at least one form."
+			: "Ready to enable.";
 
 	return (
-		<AnimatePresence>
-			<motion.div
-				ref={dialogRef}
-				className="fixed inset-0 z-modal flex items-center justify-center"
-				initial={{ opacity: 0 }}
-				animate={{ opacity: 1 }}
-				exit={{ opacity: 0 }}
-				transition={{ duration: 0.15 }}
-			>
-				<button
-					type="button"
-					className="absolute inset-0 bg-black/60 cursor-default appearance-none border-none p-0"
-					onClick={onCancel}
-					tabIndex={-1}
-					aria-label="Close dialog"
-				/>
-
-				<motion.div
-					className="relative z-10 w-[26rem] max-h-[80vh] flex flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl"
-					initial={{ scale: 0.95, opacity: 0 }}
-					animate={{ scale: 1, opacity: 1 }}
-					exit={{ scale: 0.95, opacity: 0 }}
-					transition={{ duration: 0.15 }}
+		<>
+			<header className="flex items-center justify-between border-b border-nova-border px-5 py-3.5">
+				<div className="flex items-center gap-2">
+					<Dialog.Title className="text-base font-display font-semibold text-nova-text">
+						Set up Connect
+					</Dialog.Title>
+					<span className="flex h-[18px] items-center rounded border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright">
+						{mode === "learn" ? "Learn" : "Deliver"}
+					</span>
+				</div>
+				<Dialog.Close
+					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+					aria-label="Close"
 				>
-					<div className="p-5 pb-3">
-						<h3 className="text-sm font-semibold text-nova-text mb-1">
-							Set up Connect {mode === "learn" ? "Learn" : "Deliver"}
-						</h3>
-						<p className="text-xs text-nova-text-secondary">
-							{targets.length === 1 && restoredFormCount === 0
-								? "Turn on a section below and fill it in to make this form part of Connect."
-								: "Pick which forms take part in Connect by turning on their sections and filling them in. Forms you leave off stay out of Connect and need nothing — you can add them later from each form's settings."}
+					<Icon icon={tablerX} className="size-4" />
+				</Dialog.Close>
+			</header>
+
+			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+				<div className="space-y-1.5">
+					<p className="text-xs leading-relaxed text-nova-text-secondary">
+						{single
+							? "Turn on a section below and fill it in to add this form to Connect."
+							: "Pick which forms take part in Connect by turning on their sections and filling them in. Forms you leave off stay out — you can add them later from each form's settings."}
+					</p>
+					{restoredFormCount > 0 && (
+						<p className="text-[11px] text-nova-text-muted">
+							{restoredFormCount === 1
+								? "1 form you set up earlier will rejoin Connect automatically."
+								: `${restoredFormCount} forms you set up earlier will rejoin Connect automatically.`}
 						</p>
-					</div>
+					)}
+				</div>
 
-					<div className="flex-1 overflow-y-auto px-5 space-y-4">
-						{targets.map((t) => {
-							const draft = drafts[t.formUuid] ?? EMPTY_DRAFT;
-							return (
-								<div key={t.formUuid} className="space-y-2">
-									<div className="text-xs font-medium text-nova-text">
-										{t.formName}
-										<span className="text-nova-text-muted font-normal">
-											{" "}
-											· {t.moduleName}
-										</span>
-									</div>
-									{mode === "learn" ? (
-										<>
-											<SubConfigCard
-												title="Learn Module"
-												enabled={draft.learnOn}
-												onToggle={() =>
-													patchDraft(t.formUuid, { learnOn: !draft.learnOn })
-												}
-											>
-												<DraftField
-													label="Name"
-													value={draft.learnName}
-													onChange={(v) =>
-														patchDraft(t.formUuid, { learnName: v })
-													}
-												/>
-												<DraftField
-													label="Description"
-													value={draft.learnDescription}
-													onChange={(v) =>
-														patchDraft(t.formUuid, { learnDescription: v })
-													}
-													multiline
-												/>
-												<DraftField
-													label="Time Estimate"
-													value={draft.learnTimeEstimate}
-													onChange={(v) =>
-														patchDraft(t.formUuid, { learnTimeEstimate: v })
-													}
-													suffix="min"
-												/>
-											</SubConfigCard>
-											<SubConfigCard
-												title="Assessment"
-												enabled={draft.assessmentOn}
-												onToggle={() =>
-													patchDraft(t.formUuid, {
-														assessmentOn: !draft.assessmentOn,
-													})
-												}
-											>
-												<DraftField
-													label="User Score (optional)"
-													value={draft.userScore}
-													onChange={(v) =>
-														patchDraft(t.formUuid, { userScore: v })
-													}
-												/>
-											</SubConfigCard>
-										</>
-									) : (
-										<>
-											<SubConfigCard
-												title="Deliver Unit"
-												enabled={draft.deliverOn}
-												onToggle={() =>
-													patchDraft(t.formUuid, {
-														deliverOn: !draft.deliverOn,
-													})
-												}
-											>
-												<DraftField
-													label="Name"
-													value={draft.deliverName}
-													onChange={(v) =>
-														patchDraft(t.formUuid, { deliverName: v })
-													}
-												/>
-											</SubConfigCard>
-											<SubConfigCard
-												title="Task"
-												enabled={draft.taskOn}
-												onToggle={() =>
-													patchDraft(t.formUuid, { taskOn: !draft.taskOn })
-												}
-											>
-												<DraftField
-													label="Name"
-													value={draft.taskName}
-													onChange={(v) =>
-														patchDraft(t.formUuid, { taskName: v })
-													}
-												/>
-												<DraftField
-													label="Description"
-													value={draft.taskDescription}
-													onChange={(v) =>
-														patchDraft(t.formUuid, { taskDescription: v })
-													}
-													multiline
-												/>
-											</SubConfigCard>
-										</>
-									)}
-								</div>
-							);
-						})}
-					</div>
-
-					<div className="p-5 pt-3 space-y-2">
-						{rejectionMessages.length > 0 && (
-							/* The gate refused the confirm — the drafts above are
-							 * intact; each finding reads in the shared rejection
-							 * anatomy. */
-							<div className="rounded-md border border-nova-rose/15 bg-nova-rose/[0.06] px-2.5 py-2 space-y-2">
-								{rejectionMessages.map((m) => (
-									<RejectionBody key={m} message={m} label={null} />
-								))}
+				{targets.map((t) => {
+					const draft = drafts[t.formUuid] ?? EMPTY_DRAFT;
+					return (
+						<div key={t.formUuid} className="space-y-2">
+							<div className="text-xs font-medium text-nova-text">
+								{t.formName}
+								<span className="font-normal text-nova-text-muted">
+									{" "}
+									· {t.moduleName}
+								</span>
 							</div>
-						)}
-						<div className="flex items-center justify-between gap-2">
-							<span className="text-[10px] text-nova-text-muted">
-								{!sectionsComplete
-									? "Finish the sections you've turned on."
-									: participatingCount < 1
-										? "Turn on a section for at least one form — a Connect app needs at least one participating form."
-										: "Ready to enable."}
-							</span>
-							<div className="flex gap-2">
-								<button
-									type="button"
-									onClick={onCancel}
-									className="px-3 py-1.5 text-xs font-medium rounded-lg border border-nova-border text-nova-text-secondary hover:text-nova-text transition-colors cursor-pointer"
-								>
-									Cancel
-								</button>
-								<button
-									type="button"
-									onClick={confirm}
-									disabled={!canConfirm}
-									className="px-3 py-1.5 text-xs font-medium rounded-lg bg-nova-violet text-white transition-colors enabled:hover:brightness-110 enabled:cursor-pointer disabled:opacity-40"
-								>
-									Enable Connect
-								</button>
-							</div>
+							<FormSubConfigs
+								mode={mode}
+								draft={draft}
+								onPatch={(patch) => patchDraft(t.formUuid, patch)}
+							/>
 						</div>
+					);
+				})}
+			</div>
+
+			<div className="space-y-2 border-t border-nova-border px-5 py-3">
+				{rejectionMessages.length > 0 && (
+					/* The gate refused the confirm — the drafts above are intact;
+					 * each finding reads in the shared rejection anatomy. */
+					<div className="space-y-2 rounded-md border border-nova-rose/15 bg-nova-rose/[0.06] px-2.5 py-2">
+						{rejectionMessages.map((m) => (
+							<RejectionBody key={m} message={m} label={null} />
+						))}
 					</div>
-				</motion.div>
-			</motion.div>
-		</AnimatePresence>
+				)}
+				<div className="flex items-center justify-between gap-3">
+					<span className="text-[11px] text-nova-text-muted">{hint}</span>
+					<div className="flex gap-2">
+						<button
+							type="button"
+							onClick={onCancel}
+							className="cursor-pointer rounded-lg border border-nova-border px-3 py-1.5 text-xs font-medium text-nova-text-secondary transition-colors hover:text-nova-text"
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							onClick={confirm}
+							disabled={!canConfirm}
+							className="rounded-lg bg-nova-violet px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
+						>
+							Enable Connect
+						</button>
+					</div>
+				</div>
+			</div>
+		</>
 	);
 }

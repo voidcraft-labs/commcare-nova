@@ -225,16 +225,22 @@ export function ConnectSection({
 				)}
 			</AnimatePresence>
 
-			{staging && (
-				<ConnectEnableDialog
-					mode={connectType}
-					targets={stagingTargets}
-					restoredFormCount={0}
-					rejectionMessages={staging.rejectionMessages}
-					onCancel={() => setStaging(undefined)}
-					onConfirm={confirmStaging}
-				/>
-			)}
+			{/* Always mounted so Base UI animates open AND close; a single
+			 *  form is the only target, never stash-restored. */}
+			<ConnectEnableDialog
+				request={
+					staging
+						? {
+								mode: connectType,
+								targets: stagingTargets,
+								restoredFormCount: 0,
+								rejectionMessages: staging.rejectionMessages,
+							}
+						: undefined
+				}
+				onCancel={() => setStaging(undefined)}
+				onConfirm={confirmStaging}
+			/>
 		</div>
 	);
 }

@@ -169,16 +169,13 @@ export function AppConnectSection() {
 				)}
 			</AnimatePresence>
 
-			{staging && (
-				<ConnectEnableDialog
-					mode={staging.mode}
-					targets={staging.targets}
-					restoredFormCount={staging.restoredFormCount}
-					rejectionMessages={staging.rejectionMessages}
-					onCancel={() => setStaging(undefined)}
-					onConfirm={confirmStaging}
-				/>
-			)}
+			{/* Always mounted so Base UI animates the open AND close — the
+			 *  request (undefined when idle) drives `open`. */}
+			<ConnectEnableDialog
+				request={staging}
+				onCancel={() => setStaging(undefined)}
+				onConfirm={confirmStaging}
+			/>
 		</div>
 	);
 }
