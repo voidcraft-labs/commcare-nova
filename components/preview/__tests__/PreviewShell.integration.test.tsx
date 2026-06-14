@@ -2,24 +2,20 @@
 //
 // components/preview/__tests__/PreviewShell.integration.test.tsx
 //
-// One-shot integration smoke test for the case-list authoring
-// flow at the React level. Renders PreviewShell against a fixture
-// blueprint with a case-typed module and walks the full
-// edit-mode flow:
+// One-shot integration smoke test for the case-list authoring flow at
+// the React level. Renders PreviewShell against a fixture blueprint
+// with a case-typed module at /cases (edit mode) and pins:
 //
-//   1. Module URL → ModuleScreen renders the "Case List" affordance
-//      card.
-//   2. Click the affordance → `navigate.openCaseList(moduleUuid)`
-//      fires.
-//   3. Flip the URL to /cases (simulating the navigation
-//      completing) → CaseListWorkspace renders the three section
-//      sentinels.
+//   1. The unified CaseListConfigWorkspace renders its tab row +
+//      the case-list canvas — and carries NO Preview affordance of
+//      its own (the run-through lives behind the chrome's global
+//      Preview toggle, outside PreviewShell).
+//   2. The Case Detail tab fires `navigate.openDetailConfig`.
 //
-// The inner sections stay stubbed — they have their own dedicated
-// test files. The integration this test pins is the routing +
-// dispatch wire between ModuleScreen, the navigate intent, and
-// PreviewShell's Activity boundaries; the inner sections are a
-// black box from this surface's perspective.
+// The case-store Server Actions are stubbed — the integration this
+// test pins is the routing + dispatch wire between the navigate
+// intents and PreviewShell's Activity boundaries; live data loading
+// is a black box from this surface's perspective.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -52,6 +48,8 @@ const navigateMock = {
 		};
 	}),
 	openCaseDetail: vi.fn(),
+	openSearchConfig: vi.fn(),
+	openDetailConfig: vi.fn(),
 	openForm: vi.fn(),
 	push: vi.fn(),
 	replace: vi.fn(),
@@ -79,26 +77,17 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "edit" as const,
 		useAppId: () => "app-integration-test",
 		useBuilderIsReady: () => true,
+		usePreviewCaseTarget: () => undefined,
+		useSetPreviewCaseTarget: () => vi.fn(),
 	};
 });
 
-// Stub the three inner sections. Their internals are pinned in
-// dedicated test files; this test pins the routing → workspace
-// → section-shell wire.
-vi.mock("@/components/builder/case-list-config/DisplaySection", () => ({
-	DisplaySection: () => (
-		<div data-testid="display-section-stub">DisplaySection</div>
-	),
-}));
-vi.mock("@/components/builder/case-list-config/FiltersSection", () => ({
-	FiltersSection: () => (
-		<div data-testid="filters-section-stub">FiltersSection</div>
-	),
-}));
-vi.mock("@/components/builder/case-list-config/SearchInputsSection", () => ({
-	SearchInputsSection: () => (
-		<div data-testid="search-inputs-section-stub">SearchInputsSection</div>
-	),
+// Stub the case-store Server Actions the workspace's live preview
+// fires on mount — a vitest render has no session or case store.
+// The empty arm exercises the canvas's no-data notice path.
+vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
+	loadCaseListPreviewAction: vi.fn(async () => ({ kind: "empty" as const })),
+	loadFilterPreviewAction: vi.fn(async () => ({ kind: "empty" as const })),
 }));
 
 // Stub the running-app preview screens that aren't relevant to
@@ -163,44 +152,34 @@ function renderShell() {
 }
 
 describe("PreviewShell — case-list-authoring integration", () => {
-	it("ModuleScreen surfaces the Case List affordance + click fires the navigate intent", () => {
-		currentLocation = {
-			kind: "module",
-			moduleUuid: MODULE_UUID,
-		};
-		navigateMock.openCaseList.mockClear();
-		renderShell();
-
-		// ModuleScreen renders the Case List affordance (the integration
-		// pin: case-typed module → affordance card visible above the
-		// form list).
-		const card = screen.getByRole("button", { name: /Case List/i });
-		expect(card).toBeDefined();
-
-		// Clicking the card fires `navigate.openCaseList` with the
-		// module's uuid — the routing intent that flips the URL to
-		// /cases. The spy assertion pins the wire between ModuleScreen
-		// and the navigate hook.
-		fireEvent.click(card);
-		expect(navigateMock.openCaseList).toHaveBeenCalledOnce();
-		expect(navigateMock.openCaseList).toHaveBeenCalledWith(MODULE_UUID);
-	});
-
-	it("PreviewShell at /cases (edit mode) renders the workspace's three section sentinels", () => {
-		// Render directly at the cases URL — PreviewShell's location
-		// branching dispatches the workspace, the workspace mounts
-		// the three section stubs. Pinning the post-navigation state
-		// in a separate test avoids the `useDeferredValue` flush
-		// timing that complicates a single-test "navigate then assert"
-		// flow under happy-dom.
+	it("at /cases (edit mode) renders the workspace tabs + case-list canvas, with no Preview affordance", () => {
 		currentLocation = {
 			kind: "cases",
 			moduleUuid: MODULE_UUID,
 		};
 		renderShell();
 
-		expect(screen.getByTestId("display-section-stub")).toBeDefined();
-		expect(screen.getByTestId("filters-section-stub")).toBeDefined();
-		expect(screen.getByTestId("search-inputs-section-stub")).toBeDefined();
+		// The three config tabs are present…
+		expect(screen.getByRole("button", { name: /Search/ })).toBeDefined();
+		expect(screen.getByRole("button", { name: /Case List/ })).toBeDefined();
+		expect(screen.getByRole("button", { name: /Case Detail/ })).toBeDefined();
+		// …the workspace carries no Preview button of its own (the
+		// global toggle lives in the subheader, outside PreviewShell)…
+		expect(screen.queryByRole("button", { name: /Preview/ })).toBeNull();
+		// …and the case-list canvas renders the module name as the
+		// artifact's title.
+		expect(screen.getByText("Patient module")).toBeDefined();
+	});
+
+	it("the Case Detail tab fires navigate.openDetailConfig", () => {
+		currentLocation = {
+			kind: "cases",
+			moduleUuid: MODULE_UUID,
+		};
+		navigateMock.openDetailConfig.mockClear();
+		renderShell();
+		fireEvent.click(screen.getByRole("button", { name: /Case Detail/ }));
+		expect(navigateMock.openDetailConfig).toHaveBeenCalledOnce();
+		expect(navigateMock.openDetailConfig).toHaveBeenCalledWith(MODULE_UUID);
 	});
 });

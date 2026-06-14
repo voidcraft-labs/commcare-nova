@@ -124,6 +124,12 @@ export interface NavigateActions {
 	 * `openCaseList` — same per-module shape, different config slot.
 	 */
 	openSearchConfig: (moduleUuid: Uuid) => void;
+	/**
+	 * Open the case-detail authoring workspace for `moduleUuid`. Routes
+	 * to `/build/{appId}/{moduleUuid}/detail-config` — the third tab of
+	 * the case-list workspace alongside `openCaseList` / `openSearchConfig`.
+	 */
+	openDetailConfig: (moduleUuid: Uuid) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -149,7 +155,23 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 		(loc.kind === "module" ||
 			loc.kind === "cases" ||
 			loc.kind === "search-config" ||
+			loc.kind === "detail-config" ||
 			loc.kind === "form") &&
+		loc.moduleUuid === uuid
+	);
+}
+
+/**
+ * `true` when any of the case-list workspace's URLs (list / search /
+ * detail tab) is open for this module. Used by the tree sidebar's
+ * Case List & Search node for highlight state.
+ */
+export function useIsCaseListSelected(uuid: Uuid): boolean {
+	const loc = useLocation();
+	return (
+		(loc.kind === "cases" ||
+			loc.kind === "search-config" ||
+			loc.kind === "detail-config") &&
 		loc.moduleUuid === uuid
 	);
 }
@@ -194,6 +216,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "module" ||
 		loc.kind === "cases" ||
 		loc.kind === "search-config" ||
+		loc.kind === "detail-config" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
@@ -204,9 +227,6 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 	);
 	const formName = useBlueprintDoc((s) =>
 		formUuid ? s.forms[formUuid]?.name : undefined,
-	);
-	const moduleCaseType = useBlueprintDoc((s) =>
-		moduleUuid ? s.modules[moduleUuid]?.caseType : undefined,
 	);
 
 	return useMemo<BreadcrumbItem[]>(() => {
@@ -220,10 +240,14 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				location: { kind: "module", moduleUuid },
 			});
 		}
+		// The trailing crumb names the workspace tab, word-for-word
+		// ("Case List" / "Search" / "Case Detail") — the module crumb
+		// already carries the case-type context, so a "client search"-
+		// style prefix would just restate it in a different casing.
 		if (loc.kind === "cases") {
 			items.push({
 				key: `cases:${moduleUuid}`,
-				label: moduleCaseType ? `${moduleCaseType} cases` : "Cases",
+				label: "Case List",
 				location: { kind: "cases", moduleUuid: loc.moduleUuid },
 			});
 			if (loc.caseId) {
@@ -241,8 +265,15 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		if (loc.kind === "search-config") {
 			items.push({
 				key: `search-config:${moduleUuid}`,
-				label: "Search Config",
+				label: "Search",
 				location: { kind: "search-config", moduleUuid: loc.moduleUuid },
+			});
+		}
+		if (loc.kind === "detail-config") {
+			items.push({
+				key: `detail-config:${moduleUuid}`,
+				label: "Case Detail",
+				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
 			});
 		}
 		if (loc.kind === "form" && formUuid && moduleUuid) {
@@ -253,15 +284,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		return items;
-	}, [
-		appName,
-		loc,
-		moduleUuid,
-		formUuid,
-		moduleName,
-		formName,
-		moduleCaseType,
-	]);
+	}, [appName, loc, moduleUuid, formUuid, moduleName, formName]);
 }
 
 /**
@@ -318,6 +341,8 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "cases", moduleUuid, caseId }),
 			openSearchConfig: (moduleUuid: Uuid) =>
 				push({ kind: "search-config", moduleUuid }),
+			openDetailConfig: (moduleUuid: Uuid) =>
+				push({ kind: "detail-config", moduleUuid }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -350,6 +375,7 @@ export function parentLocation(loc: Location): Location | undefined {
 				? { kind: "cases", moduleUuid: loc.moduleUuid }
 				: { kind: "module", moduleUuid: loc.moduleUuid };
 		case "search-config":
+		case "detail-config":
 			return { kind: "module", moduleUuid: loc.moduleUuid };
 		case "form":
 			return loc.selectedUuid

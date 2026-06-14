@@ -11,6 +11,7 @@ import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 export function isBlankDefault(
 	ctx: PredicateEditContext,
@@ -32,15 +33,18 @@ export function IsBlankCard({ value, onChange, path }: IsBlankCardProps) {
 
 	return (
 		<div className="space-y-2">
-			<div>
-				<PropertyRefPicker
-					mode="left"
-					value={value.left}
-					onChange={(left) => onChange(isBlank(left))}
-					invalid={leftErrors.length > 0}
-					ariaLabel="Property"
-				/>
-				<InlineError errors={leftErrors} />
+			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
+				<div>
+					<PropertyRefPicker
+						mode="left"
+						value={value.left}
+						onChange={(left) => onChange(isBlank(left))}
+						invalid={leftErrors.length > 0}
+						ariaLabel="Property"
+					/>
+					<InlineError errors={leftErrors} />
+				</div>
+				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 			<div className="text-[11px] text-nova-text-muted/70 leading-snug">
 				Matches when the property is missing or set to the empty string.

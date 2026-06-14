@@ -1,11 +1,10 @@
 /**
- * InteractiveFormRenderer — recursive renderer for pointer / test mode.
+ * InteractiveFormRenderer — recursive renderer for preview mode.
  *
  * Mode matrix:
  *
- *   ctx.mode === "edit"  && cursorMode === "edit"    → VirtualFormList
- *   ctx.mode === "edit"  && cursorMode === "pointer" → this renderer
- *   ctx.mode === "test"                              → this renderer
+ *   mode === "edit"    (form root)  → VirtualFormList
+ *   mode === "preview"              → this renderer
  *
  * Interactive semantics that distinguish it from the edit view:
  *
@@ -125,7 +124,7 @@ interface InteractiveFieldProps {
 }
 
 /**
- * Per-field renderer for pointer/test mode. Owns the per-entity doc
+ * Per-field renderer for preview mode. Owns the per-entity doc
  * subscription, engine state subscription, and visibility gating; does
  * NOT own edit-mode affordances (selection, dnd, insertion).
  *

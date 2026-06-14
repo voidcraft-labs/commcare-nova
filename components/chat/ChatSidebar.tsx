@@ -1,6 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerChevronUp from "@iconify-icons/tabler/chevron-up";
 import { motion } from "motion/react";
 import {
 	type ReactNode,
@@ -22,6 +23,7 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import {
 	BlueprintDocContext,
@@ -49,11 +51,17 @@ import {
 	SignalGridController,
 	type SignalMode,
 } from "@/lib/signalGridController";
+import { INSPECTOR_RAIL_WIDTH, useInspectorContext } from "@/lib/ui/inspector";
 import { computeScaffoldProgress } from "./scaffoldProgress";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
-export const CHAT_SIDEBAR_WIDTH = 320;
+/** The right rail is ONE width in both of its modes — full chat and
+ *  docked-under-inspector. Selecting something to inspect must never
+ *  change the canvas width (content reflowing as a side effect of a
+ *  click reads as a glitch), so the chat's resting width IS the
+ *  inspector rail's width. */
+export const CHAT_SIDEBAR_WIDTH = INSPECTOR_RAIL_WIDTH;
 
 /** Create a SignalGridController whose energy callbacks drain the module-level
  *  signalGrid nanostore. Scaffold progress is computed on each poll from the
@@ -126,6 +134,19 @@ export function ChatSidebar({
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
 	const setSidebarOpen = useSetSidebarOpen();
+
+	/* Inspector dock — when a builder surface claims the rail, the chat
+	 * condenses to a strip (signal panel + composer) beneath the
+	 * inspector slot. `setPortalEl` registers the slot node the active
+	 * `InspectorSurface` portals into; `closeInspector` asks the claim's
+	 * owner to clear its selection. */
+	const {
+		active: inspectorActive,
+		setPortalEl,
+		requestClose: closeInspector,
+	} = useInspectorContext();
+	const docked = inspectorActive && !centered;
+	const railWidth = docked ? INSPECTOR_RAIL_WIDTH : CHAT_SIDEBAR_WIDTH;
 	const agentError = useAgentError();
 	const agentStage = useAgentStage();
 	const postBuildEdit = usePostBuildEdit();
@@ -464,15 +485,17 @@ export function ChatSidebar({
 			{centered && heroLogo}
 			<motion.div
 				layout={morphing ? "position" : false}
+				data-inspector-rail={centered ? undefined : true}
+				style={centered ? undefined : { width: railWidth }}
 				className={`pointer-events-auto flex flex-col overflow-hidden transition-[width,max-width,max-height,height,border-radius,border-color] duration-[450ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${
 					centered
 						? "w-full max-w-2xl max-h-[min(700px,80vh)] rounded-2xl border border-nova-border bg-nova-deep"
-						: `w-[${CHAT_SIDEBAR_WIDTH}px] h-full border-l border-nova-border-bright bg-nova-deep`
+						: "h-full border-l border-nova-border-bright bg-nova-deep"
 				}`}
 				transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
 			>
 				{/* Sidebar header */}
-				{!centered && (
+				{!centered && !docked && (
 					<div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
 						<span className="text-[13px] font-medium text-nova-text-secondary">
 							Chat
@@ -480,11 +503,56 @@ export function ChatSidebar({
 						<button
 							type="button"
 							onClick={() => setSidebarOpen("chat", false)}
+							aria-label="Collapse chat sidebar"
 							className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 						>
 							<Icon icon={tablerChevronRight} width="14" height="14" />
 						</button>
 					</div>
+				)}
+
+				{/* Inspector dock — the slot the active InspectorSurface portals
+				 *  into, plus the condensed chat strip. The Conversation block
+				 *  below unmounts while docked; messages are props, so the
+				 *  thread re-renders intact (re-pinned to bottom) on expand. */}
+				{docked && (
+					<>
+						<div
+							ref={setPortalEl}
+							className="flex-1 min-h-0 flex flex-col overflow-hidden"
+						/>
+						{/* The condensed conversation's grab handle — ONE full-width
+						 *  row (not a label plus a small link) so the affordance is
+						 *  unmissable and the target spans the rail at full height.
+						 *  Clicking it closes the properties panel and gives the
+						 *  rail back to the conversation. */}
+						<Tooltip
+							content="Back to the conversation — closes properties"
+							placement="left"
+						>
+							<button
+								type="button"
+								onClick={closeInspector}
+								aria-label="Expand chat"
+								className="group w-full flex items-center gap-2 px-4 min-h-11 border-t border-nova-border shrink-0 text-left hover:bg-white/[0.03] transition-colors cursor-pointer"
+							>
+								<span className="text-[9px] font-mono tracking-[0.18em] text-nova-text-muted">
+									CHAT
+								</span>
+								{messages.length > 0 && (
+									<span className="px-1.5 py-px rounded-full bg-nova-violet/15 border border-nova-violet/25 text-[10px] leading-none text-nova-violet-bright">
+										{messages.length}
+									</span>
+								)}
+								<Icon
+									icon={tablerChevronUp}
+									width="14"
+									height="14"
+									className="ml-auto text-nova-text-muted group-hover:text-nova-text transition-colors"
+								/>
+							</button>
+						</Tooltip>
+					</>
 				)}
 
 				{/* Messages — historical threads above, active thread below.
@@ -506,50 +574,52 @@ export function ChatSidebar({
 				 *    is the fix: its basis is the CONTENT height (welcome intro sizes
 				 *    naturally), and `min-h-0` lets it shrink + scroll once content exceeds
 				 *    `max-h`, keeping the composer on-screen. */}
-				<Conversation
-					className={centered ? "flex-auto min-h-0" : "flex-1"}
-					contextRef={stickContextRef}
-				>
-					{/* ConversationContent's base `gap-8` is roomier than Nova's chat
-					 *  density; override to `gap-4` (matches the former `space-y-4`).
-					 *  Single-source the spacing via gap rather than stacking margins. */}
-					<ConversationContent className="gap-4 p-4">
-						{/* Historical threads — server-rendered by ThreadHistory,
-						 *  passed through the client boundary as children. */}
-						{children}
+				{!docked && (
+					<Conversation
+						className={centered ? "flex-auto min-h-0" : "flex-1"}
+						contextRef={stickContextRef}
+					>
+						{/* ConversationContent's base `gap-8` is roomier than Nova's chat
+						 *  density; override to `gap-4` (matches the former `space-y-4`).
+						 *  Single-source the spacing via gap rather than stacking margins. */}
+						<ConversationContent className="gap-4 p-4">
+							{/* Historical threads — server-rendered by ThreadHistory,
+							 *  passed through the client boundary as children. */}
+							{children}
 
-						{/* Active thread empty state */}
-						{messages.length === 0 &&
-							!isLoading &&
-							(centered ? (
-								<WelcomeIntro />
-							) : (
-								<ConversationEmptyState
-									title=""
-									description={
-										isExistingApp
-											? "What changes would you like to make?"
-											: "Describe the CommCare app you want to build."
-									}
+							{/* Active thread empty state */}
+							{messages.length === 0 &&
+								!isLoading &&
+								(centered ? (
+									<WelcomeIntro />
+								) : (
+									<ConversationEmptyState
+										title=""
+										description={
+											isExistingApp
+												? "What changes would you like to make?"
+												: "Describe the CommCare app you want to build."
+										}
+									/>
+								))}
+
+							{/* Live messages from the active useChat session. Only the last
+							 *  message can be mid-stream, so it alone receives isStreaming —
+							 *  the reasoning panel narrows that to "trailing part is still
+							 *  reasoning" so the shimmer stops once answer tokens arrive. */}
+							{messages.map((msg, msgIndex) => (
+								<ChatMessage
+									key={msg.id}
+									message={msg}
+									addToolOutput={handleToolOutput}
+									pendingAnswerRef={pendingAnswerRef}
+									isStreaming={isLoading && msgIndex === messages.length - 1}
 								/>
 							))}
-
-						{/* Live messages from the active useChat session. Only the last
-						 *  message can be mid-stream, so it alone receives isStreaming —
-						 *  the reasoning panel narrows that to "trailing part is still
-						 *  reasoning" so the shimmer stops once answer tokens arrive. */}
-						{messages.map((msg, msgIndex) => (
-							<ChatMessage
-								key={msg.id}
-								message={msg}
-								addToolOutput={handleToolOutput}
-								pendingAnswerRef={pendingAnswerRef}
-								isStreaming={isLoading && msgIndex === messages.length - 1}
-							/>
-						))}
-					</ConversationContent>
-					<ConversationScrollButton />
-				</Conversation>
+						</ConversationContent>
+						<ConversationScrollButton />
+					</Conversation>
+				)}
 
 				{/* Nova's thinking panel — permanent status display */}
 				<div className="shrink-0">

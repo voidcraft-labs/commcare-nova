@@ -5,6 +5,7 @@ Stateless, domain-agnostic React hooks + the imperative UI singletons they subsc
 ## What belongs here
 
 - Imperative UI singletons (`toastStore`, `keyboardManager`) — module-level instances callable from anywhere, including callbacks and catch blocks.
+- Cross-surface UI coordination contexts (`inspector.tsx` — the right-rail inspector's claim stack + portal target, shared by the chat sidebar and the builder surfaces that claim it; see `components/builder/CLAUDE.md` § Inspector rail).
 - DOM observers (`useIsBreakpoint`).
 - Input-interaction models (`useCommitField` — the commit/cancel/checkmark pattern).
 - Keyboard / focus / menu navigation primitives (`useMenuNavigation`, `useKeyboardShortcuts`).

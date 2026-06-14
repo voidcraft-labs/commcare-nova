@@ -22,7 +22,6 @@
 // reaching for this card.
 
 "use client";
-import type { IconifyIcon } from "@iconify/react/offline";
 import type { CaseType } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/predicate";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
@@ -32,18 +31,18 @@ import { PredicateCardEditor } from "./PredicateCardEditor";
 // ── Public types ──────────────────────────────────────────────────
 
 export interface PredicateSlotCardProps {
-	/** Header icon — the section's leading glyph. */
-	readonly icon: IconifyIcon;
-	/** Header title — short uppercase label rendered as the section's
-	 *  heading text. */
+	/** Header title — short label rendered as the section's etched
+	 *  console eyebrow. */
 	readonly title: string;
 	/** Header hint — single-line description below the title that
 	 *  tells the author what the slot does. */
 	readonly description: string;
 	/** Empty-state CTA label — visible button text + `aria-label`. */
 	readonly addLabel: string;
-	/** Header "Clear ..." label — visible button text + `aria-label`. */
+	/** Header Clear button's short visible text. */
 	readonly clearLabel: string;
+	/** Screen-reader name for the Clear button — the specific action. */
+	readonly clearAriaLabel: string;
 	/** Current Predicate slot value. `undefined` ≡ slot empty. */
 	readonly value: Predicate | undefined;
 	/** Fired when the slot transitions. Receives `undefined` on Clear;
@@ -75,11 +74,11 @@ export interface PredicateSlotCardProps {
  * mounted until cleared.
  */
 export function PredicateSlotCard({
-	icon,
 	title,
 	description,
 	addLabel,
 	clearLabel,
+	clearAriaLabel,
 	value,
 	onChange,
 	caseTypes,
@@ -89,11 +88,11 @@ export function PredicateSlotCard({
 }: PredicateSlotCardProps) {
 	return (
 		<OptionalSlotCard<Predicate>
-			icon={icon}
 			title={title}
 			description={description}
 			addLabel={addLabel}
 			clearLabel={clearLabel}
+			clearAriaLabel={clearAriaLabel}
 			value={value}
 			onChange={onChange}
 			addSeed={matchAll()}

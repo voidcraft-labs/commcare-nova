@@ -15,7 +15,6 @@
 //     valid: false; clearing the slot flips back to true even with
 //     the stale-shadow path active (slot-presence short-circuit).
 
-import tablerFilter from "@iconify-icons/tabler/filter";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -45,11 +44,11 @@ const CASE_TYPES = [PATIENT];
 // overrides a slot. One declaration is the single source of truth
 // for the test-side defaults across the file.
 const baseProps = {
-	icon: tablerFilter,
 	title: "Filter",
 	description: "Always-on predicate that narrows the case list.",
 	addLabel: "Add filter",
-	clearLabel: "Clear filter",
+	clearLabel: "Clear",
+	clearAriaLabel: "Clear filter",
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
 } as const;

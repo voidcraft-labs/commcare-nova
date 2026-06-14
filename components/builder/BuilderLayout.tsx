@@ -13,12 +13,12 @@
  *
  * All content, data subscriptions, and interactive behavior live in
  * self-sufficient child components:
- * - BuilderSubheader — nav, breadcrumbs, undo/redo, save, export
- * - BuilderContentArea — sidebar wrappers, reopen buttons, preview, chat
+ * - BuilderHeader — logo, Preview toggle (centered), undo/redo, save,
+ *   export, account
+ * - BuilderContentArea — sidebar wrappers, breadcrumb strip, preview, chat
  * - ReplayController — replay transport bar
  * - ChatContainer — useChat lifecycle, stream effects
  * - GenerationProgress — generation stage/error/status
- * - CursorModeSelector — cursor mode from store
  * - StructureSidebar — fully propless
  *
  * BuilderLayout subscribes to two store fields: `phase` and `inReplayMode`.
@@ -27,7 +27,6 @@
  * and replay mode toggle — not on messages, keystrokes, or clicks.
  */
 "use client";
-import { AnimatePresence, motion } from "motion/react";
 import {
 	useCallback,
 	useContext,
@@ -37,8 +36,8 @@ import {
 	useState,
 } from "react";
 import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
+import { BuilderHeader } from "@/components/builder/BuilderHeader";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
-import { BuilderSubheader } from "@/components/builder/BuilderSubheader";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
 import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
@@ -51,11 +50,10 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderPhase,
-	useCursorMode,
 	useInReplayMode,
-	useSwitchCursorMode,
+	usePreviewing,
+	useSetPreviewing,
 } from "@/lib/session/hooks";
-import type { CursorMode } from "@/lib/session/types";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 
 /** Extra space above the scroll target so the field isn't flush with the
@@ -74,6 +72,10 @@ interface BuilderLayoutProps {
 	/** CommCare HQ settings read by the RSC page — drives the export
 	 *  dropdown's configured/unconfigured state and upload dialog domain. */
 	commcareSettings?: CommCareSettingsPublic;
+	/** Active impersonation info, or null/omitted when viewing as
+	 *  yourself — surfaces the banner in BuilderHeader, mirroring the
+	 *  site header. */
+	impersonating?: { userName: string; userEmail: string } | null;
 }
 
 /**
@@ -88,6 +90,7 @@ export function BuilderLayout({
 	children,
 	isExistingApp,
 	commcareSettings,
+	impersonating,
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
@@ -105,8 +108,8 @@ export function BuilderLayout({
 		: EMPTY_DOMAINS;
 
 	// ── Flipbook scroll sync ──────────────────────────────────────────────
-	// Switching cursor modes preserves scroll position so the same field
-	// stays at the same pixel offset. This is the one piece of cross-component
+	// Toggling preview preserves scroll position so the same field stays
+	// at the same pixel offset. This is the one piece of cross-component
 	// coordination that BuilderLayout still owns because it needs to measure
 	// the DOM before the mode switch and correct scroll during the sidebar
 	// width animation that follows.
@@ -122,25 +125,25 @@ export function BuilderLayout({
 		allUuids: string[];
 	} | null>(null);
 
-	const switchCursorMode = useSwitchCursorMode();
+	const setPreviewing = useSetPreviewing();
 
-	/* Track current cursor mode in a ref so the stable handleCursorModeChange
-	 * callback can read it without adding cursorMode as a dependency. */
-	const cursorMode = useCursorMode();
-	const cursorModeRef = useRef(cursorMode);
-	cursorModeRef.current = cursorMode;
+	/* Track the current preview flag in a ref so the stable
+	 * handleSetPreviewing callback can read it without re-creating. */
+	const previewing = usePreviewing();
+	const previewingRef = useRef(previewing);
+	previewingRef.current = previewing;
 
-	/** Capture scroll anchor before cursor mode switch, then delegate
-	 *  the actual mode change to the session store's atomic switchCursorMode. */
-	const handleCursorModeChange = useCallback(
-		(mode: CursorMode) => {
-			/* Early exit on same-mode: avoids DOM measurement + scroll anchor
-			 * thrash that otherwise fires on every click of the already-active
-			 * CursorModeSelector button. The session store also guards against
-			 * same-mode no-ops internally, but by that point we've already run
-			 * querySelectorAll + getBoundingClientRect + setScrollAnchor, which
-			 * triggers a re-render and a useLayoutEffect that mutates scrollTop. */
-			if (mode === cursorModeRef.current) return;
+	/** Capture scroll anchor before the preview toggle, then delegate
+	 *  the actual flip to the session store's atomic setPreviewing. */
+	const handleSetPreviewing = useCallback(
+		(on: boolean) => {
+			/* Early exit on same-value: avoids DOM measurement + scroll anchor
+			 * thrash on a redundant toggle. The session store also guards
+			 * against same-value no-ops internally, but by that point we've
+			 * already run querySelectorAll + getBoundingClientRect +
+			 * setScrollAnchor, which triggers a re-render and a
+			 * useLayoutEffect that mutates scrollTop. */
+			if (on === previewingRef.current) return;
 
 			const scrollContainer = document.querySelector(
 				"[data-preview-scroll-container]",
@@ -165,9 +168,9 @@ export function BuilderLayout({
 				}
 			}
 
-			switchCursorMode(mode);
+			setPreviewing(on);
 		},
-		[switchCursorMode],
+		[setPreviewing],
 	);
 
 	/* Restore scroll position after mode switch. */
@@ -326,7 +329,7 @@ export function BuilderLayout({
 
 	// ── Keyboard shortcuts ──────────────────────────────────────────────
 
-	const shortcuts = useBuilderShortcuts(handleCursorModeChange);
+	const shortcuts = useBuilderShortcuts(handleSetPreviewing);
 
 	useKeyboardShortcuts("builder-layout", shortcuts);
 
@@ -361,9 +364,17 @@ export function BuilderLayout({
 
 	if (phase === BuilderPhase.Loading) {
 		return (
-			<div className="h-full flex items-center justify-center">
-				<div className="animate-pulse">
-					<Logo size="md" />
+			<div className="h-full flex flex-col overflow-hidden">
+				<BuilderHeader
+					commcareConfigured={commcareConfigured}
+					commcareAvailableDomains={commcareAvailableDomains}
+					onSetPreviewing={handleSetPreviewing}
+					impersonating={impersonating ?? null}
+				/>
+				<div className="flex-1 flex items-center justify-center">
+					<div className="animate-pulse">
+						<Logo size="md" />
+					</div>
 				</div>
 			</div>
 		);
@@ -375,32 +386,18 @@ export function BuilderLayout({
 				{/* Replay controller — self-sufficient, reads/writes replay state from store */}
 				{inReplayMode && <ReplayController />}
 
-				{/* Builder subheader — self-sufficient, owns nav/breadcrumbs/undo/redo/export */}
-				<AnimatePresence>
-					{!isCentered && (
-						<motion.div
-							initial={{ opacity: 0, y: -8 }}
-							animate={{ opacity: 1, y: 0 }}
-							exit={{
-								opacity: 0,
-								y: -8,
-								transition: { duration: 0.15, ease: [0.4, 0, 0.2, 1] },
-							}}
-							transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-							className="flex items-center justify-between px-5 h-12 border-b border-nova-border shrink-0 bg-[#0c0c20]"
-						>
-							<BuilderSubheader
-								commcareConfigured={commcareConfigured}
-								commcareAvailableDomains={commcareAvailableDomains}
-							/>
-						</motion.div>
-					)}
-				</AnimatePresence>
+				{/* Builder header — logo, centered Preview toggle, doc tools, account.
+				 *  Always rendered: it replaces the site AppHeader inside /build. */}
+				<BuilderHeader
+					commcareConfigured={commcareConfigured}
+					commcareAvailableDomains={commcareAvailableDomains}
+					onSetPreviewing={handleSetPreviewing}
+					impersonating={impersonating ?? null}
+				/>
 
 				{/* Content area — self-sufficient, owns sidebar/preview/chat layout */}
 				<BuilderContentArea
 					isCentered={isCentered}
-					onCursorModeChange={handleCursorModeChange}
 					isExistingApp={!!isExistingApp}
 				>
 					{children}

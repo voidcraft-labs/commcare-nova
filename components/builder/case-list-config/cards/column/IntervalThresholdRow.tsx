@@ -63,13 +63,13 @@ export function IntervalThresholdRow({
 	return (
 		<div className="grid grid-cols-[1fr_auto] gap-2 items-start">
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 					{thresholdLabel}
 				</div>
 				<ThresholdInput value={threshold} onChange={onThresholdChange} />
 			</div>
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 					Unit
 				</div>
 				<UnitMenu unit={unit} onUnitChange={onUnitChange} />
@@ -124,7 +124,7 @@ function ThresholdInput({ value, onChange }: ThresholdInputProps) {
 			autoComplete="off"
 			data-1p-ignore
 			aria-label="Threshold"
-			className="w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
+			className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
 		/>
 	);
 }
@@ -148,7 +148,7 @@ function UnitMenu({ unit, onUnitChange }: UnitMenuProps) {
 				ref={triggerRef}
 				id={triggerId}
 				aria-label={`Unit: ${UNIT_LABELS[unit]}`}
-				className="group flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 			>
 				<span>{UNIT_LABELS[unit]}</span>
 				<svg
@@ -192,7 +192,7 @@ function UnitMenu({ unit, onUnitChange }: UnitMenuProps) {
 								<Menu.Item
 									key={u}
 									onClick={() => onUnitChange(u)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
+									className={`${corners} min-h-11 ${MENU_ITEM_CLS} ${
 										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
 									}`}
 								>

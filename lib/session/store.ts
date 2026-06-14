@@ -1,7 +1,7 @@
 /**
  * BuilderSession store — ephemeral UI state for the builder.
  *
- * Owns cursor mode, sidebar visibility + stash, active field tracking,
+ * Owns preview mode, sidebar visibility + stash, active field tracking,
  * generation lifecycle, replay state, and app identity. Everything here
  * lives only while the builder route is mounted and is NEVER undoable.
  * Separated from BlueprintDoc so UI state can't bleed into undo history
@@ -11,7 +11,7 @@
  * (Redux DevTools in development). No Immer (shape is flat enough), no zundo
  * (nothing undoable).
  *
- * Actions are reducer-shaped where atomicity matters. `switchCursorMode` is
+ * Actions are reducer-shaped where atomicity matters. `setPreviewing` is
  * the canonical example — it stashes/restores sidebar visibility in a single
  * `set()` call so intermediate states never leak to subscribers.
  *
@@ -36,7 +36,13 @@ import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
-import type { CursorMode, ReplayData, ReplayInit, StagedUpload } from "./types";
+import type {
+	PreviewCaseTarget,
+	PreviewSelectedCase,
+	ReplayData,
+	ReplayInit,
+	StagedUpload,
+} from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -57,7 +63,7 @@ export type SidebarKind = "chat" | "structure";
  *     `lib/session/lifecycle.ts`.
  *   - App identity (`appId`) — current app being built/edited.
  *   - Replay (`replay`) — build replay playback data.
- *   - Interaction (`cursorMode`, `activeFieldId`) — how the user is editing.
+ *   - Interaction (`previewing`, `activeFieldId`) — how the user is editing.
  *   - Chrome (`sidebars`) — layout visibility + stash for mode transitions.
  *   - Connect stash — learn↔deliver toggle preservation.
  */
@@ -126,20 +132,34 @@ export interface BuilderSessionState {
 
 	// ── Interaction ──────────────────────────────────────────────────────
 
-	/** Current cursor mode — "pointer" (interact/live preview) or "edit"
-	 *  (click-to-select + inline text editing). */
-	cursorMode: CursorMode;
+	/** Whether the builder is in preview mode — the canvas runs live (form
+	 *  fill, case search, navigation) instead of click-to-select editing. */
+	previewing: boolean;
 
 	/** Which `[data-field-id]` element currently has focus. Transient UI hint,
 	 *  not undoable. Used by composite undo/redo to restore focus after the
 	 *  temporal state rolls back. */
 	activeFieldId: string | undefined;
 
+	/** In a running-app preview, the case-loading form the case list feeds
+	 *  and the case the user selected for it — preview's stand-in for the
+	 *  navigation-stack case datum. Set by the module menu (which form) and
+	 *  the case list's Continue (which case); read by PreviewShell to preload
+	 *  the form. Cleared on every preview-mode toggle (see `setPreviewing`)
+	 *  so previewing a form fresh never reloads a stale case. */
+	previewCaseTarget: PreviewCaseTarget | undefined;
+
+	/** The case currently open in the running-app case list's detail/confirm
+	 *  (the row clicked, before continuing). Mirrors the case list's local
+	 *  selection so the breadcrumb can name it on the list. Cleared with the
+	 *  selection and on every preview toggle. */
+	previewSelectedCase: PreviewSelectedCase | undefined;
+
 	// ── Chrome ───────────────────────────────────────────────────────────
 
-	/** Sidebar visibility with stash support for cursor mode transitions.
-	 *  `stashed` records the pre-pointer-mode `open` value; `undefined` means
-	 *  nothing is stashed. `switchCursorMode` writes both fields atomically. */
+	/** Sidebar visibility with stash support for preview transitions.
+	 *  `stashed` records the pre-preview `open` value; `undefined` means
+	 *  nothing is stashed. `setPreviewing` writes both fields atomically. */
 	sidebars: {
 		chat: { open: boolean; stashed: boolean | undefined };
 		structure: { open: boolean; stashed: boolean | undefined };
@@ -362,24 +382,30 @@ export interface BuilderSessionState {
 		formUuid: string,
 	) => ConnectConfig | undefined;
 
-	// ── Cursor + sidebar actions ─────────────────────────────────────────
+	// ── Preview + sidebar actions ────────────────────────────────────────
 
-	/** Atomically switch cursor mode with sidebar stash/restore.
+	/** Atomically enter/leave preview mode with sidebar stash/restore.
 	 *
-	 *  - To pointer: stash current `open` values, then close both sidebars.
-	 *  - To edit (with stash): restore stashed values, clear stash.
-	 *  - To edit (no stash): update mode only, no sidebar change.
-	 *  - Same mode: no-op (guards against double-entry that would overwrite
+	 *  - Entering: stash current `open` values, then close both sidebars —
+	 *    preview is the app full-bleed, no builder chrome beside it.
+	 *  - Leaving (with stash): restore stashed values, clear stash.
+	 *  - Leaving (no stash): update the flag only, no sidebar change.
+	 *  - Same value: no-op (guards against double-entry that would overwrite
 	 *    the stash with `{ stashed: false }` values). */
-	switchCursorMode: (mode: CursorMode) => void;
-
-	/** Non-atomic cursor mode setter for non-toggle cases (e.g. initial mode
-	 *  or forced reset). Does NOT stash/restore sidebars. */
-	setCursorMode: (mode: CursorMode) => void;
+	setPreviewing: (on: boolean) => void;
 
 	/** Update which field has focus. No-ops when the value is unchanged to
 	 *  avoid unnecessary subscriber notifications. */
 	setActiveFieldId: (fieldId: string | undefined) => void;
+
+	/** Set (or clear) the preview case target — the case-loading form the
+	 *  case list feeds and the selected case. No-ops when shallow-equal so
+	 *  repeated sets don't notify subscribers. */
+	setPreviewCaseTarget: (target: PreviewCaseTarget | undefined) => void;
+
+	/** Set (or clear) the case open in the running-app case list. No-ops when
+	 *  shallow-equal. */
+	setPreviewSelectedCase: (selected: PreviewSelectedCase | undefined) => void;
 
 	/** Set one sidebar's visibility. Preserves the other sidebar + all stash
 	 *  values. No-ops when the value is unchanged. */
@@ -419,7 +445,7 @@ export interface BuilderSessionState {
 	 *  `ReplayController.handleExit`, which wipes both when the user
 	 *  leaves replay mode. Scrub callers (e.g. `goToChapter`) call
 	 *  `resetBuilder` without `reset()` so `replay.*` survives the click.
-	 *  Restores all generation lifecycle, replay, cursor mode, sidebars,
+	 *  Restores all generation lifecycle, replay, preview mode, sidebars,
 	 *  connect stash, and one-shot UI hints to defaults. The private
 	 *  doc-store reference installed by SyncBridge is NOT cleared — the
 	 *  provider's effect owns its lifetime. */
@@ -488,8 +514,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				replay: undefined as ReplayData | undefined,
 
 				/* Interaction */
-				cursorMode: "edit" as CursorMode,
+				previewing: false,
 				activeFieldId: undefined,
+				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
+				previewSelectedCase: undefined as PreviewSelectedCase | undefined,
 
 				/* Chrome */
 				sidebars: {
@@ -802,20 +830,23 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					return get().connectStash[mode]?.[formUuid];
 				},
 
-				switchCursorMode(next: CursorMode) {
+				setPreviewing(on: boolean) {
 					const s = get();
 
-					/* Guard: switching to the same mode is a no-op. Without this,
-					 * entering pointer mode twice would overwrite the stash with
+					/* Guard: setting the same value is a no-op. Without this,
+					 * entering preview twice would overwrite the stash with
 					 * `{ stashed: false }` (the already-closed sidebar values),
-					 * losing the original pre-pointer state. */
-					if (next === s.cursorMode) return;
+					 * losing the original pre-preview state. */
+					if (on === s.previewing) return;
 
-					if (next === "pointer") {
+					if (on) {
 						/* Stash current open values, then close both for the
-						 * immersive pointer-mode experience. */
+						 * immersive full-bleed preview. Clear any case target so
+						 * the preview session starts caseless. */
 						set({
-							cursorMode: next,
+							previewing: true,
+							previewCaseTarget: undefined,
+							previewSelectedCase: undefined,
 							sidebars: {
 								chat: {
 									open: false,
@@ -830,12 +861,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return;
 					}
 
-					/* next === "edit": restore stashed values if present,
-					 * otherwise leave sidebars as-is. */
+					/* Leaving preview: restore stashed values if present,
+					 * otherwise leave sidebars as-is. Drop the case target —
+					 * it's running-app state with no meaning outside preview. */
 					const chatStashed = s.sidebars.chat.stashed;
 					const structureStashed = s.sidebars.structure.stashed;
 					set({
-						cursorMode: next,
+						previewing: false,
+						previewCaseTarget: undefined,
+						previewSelectedCase: undefined,
 						sidebars: {
 							chat: {
 								open: chatStashed ?? s.sidebars.chat.open,
@@ -849,14 +883,35 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
-				setCursorMode(mode: CursorMode) {
-					if (mode === get().cursorMode) return;
-					set({ cursorMode: mode });
-				},
-
 				setActiveFieldId(fieldId: string | undefined) {
 					if (fieldId === get().activeFieldId) return;
 					set({ activeFieldId: fieldId });
+				},
+
+				setPreviewCaseTarget(target: PreviewCaseTarget | undefined) {
+					const current = get().previewCaseTarget;
+					/* Shallow no-op guard — the three fields fully describe the
+					 * target, so equal formUuid + caseId + caseName means nothing
+					 * changed. */
+					if (
+						current?.formUuid === target?.formUuid &&
+						current?.caseId === target?.caseId &&
+						current?.caseName === target?.caseName
+					) {
+						return;
+					}
+					set({ previewCaseTarget: target });
+				},
+
+				setPreviewSelectedCase(selected: PreviewSelectedCase | undefined) {
+					const current = get().previewSelectedCase;
+					if (
+						current?.caseId === selected?.caseId &&
+						current?.caseName === selected?.caseName
+					) {
+						return;
+					}
+					set({ previewSelectedCase: selected });
 				},
 
 				setSidebarOpen(kind: SidebarKind, open: boolean) {
@@ -1016,8 +1071,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						replay: undefined,
 
 						/* Interaction */
-						cursorMode: "edit" as CursorMode,
+						previewing: false,
 						activeFieldId: undefined,
+						previewCaseTarget: undefined,
+						previewSelectedCase: undefined,
 
 						/* Chrome */
 						sidebars: {

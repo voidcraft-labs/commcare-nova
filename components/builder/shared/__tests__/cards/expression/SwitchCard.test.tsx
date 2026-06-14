@@ -61,7 +61,7 @@ describe("SwitchCard — drag handle wiring", () => {
 		);
 		// `Reorder case` is the per-case grip's aria-label inside
 		// SwitchCard's CaseRow. Distinct from the outer
-		// `Reorder card` label that the CardShell's grip uses on
+		// `Drag to reorder` label that the shells' grips use on
 		// nested ExpressionPicker shells.
 		const grips = container.querySelectorAll(
 			'button[aria-label="Reorder case"]',

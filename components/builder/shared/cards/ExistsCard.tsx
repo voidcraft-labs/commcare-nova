@@ -94,11 +94,11 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 
 	return (
 		<div className="space-y-2">
-			<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
+			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
 				<KindMenu kind={value.kind} setKind={setKind} />
 				<div>
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
-						Relation walk
+						Connection
 					</div>
 					<RelationPathBuilder
 						value={value.via}
@@ -118,7 +118,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 						onClick={() =>
 							setWhere(value.where === undefined ? matchAll() : undefined)
 						}
-						className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
 					>
 						{value.where === undefined ? "+ Add filter" : "Remove filter"}
 					</button>
@@ -135,7 +135,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 				)}
 				{value.where !== undefined && destinationCaseType === undefined && (
 					<div className="text-[11px] text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-						Pick a valid relation walk to author a where clause.
+						Pick a valid connection before narrowing it with a condition.
 					</div>
 				)}
 			</div>
@@ -166,7 +166,7 @@ function KindMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Quantifier: ${current.label}`}
-				className="group flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
 			>
 				<Icon
 					icon={current.icon}

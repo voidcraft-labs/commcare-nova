@@ -4,7 +4,12 @@ export interface Shortcut {
 	key: string;
 	meta?: boolean;
 	shift?: boolean;
-	handler: (e: KeyboardEvent) => void;
+	/** Return `false` to DECLINE the key: the manager leaves the event
+	 *  untouched and keeps scanning earlier registrations, so a
+	 *  broadly-registered key (layout-level Escape) doesn't eat events
+	 *  it has nothing to do with. Any other return means handled. */
+	// biome-ignore lint/suspicious/noConfusingVoidType: `void` is the point — existing handlers return nothing (= handled); only an explicit `false` declines.
+	handler: (e: KeyboardEvent) => boolean | void;
 	/** If true, fires even when focus is inside text inputs */
 	global?: boolean;
 }
@@ -40,8 +45,14 @@ class KeyboardManager {
 				if (!!shortcut.shift !== e.shiftKey) continue;
 				if (inInput && !shortcut.global) continue;
 
+				/* A `false` return declines the key — keep scanning so an
+				 * earlier registration gets its shot. Registration order is
+				 * recency-of-(re)registration, not component depth, so a
+				 * match alone can't mean "mine": a layout-level handler that
+				 * re-registers on unrelated state would otherwise eat keys
+				 * meant for a longer-lived, more specific registration. */
+				if (shortcut.handler(e) === false) continue;
 				e.preventDefault();
-				shortcut.handler(e);
 				return;
 			}
 		}

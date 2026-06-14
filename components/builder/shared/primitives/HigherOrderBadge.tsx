@@ -96,7 +96,7 @@ export function HigherOrderBadge({
 				type="button"
 				aria-label={`Replace ${ariaLabel} expression (${label}) with a simple value`}
 				onClick={onReplace}
-				className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+				className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
 			>
 				Replace
 			</button>

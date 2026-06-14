@@ -1,7 +1,7 @@
 /**
  * GroupField — interactive rendering of a group container.
  *
- * Rendered only by `InteractiveFormRenderer` (pointer / test mode). The
+ * Rendered only by `InteractiveFormRenderer` (preview mode). The
  * edit-mode group representation is handled by the flat row model
  * (`GroupOpenRow` + nested rows + `GroupCloseRow`).
  *
@@ -58,7 +58,7 @@ interface GroupFieldProps {
 /**
  * Interactive rendering of a group container.
  *
- * Rendered only by `InteractiveFormRenderer` (pointer / test mode). The
+ * Rendered only by `InteractiveFormRenderer` (preview mode). The
  * edit-mode group representation is handled by the flat row model
  * (`GroupOpenRow` + nested rows + `GroupCloseRow`), so this file no
  * longer needs to participate in drag-and-drop, inline-text editing, or

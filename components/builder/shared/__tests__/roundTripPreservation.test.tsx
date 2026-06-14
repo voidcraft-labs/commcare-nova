@@ -106,7 +106,7 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 		// Arithmetic card label appears on the right-side expression
 		// — the registry surfaced the arith arm via its dedicated
 		// card rather than through the old badge.
-		expect(container.textContent).toMatch(/Arithmetic/i);
+		expect(container.textContent).toMatch(/Math/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
@@ -155,9 +155,9 @@ describe("ExpressionPicker — non-Term round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		// The kind picker label "Value" surfaces on the term-arm card
-		// (the registry's user-facing label for the `term` kind).
-		expect(container.textContent).toMatch(/Value/);
+		// Terms render UNBOXED — no slot title; the source chip
+		// ("Typed Value") is the term's visible identity.
+		expect(container.textContent).toMatch(/Typed Value/);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 });
@@ -180,7 +180,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 				currentCaseType="visit"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Multi-hop ancestor walk/i);
+		expect(container.textContent).toMatch(/Several steps up the case family/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
@@ -199,7 +199,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Qualified ancestor walk/i);
+		expect(container.textContent).toMatch(/Up to a specific case type/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
@@ -214,7 +214,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Direction-agnostic walk/i);
+		expect(container.textContent).toMatch(/Any connected case/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
@@ -232,7 +232,7 @@ describe("RelationPathBuilder — non-canonical round-trip preservation", () => 
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/Qualified subcase walk/i);
+		expect(container.textContent).toMatch(/Down to a specific case type/i);
 		expect(onChange).not.toHaveBeenCalled();
 	});
 

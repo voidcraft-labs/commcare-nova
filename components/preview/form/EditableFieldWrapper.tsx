@@ -159,10 +159,10 @@ export function EditableFieldWrapper({
 		[selectField],
 	);
 
-	/* In live/test mode this wrapper is a no-op — selection affordances only
+	/* In preview mode this wrapper is a no-op — selection affordances only
 	 * belong in edit mode. `useEditMode()` is derived from the session store,
 	 * so it always returns a defined value; no "no context" fallback needed. */
-	if (mode === "test") {
+	if (mode === "preview") {
 		return <div style={style}>{children}</div>;
 	}
 

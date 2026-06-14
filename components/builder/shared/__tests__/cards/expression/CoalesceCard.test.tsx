@@ -45,7 +45,7 @@ describe("CoalesceCard — drag handle wiring", () => {
 			/>,
 		);
 		const grips = container.querySelectorAll(
-			'button[aria-label="Reorder card"]',
+			'button[aria-label="Drag to reorder"]',
 		);
 		expect(grips.length).toBe(2);
 	});

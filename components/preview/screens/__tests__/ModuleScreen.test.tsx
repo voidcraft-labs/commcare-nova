@@ -2,15 +2,18 @@
 //
 // components/preview/screens/__tests__/ModuleScreen.test.tsx
 //
-// Pins the ModuleScreen "Case List" affordance card. Case-typed
-// modules surface a violet-gradient affordance card BEFORE the
-// form list that navigates to the case list authoring surface.
-// Non-case modules don't render the card.
+// Pins the ModuleScreen's shape after the case-list entry point moved
+// to the structure tree: the module screen lists FORMS only — no
+// "Case List & Search" card — and case-loading forms route through
+// the case list so the worker journey starts from a case.
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
+
+/** Edit/preview knob — defaults to edit; the redirect test flips it. */
+const editModeMock = vi.fn<() => "edit" | "preview">(() => "edit");
 
 const navigateMock = {
 	goHome: vi.fn(),
@@ -18,12 +21,17 @@ const navigateMock = {
 	openCaseList: vi.fn(),
 	openCaseDetail: vi.fn(),
 	openSearchConfig: vi.fn(),
+	openDetailConfig: vi.fn(),
 	openForm: vi.fn(),
 	push: vi.fn(),
 	replace: vi.fn(),
 	back: vi.fn(),
 	up: vi.fn(),
 };
+
+/** Mocked `useSetPreviewCaseTarget` — asserts a case-loading form click
+ *  seeds the case list's continue target with that form. */
+const setPreviewCaseTargetMock = vi.fn();
 
 vi.mock("@/lib/routing/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/routing/hooks")>(
@@ -42,22 +50,49 @@ vi.mock("@/lib/session/hooks", async () => {
 	);
 	return {
 		...actual,
-		useEditMode: () => "edit" as const,
+		useEditMode: () => editModeMock(),
 		useBuilderIsReady: () => true,
+		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 	};
 });
 
 import { ModuleScreen } from "../ModuleScreen";
 
 const MODULE_UUID = asUuid("mod-1");
+const REG_FORM_UUID = asUuid("form-reg");
+const FOLLOWUP_FORM_UUID = asUuid("form-fup");
 
-/**
- * Render ModuleScreen against a doc seeded with a single module.
- * The `caseType` parameter controls whether the module is
- * case-typed; passing `undefined` exercises the "no case list
- * affordance" arm.
- */
-function renderModuleScreen(opts: { caseType?: string } = {}) {
+function renderModuleScreen(
+	opts: { caseType?: string; caseFirst?: boolean } = {},
+) {
+	/* caseFirst drops the registration form so every form is case-loading —
+	 * the shape that makes the running app hoist the case selection. */
+	const forms = opts.caseFirst
+		? {
+				[FOLLOWUP_FORM_UUID]: {
+					uuid: FOLLOWUP_FORM_UUID,
+					id: "followup_patient",
+					name: "Follow Up",
+					type: "followup" as const,
+				},
+			}
+		: {
+				[REG_FORM_UUID]: {
+					uuid: REG_FORM_UUID,
+					id: "register_patient",
+					name: "Register Patient",
+					type: "registration" as const,
+				},
+				[FOLLOWUP_FORM_UUID]: {
+					uuid: FOLLOWUP_FORM_UUID,
+					id: "followup_patient",
+					name: "Follow Up",
+					type: "followup" as const,
+				},
+			};
+	const order = opts.caseFirst
+		? [FOLLOWUP_FORM_UUID]
+		: [REG_FORM_UUID, FOLLOWUP_FORM_UUID];
 	return render(
 		<BlueprintDocProvider
 			appId="app-module-screen-test"
@@ -74,11 +109,11 @@ function renderModuleScreen(opts: { caseType?: string } = {}) {
 						caseType: opts.caseType,
 					},
 				},
-				forms: {},
+				forms,
 				fields: {},
 				moduleOrder: [MODULE_UUID],
-				formOrder: { [MODULE_UUID]: [] },
-				fieldOrder: {},
+				formOrder: { [MODULE_UUID]: order },
+				fieldOrder: Object.fromEntries(order.map((u) => [u, []])),
 			}}
 		>
 			<ModuleScreen screen={{ type: "module", moduleIndex: 0 }} />
@@ -86,76 +121,62 @@ function renderModuleScreen(opts: { caseType?: string } = {}) {
 	);
 }
 
-describe("ModuleScreen — Case List affordance", () => {
-	it("renders the Case List card when the module has a caseType", () => {
-		renderModuleScreen({ caseType: "patient" });
-		// The affordance card surfaces with the section's display title.
-		expect(screen.getByRole("button", { name: /Case List/i })).toBeDefined();
-	});
-
-	it("does NOT render the Case List card when the module has no caseType", () => {
-		renderModuleScreen({ caseType: undefined });
-		expect(screen.queryByRole("button", { name: /Case List/i })).toBeNull();
-	});
-
-	it("navigates to the case list URL via openCaseList on click", () => {
-		renderModuleScreen({ caseType: "patient" });
-		const card = screen.getByRole("button", { name: /Case List/i });
-		fireEvent.click(card);
-		expect(navigateMock.openCaseList).toHaveBeenCalledOnce();
-		expect(navigateMock.openCaseList).toHaveBeenCalledWith(MODULE_UUID);
-	});
-
-	it("renders the case type as a badge on the affordance card", () => {
-		renderModuleScreen({ caseType: "patient" });
-		const card = screen.getByRole("button", { name: /Case List/i });
-		// Case-type appears as a monospace pill — the user immediately
-		// sees which case-type's case list this affordance configures.
-		expect(card.textContent).toMatch(/patient/i);
-	});
+beforeEach(() => {
+	editModeMock.mockReturnValue("edit");
 });
 
-describe("ModuleScreen — Search Config affordance", () => {
-	it("renders the Search Config card when the module has a caseType", () => {
+describe("ModuleScreen", () => {
+	it("renders the form list without a Case List & Search card (the tree owns that entry)", () => {
 		renderModuleScreen({ caseType: "patient" });
-		// Sibling affordance to Case List. Same role + name shape so
-		// the user sees the two cards as related.
+		expect(screen.getByText("Register Patient")).toBeDefined();
+		expect(screen.getByText("Follow Up")).toBeDefined();
 		expect(
-			screen.getByRole("button", { name: /Search Config/i }),
-		).toBeDefined();
+			screen.queryByRole("button", { name: /Case List & Search/i }),
+		).toBeNull();
 	});
 
-	it("renders the Search Config card even when the module has no caseType (greyed)", () => {
-		// The card always renders so the affordance path stays
-		// discoverable — the disabled state surfaces the unblocking
-		// action via the native `title` hint. Pinning the always-
-		// render contract here so a future change to "render only
-		// when case-typed" surfaces as a regression.
-		renderModuleScreen({ caseType: undefined });
-		const card = screen.getByRole("button", { name: /Search Config/i });
-		expect(card).toBeDefined();
-		// Disabled state — the button carries the `disabled` attribute
-		// and surfaces the hover hint.
-		expect((card as HTMLButtonElement).disabled).toBe(true);
-		expect(card.getAttribute("title")).toContain(
-			"Set a case type on this module",
+	it("routes a case-loading form click through the case list and seeds it as the continue target", () => {
+		navigateMock.openCaseList.mockClear();
+		navigateMock.openForm.mockClear();
+		setPreviewCaseTargetMock.mockClear();
+		renderModuleScreen({ caseType: "patient" });
+		fireEvent.click(screen.getByText("Follow Up"));
+		// The clicked form is recorded so the case list continues into THIS
+		// form, not the module's first case-loading form.
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: FOLLOWUP_FORM_UUID,
+		});
+		expect(navigateMock.openCaseList).toHaveBeenCalledWith(MODULE_UUID);
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+	});
+
+	it("opens a registration form directly", () => {
+		navigateMock.openCaseList.mockClear();
+		navigateMock.openForm.mockClear();
+		renderModuleScreen({ caseType: "patient" });
+		fireEvent.click(screen.getByText("Register Patient"));
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			REG_FORM_UUID,
 		);
 	});
 
-	it("navigates to the search-config URL via openSearchConfig on click", () => {
-		renderModuleScreen({ caseType: "patient" });
-		const card = screen.getByRole("button", { name: /Search Config/i });
-		fireEvent.click(card);
-		expect(navigateMock.openSearchConfig).toHaveBeenCalledOnce();
-		expect(navigateMock.openSearchConfig).toHaveBeenCalledWith(MODULE_UUID);
+	it("in preview, redirects a case-first module (all forms case-loading) to its case list", () => {
+		// Every form is case-loading → the running app's landing is the case
+		// list, not this form menu. The home screen already routes there; this
+		// covers landing on the module URL directly in preview.
+		editModeMock.mockReturnValue("preview");
+		navigateMock.openCaseList.mockClear();
+		renderModuleScreen({ caseType: "patient", caseFirst: true });
+		expect(navigateMock.openCaseList).toHaveBeenCalledWith(MODULE_UUID);
 	});
 
-	it("does NOT call openSearchConfig on click when the module has no caseType", () => {
-		// Disabled state must suppress navigation — clicking a greyed
-		// card shouldn't push a URL the panel can't author against.
-		renderModuleScreen({ caseType: undefined });
-		const card = screen.getByRole("button", { name: /Search Config/i });
-		fireEvent.click(card);
-		expect(navigateMock.openSearchConfig).not.toHaveBeenCalled();
+	it("does NOT redirect a case-first module in edit mode (the form menu is the authoring surface)", () => {
+		editModeMock.mockReturnValue("edit");
+		navigateMock.openCaseList.mockClear();
+		renderModuleScreen({ caseType: "patient", caseFirst: true });
+		expect(navigateMock.openCaseList).not.toHaveBeenCalled();
+		// The form list still renders.
+		expect(screen.getByText("Follow Up")).toBeDefined();
 	});
 });

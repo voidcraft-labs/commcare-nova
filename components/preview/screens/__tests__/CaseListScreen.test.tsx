@@ -23,26 +23,12 @@
 //      bag (debounced 300 ms by the form). Clearing reverts the
 //      filter-only result set. Zero search inputs skips the form
 //      entirely so the `<search>` landmark is absent from the DOM.
-//   5. Reset behavior is pinned at the state-model layer via
-//      `useResetController` (not by mounting the dialog): confirming
-//      drives the status machine idle→running→idle and fires the
-//      `reload` trigger on the `ok` arm; a non-ok arm transitions to
-//      `error` with the action's message and does NOT reload; and
-//      `confirmReset` closes the confirmation immediately. The
-//      AlertDialog's open/confirm/cancel DOM wiring and the
-//      arm-disjoint trigger rendering are `f(state)` browser
-//      contracts owned by Playwright, not RTL. The action-forwarding
-//      contract (`resetSampleCasesAction` receives `(appId, caseType,
-//      blueprint)`) lives in `useResetSampleCases`'s own unit tests.
+//   5. Row click opens the case detail in place (detail fields
+//      configured → confirm step), and the detail's Continue fires
+//      `navigate.openForm` with the module's first form — the same
+//      case-select → confirm → form flow the shipped app runs.
 
-import {
-	act,
-	fireEvent,
-	render,
-	renderHook,
-	screen,
-	waitFor,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
@@ -53,17 +39,23 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
-import type {
-	CaseRowWithCalculated,
-	PopulateSampleCasesResult,
-} from "@/lib/preview/engine/caseDataBindingTypes";
+import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { Location } from "@/lib/routing/types";
 
 // ── Mocks ────────────────────────────────────────────────────────
 
 const APP_ID = "app-case-list-screen-test";
 const MODULE_UUID = asUuid("00000000-0000-0000-0000-000000000a01");
+/** The module's registration form — first in order, but NOT a case-loading
+ *  form, so selecting a case must never continue into it. */
 const FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a02");
+/** The followup form — the case-loading form a selected case continues into. */
+const FOLLOWUP_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a03");
+const SELECTED_CASE_ID = "11111111-1111-1111-1111-111111111111";
+
+/** Mocked `useSetPreviewCaseTarget` — asserts the selected case datum is
+ *  recorded for the form before navigation. */
+const setPreviewCaseTargetMock = vi.fn();
 
 // Routing — mounting the screen reads `useLocation()` to derive
 // `moduleUuid`. The screen branches on `loc.kind === "cases"`,
@@ -104,6 +96,9 @@ vi.mock("@/lib/session/hooks", async () => {
 		useAppId: () => APP_ID,
 		useEditMode: () => "preview" as const,
 		useBuilderIsReady: () => true,
+		usePreviewCaseTarget: () => undefined,
+		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
+		useSetPreviewSelectedCase: () => vi.fn(),
 	};
 });
 
@@ -123,11 +118,7 @@ vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 }));
 
 import { loadCasesAction } from "@/lib/preview/engine/caseDataBinding";
-import {
-	CaseListScreen,
-	type SampleDataStatus,
-	useResetController,
-} from "../CaseListScreen";
+import { CaseListScreen } from "../CaseListScreen";
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
@@ -176,6 +167,10 @@ function makeRow(
  *  the module's. `searchInputs` defaults to the empty array so the
  *  pre-Task-4 test suite keeps its zero-search-input shape; tests
  *  exercising the search form pass the array explicitly. */
+/** Second case-loading form's uuid — only added to the fixture when a test
+ *  needs the multi-form (form-menu) path. */
+const CLOSE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a04");
+
 function renderCaseListScreen(opts: {
 	columns: NonNullable<
 		Parameters<typeof BlueprintDocProvider>[0]["initialDoc"]
@@ -191,7 +186,21 @@ function renderCaseListScreen(opts: {
 			? X
 			: never
 		: never;
+	/** Add a second case-loading form (Close Case) to exercise the
+	 *  post-selection form menu. */
+	secondCaseLoadingForm?: boolean;
 }) {
+	const extraForms = opts.secondCaseLoadingForm
+		? {
+				[CLOSE_FORM_UUID]: {
+					uuid: CLOSE_FORM_UUID,
+					id: "close_form",
+					name: "Close Case",
+					type: "close" as const,
+				},
+			}
+		: {};
+	const extraFormOrder = opts.secondCaseLoadingForm ? [CLOSE_FORM_UUID] : [];
 	return render(
 		<BlueprintDocProvider
 			appId={APP_ID}
@@ -227,10 +236,19 @@ function renderCaseListScreen(opts: {
 						name: FIRST_FORM_NAME,
 						type: "registration",
 					},
+					[FOLLOWUP_FORM_UUID]: {
+						uuid: FOLLOWUP_FORM_UUID,
+						id: "followup_form",
+						name: "Follow-up Visit",
+						type: "followup",
+					},
+					...extraForms,
 				},
 				fields: {},
 				moduleOrder: [MODULE_UUID],
-				formOrder: { [MODULE_UUID]: [FORM_UUID] },
+				formOrder: {
+					[MODULE_UUID]: [FORM_UUID, FOLLOWUP_FORM_UUID, ...extraFormOrder],
+				},
 				fieldOrder: {},
 			}}
 		>
@@ -371,11 +389,12 @@ describe("CaseListScreen — calculated columns", () => {
 		});
 	});
 
-	it("renders an empty cell when row.calculated[col.uuid] is absent", async () => {
+	it("renders the placeholder cell when row.calculated[col.uuid] is absent", async () => {
 		// Calc map keyed only by the plain column's slot — the calc
-		// column's uuid is missing. `evaluateColumnValue` falls
-		// through `calculatedValueToString(undefined)` → `""`, the
-		// same shape a never-set property cell produces.
+		// column's uuid is missing. `renderColumnCell` falls through
+		// `renderCalculatedCell(undefined)` → the "—" placeholder, the
+		// same shape every authoring-surface preview renders for a
+		// never-set value.
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
 			kind: "rows",
 			rows: [
@@ -394,12 +413,10 @@ describe("CaseListScreen — calculated columns", () => {
 			expect(screen.getByText("Status")).toBeDefined();
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
-		// Plain column's cell rendered "Alice"; calc cell rendered
-		// "". Confirm the header count + visible-column count match
-		// to assert the calc cell exists but is empty (rather than
-		// absent or carrying a fallback string).
-		const headers = screen.getAllByRole("columnheader");
-		expect(headers).toHaveLength(2);
+		// Plain column's cell rendered "Alice"; the calc cell rendered
+		// the "—" placeholder — present in Alice's row, not absent.
+		const row = screen.getByRole("button", { name: /Alice/ });
+		expect(row.textContent).toContain("—");
 	});
 });
 
@@ -577,152 +594,164 @@ describe("CaseListScreen — search-input form", () => {
 	});
 });
 
-// ── Reset sample data ────────────────────────────────────────────
+// ── Row click → detail → Continue ────────────────────────────────
 
-/**
- * Reset behavior is pinned at the state-model layer via the
- * `useResetController` hook the screen extracts. The rendered
- * AlertDialog (open/confirm/cancel) and the arm-disjoint trigger
- * rendering are `f(state)` browser contracts owned by Playwright,
- * not RTL — driving them through happy-dom + `waitFor` polling was
- * the source of the contention-induced `Timeout` leak the async-leak
- * gate flagged. `useResetController` carries the load-bearing logic
- * (status machine + reload-on-success + dialog-closes-on-confirm)
- * with no DOM tree to mount and no polling timer to leak.
- *
- * The hook takes `reset` (the curried `useResetSampleCases` callback)
- * and `reload` (the `useCases` reload trigger) as args, so each test
- * drives it with a `vi.fn` for `reload` and a fake `reset` resolving
- * the result arm under test — no Server Action mock needed. The
- * action-forwarding contract (`resetSampleCasesAction` receives
- * `(appId, caseType, blueprint)`) is covered by `useResetSampleCases`'s
- * own unit tests in `lib/preview/hooks/__tests__/useCaseDataBinding.test.tsx`.
- */
-describe("useResetController — reset state model", () => {
-	it("runs idle → running → idle and fires reload on the ok arm", async () => {
-		// Controllable deferred so the test can observe the in-flight
-		// `running` state before settling the action. A never-resolving
-		// promise would leak under `--detect-async-leaks`; this one is
-		// resolved inside `act` before the test ends, draining the
-		// awaiter.
-		let resolveReset!: (value: PopulateSampleCasesResult) => void;
-		const reset = vi.fn(
-			(): Promise<PopulateSampleCasesResult> =>
-				new Promise<PopulateSampleCasesResult>((resolve) => {
-					resolveReset = resolve;
+describe("CaseListScreen — detail confirm step", () => {
+	it("row click opens the detail in place; Continue fires openForm with the case-loading form and records the selected case", async () => {
+		// Both columns default `visibleInDetail` → the detail confirm
+		// step is configured, so the row click opens it in place
+		// rather than navigating.
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [
+				makeRow(SELECTED_CASE_ID, {
+					name: "Alice",
+					age: 30,
 				}),
+			],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_AGE_UUID, "age", "Age"),
+			],
+		});
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+		});
+
+		// Click the row — the detail pane replaces the results in
+		// place (no navigation yet).
+		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+		expect(screen.getByRole("heading", { name: "Alice" })).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: /Back to Results/ }),
+		).toBeDefined();
+
+		// Continue — the confirm step ends in the module's case-loading
+		// form (the followup, NOT the order-zero registration form), with
+		// the selected case datum recorded for preload.
+		fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: FOLLOWUP_FORM_UUID,
+			caseId: SELECTED_CASE_ID,
+			caseName: "Alice",
+		});
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			FOLLOWUP_FORM_UUID,
 		);
-		const reload = vi.fn();
-
-		const { result } = renderHook(() => useResetController({ reset, reload }));
-
-		// Idle before any confirm.
-		expect(result.current.status).toEqual<SampleDataStatus>({ kind: "idle" });
-
-		// Confirm without awaiting so the assertion lands while the
-		// deferred is still pending — the observable `running` window.
-		let confirmReturn: Promise<void>;
-		act(() => {
-			confirmReturn = result.current.confirmReset();
-		});
-		expect(result.current.status).toEqual<SampleDataStatus>({
-			kind: "running",
-		});
-		// The confirmation closes the instant Reset is confirmed — the
-		// state-level remnant of "dialog dismisses on confirm".
-		expect(result.current.confirmOpen).toBe(false);
-		// reload only fires on the resolved ok arm, never up-front.
-		expect(reload).not.toHaveBeenCalled();
-
-		// Settle the action's ok arm and let the handler's follow-on run
-		// inside `act`, flushing every pending state update.
-		await act(async () => {
-			resolveReset({ kind: "ok", inserted: 30 });
-			await confirmReturn;
-		});
-
-		expect(result.current.status).toEqual<SampleDataStatus>({ kind: "idle" });
-		expect(reload).toHaveBeenCalledTimes(1);
+		/* Continuing collapses the detail-confirm sub-screen — the case list
+		 *  is retained across navigation, so it must be back at the list (not
+		 *  the stale confirm) when the user navigates back from the form. */
+		expect(
+			screen.queryByRole("button", { name: /Back to Results/ }),
+		).toBeNull();
 	});
 
-	it("transitions to the error arm with the action's message and does not reload", async () => {
-		// The plain `error` arm carries a verbatim message — the screen
-		// surfaces `result.message` 1:1 via `describePopulateError`, so
-		// the controller's `error` status holds the same string the
-		// case-store / wire failure produced.
-		const reset = vi.fn(
-			(): Promise<PopulateSampleCasesResult> =>
-				Promise.resolve({
-					kind: "error",
-					message: "Could not reach the case store.",
+	it("row click navigates straight to the case-loading form when no detail fields are configured", async () => {
+		// Every column opts out of the detail — CommCare skips the
+		// confirm step in this shape, so the row click goes straight
+		// into the form with the case in hand.
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name", {
+					visibleInDetail: false,
 				}),
+			],
+		});
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: FOLLOWUP_FORM_UUID,
+			caseId: SELECTED_CASE_ID,
+			caseName: "Alice",
+		});
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			FOLLOWUP_FORM_UUID,
 		);
-		const reload = vi.fn();
+	});
+});
 
-		const { result } = renderHook(() => useResetController({ reset, reload }));
+// ── Form menu (case-first, multiple case-loading forms) ───────────
 
-		await act(async () => {
-			await result.current.confirmReset();
+describe("CaseListScreen — post-selection form menu", () => {
+	it("shows a form menu after selecting a case when the module has more than one case-loading form, and continues into the chosen form with the case", async () => {
+		// Two case-loading forms (Follow-up Visit + Close Case) share the
+		// case list. With no specific form seeded (case-first entry), CommCare
+		// shows the case list, then a menu of those forms — so selecting a case
+		// must NOT silently pick one.
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice", age: 30 })],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_AGE_UUID, "age", "Age"),
+			],
+			secondCaseLoadingForm: true,
+		});
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
 		});
 
-		expect(result.current.status).toEqual<SampleDataStatus>({
-			kind: "error",
-			message: "Could not reach the case store.",
+		// Row → detail confirm → Continue.
+		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+		fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+		// No navigation yet — the form menu is shown instead.
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+		const followupChoice = screen.getByRole("button", {
+			name: /Follow-up Visit/,
 		});
-		// A failed reset must NOT bump the case-list reload key — there's
-		// no fresh population to re-query.
-		expect(reload).not.toHaveBeenCalled();
+		const closeChoice = screen.getByRole("button", { name: /Close Case/ });
+		expect(followupChoice).toBeDefined();
+		expect(closeChoice).toBeDefined();
+
+		// Choosing Close Case carries the selected case into that form.
+		fireEvent.click(closeChoice);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: CLOSE_FORM_UUID,
+			caseId: SELECTED_CASE_ID,
+			caseName: "Alice",
+		});
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			CLOSE_FORM_UUID,
+		);
 	});
 
-	it("maps a thrown action to the wire-failure error message and does not reload", async () => {
-		// Wire-level failures (RSC serialization, transport) bypass the
-		// typed result arms entirely; the handler's catch maps them to a
-		// fixed user-facing string so the button never sticks on
-		// "Resetting...".
-		const reset = vi.fn(
-			(): Promise<PopulateSampleCasesResult> =>
-				Promise.reject(new Error("network down")),
+	it("skips the menu and goes straight to the form when only one case-loading form exists", async () => {
+		// The single-form module: no menu, the case goes straight into the form.
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name", { visibleInDetail: false }),
+			],
+		});
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+		// Straight to the form — no Close Case choice rendered.
+		expect(screen.queryByRole("button", { name: /Close Case/ })).toBeNull();
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			FOLLOWUP_FORM_UUID,
 		);
-		const reload = vi.fn();
-
-		const { result } = renderHook(() => useResetController({ reset, reload }));
-
-		await act(async () => {
-			await result.current.confirmReset();
-		});
-
-		expect(result.current.status).toEqual<SampleDataStatus>({
-			kind: "error",
-			message: "Could not reset sample data. Try again.",
-		});
-		expect(reload).not.toHaveBeenCalled();
-	});
-
-	it("closes the confirmation when setConfirmOpen toggles it", () => {
-		// The dialog's open state is controlled by the hook so the
-		// component's AlertDialog is pure `f(state)`. `confirmReset`
-		// closes it (asserted above); the explicit setter covers the
-		// cancel path — Base UI's `AlertDialogCancel` calls
-		// `onOpenChange(false)`, which the hook threads to `setConfirmOpen`.
-		const reset = vi.fn(
-			(): Promise<PopulateSampleCasesResult> =>
-				Promise.resolve({ kind: "ok", inserted: 0 }),
-		);
-		const reload = vi.fn();
-
-		const { result } = renderHook(() => useResetController({ reset, reload }));
-
-		act(() => {
-			result.current.setConfirmOpen(true);
-		});
-		expect(result.current.confirmOpen).toBe(true);
-
-		act(() => {
-			result.current.setConfirmOpen(false);
-		});
-		expect(result.current.confirmOpen).toBe(false);
-		// Toggling open state never touches the action or the reload.
-		expect(reset).not.toHaveBeenCalled();
-		expect(reload).not.toHaveBeenCalled();
 	});
 });

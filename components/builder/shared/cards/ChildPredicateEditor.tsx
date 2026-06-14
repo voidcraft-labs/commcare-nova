@@ -40,7 +40,7 @@ import {
 	predicateCardSchemas,
 } from "../editorSchemas";
 import type { EditorPath } from "../path";
-import { CardShell } from "../primitives/CardShell";
+import { CardShell, PredicateRowShell } from "../primitives/CardShell";
 import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
 
 interface ChildPredicateEditorProps {
@@ -70,11 +70,30 @@ interface ChildPredicateEditorProps {
 	readonly dragHandleRef?: (el: HTMLElement | null) => void;
 }
 
+/** Sentence-shaped kinds — these render headerless rows whose verb
+ *  chip (the in-card `PredicateVerbMenu`) carries the operation AND
+ *  the kind switching. Container kinds keep the titled card shell. */
+const SENTENCE_KINDS: ReadonlySet<Predicate["kind"]> = new Set([
+	...COMPARISON_KINDS,
+	"in",
+	"between",
+	"match",
+	"multi-select-contains",
+	"within-distance",
+	"is-null",
+	"is-blank",
+	"match-all",
+	"match-none",
+]);
+
 /**
- * Render one predicate as a card. Looks up the registry entry by
- * `value.kind` and dispatches to the matching card component;
- * routes operator-level errors (path === self) to the shell's
- * error footer; passes a kind-replacing menu in the kebab.
+ * Render one predicate node. Sentence-shaped kinds (comparisons,
+ * matches, membership, blank/missing, the sentinels) render as
+ * headerless rows — the condition reads as subject–verb–object, and
+ * the verb chip inside the row owns both the operation and the
+ * kind switching. Container kinds (groups, related-case lookups,
+ * the when-field gate) keep the titled `CardShell` with the
+ * kind-replace menu in the header.
  */
 export function ChildPredicateEditor({
 	value,
@@ -91,6 +110,19 @@ export function ChildPredicateEditor({
 		onChange: (next: Predicate) => void;
 		path: EditorPath;
 	}>;
+
+	if (SENTENCE_KINDS.has(value.kind)) {
+		return (
+			<PredicateRowShell
+				variant={variant}
+				onRemove={onRemove}
+				dragHandleRef={dragHandleRef}
+				errors={operatorErrors}
+			>
+				<Component value={value} onChange={onChange} path={path} />
+			</PredicateRowShell>
+		);
+	}
 
 	return (
 		<CardShell
@@ -253,7 +285,7 @@ function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label="Change card type"
-				className="group flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider rounded text-nova-text-muted/60 hover:text-nova-violet-bright hover:bg-white/[0.04] transition-colors cursor-pointer"
+				className="group flex items-center gap-1 px-2 min-h-11 text-[10px] uppercase tracking-wider rounded-md text-nova-text-muted/60 hover:text-nova-violet-bright hover:bg-white/[0.04] transition-colors cursor-pointer"
 			>
 				<span>Change</span>
 				<svg

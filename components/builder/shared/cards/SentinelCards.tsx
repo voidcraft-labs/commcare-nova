@@ -10,6 +10,7 @@ import tablerAsterisk from "@iconify-icons/tabler/asterisk";
 import tablerSlash from "@iconify-icons/tabler/slash";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { EditorPath } from "../path";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** Props for `MatchAllCard`. The `kind: "match-all"` arm is
  *  discriminator-only at the AST layer, so the props carry the
@@ -29,41 +30,39 @@ interface MatchNoneCardProps {
 	readonly path: EditorPath;
 }
 
-export function MatchAllCard(_props: MatchAllCardProps) {
+export function MatchAllCard({ value, onChange }: MatchAllCardProps) {
 	return (
-		<div className="flex items-center gap-2 px-2 py-2 rounded-md border border-dashed border-white/[0.06] bg-nova-surface/20">
-			<Icon
-				icon={tablerAsterisk}
-				width="14"
-				height="14"
-				className="text-nova-violet-bright/70"
-			/>
-			<div className="text-xs">
-				<div className="text-nova-text">Always true — matches every case.</div>
-				<div className="text-[10px] text-nova-text-muted/70">
-					The boolean-algebra identity element. Combine with other clauses to
-					keep them as no-ops.
-				</div>
+		<div className="flex flex-wrap items-center gap-2.5">
+			<PredicateVerbMenu value={value} onChange={onChange} />
+			<div className="flex items-center gap-1.5 text-[11px] text-nova-text-muted leading-snug">
+				<Icon
+					icon={tablerAsterisk}
+					width="13"
+					height="13"
+					className="text-nova-violet-bright/70 shrink-0"
+				/>
+				{/* Context-neutral wording — this sentinel seeds the list
+				 *  filter AND non-case slots like the search button's
+				 *  show-when condition, so it can't say "matches every
+				 *  case". */}
+				Always true — pick a verb to turn this into a real condition.
 			</div>
 		</div>
 	);
 }
 
-export function MatchNoneCard(_props: MatchNoneCardProps) {
+export function MatchNoneCard({ value, onChange }: MatchNoneCardProps) {
 	return (
-		<div className="flex items-center gap-2 px-2 py-2 rounded-md border border-dashed border-white/[0.06] bg-nova-surface/20">
-			<Icon
-				icon={tablerSlash}
-				width="14"
-				height="14"
-				className="text-nova-text-muted"
-			/>
-			<div className="text-xs">
-				<div className="text-nova-text">Always false — matches no case.</div>
-				<div className="text-[10px] text-nova-text-muted/70">
-					The boolean-algebra absorbing element. Useful as an explicit
-					"disabled" filter state.
-				</div>
+		<div className="flex flex-wrap items-center gap-2.5">
+			<PredicateVerbMenu value={value} onChange={onChange} />
+			<div className="flex items-center gap-1.5 text-[11px] text-nova-text-muted leading-snug">
+				<Icon
+					icon={tablerSlash}
+					width="13"
+					height="13"
+					className="text-nova-text-muted shrink-0"
+				/>
+				Always false — an explicit off switch.
 			</div>
 		</div>
 	);

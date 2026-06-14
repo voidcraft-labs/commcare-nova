@@ -6,7 +6,7 @@
 // than the shape of Zod's own combinator output.
 
 import { describe, expect, it } from "vitest";
-import { asUuid, formSchema } from "@/lib/domain";
+import { asUuid, formSchema, isCaseFirstModule } from "@/lib/domain";
 import { opaqueXPathExpression } from "../xpath";
 
 describe("formSchema — formLinks", () => {
@@ -55,5 +55,37 @@ describe("formSchema — formLinks", () => {
 			],
 		});
 		expect(result.success).toBe(true);
+	});
+});
+
+describe("isCaseFirstModule", () => {
+	// Mirrors CommCareSession.getDataNeededByAllEntries: case-first iff every
+	// form needs the same case_id datum (all case-loading) and there's a case
+	// type to select from.
+	it("is case-first when every form is case-loading (followup + close)", () => {
+		expect(isCaseFirstModule(["followup", "close"], true)).toBe(true);
+	});
+
+	it("is case-first for a single case-loading form", () => {
+		expect(isCaseFirstModule(["followup"], true)).toBe(true);
+	});
+
+	it("is forms-first when a registration form is present", () => {
+		// Registration needs a fresh case_id_new datum, not the shared case_id,
+		// so the case selection can't be hoisted.
+		expect(isCaseFirstModule(["registration", "followup"], true)).toBe(false);
+	});
+
+	it("is forms-first when a survey form is present", () => {
+		// Survey needs no case datum, breaking the shared-datum hoist.
+		expect(isCaseFirstModule(["followup", "survey"], true)).toBe(false);
+	});
+
+	it("is never case-first without a case type", () => {
+		expect(isCaseFirstModule(["followup", "close"], false)).toBe(false);
+	});
+
+	it("is never case-first with no forms", () => {
+		expect(isCaseFirstModule([], true)).toBe(false);
 	});
 });

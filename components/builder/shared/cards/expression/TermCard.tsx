@@ -86,6 +86,12 @@ interface TermCardProps {
 	readonly value: Extract<ValueExpression, { kind: "term" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
+	/** Extra entries the picker shell injects into the source menu —
+	 *  the computed expression kinds (math, if–then, today, …), so ONE
+	 *  dropdown answers "what is this value?" without a separate
+	 *  Change affordance. Built by `ExpressionPicker` (which owns the
+	 *  expression registry) to keep the module graph acyclic. */
+	readonly computedItems?: React.ReactNode;
 }
 
 /**
@@ -97,7 +103,12 @@ interface TermCardProps {
  * therefore looks up errors at its own path, not at a deeper
  * sub-segment.
  */
-export function TermCard({ value, onChange, path }: TermCardProps) {
+export function TermCard({
+	value,
+	onChange,
+	path,
+	computedItems,
+}: TermCardProps) {
 	const ctx = usePredicateEditContext();
 	// Term-side error rendering — two sources:
 	//
@@ -136,8 +147,8 @@ export function TermCard({ value, onChange, path }: TermCardProps) {
 
 	return (
 		<div className="space-y-1">
-			<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
-				<ModeMenu mode={mode} setMode={setMode} />
+			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
+				<ModeMenu mode={mode} setMode={setMode} computedItems={computedItems} />
 				<TermBodyInput
 					term={term}
 					onChange={(t) => onChange(wrapTerm(t))}
@@ -204,9 +215,10 @@ function buildTermDefault(
 interface ModeMenuProps {
 	readonly mode: TermMode;
 	readonly setMode: (mode: TermMode) => void;
+	readonly computedItems?: React.ReactNode;
 }
 
-function ModeMenu({ mode, setMode }: ModeMenuProps) {
+function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const triggerId = useId();
 	const ctx = usePredicateEditContext();
@@ -215,24 +227,24 @@ function ModeMenu({ mode, setMode }: ModeMenuProps) {
 		readonly { mode: TermMode; label: string; icon: IconifyIcon }[]
 	>(() => {
 		const base: { mode: TermMode; label: string; icon: IconifyIcon }[] = [
-			{ mode: "literal", label: "Literal", icon: tablerVariable },
-			{ mode: "property", label: "Case property", icon: tablerDatabase },
+			{ mode: "literal", label: "Typed Value", icon: tablerVariable },
+			{ mode: "property", label: "Case Property", icon: tablerDatabase },
 		];
 		if (ctx.knownInputs.length > 0) {
 			base.push({
 				mode: "input",
-				label: "Search input",
+				label: "Search Field",
 				icon: tablerSwitch,
 			});
 		}
 		base.push({
 			mode: "session-context",
-			label: "Session field",
+			label: "Session Field",
 			icon: tablerUser,
 		});
 		base.push({
 			mode: "session-user",
-			label: "User-data field",
+			label: "User-Data Field",
 			icon: tablerSparkles,
 		});
 		return base;
@@ -246,7 +258,7 @@ function ModeMenu({ mode, setMode }: ModeMenuProps) {
 				ref={triggerRef}
 				id={triggerId}
 				aria-label={`Term source: ${activeItem.label}`}
-				className="group flex items-center gap-1.5 px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:border-nova-violet/30 hover:text-nova-text transition-colors cursor-pointer"
+				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:border-nova-violet/30 hover:text-nova-text transition-colors cursor-pointer"
 			>
 				<Icon
 					icon={activeItem.icon}
@@ -314,6 +326,17 @@ function ModeMenu({ mode, setMode }: ModeMenuProps) {
 								</Menu.Item>
 							);
 						})}
+						{computedItems !== undefined && (
+							<>
+								<div
+									className="px-3 pt-2.5 pb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-nova-text-muted border-t border-white/[0.06] mt-1"
+									role="presentation"
+								>
+									Computed
+								</div>
+								{computedItems}
+							</>
+						)}
 					</Menu.Popup>
 				</Menu.Positioner>
 			</Menu.Portal>
@@ -404,7 +427,7 @@ function InputRefMenu({ value, onChange, invalid }: InputRefMenuProps) {
 	const items = ctx.knownInputs;
 	const current = items.find((i) => i.name === value);
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
 			? "border-nova-error/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
@@ -513,11 +536,11 @@ function SessionContextMenu({
 		{ field: "userid", label: "User ID" },
 		{ field: "username", label: "Username" },
 		{ field: "deviceid", label: "Device ID" },
-		{ field: "appversion", label: "App version" },
+		{ field: "appversion", label: "App Version" },
 	];
 	const current = items.find((i) => i.field === value) ?? items[0];
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
 			? "border-nova-error/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
@@ -639,6 +662,10 @@ function LiteralCardEditor({
 	};
 
 	return (
+		// Always one row — the type chip + its input read as a single
+		// typed-value control ("NUMBER · 50"), and the pair fits even
+		// the inspector rail's narrow container. Stacking them made the
+		// value cost three rows in the rail.
 		<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
 			<LiteralShapeMenu shape={literalShape} setShape={setShape} />
 			<LiteralBodyInput
@@ -738,13 +765,13 @@ function LiteralShapeMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Literal type: ${LITERAL_SHAPE_LABELS[shape]}`}
-				className="group flex items-center gap-1 px-2 py-1.5 text-[10px] uppercase tracking-wider rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="group flex items-center gap-1 px-2.5 min-h-11 text-[10px] uppercase tracking-wider rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 			>
 				<span>{LITERAL_SHAPE_LABELS[shape]}</span>
 				<svg
 					aria-hidden="true"
-					width="8"
-					height="8"
+					width="10"
+					height="10"
 					viewBox="0 0 10 10"
 					className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
 				>
@@ -806,9 +833,9 @@ function LiteralShapeMenu({
 }
 
 const LITERAL_INPUT_CLS_VALID =
-	"w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 const LITERAL_INPUT_CLS_INVALID =
-	"w-full px-2 py-1.5 text-xs rounded-md border border-nova-error/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-error/60 focus:ring-nova-error/30 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-error/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-error/60 focus:ring-nova-error/30 transition-colors";
 
 function literalInputCls(invalid: boolean): string {
 	return invalid ? LITERAL_INPUT_CLS_INVALID : LITERAL_INPUT_CLS_VALID;
@@ -1002,7 +1029,7 @@ function LiteralBooleanToggle({
 }) {
 	const current = typeof value.value === "boolean" ? value.value : false;
 	const baseCls =
-		"flex-1 px-2 py-1.5 text-[11px] uppercase tracking-wider transition-colors cursor-pointer rounded-md";
+		"flex-1 px-2 min-h-11 text-[11px] uppercase tracking-wider transition-colors cursor-pointer rounded-md";
 	const activeCls = "text-nova-violet-bright bg-nova-violet/10";
 	const idleCls =
 		"text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]";
@@ -1107,7 +1134,7 @@ function UserFieldInput({
 	readonly invalid: boolean;
 }) {
 	const inputCls = [
-		"w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
+		"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
 			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
@@ -1120,7 +1147,7 @@ function UserFieldInput({
 			placeholder="user_field_name"
 			autoComplete="off"
 			data-1p-ignore
-			aria-label="User-data field"
+			aria-label="User-Data Field"
 			aria-invalid={invalid || undefined}
 			className={inputCls}
 		/>

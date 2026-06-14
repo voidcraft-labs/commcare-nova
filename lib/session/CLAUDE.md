@@ -1,6 +1,6 @@
 # lib/session — Builder ephemeral session store
 
-Transient UI state scoped to the builder route: cursor mode, sidebar visibility, agent run status, active field, connect-mode stash, staged media uploads. None of it is undoable; none of it persists across page loads.
+Transient UI state scoped to the builder route: preview mode, sidebar visibility, agent run status, active field, connect-mode stash, staged media uploads. None of it is undoable; none of it persists across page loads.
 
 ## Boundary rule
 

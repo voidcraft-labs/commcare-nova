@@ -12,9 +12,8 @@
 //
 // No per-kind extras beyond the shared field/header pair. The
 // optional common slots (`sort`, `visibleInList`, `visibleInDetail`)
-// are surfaced by `ColumnEditor`'s shell-chrome `ColumnAffordancesRow`
-// — every column kind shares the same affordances row regardless
-// of its body shape.
+// are surfaced by `ColumnEditor`'s Visibility and Sorting sections —
+// every column kind shares those regardless of its body shape.
 
 "use client";
 import type { Column } from "@/lib/domain";

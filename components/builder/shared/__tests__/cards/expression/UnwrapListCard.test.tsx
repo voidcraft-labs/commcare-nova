@@ -40,7 +40,7 @@ describe("UnwrapListCard — round-trip preservation", () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
-	it("surfaces the CSQL-only hint copy", () => {
+	it("explains that a list of values has no single-value slot", () => {
 		const value = unwrapList(term(prop("patient", "tags_json")));
 		const { container } = render(
 			<ExpressionCardEditor
@@ -50,7 +50,9 @@ describe("UnwrapListCard — round-trip preservation", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/CSQL/i);
+		expect(container.textContent).toMatch(
+			/only fits inside choice comparisons/i,
+		);
 	});
 });
 
@@ -73,7 +75,7 @@ describe("UnwrapListCard — lossless recovery via Replace", () => {
 			/>,
 		);
 		const replaceButton = screen.getByRole("button", {
-			name: /Replace unwrap-list/i,
+			name: /Replace with the value inside/i,
 		});
 		fireEvent.click(replaceButton);
 		expect(onChange).toHaveBeenCalledTimes(1);

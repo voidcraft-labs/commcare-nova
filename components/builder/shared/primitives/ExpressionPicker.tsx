@@ -23,6 +23,15 @@
 // cards in `cards/expression/`, and the kind-replace menu preserves
 // the operand-shape twin pairs (`date-coerce` ↔ `datetime-coerce`)
 // so a kind swap doesn't drop authored content.
+//
+// Term values (a typed value, a property, a search field — the
+// overwhelmingly common case) render UNBOXED: no card shell, no slot
+// title, because inside a condition sentence the value is just the
+// object of the verb. The computed kinds (math, if–then, today, …)
+// fold into the term's own source dropdown as a "Computed" group —
+// one menu answers "what is this value?". Computed kinds, once
+// picked, render as titled container cards (their structure isn't
+// expressible inline).
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
@@ -39,6 +48,7 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
+import { TermCard } from "../cards/expression/TermCard";
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import {
 	type ExpressionCardSchema,
@@ -47,7 +57,7 @@ import {
 	expressionCardSchemas,
 } from "../expressionEditorSchemas";
 import type { EditorPath } from "../path";
-import { CardShell } from "./CardShell";
+import { CardShell, InlineError, PredicateRowShell } from "./CardShell";
 
 interface ExpressionPickerProps {
 	readonly value: ValueExpression;
@@ -101,12 +111,73 @@ export function ExpressionPicker({
 	dragHandleRef,
 }: ExpressionPickerProps) {
 	const operatorErrors = useEditorErrorsAt(path);
+	const ctx = usePredicateEditContext();
 	const schema = expressionCardSchemas[value.kind];
 	const Component = schema.component as React.ComponentType<{
 		value: ValueExpression;
 		onChange: (next: ValueExpression) => void;
 		path: EditorPath;
 	}>;
+
+	// Term values render unboxed — see the file header. The computed
+	// kinds ride the term's source menu as injected items. Inside a
+	// reorderable list (concat parts, coalesce values) the row shell
+	// still wraps the term so the grab rail and Delete stay; a plain
+	// value slot renders the bare controls.
+	if (value.kind === "term") {
+		const editCtx: ExpressionEditContext = {
+			caseTypes: ctx.caseTypes,
+			currentCaseType: ctx.currentCaseType,
+			knownInputs: ctx.knownInputs,
+		};
+		const termBody = (
+			<div className="space-y-1">
+				<TermCard
+					value={value}
+					onChange={onChange}
+					path={path}
+					computedItems={expressionCardSchemaList
+						.filter((s) => s.kind !== "term")
+						.map((s) => {
+							const isApplicable = s.applicable(editCtx, expectedType);
+							return (
+								<Menu.Item
+									key={s.kind}
+									onClick={() => onChange(s.defaultValue(editCtx))}
+									className={`${MENU_ITEM_CLS} min-h-11 ${isApplicable ? "" : "opacity-45"}`}
+								>
+									<Icon
+										icon={s.icon}
+										width="14"
+										height="14"
+										className="text-nova-text-muted"
+									/>
+									<span className="flex-1 text-left min-w-0">
+										<div className="truncate">{s.label}</div>
+										<div className="text-[11px] truncate text-nova-text-muted">
+											{s.description}
+										</div>
+									</span>
+								</Menu.Item>
+							);
+						})}
+				/>
+				<InlineError errors={[...operatorErrors]} />
+			</div>
+		);
+		if (dragHandleRef !== undefined || onRemove !== undefined) {
+			return (
+				<PredicateRowShell
+					variant={variant}
+					dragHandleRef={dragHandleRef}
+					onRemove={onRemove}
+				>
+					{termBody}
+				</PredicateRowShell>
+			);
+		}
+		return termBody;
+	}
 
 	return (
 		<CardShell
@@ -221,7 +292,7 @@ function KindReplaceMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label="Change card type"
-				className="group flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider rounded text-nova-text-muted/60 hover:text-nova-violet-bright hover:bg-white/[0.04] transition-colors cursor-pointer"
+				className="group flex items-center gap-1 px-2 min-h-11 text-[10px] uppercase tracking-wider rounded-md text-nova-text-muted/60 hover:text-nova-violet-bright hover:bg-white/[0.04] transition-colors cursor-pointer"
 			>
 				<span>Change</span>
 				<svg

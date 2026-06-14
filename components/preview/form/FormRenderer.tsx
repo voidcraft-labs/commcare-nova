@@ -1,15 +1,15 @@
 /**
  * FormRenderer — dispatcher between the edit-mode virtualized list and
- * the interactive (pointer/test) recursive renderer.
+ * the interactive (preview) recursive renderer.
  *
  * The form editor has two fundamentally different presentations:
  *
- *   1. Edit view (edit context + edit cursor): structural editing with
+ *   1. Edit view: structural editing with
  *      selection, insertion points, drag-to-reorder, per-field panels.
  *      Performance critical — rendered via `VirtualFormList` over a flat
  *      row model.
  *
- *   2. Interactive view (pointer cursor, or test mode): the form as the
+ *   2. Interactive view (preview mode): the form as the
  *      end-user will fill it in — answer-driven visibility, real repeat
  *      instances, validation feedback. Rendered recursively by
  *      `InteractiveFormRenderer`, which preserves CommCare's runtime
@@ -29,7 +29,7 @@
 import { memo } from "react";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { asUuid } from "@/lib/doc/types";
-import { useCursorMode, useEditMode } from "@/lib/session/hooks";
+import { useEditMode } from "@/lib/session/hooks";
 import { InteractiveFormRenderer } from "./InteractiveFormRenderer";
 import { VirtualFormList } from "./virtual/VirtualFormList";
 
@@ -50,14 +50,13 @@ export const FormRenderer = memo(function FormRenderer({
 	parentPath,
 }: FormRendererProps) {
 	const mode = useEditMode();
-	const cursorMode = useCursorMode();
 
 	// The virtualized path applies only at the form root — nested calls
 	// come from `GroupField` / `RepeatField` inside the interactive tree
 	// and must go recursively. The root-only gate is the `parentPath`
 	// check: nested calls always pass one.
 	const isRoot = !parentPath;
-	const useVirtualized = isRoot && mode === "edit" && cursorMode === "edit";
+	const useVirtualized = isRoot && mode === "edit";
 
 	if (useVirtualized) {
 		// `parentEntityId` at the root is the form uuid — cast to the

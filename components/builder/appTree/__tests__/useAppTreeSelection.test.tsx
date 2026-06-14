@@ -27,6 +27,7 @@ import { asUuid } from "@/lib/doc/types";
 const navigateMock = {
 	goHome: vi.fn(),
 	openModule: vi.fn(),
+	openCaseList: vi.fn(),
 	openForm: vi.fn(),
 	push: vi.fn(),
 	replace: vi.fn(),
@@ -54,6 +55,7 @@ describe("useAppTreeSelection", () => {
 	beforeEach(() => {
 		navigateMock.goHome.mockClear();
 		navigateMock.openModule.mockClear();
+		navigateMock.openCaseList.mockClear();
 		navigateMock.openForm.mockClear();
 		setPendingMock.mockClear();
 	});
@@ -71,6 +73,17 @@ describe("useAppTreeSelection", () => {
 		act(() => result.current({ kind: "module", moduleUuid }));
 		expect(navigateMock.openModule).toHaveBeenCalledOnce();
 		expect(navigateMock.openModule).toHaveBeenCalledWith(moduleUuid);
+		expect(setPendingMock).not.toHaveBeenCalled();
+	});
+
+	it("dispatches `cases` → navigate.openCaseList with the uuid", () => {
+		// The tree's Case List & Search node is the workspace's single
+		// entry point — pinning the dispatch keeps it reachable.
+		const { result } = renderHook(() => useAppTreeSelection());
+		const moduleUuid = asUuid("mod-1");
+		act(() => result.current({ kind: "cases", moduleUuid }));
+		expect(navigateMock.openCaseList).toHaveBeenCalledOnce();
+		expect(navigateMock.openCaseList).toHaveBeenCalledWith(moduleUuid);
 		expect(setPendingMock).not.toHaveBeenCalled();
 	});
 

@@ -76,12 +76,13 @@ interface UnwrapListCardProps {
  * Read-only sequence badge with a lossless "Replace" affordance.
  *
  * The card shows the wrapped property reference (when the operand
- * is a Term/prop — the most common shape) and surfaces a hint that
- * the operator only applies in the CSQL wire emitter's
- * `selected-any(prop, unwrap-list(...))` form. Authors who want
- * scalar value-position editing have two paths:
+ * is a Term/prop — the most common shape) and a plain-words hint
+ * that a list of values only fits inside choice comparisons (the
+ * wire-level truth: only the CSQL emitter's `selected-any(prop,
+ * unwrap-list(...))` form consumes it). Authors who want scalar
+ * value-position editing have two paths:
  *
- *   1. Click "Replace with inner expression" — collapses
+ *   1. Click "Replace" — collapses
  *      `unwrap-list(<inner>)` to `<inner>` directly, which then
  *      becomes editable through whatever card the inner expression's
  *      kind dispatches to. Lossless: the inner expression survives
@@ -102,12 +103,12 @@ export function UnwrapListCard({ value, onChange, path }: UnwrapListCardProps) {
 
 	// Render the operand's shape verbatim. When the operand is a
 	// Term/prop (the canonical shape), surface the property reference
-	// inline; for any other shape, show "(expression)" so the badge
+	// inline; for any other shape, show "(formula)" so the badge
 	// still reads but doesn't claim more than the editor knows.
 	const operandSummary =
 		value.value.kind === "term" && value.value.term.kind === "prop"
 			? `${value.value.term.caseType}.${value.value.term.property || "(unset)"}`
-			: "(expression)";
+			: "(formula)";
 
 	return (
 		<div className="space-y-2">
@@ -120,26 +121,23 @@ export function UnwrapListCard({ value, onChange, path }: UnwrapListCardProps) {
 				/>
 				<div className="text-xs space-y-1 min-w-0 flex-1">
 					<div className="text-nova-text">
-						Unwraps a JSON-encoded array stored in
+						Every option selected in
 						<span className="font-mono text-nova-violet-bright/80 mx-1">
 							{operandSummary}
 						</span>
-						as a sequence of values.
+						, as a list.
 					</div>
 					<div className="text-[10px] text-nova-text-muted/70">
-						CSQL-only operator — produces a sequence type that no scalar value
-						slot consumes. The CSQL wire emitter routes it into{" "}
-						<span className="font-mono">
-							selected-any(prop, unwrap-list(…))
-						</span>{" "}
-						at the wire-emission boundary.
+						A list of values only fits inside choice comparisons — it can't
+						stand where a single value is expected. Replace it to edit the value
+						inside.
 					</div>
 				</div>
 				<button
 					type="button"
 					onClick={() => onChange(value.value)}
-					aria-label="Replace unwrap-list with its inner expression"
-					className="text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer shrink-0"
+					aria-label="Replace with the value inside"
+					className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer shrink-0"
 				>
 					Replace
 				</button>

@@ -62,7 +62,7 @@
 				"!app/api/commcare/**",
 				"!app/api/compile/**",
 				"!app/api/mcp/**",
-				"!app/(app)/settings/**",
+				"!app/(app)/(site)/settings/**",
 				"!components/builder/XPathField.tsx",
 				"!components/builder/detail/formSettings/**",
 				"!lib/agent/**",
@@ -92,12 +92,12 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionMigration, lib/doc/expressionText, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/doc/userFacingErrors, lib/mcp, lib/media/boundaryValidation, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionMigration, lib/doc/expressionText, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/doc/userFacingErrors, lib/mcp, lib/media/boundaryValidation, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
 								},
 								"patterns": [
 									{
 										"group": ["@/lib/commcare/*", "@/lib/commcare/**/*"],
-										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionMigration, lib/doc/expressionText, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/doc/userFacingErrors, lib/mcp, lib/media/boundaryValidation, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/settings, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionMigration, lib/doc/expressionText, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/doc/userFacingErrors, lib/mcp, lib/media/boundaryValidation, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
 									}
 								]
 							}

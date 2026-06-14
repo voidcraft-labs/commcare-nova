@@ -9,11 +9,14 @@
 // subscriptions all require client rendering), so lifting fetches
 // to a Server Component above is structurally infeasible.
 //
-// No stale-while-revalidate, no SWR, no abort controllers — case
-// data is small (hundreds of rows per case-type), the actions are
-// fast (single Postgres SELECT), and the screens don't display
-// data while remounting. Reload-on-mount + reload-on-button-click
-// covers the running-app view's freshness needs.
+// `useCases` keeps the last settled rows on screen while a reload
+// is in flight and reports the in-flight state through a separate
+// `fetching` flag — typing into the search form re-queries on every
+// debounced change, and blanking the table to a spinner for each
+// ~100ms round-trip reads as flicker, not freshness. The `loading`
+// arm appears only before the FIRST settle, when there is nothing
+// truthful to show yet. No abort controllers — the actions are fast
+// single SELECTs and the `cancelled` flag drops stale settles.
 
 "use client";
 
@@ -74,12 +77,17 @@ export function useCases(args: {
 	inputValues?: SearchInputValues;
 }): {
 	state: LoadingState<LoadCasesResult>;
+	/** A reload is in flight while settled data stays on screen.
+	 *  Render the stale rows dimmed (or with an inline spinner)
+	 *  rather than unmounting them. */
+	fetching: boolean;
 	reload: () => void;
 } {
 	const { appId, caseType, blueprint, caseListConfig, inputValues } = args;
 	const [state, setState] = useState<LoadingState<LoadCasesResult>>({
 		kind: "idle",
 	});
+	const [fetching, setFetching] = useState(false);
 	/* `reloadKey` increments to re-fire the effect after a
 	 * successful sample-data populate. The biome-ignore is
 	 * intentional — the rule mis-classifies trigger-only deps. */
@@ -89,10 +97,19 @@ export function useCases(args: {
 	useEffect(() => {
 		if (!appId || !caseType) {
 			setState({ kind: "idle" });
+			setFetching(false);
 			return;
 		}
 		let cancelled = false;
-		setState({ kind: "loading" });
+		/* Stale-while-revalidate: settled data arms (`rows` / `empty`)
+		 * stay rendered through the reload; only the never-settled
+		 * states drop to the spinner arm. */
+		setState((prev) =>
+			prev.kind === "rows" || prev.kind === "empty"
+				? prev
+				: { kind: "loading" },
+		);
+		setFetching(true);
 		/* `.catch` maps wire-level rejections (HTTP 500, network
 		 * failure, RSC serialization error at the boundary) to the
 		 * `error` arm — without it, the hook would stick on
@@ -101,6 +118,7 @@ export function useCases(args: {
 			.then((result) => {
 				if (cancelled) return;
 				setState(result);
+				setFetching(false);
 			})
 			.catch((err: unknown) => {
 				if (cancelled) return;
@@ -108,6 +126,7 @@ export function useCases(args: {
 					kind: "error",
 					message: err instanceof Error ? err.message : "Failed to load cases.",
 				});
+				setFetching(false);
 			});
 		return () => {
 			cancelled = true;
@@ -118,7 +137,7 @@ export function useCases(args: {
 		setReloadKey((n) => n + 1);
 	}, []);
 
-	return { state, reload };
+	return { state, fetching, reload };
 }
 
 /**

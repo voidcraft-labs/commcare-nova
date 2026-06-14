@@ -1,5 +1,7 @@
 /**
- * Global app header — rendered once in the root layout, every page.
+ * Site header — rendered by `(site)/layout.tsx` for every non-builder
+ * surface (app list, admin, settings, consent). The builder renders
+ * `BuilderHeader` instead; the split lives at the route group.
  *
  * Always visible when the user is authenticated. Hidden on the landing
  * page (unauthenticated `/`). Uses `isAuthenticated` from the server-resolved

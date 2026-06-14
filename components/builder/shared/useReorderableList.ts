@@ -159,7 +159,10 @@ export function useReorderableList<T>(
 				const fromIndex = sourceData.itemIndex;
 				let toIndex = targetData.itemIndex;
 				const edge = extractClosestEdge(target.data);
-				if (edge === "bottom") toIndex += 1;
+				// "bottom" is the after-edge on the vertical axis; "right"
+				// is its horizontal-axis twin (rows that opted into
+				// `axis="horizontal"` on their `ReorderableRow`).
+				if (edge === "bottom" || edge === "right") toIndex += 1;
 				// Adjacency adjustment — Trello-style insertion semantics.
 				if (fromIndex < toIndex) toIndex -= 1;
 				if (fromIndex === toIndex) return;
@@ -193,7 +196,7 @@ export function useReorderableList<T>(
 				}
 				const edge = extractClosestEdge(target.data);
 				let to = targetData.itemIndex;
-				if (edge === "bottom") to += 1;
+				if (edge === "bottom" || edge === "right") to += 1;
 				if (sourceData.itemIndex < to) to -= 1;
 				if (sourceData.itemIndex === to) {
 					// Adjacency suppression — drop would be a no-op.
@@ -238,6 +241,11 @@ interface ReorderableRowProps {
 	readonly containerKey: string;
 	readonly containerKind: string;
 	readonly pendingDrop: PendingDrop;
+	/** Which way the list flows. Vertical rows (default) hit-test the
+	 *  top/bottom edges; horizontal rows (e.g. table header cells)
+	 *  hit-test left/right so the insertion point follows the pointer
+	 *  along the row instead of within each cell's height. */
+	readonly axis?: "vertical" | "horizontal";
 	/** The custom drag preview React tree. The browser snapshots the
 	 *  rendered tree as the native drag image; the tree lives in a
 	 *  library-owned offscreen container outside the row's DOM, so
@@ -257,8 +265,15 @@ interface ReorderableRowProps {
  * indicator into its DOM.
  */
 export function ReorderableRow(props: ReorderableRowProps): ReactNode {
-	const { index, containerKey, containerKind, pendingDrop, preview, children } =
-		props;
+	const {
+		index,
+		containerKey,
+		containerKind,
+		pendingDrop,
+		preview,
+		children,
+		axis = "vertical",
+	} = props;
 	const wrapperElRef = useRef<HTMLDivElement | null>(null);
 	const [handleEl, setHandleEl] = useState<HTMLElement | null>(null);
 	const [closestEdge, setClosestEdge] = useState<Edge | null>(null);
@@ -316,7 +331,8 @@ export function ReorderableRow(props: ReorderableRowProps): ReactNode {
 					attachClosestEdge(asDragPayload(dropData), {
 						input,
 						element,
-						allowedEdges: ["top", "bottom"],
+						allowedEdges:
+							axis === "horizontal" ? ["left", "right"] : ["top", "bottom"],
 					}),
 				onDrag: ({ self }) => {
 					setClosestEdge(extractClosestEdge(self.data));
@@ -330,7 +346,7 @@ export function ReorderableRow(props: ReorderableRowProps): ReactNode {
 			}),
 		);
 		return () => cleanup();
-	}, [containerKey, containerKind, handleEl, index]);
+	}, [containerKey, containerKind, handleEl, index, axis]);
 
 	const beingMoved = pendingDrop !== null && pendingDrop.fromIndex === index;
 

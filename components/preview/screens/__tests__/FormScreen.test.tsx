@@ -111,15 +111,14 @@ vi.mock("@/lib/session/hooks", async () => {
 	return {
 		...actual,
 		useAppId: () => currentAppId,
-		/* `test` mode mounts the submit row — every test in this file
+		/* Preview mode mounts the submit row — every test in this file
 		 *  asserts against the row's behavior. Mirroring CaseListScreen's
 		 *  hook mocks so the two screens share a session-mode contract.
-		 *  `useCursorMode` is mocked separately because `FormRenderer`
-		 *  reads it directly (not through `useEditMode`) to dispatch
-		 *  between virtualized + interactive paths; `pointer` mirrors
-		 *  the underlying source `useEditMode("test")` derives from. */
-		useEditMode: () => "test" as const,
-		useCursorMode: () => "pointer" as const,
+		 *  `usePreviewing` is mocked alongside because `TextEditable`
+		 *  reads it directly (not through `useEditMode`); `true` is the
+		 *  underlying source `useEditMode("preview")` derives from. */
+		useEditMode: () => "preview" as const,
+		usePreviewing: () => true,
 		useBuilderIsReady: () => true,
 	};
 });
@@ -140,6 +139,7 @@ vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 
 import {
 	loadCaseDataAction,
+	loadCasesAction,
 	submitFormAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
@@ -296,6 +296,10 @@ beforeEach(() => {
 	 *  resolves on the test-supplied path). Tests overriding for
 	 *  followup mount path set this per-test. */
 	vi.mocked(loadCaseDataAction).mockResolvedValue({ kind: "missing" });
+	/* Default the case-list query (used by the auto-select path for a
+	 *  directly-previewed case-loading form) to an empty store; tests that
+	 *  exercise auto-selection override with rows. */
+	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
 });
 
 // ── Validate-pass: per-FormType action dispatch ─────────────────
@@ -746,21 +750,58 @@ describe("FormScreen — catch arm hides developer-jargon detail", () => {
 
 // ── Case-loading form empty state ──────────────────────────────
 
-describe("FormScreen — case-loading-form empty state", () => {
-	it("renders the no-cases empty state for a close form without a caseId", async () => {
-		/* Close is a case-loading form (CASE_LOADING_FORM_TYPES.has).
-		 *  Mounting a close form without `caseId` must short-circuit on
-		 *  the empty state — landing in the submit row would let
-		 *  `computeSubmissionMutation` throw its `caseId required`
-		 *  invariant from a normal user action. Pins the guard's
-		 *  coverage of close, not just followup. */
+describe("FormScreen — case-loading form previewed directly (no nav caseId)", () => {
+	it("auto-selects the first available case and renders the form — never blocks", async () => {
+		/* Close is a case-loading form. Previewed directly with no bound
+		 *  case, it must auto-bind the FIRST available case (so the form is
+		 *  usable), not gate on navigation — same stance as the case list.
+		 *  The submit row renders against that bound case. */
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [
+				{
+					case_id: FOLLOWUP_CASE_ID,
+					case_type: CASE_TYPE,
+					case_name: "Existing case",
+					app_id: APP_ID,
+					owner_id: "owner-test",
+					status: "open",
+					opened_on: null,
+					modified_on: null,
+					closed_on: null,
+					parent_case_id: null,
+					properties: {},
+					calculated: {},
+					// biome-ignore lint/suspicious/noExplicitAny: minimal CaseRowWithCalculated fixture
+				} as any,
+			],
+		});
 		renderFormScreen({ formUuid: CLOSE_FORM_UUID });
 
 		expect(
-			await screen.findByRole("heading", { name: /no cases available/i }),
+			await screen.findByRole("button", { name: /^submit$/i }),
 		).toBeDefined();
-		/* Submit row must NOT render — the empty state is a full
-		 *  short-circuit, not an overlay on top of the form chrome. */
+		expect(
+			screen.queryByRole("button", { name: /generate sample data/i }),
+		).toBeNull();
+	});
+
+	it("keeps the form rendered and offers Generate Sample Data inline when the store is empty — never a loading/empty screen", async () => {
+		/* Empty store → no case to auto-select. The form must STILL render
+		 *  (the flipbook stance — the form stays put, data flips in), with
+		 *  the generate affordance in the submit row in place of Submit, so a
+		 *  case can be created and its data loads straight into the standing
+		 *  form. */
+		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		renderFormScreen({ formUuid: CLOSE_FORM_UUID });
+
+		/* The form itself renders — its field's textbox is present (an
+		 *  interstitial would have replaced the whole form). */
+		expect((await screen.findAllByRole("textbox")).length).toBeGreaterThan(0);
+		expect(
+			screen.getByRole("button", { name: /generate sample data/i }),
+		).toBeDefined();
+		/* Submit is replaced by the generate affordance until a case exists. */
 		expect(screen.queryByRole("button", { name: /^submit$/i })).toBeNull();
 		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 	});

@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
 import { motion } from "motion/react";
 import { useCallback } from "react";
+import { ContentFrame } from "@/components/builder/ContentFrame";
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { Badge } from "@/components/ui/Badge";
@@ -11,7 +12,10 @@ import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
-import { useOrderedModules } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useCaseFirstModuleUuids,
+	useOrderedModules,
+} from "@/lib/doc/hooks/useModuleIds";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
 
@@ -28,6 +32,9 @@ export function HomeScreen() {
 	const mode = useEditMode();
 	const hasData = useDocHasData();
 	const modules = useOrderedModules();
+	/* Case-first modules (every form case-loading) land on the case list,
+	 * not a form menu — the running app hoists the shared case selection. */
+	const caseFirstModules = useCaseFirstModuleUuids();
 	const logo = useAppLogo();
 
 	/* Forward the gated dispatch's outcome — a refused rename keeps the
@@ -43,7 +50,7 @@ export function HomeScreen() {
 	const canEdit = mode === "edit" && isReady;
 
 	return (
-		<div className="p-6 space-y-4 max-w-3xl mx-auto">
+		<ContentFrame width="5xl" className="p-6 space-y-4">
 			{/* The web-apps logo banner — CommCare shows the app logo at the top
 			    of the home screen. */}
 			{logo && (
@@ -74,7 +81,11 @@ export function HomeScreen() {
 								duration: 0.3,
 								ease: [0.16, 1, 0.3, 1],
 							}}
-							onClick={() => navigate.openModule(mod.uuid)}
+							onClick={() =>
+								caseFirstModules.has(mod.uuid)
+									? navigate.openCaseList(mod.uuid)
+									: navigate.openModule(mod.uuid)
+							}
 							className="w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
 						>
 							{mod.icon ? (
@@ -113,6 +124,6 @@ export function HomeScreen() {
 					);
 				})}
 			</div>
-		</div>
+		</ContentFrame>
 	);
 }

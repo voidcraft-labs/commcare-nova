@@ -1,23 +1,30 @@
 /**
  * TipTap extension configuration for WYSIWYG markdown editing.
  *
- * Used by InlineTextEditor (text cursor mode) to enable full markdown
- * rendering with round-trip serialization via tiptap-markdown. Supports
- * the CommCare Web Apps markdown feature set: headings, bold, italic,
- * links, images, lists, code (inline + block), horizontal rules, and
- * GFM tables. Blockquote and strikethrough are intentionally disabled —
- * CommCare Web Apps has no visible styling for blockquotes and doesn't
- * load the markdown-it strikethrough plugin. CommcareRef nodes round-trip
- * through the markdown-it pipeline: serialize writes bare `#type/path`
- * hashtags; the CommcareRef extension's own `markdown.parse.setup` hook
- * installs an inline rule that tokenizes those hashtags back into
- * `<span data-commcare-ref>` HTML during markdown-to-HTML rendering, so
- * the PM document already contains commcareRef nodes before any React
- * NodeView is mounted.
+ * Two tiers, both with round-trip serialization via tiptap-markdown and
+ * both scoped to the CommCare Web Apps markdown feature set: headings,
+ * bold, italic, links, images, lists, code (inline + block), horizontal
+ * rules, and GFM tables. Blockquote and strikethrough are intentionally
+ * disabled — CommCare Web Apps has no visible styling for blockquotes
+ * and doesn't load the markdown-it strikethrough plugin.
+ *
+ * - `createMarkdownEditorExtensions` — the base set, for markdown slots
+ *   that are plain localized strings on the wire (e.g. the search
+ *   screen's subtitle). No hashtag chips: those slots are never
+ *   xpath-evaluated, so a `#type/path` chip would promise a live
+ *   reference the runtime can't honor.
+ * - `createInlineEditorExtensions` — base + CommcareRef + Mention, for
+ *   form-context surfaces (labels, hints) where hashtag references are
+ *   real. CommcareRef nodes round-trip through the markdown-it pipeline:
+ *   serialize writes bare `#type/path` hashtags; the CommcareRef
+ *   extension's own `markdown.parse.setup` hook installs an inline rule
+ *   that tokenizes those hashtags back into `<span data-commcare-ref>`
+ *   HTML during markdown-to-HTML rendering, so the PM document already
+ *   contains commcareRef nodes before any React NodeView is mounted.
  *
  * Contrast with RefLabelInput which uses StarterKit with everything
  * disabled except paragraphs — that editor is text-only with chips.
- * This editor is a full WYSIWYG surface.
+ * These editors are full WYSIWYG surfaces.
  */
 
 import type { Extensions } from "@tiptap/core";
@@ -36,27 +43,10 @@ import { CommcareRef } from "./commcareRefNode";
 import { createRefSuggestion } from "./refSuggestion";
 
 /**
- * Create the full WYSIWYG extension set for inline text editing.
- *
- * StarterKit provides the core formatting: headings (1-3), bold, italic,
- * code, lists, horizontal rule, and links. Additional
- * extensions add image and GFM table support — the full CommCare markdown
- * feature set. The Markdown extension handles bidirectional conversion.
- * CommcareRef provides bare hashtag round-tripping. Mention wires
- * the `#` trigger to ReferenceProvider for chip autocomplete.
- *
- * @param provider - ReferenceProvider for hashtag autocomplete (null disables autocomplete)
- * @param getFormUuid - Resolves the form whose readable refs the autocomplete
- *   offers (the active form being edited)
+ * The chip-free WYSIWYG extension set — the CommCare Web Apps markdown
+ * feature set with bidirectional markdown conversion and nothing else.
  */
-export function createInlineEditorExtensions(
-	provider: ReferenceProvider | null,
-	getFormUuid: () => string | undefined,
-): Extensions {
-	const suggestion = provider
-		? createRefSuggestion(provider, getFormUuid)
-		: undefined;
-
+export function createMarkdownEditorExtensions(): Extensions {
 	return [
 		StarterKit.configure({
 			/* Headings limited to 1-3 — deeper levels aren't useful in form labels. */
@@ -89,6 +79,28 @@ export function createInlineEditorExtensions(
 			transformPastedText: true,
 			transformCopiedText: true,
 		}),
+	];
+}
+
+/**
+ * The form-context extension set: the base markdown editor plus
+ * CommcareRef hashtag round-tripping and the `#` Mention trigger for
+ * chip autocomplete.
+ *
+ * @param provider - ReferenceProvider for hashtag autocomplete (null disables autocomplete)
+ * @param getFormUuid - Resolves the form whose readable refs the autocomplete
+ *   offers (the active form being edited)
+ */
+export function createInlineEditorExtensions(
+	provider: ReferenceProvider | null,
+	getFormUuid: () => string | undefined,
+): Extensions {
+	const suggestion = provider
+		? createRefSuggestion(provider, getFormUuid)
+		: undefined;
+
+	return [
+		...createMarkdownEditorExtensions(),
 		CommcareRef,
 		...(suggestion
 			? [

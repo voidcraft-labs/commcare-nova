@@ -23,6 +23,8 @@ export function CollapseChevron({
 	return (
 		<button
 			type="button"
+			aria-label={isCollapsed ? "Expand section" : "Collapse section"}
+			aria-expanded={!isCollapsed}
 			className={`w-4 h-4 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text transition-colors ${hidden ? "invisible" : ""}`}
 			onClick={onClick}
 		>

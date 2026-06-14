@@ -62,9 +62,9 @@ export function InsertionPoint(props: InsertionPointProps) {
 	const [activated, setActivated] = useState(false);
 
 	/* Insertion points are an edit-mode-only affordance — they don't exist
-	 * in live/test mode. `useEditMode()` is derived from the session store
+	 * in preview mode. `useEditMode()` is derived from the session store
 	 * so a "no context" branch is never needed. */
-	if (mode === "test") return null;
+	if (mode === "preview") return null;
 	if (props.disabled) return null;
 
 	if (!activated) {

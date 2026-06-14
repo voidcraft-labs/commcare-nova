@@ -12,8 +12,6 @@
 // via `LiteralValueInput`'s `data_type` switch.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
-import { useRef } from "react";
 import { isOrdered } from "@/lib/domain";
 import {
 	type ComparisonKind,
@@ -28,17 +26,13 @@ import {
 	prop,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** Per-kind builder dispatch. Keeps the card body's onChange paths
  *  precise — each kind constructs through the matching builder so
@@ -55,15 +49,6 @@ export const KIND_BUILDERS: Record<
 	gte,
 	lt,
 	lte,
-};
-
-const KIND_LABELS: Record<ComparisonKind, { label: string; symbol: string }> = {
-	eq: { label: "equals", symbol: "=" },
-	neq: { label: "not equals", symbol: "≠" },
-	lt: { label: "less than", symbol: "<" },
-	lte: { label: "less than or equal", symbol: "≤" },
-	gt: { label: "greater than", symbol: ">" },
-	gte: { label: "greater than or equal", symbol: "≥" },
 };
 
 const ORDERED_KINDS = new Set<ComparisonKind>(["lt", "lte", "gt", "gte"]);
@@ -152,18 +137,13 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 		onChange(builder(left, value.right));
 	};
 
-	const setKind = (nextKind: ComparisonKind) => {
-		const builder = KIND_BUILDERS[nextKind];
-		onChange(builder(value.left, value.right));
-	};
-
 	const setRight = (right: Parameters<typeof eq>[1]) => {
 		const builder = KIND_BUILDERS[value.kind];
 		onChange(builder(value.left, right));
 	};
 
 	return (
-		<div className="grid grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
+		<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
 			<div>
 				<PropertyRefPicker
 					mode="left"
@@ -175,7 +155,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 				<InlineError errors={leftErrors} />
 			</div>
 
-			<OperatorMenu kind={value.kind} setKind={setKind} />
+			<PredicateVerbMenu value={value} onChange={onChange} />
 
 			<div>
 				{/* Right operand routes through `ExpressionPicker` so
@@ -210,90 +190,5 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 				/>
 			</div>
 		</div>
-	);
-}
-
-interface OperatorMenuProps {
-	readonly kind: ComparisonKind;
-	readonly setKind: (kind: ComparisonKind) => void;
-}
-
-function OperatorMenu({ kind, setKind }: OperatorMenuProps) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
-	const meta = KIND_LABELS[kind];
-	const items: readonly ComparisonKind[] = [
-		"eq",
-		"neq",
-		"lt",
-		"lte",
-		"gt",
-		"gte",
-	];
-
-	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Operator: ${meta.label}`}
-				className="group flex items-center justify-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer min-w-[3rem]"
-			>
-				<span className="font-mono text-base leading-none">{meta.symbol}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="center"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{items.map((k, i) => {
-							const isActive = k === kind;
-							const last = items.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							const m = KIND_LABELS[k];
-							return (
-								<Menu.Item
-									key={k}
-									onClick={() => setKind(k)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
-								>
-									<span className="font-mono text-base w-6 text-center">
-										{m.symbol}
-									</span>
-									<span>{m.label}</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
 	);
 }

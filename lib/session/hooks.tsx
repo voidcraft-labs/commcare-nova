@@ -31,30 +31,54 @@ import {
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
 import type { SidebarKind } from "./store";
 import type {
-	CursorMode,
 	GenerationError,
 	GenerationStage,
+	PreviewCaseTarget,
+	PreviewSelectedCase,
 	ReplayData,
 	StagedUpload,
 } from "./types";
 
-// ── Cursor mode ───────────────────────────────────────────────────────────
+// ── Preview mode ──────────────────────────────────────────────────────────
 
-/** Current cursor mode — "edit" or "pointer". */
-export function useCursorMode(): CursorMode {
-	return useBuilderSession((s) => s.cursorMode);
+/** Whether the builder is in preview mode — the canvas runs live instead
+ *  of click-to-select editing. */
+export function usePreviewing(): boolean {
+	return useBuilderSession((s) => s.previewing);
 }
 
-/** Atomic mode switch with sidebar stash/restore. Prefer over `useSetCursorMode`
- *  when the mode toggle should preserve sidebar layout state. */
-export function useSwitchCursorMode(): (mode: CursorMode) => void {
-	return useBuilderSession((s) => s.switchCursorMode);
+/** Atomic preview toggle with sidebar stash/restore — entering closes both
+ *  sidebars, leaving restores the stashed layout. */
+export function useSetPreviewing(): (on: boolean) => void {
+	return useBuilderSession((s) => s.setPreviewing);
 }
 
-/** Non-atomic cursor mode setter — for forced resets and initialization,
- *  not interactive mode toggles. Does not stash/restore sidebars. */
-export function useSetCursorMode(): (mode: CursorMode) => void {
-	return useBuilderSession((s) => s.setCursorMode);
+/** The running-app preview's case target — the case-loading form the case
+ *  list feeds and the case selected for it. `undefined` outside a
+ *  case-selection flow. PreviewShell reads it to preload the form. */
+export function usePreviewCaseTarget(): PreviewCaseTarget | undefined {
+	return useBuilderSession((s) => s.previewCaseTarget);
+}
+
+/** Setter for the preview case target. The module menu sets the destination
+ *  form; the case list's Continue adds the selected case. */
+export function useSetPreviewCaseTarget(): (
+	target: PreviewCaseTarget | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewCaseTarget);
+}
+
+/** The case currently open in the running-app case list (detail/confirm), or
+ *  `undefined`. Drives the breadcrumb's case crumb while on the list. */
+export function usePreviewSelectedCase(): PreviewSelectedCase | undefined {
+	return useBuilderSession((s) => s.previewSelectedCase);
+}
+
+/** Setter for the case open in the running-app case list. */
+export function useSetPreviewSelectedCase(): (
+	selected: PreviewSelectedCase | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewSelectedCase);
 }
 
 // ── Active field ──────────────────────────────────────────────────────────
@@ -73,7 +97,7 @@ export function useSetActiveFieldId(): (fieldId: string | undefined) => void {
 // ── Sidebar state ─────────────────────────────────────────────────────────
 
 /** Visibility + stash state for one sidebar. `open` is current visibility;
- *  `stashed` is the pre-pointer-mode value (or `undefined` if nothing stashed). */
+ *  `stashed` is the pre-preview value (or `undefined` if nothing stashed). */
 export function useSidebarState(kind: SidebarKind): {
 	open: boolean;
 	stashed: boolean | undefined;
@@ -547,12 +571,10 @@ export function buildReplayMessages(
 
 // ── Derived ───────────────────────────────────────────────────────────────
 
-/** Derive edit mode from cursor mode. "pointer" maps to "test" (live form
- *  preview); everything else maps to "edit" (design mode). Replaces the
- *  legacy `selectEditMode` selector. */
-export function useEditMode(): "edit" | "test" {
-	const mode = useCursorMode();
-	return mode === "pointer" ? "test" : "edit";
+/** Derive the canvas mode from the preview flag. Previewing maps to
+ *  "preview" (live, interactive); otherwise "edit" (design mode). */
+export function useEditMode(): "edit" | "preview" {
+	return usePreviewing() ? "preview" : "edit";
 }
 
 // ── Phase derivation ─────────────────────────────────────────────────────

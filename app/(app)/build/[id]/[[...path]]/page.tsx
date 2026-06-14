@@ -43,11 +43,21 @@ export default async function BuilderPage({
 		? await getCommCareSettings(session.user.id)
 		: ({ configured: false } satisfies CommCareSettingsPublic);
 
+	/* During impersonation, session.user is the target — surface their
+	 * identity so BuilderHeader shows the banner, mirroring the site
+	 * header in `(site)/layout.tsx`. */
+	const impersonating = session?.session?.impersonatedBy
+		? { userName: session.user.name, userEmail: session.user.email }
+		: null;
+
 	/* New apps — no blueprint fetch needed. */
 	if (id === "new") {
 		return (
 			<BuilderProvider buildId={id}>
-				<BuilderLayout commcareSettings={commcareSettings} />
+				<BuilderLayout
+					commcareSettings={commcareSettings}
+					impersonating={impersonating}
+				/>
 			</BuilderProvider>
 		);
 	}
@@ -67,7 +77,11 @@ export default async function BuilderPage({
 			initialDoc={app.blueprint}
 			initialSaveBasis={app.blueprint_token ?? null}
 		>
-			<BuilderLayout isExistingApp commcareSettings={commcareSettings}>
+			<BuilderLayout
+				isExistingApp
+				commcareSettings={commcareSettings}
+				impersonating={impersonating}
+			>
 				<Suspense fallback={null}>
 					<ThreadHistory appId={id} />
 				</Suspense>

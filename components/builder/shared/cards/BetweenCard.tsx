@@ -9,6 +9,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerSquare from "@iconify-icons/tabler/square";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check-filled";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { isOrdered } from "@/lib/domain";
 import {
 	between,
@@ -24,6 +25,7 @@ import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** Module-level filter so render-time identity stays stable —
  *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
@@ -96,19 +98,22 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 
 	return (
 		<div className="space-y-2">
-			<div>
-				<PropertyRefPicker
-					mode="left"
-					value={value.left}
-					onChange={setLeft}
-					filter={ORDERED_PROPERTY_FILTER}
-					invalid={leftErrors.length > 0}
-					ariaLabel="Property"
-				/>
-				<InlineError errors={leftErrors} />
+			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
+				<div>
+					<PropertyRefPicker
+						mode="left"
+						value={value.left}
+						onChange={setLeft}
+						filter={ORDERED_PROPERTY_FILTER}
+						invalid={leftErrors.length > 0}
+						ariaLabel="Property"
+					/>
+					<InlineError errors={leftErrors} />
+				</div>
+				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
-			<div className="grid grid-cols-2 gap-2">
+			<div className="grid grid-cols-1 @md:grid-cols-2 gap-2">
 				{/* The schema's `.refine(...)` rejects a between with no
 				 *  bounds — at least one of `lower` / `upper` must be
 				 *  present. The editor enforces the same invariant via
@@ -175,33 +180,32 @@ function BoundEditor({
 	return (
 		<div>
 			<div className="flex items-center justify-between mb-1">
-				<button
-					type="button"
-					aria-pressed={isEnabled}
-					onClick={() => {
-						if (isEnabled) {
-							if (toggleDisabled) return;
-							onChange(undefined);
-						} else {
-							onChange(wrapTerm(literal("")));
-						}
-					}}
-					disabled={toggleDisabled}
-					title={
-						toggleDisabled
-							? "At least one bound must remain enabled"
-							: undefined
-					}
-					className={`text-[10px] uppercase tracking-wider transition-colors ${
-						toggleDisabled
-							? "text-nova-text-muted/40 cursor-not-allowed"
-							: isEnabled
-								? "text-nova-violet-bright cursor-pointer"
-								: "text-nova-text-muted/60 hover:text-nova-text-muted cursor-pointer"
-					}`}
+				<Tooltip
+					content={toggleDisabled ? "At least one end must stay on" : undefined}
 				>
-					{label}
-				</button>
+					<button
+						type="button"
+						aria-pressed={isEnabled}
+						onClick={() => {
+							if (isEnabled) {
+								if (toggleDisabled) return;
+								onChange(undefined);
+							} else {
+								onChange(wrapTerm(literal("")));
+							}
+						}}
+						disabled={toggleDisabled}
+						className={`min-h-11 px-1.5 text-[10px] uppercase tracking-wider transition-colors ${
+							toggleDisabled
+								? "text-nova-text-muted/40 cursor-not-allowed"
+								: isEnabled
+									? "text-nova-violet-bright cursor-pointer"
+									: "text-nova-text-muted/60 hover:text-nova-text-muted cursor-pointer"
+						}`}
+					>
+						{label}
+					</button>
+				</Tooltip>
 				<InclusiveToggle
 					inclusive={inclusive}
 					setInclusive={setInclusive}
@@ -241,26 +245,33 @@ function InclusiveToggle({
 	readonly disabled: boolean;
 }) {
 	return (
-		<button
-			type="button"
-			aria-pressed={inclusive}
-			onClick={() => setInclusive(!inclusive)}
-			disabled={disabled}
-			className={`flex items-center gap-1 text-[10px] uppercase tracking-wider transition-colors ${
-				disabled
-					? "text-nova-text-muted/30 cursor-not-allowed"
-					: inclusive
-						? "text-nova-violet-bright cursor-pointer"
-						: "text-nova-text-muted hover:text-nova-text cursor-pointer"
-			}`}
-			title={inclusive ? "Inclusive (≤)" : "Exclusive (<)"}
+		<Tooltip
+			content={
+				inclusive
+					? "The end itself counts as a match (≤)"
+					: "Up to, but not including, the end (<)"
+			}
 		>
-			<Icon
-				icon={inclusive ? tablerSquareCheck : tablerSquare}
-				width="11"
-				height="11"
-			/>
-			<span>Inclusive</span>
-		</button>
+			<button
+				type="button"
+				aria-pressed={inclusive}
+				onClick={() => setInclusive(!inclusive)}
+				disabled={disabled}
+				className={`flex items-center gap-1 min-h-11 px-1.5 text-[10px] uppercase tracking-wider transition-colors ${
+					disabled
+						? "text-nova-text-muted/30 cursor-not-allowed"
+						: inclusive
+							? "text-nova-violet-bright cursor-pointer"
+							: "text-nova-text-muted hover:text-nova-text cursor-pointer"
+				}`}
+			>
+				<Icon
+					icon={inclusive ? tablerSquareCheck : tablerSquare}
+					width="11"
+					height="11"
+				/>
+				<span>Inclusive</span>
+			</button>
+		</Tooltip>
 	);
 }

@@ -196,7 +196,7 @@ describe("logical group — drag handle wiring", () => {
 		// passes one for every clause inside an and/or group.
 		// The label is the grip's `aria-label`.
 		const grips = container.querySelectorAll(
-			'button[aria-label="Reorder card"]',
+			'button[aria-label="Drag to reorder"]',
 		);
 		expect(grips.length).toBe(2);
 	});
@@ -214,7 +214,7 @@ describe("logical group — drag handle wiring", () => {
 			/>,
 		);
 		const grips = container.querySelectorAll(
-			'button[aria-label="Reorder card"]',
+			'button[aria-label="Drag to reorder"]',
 		);
 		expect(grips.length).toBe(0);
 	});
@@ -231,7 +231,7 @@ describe("logical group — drag handle wiring", () => {
 			/>,
 		);
 		const grips = container.querySelectorAll(
-			'button[aria-label="Reorder card"]',
+			'button[aria-label="Drag to reorder"]',
 		);
 		expect(grips.length).toBe(0);
 	});

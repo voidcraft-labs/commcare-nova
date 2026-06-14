@@ -217,9 +217,9 @@ export const columnCardSchemas: {
 } = {
 	plain: {
 		kind: "plain",
-		label: "Plain",
+		label: "Text",
 		icon: tablerTextSize,
-		description: "Render the property value as plain text",
+		description: "Show the value exactly as it's stored.",
 		component: PlainColumnCard,
 		defaultValue: (ctx) => plainColumn(newUuid(), pickFirstAny(ctx), ""),
 		applicableForProperty: applicableForAny,
@@ -229,7 +229,7 @@ export const columnCardSchemas: {
 		kind: "date",
 		label: "Date",
 		icon: tablerCalendarStats,
-		description: "Format a date / datetime property with a preset pattern",
+		description: "Format a date for easy reading.",
 		component: DateColumnCard,
 		defaultValue: (ctx) =>
 			dateColumn(newUuid(), pickFirstDate(ctx), "", "%Y-%m-%d"),
@@ -238,9 +238,9 @@ export const columnCardSchemas: {
 	},
 	phone: {
 		kind: "phone",
-		label: "Phone",
+		label: "Phone Number",
 		icon: tablerPhone,
-		description: "Render the property as a tappable phone link",
+		description: "Tap the number to call it.",
 		component: PhoneColumnCard,
 		defaultValue: (ctx) => phoneColumn(newUuid(), pickFirstText(ctx), ""),
 		applicableForProperty: applicableForText,
@@ -248,9 +248,9 @@ export const columnCardSchemas: {
 	},
 	"id-mapping": {
 		kind: "id-mapping",
-		label: "ID mapping",
+		label: "Value Labels",
 		icon: tablerListNumbers,
-		description: "Look up a label for each property value",
+		description: "Show a friendly label in place of each stored value.",
 		component: IdMappingCard,
 		defaultValue: (ctx) =>
 			idMappingColumn(newUuid(), pickFirstAny(ctx), "", []),
@@ -259,9 +259,9 @@ export const columnCardSchemas: {
 	},
 	"image-map": {
 		kind: "image-map",
-		label: "Image map",
+		label: "Value Images",
 		icon: tablerPhoto,
-		description: "Show an image for each property value",
+		description: "Show an image in place of each stored value.",
 		component: ImageMapColumnCard,
 		defaultValue: (ctx) => imageMapColumn(newUuid(), pickFirstAny(ctx), "", []),
 		applicableForProperty: applicableForAny,
@@ -269,10 +269,9 @@ export const columnCardSchemas: {
 	},
 	interval: {
 		kind: "interval",
-		label: "Interval",
+		label: "Time Since",
 		icon: tablerHourglass,
-		description:
-			"Show a relative interval against a date property; flag overdue rows",
+		description: "How long since (or until) the date, with an overdue flag.",
 		component: IntervalCard,
 		defaultValue: (ctx) =>
 			intervalColumn(
@@ -291,7 +290,7 @@ export const columnCardSchemas: {
 		kind: "calculated",
 		label: "Calculated",
 		icon: tablerMathFunction,
-		description: "Project a derived per-row value from an expression",
+		description: "Compute what's shown with a formula.",
 		component: CalculatedColumnCard,
 		defaultValue: () => calculatedColumn(newUuid(), "", term(literal(""))),
 		applicableForProperty: applicableForAny,

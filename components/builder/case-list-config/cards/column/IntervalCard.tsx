@@ -29,6 +29,7 @@ import { BlurCommitTextInput } from "@/components/builder/shared/primitives/Blur
 import type { Column, IntervalDisplay, TimeSinceUnit } from "@/lib/domain";
 import { intervalColumn, isDateTyped } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
+import { SegmentedRow } from "../../inspector/inspectorChrome";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
 
@@ -51,18 +52,19 @@ const DISPLAY_COPY: Record<
 	{ readonly textLabel: string; readonly textPlaceholder: string }
 > = {
 	always: {
-		textLabel: "Decoration when overdue",
-		textPlaceholder: "Rendered when threshold is exceeded",
+		textLabel: "Text when overdue",
+		textPlaceholder: "Shown next to the interval once a row is overdue",
 	},
 	flag: {
 		textLabel: "Flag text",
-		textPlaceholder: "Rendered when overdue; empty otherwise",
+		textPlaceholder:
+			"Shown when a row is overdue — otherwise the cell stays empty",
 	},
 };
 
 const DISPLAY_LABELS: Record<IntervalDisplay, string> = {
-	always: "Show interval",
-	flag: "Flag when overdue",
+	always: "Show Interval",
+	flag: "Flag When Overdue",
 };
 
 export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
@@ -162,11 +164,11 @@ export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
 				onThresholdChange={setThreshold}
 				unit={value.unit}
 				onUnitChange={setUnit}
-				thresholdLabel={value.display === "flag" ? "Late after" : "Threshold"}
+				thresholdLabel="Overdue after"
 			/>
 			<DisplayToggle value={value.display} onChange={setDisplay} />
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 					{copy.textLabel}
 				</div>
 				<BlurCommitTextInput
@@ -187,41 +189,24 @@ interface DisplayToggleProps {
 
 /**
  * Two-state segmented toggle picking between the two interval
- * display modes. Mirrors `QuantifierToggle`'s segmented-control
- * shape so the editor reads as one consistent surface family.
+ * display modes — the shared `SegmentedRow`, so both options stay
+ * visible at full size.
  */
 function DisplayToggle({ value, onChange }: DisplayToggleProps) {
-	const segCls = (active: boolean) =>
-		[
-			"px-3 py-1.5 text-xs transition-colors cursor-pointer",
-			active
-				? "bg-nova-violet/15 text-nova-violet-bright"
-				: "text-nova-text-muted hover:text-nova-text",
-		].join(" ");
 	return (
 		<div>
-			<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+			<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 				Display
 			</div>
-			<fieldset className="inline-flex rounded-md border border-white/[0.06] bg-nova-deep/50 overflow-hidden p-0 m-0 min-w-0">
-				<legend className="sr-only">Interval display mode</legend>
-				<button
-					type="button"
-					onClick={() => onChange("always")}
-					aria-pressed={value === "always"}
-					className={segCls(value === "always")}
-				>
-					{DISPLAY_LABELS.always}
-				</button>
-				<button
-					type="button"
-					onClick={() => onChange("flag")}
-					aria-pressed={value === "flag"}
-					className={segCls(value === "flag")}
-				>
-					{DISPLAY_LABELS.flag}
-				</button>
-			</fieldset>
+			<SegmentedRow
+				legend="Interval display mode"
+				options={[
+					{ value: "always", label: DISPLAY_LABELS.always },
+					{ value: "flag", label: DISPLAY_LABELS.flag },
+				]}
+				value={value}
+				onChange={onChange}
+			/>
 		</div>
 	);
 }

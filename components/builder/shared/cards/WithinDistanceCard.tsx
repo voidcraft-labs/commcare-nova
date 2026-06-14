@@ -27,6 +27,7 @@ import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 const UNIT_LABELS: Record<DistanceUnit, string> = {
 	miles: "miles",
@@ -83,19 +84,22 @@ export function WithinDistanceCard({
 
 	return (
 		<div className="space-y-2">
-			<div>
-				<PropertyRefPicker
-					mode="property-only"
-					value={value.property}
-					onChange={setProperty}
-					filter={GEOPOINT_PROPERTY_FILTER}
-					invalid={propertyErrors.length > 0}
-					ariaLabel="Geopoint property"
-				/>
-				<InlineError errors={propertyErrors} />
+			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
+				<div>
+					<PropertyRefPicker
+						mode="property-only"
+						value={value.property}
+						onChange={setProperty}
+						filter={GEOPOINT_PROPERTY_FILTER}
+						invalid={propertyErrors.length > 0}
+						ariaLabel="Geopoint property"
+					/>
+					<InlineError errors={propertyErrors} />
+				</div>
+				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
-			<div className="grid grid-cols-[1.6fr_auto_auto] gap-2 items-start">
+			<div className="grid grid-cols-1 @md:grid-cols-[1.6fr_auto_auto] gap-2 items-start">
 				<div>
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
 						Center
@@ -173,7 +177,7 @@ function DistanceInput({
 			autoComplete="off"
 			data-1p-ignore
 			aria-label="Distance"
-			className="w-24 px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
+			className="w-24 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
 		/>
 	);
 }
@@ -192,7 +196,7 @@ function UnitMenu({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Distance unit: ${UNIT_LABELS[unit]}`}
-				className="group flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="group flex items-center gap-1 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
 			>
 				<span>{UNIT_LABELS[unit]}</span>
 				<svg

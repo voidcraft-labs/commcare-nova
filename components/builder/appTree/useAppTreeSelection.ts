@@ -28,6 +28,7 @@ import { useNavigate } from "@/lib/routing/hooks";
 type TreeSelectTarget =
 	| { kind: "clear" }
 	| { kind: "module"; moduleUuid: Uuid }
+	| { kind: "cases"; moduleUuid: Uuid }
 	| { kind: "form"; moduleUuid: Uuid; formUuid: Uuid }
 	| { kind: "field"; moduleUuid: Uuid; formUuid: Uuid; fieldUuid: Uuid };
 
@@ -46,6 +47,8 @@ export function useAppTreeSelection(): TreeSelectHandler {
 					return navigate.goHome();
 				case "module":
 					return navigate.openModule(target.moduleUuid);
+				case "cases":
+					return navigate.openCaseList(target.moduleUuid);
 				case "form":
 					return navigate.openForm(target.moduleUuid, target.formUuid);
 				case "field":

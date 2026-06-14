@@ -87,8 +87,8 @@ export const VirtualFormList = memo(function VirtualFormList({
 
 	// ── Collapse (shared across edit + live via FormLayoutContext) ───
 	// FormLayoutProvider in FormScreen owns the canonical Set so the same
-	// group stays folded whether the user is in the virtualized editor,
-	// the interactive pointer preview, or test mode.
+	// group stays folded whether the user is in the virtualized editor
+	// or the interactive preview.
 
 	const { collapsed, toggleCollapse, isCollapsed } = useFormLayout();
 

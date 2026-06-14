@@ -2,19 +2,9 @@
 
 One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive). The only package in `lib/` that imports CommCare's vocabulary (HQ shell shapes, `doc_type` strings, XPath functions, session datums, identifier rules). A Biome `noRestrictedImports` rule enforces the one-way direction.
 
-## Public surface
+## Client-safe barrel
 
-- `expandDoc(doc)` → `HqApplication` JSON for HQ import (`./expander`).
-- `compileCcz(hqJson, appName, doc)` → `.ccz` archive as `Buffer` (`./compiler`).
-- `buildXForm(doc, formUuid, opts)` → XForm XML (`./xform`).
-- `runValidation(doc)` → `ValidationError[]` (`@/lib/commcare/validator`).
-- `parser`, `transpile`, term constants, `detectUnquotedStringLiteral` (`@/lib/commcare/xpath`).
-- `listDomains`, `importApp` (`./client`); `encrypt`, `decrypt` (`./encryption`).
-- Shared primitives re-exported from `./index.ts`: `constants`, `types`, `hqShells`, `hashtags`, `identifierValidation`, `session`, `formActions`, `deriveCaseConfig`, `xml`. The barrel stays client-safe: Node-only modules (`./compiler` via `adm-zip`; `./ids` via `node:crypto`) and the heavy emission pipeline (`./expander`, `./xform`) are imported from their explicit sub-paths so Turbopack can tree-shake them out of client bundles. The XPath engine, validator, encryption, and HQ HTTP client follow the same sub-path rule for the same reason.
-
-## Allowlist
-
-The set of allowed consumers is enforced by `biome.json`'s `noRestrictedImports` rule on `@/lib/commcare`. Read it there — keeping a hand-maintained copy here drifts.
+The `./index.ts` barrel must stay client-safe: Node-only modules (`./compiler` via `adm-zip`; `./ids` via `node:crypto`) and the heavy emission pipeline (`./expander`, `./xform`) are imported from explicit sub-paths so Turbopack tree-shakes them out of client bundles. The XPath engine, validator, encryption, and HQ HTTP client follow the same sub-path rule. The allowed-consumer set lives in `biome.json`'s `noRestrictedImports` rule — read it there; a copy here drifts.
 
 ## Key design decisions
 
@@ -108,11 +98,11 @@ Registration narrowing: the form's own new case isn't in `casedb` at form-init, 
 
 ### Case-list emission
 
-Case-list wire emission lives at `suite/case-list/`. The orchestrators (`shortDetail.ts`, `longDetail.ts`) walk `module.caseListConfig` and produce `<detail id="m{n}_case_short">` / `<detail id="m{n}_case_long">` blocks; per-kind emitters in `columns.ts` lower each `Column` arm to its `<field>` shape; `sortKeys.ts` resolves comparator types and emits `<sort>` blocks; `nodesetFilter.ts` wraps the `caseListConfig.filter` predicate's compiled XPath into the entry's nodeset. The two detail surfaces share `columns.ts` via a `DetailKind` discriminator (`"short" | "long"`) — five precise branch sites cover the long-detail-only `template_form="phone"`, the short-detail-only sort wrap, the long-detail no-sort short-circuit, and the locale-id substring choice.
+Both detail surfaces (`<detail id="m{n}_case_short">` / `m{n}_case_long`) share one per-kind column emitter via a `DetailKind` discriminator — five precise branch sites cover the long-detail-only `template_form="phone"`, the short-detail-only sort wrap, the long-detail no-sort short-circuit, and the locale-id substring choice. Don't fork the emitters per surface.
 
 ### Case-search emission
 
-Case-search wire emission lives at `suite/case-search/`. The orchestrator (`remoteRequest.ts`) walks one module's `caseSearchConfig` + `caseListConfig` and produces the `<remote-request>` block — `<post>` claim guard, `<command>` label, `<instance>` declarations, `<session>` body, `<stack>` rewind. Three sub-emitters specialize: `searchSession.ts` owns the `<session>` (`<query>` + `<datum>` + the `<data>` slot list AND-composing the unified filter with every advanced-arm search input's predicate AND every simple-arm input whose `(mode, via)` shape needs explicit-predicate emission, before the CSQL emitter); `searchPrompts.ts` emits the per-input `<prompt>` elements; `claim.ts` owns the static `<post>` template.
+The `<remote-request>` block's `<session>` AND-composes the unified filter with every advanced-arm search input's predicate AND every simple-arm input whose `(mode, via)` shape needs explicit-predicate emission, before the CSQL emitter.
 
 The `_xpath_query` AND-composition runs through `suite/case-search/xpathQuery.ts::composeXPathQueryEmission`, the single contract both the suite-XML emitter and the HQ-JSON emitter (`hqJson/caseList.ts::projectDefaultProperties`) consume. Simple-arm inputs that need explicit-predicate emission route through `suite/case-search/simpleArmDerivation.ts::deriveSimpleArmPredicate`, which lifts the `(property, mode, via)` shape to an advanced-style predicate (`when-input-present(input(name), op(prop, input(name)))`). The bare `<prompt>` element still emits on the wire because CCHQ binds the user-typed value to the prompt key at runtime — but the explicit matcher predicate lives in `_xpath_query`, not on the prompt slot. When the simple-arm derivation gate routes an input through `_xpath_query`, the prompt also emits `exclude="true()"` (suite XML) / `exclude: true` (HQ JSON) so CCHQ's runtime skips the bogus auto-match against the prompt key while leaving the typed value bound to the search-input instance for the explicit predicate to reference. Three CCHQ-runtime facts drive the routing rule:
 

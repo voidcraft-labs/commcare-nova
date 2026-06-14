@@ -7,26 +7,54 @@
  * allow-list — the two stores have disjoint responsibilities.
  *
  * Types are organized by concern:
- *   - Cursor/sidebar primitives
+ *   - Preview/sidebar primitives
  *   - Generation lifecycle — stages, errors, partial scaffold
  *   - Replay — raw event log + derived chapter metadata
  */
 
+import type { Uuid } from "@/lib/doc/types";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
 
-/** Interaction mode. "edit" = click to select + inline text editing;
- *  "pointer" = live form-fill preview. */
-export type CursorMode = "edit" | "pointer";
-
 /**
  * Visibility + stash state for one sidebar column. `open` is current
- * visibility; `stashed` records whether we should reopen when leaving edit
- * mode. See `switchCursorMode` in the store.
+ * visibility; `stashed` records whether we should reopen when leaving
+ * preview mode. See `setPreviewing` in the store.
  */
 export type SidebarState = { open: boolean; stashed: boolean | undefined };
+
+/**
+ * The case-loading form a running-app case list feeds, plus the case the
+ * user picked for it — the preview-mode equivalent of CommCare passing the
+ * selected case datum down the navigation stack.
+ *
+ * `formUuid` is the destination form: seeded when the user taps a
+ * case-loading form in the module menu, or defaulted by the case list to
+ * the module's first case-loading form when previewing the list directly.
+ * `caseId` / `caseName` are filled once the user picks a case and continues.
+ * PreviewShell reads `caseId` to preload that form with the chosen case;
+ * the breadcrumb reads `caseName` to name the bound case on the form. It's
+ * cleared on every preview-mode toggle so each preview session starts caseless.
+ */
+export interface PreviewCaseTarget {
+	formUuid: Uuid;
+	caseId?: string;
+	caseName?: string;
+}
+
+/**
+ * The case currently being viewed in the running-app case list (the row a
+ * user clicked into the detail/confirm, before continuing). Mirrors the
+ * case-list's local selection so the breadcrumb can name it while you're
+ * still on the list. Cleared when the selection clears (back to results) and
+ * on every preview-mode toggle.
+ */
+export interface PreviewSelectedCase {
+	caseId: string;
+	caseName: string;
+}
 
 // ── Staged media uploads ─────────────────────────────────────────────────
 

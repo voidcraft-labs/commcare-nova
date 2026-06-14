@@ -112,7 +112,7 @@ describe("IntervalCard — extras edits (always-display)", () => {
 		);
 		const next = emitFromEdit(value, () => {
 			const input = screen.getByLabelText(
-				/Decoration when overdue/i,
+				/Text when overdue/i,
 			) as HTMLInputElement;
 			input.focus();
 			fireEvent.change(input, { target: { value: "Aged out" } });
@@ -189,8 +189,8 @@ describe("IntervalCard — extras edits (flag-display)", () => {
 		);
 		const next = emitFromEdit(value, () => {
 			// `IntervalThresholdRow` aria-labels its numeric input as
-			// "Threshold" regardless of the visible label (which flips
-			// "Threshold"/"Late after" by display mode). Match against
+			// "Threshold" regardless of the visible label ("Overdue
+			// after"). Match against
 			// the aria-label so the test stays pinned to a stable
 			// accessibility property.
 			const input = screen.getByLabelText("Threshold") as HTMLInputElement;

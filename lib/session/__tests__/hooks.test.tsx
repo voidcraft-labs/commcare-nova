@@ -13,13 +13,12 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import {
 	useActiveFieldId,
-	useCursorMode,
 	useEditMode,
+	usePreviewing,
 	useSetActiveFieldId,
-	useSetCursorMode,
+	useSetPreviewing,
 	useSetSidebarOpen,
 	useSidebarState,
-	useSwitchCursorMode,
 } from "../hooks";
 import { BuilderSessionProvider } from "../provider";
 
@@ -29,48 +28,32 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe("session hooks", () => {
-	it("useCursorMode reads initial edit mode", () => {
-		const { result } = renderHook(() => useCursorMode(), { wrapper });
-		expect(result.current).toBe("edit");
+	it("usePreviewing reads initial not-previewing state", () => {
+		const { result } = renderHook(() => usePreviewing(), { wrapper });
+		expect(result.current).toBe(false);
 	});
 
-	it("useSwitchCursorMode toggles mode with stash/restore", () => {
+	it("useSetPreviewing toggles preview with stash/restore", () => {
 		const { result } = renderHook(
 			() => ({
-				mode: useCursorMode(),
-				switchMode: useSwitchCursorMode(),
+				previewing: usePreviewing(),
+				setPreviewing: useSetPreviewing(),
 				chatSidebar: useSidebarState("chat"),
 			}),
 			{ wrapper },
 		);
 
-		/* Enter pointer mode — sidebars stashed and closed. */
-		act(() => result.current.switchMode("pointer"));
-		expect(result.current.mode).toBe("pointer");
+		/* Enter preview — sidebars stashed and closed. */
+		act(() => result.current.setPreviewing(true));
+		expect(result.current.previewing).toBe(true);
 		expect(result.current.chatSidebar.open).toBe(false);
 		expect(result.current.chatSidebar.stashed).toBe(true);
 
-		/* Return to edit — sidebars restored. */
-		act(() => result.current.switchMode("edit"));
-		expect(result.current.mode).toBe("edit");
+		/* Leave preview — sidebars restored. */
+		act(() => result.current.setPreviewing(false));
+		expect(result.current.previewing).toBe(false);
 		expect(result.current.chatSidebar.open).toBe(true);
 		expect(result.current.chatSidebar.stashed).toBeUndefined();
-	});
-
-	it("useSetCursorMode sets mode without sidebar effects", () => {
-		const { result } = renderHook(
-			() => ({
-				mode: useCursorMode(),
-				setMode: useSetCursorMode(),
-				chatSidebar: useSidebarState("chat"),
-			}),
-			{ wrapper },
-		);
-
-		act(() => result.current.setMode("pointer"));
-		expect(result.current.mode).toBe("pointer");
-		/* Sidebars unchanged — no stash behavior. */
-		expect(result.current.chatSidebar.open).toBe(true);
 	});
 
 	it("useActiveFieldId + useSetActiveFieldId read/write correctly", () => {
@@ -105,19 +88,19 @@ describe("session hooks", () => {
 		expect(result.current.structure.open).toBe(true);
 	});
 
-	it("useEditMode derives test from pointer, edit from edit", () => {
+	it("useEditMode derives preview from previewing, edit otherwise", () => {
 		const { result } = renderHook(
 			() => ({
 				editMode: useEditMode(),
-				switchMode: useSwitchCursorMode(),
+				setPreviewing: useSetPreviewing(),
 			}),
 			{ wrapper },
 		);
 
 		expect(result.current.editMode).toBe("edit");
-		act(() => result.current.switchMode("pointer"));
-		expect(result.current.editMode).toBe("test");
-		act(() => result.current.switchMode("edit"));
+		act(() => result.current.setPreviewing(true));
+		expect(result.current.editMode).toBe("preview");
+		act(() => result.current.setPreviewing(false));
 		expect(result.current.editMode).toBe("edit");
 	});
 });

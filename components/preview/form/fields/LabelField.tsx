@@ -31,7 +31,7 @@ export function LabelField({
 	const mode = useEditMode();
 	const isEditMode = mode === "edit";
 	const { updateField } = useBlueprintMutations();
-	/* Inline save callback — null in live/test mode so the TextEditable
+	/* Inline save callback — null in preview mode so the TextEditable
 	 * below falls back to read-only. In edit mode returns a stable
 	 * `(field, value) => void` that coerces empty strings to undefined
 	 * (an unset property) and commits through the doc store. The

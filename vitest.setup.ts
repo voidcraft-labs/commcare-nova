@@ -23,6 +23,7 @@ import {
 	type HTMLAttributes,
 	type ReactElement,
 	type ReactNode,
+	useRef,
 } from "react";
 import { vi } from "vitest";
 
@@ -66,12 +67,12 @@ vi.mock("@/lib/logger", () => ({
  * assertion that inspects rendered structure changes outcome.
  *
  * The only RUNTIME imports the app pulls from `motion/react` are the
- * `motion` proxy and `AnimatePresence`, so those are the two exports the
- * mock provides; `HTMLMotionProps` is type-only (erased at compile time).
- * If a new runtime export is imported without a matching stub added here,
- * it resolves to `undefined` at the import site — a loud, immediate
- * failure rather than a silent wrong-behavior, so this list need not be
- * defensively exhaustive.
+ * `motion` proxy, `AnimatePresence`, `useMotionValue`, and `animate`, so
+ * those are the exports the mock provides; `HTMLMotionProps` is type-only
+ * (erased at compile time). If a new runtime export is imported without a
+ * matching stub added here, it resolves to `undefined` at the import
+ * site — a loud, immediate failure rather than a silent wrong-behavior,
+ * so this list need not be defensively exhaustive.
  */
 
 /**
@@ -181,5 +182,36 @@ vi.mock("motion/react", () => {
 		return createElement(Fragment, null, children);
 	}
 
-	return { motion, AnimatePresence };
+	/**
+	 * Value-holding stand-in for `useMotionValue` (used by ContentFrame's
+	 * mode-flip glide): `get`/`set` round-trip a real value so component
+	 * logic that accumulates onto it behaves; nothing ever animates.
+	 * Identity is stable per component instance, matching the real hook.
+	 */
+	interface MotionValueStub {
+		get: () => unknown;
+		set: (v: unknown) => void;
+		stop: () => void;
+		on: () => () => void;
+	}
+	function useMotionValue(initial: unknown): MotionValueStub {
+		const ref = useRef<MotionValueStub | null>(null);
+		if (!ref.current) {
+			let current = initial;
+			ref.current = {
+				get: () => current,
+				set: (v: unknown) => {
+					current = v;
+				},
+				stop: () => {},
+				on: () => () => {},
+			};
+		}
+		return ref.current;
+	}
+
+	/** Animation driver stub — resolves nothing, animates nothing. */
+	const animate = () => ({ stop: () => {} });
+
+	return { motion, AnimatePresence, useMotionValue, animate };
 });

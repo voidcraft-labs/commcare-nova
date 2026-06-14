@@ -409,13 +409,30 @@ function quantifierToOperator(
 }
 
 /**
- * Per-`MatchMode` dispatch:
+ * Per-`MatchMode` dispatch. `fuzzy` and `phonetic` mirror what
+ * CommCare HQ's Elasticsearch case-search does so preview search
+ * behaves the same as the exported app. Both work on TOKENS, where
+ * a token list = the text lowercased and split on runs of non-
+ * alphanumeric characters (an approximation of ES's standard
+ * analyzer — close enough for Latin-script names and the property
+ * values preview deals with).
+ *
  * - `starts-with` → `starts_with(prop::text, value)` (case-sensitive
  *   to match CCHQ's `case_property_starts_with` index path).
- * - `fuzzy` → pg_trgm `%` similarity. Threshold is
- *   `pg_trgm.similarity_threshold` (Postgres GUC, default 0.3).
- * - `phonetic` → fuzzystrmatch `dmetaphone` equality. Double
- *   Metaphone is more discriminating than Soundex.
+ * - `fuzzy` → a row matches when EITHER: (a) some property token is
+ *   within ES "AUTO" edit distance of the whole lowercased query
+ *   string and shares its first two characters (the term-level
+ *   fuzzy query, prefix_length=2), OR (b) some query token exactly
+ *   equals some property token (the non-fuzzy analyzed match ORed
+ *   in to boost exact hits). Example: "smith" matches "Smyth"
+ *   (one edit, shared "sm" prefix) via (a); "felipe kan" matches
+ *   "Felipe Khan" via (b)'s shared exact "felipe" token, while
+ *   "kan" alone matches neither (no shared exact token, and its
+ *   "ka" prefix differs from "khan"'s "kh").
+ * - `phonetic` → a row matches when some query token and some
+ *   property token share a Soundex code. Per-token (not whole-
+ *   string) so "bob" matches "bob smith". Example: "smith" matches
+ *   "Smyth" (both Soundex S530).
  * - `fuzzy-date` → digit-permutation `IN (...)` matching CCHQ's
  *   `query_functions.py::date_permutations`.
  */
@@ -441,7 +458,8 @@ function compileMatch(
 		);
 	}
 	// `::text` lifts whatever type the term resolved to into the
-	// text domain pg_trgm / fuzzystrmatch / LIKE all expect.
+	// text domain `starts_with`, the tokenizer (`lower` /
+	// `regexp_split_to_array`), and fuzzystrmatch all expect.
 	const valueRead = eb.cast<string>(compileTerm(pred.value.term, ctx), "text");
 
 	switch (pred.mode) {
@@ -453,16 +471,9 @@ function compileMatch(
 				valueRead,
 			]) as unknown as Expression<SqlBool>;
 		case "fuzzy":
-			// `%` is in `ARITHMETIC_OPERATORS` (Kysely types these as
-			// returning LHS column type); cast at the boundary pins
-			// the boolean shape Postgres emits at runtime.
-			return eb(propRead, "%", valueRead) as unknown as Expression<SqlBool>;
+			return compileFuzzyMatch(propRead, valueRead, ctx);
 		case "phonetic":
-			return eb(
-				eb.fn<string>("dmetaphone", [propRead]),
-				"=",
-				eb.fn<string>("dmetaphone", [valueRead]),
-			);
+			return compilePhoneticMatch(propRead, valueRead, ctx);
 		case "fuzzy-date":
 			// fuzzy-date generates the permutation set at compile
 			// time, which requires a literal text value. Dynamic
@@ -523,6 +534,149 @@ function compilePropertyAsText(
 	ctx: PredicateCompileContext,
 ): AliasableExpression<string> {
 	return eb.cast<string>(compileTerm(property, ctx), "text");
+}
+
+/**
+ * Tokenize a text expression the way the `fuzzy` / `phonetic` match
+ * modes need: lowercase, split on runs of non-alphanumeric
+ * characters, and drop the empty fragments a leading/trailing
+ * delimiter leaves behind. The result is a `text[]` of tokens.
+ *
+ * This approximates Elasticsearch's standard analyzer (which both
+ * match modes run over `case_properties.value`). It splits on
+ * punctuation and whitespace and lowercases, which is faithful for
+ * the Latin-script property values preview search handles; it does
+ * not reproduce ES's Unicode word-boundary rules for scripts
+ * without spaces. `array_remove(..., '')` mirrors the analyzer
+ * never emitting an empty token, so a query that is all punctuation
+ * (e.g. "—") tokenizes to an empty array and matches nothing
+ * instead of spuriously matching on a shared empty string.
+ */
+function tokenize(
+	textExpr: AliasableExpression<unknown>,
+): AliasableExpression<string[]> {
+	const lowered = eb.fn<string>("lower", [textExpr]);
+	const split = eb.fn<string[]>("regexp_split_to_array", [
+		lowered,
+		eb.cast<string>(eb.val("[^a-z0-9]+"), "text"),
+	]);
+	return eb.fn<string[]>("array_remove", [
+		split,
+		eb.cast<string>(eb.val(""), "text"),
+	]);
+}
+
+/**
+ * `fuzzy` match — the OR of CommCare HQ's two case-search clauses:
+ *
+ *   (a) Term-level fuzzy. HQ sends the whole lowercased query
+ *       string as ONE fuzzy term (term-level = not tokenized) with
+ *       `fuzziness=AUTO` and `prefix_length=2`. Here: EXISTS a
+ *       property token whose first two characters equal the query
+ *       string's first two (the fixed prefix ES never edits) and
+ *       whose Levenshtein distance to the whole lowercased query
+ *       string is within the AUTO budget — 0 edits for length ≤ 2,
+ *       1 for 3–5, 2 for ≥ 6, computed from the query length in SQL
+ *       so dynamic (search-input) values get the same rule as
+ *       literals. `levenshtein` is fuzzystrmatch.
+ *
+ *   (b) Non-fuzzy analyzed match, operator OR, fuzziness 0. HQ ORs
+ *       this in to boost exact hits. Here: the property and query
+ *       token arrays overlap (`&&`) — i.e. some query token exactly
+ *       equals some property token.
+ */
+function compileFuzzyMatch(
+	propRead: AliasableExpression<string>,
+	valueRead: AliasableExpression<string>,
+	ctx: PredicateCompileContext,
+): Expression<SqlBool> {
+	const propTokens = tokenize(propRead);
+	const queryTokens = tokenize(valueRead);
+	// The whole query string, lowercased and NOT tokenized — the
+	// term-level fuzzy query's single comparand.
+	const queryString = eb.fn<string>("lower", [valueRead]);
+
+	// `pt` is the per-row token the `unnest(...) AS pt` table-function
+	// source below exposes; the single output column takes the table
+	// alias name.
+	const tokenRef = (eb as DynamicExprBuilder).ref("pt");
+	const sharesPrefix = eb(
+		eb.fn<string>("left", [tokenRef, eb.lit(2)]),
+		"=",
+		eb.fn<string>("left", [queryString, eb.lit(2)]),
+	);
+	const queryLength = eb.fn<number>("length", [queryString]);
+	const autoFuzziness = eb
+		.case()
+		.when(eb(queryLength, "<=", eb.lit(2)))
+		.then(eb.lit(0))
+		.when(eb(queryLength, "<=", eb.lit(5)))
+		.then(eb.lit(1))
+		.else(eb.lit(2))
+		.end();
+	const withinEditDistance = eb(
+		eb.fn<number>("levenshtein", [tokenRef, queryString]),
+		"<=",
+		autoFuzziness,
+	);
+
+	const termFuzzySubquery = (
+		ctx.db.selectFrom(
+			eb.fn<string>("unnest", [propTokens]).as("pt") as unknown as never,
+		) as unknown as DynamicFromFunctionQuery
+	)
+		.where(eb.and([sharesPrefix, withinEditDistance]))
+		.select(eb.lit(1).as("one"));
+	const termFuzzyMatch = eb.exists(
+		termFuzzySubquery as unknown as Expression<unknown>,
+	);
+
+	const exactTokenOverlap = eb(
+		propTokens,
+		"&&",
+		queryTokens,
+	) as unknown as Expression<SqlBool>;
+
+	return eb.or([termFuzzyMatch, exactTokenOverlap]);
+}
+
+/**
+ * `phonetic` match — CommCare HQ runs a match query over the
+ * `.phonetic` subfield, which tokenizes (standard analyzer),
+ * lowercases, and Soundex-encodes each token, then matches with the
+ * default OR operator. Here: EXISTS a query token and a property
+ * token that share a Soundex code. Per-token (not whole-string) so
+ * "bob" matches "bob smith". `soundex` is fuzzystrmatch.
+ *
+ * HQ uses Soundex specifically (its phonetic analyzer's `encoder`),
+ * not Double Metaphone.
+ */
+function compilePhoneticMatch(
+	propRead: AliasableExpression<string>,
+	valueRead: AliasableExpression<string>,
+	ctx: PredicateCompileContext,
+): Expression<SqlBool> {
+	const propTokens = tokenize(propRead);
+	const queryTokens = tokenize(valueRead);
+	// `pt` / `qt` are the per-row tokens the two `unnest(...)` sources
+	// expose; the single output column takes the table alias name.
+	const propTokenRef = (eb as DynamicExprBuilder).ref("pt");
+	const queryTokenRef = (eb as DynamicExprBuilder).ref("qt");
+	const soundexEqual = eb(
+		eb.fn<string>("soundex", [propTokenRef]),
+		"=",
+		eb.fn<string>("soundex", [queryTokenRef]),
+	);
+
+	const subquery = (
+		ctx.db.selectFrom([
+			eb.fn<string>("unnest", [propTokens]).as("pt"),
+			eb.fn<string>("unnest", [queryTokens]).as("qt"),
+		] as unknown as never) as unknown as DynamicFromFunctionQuery
+	)
+		.where(soundexEqual)
+		.select(eb.lit(1).as("one"));
+	return eb.exists(subquery as unknown as Expression<unknown>);
 }
 
 /**
@@ -964,4 +1118,18 @@ interface DynamicExistsQuery {
 	whereRef: (left: string, op: string, right: string) => DynamicExistsQuery;
 	where: (predicate: Expression<unknown>) => DynamicExistsQuery;
 	select: (selection: AliasedExpression<unknown, string>) => DynamicExistsQuery;
+}
+
+/**
+ * Builder shape for the `unnest(...)`-token EXISTS subqueries in
+ * `compileFuzzyMatch` / `compilePhoneticMatch`. The FROM source is a
+ * set-returning function (or a comma-pair of them) whose runtime
+ * alias + column can't be enumerated against `Database`'s typed
+ * table set, so the chain runs type-erased.
+ */
+interface DynamicFromFunctionQuery {
+	where: (predicate: Expression<unknown>) => DynamicFromFunctionQuery;
+	select: (
+		selection: AliasedExpression<unknown, string>,
+	) => DynamicFromFunctionQuery;
 }

@@ -9,8 +9,9 @@
 //     re-renders (parent's onChange propagating elsewhere, sibling
 //     rows mounting / unmounting) don't reset the user's text
 //     mid-edit.
-//   - `onCommit` fires on blur with the latest draft; the parent
-//     converts the string into the AST shape it wants.
+//   - `onCommit` fires on blur or Enter with the latest draft; the
+//     parent converts the string into the AST shape it wants. Escape
+//     reverts the draft to the last committed value.
 //   - The draft re-syncs to the external `value` only when the
 //     input itself is NOT focused — comparing the input's own ref
 //     against `document.activeElement` (rather than a tag-only
@@ -67,8 +68,28 @@ export function BlurCommitTextInput({
 		if (draft === value) return;
 		onCommit(draft);
 	}, [draft, value, onCommit]);
+	/* Enter commits and Escape reverts — the same keyboard contract
+	 * `useCommitField` gives every other text slot in the builder, so
+	 * one input never feels different from its neighbors. Both stop
+	 * propagation so the workspace-level Escape (close inspector) and
+	 * any enclosing form don't also fire. */
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				e.stopPropagation();
+				commit();
+			}
+			if (e.key === "Escape") {
+				e.preventDefault();
+				e.stopPropagation();
+				setDraft(value);
+			}
+		},
+		[commit, value],
+	);
 	const cls = [
-		"w-full px-2 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors",
+		"w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors",
 		monospace ? "font-mono" : "",
 	]
 		.filter(Boolean)
@@ -80,6 +101,7 @@ export function BlurCommitTextInput({
 			value={draft}
 			onChange={(e) => setDraft(e.target.value)}
 			onBlur={commit}
+			onKeyDown={handleKeyDown}
 			autoComplete="off"
 			data-1p-ignore
 			placeholder={placeholder}
