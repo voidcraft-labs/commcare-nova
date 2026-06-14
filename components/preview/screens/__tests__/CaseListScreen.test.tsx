@@ -640,6 +640,12 @@ describe("CaseListScreen — detail confirm step", () => {
 			MODULE_UUID,
 			FOLLOWUP_FORM_UUID,
 		);
+		/* Continuing collapses the detail-confirm sub-screen — the case list
+		 *  is retained across navigation, so it must be back at the list (not
+		 *  the stale confirm) when the user navigates back from the form. */
+		expect(
+			screen.queryByRole("button", { name: /Back to Results/ }),
+		).toBeNull();
 	});
 
 	it("row click navigates straight to the case-loading form when no detail fields are configured", async () => {

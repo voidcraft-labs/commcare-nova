@@ -281,9 +281,19 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	/* Open a specific case-loading form with the selected case in hand:
 	 * record the case datum on the preview target so PreviewShell preloads
 	 * the form, then navigate. The preview's equivalent of CommCare passing
-	 * the selected case down the navigation stack. */
+	 * the selected case down the navigation stack.
+	 *
+	 * Collapse the detail / form-menu sub-screens first: they're the
+	 * transient steps of THIS case selection, not a destination. The case
+	 * list is retained (React 19 `<Activity>`), so without this reset,
+	 * navigating back from the form would reveal the stale detail-confirm
+	 * instead of the list — the running app pops back to the case list to
+	 * re-select, never to the confirm screen. Search/filter persist (the
+	 * list remembers what you were looking at). */
 	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) => {
 		if (!moduleUuid) return;
+		setOpenCase(null);
+		setFormMenuCase(null);
 		setPreviewCaseTarget({ formUuid, caseId: row.case_id });
 		navigate.openForm(moduleUuid, formUuid);
 	};

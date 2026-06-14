@@ -2,8 +2,10 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
+import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { useSampleData } from "@/components/builder/case-list-config/useSampleData";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
@@ -26,7 +28,7 @@ import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingClient";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
@@ -134,17 +136,51 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
 	const hasFields = useHasFieldsInForm(formUuid);
 
+	/* Direct preview of a case-loading form with no case in hand (jumped here
+	 * from the structure tree, not walked through the case list): auto-bind
+	 * the first available case so the form is usable. Nothing should block
+	 * previewing the screen you're editing — same stance as the case list,
+	 * which runs against real sample data rather than gating on navigation.
+	 * The query stays idle (no caseType) unless we're actually auto-selecting. */
+	const autoSelectCase =
+		mode === "preview" &&
+		form !== undefined &&
+		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		!caseId;
+	const autoCases = useCases({
+		appId,
+		caseType: autoSelectCase ? mod?.caseType : undefined,
+	});
+	const { generate: autoGenerate } = useSampleData({
+		appId: appId ?? "",
+		caseType: mod?.caseType,
+		onDone: autoCases.reload,
+	});
+	const autoRow =
+		autoSelectCase && autoCases.state.kind === "rows"
+			? autoCases.state.rows[0]
+			: undefined;
+	/** The case actually bound to this form: the nav-provided one, else the
+	 *  first auto-selected case. Threaded to both preload and submit so a
+	 *  directly-previewed case-loading form behaves exactly like one reached
+	 *  through the case list. */
+	const effectiveCaseId = caseId ?? autoRow?.case_id;
+
 	const { state: caseDataState } = useCaseData({
 		appId,
 		caseType: mod?.caseType,
 		caseId,
 	});
 
-	/** Only `row` produces preload — every other arm leaves the form rendering against defaults. */
+	/** Preload from the explicitly-loaded case (nav path) or the
+	 *  auto-selected row; every other arm leaves the form rendering against
+	 *  defaults. */
 	const caseData = useMemo(() => {
-		if (caseDataState.kind !== "row") return undefined;
-		return caseRowToFormPreload(caseDataState.row);
-	}, [caseDataState]);
+		if (caseDataState.kind === "row")
+			return caseRowToFormPreload(caseDataState.row);
+		if (autoRow) return caseRowToFormPreload(autoRow);
+		return undefined;
+	}, [caseDataState, autoRow]);
 
 	const editable = isReady;
 
@@ -264,7 +300,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		setSubmitStatus({ kind: "running" });
 		try {
 			const mutation = controller.computeSubmissionMutation({
-				caseId,
+				caseId: effectiveCaseId,
 				caseTypes,
 			});
 			const result = await submitFormAction(mutation, appId);
@@ -341,22 +377,20 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	}
 
-	/** Case-loading forms in preview mode without a bound case — covers both "navigated from an empty list" and "URL had no caseId". Routing both `followup` and `close` through here keeps the engine's caseId invariant (`computeSubmissionMutation` throws when either runs without a bound id) unreachable from a user action. */
-	if (mode === "preview" && CASE_LOADING_FORM_TYPES.has(form.type) && !caseId) {
-		return (
-			<div className="flex flex-col items-center justify-center h-full gap-4 px-6">
-				<div className="text-center space-y-2">
-					<h3 className="text-sm font-medium text-nova-text">
-						No cases available
-					</h3>
-					<p className="text-sm text-nova-text-muted max-w-xs">
-						This form requires an existing case. Submit the registration form
-						first to create one.
-					</p>
-				</div>
-			</div>
-		);
-	}
+	/* The form ALWAYS renders — flipping to preview keeps it in place and the
+	 * case data loads IN; it is never swapped for a loading/empty interstitial
+	 * (that multi-stage flash is the antithesis of the flipbook). The only
+	 * thing a directly-previewed case-loading form gates on a bound case is
+	 * the submit action — `computeSubmissionMutation` needs the caseId — so
+	 * `caseMissing` drives the submit row below, not the whole screen. When
+	 * the store is genuinely empty, the submit row offers the same Generate
+	 * Sample Data affordance the case list uses, in place, so a case can be
+	 * created and its data flips straight into the standing form. */
+	const caseMissing =
+		mode === "preview" &&
+		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		effectiveCaseId === undefined;
+	const noSampleCases = caseMissing && autoCases.state.kind === "empty";
 
 	const canEdit = mode === "edit" && editable;
 
@@ -405,36 +439,74 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				)}
 			</div>
 
-			{/* Hidden in design mode where it's non-functional. */}
+			{/* Hidden in design mode where it's non-functional. The form above
+			 *  always renders; this row adapts to whether a case is bound. */}
 			{mode === "preview" && (
 				<div className="border-t border-pv-input-border bg-pv-surface">
-					<div className="flex items-center justify-between px-6 py-3">
-						<button
-							type="button"
-							onClick={handleSubmit}
-							disabled={submitStatus.kind === "running"}
-							className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-						>
-							{submitStatus.kind === "running" && (
+					{noSampleCases ? (
+						/* No case to load into this case-loading form — offer to
+						 *  generate sample data right here, so the standing form's
+						 *  fields fill in once a case exists rather than bouncing
+						 *  the user away to make one. */
+						<div className="flex items-center gap-3 px-6 py-3">
+							<span className="flex-1 min-w-0 text-xs text-nova-text-muted">
+								This form opens an existing case — generate sample data to try
+								it.
+							</span>
+							<button
+								type="button"
+								onClick={autoGenerate.run}
+								disabled={autoGenerate.status.kind === "running"}
+								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+							>
 								<Icon
-									icon={tablerLoader2}
+									icon={
+										autoGenerate.status.kind === "running"
+											? tablerLoader2
+											: tablerSparkles
+									}
 									width="14"
 									height="14"
-									className="animate-spin"
+									className={
+										autoGenerate.status.kind === "running"
+											? "animate-spin"
+											: undefined
+									}
 								/>
-							)}
-							{submitStatus.kind === "running" ? "Submitting..." : "Submit"}
-						</button>
-						<button
-							type="button"
-							onClick={handleClear}
-							disabled={submitStatus.kind === "running"}
-							className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-						>
-							<Icon icon={tablerRefresh} width="14" height="14" />
-							Clear form
-						</button>
-					</div>
+								{autoGenerate.status.kind === "running"
+									? "Generating…"
+									: "Generate Sample Data"}
+							</button>
+						</div>
+					) : (
+						<div className="flex items-center justify-between px-6 py-3">
+							<button
+								type="button"
+								onClick={handleSubmit}
+								disabled={submitStatus.kind === "running" || caseMissing}
+								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+							>
+								{submitStatus.kind === "running" && (
+									<Icon
+										icon={tablerLoader2}
+										width="14"
+										height="14"
+										className="animate-spin"
+									/>
+								)}
+								{submitStatus.kind === "running" ? "Submitting..." : "Submit"}
+							</button>
+							<button
+								type="button"
+								onClick={handleClear}
+								disabled={submitStatus.kind === "running"}
+								className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+							>
+								<Icon icon={tablerRefresh} width="14" height="14" />
+								Clear form
+							</button>
+						</div>
+					)}
 					{/* Inline error sits BELOW the submit row so the user's
 					 *  amend-then-resubmit loop keeps the action affordance
 					 *  steady in place — the row doesn't reflow when an error
@@ -447,6 +519,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							className="px-6 pb-3 text-sm text-red-300 whitespace-pre-line"
 						>
 							{submitStatus.message}
+						</p>
+					)}
+					{noSampleCases && autoGenerate.status.kind === "error" && (
+						<p
+							role="alert"
+							className="px-6 pb-3 text-sm text-red-300 whitespace-pre-line"
+						>
+							{autoGenerate.status.message}
 						</p>
 					)}
 				</div>
