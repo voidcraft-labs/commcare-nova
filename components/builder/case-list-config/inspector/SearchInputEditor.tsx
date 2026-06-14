@@ -62,15 +62,9 @@ import {
 } from "@/lib/domain";
 import {
 	ancestorPath,
-	input,
-	literal,
-	matchAll,
 	type Predicate,
-	prop,
 	type RelationPath,
 	relationStep,
-	type SearchInputDecl,
-	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import {
@@ -86,6 +80,7 @@ import {
 	expectedTypeForDefault,
 	type PropertyState,
 	type ResolvedRow,
+	recoverAnchoredProperty,
 	resolveDestinationCaseType,
 	resolveRows,
 	SEARCH_INPUT_TYPE_DESCRIPTIONS,
@@ -93,6 +88,7 @@ import {
 	SEARCH_INPUT_TYPE_LABELS,
 	SEARCH_MODE_DESCRIPTIONS,
 	SEARCH_MODE_LABELS,
+	seedCustomCondition,
 	seedDefaultExpression,
 } from "../searchInputResolution";
 import {
@@ -513,7 +509,6 @@ export function SearchInputEditor({
 					inputType={value.type}
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
-					knownInputs={knownInputs}
 					rowIndex={index}
 					onChange={setDefault}
 				/>
@@ -787,42 +782,6 @@ function PropertyGroup({
 			})}
 		</Menu.Group>
 	);
-}
-
-// ── Custom-condition seeding + recovery ───────────────────────────
-
-/**
- * Seed the custom condition with the behavior the row already has:
- * `property = typed value`. The author edits forward from something
- * working instead of starting from a blank. Rows with no property
- * yet seed `match-all()` — the canonical always-true starting point.
- */
-function seedCustomCondition(
-	row: SimpleSearchInputDef,
-	currentCaseType: string,
-): Predicate {
-	if (row.property === "") return matchAll();
-	return {
-		kind: "eq",
-		left: term(prop(currentCaseType, row.property)),
-		right: row.name === "" ? term(literal("")) : term(input(row.name)),
-	};
-}
-
-/**
- * The property a custom condition is anchored on, when it has the
- * left-anchored shape (`comparison` / `in` / `between` / `is-null` /
- * `is-blank` whose left side reads a self property). Lets a
- * round-tripped custom→standard conversion land back on the same
- * property rather than re-seeding.
- */
-function recoverAnchoredProperty(predicate: Predicate): string | undefined {
-	if (!("left" in predicate)) return undefined;
-	const left = predicate.left;
-	if (left.kind !== "term" || left.term.kind !== "prop") return undefined;
-	const ref = left.term;
-	if (ref.via !== undefined && ref.via.kind !== "self") return undefined;
-	return ref.property;
 }
 
 // ── Row rebuild helper ────────────────────────────────────────────
@@ -1153,7 +1112,6 @@ interface DefaultValueSlotProps {
 	readonly inputType: SearchInputType;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
-	readonly knownInputs: readonly SearchInputDecl[];
 	readonly rowIndex: number;
 	readonly onChange: (next: ValueExpression | undefined) => void;
 }
@@ -1163,7 +1121,6 @@ function DefaultValueSlot({
 	inputType,
 	caseTypes,
 	currentCaseType,
-	knownInputs,
 	rowIndex,
 	onChange,
 }: DefaultValueSlotProps) {
@@ -1187,12 +1144,18 @@ function DefaultValueSlot({
 			hint="The field starts out filled with this — anyone can change it."
 		>
 			<div className="rounded-lg border border-white/[0.04] bg-nova-deep/30 p-2.5 space-y-2">
+				{/* No search inputs offered as a value source: the default
+				    fills the field before the search screen opens, so an
+				    `input(...)` ref would resolve to empty and the gate
+				    (`CASE_LIST_BARE_SEARCH_INPUT_REF`, forbids-input-ref)
+				    rejects it with no valid resolution. Session / user-data
+				    fields stay available — they're bound at default time. */}
 				<ExpressionCardEditor
 					value={value}
 					onChange={onChange}
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
-					knownInputs={knownInputs}
+					knownInputs={[]}
 					expectedType={expectedType}
 				/>
 				<button

@@ -42,13 +42,18 @@ import {
 	startsWithMode,
 } from "@/lib/domain";
 import {
+	input,
 	literal,
+	matchAll,
+	type Predicate,
+	prop,
 	type RelationPath,
 	type ResolvedType,
 	type SearchInputDecl,
 	term,
 	today,
 	type ValueExpression,
+	whenInput,
 } from "@/lib/domain/predicate";
 
 // ── Display labels ────────────────────────────────────────────────
@@ -448,4 +453,71 @@ export function seedDefaultExpression(type: SearchInputType): ValueExpression {
 		case "select":
 			return term(literal(""));
 	}
+}
+
+// ── Custom-condition seeding + recovery ───────────────────────────
+//
+// The Match picker's "Custom Condition" choice converts a simple row
+// to the advanced arm; these two functions are the conversion's two
+// halves — the forward seed and the round-trip recovery.
+
+/**
+ * Seed the custom condition with the behavior the row already has:
+ * `property = typed value`. The author edits forward from something
+ * working instead of starting from a blank. Rows with no property
+ * yet seed `match-all()` — the canonical always-true starting point.
+ *
+ * The comparison against the typed value rides inside a
+ * `when-input-present` envelope keyed to the input — the same shape
+ * the standard match modes derive at wire-emit
+ * (`deriveSimpleArmPredicate`). Without it the bare `input(...)` ref
+ * resolves to the empty string before anyone searches, matching every
+ * empty-valued case, and the commit gate
+ * (`CASE_LIST_BARE_SEARCH_INPUT_REF`) rejects the seed outright — so
+ * the envelope is what makes "Custom Condition" land at all. A
+ * nameless row compares to a literal, carries no input ref, and needs
+ * no envelope.
+ */
+export function seedCustomCondition(
+	row: SimpleSearchInputDef,
+	currentCaseType: string,
+): Predicate {
+	if (row.property === "") return matchAll();
+	if (row.name === "") {
+		return {
+			kind: "eq",
+			left: term(prop(currentCaseType, row.property)),
+			right: term(literal("")),
+		};
+	}
+	return whenInput(input(row.name), {
+		kind: "eq",
+		left: term(prop(currentCaseType, row.property)),
+		right: term(input(row.name)),
+	});
+}
+
+/**
+ * The property a custom condition is anchored on, when it has the
+ * left-anchored shape (`comparison` / `in` / `between` / `is-null` /
+ * `is-blank` whose left side reads a self property). Lets a
+ * round-tripped custom→standard conversion land back on the same
+ * property rather than re-seeding.
+ *
+ * A `when-input-present` envelope — the shape `seedCustomCondition`
+ * produces for an input-bound row — unwraps to its clause first, so a
+ * seeded custom condition round-trips back to its property the same
+ * way a hand-authored bare comparison does.
+ */
+export function recoverAnchoredProperty(
+	predicate: Predicate,
+): string | undefined {
+	const inner =
+		predicate.kind === "when-input-present" ? predicate.clause : predicate;
+	if (!("left" in inner)) return undefined;
+	const left = inner.left;
+	if (left.kind !== "term" || left.term.kind !== "prop") return undefined;
+	const ref = left.term;
+	if (ref.via !== undefined && ref.via.kind !== "self") return undefined;
+	return ref.property;
 }
