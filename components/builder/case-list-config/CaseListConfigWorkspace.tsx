@@ -520,7 +520,7 @@ function WorkspaceTabs({
 		<div className="sticky top-0 z-raised py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
 			<ContentFrame
 				width="5xl"
-				className="px-8 flex items-center gap-1.5 @2xl:gap-2"
+				className="px-6 flex items-center gap-1.5 @2xl:gap-2"
 			>
 				{TAB_DEFS.map(({ id, icon, label }) => {
 					const active = tab === id;

@@ -54,7 +54,7 @@ export function HomeScreen() {
 	const canEdit = mode === "edit" && isReady;
 
 	return (
-		<ContentFrame width="3xl" className="p-6 space-y-4">
+		<ContentFrame width="5xl" className="p-6 space-y-4">
 			{/* The web-apps logo banner — CommCare shows the app logo at the top
 			    of the home screen. */}
 			{logo && (

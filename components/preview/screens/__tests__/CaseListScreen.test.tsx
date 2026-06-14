@@ -98,6 +98,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useBuilderIsReady: () => true,
 		usePreviewCaseTarget: () => undefined,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
+		useSetPreviewSelectedCase: () => vi.fn(),
 	};
 });
 
@@ -635,6 +636,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: FOLLOWUP_FORM_UUID,
 			caseId: SELECTED_CASE_ID,
+			caseName: "Alice",
 		});
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			MODULE_UUID,
@@ -671,6 +673,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: FOLLOWUP_FORM_UUID,
 			caseId: SELECTED_CASE_ID,
+			caseName: "Alice",
 		});
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			MODULE_UUID,
@@ -720,6 +723,7 @@ describe("CaseListScreen — post-selection form menu", () => {
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: CLOSE_FORM_UUID,
 			caseId: SELECTED_CASE_ID,
+			caseName: "Alice",
 		});
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			MODULE_UUID,

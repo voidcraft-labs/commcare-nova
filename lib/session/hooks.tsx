@@ -34,6 +34,7 @@ import type {
 	GenerationError,
 	GenerationStage,
 	PreviewCaseTarget,
+	PreviewSelectedCase,
 	ReplayData,
 } from "./types";
 
@@ -64,6 +65,19 @@ export function useSetPreviewCaseTarget(): (
 	target: PreviewCaseTarget | undefined,
 ) => void {
 	return useBuilderSession((s) => s.setPreviewCaseTarget);
+}
+
+/** The case currently open in the running-app case list (detail/confirm), or
+ *  `undefined`. Drives the breadcrumb's case crumb while on the list. */
+export function usePreviewSelectedCase(): PreviewSelectedCase | undefined {
+	return useBuilderSession((s) => s.previewSelectedCase);
+}
+
+/** Setter for the case open in the running-app case list. */
+export function useSetPreviewSelectedCase(): (
+	selected: PreviewSelectedCase | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewSelectedCase);
 }
 
 // ── Active field ──────────────────────────────────────────────────────────

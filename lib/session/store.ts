@@ -28,7 +28,12 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import type { Event } from "@/lib/log/types";
-import type { PreviewCaseTarget, ReplayData, ReplayInit } from "./types";
+import type {
+	PreviewCaseTarget,
+	PreviewSelectedCase,
+	ReplayData,
+	ReplayInit,
+} from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -118,6 +123,12 @@ export interface BuilderSessionState {
 	 *  the form. Cleared on every preview-mode toggle (see `setPreviewing`)
 	 *  so previewing a form fresh never reloads a stale case. */
 	previewCaseTarget: PreviewCaseTarget | undefined;
+
+	/** The case currently open in the running-app case list's detail/confirm
+	 *  (the row clicked, before continuing). Mirrors the case list's local
+	 *  selection so the breadcrumb can name it on the list. Cleared with the
+	 *  selection and on every preview toggle. */
+	previewSelectedCase: PreviewSelectedCase | undefined;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
 
@@ -283,6 +294,10 @@ export interface BuilderSessionState {
 	 *  repeated sets don't notify subscribers. */
 	setPreviewCaseTarget: (target: PreviewCaseTarget | undefined) => void;
 
+	/** Set (or clear) the case open in the running-app case list. No-ops when
+	 *  shallow-equal. */
+	setPreviewSelectedCase: (selected: PreviewSelectedCase | undefined) => void;
+
 	/** Set one sidebar's visibility. Preserves the other sidebar + all stash
 	 *  values. No-ops when the value is unchanged. */
 	setSidebarOpen: (kind: SidebarKind, open: boolean) => void;
@@ -381,6 +396,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewing: false,
 				activeFieldId: undefined,
 				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
+				previewSelectedCase: undefined as PreviewSelectedCase | undefined,
 
 				/* Chrome */
 				sidebars: {
@@ -638,6 +654,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						set({
 							previewing: true,
 							previewCaseTarget: undefined,
+							previewSelectedCase: undefined,
 							sidebars: {
 								chat: {
 									open: false,
@@ -660,6 +677,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewing: false,
 						previewCaseTarget: undefined,
+						previewSelectedCase: undefined,
 						sidebars: {
 							chat: {
 								open: chatStashed ?? s.sidebars.chat.open,
@@ -680,15 +698,28 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				setPreviewCaseTarget(target: PreviewCaseTarget | undefined) {
 					const current = get().previewCaseTarget;
-					/* Shallow no-op guard — the two fields fully describe the
-					 * target, so equal formUuid + caseId means nothing changed. */
+					/* Shallow no-op guard — the three fields fully describe the
+					 * target, so equal formUuid + caseId + caseName means nothing
+					 * changed. */
 					if (
 						current?.formUuid === target?.formUuid &&
-						current?.caseId === target?.caseId
+						current?.caseId === target?.caseId &&
+						current?.caseName === target?.caseName
 					) {
 						return;
 					}
 					set({ previewCaseTarget: target });
+				},
+
+				setPreviewSelectedCase(selected: PreviewSelectedCase | undefined) {
+					const current = get().previewSelectedCase;
+					if (
+						current?.caseId === selected?.caseId &&
+						current?.caseName === selected?.caseName
+					) {
+						return;
+					}
+					set({ previewSelectedCase: selected });
 				},
 
 				setSidebarOpen(kind: SidebarKind, open: boolean) {
@@ -742,6 +773,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: false,
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
+						previewSelectedCase: undefined,
 
 						/* Chrome */
 						sidebars: {

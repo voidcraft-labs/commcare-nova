@@ -161,20 +161,40 @@ describe("BuilderSession store", () => {
 		});
 	});
 
-	it("setPreviewing clears the case target on both transitions", () => {
+	it("setPreviewSelectedCase sets the open case and no-ops on a shallow-equal value", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setPreviewSelectedCase({ caseId: "c1", caseName: "Ana" });
+		expect(store.getState().previewSelectedCase).toEqual({
+			caseId: "c1",
+			caseName: "Ana",
+		});
+		const prev = store.getState();
+		store.getState().setPreviewSelectedCase({ caseId: "c1", caseName: "Ana" });
+		expect(store.getState()).toBe(prev);
+	});
+
+	it("setPreviewing clears the case target AND selected case on both transitions", () => {
 		const store = createBuilderSessionStore();
 		const formUuid = asUuid("form-1");
 
-		/* Entering preview clears any stray target. */
-		store.getState().setPreviewCaseTarget({ formUuid, caseId: "case-1" });
+		/* Entering preview clears any stray target + selection. */
+		store
+			.getState()
+			.setPreviewCaseTarget({ formUuid, caseId: "case-1", caseName: "Ana" });
+		store
+			.getState()
+			.setPreviewSelectedCase({ caseId: "case-1", caseName: "Ana" });
 		store.getState().setPreviewing(true);
 		expect(store.getState().previewCaseTarget).toBeUndefined();
+		expect(store.getState().previewSelectedCase).toBeUndefined();
 
 		/* Leaving preview clears the in-session selection — it's running-app
 		 * state with no meaning outside preview. */
-		store.getState().setPreviewCaseTarget({ formUuid, caseId: "case-2" });
+		store
+			.getState()
+			.setPreviewSelectedCase({ caseId: "case-2", caseName: "Bo" });
 		store.getState().setPreviewing(false);
-		expect(store.getState().previewCaseTarget).toBeUndefined();
+		expect(store.getState().previewSelectedCase).toBeUndefined();
 	});
 });
 

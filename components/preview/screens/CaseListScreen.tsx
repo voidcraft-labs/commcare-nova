@@ -41,7 +41,7 @@ import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
 import { effectiveModeKind } from "@/components/builder/case-list-config/searchInputResolution";
@@ -78,6 +78,7 @@ import {
 	useAppId,
 	usePreviewCaseTarget,
 	useSetPreviewCaseTarget,
+	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 
 /** Canvas width where search sits beside the results instead of above
@@ -190,6 +191,25 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const [formMenuCase, setFormMenuCase] =
 		useState<CaseRowWithCalculated | null>(null);
 
+	/* Mirror the locally-selected case into session so the breadcrumb can
+	 * name it while we're on the list (the strip is a sibling component and
+	 * can't read this local state). The detail/form-menu case is the one being
+	 * looked at; clears to undefined when neither is open — including on
+	 * reveal after navigating back from the form, so the list's breadcrumb
+	 * drops the stale case. */
+	const setPreviewSelectedCase = useSetPreviewSelectedCase();
+	const selectedCase = formMenuCase ?? openCase;
+	useEffect(() => {
+		setPreviewSelectedCase(
+			selectedCase
+				? {
+						caseId: selectedCase.case_id,
+						caseName: selectedCase.case_name || "Case",
+					}
+				: undefined,
+		);
+	}, [selectedCase, setPreviewSelectedCase]);
+
 	const { state, fetching, reload } = useCases({
 		appId,
 		caseType: caseType?.name,
@@ -294,7 +314,11 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		if (!moduleUuid) return;
 		setOpenCase(null);
 		setFormMenuCase(null);
-		setPreviewCaseTarget({ formUuid, caseId: row.case_id });
+		setPreviewCaseTarget({
+			formUuid,
+			caseId: row.case_id,
+			caseName: row.case_name || "Case",
+		});
 		navigate.openForm(moduleUuid, formUuid);
 	};
 
@@ -534,7 +558,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 * above the results list. */
 	const onSubScreen = formMenuCase !== null || openCase !== null;
 	return (
-		<ContentFrame ref={containerRef} width="5xl" className="px-8 pt-6 pb-24">
+		<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
 			<div
 				className={`flex gap-5 ${split ? "flex-row items-start" : "flex-col"}`}
 			>

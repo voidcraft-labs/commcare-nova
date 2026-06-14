@@ -14,6 +14,7 @@
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerPlayerPause from "@iconify-icons/tabler/player-pause";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { usePreviewing } from "@/lib/session/hooks";
@@ -42,7 +43,14 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 						: "bg-nova-violet/[0.12] border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.2]"
 				}`}
 			>
-				<Icon icon={tablerPlayerPlay} width="17" height="17" />
+				{/* Play ↔ pause: idle invites you to run the app; while
+				 *  previewing it reads as "running", press to pause back to
+				 *  editing. */}
+				<Icon
+					icon={previewing ? tablerPlayerPause : tablerPlayerPlay}
+					width="17"
+					height="17"
+				/>
 				Preview
 			</button>
 		</Tooltip>

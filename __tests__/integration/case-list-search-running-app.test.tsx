@@ -194,6 +194,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		// explicit caseId, so it doesn't exercise the target handoff.
 		usePreviewCaseTarget: () => undefined,
 		useSetPreviewCaseTarget: () => vi.fn(),
+		useSetPreviewSelectedCase: () => vi.fn(),
 	};
 });
 

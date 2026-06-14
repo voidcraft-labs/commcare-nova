@@ -536,7 +536,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	return (
 		<div className="h-full">
-			<ContentFrame width="3xl" className="flex flex-col h-full">
+			<ContentFrame width="5xl" className="flex flex-col h-full">
 				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
 				<FormLayoutProvider>{formBody}</FormLayoutProvider>
 			</ContentFrame>
