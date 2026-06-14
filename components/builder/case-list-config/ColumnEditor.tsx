@@ -62,6 +62,7 @@ import {
 	SegmentedRow,
 	ToggleRow,
 } from "./inspector/inspectorChrome";
+import { NO_SEARCH_INPUTS } from "./searchInputResolution";
 
 /**
  * Module-scoped empty validity-index passed to the predicate
@@ -217,7 +218,7 @@ export function ColumnEditor({
 		<PredicateEditProvider
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
-			knownInputs={[]}
+			knownInputs={NO_SEARCH_INPUTS}
 			validityIndex={EMPTY_VALIDITY_INDEX}
 		>
 			<InspectorSection label="Display">

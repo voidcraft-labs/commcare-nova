@@ -42,14 +42,40 @@ import {
 	startsWithMode,
 } from "@/lib/domain";
 import {
+	eq,
+	input,
 	literal,
+	matchAll,
+	type Predicate,
+	prop,
 	type RelationPath,
 	type ResolvedType,
 	type SearchInputDecl,
 	term,
 	today,
 	type ValueExpression,
+	whenInput,
 } from "@/lib/domain/predicate";
+
+// ── Forbids-input-ref slots ───────────────────────────────────────
+
+/**
+ * The known-inputs list handed to an editor whose slot runs BEFORE the
+ * search screen opens — default values, calculated columns, and the
+ * search-button "show when" condition. Those slots resolve an
+ * `input(...)` ref to the empty string, so the gate
+ * (`CASE_LIST_BARE_SEARCH_INPUT_REF`, forbids-input-ref) rejects one
+ * with no valid resolution; offering "Search Field" as a value source
+ * there would only lead the author into a guaranteed rejection.
+ * Session / user-data fields stay available — they're bound at that
+ * time.
+ *
+ * A frozen module-level constant so the empty list keeps a stable
+ * identity across renders: the editors memoize their type-check
+ * context on `knownInputs`, and a fresh `[]` each render would thrash
+ * those memos.
+ */
+export const NO_SEARCH_INPUTS: readonly SearchInputDecl[] = Object.freeze([]);
 
 // ── Display labels ────────────────────────────────────────────────
 
@@ -448,4 +474,72 @@ export function seedDefaultExpression(type: SearchInputType): ValueExpression {
 		case "select":
 			return term(literal(""));
 	}
+}
+
+// ── Custom-condition seeding + recovery ───────────────────────────
+//
+// The Match picker's "Custom Condition" choice converts a simple row
+// to the advanced arm; these two functions are the conversion's two
+// halves — the forward seed and the round-trip recovery.
+
+/**
+ * Seed the custom condition with the behavior the row already has:
+ * `property = typed value`. The author edits forward from something
+ * working instead of starting from a blank. Rows with no property
+ * yet seed `match-all()` — the canonical always-true starting point.
+ *
+ * The comparison against the typed value rides inside a
+ * `when-input-present` envelope keyed to the input — the same shape
+ * the standard match modes derive at wire-emit
+ * (`deriveSimpleArmPredicate`). Without it the bare `input(...)` ref
+ * resolves to the empty string before anyone searches, matching every
+ * empty-valued case, and the commit gate
+ * (`CASE_LIST_BARE_SEARCH_INPUT_REF`) rejects the seed outright — so
+ * the envelope is what makes "Custom Condition" land at all. A
+ * nameless row compares to a literal, carries no input ref, and needs
+ * no envelope.
+ *
+ * The property reference preserves the row's relation walk the same
+ * way `deriveSimpleArmPredicate` does: a non-self `via` threads through
+ * so the seed reads the property on the case the row actually searches
+ * (a parent / related case), not the current one; a self walk
+ * collapses to an unqualified `prop`. Dropping it would seed a
+ * condition that reads a property the current case type may not have —
+ * a fresh gate rejection, the very failure this conversion avoids.
+ */
+export function seedCustomCondition(
+	row: SimpleSearchInputDef,
+	currentCaseType: string,
+): Predicate {
+	if (row.property === "") return matchAll();
+	const viaForRef =
+		row.via === undefined || row.via.kind === "self" ? undefined : row.via;
+	const propertyRef = prop(currentCaseType, row.property, viaForRef);
+	if (row.name === "") return eq(propertyRef, literal(""));
+	return whenInput(input(row.name), eq(propertyRef, input(row.name)));
+}
+
+/**
+ * The property a custom condition is anchored on, when it has the
+ * left-anchored shape (`comparison` / `in` / `between` / `is-null` /
+ * `is-blank` whose left side reads a self property). Lets a
+ * round-tripped custom→standard conversion land back on the same
+ * property rather than re-seeding.
+ *
+ * A `when-input-present` envelope — the shape `seedCustomCondition`
+ * produces for an input-bound row — unwraps to its clause first, so a
+ * seeded custom condition round-trips back to its property the same
+ * way a hand-authored bare comparison does.
+ */
+export function recoverAnchoredProperty(
+	predicate: Predicate,
+): string | undefined {
+	const inner =
+		predicate.kind === "when-input-present" ? predicate.clause : predicate;
+	if (!("left" in inner)) return undefined;
+	const left = inner.left;
+	if (left.kind !== "term" || left.term.kind !== "prop") return undefined;
+	const ref = left.term;
+	if (ref.via !== undefined && ref.via.kind !== "self") return undefined;
+	return ref.property;
 }
