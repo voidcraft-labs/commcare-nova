@@ -18,6 +18,7 @@ import {
 	type FieldKind,
 	fieldKinds,
 	fieldRegistry,
+	HASHTAG_SEGMENT_SOURCE,
 } from "@/lib/domain";
 import { classifyNamespace } from "./config";
 import type { Reference } from "./types";
@@ -54,7 +55,9 @@ export const USER_PROPERTIES: ReadonlyArray<{ name: string; label: string }> = [
 	{ name: "phone_number", label: "Phone Number" },
 ];
 
-const NAMESPACE_RE = /^[A-Za-z_]\w*$/;
+/** A namespace is exactly one hashtag segment — same vocabulary as the
+ *  shared matcher source, anchored to the whole token. */
+const NAMESPACE_RE = new RegExp(`^${HASHTAG_SEGMENT_SOURCE}$`);
 
 /** Re-export of `fpath` for callers that previously used this module as
  *  the tree-walking helper. Kept alongside the provider so nothing breaks

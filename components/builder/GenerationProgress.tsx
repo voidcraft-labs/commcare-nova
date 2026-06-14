@@ -17,7 +17,9 @@ import {
 } from "@/lib/session/hooks";
 import { GenerationStage } from "@/lib/session/types";
 
-/** Display stages — Modules+Forms are combined into "Build" */
+/** Display stages — Modules+Forms are combined into "Build". There is no
+ *  Validate step: every change is checked as it lands, so the build is
+ *  done the moment its last change is. */
 const baseStages: { key: string; stages: GenerationStage[]; label: string }[] =
 	[
 		{
@@ -35,7 +37,6 @@ const baseStages: { key: string; stages: GenerationStage[]; label: string }[] =
 			stages: [GenerationStage.Modules, GenerationStage.Forms],
 			label: "Build",
 		},
-		{ key: "validate", stages: [GenerationStage.Validate], label: "Validate" },
 	];
 
 /** Ordered list of generation stages for determining relative position. */
@@ -80,8 +81,9 @@ function getStageIndex(
 		[GenerationStage.Structure]: 1,
 		[GenerationStage.Modules]: 2,
 		[GenerationStage.Forms]: 2,
+		/* Historical replays only — live runs never reach these stages. */
 		[GenerationStage.Validate]: 3,
-		[GenerationStage.Fix]: 4,
+		[GenerationStage.Fix]: 3,
 	};
 	return map[stage] ?? 0;
 }

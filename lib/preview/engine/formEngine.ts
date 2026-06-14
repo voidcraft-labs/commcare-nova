@@ -32,7 +32,11 @@ import type {
 	Form,
 	Uuid,
 } from "@/lib/domain";
-import { casePropertyDataTypes } from "@/lib/domain";
+import {
+	casePropertyDataTypes,
+	expressionSource,
+	type XPathPrintableDoc,
+} from "@/lib/domain";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
@@ -77,6 +81,17 @@ export interface FormEngineInput {
 	fieldOrder: Record<string, Uuid[]>;
 }
 
+/** The print surface for the engine's input slice: its one form plus
+ *  the supplied field maps. Every expression the engine evaluates is
+ *  form-local, so this is the whole resolution world. */
+function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
+	return {
+		forms: { [input.formUuid]: input.form },
+		fields: input.fields,
+		fieldOrder: input.fieldOrder,
+	};
+}
+
 export class FormEngine {
 	/** Zustand store holding per-path FieldState. Components subscribe
 	 *  via `useStore(engine.store, s => s[path])` for surgical reactivity. */
@@ -84,6 +99,10 @@ export class FormEngine {
 
 	private instance: DataInstance;
 	private dag: TriggerDag;
+	/** Doc surface AST expression slots print against — the input's
+	 *  field slice rooted at its one form. Rebuilt whenever the input
+	 *  is re-supplied. */
+	private printDoc: XPathPrintableDoc;
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
 	 *  every walker inside the engine agrees on the same snapshot. */
 	private tree: FieldTreeNode[];
@@ -101,6 +120,7 @@ export class FormEngine {
 		this.formType = input.form.type;
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		this.printDoc = printableDocOf(input);
 
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
@@ -110,7 +130,7 @@ export class FormEngine {
 		}
 
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree);
+		this.dag.build(this.tree, this.printDoc);
 
 		/* Build initial states, apply defaults, and evaluate all expressions.
 		 * The results are written to the Zustand store in one atomic setState. */
@@ -554,8 +574,9 @@ export class FormEngine {
 	 */
 	rebuildDag(input: FormEngineInput): void {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		this.printDoc = printableDocOf(input);
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree);
+		this.dag.build(this.tree, this.printDoc);
 	}
 
 	/**
@@ -612,11 +633,8 @@ export class FormEngine {
 		}
 
 		/* Initialize runtime state */
-		const withReq = field as Field & {
-			required?: string;
-			default_value?: string;
-		};
-		const isRequired = withReq.required === "true()";
+		const isRequired =
+			expressionSource(field, "required", this.printDoc) === "true()";
 		const state: FieldState = {
 			path,
 			value: this.instance.get(path) ?? "",
@@ -628,9 +646,14 @@ export class FormEngine {
 		this.store.setState({ [path]: state });
 
 		/* Apply default value if present */
-		if (withReq.default_value) {
+		const defaultValue = expressionSource(
+			field,
+			"default_value",
+			this.printDoc,
+		);
+		if (defaultValue) {
 			const ctx = this.createEvalContext(path);
-			const result = evaluate(withReq.default_value, ctx);
+			const result = evaluate(defaultValue, ctx);
 			const value = xpathToString(result);
 			if (value && value !== "false") {
 				this.instance.set(path, value);
@@ -705,10 +728,14 @@ export class FormEngine {
 	 * Used when a field's default_value changes in the blueprint.
 	 */
 	reevaluateDefault(path: string, field: Field): void {
-		const withDef = field as Field & { default_value?: string };
-		if (withDef.default_value) {
+		const defaultValue = expressionSource(
+			field,
+			"default_value",
+			this.printDoc,
+		);
+		if (defaultValue) {
 			const ctx = this.createEvalContext(path);
-			const result = evaluate(withDef.default_value, ctx);
+			const result = evaluate(defaultValue, ctx);
 			const value = xpathToString(result);
 			if (value && value !== "false") {
 				this.instance.set(path, value);
@@ -805,6 +832,7 @@ export class FormEngine {
 		this.formType = input.form.type;
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		this.printDoc = printableDocOf(input);
 
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
@@ -814,7 +842,7 @@ export class FormEngine {
 		}
 
 		this.dag = new TriggerDag();
-		this.dag.build(this.tree);
+		this.dag.build(this.tree, this.printDoc);
 
 		/* Capture old store state BEFORE rebuilding. After rebuild + evaluate +
 		 * restore, we diff old vs new and only write paths that actually changed.
@@ -998,9 +1026,14 @@ export class FormEngine {
 					if (f) {
 						const resolve = (exprStr: string): string =>
 							xpathToString(evaluate(exprStr, ctx));
-						const withLabels = f as Field & { label?: string; hint?: string };
-						const rl = resolveLabel(withLabels.label, resolve);
-						const rh = resolveLabel(withLabels.hint, resolve);
+						const rl = resolveLabel(
+							expressionSource(f, "label", this.printDoc),
+							resolve,
+						);
+						const rh = resolveLabel(
+							expressionSource(f, "hint", this.printDoc),
+							resolve,
+						);
 						if (rl !== resolvedLabel || rh !== resolvedHint) {
 							resolvedLabel = rl;
 							resolvedHint = rh;
@@ -1082,12 +1115,12 @@ export class FormEngine {
 		const ctx = this.createEvalContext(path);
 		const result = evaluate(validationExpr.expr, ctx);
 		const valid = toBoolean(result);
-		const field = this.findField(path) as
-			| (Field & { validate_msg?: string })
-			| undefined;
+		const field = this.findField(path);
 		const errorMessage = valid
 			? undefined
-			: (field?.validate_msg ?? "Invalid value");
+			: ((field
+					? expressionSource(field, "validate_msg", this.printDoc)
+					: undefined) ?? "Invalid value");
 
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
 			updates[path] = { ...state, valid, errorMessage };
@@ -1132,12 +1165,11 @@ export class FormEngine {
 					this.initStatesInto(states, node.children, childPrefix);
 				}
 			} else {
-				const withReq = f as Field & { required?: string };
 				states[path] = {
 					path,
 					value: this.instance.get(path) ?? "",
 					visible: true,
-					required: withReq.required === "true()",
+					required: expressionSource(f, "required", this.printDoc) === "true()",
 					valid: true,
 					touched: false,
 				};
@@ -1154,10 +1186,10 @@ export class FormEngine {
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const withDef = f as Field & { default_value?: string };
-			if (withDef.default_value) {
+			const defaultValue = expressionSource(f, "default_value", this.printDoc);
+			if (defaultValue) {
 				const ctx = this.createEvalContext(path);
-				const result = evaluate(withDef.default_value, ctx);
+				const result = evaluate(defaultValue, ctx);
 				const value = xpathToString(result);
 				if (value && value !== "false") {
 					this.instance.set(path, value);

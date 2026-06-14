@@ -1,10 +1,10 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { motion } from "motion/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
-import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
+import { EditableTitle } from "@/components/builder/EditableTitle";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
@@ -32,7 +32,7 @@ interface ModuleScreenProps {
 export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const { updateModule } = useBlueprintMutations();
+	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
@@ -56,17 +56,15 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 		}
 	}, [redirectToCaseList, moduleUuid, navigate]);
 
-	const [saved, setSaved] = useState(false);
+	/* Forward the gated dispatch's outcome — a rename the commit gate
+	 * refuses (e.g. duplicating another module's name) keeps the editor
+	 * open with the draft and surfaces the finding inline; the saved
+	 * checkmark only fires on a committed rename. */
 	const saveModuleName = useCallback(
-		(name: string) => {
-			if (moduleUuid) updateModule(moduleUuid, { name });
-		},
-		[updateModule, moduleUuid],
+		(name: string) =>
+			moduleUuid ? inline.updateModule(moduleUuid, { name }) : undefined,
+		[inline, moduleUuid],
 	);
-	const handleSaved = useCallback(() => {
-		setSaved(true);
-		setTimeout(() => setSaved(false), 1500);
-	}, []);
 
 	if (!mod) return null;
 	/* Suppress the form-menu flash while the redirect above navigates away. */
@@ -79,15 +77,10 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 		<ContentFrame width="5xl" className="p-6 space-y-4">
 			<div className="flex items-center gap-2">
 				{canEdit ? (
-					<EditableTitle
-						value={mod.name}
-						onSave={saveModuleName}
-						onSaved={handleSaved}
-					/>
+					<EditableTitle value={mod.name} onSave={saveModuleName} />
 				) : (
 					<EditableTitle value={mod.name} readOnly />
 				)}
-				<SavedCheck visible={saved} />
 				{/* Module-settings gear — the module-level analog of
 				 *  `FormScreen`'s `FormSettingsButton` on the form header.
 				 *  Edit-mode only (matches the form-header gate) and only once

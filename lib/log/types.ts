@@ -104,7 +104,8 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		error: classifiedErrorPayloadSchema,
 	}),
 	/* Validation-attempt annotation — emitted at the start of each CommCare
-	 * validation round by `validateAndFix`. `attempt` is 1-indexed; `errors`
+	 * validation round by the retired validate-fix loop — retained so
+	 * historical runs still replay/render. `attempt` is 1-indexed; `errors`
 	 * carries the human-readable errorToString results so a log reader can
 	 * pair the errors with the fix:attempt-N mutations that follow. */
 	z.object({

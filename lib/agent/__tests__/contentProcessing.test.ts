@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { asUuid, type CaseType, fieldKinds } from "@/lib/domain";
+import {
+	asUuid,
+	type CaseType,
+	fieldKinds,
+	opaqueXPathExpression,
+} from "@/lib/domain";
 import {
 	applyDefaults,
 	type FlatField,
@@ -254,7 +259,11 @@ describe("flatFieldToField — totality + failure reasons", () => {
 	it("assembles a valid Field for every kind", () => {
 		for (const kind of fieldKinds) {
 			const processed = applyDefaults(stripEmpty(validFlatPayload(kind)), null);
-			const result = flatFieldToField(processed, TEST_UUID);
+			const result = flatFieldToField(
+				processed,
+				TEST_UUID,
+				opaqueXPathExpression,
+			);
 			expect(result.ok, `kind ${kind} did not assemble`).toBe(true);
 		}
 	});
@@ -284,6 +293,7 @@ describe("flatFieldToField — totality + failure reasons", () => {
 			const result = flatFieldToField(
 				applyDefaults(stripEmpty(c), null),
 				TEST_UUID,
+				opaqueXPathExpression,
 			);
 			expect(result.ok, `${c.id} did not assemble`).toBe(true);
 		}
@@ -296,6 +306,7 @@ describe("flatFieldToField — totality + failure reasons", () => {
 		const result = flatFieldToField(
 			{ id: "t", kind: "text", label: "T", calculate: "today()" } as FlatField,
 			TEST_UUID,
+			opaqueXPathExpression,
 		);
 		expect(result.ok).toBe(true);
 		if (result.ok) {
@@ -313,6 +324,7 @@ describe("flatFieldToField — totality + failure reasons", () => {
 				options: [{ value: "a", label: "A" }],
 			} as FlatField,
 			TEST_UUID,
+			opaqueXPathExpression,
 		);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {

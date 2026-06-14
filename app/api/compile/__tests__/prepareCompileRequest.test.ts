@@ -1,13 +1,14 @@
 /**
  * `prepareCompileRequest` — the shared front half of the two export routes
- * (`/api/compile` + `/api/compile/json`). The route tests cover its media-gate
- * and success paths end-to-end; this file covers the two failure boundaries
- * neither route test reaches — `doc is required` and `Invalid doc` — because a
- * regression in either now breaks BOTH endpoints at once (that's the whole
- * reason the preamble was extracted into one place).
+ * (`/api/compile` + `/api/compile/json`). The route tests cover its boundary-
+ * gate and success paths end-to-end; this file covers the failure boundaries
+ * neither route test reaches — `doc is required`, `Invalid doc`, and the
+ * boundary-rejection envelope — because a regression in any now breaks BOTH
+ * endpoints at once (that's the whole reason the preamble was extracted into
+ * one place).
  *
- * Boundaries mocked: `requireSession`, the media gate, and the manifest. The
- * real `blueprintDocSchema` runs against a `buildDoc` fixture.
+ * Boundaries mocked: `requireSession`, the boundary gate, and the manifest.
+ * The real `blueprintDocSchema` runs against a `buildDoc` fixture.
  */
 
 import type { NextRequest } from "next/server";
@@ -16,13 +17,13 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { ApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { validationError } from "@/lib/commcare/validator/errors";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 import { prepareCompileRequest } from "../prepareCompileRequest";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/media/mediaValidation", () => ({
-	collectMediaValidationErrors: vi.fn(),
+vi.mock("@/lib/media/boundaryValidation", () => ({
+	collectBoundaryViolations: vi.fn(),
 }));
 vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
 
@@ -65,27 +66,27 @@ function reqWith(body: unknown) {
 
 beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
-	vi.mocked(collectMediaValidationErrors).mockResolvedValue([]);
+	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 });
 
 describe("prepareCompileRequest", () => {
 	it("throws a 400 ApiError when the body carries no doc", async () => {
 		const err = await prepareCompileRequest(reqWith({}), {
-			mediaErrorVerb: "compile",
+			boundaryErrorVerb: "compile",
 		}).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ApiError);
 		expect((err as ApiError).status).toBe(400);
 		expect((err as ApiError).message).toBe("doc is required");
-		// The schema parse + media I/O must not run on a missing doc.
-		expect(collectMediaValidationErrors).not.toHaveBeenCalled();
+		// The schema parse + gate I/O must not run on a missing doc.
+		expect(collectBoundaryViolations).not.toHaveBeenCalled();
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
 
 	it("throws a 400 ApiError with per-issue details for a schema-invalid doc", async () => {
 		const err = await prepareCompileRequest(reqWith({ doc: { appName: 42 } }), {
-			mediaErrorVerb: "compile",
+			boundaryErrorVerb: "compile",
 		}).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ApiError);
@@ -94,11 +95,17 @@ describe("prepareCompileRequest", () => {
 		// Each issue is surfaced as a `path: message` detail line, not swallowed.
 		expect((err as ApiError).details.length).toBeGreaterThan(0);
 		expect((err as ApiError).details[0]).toContain(":");
-		expect(collectMediaValidationErrors).not.toHaveBeenCalled();
+		expect(collectBoundaryViolations).not.toHaveBeenCalled();
 	});
 
-	it("throws a 400 whose message carries the caller's verb when media is stale", async () => {
-		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+	it("throws a 422 carrying the caller's verb + per-finding details on a boundary rejection", async () => {
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
+			validationError(
+				"EMPTY_FORM",
+				"form",
+				'"Reg" in "Patients" has no fields.',
+				{ formName: "Reg" },
+			),
 			validationError("MEDIA_KIND_MISMATCH", "field", "stale ref", {
 				formName: "Reg",
 				fieldId: "case_name",
@@ -107,13 +114,22 @@ describe("prepareCompileRequest", () => {
 
 		const compileErr = await prepareCompileRequest(
 			reqWith({ doc: validDoc() }),
-			{ mediaErrorVerb: "compile" },
+			{ boundaryErrorVerb: "compile" },
 		).catch((e) => e);
+		expect(compileErr).toBeInstanceOf(ApiError);
+		expect((compileErr as ApiError).status).toBe(422);
 		expect((compileErr as ApiError).message).toBe(
-			"This app references media that isn't ready to compile.",
+			"This app isn't ready to compile — fix the issues below, then try again.",
 		);
+		// One detail line per finding, rendered in the CONCISE builder
+		// voice (`userFacingError`) — not the verbose validator message the
+		// SA reads. Each line names the finding's entity, no wire detail.
+		expect((compileErr as ApiError).details).toEqual([
+			'"Reg" doesn\'t have any fields yet. Add at least one.',
+			"An attached file is the wrong type for its slot. Swap it out, or clear the slot.",
+		]);
 
-		vi.mocked(collectMediaValidationErrors).mockResolvedValueOnce([
+		vi.mocked(collectBoundaryViolations).mockResolvedValueOnce([
 			validationError("MEDIA_KIND_MISMATCH", "field", "stale ref", {
 				formName: "Reg",
 				fieldId: "case_name",
@@ -122,11 +138,11 @@ describe("prepareCompileRequest", () => {
 		const exportErr = await prepareCompileRequest(
 			reqWith({ doc: validDoc() }),
 			{
-				mediaErrorVerb: "export",
+				boundaryErrorVerb: "export",
 			},
 		).catch((e) => e);
 		expect((exportErr as ApiError).message).toBe(
-			"This app references media that isn't ready to export.",
+			"This app isn't ready to export — fix the issues below, then try again.",
 		);
 
 		// The gate short-circuits before manifest resolution either way.
@@ -135,7 +151,7 @@ describe("prepareCompileRequest", () => {
 
 	it("returns the parsed doc (with fieldParent rebuilt) + manifest on success", async () => {
 		const result = await prepareCompileRequest(reqWith({ doc: validDoc() }), {
-			mediaErrorVerb: "compile",
+			boundaryErrorVerb: "compile",
 		});
 
 		expect(result.doc.appName).toBe("Vaccine Tracker");

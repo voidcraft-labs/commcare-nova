@@ -33,9 +33,11 @@ export const FORM_A = asUuid("33333333-3333-3333-3333-333333333333");
 
 /**
  * Minimal `BlueprintDoc` with one `patient` case-carrying module
- * + one registration form. The case type carries one property
- * (`case_name`) so predicate-shape fixtures can target a real
- * property without inventing one in every test.
+ * + one registration form. The case type declares every property the
+ * per-tool tests reference (columns, filters, and search inputs must
+ * name declared case properties or the commit gate rejects the batch —
+ * the same admission set `caseRefAcceptMap` reads), so the fixtures
+ * exercise tool behavior with valid authoring inputs.
  */
 export function makeCaseListDoc(): BlueprintDoc {
 	const mod: Module = {
@@ -57,7 +59,16 @@ export function makeCaseListDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: "Full name" }],
+				properties: [
+					{ name: "case_name", label: "Full name" },
+					{ name: "name", label: "Name" },
+					{ name: "phone", label: "Phone" },
+					{ name: "dob", label: "Date of birth", data_type: "date" },
+					{ name: "last_visit", label: "Last visit", data_type: "date" },
+					{ name: "region_code", label: "Region code" },
+					{ name: "region", label: "Region" },
+					{ name: "status", label: "Status" },
+				],
 			},
 		],
 		modules: { [MOD_A]: mod },

@@ -38,6 +38,31 @@ export interface XPathError {
 	message: string;
 	position?: number;
 	/**
+	 * For `INVALID_REF` on a `/data/...` path: the unknown path itself,
+	 * carried structurally so the deep walk can match it against the
+	 * slot's stored expression AST (`storedRef` below) without parsing
+	 * `message` back apart.
+	 */
+	ref?: string;
+	/**
+	 * For `INVALID_REF`: how the failing reference is STORED in the
+	 * slot's expression AST, when the deep walk could classify it.
+	 * Drives the runner's repair prose — these two shapes need a
+	 * different fix than a typo:
+	 *
+	 *   - `"raw-text"` — the slot holds the reference as plain text (a
+	 *     migrated legacy leaf that never re-resolved), so it doesn't
+	 *     follow its field through renames; re-committing the
+	 *     expression is the repair.
+	 *   - `"dangling-identity"` — the slot tracks a field directly and
+	 *     that field no longer exists; the printed text shows an
+	 *     internal id, not a path a person can look up.
+	 *
+	 * Set by `validateBlueprintDeep`'s slot walk — `validateXPath`
+	 * itself sees only printed text and never sets it.
+	 */
+	storedRef?: "raw-text" | "dangling-identity";
+	/**
 	 * For `INVALID_REF` on a `/data/...` path: the existing field path(s)
 	 * whose leaf id matches the unknown reference's leaf — the classic
 	 * "you wrote the bare id, but the field lives inside a group" mistake.
@@ -165,6 +190,7 @@ export function validateXPath(
 				errors.push({
 					code: "INVALID_REF",
 					message: `References unknown field path "${ref}"`,
+					ref,
 					...(suggestions.length > 0 && { suggestions }),
 				});
 			}

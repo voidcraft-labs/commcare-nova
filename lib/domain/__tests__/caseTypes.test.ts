@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "../blueprint";
 import {
+	caseDataTypeForFieldKind,
 	caseRefAcceptMap,
 	getModuleCaseTypes,
 	reachableCaseTypes,
 	toReachableIndex,
 } from "../caseTypes";
+import type { FieldKind } from "../fields";
 
 const prop = (name: string) => ({ name, label: name });
 const TYPES: CaseType[] = [
@@ -135,5 +137,17 @@ describe("caseRefAcceptMap — form-type narrowing", () => {
 		const index = toReachableIndex(reachableCaseTypes("pregnancy", TYPES));
 		const accept = caseRefAcceptMap(index, "survey");
 		expect(accept.size).toBe(0);
+	});
+});
+
+describe("caseDataTypeForFieldKind — defensive default arm", () => {
+	it("returns undefined for an unknown kind off an untyped boundary, never the raw string", () => {
+		// A corrupted persisted doc / historical replay can carry a kind
+		// outside the union. The defensive arm must report "no pinned data
+		// type" (undefined) — returning the raw kind string would launder
+		// it into the catalog as a data_type outside the
+		// CasePropertyDataType union (ensureCatalogProperty guards on
+		// `!== undefined` only).
+		expect(caseDataTypeForFieldKind("bogus" as FieldKind)).toBeUndefined();
 	});
 });

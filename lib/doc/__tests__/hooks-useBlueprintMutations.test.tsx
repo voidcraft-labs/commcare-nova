@@ -27,12 +27,16 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
-import { assert, describe, expect, it } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
+import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
-import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import {
+	type AddCommitOutcome,
+	useBlueprintMutations,
+} from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	useOrderedForms,
 	useOrderedModules,
@@ -46,7 +50,7 @@ import {
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { asAssetId, type FieldKind } from "@/lib/domain";
-import { log } from "@/lib/logger";
+import { toastStore } from "@/lib/ui/toastStore";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 // Declared here (not inside the fixture) so tests can reference them
@@ -125,6 +129,8 @@ const bp: BlueprintDoc = {
 	fieldParent: {},
 };
 
+/** Every dispatch runs the one commit gate — the wrapper is just the
+ *  doc-store provider. */
 function wrapper({ children }: { children: ReactNode }) {
 	return (
 		<BlueprintDocProvider appId="t" initialDoc={bp}>
@@ -294,7 +300,7 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
-		let returned: Uuid = "" as Uuid;
+		let returned = { ok: false, messages: [] } as AddCommitOutcome;
 		act(() => {
 			const formUuid = getFormUuid(result.current.store);
 			returned = result.current.mutations.addField(formUuid, {
@@ -304,11 +310,12 @@ describe("useBlueprintMutations", () => {
 			});
 		});
 
-		// Returned value is a uuid (non-empty string) and matches the newly
-		// inserted field in the form's children.
-		expect(returned).toMatch(/[0-9a-f-]/);
+		// The outcome carries the minted uuid, matching the newly inserted
+		// field in the form's children.
+		assert(returned.ok);
+		expect(returned.uuid).toMatch(/[0-9a-f-]/);
 		const inserted = result.current.children.find((q) => q.id === "d");
-		expect(inserted?.uuid).toBe(returned);
+		expect(inserted?.uuid).toBe(returned.uuid);
 	});
 
 	it("addField with parentUuid inserts into a group", () => {
@@ -558,9 +565,11 @@ describe("useBlueprintMutations", () => {
 			result.current.store?.temporal.getState().pastStates.length ?? 0;
 
 		act(() => {
+			/* `null` (Connect off) so the batch introduces nothing — enabling
+			 * Connect would rightly bounce on the fixture's block-less forms. */
 			result.current.mutations.updateApp({
 				app_name: "Combo",
-				connect_type: "learn",
+				connect_type: null,
 			});
 		});
 
@@ -573,12 +582,12 @@ describe("useBlueprintMutations", () => {
 
 	// ── addForm returns uuid ──────────────────────────────────────────────
 
-	it("addForm returns the new form's uuid", () => {
+	it("addForm of a bare (fieldless) form is rejected — a form lands with its content", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
-		let returned: Uuid = "" as Uuid;
+		let returned = { ok: true, uuid: "" } as unknown as AddCommitOutcome;
 		act(() => {
 			const s = result.current.store?.getState();
 			assert(s);
@@ -591,11 +600,50 @@ describe("useBlueprintMutations", () => {
 			});
 		});
 
-		expect(returned).toMatch(/[0-9a-f-]/);
+		assert(!returned.ok);
+		expect(returned.messages.length).toBeGreaterThan(0);
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.forms[returned]).toBeDefined();
-		expect(s.forms[returned].name).toBe("F2");
+		expect(s.forms[asUuid("form-3-uuid")]).toBeUndefined();
+	});
+
+	it("applyMany lands a new form together with its first field in one gated batch", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
+		act(() => {
+			const s = result.current.store?.getState();
+			assert(s);
+			const moduleUuid = s.moduleOrder[0];
+			result.current.mutations.applyMany([
+				{
+					kind: "addForm",
+					moduleUuid,
+					form: {
+						uuid: asUuid("form-3-uuid"),
+						id: "f2",
+						name: "F2",
+						type: "survey",
+					},
+				},
+				{
+					kind: "addField",
+					parentUuid: asUuid("form-3-uuid"),
+					field: {
+						uuid: asUuid("q-n-0000-0000-0000-000000000000"),
+						id: "note",
+						kind: "text",
+						label: "Note",
+					} as never,
+				},
+			]);
+		});
+
+		const s = result.current.store?.getState();
+		assert(s);
+		expect(s.forms[asUuid("form-3-uuid")]).toBeDefined();
+		expect(s.forms[asUuid("form-3-uuid")].name).toBe("F2");
 	});
 
 	// ── addModule returns uuid ────────────────────────────────────────────
@@ -605,20 +653,21 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
-		let returned: Uuid = "" as Uuid;
+		let returned = { ok: false, messages: [] } as AddCommitOutcome;
 		act(() => {
 			returned = result.current.mutations.addModule({
-				uuid: "module-1-uuid",
+				uuid: "module-2-uuid",
 				id: "m1",
 				name: "M1",
 			});
 		});
 
-		expect(returned).toMatch(/[0-9a-f-]/);
+		assert(returned.ok);
+		expect(returned.uuid).toMatch(/[0-9a-f-]/);
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.modules[returned]).toBeDefined();
-		expect(s.modules[returned].name).toBe("M1");
+		expect(s.modules[returned.uuid]).toBeDefined();
+		expect(s.modules[returned.uuid].name).toBe("M1");
 	});
 
 	// ── updateForm ────────────────────────────────────────────────────────
@@ -773,17 +822,45 @@ describe("useBlueprintMutations", () => {
 			wrapper,
 		});
 
+		/* Add a second module first — removing the app's ONLY module would
+		 * re-introduce NO_MODULES and the gate rightly rejects it (pinned
+		 * below). */
+		let secondUuid: Uuid = "" as Uuid;
+		act(() => {
+			const added = result.current.mutations.addModule({
+				id: "m1",
+				name: "M1",
+			});
+			assert(added.ok);
+			secondUuid = added.uuid;
+		});
+
+		act(() => {
+			result.current.mutations.removeModule(secondUuid);
+		});
+
+		const s = result.current.store?.getState();
+		expect(s?.modules[secondUuid]).toBeUndefined();
+		expect(s?.moduleOrder).not.toContain(secondUuid);
+	});
+
+	it("removeModule of the app's ONLY module is rejected — it would re-introduce NO_MODULES", () => {
+		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+			wrapper,
+		});
+
 		let moduleUuid: Uuid = "" as Uuid;
+		let outcome: { ok: boolean } = { ok: true };
 		act(() => {
 			const firstUuid = result.current.store?.getState().moduleOrder[0];
 			if (!firstUuid) return;
 			moduleUuid = firstUuid;
-			result.current.mutations.removeModule(moduleUuid);
+			outcome = result.current.mutations.removeModule(moduleUuid);
 		});
 
+		expect(outcome.ok).toBe(false);
 		const s = result.current.store?.getState();
-		expect(s?.modules[moduleUuid]).toBeUndefined();
-		expect(s?.moduleOrder).not.toContain(moduleUuid);
+		expect(s?.modules[moduleUuid]).toBeDefined();
 	});
 
 	// ── setCaseTypes ──────────────────────────────────────────────────────
@@ -933,9 +1010,11 @@ describe("useBlueprintMutations", () => {
 			result.current.store?.temporal.getState().pastStates.length ?? 0;
 
 		act(() => {
+			/* `null` keeps the batch introduction-free — flipping Connect ON
+			 * would rightly bounce on the fixture's block-less forms. */
 			result.current.mutations.applyMany([
 				{ kind: "setAppName", name: "Batched" },
-				{ kind: "setConnectType", connectType: "deliver" },
+				{ kind: "setConnectType", connectType: null },
 			]);
 		});
 
@@ -947,7 +1026,7 @@ describe("useBlueprintMutations", () => {
 
 		const s = result.current.store?.getState();
 		expect(s?.appName).toBe("Batched");
-		expect(s?.connectType).toBe("deliver");
+		expect(s?.connectType).toBeNull();
 	});
 
 	// ── moveField result metadata ────────────────────────────────────────
@@ -987,8 +1066,10 @@ describe("useBlueprintMutations", () => {
 
 	// ── renameQuestion xpathFieldsRewritten ──────────────────────────────
 
-	it("renameQuestion returns xpathFieldsRewritten from the reducer", () => {
-		// Use a normalized doc with xpath refs to get a nonzero rewrite count.
+	it("renameQuestion returns the reducer's rewrite metadata", () => {
+		// The dep's calculate is an identity-leaf AST — a rename rewrites
+		// NOTHING (the new name arrives at print), so the surfaced count is
+		// zero. The metadata channel itself is what this pins.
 		const MOD4 = asUuid("module-4-uuid");
 		const FORM3 = asUuid("form-3-uuid");
 		const Q_SRC = asUuid("q-src-0000-0000-0000-000000000000");
@@ -1007,13 +1088,15 @@ describe("useBlueprintMutations", () => {
 					kind: "text",
 					label: "Source",
 				} as BlueprintDoc["fields"][typeof Q_SRC],
+				// `calculate` lives on the hidden kind only — the rewrite pass
+				// walks the registry's per-kind slot projection, so the fixture
+				// puts the expression where the schema actually declares it.
 				[Q_DEP]: {
 					uuid: Q_DEP,
 					id: "dep",
-					kind: "text",
-					label: "Dep",
+					kind: "hidden",
 					calculate: "/data/source + 1",
-				} as BlueprintDoc["fields"][typeof Q_DEP],
+				} as unknown as BlueprintDoc["fields"][typeof Q_DEP],
 			},
 			moduleOrder: [MOD4],
 			formOrder: { [MOD4]: [FORM3] },
@@ -1021,7 +1104,10 @@ describe("useBlueprintMutations", () => {
 			fieldParent: {},
 		};
 		const refWrapper = ({ children }: { children: ReactNode }) => (
-			<BlueprintDocProvider appId="t" initialDoc={bpWithRefs}>
+			<BlueprintDocProvider
+				appId="t"
+				initialDoc={resolveDocExpressions(bpWithRefs)}
+			>
 				{children}
 			</BlueprintDocProvider>
 		);
@@ -1041,7 +1127,7 @@ describe("useBlueprintMutations", () => {
 		});
 
 		expect(captured.value).toBeDefined();
-		expect(captured.value?.xpathFieldsRewritten).toBeGreaterThan(0);
+		expect(captured.value?.xpathFieldsRewritten).toBe(0);
 	});
 
 	// ── moveField — extra options ─────────────────────────────────────────
@@ -1130,13 +1216,14 @@ describe("useBlueprintMutations", () => {
 		it("no-ops silently when uuid is unknown", () => {
 			// An unrecognized uuid must not throw and must leave the store
 			// unchanged — matches the fail-open contract the other mutation
-			// methods follow. The hook's JSDoc also promises a `log.warn` on
-			// every unresolved uuid; that warning is the ONLY observability
-			// the fail-open contract offers, so we assert on the globally
-			// mocked logger here to lock the contract against a future
-			// refactor dropping the `warnUnresolved` call. (The logger mock
-			// lives in `vitest.setup.ts`; `clearMocks` wipes prior calls
-			// before this test runs.)
+			// methods follow. The hook also promises a `console.warn` on
+			// every unresolved uuid (`console`, NOT the structured logger:
+			// this hook is client-only and the logger's production path
+			// throws in the browser). That warning is the ONLY observability
+			// the fail-open contract offers, so we spy on it here to lock
+			// the contract against a future refactor dropping the
+			// `warnUnresolved` call.
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 				wrapper,
 			});
@@ -1165,7 +1252,7 @@ describe("useBlueprintMutations", () => {
 			// Lock the fail-open contract: the warn must fire and include both
 			// `uuid` and `toKind` so a dev debugging a silent no-op can tell
 			// which call site produced it.
-			expect(log.warn).toHaveBeenCalledWith(
+			expect(warn).toHaveBeenCalledWith(
 				expect.stringContaining(
 					"[useBlueprintMutations.convertField] unresolved uuid",
 				),
@@ -1174,12 +1261,16 @@ describe("useBlueprintMutations", () => {
 					toKind: "secret",
 				}),
 			);
+			warn.mockRestore();
 		});
 	});
 
 	// ── Unresolved uuid no-op ─────────────────────────────────────────────
 
 	it("unresolved uuid silently no-ops (no throw)", () => {
+		// Every unresolved dispatch console.warns; silence the expected
+		// noise while keeping the no-throw + unchanged-store assertions.
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
@@ -1215,8 +1306,102 @@ describe("useBlueprintMutations", () => {
 				});
 			});
 		}).not.toThrow();
+		warn.mockRestore();
 
 		// Store should be unchanged.
 		expect(result.current.children.map((q) => q.id)).toEqual(["a", "b", "grp"]);
+	});
+});
+
+// ── Commit gate (complete phase) ──────────────────────────────────────────
+//
+// The dedicated gating coverage. The
+// verdict semantics themselves are pinned in
+// `lib/doc/__tests__/commitVerdicts.test.ts`; what must hold HERE is the
+// hook wiring — a rejected dispatch never reaches the store, the method
+// returns its no-op shape, and the rejection surfaces as an error toast.
+
+describe("useBlueprintMutations — commit gate", () => {
+	it("rejects an edit that would introduce a finding: store untouched, no-op return, error toast", () => {
+		toastStore.clear();
+		const { result } = renderHook(() => useMutationsWithStore(), {
+			wrapper: wrapper,
+		});
+
+		let returned = { ok: true, uuid: "unset" as Uuid } as AddCommitOutcome;
+		act(() => {
+			const s = result.current.store?.getState();
+			assert(s);
+			// An empty survey form on a complete app introduces EMPTY_FORM —
+			// the ratchet rejects it.
+			returned = result.current.mutations.addForm(s.moduleOrder[0], {
+				uuid: "form-gated-uuid",
+				id: "gated",
+				name: "Gated",
+				type: "survey",
+			});
+		});
+
+		// The rejection is honest — no fabricated uuid, the findings ride
+		// along for inline display.
+		assert(!returned.ok);
+		expect(returned.messages[0]).toContain("doesn't have any fields");
+		const s = result.current.store?.getState();
+		expect(s?.forms[asUuid("form-gated-uuid")]).toBeUndefined();
+		// The rejection surfaced person-to-person, not silently — each
+		// finding rides the toast's structured lines.
+		const toast = toastStore.toasts.at(-1);
+		expect(toast?.severity).toBe("error");
+		expect(toast?.title).toBe("Change not applied");
+		expect(toast?.lines?.[0]).toContain("doesn't have any fields");
+		toastStore.clear();
+	});
+
+	it("inline flavor: same rejection, same no-op return, NO toast (the caller presents it)", () => {
+		toastStore.clear();
+		const { result } = renderHook(() => useMutationsWithStore(), {
+			wrapper: wrapper,
+		});
+
+		let returned = { ok: true, uuid: "unset" as Uuid } as AddCommitOutcome;
+		act(() => {
+			const s = result.current.store?.getState();
+			assert(s);
+			returned = result.current.mutations.inline.addForm(s.moduleOrder[0], {
+				uuid: "form-gated-inline-uuid",
+				id: "gated_inline",
+				name: "Gated Inline",
+				type: "survey",
+			});
+		});
+
+		// Identical gate semantics — findings returned for the caller's
+		// contextual surface…
+		assert(!returned.ok);
+		expect(returned.messages[0]).toContain("doesn't have any fields");
+		const s = result.current.store?.getState();
+		expect(s?.forms[asUuid("form-gated-inline-uuid")]).toBeUndefined();
+		// …and the toast stays quiet: one rejection, one presentation.
+		expect(toastStore.toasts).toHaveLength(0);
+	});
+
+	it("dispatches a clean edit unchanged (the gate is transparent on pass)", () => {
+		toastStore.clear();
+		const { result } = renderHook(() => useMutationsWithStore(), {
+			wrapper: wrapper,
+		});
+
+		act(() => {
+			const s = result.current.store?.getState();
+			assert(s);
+			result.current.mutations.updateModule(s.moduleOrder[0], {
+				name: "Renamed Module",
+			});
+		});
+
+		const s = result.current.store?.getState();
+		assert(s);
+		expect(s.modules[s.moduleOrder[0]]?.name).toBe("Renamed Module");
+		expect(toastStore.toasts).toHaveLength(0);
 	});
 });

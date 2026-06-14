@@ -25,14 +25,14 @@
  *    boot — the same prompt the web flow's `/api/chat` edit mode uses,
  *    single source of truth. Build callers pass `undefined`; edit
  *    callers pass the loaded blueprint. Empty docs
- *    (`moduleOrder.length === 0`) fall back to the build prompt because
- *    there's nothing to edit yet — matches the web flow's degenerate
- *    case fallthrough.
+ *    (`moduleOrder.length === 0`) fall back to the build prompt inside
+ *    the renderer — there's nothing to edit yet, so the planning flow
+ *    is the right boot.
  *
  * **Tool-name vocabulary.** `EDIT_PREAMBLE` and `SHARED_TAIL` in
  * `lib/agent/prompts.ts` reference the SA's camelCase tool names
- * (`searchBlueprint`, `validateApp`). The MCP surface exposes the same
- * tools under snake_case (`search_blueprint`, `validate_app`). The
+ * (`searchBlueprint`, `createModule`). The MCP surface exposes the same
+ * tools under snake_case (`search_blueprint`, `create_module`). The
  * model resolves the two by name at call time.
  */
 
@@ -109,9 +109,11 @@ tool is not available to you in this mode.`,
  * surface drift.
  *
  * Build callers pass `undefined` (or omit `editDoc`); edit callers
- * pass the loaded blueprint. Empty docs (`moduleOrder.length === 0`)
- * intentionally fall back to the build prompt — `buildSolutionsArchitectPrompt`'s
- * degenerate-edit branch delivers the build framing instead.
+ * pass the loaded blueprint when the app is COMPLETE (the status-keyed
+ * fork lives in `get_agent_prompt`). Empty docs
+ * (`moduleOrder.length === 0`) intentionally fall back to the build
+ * prompt — `buildSolutionsArchitectPrompt`'s degenerate-edit branch
+ * delivers the build framing instead.
  */
 export function renderAgentPrompt(
 	interactive: boolean,

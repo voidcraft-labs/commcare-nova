@@ -29,6 +29,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { renderAgentPrompt } from "../prompts";
@@ -72,7 +73,7 @@ function fixturePopulatedDoc(): BlueprintDoc {
 				id: "patient_name",
 				kind: "text",
 				label: "Patient Name",
-				required: "true()",
+				required: xp("true()"),
 			},
 		},
 		moduleOrder: [modUuid],

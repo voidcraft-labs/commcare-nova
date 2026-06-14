@@ -107,27 +107,50 @@ interface InitiateResponse {
 	expiresAtMs?: number;
 }
 
+/** Options for `uploadMediaAsset`. Both serve the staged-slot flow: the
+ *  slot chip shows real byte progress and its cancel aborts the transfer. */
+export interface UploadMediaOptions {
+	/** Abort the whole flow (hash / initiate / PUT / confirm). The promise
+	 *  rejects with an `AbortError` `DOMException`, matching fetch. */
+	signal?: AbortSignal;
+	/** Byte-level progress of the storage PUT, 0..1. Supplying this routes
+	 *  the PUT through `XMLHttpRequest` — fetch exposes no upload-progress
+	 *  events. The dedup fast path never PUTs, so it reports nothing. */
+	onProgress?: (fraction: number) => void;
+}
+
 /**
  * Run the full client-side upload: hash → initiate → (PUT bytes →
  * confirm) and resolve to the stored asset. On a dedup hit the
  * server returns the existing asset and the PUT/confirm steps are
- * skipped entirely.
+ * skipped entirely. The resolved asset is always `ready` — confirm is
+ * what flips the row — so a caller can hand its id straight to an
+ * attach.
  *
  * Throws an `Error` carrying the server's Elm-shaped message on any
  * rejection, so the caller can surface it verbatim.
  */
-export async function uploadMediaAsset(file: File): Promise<MediaAssetView> {
+export async function uploadMediaAsset(
+	file: File,
+	options: UploadMediaOptions = {},
+): Promise<MediaAssetView> {
+	const { signal, onProgress } = options;
 	const contentHash = await sha256Hex(file);
-	const initiate = await postJson<InitiateResponse>("/api/media/upload", {
-		filename: file.name,
-		// Browsers set `File.type` unreliably (empty / `application/octet-stream`
-		// for `.md` and some office files), and the initiate route validates the
-		// claim — so derive a usable MIME from the extension when the browser's is
-		// missing. Confirm re-derives the authoritative type from the bytes anyway.
-		mimeType: resolveUploadMimeType(file.type, file.name),
-		sizeBytes: file.size,
-		contentHash,
-	});
+	signal?.throwIfAborted();
+	const initiate = await postJson<InitiateResponse>(
+		"/api/media/upload",
+		{
+			filename: file.name,
+			// Browsers set `File.type` unreliably (empty / `application/octet-stream`
+			// for `.md` and some office files), and the initiate route validates the
+			// claim — so derive a usable MIME from the extension when the browser's is
+			// missing. Confirm re-derives the authoritative type from the bytes anyway.
+			mimeType: resolveUploadMimeType(file.type, file.name),
+			sizeBytes: file.size,
+			contentHash,
+		},
+		signal,
+	);
 
 	if (initiate.deduplicated) {
 		if (!initiate.asset) {
@@ -146,23 +169,95 @@ export async function uploadMediaAsset(file: File): Promise<MediaAssetView> {
 
 	// PUT the bytes straight to GCS. The `Content-Type` MUST match the
 	// value the signed URL was bound to (the server's normalized MIME),
-	// not the raw `file.type`, or GCS rejects the signature.
-	const putRes = await fetch(initiate.uploadUrl, {
-		method: "PUT",
-		headers: { "Content-Type": initiate.uploadContentType },
-		body: file,
-	});
-	if (!putRes.ok) {
-		throw new Error(
-			`The file couldn't be uploaded to storage (status ${putRes.status}). Check your connection and try again.`,
-		);
+	// not the raw `file.type`, or GCS rejects the signature. With a
+	// progress callback the PUT rides XHR (fetch can't observe upload
+	// bytes); without one, plain fetch.
+	if (onProgress) {
+		await putBytesWithProgress(initiate.uploadUrl, initiate.uploadContentType, {
+			body: file,
+			signal,
+			onProgress,
+		});
+	} else {
+		const putRes = await fetch(initiate.uploadUrl, {
+			method: "PUT",
+			headers: { "Content-Type": initiate.uploadContentType },
+			body: file,
+			signal,
+		});
+		if (!putRes.ok) {
+			throw new Error(
+				`The file couldn't be uploaded to storage (status ${putRes.status}). Check your connection and try again.`,
+			);
+		}
 	}
 
 	const confirmed = await postJson<{ ok: true; asset: MediaAssetView }>(
 		`/api/media/upload/${initiate.assetId}/confirm`,
 		undefined,
+		signal,
 	);
 	return confirmed.asset;
+}
+
+/**
+ * PUT a blob via `XMLHttpRequest`, reporting upload-byte progress —
+ * the one capability fetch lacks. Abort via `signal` rejects with an
+ * `AbortError` `DOMException` so callers branch on cancellation the
+ * same way they would for an aborted fetch.
+ */
+function putBytesWithProgress(
+	url: string,
+	contentType: string,
+	opts: {
+		body: Blob;
+		signal?: AbortSignal;
+		onProgress: (fraction: number) => void;
+	},
+): Promise<void> {
+	return new Promise<void>((resolve, reject) => {
+		if (opts.signal?.aborted) {
+			reject(new DOMException("The upload was canceled.", "AbortError"));
+			return;
+		}
+		const xhr = new XMLHttpRequest();
+		const onAbort = () => xhr.abort();
+		const cleanup = () => opts.signal?.removeEventListener("abort", onAbort);
+		opts.signal?.addEventListener("abort", onAbort, { once: true });
+
+		xhr.open("PUT", url);
+		xhr.setRequestHeader("Content-Type", contentType);
+		xhr.upload.onprogress = (e) => {
+			if (e.lengthComputable && e.total > 0) {
+				opts.onProgress(e.loaded / e.total);
+			}
+		};
+		xhr.onload = () => {
+			cleanup();
+			if (xhr.status >= 200 && xhr.status < 300) {
+				resolve();
+			} else {
+				reject(
+					new Error(
+						`The file couldn't be uploaded to storage (status ${xhr.status}). Check your connection and try again.`,
+					),
+				);
+			}
+		};
+		xhr.onerror = () => {
+			cleanup();
+			reject(
+				new Error(
+					"The file couldn't be uploaded to storage. Check your connection and try again.",
+				),
+			);
+		};
+		xhr.onabort = () => {
+			cleanup();
+			reject(new DOMException("The upload was canceled.", "AbortError"));
+		};
+		xhr.send(opts.body);
+	});
 }
 
 /**
@@ -305,6 +400,41 @@ export async function fetchMediaLibrary(
 	return res.json();
 }
 
+/** Ids per resolve request — keeps the repeated-`id` URL well under
+ *  request-header limits; the server caps the per-request total anyway. */
+const RESOLVE_IDS_CHUNK = 50;
+
+/**
+ * Resolve specific asset ids to their wire rows — the library route's
+ * resolve mode (repeated `?id=`). Owner-filtered server-side: a missing
+ * or foreign id is simply absent from the result, never an error. The
+ * attach budget check uses this to learn the byte sizes of referenced
+ * assets this session hasn't otherwise loaded. Chunked so a
+ * reference-heavy doc can't overflow a request URL.
+ */
+export async function fetchAssetsByIds(
+	ids: readonly string[],
+): Promise<MediaAssetView[]> {
+	const unique = [...new Set(ids)];
+	const out: MediaAssetView[] = [];
+	for (let i = 0; i < unique.length; i += RESOLVE_IDS_CHUNK) {
+		const params = new URLSearchParams();
+		for (const id of unique.slice(i, i + RESOLVE_IDS_CHUNK)) {
+			params.append("id", id);
+		}
+		const res = await fetch(`/api/media/library?${params.toString()}`);
+		if (!res.ok) {
+			throw await errorFromResponse(
+				res,
+				"Couldn't look up the attached files' details.",
+			);
+		}
+		const page = (await res.json()) as MediaLibraryPage;
+		out.push(...page.assets);
+	}
+	return out;
+}
+
 /**
  * Delete an asset from the owner's library. Resolves on success (the route
  * returns 204); throws with the server's message on a refusal — a 409 when the
@@ -320,9 +450,14 @@ export async function deleteMediaAsset(assetId: string): Promise<void> {
 }
 
 /** POST JSON (or an empty body) and parse the JSON response, mapping a non-2xx to the server's message. */
-async function postJson<T>(url: string, body: unknown): Promise<T> {
+async function postJson<T>(
+	url: string,
+	body: unknown,
+	signal?: AbortSignal,
+): Promise<T> {
 	const res = await fetch(url, {
 		method: "POST",
+		signal,
 		...(body === undefined
 			? {}
 			: {

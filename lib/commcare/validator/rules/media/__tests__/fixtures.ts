@@ -10,10 +10,10 @@
  * Hand-built rather than via the loader: `mediaAssetReady` asserts on
  * pending rows, which the production library list filters out — a
  * real-loader fixture for the kind/library surfaces wouldn't reach
- * those states. The validator's manifest loader
- * (`validationLoop.ts::loadManifestForLoop`) DOES include pending
- * rows, so this fixture matches production semantics for the SA
- * loop's manifest.
+ * those states. The boundary gate's manifest loader
+ * (`lib/media/boundaryValidation.ts::collectBoundaryViolations` — run
+ * by every export entry point) DOES include pending rows, so this
+ * fixture matches the manifest those rules see in production.
  */
 
 import { Timestamp } from "@google-cloud/firestore";

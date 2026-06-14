@@ -49,7 +49,9 @@ export function TextEditor<F extends Field, K extends OptionalStringKeys<F>>(
 
 	const handleSave = useCallback(
 		(next: string) => {
-			onChange(next as F[K]);
+			// Forward the gated outcome — a refused commit keeps the draft in
+			// the input and surfaces the finding inline (useCommitField).
+			return onChange(next as F[K]);
 		},
 		[onChange],
 	);

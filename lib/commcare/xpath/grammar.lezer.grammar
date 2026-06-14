@@ -81,7 +81,26 @@ expr {
 // Structured as type + path segments so consumers get named child nodes.
 // !hashtag on "/" ensures the parser continues consuming path segments
 // rather than reducing early and treating "/" as a child-step operator.
-HashtagRef { "#" HashtagType { localName } (!hashtag "/" HashtagSegment { localName })+ }
+// A hashtag is one CONTIGUOUS span ("# form/x" / "#form/ x" / "#form /x"
+// are not refs), matching the regex matchers built from
+// lib/domain/hashtagSegments.ts (divergence-corpus test enforced). The
+// grammar skips whitespace between any two tokens and an open-ended
+// skipless rule is inexpressible in LR ("inconsistent skip sets"), so
+// contiguity rides on zero-width guard tokens: the external tokenizer
+// emits one only when nothing was skipped before the current token AND
+// the lookahead can genuinely continue the ref (so the guard never wins
+// a shift the following token would then fail).
+//
+// Segments are the dedicated ASCII `hashtagName` token — NOT `localName`
+// — so a segment's full EXTENT agrees with the regex matchers'
+// `[A-Za-z_][A-Za-z0-9_-]*` charset. XPath element names (`NameTest`)
+// keep the full Unicode range; hashtag segments never had a Unicode
+// vocabulary (field ids and case properties are ASCII by the identifier
+// rules), and a wider token here made this matcher claim a longer ref
+// than the regex layers could find.
+@external tokens hashtagGuard from "./hashtagGuard" { noGapIdent, noGapSlash }
+
+HashtagRef { "#" noGapIdent HashtagType { hashtagName } (!hashtag noGapSlash "/" noGapIdent HashtagSegment { hashtagName })+ }
 
 NameTest {
   name
@@ -115,6 +134,16 @@ name {
 
   localName {
     identStart identChar*
+  }
+
+  // One hashtag segment (namespace or path segment) — the ASCII charset
+  // shared with lib/domain/hashtagSegments.ts::HASHTAG_SEGMENT_SOURCE
+  // (`[A-Za-z_][A-Za-z0-9_-]*`). Deliberately narrower than `localName`:
+  // the three hashtag matchers must agree on a segment's extent.
+  hashtagIdentStart { @asciiLetter | "_" }
+
+  hashtagName {
+    hashtagIdentStart (hashtagIdentStart | @digit | "-")*
   }
 
   qualifiedName {

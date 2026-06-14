@@ -22,6 +22,12 @@
  */
 
 import type { ConnectConfig } from "@/lib/domain";
+import {
+	isXPathExpression,
+	printXPath,
+	type XPathPrintableDoc,
+	xpathPrintContext,
+} from "@/lib/domain";
 
 /**
  * Default XPath expression substituted for a Connect deliver_unit's
@@ -49,6 +55,52 @@ export const DEFAULT_DELIVER_ENTITY_ID = "concat(#user/username, '-', today())";
 export const DEFAULT_DELIVER_ENTITY_NAME = "#user/username";
 
 /**
+ * Default XPath expression substituted for a Connect assessment's
+ * `user_score` bind when the doc carries no explicit value.
+ *
+ * The literal `"100"` reads as full marks on Connect's side — the safe
+ * stance for an assessment whose author hasn't wired a real score source
+ * (typically a hidden calculated field, `#form/<hidden_score_field>`)
+ * yet: completing the form passes rather than silently failing every
+ * learner on a missing expression. Same emit-time-only fallback contract
+ * as {@link DEFAULT_DELIVER_ENTITY_ID}.
+ */
+export const DEFAULT_ASSESSMENT_USER_SCORE = "100";
+
+/**
+ * Resolve the effective `user_score` XPath expression for a Connect
+ * assessment. Returns the doc's explicit value when present and
+ * non-empty; otherwise the canonical default. The `||` (vs `??`) treats
+ * both `undefined` and `""` as absent for the same reason
+ * {@link effectiveDeliverEntities} does — a stray empty string must not
+ * produce `<bind … calculate=""/>`, which CCHQ rejects (the validator's
+ * `CONNECT_EMPTY_XPATH` catches that state as defense in depth).
+ */
+export function effectiveAssessmentUserScore(
+	assessment: NonNullable<ConnectConfig["assessment"]>,
+	doc: XPathPrintableDoc,
+): string {
+	return (
+		projectConnectXPath(assessment.user_score, doc) ||
+		DEFAULT_ASSESSMENT_USER_SCORE
+	);
+}
+
+/** Shape-driven projection of a stored Connect XPath slot: AST values
+ *  print against the doc; a legacy string (a doc read mid-migration)
+ *  reads verbatim — total either way. */
+function projectConnectXPath(
+	value: unknown,
+	doc: XPathPrintableDoc,
+): string | undefined {
+	if (typeof value === "string") return value;
+	if (isXPathExpression(value)) {
+		return printXPath(value, xpathPrintContext(doc));
+	}
+	return undefined;
+}
+
+/**
  * Resolve the effective `entity_id` / `entity_name` XPath expressions
  * for a Connect deliver_unit. Returns the doc's explicit values when
  * present and non-empty; otherwise the canonical defaults.
@@ -67,9 +119,12 @@ export const DEFAULT_DELIVER_ENTITY_NAME = "#user/username";
  */
 export function effectiveDeliverEntities(
 	du: NonNullable<ConnectConfig["deliver_unit"]>,
+	doc: XPathPrintableDoc,
 ): { entityId: string; entityName: string } {
 	return {
-		entityId: du.entity_id || DEFAULT_DELIVER_ENTITY_ID,
-		entityName: du.entity_name || DEFAULT_DELIVER_ENTITY_NAME,
+		entityId:
+			projectConnectXPath(du.entity_id, doc) || DEFAULT_DELIVER_ENTITY_ID,
+		entityName:
+			projectConnectXPath(du.entity_name, doc) || DEFAULT_DELIVER_ENTITY_NAME,
 	};
 }

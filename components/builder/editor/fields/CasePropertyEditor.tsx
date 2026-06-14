@@ -25,7 +25,8 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerDatabase from "@iconify-icons/tabler/database";
-import { useCallback, useId, useMemo, useRef } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { type Field, type FieldKind, getModuleCaseTypes } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
@@ -272,6 +273,12 @@ export function CasePropertyEditor<F extends Field>(
 	const { field, value, onChange, autoFocus } = props;
 	const ctx = useSelectedFormContext();
 	const caseTypes = useCaseTypes();
+	/* The dropdown has no inline channel of its own, so the adapter holds
+	 * the gate's finding and renders it beneath — the section dispatches
+	 * through the inline (no-toast) flavor on the promise that every
+	 * editor presents its own rejections. Cleared on the next pick that
+	 * lands. */
+	const [rejection, setRejection] = useState<string | null>(null);
 
 	if (!ctx) return null;
 
@@ -291,11 +298,15 @@ export function CasePropertyEditor<F extends Field>(
 				isCaseName={isCaseName}
 				disabled={MEDIA_TYPES.has(field.kind)}
 				caseTypes={writableCaseTypes}
-				onChange={(caseType) =>
-					onChange((caseType ?? undefined) as F["case_property_on" & keyof F])
-				}
+				onChange={(caseType) => {
+					const outcome = onChange(
+						(caseType ?? undefined) as F["case_property_on" & keyof F],
+					);
+					setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
+				}}
 				autoFocus={autoFocus}
 			/>
+			<RejectionInline message={rejection} />
 		</div>
 	);
 }

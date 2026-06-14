@@ -1,11 +1,16 @@
 /**
  * `nova.create_app` — mint an empty Nova app owned by the authenticated
- * user.
+ * user. Born `complete`: an empty app is at rest and valid (its
+ * nameless, moduleless state is a pre-existing finding that only ever
+ * shrinks), and every subsequent tool call gates on its own merits —
+ * there is no draft window, no finishing step, and status never feeds
+ * the gate. Exports gate on FINDINGS: an app whose content passes the
+ * boundary review exports; one with findings doesn't, whatever its age.
  *
  * Scope: `nova.write`.
  *
  * Returns the new `app_id` so the caller can thread it into subsequent
- * tool calls (`generate_schema`, `add_module`, etc.).
+ * tool calls (`update_app`, `create_module`, etc.).
  *
  * No ownership check: there's nothing to own yet — the app is being
  * created in this call. Scope gating happens at the route layer via
@@ -15,8 +20,7 @@
  * Run grouping: the new app doc is seeded with a freshly-minted run id.
  * Subsequent MCP tool calls that land within the sliding inactivity
  * window (see `lib/mcp/runId.ts`) read the id off the app doc and reuse
- * it, so the whole build — from creation through first `validate_app` —
- * groups onto a single event-log run.
+ * it, so the whole build groups onto a single event-log run.
  *
  * **No event-log write on success.** `create_app` is atomic: the app
  * row itself is the record of creation (via its `created_at` + `owner`
@@ -45,13 +49,13 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 		"create_app",
 		{
 			description:
-				"Create an empty Nova app owned by you. Returns the new app_id for use in subsequent tool calls.",
+				"Create an empty Nova app owned by you and return its app_id for subsequent tool calls. Build it up with the other tools — every change is checked as it lands, so the app is always export-ready as far as it goes. Exports (compile_app / upload_app_to_hq) succeed once the content passes the full review.",
 			inputSchema: {
 				app_name: z
 					.string()
 					.optional()
 					.describe(
-						"Optional initial name. If omitted, the app name starts blank and can be set later.",
+						"Optional initial name. If omitted, the app name starts blank — set it with update_app before exporting.",
 					),
 			},
 		},
@@ -69,7 +73,6 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 				 * no visible way to rename. */
 				const appName = args.app_name?.trim() || undefined;
 
-				// Atomic creation — status "complete" keeps the staleness timer quiet.
 				const appId = await createApp(ctx.userId, runId, {
 					appName,
 					status: "complete",

@@ -89,7 +89,7 @@ export const listAppsInputSchema = {
 		.enum(["generating", "complete", "error"])
 		.optional()
 		.describe(
-			"Filter to apps with a specific lifecycle status. Omit to return apps regardless of status. `generating` is an in-flight build; `complete` is ready to use; `error` is a failed build.",
+			"Filter to apps with a specific status. Omit to return apps regardless of status. `generating` is an in-flight chat build run; `complete` is an app at rest; `error` is a failed build.",
 		),
 	sort: z
 		.enum(["updated_desc", "updated_asc", "name_asc", "name_desc"])

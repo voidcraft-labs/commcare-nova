@@ -1,6 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useXPathText } from "@/lib/doc/hooks/useXPathSlots";
 import {
 	fieldRegistry,
 	type HiddenField as HiddenFieldEntity,
@@ -15,7 +16,8 @@ import { ExpressionContent } from "@/lib/references/ExpressionContent";
  * hashtag references.
  */
 export function HiddenField({ field }: { field: HiddenFieldEntity }) {
-	const expr = field.calculate || field.default_value;
+	// Stored expressions are ASTs; the card shows their live printed text.
+	const expr = useXPathText(field.calculate ?? field.default_value);
 
 	return (
 		<div className="flex items-center gap-3 px-3 py-2 rounded-lg border border-dashed border-nova-text-muted/25 bg-nova-text-muted/[0.03]">

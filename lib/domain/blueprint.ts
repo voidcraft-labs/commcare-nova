@@ -16,6 +16,7 @@ import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { assetIdSchema } from "./multimedia";
+import type { ReferenceIndex } from "./referenceIndex";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // Re-exports — `casePropertyDataTypes` / `CasePropertyDataType` /
@@ -121,9 +122,42 @@ export const blueprintDocSchema = z
  */
 export type PersistableDoc = z.infer<typeof blueprintDocSchema>;
 
+/**
+ * The blueprint as it crosses the persistence boundary — a
+ * `PersistableDoc` PROVABLY free of the in-memory derived state.
+ *
+ * `BlueprintDoc` is structurally assignable to `PersistableDoc` (extra
+ * properties don't break TS assignability), so a writer parameter typed
+ * `PersistableDoc` would happily accept an unstripped in-memory doc and
+ * serialize `fieldParent` + the reference index into Firestore. The
+ * `never`-typed slots are the compile-time wall: a value whose TYPE
+ * declares either property is rejected at the call site, while the
+ * output of `toPersistableDoc` (and any Zod-parsed wire payload)
+ * passes untouched. Every direct blueprint writer takes this shape, so
+ * the strip chokepoint is type-enforced rather than discipline.
+ */
+export type PersistedBlueprint = PersistableDoc & {
+	fieldParent?: never;
+	refIndex?: never;
+};
+
 export type BlueprintDoc = PersistableDoc & {
 	/** Reverse index: field uuid → parent uuid (form or container). Maintained
 	 *  atomically by every mutation that touches fieldOrder. Rebuilt by
 	 *  rebuildFieldParent() on load. Not persisted. */
 	fieldParent: Record<Uuid, Uuid | null>;
+	/**
+	 * The reference + declarations index (`lib/domain/referenceIndex.ts`)
+	 * — derived state, never persisted. Seeded by every apply entry
+	 * point (`lib/doc/mutations`' `applyMutation(s)` build it on first
+	 * contact) and by the hydration boundaries (`store.load`, the MCP
+	 * blueprint load, the chat route's working doc), then maintained
+	 * incrementally per mutation. Optional so the many read-only
+	 * `PersistableDoc → BlueprintDoc` widenings (compile, upload,
+	 * preview) stay valid without paying a build they never read;
+	 * reference operations go through `lib/doc/referenceIndex.ts`'s
+	 * accessor, which falls back to a fresh build when the slot is
+	 * absent.
+	 */
+	refIndex?: ReferenceIndex;
 };

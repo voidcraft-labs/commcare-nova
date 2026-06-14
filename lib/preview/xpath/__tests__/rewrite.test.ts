@@ -76,11 +76,35 @@ describe("rewriteXPathRefs", () => {
 			);
 		});
 
-		it("does not rewrite #form/ hashtag for nested fields", () => {
-			// Nested fields use full paths, not #form/ shorthand
+		it("does not rewrite a top-level #form/ hashtag when the renamed field is nested", () => {
+			// `#form/old_id` points at a TOP-LEVEL field named old_id, not at
+			// the nested `group/old_id` being renamed — the full segment path
+			// must match, not just the leaf.
 			expect(
 				rewriteXPathRefs("#form/old_id > 5", "group/old_id", "new_id"),
 			).toBe("#form/old_id > 5");
+		});
+
+		it("rewrites the leaf of a nested #form/ hashtag when the full path matches", () => {
+			expect(
+				rewriteXPathRefs("#form/group/old_id > 5", "group/old_id", "new_id"),
+			).toBe("#form/group/new_id > 5");
+		});
+
+		it("rewrites deep nested #form/ hashtags", () => {
+			expect(
+				rewriteXPathRefs(
+					"concat(#form/a/b/old_id, #form/a/b/old_id)",
+					"a/b/old_id",
+					"new_id",
+				),
+			).toBe("concat(#form/a/b/new_id, #form/a/b/new_id)");
+		});
+
+		it("does not rewrite a cousin sharing the leaf id under a different group", () => {
+			expect(
+				rewriteXPathRefs("#form/other/old_id > 5", "group/old_id", "new_id"),
+			).toBe("#form/other/old_id > 5");
 		});
 
 		it("rewrites both hashtag and absolute path in one expression", () => {
@@ -158,5 +182,36 @@ describe("rewriteHashtagRefs", () => {
 
 	it("returns empty string unchanged", () => {
 		expect(rewriteHashtagRefs("", "#case/", "old", "new")).toBe("");
+	});
+});
+
+describe("renamed-CONTAINER descendant refs (prefix rewrite)", () => {
+	it("re-anchors hashtag refs to a renamed group's descendants alongside the absolute spelling", () => {
+		expect(
+			rewriteXPathRefs(
+				"#form/grp/inner = '1' and /data/grp/inner != ''",
+				"grp",
+				"grp2",
+			),
+		).toBe("#form/grp2/inner = '1' and /data/grp2/inner != ''");
+	});
+
+	it("re-anchors deep descendants of a nested renamed container, keeping the tail", () => {
+		expect(rewriteXPathRefs("#form/outer/grp/a/b", "outer/grp", "grp2")).toBe(
+			"#form/outer/grp2/a/b",
+		);
+	});
+
+	it("still rewrites a ref to the container itself", () => {
+		expect(rewriteXPathRefs("#form/grp", "grp", "grp2")).toBe("#form/grp2");
+	});
+
+	it("never rewrites same-leaf cousins outside the renamed container", () => {
+		expect(rewriteXPathRefs("#form/other/grp/inner", "grp", "grp2")).toBe(
+			"#form/other/grp/inner",
+		);
+		expect(rewriteXPathRefs("#form/grpx/inner", "grp", "grp2")).toBe(
+			"#form/grpx/inner",
+		);
 	});
 });

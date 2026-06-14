@@ -25,7 +25,7 @@ import { z } from "zod";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { addColumnsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "../common";
+import { guardedMutate, type MutatingToolResult } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	columnInputSchema,
@@ -98,12 +98,21 @@ export const addCaseListColumnsTool = {
 			// `CaseListMutationOk` (no error arm), so there's no error branch here.
 			const result = addColumnsMutation(mod, stamped);
 
-			const newDoc = applyToDoc(doc, result.mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				result.mutations,
-				newDoc,
 				`module:${moduleIndex}:caseList:column:add`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			const headers = columns.map((c) => `"${c.header}"`).join(", ");
 			return {

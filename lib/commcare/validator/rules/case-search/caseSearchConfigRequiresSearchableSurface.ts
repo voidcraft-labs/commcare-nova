@@ -37,7 +37,7 @@ export function caseSearchConfigRequiresSearchableSurface(
 		validationError(
 			"CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE",
 			"module",
-			`Module "${mod.name}" carries a \`caseSearchConfig\` but its case list has no search inputs and no default filter — the search button on this module opens a search screen with nothing to fill in and no predicate to narrow the result set, so pressing it returns the unfiltered case list (the same set the user can reach by tapping the module directly). Add at least one entry to \`caseListConfig.searchInputs\` for the user to type into, set a \`caseListConfig.filter\` to narrow the default search result set, or remove \`caseSearchConfig\` so the search button stops rendering.`,
+			`Module "${mod.name}" carries a \`caseSearchConfig\` but its case list has nothing to search by — no search inputs and no default filter. Add an entry to \`caseListConfig.searchInputs\`, set a \`caseListConfig.filter\`, or remove \`caseSearchConfig\`.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];

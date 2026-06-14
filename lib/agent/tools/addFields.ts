@@ -16,31 +16,36 @@
  * tool — one field is just a length-1 `fields` array.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext` interface. Three legal exit branches
+ * shared `ToolExecutionContext` interface. Five legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
  *   1. Index resolution miss (module / form) → `{ error }`, no
  *      mutations.
- *   2. Runtime error in the pipeline → `{ error }`, no mutations.
- *   3. Success → a human-readable `message` (+ a UI `summary`); the stage
+ *   2. Identifier guard rejection (any field id illegal / reserved /
+ *      over-long / sibling-conflicting per the shared verdicts in
+ *      `lib/doc/identifierVerdicts.ts`) → `{ error }` naming EVERY
+ *      failing item, no mutations, nothing persisted.
+ *   3. Commit-gate rejection (`guardedMutate` — the batch would
+ *      introduce a validator finding) → `{ error }` listing each
+ *      finding, nothing persisted.
+ *   4. Runtime error in the pipeline → `{ error }`, no mutations.
+ *   5. Success → a human-readable `message` (+ a UI `summary`); the stage
  *      tag drives lifecycle derivation on the chat client.
  */
 
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { asUuid, isContainer } from "@/lib/domain";
-import { findFieldByBareId, resolveFormContext } from "../blueprintHelpers";
-import {
-	applyDefaults,
-	type FlatField,
-	flatFieldToField,
-	stripEmpty,
-} from "../contentProcessing";
+import type { BlueprintDoc } from "@/lib/domain";
+import { resolveFormContext } from "../blueprintHelpers";
+import type { FlatField } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
+import {
+	assembleFieldMutations,
+	describeRejectedFieldIds,
+} from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -125,136 +130,65 @@ export const addFieldsTool = {
 			}
 			const { formUuid, form } = resolved;
 
-			// Resolve the batch's insertion parent — the form root, or the
-			// batch-level `parentId` when it names an existing field (mirrors
-			// the per-field fallback in the loop, which resolves an unset
-			// per-item parentId to this same batch default). When an anchor
-			// (`beforeFieldId` / `afterFieldId`) is given, find the index in
-			// that parent's CURRENT order where the batch's top-level block
-			// should start; `topLevelNextIndex` then walks forward as each
-			// top-level field is placed, so the inserted fields land
-			// contiguously in batch order. A field carrying its OWN parentId
-			// nests under that parent and never consumes an anchor slot.
-			let batchInsertParent: Uuid = formUuid;
-			if (batchParentId) {
-				const existing = findFieldByBareId(doc, formUuid, batchParentId);
-				// Only a container can be a parent — a `parentId` naming a leaf
-				// field falls through to form-level (matching the per-field path
-				// below). Nesting under a leaf would make every batch field
-				// invisible to the emitter.
-				if (existing && isContainer(existing.field)) {
-					batchInsertParent = existing.field.uuid;
-				}
+			// The shared assembly pipeline: sentinel strip → defaults → uuid
+			// mint → domain Field → identifier verdict, with in-batch
+			// container parents and the optional insertion anchor resolved
+			// against this form. `raw` items are per-kind union arms (the
+			// tool input is a `discriminatedUnion("kind", …)`); TS infers an
+			// arm's conditionally-present keys as `unknown`, so it isn't
+			// directly assignable to the wide `FlatField` the pipeline
+			// operates on — but each arm IS a validated structural subset of
+			// `FlatField`, so the bridge cast is sound.
+			const assembly = assembleFieldMutations({
+				doc,
+				formUuid,
+				items: fields as FlatField[],
+				...(batchParentId !== undefined && { batchParentId }),
+				anchor: {
+					...(beforeFieldId !== undefined && { beforeFieldId }),
+					...(afterFieldId !== undefined && { afterFieldId }),
+				},
+			});
+
+			// Any identifier rejection fails the WHOLE call before anything
+			// persists — partial batches would leave the SA guessing which
+			// fields landed. The error names every failing item so one
+			// corrected re-issue suffices.
+			if (!assembly.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: describeRejectedFieldIds(
+							form.name,
+							fields.length,
+							assembly.rejected,
+						),
+					},
+				};
 			}
-			let topLevelNextIndex: number | undefined;
-			if (beforeFieldId || afterFieldId) {
-				const order = doc.fieldOrder[batchInsertParent] ?? [];
-				if (beforeFieldId) {
-					const i = order.findIndex((u) => doc.fields[u]?.id === beforeFieldId);
-					if (i !== -1) topLevelNextIndex = i;
-				} else if (afterFieldId) {
-					const i = order.findIndex((u) => doc.fields[u]?.id === afterFieldId);
-					if (i !== -1) topLevelNextIndex = i + 1;
-				}
-			}
-
-			// Process incoming flat SA-format fields: strip sentinels, apply
-			// case-property defaults from the data model, then mint a uuid
-			// and assemble the domain `Field` shape. The SA emits flat items
-			// with semantic `parentId` — resolve each to a uuid by id lookup
-			// within the form's existing + newly-added fields. If the SA
-			// refers to a CONTAINER added earlier in this same batch, we find
-			// it in `mintedByBareId` (which records only containers) before
-			// falling back to the doc-wide lookup.
-			const mintedByBareId = new Map<string, Uuid>();
-			const mutations: Mutation[] = [];
-			const skipped: Array<{ id: string; reason: string }> = [];
-
-			for (const raw of fields) {
-				// `raw` is a per-kind union arm (the tool input is a
-				// `discriminatedUnion("kind", …)`). TS infers a union arm's
-				// conditionally-present keys as `unknown`, so it isn't directly
-				// assignable to the wide `FlatField` the pipeline operates on —
-				// but the arm IS a validated structural subset of `FlatField`,
-				// so the bridge cast is sound. `stripEmpty` then narrows
-				// `parentId?: string | null` (sentinel-empty-string → null), and
-				// `applyDefaults` preserves that narrowing.
-				const processed = applyDefaults(
-					stripEmpty(raw as FlatField),
-					doc.caseTypes,
-				);
-
-				// Resolve parentUuid: the field's OWN `parentId` wins; if it
-				// didn't set one, fall back to the batch-level `parentId`; if
-				// neither is set, the field lands at the form's top level.
-				// `stripEmpty` normalizes an unset per-item parentId to `null`,
-				// so `?? batchParentId` correctly applies the batch default.
-				let parentUuid: Uuid = formUuid;
-				const parentId = processed.parentId ?? batchParentId;
-				if (parentId && typeof parentId === "string") {
-					const minted = mintedByBareId.get(parentId);
-					if (minted) {
-						parentUuid = minted;
-					} else {
-						const existing = findFieldByBareId(doc, formUuid, parentId);
-						if (existing && isContainer(existing.field)) {
-							parentUuid = existing.field.uuid;
-						}
-						// A non-existent parentId, or one naming a non-container
-						// (a leaf field), falls through to form-level insert.
-						// Never nest under a leaf: the reducer would create a
-						// child order under it and the emitter — which only
-						// recurses into containers — would silently drop the
-						// field.
-					}
-				}
-
-				const fieldUuid = asUuid(crypto.randomUUID());
-				const assembled = flatFieldToField(processed, fieldUuid);
-				if (!assembled.ok) {
-					// The payload didn't assemble into a valid Field for its kind.
-					// Carry the specific reason into the skip note (below) so the
-					// SA sees WHY each field was skipped, not just that it was.
-					// `raw.id` is the Zod-parsed original (always a string), so no
-					// fallback is needed.
-					skipped.push({ id: raw.id, reason: assembled.reason });
-					continue;
-				}
-				const field = assembled.field;
-				// Only containers can parent a later field in this batch;
-				// recording only them keeps the minted-parent lookup from
-				// resolving to a leaf.
-				if (isContainer(field)) mintedByBareId.set(field.id, fieldUuid);
-				// Top-level batch fields honor the anchor (a contiguous block at
-				// the resolved index, walking forward per field); everything else
-				// — fields nested under their own parentId, or any field when no
-				// anchor was given — appends.
-				if (
-					topLevelNextIndex !== undefined &&
-					parentUuid === batchInsertParent
-				) {
-					mutations.push({
-						kind: "addField",
-						parentUuid,
-						field,
-						index: topLevelNextIndex,
-					});
-					topLevelNextIndex += 1;
-				} else {
-					mutations.push({ kind: "addField", parentUuid, field });
-				}
-			}
+			const { mutations, skipped } = assembly;
 
 			// Compute the post-mutation doc once and persist via the shared
 			// context. The client applies via `applyMany` — no wire snapshot
 			// needed; the mutations ARE the update. The `form:M-F` stage tag
 			// drives lifecycle derivation on the chat client (forms phase).
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`form:${moduleIndex}-${formIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			// The human-readable summary uses the post-mutation doc's field
 			// count so the SA's message reflects reality after the batch

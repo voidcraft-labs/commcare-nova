@@ -20,6 +20,7 @@
 
 import { describe, expect, it } from "vitest";
 import { MESSAGES } from "@/lib/agent/errorClassifier";
+import { BlueprintCommitRejectedError } from "@/lib/db/applyBlueprintChange";
 import { toMcpErrorResult } from "../errors";
 import { McpAccessError } from "../ownership";
 import { McpScopeError, SCOPES } from "../scopes";
@@ -83,6 +84,26 @@ describe("toMcpErrorResult", () => {
 		/* Text is the canned user-facing message, not the raw `"boom"` —
 		 * surfacing raw error text to MCP clients would leak internals. */
 		expect(payload.message).toBe(MESSAGES.internal);
+	});
+
+	it("serializes BlueprintCommitRejectedError as the standard validity envelope, never internal", () => {
+		/* The transactional commit's fresh-doc re-verdict rejecting a batch
+		 * is a validity outcome (same class as a tool body's optimistic gate
+		 * rejection), so the wire shape is `invalid_input` carrying the
+		 * verdict's own person-to-person findings — the caller fixes the
+		 * batch and retries, exactly like any other gate rejection. */
+		const findings =
+			"This change wasn't applied — it would introduce a new problem:\n- A finding.\nNothing was changed.";
+		const result = toMcpErrorResult(
+			new BlueprintCommitRejectedError(findings),
+			{
+				appId: "app-9",
+			},
+		);
+		const payload = parsePayload(result);
+		expect(payload.error_type).toBe("invalid_input");
+		expect(payload.message).toBe(findings);
+		expect(payload.app_id).toBe("app-9");
 	});
 
 	it("propagates ctx.appId into the payload when provided", () => {

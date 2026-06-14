@@ -45,10 +45,9 @@
  * The chat-side intermediate save (`generationContext.saveBlueprint`)
  * stays fire-and-forget by design — the SA's fix-retry discipline
  * covers missed intermediate saves and SSE latency must not block
- * on Firestore. Initial-generation writes are additive-only by
- * construction (case types are set once via `generateScaffold`,
- * then never mutated mid-stream), so the cross-store saga has no
- * compensation work to do on the chat path.
+ * on Firestore. The chat route's drain-end finalize re-syncs the
+ * case-store schemas for whatever the run persisted, so the chat
+ * path needs no per-save saga.
  *
  * ## Loading the prior state
  *
@@ -65,14 +64,35 @@
 
 import type { CaseStore } from "@/lib/case-store";
 import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import {
+	describeIntroducedErrors,
+	mutationCommitVerdict,
+} from "@/lib/doc/commitVerdicts";
+import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import type { Mutation } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	PersistableDoc,
+	PersistedBlueprint,
+} from "@/lib/domain";
 import { log } from "@/lib/logger";
-import { loadApp, updateApp, updateAppForRun } from "./apps";
+import {
+	describeMediaExpectationFailures,
+	type MediaAttachExpectation,
+} from "@/lib/media/attachVerdicts";
+import {
+	loadApp,
+	updateApp,
+	updateAppForRun,
+	updateAppForRunTransactional,
+	updateAppGuardedByBasis,
+} from "./apps";
 import {
 	type CaseTypeChangeEntry,
 	classifyCaseTypeChanges,
 	type SchemaChangeHint,
 } from "./classifyCaseTypeChanges";
+import { getAssetsInTransaction } from "./mediaAssets";
 
 /**
  * Arguments for `applyBlueprintChange`.
@@ -99,10 +119,78 @@ import {
 export interface ApplyBlueprintChangeArgs {
 	readonly appId: string;
 	readonly userId: string;
-	readonly prospective: PersistableDoc;
+	readonly prospective: PersistedBlueprint;
 	readonly runId?: string;
 	readonly hint?: SchemaChangeHint;
 	readonly priorBlueprint?: PersistableDoc;
+	/**
+	 * Guarded-commit mode (the MCP surface): instead of overwriting the
+	 * blueprint with `prospective` blind, the Firestore commit becomes a
+	 * transactional read-evaluate-write — re-apply `mutations` to the
+	 * FRESH stored blueprint and re-run the validity verdict against it
+	 * before writing. A concurrent committed batch therefore can't be
+	 * silently erased (the recomputed doc builds ON the fresh state),
+	 * and a batch the fresh verdict rejects throws
+	 * {@link BlueprintCommitRejectedError} with nothing written.
+	 * Requires `runId` (the guarded writer persists it alongside).
+	 *
+	 * `prospective` still drives the Postgres schema diff: the entry set
+	 * derives from the mutations, so on the rare commit race the synced
+	 * schema can momentarily trail the recomputed blueprint — the next
+	 * successful save re-syncs, the same eventual-consistency posture the
+	 * saga already documents for per-row migrations.
+	 */
+	readonly guard?: {
+		readonly mutations: Mutation[];
+		/**
+		 * Media-attach expectations to re-verify INSIDE the transaction
+		 * (see `lib/media/attachVerdicts.ts`). The asset rows are read via
+		 * the transaction itself — joining its read set — so an asset
+		 * delete racing the attach serializes against this commit instead
+		 * of leaving a dangling reference. A failed expectation throws
+		 * {@link BlueprintCommitRejectedError} with the same
+		 * person-to-person message the pre-commit verdict produces.
+		 */
+		readonly mediaExpectations?: readonly MediaAttachExpectation[];
+	};
+	/**
+	 * Optimistic-basis mode (the browser auto-save PUT): the Firestore
+	 * commit becomes a transactional compare-and-overwrite — the stored
+	 * `blueprint_token` must equal `token` (the basis the client's doc
+	 * snapshot was built on) or the write throws
+	 * {@link BlueprintBasisStaleError} with nothing written, so a blind
+	 * whole-doc save can't erase a write the client never saw (another
+	 * tab, an MCP commit). On success the token rotates; the new value
+	 * rides back on the result so the client advances its basis.
+	 * Mutually exclusive with `guard` (mutation-bearing writers re-verdict
+	 * instead of comparing a basis).
+	 */
+	readonly basis?: {
+		readonly token: string | null;
+	};
+}
+
+/**
+ * Result of `applyBlueprintChange`. `basisToken` is present only on the
+ * basis-guarded path — the freshly rotated token the client echoes on
+ * its next save.
+ */
+export interface ApplyBlueprintChangeResult {
+	readonly basisToken?: string;
+}
+
+/**
+ * Thrown by the guarded commit when the validity verdict — re-run inside
+ * the Firestore transaction against the freshly read blueprint — rejects
+ * the batch. Carries the person-to-person findings as its message; the
+ * MCP tool's catch returns it in the standard `{ error }` envelope, the
+ * same shape an optimistic gate rejection produces.
+ */
+export class BlueprintCommitRejectedError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "BlueprintCommitRejectedError";
+	}
 }
 
 /**
@@ -119,9 +207,15 @@ export interface ApplyBlueprintChangeArgs {
  */
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
-): Promise<void> {
+): Promise<ApplyBlueprintChangeResult> {
 	const priorBlueprint = await resolvePriorBlueprint(args);
-	const prospectiveBlueprint = args.prospective as BlueprintDoc;
+	/* Read-only widening for the case-type diff below — the same single
+	 * seam `resolvePriorBlueprint` documents. The double hop steps the
+	 * walled `PersistedBlueprint` back up to `PersistableDoc` first; a
+	 * direct cast can't compile because the wall's `never` slots don't
+	 * overlap `BlueprintDoc`'s required `fieldParent`. */
+	const prospectiveBlueprint =
+		args.prospective as PersistableDoc as BlueprintDoc;
 
 	const entries = classifyCaseTypeChanges({
 		prior: priorBlueprint,
@@ -132,8 +226,7 @@ export async function applyBlueprintChange(
 	// Fast path — pure non-case-type mutation, skip Postgres
 	// entirely and commit Firestore directly.
 	if (entries.length === 0) {
-		await persistBlueprint(args);
-		return;
+		return await persistBlueprint(args);
 	}
 
 	const store = await withOwnerContext(args.userId);
@@ -166,7 +259,7 @@ export async function applyBlueprintChange(
 	// Phase 2: commit Firestore. On failure, compensate every
 	// already-applied Postgres entry against the prior blueprint.
 	try {
-		await persistBlueprint(args);
+		return await persistBlueprint(args);
 	} catch (commitErr) {
 		await compensate(args.appId, store, applied, priorBlueprint);
 		throw commitErr;
@@ -203,16 +296,83 @@ async function resolvePriorBlueprint(
 }
 
 /**
- * Commit the prospective blueprint to Firestore. Routes through
- * `updateAppForRun` when a `runId` is supplied (MCP tool calls
- * persist the run id alongside) and through `updateApp` otherwise.
+ * Commit the prospective blueprint to Firestore. Routes through the
+ * guarded transactional writer when a `guard` is supplied (MCP tool
+ * calls), the basis-compare writer when a `basis` is supplied (the
+ * auto-save PUT), `updateAppForRun` when only a `runId` is supplied, and
+ * `updateApp` otherwise.
  */
-async function persistBlueprint(args: ApplyBlueprintChangeArgs): Promise<void> {
+async function persistBlueprint(
+	args: ApplyBlueprintChangeArgs,
+): Promise<ApplyBlueprintChangeResult> {
+	if (args.guard !== undefined && args.runId !== undefined) {
+		const { mutations, mediaExpectations } = args.guard;
+		await updateAppForRunTransactional(
+			args.appId,
+			args.runId,
+			async (fresh, tx) => {
+				/* Re-apply against the FRESH stored blueprint and re-run the
+				 * verdict inside the transaction. Firestore re-runs this body on
+				 * contention, so the verdict always holds against the doc the
+				 * write replaces.
+				 *
+				 * Cost shape: the fresh doc carries no reference index (it never
+				 * persists), so the verdict's candidate apply seeds one from
+				 * scratch — an O(doc) extraction pass per transaction attempt,
+				 * on top of the verdict's own validation. That bracketing cost
+				 * is the accepted price of re-deriving everything from the doc
+				 * the write actually replaces; the reference LOOKUPS the verdict
+				 * and reducers make stay O(1) against the seeded index. */
+				/* Media re-check FIRST: it is the transaction's only extra read,
+				 * and Firestore forbids reads after the first write. Reading the
+				 * asset rows through `tx` puts them in the transaction's read
+				 * set, so the rows the judgment approved are the rows this
+				 * commit serializes against. Same judgment as the tool's
+				 * pre-commit verdict — only the read moves into the transaction. */
+				if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
+					const rows = await getAssetsInTransaction(
+						tx,
+						mediaExpectations.map((e) => e.assetId),
+					);
+					const failure = describeMediaExpectationFailures(
+						mediaExpectations,
+						rows,
+						args.userId,
+					);
+					if (failure !== null) {
+						throw new BlueprintCommitRejectedError(failure);
+					}
+				}
+				const freshDoc: BlueprintDoc = {
+					...(fresh.blueprint as PersistableDoc),
+					fieldParent: {},
+				} as BlueprintDoc;
+				rebuildFieldParent(freshDoc);
+				const verdict = mutationCommitVerdict(freshDoc, mutations);
+				if (!verdict.ok) {
+					throw new BlueprintCommitRejectedError(
+						describeIntroducedErrors(verdict.introduced),
+					);
+				}
+				return toPersistableDoc(verdict.nextDoc);
+			},
+		);
+		return {};
+	}
+	if (args.basis !== undefined) {
+		const basisToken = await updateAppGuardedByBasis(
+			args.appId,
+			args.prospective,
+			args.basis.token,
+		);
+		return { basisToken };
+	}
 	if (args.runId !== undefined) {
 		await updateAppForRun(args.appId, args.prospective, args.runId);
 	} else {
 		await updateApp(args.appId, args.prospective);
 	}
+	return {};
 }
 
 /**

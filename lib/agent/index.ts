@@ -24,7 +24,5 @@ export {
 	countDocumentsNeedingRead,
 	resolveAttachments,
 } from "./resolveAttachments";
-// solutionsArchitect — the one ToolLoopAgent factory. `validateAndFix` is
-// re-exported because `app/api/compile/route.ts` runs validation outside the
-// SA run for the standalone fix endpoint.
-export { createSolutionsArchitect, validateAndFix } from "./solutionsArchitect";
+// solutionsArchitect — the one ToolLoopAgent factory.
+export { createSolutionsArchitect } from "./solutionsArchitect";

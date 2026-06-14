@@ -17,11 +17,14 @@
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { ValidationError } from "./errors";
+import type { ValidationError, ValidationErrorCode } from "./errors";
 import { validationError } from "./errors";
 import {
 	type ConnectXPathSlot,
 	type ProseSurface,
+	scopeHasForm,
+	scopeHasModule,
+	type ValidationScope,
 	validateBlueprintDeep,
 	type XPathSurface,
 } from "./index";
@@ -32,12 +35,7 @@ import { MEDIA_ASSET_RULES } from "./rules/media";
 import { MODULE_RULES } from "./rules/module";
 import type { XPathError } from "./xpathValidator";
 
-/**
- * Optional context the asset-context media rules consume. A single
- * required slot — the resolved media-asset manifest — so "ran the
- * media group" and "didn't" are the only two states. No half-supplied
- * state is representable.
- */
+/** Optional context for a validation run. */
 export interface RunValidationOptions {
 	/**
 	 * Resolved media-asset manifest — every `AssetId` the doc
@@ -45,9 +43,85 @@ export interface RunValidationOptions {
 	 * loaded Firestore row. Built by the caller from
 	 * `collectAssetRefs(doc)` + `loadAssetsByIds(owner, ...)`. When
 	 * supplied, the asset-context media rules run; when omitted, the
-	 * rules are skipped silently.
+	 * rules are skipped silently. The manifest is the single slot the
+	 * rules need, so "ran the media group" and "didn't" are the only
+	 * two states — no half-supplied state is representable.
 	 */
-	readonly mediaAssets: ReadonlyMap<string, MediaAssetRecord>;
+	readonly mediaAssets?: ReadonlyMap<string, MediaAssetRecord>;
+	/**
+	 * Restrict the entity walks to a scope (see `ValidationScope`).
+	 * App-level rules and the asset-context media rules always run in
+	 * full — see `errorWithinScope` for the resulting equivalence law.
+	 * Omitted = full run.
+	 */
+	readonly scope?: ValidationScope;
+}
+
+/**
+ * Codes whose producing rules run in FULL on every run, scoped or not, so
+ * a scope never filters them:
+ *
+ *   - the `APP_RULES` products — app rules are cheap, their findings span
+ *     entities (reserved case-type names, form-link cycles, cross-form
+ *     case-property writer disagreement), and several anchor their
+ *     location at whichever site happened to be walked first, so scoping
+ *     them would make findings flicker with entity order;
+ *   - the asset-context media rules — manifest-gated boundary rules that
+ *     never run on the commit path (no caller passes both a manifest and
+ *     a scope today), kept scope-exempt so the law below stays total;
+ *   - `MEDIA_EXPORT_TOO_LARGE` — produced by the media-validation entry
+ *     point (`lib/media/boundaryValidation.ts`), never by `runValidation`;
+ *     listed so the filter is total over every code a boundary caller
+ *     can see.
+ *
+ * Everything else attributes to the walk that produced it: module rules
+ * emit module-anchored locations (`moduleUuid`, no `formUuid`); form
+ * rules, field rules, and the deep XPath walk emit form-anchored
+ * locations (`formUuid` always present).
+ */
+const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
+	// APP_RULES products.
+	"NO_MODULES",
+	"EMPTY_APP_NAME",
+	"RESERVED_CASE_TYPE_NAME",
+	"MISSING_CHILD_CASE_MODULE",
+	"FORM_LINK_CIRCULAR",
+	"CONNECT_ID_DUPLICATE",
+	"CONNECT_NO_PARTICIPATING_FORMS",
+	"FIELD_KIND_PROPERTY_TYPE_MISMATCH",
+	"FIELD_KIND_WRITERS_DISAGREE",
+	// Asset-context media rules + the export-budget aggregate guard.
+	"MEDIA_ASSET_NOT_FOUND",
+	"MEDIA_ASSET_NOT_READY",
+	"MEDIA_KIND_MISMATCH",
+	"MEDIA_EXPORT_TOO_LARGE",
+]);
+
+/**
+ * The scoped-run ≡ full-run-filtered law: for every doc and scope,
+ *
+ *   runValidation(doc, { scope }) ≡
+ *     runValidation(doc).filter((e) => errorWithinScope(e, scope))
+ *
+ * order-preserved (the property test pins this). This function is the
+ * filter side of that law — attribution rides on which WALK produces a
+ * code (see `SCOPE_EXEMPT_CODES`), then on the error's own location
+ * uuids, which every module/form/field/deep finding carries.
+ */
+export function errorWithinScope(
+	err: ValidationError,
+	scope: ValidationScope,
+): boolean {
+	if (SCOPE_EXEMPT_CODES.has(err.code)) return true;
+	const { moduleUuid, formUuid } = err.location;
+	if (formUuid !== undefined && moduleUuid !== undefined) {
+		return scopeHasForm(scope, moduleUuid, formUuid);
+	}
+	if (moduleUuid !== undefined) return scopeHasModule(scope, moduleUuid);
+	// Unreachable for runner-produced errors (every non-exempt rule anchors
+	// a module or form uuid — audited per rule file). Fail OPEN: an error a
+	// gate can't attribute must never be silently dropped by a filter.
+	return true;
 }
 
 /**
@@ -64,19 +138,29 @@ export function runValidation(
 	options?: RunValidationOptions,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const scope = options?.scope;
 
+	// App rules always run — see SCOPE_EXEMPT_CODES for why.
 	for (const rule of APP_RULES) {
 		errors.push(...rule(doc));
 	}
 
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
+		const inModuleScope = scopeHasModule(scope, moduleUuid);
 
-		for (const rule of MODULE_RULES) {
-			errors.push(...rule(mod, moduleUuid, doc));
+		// The scope filter restricts WHICH entities are walked — the perf
+		// point is skipping the work, not post-filtering its output.
+		if (inModuleScope) {
+			for (const rule of MODULE_RULES) {
+				errors.push(...rule(mod, moduleUuid, doc));
+			}
 		}
 
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			if (!inModuleScope && !(scope?.formUuids?.has(formUuid) ?? false)) {
+				continue;
+			}
 			errors.push(...runFormRules(doc, formUuid, moduleUuid));
 			const order = doc.fieldOrder[formUuid] ?? [];
 			if (order.length > 0) {
@@ -94,14 +178,15 @@ export function runValidation(
 
 	// Media asset-context rules — single-arm gate on the options
 	// payload. The manifest is the only thing the rules need; its
-	// presence both gates the group and provides the data.
+	// presence both gates the group and provides the data. Deliberately
+	// scope-exempt (see SCOPE_EXEMPT_CODES).
 	if (options?.mediaAssets) {
 		for (const rule of MEDIA_ASSET_RULES) {
 			errors.push(...rule(doc, options.mediaAssets));
 		}
 	}
 
-	errors.push(...runDeepValidation(doc));
+	errors.push(...runDeepValidation(doc, scope));
 
 	return errors;
 }
@@ -116,8 +201,11 @@ export function runValidation(
  * pattern first and got humanized as an XPath label error. With a typed
  * union that whole failure mode is unrepresentable.)
  */
-function runDeepValidation(doc: BlueprintDoc): ValidationError[] {
-	return validateBlueprintDeep(doc).map((deep): ValidationError => {
+function runDeepValidation(
+	doc: BlueprintDoc,
+	scope?: ValidationScope,
+): ValidationError[] {
+	return validateBlueprintDeep(doc, scope).map((deep): ValidationError => {
 		switch (deep.kind) {
 			case "field-xpath":
 				return validationError(
@@ -276,6 +364,14 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			return `${where} calls a function with the wrong number of arguments: ${error.message}.`;
 
 		case "INVALID_REF": {
+			// The slot's stored shape changes what the repair IS — see
+			// `XPathError.storedRef`. A dangling identity reference must not
+			// present its printed text as a path: the text is the internal id
+			// of a field that's gone, not something a person can look up, so
+			// the message names the carrier and slot (`where`) instead.
+			if (error.storedRef === "dangling-identity") {
+				return `${where} references a field that no longer exists in this form. The expression tracks the exact field it pointed at, and that field is gone — if this change is what removes it, the expression has to let go of it first. Edit that expression to drop the reference or point it at an existing field, then retry this change.`;
+			}
 			// When an existing field shares the unknown ref's leaf id, the SA
 			// almost certainly wrote the bare id and dropped the field's group
 			// path — point at the real path(s) in the SA's own `#form/...`
@@ -283,6 +379,17 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			// the dominant authoring mistake: `#form/consent` for a field that
 			// lives at `#form/consent_grp/consent`.
 			const hint = suggestionHint(error.suggestions);
+			// A reference held as plain text doesn't follow its field through
+			// renames — the visible-field-yet-unknown-path bounce. When no
+			// nesting suggestion explains it, the performable repair is to
+			// re-commit the referencing expression (which re-links the
+			// reference to the field) before retrying the bounced change.
+			if (error.storedRef === "raw-text") {
+				return `${where} has a reference that doesn't exist in this form: ${error.message}. That expression holds the reference as plain text, so it doesn't follow its field through renames. ${
+					hint ??
+					"If the field it names exists in the form right now, re-commit that expression first — open it on the named field and save it again unchanged, which links the reference to the field — then retry this change. If it doesn't, fix the reference to name an existing field."
+				}`;
+			}
 			if (hint) {
 				return `${where} has a reference that doesn't exist in this form: ${error.message}. ${hint}`;
 			}

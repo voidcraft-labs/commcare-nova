@@ -35,10 +35,14 @@ export function OptionalTextRow({
 }: OptionalTextRowProps) {
 	const inputId = useId();
 	// Convert `string | undefined` ↔ `string` at the hook boundary.
-	// `useCommitField` requires a defined `value: string` and pairs
-	// `onSave: string -> void` with `onEmpty: () -> void` for the
-	// "empty commit" path — exactly the empty-string-clears semantic
-	// the schema's `optional()` slots want.
+	// `useCommitField` requires a defined `value: string`, pairs
+	// `onSave` with `onEmpty: () -> void` for the "empty commit" path,
+	// and expects `onSave` to return the gated `CommitOutcome` (an
+	// `ok: false` keeps the draft + shows the finding inline). These
+	// slots are non-refusable display strings (search screen title /
+	// button label — no validator rule rejects them, unlike an entity
+	// name), so the commit always lands: returning `undefined` reads as
+	// committed, the honest outcome here.
 	//
 	// The `onEmpty` arm gates on `value !== undefined`. When the slot
 	// started absent, an empty commit (focus-blur without typing,
@@ -49,7 +53,10 @@ export function OptionalTextRow({
 	const { draft, setDraft, ref, handleFocus, handleBlur, handleKeyDown } =
 		useCommitField({
 			value: value ?? "",
-			onSave: (next) => onCommit(next),
+			onSave: (next) => {
+				onCommit(next);
+				return undefined;
+			},
 			onEmpty: () => {
 				if (value !== undefined) {
 					onCommit(undefined);

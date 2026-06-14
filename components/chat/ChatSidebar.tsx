@@ -83,6 +83,7 @@ function createGridController(
 					loading: s.loading,
 					runCompletedAt: s.runCompletedAt,
 					events: s.events,
+					runStartedWithData: s.runStartedWithData,
 				},
 				hasData,
 			);
@@ -346,7 +347,7 @@ export function ChatSidebar({
 	}, [phase, bufferEmpty, sessionApi]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
-	// Label changes (e.g. "Building forms" → "Validating") reset the timer during
+	// Label changes (e.g. "Designing data model" → "Building app content") reset the timer during
 	// render via React's "derive state from props" pattern, so the interval continues
 	// with the new base time. Mode changes are handled by the effect (start/stop).
 	const [elapsed, setElapsed] = useState(0);

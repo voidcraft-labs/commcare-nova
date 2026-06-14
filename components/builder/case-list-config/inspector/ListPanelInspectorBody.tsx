@@ -22,12 +22,17 @@ import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useState } from "react";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
+import type { Uuid } from "@/lib/doc/types";
 import { asAssetId, type CaseListConfig, type Column } from "@/lib/domain";
 import { SortPriorityStack } from "../SortPriorityStack";
 import type { SampleDataAction } from "../useSampleData";
 import { InspectorHint, InspectorSection } from "./inspectorChrome";
 
 export interface ListPanelInspectorBodyProps {
+	/** Owning module — keys the appearance slots' staged uploads
+	 *  (`caselist:<moduleUuid>:<slot>`), the carrier-slot identity the
+	 *  session store tracks an in-flight upload under. */
+	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly onChange: (next: CaseListConfig) => void;
 	/** Whether the module is a `caseListOnly` shape — gates the
@@ -42,6 +47,7 @@ export interface ListPanelInspectorBodyProps {
 }
 
 export function ListPanelInspectorBody({
+	moduleUuid,
 	config,
 	onChange,
 	caseListOnly,
@@ -80,6 +86,7 @@ export function ListPanelInspectorBody({
 						<SingleAssetSlot
 							value={config.icon}
 							kind="image"
+							slotKey={`caselist:${moduleUuid}:icon`}
 							ariaLabel="Case list icon"
 							onChange={(icon) => setMediaSlot("icon", icon)}
 						/>
@@ -91,6 +98,7 @@ export function ListPanelInspectorBody({
 						<SingleAssetSlot
 							value={config.audioLabel}
 							kind="audio"
+							slotKey={`caselist:${moduleUuid}:audioLabel`}
 							ariaLabel="Case list audio label"
 							onChange={(audioLabel) => setMediaSlot("audioLabel", audioLabel)}
 						/>

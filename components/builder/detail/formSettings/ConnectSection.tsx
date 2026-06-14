@@ -1,6 +1,11 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import {
+	ConnectEnableDialog,
+	type ConnectStagingTarget,
+} from "@/components/builder/detail/appSettings/ConnectEnableDialog";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import { useAppConnectIds } from "@/lib/doc/hooks/useAppConnectIds";
@@ -11,18 +16,26 @@ import { asUuid } from "@/lib/doc/types";
 import type { ConnectConfig } from "@/lib/domain";
 import { useFormConnectStash, useStashFormConnect } from "@/lib/session/hooks";
 import { DeliverConfig } from "./DeliverConfig";
-import { DEFAULT_LEARN_TIME_ESTIMATE, LearnConfig } from "./LearnConfig";
+import { LearnConfig } from "./LearnConfig";
 import type { FormSettingsSectionProps } from "./types";
 
 /**
  * Connect-mode configuration section — only rendered when the app has a
  * connect type set. Owns:
  *
- * 1. The app-level Connect toggle. Flipping it off stashes the current
- *    config keyed by form uuid so flipping it back on restores the
- *    user's work rather than regenerating a default. The stash lives in
- *    session state (ephemeral) so it survives toggle round-trips within
- *    a session but doesn't persist cross-session.
+ * 1. The per-form Connect PARTICIPATION toggle. A connect block opts the
+ *    form into Connect; a form without one is auxiliary and ships
+ *    nothing Connect-side, so both directions are ordinary gated edits.
+ *    OFF stashes the block (the user's work survives a round-trip) and
+ *    clears it — legal unless this is the app's LAST participating form,
+ *    in which case the gate bounces with the app-level finding naming
+ *    the alternatives (make another form participate, or turn Connect
+ *    off for the whole app). ON restores a stashed block silently — it
+ *    is the user's own prior work — and otherwise the same
+ *    collect-before-commit dialog the app-level enable flow uses gathers
+ *    this one form's block FROM THE USER. Nothing is pre-filled: a
+ *    block's names and descriptions are content the user writes, not
+ *    placeholders Nova invents.
  * 2. Dispatch to `LearnConfig` or `DeliverConfig` based on the app's
  *    connect type. The sub-configs are structurally parallel (two
  *    independent sub-toggles each) but have distinct field shapes.
@@ -37,81 +50,88 @@ export function ConnectSection({
 }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
-	const { updateForm: updateFormAction } = useBlueprintMutations();
+	/* Inline flavor throughout: every rejection in this section has a
+	 * contextual surface — the sub-config editors keep refused drafts with
+	 * the finding, the staging dialog shows findings in its footer, and a
+	 * refused toggle-off renders its notice right under the toggle row. */
+	const { inline } = useBlueprintMutations();
 	const connectType = useConnectTypeOrUndefined();
 	const connect = form?.connect;
 	const enabled = !!connect;
-	// App-wide connect ids so the seed below derives unique ids by
-	// construction — the toggle is a source, like LearnConfig/DeliverConfig.
+	// App-wide connect ids so a restored/collected block's ids derive
+	// unique by construction — the toggle is a source, like
+	// LearnConfig/DeliverConfig.
 	const appConnectIds = useAppConnectIds();
+	/** The in-flight staged enable; `rejectionMessages` carries the gate
+	 *  findings from a bounced confirm so the dialog explains itself. */
+	const [staging, setStaging] = useState<
+		{ rejectionMessages: string[] } | undefined
+	>();
+	/** The gate's finding from a refused toggle-OFF (removing the app's
+	 *  last participating form's block) — rendered under the toggle row,
+	 *  cleared on the next toggle gesture. */
+	const [disableRejection, setDisableRejection] = useState<string | null>(null);
 
-	/* Session hooks for connect stash — keyed by form uuid so the stash
-	 * remains stable across reorders and renames. */
-	const stashFormConnect = useStashFormConnect();
+	/* Session stash — a block stashed here (or by an app-level mode
+	 * switch) restores when the user toggles participation back on. */
 	const stashedConfig = useFormConnectStash(connectType ?? "learn", formUuid);
+	const stashFormConnect = useStashFormConnect();
 
 	const save = useCallback(
 		(config: ConnectConfig | null) => {
-			updateFormAction(asUuid(formUuid), {
+			// Forward the gated outcome so sub-config editors keep a refused
+			// draft on screen with the finding.
+			return inline.updateForm(asUuid(formUuid), {
 				connect: config ?? undefined,
 			});
 		},
-		[updateFormAction, formUuid],
+		[inline, formUuid],
 	);
 
 	const toggle = useCallback(() => {
+		if (!connectType) return;
+		setDisableRejection(null);
+
 		if (enabled) {
-			/* Stash the current config before clearing, so re-enabling
-			 * restores it instead of generating a new default. */
-			if (connect && connectType) {
-				stashFormConnect(connectType, formUuid, connect);
+			// Toggle-off: an ordinary gated edit. Removing the app's LAST
+			// participating form's block bounces with the app-level finding,
+			// shown right under the toggle row; otherwise the form simply
+			// stops participating. The block is stashed only after the
+			// commit lands so toggling back on restores the user's work.
+			const removed = connect;
+			const outcome = save(null);
+			if (outcome.ok) {
+				if (removed) stashFormConnect(connectType, formUuid, removed);
+			} else {
+				setDisableRejection(outcome.messages[0] ?? null);
 			}
-			save(null);
 			return;
 		}
-		if (!connectType) return;
 
-		// Toggle-on. Either restore the stashed config or seed a fresh pair of
-		// id-less blocks — both flow through `dedupeRestoredConnectIds`, the
-		// single source-enforcement path. It fills the seed's absent ids from
-		// the entity names (exactly as creation-time autofill would) and
-		// re-derives any stashed id that drifted into a collision while Connect
-		// was off, so a restore can never write a duplicate. Routing seed and
-		// restore through one path keeps them from drifting apart.
-		const name = form?.name ?? "";
-		const config: ConnectConfig =
-			stashedConfig ??
-			(connectType === "learn"
-				? {
-						learn_module: {
-							name,
-							description: name,
-							time_estimate: DEFAULT_LEARN_TIME_ESTIMATE,
-						},
-						assessment: { user_score: "100" },
-					}
-				: {
-						deliver_unit: {
-							name,
-							entity_id: "concat(#user/username, '-', today())",
-							entity_name: "#user/username",
-						},
-						task: { name, description: name },
-					});
-		save(
-			dedupeRestoredConnectIds(config, {
-				formUuid,
-				appConnectIds,
-				moduleName: mod?.name ?? "",
-				formName: name,
-			}),
-		);
+		// Toggle-on. A stashed config is the user's own prior work for this
+		// mode — restore it through `dedupeRestoredConnectIds`, the single
+		// source-enforcement path (a stashed id another form claimed while
+		// Connect was off re-derives instead of landing a duplicate). With
+		// no stash, the user writes the block: open the same staging dialog
+		// the app-level enable flow uses, scoped to this one form.
+		if (stashedConfig) {
+			save(
+				dedupeRestoredConnectIds(stashedConfig, {
+					formUuid,
+					appConnectIds,
+					moduleName: mod?.name ?? "",
+					formName: form?.name ?? "",
+				}),
+			);
+			return;
+		}
+		setStaging({ rejectionMessages: [] });
 	}, [
 		enabled,
 		connect,
 		connectType,
-		stashFormConnect,
 		stashedConfig,
+		stashFormConnect,
 		mod,
 		form,
 		formUuid,
@@ -119,7 +139,38 @@ export function ConnectSection({
 		save,
 	]);
 
+	const confirmStaging = useCallback(
+		(blocks: Record<string, ConnectConfig>) => {
+			const block = blocks[formUuid];
+			if (!block) return;
+			const outcome = save(
+				dedupeRestoredConnectIds(block, {
+					formUuid,
+					appConnectIds,
+					moduleName: mod?.name ?? "",
+					formName: form?.name ?? "",
+				}),
+			);
+			if (outcome.ok) {
+				setStaging(undefined);
+				return;
+			}
+			/* The gate refused — keep the dialog (and the user's drafts) on
+			 * screen with the findings inline, so the bounce explains itself. */
+			setStaging({ rejectionMessages: outcome.messages });
+		},
+		[save, formUuid, appConnectIds, mod, form],
+	);
+
 	if (!connectType) return null;
+
+	const stagingTargets: ConnectStagingTarget[] = [
+		{
+			formUuid,
+			formName: form?.name ?? "",
+			moduleName: mod?.name ?? "",
+		},
+	];
 
 	return (
 		<div className="border-t border-white/[0.06] pt-3">
@@ -135,6 +186,10 @@ export function ConnectSection({
 				</div>
 				<Toggle enabled={enabled} onToggle={toggle} />
 			</div>
+
+			{/* A refused toggle-off explains itself where the gesture happened —
+			 * the label keeps the toggle's own vocabulary. */}
+			<RejectionInline message={disableRejection} label="Still participating" />
 
 			<AnimatePresence>
 				{connect && (
@@ -169,6 +224,23 @@ export function ConnectSection({
 					</motion.div>
 				)}
 			</AnimatePresence>
+
+			{/* Always mounted so Base UI animates open AND close; a single
+			 *  form is the only target, never stash-restored. */}
+			<ConnectEnableDialog
+				request={
+					staging
+						? {
+								mode: connectType,
+								targets: stagingTargets,
+								restoredFormCount: 0,
+								rejectionMessages: staging.rejectionMessages,
+							}
+						: undefined
+				}
+				onCancel={() => setStaging(undefined)}
+				onConfirm={confirmStaging}
+			/>
 		</div>
 	);
 }

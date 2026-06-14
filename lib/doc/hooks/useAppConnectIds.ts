@@ -95,7 +95,7 @@ export function useAppConnectIds(): readonly AppConnectId[] {
  * guard and `deriveConnectId` seed share one notion of "taken".
  *
  * This yields the same effective "taken" set as the SA path's
- * `collectConnectIdsExcept` + the walk-accumulation in `enforceConnectIds`,
+ * `collectConnectIds` + the walk-accumulation in `enforceConnectIds`,
  * just decomposed differently: the UI knows the single `(form, kind)` slot
  * it's editing and excludes exactly that, while the tool excludes the whole
  * form and re-accumulates each co-located id as it walks the merged config.

@@ -29,7 +29,7 @@ import type { ProgressEmitter } from "../progress";
  * Individual tests tweak the implementation via `mockImplementationOnce`
  * as needed. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn().mockResolvedValue(undefined),
+	applyBlueprintChange: vi.fn().mockResolvedValue({}),
 }));
 
 /**
@@ -79,7 +79,7 @@ function mockDoc(): BlueprintDoc {
  * next. */
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
-	vi.mocked(applyBlueprintChange).mockResolvedValue(undefined);
+	vi.mocked(applyBlueprintChange).mockResolvedValue({});
 });
 
 describe("McpContext", () => {
@@ -114,8 +114,8 @@ describe("McpContext", () => {
 		let resolveSave: () => void = () => {};
 		vi.mocked(applyBlueprintChange).mockImplementationOnce(
 			() =>
-				new Promise<void>((r) => {
-					resolveSave = r;
+				new Promise((r) => {
+					resolveSave = () => r({});
 				}),
 		);
 		const ctx = new McpContext({
@@ -163,5 +163,67 @@ describe("McpContext", () => {
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(0);
 		expect(vi.mocked(applyBlueprintChange)).not.toHaveBeenCalled();
+	});
+
+	it("recordMutationStages persists the whole sequence as ONE guarded save with per-stage tags", async () => {
+		const logWriter = mockLogWriter();
+		const ctx = new McpContext({
+			appId: "a",
+			userId: "u",
+			runId: "r",
+			logWriter,
+			progress: mockProgress(),
+		});
+		const renameMut: Mutation = { kind: "setAppName", name: "renamed" };
+		const patchMut: Mutation = { kind: "setAppName", name: "patched" };
+		const midDoc = { ...mockDoc(), appName: "renamed" };
+		const finalDoc = { ...mockDoc(), appName: "patched" };
+
+		const events = await ctx.recordMutationStages([
+			{ mutations: [renameMut], doc: midDoc, stage: "rename:0-0" },
+			{ mutations: [patchMut], doc: finalDoc, stage: "edit:0-0" },
+		]);
+
+		// ONE transactional save for the whole sequence: the guard carries
+		// the CONCATENATED batch (one fresh-doc re-verdict over the whole
+		// edit) and the prospective snapshot is the FINAL stage's doc.
+		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
+		const args = vi.mocked(applyBlueprintChange).mock.calls[0]?.[0];
+		expect(args?.guard?.mutations).toEqual([renameMut, patchMut]);
+		expect(args?.prospective.appName).toBe("patched");
+
+		// The envelopes keep each stage's own tag, in order.
+		expect(events.map((e) => e.stage)).toEqual(["rename:0-0", "edit:0-0"]);
+		expect(events.map((e) => e.seq)).toEqual([0, 1]);
+	});
+
+	it("recordMutationStages logs nothing when the guarded save rejects", async () => {
+		vi.mocked(applyBlueprintChange).mockRejectedValueOnce(
+			new Error("guarded commit rejected"),
+		);
+		const logWriter = mockLogWriter();
+		const ctx = new McpContext({
+			appId: "a",
+			userId: "u",
+			runId: "r",
+			logWriter,
+			progress: mockProgress(),
+		});
+
+		await expect(
+			ctx.recordMutationStages([
+				{
+					mutations: [{ kind: "setAppName", name: "x" }],
+					doc: mockDoc(),
+					stage: "rename:0-0",
+				},
+			]),
+		).rejects.toThrow("guarded commit rejected");
+
+		// Persist-first/log-second: a rejected save leaves the event log
+		// empty, so replay can never record a batch the blueprint refused.
+		expect(
+			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
+		).toHaveLength(0);
 	});
 });

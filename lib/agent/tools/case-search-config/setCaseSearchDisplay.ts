@@ -17,7 +17,7 @@ import { z } from "zod";
 import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "../common";
+import { guardedMutate, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
@@ -100,12 +100,21 @@ export const setCaseSearchDisplayTool = {
 			const mutations = updateModuleMutations(mod, {
 				caseSearchConfig: nextConfig,
 			});
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`module:${moduleIndex}:caseSearch:display`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			// Derive the message from the same slot tuple. A new entry
 			// on `DISPLAY_SLOT_NAMES` flows through verbatim.

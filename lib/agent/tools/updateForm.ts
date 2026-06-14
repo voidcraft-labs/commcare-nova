@@ -1,3 +1,7 @@
+import {
+	parseXPathForForm,
+	resolveCloseFieldRef,
+} from "@/lib/doc/expressionText";
 /**
  * SA tool: `updateForm` — patch form-level metadata.
  *
@@ -34,19 +38,13 @@
 
 import { z } from "zod";
 import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
-import type {
-	BlueprintDoc,
-	ConnectConfig,
-	PostSubmitDestination,
-} from "@/lib/domain";
-import { USER_FACING_DESTINATIONS } from "@/lib/domain";
+import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
+import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
-import {
-	collectConnectIdsExcept,
-	enforceConnectIds,
-} from "./shared/connectIds";
+import { guardedMutate, type MutatingToolResult } from "./common";
+import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
+import { buildConnectConfig } from "./shared/connectInput";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -143,7 +141,7 @@ export const updateFormInputSchema = z
 					.strict()
 					.optional()
 					.describe(
-						"Set for forms in a Connect deliver app. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
+						"Set on a deliver-app form that counts as a payable delivery. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
 					),
 				task: z
 					.object({
@@ -158,7 +156,7 @@ export const updateFormInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Set Connect config on this form. null to remove. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
+				"Set Connect config on this form — a block opts the form into Connect. null removes it (the form stops participating; rejected only when it is the app's last participating form). Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
 			),
 	})
 	.strict();
@@ -167,41 +165,6 @@ export type UpdateFormInput = z.infer<typeof updateFormInputSchema>;
 
 /** Human-readable success string or an error record. */
 export type UpdateFormResult = MutationSuccess | { error: string };
-
-/**
- * Merge the SA's partial connect-config input into a full
- * `ConnectConfig`. Pure structural merge: keys absent from `input` are
- * copied verbatim from `existing`. Keys present on `input` overlay the
- * matching existing sub-config (`existing.learn_module` ←
- * `input.learn_module`, etc.). Returns `null` only when the SA's input
- * is explicitly `null` — the caller uses that as the "clear Connect
- * config" signal.
- *
- * No defaults are invented here. `deliver_unit` may land without
- * `entity_id`/`entity_name` — that's a normal state of the domain
- * type, and the XForm builder substitutes the canonical XPath defaults
- * when emitting the binds.
- */
-function buildConnectConfig(
-	input: NonNullable<UpdateFormInput["connect"]> | null,
-	existing?: ConnectConfig,
-): ConnectConfig | null {
-	if (input === null) return null;
-	const out: ConnectConfig = { ...existing };
-	if (input.learn_module !== undefined) {
-		out.learn_module = { ...existing?.learn_module, ...input.learn_module };
-	}
-	if (input.assessment !== undefined) {
-		out.assessment = { ...existing?.assessment, ...input.assessment };
-	}
-	if (input.deliver_unit !== undefined) {
-		out.deliver_unit = { ...existing?.deliver_unit, ...input.deliver_unit };
-	}
-	if (input.task !== undefined) {
-		out.task = { ...existing?.task, ...input.task };
-	}
-	return out;
-}
 
 export const updateFormTool = {
 	description:
@@ -246,11 +209,17 @@ export const updateFormTool = {
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
 			if (name !== undefined) patch.name = name;
 			if (close_condition !== undefined) {
+				// The SA names the checked field by id; the stored form is the
+				// field's stable uuid. An id nothing answers to stays verbatim
+				// — the gate rejects the introduction with the validator's
+				// close-condition finding.
 				patch.closeCondition =
 					close_condition === null
 						? null
 						: {
-								field: close_condition.field,
+								field: asUuid(
+									resolveCloseFieldRef(doc, formUuid, close_condition.field),
+								),
 								answer: close_condition.answer,
 								...(close_condition.operator && {
 									operator: close_condition.operator,
@@ -261,13 +230,17 @@ export const updateFormTool = {
 				patch.postSubmit = post_submit as PostSubmitDestination | null;
 			}
 			if (connect !== undefined) {
-				const merged = buildConnectConfig(
-					connect,
-					existing.connect ?? undefined,
-				);
-				if (merged === null) {
+				if (connect === null) {
 					patch.connect = null;
 				} else {
+					// Structural partial-update merge + the text → AST parse
+					// boundary for the connect XPath slots, resolved against
+					// the owning form (`shared/connectInput.ts`).
+					const merged = buildConnectConfig(
+						connect,
+						existing.connect ?? undefined,
+						(text) => parseXPathForForm(doc, formUuid, text),
+					);
 					// Force connect ids correct at the source: autofill omitted
 					// ids, reject explicit-invalid ids (fail the call, write
 					// nothing). `existingIds` excludes this form's own ids so a
@@ -280,7 +253,7 @@ export const updateFormTool = {
 						merged,
 						moduleName,
 						existing.name,
-						collectConnectIdsExcept(doc, formUuid),
+						collectConnectIds(doc, formUuid),
 					);
 					if (!enforced.ok) {
 						return {
@@ -298,12 +271,21 @@ export const updateFormTool = {
 			// the shared context so both surfaces write the same stream +
 			// log + Firestore trio.
 			const mutations = updateFormMutations(doc, formUuid, patch);
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`form:${moduleIndex}-${formIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			const formAfter = newDoc.forms[formUuid];
 			if (!formAfter) {

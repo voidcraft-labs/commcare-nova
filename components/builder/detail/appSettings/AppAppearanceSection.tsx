@@ -28,6 +28,7 @@ export function AppAppearanceSection() {
 				<SingleAssetSlot
 					value={logo}
 					kind="image"
+					slotKey="app:logo"
 					ariaLabel="App logo"
 					onChange={(next) => setAppLogo(next ? asAssetId(next) : null)}
 				/>

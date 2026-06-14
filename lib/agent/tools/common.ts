@@ -8,9 +8,20 @@
  */
 
 import { produce } from "immer";
+import {
+	describeIntroducedErrors,
+	mutationCommitVerdict,
+} from "@/lib/doc/commitVerdicts";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
+import type {
+	StagedMutationBatch,
+	ToolExecutionContext,
+} from "../toolExecutionContext";
+
+export type { StagedMutationBatch };
 
 /**
  * Apply a mutation batch to a `BlueprintDoc` via Immer `produce`.
@@ -30,14 +41,103 @@ export function applyToDoc(doc: BlueprintDoc, muts: Mutation[]): BlueprintDoc {
 }
 
 /**
+ * Outcome of a {@link guardedMutate} call. `ok: true` means the batch
+ * passed the validity gate AND was persisted; `newDoc` is the doc the
+ * tool continues against. `ok: false` means the gate rejected the batch
+ * — nothing was written — and `error` is the person-to-person message
+ * (one line per introduced finding) the tool returns in its `{ error }`
+ * envelope so the agent self-corrects in its loop.
+ */
+export type GuardedMutateOutcome =
+	| { ok: true; newDoc: BlueprintDoc }
+	| { ok: false; error: string };
+
+/**
+ * The one write path for every mutating shared tool: gate the batch
+ * through the validity verdict, then persist via `ctx.recordMutations`.
+ *
+ * The gate (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` over
+ * `evaluateCommit`) accepts a batch iff it introduces no validator
+ * finding of a gating class — shape, soundness, or completeness. A
+ * rejected batch persists NOTHING: the gate runs before the write, so an
+ * invalid intermediate state never reaches Firestore or the mutation
+ * stream, on the chat surface and MCP alike.
+ *
+ * Tools must route every batch through here rather than calling
+ * `applyToDoc` + `ctx.recordMutations` themselves — a direct write would
+ * skip the gate. (`applyToDoc` stays exported for non-commit candidate
+ * computation, e.g. `editField`'s convert pre-check.)
+ *
+ * `mediaExpectations` rides through to `ctx.recordMutations` when the
+ * batch attaches media references: the media tools have already run the
+ * pre-commit asset verdict (`mediaAttachVerdict`), and the MCP surface's
+ * transactional save re-applies the per-asset judgment inside the same
+ * transaction that re-verdicts the batch (see `toolExecutionContext.ts`).
+ */
+export async function guardedMutate(
+	ctx: ToolExecutionContext,
+	prevDoc: BlueprintDoc,
+	mutations: Mutation[],
+	stage?: string,
+	mediaExpectations?: readonly MediaAttachExpectation[],
+): Promise<GuardedMutateOutcome> {
+	const verdict = mutationCommitVerdict(prevDoc, mutations);
+	if (!verdict.ok) {
+		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
+	}
+	if (mutations.length > 0) {
+		await ctx.recordMutations(
+			mutations,
+			verdict.nextDoc,
+			stage,
+			mediaExpectations,
+		);
+	}
+	return { ok: true, newDoc: verdict.nextDoc };
+}
+
+/**
+ * The multi-stage twin of {@link guardedMutate}: gate the WHOLE staged
+ * sequence as one candidate, then persist it as ONE save that keeps the
+ * per-stage event-log tags.
+ *
+ * The verdict runs over the concatenated batches against `prevDoc`, so a
+ * rejection — wherever in the sequence the finding would arise — commits
+ * NOTHING. The persistence side holds the same property: the whole
+ * sequence goes through `ctx.recordMutationStages` as one save, so a
+ * surface whose write can itself reject (the MCP transactional commit
+ * re-verdicts against the FRESH stored doc) evaluates the concatenated
+ * batch once and commits all-or-nothing. There is no committed prefix to
+ * report or re-issue around, and no per-stage re-verdict that could be
+ * stricter than the whole-sequence gate — which is what lets every
+ * surface state "a rejected call saved nothing" without a multi-stage
+ * asterisk.
+ */
+export async function guardedMutateStages(
+	ctx: ToolExecutionContext,
+	prevDoc: BlueprintDoc,
+	stages: StagedMutationBatch[],
+): Promise<GuardedMutateOutcome> {
+	const all = stages.flatMap((s) => s.mutations);
+	const verdict = mutationCommitVerdict(prevDoc, all);
+	if (!verdict.ok) {
+		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
+	}
+	const nonEmpty = stages.filter((s) => s.mutations.length > 0);
+	if (nonEmpty.length === 0) return { ok: true, newDoc: prevDoc };
+	await ctx.recordMutationStages(nonEmpty);
+	return { ok: true, newDoc: nonEmpty[nonEmpty.length - 1].doc };
+}
+
+/**
  * Standard output shape for every mutating shared tool.
  *
  * Tagged with `kind: "mutate"` so the MCP adapter's result projector
  * dispatches via a `switch` on the discriminator rather than
  * runtime structural inspection — the type system catches a future
- * fourth shape at compile time, and `MutatingToolResult` /
- * `ReadToolResult` / `ValidateAppResult` are unambiguous regardless of
- * incidental shape collisions in their inner payload.
+ * third shape at compile time, and `MutatingToolResult` /
+ * `ReadToolResult` are unambiguous regardless of incidental shape
+ * collisions in their inner payload.
  *
  * - `kind`: the discriminator — always `"mutate"`.
  * - `mutations`: the computed batch. The tool has already persisted it

@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { asUuid, formSchema, isCaseFirstModule } from "@/lib/domain";
+import { opaqueXPathExpression } from "../xpath";
 
 describe("formSchema — formLinks", () => {
 	const baseForm = {
@@ -22,16 +23,17 @@ describe("formSchema — formLinks", () => {
 		formUuid: asUuid("frm-2"),
 	};
 
-	it("rejects empty-string condition on a form link", () => {
-		// The session emitter's truthy check (`if (link.condition)`) treats
-		// "" as unconditional while the expander's `!== undefined` check
-		// treats it as present — schema rejection prevents the disagreement
-		// from manifesting in a persisted blueprint.
+	it("accepts an empty condition expression — emitters read it as unconditional", () => {
+		// No commit boundary stores an empty condition (an empty commit
+		// clears the slot), and both emitters collapse a degenerate empty
+		// expression to "unconditional": the session emitter's truthy
+		// check over the printed text, and the expander's explicit
+		// empty-printed-condition drop.
 		const result = formSchema.safeParse({
 			...baseForm,
-			formLinks: [{ condition: "", target: linkTarget }],
+			formLinks: [{ condition: opaqueXPathExpression(""), target: linkTarget }],
 		});
-		expect(result.success).toBe(false);
+		expect(result.success).toBe(true);
 	});
 
 	it("accepts an absent condition (unconditional link)", () => {
@@ -45,7 +47,12 @@ describe("formSchema — formLinks", () => {
 	it("accepts a non-empty condition (conditional link)", () => {
 		const result = formSchema.safeParse({
 			...baseForm,
-			formLinks: [{ condition: "/data/outcome = 'yes'", target: linkTarget }],
+			formLinks: [
+				{
+					condition: opaqueXPathExpression("/data/outcome = 'yes'"),
+					target: linkTarget,
+				},
+			],
 		});
 		expect(result.success).toBe(true);
 	});

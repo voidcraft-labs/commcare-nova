@@ -1048,10 +1048,11 @@ describe("validator rejection of broken references", () => {
 });
 
 // =================================================================
-// 8. Sort-priority tie-break — two columns at the same priority
-//    tie-break to display order (lower index wins). The rule binds
-//    uniformly at three layers: saga (doc state), preview
-//    (`buildCaseStoreSortKeys`), wire (`buildSortDirectives`).
+// 8. Sort-priority collisions — the commit gate rejects a write that
+//    would land two sorted columns at one priority (saga layer), and
+//    for LEGACY docs that already carry a collision, preview
+//    (`buildCaseStoreSortKeys`) and wire (`buildSortDirectives`)
+//    tie-break to display order (lower index wins).
 // =================================================================
 
 describe("sort-priority collision tie-breaks to display order at every layer", () => {
@@ -1109,14 +1110,15 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 		return { mod, doc };
 	}
 
-	it("preserves the user-authored priority on both columns (saga layer)", async () => {
-		// The saga layer is the SA's atomic-op mutation builders. It
-		// preserves the user's explicit priority intent — collisions
-		// are NOT silently renumbered, because every priority-handling
-		// layer below (preview, wire emitter) sorts by priority +
-		// source-index tie-break. After two `updateCaseListColumn`
-		// calls each setting `priority: 0`, both columns survive at
-		// priority 0 in `caseListConfig.columns`.
+	it("rejects a colliding priority at the commit gate (saga layer) — nothing renumbered, nothing written", async () => {
+		// The saga layer never silently renumbers a priority collision —
+		// and with the commit gate live, it never PERSISTS one either:
+		// the second `updateCaseListColumn` that would land a duplicate
+		// priority fails the call with the validator's actionable
+		// message and leaves the doc untouched. The tie-break layers
+		// below (preview, wire emitter) keep their priority +
+		// source-index ordering for LEGACY docs that already carry a
+		// collision — covered by the sibling tests in this describe.
 		const { ctx } = makeTestContext({ appId: APP_ID });
 		const startDoc = buildDoc({
 			appId: APP_ID,
@@ -1175,12 +1177,19 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 			ctx,
 			firstUpdate.newDoc,
 		);
-		if ("error" in secondUpdate.result) {
-			throw new Error(`second update failed: ${secondUpdate.result.error}`);
+		// The colliding write is rejected with the rule's actionable
+		// message — the SA renumbers and retries rather than landing a
+		// silent ordering ambiguity.
+		if (!("error" in secondUpdate.result)) {
+			throw new Error("expected the colliding priority to be rejected");
 		}
+		expect(secondUpdate.result.error).toContain("sort priority");
+		expect(secondUpdate.mutations).toEqual([]);
+		// The doc after the rejected call still carries only the FIRST
+		// column's sort — the collision never landed.
 		const finalCols = collectColumns(secondUpdate.newDoc);
 		expect(finalCols[0]?.sort?.priority).toBe(0);
-		expect(finalCols[1]?.sort?.priority).toBe(0);
+		expect(finalCols[1]?.sort).toBeUndefined();
 	});
 
 	it("orders by display index at the wire layer (buildSortDirectives.order)", () => {

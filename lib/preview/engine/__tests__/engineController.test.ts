@@ -8,6 +8,7 @@
  * on load.
  */
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { CaseType, Field, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
@@ -135,7 +136,7 @@ describe("EngineController", () => {
 					kind: "updateField",
 					uuid: Q1_UUID,
 					targetKind: "text",
-					patch: { relevant: "false()" },
+					patch: { relevant: xp("false()") },
 				},
 			]);
 

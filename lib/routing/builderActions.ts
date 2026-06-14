@@ -132,7 +132,12 @@ export function useDeleteSelectedField(): () => void {
 			const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
 			const idx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
 			const neighbor = idx < 0 ? undefined : (refs[idx + 1] ?? refs[idx - 1]);
-			removeField(asUuid(loc.selectedUuid));
+			/* The commit gate can reject the removal (e.g. deleting a form's
+			 * only field on a complete app would take the form incomplete) —
+			 * the hook shows the rejection toast and returns false. Keep the
+			 * selection on the still-present field rather than deselecting a
+			 * field the user is looking at. */
+			if (!removeField(asUuid(loc.selectedUuid)).ok) return;
 			select(neighbor ? neighbor.uuid : undefined);
 		},
 		[loc, docApi, select, removeField],

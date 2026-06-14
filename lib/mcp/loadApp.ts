@@ -36,6 +36,7 @@
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc } from "@/lib/domain";
 import { McpAccessError } from "./ownership";
 
@@ -77,9 +78,14 @@ export async function loadAppBlueprint(
 	/* Split the raw blueprint off the `AppDoc` envelope so the return
 	 * type can't accidentally leak a stale blueprint through `.app`.
 	 * `rebuildFieldParent` assigns into `doc.fieldParent`; spreading
-	 * first prevents mutation of the shared object `loadApp` returned. */
+	 * first prevents mutation of the shared object `loadApp` returned.
+	 * The reference index hydrates here too, so every reference lookup
+	 * the tool layer makes (retirement planning, the rename verdict's
+	 * peer scan, the rename cascade itself) is O(1) from the first
+	 * call instead of falling back to a per-call rebuild. */
 	const { blueprint, ...appRest } = loaded;
 	const doc: BlueprintDoc = { ...blueprint, fieldParent: {} };
 	rebuildFieldParent(doc);
+	ensureReferenceIndex(doc);
 	return { doc, app: appRest };
 }

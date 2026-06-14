@@ -11,6 +11,10 @@ import { EditorView, keymap, tooltips } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRegisterEditGuard } from "@/components/builder/contexts/EditGuardContext";
+import {
+	REJECTION_SURFACE_CLS,
+	RejectionBody,
+} from "@/components/builder/RejectionNotice";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
 import { xpathChips } from "@/lib/codemirror/xpath-chips";
 import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
@@ -26,6 +30,7 @@ import {
 	novaXPathTheme,
 } from "@/lib/codemirror/xpath-theme";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
+import type { CommitOutcome } from "@/lib/domain";
 import { ReferenceProvider } from "@/lib/references/provider";
 import {
 	useCurrentFormUuid,
@@ -99,8 +104,14 @@ const baseEditingExtensions = [
 interface XPathFieldProps {
 	/** The XPath expression value. */
 	value: string;
-	/** Callback to save the edited value. Presence enables click-to-edit. */
-	onSave?: (value: string) => void;
+	/** Callback to save the edited value. Presence enables click-to-edit.
+	 *  May return the gated dispatch's `CommitOutcome`: an `ok: false`
+	 *  with messages keeps the editor OPEN with the draft intact and
+	 *  surfaces the first finding in the error tooltip — the doc-level
+	 *  gate sees findings the inline lint can't (cycles, type errors), and
+	 *  the user's typed expression must survive the bounce. `void` reads
+	 *  as committed. */
+	onSave?: (value: string) => CommitOutcome | undefined;
 	/** Context getter for linting and autocomplete. Required when onSave is present. */
 	getLintContext?: () => XPathLintContext | undefined;
 	/** Start in editing mode immediately (for newly added fields). */
@@ -194,20 +205,26 @@ export function XPathField({
 		<InlineXPathEditor
 			value={value}
 			onSave={(v) => {
-				clickPosRef.current = null;
 				const normalized = formatXPath(v);
 				/* Always propagate empty commits — the parent needs the callback
 				 * to clean up addable-field state (e.g. xpathField.clear(),
 				 * setAddingCondition(false)). Skip only non-empty no-ops. */
 				if (!normalized.trim() || normalized !== formatXPath(value)) {
-					onSave?.(normalized);
+					const outcome = onSave?.(normalized);
+					if (outcome && outcome.ok === false && outcome.messages.length > 0) {
+						/* The commit gate refused the edit — hand the rejection
+						 * back so the inline editor stays open with the draft. */
+						return outcome;
+					}
 				}
+				clickPosRef.current = null;
 				/* setEditing after the save callback so the external store
 				 * update (from onSave → notifyBlueprintChanged) and the local
 				 * state update batch in the same React render cycle. Calling
 				 * setEditing first could trigger a synchronous re-render via
 				 * useSyncExternalStore before the save fires. */
 				setEditing(false);
+				return undefined;
 			}}
 			onCancel={() => {
 				clickPosRef.current = null;
@@ -225,7 +242,9 @@ export function XPathField({
 
 interface InlineXPathEditorProps {
 	value: string;
-	onSave: (draft: string) => void;
+	/** Commit the draft. A returned rejection (`ok: false` with messages)
+	 *  means the doc-level gate refused — the editor stays open. */
+	onSave: (draft: string) => CommitOutcome | undefined;
 	/** Cancel editing and revert to the original value (no save). */
 	onCancel: () => void;
 	getLintContext?: () => XPathLintContext | undefined;
@@ -344,7 +363,18 @@ function InlineXPathEditor({
 		}
 		doneRef.current = true;
 		const draft = editorRef.current?.view?.state.doc.toString() ?? "";
-		onSave(draft);
+		const outcome = onSave(draft);
+		if (outcome && outcome.ok === false && outcome.messages.length > 0) {
+			/* The doc-level commit gate refused a draft the inline lint
+			 * passed (a dependency cycle, a type error — findings only the
+			 * whole-doc validator can see). Stay open with the draft intact
+			 * and show the finding the same way an inline lint error shows:
+			 * the typed expression is never discarded. */
+			doneRef.current = false;
+			shake();
+			setTooltipMessage(outcome.messages[0]);
+			editorRef.current?.view?.focus();
+		}
 	}, [onSave, getErrors, shake]);
 
 	/** Cancel editing — revert to the original value without saving. */
@@ -580,14 +610,12 @@ function InlineXPathEditor({
 						<Popover.Popup className={POPOVER_POPUP_CLS}>
 							<div
 								role="alert"
-								className="px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] border border-nova-rose/20 shadow-lg max-w-xs"
+								className={`px-3 py-2.5 max-w-sm ${REJECTION_SURFACE_CLS}`}
 							>
-								<p className="text-xs text-nova-rose font-mono leading-snug">
-									{tooltipMessage}
-								</p>
-								<p className="text-[10px] text-nova-text-muted mt-0.5">
-									Press Esc to discard changes
-								</p>
+								<RejectionBody
+									message={tooltipMessage ?? ""}
+									hint="Press Esc to discard changes"
+								/>
 							</div>
 						</Popover.Popup>
 					</Popover.Positioner>

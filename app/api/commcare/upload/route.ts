@@ -5,10 +5,11 @@
  * caller's chosen project space. The API key stays server-side, and each
  * call creates a brand-new app — HQ has no atomic update API yet.
  *
- * Media-ON, two-phase: media references are validated first (a stale,
- * still-uploading, foreign-owned, or kind-mismatched ref returns an
- * actionable 400, never an opaque 500), then the blueprint expands
- * media-ON and imports. Once the app exists, each asset's bytes are
+ * The zero-tolerance boundary gate runs first: every validator finding
+ * (soundness, completeness, or a stale media reference) returns an
+ * actionable 422, never an opaque 500 — an invalid app must never reach
+ * HQ. Then the upload is media-ON, two-phase: the blueprint expands
+ * media-ON and imports, and once the app exists, each asset's bytes are
  * uploaded per-file against the new app id so HQ's `create_mapping`
  * resolves the references on the device. A media-byte failure never fails
  * the upload — the app is already created, so it degrades to a warning on
@@ -25,13 +26,13 @@ import {
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
-import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
+import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
-import { collectMediaValidationErrors } from "@/lib/media/mediaValidation";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -97,21 +98,21 @@ export async function POST(req: NextRequest) {
 		const { creds } = credResult;
 		const domain = credResult.domain.name;
 
-		/* ── Validate media references before media-ON expand ─────────── */
-		// This path is media-ON, so a stale media reference (deleted,
-		// still-uploading, foreign-owned, or kind-mismatched asset) would
-		// make `expandDoc` throw `requireAssetRef` → opaque 500. Run the
-		// media rules first and surface the actionable message with the
-		// carrier location instead.
-		const mediaErrors = await collectMediaValidationErrors(
+		/* ── Boundary gate — full validation before any expensive work ── */
+		// Zero tolerance at the upload boundary: every finding (soundness,
+		// completeness, media-state) rejects with the rule's actionable
+		// message and the carrier location. This also covers the media-ON
+		// expand's failure mode — a stale media reference would make
+		// `expandDoc` throw `requireAssetRef` → opaque 500.
+		const violations = await collectBoundaryViolations(
 			docWithParent,
 			session.user.id,
 		);
-		if (mediaErrors.length > 0) {
+		if (violations.length > 0) {
 			throw new ApiError(
-				"This app references media that isn't ready to upload.",
-				400,
-				mediaErrors.map(errorToString),
+				"This app isn't ready to upload — fix the issues below, then try again.",
+				422,
+				violations.map(userFacingError),
 			);
 		}
 

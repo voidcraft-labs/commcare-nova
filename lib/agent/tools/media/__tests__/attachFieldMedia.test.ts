@@ -17,7 +17,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import { attachFieldMediaTool } from "../attachFieldMedia";
-import { makeMediaFixture, makeMediaMcpFixture, TEXT_FIELD } from "./fixtures";
+import {
+	makeMediaFixture,
+	makeMediaMcpFixture,
+	resetTestAssets,
+	seedTestAsset,
+	TEXT_FIELD,
+} from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
 	updateApp: vi.fn(() => Promise.resolve()),
@@ -27,9 +33,16 @@ vi.mock("@/lib/db/apps", () => ({
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(() => Promise.resolve()),
 }));
+// Firestore-constructing module stubbed at the import boundary; the
+// attach verdict's asset reads resolve against the fixtures' in-memory
+// table instead.
+vi.mock("@/lib/db/mediaAssets", async () => ({
+	loadAssetsByIds: (await import("./fixtures")).loadAssetsByIdsMock,
+}));
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	resetTestAssets();
 });
 
 describe("attachFieldMedia", () => {
@@ -188,6 +201,127 @@ describe("attachFieldMedia", () => {
 		}
 		expect(result.result.error).toContain("Tried to attach label media");
 		expect(result.result.error).toContain('"nope"');
+	});
+
+	it("refuses an asset id that isn't in the caller's library", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const result = await attachFieldMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				slot: "label",
+				media: { image: "asset-nope" },
+			},
+			ctx,
+			doc,
+		);
+		expect(result.mutations).toEqual([]);
+		if (typeof result.result === "string") {
+			throw new Error("expected error result");
+		}
+		expect(result.result.error).toContain("asset-nope");
+		expect(result.result.error).toContain("library");
+		// Nothing committed.
+		const field = result.newDoc.fields[TEXT_FIELD];
+		expect(
+			field && "label_media" in field ? field.label_media : undefined,
+		).toBeUndefined();
+	});
+
+	it("refuses a foreign-owned asset with the same message as a missing one", async () => {
+		seedTestAsset("asset-foreign", "image", { owner: "someone-else" });
+		const { doc, ctx } = makeMediaFixture();
+		const result = await attachFieldMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				slot: "label",
+				media: { image: "asset-foreign" },
+			},
+			ctx,
+			doc,
+		);
+		if (typeof result.result === "string") {
+			throw new Error("expected error result");
+		}
+		expect(result.result.error).toContain("library");
+		expect(result.result.error).not.toContain("someone-else");
+	});
+
+	it("refuses an asset whose upload hasn't confirmed", async () => {
+		seedTestAsset("asset-pending", "image", { status: "pending" });
+		const { doc, ctx } = makeMediaFixture();
+		const result = await attachFieldMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				slot: "hint",
+				media: { image: "asset-pending" },
+			},
+			ctx,
+			doc,
+		);
+		if (typeof result.result === "string") {
+			throw new Error("expected error result");
+		}
+		expect(result.result.error).toContain("upload hasn't finished");
+		expect(result.mutations).toEqual([]);
+	});
+
+	it("refuses an asset whose kind doesn't match the slot it's placed in", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		// An audio asset placed in the bundle's IMAGE slot.
+		const result = await attachFieldMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				slot: "label",
+				media: { image: "asset-aud-1" },
+			},
+			ctx,
+			doc,
+		);
+		if (typeof result.result === "string") {
+			throw new Error("expected error result");
+		}
+		expect(result.result.error).toContain("an audio file");
+		expect(result.result.error).toContain("an image");
+		expect(result.mutations).toEqual([]);
+	});
+
+	it("clears without touching the asset table (no verdict on a clear)", async () => {
+		const { doc: baseDoc, ctx } = makeMediaFixture();
+		const seeded = await attachFieldMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				slot: "label",
+				media: { image: "asset-img-1" },
+			},
+			ctx,
+			baseDoc,
+		);
+		// Even with EVERY row gone, the clear commits — a clear carries no
+		// expectations, so the asset table is never consulted.
+		resetTestAssets();
+		seedTestAsset("asset-img-1", "image", { owner: "someone-else" });
+		const cleared = await attachFieldMediaTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				slot: "label",
+				media: {},
+			},
+			ctx,
+			seeded.newDoc,
+		);
+		expect(cleared.result).toContain("Cleared");
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {

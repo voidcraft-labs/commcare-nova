@@ -8,7 +8,7 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { useSampleData } from "@/components/builder/case-list-config/useSampleData";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
-import { EditableTitle, SavedCheck } from "@/components/builder/EditableTitle";
+import { EditableTitle } from "@/components/builder/EditableTitle";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
@@ -114,7 +114,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const caseId = screen.caseId;
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const { updateForm } = useBlueprintMutations();
+	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const appId = useAppId();
@@ -123,12 +123,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 	const moduleUuid = loc.kind === "form" ? loc.moduleUuid : undefined;
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
-
-	const [titleSaved, setTitleSaved] = useState(false);
-	const handleTitleSaved = useCallback(() => {
-		setTitleSaved(true);
-		setTimeout(() => setTitleSaved(false), 1500);
-	}, []);
 
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
@@ -410,15 +404,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					{canEdit ? (
 						<EditableTitle
 							value={form.name}
-							onSave={(name) => {
-								if (formUuid) updateForm(formUuid, { name });
-							}}
-							onSaved={handleTitleSaved}
+							/* Forward the gated dispatch's outcome — a refused rename
+							 * keeps the editor open with the draft and surfaces the
+							 * finding inline; the saved checkmark only fires on a
+							 * committed rename. */
+							onSave={(name) =>
+								formUuid ? inline.updateForm(formUuid, { name }) : undefined
+							}
 						/>
 					) : (
 						<EditableTitle value={form.name} readOnly />
 					)}
-					<SavedCheck visible={titleSaved} />
 					{canEdit && (
 						<FormSettingsButton
 							moduleUuid={(moduleUuid ?? "") as Uuid}

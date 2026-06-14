@@ -2,14 +2,14 @@
  * derivePhase — pure function unit tests.
  *
  * `BuilderPhase` is computed from session run-lifecycle fields
- * (`loading`, `runCompletedAt`, `events`) + the doc store's
- * `docHasData` predicate. There's no `agentActive` parameter — the
- * events buffer is cleared at both `beginRun` and `endRun`, so
- * "non-empty buffer with build foundation" is itself the "generation
- * in progress" signal. These tests verify the priority chain:
- * Loading > Completed > Generating > Ready > Idle, plus the
- * foundation check that distinguishes initial build from post-build
- * edit (both can emit `form:M-F` tags).
+ * (`loading`, `runCompletedAt`, `events`, `runStartedWithData`) + the
+ * doc store's `docHasData` predicate. There's no `agentActive`
+ * parameter — the events buffer is cleared at both `beginRun` and
+ * `endRun`, so "non-empty buffer with a stage" is itself the
+ * "generation in progress" signal. These tests verify the priority
+ * chain: Loading > Completed > Generating > Ready > Idle, plus the
+ * run-start capture that distinguishes initial build from post-build
+ * edit (both emit the same stage tags).
  *
  * No React, no providers — just the pure function.
  */
@@ -37,6 +37,7 @@ const idle = {
 	loading: false,
 	runCompletedAt: undefined,
 	events: [] as Event[],
+	runStartedWithData: false,
 };
 
 describe("derivePhase", () => {
@@ -53,6 +54,7 @@ describe("derivePhase", () => {
 					loading: true,
 					runCompletedAt: Date.now(),
 					events: [mut("schema", 0)],
+					runStartedWithData: false,
 				},
 				true,
 			),
@@ -75,24 +77,30 @@ describe("derivePhase", () => {
 					loading: false,
 					runCompletedAt: Date.now(),
 					events: [mut("schema", 0), mut("fix:attempt-1", 1)],
+					runStartedWithData: false,
 				},
 				true,
 			),
 		).toBe(BuilderPhase.Completed);
 	});
 
-	it("returns Generating when buffer has a generation stage + build foundation", () => {
+	it("returns Generating when a build run (opened on an empty doc) has a stage", () => {
+		expect(derivePhase({ ...idle, events: [mut("app", 0)] }, false)).toBe(
+			BuilderPhase.Generating,
+		);
+		/* Historical buffers (runs persisted by the retired generation
+		 * tools) still derive — schema/scaffold stages keep their rows. */
 		expect(derivePhase({ ...idle, events: [mut("schema", 0)] }, false)).toBe(
 			BuilderPhase.Generating,
 		);
 	});
 
-	it("stays Generating through later stages (schema is still in buffer)", () => {
+	it("stays Generating through later stages (the run-start capture holds)", () => {
 		expect(
 			derivePhase(
 				{
 					...idle,
-					events: [mut("schema", 0), mut("scaffold", 1), mut("form:0-0", 2)],
+					events: [mut("app", 0), mut("module:create", 1), mut("form:0-0", 2)],
 				},
 				true,
 			),
@@ -131,14 +139,18 @@ describe("derivePhase", () => {
 		expect(derivePhase(idle, true)).toBe(BuilderPhase.Ready);
 	});
 
-	it("returns Ready during a post-build edit (no schema/scaffold, doc has data)", () => {
-		/* Edit in progress: buffer has `form:M-F` or `edit:*` but no
-		 * schema/scaffold → no build foundation → falls through to Ready
-		 * even though a generation-stage tag is present. */
-		expect(derivePhase({ ...idle, events: [mut("form:0-0", 0)] }, true)).toBe(
+	it("returns Ready during a post-build edit (run opened on a populated doc)", () => {
+		/* Edit in progress: the run opened with data, so even stage-tagged
+		 * mutations (an edit-mode createModule, an addFields) fall through
+		 * to Ready — the builder stays interactive while the agent works. */
+		const edit = { ...idle, runStartedWithData: true };
+		expect(derivePhase({ ...edit, events: [mut("form:0-0", 0)] }, true)).toBe(
 			BuilderPhase.Ready,
 		);
-		expect(derivePhase({ ...idle, events: [mut("edit:0-1", 0)] }, true)).toBe(
+		expect(
+			derivePhase({ ...edit, events: [mut("module:create", 0)] }, true),
+		).toBe(BuilderPhase.Ready);
+		expect(derivePhase({ ...edit, events: [mut("edit:0-1", 0)] }, true)).toBe(
 			BuilderPhase.Ready,
 		);
 	});
@@ -156,6 +168,7 @@ describe("derivePhase", () => {
 					loading: false,
 					runCompletedAt: undefined,
 					events: [],
+					runStartedWithData: false,
 				},
 				true,
 			),
@@ -172,6 +185,7 @@ describe("derivePhase", () => {
 					loading: false,
 					runCompletedAt: undefined,
 					events: [],
+					runStartedWithData: false,
 				},
 				false,
 			),

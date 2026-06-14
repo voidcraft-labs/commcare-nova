@@ -24,15 +24,24 @@
 
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
+import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
+import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
+import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation, Uuid } from "@/lib/doc/types";
-import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
+import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
+import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
+import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import type {
 	PreviewCaseTarget,
 	PreviewSelectedCase,
 	ReplayData,
 	ReplayInit,
+	StagedUpload,
 } from "./types";
 
 // ── Public types ──────────────────────────────────────────────────────────
@@ -78,9 +87,18 @@ export interface BuilderSessionState {
 	 *  state updates in `beginRun`/`endRun`. */
 	events: Event[];
 
+	/** Whether the doc already had data when the current run OPENED —
+	 *  captured once in `beginRun()`. The build-vs-edit discriminator for
+	 *  the lifecycle derivations: a run that started on an empty doc is an
+	 *  initial build (its structural stages drive the Generating layout);
+	 *  a run that started on a populated doc is a post-build edit (the
+	 *  builder stays interactive while the agent works). Stays `false`
+	 *  outside a run and for replay (which always replays builds). */
+	runStartedWithData: boolean;
+
 	/** Timestamp of the most recent whole-build completion — stamped by
 	 *  the dispatcher's `data-done` handler (the server-side marker from
-	 *  `validateApp`). Cleared on `acknowledgeCompletion()` (after the
+	 *  the route's drain-end finalize). Cleared on `acknowledgeCompletion()` (after the
 	 *  celebration animation) and on `beginRun()` (new run starts clean).
 	 *  askQuestions / clarifying-text / edit-tool runs never stamp — they
 	 *  close silently. Drives the Completed phase. */
@@ -96,6 +114,13 @@ export interface BuilderSessionState {
 	 *  once when the builder mounts; undefined for new builds before
 	 *  the app document is created. */
 	appId: string | undefined;
+
+	/** Auto-save optimistic basis — the server `blueprint_token` this
+	 *  client last observed (seeded from the build page's server load,
+	 *  advanced by each PUT response, re-synced on a stale-basis reload).
+	 *  `null` for an app no out-of-window writer has touched. Echoed on
+	 *  every auto-save PUT; see `useAutoSave`. */
+	saveBasis: string | null;
 
 	// ── Replay ───────────────────────────────────────────────────────────
 
@@ -155,6 +180,65 @@ export interface BuilderSessionState {
 	 *  caller passes `undefined` to `switchConnectMode`. */
 	lastConnectType: ConnectType | undefined;
 
+	// ── Staged media uploads (ephemeral, never doc state) ────────────────
+
+	/** In-flight (or failed) slot uploads, keyed by carrier slot. The doc
+	 *  must never reference an asset that isn't `ready`, so a picked file
+	 *  lives HERE — progress, cancel, failure — until its upload confirms;
+	 *  only then does the slot dispatch the normal gated attach. Keys are
+	 *  carrier-slot identities (e.g. `field:<uuid>:label_media/image`,
+	 *  `app:logo`) so a remounted slot re-renders its staged chip from the
+	 *  store. The abort handles live OUTSIDE this state (a per-store
+	 *  closure registry, like `_setDocStore`'s ref) so devtools never
+	 *  serializes a function and cancel works from any mount. */
+	stagedUploads: Record<string, StagedUpload>;
+
+	/** Stage one slot upload: record `{ uploading, progress: 0 }` under
+	 *  `slotKey` and register its `abort` in the closure registry.
+	 *  Replaces any previous record on the same slot (a retry re-stages). */
+	stageUpload: (
+		slotKey: string,
+		upload: { filename: string; kind: MediaKind; abort: () => void },
+	) => void;
+
+	/** Advance a staged upload's byte progress (clamped 0..1). No-op when
+	 *  the slot isn't staged or already failed — a late progress event
+	 *  from an aborted transfer must not resurrect the record. */
+	setStagedUploadProgress: (slotKey: string, progress: number) => void;
+
+	/** Flip a staged upload to its error state (the chip shows `message`
+	 *  until dismissed or retried) and drop the abort handle — nothing is
+	 *  in flight anymore. No-op when the slot isn't staged (a cancel that
+	 *  raced the failure wins). */
+	failStagedUpload: (slotKey: string, message: string) => void;
+
+	/** Remove a staged record (upload confirmed and the attach dispatched,
+	 *  or the user dismissed an error). Drops the abort handle. */
+	clearStagedUpload: (slotKey: string) => void;
+
+	/** Cancel a staged upload: abort the in-flight transfer (if any) and
+	 *  remove the record. The upload driver sees the abort and stays
+	 *  silent — cancel already cleared the slot. */
+	cancelStagedUpload: (slotKey: string) => void;
+
+	/** Budget-relevant asset metadata observed this session — every
+	 *  library page the builder's pickers load, every upload confirm, and
+	 *  every row the attach budget check fetches lands here, keyed by
+	 *  asset id. The browser's pre-dispatch export-ceiling check
+	 *  (`components/builder/media/useAttachBudget.ts`) resolves the doc's
+	 *  referenced ids against this registry and fetches only the gaps.
+	 *  Advisory data by design: the export boundary re-loads fresh rows
+	 *  server-side, so a stale entry here can only mis-tune the courtesy
+	 *  check, never the enforcement. */
+	assetMeta: Record<string, ExportBudgetRowView>;
+
+	/** Merge observed asset rows into the registry. Idempotent — a batch
+	 *  that changes nothing writes nothing (no subscriber churn from
+	 *  re-fetched pages). */
+	recordAssetMeta: (
+		assets: readonly ({ id: string } & ExportBudgetRowView)[],
+	) => void;
+
 	// ── Transient UI hints (one-shot, consumed by a single component) ────
 
 	/** Transient field key to focus after undo/redo. Set by `useUndoRedo`;
@@ -197,7 +281,7 @@ export interface BuilderSessionState {
 
 	/** Stamp `runCompletedAt` = now. Called by the stream dispatcher
 	 *  when `data-done` arrives — the server-side "whole build
-	 *  succeeded" marker from `validateApp`. Drives the Completed phase
+	 *  succeeded" marker from the route's drain-end finalize. Drives the Completed phase
 	 *  + celebration animation until `acknowledgeCompletion()` clears
 	 *  it. */
 	markRunCompleted: () => void;
@@ -209,6 +293,11 @@ export interface BuilderSessionState {
 
 	/** Set the app ID for this builder session. No-ops when unchanged. */
 	setAppId: (id: string) => void;
+
+	/** Advance the auto-save optimistic basis (each PUT response carries
+	 *  the freshly rotated token; a stale-basis reload re-syncs from the
+	 *  GET). No-ops when unchanged. */
+	setSaveBasis: (token: string | null) => void;
 
 	/** Set the generic loading flag. No-ops when unchanged. */
 	setLoading: (loading: boolean) => void;
@@ -247,17 +336,37 @@ export interface BuilderSessionState {
 
 	// ── Connect stash actions ────────────────────────────────────────────
 
-	/** Switch the app-level connect mode, or toggle it off/on.
+	/** Switch the app-level connect mode, or toggle it off/on — ONE gated
+	 *  batch: `setConnectType` plus each participating form's connect
+	 *  block.
 	 *
 	 *  Passing a mode (`'learn'` or `'deliver'`) enables that mode — stashing
-	 *  the outgoing mode's form configs and restoring the incoming mode's stash.
+	 *  the outgoing mode's form configs, restoring the incoming mode's stash,
+	 *  and landing the caller-collected `stagedBlocks` on the forms the user
+	 *  picked as participating (the enable flow collects those BEFORE
+	 *  anything commits — see `AppConnectSection`). Forms with neither a
+	 *  stashed nor a staged block stay auxiliary — they carry no block and
+	 *  need nothing. Every incoming block routes through
+	 *  `dedupeRestoredConnectIds` under one accumulating id scope, so two
+	 *  forms can't land the same slug in one flip.
 	 *
-	 *  Passing `null` disables Connect entirely. Passing `undefined` re-enables
-	 *  with the user's last active mode (falling back to `'learn'`).
+	 *  Passing `null` disables Connect entirely (always valid — standard
+	 *  apps need no blocks; the stash preserves the work). Passing
+	 *  `undefined` re-enables with the user's last active mode (falling
+	 *  back to `'learn'`).
 	 *
-	 *  Dispatches all doc changes as a single `applyMany` batch so the entire
-	 *  mode switch collapses to one undo entry. */
-	switchConnectMode: (type: ConnectType | null | undefined) => void;
+	 *  The whole batch runs the shared commit verdict before anything
+	 *  dispatches — a flip that would leave the app with NO participating
+	 *  form is rejected (findings returned in the outcome) and the doc +
+	 *  stash stay untouched. A pass commits as one undo entry. A rejection
+	 *  announces via the error toast unless the caller opts out with
+	 *  `announce: false` because it presents the outcome itself (the
+	 *  enable dialog's footer) — one rejection, one presentation. */
+	switchConnectMode: (
+		type: ConnectType | null | undefined,
+		stagedBlocks?: Record<string, ConnectConfig>,
+		opts?: { announce?: boolean },
+	) => CommitOutcome;
 
 	/** Stash a single form's connect config by uuid. Used by form-level
 	 *  toggles that disable connect on an individual form. */
@@ -363,6 +472,10 @@ export interface SessionStoreInit {
 	loading?: boolean;
 	/** Pre-set the Firestore app document ID. */
 	appId?: string;
+	/** Pre-seed the auto-save basis (`blueprint_token`) from the build
+	 *  page's server load, so the first PUT echoes the right basis
+	 *  instead of bouncing off a token a prior session rotated. */
+	saveBasis?: string | null;
 }
 
 /** Create a scoped Zustand session store. Called once per BuilderProvider
@@ -376,6 +489,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 	 * imperatively by `switchConnectMode`, `beginRun`, and `endRun`. */
 	let docStoreRef: BlueprintDocStore | null = null;
 
+	/* Abort handles for staged uploads — functions, so they live beside the
+	 * store (the `docStoreRef` pattern) rather than inside serializable
+	 * state. Keyed identically to `stagedUploads`; every record mutation
+	 * below keeps the two in step. */
+	const stagedUploadAborts = new Map<string, () => void>();
+
 	return createStore<BuilderSessionState>()(
 		devtools(
 			subscribeWithSelector((set, get) => ({
@@ -383,11 +502,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				/* Generation lifecycle */
 				events: [] as Event[],
+				runStartedWithData: false,
 				runCompletedAt: undefined as number | undefined,
 				loading: init?.loading ?? false,
 
 				/* App identity */
 				appId: init?.appId as string | undefined,
+				saveBasis: init?.saveBasis ?? null,
 
 				/* Replay */
 				replay: undefined as ReplayData | undefined,
@@ -411,6 +532,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				>,
 				lastConnectType: undefined as ConnectType | undefined,
 
+				/* Staged media uploads */
+				stagedUploads: {} as Record<string, StagedUpload>,
+				assetMeta: {} as Record<string, ExportBudgetRowView>,
+
 				/* UI hints */
 				focusHint: undefined as string | undefined,
 				newFieldUuid: undefined as string | undefined,
@@ -426,12 +551,19 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				beginRun() {
 					/* Open a run atomically: pause doc undo (whole run
 					 * collapses into one undoable unit on resume), clear the
-					 * events buffer, clear any stale completion stamp. The
+					 * events buffer, clear any stale completion stamp, and
+					 * capture the build-vs-edit discriminator (whether the doc
+					 * already has data) for the lifecycle derivations. The
 					 * non-empty buffer that accumulates from here is the
 					 * "a run is in progress" signal — no agentActive mirror
 					 * to maintain. */
-					docStoreRef?.getState().beginAgentWrite();
-					set({ events: [], runCompletedAt: undefined });
+					const docState = docStoreRef?.getState();
+					docState?.beginAgentWrite();
+					set({
+						events: [],
+						runCompletedAt: undefined,
+						runStartedWithData: docState ? docHasData(docState) : false,
+					});
 				},
 
 				endRun() {
@@ -448,7 +580,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				markRunCompleted() {
-					/* `data-done` arrived — `validateApp` succeeded, the
+					/* `data-done` arrived — the build run finished, the
 					 * whole build is complete. Stamp the celebration. Phase
 					 * transitions to Completed and stays there until
 					 * `acknowledgeCompletion()` fires (3.5s after the
@@ -477,6 +609,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setAppId(id: string) {
 					if (id === get().appId) return;
 					set({ appId: id });
+				},
+
+				setSaveBasis(token: string | null) {
+					if (token === get().saveBasis) return;
+					set({ saveBasis: token });
 				},
 
 				setLoading(loading: boolean) {
@@ -516,11 +653,19 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				// ── Connect stash actions ───────────────────────────────
 
-				switchConnectMode(type: ConnectType | null | undefined) {
-					if (!docStoreRef) return;
+				switchConnectMode(
+					type: ConnectType | null | undefined,
+					stagedBlocks?: Record<string, ConnectConfig>,
+					opts?: { announce?: boolean },
+				): CommitOutcome {
+					if (!docStoreRef) return { ok: false, messages: [] };
 					const s = get();
 					const docState = docStoreRef.getState();
-					if (docState.moduleOrder.length === 0) return;
+					/* An app with zero forms has nothing to stage or stash — the
+					 * walks below collect no form mutations and the batch is the
+					 * bare `setConnectType` flip, which the gate passes (the
+					 * participation floor binds only once forms exist). The same
+					 * flip the SA's `updateApp` lands on an empty app. */
 
 					const currentType = (docState.connectType ?? undefined) as
 						| ConnectType
@@ -529,7 +674,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						type === undefined ? (s.lastConnectType ?? "learn") : type;
 
 					/* Same-mode early return — no stash, no mutations. */
-					if (resolved === currentType) return;
+					if (resolved === currentType) return { ok: true };
 
 					/* Stash outgoing mode — walk the doc to collect live form configs. */
 					let nextStash = s.connectStash;
@@ -547,36 +692,66 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						nextStash = { ...nextStash, [currentType]: outgoing };
 					}
 
-					/* Build doc mutations: setConnectType + restore/clear. */
+					/* Build doc mutations: setConnectType + restore/stage/clear. */
 					const mutations: Mutation[] = [
 						{ kind: "setConnectType", connectType: resolved ?? null },
 					];
 
 					if (resolved) {
-						/* Restore the incoming mode's stash AND clear any
-						 * outgoing-mode block that has no incoming stash entry.
+						/* Land each participating form's incoming-mode block AND
+						 * clear any outgoing-mode block with no incoming config.
 						 * Walk every form once with three cases:
-						 *   - in the incoming stash → restore that config;
-						 *   - not in the stash but currently has `connect` → clear
+						 *   - in the incoming stash, or covered by a caller-staged
+						 *     block → land that config (stash wins — it is the
+						 *     user's prior work for this mode);
+						 *   - no incoming config but currently has `connect` → clear
 						 *     it (a stray from the outgoing mode; the outgoing
 						 *     config was already stashed above, so switch-back
 						 *     recovers it — no work lost);
-						 *   - otherwise → no mutation.
-						 * Without the clear, the outgoing-mode block would linger
-						 * as a cross-mode stray: `form.connect` is supposed to hold
-						 * only the active-mode config, and a stray makes the
-						 * uniqueness scopes (UI/SA see it; emit/validator skip
-						 * non-mode kinds) disagree. */
+						 *   - otherwise → no mutation (the form stays auxiliary —
+						 *     a Connect app's forms participate per form, not
+						 *     wholesale).
+						 * Every incoming config routes through the shared
+						 * `dedupeRestoredConnectIds` under ONE accumulating id
+						 * scope: a stashed id another form claimed while the mode
+						 * was off re-derives instead of landing a duplicate, and a
+						 * staged (id-less) block autofills a valid unique id —
+						 * same source enforcement as the agent path. */
 						const stashed = nextStash[resolved] ?? {};
+						const assigned: AppConnectId[] = [];
+						const recordAssigned = (
+							formUuid: Uuid,
+							config: ConnectConfig,
+						): void => {
+							for (const kind of [
+								"learn_module",
+								"assessment",
+								"deliver_unit",
+								"task",
+							] as const) {
+								const id = config[kind]?.id;
+								if (id) assigned.push({ formUuid, kind, id });
+							}
+						};
 						for (const moduleUuid of docState.moduleOrder) {
 							const formUuids = docState.formOrder[moduleUuid] ?? [];
 							for (const formUuid of formUuids) {
-								const stashedConfig = stashed[formUuid];
-								if (stashedConfig) {
+								const incoming = stashed[formUuid] ?? stagedBlocks?.[formUuid];
+								if (incoming) {
+									const config = dedupeRestoredConnectIds(
+										structuredClone(incoming),
+										{
+											formUuid,
+											appConnectIds: assigned,
+											moduleName: docState.modules[moduleUuid]?.name ?? "",
+											formName: docState.forms[formUuid]?.name ?? "",
+										},
+									);
+									recordAssigned(formUuid, config);
 									mutations.push({
 										kind: "updateForm",
 										uuid: formUuid,
-										patch: { connect: structuredClone(stashedConfig) },
+										patch: { connect: config },
 									});
 								} else if (docState.forms[formUuid]?.connect !== undefined) {
 									mutations.push({
@@ -603,15 +778,32 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						}
 					}
 
-					/* Commit doc first — applyMany is the operation that could fail.
-					 * If it throws (malformed mutation), session state stays consistent
-					 * with the pre-call doc state. The session stash update is a pure
-					 * state write that cannot fail. */
-					docStoreRef.getState().applyMany(mutations);
+					/* The shared commit verdict — the same gate every other write
+					 * surface runs. A flip that would leave the app with no
+					 * participating form (or land any other finding) rejects with
+					 * NOTHING dispatched: the doc and the stash stay exactly as
+					 * they were. The findings announce as the error toast unless
+					 * the caller renders them itself (`announce: false` — the
+					 * enable dialog's footer). */
+					const verdict = mutationCommitVerdict(docState, mutations);
+					if (!verdict.ok) {
+						// Concise builder copy for both the toast and the returned
+						// outcome (the dialog footer reads it); the SA keeps the
+						// verbose `ValidationError.message`.
+						const lines = userFacingErrors(verdict.introduced);
+						if (opts?.announce !== false) {
+							notifyRejectedCommit(lines);
+						}
+						return { ok: false, messages: lines };
+					}
+					/* Commit the validated candidate (one reducer run, one undo
+					 * entry), THEN the stash — a pure state write that can't fail. */
+					docStoreRef.getState().commitDoc(verdict.nextDoc);
 					set({
 						connectStash: nextStash,
 						lastConnectType: currentType ?? s.lastConnectType,
 					});
+					return { ok: true };
 				},
 
 				stashFormConnect(
@@ -733,6 +925,108 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				// ── Staged media upload actions ──────────────────────────
+
+				stageUpload(
+					slotKey: string,
+					upload: { filename: string; kind: MediaKind; abort: () => void },
+				) {
+					/* Re-staging over a transfer still running on this slot
+					 * displaces it — abort the displaced transfer FIRST. Once its
+					 * handle is overwritten the transfer is unreachable: cancel
+					 * can't stop it, and if it confirmed it would attach the
+					 * DISPLACED file and clear this record out from under the new
+					 * upload. The displaced driver settles against its own aborted
+					 * signal (the same silent branch a user cancel takes). */
+					stagedUploadAborts.get(slotKey)?.();
+					stagedUploadAborts.set(slotKey, upload.abort);
+					set((s) => ({
+						stagedUploads: {
+							...s.stagedUploads,
+							[slotKey]: {
+								filename: upload.filename,
+								kind: upload.kind,
+								status: { state: "uploading", progress: 0 },
+							},
+						},
+					}));
+				},
+
+				setStagedUploadProgress(slotKey: string, progress: number) {
+					const record = get().stagedUploads[slotKey];
+					if (!record || record.status.state !== "uploading") return;
+					const clamped = Math.min(Math.max(progress, 0), 1);
+					if (clamped === record.status.progress) return;
+					set((s) => ({
+						stagedUploads: {
+							...s.stagedUploads,
+							[slotKey]: {
+								...record,
+								status: { state: "uploading", progress: clamped },
+							},
+						},
+					}));
+				},
+
+				failStagedUpload(slotKey: string, message: string) {
+					const record = get().stagedUploads[slotKey];
+					if (!record) return;
+					stagedUploadAborts.delete(slotKey);
+					set((s) => ({
+						stagedUploads: {
+							...s.stagedUploads,
+							[slotKey]: { ...record, status: { state: "error", message } },
+						},
+					}));
+				},
+
+				clearStagedUpload(slotKey: string) {
+					stagedUploadAborts.delete(slotKey);
+					if (get().stagedUploads[slotKey] === undefined) return;
+					set((s) => {
+						const { [slotKey]: _dropped, ...rest } = s.stagedUploads;
+						return { stagedUploads: rest };
+					});
+				},
+
+				cancelStagedUpload(slotKey: string) {
+					const abort = stagedUploadAborts.get(slotKey);
+					/* Abort BEFORE clearing so the driver's rejection handler
+					 * observes the canceled signal against an already-removed
+					 * record — its "cancel wins" branch stays a no-op. */
+					abort?.();
+					get().clearStagedUpload(slotKey);
+				},
+
+				recordAssetMeta(
+					assets: readonly ({ id: string } & ExportBudgetRowView)[],
+				) {
+					if (assets.length === 0) return;
+					const current = get().assetMeta;
+					/* Skip the write when every incoming row is already recorded
+					 * verbatim — library pages re-fetch on every picker open, and
+					 * an unchanged registry must not notify subscribers. */
+					const changed = assets.some((asset) => {
+						const known = current[asset.id];
+						return (
+							known === undefined ||
+							known.status !== asset.status ||
+							known.kind !== asset.kind ||
+							known.sizeBytes !== asset.sizeBytes
+						);
+					});
+					if (!changed) return;
+					const next = { ...current };
+					for (const asset of assets) {
+						next[asset.id] = {
+							status: asset.status,
+							kind: asset.kind,
+							sizeBytes: asset.sizeBytes,
+						};
+					}
+					set({ assetMeta: next });
+				},
+
 				setFocusHint(fieldId: string | undefined) {
 					if (fieldId === get().focusHint) return;
 					set({ focusHint: fieldId });
@@ -757,14 +1051,21 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				reset() {
+					/* Abort any in-flight staged uploads — their drivers hold
+					 * closures into a session that's being torn down, so letting
+					 * them run would attach into a dead store. */
+					for (const abort of stagedUploadAborts.values()) abort();
+					stagedUploadAborts.clear();
 					set({
 						/* Generation lifecycle */
 						events: [],
+						runStartedWithData: false,
 						runCompletedAt: undefined,
 						loading: false,
 
 						/* App identity */
 						appId: undefined,
+						saveBasis: null,
 
 						/* Replay */
 						replay: undefined,
@@ -787,6 +1088,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							Record<string, ConnectConfig>
 						>,
 						lastConnectType: undefined as ConnectType | undefined,
+
+						/* Staged media uploads */
+						stagedUploads: {} as Record<string, StagedUpload>,
+						assetMeta: {} as Record<string, ExportBudgetRowView>,
 
 						/* UI hints */
 						focusHint: undefined as string | undefined,

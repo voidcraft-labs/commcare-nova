@@ -20,7 +20,7 @@ import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { reorderSearchInputsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "../common";
+import { guardedMutate, type MutatingToolResult } from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
@@ -90,12 +90,21 @@ export const reorderSearchInputsTool = {
 				};
 			}
 
-			const newDoc = applyToDoc(doc, result.mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				result.mutations,
-				newDoc,
 				`module:${moduleIndex}:caseList:searchInput:reorder`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,

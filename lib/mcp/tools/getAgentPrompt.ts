@@ -143,7 +143,11 @@ export function registerGetAgentPrompt(
 					}
 					/* `loadAppBlueprint` ownership-gates and loads in one
 					 * Firestore read; throws `McpAccessError` on cross-tenant
-					 * probe or vanished row. */
+					 * probe or vanished row. The renderer itself decides the
+					 * build/edit framing off the doc: an app with modules gets
+					 * the edit preamble + inlined blueprint summary, an empty
+					 * one falls back to the build guidance — there's nothing
+					 * to edit yet, so the planning flow is the right boot. */
 					const loaded = await loadAppBlueprint(args.app_id, ctx.userId);
 					const systemPrompt = renderAgentPrompt(interactive, loaded.doc);
 					return {

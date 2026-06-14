@@ -211,12 +211,14 @@ describe("GenerationContext.emitMutations", () => {
 		);
 	});
 
-	it("dispatches a fire-and-forget Firestore save carrying the passed-in doc under the expected appId", () => {
+	it("dispatches a fire-and-forget Firestore save carrying the passed-in doc under the expected appId", async () => {
 		/* `emitMutations` persists the `doc` argument — every caller threads
 		 * a post-mutation snapshot through. A caller that forgets to advance
 		 * the doc would show up here as either the wrong appId or a body
-		 * shape that doesn't match what was handed in. */
+		 * shape that doesn't match what was handed in. The save rides the
+		 * chain (one microtask deep), so flush it before asserting. */
 		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		await Promise.resolve();
 		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
 		const [savedAppId, savedDoc] =
 			vi.mocked(updateAppForRun).mock.calls[0] ?? [];
@@ -229,7 +231,7 @@ describe("GenerationContext.emitMutations", () => {
 		});
 	});
 
-	it("strips fieldParent from the persisted payload even when populated", () => {
+	it("strips fieldParent from the persisted payload even when populated", async () => {
 		/* `fieldParent` is a derived reverse-index the client rebuilds from
 		 * `fieldOrder` in `docStore.load()`; it must never reach Firestore,
 		 * otherwise the persisted shape grows a second source of truth that
@@ -245,6 +247,7 @@ describe("GenerationContext.emitMutations", () => {
 			},
 		};
 		ctx.emitMutations([TEXT_FIELD_MUTATION], docWithParent);
+		await Promise.resolve();
 		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
 		const savedDoc = vi.mocked(updateAppForRun).mock.calls[0]?.[1];
 		expect(savedDoc).not.toHaveProperty("fieldParent");
@@ -253,6 +256,75 @@ describe("GenerationContext.emitMutations", () => {
 	it("skips the Firestore save on empty batches (no-op path)", () => {
 		ctx.emitMutations([], DOC, "form:0-0");
 		expect(vi.mocked(updateAppForRun)).not.toHaveBeenCalled();
+	});
+
+	it("chains intermediate saves — a later save's RPC starts only after the earlier one settled", async () => {
+		// Independent Firestore writes carry no ordering guarantee, so racing
+		// saves could land out of order and regress the stored snapshot
+		// mid-run. The chain serializes them: hold the FIRST save open and
+		// assert the second hasn't been issued, then release and watch it go.
+		let releaseFirst: () => void = () => {};
+		vi.mocked(updateAppForRun)
+			.mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						releaseFirst = resolve;
+					}),
+			)
+			.mockImplementationOnce(() => Promise.resolve());
+
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		ctx.emitMutations([SECOND_MUTATION], DOC);
+		await Promise.resolve(); // let the first chain link start
+		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
+
+		releaseFirst();
+		await vi.waitFor(() => {
+			expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("drainIntermediateSaves resolves only once the run's own saves settled", async () => {
+		// The lane this closes: an intermediate save still in flight when the
+		// route flips the app `complete` would mean `status: complete` lands
+		// ahead of the blueprint it describes. The drain must therefore
+		// resolve only once the run's own saves settled.
+		let releaseSave: () => void = () => {};
+		vi.mocked(updateAppForRun).mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					releaseSave = resolve;
+				}),
+		);
+
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		let drained = false;
+		const pending = ctx.drainIntermediateSaves().then(() => {
+			drained = true;
+		});
+
+		// With the save still in flight, the drain must not have settled.
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(drained).toBe(false);
+
+		releaseSave();
+		await pending;
+		expect(drained).toBe(true);
+	});
+
+	it("drainIntermediateSaves still settles after a save FAILED (the chain never wedges)", async () => {
+		vi.mocked(updateAppForRun).mockImplementationOnce(() =>
+			Promise.reject(new Error("firestore hiccup")),
+		);
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		await expect(ctx.drainIntermediateSaves()).resolves.toBeUndefined();
+	});
+
+	it("latestPersistedDoc tracks the newest emitted snapshot (absent before any batch)", () => {
+		expect(ctx.latestPersistedDoc()).toBeUndefined();
+		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+		expect(ctx.latestPersistedDoc()).toBe(DOC);
 	});
 });
 
@@ -354,14 +426,14 @@ describe("GenerationContext.emitError", () => {
 				recoverable: false,
 				raw: "Cloud SQL case store is missing required environment variables: NOVA_DB_NAME",
 			},
-			"validateApp:materialize",
+			"route:finalize",
 		);
 		expect(log.error).toHaveBeenCalledWith(
 			expect.stringContaining("internal error"),
 			undefined,
 			expect.objectContaining({
 				raw: expect.stringContaining("missing required environment variables"),
-				context: "validateApp:materialize",
+				context: "route:finalize",
 			}),
 		);
 	});

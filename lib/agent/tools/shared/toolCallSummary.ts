@@ -41,6 +41,22 @@ export interface ToolCallSummary {
 	 * scale of the change is legible without expanding the prose.
 	 */
 	count?: number;
+	/**
+	 * For a call that changes the subject's NAME: whether the subject received
+	 * its first name (`"named"` — a build's opening `updateApp` resolving the
+	 * nameless birth state) or replaced an existing one (`"renamed"`). Captured
+	 * here because only the executing tool sees the prior doc — the transcript
+	 * can't reconstruct pre-call state, so without this fact it would have to
+	 * hedge with one generic verb for both acts.
+	 */
+	nameChange?: "named" | "renamed";
+	/**
+	 * For a call that changes the app's CommCare Connect type: the RESULTING
+	 * state. `"off"` is the disable; `"learn"` / `"deliver"` cover enable and a
+	 * mode switch alike, so the transcript's verb stays honest without knowing
+	 * the prior state.
+	 */
+	connect?: "learn" | "deliver" | "off";
 }
 
 /**

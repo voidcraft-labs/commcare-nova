@@ -7,7 +7,7 @@
 // Two concerns live here:
 //   - `findAppReferencesToAsset` — find the live apps whose carriers still point
 //     at the asset, so a delete can refuse (and name the slots) rather than
-//     orphaning a live reference the media-validation gate would later reject far
+//     orphaning a live reference the export boundary gate would later reject far
 //     from where it could be fixed. It re-walks the asset's `referencingAppIds`
 //     reverse index (the 0–2 candidate apps), NOT the owner's whole app list;
 //     the owner-wide scan survives only as the fallback for un-indexed rows.

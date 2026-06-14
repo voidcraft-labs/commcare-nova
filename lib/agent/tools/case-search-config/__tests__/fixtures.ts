@@ -29,7 +29,10 @@ export const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
  * forms — the case-search-config tools operate at the module level
  * and don't read forms or fields. The case type carries one property
  * (`status`) so predicate-shape fixtures can target a real property
- * without inventing one in every test.
+ * without inventing one in every test. The case list carries one
+ * search input: a `caseSearchConfig` is only committable when the
+ * search screen has something to fill in or a filter to apply
+ * (CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE gates the bare state).
  */
 export function makeCaseSearchDoc(): BlueprintDoc {
 	const mod: Module = {
@@ -37,6 +40,19 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
+		caseListConfig: {
+			columns: [],
+			searchInputs: [
+				{
+					uuid: asUuid("22222222-2222-2222-2222-222222222222"),
+					kind: "simple",
+					name: "name_search",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		},
 	};
 	return {
 		appId: "test-app",

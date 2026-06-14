@@ -46,7 +46,7 @@
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { containerFieldBase } from "./base";
+import { containerFieldBase, xpathExpressionSchema } from "./base";
 
 /**
  * Shared shape for all three repeat variants — `kind` discriminator,
@@ -56,8 +56,25 @@ import { containerFieldBase } from "./base";
  */
 const repeatBase = containerFieldBase.extend({
 	kind: z.literal("repeat"),
-	relevant: z.string().optional(),
+	relevant: xpathExpressionSchema.optional(),
 });
+
+/**
+ * The three repeat-mode discriminator literals — the canonical
+ * vocabulary tuple for `repeat_mode`. Each entry names one variant of
+ * the discriminated union below; consumers that key per-variant data
+ * (key sets, reference-slot applicability) derive their key type from
+ * this tuple so the variant set has a single declaration site. A test
+ * in `__tests__/referenceSlots.test.ts` pins each entry to the
+ * matching variant schema's `repeat_mode` literal, so the tuple can't
+ * drift from the union.
+ */
+export const repeatModes = [
+	"user_controlled",
+	"count_bound",
+	"query_bound",
+] as const;
+export type RepeatMode = (typeof repeatModes)[number];
 
 /**
  * User-controlled repeat — the default. Runtime adds/removes instances
@@ -76,7 +93,7 @@ export const userControlledRepeatSchema = repeatBase.extend({
  */
 export const countBoundRepeatSchema = repeatBase.extend({
 	repeat_mode: z.literal("count_bound"),
-	repeat_count: z.string(),
+	repeat_count: xpathExpressionSchema,
 });
 
 /**
@@ -91,7 +108,7 @@ export const queryBoundRepeatSchema = repeatBase.extend({
 	data_source: z
 		.object({
 			/** XPath returning a space-separated list of case ids to iterate. */
-			ids_query: z.string(),
+			ids_query: xpathExpressionSchema,
 		})
 		.strict(),
 });

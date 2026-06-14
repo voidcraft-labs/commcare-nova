@@ -13,6 +13,7 @@ import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerFileText from "@iconify-icons/tabler/file-text";
 import tablerUser from "@iconify-icons/tabler/user";
 import { fpathId } from "@/lib/doc/fieldPath";
+import { buildHashtagRefRegex } from "@/lib/domain";
 import type { Reference, ReferenceType, ReferenceTypeConfig } from "./types";
 
 /**
@@ -53,15 +54,18 @@ export function classifyNamespace(namespace: string): ReferenceType {
 
 /**
  * Regex matching hashtag references: #form/path, #user/path, and #<caseType>/path
- * (one namespace per case type, e.g. #mother/household_code). The namespace is
- * any identifier — the resolve gate (not this regex) decides whether a match
- * renders as a chip or stays plain text, so the pattern stays deliberately
- * permissive. Paths may contain word characters, dots, and forward slashes (for
- * nested groups). Exported WITHOUT the `g` flag to avoid shared mutable
- * `lastIndex` state — consumers create a global instance via
- * `new RegExp(HASHTAG_REF_PATTERN, 'g')`.
+ * (one namespace per case type, e.g. #mother/household_code). Built from the
+ * shared segment definition in `lib/domain/hashtagSegments.ts` so it stays in
+ * lockstep with the prose matcher (`BARE_HASHTAG_PATTERN`) and the Lezer
+ * grammar's hashtag tokens. The namespace is any identifier — the resolve gate
+ * (not this regex) decides whether a match renders as a chip or stays plain
+ * text, so the pattern stays deliberately permissive. Path segments are
+ * `/`-joined identifiers (nested groups make multi-segment paths); a segment
+ * never captures trailing sentence punctuation. Exported WITHOUT the `g` flag
+ * to avoid shared mutable `lastIndex` state — consumers create a global
+ * instance via `new RegExp(HASHTAG_REF_PATTERN, 'g')`.
  */
-export const HASHTAG_REF_PATTERN = /#([A-Za-z_]\w*)\/[\w./]+/;
+export const HASHTAG_REF_PATTERN = buildHashtagRefRegex();
 
 /** The three hashtag namespaces — single source of truth for iteration and validation. */
 export const REFERENCE_TYPES: readonly ReferenceType[] = [

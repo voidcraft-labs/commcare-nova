@@ -26,7 +26,6 @@ import type { Mutation } from "@/lib/doc/types";
 import type {
 	AssetId,
 	BlueprintDoc,
-	CaseType,
 	Column,
 	ConnectConfig,
 	Field,
@@ -41,7 +40,6 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
-import type { Scaffold } from "./scaffoldSchemas";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -195,22 +193,29 @@ export function formSnapshot(
 ): FormSnapshot | undefined {
 	const form = doc.forms[formUuid];
 	if (!form) return undefined;
-	return { ...form, fields: buildFieldTree(doc, formUuid) };
-}
-
-// ── Mutation builders — app level ───────────────────────────────────────
-
-/** Replace the app's case-type catalog wholesale. */
-export function setCaseTypesMutations(
-	caseTypes: CaseType[] | null,
-): Mutation[] {
-	return [{ kind: "setCaseTypes", caseTypes }];
+	// The SA speaks field ids; the stored close-condition ref is the
+	// field's stable uuid — project it back (a dangler shows its text).
+	const closeCondition = form.closeCondition
+		? {
+				...form.closeCondition,
+				field: asUuid(
+					doc.fields[form.closeCondition.field]?.id ??
+						form.closeCondition.field,
+				),
+			}
+		: undefined;
+	return {
+		...form,
+		...(closeCondition !== undefined && { closeCondition }),
+		fields: buildFieldTree(doc, formUuid),
+	};
 }
 
 // ── Mutation builders — modules ─────────────────────────────────────────
 
 /** Input shape for a new module. `uuid` may be supplied to pin identity
- *  (e.g. during scaffold), otherwise the helper mints one. */
+ *  (`createModule` pre-mints the uuid its later batch entries
+ *  reference), otherwise the helper mints one. */
 export interface NewModuleInput {
 	uuid?: string;
 	id?: string;
@@ -612,14 +617,20 @@ export interface NewFormInput {
 /** Build an `addForm` mutation. Mints a uuid when the caller doesn't
  *  supply one. Forms are keyed under their owning module via the
  *  `moduleUuid` argument — the reducer refuses to install a form whose
- *  module isn't registered. */
+ *  module isn't registered. `moduleAddedInBatch` skips the existence
+ *  check for a module an earlier mutation in the SAME batch creates
+ *  (`createModule`'s atomic module + forms + fields shape) — the caller
+ *  owns the uuid in that case, so an unknown-module guard would only
+ *  reject a module that is about to exist. */
 export function addFormMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	input: NewFormInput,
-	opts?: { index?: number },
+	opts?: { index?: number; moduleAddedInBatch?: boolean },
 ): Mutation[] {
-	if (doc.modules[moduleUuid] === undefined) return [];
+	if (!opts?.moduleAddedInBatch && doc.modules[moduleUuid] === undefined) {
+		return [];
+	}
 	const uuid = asUuid(
 		typeof input.uuid === "string" && input.uuid.length > 0
 			? input.uuid
@@ -783,75 +794,6 @@ export function updateFieldMutations<K extends FieldKind>(
 	return [
 		{ kind: "updateField", uuid: fieldUuid, targetKind, patch } as Mutation,
 	];
-}
-
-// ── Mutation builders — scaffold ────────────────────────────────────────
-
-/**
- * Build the mutation batch for applying a scaffold to an (effectively
- * empty) doc: set the app name + connect type, then create each module
- * and its forms in order. Mints uuids for every entity so the resulting
- * doc has stable identity immediately.
- *
- * Scaffolds are only applied to empty docs during the initial build —
- * callers must drop any existing modules separately if they want a
- * clean slate. This helper deliberately doesn't emit removeModule
- * mutations for existing modules to keep the intent explicit.
- */
-export function setScaffoldMutations(scaffold: Scaffold): Mutation[] {
-	const muts: Mutation[] = [];
-	muts.push({ kind: "setAppName", name: scaffold.app_name });
-	const connectType = scaffold.connect_type;
-	if (connectType === "learn" || connectType === "deliver") {
-		muts.push({ kind: "setConnectType", connectType });
-	} else {
-		muts.push({ kind: "setConnectType", connectType: null });
-	}
-
-	for (const sm of scaffold.modules) {
-		const moduleUuid = asUuid(crypto.randomUUID());
-		const moduleEntity: Module = {
-			uuid: moduleUuid,
-			id: slugifyModuleId(sm.name),
-			name: sm.name,
-			...(sm.case_type != null && { caseType: sm.case_type }),
-			...(sm.case_list_only && { caseListOnly: sm.case_list_only }),
-			...(sm.purpose !== undefined && { purpose: sm.purpose }),
-		};
-		muts.push({ kind: "addModule", module: moduleEntity });
-
-		for (const sf of sm.forms) {
-			const formUuid = asUuid(crypto.randomUUID());
-			/* Build the Form entity field-by-field with explicit
-			 * assignment for optional properties. Each `if` is a named
-			 * decision the reader can audit top-to-bottom — vs. the
-			 * conditional-spread idiom (`...(cond && {k: v})`), which
-			 * obscures whether a key actually lands on the literal. The
-			 * SA-facing scaffold schema (`scaffoldModulesSchema`) declares
-			 * every property the SA can set; each one needs a matching
-			 * read here. A missing read silently drops the field on the
-			 * persisted doc — the kind of bug that's invisible until a
-			 * downstream consumer notices the wrong default behavior. */
-			const formEntity: Form = {
-				uuid: formUuid,
-				id: slugifyFormId(sf.name),
-				name: sf.name,
-				type: sf.type,
-			};
-			if (sf.purpose !== undefined) formEntity.purpose = sf.purpose;
-			if (sf.post_submit !== undefined) formEntity.postSubmit = sf.post_submit;
-			if (sf.connect !== undefined) {
-				/* `normalizeConnectConfig` strips empty sub-configs so an
-				 * SA-supplied `{}` (zero opt-ins) lands as absent rather
-				 * than as an empty marker on the form. Same contract as
-				 * `addFormMutations` and `updateFormMutations`. */
-				const normalized = normalizeConnectConfig(sf.connect);
-				if (normalized !== undefined) formEntity.connect = normalized;
-			}
-			muts.push({ kind: "addForm", moduleUuid, form: formEntity });
-		}
-	}
-	return muts;
 }
 
 // ── Private helpers ─────────────────────────────────────────────────────

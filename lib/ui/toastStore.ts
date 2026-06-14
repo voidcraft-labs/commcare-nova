@@ -11,8 +11,21 @@ export interface Toast {
 	severity: ToastSeverity;
 	title: string;
 	message?: string;
+	/**
+	 * Structured detail rows rendered one per line with their own list
+	 * chrome — the shape multi-finding rejections arrive in (commit gate,
+	 * export boundary). Distinct from `message` so the renderer can mark
+	 * each row instead of relying on embedded newlines in one paragraph.
+	 */
+	lines?: string[];
 	persistent: boolean;
 	createdAt: number;
+}
+
+/** Presentation extras beyond the title + message. */
+export interface ToastOptions {
+	lines?: string[];
+	persistent?: boolean;
 }
 
 const MAX_VISIBLE = 3;
@@ -39,7 +52,7 @@ class ToastStore {
 		severity: ToastSeverity,
 		title: string,
 		message?: string,
-		persistent?: boolean,
+		options?: ToastOptions,
 	): string {
 		const id = crypto.randomUUID();
 		const toast: Toast = {
@@ -47,7 +60,8 @@ class ToastStore {
 			severity,
 			title,
 			message,
-			persistent: persistent ?? severity === "error",
+			lines: options?.lines,
+			persistent: options?.persistent ?? severity === "error",
 			createdAt: Date.now(),
 		};
 		this._toasts = [...this._toasts, toast].slice(-MAX_VISIBLE);
@@ -78,6 +92,7 @@ export function showToast(
 	severity: ToastSeverity,
 	title: string,
 	message?: string,
+	options?: ToastOptions,
 ): string {
-	return toastStore.add(severity, title, message);
+	return toastStore.add(severity, title, message, options);
 }

@@ -8,8 +8,8 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
 /**
  * HQ-JSON export endpoint — the manual-import twin of the HQ-upload path,
  * for users who import into CommCare HQ themselves rather than via an API key.
- * Shares the auth + parse + media-gate + manifest preamble with the `.ccz` twin
- * via `prepareCompileRequest`, then branches on whether the app has media:
+ * Shares the auth + parse + boundary-gate + manifest preamble with the `.ccz`
+ * twin via `prepareCompileRequest`, then branches on whether the app has media:
  *
  *   - Media-free app → a plain `<app>.json` (import via HQ → Settings →
  *     Import App from Another Server). Byte-identical to the pre-media output:
@@ -23,7 +23,7 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
 export async function POST(req: NextRequest) {
 	try {
 		const { doc, assets } = await prepareCompileRequest(req, {
-			mediaErrorVerb: "export",
+			boundaryErrorVerb: "export",
 		});
 
 		// Only a media-bearing app passes the manifest to `expandDoc`; a

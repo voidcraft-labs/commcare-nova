@@ -66,10 +66,17 @@ export default async function BuilderPage({
 
 	const app = await loadApp(id);
 	if (!app || app.owner !== session.user.id) notFound();
+	/* `complete` apps open normally. `generating` / `error` builds
+	 * redirect: their lifecycle lives in the chat flow, not a direct page
+	 * load. */
 	if (app.status !== "complete") redirect("/");
 
 	return (
-		<BuilderProvider buildId={id} initialDoc={app.blueprint}>
+		<BuilderProvider
+			buildId={id}
+			initialDoc={app.blueprint}
+			initialSaveBasis={app.blueprint_token ?? null}
+		>
 			<BuilderLayout
 				isExistingApp
 				commcareSettings={commcareSettings}

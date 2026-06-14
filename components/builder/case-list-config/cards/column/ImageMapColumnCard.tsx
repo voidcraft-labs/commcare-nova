@@ -121,6 +121,11 @@ export function ImageMapColumnCard({
 						key={nodeId(entry)}
 						index={i}
 						entry={entry}
+						// Staged-upload identity: the column's uuid + the row's
+						// position. Positional because a mapping entry has no stable
+						// id of its own; the rows are short, authored once, and
+						// rarely reordered mid-upload.
+						slotKey={`imagemap:${value.uuid}:${i}`}
 						isFirst={i === 0}
 						isLast={i === value.mapping.length - 1}
 						onUpdate={(patch) => updateEntry(i, patch)}
@@ -138,6 +143,8 @@ export function ImageMapColumnCard({
 interface MappingRowProps {
 	readonly index: number;
 	readonly entry: ImageMapEntry;
+	/** Staged-upload identity for this row's image slot. */
+	readonly slotKey: string;
 	readonly isFirst: boolean;
 	readonly isLast: boolean;
 	readonly onUpdate: (patch: Partial<ImageMapEntry>) => void;
@@ -153,6 +160,7 @@ interface MappingRowProps {
 function MappingRow({
 	index,
 	entry,
+	slotKey,
 	isFirst,
 	isLast,
 	onUpdate,
@@ -193,6 +201,7 @@ function MappingRow({
 						value={entry.assetId || undefined}
 						onChange={(next) => onUpdate({ assetId: next ?? "" })}
 						kind="image"
+						slotKey={slotKey}
 						ariaLabel={`Mapping ${index + 1} image`}
 					/>
 				</div>

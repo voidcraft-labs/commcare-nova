@@ -247,6 +247,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 
 	const inspector = resolveInspector({
 		sel,
+		moduleUuid,
 		config,
 		searchConfig,
 		caseTypes,
@@ -340,6 +341,9 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 
 interface ResolveInspectorArgs {
 	readonly sel: WorkspaceSelection | null;
+	/** Owning module — used to key media-slot staged uploads
+	 *  (`caselist:<moduleUuid>:<slot>`). */
+	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseTypes: ReturnType<typeof useCaseTypes>;
@@ -460,6 +464,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 				title: args.moduleName,
 				body: (
 					<ListPanelInspectorBody
+						moduleUuid={args.moduleUuid}
 						config={config}
 						onChange={args.onConfigChange}
 						caseListOnly={args.caseListOnly}

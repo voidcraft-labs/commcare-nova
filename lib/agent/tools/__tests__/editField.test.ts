@@ -21,7 +21,7 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
-import { makeTestContext } from "../../__tests__/fixtures";
+import { makeMcpTestContext, makeTestContext } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -113,5 +113,117 @@ describe("editField — help text", () => {
 		);
 
 		expect(helpOf(result.newDoc)).toBeUndefined();
+	});
+});
+
+/* --- Rename identifier guard ----------------------------------------- */
+
+const AGE = asUuid("66666666-6666-6666-6666-666666666666");
+
+/** `makeDoc` plus a second top-level field `age`, so a rename of
+ *  `patient_name` → `age` is a sibling-id conflict. */
+function makeTwoFieldDoc(): BlueprintDoc {
+	const doc = makeDoc();
+	const age = { uuid: AGE, id: "age", kind: "int", label: "Age" } as Field;
+	return {
+		...doc,
+		fields: { ...doc.fields, [AGE]: age },
+		fieldOrder: { [FORM]: [FIELD, AGE] },
+		fieldParent: { [FIELD]: FORM, [AGE]: FORM },
+	};
+}
+
+describe("editField — rename identifier guard", () => {
+	it("rejects a rename to a sibling-conflicting id and persists nothing", async () => {
+		const { ctx } = makeTestContext();
+		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				updates: { kind: "text", id: "age" },
+			},
+			ctx,
+			makeTwoFieldDoc(),
+		);
+
+		expect(result.result).toHaveProperty("error");
+		expect((result.result as { error: string }).error).toContain('"age"');
+		expect(result.mutations).toHaveLength(0);
+		expect(recordSpy).not.toHaveBeenCalled();
+		// Nothing persisted — the doc the SA holds is unchanged.
+		expect(result.newDoc.fields[FIELD]?.id).toBe("patient_name");
+	});
+
+	it("rejects a rename to an XML-illegal id", async () => {
+		const { ctx } = makeTestContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				updates: { kind: "text", id: "patient name" },
+			},
+			ctx,
+			makeTwoFieldDoc(),
+		);
+
+		expect((result.result as { error: string }).error).toContain(
+			'"patient name"',
+		);
+	});
+
+	it("rejects a rename into the reserved __nova_ namespace", async () => {
+		const { ctx } = makeTestContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				updates: { kind: "text", id: "__nova_count_x" },
+			},
+			ctx,
+			makeTwoFieldDoc(),
+		);
+
+		expect((result.result as { error: string }).error).toContain("__nova_");
+	});
+
+	it("accepts a legal rename and persists it", async () => {
+		const { ctx } = makeTestContext();
+		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				updates: { kind: "text", id: "full_name" },
+			},
+			ctx,
+			makeTwoFieldDoc(),
+		);
+
+		expect(result.result).toHaveProperty("message");
+		expect(result.newDoc.fields[FIELD]?.id).toBe("full_name");
+		expect(recordSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it("rejects the same conflicting rename through an McpContext (same guard, both surfaces)", async () => {
+		const { ctx } = makeMcpTestContext();
+		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				updates: { kind: "text", id: "age" },
+			},
+			ctx,
+			makeTwoFieldDoc(),
+		);
+
+		expect((result.result as { error: string }).error).toContain('"age"');
+		expect(recordSpy).not.toHaveBeenCalled();
 	});
 });

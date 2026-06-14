@@ -16,11 +16,11 @@ import type {
 } from "@/lib/chat/attachmentRefs";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { docHasData } from "@/lib/doc/predicates";
-import type { ConnectConfig, ConnectType } from "@/lib/domain";
+import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
+import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
-	bufferHasBuildFoundation,
 	deriveAgentError,
 	deriveAgentStage,
 	deriveAttachmentPrep,
@@ -36,6 +36,7 @@ import type {
 	PreviewCaseTarget,
 	PreviewSelectedCase,
 	ReplayData,
+	StagedUpload,
 } from "./types";
 
 // ── Preview mode ──────────────────────────────────────────────────────────
@@ -114,12 +115,24 @@ export function useSetSidebarOpen(): (
 
 // ── Connect stash ────────────────────────────────────────────────────────
 
-/** Composite action: switch the app-level connect mode, handling stash
- *  lifecycle and doc mutations atomically. See `BuilderSessionState.switchConnectMode`. */
+/** Composite action: switch the app-level connect mode — one gated batch
+ *  (`setConnectType` + each participating form's block), stash lifecycle
+ *  included. Returns the commit outcome so the caller's UI can react to
+ *  a rejection. See `BuilderSessionState.switchConnectMode`. */
 export function useSwitchConnectMode(): (
 	type: ConnectType | null | undefined,
-) => void {
+	stagedBlocks?: Record<string, ConnectConfig>,
+	opts?: { announce?: boolean },
+) => CommitOutcome {
 	return useBuilderSession((s) => s.switchConnectMode);
+}
+
+/** The last Connect mode the app was in before Connect was toggled off —
+ *  what a bare re-enable resolves to (falling back to `'learn'`). The
+ *  enable flow reads it to know which mode's blocks to collect BEFORE
+ *  committing. */
+export function useLastConnectType(): ConnectType | undefined {
+	return useBuilderSession((s) => s.lastConnectType);
 }
 
 /** Stash a single form's connect config by uuid. Used by form-level
@@ -141,6 +154,33 @@ export function useFormConnectStash(
 	formUuid: string,
 ): ConnectConfig | undefined {
 	return useBuilderSession((s) => s.connectStash[mode]?.[formUuid]);
+}
+
+// ── Staged media uploads ──────────────────────────────────────────────────
+
+/** The staged upload on one carrier slot, or `undefined` when nothing is
+ *  in flight there. Single-asset slots (module icon, app logo) subscribe
+ *  with their own slot key. */
+export function useStagedUpload(slotKey: string): StagedUpload | undefined {
+	return useBuilderSession((s) => s.stagedUploads[slotKey]);
+}
+
+/** The staged uploads under one bundle slot, keyed by media kind — the
+ *  `Media`-bundle carriers (`MediaSlot`) stage per kind under
+ *  `<baseKey>/<kind>`, and this collects every kind in flight there.
+ *  Shallow-compared: record references are stable across unrelated store
+ *  writes, so a fresh-but-equal pick doesn't re-render the slot. */
+export function useStagedUploadsFor(
+	baseKey: string,
+): Partial<Record<MediaKind, StagedUpload>> {
+	const prefix = `${baseKey}/`;
+	return useBuilderSessionShallow((s) => {
+		const out: Partial<Record<MediaKind, StagedUpload>> = {};
+		for (const [key, record] of Object.entries(s.stagedUploads)) {
+			if (key.startsWith(prefix)) out[record.kind] = record;
+		}
+		return out;
+	});
 }
 
 // ── Focus hint ───────────────────────────────────────────────────────────
@@ -222,8 +262,9 @@ export function useAttachmentPrep(): boolean {
 	return useMemo(() => deriveAttachmentPrep(events), [events]);
 }
 
-/** Latest validation-attempt context (attempt number + error count), or
- *  null when no validation pass has run in the current run. */
+/** Latest validation-attempt context (attempt number + error count) —
+ *  non-null only when replaying a run logged by the retired
+ *  validate-fix loop; always null on a live buffer. */
 export function useValidationAttempt(): {
 	attempt: number;
 	errorCount: number;
@@ -243,12 +284,16 @@ export function useSessionEventsEmpty(): boolean {
 	return useBuilderSession((s) => s.events.length === 0);
 }
 
-/** Whether the current run is a post-build edit (run in progress, no
- *  `schema` / `scaffold` mutations in this run, doc has data). */
+/** Whether the current run is a post-build edit — a run is in flight
+ *  (non-empty events buffer) and the doc already had data when it
+ *  started (`runStartedWithData`, captured at `beginRun`). */
 export function usePostBuildEdit(): boolean {
 	const events = useBuilderSession((s) => s.events);
-	const hasData = useBlueprintDoc(docHasData);
-	return useMemo(() => derivePostBuildEdit(events, hasData), [events, hasData]);
+	const startedWithData = useBuilderSession((s) => s.runStartedWithData);
+	return useMemo(
+		() => derivePostBuildEdit(events, startedWithData),
+		[events, startedWithData],
+	);
 }
 
 /** Firestore app document ID for the current builder session.
@@ -540,6 +585,7 @@ export interface DerivePhaseSession {
 	loading: boolean;
 	runCompletedAt: number | undefined;
 	events: readonly Event[];
+	runStartedWithData: boolean;
 }
 
 /**
@@ -552,11 +598,12 @@ export interface DerivePhaseSession {
  * - **Completed** — `runCompletedAt` stamped by `data-done`; cleared
  *   by `acknowledgeCompletion()` after the done-animation settles.
  * - **Generating** — a generation-stage mutation is in the buffer AND
- *   the buffer contains the foundation (schema/scaffold) of an initial
- *   build. The foundation check distinguishes a build from a
- *   post-build edit — both can emit `form:M-F` tagged mutations, so
- *   stage alone is ambiguous. An active run with no build foundation
- *   yet (askQuestions window, or a pure edit) stays in Idle / Ready.
+ *   the run opened on an EMPTY doc (`runStartedWithData` false — an
+ *   initial build). The run-start capture distinguishes a build from a
+ *   post-build edit — both emit the same stage tags (`module:create`,
+ *   `form:M-F`), so stage alone is ambiguous. An active run with no
+ *   stage yet (the planning / askQuestions window) stays in Idle;
+ *   edits stay in Ready while the agent works.
  * - **Ready** — doc has data (a usable blueprint exists).
  * - **Idle** — otherwise (fresh builder, or SA mid-askQuestions with
  *   no doc data yet).
@@ -576,7 +623,7 @@ export function derivePhase(
 	if (session.runCompletedAt !== undefined) return BuilderPhase.Completed;
 
 	const stage = deriveAgentStage(session.events);
-	if (stage !== null && bufferHasBuildFoundation(session.events)) {
+	if (stage !== null && !session.runStartedWithData) {
 		return BuilderPhase.Generating;
 	}
 	if (docHasData) return BuilderPhase.Ready;
@@ -593,6 +640,7 @@ export function useBuilderPhase(): BuilderPhase {
 		loading: s.loading,
 		runCompletedAt: s.runCompletedAt,
 		events: s.events,
+		runStartedWithData: s.runStartedWithData,
 	}));
 	/* Single-source predicate — see `lib/doc/predicates.ts::docHasData`.
 	 * Identical to `useDocHasData`, inlined here to avoid coupling the

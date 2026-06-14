@@ -18,7 +18,7 @@ import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc } from "@/lib/domain";
 import { removeFieldMutations, resolveFieldByIndex } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { applyToDoc, type MutatingToolResult } from "./common";
+import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -74,12 +74,21 @@ export const removeFieldTool = {
 				"label" in resolved.field ? resolved.field.label : "";
 			const beforeCount = countFieldsUnder(doc, formUuid);
 			const mutations = removeFieldMutations(doc, resolved.field.uuid);
-			const newDoc = applyToDoc(doc, mutations);
-			await ctx.recordMutations(
+			const commit = await guardedMutate(
+				ctx,
+				doc,
 				mutations,
-				newDoc,
 				`form:${moduleIndex}-${formIndex}`,
 			);
+			if (!commit.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: commit.error },
+				};
+			}
+			const newDoc = commit.newDoc;
 			const formName = newDoc.forms[formUuid]?.name ?? "";
 			const afterCount = countFieldsUnder(newDoc, formUuid);
 			return {

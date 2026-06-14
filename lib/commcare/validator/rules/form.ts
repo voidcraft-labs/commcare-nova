@@ -26,9 +26,12 @@ import {
 	type BlueprintDoc,
 	type Field,
 	type Form,
+	formExpressionSource,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
+	printXPath,
 	type Uuid,
+	xpathPrintContext,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 
@@ -39,6 +42,20 @@ import { type ValidationError, validationError } from "../errors";
  * including descendants in containers. Used by rules that need to check
  * membership — "does a field with this id exist in this form?"
  */
+/** Every field uuid under `parentUuid`, containers included. */
+function collectFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Set<string> {
+	const uuids = new Set<string>();
+	const walk = (uuid: Uuid) => {
+		for (const childUuid of doc.fieldOrder[uuid] ?? []) {
+			if (doc.fields[childUuid] === undefined) continue;
+			uuids.add(childUuid);
+			if (doc.fieldOrder[childUuid] !== undefined) walk(childUuid);
+		}
+	};
+	walk(parentUuid);
+	return uuids;
+}
+
 function collectFieldIds(doc: BlueprintDoc, parentUuid: Uuid): string[] {
 	const ids: string[] = [];
 	const walk = (uuid: Uuid) => {
@@ -370,13 +387,17 @@ function closeConditionValidation(
 			);
 		}
 		if (cc.field) {
-			const ids = collectFieldIds(doc, ctx.formUuid);
-			if (!ids.includes(cc.field)) {
+			// The ref is the checked field's stable uuid; it must land on a
+			// field of THIS form. A legacy dangler (unresolvable id text)
+			// fails the same membership test and reports its text verbatim.
+			const formFieldUuids = collectFieldUuids(doc, ctx.formUuid);
+			if (!formFieldUuids.has(cc.field)) {
+				const shown = doc.fields[cc.field]?.id ?? cc.field;
 				errors.push(
 					validationError(
 						"CLOSE_CONDITION_FIELD_NOT_FOUND",
 						"form",
-						`"${ctx.formName}" has close_condition checking field "${cc.field}", but no field with that ID exists in the form. Either add the field or update close_condition to reference an existing one.`,
+						`"${ctx.formName}" has close_condition checking field "${shown}", but no field like that exists in the form. Either add the field or update close_condition to reference an existing one.`,
 						loc,
 					),
 				);
@@ -408,13 +429,7 @@ function postSubmitValidation(
 			validationError(
 				"INVALID_POST_SUBMIT",
 				"form",
-				`"${ctx.formName}" has post_submit set to "${dest}", which is not a recognized destination.\n\n` +
-					`The valid options are:\n` +
-					`  "app_home"       — Navigate to the app home screen\n` +
-					`  "root"           — Navigate to the first menu (module select)\n` +
-					`  "module"         — Navigate back to this module's form list\n` +
-					`  "parent_module"  — Navigate to the parent module's menu\n` +
-					`  "previous"       — Navigate to the screen before this form`,
+				`"${ctx.formName}" has post_submit set to "${dest}", which isn't a recognized destination. Use one of: "app_home", "root", "module", "parent_module", "previous".`,
 				loc,
 				{ value: String(dest) },
 			),
@@ -430,14 +445,7 @@ function postSubmitValidation(
 			validationError(
 				"POST_SUBMIT_PARENT_MODULE_UNSUPPORTED",
 				"form",
-				`"${ctx.formName}" has post_submit set to "parent_module", but "${ctx.moduleName}" doesn't have a parent module.\n\n` +
-					`"parent_module" navigates to the parent module's menu after form submission. ` +
-					`This requires the module to be nested under another module (a feature that isn't configured here). ` +
-					`In the meantime, this will behave the same as "module" (navigating back to "${ctx.moduleName}").\n\n` +
-					`If you intended a different destination, the options are:\n` +
-					`  "module"    — Stay in "${ctx.moduleName}" (same behavior, explicit)\n` +
-					`  "previous"  — Go back to where the user was before this form\n` +
-					`  "app_home"  — Go to the app home screen`,
+				`"${ctx.formName}" has post_submit set to "parent_module", but "${ctx.moduleName}" has no parent module (parent modules aren't modeled yet). Use "module", "previous", or "app_home" instead.`,
 				loc,
 			),
 		);
@@ -449,9 +457,7 @@ function postSubmitValidation(
 			validationError(
 				"POST_SUBMIT_MODULE_CASE_LIST_ONLY",
 				"form",
-				`"${ctx.formName}" has post_submit set to "module", but "${ctx.moduleName}" is a case-list-only module with no form list to navigate to.\n\n` +
-					`After submitting this form, the user would land on an empty module menu. ` +
-					`Consider using "previous" to return the user to where they were, or "app_home" to go home.`,
+				`"${ctx.formName}" has post_submit set to "module", but "${ctx.moduleName}" is case-list-only and has no form list to return to. Use "previous" or "app_home" instead.`,
 				loc,
 			),
 		);
@@ -479,10 +485,7 @@ function formLinkValidation(
 			validationError(
 				"FORM_LINK_EMPTY",
 				"form",
-				`"${ctx.formName}" has form_links set to an empty array.\n\n` +
-					`form_links is meant to hold one or more navigation links to other forms or modules. ` +
-					`An empty array has no effect — either add links or remove the form_links field entirely.\n\n` +
-					`Without form_links, the form will use its post_submit destination ("${form.postSubmit ?? "form-type default"}").`,
+				`"${ctx.formName}" has form_links set to an empty array. Add at least one link, or remove form_links entirely.`,
 				loc,
 			),
 		);
@@ -495,10 +498,7 @@ function formLinkValidation(
 			validationError(
 				"FORM_LINK_NO_FALLBACK",
 				"form",
-				`"${ctx.formName}" has conditional form links but no post_submit fallback.\n\n` +
-					`When form links have XPath conditions, CommCare evaluates them after submission. ` +
-					`If none of the conditions match, the user needs somewhere to go — that's what post_submit provides.\n\n` +
-					`Set post_submit to a destination like "module" or "app_home" so there's always a valid navigation path.`,
+				`"${ctx.formName}" has conditional form links but no post_submit fallback for when none match. Set post_submit to a destination like "module" or "app_home".`,
 				loc,
 			),
 		);
@@ -506,8 +506,11 @@ function formLinkValidation(
 
 	for (let lIdx = 0; lIdx < form.formLinks.length; lIdx++) {
 		const link = form.formLinks[lIdx];
-		const linkLabel = link.condition
-			? `form link ${lIdx + 1} (condition: "${link.condition.slice(0, 40)}${link.condition.length > 40 ? "..." : ""}")`
+		const conditionText = link.condition
+			? printXPath(link.condition, xpathPrintContext(doc))
+			: undefined;
+		const linkLabel = conditionText
+			? `form link ${lIdx + 1} (condition: "${conditionText.slice(0, 40)}${conditionText.length > 40 ? "..." : ""}")`
 			: `form link ${lIdx + 1}`;
 
 		if (link.target.type === "form") {
@@ -543,10 +546,7 @@ function formLinkValidation(
 					validationError(
 						"FORM_LINK_SELF_REFERENCE",
 						"form",
-						`"${ctx.formName}" ${linkLabel} links back to itself.\n\n` +
-							`After submitting this form, the user would immediately re-enter the same form. ` +
-							`This creates a confusing loop. If you need the user to fill this form again, ` +
-							`consider linking to the module menu instead so they can choose to re-enter.`,
+						`"${ctx.formName}" ${linkLabel} links back to itself, which would loop the user straight back into this form. Point it at the module menu or another form instead.`,
 						loc,
 					),
 				);
@@ -579,31 +579,19 @@ function connectValidation(
 	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
 
-	// A Connect-typed app expects every form to carry a `connect` block —
-	// the per-form sub-config is what feeds `<learn:module>` / `<deliver>`
-	// markers into the CCZ that Connect's sync endpoints scan. A missing
-	// block silently strips the form from Connect's view; CCHQ accepts the
-	// upload but the opportunity gets stuck without payment units. Flag it
-	// here so the validator catches the autobuild miss at the same gate as
-	// every other surface (interactive build, MCP edit, manual import).
-	if (!form.connect) {
-		const guidance =
-			doc.connectType === "learn"
-				? "Add a learn_module (educational content), an assessment (quiz/test), or both via update_form."
-				: "Add a deliver_unit and/or task via update_form.";
-		errors.push(
-			validationError(
-				"CONNECT_FORM_MISSING_BLOCK",
-				"form",
-				`"${ctx.formName}" is in a Connect ${doc.connectType} app but has no Connect configuration. ${guidance}`,
-				loc,
-			),
-		);
-		// Skip downstream sub-config checks — they all dereference
-		// `form.connect`, and we'd just produce a redundant cascade of
-		// errors that all resolve once the missing block lands.
-		return errors;
-	}
+	// A form WITHOUT a connect block is a legal, meaningful state on a
+	// Connect app: the block marks that the form PARTICIPATES in Connect,
+	// and omitting it makes the form auxiliary. Connect's own ingestion is
+	// coverage-blind — `commcare_connect/opportunity/app_xml.py::
+	// extract_modules` / `::extract_deliver_unit` / `::extract_task_unit`
+	// scan each form's XML for connect-namespace blocks and silently skip
+	// forms without them, and `opportunity/tasks.py::
+	// create_learn_modules_and_deliver_units` upserts whatever was found
+	// with no per-form coverage check. The app-wide floor (≥1 participating
+	// form, without which progress/payment have nothing to key on) is the
+	// app-scoped `CONNECT_NO_PARTICIPATING_FORMS` rule in `rules/app.ts`;
+	// everything below adjudicates a block that IS present.
+	if (!form.connect) return errors;
 
 	// A Connect id becomes an XML element name in the emitted form (the
 	// wrapper `<id vellum:role=...>` and the Connect-namespaced `id=`
@@ -611,24 +599,67 @@ function connectValidation(
 	// `varchar(50)`). `connectIdError` is the single authority on what makes
 	// an id valid (legal element name AND within length) — the same helper
 	// the field-level commit guard uses, so the field and the server never
-	// disagree. We reject a bad id here rather than silently fixing it. Only
-	// non-empty ids are checked: an absent/empty id means "use the default",
-	// which `deriveConnectDefaults` mints (legal chars, capped length), so a
-	// derived id never trips this — it fires only on hand-typed / SA-supplied
-	// ids (the agent path sets ids as a bare string, bypassing the field).
+	// disagree. We reject a bad id here rather than silently fixing it.
 	//
-	// The helper returns one reason; we pick the structured code from the
-	// cheap element-name check (a char failure → INVALID_FORMAT, otherwise
-	// the only remaining failure is length → TOO_LONG) and wrap the reason
-	// with the form/kind context the message needs.
-	const connectIds: ReadonlyArray<{ label: string; id: string | undefined }> = [
-		{ label: "learn-module", id: form.connect.learn_module?.id },
-		{ label: "assessment", id: form.connect.assessment?.id },
-		{ label: "deliver-unit", id: form.connect.deliver_unit?.id },
-		{ label: "task", id: form.connect.task?.id },
+	// Every source path leaves the id SET: the SA tools autofill or reject
+	// (`enforceConnectIds`), the UI seed/restore paths derive
+	// (`dedupeRestoredConnectIds`). Nothing downstream supplies a default —
+	// the emit resolver (`buildConnectSlugMap`) THROWS on a missing id — so
+	// a block that reaches validation id-less is a doc that skipped that
+	// enforcement, and the unset id is its own finding (CONNECT_ID_MISSING)
+	// rather than a 500 at export. Only the app mode's live kinds are
+	// checked for absence, mirroring the resolver (a cross-mode stray never
+	// emits, so its missing id breaks nothing).
+	//
+	// For a SET id, `connectIdError` returns one reason; we pick the
+	// structured code from the cheap element-name check (a char failure →
+	// INVALID_FORMAT, otherwise the only remaining failure is length →
+	// TOO_LONG) and wrap the reason with the form/kind context.
+	const liveKindLabels: ReadonlySet<string> =
+		doc.connectType === "learn"
+			? new Set(["learn-module", "assessment"])
+			: new Set(["deliver-unit", "task"]);
+	const connectIds: ReadonlyArray<{
+		label: string;
+		present: boolean;
+		id: string | undefined;
+	}> = [
+		{
+			label: "learn-module",
+			present: form.connect.learn_module !== undefined,
+			id: form.connect.learn_module?.id,
+		},
+		{
+			label: "assessment",
+			present: form.connect.assessment !== undefined,
+			id: form.connect.assessment?.id,
+		},
+		{
+			label: "deliver-unit",
+			present: form.connect.deliver_unit !== undefined,
+			id: form.connect.deliver_unit?.id,
+		},
+		{
+			label: "task",
+			present: form.connect.task !== undefined,
+			id: form.connect.task?.id,
+		},
 	];
-	for (const { label, id } of connectIds) {
-		if (!id) continue; // unset/empty → resolver supplies a valid default
+	for (const { label, present, id } of connectIds) {
+		if (!id) {
+			if (present && liveKindLabels.has(label)) {
+				errors.push(
+					validationError(
+						"CONNECT_ID_MISSING",
+						"form",
+						`The Connect ${label} block in "${ctx.formName}" has no id. Set one — letters, numbers, and underscores, 50 characters or fewer, unique across the app — via update_form or the form's Connect settings.`,
+						loc,
+						{ connectKind: label },
+					),
+				);
+			}
+			continue;
+		}
 		const reason = connectIdError(id);
 		if (!reason) continue;
 		const code = XML_ELEMENT_NAME_REGEX.test(id)
@@ -680,30 +711,33 @@ function connectValidation(
 	//      pipeline rejects `<bind … calculate=""/>` outright. `undefined`
 	//      is NOT an error — the wire layer
 	//      (`lib/commcare/xform/builder.ts`) substitutes the canonical
-	//      defaults for missing `entity_id` / `entity_name`. Only the
-	//      explicit-empty-string state is a smell, indicating something
-	//      wrote a deliberate blank.
+	//      defaults for missing `entity_id` / `entity_name` / `user_score`.
+	//      Only the explicit-empty-string state is a smell, indicating
+	//      something wrote a deliberate blank.
 	//   2. Unquoted string literal → `CONNECT_UNQUOTED_XPATH`. Same shape
 	//      as the existing field-level rule: a bare word without quotes
 	//      parses as an XPath identifier, not a literal value.
 	type ConnectXPath = { label: string; expr: string | undefined };
 	const connectXPaths: ConnectXPath[] = [];
 	if (form.connect.assessment) {
-		// `user_score` is required in the domain — never undefined here.
+		// `user_score` is optional in the domain — an absent value skips both
+		// checks below (the wire layer substitutes the canonical default),
+		// same as the deliver entity slots. AST-stored values project to
+		// their printed text through the shared accessor.
 		connectXPaths.push({
 			label: "Connect assessment user_score",
-			expr: form.connect.assessment.user_score,
+			expr: formExpressionSource(form, "assessment_user_score", doc),
 		});
 	}
 	if (form.connect.deliver_unit) {
 		connectXPaths.push(
 			{
 				label: "Connect deliver entity_id",
-				expr: form.connect.deliver_unit.entity_id,
+				expr: formExpressionSource(form, "deliver_entity_id", doc),
 			},
 			{
 				label: "Connect deliver entity_name",
-				expr: form.connect.deliver_unit.entity_name,
+				expr: formExpressionSource(form, "deliver_entity_name", doc),
 			},
 		);
 	}
@@ -970,10 +1004,10 @@ function caseHashtagOnCreateForm(
 			if (!field) continue;
 			const fieldRef = `field "${field.id}"`;
 			for (const surface of XPATH_FIELD_SURFACES) {
-				flag("xpath", surface, fieldRef, readFieldString(field, surface));
+				flag("xpath", surface, fieldRef, readFieldString(field, surface, doc));
 			}
 			for (const surface of PROSE_FIELD_SURFACES) {
-				flag("prose", surface, fieldRef, readFieldString(field, surface));
+				flag("prose", surface, fieldRef, readFieldString(field, surface, doc));
 			}
 			// Repeat-cardinality surfaces — XPath the wire emitter threads
 			// through the hashtag expander on both count-bound and
@@ -983,13 +1017,18 @@ function caseHashtagOnCreateForm(
 			// throw, the failure mode this rule exists to close.
 			if (field.kind === "repeat") {
 				if (field.repeat_mode === "count_bound") {
-					flag("xpath", "repeat_count", fieldRef, field.repeat_count);
+					flag(
+						"xpath",
+						"repeat_count",
+						fieldRef,
+						readFieldString(field, "repeat_count", doc),
+					);
 				} else if (field.repeat_mode === "query_bound") {
 					flag(
 						"xpath",
 						"data_source.ids_query",
 						fieldRef,
-						field.data_source.ids_query,
+						readFieldString(field, "ids_query", doc),
 					);
 				}
 			}
@@ -1006,13 +1045,13 @@ function caseHashtagOnCreateForm(
 			"xpath",
 			"connect deliver_unit.entity_id",
 			"",
-			form.connect.deliver_unit.entity_id,
+			formExpressionSource(form, "deliver_entity_id", doc),
 		);
 		flag(
 			"xpath",
 			"connect deliver_unit.entity_name",
 			"",
-			form.connect.deliver_unit.entity_name,
+			formExpressionSource(form, "deliver_entity_name", doc),
 		);
 	}
 	if (form.connect?.assessment) {
@@ -1020,7 +1059,7 @@ function caseHashtagOnCreateForm(
 			"xpath",
 			"connect assessment.user_score",
 			"",
-			form.connect.assessment.user_score,
+			formExpressionSource(form, "assessment_user_score", doc),
 		);
 	}
 
@@ -1068,7 +1107,7 @@ function primaryCaseFieldInRepeat(
 		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[uuid];
 			if (!field) continue;
-			const casePropertyOn = readFieldString(field, "case_property_on");
+			const casePropertyOn = readFieldString(field, "case_property_on", doc);
 			if (repeatAncestor && casePropertyOn === mod.caseType) {
 				errors.push(
 					validationError(

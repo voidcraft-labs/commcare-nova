@@ -3,6 +3,7 @@ import { useState } from "react";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { CommitOutcome } from "@/lib/domain";
 
 /**
  * Compact labeled wrapper around `XPathField` for use inside the form
@@ -21,7 +22,10 @@ export function LabeledXPathField({
 	label: string;
 	required?: boolean;
 	value: string;
-	onSave: (value: string) => void;
+	/** Commit the value. Forward the gated outcome so a refused edit
+	 *  keeps the draft + finding in the inline editor; void reads as
+	 *  committed. */
+	onSave: (value: string) => CommitOutcome | undefined;
 	getLintContext: () => XPathLintContext | undefined;
 }) {
 	const [editing, setEditing] = useState(false);

@@ -140,13 +140,19 @@ export function FieldTypePickerPopup({
 				`New ${fieldRegistry[kind].label}`,
 			);
 
-			const newUuid = addField(parentUuid, newField, { atIndex });
+			const outcome = addField(parentUuid, newField, { atIndex });
+			/* A rejected insert (the commit gate refused the batch — the
+			 * rejection toast already names the findings) must not navigate:
+			 * there is no new field to mark, scroll to, or select, and
+			 * re-selecting a phantom would kick the user off the field they
+			 * had open. */
+			if (!outcome.ok) return;
 
 			/* Mark as new field so the UI can apply entry animations, then
 			 * select and scroll to the newly-inserted field. */
-			markNewField(newUuid);
-			setPending(newUuid, "smooth", false);
-			select(newUuid);
+			markNewField(outcome.uuid);
+			setPending(outcome.uuid, "smooth", false);
+			select(outcome.uuid);
 		},
 		[parentUuid, atIndex, addField, markNewField, setPending, select, docStore],
 	);

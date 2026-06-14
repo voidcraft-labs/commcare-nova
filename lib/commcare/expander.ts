@@ -42,7 +42,11 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
 	type FormLink,
+	isXPathExpression,
+	printXPath,
 	type Uuid,
+	type XPathPrintableDoc,
+	xpathPrintContext,
 } from "@/lib/domain";
 import { buildConnectSlugMap } from "./connectSlugs";
 import { buildCaseReferencesLoad, buildFormActions } from "./formActions";
@@ -63,13 +67,33 @@ import { buildXForm } from "./xform/builder";
  * that fails upload.
  */
 function translateFormLinks(
+	doc: XPathPrintableDoc,
 	links: FormLink[],
 	moduleOrder: Uuid[],
 	formOrder: Record<Uuid, Uuid[]>,
 ): HqFormLink[] {
+	// AST-stored conditions/datums project to text here — the HQ wire
+	// shape speaks strings, and identity leaves resolve to current names.
+	// Shape-driven and total: a legacy string (a doc read mid-migration)
+	// passes through verbatim.
+	const ctx = xpathPrintContext(doc);
+	const project = (value: unknown): string | undefined => {
+		if (typeof value === "string") return value;
+		if (isXPathExpression(value)) return printXPath(value, ctx);
+		return undefined;
+	};
 	const out: HqFormLink[] = [];
 	for (const link of links) {
 		const target = link.target;
+		// An empty printed condition is "unconditional" — collapsed to
+		// absence so this view agrees with the session emitter's truthy
+		// check (no commit boundary stores an empty expression; a
+		// degenerate doc could).
+		const condition = project(link.condition) || undefined;
+		const datums = link.datums?.map((datum) => ({
+			name: datum.name,
+			xpath: project(datum.xpath) ?? "",
+		}));
 		if (target.type === "form") {
 			const moduleIndex = moduleOrder.indexOf(target.moduleUuid);
 			if (moduleIndex < 0) continue;
@@ -78,17 +102,17 @@ function translateFormLinks(
 			);
 			if (formIndex < 0) continue;
 			out.push({
-				...(link.condition !== undefined && { condition: link.condition }),
+				...(condition !== undefined && { condition }),
 				target: { type: "form", moduleIndex, formIndex },
-				...(link.datums !== undefined && { datums: link.datums }),
+				...(datums !== undefined && { datums }),
 			});
 		} else {
 			const moduleIndex = moduleOrder.indexOf(target.moduleUuid);
 			if (moduleIndex < 0) continue;
 			out.push({
-				...(link.condition !== undefined && { condition: link.condition }),
+				...(condition !== undefined && { condition }),
 				target: { type: "module", moduleIndex },
-				...(link.datums !== undefined && { datums: link.datums }),
+				...(datums !== undefined && { datums }),
 			});
 		}
 	}
@@ -198,7 +222,12 @@ export function expandDoc(
 			// `FORM_LINK_TARGET_NOT_FOUND` before production runs get
 			// here).
 			const hqFormLinks = form.formLinks?.length
-				? translateFormLinks(form.formLinks, doc.moduleOrder, doc.formOrder)
+				? translateFormLinks(
+						doc,
+						form.formLinks,
+						doc.moduleOrder,
+						doc.formOrder,
+					)
 				: [];
 
 			const formShellObj = formShell(

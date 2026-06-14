@@ -46,15 +46,17 @@ export function rebuildFieldParent(doc: BlueprintDoc): void {
 }
 
 /**
- * Strip the derived `fieldParent` index from a doc, producing the
- * Firestore-shaped `PersistableDoc`. `fieldParent` is rebuilt from
- * `fieldOrder` on load (via `rebuildFieldParent`), so persisting it
+ * Strip the derived state from a doc — the `fieldParent` reverse index
+ * and the reference index — producing the Firestore-shaped
+ * `PersistableDoc`. Both are rebuilt from the doc alone on load
+ * (`rebuildFieldParent` / `buildReferenceIndex`), so persisting either
  * would double-store the same information and create drift risk if the
- * two ever diverged. Call at every boundary that ships a doc to
- * Firestore or over an SSE payload consumed by clients that rebuild
- * their own index.
+ * copies ever diverged — and the reference index additionally must
+ * never change a byte of anything persisted or emitted. Call at every
+ * boundary that ships a doc to Firestore or over an SSE payload
+ * consumed by clients that rebuild their own indexes.
  */
 export function toPersistableDoc(doc: BlueprintDoc): PersistableDoc {
-	const { fieldParent: _fp, ...persistable } = doc;
+	const { fieldParent: _fp, refIndex: _ri, ...persistable } = doc;
 	return persistable;
 }

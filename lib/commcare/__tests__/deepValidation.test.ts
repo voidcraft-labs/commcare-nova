@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { CaseType } from "@/lib/domain";
+import { asUuid, type CaseType } from "@/lib/domain";
 import {
 	buildDoc,
 	caseListConfig,
 	type FieldSpec,
 	f,
+	xp,
 } from "../../__tests__/docHelpers";
 import { buildFieldTree } from "../../preview/engine/fieldTree";
 import { TriggerDag } from "../../preview/engine/triggerDag";
-import { validateBlueprintDeep } from "../validator";
+import { type DeepValidationError, validateBlueprintDeep } from "../validator";
 import {
 	FUNCTION_REGISTRY,
 	findCaseInsensitiveMatch,
@@ -129,6 +130,19 @@ describe("validateXPath", () => {
 		it("passes for valid references", () => {
 			expect(validateXPath("/data/name != ''", validPaths)).toEqual([]);
 			expect(validateXPath("/data/group1/child1", validPaths)).toEqual([]);
+		});
+
+		it("lints a multi-segment #form ref clean when the nested path exists", () => {
+			// A re-anchored ref (`#form/group1/child1` after a move into a
+			// group) maps to `/data/group1/child1` — known, so no diagnostics.
+			expect(validateXPath("#form/group1/child1 != ''", validPaths)).toEqual(
+				[],
+			);
+		});
+
+		it("flags a multi-segment #form ref whose nested path is unknown", () => {
+			const errors = validateXPath("#form/group1/nope != ''", validPaths);
+			expect(errors.some((e) => e.code === "INVALID_REF")).toBe(true);
 		});
 
 		it("catches invalid references", () => {
@@ -585,7 +599,10 @@ function treeFromFields(fields: FieldSpec[]) {
 		modules: [{ name: "M", forms: [{ name: "F", type: "survey", fields }] }],
 	});
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	return buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
+	return {
+		tree: buildFieldTree(formUuid, doc.fields, doc.fieldOrder),
+		doc,
+	};
 }
 
 describe("TriggerDag.reportCycles", () => {
@@ -594,41 +611,35 @@ describe("TriggerDag.reportCycles", () => {
 	// The leaf the others read (`a`) is a plain user input — a visible `int`.
 	it("returns empty for acyclic graph", () => {
 		const dag = new TriggerDag();
-		const cycles = dag.reportCycles(
-			treeFromFields([
-				f({ kind: "int", id: "a", label: "A" }),
-				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
-			]),
-		);
-		expect(cycles).toEqual([]);
+		const { tree, doc } = treeFromFields([
+			f({ kind: "int", id: "a", label: "A" }),
+			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
+		]);
+		expect(dag.reportCycles(tree, doc)).toEqual([]);
 	});
 
 	it("detects A→B→A cycle", () => {
 		const dag = new TriggerDag();
-		const cycles = dag.reportCycles(
-			treeFromFields([
-				f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
-				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
-			]),
-		);
-		expect(cycles.length).toBeGreaterThan(0);
+		const { tree, doc } = treeFromFields([
+			f({ kind: "hidden", id: "a", calculate: "/data/b + 1" }),
+			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
+		]);
+		expect(dag.reportCycles(tree, doc).length).toBeGreaterThan(0);
 	});
 
 	it("handles diamond dependency (no cycle)", () => {
 		const dag = new TriggerDag();
-		const cycles = dag.reportCycles(
-			treeFromFields([
-				f({ kind: "int", id: "a", label: "A" }),
-				f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
-				f({ kind: "hidden", id: "c", calculate: "/data/a + 2" }),
-				f({
-					kind: "hidden",
-					id: "d",
-					calculate: "/data/b + /data/c",
-				}),
-			]),
-		);
-		expect(cycles).toEqual([]);
+		const { tree, doc } = treeFromFields([
+			f({ kind: "int", id: "a", label: "A" }),
+			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
+			f({ kind: "hidden", id: "c", calculate: "/data/a + 2" }),
+			f({
+				kind: "hidden",
+				id: "d",
+				calculate: "/data/b + /data/c",
+			}),
+		]);
+		expect(dag.reportCycles(tree, doc)).toEqual([]);
 	});
 });
 
@@ -1305,5 +1316,99 @@ describe("runValidation — bare-id reference suggestion (group-path DX)", () =>
 		expect(refErr).toBeDefined();
 		expect(refErr?.message).toContain("`#form/consent_grp/consent`");
 		expect(refErr?.message).toContain("did you mean");
+	});
+});
+
+// ── Stored-reference classification (INVALID_REF.storedRef) ─────────
+
+describe("INVALID_REF stored-reference classification", () => {
+	const makeDoc = (fields: FieldSpec[]) =>
+		buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					forms: [{ name: "Quiz form", type: "survey", fields }],
+				},
+			],
+		});
+
+	it("classifies a plain-text #form leaf as raw-text and renders the re-commit repair", () => {
+		// `xp` parses with no resolution, so the leaf stays raw text — the
+		// shape a migrated legacy expression holds when its reference never
+		// re-resolved.
+		const doc = makeDoc([
+			f({ kind: "int", id: "score", label: "Score" }),
+			f({ kind: "hidden", id: "total", calculate: xp("#form/old_score") }),
+		]);
+		const deepErr = validateBlueprintDeep(doc).find(
+			(e): e is Extract<DeepValidationError, { kind: "field-xpath" }> =>
+				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
+		);
+		expect(deepErr?.error.storedRef).toBe("raw-text");
+
+		const rendered = runValidation(doc).find((e) => e.code === "INVALID_REF");
+		expect(rendered?.message).toContain('Field "total"');
+		expect(rendered?.message).toContain("plain text");
+		expect(rendered?.message).toContain("re-commit");
+	});
+
+	it("classifies a dangling identity leaf and never prints the bare uuid as a path", () => {
+		const ghost = asUuid("dead0000-0000-4000-8000-000000000001");
+		const doc = makeDoc([
+			f({ kind: "int", id: "score", label: "Score" }),
+			f({
+				kind: "hidden",
+				id: "total",
+				calculate: { parts: [{ kind: "field-ref", uuid: ghost }] },
+			}),
+		]);
+		const deepErr = validateBlueprintDeep(doc).find(
+			(e): e is Extract<DeepValidationError, { kind: "field-xpath" }> =>
+				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
+		);
+		expect(deepErr?.error.storedRef).toBe("dangling-identity");
+
+		const rendered = runValidation(doc).find((e) => e.code === "INVALID_REF");
+		// The carrier + slot are the find-it handle; the uuid is not a path
+		// a person can look up, so it must not appear in the prose.
+		expect(rendered?.message).toContain('Field "total"');
+		expect(rendered?.message).toContain("calculated value");
+		expect(rendered?.message).toContain("no longer exists");
+		expect(rendered?.message).not.toContain(ghost);
+	});
+
+	it("keeps the did-you-mean hint when a raw leaf is the bare-id-for-nested-field mistake", () => {
+		// A fresh typo parses to the same raw-leaf shape (parsing is total),
+		// so when the leaf id matches an existing nested field the nesting
+		// hint stays the repair — re-committing identical text would change
+		// nothing.
+		const doc = makeDoc([
+			f({
+				kind: "group",
+				id: "grp",
+				label: "Group",
+				children: [f({ kind: "int", id: "score", label: "Score" })],
+			}),
+			f({ kind: "hidden", id: "total", calculate: xp("#form/score") }),
+		]);
+		const rendered = runValidation(doc).find((e) => e.code === "INVALID_REF");
+		expect(rendered?.message).toContain("`#form/grp/score`");
+		expect(rendered?.message).toContain("did you mean");
+		expect(rendered?.message).not.toContain("re-commit");
+	});
+
+	it("leaves an unresolved absolute path unclassified — the generic typo prose", () => {
+		const doc = makeDoc([
+			f({ kind: "int", id: "score", label: "Score" }),
+			f({ kind: "hidden", id: "total", calculate: xp("/data/scroe + 1") }),
+		]);
+		const deepErr = validateBlueprintDeep(doc).find(
+			(e): e is Extract<DeepValidationError, { kind: "field-xpath" }> =>
+				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
+		);
+		expect(deepErr?.error.storedRef).toBeUndefined();
+		const rendered = runValidation(doc).find((e) => e.code === "INVALID_REF");
+		expect(rendered?.message).toContain("Check for a typo");
 	});
 });

@@ -5,8 +5,10 @@
  * persisted document, not survive a deep merge against its prior value.
  *
  * Covers the four form-level nullable fields (`connect`,
- * `closeCondition`, `postSubmit`, `purpose`) and the three persistence
- * helpers (`updateApp`, `updateAppForRun`, `completeApp`).
+ * `closeCondition`, `postSubmit`, `purpose`) and the two blueprint
+ * persistence helpers (`updateApp`, `updateAppForRun`); `completeApp`
+ * (status-only, no blueprint payload) is pinned to leave the stored
+ * blueprint untouched.
  *
  * Assertions check key absence (`'connect' in form === false`) rather
  * than `=== undefined`: the wire-level claim is that the key is GONE,
@@ -331,29 +333,24 @@ describe.skipIf(!emulatorAvailable)(
 			expect("purpose" in form).toBe(false);
 		});
 
-		it("completeApp: clearing nested fields removes them AND status flips to complete", async () => {
-			const { appId, moduleUuid, formUuid, runId } = await seedPopulatedApp();
+		it("completeApp: flips status only — the persisted blueprint is byte-identical before and after", async () => {
+			const { appId, formUuid } = await seedPopulatedApp();
 
-			/* `completeApp` is the generation-success boundary — the
-			 * SA emits it via fire-and-forget at end of `validateApp`.
-			 * Seed leaves the app at `status: "generating"` (the
-			 * `createApp` default); after `completeApp` it MUST flip
-			 * to `"complete"` AND the cleared fields must vanish. */
-			const cleared = buildClearedDoc(appId, moduleUuid, formUuid);
-			await completeApp(appId, cleared, runId);
+			/* The drain-end finish is STATUS-ONLY by contract: the run's
+			 * chained saves own the blueprint, so the flip must not carry a
+			 * doc payload that could blind-overwrite a concurrent editor. */
+			const before = await readPersistedApp(appId);
+			await completeApp(appId);
 
 			const after = await readPersistedApp(appId);
 			expect(after.status).toBe("complete");
-			expect(after.run_id).toBe(runId);
-
+			expect(after.error_type).toBeNull();
+			expect(after.blueprint).toEqual(before.blueprint);
 			const form = (
 				after.blueprint as { forms: Record<string, Record<string, unknown>> }
 			).forms[formUuid];
-			if (!form) throw new Error(`Form ${formUuid} missing after completeApp`);
-			expect("connect" in form).toBe(false);
-			expect("closeCondition" in form).toBe(false);
-			expect("postSubmit" in form).toBe(false);
-			expect("purpose" in form).toBe(false);
+			if (!form) throw new Error(`Form ${formUuid} missing after completion`);
+			expect("connect" in form).toBe(true);
 		});
 	},
 );

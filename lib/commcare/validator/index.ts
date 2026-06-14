@@ -14,11 +14,19 @@
 
 import {
 	type BlueprintDoc,
+	CONNECT_XPATH_SLOT_IDS,
+	type ConnectXPathSlotId,
 	caseRefAcceptMap,
+	expressionSurfaceReads,
 	type Field,
+	type FieldProseSlotId,
+	type FieldXPathSlotId,
+	formExpressionSource,
+	formExpressionValue,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
+	type XPathExpression,
 } from "@/lib/domain";
 import {
 	buildFieldTree,
@@ -33,42 +41,75 @@ import {
 } from "./xpathValidator";
 
 /**
- * The XPath-bearing surfaces deep validation walks on a field. Each maps to
- * a user-facing label at render time (`runner.ts::SURFACE_LABELS`). Keeping
- * this a closed union (not a bare string) means a new surface can't be added
- * to the walk without the runner being forced to give it a label.
+ * The XPath-bearing surfaces deep validation walks on a field — the
+ * reference-slot registry's xpath projection, which the walk iterates via
+ * `expressionSurfaceReads`. Each maps to a user-facing label at render time
+ * (`runner.ts::SURFACE_LABELS`). Keeping this a closed union (not a bare
+ * string) means a new registry slot can't enter the walk without the runner
+ * being forced to give it a label.
  */
-export type XPathSurface =
-	| "relevant"
-	| "validate"
-	| "calculate"
-	| "default_value"
-	| "required"
-	| "repeat_count"
-	| "ids_query";
+export type XPathSurface = FieldXPathSlotId;
 
 /**
- * The Connect-block XPath slots (Connect mode only). A closed union for the
- * same reason as `XPathSurface` — the runner owns the display label.
+ * The Connect-block XPath slots (Connect mode only) — the registry's
+ * `connect.*` form-slot projection. A closed union for the same reason as
+ * `XPathSurface`: the runner owns the display label.
  */
-export type ConnectXPathSlot =
-	| "assessment_user_score"
-	| "deliver_entity_id"
-	| "deliver_entity_name";
+export type ConnectXPathSlot = ConnectXPathSlotId;
 
 /**
  * The PROSE surfaces deep validation scans for embedded `#<type>/<prop>`
- * hashtag refs. These aren't XPath — they're natural-language label / hint /
- * help / validate-error text (plus per-option labels on selects) that lower
- * their inline hashtags to `<output value>` at emit. A closed union for the
- * same reason as `XPathSurface`: the runner owns the display label.
+ * hashtag refs — the registry's prose projection. These aren't XPath —
+ * they're natural-language label / hint / help / validate-error text (plus
+ * per-option labels on selects) that lower their inline hashtags to
+ * `<output value>` at emit. A closed union for the same reason as
+ * `XPathSurface`: the runner owns the display label.
  */
-export type ProseSurface =
-	| "label"
-	| "hint"
-	| "help"
-	| "validate_msg"
-	| "option_label";
+export type ProseSurface = FieldProseSlotId;
+
+/**
+ * A validation scope — which entities a scoped run walks. App-level rules
+ * always run regardless of scope (they're cheap and their findings are
+ * app-anchored); module rules run for modules in `moduleUuids`; form-level
+ * work (form rules, field rules, deep XPath validation) runs for every form
+ * of an in-scope module plus every form named directly in `formUuids`.
+ *
+ * An ABSENT scope means a full run. A PRESENT scope with empty/absent sets
+ * is meaningful — it runs app rules only (e.g. a pure module reorder, which
+ * can't change any module/form-level finding).
+ *
+ * Scopes are derived from mutation batches by `scopeOfMutations`; the
+ * scoped-run ≡ full-run-filtered law is documented at
+ * `runner.ts::errorWithinScope` and property-tested.
+ */
+export interface ValidationScope {
+	readonly moduleUuids?: ReadonlySet<Uuid>;
+	readonly formUuids?: ReadonlySet<Uuid>;
+}
+
+/** Whether a scope (or no scope) admits the module's module-level rules. */
+export function scopeHasModule(
+	scope: ValidationScope | undefined,
+	moduleUuid: Uuid,
+): boolean {
+	return scope === undefined || (scope.moduleUuids?.has(moduleUuid) ?? false);
+}
+
+/**
+ * Whether a scope (or no scope) admits a form's form-level work. A form is
+ * in scope when its module is (module scope covers the module's whole
+ * subtree) or when the form is named directly.
+ */
+export function scopeHasForm(
+	scope: ValidationScope | undefined,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): boolean {
+	return (
+		scopeHasModule(scope, moduleUuid) ||
+		(scope?.formUuids?.has(formUuid) ?? false)
+	);
+}
 
 /**
  * The location every deep error carries — resolved DURING the walk from the
@@ -114,29 +155,54 @@ export type DeepValidationError =
 	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
 
 /**
- * Keys on a `Field` that hold XPath expressions. Narrowed to known string
- * properties; we read via an index access below which safely returns
- * `undefined` for kinds that don't carry a given key.
+ * Classify how an INVALID_REF's failing `/data/...` reference is STORED
+ * in the slot's expression AST, so the runner can render the repair that
+ * actually fixes it (`XPathError.storedRef`). The match is exact against
+ * each leaf's printed expansion:
+ *
+ *   - a raw `#form/...` leaf (plain text the migration could not
+ *     re-resolve) expands to `/data/<segments>` — `"raw-text"`: the
+ *     reference doesn't follow its field through renames, and
+ *     re-committing the expression is the repair;
+ *   - an identity leaf whose target no longer resolves prints the bare
+ *     uuid (`#form/<uuid>` / `/data/<uuid>` — the printer's total
+ *     fallback), expanding to `/data/<uuid>` — `"dangling-identity"`:
+ *     the printed text is an internal id, not a path a person can look
+ *     up, so the runner must not present it as one.
+ *
+ * A failing ref matching neither (a typo'd reference, a cross-form
+ * path) classifies as `undefined` and keeps the generic prose. The
+ * dangling check needs no doc resolution: a RESOLVED leaf prints its
+ * segments, so the bare-uuid expansion exists exactly when resolution
+ * failed.
  */
-const XPATH_FIELDS = [
-	"relevant",
-	"validate",
-	"calculate",
-	"default_value",
-	"required",
-] as const;
+function classifyStoredRef(
+	expr: XPathExpression | undefined,
+	failingRef: string | undefined,
+): "raw-text" | "dangling-identity" | undefined {
+	if (expr === undefined || failingRef === undefined) return undefined;
+	for (const part of expr.parts) {
+		if (part.kind === "raw-ref" && part.namespace === "form") {
+			if (failingRef === `/data/${part.segments.join("/")}`) {
+				return "raw-text";
+			}
+		}
+		if (part.kind === "field-ref" || part.kind === "path-ref") {
+			if (failingRef === `/data/${part.uuid}`) return "dangling-identity";
+		}
+	}
+	return undefined;
+}
 
-type XPathFieldKey = (typeof XPATH_FIELDS)[number];
-
-/**
- * Safely read an XPath-bearing property off a Field union member without
- * having to narrow the discriminant first. Returns the string if the
- * variant carries the key AND the value is a non-empty string, else
- * `undefined`.
- */
-function readXPath(field: Field, key: XPathFieldKey): string | undefined {
-	const value = (field as unknown as Record<string, unknown>)[key];
-	return typeof value === "string" && value.length > 0 ? value : undefined;
+/** Stamp `storedRef` onto an INVALID_REF the slot's stored AST can
+ *  explain; every other error passes through untouched. */
+function withStoredRef(
+	error: XPathError,
+	expr: XPathExpression | undefined,
+): XPathError {
+	if (error.code !== "INVALID_REF") return error;
+	const storedRef = classifyStoredRef(expr, error.ref);
+	return storedRef === undefined ? error : { ...error, storedRef };
 }
 
 /**
@@ -144,7 +210,7 @@ function readXPath(field: Field, key: XPathFieldKey): string | undefined {
  * `/data/...` path that XPath expressions may reference. The prefix is
  * extended by each container's `id` as the walk recurses.
  */
-export function collectValidPaths(
+function collectValidPaths(
 	doc: BlueprintDoc,
 	parentUuid: Uuid,
 	prefix = "/data",
@@ -225,11 +291,22 @@ function collectFromTree(
  */
 export function validateBlueprintDeep(
 	doc: BlueprintDoc,
+	scope?: ValidationScope,
 ): DeepValidationError[] {
 	const errors: DeepValidationError[] = [];
 
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
+		// Scope filter — restrict WHICH forms are walked, never post-filter
+		// findings (the deep walk's Lezer parses are the expensive part, so
+		// skipping the walk is the point). A module fully in scope walks all
+		// its forms; otherwise only the directly-named forms are walked.
+		const allForms = doc.formOrder[moduleUuid] ?? [];
+		const scopedForms = scopeHasModule(scope, moduleUuid)
+			? allForms
+			: allForms.filter((formUuid) => scope?.formUuids?.has(formUuid) ?? false);
+		if (scopedForms.length === 0) continue;
+
 		// The case types every form in this module can READ (own + ancestors),
 		// keyed by name. Built once per module from `doc.caseTypes`; the
 		// per-form accept map below narrows it by form type. Reads from the
@@ -239,7 +316,7 @@ export function validateBlueprintDeep(
 			? toReachableIndex(reachableCaseTypes(mod.caseType, doc.caseTypes ?? []))
 			: undefined;
 
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+		for (const formUuid of scopedForms) {
 			const form = doc.forms[formUuid];
 			const tree = buildFieldTree(formUuid, doc.fields, doc.fieldOrder);
 			if (tree.length === 0) continue;
@@ -266,20 +343,21 @@ export function validateBlueprintDeep(
 			const validPaths = collectValidPaths(doc, formUuid);
 
 			// The form's connect config, read directly from the doc (only when
-			// the app is in Connect mode). The validator runs on in-progress
-			// docs that may not yet have ids filled, so it must NOT route
-			// through the emit-time `buildConnectSlugMap` (which asserts ids
-			// are present) — it reads `form.connect` and guards each valid-path
-			// arm on the id being set. An id-less block simply contributes no
-			// valid path; the connect-id format/length rules in `rules/form.ts`
-			// and the app-wide `CONNECT_ID_DUPLICATE` rule in `rules/app.ts`
-			// carry the authoring signal for a bad or colliding explicit id.
+			// the app is in Connect mode). The validator runs on docs that may
+			// carry an id-less block (a doc that skipped the source
+			// enforcement), so it must NOT route through the emit-time
+			// `buildConnectSlugMap` (which THROWS on a missing id) — it reads
+			// `form.connect` and guards each valid-path arm on the id being
+			// set. An id-less block simply contributes no valid path; the
+			// connect-id rules in `rules/form.ts` carry the authoring signal
+			// (`CONNECT_ID_MISSING` for the unset id itself, format/length for
+			// a bad explicit one) and the app-wide `CONNECT_ID_DUPLICATE` rule
+			// in `rules/app.ts` covers collisions.
 			const connect = doc.connectType ? form.connect : undefined;
 
 			// Expose Connect data paths so XPath expressions can reference them.
-			// Each arm gates on the id being present (a wire node only exists
-			// once the id is set; an id-less block is filled at the source
-			// before export).
+			// Each arm gates on the id being present — a wire node only exists
+			// once the id is set.
 			if (connect) {
 				if (connect.learn_module?.id) {
 					validPaths.add(`/data/${connect.learn_module.id}`);
@@ -303,6 +381,7 @@ export function validateBlueprintDeep(
 
 			// Per-field XPath validation — recursive walk over the tree.
 			validateTreeXPath(
+				doc,
 				tree,
 				validPaths,
 				caseTypeProps,
@@ -321,41 +400,38 @@ export function validateBlueprintDeep(
 			// uses, so prose and XPath can never disagree on which refs are
 			// live. Skipped when the form has no reachable case type.
 			if (caseTypeProps) {
-				validateTreeProse(tree, caseTypeProps, isRegistrationForm, loc, errors);
+				validateTreeProse(
+					doc,
+					tree,
+					caseTypeProps,
+					isRegistrationForm,
+					loc,
+					errors,
+				);
 			}
 
 			// Connect-block XPath expressions. The expressions themselves
 			// (`user_score`, `entity_id`, `entity_name`) are id-independent, so
-			// reading them off the resolved config matches the raw doc value.
-			// Each entry carries a TYPED `ConnectXPathSlot`, not a prose label.
+			// reading them off the doc via the expression accessor matches the
+			// resolved config. Each entry carries a TYPED `ConnectXPathSlot`,
+			// not a prose label.
 			if (connect) {
-				const connectXPaths: Array<[ConnectXPathSlot, string]> = [];
-				if (connect.assessment?.user_score) {
-					connectXPaths.push([
-						"assessment_user_score",
-						connect.assessment.user_score,
-					]);
-				}
-				if (connect.deliver_unit?.entity_id) {
-					connectXPaths.push([
-						"deliver_entity_id",
-						connect.deliver_unit.entity_id,
-					]);
-				}
-				if (connect.deliver_unit?.entity_name) {
-					connectXPaths.push([
-						"deliver_entity_name",
-						connect.deliver_unit.entity_name,
-					]);
-				}
-				for (const [slot, expr] of connectXPaths) {
+				for (const slot of CONNECT_XPATH_SLOT_IDS) {
+					const text = formExpressionSource(form, slot, doc);
+					if (!text) continue;
+					const expr = formExpressionValue(form, slot);
 					for (const error of validateXPath(
-						expr,
+						text,
 						validPaths,
 						caseTypeProps,
 						isRegistrationForm,
 					)) {
-						errors.push({ ...loc, kind: "connect-xpath", slot, error });
+						errors.push({
+							...loc,
+							kind: "connect-xpath",
+							slot,
+							error: withStoredRef(error, expr),
+						});
 					}
 				}
 			}
@@ -364,7 +440,7 @@ export function validateBlueprintDeep(
 			// same rose tree we already built. The cycle (a list of field ids)
 			// travels structured; the runner formats it.
 			const dag = new TriggerDag();
-			for (const cycle of dag.reportCycles(tree)) {
+			for (const cycle of dag.reportCycles(tree, doc)) {
 				errors.push({ ...loc, kind: "cycle", cycle });
 			}
 		}
@@ -380,6 +456,7 @@ export function validateBlueprintDeep(
  * underlying `XPathError` all travel structured to the runner.
  */
 function validateTreeXPath(
+	doc: BlueprintDoc,
 	nodes: FieldTreeNode[],
 	validPaths: Set<string>,
 	caseTypeProps: Map<string, Set<string>> | undefined,
@@ -405,68 +482,38 @@ function validateTreeXPath(
 	};
 
 	for (const node of nodes) {
-		for (const key of XPATH_FIELDS) {
-			const expr = readXPath(node.field, key);
-			if (!expr) continue;
+		// The registry's per-kind xpath projection (narrowed by
+		// `repeat_mode` for repeats) drives the walk, so a new
+		// expression-bearing slot enters validation by being registered,
+		// never by extending a hand-rolled key list here.
+		for (const { slot, text, expr } of expressionSurfaceReads(
+			node.field,
+			"xpath",
+			doc,
+		)) {
+			// Blank-skip policy is per slot: empty `repeat_count` /
+			// `ids_query` values (including whitespace-only — hence trim)
+			// are caught by `EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY` at the
+			// field-rule layer, so skipping them here avoids
+			// double-reporting a single empty value. The flat slots have no
+			// empty-rule twin and keep the plain emptiness check.
+			const blank =
+				slot === "repeat_count" || slot === "ids_query"
+					? text.trim().length === 0
+					: text.length === 0;
+			if (blank) continue;
 			for (const error of validateXPath(
-				expr,
+				text,
 				validPaths,
 				caseTypeProps,
 				isRegistrationForm,
 			)) {
-				pushFieldError(node.field, key, error);
-			}
-		}
-		// Repeat-mode XPath fields. `repeat_count` lives only on the
-		// count_bound variant of the discriminated repeat union, and
-		// `data_source.ids_query` only on query_bound — neither fits the
-		// flat `XPATH_FIELDS` reader (one is variant-specific, the other
-		// is nested). Discriminated-union narrowing handles both. Empty
-		// values are caught by `EMPTY_REPEAT_COUNT` / `EMPTY_IDS_QUERY`
-		// at the field-rule layer; the length check here skips them so
-		// the SA doesn't see double-reporting on a single empty value.
-		// Each pushes its own typed `XPathSurface` (`repeat_count` /
-		// `ids_query`); the runner maps that to a user-facing label.
-		if (node.field.kind === "repeat") {
-			// Both branches use `typeof === "string" && trim().length > 0`
-			// to match the empty-rule layer's defensive shape exactly:
-			// trim catches whitespace-only inputs the same way the empty
-			// rule does (so the SA never sees double-reporting on
-			// whitespace), and the typeof guard defends against partial
-			// or hand-built docs that bypass Zod — fixture builders, the
-			// replay hydrator, recovery scripts — and could land here
-			// with `repeat_mode` set but the matching XPath field
-			// undefined. Without the typeof guard, `.trim()` on
-			// undefined throws and kills `validateBlueprintDeep`
-			// mid-walk, dropping every error already collected.
-			if (node.field.repeat_mode === "count_bound") {
-				const repeatCount = node.field.repeat_count;
-				if (typeof repeatCount === "string" && repeatCount.trim().length > 0) {
-					for (const error of validateXPath(
-						repeatCount,
-						validPaths,
-						caseTypeProps,
-						isRegistrationForm,
-					)) {
-						pushFieldError(node.field, "repeat_count", error);
-					}
-				}
-			} else if (node.field.repeat_mode === "query_bound") {
-				const idsQuery = node.field.data_source?.ids_query;
-				if (typeof idsQuery === "string" && idsQuery.trim().length > 0) {
-					for (const error of validateXPath(
-						idsQuery,
-						validPaths,
-						caseTypeProps,
-						isRegistrationForm,
-					)) {
-						pushFieldError(node.field, "ids_query", error);
-					}
-				}
+				pushFieldError(node.field, slot, withStoredRef(error, expr));
 			}
 		}
 		if (node.children) {
 			validateTreeXPath(
+				doc,
 				node.children,
 				validPaths,
 				caseTypeProps,
@@ -479,15 +526,6 @@ function validateTreeXPath(
 }
 
 /**
- * The PROSE message surfaces deep validation reads off a field via a plain
- * key. `option_label` (one field carries many) is scanned separately. Each
- * maps to a user-facing label at render time
- * (`runner.ts::PROSE_SURFACE_LABELS`).
- */
-const PROSE_SURFACES = ["label", "hint", "help", "validate_msg"] as const;
-type ProseSurfaceKey = (typeof PROSE_SURFACES)[number];
-
-/**
  * Match an embedded Nova hashtag ref inside PROSE using the SAME pattern the
  * XForm builder's lowering pass consumes (`BARE_HASHTAG_PATTERN`), so emission
  * and validation can't drift on what counts as a prose hashtag. Own global
@@ -495,16 +533,6 @@ type ProseSurfaceKey = (typeof PROSE_SURFACES)[number];
  * (it clones, never mutating `lastIndex`).
  */
 const PROSE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
-
-/**
- * Safely read a PROSE message slot off a Field union member — mirrors
- * `readXPath` for the message surfaces. Returns the string when the variant
- * carries the key AND the value is non-empty, else `undefined`.
- */
-function readProse(field: Field, key: ProseSurfaceKey): string | undefined {
-	const value = (field as unknown as Record<string, unknown>)[key];
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
 
 /**
  * Recursively scan every PROSE surface (label / hint / help / validate_msg +
@@ -517,6 +545,7 @@ function readProse(field: Field, key: ProseSurfaceKey): string | undefined {
  * emitter ships it as literal text (`xform/builder.ts::buildLabelNodes`).
  */
 function validateTreeProse(
+	doc: BlueprintDoc,
 	nodes: FieldTreeNode[],
 	caseTypeProps: Map<string, Set<string>>,
 	isRegistrationForm: boolean,
@@ -557,24 +586,16 @@ function validateTreeProse(
 
 	for (const node of nodes) {
 		const field = node.field;
-		for (const key of PROSE_SURFACES) {
-			scan(field, key, readProse(field, key));
-		}
-		// Select-option labels — each option's display label lowers to itext
-		// just like a field label, so an embedded case ref there must resolve
-		// too. Read defensively: only select kinds carry `options`, and a
-		// hand-built / partial doc may bypass Zod.
-		const options = (field as { options?: unknown }).options;
-		if (Array.isArray(options)) {
-			for (const opt of options) {
-				const optLabel = (opt as { label?: unknown })?.label;
-				if (typeof optLabel === "string") {
-					scan(field, "option_label", optLabel);
-				}
-			}
+		// The registry's per-kind prose projection drives the walk —
+		// including the fan-out `option_label` slot, whose per-option
+		// labels lower to itext just like a field label, so an embedded
+		// case ref there must resolve too.
+		for (const { slot, text } of expressionSurfaceReads(field, "prose", doc)) {
+			scan(field, slot, text);
 		}
 		if (node.children) {
 			validateTreeProse(
+				doc,
 				node.children,
 				caseTypeProps,
 				isRegistrationForm,

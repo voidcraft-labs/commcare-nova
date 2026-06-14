@@ -3,7 +3,8 @@
  *
  * Verifies the four load-bearing behaviors of the MCP-only create tool:
  *   - Happy path with a name: forwards `{ appName, status: "complete" }`
- *     to the DB helper, surfaces the returned `app_id`, and emits the
+ *     to the DB helper (an empty app is at rest and valid — there is no
+ *     draft window), surfaces the returned `app_id`, and emits the
  *     `stage: "app_created"` marker for progress clients.
  *   - Happy path without a name: normalizes the omitted optional to
  *     `undefined` so the DB helper's `""` default kicks in.

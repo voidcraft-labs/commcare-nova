@@ -30,8 +30,8 @@
  * validator admits the shape, there is no documented runtime
  * contract for what it returns. Rejecting the stricter superset at
  * authoring time is the Nova-side defense against silent runtime
- * lossiness, consistent with the spec's principle of catching CCHQ
- * lossiness at authoring time, not at search-execution time.
+ * lossiness — caught when the author writes the predicate, not at
+ * search-execution time.
  *
  * Nova's authoring AST is also more expressive than CCHQ's CSQL
  * grammar: the AST cleanly composes cross-direction relation walks
