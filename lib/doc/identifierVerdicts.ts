@@ -1,13 +1,13 @@
 /**
- * Field-identifier verdicts — the shared "is this id usable here?"
+ * Field-identifier verdicts — the shared "is this ID usable here?"
  * decision every authoring surface consults BEFORE dispatching a
  * mutation.
  *
- * A field's semantic id is three names at once: the XForm XML element
+ * A field's semantic ID is three names at once: the XForm XML element
  * name, the case property name it saves to, and the handle sibling
  * XPath references resolve against. Each role carries a constraint —
  * XML element-name legality, the case-property length cap, the reserved
- * `__nova_` synthetic-node namespace, and sibling-id uniqueness
+ * `__nova_` synthetic-node namespace, and sibling-ID uniqueness
  * (CommCare requires unique ids among siblings; cousins may share).
  *
  * This module is the single home of those checks for the commit
@@ -36,7 +36,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 
-/** Why an id was rejected. Useful for tests and for callers that brand
+/** Why an ID was rejected. Useful for tests and for callers that brand
  *  failure classes differently; human-facing copy rides `message` /
  *  `userMessage`. */
 export type FieldIdRejectionCode =
@@ -54,7 +54,7 @@ export type FieldIdRejectionCode =
  *     cap, …). The SA/MCP tool layer reads this; the agent acts on the
  *     "why", and the detail is what lets it self-correct.
  *   - `userMessage` — the concise builder-UI line. A person renaming a
- *     field doesn't need to know an id is also an XML element name — only
+ *     field doesn't need to know an ID is also an XML element name — only
  *     that this one won't work and what to do instead. No platform
  *     mechanics, no wire vocabulary.
  *
@@ -83,33 +83,33 @@ function formatVerdict(proposedId: string): FieldIdVerdict {
 			ok: false,
 			code: "illegal_xml_name",
 			message:
-				"A field id can't be empty. The id becomes the question's name in the form and the case property it saves to — give it a short name like \"first_name\".",
+				"A field ID can't be empty. The ID becomes the question's name in the form and the case property it saves to — give it a short name like \"first_name\".",
 			userMessage:
-				'A field needs an id. Try something short, like "first_name".',
+				'A field needs an ID. Try something short, like "first_name".',
 		};
 	}
 	if (!XML_ELEMENT_NAME_REGEX.test(proposedId)) {
 		return {
 			ok: false,
 			code: "illegal_xml_name",
-			message: `"${proposedId}" can't be a field id. Ids become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores — no spaces, hyphens, or special characters.`,
-			userMessage: `"${proposedId}" won't work as a field id. Stick to letters, numbers, and underscores, starting with a letter — no spaces or punctuation.`,
+			message: `"${proposedId}" can't be a field ID. IDs become XML element names, so they must start with a letter or underscore and contain only letters, digits, or underscores — no spaces, hyphens, or special characters.`,
+			userMessage: `"${proposedId}" won't work as a field ID. Stick to letters, numbers, and underscores, starting with a letter — no spaces or punctuation.`,
 		};
 	}
 	if (isReservedXFormNodeName(proposedId)) {
 		return {
 			ok: false,
 			code: "reserved_prefix",
-			message: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an id that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}".`,
-			userMessage: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved. Pick an id that starts with something else.`,
+			message: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved for nodes Nova generates behind the scenes (for example the hidden counter a fixed-count repeat needs). Pick an ID that doesn't start with "${RESERVED_XFORM_NODE_PREFIX}".`,
+			userMessage: `"${proposedId}" starts with "${RESERVED_XFORM_NODE_PREFIX}", which is reserved. Pick an ID that starts with something else.`,
 		};
 	}
 	if (proposedId.length > MAX_CASE_PROPERTY_LENGTH) {
 		return {
 			ok: false,
 			code: "too_long",
-			message: `"${proposedId.slice(0, 40)}…" is ${proposedId.length} characters long. A field id is also the name of the case property it saves to, and CommCare caps property names at ${MAX_CASE_PROPERTY_LENGTH} characters. Use a shorter, more concise id.`,
-			userMessage: `That id's a bit too long (${proposedId.length} characters). Keep it to ${MAX_CASE_PROPERTY_LENGTH} or fewer.`,
+			message: `"${proposedId.slice(0, 40)}…" is ${proposedId.length} characters long. A field ID is also the name of the case property it saves to, and CommCare caps property names at ${MAX_CASE_PROPERTY_LENGTH} characters. Use a shorter, more concise ID.`,
+			userMessage: `That ID's a bit too long (${proposedId.length} characters). Keep it to ${MAX_CASE_PROPERTY_LENGTH} or fewer.`,
 		};
 	}
 	return OK;
@@ -122,8 +122,8 @@ function siblingConflict(proposedId: string, where = ""): FieldIdVerdict {
 	return {
 		ok: false,
 		code: "sibling_conflict",
-		message: `Another field at the same level${where} is already named "${proposedId}". Fields that sit side by side share an XML path, so each needs a unique id — pick a different one or rename the other field first.`,
-		userMessage: `Another field${where} is already named "${proposedId}". Give this one a different id, or rename that one first.`,
+		message: `Another field at the same level${where} is already named "${proposedId}". Fields that sit side by side share an XML path, so each needs a unique ID — pick a different one or rename the other field first.`,
+		userMessage: `Another field${where} is already named "${proposedId}". Give this one a different ID, or rename that one first.`,
 	};
 }
 
@@ -169,19 +169,19 @@ export interface FieldIdVerdictInput {
 	parentUuid: Uuid;
 	proposedId: string;
 	/** Uuid to skip in the sibling scan — the field itself when the
-	 *  caller is re-checking an id it already holds. */
+	 *  caller is re-checking an ID it already holds. */
 	excludeUuid?: Uuid;
-	/** Ids already claimed under the same parent by earlier items of an
+	/** IDs already claimed under the same parent by earlier items of an
 	 *  in-flight batch (not yet in the doc). `addFields` threads its
 	 *  per-parent accumulation through here so two new fields can't land
-	 *  side by side with the same id. */
+	 *  side by side with the same ID. */
 	pendingSiblingIds?: ReadonlySet<string>;
 }
 
 /**
  * Verdict for placing a field with `proposedId` under `parentUuid`:
  * format legality, the reserved namespace, the case-property length
- * cap, and uniqueness among that parent's children. Cousins (same id
+ * cap, and uniqueness among that parent's children. Cousins (same ID
  * under a different parent) pass — only siblings share an XML path.
  */
 export function fieldIdVerdict({
@@ -209,7 +209,7 @@ export function fieldIdVerdict({
  * conflict-free.
  *
  * The scan is peer-aware: a rename of a case-bound field also renames
- * every other field with the same `(id, case_property_on)` pair (the
+ * every other field with the same `(ID, case_property_on)` pair (the
  * reducer's case-property cascade), so the destination parents are the
  * primary field's parent AND each peer's parent. Skipping the peers
  * would let the cascade silently mint duplicate sibling ids in another
@@ -228,7 +228,7 @@ export function findRenameSiblingConflict(
 	const field = doc.fields[fieldUuid];
 	if (!field) return undefined;
 
-	// Peers rename in lockstep with the primary — same id, same
+	// Peers rename in lockstep with the primary — same ID, same
 	// non-empty case_property_on. The candidates come from the reference
 	// index's declarations lookup (the same source the reducer's cascade
 	// consumes), each verified against the live doc so the verdict's
@@ -267,7 +267,7 @@ export interface RenameFieldIdVerdictInput {
 
 /**
  * Verdict for renaming `fieldUuid` to `newId`: a rename to the current
- * id passes (no-op), then format legality, the reserved namespace, the
+ * ID passes (no-op), then format legality, the reserved namespace, the
  * length cap, and the peer-aware sibling-conflict scan. When the
  * conflict sits in a different form than the renamed field (a
  * case-property peer's destination), the message names that form — the

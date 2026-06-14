@@ -75,7 +75,7 @@ const modName = (e: ValidationError): string =>
 const formName = (e: ValidationError): string =>
 	present(e.location.formName, "this form");
 
-/** The field's semantic id, or "a field". */
+/** The field's semantic ID, or "a field". */
 const fieldName = (e: ValidationError): string =>
 	present(e.location.fieldId, "a field");
 
@@ -115,7 +115,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	FORM_LINK_CIRCULAR: () =>
 		"Your follow-on links loop in a circle, so people would get stuck going form to form. Point one of them at a module instead of another form to break the loop.",
 	CONNECT_ID_DUPLICATE: (e) =>
-		`The Connect id ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different id, or change the other form's first.`,
+		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
 
@@ -197,7 +197,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	EMPTY_FORM: (e) =>
 		`${q(formName(e))} doesn't have any fields yet. Add at least one.`,
 	NO_CASE_NAME_FIELD: (e) =>
-		`${q(formName(e))} creates cases, but nothing's giving them a name. Add a field with the id "case_name".`,
+		`${q(formName(e))} creates cases, but nothing's giving them a name. Add a field with the ID "case_name".`,
 	CASE_NAME_FIELD_MISSING: (e) =>
 		`${q(formName(e))} needs a field named "case_name" to name its cases, but there isn't one. Add it, or rename an existing field to "case_name".`,
 	RESERVED_CASE_PROPERTY: (e) =>
@@ -237,11 +237,11 @@ const USER_MESSAGE_BY_CODE: Partial<
 	FORM_LINK_SELF_REFERENCE: (e) =>
 		`A follow-on link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
 	CONNECT_ID_MISSING: (e) =>
-		`The Connect ${det(e, "connectKind", "")} in ${q(formName(e))} needs an id. Give it one — unique across the app, 50 characters or fewer.`,
+		`The Connect ${det(e, "connectKind", "")} in ${q(formName(e))} needs an ID. Give it one — unique across the app, 50 characters or fewer.`,
 	CONNECT_ID_TOO_LONG: (e) =>
-		`The Connect id ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
+		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
 	CONNECT_ID_INVALID_FORMAT: (e) =>
-		`The Connect id ${q(det(e, "connectId", ""))} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`,
+		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`,
 	CONNECT_MISSING_LEARN: (e) =>
 		`${q(formName(e))} is set up for Connect but has no learn module or assessment turned on. Turn on at least one.`,
 	CONNECT_MISSING_DELIVER: (e) =>
@@ -251,7 +251,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CONNECT_UNQUOTED_XPATH: (e) =>
 		`A Connect setting on ${q(formName(e))} looks like text but isn't quoted. Wrap the value in single quotes.`,
 	DUPLICATE_FIELD_ID: (e) =>
-		`${q(formName(e))} has two fields with the same id at the same level. Rename one of them.`,
+		`${q(formName(e))} has two fields with the same ID at the same level. Rename one of them.`,
 	CASE_PROPERTY_BAD_FORMAT: (e) =>
 		`${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, which isn't a valid name. Use letters, numbers, underscores, or hyphens, starting with a letter.`,
 	CASE_PROPERTY_TOO_LONG: (e) =>
@@ -265,8 +265,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CHILD_CASE_NO_NAME_FIELD: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct
-			? `${q(formName(e))} creates ${q(ct)} cases but nothing's giving them a name. Add a field with the id "case_name" that saves to ${q(ct)}.`
-			: `${q(formName(e))} creates child cases but nothing's giving them a name. Add a field with the id "case_name" that saves to that case type.`;
+			? `${q(formName(e))} creates ${q(ct)} cases but nothing's giving them a name. Add a field with the ID "case_name" that saves to ${q(ct)}.`
+			: `${q(formName(e))} creates child cases but nothing's giving them a name. Add a field with the ID "case_name" that saves to that case type.`;
 	},
 
 	// ── Field-level ──────────────────────────────────────────────────
@@ -287,9 +287,9 @@ const USER_MESSAGE_BY_CODE: Partial<
 	EMPTY_IDS_QUERY: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen yet. Pick the records it should repeat over.`,
 	INVALID_FIELD_ID: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} has an id that won't work. Use letters, numbers, and underscores, starting with a letter.`,
+		`${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Use letters, numbers, and underscores, starting with a letter.`,
 	RESERVED_FIELD_ID_PREFIX: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} uses an id prefix that's reserved for fields Nova creates. Pick a different id.`,
+		`${q(fieldName(e))} in ${q(formName(e))} uses an ID prefix that's reserved for fields Nova creates. Pick a different ID.`,
 	FIXTURE_REFERENCE_NOT_MODELED: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} pulls from a data source Nova doesn't support. For a fixed set of choices, add them as options on the field instead.`,
 

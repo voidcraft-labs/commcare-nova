@@ -1,9 +1,9 @@
 "use client";
 import type { IconifyIcon } from "@iconify/react/offline";
 import { Icon } from "@iconify/react/offline";
+import tablerAlertHexagon from "@iconify-icons/tabler/alert-hexagon";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
-import tablerShieldX from "@iconify-icons/tabler/shield-x";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef } from "react";
@@ -19,15 +19,16 @@ const AUTO_DISMISS_MS: Record<ToastSeverity, number> = {
 /* Each severity gets an icon in a soft tinted chip — the icon names the
  * register (guarded / caution / informational) so the title doesn't have
  * to, and the tint keeps the semantic hue an accent rather than a wash.
- * Error uses the shield: in this app an error toast almost always means
- * the validity gate kept a change out, and the shield says "guardrail,
- * not breakage". */
+ * Error uses the alert-hexagon: in this app an error toast almost always
+ * means the validity gate kept a change out — the same guardrail icon the
+ * contextual rejection surfaces use (`RejectionNotice`), so the semantic
+ * reads the same wherever a refused commit surfaces. */
 const SEVERITY_CHROME: Record<
 	ToastSeverity,
 	{ icon: IconifyIcon; chip: string; border: string }
 > = {
 	error: {
-		icon: tablerShieldX,
+		icon: tablerAlertHexagon,
 		chip: "bg-nova-rose/10 text-nova-rose",
 		border: "border-nova-rose/20",
 	},

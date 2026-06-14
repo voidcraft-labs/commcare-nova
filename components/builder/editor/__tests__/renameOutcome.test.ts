@@ -25,9 +25,9 @@ const conflictVerdict: FieldIdVerdict = {
 	// Verbose (SA) message + the concise builder line; the classifier
 	// surfaces the latter, since this is the rename popover surface.
 	message:
-		'Another field at the same level is already named "occupied". Fields that sit side by side share an XML path, so each needs a unique id.',
+		'Another field at the same level is already named "occupied". Fields that sit side by side share an XML path, so each needs a unique ID.',
 	userMessage:
-		'Another field is already named "occupied". Give this one a different id, or rename that one first.',
+		'Another field is already named "occupied". Give this one a different ID, or rename that one first.',
 };
 
 describe("classifyRenameOutcome", () => {
@@ -49,7 +49,7 @@ describe("classifyRenameOutcome", () => {
 		).toEqual({
 			kind: "rejected",
 			message:
-				'Another field is already named "occupied". Give this one a different id, or rename that one first.',
+				'Another field is already named "occupied". Give this one a different ID, or rename that one first.',
 		});
 	});
 

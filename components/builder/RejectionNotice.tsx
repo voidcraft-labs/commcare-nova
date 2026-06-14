@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerShieldX from "@iconify-icons/tabler/shield-x";
+import tablerAlertHexagon from "@iconify-icons/tabler/alert-hexagon";
 import { AnimatePresence, motion } from "motion/react";
 
 /**
@@ -11,7 +11,7 @@ import { AnimatePresence, motion } from "motion/react";
  * dialog footer.
  *
  * Tone rules, deliberately:
- * - The SHIELD icon + a short rose label carry the semantic ("the
+ * - The alert-hexagon icon + a short rose label carry the semantic ("the
  *   guardrail held this back") — rose is an accent, never the body.
  * - The finding itself renders in neutral text. The validator already
  *   speaks person-to-person prose; a wall of rose text reads as scolding,
@@ -43,7 +43,7 @@ export function RejectionBody({
 	return (
 		<div className="flex gap-2 text-left">
 			<Icon
-				icon={tablerShieldX}
+				icon={tablerAlertHexagon}
 				width={14}
 				height={14}
 				className="mt-[3px] shrink-0 text-nova-rose"
