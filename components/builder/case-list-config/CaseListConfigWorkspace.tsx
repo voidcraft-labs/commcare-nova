@@ -321,6 +321,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					onSelect={setSel}
 					onAddDetailField={() => addColumn({ visibleInList: false })}
 					addDisabledReason={addDisabledReason}
+					generate={sampleData.generate}
 				/>
 			)}
 

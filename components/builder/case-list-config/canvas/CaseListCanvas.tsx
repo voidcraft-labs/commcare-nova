@@ -24,7 +24,6 @@ import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useId } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import {
@@ -35,6 +34,7 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import type { CaseListConfig, Column } from "@/lib/domain";
 import { renderColumnCell } from "../columnCellRenderer";
 import { summarizeFilter } from "../predicateSummary";
+import { GenerateSampleDataButton } from "../SampleDataButton";
 import { describeSortOrder, sortPositionByUuid } from "../sortPriority";
 import type { CaseListPreviewState } from "../useCaseListPreview";
 import type { SampleDataAction } from "../useSampleData";
@@ -157,87 +157,86 @@ export function CaseListCanvas({
 				</button>
 			</div>
 
-			{/* The table — dims (never unmounts) while a reload settles. */}
+			{/* The table — dims (never unmounts) while a reload settles. The
+			 *  header (and live rows) pan horizontally inside the inner
+			 *  scroller; every non-rows state renders as a notice BELOW it, at
+			 *  the card's visible width, so an empty / loading message stays
+			 *  centered in view instead of across the off-screen scroll width
+			 *  when the columns overflow. */}
 			<div
-				className={`rounded-lg border border-nova-border bg-nova-surface/40 overflow-x-auto transition-opacity ${refreshing ? "opacity-70" : "opacity-100"}`}
+				className={`rounded-lg border border-nova-border bg-nova-surface/40 overflow-hidden transition-opacity ${refreshing ? "opacity-70" : "opacity-100"}`}
 			>
-				<div style={{ minWidth: tableMinWidth }}>
-					{/* Header row */}
-					<div
-						className="grid bg-nova-deep/70 border-b border-nova-border"
-						style={{ gridTemplateColumns: template }}
-					>
-						{columns.map((col, i) => (
-							<ReorderableRow
-								key={col.uuid}
-								index={i}
-								containerKey={containerKey}
-								containerKind="case-list-canvas-columns"
-								pendingDrop={pendingDrop}
-								axis="horizontal"
-								preview={<ColumnDragPreview column={col} index={i} />}
-							>
-								{({
-									wrapperRef,
-									setHandleEl,
-									closestEdge,
-									previewPortal,
-									beingMoved,
-								}) => (
-									<div
-										ref={wrapperRef}
-										className={`relative ${beingMoved ? "opacity-50" : ""}`}
-									>
-										{closestEdge !== null && (
-											<div
-												aria-hidden="true"
-												className="absolute top-1 bottom-1 w-0.5 bg-nova-violet rounded-full z-10"
-												style={{
-													left: closestEdge === "left" ? -1 : undefined,
-													right: closestEdge === "right" ? -1 : undefined,
-												}}
+				<div className="overflow-x-auto">
+					<div style={{ minWidth: tableMinWidth }}>
+						{/* Header row */}
+						<div
+							className="grid bg-nova-deep/70 border-b border-nova-border"
+							style={{ gridTemplateColumns: template }}
+						>
+							{columns.map((col, i) => (
+								<ReorderableRow
+									key={col.uuid}
+									index={i}
+									containerKey={containerKey}
+									containerKind="case-list-canvas-columns"
+									pendingDrop={pendingDrop}
+									axis="horizontal"
+									preview={<ColumnDragPreview column={col} index={i} />}
+								>
+									{({
+										wrapperRef,
+										setHandleEl,
+										closestEdge,
+										previewPortal,
+										beingMoved,
+									}) => (
+										<div
+											ref={wrapperRef}
+											className={`relative ${beingMoved ? "opacity-50" : ""}`}
+										>
+											{closestEdge !== null && (
+												<div
+													aria-hidden="true"
+													className="absolute top-1 bottom-1 w-0.5 bg-nova-violet rounded-full z-10"
+													style={{
+														left: closestEdge === "left" ? -1 : undefined,
+														right: closestEdge === "right" ? -1 : undefined,
+													}}
+												/>
+											)}
+											<HeaderCell
+												column={col}
+												selected={selectedColumnUuid === col.uuid}
+												isFirst={i === 0}
+												sortPosition={sortPositions.get(col.uuid)}
+												setHandleEl={setHandleEl}
+												onClick={() =>
+													onSelect({ type: "column", uuid: col.uuid })
+												}
 											/>
-										)}
-										<HeaderCell
-											column={col}
-											selected={selectedColumnUuid === col.uuid}
-											isFirst={i === 0}
-											sortPosition={sortPositions.get(col.uuid)}
-											setHandleEl={setHandleEl}
-											onClick={() =>
-												onSelect({ type: "column", uuid: col.uuid })
-											}
-										/>
-										{previewPortal}
-									</div>
-								)}
-							</ReorderableRow>
-						))}
-						<Tooltip content={addColumnDisabledReason ?? "Add a Column"}>
-							<button
-								type="button"
-								onClick={onAddColumn}
-								disabled={addColumnDisabledReason !== undefined}
-								aria-label="Add a Column"
-								className="grid place-items-center min-h-11 border-l border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-							>
-								<Icon icon={tablerPlus} width="16" height="16" />
-							</button>
-						</Tooltip>
-					</div>
+											{previewPortal}
+										</div>
+									)}
+								</ReorderableRow>
+							))}
+							<Tooltip content={addColumnDisabledReason ?? "Add a Column"}>
+								<button
+									type="button"
+									onClick={onAddColumn}
+									disabled={addColumnDisabledReason !== undefined}
+									aria-label="Add a Column"
+									className="grid place-items-center min-h-11 border-l border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+								>
+									<Icon icon={tablerPlus} width="16" height="16" />
+								</button>
+							</Tooltip>
+						</div>
 
-					{/* Body — live rows, or the explanatory state arm. */}
-					{columns.length === 0 ? (
-						<CanvasNotice tone="muted">
-							No columns yet — add one to choose what the list shows about each
-							case.
-						</CanvasNotice>
-					) : preview.kind === "rows" ? (
-						rows.length === 0 ? (
-							<CanvasNotice tone="muted">
-								No cases match the current filter.
-							</CanvasNotice>
-						) : (
+						{/* Live rows align to the header grid. Every non-rows state —
+						 *  and a column-less config, whose rows would be empty grids —
+						 *  renders as a notice below, outside this scroller. */}
+						{columns.length > 0 &&
+							preview.kind === "rows" &&
 							rows.map((row) => (
 								<div
 									key={row.case_id}
@@ -271,50 +270,37 @@ export function CaseListCanvas({
 									})}
 									<div aria-hidden="true" />
 								</div>
-							))
-						)
-					) : preview.kind === "empty" ? (
-						/* An empty case store would dead-end every live surface —
-						 * the populate action lives right where the gap shows. */
-						<div className="px-5 py-9 text-center">
-							<p className="text-xs text-nova-text-muted mb-3.5">
-								No cases yet — generate sample data to see this list with
-								realistic rows.
-							</p>
-							<button
-								type="button"
-								onClick={generateSampleData.run}
-								disabled={generateSampleData.status.kind === "running"}
-								className="inline-flex items-center gap-2 px-4 min-h-11 text-[13px] font-medium rounded-lg bg-nova-violet/[0.15] border border-nova-violet/[0.35] text-nova-violet-bright hover:bg-nova-violet/[0.25] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-							>
-								<Icon
-									icon={
-										generateSampleData.status.kind === "running"
-											? tablerLoader2
-											: tablerSparkles
-									}
-									width="13"
-									height="13"
-									className={
-										generateSampleData.status.kind === "running"
-											? "animate-spin"
-											: undefined
-									}
-								/>
-								{generateSampleData.status.kind === "running"
-									? "Generating…"
-									: "Generate Sample Data"}
-							</button>
-							{generateSampleData.status.kind === "error" && (
-								<p className="mt-3 text-xs text-nova-rose/90 whitespace-pre-line">
-									{generateSampleData.status.message}
-								</p>
-							)}
-						</div>
-					) : (
-						<PreviewStateNotice preview={preview} />
-					)}
+							))}
+					</div>
 				</div>
+
+				{/* State arms — pinned to the card's visible width (outside the
+				 *  scroller), so the message centers in view even when the
+				 *  columns overflow horizontally. */}
+				{columns.length === 0 ? (
+					<CanvasNotice tone="muted">
+						No columns yet — add one to choose what the list shows about each
+						case.
+					</CanvasNotice>
+				) : preview.kind === "rows" ? (
+					rows.length === 0 ? (
+						<CanvasNotice tone="muted">
+							No cases match the current filter.
+						</CanvasNotice>
+					) : null
+				) : preview.kind === "empty" ? (
+					/* An empty case store would dead-end every live surface —
+					 * the populate action lives right where the gap shows. */
+					<div className="px-5 py-9 text-center">
+						<p className="text-xs text-nova-text-muted mb-3.5">
+							No cases yet — generate sample data to see this list with
+							realistic rows.
+						</p>
+						<GenerateSampleDataButton generate={generateSampleData} />
+					</div>
+				) : (
+					<PreviewStateNotice preview={preview} />
+				)}
 			</div>
 
 			{/* Status line — only when live rows are on screen; the body's

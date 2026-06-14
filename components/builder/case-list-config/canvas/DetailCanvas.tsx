@@ -21,7 +21,9 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { CaseListConfig } from "@/lib/domain";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { renderColumnCell } from "../columnCellRenderer";
+import { GenerateSampleDataButton } from "../SampleDataButton";
 import type { CaseListPreviewState } from "../useCaseListPreview";
+import type { SampleDataAction } from "../useSampleData";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { AddGhostButton, CanvasNotice, previewNotice } from "./canvasChrome";
 
@@ -33,6 +35,10 @@ export interface DetailCanvasProps {
 	readonly onAddDetailField: () => void;
 	/** Disabled-add hint — `undefined` means add is enabled. */
 	readonly addDisabledReason: string | undefined;
+	/** Populate-sample-data action — surfaced at the TOP of the canvas
+	 *  when the store is empty so the detail never dead-ends with a wall
+	 *  of em-dashes and no way forward. */
+	readonly generate: SampleDataAction;
 }
 
 export function DetailCanvas({
@@ -42,6 +48,7 @@ export function DetailCanvas({
 	onSelect,
 	onAddDetailField,
 	addDisabledReason,
+	generate,
 }: DetailCanvasProps) {
 	const columns = config.columns;
 	const selectedColumnUuid =
@@ -73,6 +80,30 @@ export function DetailCanvas({
 					? "Shown with a live sample case."
 					: "Values appear once the case list has data."}
 			</p>
+
+			{/* Empty store → the generate affordance LEADS, at the top, so
+			 *  populating data is the obvious next step rather than a footnote
+			 *  under a column of em-dashes. Other non-rows states explain
+			 *  themselves in the same slot. Gated on having fields — with none,
+			 *  the card's own "No fields yet" line is the right first ask. */}
+			{columns.length > 0 &&
+				(preview.kind === "empty" ? (
+					<div className="mb-5 rounded-lg border border-dashed border-nova-border-bright px-5 py-6 text-center">
+						<p className="text-xs text-nova-text-muted mb-3.5">
+							No cases yet — generate sample data to preview this detail with
+							realistic values.
+						</p>
+						<GenerateSampleDataButton generate={generate} />
+					</div>
+				) : preview.kind !== "rows" &&
+					preview.kind !== "idle" &&
+					preview.kind !== "loading" ? (
+					<div className="mb-5 rounded-md border border-nova-border bg-nova-surface/20">
+						<CanvasNotice tone={previewNotice(preview).tone}>
+							{previewNotice(preview).text}
+						</CanvasNotice>
+					</div>
+				) : null)}
 
 			<div className="rounded-lg border border-nova-border bg-nova-surface/40 overflow-hidden">
 				{columns.length === 0 ? (
@@ -129,17 +160,6 @@ export function DetailCanvas({
 					})
 				)}
 			</div>
-
-			{columns.length > 0 &&
-				preview.kind !== "rows" &&
-				preview.kind !== "idle" &&
-				preview.kind !== "loading" && (
-					<div className="mt-2 rounded-md border border-nova-border bg-nova-surface/20">
-						<CanvasNotice tone={previewNotice(preview).tone}>
-							{previewNotice(preview).text}
-						</CanvasNotice>
-					</div>
-				)}
 
 			<AddGhostButton
 				label="Add Detail Field"

@@ -34,7 +34,10 @@ export interface SampleDataAction {
 export function useSampleData(args: {
 	appId: string;
 	caseType: string | undefined;
-	onDone: () => void;
+	/** Refresh the caller's live view. Awaited before the running state
+	 *  clears, so return a promise that settles once the fresh rows are on
+	 *  screen (the `reload` from `useCases` / `useCaseListPreview` does). */
+	onDone: () => void | Promise<void>;
 }): { generate: SampleDataAction; reset: SampleDataAction } {
 	const { appId, caseType, onDone } = args;
 	const docApi = useBlueprintDocApi();
@@ -61,8 +64,12 @@ export function useSampleData(args: {
 		try {
 			const result = await action();
 			if (result.kind === "ok") {
+				/* Hold the running state until the reloaded rows are actually on
+				 * screen — `onDone` settles when the live view does, not merely
+				 * when the write returned — so the button never flickers back to
+				 * its idle label in the gap before the data appears. */
+				await onDone();
 				setStatus({ kind: "idle" });
-				onDone();
 				return;
 			}
 			setStatus({

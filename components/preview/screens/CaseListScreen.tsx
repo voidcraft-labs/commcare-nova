@@ -37,13 +37,13 @@ import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
-import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSearch from "@iconify-icons/tabler/search";
-import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerWand from "@iconify-icons/tabler/wand";
+import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
+import { GenerateSampleDataButton } from "@/components/builder/case-list-config/SampleDataButton";
 import { effectiveModeKind } from "@/components/builder/case-list-config/searchInputResolution";
 import { useSampleData } from "@/components/builder/case-list-config/useSampleData";
 import {
@@ -224,11 +224,13 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		onDone: reload,
 	});
 
-	const restart = () => {
+	/* Clear what the worker typed — the search panel's "Clear" affordance,
+	 *  shown only when a query is active. Backing out of an open detail /
+	 *  form menu is the breadcrumb + "Back to Results" job, not this one, so
+	 *  this clears the search inputs and the list filter and nothing else. */
+	const clearSearch = () => {
 		setInputValues(new Map());
 		setFilterText("");
-		setOpenCase(null);
-		setFormMenuCase(null);
 	};
 
 	const visibleColumns = (config?.columns ?? []).filter(
@@ -239,6 +241,10 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	);
 	const hasSearch = (config?.searchInputs.length ?? 0) > 0;
 	const queryActive = [...inputValues.values()].some((v) => v !== "");
+	/* The case type has no rows at all (vs. a search that matched nothing —
+	 *  that's `empty` WITH an active query). The generate affordance keys off
+	 *  this so it never shows over a real no-match. */
+	const storeEmpty = state.kind === "empty" && !queryActive;
 
 	const loadedRows = state.kind === "rows" ? state.rows : [];
 	const filteredRows = useMemo(
@@ -366,6 +372,19 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				<span className="font-display font-semibold text-[15px] text-nova-text">
 					{title}
 				</span>
+				{/* Clear what was typed — lives WITH the search (where you'd
+				 *  reach to start over) and only appears when there's an active
+				 *  query to clear. */}
+				{queryActive && (
+					<button
+						type="button"
+						onClick={clearSearch}
+						className="ml-auto inline-flex items-center gap-1 px-2 min-h-11 -my-1 rounded-md text-xs text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+					>
+						<Icon icon={tablerX} width="13" height="13" />
+						Clear
+					</button>
+				)}
 			</div>
 			{subtitle !== undefined && (
 				<div className="mb-2 preview-markdown text-xs text-nova-text-muted">
@@ -378,6 +397,18 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				value={inputValues}
 				onChange={setInputValues}
 			/>
+			{/* No data to search yet — the generate affordance lives here, with
+			 *  the search, rather than as a giant button dominating the results.
+			 *  (Only when there IS a search panel; the no-search case keeps it
+			 *  inline in the results body.) */}
+			{storeEmpty && (
+				<div className="mt-3 pt-3 border-t border-pv-input-border/60 text-center">
+					<p className="text-xs text-nova-text-muted mb-2.5">
+						No sample data to search yet.
+					</p>
+					<GenerateSampleDataButton generate={generate} className="w-full" />
+				</div>
+			)}
 		</div>
 	) : null;
 
@@ -510,14 +541,6 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 						/>
 					</span>
 				)}
-				<button
-					type="button"
-					onClick={restart}
-					className="inline-flex items-center gap-1.5 px-3 min-h-11 rounded-lg border border-nova-border text-xs text-nova-text-muted hover:text-nova-text hover:border-nova-border-bright transition-colors cursor-pointer"
-				>
-					<Icon icon={tablerRefresh} width="13" height="13" />
-					Restart
-				</button>
 			</div>
 			{state.kind === "rows" && loadedRows.length > 0 && (
 				<div className="mb-3">
@@ -535,6 +558,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				filterActive={filterText !== ""}
 				visibleColumns={visibleColumns}
 				queryActive={queryActive}
+				hasSearch={hasSearch}
 				rowAction={rowAction}
 				onOpenCase={handleOpenCase}
 				generate={generate}
@@ -577,6 +601,22 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 
 // ── Results body ──────────────────────────────────────────────────
 
+/** The list's loading arm — shown before the first settle and while a
+ *  stale-empty view revalidates. */
+function CasesLoading() {
+	return (
+		<div className="flex items-center justify-center gap-2 py-12 text-xs text-nova-text-muted">
+			<Icon
+				icon={tablerLoader2}
+				width="14"
+				height="14"
+				className="animate-spin"
+			/>
+			Loading cases…
+		</div>
+	);
+}
+
 function ResultsBody({
 	state,
 	fetching,
@@ -584,6 +624,7 @@ function ResultsBody({
 	filterActive,
 	visibleColumns,
 	queryActive,
+	hasSearch,
 	rowAction,
 	onOpenCase,
 	generate,
@@ -597,6 +638,9 @@ function ResultsBody({
 	readonly filterActive: boolean;
 	readonly visibleColumns: CaseListConfig["columns"];
 	readonly queryActive: boolean;
+	/** Whether the module has a search panel — when it does, the empty-store
+	 *  generate affordance lives THERE, so this body only names the gap. */
+	readonly hasSearch: boolean;
 	readonly rowAction: "detail" | "form" | "none";
 	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
 	readonly generate: ReturnType<typeof useSampleData>["generate"];
@@ -604,17 +648,7 @@ function ResultsBody({
 	readonly onMakeFuzzy: () => void;
 }) {
 	if (state.kind === "idle" || state.kind === "loading") {
-		return (
-			<div className="flex items-center justify-center gap-2 py-12 text-xs text-nova-text-muted">
-				<Icon
-					icon={tablerLoader2}
-					width="14"
-					height="14"
-					className="animate-spin"
-				/>
-				Loading cases…
-			</div>
-		);
+		return <CasesLoading />;
 	}
 
 	if (state.kind === "error") {
@@ -645,41 +679,28 @@ function ResultsBody({
 	}
 
 	if (state.kind === "empty") {
-		// The case type has no rows at all — a dead-end preview, so the
-		// populate action lives right here.
+		// Revalidating a stale "empty" — e.g. re-entering preview after rows
+		// were generated elsewhere, which re-runs the load. Show the loader,
+		// not a generate button that's about to be replaced by rows. A
+		// user-initiated generate keeps its own "Generating…" affordance
+		// (status running), so don't swallow that.
+		if (fetching && generate.status.kind !== "running") {
+			return <CasesLoading />;
+		}
+		// The case type has no rows at all — a dead-end preview. When the
+		// module has a search panel the generate affordance lives THERE
+		// (this body just names the gap and points at it); without one it
+		// falls back to a compact inline affordance — never the old giant
+		// primary button.
 		return (
 			<div className="rounded-lg border border-dashed border-nova-border-bright px-6 py-10 text-center">
 				<p className="text-sm text-nova-text-secondary mb-1">No cases yet</p>
 				<p className="text-xs text-nova-text-muted mb-4">
-					Generate sample data to try these screens with realistic rows.
+					{hasSearch
+						? "Generate sample data from the search panel to try these screens with realistic rows."
+						: "Generate sample data to try these screens with realistic rows."}
 				</p>
-				<button
-					type="button"
-					onClick={generate.run}
-					disabled={generate.status.kind === "running"}
-					className="inline-flex items-center gap-2 px-4 min-h-11 text-[13px] font-medium rounded-lg bg-nova-violet text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-				>
-					<Icon
-						icon={
-							generate.status.kind === "running"
-								? tablerLoader2
-								: tablerSparkles
-						}
-						width="14"
-						height="14"
-						className={
-							generate.status.kind === "running" ? "animate-spin" : undefined
-						}
-					/>
-					{generate.status.kind === "running"
-						? "Generating…"
-						: "Generate Sample Data"}
-				</button>
-				{generate.status.kind === "error" && (
-					<p className="mt-3 text-xs text-nova-rose/90 whitespace-pre-line">
-						{generate.status.message}
-					</p>
-				)}
+				{!hasSearch && <GenerateSampleDataButton generate={generate} />}
 			</div>
 		);
 	}

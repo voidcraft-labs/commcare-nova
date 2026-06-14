@@ -20,7 +20,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import {
 	loadCaseDataAction,
@@ -34,6 +34,7 @@ import type {
 	PopulateSampleCasesResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 
 /**
  * Adds `idle` / `loading` arms to a load result. `idle` covers
@@ -81,63 +82,35 @@ export function useCases(args: {
 	 *  Render the stale rows dimmed (or with an inline spinner)
 	 *  rather than unmounting them. */
 	fetching: boolean;
-	reload: () => void;
+	/** Re-runs the load. The returned promise resolves only once the
+	 *  re-fired load SETTLES, so the caller (the sample-data action) can
+	 *  hold its pressed/spinning state until the fresh rows are on screen,
+	 *  not merely until the write returned. */
+	reload: () => Promise<void>;
 } {
 	const { appId, caseType, blueprint, caseListConfig, inputValues } = args;
-	const [state, setState] = useState<LoadingState<LoadCasesResult>>({
-		kind: "idle",
+	return useReloadableResource<LoadingState<LoadCasesResult>>({
+		prepare: () =>
+			!appId || !caseType
+				? { notReady: { kind: "idle" } }
+				: {
+						fetch: () =>
+							loadCasesAction({
+								appId,
+								caseType,
+								blueprint,
+								caseListConfig,
+								inputValues,
+							}),
+					},
+		loading: { kind: "loading" },
+		toError: (err) => ({
+			kind: "error",
+			message: err instanceof Error ? err.message : "Failed to load cases.",
+		}),
+		keepStale: (prev) => prev.kind === "rows" || prev.kind === "empty",
+		deps: [appId, caseType, blueprint, caseListConfig, inputValues],
 	});
-	const [fetching, setFetching] = useState(false);
-	/* `reloadKey` increments to re-fire the effect after a
-	 * successful sample-data populate. The biome-ignore is
-	 * intentional — the rule mis-classifies trigger-only deps. */
-	const [reloadKey, setReloadKey] = useState(0);
-
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey is the trigger that re-fires this effect; not read in the body.
-	useEffect(() => {
-		if (!appId || !caseType) {
-			setState({ kind: "idle" });
-			setFetching(false);
-			return;
-		}
-		let cancelled = false;
-		/* Stale-while-revalidate: settled data arms (`rows` / `empty`)
-		 * stay rendered through the reload; only the never-settled
-		 * states drop to the spinner arm. */
-		setState((prev) =>
-			prev.kind === "rows" || prev.kind === "empty"
-				? prev
-				: { kind: "loading" },
-		);
-		setFetching(true);
-		/* `.catch` maps wire-level rejections (HTTP 500, network
-		 * failure, RSC serialization error at the boundary) to the
-		 * `error` arm — without it, the hook would stick on
-		 * `loading` forever. */
-		loadCasesAction({ appId, caseType, blueprint, caseListConfig, inputValues })
-			.then((result) => {
-				if (cancelled) return;
-				setState(result);
-				setFetching(false);
-			})
-			.catch((err: unknown) => {
-				if (cancelled) return;
-				setState({
-					kind: "error",
-					message: err instanceof Error ? err.message : "Failed to load cases.",
-				});
-				setFetching(false);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [appId, caseType, blueprint, caseListConfig, inputValues, reloadKey]);
-
-	const reload = useCallback(() => {
-		setReloadKey((n) => n + 1);
-	}, []);
-
-	return { state, fetching, reload };
 }
 
 /**
