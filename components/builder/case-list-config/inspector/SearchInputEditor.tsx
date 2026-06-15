@@ -75,7 +75,6 @@ import {
 } from "@/lib/styles";
 import {
 	buildMode,
-	computeKnownInputsForRow,
 	effectiveModeKind,
 	expectedTypeForDefault,
 	NO_SEARCH_INPUTS,
@@ -89,6 +88,7 @@ import {
 	SEARCH_INPUT_TYPE_LABELS,
 	SEARCH_MODE_DESCRIPTIONS,
 	SEARCH_MODE_LABELS,
+	searchInputDecls,
 	seedCustomCondition,
 	seedDefaultExpression,
 } from "../searchInputResolution";
@@ -165,9 +165,14 @@ export function SearchInputEditor({
 		);
 	}, [siblings, index, caseTypes, currentCaseType, value.label]);
 
+	// Every named row is in scope — the edited row included. A custom
+	// condition is keyed to its OWN input via the when-input-present
+	// envelope `seedCustomCondition` produces, so the row must resolve
+	// its own `input(name)`. Matches the validator's full-list
+	// `moduleTypeContext`; see `searchInputDecls`.
 	const knownInputs = useMemo(
-		() => computeKnownInputsForRow(siblings, index, caseTypes, currentCaseType),
-		[siblings, index, caseTypes, currentCaseType],
+		() => searchInputDecls(siblings, caseTypes, currentCaseType),
+		[siblings, caseTypes, currentCaseType],
 	);
 
 	// ── Common-slot mutators ──

@@ -429,7 +429,7 @@ function InputRefMenu({ value, onChange, invalid }: InputRefMenuProps) {
 	const triggerClass = [
 		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
-			? "border-nova-error/40"
+			? "border-nova-rose/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
 	].join(" ");
 
@@ -542,7 +542,7 @@ function SessionContextMenu({
 	const triggerClass = [
 		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
-			? "border-nova-error/40"
+			? "border-nova-rose/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
 	].join(" ");
 
@@ -835,7 +835,7 @@ function LiteralShapeMenu({
 const LITERAL_INPUT_CLS_VALID =
 	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 const LITERAL_INPUT_CLS_INVALID =
-	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-error/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-error/60 focus:ring-nova-error/30 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-rose/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-rose/60 focus:ring-nova-rose/30 transition-colors";
 
 function literalInputCls(invalid: boolean): string {
 	return invalid ? LITERAL_INPUT_CLS_INVALID : LITERAL_INPUT_CLS_VALID;
@@ -1034,7 +1034,7 @@ function LiteralBooleanToggle({
 	const idleCls =
 		"text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]";
 	const wrapCls = invalid
-		? "flex gap-1 px-1 py-1 rounded-md border border-nova-error/40 bg-nova-deep/50"
+		? "flex gap-1 px-1 py-1 rounded-md border border-nova-rose/40 bg-nova-deep/50"
 		: "flex gap-1 px-1 py-1 rounded-md border border-white/[0.06] bg-nova-deep/50";
 	// `<fieldset>` carries the implicit "group of related controls" role
 	// without a separate `role="group"` attribute — biome's
@@ -1136,7 +1136,7 @@ function UserFieldInput({
 	const inputCls = [
 		"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
-			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
+			? "border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
 	].join(" ");
 	return (

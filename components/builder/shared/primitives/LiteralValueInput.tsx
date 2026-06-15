@@ -199,7 +199,7 @@ const INPUT_BASE_CLS =
 const INPUT_VALID_CLS =
 	"border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30";
 const INPUT_INVALID_CLS =
-	"border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30";
+	"border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30";
 
 function inputCls(invalid: boolean): string {
 	return `${INPUT_BASE_CLS} ${invalid ? INPUT_INVALID_CLS : INPUT_VALID_CLS}`;
@@ -402,7 +402,7 @@ function SelectOptionInput({
 	const triggerClass = [
 		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
-			? "border-nova-error/40 hover:border-nova-error/60"
+			? "border-nova-rose/40 hover:border-nova-rose/60"
 			: "border-white/[0.06] hover:border-nova-violet/30",
 	].join(" ");
 

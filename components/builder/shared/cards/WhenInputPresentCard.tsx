@@ -102,7 +102,7 @@ function InputMenu({
 	const triggerClass = [
 		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
-			? "border-nova-error/40"
+			? "border-nova-rose/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
 	].join(" ");
 

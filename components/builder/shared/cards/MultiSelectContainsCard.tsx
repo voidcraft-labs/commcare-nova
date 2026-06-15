@@ -225,7 +225,7 @@ function TokenChip({
 	const cls = [
 		"group inline-flex items-center gap-1 pl-2.5 pr-0.5 min-h-11 text-[12px] rounded-lg border transition-colors",
 		invalid
-			? "border-nova-error/40 bg-nova-error/10 text-nova-error/90"
+			? "border-nova-rose/40 bg-nova-rose/10 text-nova-rose/90"
 			: "border-nova-violet/25 bg-nova-violet/10 text-nova-violet-bright",
 	].join(" ");
 	return (

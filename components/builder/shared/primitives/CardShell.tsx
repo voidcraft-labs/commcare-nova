@@ -88,7 +88,7 @@ export function CardShell({
 		"group/card relative rounded-md border px-3 py-2.5 transition-colors",
 		variant === "nested" ? "bg-nova-surface/30" : "bg-nova-surface/40",
 		hasErrors
-			? "border-nova-error/35 shadow-[inset_0_0_0_1px_rgba(255,90,120,0.12)]"
+			? "border-nova-rose/35 shadow-[inset_0_0_0_1px_rgba(255,90,120,0.12)]"
 			: "border-white/[0.04]",
 	].join(" ");
 
@@ -150,7 +150,7 @@ export function CardShell({
 								<Menu.Popup className={MENU_POPUP_CLS}>
 									<Menu.Item
 										onClick={onRemove}
-										className={`rounded-xl ${MENU_ITEM_CLS} text-nova-error/90 hover:text-nova-error`}
+										className={`rounded-xl ${MENU_ITEM_CLS} text-nova-rose/90 hover:text-nova-rose`}
 									>
 										<Icon icon={tablerTrash} width="14" height="14" />
 										<span>Delete</span>
@@ -197,7 +197,7 @@ export function CardShell({
 				{errors?.map((message) => (
 					<div
 						key={message}
-						className="text-[11px] leading-snug text-nova-error/90"
+						className="text-[11px] leading-snug text-nova-rose/90"
 					>
 						{message}
 					</div>
@@ -245,7 +245,7 @@ export function PredicateRowShell({
 		dragHandleRef !== undefined ? "pl-8" : "pl-3",
 		variant === "nested" ? "bg-nova-surface/30" : "bg-nova-surface/40",
 		hasErrors
-			? "border-nova-error/35 shadow-[inset_0_0_0_1px_rgba(255,90,120,0.12)]"
+			? "border-nova-rose/35 shadow-[inset_0_0_0_1px_rgba(255,90,120,0.12)]"
 			: "border-white/[0.04]",
 	].join(" ");
 
@@ -284,7 +284,7 @@ export function PredicateRowShell({
 							<Menu.Popup className={MENU_POPUP_CLS}>
 								<Menu.Item
 									onClick={onRemove}
-									className={`rounded-xl ${MENU_ITEM_CLS} text-nova-error/90 hover:text-nova-error`}
+									className={`rounded-xl ${MENU_ITEM_CLS} text-nova-rose/90 hover:text-nova-rose`}
 								>
 									<Icon icon={tablerTrash} width="14" height="14" />
 									<span>Delete</span>
@@ -302,7 +302,7 @@ export function PredicateRowShell({
 				{errors?.map((message) => (
 					<div
 						key={message}
-						className="text-[11px] leading-snug text-nova-error/90"
+						className="text-[11px] leading-snug text-nova-rose/90"
 					>
 						{message}
 					</div>
@@ -352,7 +352,7 @@ export function InlineError({ errors }: InlineErrorProps) {
 			{errors.map((message) => (
 				<div
 					key={message}
-					className="text-[11px] leading-snug text-nova-error/90"
+					className="text-[11px] leading-snug text-nova-rose/90"
 				>
 					{message}
 				</div>

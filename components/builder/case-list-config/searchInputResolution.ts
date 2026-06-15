@@ -391,12 +391,22 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 
 // ── knownInputs derivation ────────────────────────────────────────
 //
-// Each row's inner editor sees the SIBLING rows' search-input
-// declarations. Lets a row's `default` / advanced predicate
-// reference any other input via `input("other_name")` without the
-// type checker rejecting the reference. Self-references are
-// excluded so a row authoring its own name doesn't see spurious
-// "input not declared" errors during the per-keystroke draft phase.
+// The search inputs in scope for a row's advanced-predicate / type-
+// check editor are EVERY named row — the edited row INCLUDED. A search
+// input's custom condition is keyed to its OWN input through the
+// `when-input-present(input(name), …)` envelope that both
+// `seedCustomCondition` and the wire-emit `deriveSimpleArmPredicate`
+// produce, so a row referencing its own input is the canonical shape,
+// not a self-reference to forbid. This mirrors the validator's
+// `moduleTypeContext`, which builds `knownInputs` from the full
+// `caseListConfig.searchInputs` list — editor, preview gate, commit
+// gate, and wire emitter all resolve `input(...)` against ONE scope,
+// so none can flag a reference the others accept.
+//
+// Slots that run BEFORE the search screen opens — default values,
+// calculated columns, the search-button condition — see NO inputs at
+// all (`NO_SEARCH_INPUTS`): an `input(...)` ref there resolves to the
+// empty string and the commit gate rejects it.
 
 export function deriveSearchInputDecl(
 	row: SearchInputDef,
@@ -431,18 +441,15 @@ export function deriveSearchInputDecl(
 	}
 }
 
-export function computeKnownInputsForRow(
+export function searchInputDecls(
 	rows: readonly SearchInputDef[],
-	rowIndex: number,
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
 ): readonly SearchInputDecl[] {
 	const decls: SearchInputDecl[] = [];
-	for (let i = 0; i < rows.length; i++) {
-		if (i === rowIndex) continue;
-		const sibling = rows[i];
-		if (sibling === undefined || sibling.name === "") continue;
-		decls.push(deriveSearchInputDecl(sibling, caseTypes, currentCaseType));
+	for (const row of rows) {
+		if (row.name === "") continue;
+		decls.push(deriveSearchInputDecl(row, caseTypes, currentCaseType));
 	}
 	return decls;
 }

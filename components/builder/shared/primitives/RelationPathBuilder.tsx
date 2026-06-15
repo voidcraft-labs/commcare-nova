@@ -370,7 +370,7 @@ function IdentifierInput({
 	const cls = [
 		"w-32 min-h-11 px-3 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
-			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
+			? "border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
 	].join(" ");
 	return (

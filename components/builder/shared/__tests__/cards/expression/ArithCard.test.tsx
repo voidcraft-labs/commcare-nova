@@ -42,7 +42,7 @@ describe("ArithCard — inline errors", () => {
 		// Duplicate-render contract: each error message renders once,
 		// not in three places (the picker shell footer + an outer
 		// inline error + the inner term card's inline error). The
-		// inline-error rows carry the `text-nova-error` accent class
+		// inline-error rows carry the `text-nova-rose` accent class
 		// the `CardShell` and `InlineError` primitives render with;
 		// counting matching DOM nodes confirms the single-render
 		// contract.
@@ -59,7 +59,7 @@ describe("ArithCard — inline errors", () => {
 		// — `numeric operands` appears only in the type checker's
 		// arith-side rejection. One render = one DOM row carrying it.
 		const errorRows = Array.from(
-			container.querySelectorAll<HTMLElement>(".text-nova-error\\/90"),
+			container.querySelectorAll<HTMLElement>(".text-nova-rose\\/90"),
 		).filter((el) => /numeric operands/i.test(el.textContent ?? ""));
 		expect(errorRows.length).toBe(1);
 	});

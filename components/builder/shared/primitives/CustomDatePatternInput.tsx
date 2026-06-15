@@ -221,7 +221,7 @@ function CustomInput({ value, onChange }: CustomInputProps) {
 	const cls = [
 		"w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text font-mono placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors",
 		isInvalid
-			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
+			? "border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
 	].join(" ");
 	return (
@@ -245,7 +245,7 @@ function CustomInput({ value, onChange }: CustomInputProps) {
 				className={cls}
 			/>
 			{isInvalid && (
-				<div className="text-[11px] leading-snug text-nova-error/90">
+				<div className="text-[11px] leading-snug text-nova-rose/90">
 					Custom pattern cannot be empty.
 				</div>
 			)}

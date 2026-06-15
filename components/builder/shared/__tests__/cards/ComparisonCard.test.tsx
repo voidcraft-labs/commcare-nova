@@ -53,10 +53,10 @@ describe("ComparisonCard — inline errors", () => {
 			/>,
 		);
 		// At least one element gets the error border treatment via
-		// the `border-nova-error` accent the CardShell applies for
+		// the `border-nova-rose` accent the CardShell applies for
 		// operator-level errors. The CSS class is the structural
 		// signal here.
-		const errorClassed = container.querySelector(".border-nova-error\\/35");
+		const errorClassed = container.querySelector(".border-nova-rose\\/35");
 		expect(errorClassed).not.toBeNull();
 	});
 

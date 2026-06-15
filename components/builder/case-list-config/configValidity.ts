@@ -17,9 +17,9 @@
 //     known inputs — the context `FilterInspector`'s
 //     `PredicateCardEditor` receives.
 //   - search inputs: the structural row resolution from
-//     `searchInputResolution` plus per-row default-expression /
-//     advanced-predicate checks against sibling-scoped known inputs —
-//     exactly the editors `SearchInputEditor` mounts.
+//     `searchInputResolution` plus per-row default-expression (no
+//     inputs in scope) / advanced-predicate (every named row in scope)
+//     checks — exactly the editors `SearchInputEditor` mounts.
 //
 // An invalid verdict pauses the preview rather than letting a
 // malformed AST reach the case-store compiler, where it would surface
@@ -36,10 +36,11 @@ import {
 	resolveColumnProperty,
 } from "./columnEditorSchemas";
 import {
-	computeKnownInputsForRow,
 	expectedTypeForDefault,
+	NO_SEARCH_INPUTS,
 	resolveRows,
 	rowHasStructuralError,
+	searchInputDecls,
 } from "./searchInputResolution";
 
 /** Which workspace tabs currently host a configuration error — the
@@ -92,6 +93,14 @@ export function caseListConfigErrorAreas(
 		if (!checkPredicate(config.filter, filterCtx).ok) list = true;
 	}
 
+	// An advanced predicate resolves `input(...)` against EVERY named row
+	// — the full scope the validator's `moduleTypeContext` and the wire
+	// emitter use. Hoisted out of the loop: it doesn't vary per row.
+	const inputDecls = searchInputDecls(
+		config.searchInputs,
+		caseTypes,
+		currentCaseType,
+	);
 	const resolved = resolveRows(config.searchInputs, caseTypes, currentCaseType);
 	for (let i = 0; i < config.searchInputs.length; i++) {
 		const row = config.searchInputs[i];
@@ -102,28 +111,30 @@ export function caseListConfigErrorAreas(
 			continue;
 		}
 
-		const rowCtx: TypeContext = {
-			caseTypes: [...caseTypes],
-			knownInputs: [
-				...computeKnownInputsForRow(
-					config.searchInputs,
-					i,
-					caseTypes,
-					currentCaseType,
-				),
-			],
-			currentCaseType,
-		};
+		// Default values run BEFORE the search screen opens, so they
+		// resolve NO `input(...)` ref — mirror the editor's
+		// NO_SEARCH_INPUTS scope (and the commit gate's forbids-input-ref
+		// rule). Session / user-data refs still resolve without it.
 		if (row.default !== undefined) {
+			const defaultCtx: TypeContext = {
+				caseTypes: [...caseTypes],
+				knownInputs: [...NO_SEARCH_INPUTS],
+				currentCaseType,
+			};
 			const verdict = checkValueExpression(
 				row.default,
-				rowCtx,
+				defaultCtx,
 				expectedTypeForDefault(row.type),
 			);
 			if (!verdict.ok) search = true;
 		}
 		if (row.kind === "advanced") {
-			if (!checkPredicate(row.predicate, rowCtx).ok) search = true;
+			const predicateCtx: TypeContext = {
+				caseTypes: [...caseTypes],
+				knownInputs: [...inputDecls],
+				currentCaseType,
+			};
+			if (!checkPredicate(row.predicate, predicateCtx).ok) search = true;
 		}
 	}
 
