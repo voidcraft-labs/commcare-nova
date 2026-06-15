@@ -46,6 +46,10 @@ import { DragStateProvider } from "@/components/builder/contexts/DragStateContex
 import type { Uuid } from "@/lib/doc/types";
 import { useSelectedField } from "@/lib/routing/hooks";
 import {
+	useFlipbookScrollAnchor,
+	useSetFlipbookScrollAnchor,
+} from "@/lib/session/hooks";
+import {
 	FieldPickerContext,
 	type FieldPickerPayload,
 } from "../FieldPickerContext";
@@ -214,6 +218,42 @@ export const VirtualFormList = memo(function VirtualFormList({
 			getAllowedAxis: () => "vertical",
 		});
 	}, []);
+
+	// ── Flipbook scroll restore (preview → edit) ─────────────────────
+	// Leaving preview remounts this virtualized list fresh at the top.
+	// The field the user was looking at usually isn't in the DOM (it's
+	// outside the initial window), so BuilderLayout's DOM-nudge restore
+	// can't reach it — only the virtualizer can scroll to an off-screen
+	// row. Read the anchor BuilderLayout captured before the flip and
+	// align that field to the top, then clear it so an ordinary form open
+	// or Activity reveal doesn't re-fire.
+	//
+	// The scroll is deferred one macrotask, NOT applied inline, on purpose:
+	// the virtualizer re-runs its mount wiring on this same commit (and
+	// twice under React StrictMode), and that wiring calls `_scrollToOffset`
+	// with the not-yet-observed scroll offset — i.e. 0 — which would stomp
+	// an inline scroll back to the top. `setTimeout` lands the scroll after
+	// that churn settles. `setTimeout` (not `requestAnimationFrame`) so the
+	// restore still runs when the build tab is backgrounded, where rAF is
+	// paused. The cleanup cancels a pending timer so StrictMode's discarded
+	// first pass can't fire before the anchor is cleared.
+	const flipbookScrollAnchor = useFlipbookScrollAnchor();
+	const setFlipbookScrollAnchor = useSetFlipbookScrollAnchor();
+	useEffect(() => {
+		if (!flipbookScrollAnchor) return;
+		const index = baseRowsRef.current.findIndex(
+			(row) => row.kind === "field" && row.uuid === flipbookScrollAnchor,
+		);
+		if (index < 0) {
+			setFlipbookScrollAnchor(undefined);
+			return;
+		}
+		const timer = setTimeout(() => {
+			virtualizer.scrollToIndex(index, { align: "start" });
+			setFlipbookScrollAnchor(undefined);
+		}, 0);
+		return () => clearTimeout(timer);
+	}, [flipbookScrollAnchor, setFlipbookScrollAnchor, virtualizer]);
 
 	// ── Shared field-picker menu ──────────────────────────────────
 
