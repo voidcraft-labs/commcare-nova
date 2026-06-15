@@ -114,7 +114,7 @@
 		"@types/adm-zip": "^0.5.7",
 		"@types/markdown-it": "^14.1.2",
 		"@types/mdx": "^2.0.13",
-		"@types/node": "^20",
+		"@types/node": "^25",
 		"@types/pg": "^8.20.0",
 		"@types/react": "19.2.14",
 		"@types/react-dom": "19.2.3",
