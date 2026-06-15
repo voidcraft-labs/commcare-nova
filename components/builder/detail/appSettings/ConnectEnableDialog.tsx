@@ -52,8 +52,16 @@ export interface ConnectStagingTarget {
 	moduleName: string;
 }
 
-/** Local draft of one form's block — strings as typed, opt-ins explicit. */
-interface BlockDraft {
+/** Local draft of one form's block — strings as typed, opt-ins explicit.
+ *
+ *  The editable fields drive the cards. The optional `preserved*` fields
+ *  ride alongside untouched: existing sub-config ids and the advanced XPath
+ *  slots (`user_score`, `entity_id`/`entity_name`) the cards don't expose.
+ *  They are absent for a fresh draft (the per-form enable dialog seeds
+ *  `EMPTY_DRAFT`) and set by `configToDraft` when the manager seeds an
+ *  existing block, so `draftToConfig` re-emits them rather than dropping
+ *  them or re-deriving an id (which would churn Connect's slug). */
+export interface BlockDraft {
 	learnOn: boolean;
 	learnName: string;
 	learnDescription: string;
@@ -65,9 +73,17 @@ interface BlockDraft {
 	taskOn: boolean;
 	taskName: string;
 	taskDescription: string;
+	// Preserved (round-tripped, not edited here).
+	learnId?: string;
+	assessmentId?: string;
+	userScoreExpr?: XPathExpression;
+	deliverId?: string;
+	entityIdExpr?: XPathExpression;
+	entityNameExpr?: XPathExpression;
+	taskId?: string;
 }
 
-const EMPTY_DRAFT: BlockDraft = {
+export const EMPTY_DRAFT: BlockDraft = {
 	learnOn: false,
 	learnName: "",
 	learnDescription: "",
@@ -81,6 +97,38 @@ const EMPTY_DRAFT: BlockDraft = {
 	taskDescription: "",
 };
 
+/** Seed a draft from an existing `ConnectConfig` (the manager's per-form
+ *  starting point). Mode-agnostic — a config only carries one mode's
+ *  sub-configs, and the unused fields default empty. Captures the editable
+ *  strings plus the preserved ids / advanced XPath slots so a later
+ *  `draftToConfig` reproduces the block losslessly. */
+export function configToDraft(config: ConnectConfig): BlockDraft {
+	const lm = config.learn_module;
+	const assessment = config.assessment;
+	const du = config.deliver_unit;
+	const task = config.task;
+	return {
+		learnOn: !!lm,
+		learnName: lm?.name ?? "",
+		learnDescription: lm?.description ?? "",
+		learnTimeEstimate: lm ? String(lm.time_estimate) : "",
+		learnId: lm?.id,
+		assessmentOn: !!assessment,
+		userScore: "",
+		assessmentId: assessment?.id,
+		userScoreExpr: assessment?.user_score,
+		deliverOn: !!du,
+		deliverName: du?.name ?? "",
+		deliverId: du?.id,
+		entityIdExpr: du?.entity_id,
+		entityNameExpr: du?.entity_name,
+		taskOn: !!task,
+		taskName: task?.name ?? "",
+		taskDescription: task?.description ?? "",
+		taskId: task?.id,
+	};
+}
+
 /** Parse the time-estimate draft: a positive integer (minutes) or null. */
 export function parseTimeEstimate(raw: string): number | null {
 	const n = Number(raw.trim());
@@ -89,7 +137,10 @@ export function parseTimeEstimate(raw: string): number | null {
 
 /** Whether one draft PARTICIPATES: at least one sub-config is enabled.
  *  A draft with none stays auxiliary and is left out of the commit. */
-function draftParticipates(draft: BlockDraft, mode: ConnectType): boolean {
+export function draftParticipates(
+	draft: BlockDraft,
+	mode: ConnectType,
+): boolean {
 	return mode === "learn"
 		? draft.learnOn || draft.assessmentOn
 		: draft.deliverOn || draft.taskOn;
@@ -100,7 +151,10 @@ function draftParticipates(draft: BlockDraft, mode: ConnectType): boolean {
  *  (the wire layer substitutes the canonical default when unset). A draft
  *  with nothing enabled is trivially complete (it participates in
  *  nothing). */
-function draftSectionsComplete(draft: BlockDraft, mode: ConnectType): boolean {
+export function draftSectionsComplete(
+	draft: BlockDraft,
+	mode: ConnectType,
+): boolean {
 	if (mode === "learn") {
 		const learnOk =
 			draft.learnName.trim().length > 0 &&
@@ -117,10 +171,12 @@ function draftSectionsComplete(draft: BlockDraft, mode: ConnectType): boolean {
 }
 
 /** Lower a complete draft to the `ConnectConfig` the commit path lands.
- *  Ids are deliberately absent — the commit path autofills them. A blank
- *  user_score is likewise omitted so the wire-emit default applies
- *  (writing `""` would trip the `CONNECT_EMPTY_XPATH` validator). */
-function draftToConfig(
+ *  A fresh draft carries no ids — the commit path autofills them; an
+ *  edited existing block re-emits its preserved ids + advanced XPath slots
+ *  so nothing is dropped or re-slugged. A blank user_score (and the
+ *  entity XPaths) stay omitted so the wire-emit default applies (writing
+ *  `""` would trip the `CONNECT_EMPTY_XPATH` validator). */
+export function draftToConfig(
 	draft: BlockDraft,
 	mode: ConnectType,
 	parseExpr: (text: string) => XPathExpression,
@@ -129,6 +185,7 @@ function draftToConfig(
 		return {
 			...(draft.learnOn && {
 				learn_module: {
+					...(draft.learnId && { id: draft.learnId }),
 					name: draft.learnName.trim(),
 					description: draft.learnDescription.trim(),
 					time_estimate: parseTimeEstimate(draft.learnTimeEstimate) ?? 1,
@@ -136,19 +193,30 @@ function draftToConfig(
 			}),
 			...(draft.assessmentOn && {
 				assessment: {
-					...(draft.userScore.trim() && {
-						user_score: parseExpr(draft.userScore.trim()),
-					}),
+					...(draft.assessmentId && { id: draft.assessmentId }),
+					// A freshly typed score wins; otherwise round-trip the
+					// preserved expression; otherwise leave it to the wire default.
+					...(draft.userScore.trim()
+						? { user_score: parseExpr(draft.userScore.trim()) }
+						: draft.userScoreExpr
+							? { user_score: draft.userScoreExpr }
+							: {}),
 				},
 			}),
 		};
 	}
 	return {
 		...(draft.deliverOn && {
-			deliver_unit: { name: draft.deliverName.trim() },
+			deliver_unit: {
+				...(draft.deliverId && { id: draft.deliverId }),
+				name: draft.deliverName.trim(),
+				...(draft.entityIdExpr && { entity_id: draft.entityIdExpr }),
+				...(draft.entityNameExpr && { entity_name: draft.entityNameExpr }),
+			},
 		}),
 		...(draft.taskOn && {
 			task: {
+				...(draft.taskId && { id: draft.taskId }),
 				name: draft.taskName.trim(),
 				description: draft.taskDescription.trim(),
 			},
@@ -247,7 +315,7 @@ function SubConfigCard({
 }
 
 /** The learn / deliver sub-config pair for one form's draft. */
-function FormSubConfigs({
+export function FormSubConfigs({
 	mode,
 	draft,
 	onPatch,
