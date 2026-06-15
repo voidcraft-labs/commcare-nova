@@ -24,6 +24,19 @@ import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
 import type { ConnectConfig, Uuid } from "@/lib/domain";
 
 /**
+ * Re-export the wire-emit default XPath expressions for the optional
+ * Connect slots so authoring surfaces can SHOW the user the actual default
+ * that runs when a slot is left blank — without reaching across the CommCare
+ * boundary themselves. The single source stays `lib/commcare/connectDefaults`;
+ * this is the doc-layer doorway to it.
+ */
+export {
+	DEFAULT_ASSESSMENT_USER_SCORE,
+	DEFAULT_DELIVER_ENTITY_ID,
+	DEFAULT_DELIVER_ENTITY_NAME,
+} from "@/lib/commcare/connectDefaults";
+
+/**
  * Validity of an explicitly-typed Connect id: legal element-name / slug
  * format, then uniqueness against `taken` (every other id in the app's
  * scope). Returns a human-readable reason, or `null` when it's fine. The

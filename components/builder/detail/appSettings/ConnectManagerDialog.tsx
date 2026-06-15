@@ -341,6 +341,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 							draft={draftOf(f.formUuid)}
 							onPatch={(patch) => patchDraft(f.formUuid, patch)}
 							validateId={idValidatorFor(f.formUuid)}
+							formUuid={f.formUuid}
 						/>
 					</div>
 				))}

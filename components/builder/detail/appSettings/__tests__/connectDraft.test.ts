@@ -9,6 +9,11 @@
  */
 import { describe, expect, it } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
+import {
+	DEFAULT_ASSESSMENT_USER_SCORE,
+	DEFAULT_DELIVER_ENTITY_ID,
+	DEFAULT_DELIVER_ENTITY_NAME,
+} from "@/lib/doc/connectConfig";
 import type { ConnectConfig } from "@/lib/domain";
 import {
 	configToDraft,
@@ -85,5 +90,37 @@ describe("Connect draft round-trip", () => {
 		const draft = { ...EMPTY_DRAFT, deliverOn: true, deliverName: "New Visit" };
 		const round = draftToConfig(draft, "deliver", noExpr);
 		expect(round.deliver_unit).toEqual({ name: "New Visit" });
+	});
+
+	it("seeds an absent XPath slot's buffer with the actual default, then drops it on commit", () => {
+		// The editor shows the real default so the user sees what runs; a buffer
+		// left at the default stays absent (the single wire-emit default applies),
+		// and the parse boundary is never touched.
+		const draft = configToDraft(
+			{ deliver_unit: { id: "v", name: "Visit" } },
+			noExpr,
+		);
+		expect(draft.entityIdText).toBe(DEFAULT_DELIVER_ENTITY_ID);
+		expect(draft.entityNameText).toBe(DEFAULT_DELIVER_ENTITY_NAME);
+
+		const assessment = configToDraft({ assessment: { id: "q" } }, noExpr);
+		expect(assessment.userScoreText).toBe(DEFAULT_ASSESSMENT_USER_SCORE);
+
+		expect(draftToConfig(draft, "deliver", noExpr).deliver_unit).toEqual({
+			id: "v",
+			name: "Visit",
+		});
+	});
+
+	it("stores an XPath buffer the user changed away from the default", () => {
+		const override = xp("#form/quiz_total");
+		const draft = {
+			...EMPTY_DRAFT,
+			assessmentOn: true,
+			assessmentId: "q",
+			userScoreText: "#form/quiz_total",
+		};
+		const round = draftToConfig(draft, "learn", () => override);
+		expect(round.assessment).toEqual({ id: "q", user_score: override });
 	});
 });

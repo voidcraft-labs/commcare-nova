@@ -4,9 +4,17 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
 import { type ReactNode, useCallback, useId, useState } from "react";
+import { LabeledXPathField } from "@/components/builder/detail/formSettings/LabeledXPathField";
+import { useConnectLintContext } from "@/components/builder/detail/formSettings/useConnectLintContext";
 import { RejectionBody } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
-import { connectIdValidity } from "@/lib/doc/connectConfig";
+import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import {
+	connectIdValidity,
+	DEFAULT_ASSESSMENT_USER_SCORE,
+	DEFAULT_DELIVER_ENTITY_ID,
+	DEFAULT_DELIVER_ENTITY_NAME,
+} from "@/lib/doc/connectConfig";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import {
 	connectIdsExcept,
@@ -15,6 +23,7 @@ import {
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { ConnectConfig, ConnectType, XPathExpression } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
+import { CurrentFormScope } from "@/lib/references/ReferenceContext";
 
 /**
  * The per-form Connect enable dialog (form settings) plus the shared
@@ -28,9 +37,12 @@ import { asUuid } from "@/lib/domain";
  *
  * Per form, the user opts into the mode's sub-configs (learn: Learn module /
  * Assessment; deliver: Deliver unit / Task) and fills each enabled one's
- * fields. Identifiers and the advanced XPath slots live behind an "Advanced"
- * disclosure — ids autofill when left blank, the XPaths fall back to their
- * wire defaults — so the common case stays a name and a description.
+ * fields. The XPath slots (`user_score`, `entity_id`, `entity_name`) use the
+ * real expression editor (`XPathField` — live lint, condition parsing,
+ * hashtag chips), each seeded with its actual wire default so the user SEES
+ * what runs and can replace it; a slot left at the default is dropped on
+ * commit so it stays absent and the single wire-emit default still applies.
+ * Identifiers sit behind an "Advanced" disclosure and autofill when blank.
  *
  * The dialog mounts through `Dialog.Portal` (the media picker's pattern) so
  * it escapes the app-settings popover's transformed positioner.
@@ -83,12 +95,16 @@ export const EMPTY_DRAFT: BlockDraft = {
 	learnId: "",
 	assessmentOn: false,
 	assessmentId: "",
-	userScoreText: "",
+	// The XPath buffers start at the ACTUAL wire default (not blank) so the
+	// editor shows the user exactly what runs; a buffer left at the default is
+	// dropped on commit (`draftToConfig`), so the slot stays absent and the
+	// wire-emit fallback — the single source of the default — still applies.
+	userScoreText: DEFAULT_ASSESSMENT_USER_SCORE,
 	deliverOn: false,
 	deliverName: "",
 	deliverId: "",
-	entityIdText: "",
-	entityNameText: "",
+	entityIdText: DEFAULT_DELIVER_ENTITY_ID,
+	entityNameText: DEFAULT_DELIVER_ENTITY_NAME,
 	taskOn: false,
 	taskName: "",
 	taskDescription: "",
@@ -118,14 +134,19 @@ export function configToDraft(
 		learnId: lm?.id ?? "",
 		assessmentOn: !!assessment,
 		assessmentId: assessment?.id ?? "",
+		// Absent XPath slots show their wire default so the user sees what runs.
 		userScoreText: assessment?.user_score
 			? printExpr(assessment.user_score)
-			: "",
+			: DEFAULT_ASSESSMENT_USER_SCORE,
 		deliverOn: !!du,
 		deliverName: du?.name ?? "",
 		deliverId: du?.id ?? "",
-		entityIdText: du?.entity_id ? printExpr(du.entity_id) : "",
-		entityNameText: du?.entity_name ? printExpr(du.entity_name) : "",
+		entityIdText: du?.entity_id
+			? printExpr(du.entity_id)
+			: DEFAULT_DELIVER_ENTITY_ID,
+		entityNameText: du?.entity_name
+			? printExpr(du.entity_name)
+			: DEFAULT_DELIVER_ENTITY_NAME,
 		taskOn: !!task,
 		taskName: task?.name ?? "",
 		taskDescription: task?.description ?? "",
@@ -192,16 +213,36 @@ export function draftIdsValid(
 				check("task", draft.taskOn, draft.taskId);
 }
 
+/** An XPath buffer counts as an OVERRIDE only when it's non-empty AND
+ *  differs from the wire default. Otherwise the slot is left absent so the
+ *  single wire-emit default applies (and a blank never trips
+ *  `CONNECT_EMPTY_XPATH`) — the editor shows the default as a starting point
+ *  the user can replace, not a value Nova pins into the doc. */
+function xpathOverride(
+	text: string,
+	wireDefault: string,
+	parseExpr: (text: string) => XPathExpression,
+): XPathExpression | undefined {
+	const trimmed = text.trim();
+	if (!trimmed || trimmed === wireDefault) return undefined;
+	return parseExpr(trimmed);
+}
+
 /** Lower a draft to the `ConnectConfig` the commit path lands. A blank id
- *  is omitted (the commit autofills); a blank XPath buffer is omitted (the
- *  wire-emit default applies — writing `""` would trip
- *  `CONNECT_EMPTY_XPATH`); a filled buffer is parsed against the form. */
+ *  is omitted (the commit autofills); an XPath buffer still at its default is
+ *  omitted (the wire-emit default applies); an overridden buffer is parsed
+ *  against the form. */
 export function draftToConfig(
 	draft: BlockDraft,
 	mode: ConnectType,
 	parseExpr: (text: string) => XPathExpression,
 ): ConnectConfig {
 	if (mode === "learn") {
+		const userScore = xpathOverride(
+			draft.userScoreText,
+			DEFAULT_ASSESSMENT_USER_SCORE,
+			parseExpr,
+		);
 		return {
 			...(draft.learnOn && {
 				learn_module: {
@@ -214,24 +255,28 @@ export function draftToConfig(
 			...(draft.assessmentOn && {
 				assessment: {
 					...(draft.assessmentId.trim() && { id: draft.assessmentId.trim() }),
-					...(draft.userScoreText.trim() && {
-						user_score: parseExpr(draft.userScoreText.trim()),
-					}),
+					...(userScore && { user_score: userScore }),
 				},
 			}),
 		};
 	}
+	const entityId = xpathOverride(
+		draft.entityIdText,
+		DEFAULT_DELIVER_ENTITY_ID,
+		parseExpr,
+	);
+	const entityName = xpathOverride(
+		draft.entityNameText,
+		DEFAULT_DELIVER_ENTITY_NAME,
+		parseExpr,
+	);
 	return {
 		...(draft.deliverOn && {
 			deliver_unit: {
 				...(draft.deliverId.trim() && { id: draft.deliverId.trim() }),
 				name: draft.deliverName.trim(),
-				...(draft.entityIdText.trim() && {
-					entity_id: parseExpr(draft.entityIdText.trim()),
-				}),
-				...(draft.entityNameText.trim() && {
-					entity_name: parseExpr(draft.entityNameText.trim()),
-				}),
+				...(entityId && { entity_id: entityId }),
+				...(entityName && { entity_name: entityName }),
 			},
 		}),
 		...(draft.taskOn && {
@@ -386,25 +431,57 @@ function SubConfigCard({
 	);
 }
 
+/** A Connect XPath slot, rendered with the real expression editor — live
+ *  validation, condition parsing, and hashtag/chip autocomplete (the same
+ *  CodeMirror field the rest of the builder uses). The buffer starts at the
+ *  wire default so the user sees exactly what runs and can replace it. */
+function ConnectXPathField({
+	label,
+	value,
+	onChange,
+	getLintContext,
+}: {
+	label: string;
+	value: string;
+	onChange: (value: string) => void;
+	getLintContext: () => XPathLintContext | undefined;
+}) {
+	return (
+		<LabeledXPathField
+			label={label}
+			value={value}
+			onSave={(v) => {
+				onChange(v);
+				return undefined;
+			}}
+			getLintContext={getLintContext}
+		/>
+	);
+}
+
 /** The learn / deliver sub-config pair for one form's draft — the single
  *  per-form editor, shared by the dialog and the manager. `validateId`
- *  surfaces an explicit id's format / uniqueness reason inline. */
+ *  surfaces an explicit id's format / uniqueness reason inline; the XPath
+ *  slots use the real editor scoped to `formUuid` for chips + lint. */
 export function FormSubConfigs({
 	mode,
 	draft,
 	onPatch,
 	validateId,
+	formUuid,
 }: {
 	mode: ConnectType;
 	draft: BlockDraft;
 	onPatch: (patch: Partial<BlockDraft>) => void;
 	validateId: IdValidator;
+	formUuid: string;
 }) {
 	const idCheck = (kind: SubConfigKind) => (value: string) =>
 		value.trim() ? validateId(kind, value) : null;
+	const getLintContext = useConnectLintContext(asUuid(formUuid));
 
-	if (mode === "learn") {
-		return (
+	const body =
+		mode === "learn" ? (
 			<>
 				<SubConfigCard
 					title="Learn Module"
@@ -447,13 +524,11 @@ export function FormSubConfigs({
 					enabled={draft.assessmentOn}
 					onToggle={() => onPatch({ assessmentOn: !draft.assessmentOn })}
 				>
-					<DraftField
+					<ConnectXPathField
 						label="User Score"
 						value={draft.userScoreText}
 						onChange={(v) => onPatch({ userScoreText: v })}
-						placeholder="Defaults to 100 (full marks)"
-						hint="Where the learner's score comes from — e.g. a hidden total field. Blank counts every learner as a pass."
-						mono
+						getLintContext={getLintContext}
 					/>
 					<AdvancedDisclosure>
 						<DraftField
@@ -467,81 +542,77 @@ export function FormSubConfigs({
 					</AdvancedDisclosure>
 				</SubConfigCard>
 			</>
-		);
-	}
-	return (
-		<>
-			<SubConfigCard
-				title="Deliver Unit"
-				enabled={draft.deliverOn}
-				onToggle={() => onPatch({ deliverOn: !draft.deliverOn })}
-			>
-				<DraftField
-					label="Name"
-					value={draft.deliverName}
-					onChange={(v) => onPatch({ deliverName: v })}
-					required
-				/>
-				<AdvancedDisclosure>
+		) : (
+			<>
+				<SubConfigCard
+					title="Deliver Unit"
+					enabled={draft.deliverOn}
+					onToggle={() => onPatch({ deliverOn: !draft.deliverOn })}
+				>
 					<DraftField
-						label="Deliver Unit ID"
-						value={draft.deliverId}
-						onChange={(v) => onPatch({ deliverId: v })}
-						validate={idCheck("deliver_unit")}
-						placeholder="Auto-generated from the name"
-						hint="A stable id CommCare Connect stores this under. Leave blank and one is made from the name."
-						mono
+						label="Name"
+						value={draft.deliverName}
+						onChange={(v) => onPatch({ deliverName: v })}
+						required
 					/>
-					<DraftField
+					<ConnectXPathField
 						label="Entity ID"
 						value={draft.entityIdText}
 						onChange={(v) => onPatch({ entityIdText: v })}
-						placeholder="Defaults to one per worker per day"
-						hint="Groups a worker's deliveries so Connect can pay per entity."
-						mono
+						getLintContext={getLintContext}
 					/>
-					<DraftField
+					<ConnectXPathField
 						label="Entity Name"
 						value={draft.entityNameText}
 						onChange={(v) => onPatch({ entityNameText: v })}
-						placeholder="Defaults to the worker's username"
-						hint="The label shown for that entity."
-						mono
+						getLintContext={getLintContext}
 					/>
-				</AdvancedDisclosure>
-			</SubConfigCard>
-			<SubConfigCard
-				title="Task"
-				enabled={draft.taskOn}
-				onToggle={() => onPatch({ taskOn: !draft.taskOn })}
-			>
-				<DraftField
-					label="Name"
-					value={draft.taskName}
-					onChange={(v) => onPatch({ taskName: v })}
-					required
-				/>
-				<DraftField
-					label="Description"
-					value={draft.taskDescription}
-					onChange={(v) => onPatch({ taskDescription: v })}
-					multiline
-					required
-				/>
-				<AdvancedDisclosure>
+					<AdvancedDisclosure>
+						<DraftField
+							label="Deliver Unit ID"
+							value={draft.deliverId}
+							onChange={(v) => onPatch({ deliverId: v })}
+							validate={idCheck("deliver_unit")}
+							placeholder="Auto-generated"
+							mono
+						/>
+					</AdvancedDisclosure>
+				</SubConfigCard>
+				<SubConfigCard
+					title="Task"
+					enabled={draft.taskOn}
+					onToggle={() => onPatch({ taskOn: !draft.taskOn })}
+				>
 					<DraftField
-						label="Task ID"
-						value={draft.taskId}
-						onChange={(v) => onPatch({ taskId: v })}
-						validate={idCheck("task")}
-						placeholder="Auto-generated from the name"
-						hint="A stable id CommCare Connect stores this under. Leave blank and one is made from the name."
-						mono
+						label="Name"
+						value={draft.taskName}
+						onChange={(v) => onPatch({ taskName: v })}
+						required
 					/>
-				</AdvancedDisclosure>
-			</SubConfigCard>
-		</>
-	);
+					<DraftField
+						label="Description"
+						value={draft.taskDescription}
+						onChange={(v) => onPatch({ taskDescription: v })}
+						multiline
+						required
+					/>
+					<AdvancedDisclosure>
+						<DraftField
+							label="Task ID"
+							value={draft.taskId}
+							onChange={(v) => onPatch({ taskId: v })}
+							validate={idCheck("task")}
+							placeholder="Auto-generated"
+							mono
+						/>
+					</AdvancedDisclosure>
+				</SubConfigCard>
+			</>
+		);
+
+	/* Scope the XPath editors to THIS form so chip resolution + lint read the
+	 * right form, even though the manager edits several at once. */
+	return <CurrentFormScope formUuid={formUuid}>{body}</CurrentFormScope>;
 }
 
 /** Bind an {@link IdValidator} over the app's current connect ids — format
@@ -738,6 +809,7 @@ function DialogBody({
 							draft={draftOf(t.formUuid)}
 							onPatch={(patch) => patchDraft(t.formUuid, patch)}
 							validateId={idValidatorFor(t.formUuid)}
+							formUuid={t.formUuid}
 						/>
 					</div>
 				))}
