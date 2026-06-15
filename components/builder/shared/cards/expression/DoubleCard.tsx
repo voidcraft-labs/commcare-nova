@@ -13,6 +13,7 @@
 "use client";
 import {
 	double,
+	doubleOperandConstraint,
 	literal,
 	term,
 	type ValueExpression,
@@ -20,6 +21,10 @@ import {
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
+
+/** `double` reads a text-shaped or already-numeric value — module-const
+ *  for a stable identity across renders. */
+const OPERAND_CONSTRAINT = doubleOperandConstraint();
 
 /** Default — `double(literal(""))`. The text-shaped seed lands clean
  *  through the type checker; authors who want to force a different
@@ -58,7 +63,7 @@ export function DoubleCard({ value, onChange, path }: DoubleCardProps) {
 					value={value.value}
 					onChange={setOperand}
 					path={appendSlot(path, "value")}
-					expectedType="decimal"
+					constraint={OPERAND_CONSTRAINT}
 					variant="nested"
 				/>
 			</div>

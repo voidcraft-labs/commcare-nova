@@ -15,10 +15,11 @@
 import { isOrdered } from "@/lib/domain";
 import {
 	type ComparisonKind,
+	comparisonObjectConstraint,
+	compatibleTypesFor,
 	eq,
 	gt,
 	gte,
-	literal,
 	lt,
 	lte,
 	neq,
@@ -26,13 +27,22 @@ import {
 	prop,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { useEditorErrorsAt } from "../editorContext";
+import {
+	useEditorErrorsAt,
+	usePredicateEditContext,
+	useResolvedType,
+} from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
+import {
+	reseedValueForConstraint,
+	resolveExpressionType,
+	seedLiteralForProperty,
+} from "./reseed";
 
 /** Per-kind builder dispatch. Keeps the card body's onChange paths
  *  precise — each kind constructs through the matching builder so
@@ -93,7 +103,13 @@ export function comparisonDefault<K extends ComparisonKind>(
 		l: Parameters<typeof eq>[0],
 		r: Parameters<typeof eq>[1],
 	) => ComparisonArm<K>;
-	return builder(prop(ctx.currentCaseType, propName), literal(""));
+	// Seed the value of the property's OWN type so the default lands
+	// type-correct — a text `literal("")` opposite an ordered (`gt`/…)
+	// or non-text (`eq`/…) property would be a soundness error.
+	return builder(
+		prop(ctx.currentCaseType, propName),
+		seedLiteralForProperty(property),
+	);
 }
 
 interface ComparisonCardProps {
@@ -131,10 +147,30 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	// slot path; rendering them again here would double the
 	// diagnostic row count for the same message.
 	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
+	const ctx = usePredicateEditContext();
+
+	// The subject (left) drives what the value (right) may hold — the
+	// right slot offers ONLY types compatible with the subject, so a
+	// type mismatch is unauthorable. `useResolvedType` runs the same
+	// checker `checkComparison` validates against, so the offered set
+	// is exactly the accept set.
+	const subjectType = useResolvedType(value.left);
+	const objectConstraint = comparisonObjectConstraint(subjectType);
 
 	const setLeft = (left: ValueExpression) => {
 		const builder = KIND_BUILDERS[value.kind];
-		onChange(builder(left, value.right));
+		// Cascade-reseed: a new subject can tighten the right slot's
+		// accept-set. When the existing right resolves to a type the new
+		// subject no longer accepts, reseed it (carrying the typed
+		// content where the new type allows) in the SAME onChange so the
+		// committed comparison is never transiently type-wrong.
+		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
+		const rightType = resolveExpressionType(value.right, ctx);
+		const right =
+			rightType !== undefined && !accepts.has(rightType)
+				? reseedValueForConstraint(value.right, accepts)
+				: value.right;
+		onChange(builder(left, right));
 	};
 
 	const setRight = (right: Parameters<typeof eq>[1]) => {
@@ -145,10 +181,16 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	return (
 		<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
 			<div>
+				{/* Ordering operators (`gt` / `gte` / `lt` / `lte`) only
+				 *  compare ordered types, so the left picker narrows to
+				 *  ordered properties for those kinds — picking the verb
+				 *  first (the verb menu disables ordering for a non-ordered
+				 *  subject), then the property, keeps each step valid. */}
 				<PropertyRefPicker
 					mode="left"
 					value={value.left}
 					onChange={setLeft}
+					filter={ORDERED_KINDS.has(value.kind) ? isOrdered : undefined}
 					invalid={leftErrors.length > 0}
 					ariaLabel="Left operand"
 				/>
@@ -159,33 +201,19 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 
 			<div>
 				{/* Right operand routes through `ExpressionPicker` so
-				 *  every ValueExpression kind (term, arith, if, count,
-				 *  etc.) is editable at this slot via the registry-
-				 *  driven dispatch. The picker handles round-trip
-				 *  preservation for non-canonical shapes by mounting
-				 *  the matching kind's card; the kind-replace menu in
-				 *  the picker shell is the path for swapping kinds.
-				 *  The picker's own `CardShell` footer surfaces inline
-				 *  errors at the slot path, so no parallel
-				 *  `<InlineError>` is needed here.
-				 *
-				 *  `expectedType` is intentionally omitted: comparison's
-				 *  per-kind type rules (the ordered-types check on
-				 *  `gt` / `gte` / `lt` / `lte`, plus `typesCompatible`'s
-				 *  promotion / select-to-text widenings) admit any
-				 *  type compatible with the LEFT slot's resolved type,
-				 *  not a single primitive. A narrowing `expectedType`
-				 *  hint would over-filter the kind menu — the type
-				 *  checker's inline error is the structural gate
-				 *  instead. Symmetric to `WithinDistanceCard.center`
-				 *  (which similarly omits the hint because its allow-
-				 *  list is `geopoint` OR `text`). `MatchCard.value`'s
-				 *  hint applies only because the match-mode allow-list
-				 *  cleanly narrows to a single primitive per mode. */}
+				 *  every admissible ValueExpression kind (term, arith, if,
+				 *  count, etc.) is editable at this slot via the registry-
+				 *  driven dispatch. The `comparisonObjectConstraint` narrows
+				 *  the offered kinds + value sources to those whose result
+				 *  type is comparable with the subject, so the editor never
+				 *  offers a type the checker would reject. The picker's own
+				 *  `CardShell` footer surfaces inline errors at the slot
+				 *  path, so no parallel `<InlineError>` is needed here. */}
 				<ExpressionPicker
 					value={value.right}
 					onChange={setRight}
 					path={appendSlot(path, "right")}
+					constraint={objectConstraint}
 					variant="nested"
 				/>
 			</div>

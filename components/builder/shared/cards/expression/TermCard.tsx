@@ -16,6 +16,15 @@
 // The card edits ONLY Term-shaped values — non-Term ValueExpression
 // arms route through their own dedicated cards (ArithCard / IfCard /
 // etc.) at the `ExpressionPicker` shell's registry-driven dispatch.
+//
+// Valid by construction: the card takes the slot's `SlotConstraint`
+// and gates every value source against it — a source that can't
+// produce an accepted type is disabled WITH A REASON (never dimmed),
+// the property / search-input dropdowns filter to admissible entries,
+// and the literal shape menu offers only shapes whose value type the
+// slot accepts. A `nonEmpty` slot refuses to commit an empty literal.
+// The current source / shape stays selectable even when the constraint
+// no longer admits it (legacy-open backstop).
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
@@ -34,13 +43,19 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { type CaseProperty, effectiveDataType } from "@/lib/domain";
 import {
+	ANY_CONSTRAINT,
+	acceptsType,
 	dateLiteral,
 	datetimeLiteral,
 	input,
 	type Literal,
 	literal,
 	prop,
+	type ResolvedType,
+	reasonFor,
+	type SlotConstraint,
 	sessionContext,
 	sessionUser,
 	type Term,
@@ -63,6 +78,7 @@ import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
 import type { EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
+import { reseedLiteralForConstraint } from "../reseed";
 
 /** Default Term-arm value — a `term(literal(""))`. The empty literal
  *  renders the typed text input directly; authors who want a different
@@ -86,6 +102,9 @@ interface TermCardProps {
 	readonly value: Extract<ValueExpression, { kind: "term" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
+	/** The slot's type constraint — gates the value sources and the
+	 *  literal shape menu. Defaults to `ANY_CONSTRAINT`. */
+	readonly constraint?: SlotConstraint;
 	/** Extra entries the picker shell injects into the source menu —
 	 *  the computed expression kinds (math, if–then, today, …), so ONE
 	 *  dropdown answers "what is this value?" without a separate
@@ -107,6 +126,7 @@ export function TermCard({
 	value,
 	onChange,
 	path,
+	constraint = ANY_CONSTRAINT,
 	computedItems,
 }: TermCardProps) {
 	const ctx = usePredicateEditContext();
@@ -133,25 +153,34 @@ export function TermCard({
 	const term = value.term;
 	const mode = termMode(term);
 
+	const modeAdmission = useMemo(
+		() => computeModeAdmission(ctx, constraint),
+		[ctx, constraint],
+	);
+
 	const setMode = (next: TermMode) => {
 		// Rebuild via the matching builder so the constructed shape
 		// stays canonical. The mode switch resets the inner Term to a
-		// per-mode default; preserving the source content across modes
-		// would require a per-mode coercion table that doesn't exist
-		// (a literal text "5" doesn't naturally become `prop("patient",
-		// "5")`).
-		onChange(
-			wrapTerm(buildTermDefault(next, ctx.currentCaseType, ctx.knownInputs)),
-		);
+		// per-mode default chosen valid for the slot's constraint;
+		// preserving the source content across modes would require a
+		// per-mode coercion table that doesn't exist (a literal text "5"
+		// doesn't naturally become `prop("patient", "5")`).
+		onChange(wrapTerm(buildTermDefault(next, ctx, constraint)));
 	};
 
 	return (
 		<div className="space-y-1">
 			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
-				<ModeMenu mode={mode} setMode={setMode} computedItems={computedItems} />
+				<ModeMenu
+					mode={mode}
+					setMode={setMode}
+					admission={modeAdmission}
+					computedItems={computedItems}
+				/>
 				<TermBodyInput
 					term={term}
 					onChange={(t) => onChange(wrapTerm(t))}
+					constraint={constraint}
 					invalid={errors.length > 0 || descendantErrors.length > 0}
 				/>
 			</div>
@@ -178,26 +207,104 @@ function termMode(term: Term): TermMode {
 	}
 }
 
+/** Whether the slot accepts a value of type `t` — `ANY_CONSTRAINT`
+ *  admits everything. */
+function constraintAdmitsType(
+	constraint: SlotConstraint,
+	t: ResolvedType,
+): boolean {
+	return constraint.accepts === "any" || acceptsType(constraint, t);
+}
+
+/** A property filter derived from the slot constraint — `undefined`
+ *  (no narrowing) when the constraint is unconstrained. Memoize at the
+ *  call site so `PropertyPicker`'s `[caseType, filter]` memo stays
+ *  stable across renders with the same constraint. */
+function propertyFilterFor(
+	constraint: SlotConstraint,
+): ((p: CaseProperty) => boolean) | undefined {
+	if (constraint.accepts === "any") return undefined;
+	return (p) => acceptsType(constraint, effectiveDataType(p));
+}
+
+/** Per-mode admission verdict + reason for the source menu. */
+type ModeAdmission = Record<TermMode, { admitted: boolean; reason?: string }>;
+
+/**
+ * Resolve which Term sources can produce a value the slot accepts:
+ *   - `literal` — always admitted; a literal can be `null`, which is
+ *     compatible with every type, and the shape menu does the
+ *     fine-grained gating per accepted type.
+ *   - `property` — admitted when a property of an accepted type
+ *     exists on the current case type.
+ *   - `input` — admitted when a declared search input of an accepted
+ *     type is in scope.
+ *   - `session-context` / `session-user` — resolve to `text`, so
+ *     admitted only when the slot accepts text.
+ */
+function computeModeAdmission(
+	ctx: ExpressionEditContext,
+	constraint: SlotConstraint,
+): ModeAdmission {
+	const reason = reasonFor(constraint);
+	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
+	const hasAcceptedProperty =
+		constraint.accepts === "any" ||
+		(ct?.properties.some((p) =>
+			acceptsType(constraint, effectiveDataType(p)),
+		) ??
+			false);
+	const hasAcceptedInput =
+		constraint.accepts === "any" ||
+		ctx.knownInputs.some((i) => acceptsType(constraint, i.data_type ?? "text"));
+	const textAdmitted = constraintAdmitsType(constraint, "text");
+	return {
+		literal: { admitted: true },
+		property: hasAcceptedProperty
+			? { admitted: true }
+			: { admitted: false, reason },
+		input: hasAcceptedInput ? { admitted: true } : { admitted: false, reason },
+		"session-context": textAdmitted
+			? { admitted: true }
+			: { admitted: false, reason },
+		"session-user": textAdmitted
+			? { admitted: true }
+			: { admitted: false, reason },
+	};
+}
+
 /** Build the per-mode default Term used when the user flips modes.
- *  Each mode's default produces a structurally-valid Term that the
- *  schema parses; the type checker's per-mode rules surface inline
- *  errors for unfilled placeholders (e.g. an empty property name). */
+ *  Each mode's default is chosen valid for the slot's constraint — a
+ *  property / input of an accepted type, an empty literal of an
+ *  accepted shape — so picking an enabled source never lands a type
+ *  error. The type checker still surfaces "fill this in" for an unbound
+ *  placeholder (an empty property name). */
 function buildTermDefault(
 	mode: TermMode,
-	caseTypeName: string,
-	knownInputs: readonly { name: string }[],
+	ctx: ExpressionEditContext,
+	constraint: SlotConstraint,
 ): Term {
 	switch (mode) {
 		case "literal":
-			return literal("");
-		case "property":
-			// Default to a placeholder property name — the picker
-			// surfaces "Pick a property" until the author picks one,
-			// and the type checker surfaces "Unknown property ''" inline.
-			return prop(caseTypeName, "");
+			return constraint.accepts === "any"
+				? literal("")
+				: reseedLiteralForConstraint(literal(""), constraint.accepts);
+		case "property": {
+			const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
+			const filter = propertyFilterFor(constraint);
+			const property = ct?.properties.find((p) => (filter ? filter(p) : true));
+			// Default to a placeholder property name — the picker surfaces
+			// "Pick a property" until the author picks one, and the type
+			// checker surfaces "Unknown property ''" inline.
+			return prop(ctx.currentCaseType, property?.name ?? "");
+		}
 		case "input": {
-			const firstInput = knownInputs[0];
-			return input(firstInput?.name ?? "");
+			const matching = ctx.knownInputs.find((i) =>
+				constraint.accepts === "any"
+					? true
+					: acceptsType(constraint, i.data_type ?? "text"),
+			);
+			return input(matching?.name ?? ctx.knownInputs[0]?.name ?? "");
 		}
 		case "session-context":
 			// `userid` is the most authored choice ("owned by me"
@@ -215,10 +322,11 @@ function buildTermDefault(
 interface ModeMenuProps {
 	readonly mode: TermMode;
 	readonly setMode: (mode: TermMode) => void;
+	readonly admission: ModeAdmission;
 	readonly computedItems?: React.ReactNode;
 }
 
-function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
+function ModeMenu({ mode, setMode, admission, computedItems }: ModeMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const triggerId = useId();
 	const ctx = usePredicateEditContext();
@@ -295,6 +403,12 @@ function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
 					<Menu.Popup className={MENU_POPUP_CLS}>
 						{items.map((item, i) => {
 							const isActive = item.mode === mode;
+							// The active source stays selectable even when the
+							// constraint no longer admits it (legacy-open backstop);
+							// every other inadmissible source is disabled with its
+							// reason rather than dimmed-but-clickable.
+							const verdict = admission[item.mode];
+							const admitted = isActive || verdict.admitted;
 							const last = items.length - 1;
 							const corners =
 								i === 0 && i === last
@@ -307,10 +421,11 @@ function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
 							return (
 								<Menu.Item
 									key={item.mode}
+									disabled={!admitted}
 									onClick={() => setMode(item.mode)}
 									className={`${corners} ${MENU_ITEM_CLS} ${
 										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
+									} ${admitted ? "" : "opacity-45"}`}
 								>
 									<Icon
 										icon={item.icon}
@@ -322,7 +437,14 @@ function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
 												: "text-nova-text-muted"
 										}
 									/>
-									<span>{item.label}</span>
+									<span className="flex-1 text-left min-w-0">
+										<div className="truncate">{item.label}</div>
+										{!admitted && verdict.reason !== undefined && (
+											<div className="text-[11px] truncate text-nova-text-muted">
+												{verdict.reason}
+											</div>
+										)}
+									</span>
 								</Menu.Item>
 							);
 						})}
@@ -347,6 +469,7 @@ function ModeMenu({ mode, setMode, computedItems }: ModeMenuProps) {
 interface TermBodyInputProps {
 	readonly term: Term;
 	readonly onChange: (next: Term) => void;
+	readonly constraint: SlotConstraint;
 	readonly invalid: boolean;
 }
 
@@ -356,19 +479,34 @@ interface TermBodyInputProps {
  * exhaustively narrowed; an unhandled case is a TypeScript build
  * error.
  */
-function TermBodyInput({ term, onChange, invalid }: TermBodyInputProps) {
+function TermBodyInput({
+	term,
+	onChange,
+	constraint,
+	invalid,
+}: TermBodyInputProps) {
+	const propertyFilter = useMemo(
+		() => propertyFilterFor(constraint),
+		[constraint],
+	);
 	switch (term.kind) {
 		case "literal":
 			// Free-form literal — no anchor property to derive the input
 			// variant from. `LiteralCardEditor` reads the literal's own
 			// `data_type` qualifier (or the JS-runtime type of `value` as
 			// a fallback) to pick text / number / boolean / null / typed-
-			// date inputs. Unlike `LiteralValueInput` (which short-
+			// date inputs, gating the shape menu to the constraint's
+			// accepted types. Unlike `LiteralValueInput` (which short-
 			// circuits on missing propertyName), this inline editor
 			// supports the bare-literal case so authors can author a
 			// literal at any value slot without a property anchor.
 			return (
-				<LiteralCardEditor value={term} onChange={onChange} invalid={invalid} />
+				<LiteralCardEditor
+					value={term}
+					onChange={onChange}
+					constraint={constraint}
+					invalid={invalid}
+				/>
 			);
 		case "prop":
 			// Routes through `PropertyRefPicker` so the prop's optional
@@ -377,11 +515,14 @@ function TermBodyInput({ term, onChange, invalid }: TermBodyInputProps) {
 			// branch internally and rebuilds via `prop(caseType, name,
 			// via)` (three-arg form) — bypassing this primitive would
 			// silently drop authored relation walks on first user click.
+			// The constraint filter narrows the dropdown to properties of
+			// an accepted type.
 			return (
 				<PropertyRefPicker
 					mode="property-only"
 					value={term}
 					onChange={(next) => onChange(next)}
+					filter={propertyFilter}
 					invalid={invalid}
 				/>
 			);
@@ -390,6 +531,7 @@ function TermBodyInput({ term, onChange, invalid }: TermBodyInputProps) {
 				<InputRefMenu
 					value={term.name}
 					onChange={(name) => onChange(input(name))}
+					constraint={constraint}
 					invalid={invalid}
 				/>
 			);
@@ -415,28 +557,46 @@ function TermBodyInput({ term, onChange, invalid }: TermBodyInputProps) {
 interface InputRefMenuProps {
 	readonly value: string | undefined;
 	readonly onChange: (name: string) => void;
+	readonly constraint: SlotConstraint;
 	readonly invalid: boolean;
 }
 
 /** Search-input dropdown — picks from declared search inputs in
- *  scope. Empty when no inputs are declared; the editor surfaces a
- *  hint and the type checker emits the resolution error. */
-function InputRefMenu({ value, onChange, invalid }: InputRefMenuProps) {
+ *  scope whose declared type the slot accepts. Empty when no
+ *  admissible inputs exist; the editor surfaces a hint and the type
+ *  checker emits the resolution error. The currently-selected input
+ *  always shows (legacy-open backstop) even when its type is no longer
+ *  admitted. */
+function InputRefMenu({
+	value,
+	onChange,
+	constraint,
+	invalid,
+}: InputRefMenuProps) {
 	const ctx = usePredicateEditContext();
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const items = ctx.knownInputs;
+	const items = useMemo(
+		() =>
+			ctx.knownInputs.filter(
+				(i) =>
+					i.name === value ||
+					constraint.accepts === "any" ||
+					acceptsType(constraint, i.data_type ?? "text"),
+			),
+		[ctx.knownInputs, constraint, value],
+	);
 	const current = items.find((i) => i.name === value);
 	const triggerClass = [
 		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
-			? "border-nova-error/40"
+			? "border-nova-rose/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
 	].join(" ");
 
 	if (items.length === 0) {
 		return (
 			<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-				No declared search inputs
+				No matching search inputs
 			</div>
 		);
 	}
@@ -542,7 +702,7 @@ function SessionContextMenu({
 	const triggerClass = [
 		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
 		invalid
-			? "border-nova-error/40"
+			? "border-nova-rose/40"
 			: "border-white/[0.06] hover:border-nova-violet/30",
 	].join(" ");
 
@@ -631,14 +791,15 @@ function SessionContextMenu({
  *    - default → text input.
  *
  *  Mode picker on the leading edge lets the author flip between
- *  shapes; flipping is a destructive operation — it RESETS the
- *  literal to the new shape's default value via
- *  `buildLiteralForShape`, replacing both the value and the
- *  `data_type` qualifier (e.g. flipping `dateLiteral("2024")` to
- *  text shape commits `literal("")` — empty value, qualifier
- *  cleared). Edits within a single shape preserve the qualifier
- *  via `rebuildLiteralPreservingDataType`; the shape menu is the
- *  one path that rebases the qualifier intentionally.
+ *  shapes — offering only shapes whose value type the slot accepts,
+ *  the current shape always included (legacy-open backstop). Flipping
+ *  is a destructive operation — it RESETS the literal to the new
+ *  shape's default value via `buildLiteralForShape`, replacing both
+ *  the value and the `data_type` qualifier (e.g. flipping
+ *  `dateLiteral("2024")` to text shape commits `literal("")` — empty
+ *  value, qualifier cleared). Edits within a single shape preserve the
+ *  qualifier via `rebuildLiteralPreservingDataType`; the shape menu is
+ *  the one path that rebases the qualifier intentionally.
  *
  *  The `LiteralValueInput` primitive handles property-anchored
  *  typed inputs; this editor handles the free-form case where no
@@ -646,10 +807,12 @@ function SessionContextMenu({
 function LiteralCardEditor({
 	value,
 	onChange,
+	constraint,
 	invalid,
 }: {
 	readonly value: Literal;
 	readonly onChange: (next: Literal) => void;
+	readonly constraint: SlotConstraint;
 	readonly invalid: boolean;
 }) {
 	// Mode classification — drives the input variant. Reads through
@@ -667,11 +830,16 @@ function LiteralCardEditor({
 		// the inspector rail's narrow container. Stacking them made the
 		// value cost three rows in the rail.
 		<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
-			<LiteralShapeMenu shape={literalShape} setShape={setShape} />
+			<LiteralShapeMenu
+				shape={literalShape}
+				setShape={setShape}
+				constraint={constraint}
+			/>
 			<LiteralBodyInput
 				value={value}
 				onChange={onChange}
 				shape={literalShape}
+				nonEmpty={constraint.nonEmpty === true}
 				invalid={invalid}
 			/>
 		</div>
@@ -702,6 +870,21 @@ function classifyLiteralShape(lit: Literal): LiteralShape {
 	if (typeof lit.value === "number") return "number";
 	return "text";
 }
+
+/** The resolved type a literal shape produces — drives the shape
+ *  menu's per-shape admission against the slot's accept-set.
+ *  `boolean` resolves to `text` (CommCare has no Boolean type); `null`
+ *  resolves to the null sentinel (`_any`), compatible with every
+ *  type. */
+const LITERAL_SHAPE_TYPE: Record<LiteralShape, ResolvedType> = {
+	text: "text",
+	number: "int",
+	boolean: "text",
+	null: "_any",
+	date: "date",
+	datetime: "datetime",
+	time: "time",
+};
 
 /** Default literal for a given shape. Routes through the typed
  *  builders (`dateLiteral` / `datetimeLiteral` / `timeLiteral` for
@@ -742,13 +925,17 @@ const LITERAL_SHAPE_LABELS: Record<LiteralShape, string> = {
 
 /** Per-shape mode picker. Shares the corner-rounding + active-state
  *  styling with the term-mode menu above so the editor reads as
- *  one consistent surface family. */
+ *  one consistent surface family. Offers only shapes whose value type
+ *  the slot accepts; the current shape always shows (legacy-open
+ *  backstop). */
 function LiteralShapeMenu({
 	shape,
 	setShape,
+	constraint,
 }: {
 	readonly shape: LiteralShape;
 	readonly setShape: (shape: LiteralShape) => void;
+	readonly constraint: SlotConstraint;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const items: readonly LiteralShape[] = [
@@ -760,6 +947,7 @@ function LiteralShapeMenu({
 		"datetime",
 		"time",
 	];
+	const reason = reasonFor(constraint);
 	return (
 		<Menu.Root>
 			<Menu.Trigger
@@ -796,6 +984,11 @@ function LiteralShapeMenu({
 					<Menu.Popup className={MENU_POPUP_CLS}>
 						{items.map((s, i) => {
 							const isActive = s === shape;
+							// The active shape stays selectable even when the
+							// constraint no longer admits it (legacy-open backstop).
+							const admitted =
+								isActive ||
+								constraintAdmitsType(constraint, LITERAL_SHAPE_TYPE[s]);
 							const last = items.length - 1;
 							const corners =
 								i === 0 && i === last
@@ -808,12 +1001,20 @@ function LiteralShapeMenu({
 							return (
 								<Menu.Item
 									key={s}
+									disabled={!admitted}
 									onClick={() => setShape(s)}
 									className={`${corners} ${MENU_ITEM_CLS} ${
 										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
+									} ${admitted ? "" : "opacity-45"}`}
 								>
-									<span>{LITERAL_SHAPE_LABELS[s]}</span>
+									<span className="flex-1 text-left min-w-0">
+										<div className="truncate">{LITERAL_SHAPE_LABELS[s]}</div>
+										{!admitted && (
+											<div className="text-[10px] truncate text-nova-text-muted">
+												{reason}
+											</div>
+										)}
+									</span>
 									{isActive && (
 										<Icon
 											icon={tablerCheck}
@@ -835,7 +1036,7 @@ function LiteralShapeMenu({
 const LITERAL_INPUT_CLS_VALID =
 	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 const LITERAL_INPUT_CLS_INVALID =
-	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-error/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-error/60 focus:ring-nova-error/30 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-rose/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-rose/60 focus:ring-nova-rose/30 transition-colors";
 
 function literalInputCls(invalid: boolean): string {
 	return invalid ? LITERAL_INPUT_CLS_INVALID : LITERAL_INPUT_CLS_VALID;
@@ -848,17 +1049,24 @@ function LiteralBodyInput({
 	value,
 	onChange,
 	shape,
+	nonEmpty,
 	invalid,
 }: {
 	readonly value: Literal;
 	readonly onChange: (next: Literal) => void;
 	readonly shape: LiteralShape;
+	readonly nonEmpty: boolean;
 	readonly invalid: boolean;
 }) {
 	switch (shape) {
 		case "text":
 			return (
-				<LiteralTextInput value={value} onChange={onChange} invalid={invalid} />
+				<LiteralTextInput
+					value={value}
+					onChange={onChange}
+					nonEmpty={nonEmpty}
+					invalid={invalid}
+				/>
 			);
 		case "number":
 			return (
@@ -884,6 +1092,7 @@ function LiteralBodyInput({
 					value={value}
 					onChange={(s) => onChange(dateLiteral(s))}
 					inputType="date"
+					nonEmpty={nonEmpty}
 					invalid={invalid}
 				/>
 			);
@@ -893,6 +1102,7 @@ function LiteralBodyInput({
 					value={value}
 					onChange={(s) => onChange(datetimeLiteral(s))}
 					inputType="datetime-local"
+					nonEmpty={nonEmpty}
 					invalid={invalid}
 				/>
 			);
@@ -902,6 +1112,7 @@ function LiteralBodyInput({
 					value={value}
 					onChange={(s) => onChange(timeLiteral(s))}
 					inputType="time"
+					nonEmpty={nonEmpty}
 					invalid={invalid}
 				/>
 			);
@@ -909,15 +1120,22 @@ function LiteralBodyInput({
 }
 
 /** Text-typed literal input — commits on blur to avoid hammering
- *  the type checker on every keystroke. Same blur-commit pattern
- *  the `LiteralValueInput` primitive uses. */
+ *  the type checker on every keystroke. A `nonEmpty` slot (a `match`
+ *  value, say) reverts an emptied draft to the prior value rather
+ *  than committing `literal("")`. An empty match value is a
+ *  COMPLETENESS state ("fill this in") — every match mode collapses an
+ *  empty value to a non-match — so the editor only ever LEAVES it
+ *  unfilled (the seed), never lets the input actively empty a value the
+ *  author already filled. */
 function LiteralTextInput({
 	value,
 	onChange,
+	nonEmpty,
 	invalid,
 }: {
 	readonly value: Literal;
 	readonly onChange: (next: Literal) => void;
+	readonly nonEmpty: boolean;
 	readonly invalid: boolean;
 }) {
 	const initial = typeof value.value === "string" ? value.value : "";
@@ -933,6 +1151,8 @@ function LiteralTextInput({
 	//     pulse on an untouched input from re-emitting the AST. The
 	//     parent receives nothing, so the source reference flows
 	//     through untouched.
+	//   - A `nonEmpty` slot reverts an emptied draft to `initial` rather
+	//     than committing the empty literal.
 	//   - On a real edit, `rebuildLiteralPreservingDataType` carries
 	//     the source's `data_type` qualifier through. A literal
 	//     declared `data_type: "single_select"` (or any non-temporal
@@ -940,8 +1160,12 @@ function LiteralTextInput({
 	//     `literal(draft)` rebuild would silently drop it.
 	const commit = useCallback(() => {
 		if (draft === initial) return;
+		if (nonEmpty && draft === "") {
+			setDraft(initial);
+			return;
+		}
 		onChange(rebuildLiteralPreservingDataType(value, draft));
-	}, [draft, initial, onChange, value]);
+	}, [draft, initial, nonEmpty, onChange, value]);
 	return (
 		<input
 			ref={inputRef}
@@ -1034,7 +1258,7 @@ function LiteralBooleanToggle({
 	const idleCls =
 		"text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]";
 	const wrapCls = invalid
-		? "flex gap-1 px-1 py-1 rounded-md border border-nova-error/40 bg-nova-deep/50"
+		? "flex gap-1 px-1 py-1 rounded-md border border-nova-rose/40 bg-nova-deep/50"
 		: "flex gap-1 px-1 py-1 rounded-md border border-white/[0.06] bg-nova-deep/50";
 	// `<fieldset>` carries the implicit "group of related controls" role
 	// without a separate `role="group"` attribute — biome's
@@ -1093,16 +1317,24 @@ function LiteralNullChip() {
  *  formatted output, which matches CommCare's date / datetime
  *  conventions when truncated to seconds. Commits on change rather
  *  than blur — picker commits are atomic events, not in-flight
- *  edits. Same shape `LiteralValueInput`'s `DateInput` uses. */
+ *  edits. Same shape `LiteralValueInput`'s `DateInput` uses.
+ *
+ *  A `nonEmpty` slot (a `fuzzy-date` match value) ignores a cleared
+ *  value: the input is controlled by `value={initial}`, so dropping the
+ *  commit snaps the native picker back to the prior value — the same
+ *  revert the text widget does, so `dateLiteral("")` can't be authored
+ *  where an empty value is a non-match. */
 function LiteralTypedDateInput({
 	value,
 	onChange,
 	inputType,
+	nonEmpty,
 	invalid,
 }: {
 	readonly value: Literal;
 	readonly onChange: (wireValue: string) => void;
 	readonly inputType: "date" | "datetime-local" | "time";
+	readonly nonEmpty: boolean;
 	readonly invalid: boolean;
 }) {
 	const initial = typeof value.value === "string" ? value.value : "";
@@ -1110,7 +1342,10 @@ function LiteralTypedDateInput({
 		<input
 			type={inputType}
 			value={initial}
-			onChange={(e) => onChange(e.target.value)}
+			onChange={(e) => {
+				if (nonEmpty && e.target.value === "") return;
+				onChange(e.target.value);
+			}}
 			autoComplete="off"
 			data-1p-ignore
 			aria-label={`Literal ${inputType.replace("-local", "")} value`}
@@ -1136,7 +1371,7 @@ function UserFieldInput({
 	const inputCls = [
 		"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
-			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
+			? "border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
 	].join(" ");
 	return (

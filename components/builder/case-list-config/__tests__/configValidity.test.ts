@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	advancedSearchInputDef,
 	type CaseListConfig,
 	type CaseType,
 	calculatedColumn,
@@ -14,7 +15,15 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { literal, matchAll, prop, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	input,
+	literal,
+	matchAll,
+	prop,
+	term,
+	whenInput,
+} from "@/lib/domain/predicate";
 import { asUuid } from "@/lib/domain/uuid";
 import { isCaseListConfigValid } from "../configValidity";
 
@@ -112,6 +121,25 @@ describe("isCaseListConfigValid", () => {
 		expect(isCaseListConfigValid(duplicateNames, CASE_TYPES, "patient")).toBe(
 			false,
 		);
+	});
+
+	it("accepts an advanced input whose condition references its own input", () => {
+		// The custom-condition seed self-references the row's own input
+		// via the when-input-present envelope. The edited row must be in
+		// scope for that to resolve — otherwise the gate pauses the
+		// preview on a condition the commit gate and wire emitter accept.
+		const ok = config({
+			searchInputs: [
+				advancedSearchInputDef(
+					asUuid("s1"),
+					"name",
+					"Name",
+					"text",
+					whenInput(input("name"), eq(prop("patient", "name"), input("name"))),
+				),
+			],
+		});
+		expect(isCaseListConfigValid(ok, CASE_TYPES, "patient")).toBe(true);
 	});
 
 	it("accepts a match-all filter (the empty-filter seed)", () => {

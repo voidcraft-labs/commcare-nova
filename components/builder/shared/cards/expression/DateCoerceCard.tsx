@@ -24,11 +24,16 @@ import {
 	datetimeCoerce,
 	literal,
 	term,
+	textShapedConstraint,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
+
+/** Both coercion operators read a text-shaped operand — module-const
+ *  for a stable identity across renders. */
+const OPERAND_CONSTRAINT = textShapedConstraint();
 
 /** Default `date-coerce` — `date-coerce(literal(""))`. The empty
  *  literal lets the user immediately see the operand picker; the
@@ -89,7 +94,7 @@ export function DateCoerceCard({ value, onChange, path }: DateCoerceCardProps) {
 					value={value.value}
 					onChange={setOperand}
 					path={appendSlot(path, "value")}
-					expectedType="text"
+					constraint={OPERAND_CONSTRAINT}
 					variant="nested"
 				/>
 			</div>

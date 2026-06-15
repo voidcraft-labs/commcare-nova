@@ -29,23 +29,29 @@ import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import { useMemo } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import {
+	ANY_CONSTRAINT,
+	compatibleTypesFor,
 	type Literal,
 	literal,
+	literalType,
+	type ResolvedType,
+	type SlotConstraint,
 	type SwitchCase,
 	switchCase,
 	switchExpr,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { useEditorErrorsAt } from "../../editorContext";
+import {
+	useEditorErrorsAt,
+	usePredicateEditContext,
+	useResolvedType,
+} from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { expressionCardSchemas } from "../../expressionEditorSchemas";
-import {
-	literalToInputText,
-	parseInputTextToLiteral,
-} from "../../literalRebuild";
 import { nodeId } from "../../nodeIdentity";
 import {
 	appendKindIndexSlot,
@@ -54,7 +60,9 @@ import {
 } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
+import { LiteralValueInput } from "../../primitives/LiteralValueInput";
 import { ReorderableRow, useReorderableList } from "../../useReorderableList";
+import { reseedLiteralForConstraint, resolveExpressionType } from "../reseed";
 
 /** Default `switch` — `switch(literal(""), [{ when: "", then: "" }],
  *  fallback: "")`. The single-case seed satisfies the schema's
@@ -70,20 +78,46 @@ export function switchDefault(
 	);
 }
 
+/** Whether a `when` literal's type sits in `on`'s compatible set —
+ *  the null literal (`_any`) is universally compatible. */
+function whenLiteralAccepted(
+	when: Literal,
+	accepts: ReadonlySet<ResolvedType>,
+): boolean {
+	return accepts.has(literalType(when));
+}
+
 interface SwitchCardProps {
 	readonly value: Extract<ValueExpression, { kind: "switch" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
+	/** The switch's own result constraint propagates to every `then`
+	 *  branch and the `fallback` — the result is whichever branch
+	 *  matches, so each must satisfy the slot. */
+	readonly constraint?: SlotConstraint;
 }
 
-export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
+export function SwitchCard({
+	value,
+	onChange,
+	path,
+	constraint = ANY_CONSTRAINT,
+}: SwitchCardProps) {
 	// Per-slot errors at `[..., "switch", "on" | "fallback"]` render
 	// via the matching `ExpressionPicker` shells' `CardShell` footers
 	// — no parallel `<InlineError>` is needed here. The `[...,
-	// "switch", "cases", i, "when"]` errors fall on the inner
-	// `SwitchWhenLiteralInput` (which has no shell of its own), so
-	// the per-row `InlineError` for `whenErrors` STAYS in `CaseRow`.
+	// "switch", "cases", i, "when"]` errors fall on the inner `when`
+	// literal input (which has no shell of its own), so the per-row
+	// `InlineError` for `whenErrors` STAYS in `CaseRow`.
 	const containerKey = nodeId(value);
+	const ctx = usePredicateEditContext();
+
+	// Each `case.when` literal must be comparable with `on`'s resolved
+	// type — the when input is typed against this accept-set, and a
+	// change of `on` reseeds any now-incompatible `when` in the same
+	// onChange so the committed switch is never transiently type-wrong.
+	const onType = useResolvedType(value.on);
+	const whenAccepts = useMemo(() => compatibleTypesFor(onType), [onType]);
 
 	const apply = (
 		cases: readonly SwitchCase[],
@@ -97,7 +131,14 @@ export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
 	};
 
 	const setOn = (next: ValueExpression) => {
-		onChange(switchExpr(next, value.cases, value.fallback));
+		const nextAccepts = compatibleTypesFor(resolveExpressionType(next, ctx));
+		const reseeded = value.cases.map((c) =>
+			whenLiteralAccepted(c.when, nextAccepts)
+				? c
+				: switchCase(reseedLiteralForConstraint(c.when, nextAccepts), c.then),
+		);
+		const [first, ...rest] = reseeded;
+		onChange(switchExpr(next, [first, ...rest], value.fallback));
 	};
 
 	const setFallback = (next: ValueExpression) => {
@@ -184,6 +225,8 @@ export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
 									onRemove={() => removeCase(i)}
 									setHandleEl={setHandleEl}
 									path={path}
+									whenAccepts={whenAccepts}
+									thenConstraint={constraint}
 								/>
 								{previewPortal}
 							</div>
@@ -208,6 +251,7 @@ export function SwitchCard({ value, onChange, path }: SwitchCardProps) {
 					value={value.fallback}
 					onChange={setFallback}
 					path={appendKindSlot(path, "switch", "fallback")}
+					constraint={constraint}
 					variant="nested"
 				/>
 			</div>
@@ -223,6 +267,13 @@ interface CaseRowProps {
 	readonly onRemove: () => void;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly path: EditorPath;
+	/** The accept-set for the `when` literal — `on`'s compatible
+	 *  types. Drives the typed `when` input so an authored value can't
+	 *  disagree with `on`. */
+	readonly whenAccepts: ReadonlySet<ResolvedType>;
+	/** The switch's result constraint — propagated to the `then`
+	 *  branch. */
+	readonly thenConstraint: SlotConstraint;
 }
 
 function CaseRow({
@@ -233,7 +284,10 @@ function CaseRow({
 	onRemove,
 	setHandleEl,
 	path,
+	whenAccepts,
+	thenConstraint,
 }: CaseRowProps) {
+	const ctx = usePredicateEditContext();
 	// `when` errors land on the inner `SwitchWhenLiteralInput` —
 	// that input has no card-shell of its own, so the `<InlineError>`
 	// row below the input is the only render path. `then` errors
@@ -286,10 +340,19 @@ function CaseRow({
 					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
 						When it equals
 					</div>
-					<SwitchWhenLiteralInput
+					{/* The when value is typed against `on`'s compatible set,
+					 *  so an authored value can never disagree with the
+					 *  discriminator. No property anchors it (the value is
+					 *  compared to `on`, not stored on a case), so the widget
+					 *  data type comes from `whenAccepts`. */}
+					<LiteralValueInput
 						value={switchCaseValue.when}
 						onChange={setWhen}
+						caseTypeName={ctx.currentCaseType}
+						propertyName={undefined}
+						accepts={whenAccepts}
 						invalid={whenErrors.length > 0}
+						ariaLabel="Case when value"
 					/>
 					<InlineError errors={whenErrors} />
 				</div>
@@ -307,65 +370,12 @@ function CaseRow({
 							caseIndex,
 							"then",
 						)}
+						constraint={thenConstraint}
 						variant="nested"
 					/>
 				</div>
 			</div>
 		</div>
-	);
-}
-
-/** Switch-case `when` literal input. Each case's `when` is a typed
- *  `Literal` (not an arbitrary value expression) — the wire form
- *  demands a static value at each comparison site.
- *
- *  Rebuild contract: commits route through `parseInputTextToLiteral`
- *  so the source's `data_type` qualifier (load-bearing for
- *  `dateLiteral` / `datetimeLiteral` / `timeLiteral` `when` values)
- *  survives every blur. The blur handler compares the input's
- *  current text to the source's serialized form and short-circuits
- *  on equality — focus / no-typing / blur leaves the AST reference-
- *  identical, eliminating the data-loss class where a focus pulse
- *  on an untouched input destroyed a typed-temporal `when`. */
-function SwitchWhenLiteralInput({
-	value,
-	onChange,
-	invalid,
-}: {
-	readonly value: Literal;
-	readonly onChange: (next: Literal) => void;
-	readonly invalid: boolean;
-}) {
-	const initial = literalToInputText(value);
-	const inputCls = [
-		"w-full px-2 py-1.5 text-xs rounded-md border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
-		invalid
-			? "border-nova-error/40 focus:border-nova-error/60 focus:ring-nova-error/30"
-			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
-	].join(" ");
-	return (
-		<input
-			type="text"
-			defaultValue={initial}
-			onBlur={(e) => {
-				const text = e.target.value;
-				// No-op gate: the input is uncontrolled, so the only
-				// signal carrying user intent is "the text actually
-				// changed." A focus / blur pulse without typing leaves
-				// the source AST reference-identical, which is critical
-				// for typed-temporal `when` literals — `dateLiteral` /
-				// `datetimeLiteral` / `timeLiteral` carry a `data_type`
-				// qualifier that any naïve rebuild would strip.
-				if (text === initial) return;
-				onChange(parseInputTextToLiteral(text, value));
-			}}
-			autoComplete="off"
-			data-1p-ignore
-			placeholder="Value to match"
-			aria-label="Case when value"
-			aria-invalid={invalid || undefined}
-			className={inputCls}
-		/>
 	);
 }
 

@@ -45,6 +45,7 @@ import { InlineError } from "../../primitives/CardShell";
 import { RelationPathBuilder } from "../../primitives/RelationPathBuilder";
 import { resolveRelationDestination } from "../../relationDestination";
 import { ChildPredicateEditor } from "../ChildPredicateEditor";
+import { rescopeWhereForVia } from "../reseed";
 
 /** Default `count` — one-step ancestor walk via `parent` with no
  *  filter. Mirrors `existsDefault` on the Predicate side; authors
@@ -67,7 +68,11 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 	const viaErrors = useEditorErrorsAt(appendKindSlot(path, "count", "via"));
 
 	const setVia = (next: RelationPath) => {
-		onChange(count(next, value.where));
+		// A new walk can change the destination scope; a `where` whose
+		// property refs no longer resolve there resets to `matchAll()`
+		// in the same onChange so the committed count stays sound.
+		const where = rescopeWhereForVia(value.where, next, ctx);
+		onChange(where === undefined ? count(next) : count(next, where));
 	};
 
 	const setWhere = (next: Predicate | undefined) => {

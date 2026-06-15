@@ -18,8 +18,10 @@ import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import {
+	ANY_CONSTRAINT,
 	coalesce,
 	literal,
+	type SlotConstraint,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
@@ -44,9 +46,18 @@ interface CoalesceCardProps {
 	readonly value: Extract<ValueExpression, { kind: "coalesce" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
+	/** The coalesce's own result constraint propagates to every value —
+	 *  the result is whichever value resolves first, so each must
+	 *  satisfy the slot. */
+	readonly constraint?: SlotConstraint;
 }
 
-export function CoalesceCard({ value, onChange, path }: CoalesceCardProps) {
+export function CoalesceCard({
+	value,
+	onChange,
+	path,
+	constraint = ANY_CONSTRAINT,
+}: CoalesceCardProps) {
 	const containerKey = nodeId(value);
 
 	const apply = (
@@ -127,6 +138,7 @@ export function CoalesceCard({ value, onChange, path }: CoalesceCardProps) {
 								onRemove={() => removeValue(i)}
 								setHandleEl={setHandleEl}
 								path={appendSlotIndex(path, "values", i)}
+								constraint={constraint}
 							/>
 							{previewPortal}
 						</div>
@@ -152,6 +164,7 @@ interface ValueRowProps {
 	readonly onRemove: () => void;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly path: EditorPath;
+	readonly constraint: SlotConstraint;
 }
 
 function ValueRow({
@@ -161,6 +174,7 @@ function ValueRow({
 	onRemove,
 	setHandleEl,
 	path,
+	constraint,
 }: ValueRowProps) {
 	// Per-value errors render via the `ExpressionPicker` shell's
 	// `CardShell` footer at the matching slot path — no parallel
@@ -170,6 +184,7 @@ function ValueRow({
 			value={valueExpr}
 			onChange={onUpdate}
 			path={path}
+			constraint={constraint}
 			variant="nested"
 			dragHandleRef={setHandleEl}
 			onRemove={isOnlyOne ? undefined : onRemove}

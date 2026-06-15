@@ -41,6 +41,7 @@ import { appendKindSlot, type EditorPath } from "../path";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
 import { resolveRelationDestination } from "../relationDestination";
 import { ChildPredicateEditor } from "./ChildPredicateEditor";
+import { rescopeWhereForVia } from "./reseed";
 
 export function existsDefault(): Extract<Predicate, { kind: "exists" }> {
 	// Default to a single-step ancestor walk via `parent` — the
@@ -70,7 +71,11 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 
 	const setVia = (next: RelationPath) => {
 		const builder = value.kind === "missing" ? missing : exists;
-		onChange(builder(next, value.where));
+		// A new walk can change the destination scope; a `where` whose
+		// property refs no longer resolve there resets to `matchAll()`
+		// in the same onChange so the committed quantifier stays sound.
+		const where = rescopeWhereForVia(value.where, next, ctx);
+		onChange(where === undefined ? builder(next) : builder(next, where));
 	};
 
 	const setWhere = (next: Predicate | undefined) => {

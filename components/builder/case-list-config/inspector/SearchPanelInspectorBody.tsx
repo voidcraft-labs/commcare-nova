@@ -30,13 +30,22 @@ import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import type { CaseSearchConfig, CaseType } from "@/lib/domain";
 import {
+	compatibleTypesFor,
 	literal,
 	type Predicate,
 	type SearchInputDecl,
+	type SlotConstraint,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { NO_SEARCH_INPUTS } from "../searchInputResolution";
+
+/** The excluded-owners expression resolves to a space-separated owner-
+ *  id list — a text value. Module-const so the constraint identity
+ *  stays stable across renders. */
+const EXCLUDED_OWNERS_CONSTRAINT: SlotConstraint = {
+	accepts: compatibleTypesFor("text"),
+};
 
 export interface SearchPanelInspectorBodyProps {
 	/** Current case-search configuration. `undefined` means the module
@@ -124,17 +133,17 @@ export function SearchPanelInspectorBody({
 				// owner ids.
 				addSeed={term(literal(""))}
 				renderEditor={(expression, onExpressionChange, onValidityChange) => (
-					// `expectedType="text"` narrows the type checker's
-					// top-level expectation. A non-text expression is
-					// rejected at authoring time rather than at the
-					// validator pass.
+					// The text constraint narrows the editor's kind menu +
+					// value sources to text-producing shapes, so a
+					// non-text expression is unauthorable rather than
+					// rejected at the validator pass.
 					<ExpressionCardEditor
 						value={expression}
 						onChange={onExpressionChange}
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
 						knownInputs={knownInputs}
-						expectedType="text"
+						constraint={EXCLUDED_OWNERS_CONSTRAINT}
 						onValidityChange={onValidityChange}
 					/>
 				)}

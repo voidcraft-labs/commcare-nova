@@ -14,9 +14,10 @@
 // the rule's own test proves the gate accepts.
 
 import { describe, expect, it } from "vitest";
-import { asUuid, simpleSearchInputDef } from "@/lib/domain";
+import { asUuid, type CaseType, simpleSearchInputDef } from "@/lib/domain";
 import {
 	ancestorPath,
+	checkPredicate,
 	eq,
 	input,
 	literal,
@@ -28,10 +29,18 @@ import {
 } from "@/lib/domain/predicate";
 import {
 	recoverAnchoredProperty,
+	searchInputDecls,
 	seedCustomCondition,
 } from "../searchInputResolution";
 
 const CASE_TYPE = "household";
+
+const CASE_TYPES: CaseType[] = [
+	{
+		name: "household",
+		properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+	} as CaseType,
+];
 
 describe("seedCustomCondition", () => {
 	it("wraps an input-bound comparison in a when-input-present envelope", () => {
@@ -106,6 +115,47 @@ describe("seedCustomCondition", () => {
 				eq(prop("patient", "region", via), input("region")),
 			),
 		);
+	});
+});
+
+describe("searchInputDecls", () => {
+	it("includes the edited row so its own custom condition resolves", () => {
+		// The exact screenshot scenario: a single search input named
+		// `case_name` converted to a custom condition. The seed
+		// self-references `input("case_name")`, so the row's OWN
+		// declaration must be in scope — excluding it made the editor
+		// report "Unknown search input 'case_name'." against a condition
+		// the commit gate and wire emitter both accept.
+		const row = simpleSearchInputDef(
+			asUuid("si-1"),
+			"case_name",
+			"Name",
+			"text",
+			"case_name",
+		);
+		const decls = searchInputDecls([row], CASE_TYPES, CASE_TYPE);
+		expect(decls.map((d) => d.name)).toContain("case_name");
+
+		// The seeded custom condition must type-check clean — the same
+		// verdict the validator's `moduleTypeContext` reaches.
+		const seeded = seedCustomCondition(row, CASE_TYPE);
+		expect(
+			checkPredicate(seeded, {
+				caseTypes: CASE_TYPES,
+				knownInputs: [...decls],
+				currentCaseType: CASE_TYPE,
+			}).ok,
+		).toBe(true);
+	});
+
+	it("skips rows that have no reference name yet", () => {
+		const named = simpleSearchInputDef(asUuid("si-1"), "a", "A", "text", "");
+		const unnamed = simpleSearchInputDef(asUuid("si-2"), "", "B", "text", "");
+		expect(
+			searchInputDecls([named, unnamed], CASE_TYPES, CASE_TYPE).map(
+				(d) => d.name,
+			),
+		).toEqual(["a"]);
 	});
 });
 

@@ -25,7 +25,9 @@ import {
 	DATE_ADD_INTERVALS,
 	type DateAddInterval,
 	dateAdd,
+	dateOperandConstraint,
 	literal,
+	numericConstraint,
 	term,
 	today,
 	type ValueExpression,
@@ -38,6 +40,11 @@ import {
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
+
+/** The `date` operand resolves to date or datetime; `quantity` is
+ *  numeric — module-consts for stable identities across renders. */
+const DATE_CONSTRAINT = dateOperandConstraint();
+const QUANTITY_CONSTRAINT = numericConstraint();
 
 const INTERVAL_LABELS: Record<DateAddInterval, string> = {
 	seconds: "Seconds",
@@ -92,7 +99,7 @@ export function DateAddCard({ value, onChange, path }: DateAddCardProps) {
 					value={value.date}
 					onChange={setDate}
 					path={appendSlot(path, "date")}
-					expectedType="date"
+					constraint={DATE_CONSTRAINT}
 					variant="nested"
 				/>
 			</div>
@@ -112,7 +119,7 @@ export function DateAddCard({ value, onChange, path }: DateAddCardProps) {
 						value={value.quantity}
 						onChange={setQuantity}
 						path={appendSlot(path, "quantity")}
-						expectedType="int"
+						constraint={QUANTITY_CONSTRAINT}
 						variant="nested"
 					/>
 				</div>
