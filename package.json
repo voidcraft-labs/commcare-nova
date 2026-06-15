@@ -70,7 +70,7 @@
 		"commander": "^14.0.3",
 		"date-fns": "^4.1.0",
 		"dom-serializer": "^2.0.0",
-		"domutils": "^3.2.2",
+		"domutils": "^4.0.2",
 		"file-type": "^22.0.1",
 		"firebase-admin": "^13.8.0",
 		"fumadocs-core": "^16.8.4",
