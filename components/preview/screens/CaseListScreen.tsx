@@ -151,11 +151,23 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const config = mod?.caseListConfig;
 	const searchConfig = mod?.caseSearchConfig;
 
-	// `pickBlueprintDoc` strips action methods + non-schema keys off the
-	// doc-store state so the projection survives Next's RSC serializer.
+	// Re-project whenever the case-type schemas change. The running list reads
+	// only ONE slice off this blueprint — `loadCasesAction` → `buildCaseTypeMap`
+	// consults `caseTypes` and nothing else — so `caseTypes` is the projection's
+	// sole live dependency. This screen is retained across the preview toggle
+	// under `<Activity>`, so keying on the stable `docApi.getState` alone would
+	// freeze the projection at mount: after a referenced property is renamed the
+	// running list would type-check its calc ASTs against the pre-rename property
+	// set and reject them, while the edit canvas (which reads the doc fresh) stays
+	// correct. Keying on the reactive `caseTypes` re-fires the load the instant
+	// the schema changes — even with no config edit — and stays referentially
+	// stable on an ordinary render, so it never re-queries the case store
+	// needlessly. (`pickBlueprintDoc` strips action methods + non-schema keys so
+	// the projection survives Next's RSC serializer.)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `caseTypes` is an intentional invalidation key — the callback reads the whole doc, of which `caseTypes` is the only slice the query consumes.
 	const blueprint = useMemo(
 		() => pickBlueprintDoc(docApi.getState()),
-		[docApi.getState],
+		[docApi.getState, caseTypes],
 	);
 
 	// ── Responsive split — the canvas's own width decides ──
