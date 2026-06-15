@@ -2,13 +2,20 @@
 //
 // components/builder/shared/__tests__/cards/ComparisonCard.test.tsx
 //
-// Inline-error rendering test for the comparison card. Pins the
-// validity-index path lookup contract — operand-level errors
+// LEGACY-DISPLAY test for the comparison card. The editor is now valid
+// by construction — no sequence of picker choices can author a
+// type-mismatched comparison (the right slot offers only types
+// compatible with the subject). These cases therefore seed a
+// pre-existing (legacy / hypothetical) invalid AST DIRECTLY and assert
+// the display backstop still renders it AND surfaces the rose inline
+// error — a saved-but-broken predicate a user opens must still show its
+// problem, even though the editor would never let them create it.
+//
+// Pins the validity-index path lookup contract — operand-level errors
 // (`["left"]`, `["right"]`) land next to the matching input;
-// operator-level errors (`[]`, e.g. "ordered-types violation")
-// land at the card shell's footer. Mounts through the full
-// `PredicateCardEditor` so the validity index is the real one
-// produced by `checkPredicate`.
+// operator-level errors (`[]`, e.g. "ordered-types violation") land at
+// the card shell's footer. Mounts through the full `PredicateCardEditor`
+// so the validity index is the real one produced by `checkPredicate`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -39,10 +46,12 @@ describe("ComparisonCard — inline errors", () => {
 		expect(container.querySelectorAll('[aria-invalid="true"]').length).toBe(0);
 	});
 
-	it("renders inline error chrome when operands disagree on type", () => {
-		// `gt(int, "string")` — type checker rejects via the
-		// "not comparable" rule. The verdict propagates to the
-		// validity index; the card surfaces it inline.
+	it("renders inline error chrome for a legacy type-mismatched comparison", () => {
+		// `gt(int, "string")` — a pre-existing invalid AST the editor
+		// can't author (the right slot only offers int-compatible
+		// values). The type checker rejects via the "not comparable"
+		// rule; the display backstop surfaces it inline so a user
+		// opening the saved predicate still sees the problem.
 		const value = gt(prop("patient", "age"), literal("not-an-int"));
 		const { container } = render(
 			<PredicateCardEditor

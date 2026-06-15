@@ -75,8 +75,8 @@ import {
 } from "@/lib/styles";
 import {
 	buildMode,
+	constraintForDefault,
 	effectiveModeKind,
-	expectedTypeForDefault,
 	NO_SEARCH_INPUTS,
 	type PropertyState,
 	type ResolvedRow,
@@ -1130,7 +1130,7 @@ function DefaultValueSlot({
 	rowIndex,
 	onChange,
 }: DefaultValueSlotProps) {
-	const expectedType = expectedTypeForDefault(inputType);
+	const constraint = constraintForDefault(inputType);
 	if (value === undefined) {
 		return (
 			<button
@@ -1158,7 +1158,7 @@ function DefaultValueSlot({
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
 					knownInputs={NO_SEARCH_INPUTS}
-					expectedType={expectedType}
+					constraint={constraint}
 				/>
 				<button
 					type="button"

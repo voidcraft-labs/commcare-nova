@@ -15,6 +15,7 @@ import {
 	type PropertyRef,
 	prop,
 	within,
+	withinCenterConstraint,
 } from "@/lib/domain/predicate";
 import {
 	MENU_ITEM_CLS,
@@ -40,6 +41,10 @@ const UNIT_LABELS: Record<DistanceUnit, string> = {
  *  is constant. */
 const GEOPOINT_PROPERTY_FILTER = (p: { data_type?: string }): boolean =>
 	p.data_type === "geopoint";
+
+/** The center resolves to a geopoint or a text-encoded coordinate —
+ *  module-const for a stable identity across renders. */
+const CENTER_CONSTRAINT = withinCenterConstraint();
 
 export function withinDistanceDefault(
 	ctx: PredicateEditContext,
@@ -104,24 +109,20 @@ export function WithinDistanceCard({
 					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
 						Center
 					</div>
-					{/* Center coordinate routes through `ExpressionPicker`
-					 *  so the full ValueExpression family is reachable.
+					{/* Center coordinate routes through `ExpressionPicker`.
 					 *  CCHQ accepts a typed-geopoint search input as the
 					 *  natural shape AND a wire-form coordinate string
 					 *  (per `query_functions.py::within_distance` —
-					 *  `GeoPoint.from_string` parses the text fallback).
-					 *  Both `geopoint` and `text` are admitted at the type
-					 *  checker, so no single `expectedType` hint captures
-					 *  the disjunction — passing `undefined` lets the kind
-					 *  picker surface every authoring path the type
-					 *  checker accepts, and the inline error guides
-					 *  authors who pick a non-matching shape. The picker's
-					 *  own `CardShell` footer surfaces those errors at the
-					 *  slot path. */}
+					 *  `GeoPoint.from_string` parses the text fallback), so
+					 *  `withinCenterConstraint` admits `geopoint` OR `text`
+					 *  and the picker offers only kinds / sources that
+					 *  produce one. The picker's own `CardShell` footer
+					 *  surfaces errors at the slot path. */}
 					<ExpressionPicker
 						value={value.center}
 						onChange={setCenter}
 						path={appendSlot(path, "center")}
+						constraint={CENTER_CONSTRAINT}
 						variant="nested"
 					/>
 				</div>

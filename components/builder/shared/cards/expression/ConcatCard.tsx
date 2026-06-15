@@ -18,6 +18,7 @@ import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import {
 	concat,
+	concatPartConstraint,
 	literal,
 	term,
 	type ValueExpression,
@@ -38,6 +39,10 @@ export function concatDefault(
 ): Extract<ValueExpression, { kind: "concat" }> {
 	return concat(term(literal("")), term(literal("")));
 }
+
+/** Every part casts to text at evaluation, so the part slot accepts
+ *  any value type — module-const for a stable identity across renders. */
+const PART_CONSTRAINT = concatPartConstraint();
 
 interface ConcatCardProps {
 	readonly value: Extract<ValueExpression, { kind: "concat" }>;
@@ -174,12 +179,9 @@ function PartRow({
 			value={part}
 			onChange={onUpdate}
 			path={path}
-			// Each part casts to text at evaluation; the editor
-			// suggests text-shaped kinds in the kind picker but
-			// allows any kind (every type casts to text at the
-			// wire layer). `applicable` honors the hint without
-			// outright filtering.
-			expectedType="text"
+			// Each part casts to text at evaluation, so every value type
+			// is admissible here — the constraint admits everything.
+			constraint={PART_CONSTRAINT}
 			variant="nested"
 			dragHandleRef={setHandleEl}
 			onRemove={isOnlyOne ? undefined : onRemove}

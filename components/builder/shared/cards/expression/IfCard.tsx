@@ -24,10 +24,12 @@
 
 "use client";
 import {
+	ANY_CONSTRAINT,
 	ifExpr,
 	literal,
 	matchAll,
 	type Predicate,
+	type SlotConstraint,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
@@ -53,9 +55,17 @@ interface IfCardProps {
 	readonly value: Extract<ValueExpression, { kind: "if" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
+	/** The `if`'s own result constraint propagates to BOTH branches —
+	 *  whatever type the slot wants, each branch must produce. */
+	readonly constraint?: SlotConstraint;
 }
 
-export function IfCard({ value, onChange, path }: IfCardProps) {
+export function IfCard({
+	value,
+	onChange,
+	path,
+	constraint = ANY_CONSTRAINT,
+}: IfCardProps) {
 	// Operator-level errors land at `[..., "if"]` —
 	// `accumulateBranchType` pushes the branch-type-mismatch message
 	// there. The card surfaces those inline because nothing else
@@ -109,6 +119,7 @@ export function IfCard({ value, onChange, path }: IfCardProps) {
 					value={value.then}
 					onChange={setThen}
 					path={appendKindSlot(path, "if", "then")}
+					constraint={constraint}
 					variant="nested"
 				/>
 			</div>
@@ -121,6 +132,7 @@ export function IfCard({ value, onChange, path }: IfCardProps) {
 					value={value.else}
 					onChange={setElse}
 					path={appendKindSlot(path, "if", "else")}
+					constraint={constraint}
 					variant="nested"
 				/>
 			</div>

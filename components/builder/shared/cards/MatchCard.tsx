@@ -6,12 +6,14 @@
 // / starts-with).
 
 "use client";
+import { useMemo } from "react";
 import type { CaseProperty } from "@/lib/domain";
 import { isDateTyped, isTextShaped } from "@/lib/domain";
 import {
 	literal,
 	type MatchMode,
 	match,
+	matchValueConstraint,
 	type Predicate,
 	type PropertyRef,
 	prop,
@@ -90,6 +92,17 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 			? MATCH_FUZZY_DATE_FILTER
 			: MATCH_TEXT_SHAPED_FILTER;
 
+	// The value slot takes a non-empty term whose type the mode admits
+	// — `matchValueConstraint` carries the mode's allow-list, the
+	// term-only flag (the wire match emitter consumes terms), and the
+	// non-empty flag (every mode collapses an empty value to a
+	// non-match). Memoized on the mode so the term editor's source
+	// admission doesn't recompute on every render.
+	const valueConstraint = useMemo(
+		() => matchValueConstraint(value.mode),
+		[value.mode],
+	);
+
 	return (
 		<div className="space-y-2">
 			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
@@ -109,25 +122,20 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 
 				<div>
 					{/* Match value routes through `ExpressionPicker` so the
-					 *  full ValueExpression family is reachable at the
-					 *  slot. The picker's own `CardShell` footer surfaces
-					 *  inline errors at the slot path, so no parallel
-					 *  `<InlineError>` is needed here.
-					 *
-					 *  `expectedType` mirrors the type checker's per-mode
-					 *  allow-list (`MATCH_PROPERTY_TYPES_BY_MODE`) — three
-					 *  modes accept text-shaped values; `fuzzy-date` widens
-					 *  to date as well. The hint is a primitive type, so
-					 *  it can't capture the multi-arm disjunction
-					 *  precisely; passing `text` for the three text-shaped
-					 *  modes and `date` for `fuzzy-date` is the closest
-					 *  primitive narrowing the picker's kind menu can
-					 *  surface. */}
+					 *  full Term family is reachable at the slot. The
+					 *  `matchValueConstraint` is `termOnly` (the wire match
+					 *  emitter consumes terms — no computed kinds offered),
+					 *  `nonEmpty` (the text widget refuses to commit an
+					 *  empty value), and carries the mode's allow-list so
+					 *  only a value of an admitted type is authorable. The
+					 *  picker's own `CardShell` footer surfaces inline errors
+					 *  at the slot path, so no parallel `<InlineError>` is
+					 *  needed here. */}
 					<ExpressionPicker
 						value={value.value}
 						onChange={setValue}
 						path={appendSlot(path, "value")}
-						expectedType={value.mode === "fuzzy-date" ? "date" : "text"}
+						constraint={valueConstraint}
 						variant="nested"
 					/>
 				</div>

@@ -20,7 +20,12 @@
 "use client";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import type { CaseType } from "@/lib/domain";
-import type { SearchInputDecl } from "@/lib/domain/predicate";
+import {
+	checkExpression,
+	type ResolvedType,
+	type SearchInputDecl,
+	type ValueExpression,
+} from "@/lib/domain/predicate";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
 
@@ -144,6 +149,39 @@ export function usePredicateEditContext(): PredicateEditContextValue {
 		);
 	}
 	return ctx;
+}
+
+/**
+ * Resolve a value expression's type against the live editor scope —
+ * the bridge that makes the editor's "valid choices" provably a
+ * function of the type checker. A card calls this on its SUBJECT
+ * (e.g. a comparison's left operand) to derive the type constraint it
+ * hands its dependent slots (`comparisonObjectConstraint(subjectType)`),
+ * so the offered set is exactly what `checkExpression` would accept.
+ *
+ * Runs the pure checker with a throwaway error sink — only the resolved
+ * type is used; diagnostics already surface through `validityIndex`.
+ * Returns `undefined` for an absent or unresolved subject (an empty
+ * property name, an unknown ref), which the constraint factories read
+ * as "no narrowing" so an incomplete subject never disables a choice.
+ */
+export function useResolvedType(
+	expr: ValueExpression | undefined,
+): ResolvedType | undefined {
+	const { caseTypes, currentCaseType, knownInputs } = usePredicateEditContext();
+	return useMemo(() => {
+		if (expr === undefined) return undefined;
+		return checkExpression(
+			expr,
+			{
+				caseTypes: [...caseTypes],
+				knownInputs: [...knownInputs],
+				currentCaseType,
+			},
+			[],
+			[],
+		);
+	}, [expr, caseTypes, currentCaseType, knownInputs]);
 }
 
 /**

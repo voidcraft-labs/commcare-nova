@@ -49,13 +49,21 @@ import tablerSlash from "@iconify-icons/tabler/slash";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import tablerWand from "@iconify-icons/tabler/wand";
 import { useRef } from "react";
+import { effectiveDataType } from "@/lib/domain";
 import {
 	and,
+	between,
 	type ComparisonKind,
+	comparisonOperatorsFor,
+	compatibleTypesFor,
+	isIn,
+	MATCH_PROPERTY_TYPES_BY_MODE,
+	matchModesFor,
 	not,
 	or,
 	type Predicate,
 	type PropertyRef,
+	type ResolvedType,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
@@ -64,20 +72,26 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { usePredicateEditContext } from "../editorContext";
+import { usePredicateEditContext, useResolvedType } from "../editorContext";
 import {
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "../editorSchemas";
 import { preservedOperandSwap } from "./ChildPredicateEditor";
 import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
+import {
+	reseedLiteralForConstraint,
+	reseedValueForConstraint,
+	resolveExpressionType,
+} from "./reseed";
 
 type MatchMode = Extract<Predicate, { kind: "match" }>["mode"];
 
 /** One pickable verb (or structural shape). `id` is unique across
  *  the menu; `build` produces the next AST node from the current
- *  one, carrying over whatever the target shape can hold. */
-interface VerbEntry {
+ *  one, carrying over whatever the target shape can hold. Exported
+ *  so the glue-fuzz can iterate the entries the menu dispatches. */
+export interface VerbEntry {
 	readonly id: string;
 	readonly label: string;
 	readonly description: string;
@@ -87,6 +101,19 @@ interface VerbEntry {
 	readonly schemaKind: Predicate["kind"];
 	readonly isCurrent: (value: Predicate) => boolean;
 	readonly build: (value: Predicate, ctx: PredicateEditContext) => Predicate;
+	/**
+	 * Subject-type gate — whether the subject (left operand) of the
+	 * CURRENT condition can support this verb. Absent for verbs every
+	 * subject supports (`eq` / `neq` / `in` / `is-null` / `is-blank`,
+	 * the contains / near shapes whose builder re-anchors a valid
+	 * property, and the structure shapes). When present and the gate
+	 * fails, the verb is disabled with `disabledReason` — so changing
+	 * HOW you compare never lands a type the subject can't take; the
+	 * author changes the subject first.
+	 */
+	readonly subjectGate?: (subjectType: ResolvedType | undefined) => boolean;
+	/** Reason shown when the subject-type gate disables the verb. */
+	readonly disabledReason?: string;
 }
 
 // ── Subject / object extraction ───────────────────────────────────
@@ -95,7 +122,7 @@ interface VerbEntry {
 // Carrying it across a verb change is the whole point of the shared
 // menu: changing HOW you compare must never lose WHAT you compare.
 
-function subjectOf(value: Predicate): ValueExpression | undefined {
+export function subjectOf(value: Predicate): ValueExpression | undefined {
 	switch (value.kind) {
 		case "eq":
 		case "neq":
@@ -142,40 +169,112 @@ function objectOf(value: Predicate): ValueExpression | undefined {
 	}
 }
 
+// ── Reseed helpers ────────────────────────────────────────────────
+//
+// Changing the verb carries the subject (and the value where the
+// target holds one), but the carried VALUE may not fit the new shape
+// — `is any of` over an int subject can't seed a text literal, a
+// fuzzy-date value can't carry into a fuzzy match. Each builder reseeds
+// a now-incompatible carried object in the same step so the emitted
+// predicate is valid by construction. The subject-type gate on the
+// menu (below) already prevents an operator the subject can't support;
+// the reseed handles the object on the other side.
+
+/** Resolve a property ref's declared type against the editor scope. */
+export function propertyType(
+	ctx: PredicateEditContext,
+	ref: PropertyRef,
+): ResolvedType | undefined {
+	const ct = ctx.caseTypes.find((c) => c.name === ref.caseType);
+	const property = ct?.properties.find((p) => p.name === ref.property);
+	return property === undefined ? undefined : effectiveDataType(property);
+}
+
+/** Carry a value expression unless its resolved type sits outside
+ *  `accepts` — then reseed it valid (carrying its typed content where
+ *  the new accept-set can hold it). */
+export function reseedObjectIfNeeded(
+	obj: ValueExpression,
+	accepts: ReadonlySet<ResolvedType>,
+	ctx: PredicateEditContext,
+): ValueExpression {
+	const type = resolveExpressionType(obj, ctx);
+	return type !== undefined && !accepts.has(type)
+		? reseedValueForConstraint(obj, accepts)
+		: obj;
+}
+
 // ── Per-family builders ───────────────────────────────────────────
 
-function buildComparison(
+export function buildComparison(
 	kind: ComparisonKind,
 	value: Predicate,
 	ctx: PredicateEditContext,
 ): Predicate {
-	// Same family: both operands carry verbatim.
+	// Same family: both operands carry verbatim (the subject-type gate
+	// already blocked an operator the subject can't support).
 	const preserved = preservedOperandSwap(value, kind);
 	if (preserved !== null) return preserved;
+	// Cross-family → comparison: carry the subject, then reseed the
+	// value to the subject's compatible set. The fallback's value was
+	// built for the fallback's OWN property, not this subject, so it is
+	// reseeded the same as a carried value — `eq(geopoint, "")` (a text
+	// literal opposite a place subject) becomes `eq(geopoint, null)`.
 	const fallback = predicateCardSchemas[kind].defaultValue(ctx);
 	const left = subjectOf(value) ?? fallback.left;
-	const right = objectOf(value) ?? fallback.right;
+	const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
+	const right = reseedObjectIfNeeded(
+		objectOf(value) ?? fallback.right,
+		accepts,
+		ctx,
+	);
 	return COMPARISON_BUILDERS[kind](left, right);
 }
 
-function buildMatch(
+export function buildMatch(
 	mode: MatchMode,
 	value: Predicate,
 	ctx: PredicateEditContext,
 ): Predicate {
+	const allow = MATCH_PROPERTY_TYPES_BY_MODE[mode];
 	if (value.kind === "match") {
-		return { ...value, mode };
+		// Mode change on an existing match — reseed the value if its type
+		// no longer sits in the new mode's allow-list.
+		return { ...value, mode, value: reseedMatchValue(value.value, allow, ctx) };
 	}
 	const fallback = predicateCardSchemas.match.defaultValue(ctx);
-	return {
-		...fallback,
-		mode,
-		property: subjectRefOf(value) ?? fallback.property,
-		value: objectOf(value) ?? fallback.value,
-	};
+	const ref = subjectRefOf(value);
+	// Carry the subject only when it's a property the mode can match;
+	// otherwise the fallback already anchored a matchable property.
+	const carriedType = ref !== undefined ? propertyType(ctx, ref) : undefined;
+	const property =
+		ref !== undefined && carriedType !== undefined && allow.has(carriedType)
+			? ref
+			: fallback.property;
+	const carried = objectOf(value);
+	const matchValue =
+		carried !== undefined
+			? reseedMatchValue(carried, allow, ctx)
+			: fallback.value;
+	return { ...fallback, mode, property, value: matchValue };
 }
 
-function buildWithSubjectLeft(
+/** A match value valid for the mode's allow-list — carries a still-
+ *  admissible term, reseeds an incompatible one, and leaves an
+ *  unresolved (empty / placeholder) term as the completeness state. */
+export function reseedMatchValue(
+	value: ValueExpression,
+	allow: ReadonlySet<ResolvedType>,
+	ctx: PredicateEditContext,
+): ValueExpression {
+	if (value.kind === "term") {
+		const type = resolveExpressionType(value, ctx);
+		if (type === undefined || allow.has(type)) return value;
+	}
+	return reseedValueForConstraint(value, allow);
+}
+
+export function buildWithSubjectLeft(
 	kind: "in" | "between" | "is-null" | "is-blank",
 	value: Predicate,
 	ctx: PredicateEditContext,
@@ -184,10 +283,38 @@ function buildWithSubjectLeft(
 	if (preserved !== null) return preserved;
 	const fallback = predicateCardSchemas[kind].defaultValue(ctx);
 	const subject = subjectOf(value);
-	return subject === undefined ? fallback : { ...fallback, left: subject };
+	if (subject === undefined) return fallback;
+	const accepts = compatibleTypesFor(resolveExpressionType(subject, ctx));
+	if (kind === "in") {
+		// Reseed the membership values to the subject's compatible set.
+		const inFallback = fallback as Extract<Predicate, { kind: "in" }>;
+		const values = inFallback.values.map((v) =>
+			reseedLiteralForConstraint(v, accepts),
+		);
+		const [first, ...rest] = values;
+		return isIn(subject, first, ...rest);
+	}
+	if (kind === "between") {
+		// Reseed each bound to the subject's compatible set.
+		const b = fallback as Extract<Predicate, { kind: "between" }>;
+		return between(subject, {
+			lower:
+				b.lower !== undefined
+					? reseedObjectIfNeeded(b.lower, accepts, ctx)
+					: undefined,
+			upper:
+				b.upper !== undefined
+					? reseedObjectIfNeeded(b.upper, accepts, ctx)
+					: undefined,
+			lowerInclusive: b.lowerInclusive,
+			upperInclusive: b.upperInclusive,
+		});
+	}
+	// is-null / is-blank carry only the subject — any read can be absent.
+	return { ...fallback, left: subject };
 }
 
-function buildContains(
+export function buildContains(
 	quantifier: "any" | "all",
 	value: Predicate,
 	ctx: PredicateEditContext,
@@ -198,11 +325,12 @@ function buildContains(
 	const fallback =
 		predicateCardSchemas["multi-select-contains"].defaultValue(ctx);
 	const ref = subjectRefOf(value);
-	return {
-		...fallback,
-		quantifier,
-		...(ref !== undefined ? { property: ref } : {}),
-	};
+	// Only carry the subject when it's a multi_select property; otherwise
+	// the fallback already anchored a valid multi_select property.
+	const carry = ref !== undefined && propertyType(ctx, ref) === "multi_select";
+	return carry
+		? { ...fallback, quantifier, property: ref }
+		: { ...fallback, quantifier };
 }
 
 // ── The vocabulary ────────────────────────────────────────────────
@@ -283,9 +411,19 @@ const MATCH_VERBS: ReadonlyArray<{
 	},
 ];
 
+/** Ordering operators compare by total order — only ordered subject
+ *  types support them. */
+const ORDERED_COMPARISON_REASON =
+	"Only numbers, dates, and times compare by order.";
+
 function buildVerbEntries(): readonly VerbEntry[] {
 	const entries: VerbEntry[] = [];
 	for (const v of COMPARISON_VERBS) {
+		const ordered =
+			v.kind === "gt" ||
+			v.kind === "gte" ||
+			v.kind === "lt" ||
+			v.kind === "lte";
 		entries.push({
 			id: v.kind,
 			label: v.label,
@@ -294,6 +432,13 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			schemaKind: v.kind,
 			isCurrent: (p) => p.kind === v.kind,
 			build: (p, ctx) => buildComparison(v.kind, p, ctx),
+			...(ordered
+				? {
+						subjectGate: (t: ResolvedType | undefined) =>
+							comparisonOperatorsFor(t).has(v.kind),
+						disabledReason: ORDERED_COMPARISON_REASON,
+					}
+				: {}),
 		});
 	}
 	for (const m of MATCH_VERBS) {
@@ -305,6 +450,12 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			schemaKind: "match",
 			isCurrent: (p) => p.kind === "match" && p.mode === m.mode,
 			build: (p, ctx) => buildMatch(m.mode, p, ctx),
+			subjectGate: (t: ResolvedType | undefined) =>
+				matchModesFor(t).has(m.mode),
+			disabledReason:
+				m.mode === "fuzzy-date"
+					? "Fuzzy-date matching needs a date or text property."
+					: "Text matching needs a text property.",
 		});
 	}
 	entries.push(
@@ -325,6 +476,9 @@ function buildVerbEntries(): readonly VerbEntry[] {
 			schemaKind: "between",
 			isCurrent: (p) => p.kind === "between",
 			build: (p, ctx) => buildWithSubjectLeft("between", p, ctx),
+			subjectGate: (t) => comparisonOperatorsFor(t).has("gt"),
+			disabledReason:
+				"A range needs an ordered property — a number, date, or time.",
 		},
 		{
 			id: "msc:any",
@@ -358,7 +512,11 @@ function buildVerbEntries(): readonly VerbEntry[] {
 				const fallback =
 					predicateCardSchemas["within-distance"].defaultValue(ctx);
 				const ref = subjectRefOf(p);
-				return ref !== undefined ? { ...fallback, property: ref } : fallback;
+				// Only carry the subject when it's a geopoint property;
+				// otherwise the fallback already anchored a valid one.
+				const carry =
+					ref !== undefined && propertyType(ctx, ref) === "geopoint";
+				return carry ? { ...fallback, property: ref } : fallback;
 			},
 		},
 		{
@@ -383,11 +541,15 @@ function buildVerbEntries(): readonly VerbEntry[] {
 	return entries;
 }
 
-const VERB_ENTRIES = buildVerbEntries();
+/** Every sentence verb (comparison / match / membership / range /
+ *  contains / near / blank) — exported so the valid-by-construction
+ *  glue-fuzz can drive every build the menu can dispatch. */
+export const VERB_ENTRIES = buildVerbEntries();
 
 /** Structural shapes — not sentences. Picking one replaces (or
- *  wraps) the condition with a container card. */
-const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
+ *  wraps) the condition with a container card. Exported alongside
+ *  `VERB_ENTRIES` for the same glue-fuzz. */
+export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 	{
 		id: "and",
 		label: "All of these…",
@@ -499,6 +661,27 @@ export function currentVerbLabel(value: Predicate): string {
 	return all.find((e) => e.isCurrent(value))?.label ?? value.kind;
 }
 
+/**
+ * Whether a verb entry is offerable for the CURRENT predicate — the
+ * exact admission the menu renders against. A verb is admitted when it
+ * is the current verb (legacy-open backstop), or when both its
+ * case-type applicability (`schemaKind.applicable`) AND its subject-type
+ * gate pass. Exported so the glue-fuzz can drive every admitted build
+ * the way the menu would.
+ */
+export function verbEntryAdmitted(
+	entry: VerbEntry,
+	value: Predicate,
+	subjectType: ResolvedType | undefined,
+	editCtx: PredicateEditContext,
+): boolean {
+	if (entry.isCurrent(value)) return true;
+	const applicable = predicateCardSchemas[entry.schemaKind].applicable(editCtx);
+	const subjectAdmitted =
+		entry.subjectGate === undefined || entry.subjectGate(subjectType);
+	return applicable && subjectAdmitted;
+}
+
 interface PredicateVerbMenuProps {
 	readonly value: Predicate;
 	readonly onChange: (next: Predicate) => void;
@@ -522,19 +705,33 @@ export function PredicateVerbMenu({
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
 	};
+	// The subject (left operand) drives which verbs are offerable — the
+	// same checker `checkComparison` / `checkMatch` validate against, so
+	// a verb the subject can't take is never selectable into an error.
+	const subjectType = useResolvedType(subjectOf(value));
 
 	const renderEntry = (entry: VerbEntry, corners: string) => {
 		const isCurrent = entry.isCurrent(value);
-		const isApplicable =
-			predicateCardSchemas[entry.schemaKind].applicable(editCtx);
+		// The current verb's own row is never disabled for admission
+		// reasons (legacy-open backstop) — `verbEntryAdmitted` exempts it,
+		// and only the no-op `isCurrent` disable applies to it.
+		const admitted = verbEntryAdmitted(entry, value, subjectType, editCtx);
+		// Re-derive the gate pieces only to phrase the disabled reason.
+		const subjectAdmitted =
+			entry.subjectGate === undefined || entry.subjectGate(subjectType);
+		const reason = !subjectAdmitted
+			? entry.disabledReason
+			: !predicateCardSchemas[entry.schemaKind].applicable(editCtx)
+				? "Not available for this case type."
+				: undefined;
 		return (
 			<Menu.Item
 				key={entry.id}
-				disabled={isCurrent}
+				disabled={!admitted || isCurrent}
 				onClick={() => onChange(entry.build(value, editCtx))}
 				className={`${corners} ${MENU_ITEM_CLS} min-h-11 ${
 					isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
-				} ${isApplicable ? "" : "opacity-45"}`}
+				} ${admitted ? "" : "opacity-45"}`}
 			>
 				<Icon
 					icon={entry.icon}
@@ -551,7 +748,7 @@ export function PredicateVerbMenu({
 							isCurrent ? "text-nova-violet-bright/60" : "text-nova-text-muted"
 						}`}
 					>
-						{entry.description}
+						{admitted || reason === undefined ? entry.description : reason}
 					</div>
 				</span>
 				{isCurrent && (

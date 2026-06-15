@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
 	arith,
+	comparisonObjectConstraint,
 	count,
 	formatDate,
 	ifExpr,
@@ -104,9 +105,11 @@ describe("ExpressionCardEditor — validity propagation", () => {
 		expect(onValidityChange).toHaveBeenCalledWith(false);
 	});
 
-	it("reports invalid when expectedType disagrees with the resolved type", () => {
-		// `today()` resolves to date; expectedType `int` triggers the
-		// top-level mismatch error.
+	it("reports invalid when the resolved type disagrees with the root constraint", () => {
+		// `today()` resolves to date; a numeric root constraint can't
+		// accept it, so the root-constraint display backstop fires. A
+		// legacy/hypothetical AST — valid-by-construction editing can't
+		// author a date here when the slot accepts only numbers.
 		const value = today();
 		const onValidityChange = vi.fn();
 		render(
@@ -115,14 +118,14 @@ describe("ExpressionCardEditor — validity propagation", () => {
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
-				expectedType="int"
+				constraint={comparisonObjectConstraint("int")}
 				onValidityChange={onValidityChange}
 			/>,
 		);
 		expect(onValidityChange).toHaveBeenCalledWith(false);
 	});
 
-	it("reports valid when expectedType matches", () => {
+	it("reports valid when the resolved type satisfies the root constraint", () => {
 		const value = term(prop("patient", "age"));
 		const onValidityChange = vi.fn();
 		render(
@@ -131,7 +134,7 @@ describe("ExpressionCardEditor — validity propagation", () => {
 				onChange={() => {}}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
-				expectedType="int"
+				constraint={comparisonObjectConstraint("int")}
 				onValidityChange={onValidityChange}
 			/>,
 		);

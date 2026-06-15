@@ -42,6 +42,7 @@ import {
 import type {
 	ResolvedType,
 	SearchInputDecl,
+	SlotConstraint,
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
@@ -95,15 +96,16 @@ export interface ExpressionEditContext {
  * `expressionCardSchemas` declaration (a `Record<ValueExpression["kind"],
  * ...>`) — adding a kind without an entry breaks the build.
  *
- * `applicable(ctx, expectedType?)` receives the optional caller-side
- * type expectation; entries can de-emphasize themselves when they're
- * structurally incapable of producing the expected type (e.g.
- * `today` declines an `int` slot). The shape returns a boolean to
- * keep the surface symmetric with the Predicate-side `applicable`
- * — the kind-picker UI can render an inapplicable entry with a
- * de-emphasized appearance rather than hide it outright (the
- * round-trip preservation contract demands every kind stay
- * representable across edits).
+ * `applicable(ctx, expectedType?)` reports whether the kind can
+ * structurally produce the expected type (e.g. `today` declines an
+ * `int` slot). The kind picker NO LONGER consumes it: the
+ * valid-by-construction `ExpressionPicker` gates on the slot's
+ * `SlotConstraint` via `admitsValueExpressionKind` (a kind whose
+ * result class can't satisfy the constraint is disabled with a reason,
+ * never dimmed). `applicable` is retained as the result-class oracle
+ * `valueExpressionKindResultClass` cites and the registry tests pin —
+ * the kind-result mapping in one tested place — so it must stay in
+ * lockstep with the constraint admission.
  */
 export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 	readonly kind: K;
@@ -114,6 +116,11 @@ export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 		readonly value: Extract<ValueExpression, { kind: K }>;
 		readonly onChange: (next: ValueExpression) => void;
 		readonly path: readonly (string | number)[];
+		/** The slot's type constraint — the card computes its inner
+		 *  slots' constraints from it ("depends" kinds propagate it; the
+		 *  hard-typed kinds fix their operands). Defaults to
+		 *  `ANY_CONSTRAINT` when the dispatch shell omits it. */
+		readonly constraint?: SlotConstraint;
 	}>;
 	readonly defaultValue: (
 		ctx: ExpressionEditContext,

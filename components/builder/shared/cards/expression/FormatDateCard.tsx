@@ -28,6 +28,7 @@
 
 "use client";
 import {
+	dateOperandConstraint,
 	FORMAT_DATE_PRESETS,
 	type FormatDatePreset,
 	formatDate,
@@ -41,6 +42,10 @@ import {
 	type DatePatternPreset,
 } from "../../primitives/CustomDatePatternInput";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
+
+/** The `date` operand resolves to date or datetime — module-const for
+ *  a stable identity across renders. */
+const DATE_CONSTRAINT = dateOperandConstraint();
 
 const PRESET_LABELS: Record<FormatDatePreset, string> = {
 	short: "Short",
@@ -99,7 +104,7 @@ export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
 					value={value.date}
 					onChange={setDate}
 					path={appendSlot(path, "date")}
-					expectedType="date"
+					constraint={DATE_CONSTRAINT}
 					variant="nested"
 				/>
 			</div>

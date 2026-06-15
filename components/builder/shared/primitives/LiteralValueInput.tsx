@@ -37,6 +37,7 @@ import {
 	datetimeLiteral,
 	type Literal,
 	literal,
+	type ResolvedType,
 	timeLiteral,
 } from "@/lib/domain/predicate";
 import {
@@ -69,10 +70,52 @@ interface LiteralValueInputProps {
 	 * property).
 	 */
 	readonly overrideDataType?: string;
+	/**
+	 * The slot's accepted result types — used to pick the widget's
+	 * data type when no property anchor resolves one (a literal-list
+	 * value whose `left` isn't a property ref). Ignored once a
+	 * property or `overrideDataType` is in play.
+	 */
+	readonly accepts?: ReadonlySet<ResolvedType>;
+	/**
+	 * When true, the text widget refuses to commit an empty value —
+	 * an emptied draft reverts to the prior value rather than emitting
+	 * `literal("")`. Used by slots where the empty string is a
+	 * soundness state (a `match` value).
+	 */
+	readonly nonEmpty?: boolean;
 	/** Shows the slot in an error state. */
 	readonly invalid?: boolean;
 	/** Accessibility label override (defaults to "Value"). */
 	readonly ariaLabel?: string;
+}
+
+// The literal types a typed widget exists for, in the order a no-anchor
+// slot prefers them. A geopoint accept-set (`{geopoint, _any}`) shares
+// none of these — there is no geopoint literal widget — so such a slot
+// renders the null-only control rather than a free text input that
+// could commit a text coordinate the checker rejects.
+const WIDGETABLE_TYPES = [
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"datetime",
+	"time",
+] as const;
+
+/** Whether the slot accepts any type a typed widget can author. */
+function hasWidgetableType(accepts: ReadonlySet<ResolvedType>): boolean {
+	return WIDGETABLE_TYPES.some((t) => accepts.has(t));
+}
+
+/** The widget data type to render when no property anchors one —
+ *  the first concrete type the slot accepts, preferring text. */
+function widgetDataTypeFromAccepts(accepts: ReadonlySet<ResolvedType>): string {
+	for (const t of WIDGETABLE_TYPES) {
+		if (accepts.has(t)) return t;
+	}
+	return "text";
 }
 
 /**
@@ -90,6 +133,8 @@ export function LiteralValueInput({
 	caseTypeName,
 	propertyName,
 	overrideDataType,
+	accepts,
+	nonEmpty = false,
 	invalid = false,
 	ariaLabel = "Value",
 }: LiteralValueInputProps) {
@@ -103,24 +148,43 @@ export function LiteralValueInput({
 		return ct.properties.find((p) => p.name === propertyName);
 	}, [ctx.caseTypes, caseTypeName, propertyName]);
 
-	// Override-precedence resolution: caller-supplied `overrideDataType`
-	// wins (search-input refs whose declared type lives on
-	// `SearchInputDecl`, not on a case property), otherwise the
-	// resolved property's effective type. The `(property ?
-	// effectiveDataType(property) : "text")` shape routes the
-	// `data_type ?? "text"` fallback through the shared helper rather
-	// than re-deriving the literal — adding a new fallback rule (e.g.
-	// for an `unknown` data-type sentinel) lights up every consumer
-	// in one edit.
+	// Widget-type resolution, in precedence order:
+	//   1. caller-supplied `overrideDataType` (search-input refs whose
+	//      declared type lives on `SearchInputDecl`, not on a case
+	//      property);
+	//   2. the resolved property's effective type;
+	//   3. the slot's accept-set (a literal-list value whose `left`
+	//      isn't a property ref — pick a widget the slot accepts);
+	//   4. `text` (CommCare's default for un-annotated properties).
 	const dataType: string =
-		overrideDataType ?? (property ? effectiveDataType(property) : "text");
+		overrideDataType ??
+		(property
+			? effectiveDataType(property)
+			: accepts !== undefined
+				? widgetDataTypeFromAccepts(accepts)
+				: "text");
 
-	if (propertyName === undefined) {
+	if (propertyName === undefined && accepts === undefined) {
 		return (
 			<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 				Select a property first
 			</div>
 		);
+	}
+
+	// No property / override anchors a widget type, and the slot's
+	// accept-set names no type a typed widget can author (a geopoint-only
+	// set). The only literal compatible with such a slot is `null`, so
+	// render the null-only control rather than a free text input. A
+	// pre-existing non-null literal (legacy) still renders read-only so it
+	// round-trips — the same current-value exemption the shape menus make.
+	if (
+		property === undefined &&
+		overrideDataType === undefined &&
+		accepts !== undefined &&
+		!hasWidgetableType(accepts)
+	) {
+		return <NullOnlyLiteral value={value} />;
 	}
 
 	switch (dataType) {
@@ -143,6 +207,7 @@ export function LiteralValueInput({
 						onChange(dateLiteral(v));
 					}}
 					kind="date"
+					nonEmpty={nonEmpty}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
 				/>
@@ -155,6 +220,7 @@ export function LiteralValueInput({
 						onChange(datetimeLiteral(v));
 					}}
 					kind="datetime"
+					nonEmpty={nonEmpty}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
 				/>
@@ -167,6 +233,7 @@ export function LiteralValueInput({
 						onChange(timeLiteral(v));
 					}}
 					kind="time"
+					nonEmpty={nonEmpty}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
 				/>
@@ -182,11 +249,19 @@ export function LiteralValueInput({
 					ariaLabel={ariaLabel}
 				/>
 			);
+		case "geopoint":
+			// A geopoint property has no literal widget — the only literal
+			// compatible with a place is `null`. Render the null-only
+			// control (legacy non-null values still show read-only) rather
+			// than a free text input that could commit a text coordinate the
+			// checker rejects.
+			return <NullOnlyLiteral value={value} />;
 		default:
 			return (
 				<TextInput
 					value={value}
 					onChange={onChange}
+					nonEmpty={nonEmpty}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
 				/>
@@ -222,7 +297,13 @@ interface ScalarInputProps {
  * `document.activeElement` (rather than the global tag-only check)
  * keeps a peer input's focus from blocking a re-sync of this one.
  */
-function TextInput({ value, onChange, invalid, ariaLabel }: ScalarInputProps) {
+function TextInput({
+	value,
+	onChange,
+	nonEmpty = false,
+	invalid,
+	ariaLabel,
+}: ScalarInputProps & { readonly nonEmpty?: boolean }) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const initial = typeof value?.value === "string" ? value.value : "";
 	const [draft, setDraft] = useState(initial);
@@ -234,6 +315,8 @@ function TextInput({ value, onChange, invalid, ariaLabel }: ScalarInputProps) {
 	// Commit gating + qualifier preservation:
 	//   - The no-op `draft === initial` short-circuit keeps a focus
 	//     pulse on an untouched input from re-emitting the AST.
+	//   - A `nonEmpty` slot reverts an emptied draft to the prior
+	//     value rather than committing `literal("")`.
 	//   - On a real edit, `rebuildLiteralPreservingDataType` carries
 	//     the source's `data_type` qualifier through. A literal
 	//     declared `data_type: "date"` (or any other qualifier) at a
@@ -244,12 +327,16 @@ function TextInput({ value, onChange, invalid, ariaLabel }: ScalarInputProps) {
 	//     preserve.
 	const commit = useCallback(() => {
 		if (draft === initial) return;
+		if (nonEmpty && draft === "") {
+			setDraft(initial);
+			return;
+		}
 		onChange(
 			value === undefined
 				? literal(draft)
 				: rebuildLiteralPreservingDataType(value, draft),
 		);
-	}, [draft, initial, onChange, value]);
+	}, [draft, initial, nonEmpty, onChange, value]);
 
 	return (
 		<input
@@ -339,6 +426,7 @@ interface DateInputProps {
 	readonly value: Literal | undefined;
 	readonly onChange: (wireValue: string) => void;
 	readonly kind: "date" | "datetime" | "time";
+	readonly nonEmpty?: boolean;
 	readonly invalid: boolean;
 	readonly ariaLabel: string;
 }
@@ -350,11 +438,18 @@ interface DateInputProps {
  * conventions when truncated to seconds. Commits on change rather
  * than blur — picker commits are atomic events, not in-flight
  * edits.
+ *
+ * A `nonEmpty` slot (a `fuzzy-date` match value) ignores a cleared
+ * value: the input is controlled by `value={initial}`, so dropping the
+ * commit snaps the native picker back to the prior value — the same
+ * revert the text widget does, so an empty `dateLiteral("")` can't be
+ * authored where the empty string is a soundness state.
  */
 function DateInput({
 	value,
 	onChange,
 	kind,
+	nonEmpty = false,
 	invalid,
 	ariaLabel,
 }: DateInputProps) {
@@ -365,13 +460,42 @@ function DateInput({
 		<input
 			type={inputType}
 			value={initial}
-			onChange={(e) => onChange(e.target.value)}
+			onChange={(e) => {
+				if (nonEmpty && e.target.value === "") return;
+				onChange(e.target.value);
+			}}
 			autoComplete="off"
 			data-1p-ignore
 			aria-label={ariaLabel}
 			aria-invalid={invalid || undefined}
 			className={`${inputCls(invalid)} font-mono`}
 		/>
+	);
+}
+
+/**
+ * Null-only literal control for a slot whose accept-set names no
+ * widget-able type (a geopoint membership / discriminator value — no
+ * geopoint literal widget exists, and the only literal compatible with
+ * a place is the universally-compatible `null`). A pre-existing non-null
+ * literal renders read-only (best-effort) so a saved doc still opens and
+ * round-trips, exempting the current value the way the shape menus
+ * exempt the active shape.
+ */
+function NullOnlyLiteral({ value }: { readonly value: Literal | undefined }) {
+	const nonNull = value !== undefined && value.value !== null;
+	// No `aria-label` — the visible text (the value / "null" + the hint)
+	// is the accessible name; a label on a non-interactive div isn't
+	// supported by its role.
+	return (
+		<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30">
+			<span className="font-mono text-nova-text-muted/80">
+				{nonNull ? String(value.value) : "null"}
+			</span>
+			<span className="text-[11px] text-nova-text-muted/70">
+				No typed value fits a place here — compare to a property instead.
+			</span>
+		</div>
 	);
 }
 

@@ -17,6 +17,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useRef } from "react";
 import {
+	ANY_CONSTRAINT,
 	and,
 	COMPARISON_KINDS,
 	type ComparisonKind,
@@ -26,6 +27,7 @@ import {
 	missing,
 	or,
 	type Predicate,
+	type SlotConstraint,
 } from "@/lib/domain/predicate";
 import {
 	MENU_ITEM_CLS,
@@ -68,6 +70,14 @@ interface ChildPredicateEditorProps {
 	 * list carry a drag affordance.
 	 */
 	readonly dragHandleRef?: (el: HTMLElement | null) => void;
+	/**
+	 * The slot's type constraint — threaded for signature uniformity
+	 * with the ValueExpression-side `ExpressionPicker`. A Predicate has
+	 * no result type, so every clause recurses with `ANY_CONSTRAINT`
+	 * and predicate cards compute their own child constraints from
+	 * `useResolvedType` rather than reading the incoming one.
+	 */
+	readonly constraint?: SlotConstraint;
 }
 
 /** Sentence-shaped kinds — these render headerless rows whose verb
@@ -102,6 +112,7 @@ export function ChildPredicateEditor({
 	onRemove,
 	variant = "normal",
 	dragHandleRef,
+	constraint = ANY_CONSTRAINT,
 }: ChildPredicateEditorProps) {
 	const operatorErrors = useEditorErrorsAt(path);
 	const schema = predicateCardSchemas[value.kind];
@@ -109,6 +120,7 @@ export function ChildPredicateEditor({
 		value: Predicate;
 		onChange: (next: Predicate) => void;
 		path: EditorPath;
+		constraint?: SlotConstraint;
 	}>;
 
 	if (SENTENCE_KINDS.has(value.kind)) {
@@ -119,7 +131,12 @@ export function ChildPredicateEditor({
 				dragHandleRef={dragHandleRef}
 				errors={operatorErrors}
 			>
-				<Component value={value} onChange={onChange} path={path} />
+				<Component
+					value={value}
+					onChange={onChange}
+					path={path}
+					constraint={constraint}
+				/>
 			</PredicateRowShell>
 		);
 	}
@@ -134,7 +151,12 @@ export function ChildPredicateEditor({
 			errors={operatorErrors}
 			kindAccent={<KindReplaceMenu currentValue={value} onChange={onChange} />}
 		>
-			<Component value={value} onChange={onChange} path={path} />
+			<Component
+				value={value}
+				onChange={onChange}
+				path={path}
+				constraint={constraint}
+			/>
 		</CardShell>
 	);
 }
@@ -339,27 +361,18 @@ function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 								<Menu.Item
 									key={s.kind}
 									onClick={() => replaceWith(s)}
-									// Current kind is not a valid replacement
-									// target — clicking it would re-render and
-									// recompute the validity index for a
-									// structurally identical predicate.
-									// Inapplicable kinds (per the schema's
-									// `applicable` predicate) render with
-									// reduced opacity (the `opacity-40`
-									// className above) but stay clickable —
-									// the type checker's inline error is the
-									// structural gate, and de-emphasis surfaces
-									// the suggestion without locking the author
-									// out of authoring a kind whose semantics
-									// don't fit the current scope (e.g.
-									// `multi-select-contains` on a case type
-									// without a multi_select property). The
-									// editor lets invalid edits flow through so
-									// the user can keep authoring; the parent's
-									// save affordance gates on the validity
-									// verdict. Symmetric with the kind-replace
-									// menu in `primitives/ExpressionPicker.tsx`.
-									disabled={isCurrent}
+									// Current kind is not a valid replacement target —
+									// clicking it would re-render an identical predicate.
+									// Inapplicable kinds (per the schema's `applicable`
+									// predicate — e.g. `multi-select-contains` on a case
+									// type without a multi_select property) are disabled
+									// WITH a reason so the editor never offers a swap that
+									// would author a kind whose semantics don't fit the
+									// scope. The current kind stays rendered regardless of
+									// its own applicability (legacy-open backstop).
+									// Symmetric with the kind-replace menu in
+									// `primitives/ExpressionPicker.tsx`.
+									disabled={isCurrent || !isApplicable}
 									className={cls}
 								>
 									<Icon
@@ -381,7 +394,9 @@ function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 													: "text-nova-text-muted"
 											}`}
 										>
-											{s.description}
+											{isApplicable
+												? s.description
+												: "Not available for this case type."}
 										</div>
 									</span>
 								</Menu.Item>

@@ -13,19 +13,32 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { isOrdered } from "@/lib/domain";
 import {
 	between,
+	betweenBoundConstraint,
+	compatibleTypesFor,
 	literal,
 	type Predicate,
 	prop,
+	type ResolvedType,
+	type SlotConstraint,
 	type ValueExpression,
 	term as wrapTerm,
 } from "@/lib/domain/predicate";
-import { useEditorErrorsAt } from "../editorContext";
+import {
+	useEditorErrorsAt,
+	usePredicateEditContext,
+	useResolvedType,
+} from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
+import {
+	reseedValueForConstraint,
+	resolveExpressionType,
+	seedLiteralForProperty,
+} from "./reseed";
 
 /** Module-level filter so render-time identity stays stable —
  *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
@@ -41,9 +54,12 @@ export function betweenDefault(
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isOrdered);
 	const propName = property?.name ?? "";
+	// Seed bounds of the ordered property's OWN type — text `literal("")`
+	// bounds opposite a numeric / temporal property would be a soundness
+	// error (an ordered subject is never text-compatible).
 	return between(prop(ctx.currentCaseType, propName), {
-		lower: literal(""),
-		upper: literal(""),
+		lower: seedLiteralForProperty(property),
+		upper: seedLiteralForProperty(property),
 	});
 }
 
@@ -82,6 +98,21 @@ function buildBetween(
 	});
 }
 
+/** Reseed one bound when an anchor change leaves its resolved type
+ *  outside the anchor's compatible set; an absent or already-compatible
+ *  bound flows through unchanged. */
+function reseedBoundIfNeeded(
+	bound: ValueExpression | undefined,
+	accepts: ReadonlySet<ResolvedType>,
+	ctx: Parameters<typeof resolveExpressionType>[1],
+): ValueExpression | undefined {
+	if (bound === undefined) return undefined;
+	const type = resolveExpressionType(bound, ctx);
+	return type !== undefined && !accepts.has(type)
+		? reseedValueForConstraint(bound, accepts)
+		: bound;
+}
+
 export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 	// Left-side errors render via the picker's `invalid` prop +
 	// inline `<InlineError>` below — `PropertyRefPicker` doesn't
@@ -91,9 +122,19 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 	// again here would double the diagnostic row count for the
 	// same message.
 	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
+	const ctx = usePredicateEditContext();
+
+	// The anchor (left) drives both bounds — each bound offers only
+	// types compatible with the anchor, and a change of anchor reseeds
+	// any now-incompatible bound in the same onChange.
+	const subjectType = useResolvedType(value.left);
+	const boundConstraint = betweenBoundConstraint(subjectType);
 
 	const setLeft = (left: ValueExpression) => {
-		onChange(buildBetween(value, { left }));
+		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
+		const lower = reseedBoundIfNeeded(value.lower, accepts, ctx);
+		const upper = reseedBoundIfNeeded(value.upper, accepts, ctx);
+		onChange(buildBetween(value, { left, lower, upper }));
 	};
 
 	return (
@@ -132,6 +173,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 						onChange(buildBetween(value, { lowerInclusive: b }))
 					}
 					path={path}
+					constraint={boundConstraint}
 					canDisable={value.upper !== undefined}
 				/>
 				<BoundEditor
@@ -144,6 +186,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 						onChange(buildBetween(value, { upperInclusive: b }))
 					}
 					path={path}
+					constraint={boundConstraint}
 					canDisable={value.lower !== undefined}
 				/>
 			</div>
@@ -159,6 +202,8 @@ interface BoundEditorProps {
 	readonly inclusive: boolean;
 	readonly setInclusive: (next: boolean) => void;
 	readonly path: EditorPath;
+	/** The bound's type constraint — compatible with the anchor. */
+	readonly constraint: SlotConstraint;
 	/** When false, the bound's enable-toggle is locked on — the
 	 *  sibling bound is currently disabled, and clearing this one
 	 *  too would yield a no-bounds shape the schema rejects. */
@@ -173,6 +218,7 @@ function BoundEditor({
 	inclusive,
 	setInclusive,
 	path,
+	constraint,
 	canDisable,
 }: BoundEditorProps) {
 	const isEnabled = value !== undefined;
@@ -191,7 +237,16 @@ function BoundEditor({
 								if (toggleDisabled) return;
 								onChange(undefined);
 							} else {
-								onChange(wrapTerm(literal("")));
+								// Enable with a bound of the anchor's type — a text
+								// `literal("")` opposite an ordered subject is invalid.
+								onChange(
+									constraint.accepts === "any"
+										? wrapTerm(literal(""))
+										: reseedValueForConstraint(
+												wrapTerm(literal("")),
+												constraint.accepts,
+											),
+								);
 							}
 						}}
 						disabled={toggleDisabled}
@@ -223,6 +278,7 @@ function BoundEditor({
 						value={value}
 						onChange={(next) => onChange(next)}
 						path={appendSlot(path, boundSlot)}
+						constraint={constraint}
 						variant="nested"
 					/>
 				</div>

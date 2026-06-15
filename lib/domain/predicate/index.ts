@@ -128,6 +128,7 @@ export * from "./errors";
 export * from "./jsonSchema";
 export * from "./reduction";
 export * from "./rewrite";
+export * from "./slotConstraints";
 export * from "./typeChecker";
 export * from "./types";
 export * from "./walk";

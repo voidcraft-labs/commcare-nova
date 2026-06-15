@@ -52,6 +52,7 @@
 // clause arms) the array index.
 
 import type { CasePropertyDataType, CaseType } from "@/lib/domain";
+import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
 import { unhandledKindMessage } from "./errors";
 import type {
 	ArithOp,
@@ -64,6 +65,7 @@ import type {
 	Term,
 	ValueExpression,
 } from "./types";
+import { MATCH_MODES } from "./types";
 
 // ---------- Types ----------
 
@@ -316,7 +318,7 @@ const MATCH_PROPERTY_TYPES_FUZZY_DATE: ReadonlySet<ResolvedType> =
 // stray key. Keying by mode also makes the per-mode dispatch readable
 // at a glance — every mode's allow-list is one row in this table
 // rather than chained ternaries.
-const MATCH_PROPERTY_TYPES_BY_MODE: Record<
+export const MATCH_PROPERTY_TYPES_BY_MODE: Record<
 	MatchMode,
 	ReadonlySet<ResolvedType>
 > = {
@@ -2120,7 +2122,7 @@ export function checkValueExpression(
  * and surfaces a future widening (e.g. a separate `bigint` type) as
  * a single edit site.
  */
-function isNumeric(t: ResolvedType): boolean {
+export function isNumeric(t: ResolvedType): boolean {
 	return t === "int" || t === "decimal";
 }
 
@@ -2130,7 +2132,7 @@ function isNumeric(t: ResolvedType): boolean {
  * `date-add` doesn't recognise time-only operands and `format-date`
  * has no rendering pattern that fits a bare time.
  */
-function isDateOrDatetime(t: ResolvedType): boolean {
+export function isDateOrDatetime(t: ResolvedType): boolean {
 	return t === "date" || t === "datetime";
 }
 
@@ -2140,11 +2142,8 @@ function isDateOrDatetime(t: ResolvedType): boolean {
  * set the match-mode allow-list uses; sharing keeps the "what
  * counts as a text-shaped read" decision in one place.
  */
-const TEXT_SHAPED_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
-	"text",
-	"single_select",
-	"multi_select",
-]);
+export const TEXT_SHAPED_TYPES: ReadonlySet<ResolvedType> =
+	new Set<ResolvedType>(["text", "single_select", "multi_select"]);
 
 /**
  * Accumulate one branch's resolved type into the running `agreed` type
@@ -2310,4 +2309,158 @@ export function typesCompatible(a: ResolvedType, b: ResolvedType): boolean {
 	if (a === "multi_select" && b === "text") return true;
 	if (a === "text" && b === "multi_select") return true;
 	return false;
+}
+
+// ---------- Inverse rules — the editor's "valid choices" source ----------
+//
+// The card editor (`components/builder/shared/`) authors valid-by-
+// construction: every picker offers ONLY choices that keep the AST
+// type-correct. These helpers answer the INVERSE of the checks above —
+// "given a slot's resolved subject/operand type, which operators / match
+// modes / result types are admissible here?" — and they live HERE, beside
+// the forward rules they invert, so the editor's allowed-set can never
+// drift from the checker's reject-set. Each one is computed from the exact
+// `const` the checker rejects against (`typesCompatible`, `ORDERED_TYPES`,
+// `MATCH_PROPERTY_TYPES_BY_MODE`), not a parallel table.
+//
+// Every helper accepts `ResolvedType | undefined`, where `undefined`
+// means the subject is unresolved/incomplete (an empty property name, an
+// empty case type). An unknown subject can't prove any choice INCOMPAT-
+// IBLE, so it admits everything — the editor never disables a choice it
+// can't justify, which keeps the no-properties and mid-edit states usable.
+
+/**
+ * The closed `ResolvedType` alphabet — every case-property data type plus
+ * the two internal sentinels. Drives `compatibleTypesFor` (which filters
+ * it through `typesCompatible`). Pinned with `satisfies` so a new data
+ * type in `casePropertyDataTypes` forces this list to grow with it.
+ */
+export const ALL_RESOLVED_TYPES: readonly ResolvedType[] = [
+	...casePropertyDataTypes,
+	ANY_TYPE,
+	SEQUENCE_TYPE,
+] satisfies ResolvedType[];
+
+/**
+ * Every result type a value placed opposite a subject of type `t` may
+ * have — i.e. the `u` for which `typesCompatible(t, u)` holds. This IS
+ * the comparison/membership compatibility gate, enumerated; it cannot
+ * drift because it literally calls `typesCompatible`. `undefined` admits
+ * the whole alphabet (an unresolved subject constrains nothing).
+ */
+export function compatibleTypesFor(
+	t: ResolvedType | undefined,
+): ReadonlySet<ResolvedType> {
+	if (t === undefined) return new Set(ALL_RESOLVED_TYPES);
+	return new Set(ALL_RESOLVED_TYPES.filter((u) => typesCompatible(t, u)));
+}
+
+/**
+ * The comparison operators a subject of type `t` can take. `eq` / `neq`
+ * apply to every type; the ordering operators (`gt` / `gte` / `lt` /
+ * `lte`) only to `ORDERED_TYPES` — the exact set `checkComparison`'s
+ * ordered-types arm enforces. The null sentinel (`ANY_TYPE`) and an
+ * unresolved subject admit all six (the checker's ordered arm bypasses
+ * `ANY_TYPE`, and an unknown subject constrains nothing).
+ */
+export function comparisonOperatorsFor(
+	t: ResolvedType | undefined,
+): ReadonlySet<ComparisonKind> {
+	const all: ComparisonKind[] = ["eq", "neq", "gt", "gte", "lt", "lte"];
+	if (t === undefined || t === ANY_TYPE || ORDERED_TYPES.has(t)) {
+		return new Set(all);
+	}
+	return new Set<ComparisonKind>(["eq", "neq"]);
+}
+
+/**
+ * The `match` modes whose property allow-list admits a subject of type
+ * `t` — the inverse of `MATCH_PROPERTY_TYPES_BY_MODE` (the same table
+ * `checkMatch` enforces). `undefined` / `ANY_TYPE` admit every mode.
+ */
+export function matchModesFor(
+	t: ResolvedType | undefined,
+): ReadonlySet<MatchMode> {
+	if (t === undefined || t === ANY_TYPE) return new Set(MATCH_MODES);
+	return new Set(
+		MATCH_MODES.filter((m) => MATCH_PROPERTY_TYPES_BY_MODE[m].has(t)),
+	);
+}
+
+/**
+ * The result-type CLASS of a `ValueExpression` kind — the editor's
+ * kind-picker uses it to decide whether a kind can ever yield a value a
+ * slot accepts. `"depends"` kinds (`term` / `if` / `switch` / `coalesce`)
+ * resolve their result from their inputs, so they're always offerable and
+ * propagate the slot's constraint inward instead. The hard-typed classes
+ * mirror the result types `checkExpression` assigns each arm.
+ */
+export type ValueExpressionResultClass =
+	| "numeric"
+	| "text"
+	| "date"
+	| "datetime"
+	| "date-or-datetime"
+	| "int"
+	| "sequence"
+	| "depends";
+
+export function valueExpressionKindResultClass(
+	kind: ValueExpression["kind"],
+): ValueExpressionResultClass {
+	switch (kind) {
+		case "arith":
+		case "double":
+			return "numeric";
+		case "concat":
+		case "format-date":
+			return "text";
+		case "today":
+			return "date";
+		case "now":
+			return "datetime";
+		// `date-add`'s result follows its `date` operand and the coerce
+		// pair are structural twins — all three are offerable at either
+		// temporal slot, matching the registry's `applicableForDateOrDatetime`.
+		case "date-add":
+		case "date-coerce":
+		case "datetime-coerce":
+			return "date-or-datetime";
+		case "count":
+			return "int";
+		case "unwrap-list":
+			return "sequence";
+		case "term":
+		case "if":
+		case "switch":
+		case "coalesce":
+			return "depends";
+		default: {
+			const _exhaustive: never = kind;
+			throw new Error(
+				unhandledKindMessage({
+					where: "valueExpressionKindResultClass",
+					family: "ValueExpression",
+					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
+					knownKinds: [
+						"term",
+						"arith",
+						"double",
+						"concat",
+						"format-date",
+						"today",
+						"now",
+						"date-add",
+						"date-coerce",
+						"datetime-coerce",
+						"count",
+						"unwrap-list",
+						"if",
+						"switch",
+						"coalesce",
+					],
+				}),
+			);
+		}
+	}
 }

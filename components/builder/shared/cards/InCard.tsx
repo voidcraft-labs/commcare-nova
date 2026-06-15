@@ -11,14 +11,22 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { Tooltip } from "@/components/ui/Tooltip";
 import {
+	compatibleTypesFor,
+	inValueConstraint,
 	isIn,
 	type Literal,
 	literal,
+	literalType,
 	type Predicate,
 	prop,
+	type ResolvedType,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+import {
+	useEditorErrorsAt,
+	usePredicateEditContext,
+	useResolvedType,
+} from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { nodeId } from "../nodeIdentity";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
@@ -26,6 +34,11 @@ import { InlineError } from "../primitives/CardShell";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
+import {
+	reseedLiteralForConstraint,
+	resolveExpressionType,
+	seedLiteralForProperty,
+} from "./reseed";
 
 export function inDefault(
 	ctx: PredicateEditContext,
@@ -33,7 +46,12 @@ export function inDefault(
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties[0];
 	const propName = property?.name ?? "";
-	return isIn(prop(ctx.currentCaseType, propName), literal(""));
+	// Seed the value of the property's OWN type — a text `literal("")`
+	// opposite a non-text first property would be a soundness error.
+	return isIn(
+		prop(ctx.currentCaseType, propName),
+		seedLiteralForProperty(property),
+	);
 }
 
 interface InCardProps {
@@ -54,8 +72,23 @@ export function InCard({ value, onChange, path }: InCardProps) {
 			? value.left.term.property
 			: undefined;
 
+	// The subject (left) drives each membership value — the value
+	// widgets are typed against the `in` value constraint (compatible
+	// with the subject), and a change of subject reseeds any
+	// now-incompatible value in the same onChange. `inValueConstraint`
+	// always yields a concrete accept-set (`compatibleTypesFor` never
+	// returns "any"); narrow for the Set-typed widget prop.
+	const subjectType = useResolvedType(value.left);
+	const valueConstraint = inValueConstraint(subjectType);
+	const valueAccepts =
+		valueConstraint.accepts === "any" ? undefined : valueConstraint.accepts;
+
 	const setLeft = (left: ValueExpression) => {
-		const [first, ...rest] = value.values;
+		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
+		const reseeded = value.values.map((v) =>
+			accepts.has(literalType(v)) ? v : reseedLiteralForConstraint(v, accepts),
+		);
+		const [first, ...rest] = reseeded;
 		onChange(isIn(left, first, ...rest));
 	};
 
@@ -74,8 +107,14 @@ export function InCard({ value, onChange, path }: InCardProps) {
 	};
 
 	const append = () => {
+		// Seed the new value of the subject's type so the appended row
+		// lands type-correct (an int `in` can't add a text `literal("")`).
+		const seed = reseedLiteralForConstraint(
+			literal(""),
+			compatibleTypesFor(subjectType),
+		);
 		const [first, ...rest] = value.values;
-		onChange(isIn(value.left, first, ...rest, literal("")));
+		onChange(isIn(value.left, first, ...rest, seed));
 	};
 
 	return (
@@ -110,6 +149,7 @@ export function InCard({ value, onChange, path }: InCardProps) {
 						isOnlyOne={value.values.length === 1}
 						caseTypeName={ctx.currentCaseType}
 						propertyName={propertyName}
+						accepts={valueAccepts}
 						indexPath={appendSlotIndex(path, "values", i)}
 					/>
 				))}
@@ -133,6 +173,7 @@ function ValueRow({
 	isOnlyOne,
 	caseTypeName,
 	propertyName,
+	accepts,
 	indexPath,
 }: {
 	readonly value: Literal;
@@ -141,6 +182,7 @@ function ValueRow({
 	readonly isOnlyOne: boolean;
 	readonly caseTypeName: string;
 	readonly propertyName: string | undefined;
+	readonly accepts: ReadonlySet<ResolvedType> | undefined;
 	readonly indexPath: EditorPath;
 }) {
 	const errors = useEditorErrorsAt(indexPath);
@@ -153,6 +195,7 @@ function ValueRow({
 						onChange={onChange}
 						caseTypeName={caseTypeName}
 						propertyName={propertyName}
+						accepts={accepts}
 						invalid={errors.length > 0}
 					/>
 				</div>

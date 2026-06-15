@@ -48,6 +48,7 @@ import {
 	type ComparisonKind,
 	type Predicate,
 	type SearchInputDecl,
+	type SlotConstraint,
 } from "@/lib/domain/predicate";
 import { BetweenCard, betweenDefault } from "./cards/BetweenCard";
 import { ComparisonCard, comparisonDefault } from "./cards/ComparisonCard";
@@ -130,6 +131,12 @@ export interface PredicateCardSchema<K extends Predicate["kind"]> {
 		readonly value: PredicateOfKind<K>;
 		readonly onChange: (next: Predicate) => void;
 		readonly path: readonly (string | number)[];
+		/** The slot's type constraint — threaded by the dispatch shell
+		 *  for signature uniformity with the expression registry. A
+		 *  Predicate has no result type, so predicate cards compute
+		 *  their own child constraints from `useResolvedType` and ignore
+		 *  the incoming one (always `ANY_CONSTRAINT`). */
+		readonly constraint?: SlotConstraint;
 	}>;
 	readonly defaultValue: (ctx: PredicateEditContext) => PredicateOfKind<K>;
 	readonly applicable: (ctx: PredicateEditContext) => boolean;

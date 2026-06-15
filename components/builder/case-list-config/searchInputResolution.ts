@@ -42,6 +42,8 @@ import {
 	startsWithMode,
 } from "@/lib/domain";
 import {
+	ANY_CONSTRAINT,
+	compatibleTypesFor,
 	eq,
 	input,
 	literal,
@@ -51,6 +53,7 @@ import {
 	type RelationPath,
 	type ResolvedType,
 	type SearchInputDecl,
+	type SlotConstraint,
 	term,
 	today,
 	type ValueExpression,
@@ -469,6 +472,29 @@ export function expectedTypeForDefault(
 		case "select":
 			return undefined;
 	}
+}
+
+/**
+ * The default-value slot's `SlotConstraint` — the editor's
+ * valid-by-construction surface for the default expression. A value
+ * compatible with the input's `expectedTypeForDefault` (or
+ * unconstrained for `select`, which accepts any option value). The
+ * config-validity gate keeps using `expectedTypeForDefault` directly
+ * (a single-type `checkValueExpression` arm); this is its set-valued
+ * twin for the editor's pickers. Frozen module-level entries so the
+ * constraint identity stays stable across renders (the editor memoizes
+ * on it).
+ */
+const CONSTRAINT_FOR_DEFAULT: Record<SearchInputType, SlotConstraint> = {
+	text: { accepts: compatibleTypesFor("text") },
+	barcode: { accepts: compatibleTypesFor("text") },
+	date: { accepts: compatibleTypesFor("date") },
+	"date-range": { accepts: compatibleTypesFor("date") },
+	select: ANY_CONSTRAINT,
+};
+
+export function constraintForDefault(type: SearchInputType): SlotConstraint {
+	return CONSTRAINT_FOR_DEFAULT[type];
 }
 
 export function seedDefaultExpression(type: SearchInputType): ValueExpression {

@@ -18,6 +18,15 @@
 // context via the `usePredicateEditContext` provider, so the shell
 // works identically in either tree.
 //
+// Valid by construction: the shell takes a `SlotConstraint` naming the
+// types the slot may hold (computed by the parent card from its
+// subject's resolved type) and offers ONLY the kinds whose result can
+// satisfy it — every inadmissible kind is disabled WITH A REASON, never
+// dimmed-but-clickable. A `termOnly` slot offers no computed kinds at
+// all. The constraint flows down to `TermCard`, which gates its value
+// sources the same way, so no sequence of picker choices can author a
+// type the checker would reject.
+//
 // Round-trip preservation is structural: every ValueExpression kind
 // has a card that round-trips its AST shape verbatim via the per-arm
 // cards in `cards/expression/`, and the kind-replace menu preserves
@@ -38,9 +47,11 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useRef } from "react";
 import {
+	ANY_CONSTRAINT,
+	admitsValueExpressionKind,
 	dateCoerce,
 	datetimeCoerce,
-	type ResolvedType,
+	type SlotConstraint,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import {
@@ -64,15 +75,14 @@ interface ExpressionPickerProps {
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
 	/**
-	 * Optional caller-side type expectation for the slot. Threads
-	 * into the kind-replace menu's applicability gate so unrelated
-	 * kinds (e.g. `today` for an `int` slot) de-emphasize. The
-	 * editor does NOT enforce the expectation — the type checker's
-	 * verdict at the editor's root is the structural gate. Strict
-	 * filtering would hide kinds whose result type depends on
-	 * inputs (`if`, `switch`, `count`, `term`, `coalesce`).
+	 * The type constraint on this slot — the kinds whose result can
+	 * satisfy it are offered; every other kind is disabled with a
+	 * reason. Defaults to `ANY_CONSTRAINT` (no narrowing). The parent
+	 * card computes it from its subject's resolved type
+	 * (`comparisonObjectConstraint(useResolvedType(left))`, etc.); a
+	 * `termOnly` constraint suppresses the computed kinds entirely.
 	 */
-	readonly expectedType?: ResolvedType;
+	readonly constraint?: SlotConstraint;
 	/**
 	 * Optional remove handler — when provided, the card surfaces a
 	 * "Delete" item in its kebab menu. List-shaped containers
@@ -105,7 +115,7 @@ export function ExpressionPicker({
 	value,
 	onChange,
 	path,
-	expectedType,
+	constraint = ANY_CONSTRAINT,
 	onRemove,
 	variant = "normal",
 	dragHandleRef,
@@ -117,10 +127,13 @@ export function ExpressionPicker({
 		value: ValueExpression;
 		onChange: (next: ValueExpression) => void;
 		path: EditorPath;
+		constraint?: SlotConstraint;
 	}>;
 
 	// Term values render unboxed — see the file header. The computed
-	// kinds ride the term's source menu as injected items. Inside a
+	// kinds ride the term's source menu as injected items, each gated
+	// by whether its result type can satisfy the slot's constraint; a
+	// `termOnly` slot offers no computed kinds at all. Inside a
 	// reorderable list (concat parts, coalesce values) the row shell
 	// still wraps the term so the grab rail and Delete stay; a plain
 	// value slot renders the bare controls.
@@ -130,37 +143,45 @@ export function ExpressionPicker({
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
 		};
+		const computedItems = constraint.termOnly
+			? undefined
+			: expressionCardSchemaList
+					.filter((s) => s.kind !== "term")
+					.map((s) => {
+						const { admitted, reason } = admitsValueExpressionKind(
+							s.kind,
+							constraint,
+						);
+						return (
+							<Menu.Item
+								key={s.kind}
+								disabled={!admitted}
+								onClick={() => onChange(s.defaultValue(editCtx))}
+								className={`${MENU_ITEM_CLS} min-h-11 ${admitted ? "" : "opacity-45"}`}
+							>
+								<Icon
+									icon={s.icon}
+									width="14"
+									height="14"
+									className="text-nova-text-muted"
+								/>
+								<span className="flex-1 text-left min-w-0">
+									<div className="truncate">{s.label}</div>
+									<div className="text-[11px] truncate text-nova-text-muted">
+										{admitted ? s.description : reason}
+									</div>
+								</span>
+							</Menu.Item>
+						);
+					});
 		const termBody = (
 			<div className="space-y-1">
 				<TermCard
 					value={value}
 					onChange={onChange}
 					path={path}
-					computedItems={expressionCardSchemaList
-						.filter((s) => s.kind !== "term")
-						.map((s) => {
-							const isApplicable = s.applicable(editCtx, expectedType);
-							return (
-								<Menu.Item
-									key={s.kind}
-									onClick={() => onChange(s.defaultValue(editCtx))}
-									className={`${MENU_ITEM_CLS} min-h-11 ${isApplicable ? "" : "opacity-45"}`}
-								>
-									<Icon
-										icon={s.icon}
-										width="14"
-										height="14"
-										className="text-nova-text-muted"
-									/>
-									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{s.label}</div>
-										<div className="text-[11px] truncate text-nova-text-muted">
-											{s.description}
-										</div>
-									</span>
-								</Menu.Item>
-							);
-						})}
+					constraint={constraint}
+					computedItems={computedItems}
 				/>
 				<InlineError errors={[...operatorErrors]} />
 			</div>
@@ -191,11 +212,16 @@ export function ExpressionPicker({
 				<KindReplaceMenu
 					currentValue={value}
 					onChange={onChange}
-					expectedType={expectedType}
+					constraint={constraint}
 				/>
 			}
 		>
-			<Component value={value} onChange={onChange} path={path} />
+			<Component
+				value={value}
+				onChange={onChange}
+				path={path}
+				constraint={constraint}
+			/>
 		</CardShell>
 	);
 }
@@ -203,7 +229,7 @@ export function ExpressionPicker({
 interface KindReplaceMenuProps {
 	readonly currentValue: ValueExpression;
 	readonly onChange: (next: ValueExpression) => void;
-	readonly expectedType?: ResolvedType;
+	readonly constraint: SlotConstraint;
 }
 
 /**
@@ -262,14 +288,18 @@ function preservedExpressionSwap(
  *      differ enough that no structural carry-over is sound.
  *
  * The menu lists every kind, marking the current one with a violet
- * dot. Inapplicable kinds (per the schema entry's `applicable(ctx,
- * expectedType?)`) render at reduced opacity so the user sees them
- * but understands they're not the recommended choice for this slot.
+ * dot. A kind whose result type can't satisfy the slot's constraint
+ * is disabled WITH A REASON (`admitsValueExpressionKind`) — the
+ * editor never offers a swap that would author a type the checker
+ * rejects. The current kind's own row stays non-selectable (clicking
+ * it would re-render an identical expression) regardless of its
+ * admission, so a legacy-open invalid expression keeps rendering its
+ * own kind.
  */
 function KindReplaceMenu({
 	currentValue,
 	onChange,
-	expectedType,
+	constraint,
 }: KindReplaceMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const ctx = usePredicateEditContext();
@@ -326,7 +356,13 @@ function KindReplaceMenu({
 					>
 						{expressionCardSchemaList.map((s, i) => {
 							const isCurrent = s.kind === currentKind;
-							const isApplicable = s.applicable(editCtx, expectedType);
+							// The current kind is exempt from the admission gate —
+							// a legacy-open invalid expression must keep rendering
+							// its own kind even when the slot's constraint no longer
+							// admits it.
+							const { admitted, reason } = isCurrent
+								? { admitted: true, reason: undefined }
+								: admitsValueExpressionKind(s.kind, constraint);
 							const last = expressionCardSchemaList.length - 1;
 							const corners =
 								i === 0 && i === last
@@ -340,29 +376,18 @@ function KindReplaceMenu({
 								corners,
 								MENU_ITEM_CLS,
 								isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : "",
-								isApplicable ? "" : "opacity-40",
+								admitted ? "" : "opacity-45",
 							].join(" ");
 							return (
 								<Menu.Item
 									key={s.kind}
 									onClick={() => replaceWith(s)}
-									// Current kind is not a valid replacement
-									// target — clicking it would re-render and
-									// recompute the validity index for a
-									// structurally identical expression.
-									// Inapplicable kinds (per the schema's
-									// `applicable` predicate) render with
-									// reduced opacity (the `opacity-40`
-									// className above) but stay clickable —
-									// the type checker's inline error is the
-									// structural gate, and de-emphasis surfaces
-									// the suggestion without locking the
-									// author out of authoring a type-mismatched
-									// expression. The editor lets invalid
-									// edits flow through so the user can keep
-									// authoring; the parent's save affordance
-									// gates on the validity verdict.
-									disabled={isCurrent}
+									// Current kind is not a valid replacement target —
+									// clicking it would re-render an identical
+									// expression. Inadmissible kinds are disabled WITH a
+									// reason so the editor never offers a swap that would
+									// author a type the checker rejects.
+									disabled={isCurrent || !admitted}
 									className={cls}
 								>
 									<Icon
@@ -384,7 +409,7 @@ function KindReplaceMenu({
 													: "text-nova-text-muted"
 											}`}
 										>
-											{s.description}
+											{admitted ? s.description : reason}
 										</div>
 									</span>
 								</Menu.Item>

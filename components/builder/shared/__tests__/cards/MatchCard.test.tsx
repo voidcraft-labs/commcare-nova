@@ -2,8 +2,13 @@
 //
 // components/builder/shared/__tests__/cards/MatchCard.test.tsx
 //
-// Inline-error regression test for the MatchCard's value-slot
-// rendering. The type checker (`checkMatch` in
+// LEGACY-DISPLAY regression test for the MatchCard's value-slot
+// rendering. The editor is now valid by construction — its value slot
+// offers only non-empty terms of a type the mode admits — so these
+// cases seed a pre-existing (legacy / hypothetical) invalid AST
+// DIRECTLY and assert the display backstop still surfaces it inline.
+//
+// The type checker (`checkMatch` in
 // `lib/domain/predicate/typeChecker.ts`) emits term-resolution
 // failures (Unknown property / Unknown search input) at
 // `[..., "value", "term"]` — one segment deeper than the operator-

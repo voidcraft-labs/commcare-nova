@@ -44,10 +44,14 @@ import { useMemo } from "react";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type { CaseType } from "@/lib/domain";
 import {
+	ANY_CONSTRAINT,
+	acceptsType,
 	type CheckError,
+	checkExpression,
 	checkValueExpression,
-	type ResolvedType,
+	describe,
 	type SearchInputDecl,
+	type SlotConstraint,
 	type TypeContext,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
@@ -73,18 +77,25 @@ interface ExpressionCardEditorProps {
 	/** Search inputs declared on the parent surface. */
 	readonly knownInputs?: readonly SearchInputDecl[];
 	/**
-	 * Optional caller-side type expectation. The editor threads it
-	 * into the kind-replace menu's applicability gate so unrelated
-	 * kinds de-emphasize, AND into `checkValueExpression` so a
-	 * top-level "Expected X; resolves to Y" error fires when the
-	 * authored shape doesn't satisfy the slot's type.
+	 * The root slot's type constraint. Flows to the root
+	 * `ExpressionPicker` so the kind menu + value sources offer ONLY
+	 * types the slot accepts (valid by construction). The same
+	 * accept-set also feeds the DISPLAY backstop — a pre-existing
+	 * (legacy / hypothetical) expression that resolves to a type
+	 * outside the constraint surfaces a root error, even though no
+	 * sequence of picker choices can author one. Defaults to
+	 * `ANY_CONSTRAINT` (no narrowing).
 	 */
-	readonly expectedType?: ResolvedType;
+	readonly constraint?: SlotConstraint;
 	/**
 	 * Surfaces the boolean validity verdict to the parent on every
-	 * onChange. The parent gates its save affordance on this. The
-	 * editor does not gate the onChange itself — invalid edits flow
-	 * through so the user can keep authoring.
+	 * onChange. The editor authors valid by construction — no sequence
+	 * of picker choices yields a type-incorrect expression — so for
+	 * normally-authored trees this stays `true`. The verdict (and the
+	 * inline diagnostics it summarizes, including the root-constraint
+	 * backstop) is a DISPLAY BACKSTOP for a pre-existing (legacy /
+	 * hypothetical) invalid AST a user opens; the parent gates its save
+	 * affordance on it so such a tree can't be re-saved while broken.
 	 */
 	readonly onValidityChange?: (valid: boolean) => void;
 }
@@ -101,7 +112,7 @@ export function ExpressionCardEditor({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
-	expectedType,
+	constraint = ANY_CONSTRAINT,
 	onValidityChange,
 }: ExpressionCardEditorProps) {
 	// Build the type-check context from props. The same context
@@ -117,18 +128,27 @@ export function ExpressionCardEditor({
 		[caseTypes, knownInputs, currentCaseType],
 	);
 
-	// Run the type checker on every value change. The checker is
-	// pure (no I/O), so running inside `useMemo` is the right shape
-	// — the validity index is a derived value driven by `value`,
-	// the context, and the optional expectedType.
-	const validityResult = useMemo(
-		() => checkValueExpression(value, typeCtx, expectedType),
-		[value, typeCtx, expectedType],
-	);
-
-	const errors: readonly CheckError[] = validityResult.ok
-		? []
-		: validityResult.errors;
+	// Run the type checker on every value change (pure — running
+	// inside `useMemo` is the right shape). The per-node verdict comes
+	// from `checkValueExpression`; the root-constraint backstop adds a
+	// root error when the whole expression resolves to a type the slot
+	// won't accept. Valid-by-construction editing can't reach that
+	// backstop — the kind menu + value sources only offer admissible
+	// values — but a pre-existing invalid AST still surfaces it.
+	const errors = useMemo<readonly CheckError[]>(() => {
+		const result = checkValueExpression(value, typeCtx);
+		const collected: CheckError[] = result.ok ? [] : [...result.errors];
+		if (constraint.accepts !== "any") {
+			const resolved = checkExpression(value, typeCtx, [], []);
+			if (resolved !== undefined && !acceptsType(constraint, resolved)) {
+				collected.push({
+					path: [],
+					message: `This value works out to ${describe(resolved)}, which doesn't fit this spot.`,
+				});
+			}
+		}
+		return collected;
+	}, [value, typeCtx, constraint]);
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 
@@ -150,7 +170,7 @@ export function ExpressionCardEditor({
 				value={value}
 				onChange={onChange}
 				path={ROOT_PATH}
-				expectedType={expectedType}
+				constraint={constraint}
 			/>
 		</PredicateEditProvider>
 	);

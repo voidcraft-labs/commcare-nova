@@ -23,6 +23,7 @@ import {
 	ARITH_OPS,
 	type ArithOp,
 	arith,
+	arithOperandConstraint,
 	literal,
 	term,
 	type ValueExpression,
@@ -35,6 +36,10 @@ import {
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
+
+/** Both operands must resolve to a numeric type — module-const for a
+ *  stable filter identity across renders. */
+const OPERAND_CONSTRAINT = arithOperandConstraint();
 
 const OP_LABELS: Record<ArithOp, { symbol: string; label: string }> = {
 	"+": { symbol: "+", label: "Add" },
@@ -85,7 +90,7 @@ export function ArithCard({ value, onChange, path }: ArithCardProps) {
 				value={value.left}
 				onChange={setLeft}
 				path={appendSlot(path, "left")}
-				expectedType="decimal"
+				constraint={OPERAND_CONSTRAINT}
 				variant="nested"
 			/>
 			<div className="pt-1">
@@ -95,7 +100,7 @@ export function ArithCard({ value, onChange, path }: ArithCardProps) {
 				value={value.right}
 				onChange={setRight}
 				path={appendSlot(path, "right")}
-				expectedType="decimal"
+				constraint={OPERAND_CONSTRAINT}
 				variant="nested"
 			/>
 		</div>
