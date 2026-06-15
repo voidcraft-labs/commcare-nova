@@ -36,6 +36,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { NO_SEARCH_INPUTS } from "../searchInputResolution";
 
 export interface SearchPanelInspectorBodyProps {
 	/** Current case-search configuration. `undefined` means the module
@@ -45,8 +46,10 @@ export interface SearchPanelInspectorBodyProps {
 	readonly onChange: (next: CaseSearchConfig) => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
-	/** Search-input declarations — lets the show-when condition and the
-	 *  excluded-owners expression reference `input(...)` bindings. */
+	/** Search-input declarations — lets the excluded-owners expression
+	 *  reference `input(...)` bindings (wrapped in a when-input-present
+	 *  envelope). The show-when condition does NOT: it evaluates on the
+	 *  case list before search, so it forbids input refs entirely. */
 	readonly knownInputs?: readonly SearchInputDecl[];
 }
 
@@ -103,7 +106,9 @@ export function SearchPanelInspectorBody({
 				onChange={setDisplayCondition}
 				caseTypes={caseTypes}
 				currentCaseType={currentCaseType}
-				knownInputs={knownInputs}
+				// Forbids input refs — runs on the case list before search.
+				// See NO_SEARCH_INPUTS.
+				knownInputs={NO_SEARCH_INPUTS}
 			/>
 
 			<OptionalSlotCard<ValueExpression>
