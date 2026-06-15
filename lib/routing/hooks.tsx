@@ -45,6 +45,7 @@ import {
 	notifyPathChange,
 	useBuilderPathSegments,
 } from "@/lib/routing/useClientPath";
+import { useClearFocusHint } from "@/lib/session/hooks";
 
 /**
  * Reactive parse of the current URL path into a `Location`. Re-renders
@@ -403,6 +404,7 @@ export function parentLocation(loc: Location): Location | undefined {
  */
 export function useSelect(): SelectAction {
 	const consultGuard = useConsultEditGuard();
+	const clearFocusHint = useClearFocusHint();
 	const loc = useLocation();
 
 	/* Ref for `loc` so the returned callback doesn't churn on every
@@ -424,6 +426,12 @@ export function useSelect(): SelectAction {
 			 * repeat) is owned by the guard predicate — this call site is
 			 * just a gate. */
 			if (!consultGuard()) return;
+			/* Drop any pending undo/redo focus hint. It was scoped to the
+			 * field selected when undo ran; a selection change (including
+			 * deselect) makes it stale. Without this, an uncleared "id" hint
+			 * would auto-focus + select the NEXT field's id-rename box on
+			 * mount, so a keystroke would rename an unrelated field. */
+			clearFocusHint();
 			const current = locRef.current;
 			if (current.kind !== "form") return;
 			const next: Location = {
@@ -436,7 +444,7 @@ export function useSelect(): SelectAction {
 			window.history.replaceState(null, "", url);
 			notifyPathChange();
 		};
-	}, [consultGuard]);
+	}, [consultGuard, clearFocusHint]);
 }
 
 /**

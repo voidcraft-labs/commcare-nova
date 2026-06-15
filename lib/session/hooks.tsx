@@ -185,8 +185,8 @@ export function useStagedUploadsFor(
 
 // ── Focus hint ───────────────────────────────────────────────────────────
 
-/** Transient field key to focus after undo/redo. Consumed once by the
- *  section that owns the matching field key. */
+/** Transient field key to focus after undo/redo. Read by the editor that
+ *  owns the matching field key; cleared on the next selection change. */
 export function useSessionFocusHint(): string | undefined {
 	return useBuilderSession((s) => s.focusHint);
 }
@@ -196,7 +196,8 @@ export function useSetFocusHint(): (fieldId: string | undefined) => void {
 	return useBuilderSession((s) => s.setFocusHint);
 }
 
-/** Clear the focus hint — called by the consuming section after read. */
+/** Clear the focus hint — `useSelect` calls this on every selection change
+ *  so a hint set for one field can't fire on the next. */
 export function useClearFocusHint(): () => void {
 	return useBuilderSession((s) => s.clearFocusHint);
 }

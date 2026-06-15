@@ -243,10 +243,10 @@ export interface BuilderSessionState {
 
 	/** Transient field key to focus after undo/redo. Set by `useUndoRedo`;
 	 *  read by whichever editor owns the matching data-field-id (each
-	 *  editor ignores non-matching values rather than clearing the hint,
-	 *  so sibling editors still see their own hints on the same render).
-	 *  Remains set until `setFocusHint(undefined)` or `clearFocusHint()`
-	 *  is called explicitly. */
+	 *  editor ignores non-matching values, so siblings see their own hints
+	 *  on the same render). Scoped to the field selected when undo ran:
+	 *  `useSelect` clears it on any selection change so a stale hint can't
+	 *  auto-focus an editor on a later-selected field. */
 	focusHint: string | undefined;
 
 	/** UUID of a just-added field — activates auto-focus and select-all
