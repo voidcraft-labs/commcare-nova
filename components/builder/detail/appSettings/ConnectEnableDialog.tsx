@@ -336,6 +336,25 @@ export function DraftField({
 }) {
 	const fieldId = useId();
 	const error = validate?.(value) ?? null;
+
+	// Escape must exit the FIELD, not tear down the dialog. Base UI's dismiss
+	// listens for Escape on `document` (bubble phase), so React's delegated
+	// `onKeyDown` — which shares that target — can't reliably stop it. A native
+	// listener on the element halts the keydown before it ever reaches the
+	// document listener, then blurs (the field's own "exit"), exactly how
+	// `XPathField` keeps Escape from closing its surrounding popover. A second
+	// Escape, now outside any field, dismisses as usual.
+	const stopEscape = useCallback((node: HTMLElement | null) => {
+		if (!node) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Escape") return;
+			e.stopPropagation();
+			node.blur();
+		};
+		node.addEventListener("keydown", onKeyDown);
+		return () => node.removeEventListener("keydown", onKeyDown);
+	}, []);
+
 	const base =
 		"w-full text-xs rounded-md border px-2.5 py-1.5 outline-none transition-colors placeholder:text-nova-text-muted/60";
 	const tone = error
@@ -355,6 +374,7 @@ export function DraftField({
 				{multiline ? (
 					<textarea
 						id={fieldId}
+						ref={stopEscape}
 						className={`${base} ${tone} ${text} resize-none`}
 						rows={2}
 						value={value}
@@ -367,6 +387,7 @@ export function DraftField({
 				) : (
 					<input
 						id={fieldId}
+						ref={stopEscape}
 						type="text"
 						className={`${base} ${tone} ${text}${suffix ? " pr-9" : ""}`}
 						value={value}
