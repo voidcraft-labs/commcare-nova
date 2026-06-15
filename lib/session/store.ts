@@ -254,6 +254,17 @@ export interface BuilderSessionState {
 	 *  add, consumed once by the header on mount. */
 	newFieldUuid: string | undefined;
 
+	/** Field uuid the edit canvas scrolls back to after a preview→edit
+	 *  flipbook flip. The edit canvas is a virtualized list (`VirtualFormList`),
+	 *  so the field the user was looking at isn't in the DOM when the list
+	 *  mounts — the generic DOM-nudge scroll restore (BuilderLayout) can only
+	 *  reach the always-rendered live canvas, which is why preview→edit was
+	 *  the one direction that snapped to the top. The freshly-mounted edit
+	 *  list consumes this and drives the virtualizer's `scrollToIndex`, which
+	 *  CAN reach an off-screen row. One-shot: set by BuilderLayout when
+	 *  leaving preview, consumed once on the next edit-list mount. */
+	flipbookScrollAnchor: string | undefined;
+
 	// ── Actions ───────────────────────────────────────────────────────────
 
 	/** Install or clear the doc store reference. Called by SyncBridge when
@@ -438,6 +449,12 @@ export interface BuilderSessionState {
 	 *  when the component unmounts, so subsequent selections behave normally. */
 	clearNewField: () => void;
 
+	/** Set (or clear) the one-shot flipbook edit-restore anchor — the field
+	 *  the edit canvas scrolls back to after leaving preview. BuilderLayout
+	 *  sets it on the preview→edit toggle; the edit list clears it (passes
+	 *  `undefined`) once it has applied the scroll. No-ops when unchanged. */
+	setFlipbookScrollAnchor: (uuid: string | undefined) => void;
+
 	/** Reset all transient session state to the initial values.
 	 *
 	 *  Composed alongside `resetBuilder` (the doc + engine + signal-grid
@@ -539,6 +556,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				/* UI hints */
 				focusHint: undefined as string | undefined,
 				newFieldUuid: undefined as string | undefined,
+				flipbookScrollAnchor: undefined as string | undefined,
 
 				// ── Reducer-shaped actions ───────────────────────────────
 
@@ -1050,6 +1068,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ newFieldUuid: undefined });
 				},
 
+				setFlipbookScrollAnchor(uuid: string | undefined) {
+					if (uuid === get().flipbookScrollAnchor) return;
+					set({ flipbookScrollAnchor: uuid });
+				},
+
 				reset() {
 					/* Abort any in-flight staged uploads — their drivers hold
 					 * closures into a session that's being torn down, so letting
@@ -1096,6 +1119,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						/* UI hints */
 						focusHint: undefined as string | undefined,
 						newFieldUuid: undefined as string | undefined,
+						flipbookScrollAnchor: undefined as string | undefined,
 					});
 				},
 			})),
