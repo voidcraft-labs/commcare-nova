@@ -26,23 +26,26 @@ import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
  * Undo / redo with scroll + flash affordance. Both actions are no-ops
  * when the respective temporal side is empty.
  *
- * Scroll target:
- *   - If the current URL has a `sel=` uuid, scroll to that field's
- *     field (or the field card itself when no activeFieldId is set).
- *   - Otherwise no scroll — the user wasn't focused on a specific row.
+ * Affordance target:
+ *   - The CANVAS scrolls to bring the currently-selected field's ROW
+ *     (`[data-field-uuid]`) into view — always the row, never a
+ *     sub-element. The edited property's editor lives in the rail (a
+ *     separate scroll container), so feeding it to the canvas scroll
+ *     routine would compute a bogus offset and jump the canvas.
+ *   - The flash lands on the edited property's editor in the rail when
+ *     `activeFieldId` resolves one (`findFieldElement`), else on the field
+ *     row. `activeFieldId` also seeds the focus hint for that rail editor.
+ *   - With no selection (no `sel=` uuid) there's no row to animate.
  *
- * Cross-form undo limitation:
+ * Cross-form limitation:
  *   The URL's `sel=` carries "where the user is looking right now," not
- *   "where the undone mutation happened." When the undone mutation was
- *   in a different form, the restored selected uuid has no DOM element
- *   in the current viewport — we bail on scroll/flash rather than trying
- *   to navigate across forms mid-undo. The state is still restored
- *   correctly; only the animated affordance is suppressed.
- *
- *   This is an accepted trade-off: the doc's temporal middleware doesn't
- *   carry location metadata alongside each patch, so there's no way to
- *   know whether the undone change belongs to the current form without
- *   an extra lookup. Correctness (state) is preserved either way.
+ *   "where the undone mutation happened," and undo/redo never touches the
+ *   URL — so `selectedUuid` always belongs to the currently-rendered form.
+ *   An undo of a change in a DIFFERENT form therefore animates the CURRENT
+ *   selection, not where the change took effect. The doc's temporal
+ *   middleware carries no location metadata to do better; the state is
+ *   restored correctly regardless. The `!flashEl` bail fires only when the
+ *   selected field itself has no DOM node (e.g. a redo that removed it).
  */
 export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const docStore = useContext(BlueprintDocContext);
@@ -75,20 +78,26 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 				setFocusHint(activeFieldId);
 			}
 
-			/* Resolve the flash/scroll target from the live DOM. If neither
-			 * the field element nor the field card exists, the undone
-			 * mutation targeted a different form and the current viewport
-			 * has nothing to animate — bail gracefully. See the block
-			 * comment above for the cross-form undo limitation. */
-			const targetEl = findFieldElement(selectedUuid, activeFieldId);
+			/* Resolve the flash target from the live DOM. The edited
+			 * property's editor lives in the rail inspector now; flash it
+			 * there, falling back to the canvas field card. If neither exists
+			 * the selected field has no DOM node (e.g. a redo that removed it),
+			 * so there's nothing to animate — bail gracefully. See the block
+			 * comment above for the cross-form caveat. */
+			const railFieldEl = findFieldElement(selectedUuid, activeFieldId);
 			const flashEl =
-				targetEl ??
+				railFieldEl ??
 				(document.querySelector(
 					`[data-field-uuid="${selectedUuid}"]`,
 				) as HTMLElement | null);
 			if (!flashEl) return;
 
-			scrollTo(selectedUuid, targetEl ?? undefined, "instant");
+			/* Scroll the CANVAS to the field row (no override). The rail
+			 * property is in a different scroll container, so feeding it to
+			 * the canvas scroll routine would compute a bogus offset and
+			 * jump the canvas; the field row is the right thing to bring
+			 * into view. */
+			scrollTo(selectedUuid, undefined, "instant");
 			flashUndoHighlight(flashEl);
 		}
 

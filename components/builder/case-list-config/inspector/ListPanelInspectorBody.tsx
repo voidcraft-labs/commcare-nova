@@ -20,13 +20,16 @@ import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import { useState } from "react";
+import {
+	InspectorHint,
+	InspectorSection,
+} from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import type { Uuid } from "@/lib/doc/types";
 import { asAssetId, type CaseListConfig, type Column } from "@/lib/domain";
 import { SortPriorityStack } from "../SortPriorityStack";
 import type { SampleDataAction } from "../useSampleData";
-import { InspectorHint, InspectorSection } from "./inspectorChrome";
 
 export interface ListPanelInspectorBodyProps {
 	/** Owning module — keys the appearance slots' staged uploads

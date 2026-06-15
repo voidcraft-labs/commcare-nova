@@ -1,0 +1,59 @@
+/**
+ * FieldInspectorBody — the right-rail inspector body for a selected form
+ * field. Portaled into the rail by `FieldInspectorSurface` (which owns the
+ * kicker/title/close header), it stacks the field's editing surface:
+ *
+ *   - `FieldIdentitySection` — the "Field ID" section (id editor + actions).
+ *   - `FieldEditorPanel`     — Data / Logic / Appearance, registry-driven.
+ *   - shared `RemoveRow`     — deletion, always the body's last row.
+ *
+ * The wrapper `div` owns two things beyond layout:
+ *   - `space-y-4` — the rail's section rhythm. A wrapper (not a fragment) so
+ *     the delegated focus handler has one ancestor to listen on; the sections
+ *     are still direct children of this div, so they get the same `space-y-4`
+ *     + `first:` divider treatment as the case-list inspector's sections.
+ *   - the delegated `onFocus` — tracks which `[data-field-id]` element holds
+ *     focus so zundo snapshots capture the right field even for blur-triggered
+ *     saves (where `document.activeElement` has already moved).
+ */
+"use client";
+import { useCallback } from "react";
+import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
+import type { Field } from "@/lib/domain";
+import { useDeleteSelectedField } from "@/lib/routing/builderActions";
+import { useSetActiveFieldId } from "@/lib/session/hooks";
+import { FieldEditorPanel } from "./FieldEditorPanel";
+import { FieldIdentitySection } from "./FieldIdentitySection";
+
+interface FieldInspectorBodyProps {
+	field: Field;
+}
+
+export function FieldInspectorBody({ field }: FieldInspectorBodyProps) {
+	const setActiveFieldId = useSetActiveFieldId();
+	const deleteSelected = useDeleteSelectedField();
+
+	const handleFocus = useCallback(
+		(e: React.FocusEvent) => {
+			const fieldEl = (e.target as HTMLElement).closest("[data-field-id]");
+			setActiveFieldId(fieldEl?.getAttribute("data-field-id") ?? undefined);
+		},
+		[setActiveFieldId],
+	);
+
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: delegated focusin for undo/redo field tracking
+		<div
+			onFocus={handleFocus}
+			className="space-y-4"
+			// Stable uuid tag (survives renames) so undo/redo's
+			// `findFieldElement` can locate this field's property element in the
+			// rail to flash it — see `lib/routing/domQueries.ts`.
+			data-field-inspector={field.uuid}
+		>
+			<FieldIdentitySection field={field} />
+			<FieldEditorPanel field={field} />
+			<RemoveRow label="Delete field" onClick={deleteSelected} />
+		</div>
+	);
+}

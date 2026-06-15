@@ -9,6 +9,7 @@ import { useSampleData } from "@/components/builder/case-list-config/useSampleDa
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
+import { FieldInspectorSurface } from "@/components/builder/editor/FieldInspectorSurface";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
@@ -536,6 +537,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
 				<FormLayoutProvider>{formBody}</FormLayoutProvider>
 			</ContentFrame>
+			{/* Selected-field editor — claims the right rail (portals out, so
+			    it adds no layout here). Renders only in edit mode with a
+			    selection; releases the rail on deselect or when Activity hides
+			    this screen. */}
+			<FieldInspectorSurface />
 		</div>
 	);
 }

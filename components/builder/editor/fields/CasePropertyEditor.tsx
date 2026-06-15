@@ -26,6 +26,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { type Field, type FieldKind, getModuleCaseTypes } from "@/lib/domain";
@@ -124,7 +125,7 @@ export function CasePropertyDropdown({
 		<div>
 			<label
 				htmlFor={triggerId}
-				className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block"
+				className={`${INSPECTOR_LABEL_CLS} mb-1.5 block`}
 			>
 				Saves to
 			</label>
@@ -135,7 +136,7 @@ export function CasePropertyDropdown({
 						ref={composedTriggerRef}
 						id={triggerId}
 						aria-label={`Saves to: ${displayLabel}`}
-						className="group w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
+						className="group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 					>
 						<span
 							className={
@@ -239,7 +240,7 @@ export function CasePropertyDropdown({
 					id={triggerId}
 					aria-label={`Saves to: ${displayLabel}`}
 					disabled
-					className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md border transition-colors ${
+					className={`w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors ${
 						isCaseName && value ? "opacity-70" : "opacity-50"
 					} cursor-not-allowed text-nova-text bg-nova-deep/50 border-white/[0.06]`}
 				>

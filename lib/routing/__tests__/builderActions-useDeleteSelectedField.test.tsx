@@ -52,6 +52,7 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 
 vi.mock("@/lib/session/hooks", () => ({
 	useActiveFieldId: () => undefined,
+	useClearFocusHint: () => () => {},
 }));
 
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";

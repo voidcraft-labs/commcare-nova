@@ -33,6 +33,11 @@ vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 	useConsultEditGuard: () => () => true,
 }));
 
+// useSelect clears the undo/redo focus hint on selection change.
+vi.mock("@/lib/session/hooks", () => ({
+	useClearFocusHint: () => () => {},
+}));
+
 // ── Fixture ────────────────────────────────────────────────────────────
 
 const MODULE_UUID = asUuid("module-1-0000-0000-0000-000000000000");

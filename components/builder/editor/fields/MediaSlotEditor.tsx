@@ -15,6 +15,7 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import type { Field } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
@@ -29,8 +30,10 @@ export function MediaSlotEditor<F extends Field, K extends keyof F>({
 }: FieldEditorComponentProps<F, K>) {
 	return (
 		<div data-field-id={String(keyName)}>
-			<div className="flex items-center justify-between mb-1">
-				<span className="text-xs text-nova-text-muted uppercase tracking-wider flex items-center gap-1.5 min-w-0">
+			<div className="flex items-center justify-between mb-1.5">
+				<span
+					className={`${INSPECTOR_LABEL_CLS} flex items-center gap-1.5 min-w-0`}
+				>
 					{label}
 				</span>
 				{/* Property-level delete — always available so the property can

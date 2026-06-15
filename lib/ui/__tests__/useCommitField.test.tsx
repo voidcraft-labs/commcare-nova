@@ -3,7 +3,7 @@
 /**
  * useCommitField — the commit/cancel/checkmark model shared by every
  * inline text editor in the builder (EditableText, EditableTitle,
- * InlineField, FieldHeader's id input).
+ * InlineField, FieldIdentitySection's id input).
  *
  * The hook owns the interesting branching (draft isolation, blur
  * double-commit guard, Enter/Escape semantics, multiline gating,

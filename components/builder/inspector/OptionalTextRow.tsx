@@ -1,7 +1,7 @@
-// components/builder/case-list-config/inspector/OptionalTextRow.tsx
+// components/builder/inspector/OptionalTextRow.tsx
 //
-// One row primitive for optional single-line text slots in the
-// inspector: label chrome, hint line, blur-commit handshake,
+// One row primitive for optional single-line text slots in any
+// right-rail inspector: label chrome, hint line, blur-commit handshake,
 // empty-clears normalization. Markdown slots use the WYSIWYG
 // OptionalMarkdownRow instead.
 //
@@ -17,6 +17,7 @@
 "use client";
 import { useId } from "react";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
+import { INSPECTOR_INPUT_CLS, INSPECTOR_LABEL_CLS } from "./inspectorChrome";
 
 interface OptionalTextRowProps {
 	readonly label: string;
@@ -66,10 +67,7 @@ export function OptionalTextRow({
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<label
-				htmlFor={inputId}
-				className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted"
-			>
+			<label htmlFor={inputId} className={INSPECTOR_LABEL_CLS}>
 				{label}
 			</label>
 			<input
@@ -84,7 +82,7 @@ export function OptionalTextRow({
 				autoComplete="off"
 				data-1p-ignore
 				placeholder={placeholder}
-				className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
+				className={INSPECTOR_INPUT_CLS}
 			/>
 			<span className="text-[11px] leading-relaxed text-nova-text-muted">
 				{hint}

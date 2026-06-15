@@ -22,6 +22,8 @@
 // `Object.assign(mod, patch)`).
 
 "use client";
+import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
+import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { OptionalSlotCard } from "@/components/builder/shared/OptionalSlotCard";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
@@ -35,8 +37,6 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { NO_SEARCH_INPUTS } from "../searchInputResolution";
-import { OptionalMarkdownRow } from "./OptionalMarkdownRow";
-import { OptionalTextRow } from "./OptionalTextRow";
 
 export interface SearchPanelInspectorBodyProps {
 	/** Current case-search configuration. `undefined` means the module

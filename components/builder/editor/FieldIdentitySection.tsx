@@ -1,20 +1,18 @@
 /**
- * FieldHeader — top chrome of the field inspector.
+ * FieldIdentitySection — the "Field ID" section of the right-rail field
+ * inspector.
  *
- * Renders the type-icon adornment (sourced from
- * `fieldRegistry[field.kind].icon`), the editable id input with
- * sibling-conflict shake + popover, and the kebab menu (move up/down,
- * cross-level moves with Shift, convert-type submenu, duplicate). The
- * trash button is a separate destructive action to the right of the
- * kebab.
+ * Renders the type-icon adornment (from `fieldRegistry[field.kind].icon`),
+ * the editable id input with sibling-conflict shake + popover, and the
+ * actions menu (move up/down, cross-level moves with Shift, convert-type
+ * submenu, duplicate). Deletion is NOT here — it rides the inspector's
+ * shared `RemoveRow` at the body's last row (see `FieldInspectorBody`), the
+ * one place every inspector body puts removal.
  *
- * The header is rendered above `FieldEditorPanel` by
- * `InlineSettingsPanel`. Reads everything kind-specific from the
- * registry:
+ * Reads everything kind-specific from the registry:
  *   - `fieldRegistry[kind].icon`           → type icon
  *   - `fieldRegistry[kind].label`          → tooltip label
  *   - `getConvertibleTypes(kind)`          → submenu enable/disable
- *     (reads `fieldRegistry[kind].convertTargets`)
  *
  * No per-kind switching anywhere in this component.
  */
@@ -28,10 +26,10 @@ import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerArrowsExchange from "@iconify-icons/tabler/arrows-exchange";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
-import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import { InspectorSection } from "@/components/builder/inspector/inspectorChrome";
 import {
 	REJECTION_SURFACE_CLS,
 	RejectionBody,
@@ -54,7 +52,6 @@ import {
 	getConvertibleTypes,
 } from "@/lib/domain";
 import { shortcutLabel } from "@/lib/platform";
-import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import {
 	useClearNewField,
@@ -72,7 +69,7 @@ import {
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 import { classifyRenameOutcome } from "./renameOutcome";
 
-interface FieldHeaderProps {
+interface FieldIdentitySectionProps {
 	field: Field;
 }
 
@@ -107,7 +104,7 @@ function useShiftKey(): boolean {
 	return shift;
 }
 
-export function FieldHeader({ field }: FieldHeaderProps) {
+export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	const { setPending } = useScrollIntoView();
 	const loc = useLocation();
 	const select = useSelect();
@@ -122,7 +119,7 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 		moveField,
 		duplicateField,
 		convertField,
-		// Rename rejections render in this header's own popover, so the
+		// Rename rejections render in this section's own popover, so the
 		// dispatch is the inline flavor — the toast stays quiet. The menu
 		// actions (move/duplicate/convert) have no contextual anchor and
 		// stay on the announcing flavor.
@@ -132,21 +129,20 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	/* Imperative doc handle. The grandparent row (`FieldRow`) subscribes
 	 * to the selected field entity AND receives `parentUuid` + `siblingIndex`
 	 * props — so every reorder of the selected field changes at least one
-	 * prop and propagates a re-render down to this header via the memo
-	 * boundary. Reading the live doc with `docApi.getState()` in the
-	 * render body then picks up fresh adjacency on every relevant render
-	 * without forcing a reactive subscription that would also fire on
-	 * unrelated field edits (label, hint, calculate). */
+	 * prop and propagates a re-render down to this section. Reading the live
+	 * doc with `docApi.getState()` in the render body then picks up fresh
+	 * adjacency on every relevant render without forcing a reactive
+	 * subscription that would also fire on unrelated field edits (label,
+	 * hint, calculate). */
 	const docApi = useBlueprintDocApi();
 
 	/* Raw session focus-hint. The hint is written by `useUndoRedo` and
 	 * read by whichever editor owns the matching data-field-id — no
 	 * editor clears it; each simply ignores non-matching values. The
-	 * header consumes `focusHint === "id"` by auto-focusing + selecting
+	 * section consumes `focusHint === "id"` by auto-focusing + selecting
 	 * the ID input on mount. */
 	const focusHint = useSessionFocusHint();
 	const shiftHeld = useShiftKey();
-	const deleteSelected = useDeleteSelectedField();
 
 	/* ── ID field notices (errors + rename info) ── */
 
@@ -155,18 +151,6 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	const [shaking, setShaking] = useState(false);
 	const idWrapperRef = useRef<HTMLDivElement>(null);
 	const idInputRef = useRef<HTMLInputElement>(null);
-	const idMeasureRef = useRef<HTMLSpanElement>(null);
-
-	/** Size the ID input to its content by measuring a hidden mirror span
-	 *  that carries the same text + font metrics as the input, then
-	 *  copying its width back onto the input. Called on mount, value
-	 *  change, and draft edit so the field hugs its content without a
-	 *  layout jump. */
-	const syncIdWidth = useCallback(() => {
-		if (idMeasureRef.current && idInputRef.current) {
-			idInputRef.current.style.width = `${idMeasureRef.current.scrollWidth + 4}px`;
-		}
-	}, []);
 
 	/* Auto-dismiss the notice popover after 4 seconds so a stale error
 	 * doesn't shadow a subsequent successful rename. Cleanup cancels the
@@ -184,7 +168,7 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	 * `__nova_` prefix, the case-property length cap, and the peer-aware
 	 * sibling-conflict scan — so UI and agent renames can't drift. The
 	 * outcome classification is owned by `classifyRenameOutcome` so the
-	 * branching is testable without mounting the header.
+	 * branching is testable without mounting the section.
 	 *
 	 * Wired as `useCommitField`'s `onSave` (NOT `validate`): an
 	 * `ok: false` return runs the hook's draft-preserving restore — the
@@ -257,12 +241,11 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	});
 
 	/** Callback ref for the ID input — merges the commit hook ref with
-	 *  autoFocus behavior, undo/redo focus restoration, and content-width sync. */
+	 *  autoFocus behavior and undo/redo focus restoration. */
 	const setIdInputRef = useCallback(
 		(el: HTMLInputElement | null) => {
 			idInputRef.current = el;
 			idField.ref(el);
-			syncIdWidth();
 			/* Auto-focus gate. `focusHint === "id"` is the undo/redo
 			 * restoration path; `isNewField` covers the just-inserted
 			 * case where the user expects to immediately type an id
@@ -273,7 +256,7 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 				el.select();
 			}
 		},
-		[idField.ref, focusHint, isNewField, syncIdWidth],
+		[idField.ref, focusHint, isNewField],
 	);
 
 	/* ── Action handlers ── */
@@ -320,12 +303,6 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 		select(asUuid(result.newUuid));
 	}, [selectedUuid, duplicateField, setPending, select]);
 
-	/** Delete uses the `useDeleteSelectedField` hook which handles
-	 *  neighbor selection and URL update. */
-	const handleDelete = useCallback(() => {
-		deleteSelected();
-	}, [deleteSelected]);
-
 	if (!selectedUuid || !formUuid) return null;
 
 	/* Compute adjacency inline so isFirst/isLast always reflect the current
@@ -357,51 +334,26 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 	const canConvert = conversionTargets.length > 0;
 
 	return (
-		<div className="flex items-center justify-between px-3 py-3 border-b border-white/[0.06]">
-			{/* Left: joined type icon + ID input — the icon acts as a
-			 *  leading adornment inside the input's visual boundary. */}
-			<div
-				className="relative flex flex-col gap-1.5 min-w-0"
-				data-field-id="id"
-			>
-				{/* Micro-label — same vocabulary as SectionLabel but inline-compact. */}
-				<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted/60 pl-0.5 select-none">
-					ID
-				</span>
-				<div className="relative flex items-center">
-					{/* Hidden span mirror — carries the same text + font
-					 *  metrics as the input so `syncIdWidth` can copy its
-					 *  rendered width back onto the input. Keeps the field
-					 *  hugging its content without a layout jump. */}
-					<span
-						ref={(el) => {
-							idMeasureRef.current = el;
-							syncIdWidth();
-						}}
-						className="text-sm font-mono font-medium px-2 border border-transparent absolute invisible whitespace-pre"
-						aria-hidden
-					>
-						{idField.draft || "\u00A0"}
-					</span>
-					{/* Filter `onAnimationEnd` on the keyframe name — animation
-					 *  events bubble, so any descendant @keyframes ending would
-					 *  otherwise clear `shaking` mid-shake. Children today use
-					 *  CSS transitions (which fire transitionend, not
-					 *  animationend), but the filter is the contract. */}
+		<InspectorSection label="Field ID">
+			<div className="flex items-center gap-2" data-field-id="id">
+				{/* Joined type icon + id input — the icon is a leading adornment
+				 *  inside the input's visual boundary, the recessed well every
+				 *  other rail input uses. */}
+				<div className="relative flex-1 min-w-0">
 					<div
 						ref={idWrapperRef}
 						onAnimationEnd={(e) => {
 							if (e.animationName === "shake") setShaking(false);
 						}}
-						className={`flex items-center rounded-md border outline-none transition-colors ${shaking ? "xpath-shake" : ""} ${
+						className={`flex items-stretch min-h-11 rounded-lg border outline-none transition-colors ${shaking ? "xpath-shake" : ""} ${
 							idField.focused
-								? "bg-nova-surface border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+								? "bg-nova-deep/50 border-nova-violet/40 ring-1 ring-nova-violet/30"
 								: "bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30"
 						}`}
 					>
 						{/* Icon adornment — violet-tinted badge flush with the input */}
 						<Tooltip content={typeLabel} placement="bottom">
-							<span className="flex items-center justify-center w-9 h-9 shrink-0 text-nova-violet-bright border-r border-white/[0.06] rounded-l-md bg-nova-violet/10">
+							<span className="flex items-center justify-center w-10 shrink-0 text-nova-violet-bright border-r border-white/[0.06] rounded-l-lg bg-nova-violet/10">
 								<Icon icon={typeIcon} width="16" height="16" />
 							</span>
 						</Tooltip>
@@ -411,21 +363,20 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 							onChange={(e) => {
 								idField.setDraft(e.target.value);
 								if (idNotice) setIdNotice(null);
-								requestAnimationFrame(syncIdWidth);
 							}}
 							onFocus={idField.handleFocus}
 							onBlur={idField.handleBlur}
 							onKeyDown={idField.handleKeyDown}
-							className="min-w-[20ch] text-sm font-mono px-2 py-1.5 bg-transparent text-nova-text font-medium outline-none cursor-text"
+							className="flex-1 min-w-0 text-[13px] font-mono px-3 bg-transparent text-nova-text font-medium outline-none cursor-text"
 							autoComplete="off"
 							data-1p-ignore
 						/>
+						<SavedCheck
+							visible={idField.saved && !idField.focused}
+							size={12}
+							className="self-center mr-2 shrink-0"
+						/>
 					</div>
-					<SavedCheck
-						visible={idField.saved && !idField.focused}
-						size={12}
-						className="absolute right-1.5 shrink-0"
-					/>
 					{/* ID notice popover — anchored to the input wrapper, shown
 					 *  while `idNotice` is non-null. Carries either an error
 					 *  (sibling conflict) or info (auto-rename) message; the
@@ -468,14 +419,12 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 						</Popover.Portal>
 					</Popover.Root>
 				</div>
-			</div>
 
-			{/* Right: overflow dots menu + delete (destructive action rightmost) */}
-			<div className="flex items-center gap-0.5 shrink-0">
+				{/* Actions overflow menu — move / convert / duplicate. */}
 				<Menu.Root>
 					<Menu.Trigger
-						aria-label="More actions"
-						className="w-9 h-9 flex items-center justify-center rounded-md transition-colors text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] cursor-pointer outline-none data-[popup-open]:bg-white/[0.06]"
+						aria-label="Field actions"
+						className="shrink-0 size-11 grid place-items-center rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-text hover:border-nova-violet/30 transition-colors cursor-pointer outline-none data-[popup-open]:bg-white/[0.06]"
 					>
 						<Icon icon={tablerDotsVertical} width="18" height="18" />
 					</Menu.Trigger>
@@ -600,19 +549,8 @@ export function FieldHeader({ field }: FieldHeaderProps) {
 						</Menu.Positioner>
 					</Menu.Portal>
 				</Menu.Root>
-
-				<Tooltip content="Delete" placement="bottom">
-					<button
-						type="button"
-						onClick={handleDelete}
-						aria-label="Delete"
-						className="w-9 h-9 flex items-center justify-center rounded-md transition-colors text-nova-text-muted hover:text-nova-rose hover:bg-nova-rose/10 cursor-pointer"
-					>
-						<Icon icon={tablerTrash} width="18" height="18" />
-					</button>
-				</Tooltip>
 			</div>
-		</div>
+		</InspectorSection>
 	);
 }
 

@@ -285,6 +285,8 @@ export function BuilderLayout({
 			) as HTMLElement | null;
 			if (!fieldEl || !scrollContainer) return;
 
+			// `overrideTarget` must be within `scrollContainer` (see ScrollCallback) —
+			// it's measured against it. Defaults to the field row.
 			const el = overrideTarget ?? fieldEl;
 			const paddingTop = scrollContainer.style.paddingTop
 				? Number.parseInt(scrollContainer.style.paddingTop, 10)

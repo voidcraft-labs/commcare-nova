@@ -192,7 +192,7 @@ export function XPathField({
 					clickPosRef.current = { x: e.clientX, y: e.clientY };
 					setEditing(true);
 				}}
-				className="w-full text-left cursor-pointer rounded-md border border-transparent hover:border-nova-violet/30 transition-colors p-0"
+				className="w-full text-left cursor-pointer rounded-lg border border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 transition-colors px-2 min-h-11 flex flex-col justify-center"
 			>
 				{display}
 			</button>
@@ -510,7 +510,7 @@ function InlineXPathEditor({
 		() => [
 			...baseEditingExtensions,
 			/* Portal tooltips to body so they aren't clipped by overflow on
-			 * ancestor panels (InlineSettingsPanel, FormSettingsPanel). */
+			 * the scrolling ancestor (the inspector rail, FormSettingsPanel). */
 			tooltips({ parent: document.body }),
 			xpathLinter(() => getLintContextRef.current?.()),
 			xpathAutocomplete(() => getLintContextRef.current?.()),
@@ -533,7 +533,7 @@ function InlineXPathEditor({
 			onAnimationEnd={(e) => {
 				if (e.animationName === "shake") setShaking(false);
 			}}
-			className={`rounded-md border border-nova-violet/50 ${shaking ? "xpath-shake" : ""}`}
+			className={`rounded-lg border border-nova-violet/40 ring-1 ring-nova-violet/30 bg-nova-deep/50 ${shaking ? "xpath-shake" : ""}`}
 		>
 			<CodeMirror
 				ref={editorRef}

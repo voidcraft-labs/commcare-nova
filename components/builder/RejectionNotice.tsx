@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "motion/react";
  * The one visual language for a refused commit, shared by every surface
  * that presents the validity gate's findings contextually: the floating
  * callout under an editable title, the inline notice under a text field,
- * the editor tooltips (`XPathField`, `FieldHeader`), and the Connect
+ * the editor tooltips (`XPathField`, `FieldIdentitySection`), and the Connect
  * dialog footer.
  *
  * Tone rules, deliberately:

@@ -25,7 +25,7 @@ import { showToast } from "@/lib/ui/toastStore";
 //   - EditableText is the inline text / formula editor (XPathEditor) — a bad
 //     formula reference is its rejection.
 //   - InlineField is a form-settings field (Connect config, close condition).
-//   - FieldHeader / XPathField share the anchored popup — a refused field-ID
+//   - FieldIdentitySection / XPathField share the anchored popup — a refused field-ID
 //     rename surfaces there, NOT on EditableTitle.
 
 const APP_NAME_REQUIRED = "Your app needs a name. Add one to get started.";
@@ -166,8 +166,8 @@ export default function RejectionTestPage() {
 				</Section>
 
 				<Section
-					title="Anchored popup chrome — XPathField / FieldHeader"
-					hint="The static surface those popovers share. A refused field-ID rename (FieldHeader) surfaces here."
+					title="Anchored popup chrome — XPathField / FieldIdentitySection"
+					hint="The static surface those popovers share. A refused field-ID rename (FieldIdentitySection) surfaces here."
 				>
 					<div className={`px-3 py-2.5 max-w-sm ${REJECTION_SURFACE_CLS}`}>
 						<RejectionBody

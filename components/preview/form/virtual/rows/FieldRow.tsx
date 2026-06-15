@@ -18,7 +18,6 @@
 import { attachClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
-import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FieldHelp } from "@/components/preview/form/FieldHelp";
@@ -204,29 +203,10 @@ export const FieldRow = memo(function FieldRow({
 				}}
 				data-field-uuid={uuid}
 			>
-				<EditableFieldWrapper
-					fieldUuid={uuid}
-					isDragging={isDraggingSelf}
-					flatBottomOnSelect
-				>
+				<EditableFieldWrapper fieldUuid={uuid} isDragging={isDraggingSelf}>
 					{content}
 				</EditableFieldWrapper>
 			</div>
-			{isFieldSelected && (
-				<div
-					data-settings-panel
-					style={{
-						paddingLeft: depthPadding(depth),
-						paddingRight: depthPadding(depth),
-					}}
-				>
-					{/* Drawer attaches flush to the field's flat-bottomed
-					 *  selection ring — violet strokes continue ring →
-					 *  drawer without a seam, so the field and its
-					 *  inspector read as one two-pane card. */}
-					<InlineSettingsPanel field={q} variant="attached" />
-				</div>
-			)}
 			{preview}
 		</>
 	);

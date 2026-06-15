@@ -22,6 +22,14 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { useMemo, useRef } from "react";
+import {
+	CONSOLE_MENU_ITEM_MIN,
+	CONSOLE_TRIGGER_CLS,
+	InspectorHint,
+	InspectorSection,
+	SegmentedRow,
+	ToggleRow,
+} from "@/components/builder/inspector/inspectorChrome";
 import { PredicateEditProvider } from "@/components/builder/shared/editorContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import type {
@@ -54,14 +62,6 @@ import {
 	resolveColumnProperty,
 	resolveColumnPropertyDataType,
 } from "./columnEditorSchemas";
-import {
-	CONSOLE_MENU_ITEM_MIN,
-	CONSOLE_TRIGGER_CLS,
-	InspectorHint,
-	InspectorSection,
-	SegmentedRow,
-	ToggleRow,
-} from "./inspector/inspectorChrome";
 import { NO_SEARCH_INPUTS } from "./searchInputResolution";
 
 /**

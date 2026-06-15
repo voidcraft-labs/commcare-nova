@@ -1,6 +1,7 @@
-// components/builder/case-list-config/inspector/inspectorChrome.tsx
+// components/builder/inspector/inspectorChrome.tsx
 //
-// The console chrome the case-list inspector bodies are built from.
+// The console chrome every right-rail inspector body is built from —
+// the case-list/search bodies and the form-field inspector alike.
 // One place owns the rail's sizing and voice so every editor reads
 // the same way: etched mono section labels, recessed input wells,
 // generous calm spacing, and full-size targets — every interactive
@@ -20,6 +21,19 @@ export const CONSOLE_TRIGGER_CLS =
 /** Menu item sizing for the rail's pickers — full-size targets even
  *  for single-line items. */
 export const CONSOLE_MENU_ITEM_MIN = "min-h-11";
+
+/** The mono micro-label that titles a single control inside a section —
+ *  the section header's etched voice, one step quieter. Every rail editor
+ *  labels its control with this so the inspector reads as one surface. */
+export const INSPECTOR_LABEL_CLS =
+	"font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted";
+
+/** The recessed single-line input well every text field in the rail uses.
+ *  Pure `focus:` ring — for inputs that also carry a refusable state, build
+ *  the focused class by hand (see EditableText) so a rejection border isn't
+ *  overridden by the focus pseudo-class. */
+export const INSPECTOR_INPUT_CLS =
+	"w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 
 /**
  * One titled cluster of controls. The etched label is console

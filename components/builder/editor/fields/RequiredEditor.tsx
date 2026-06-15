@@ -142,10 +142,12 @@ export function RequiredEditor<F extends Field>({
 	// string literal by contract.
 	return (
 		<div data-field-id="required">
-			<div className="flex items-center justify-between mb-1">
-				{/* Span, not label — Toggle is a custom control (div+button),
-				    not a native input, so <label for="..."> would mislead AT. */}
-				<span className="text-xs text-nova-text-muted uppercase tracking-wider flex items-center gap-1.5 min-w-0">
+			{/* ToggleRow-shaped frame so the field inspector's Required reads as
+			    the same control the case-list inspector's toggles do. Span, not
+			    label — Toggle is a custom control (div+button), not a native
+			    input, so <label for="..."> would mislead AT. */}
+			<div className="flex items-center gap-3 w-full min-h-11 px-3 py-2 rounded-lg border border-white/[0.04] bg-nova-deep/30">
+				<span className="flex-1 min-w-0 flex items-center gap-1.5 text-[13px] text-nova-text">
 					{label}
 					{editing && <SaveShortcutHint />}
 				</span>
@@ -166,38 +168,43 @@ export function RequiredEditor<F extends Field>({
 						transition={{ duration: 0.15, ease: "easeOut" }}
 						className="overflow-hidden"
 					>
-						{showEditor ? (
-							<div
-								className="flex items-center gap-1.5 group/condition"
-								data-field-id="required_condition"
-							>
-								<div className="flex-1 min-w-0">
-									<XPathField
-										value={conditionValue}
-										onSave={handleConditionSave}
-										getLintContext={getLintContext}
-										autoEdit={addingCondition || shouldOpenCondition}
-										onEditingChange={setEditing}
-									/>
+						{/* pt-2 inside the animated box (not a margin) so the gap
+						    collapses with the height tween instead of leaving a
+						    phantom 8px when the condition closes. */}
+						<div className="pt-2">
+							{showEditor ? (
+								<div
+									className="flex items-center gap-1.5 group/condition"
+									data-field-id="required_condition"
+								>
+									<div className="flex-1 min-w-0">
+										<XPathField
+											value={conditionValue}
+											onSave={handleConditionSave}
+											getLintContext={getLintContext}
+											autoEdit={addingCondition || shouldOpenCondition}
+											onEditingChange={setEditing}
+										/>
+									</div>
+									{hasCondition && (
+										<button
+											type="button"
+											onClick={handleConditionRemove}
+											aria-label="Remove condition"
+											className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
+											tabIndex={-1}
+										>
+											<Icon icon={tablerTrash} width="12" height="12" />
+										</button>
+									)}
 								</div>
-								{hasCondition && (
-									<button
-										type="button"
-										onClick={handleConditionRemove}
-										aria-label="Remove condition"
-										className="shrink-0 p-0.5 text-nova-text-muted opacity-0 group-hover/condition:opacity-100 hover:text-nova-rose transition-all cursor-pointer"
-										tabIndex={-1}
-									>
-										<Icon icon={tablerTrash} width="12" height="12" />
-									</button>
-								)}
-							</div>
-						) : (
-							<AddPropertyButton
-								label="Condition"
-								onClick={() => setAddingCondition(true)}
-							/>
-						)}
+							) : (
+								<AddPropertyButton
+									label="Condition"
+									onClick={() => setAddingCondition(true)}
+								/>
+							)}
+						</div>
 					</motion.div>
 				)}
 			</AnimatePresence>

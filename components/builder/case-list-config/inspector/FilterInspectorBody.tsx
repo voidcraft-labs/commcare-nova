@@ -24,13 +24,16 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useEffect, useState } from "react";
+import {
+	InspectorHint,
+	RemoveRow,
+} from "@/components/builder/inspector/inspectorChrome";
 import { PredicateCardEditor } from "@/components/builder/shared/PredicateCardEditor";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
-import { InspectorHint, RemoveRow } from "./inspectorChrome";
 
 export interface FilterInspectorBodyProps {
 	/** Full case-list config — the filter editor mutates the `filter`

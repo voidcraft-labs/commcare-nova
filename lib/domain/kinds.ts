@@ -63,7 +63,7 @@ export type FieldKindMetadata<K extends FieldKind> = {
 	 * fires at the metadata declaration site, before any consumer.
 	 *
 	 * Three runtime consumers read the list:
-	 *   - The FieldHeader convert-type submenu renders one row per
+	 *   - The FieldIdentitySection convert-type submenu renders one row per
 	 *     target.
 	 *   - The `editField` SA tool gates kind changes against
 	 *     `getConvertibleTypes(fromKind)` and lists the allowed targets
