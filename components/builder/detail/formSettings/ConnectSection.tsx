@@ -1,6 +1,6 @@
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { type ReactNode, useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import {
 	ConnectEnableDialog,
 	type ConnectStagingTarget,
@@ -47,14 +47,7 @@ import type { FormSettingsSectionProps } from "./types";
 export function ConnectSection({
 	moduleUuid,
 	formUuid,
-	heading,
-}: FormSettingsSectionProps & {
-	/** Left-hand content of the toggle row. Defaults to the "Connect" label
-	 *  + the app's mode badge (form settings); the app-wide Connect manager
-	 *  passes the form's own name instead, since its own header already names
-	 *  the mode. */
-	heading?: ReactNode;
-}) {
+}: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
 	const mod = useModule(moduleUuid);
 	/* Inline flavor throughout: every rejection in this section has a
@@ -183,16 +176,14 @@ export function ConnectSection({
 		<div className="border-t border-white/[0.06] pt-3">
 			{/* Header row with toggle */}
 			<div className="flex items-center justify-between">
-				{heading ?? (
-					<div className="flex items-center gap-2">
-						<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
-							Connect
-						</span>
-						<span className="h-[18px] px-1.5 text-[10px] font-medium rounded bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">
-							{connectType}
-						</span>
-					</div>
-				)}
+				<div className="flex items-center gap-2">
+					<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
+						Connect
+					</span>
+					<span className="h-[18px] px-1.5 text-[10px] font-medium rounded bg-nova-violet/10 text-nova-violet-bright border border-nova-violet/20 flex items-center capitalize">
+						{connectType}
+					</span>
+				</div>
 				<Toggle enabled={enabled} onToggle={toggle} />
 			</div>
 

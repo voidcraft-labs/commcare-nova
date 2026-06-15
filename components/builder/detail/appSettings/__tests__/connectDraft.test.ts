@@ -1,26 +1,31 @@
 /**
- * Round-trip law for the Connect manager's draft model: editing an
- * EXISTING block through `configToDraft` → `draftToConfig` must preserve
- * the fields the manager doesn't expose — sub-config ids and the advanced
- * XPath slots (`user_score`, `entity_id`, `entity_name`). Dropping an
- * expression is data loss; re-deriving an id churns Connect's Postgres
- * slug. Pure functions, no React — mounts nothing.
+ * Round-trip law for the Connect editor's draft model: an EXISTING block
+ * survives `configToDraft` → `draftToConfig` without losing its ids or its
+ * advanced XPath slots (`user_score`, `entity_id`, `entity_name`). Dropping
+ * an expression is data loss; re-deriving an id churns Connect's Postgres
+ * slug. The XPath buffers are TEXT (printed on seed, parsed on commit), so
+ * the test drives the print/parse boundary explicitly. Pure functions, no
+ * React — mounts nothing.
  */
 import { describe, expect, it } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { ConnectConfig } from "@/lib/domain";
-import { configToDraft, draftToConfig } from "../ConnectEnableDialog";
+import {
+	configToDraft,
+	draftToConfig,
+	EMPTY_DRAFT,
+} from "../ConnectEnableDialog";
 
-/** A parser that must never run: a preserved expression is already an AST,
- *  so the round-trip can't go through text. */
-const noParse = (): never => {
+/** A print/parse pair that must never run — proves a config with no XPath
+ *  never touches the expression boundary. */
+const noExpr = (): never => {
 	throw new Error(
-		"parseExpr must not run when a preserved expression round-trips",
+		"expression boundary must not run for a config with no XPath",
 	);
 };
 
-describe("Connect manager draft round-trip", () => {
-	it("preserves learn ids and the assessment user_score", () => {
+describe("Connect draft round-trip", () => {
+	it("preserves ids + core content for a config with no XPath", () => {
 		const config: ConnectConfig = {
 			learn_module: {
 				id: "intro_module",
@@ -28,58 +33,57 @@ describe("Connect manager draft round-trip", () => {
 				description: "Getting started",
 				time_estimate: 7,
 			},
-			assessment: { id: "intro_quiz", user_score: xp("#form/score") },
+			assessment: { id: "intro_quiz" },
 		};
 
-		const round = draftToConfig(configToDraft(config), "learn", noParse);
+		const round = draftToConfig(configToDraft(config, noExpr), "learn", noExpr);
 
 		expect(round).toEqual(config);
 	});
 
-	it("preserves deliver ids and the entity_id / entity_name XPaths", () => {
+	it("prints an existing user_score into its buffer and parses it back", () => {
+		const score = xp("#form/score");
+		const config: ConnectConfig = {
+			assessment: { id: "quiz", user_score: score },
+		};
+
+		const draft = configToDraft(config, () => "#form/score");
+		expect(draft.userScoreText).toBe("#form/score");
+
+		const round = draftToConfig(draft, "learn", () => score);
+		expect(round.assessment).toEqual({ id: "quiz", user_score: score });
+	});
+
+	it("round-trips deliver ids and the entity_id / entity_name buffers", () => {
+		const entityId = xp("#form/client_id");
+		const entityName = xp("#form/client_name");
 		const config: ConnectConfig = {
 			deliver_unit: {
 				id: "home_visit",
 				name: "Home Visit",
-				entity_id: xp("#form/client_id"),
-				entity_name: xp("#form/client_name"),
+				entity_id: entityId,
+				entity_name: entityName,
 			},
 			task: { id: "followup", name: "Follow up", description: "Revisit" },
 		};
 
-		const round = draftToConfig(configToDraft(config), "deliver", noParse);
+		const draft = configToDraft(config, (e) =>
+			e === entityId ? "#form/client_id" : "#form/client_name",
+		);
+		expect(draft.entityIdText).toBe("#form/client_id");
+		expect(draft.entityNameText).toBe("#form/client_name");
 
+		const round = draftToConfig(draft, "deliver", (t) =>
+			t === "#form/client_id" ? entityId : entityName,
+		);
 		expect(round).toEqual(config);
 	});
 
-	it("keeps the id + advanced slots when the manager edits only the name", () => {
-		const config: ConnectConfig = {
-			deliver_unit: {
-				id: "home_visit",
-				name: "Home Visit",
-				entity_id: xp("#form/client_id"),
-			},
-		};
-
-		// Simulate a manager edit: rename the deliver unit, touch nothing else.
-		const edited = { ...configToDraft(config), deliverName: "Field Visit" };
-		const round = draftToConfig(edited, "deliver", noParse);
-
-		expect(round.deliver_unit).toEqual({
-			id: "home_visit",
-			name: "Field Visit",
-			entity_id: xp("#form/client_id"),
-		});
-	});
-
-	it("leaves a fresh draft id-less so the commit path autofills", () => {
-		// A form the manager turns on for the first time carries no id — the
-		// store's dedupe/autofill assigns one, same as the agent path.
-		const config: ConnectConfig = {
-			deliver_unit: { name: "New Visit" },
-		};
-		const round = draftToConfig(configToDraft(config), "deliver", noParse);
-		expect(round.deliver_unit?.id).toBeUndefined();
-		expect(round.deliver_unit?.name).toBe("New Visit");
+	it("leaves a blank id and blank XPath out (autofill / wire default)", () => {
+		// A freshly turned-on sub-config carries no id and no entity XPath —
+		// the commit autofills the id and the wire layer defaults the rest.
+		const draft = { ...EMPTY_DRAFT, deliverOn: true, deliverName: "New Visit" };
+		const round = draftToConfig(draft, "deliver", noExpr);
+		expect(round.deliver_unit).toEqual({ name: "New Visit" });
 	});
 });

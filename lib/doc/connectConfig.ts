@@ -15,9 +15,28 @@
  * `entity_name` / `assessment.user_score` live at
  * `lib/commcare/connectDefaults.ts` and run at bind-emit time only.
  */
-import { deriveConnectId } from "@/lib/commcare/connectSlugs";
+import {
+	connectIdConflictError,
+	connectIdError,
+	deriveConnectId,
+} from "@/lib/commcare/connectSlugs";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
 import type { ConnectConfig, Uuid } from "@/lib/domain";
+
+/**
+ * Validity of an explicitly-typed Connect id: legal element-name / slug
+ * format, then uniqueness against `taken` (every other id in the app's
+ * scope). Returns a human-readable reason, or `null` when it's fine. The
+ * one place the two wire-vocabulary checks compose, so UI surfaces that
+ * collect an id (the form-settings sub-toggles, the app-wide manager) judge
+ * a typed id identically without each reaching across the CommCare boundary.
+ */
+export function connectIdValidity(
+	id: string,
+	taken: Set<string>,
+): string | null {
+	return connectIdError(id) ?? connectIdConflictError(id, taken) ?? null;
+}
 
 /**
  * Strip empty Connect sub-configs so absent data stays absent.
