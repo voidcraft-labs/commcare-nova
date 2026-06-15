@@ -45,10 +45,7 @@ import {
 import { DragStateProvider } from "@/components/builder/contexts/DragStateContext";
 import type { Uuid } from "@/lib/doc/types";
 import { useSelectedField } from "@/lib/routing/hooks";
-import {
-	useFlipbookScrollAnchor,
-	useSetFlipbookScrollAnchor,
-} from "@/lib/session/hooks";
+import { useGetEditScroll, useSetEditScroll } from "@/lib/session/hooks";
 import {
 	FieldPickerContext,
 	type FieldPickerPayload,
@@ -88,6 +85,20 @@ export const VirtualFormList = memo(function VirtualFormList({
 	formUuid,
 }: VirtualFormListProps) {
 	const selectedField = useSelectedField();
+
+	// ── Edit-canvas scroll memory ────────────────────────────────────
+	// This virtualized list is destroyed on every preview↔edit flip (and on
+	// form navigation), so its scroll position is lost unless remembered
+	// outside the component. We restore it through the virtualizer's OWN
+	// scroll-restoration API: `initialOffset` (the px offset) +
+	// `initialMeasurementsCache` (the measured row heights). Both are applied
+	// at creation, inside the virtualizer's layout effect — no rAF, no
+	// after-mount nudge to be stomped back to 0, and no estimate drift,
+	// because the restored instance already knows every row's real height.
+	// Read once at creation; later reads are ignored by the virtualizer.
+	const getEditScroll = useGetEditScroll();
+	const setEditScroll = useSetEditScroll();
+	const savedScroll = getEditScroll(formUuid);
 
 	// ── Collapse (shared across edit + live via FormLayoutContext) ───
 	// FormLayoutProvider in FormScreen owns the canonical Set so the same
@@ -205,6 +216,8 @@ export const VirtualFormList = memo(function VirtualFormList({
 		overscan: OVERSCAN,
 		rangeExtractor,
 		getItemKey,
+		initialOffset: savedScroll?.offset ?? 0,
+		initialMeasurementsCache: savedScroll?.measurements,
 	});
 
 	// ── Auto-scroll ──────────────────────────────────────────────────
@@ -219,41 +232,23 @@ export const VirtualFormList = memo(function VirtualFormList({
 		});
 	}, []);
 
-	// ── Flipbook scroll restore (preview → edit) ─────────────────────
-	// Leaving preview remounts this virtualized list fresh at the top.
-	// The field the user was looking at usually isn't in the DOM (it's
-	// outside the initial window), so BuilderLayout's DOM-nudge restore
-	// can't reach it — only the virtualizer can scroll to an off-screen
-	// row. Read the anchor BuilderLayout captured before the flip and
-	// align that field to the top, then clear it so an ordinary form open
-	// or Activity reveal doesn't re-fire.
-	//
-	// The scroll is deferred one macrotask, NOT applied inline, on purpose:
-	// the virtualizer re-runs its mount wiring on this same commit (and
-	// twice under React StrictMode), and that wiring calls `_scrollToOffset`
-	// with the not-yet-observed scroll offset — i.e. 0 — which would stomp
-	// an inline scroll back to the top. `setTimeout` lands the scroll after
-	// that churn settles. `setTimeout` (not `requestAnimationFrame`) so the
-	// restore still runs when the build tab is backgrounded, where rAF is
-	// paused. The cleanup cancels a pending timer so StrictMode's discarded
-	// first pass can't fire before the anchor is cleared.
-	const flipbookScrollAnchor = useFlipbookScrollAnchor();
-	const setFlipbookScrollAnchor = useSetFlipbookScrollAnchor();
+	// ── Save scroll state on unmount (restored above) ────────────────
+	// Snapshot the virtualizer's offset + measured rows for this form so the
+	// next mount restores the exact position. We read the VIRTUALIZER's own
+	// state (`scrollOffset` / `measurementsCache`), never `el.scrollTop` —
+	// this passive cleanup runs after React detaches the DOM node, where
+	// `scrollTop` would read 0. The virtualizer instance is still intact here
+	// (its own effects tear down after this one). Copy the cache so the next
+	// instance, which takes ownership of `initialMeasurementsCache`, can't
+	// mutate the stored snapshot.
 	useEffect(() => {
-		if (!flipbookScrollAnchor) return;
-		const index = baseRowsRef.current.findIndex(
-			(row) => row.kind === "field" && row.uuid === flipbookScrollAnchor,
-		);
-		if (index < 0) {
-			setFlipbookScrollAnchor(undefined);
-			return;
-		}
-		const timer = setTimeout(() => {
-			virtualizer.scrollToIndex(index, { align: "start" });
-			setFlipbookScrollAnchor(undefined);
-		}, 0);
-		return () => clearTimeout(timer);
-	}, [flipbookScrollAnchor, setFlipbookScrollAnchor, virtualizer]);
+		return () => {
+			setEditScroll(formUuid, {
+				offset: virtualizer.scrollOffset ?? 0,
+				measurements: [...virtualizer.measurementsCache],
+			});
+		};
+	}, [formUuid, setEditScroll, virtualizer]);
 
 	// ── Shared field-picker menu ──────────────────────────────────
 

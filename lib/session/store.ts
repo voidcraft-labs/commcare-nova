@@ -22,6 +22,7 @@
  * are derived from the events buffer — see `lifecycle.ts`.
  */
 
+import type { VirtualItem } from "@tanstack/react-virtual";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -48,6 +49,21 @@ import type {
 
 /** Which sidebar column to target in `setSidebarOpen`. */
 export type SidebarKind = "chat" | "structure";
+
+/** Saved edit-canvas scroll state for one form. The edit canvas
+ *  (`VirtualFormList`) is destroyed on every preview↔edit flip and on form
+ *  navigation; this is what the next mount replays to land back in the exact
+ *  same place. The `measurements` snapshot — the virtualizer's measured row
+ *  heights — is the load-bearing half: replayed as `initialMeasurementsCache`,
+ *  it makes the restore pixel-exact (without it, the fresh list re-measures
+ *  from estimates and the content drifts ~half a row). TanStack's documented
+ *  scroll-restoration API. */
+export interface EditScrollMemory {
+	/** Virtualizer scroll offset in px (`virtualizer.scrollOffset`). */
+	offset: number;
+	/** Snapshot of measured row sizes (`virtualizer.measurementsCache`). */
+	measurements: VirtualItem[];
+}
 
 /**
  * Full state + actions for the BuilderSession store.
@@ -254,16 +270,15 @@ export interface BuilderSessionState {
 	 *  add, consumed once by the header on mount. */
 	newFieldUuid: string | undefined;
 
-	/** Field uuid the edit canvas scrolls back to after a preview→edit
-	 *  flipbook flip. The edit canvas is a virtualized list (`VirtualFormList`),
-	 *  so the field the user was looking at isn't in the DOM when the list
-	 *  mounts — the generic DOM-nudge scroll restore (BuilderLayout) can only
-	 *  reach the always-rendered live canvas, which is why preview→edit was
-	 *  the one direction that snapped to the top. The freshly-mounted edit
-	 *  list consumes this and drives the virtualizer's `scrollToIndex`, which
-	 *  CAN reach an off-screen row. One-shot: set by BuilderLayout when
-	 *  leaving preview, consumed once on the next edit-list mount. */
-	flipbookScrollAnchor: string | undefined;
+	/** Saved edit-canvas scroll state per form uuid (offset + measured-row
+	 *  snapshot). The edit canvas is a virtualized list (`VirtualFormList`)
+	 *  that is destroyed on every preview↔edit flip and on form navigation; the
+	 *  list saves this on unmount and replays it on the next mount via the
+	 *  virtualizer's `initialOffset` + `initialMeasurementsCache` so the same
+	 *  pixel position is restored exactly — which is what stops preview→edit
+	 *  from snapping to the top. Keyed by form so each restores its own place.
+	 *  Per-session and never persisted. */
+	editScrollByForm: Record<string, EditScrollMemory>;
 
 	// ── Actions ───────────────────────────────────────────────────────────
 
@@ -449,11 +464,16 @@ export interface BuilderSessionState {
 	 *  when the component unmounts, so subsequent selections behave normally. */
 	clearNewField: () => void;
 
-	/** Set (or clear) the one-shot flipbook edit-restore anchor — the field
-	 *  the edit canvas scrolls back to after leaving preview. BuilderLayout
-	 *  sets it on the preview→edit toggle; the edit list clears it (passes
-	 *  `undefined`) once it has applied the scroll. No-ops when unchanged. */
-	setFlipbookScrollAnchor: (uuid: string | undefined) => void;
+	/** Remember the edit-canvas scroll state for a form. Called by
+	 *  `VirtualFormList` on unmount with the virtualizer's offset + snapshot. */
+	setEditScroll: (formUuid: string, memory: EditScrollMemory) => void;
+
+	/** Read the remembered edit-canvas scroll state for a form (or
+	 *  `undefined`). Imperative reader — `VirtualFormList` calls it at
+	 *  virtualizer-creation time to seed `initialOffset` +
+	 *  `initialMeasurementsCache`, so it must NOT drive a re-render (no
+	 *  selector subscription). */
+	getEditScroll: (formUuid: string) => EditScrollMemory | undefined;
 
 	/** Reset all transient session state to the initial values.
 	 *
@@ -556,7 +576,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				/* UI hints */
 				focusHint: undefined as string | undefined,
 				newFieldUuid: undefined as string | undefined,
-				flipbookScrollAnchor: undefined as string | undefined,
+				editScrollByForm: {} as Record<string, EditScrollMemory>,
 
 				// ── Reducer-shaped actions ───────────────────────────────
 
@@ -1068,9 +1088,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ newFieldUuid: undefined });
 				},
 
-				setFlipbookScrollAnchor(uuid: string | undefined) {
-					if (uuid === get().flipbookScrollAnchor) return;
-					set({ flipbookScrollAnchor: uuid });
+				setEditScroll(formUuid: string, memory: EditScrollMemory) {
+					set((s) => ({
+						editScrollByForm: { ...s.editScrollByForm, [formUuid]: memory },
+					}));
+				},
+
+				getEditScroll(formUuid: string): EditScrollMemory | undefined {
+					return get().editScrollByForm[formUuid];
 				},
 
 				reset() {
@@ -1119,7 +1144,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						/* UI hints */
 						focusHint: undefined as string | undefined,
 						newFieldUuid: undefined as string | undefined,
-						flipbookScrollAnchor: undefined as string | undefined,
+						editScrollByForm: {} as Record<string, EditScrollMemory>,
 					});
 				},
 			})),
