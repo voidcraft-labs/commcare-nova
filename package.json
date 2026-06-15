@@ -69,7 +69,7 @@
 		"clsx": "^2.1.1",
 		"commander": "^14.0.3",
 		"date-fns": "^4.1.0",
-		"dom-serializer": "^2.0.0",
+		"dom-serializer": "^3.1.1",
 		"domutils": "^3.2.2",
 		"file-type": "^22.0.1",
 		"firebase-admin": "^13.8.0",
