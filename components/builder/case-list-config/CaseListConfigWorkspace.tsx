@@ -29,6 +29,7 @@ import tablerSearch from "@iconify-icons/tabler/search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
+import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
@@ -52,7 +53,6 @@ import {
 	caseListConfigErrorAreas,
 } from "./configValidity";
 import { FilterInspectorBody } from "./inspector/FilterInspectorBody";
-import { RemoveRow } from "./inspector/inspectorChrome";
 import { ListPanelInspectorBody } from "./inspector/ListPanelInspectorBody";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";

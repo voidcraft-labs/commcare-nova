@@ -28,7 +28,6 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { memo, useCallback, useMemo } from "react";
 import { useFulfillPendingScroll } from "@/components/builder/contexts/ScrollRegistryContext";
-import { InlineSettingsPanel } from "@/components/builder/InlineSettingsPanel";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
@@ -246,49 +245,6 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 					</div>
 				</EditableFieldWrapper>
 			</div>
-			{isFieldSelected && (
-				<div
-					data-settings-panel
-					style={{
-						paddingLeft: depthPadding(depth),
-						paddingRight: depthPadding(depth),
-					}}
-				>
-					{collapsed ? (
-						/* Collapsed: no rails, no children. Drawer floats 8px
-						 *  below the fully-rounded header. */
-						<div className="pt-2">
-							<InlineSettingsPanel field={q} variant="floating" />
-						</div>
-					) : (
-						/* Expanded: drawer is a sub-element of the group.
-						 *
-						 *  - The gray rails continue uninterrupted
-						 *    (`border-l / border-r`) so the group's column
-						 *    stays visually intact — the eye sees one
-						 *    container from header to close cap.
-						 *  - `px-4` insets the drawer 16px from each rail.
-						 *    The rail gutters on either side of the drawer
-						 *    are the visual hook that says "this is a
-						 *    sub-element inside the group," not "this is
-						 *    the group's body content." Children below
-						 *    still own the full rail column width, so they
-						 *    read as the actual fields.
-						 *  - No top padding (pt is 0): the drawer's flat
-						 *    top butts against the selected ring's flat
-						 *    bottom, with both strokes in violet, so the
-						 *    drawer still reads as attached to the header.
-						 *  - `pb-3` gives a breath between the drawer's
-						 *    rounded bottom and the next `insertion(0)` row
-						 *    that begins the children's area. */
-						<div className="border-l border-r border-pv-input-border">
-							<div className="px-4 pb-3">
-								<InlineSettingsPanel field={q} variant="attached" />
-							</div>
-						</div>
-					)}
-				</div>
-			)}
 			{preview}
 		</>
 	);

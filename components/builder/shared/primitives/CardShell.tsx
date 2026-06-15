@@ -5,13 +5,11 @@
 // shell never reaches into the AST itself — it's purely a visual
 // container the per-kind cards compose around their own body.
 //
-// Visual language follows the established inspector / detail-panel
-// patterns (`SECTION_CARD_CLASS` + `SectionLabel` from
-// `components/builder/editor/sectionChrome.tsx`): a glass-tinted
-// rounded container, hairline border, violet accent strip on the
-// label. Cards stack vertically inside their parent group; reorder
-// drag uses pragmatic-drag-and-drop and presents through the
-// optional `dragHandleProps` slot.
+// Visual language: a glass-tinted rounded container with a hairline
+// border and a violet accent strip on the label — the frosted-card
+// surface the predicate / detail panels share. Cards stack vertically
+// inside their parent group; reorder drag uses pragmatic-drag-and-drop
+// and presents through the optional `dragHandleProps` slot.
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
@@ -64,9 +62,9 @@ interface CardShellProps {
 /**
  * Card shell — header + body + footer-error rendering.
  *
- * The card surface mirrors the inspector's `SECTION_CARD_CLASS`
- * (rounded, frosted violet-tinted background, hairline border) so
- * the predicate editor reads as the same surface family. Cards
+ * The card surface is the shared frosted-card look (rounded, frosted
+ * violet-tinted background, hairline border) so the predicate editor
+ * reads as the same surface family. Cards
  * surface inline diagnostics at the bottom of the body — the type
  * checker's verdict for the card's own path lands here, with
  * per-slot errors rendering inside the body's own input chrome.

@@ -34,6 +34,12 @@ import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerWand from "@iconify-icons/tabler/wand";
 import { useMemo, useRef } from "react";
+import {
+	CONSOLE_MENU_ITEM_MIN,
+	CONSOLE_TRIGGER_CLS,
+	RemoveRow,
+	SegmentedRow,
+} from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import {
 	buildValidityIndex,
@@ -102,12 +108,6 @@ import {
 	widgetTypeForProperty,
 	xmlNameFromProperty,
 } from "../seeds";
-import {
-	CONSOLE_MENU_ITEM_MIN,
-	CONSOLE_TRIGGER_CLS,
-	RemoveRow,
-	SegmentedRow,
-} from "./inspectorChrome";
 
 // ── Public types ──────────────────────────────────────────────────
 

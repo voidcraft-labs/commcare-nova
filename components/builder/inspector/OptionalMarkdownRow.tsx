@@ -1,4 +1,4 @@
-// components/builder/case-list-config/inspector/OptionalMarkdownRow.tsx
+// components/builder/inspector/OptionalMarkdownRow.tsx
 //
 // The markdown sibling of OptionalTextRow: a WYSIWYG TipTap editor for
 // optional inspector slots whose wire value is markdown (verified

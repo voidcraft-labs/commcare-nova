@@ -11,12 +11,11 @@ interface EditableFieldWrapperProps {
 	children: ReactNode;
 	style?: React.CSSProperties;
 	isDragging?: boolean;
-	/** When true, the selection ring flattens at the bottom when the row
-	 *  is selected. Set by callers whose selected-row visual has a flat
-	 *  bottom edge (an expanded group header's `rounded-t-lg border-b-0`
-	 *  chrome). Non-group rows stay fully `rounded-lg` so they pair
-	 *  cleanly with the floating `InlineSettingsPanel` drawer that hangs
-	 *  below them. */
+	/** When true, the selection ring flattens at the bottom when the row is
+	 *  selected. Set by the expanded group header, whose content has a flat
+	 *  bottom edge (`rounded-t-lg border-b-0`) that connects to the group's
+	 *  body below — the ring must match so it doesn't round off where the
+	 *  content is square. Leaf rows leave it false and stay fully `rounded-lg`. */
 	flatBottomOnSelect?: boolean;
 }
 
@@ -25,12 +24,15 @@ interface EditableFieldWrapperProps {
  *
  * Selection is driven by the URL (`sel=` query param). `useIsFieldSelected`
  * reads the URL's `sel` and returns `true` for exactly one wrapper at a time.
- * On click, `useSelect()` replaces the `sel=` param via `router.replace` —
- * no Zustand write, no re-render cascade.
+ * On click, `useSelect()` replaces the `sel=` param via the History API
+ * (`history.replaceState`, not Next's router) — no Zustand write, no
+ * re-render cascade. Editing the selected field docks in the right rail
+ * (`FieldInspectorSurface`); this wrapper only draws the canvas selection
+ * ring, it mounts no panel of its own.
  *
  * Scroll behavior is delegated to `ScrollRegistryContext.setPending` so the
- * selected field's panel (mounted by EditableFieldWrapper) can honor it
- * via `useFulfillPendingScroll` once the panel paints.
+ * selected field's ROW (which consumes `useFulfillPendingScroll` in
+ * `FieldRow` / `GroupBracket`) scrolls into view once it paints.
  */
 export function EditableFieldWrapper({
 	fieldUuid,
@@ -106,7 +108,8 @@ export function EditableFieldWrapper({
 			// but the DOM target is outside this wrapper's subtree.
 			const target = e.target as HTMLElement;
 			if (!e.currentTarget.contains(target)) return;
-			// Don't intercept clicks inside the inline settings panel, nested wrappers, or insertion points
+			// Don't intercept clicks inside drag-exempt zones (text editors,
+			// media pickers), nested wrappers, or insertion points.
 			if (target.closest("[data-no-drag]")) return;
 			/* Nested wrapper guard — if the click landed inside a child field's
 			 * wrapper, bail so only that child handles selection. Must run before

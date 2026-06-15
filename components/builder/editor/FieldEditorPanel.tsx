@@ -12,15 +12,16 @@
  * behavior (visibility predicates, component choices, required keys)
  * is encoded in the schema entries themselves.
  *
- * Pairs with `FieldHeader` (rendered above by InlineSettingsPanel).
+ * Rendered by `FieldInspectorBody` below `FieldIdentitySection`, inside
+ * the right-rail inspector.
  */
 "use client";
 import { fieldEditorSchemas } from "@/components/builder/editor/fieldEditorSchemas";
+import { InspectorSection } from "@/components/builder/inspector/inspectorChrome";
 import type { Field } from "@/lib/domain";
 import type { FieldEditorEntry, FieldEditorSchema } from "@/lib/domain/kinds";
 import { FieldEditorSection } from "./FieldEditorSection";
 import { sectionHasContent } from "./partitionEditorEntries";
-import { SECTION_CARD_CLASS, SectionLabel } from "./sectionChrome";
 import type { EditorSectionName } from "./useEntryActivation";
 
 /**
@@ -58,8 +59,11 @@ interface FieldEditorPanelProps {
 
 export function FieldEditorPanel({ field }: FieldEditorPanelProps) {
 	const schema = schemaFor(field);
+	// A fragment, not a wrapper div: the sections become direct children of
+	// the InspectorSurface body, so they inherit the same `space-y-4` rhythm
+	// and `first:` divider treatment the case-list inspector's sections do.
 	return (
-		<div className="p-2 space-y-2">
+		<>
 			<Section
 				title="Data"
 				section="data"
@@ -78,7 +82,7 @@ export function FieldEditorPanel({ field }: FieldEditorPanelProps) {
 				entries={schema.ui}
 				field={field}
 			/>
-		</div>
+		</>
 	);
 }
 
@@ -110,11 +114,8 @@ function Section<F extends Field>({
 }: SectionProps<F>) {
 	if (!sectionHasContent(field, entries)) return null;
 	return (
-		<div className={SECTION_CARD_CLASS}>
-			<SectionLabel label={title} />
-			<div className="space-y-3">
-				<FieldEditorSection field={field} section={section} entries={entries} />
-			</div>
-		</div>
+		<InspectorSection label={title}>
+			<FieldEditorSection field={field} section={section} entries={entries} />
+		</InspectorSection>
 	);
 }

@@ -1,7 +1,7 @@
 /**
  * renameOutcome — pure classification of a field-rename attempt.
  *
- * `FieldHeader`'s id input flows through `useCommitField`, which calls
+ * `FieldIdentitySection`'s id input flows through `useCommitField`, which calls
  * a validate callback before saving. The header's callback runs the
  * shared identifier verdict (`lib/doc/identifierVerdicts.ts` — the same
  * rules the SA tools enforce) and hands it here, then picks the right

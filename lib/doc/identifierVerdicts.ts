@@ -12,7 +12,7 @@
  *
  * This module is the single home of those checks for the commit
  * boundary (the connect-slug pattern: one verdict, every caller). The
- * UI rename guard (`FieldHeader` via `classifyRenameOutcome`), the
+ * UI rename guard (`FieldIdentitySection` via `classifyRenameOutcome`), the
  * store-level rename pre-check (`useBlueprintMutations.renameField`),
  * and the SA/MCP tools (`addFields`, `editField`'s rename path) all
  * consume the same functions, so "rejected here, accepted there" can't

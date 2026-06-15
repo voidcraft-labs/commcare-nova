@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useId } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import type { CommitOutcome } from "@/lib/domain";
@@ -81,13 +82,17 @@ export function EditableText({
 	);
 
 	const fontClass = mono ? "font-mono" : "";
-	const baseCls = `w-full text-sm ${fontClass} rounded-md px-2 py-1.5 border outline-none transition-colors ${shakeProps.className}`;
-	const focusedCls = `${baseCls} bg-nova-surface text-nova-text ${
+	// Recessed well matching the shared inspector input (INSPECTOR_INPUT_CLS).
+	// EditableText builds the focused class by hand rather than reusing that
+	// constant's `focus:` ring because a refused commit paints the border rose
+	// — the focus pseudo-class would otherwise repaint it violet.
+	const baseCls = `w-full min-h-11 text-[13px] ${fontClass} rounded-lg px-3 border outline-none transition-colors ${shakeProps.className}`;
+	const focusedCls = `${baseCls} bg-nova-deep/50 text-nova-text ${
 		rejection
-			? "border-nova-rose/60 shadow-[0_0_0_1px_rgba(212,112,143,0.12)]"
-			: "border-nova-violet/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1)]"
+			? "border-nova-rose/60 ring-1 ring-nova-rose/25"
+			: "border-nova-violet/40 ring-1 ring-nova-violet/30"
 	}`;
-	const unfocusedCls = `${baseCls} bg-nova-deep/50 border-white/[0.06] cursor-text ${color || ""} ${!draft && placeholder ? "text-nova-text-muted italic" : "font-medium"} hover:border-nova-violet/30`;
+	const unfocusedCls = `${baseCls} bg-nova-deep/50 border-white/[0.06] cursor-text ${color || ""} ${!draft && placeholder ? "text-nova-text-muted italic" : "font-medium text-nova-text"} hover:border-nova-violet/30`;
 	const cls = focused ? focusedCls : unfocusedCls;
 
 	const lineCount = multiline ? draft.split("\n").length : 1;
@@ -101,7 +106,7 @@ export function EditableText({
 		<div>
 			<label
 				htmlFor={fieldId}
-				className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5"
+				className={`${INSPECTOR_LABEL_CLS} mb-1.5 flex items-center gap-1.5`}
 			>
 				{label}
 				<SavedCheck
@@ -122,7 +127,7 @@ export function EditableText({
 					onBlur={handleBlur}
 					onKeyDown={handleKeyDown}
 					onAnimationEnd={shakeProps.onAnimationEnd}
-					className={`${cls} resize-none`}
+					className={`${cls} py-2 resize-none`}
 					rows={rows}
 					placeholder={placeholder}
 					autoComplete="off"

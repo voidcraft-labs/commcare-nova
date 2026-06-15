@@ -15,16 +15,16 @@
 "use client";
 
 /**
- * Find a specific field element within a field's InlineSettingsPanel.
+ * Find a specific field element within the selected field's inspector.
  *
- * The panel renders as the next-sibling of the field wrapper (see
- * `EditableFieldWrapper` on the virtualized `FieldRow`). We locate the
- * panel by its stable `data-field-uuid` attribute — not by field `id`,
- * so the lookup survives renames — then match the requested field by
- * `data-field-id`.
+ * The field inspector docks in the right rail (portaled there by
+ * `FieldInspectorSurface`), so it's no longer a sibling of the canvas row.
+ * We locate its body by the stable `data-field-inspector` uuid tag — not by
+ * field `id`, so the lookup survives renames — then match the requested
+ * property by `data-field-id`.
  *
- * Returns `null` when the panel is not mounted (no current selection) or
- * when the requested field doesn't exist in the current settings view.
+ * Returns `null` when the inspector is not mounted (no current selection) or
+ * when the requested property doesn't exist in the current inspector view.
  * Callers treat `null` as "nothing to highlight" and bail gracefully.
  */
 export function findFieldElement(
@@ -32,11 +32,10 @@ export function findFieldElement(
 	fieldId?: string,
 ): HTMLElement | null {
 	if (!fieldId) return null;
-	const fieldEl = document.querySelector(
-		`[data-field-uuid="${fieldUuid}"]`,
+	const panel = document.querySelector(
+		`[data-field-inspector="${fieldUuid}"]`,
 	) as HTMLElement | null;
-	const panel = fieldEl?.nextElementSibling as HTMLElement | null;
-	if (!panel?.hasAttribute("data-settings-panel")) return null;
+	if (!panel) return null;
 	return panel.querySelector(`[data-field-id="${fieldId}"]`);
 }
 

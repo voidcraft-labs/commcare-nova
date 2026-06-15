@@ -271,9 +271,12 @@ describe("useUndoRedo", () => {
 			"q-a-0000-0000-0000-000000000000",
 			undefined,
 		);
+		// The scroll targets the canvas field ROW (no override) — the rail
+		// property is in a different scroll container. The flash still lands
+		// on the resolved rail element.
 		expect(scrollToField).toHaveBeenCalledWith(
 			"q-a-0000-0000-0000-000000000000",
-			fakeEl,
+			undefined,
 			"instant",
 			undefined,
 		);

@@ -250,7 +250,7 @@ export interface BuilderSessionState {
 	focusHint: string | undefined;
 
 	/** UUID of a just-added field — activates auto-focus and select-all
-	 *  on the ID input in FieldHeader. One-shot: set by FieldTypePicker on
+	 *  on the ID input in FieldIdentitySection. One-shot: set by FieldTypePicker on
 	 *  add, consumed once by the header on mount. */
 	newFieldUuid: string | undefined;
 
@@ -427,7 +427,7 @@ export interface BuilderSessionState {
 	clearFocusHint: () => void;
 
 	/** Mark a field uuid as newly added — triggers auto-focus and
-	 *  select-all on the ID input in FieldHeader. */
+	 *  select-all on the ID input in FieldIdentitySection. */
 	markNewField: (uuid: string) => void;
 
 	/** Check whether a uuid matches the current new-field marker.

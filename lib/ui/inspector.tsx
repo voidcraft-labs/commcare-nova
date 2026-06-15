@@ -3,8 +3,8 @@
  * properties inspector.
  *
  * The right rail is the chat sidebar. When a builder surface selects an
- * inspectable entity (a case-list column, a search input — eventually a
- * form field), the rail flips to "docked" mode: the inspector panel
+ * inspectable entity (a case-list column, a search input, a form field),
+ * the rail flips to "docked" mode: the inspector panel
  * takes the rail's body and the chat condenses to a composer + signal
  * strip pinned beneath it. This module owns only the coordination
  * state for that flip; the inspector's chrome and content live with the

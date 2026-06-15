@@ -19,6 +19,7 @@ import { useCallback, useState } from "react";
 import { EditableText } from "@/components/builder/EditableText";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { useFormLintContext } from "@/components/builder/editor/fields/useFormLintContext";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -143,7 +144,9 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 
 	return (
 		<div>
-			<span className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 flex items-center gap-1.5">
+			<span
+				className={`${INSPECTOR_LABEL_CLS} mb-1.5 flex items-center gap-1.5`}
+			>
 				{label}
 				{editing && <SaveShortcutHint />}
 			</span>

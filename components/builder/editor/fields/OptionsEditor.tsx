@@ -20,6 +20,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useRef, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import type { CommitOutcome, Field, SelectOption } from "@/lib/domain";
@@ -237,7 +238,7 @@ function OptionsEditorWidget({
 		>
 			<legend
 				id={groupLabelId}
-				className="text-xs text-nova-text-muted uppercase tracking-wider mb-1 block p-0"
+				className={`${INSPECTOR_LABEL_CLS} mb-1.5 block p-0`}
 			>
 				Options
 			</legend>
@@ -258,7 +259,7 @@ function OptionsEditorWidget({
 										? focusOnMount
 										: undefined
 								}
-								className="flex-1 min-w-0 text-xs px-2 py-1.5 rounded-md bg-nova-deep/50 border border-white/[0.06] focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)] text-nova-text outline-none transition-colors"
+								className="flex-1 min-w-0 text-[13px] px-3 min-h-11 rounded-lg bg-nova-deep/50 border border-white/[0.06] focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 text-nova-text transition-colors"
 								autoComplete="off"
 								data-1p-ignore
 							/>
@@ -267,7 +268,7 @@ function OptionsEditorWidget({
 								onChange={(e) => updateOption(i, "value", e.target.value)}
 								onKeyDown={handleKeyDown}
 								placeholder="value"
-								className="w-24 shrink-0 text-xs font-mono px-2 py-1.5 rounded-md bg-nova-deep/50 border border-white/[0.06] focus:border-nova-violet/50 focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)] text-nova-text-muted outline-none transition-colors"
+								className="w-24 shrink-0 text-[13px] font-mono px-3 min-h-11 rounded-lg bg-nova-deep/50 border border-white/[0.06] focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 text-nova-text-muted transition-colors"
 								autoComplete="off"
 								data-1p-ignore
 							/>
