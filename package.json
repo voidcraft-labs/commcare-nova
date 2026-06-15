@@ -139,6 +139,10 @@
 		"vite": "^8.0.16",
 		"postcss": "^8.5.12",
 		"fast-xml-parser": "^5.7.2",
-		"uuid": "^14.0.0"
+		"uuid": "^14.0.0",
+		"protobufjs": "^7.6.3",
+		"@babel/core": "^7.29.6",
+		"js-yaml@>=4 <5": "^4.2.0",
+		"esbuild": "^0.28.1"
 	}
 }
