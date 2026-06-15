@@ -59,14 +59,8 @@ pre-push:
     typecheck:
       run: npm run typecheck
       fail_text: "TypeScript found type errors (above). Run `npm run typecheck`, fix them, then push."
-    # Async-leak gate. Runs the full suite under Vitest's
-    # `--detect-async-leaks` and fails the push if any test left a timer,
-    # handle, or unsettled promise open. Leaked resources strand Vitest
-    # workers and cause the intermittent suite hang, so this blocks a
-    # leaking test from ever being shared. It lives at pre-push (not
-    # pre-commit) because the async_hooks instrumentation is slow. The
-    # script prints a source-located report + how to fix on failure; see
-    # the "Testing — async-resource leaks" section in CLAUDE.md.
-    no-async-leaks:
-      run: npx tsx scripts/check-async-leaks.ts
-      fail_text: "A test left an async resource open (source-located report above). Fix it at the source — clear the timer, await or cancel the promise, or mock the module at its import boundary. Re-run `npm run test:leaks`."
+    # The async-leak gate (full suite under `--detect-async-leaks`) runs in CI
+    # — `.github/workflows/ci.yml` — rather than at pre-push: the async_hooks
+    # instrumentation is too slow to gate every push. Reproduce a CI leak
+    # failure locally with `npm run test:leaks`; see the "Testing —
+    # async-resource leaks" section in CLAUDE.md.

@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # Application dependencies (package.json / package-lock.json).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    # Wait a few days before adopting a brand-new release, so a version that is
+    # live-but-not-yet-flagged-as-malicious isn't auto-PR'd the day it ships.
+    # Security updates bypass this and still arrive immediately.
+    cooldown:
+      default-days: 5
+      semver-patch-days: 3
+    groups:
+      # Roll all routine minor/patch bumps into one weekly PR instead of ~20.
+      # Major bumps are deliberately left out so each lands as its own PR you
+      # can read the changelog for and test in isolation.
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+
+  # The actions pinned in .github/workflows — keeps the CI workflow's own
+  # dependencies current the same way npm deps are kept current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]

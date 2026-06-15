@@ -26,6 +26,9 @@
 # Anchored to the root so nested conventional dot-dirs like `app/.well-known/`
 # work without special casing.
 /.*/
+# ...except .github/ — that's project config (CI workflows, Dependabot), not
+# editor cruft, so it must be tracked.
+!/.github/
 
 # debug
 npm-debug.log*

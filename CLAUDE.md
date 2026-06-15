@@ -28,7 +28,7 @@ npx tsx scripts/build-xpath-parser.ts   # rebuild Lezer parser from lib/commcare
 
 ## Testing — async-resource leaks
 
-A test "leaks" when it leaves a timer, open handle, or never-settling promise alive after it finishes; leaked resources keep the Vitest worker's event loop open and can hang the whole run. A `pre-push` lefthook command runs the full suite under `--detect-async-leaks` and fails the push on any leak (pre-push, not pre-commit, because the async_hooks instrumentation is slow). A blocked push is a real failure: `npm run test:leaks` gives a source-located report.
+A test "leaks" when it leaves a timer, open handle, or never-settling promise alive after it finishes; leaked resources keep the Vitest worker's event loop open and can hang the whole run. CI runs the full suite under `--detect-async-leaks` on every PR and push to main (`.github/workflows/ci.yml`) and fails the check on any leak — it lives in CI rather than at pre-push because the async_hooks instrumentation is too slow to gate every push. A failed check is a real failure: `npm run test:leaks` reproduces it locally with a source-located report.
 
 **Fix at the source — never paper over** (no `teardownTimeout` bumps, pool switches, retries):
 
