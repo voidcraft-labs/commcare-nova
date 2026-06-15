@@ -38,16 +38,18 @@ import { CurrentFormScope } from "@/lib/references/ReferenceContext";
  *
  * Per form, the user opts into the mode's sub-configs (learn: Learn module /
  * Assessment; deliver: Deliver unit / Task) and fills each enabled one's
- * fields. The XPath slots (`user_score`, `entity_id`, `entity_name`) use the
- * real expression editor (`XPathField` — live lint, condition parsing,
- * hashtag chips), each seeded with its actual wire default so the user SEES
- * what runs and can replace it; a slot left at the default is dropped on
- * commit so it stays absent and the single wire-emit default still applies.
- * Identifiers sit behind an "Advanced" disclosure. Turning a sub-config on
- * seeds its id field with the REAL value the commit would autofill (the
- * derived value, editable) — never a placeholder. The field stays blankable:
- * clearing it and applying re-autofills the default, which the app-wide
- * manager announces in a contextual notice (the per-form dialog just closes).
+ * fields. Every optional slot shows its REAL default as an editable value and
+ * refills it on blur, so a slot is never left blank and the editor never has
+ * to explain what blank means:
+ *   - The XPath slots (`user_score`, `entity_id`, `entity_name`) use the real
+ *     expression editor (`XPathField` — live lint, condition parsing, hashtag
+ *     chips), seeded with their actual wire default; a blank commit snaps back
+ *     to that default, and an unchanged default drops to absent at commit so
+ *     the single wire-emit default applies.
+ *   - The identifiers sit behind an "Advanced" disclosure, seeded when the
+ *     sub-config turns on with the value the commit would derive (never a
+ *     placeholder); clearing one and leaving the field snaps it back to that
+ *     derived id on blur — the same blur-commit the XPath slots do.
  *
  * The dialog mounts through `Dialog.Portal` (the media picker's pattern) so
  * it escapes the app-settings popover's transformed positioner.
@@ -117,11 +119,7 @@ export const EMPTY_DRAFT: BlockDraft = {
 };
 
 /** Which sub-configs of a mode the draft has turned on. */
-export type SubConfigKind =
-	| "learn_module"
-	| "assessment"
-	| "deliver_unit"
-	| "task";
+type SubConfigKind = "learn_module" | "assessment" | "deliver_unit" | "task";
 
 /** Seed a draft from an existing block (the manager's per-form starting
  *  point). `printExpr` lowers a stored XPath AST to its text so the buffers
@@ -308,6 +306,7 @@ export function DraftField({
 	label,
 	value,
 	onChange,
+	onBlur,
 	validate,
 	mono,
 	multiline,
@@ -319,6 +318,10 @@ export function DraftField({
 	label: string;
 	value: string;
 	onChange: (value: string) => void;
+	/** Fired when the field loses focus — the commit moment for fields that
+	 *  refill a default on blank (the id slots), mirroring the XPath editor's
+	 *  blur-commit. */
+	onBlur?: () => void;
 	/** Reason the current value is invalid, or `null`. Rendered beneath the
 	 *  field; also tints the border. */
 	validate?: (value: string) => string | null;
@@ -356,6 +359,7 @@ export function DraftField({
 						rows={2}
 						value={value}
 						onChange={(e) => onChange(e.target.value)}
+						onBlur={onBlur}
 						placeholder={placeholder}
 						autoComplete="off"
 						data-1p-ignore
@@ -367,6 +371,7 @@ export function DraftField({
 						className={`${base} ${tone} ${text}${suffix ? " pr-9" : ""}`}
 						value={value}
 						onChange={(e) => onChange(e.target.value)}
+						onBlur={onBlur}
 						placeholder={placeholder}
 						autoComplete="off"
 						data-1p-ignore
@@ -443,15 +448,21 @@ function SubConfigCard({
 /** A Connect XPath slot, rendered with the real expression editor — live
  *  validation, condition parsing, and hashtag/chip autocomplete (the same
  *  CodeMirror field the rest of the builder uses). The buffer starts at the
- *  wire default so the user sees exactly what runs and can replace it. */
+ *  wire default so the user sees exactly what runs and can replace it; the
+ *  editor commits on blur, and a blank commit snaps back to `defaultText`
+ *  rather than persisting empty — the slot is never left blank, the same
+ *  reset the id fields do (and either way an unchanged default drops to absent
+ *  at commit, so the single wire-emit default applies). */
 function ConnectXPathField({
 	label,
 	value,
+	defaultText,
 	onChange,
 	getLintContext,
 }: {
 	label: string;
 	value: string;
+	defaultText: string;
 	onChange: (value: string) => void;
 	getLintContext: () => XPathLintContext | undefined;
 }) {
@@ -460,7 +471,7 @@ function ConnectXPathField({
 			label={label}
 			value={value}
 			onSave={(v) => {
-				onChange(v);
+				onChange(v.trim() ? v : defaultText);
 				return undefined;
 			}}
 			getLintContext={getLintContext}
@@ -497,8 +508,9 @@ export function FormSubConfigs({
 	// uses (`deriveConnectId`): module name for learn_module / deliver_unit,
 	// "<module> <form>" for the per-form assessment / task. Turning a sub-config
 	// ON seeds this into its id buffer (below) so the field shows the REAL id,
-	// editable — never a placeholder. The buffer stays blankable: clearing it
-	// and applying re-autofills the default (and the surface announces it).
+	// editable — never a placeholder. Clearing it and leaving the field snaps
+	// it back to this default on blur (`blurResetId`), so an id is never left
+	// blank — the same blur-commit the XPath slots do.
 	const appConnectIds = useAppConnectIds();
 	const derivedId = (kind: SubConfigKind): string =>
 		deriveConnectId(
@@ -560,6 +572,28 @@ export function FormSubConfigs({
 		}
 	};
 
+	// Blur-commit for an id field: a blank buffer snaps back to the derived
+	// default so the slot is never left empty (the user who wants the auto id
+	// just clears it and leaves; one who wants their own types it). The commit
+	// path autofills a blank id regardless — this only keeps the field honest.
+	const blurResetId = (kind: SubConfigKind) => () => {
+		switch (kind) {
+			case "learn_module":
+				if (!draft.learnId.trim()) onPatch({ learnId: derivedId(kind) });
+				return;
+			case "assessment":
+				if (!draft.assessmentId.trim())
+					onPatch({ assessmentId: derivedId(kind) });
+				return;
+			case "deliver_unit":
+				if (!draft.deliverId.trim()) onPatch({ deliverId: derivedId(kind) });
+				return;
+			case "task":
+				if (!draft.taskId.trim()) onPatch({ taskId: derivedId(kind) });
+				return;
+		}
+	};
+
 	const body =
 		mode === "learn" ? (
 			<>
@@ -593,8 +627,8 @@ export function FormSubConfigs({
 							label="Module ID"
 							value={draft.learnId}
 							onChange={(v) => onPatch({ learnId: v })}
+							onBlur={blurResetId("learn_module")}
 							validate={idCheck("learn_module")}
-							hint="Leave blank to use the auto-generated ID."
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -607,6 +641,7 @@ export function FormSubConfigs({
 					<ConnectXPathField
 						label="User Score"
 						value={draft.userScoreText}
+						defaultText={DEFAULT_ASSESSMENT_USER_SCORE}
 						onChange={(v) => onPatch({ userScoreText: v })}
 						getLintContext={getLintContext}
 					/>
@@ -615,8 +650,8 @@ export function FormSubConfigs({
 							label="Assessment ID"
 							value={draft.assessmentId}
 							onChange={(v) => onPatch({ assessmentId: v })}
+							onBlur={blurResetId("assessment")}
 							validate={idCheck("assessment")}
-							hint="Leave blank to use the auto-generated ID."
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -638,12 +673,14 @@ export function FormSubConfigs({
 					<ConnectXPathField
 						label="Entity ID"
 						value={draft.entityIdText}
+						defaultText={DEFAULT_DELIVER_ENTITY_ID}
 						onChange={(v) => onPatch({ entityIdText: v })}
 						getLintContext={getLintContext}
 					/>
 					<ConnectXPathField
 						label="Entity Name"
 						value={draft.entityNameText}
+						defaultText={DEFAULT_DELIVER_ENTITY_NAME}
 						onChange={(v) => onPatch({ entityNameText: v })}
 						getLintContext={getLintContext}
 					/>
@@ -652,8 +689,8 @@ export function FormSubConfigs({
 							label="Deliver Unit ID"
 							value={draft.deliverId}
 							onChange={(v) => onPatch({ deliverId: v })}
+							onBlur={blurResetId("deliver_unit")}
 							validate={idCheck("deliver_unit")}
-							hint="Leave blank to use the auto-generated ID."
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -681,8 +718,8 @@ export function FormSubConfigs({
 							label="Task ID"
 							value={draft.taskId}
 							onChange={(v) => onPatch({ taskId: v })}
+							onBlur={blurResetId("task")}
 							validate={idCheck("task")}
-							hint="Leave blank to use the auto-generated ID."
 							mono
 						/>
 					</AdvancedDisclosure>
