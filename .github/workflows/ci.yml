@@ -26,6 +26,10 @@ jobs:
       - run: npm ci
       - name: Lint (Biome)
         run: npm run lint
+      # scripts/check-forbidden-identifiers.ts shells out to ripgrep, which the
+      # bare ubuntu runner doesn't ship (every dev machine has it).
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Forbidden wire identifiers
         run: npx tsx scripts/check-forbidden-identifiers.ts
       - name: Type-check
