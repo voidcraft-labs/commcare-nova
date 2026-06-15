@@ -67,7 +67,7 @@
 		"better-auth": "^1.6.14",
 		"better-auth-firestore": "^1.1.4",
 		"clsx": "^2.1.1",
-		"commander": "^14.0.3",
+		"commander": "^15.0.0",
 		"date-fns": "^4.1.0",
 		"dom-serializer": "^2.0.0",
 		"domutils": "^3.2.2",
