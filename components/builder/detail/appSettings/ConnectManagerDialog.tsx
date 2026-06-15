@@ -3,6 +3,11 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
+import {
+	DEFAULT_ASSESSMENT_USER_SCORE,
+	DEFAULT_DELIVER_ENTITY_ID,
+	DEFAULT_DELIVER_ENTITY_NAME,
+} from "@/lib/doc/connectConfig";
 import { parseXPathForForm, printXPathInDoc } from "@/lib/doc/expressionText";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
@@ -25,6 +30,7 @@ import {
 	EMPTY_DRAFT,
 	FormSubConfigs,
 	RejectionNoticeBlock,
+	type SubConfigKind,
 	useIdValidator,
 } from "./ConnectEnableDialog";
 
@@ -55,7 +61,7 @@ const POPUP_CLS =
 	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 /** One form row the manager renders + drafts for. */
-interface FormRow {
+export interface FormRow {
 	formUuid: string;
 	formName: string;
 	moduleName: string;
@@ -101,6 +107,121 @@ function seedDrafts(
 		}
 	}
 	return drafts;
+}
+
+/** An optional slot the user CLEARED on a participating sub-config, so the
+ *  commit fills its default. `xpathDefault` carries the wire-emit default for
+ *  an XPath slot; an id's value is read back from the committed doc (the
+ *  autofilled slug). */
+interface BlankDefault {
+	formUuid: string;
+	formName: string;
+	kind: SubConfigKind;
+	label: string;
+	xpathDefault?: string;
+}
+
+/** The blank optional slots across participating drafts — what the commit is
+ *  about to default. Collected BEFORE the commit (the buffers are cleared
+ *  there); resolved to actual values after, so the notice shows what ran. An
+ *  id buffer the user left filled (seeded or typed) isn't here — only genuine
+ *  blanks default. */
+export function collectBlankDefaults(
+	forms: FormRow[],
+	draftFor: (formUuid: string) => BlockDraft,
+	mode: ConnectType,
+): BlankDefault[] {
+	const out: BlankDefault[] = [];
+	for (const f of forms) {
+		const d = draftFor(f.formUuid);
+		if (!draftParticipates(d, mode)) continue;
+		const base = { formUuid: f.formUuid, formName: f.formName };
+		if (mode === "learn") {
+			if (d.learnOn && !d.learnId.trim())
+				out.push({ ...base, kind: "learn_module", label: "Module ID" });
+			if (d.assessmentOn && !d.assessmentId.trim())
+				out.push({ ...base, kind: "assessment", label: "Assessment ID" });
+			if (d.assessmentOn && !d.userScoreText.trim())
+				out.push({
+					...base,
+					kind: "assessment",
+					label: "User Score",
+					xpathDefault: DEFAULT_ASSESSMENT_USER_SCORE,
+				});
+		} else {
+			if (d.deliverOn && !d.deliverId.trim())
+				out.push({ ...base, kind: "deliver_unit", label: "Deliver Unit ID" });
+			if (d.deliverOn && !d.entityIdText.trim())
+				out.push({
+					...base,
+					kind: "deliver_unit",
+					label: "Entity ID",
+					xpathDefault: DEFAULT_DELIVER_ENTITY_ID,
+				});
+			if (d.deliverOn && !d.entityNameText.trim())
+				out.push({
+					...base,
+					kind: "deliver_unit",
+					label: "Entity Name",
+					xpathDefault: DEFAULT_DELIVER_ENTITY_NAME,
+				});
+			if (d.taskOn && !d.taskId.trim())
+				out.push({ ...base, kind: "task", label: "Task ID" });
+		}
+	}
+	return out;
+}
+
+/** Resolve a defaulted slot to the value that actually ran: an XPath slot's
+ *  wire-emit default, or an id's autofilled slug read back from the just-
+ *  committed doc. */
+export function resolveDefaultValue(
+	doc: BlueprintDoc,
+	b: BlankDefault,
+): string {
+	if (b.xpathDefault !== undefined) return b.xpathDefault;
+	return doc.forms[b.formUuid]?.connect?.[b.kind]?.id ?? "";
+}
+
+/** One applied-default line the footer shows after a commit. */
+interface DefaultNotice {
+	field: string;
+	value: string;
+}
+
+/** A contextual notice that some left-blank fields were filled with their
+ *  auto-generated defaults — shown after an apply that defaulted anything, so
+ *  a blank never silently resolves. Violet (informational), distinct from the
+ *  rose rejection block. */
+function DefaultNoticeBlock({
+	notices,
+}: {
+	notices: readonly DefaultNotice[];
+}) {
+	if (notices.length === 0) return null;
+	return (
+		<div className="space-y-1.5 rounded-md border border-nova-violet/15 bg-nova-violet/[0.06] px-2.5 py-2">
+			<p className="text-[11px] text-nova-text-secondary">
+				{notices.length === 1
+					? "You left a field blank, so we used its auto-generated default:"
+					: "You left some fields blank, so we used their auto-generated defaults:"}
+			</p>
+			<ul className="space-y-0.5">
+				{notices.map((n) => (
+					<li
+						key={`${n.field}:${n.value}`}
+						className="flex items-baseline gap-1.5 text-[11px]"
+					>
+						<span className="shrink-0 text-nova-text-muted">{n.field}</span>
+						<span className="text-nova-text-muted/40">→</span>
+						<span className="break-all font-mono text-nova-violet-bright">
+							{n.value}
+						</span>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
 }
 
 export function ConnectManagerDialog({
@@ -158,11 +279,15 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		connectType ?? lastConnectType ?? "learn",
 	);
 	const [rejectionMessages, setRejectionMessages] = useState<string[]>([]);
+	/** Defaults the last apply filled in for left-blank fields — shown in the
+	 *  footer, cleared on the next edit or mode switch. */
+	const [defaultNotices, setDefaultNotices] = useState<DefaultNotice[]>([]);
 
 	const modeDrafts = drafts[selectedMode];
 	const draftOf = (formUuid: string) => modeDrafts[formUuid] ?? EMPTY_DRAFT;
 
 	const patchDraft = (formUuid: string, patch: Partial<BlockDraft>) => {
+		setDefaultNotices((n) => (n.length ? [] : n));
 		setDrafts((prev) => ({
 			...prev,
 			[selectedMode]: {
@@ -237,6 +362,8 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 
 	const apply = () => {
 		const doc = docApi.getState();
+		// The left-blank optional slots, captured before the commit clears them.
+		const blanks = collectBlankDefaults(forms, draftOf, selectedMode);
 		const blocks: Record<string, ConnectConfig> = Object.fromEntries(
 			forms
 				.filter((f) => draftParticipates(draftOf(f.formUuid), selectedMode))
@@ -249,11 +376,22 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		);
 		const outcome = switchMode(selectedMode, blocks, { announce: false });
 		if (outcome.ok) {
+			// Resolve each blanked slot to the value the commit actually landed
+			// (ids read back from the committed doc; XPath slots their wire
+			// default) so the notice shows what runs, then re-seed.
+			const committed = docApi.getState();
+			setDefaultNotices(
+				blanks.map((b) => ({
+					field: `${b.formName} — ${b.label}`,
+					value: resolveDefaultValue(committed, b),
+				})),
+			);
 			reseed();
 			setRejectionMessages([]);
 			return;
 		}
 		setRejectionMessages(outcome.messages);
+		setDefaultNotices([]);
 	};
 
 	const turnOff = () => {
@@ -296,6 +434,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 										onChange={() => {
 											setSelectedMode(mode);
 											setRejectionMessages([]);
+											setDefaultNotices([]);
 										}}
 										className="sr-only"
 									/>
@@ -350,6 +489,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			</div>
 
 			<div className="space-y-2 border-t border-nova-border px-5 py-3">
+				<DefaultNoticeBlock notices={defaultNotices} />
 				<RejectionNoticeBlock messages={rejectionMessages} />
 				<div className="flex items-center justify-between gap-3">
 					{enabled ? (

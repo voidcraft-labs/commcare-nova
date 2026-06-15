@@ -43,9 +43,11 @@ import { CurrentFormScope } from "@/lib/references/ReferenceContext";
  * hashtag chips), each seeded with its actual wire default so the user SEES
  * what runs and can replace it; a slot left at the default is dropped on
  * commit so it stays absent and the single wire-emit default still applies.
- * Identifiers sit behind an "Advanced" disclosure, shown pre-filled with the
- * id the commit would autofill (the derived value, editable) rather than a
- * placeholder — a buffer left blank still autofills at commit.
+ * Identifiers sit behind an "Advanced" disclosure. Turning a sub-config on
+ * seeds its id field with the REAL value the commit would autofill (the
+ * derived value, editable) — never a placeholder. The field stays blankable:
+ * clearing it and applying re-autofills the default, which the app-wide
+ * manager announces in a contextual notice (the per-form dialog just closes).
  *
  * The dialog mounts through `Dialog.Portal` (the media picker's pattern) so
  * it escapes the app-settings popover's transformed positioner.
@@ -115,7 +117,11 @@ export const EMPTY_DRAFT: BlockDraft = {
 };
 
 /** Which sub-configs of a mode the draft has turned on. */
-type SubConfigKind = "learn_module" | "assessment" | "deliver_unit" | "task";
+export type SubConfigKind =
+	| "learn_module"
+	| "assessment"
+	| "deliver_unit"
+	| "task";
 
 /** Seed a draft from an existing block (the manager's per-form starting
  *  point). `printExpr` lowers a stored XPath AST to its text so the buffers
@@ -487,11 +493,12 @@ export function FormSubConfigs({
 		value.trim() ? validateId(kind, value) : null;
 	const getLintContext = useConnectLintContext(asUuid(formUuid));
 
-	// The id a blank buffer would autofill to — shown as the field's actual
-	// value (not a placeholder) so the user sees the real id and can edit it.
-	// Same source/scope the commit autofill uses (`deriveConnectId`): module
-	// name for learn_module / deliver_unit, "<module> <form>" for the
-	// per-form assessment / task. An empty buffer still commits as autofill.
+	// The id the commit would autofill — the SAME source/scope the autofill
+	// uses (`deriveConnectId`): module name for learn_module / deliver_unit,
+	// "<module> <form>" for the per-form assessment / task. Turning a sub-config
+	// ON seeds this into its id buffer (below) so the field shows the REAL id,
+	// editable — never a placeholder. The buffer stays blankable: clearing it
+	// and applying re-autofills the default (and the surface announces it).
 	const appConnectIds = useAppConnectIds();
 	const derivedId = (kind: SubConfigKind): string =>
 		deriveConnectId(
@@ -501,13 +508,65 @@ export function FormSubConfigs({
 			connectIdsExcept(appConnectIds, asUuid(formUuid), kind),
 		);
 
+	// Flip a sub-config. Turning it ON seeds the derived id into a still-blank
+	// buffer so its "Advanced → ID" field opens showing the real value; an id
+	// the draft already carries (an existing block, a restored stash) is left
+	// untouched so no Postgres slug churns. Turning OFF preserves the buffers
+	// (the same round-trip the names/descriptions get).
+	const toggleSub = (kind: SubConfigKind) => {
+		switch (kind) {
+			case "learn_module":
+				return onPatch(
+					draft.learnOn
+						? { learnOn: false }
+						: {
+								learnOn: true,
+								...(draft.learnId.trim()
+									? {}
+									: { learnId: derivedId("learn_module") }),
+							},
+				);
+			case "assessment":
+				return onPatch(
+					draft.assessmentOn
+						? { assessmentOn: false }
+						: {
+								assessmentOn: true,
+								...(draft.assessmentId.trim()
+									? {}
+									: { assessmentId: derivedId("assessment") }),
+							},
+				);
+			case "deliver_unit":
+				return onPatch(
+					draft.deliverOn
+						? { deliverOn: false }
+						: {
+								deliverOn: true,
+								...(draft.deliverId.trim()
+									? {}
+									: { deliverId: derivedId("deliver_unit") }),
+							},
+				);
+			case "task":
+				return onPatch(
+					draft.taskOn
+						? { taskOn: false }
+						: {
+								taskOn: true,
+								...(draft.taskId.trim() ? {} : { taskId: derivedId("task") }),
+							},
+				);
+		}
+	};
+
 	const body =
 		mode === "learn" ? (
 			<>
 				<SubConfigCard
 					title="Learn Module"
 					enabled={draft.learnOn}
-					onToggle={() => onPatch({ learnOn: !draft.learnOn })}
+					onToggle={() => toggleSub("learn_module")}
 				>
 					<DraftField
 						label="Name"
@@ -532,9 +591,10 @@ export function FormSubConfigs({
 					<AdvancedDisclosure>
 						<DraftField
 							label="Module ID"
-							value={draft.learnId || derivedId("learn_module")}
+							value={draft.learnId}
 							onChange={(v) => onPatch({ learnId: v })}
 							validate={idCheck("learn_module")}
+							hint="Leave blank to use the auto-generated ID."
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -542,7 +602,7 @@ export function FormSubConfigs({
 				<SubConfigCard
 					title="Assessment"
 					enabled={draft.assessmentOn}
-					onToggle={() => onPatch({ assessmentOn: !draft.assessmentOn })}
+					onToggle={() => toggleSub("assessment")}
 				>
 					<ConnectXPathField
 						label="User Score"
@@ -553,9 +613,10 @@ export function FormSubConfigs({
 					<AdvancedDisclosure>
 						<DraftField
 							label="Assessment ID"
-							value={draft.assessmentId || derivedId("assessment")}
+							value={draft.assessmentId}
 							onChange={(v) => onPatch({ assessmentId: v })}
 							validate={idCheck("assessment")}
+							hint="Leave blank to use the auto-generated ID."
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -566,7 +627,7 @@ export function FormSubConfigs({
 				<SubConfigCard
 					title="Deliver Unit"
 					enabled={draft.deliverOn}
-					onToggle={() => onPatch({ deliverOn: !draft.deliverOn })}
+					onToggle={() => toggleSub("deliver_unit")}
 				>
 					<DraftField
 						label="Name"
@@ -589,9 +650,10 @@ export function FormSubConfigs({
 					<AdvancedDisclosure>
 						<DraftField
 							label="Deliver Unit ID"
-							value={draft.deliverId || derivedId("deliver_unit")}
+							value={draft.deliverId}
 							onChange={(v) => onPatch({ deliverId: v })}
 							validate={idCheck("deliver_unit")}
+							hint="Leave blank to use the auto-generated ID."
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -599,7 +661,7 @@ export function FormSubConfigs({
 				<SubConfigCard
 					title="Task"
 					enabled={draft.taskOn}
-					onToggle={() => onPatch({ taskOn: !draft.taskOn })}
+					onToggle={() => toggleSub("task")}
 				>
 					<DraftField
 						label="Name"
@@ -617,9 +679,10 @@ export function FormSubConfigs({
 					<AdvancedDisclosure>
 						<DraftField
 							label="Task ID"
-							value={draft.taskId || derivedId("task")}
+							value={draft.taskId}
 							onChange={(v) => onPatch({ taskId: v })}
 							validate={idCheck("task")}
+							hint="Leave blank to use the auto-generated ID."
 							mono
 						/>
 					</AdvancedDisclosure>

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { ConnectBadge } from "@/components/ui/ConnectBadge";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { ConnectManagerDialog } from "./ConnectManagerDialog";
 
@@ -24,10 +25,10 @@ export function AppConnectSection() {
 					<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
 						CommCare Connect
 					</span>
+					{/* When on, the logomark + mode reads like the form-settings badge;
+					    off keeps a quiet neutral chip. */}
 					{connectType ? (
-						<span className="flex h-[18px] items-center rounded border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright capitalize">
-							{connectType}
-						</span>
+						<ConnectBadge type={connectType} />
 					) : (
 						<span className="flex h-[18px] items-center rounded border border-nova-border/60 bg-nova-surface px-1.5 text-[10px] font-medium text-nova-text-muted">
 							Off
