@@ -52,7 +52,6 @@ import {
 	useBuilderPhase,
 	useInReplayMode,
 	usePreviewing,
-	useSetFlipbookScrollAnchor,
 	useSetPreviewing,
 } from "@/lib/session/hooks";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
@@ -127,7 +126,6 @@ export function BuilderLayout({
 	} | null>(null);
 
 	const setPreviewing = useSetPreviewing();
-	const setFlipbookScrollAnchor = useSetFlipbookScrollAnchor();
 
 	/* Track the current preview flag in a ref so the stable
 	 * handleSetPreviewing callback can read it without re-creating. */
@@ -136,7 +134,15 @@ export function BuilderLayout({
 	previewingRef.current = previewing;
 
 	/** Capture scroll anchor before the preview toggle, then delegate
-	 *  the actual flip to the session store's atomic setPreviewing. */
+	 *  the actual flip to the session store's atomic setPreviewing.
+	 *
+	 *  This DOM-nudge restore corrects the LIVE canvas (the outer
+	 *  `PreviewShell` scroller, which `document.querySelector` returns and
+	 *  whose fields are all in the DOM). The EDIT canvas is a virtualized
+	 *  list with its own inner scroller and off-screen rows, so it can't be
+	 *  restored this way — it remembers its own scroll position per form and
+	 *  re-applies it via the virtualizer's `initialOffset` on mount (see
+	 *  `VirtualFormList`). */
 	const handleSetPreviewing = useCallback(
 		(on: boolean) => {
 			/* Early exit on same-value: avoids DOM measurement + scroll anchor
@@ -147,7 +153,6 @@ export function BuilderLayout({
 			 * useLayoutEffect that mutates scrollTop. */
 			if (on === previewingRef.current) return;
 
-			let topVisibleUuid: string | undefined;
 			const scrollContainer = document.querySelector(
 				"[data-preview-scroll-container]",
 			) as HTMLElement | null;
@@ -159,9 +164,8 @@ export function BuilderLayout({
 				for (let i = 0; i < fieldEls.length; i++) {
 					const rect = fieldEls[i].getBoundingClientRect();
 					if (rect.bottom > containerRect.top) {
-						topVisibleUuid = fieldEls[i].getAttribute("data-field-uuid") ?? "";
 						setScrollAnchor({
-							fieldUuid: topVisibleUuid,
+							fieldUuid: fieldEls[i].getAttribute("data-field-uuid") ?? "",
 							offsetTop: rect.top - containerRect.top,
 							allUuids: fieldEls.map(
 								(el) => el.getAttribute("data-field-uuid") ?? "",
@@ -172,17 +176,9 @@ export function BuilderLayout({
 				}
 			}
 
-			/* The DOM-nudge restore above (consumed by the layout effect) only
-			 * reaches the live canvas, whose every field is in the DOM. The edit
-			 * canvas is a virtualized list whose target row isn't mounted yet, so
-			 * preview→edit needs the virtualizer to scroll. Hand the freshly-
-			 * mounting edit list the field to land on; clear it when entering
-			 * preview so the anchor never lingers into a later edit-list mount. */
-			setFlipbookScrollAnchor(on ? undefined : topVisibleUuid);
-
 			setPreviewing(on);
 		},
-		[setPreviewing, setFlipbookScrollAnchor],
+		[setPreviewing],
 	);
 
 	/* Restore scroll position after mode switch. */

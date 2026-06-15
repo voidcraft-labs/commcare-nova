@@ -29,7 +29,7 @@ import {
 	deriveValidationAttempt,
 } from "./lifecycle";
 import { useBuilderSession, useBuilderSessionShallow } from "./provider";
-import type { SidebarKind } from "./store";
+import type { EditScrollMemory, SidebarKind } from "./store";
 import type {
 	GenerationError,
 	GenerationStage,
@@ -221,23 +221,25 @@ export function useClearNewField(): () => void {
 	return useBuilderSession((s) => s.clearNewField);
 }
 
-// ── Flipbook scroll anchor ────────────────────────────────────────────
+// ── Edit-canvas scroll memory ─────────────────────────────────────────
 
-/** The pending flipbook edit-restore anchor — the field the edit canvas
- *  scrolls back to after leaving preview, or `undefined`. Reactive: the
- *  edit list watches this so it can apply the scroll once it has mounted
- *  (and clear it afterwards). */
-export function useFlipbookScrollAnchor(): string | undefined {
-	return useBuilderSession((s) => s.flipbookScrollAnchor);
+/** Setter for a form's remembered edit-canvas scroll state (offset +
+ *  measured-row snapshot). `VirtualFormList` calls it on unmount. */
+export function useSetEditScroll(): (
+	formUuid: string,
+	memory: EditScrollMemory,
+) => void {
+	return useBuilderSession((s) => s.setEditScroll);
 }
 
-/** Setter for the one-shot flipbook edit-restore anchor. BuilderLayout sets
- *  it on the preview→edit toggle; the edit list clears it (passes
- *  `undefined`) once it has applied the scroll. */
-export function useSetFlipbookScrollAnchor(): (
-	uuid: string | undefined,
-) => void {
-	return useBuilderSession((s) => s.setFlipbookScrollAnchor);
+/** Imperative reader for a form's remembered edit-canvas scroll state.
+ *  Returns a stable function (no selector subscription) so reading it to
+ *  seed the virtualizer's `initialOffset` + `initialMeasurementsCache`
+ *  never triggers a re-render. */
+export function useGetEditScroll(): (
+	formUuid: string,
+) => EditScrollMemory | undefined {
+	return useBuilderSession((s) => s.getEditScroll);
 }
 
 // ── Generation lifecycle ──────────────────────────────────────────────────
