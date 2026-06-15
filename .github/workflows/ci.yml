@@ -1,0 +1,82 @@
+name: CI
+
+# Runs the quality gate the local git hooks enforce, plus a production build,
+# on every pull request and on pushes to main. This is what actually verifies
+# Dependabot's dependency-bump PRs before anyone merges them.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch/PR cancels the in-flight run for it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint (Biome)
+        run: npm run lint
+      - name: Type-check
+        run: npm run typecheck
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The suite boots a Postgres testcontainer and applies the case-store
+      # migrations through the Atlas CLI (lib/case-store/sql/__tests__/globalSetup.ts),
+      # so Atlas has to be on PATH. ubuntu-latest already runs a Docker daemon
+      # for the container itself.
+      - name: Install Atlas
+        uses: ariga/setup-atlas@master
+      - name: Test suite
+        run: npm test
+
+  leaks:
+    name: Async-leak gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Atlas
+        uses: ariga/setup-atlas@master
+      - name: Test suite under the async-leak detector
+        run: npm run test:leaks
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # next build resolves the fumadocs `@/.source/server` import; this
+      # generates it first, the same way the typecheck script does before tsc.
+      - name: Generate fumadocs sources
+        run: npx fumadocs-mdx
+      - name: Build
+        run: npm run build

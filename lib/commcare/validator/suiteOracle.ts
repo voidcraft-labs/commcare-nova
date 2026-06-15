@@ -96,8 +96,8 @@ const XML_OPTS = { xmlMode: true } as const;
  * declaration on the enclosing element. A wire XPath referencing one of these
  * is in scope whether or not the element declares it, so the C2-4 check treats
  * them as always-resolvable. The set is the closed vocabulary Nova's emitters
- * actually produce — verified by `rg "instance\\('...'\\)"` over `lib/commcare`
- * (non-test): `casedb`, `commcaresession`, `results`, `results:inline`,
+ * actually produce — found by searching non-test `lib/commcare` source for
+ * `instance(...)` calls: `casedb`, `commcaresession`, `results`, `results:inline`,
  * `search-input:results`. Nothing else.
  *
  *   - `casedb` / `commcaresession` — platform-seeded into every session's
