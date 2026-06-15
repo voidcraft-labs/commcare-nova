@@ -259,6 +259,7 @@ export function DraftField({
 	multiline,
 	suffix,
 	placeholder,
+	hint,
 	required,
 }: {
 	label: string;
@@ -271,6 +272,9 @@ export function DraftField({
 	multiline?: boolean;
 	suffix?: string;
 	placeholder?: string;
+	/** A short note under the field explaining what it's for. An error, when
+	 *  present, takes its place. */
+	hint?: string;
 	required?: boolean;
 }) {
 	const fieldId = useId();
@@ -320,7 +324,13 @@ export function DraftField({
 					</span>
 				)}
 			</div>
-			{error && <p className="mt-1 text-[10px] text-nova-rose">{error}</p>}
+			{error ? (
+				<p className="mt-1 text-[10px] text-nova-rose">{error}</p>
+			) : hint ? (
+				<p className="mt-1 text-[10px] leading-snug text-nova-text-muted/70">
+					{hint}
+				</p>
+			) : null}
 		</div>
 	);
 }
@@ -441,7 +451,8 @@ export function FormSubConfigs({
 						label="User Score"
 						value={draft.userScoreText}
 						onChange={(v) => onPatch({ userScoreText: v })}
-						placeholder="Default (final assessment score)"
+						placeholder="Defaults to 100 (full marks)"
+						hint="Where the learner's score comes from — e.g. a hidden total field. Blank counts every learner as a pass."
 						mono
 					/>
 					<AdvancedDisclosure>
@@ -477,21 +488,24 @@ export function FormSubConfigs({
 						value={draft.deliverId}
 						onChange={(v) => onPatch({ deliverId: v })}
 						validate={idCheck("deliver_unit")}
-						placeholder="Auto-generated"
+						placeholder="Auto-generated from the name"
+						hint="A stable id CommCare Connect stores this under. Leave blank and one is made from the name."
 						mono
 					/>
 					<DraftField
 						label="Entity ID"
 						value={draft.entityIdText}
 						onChange={(v) => onPatch({ entityIdText: v })}
-						placeholder="Default"
+						placeholder="Defaults to one per worker per day"
+						hint="Groups a worker's deliveries so Connect can pay per entity."
 						mono
 					/>
 					<DraftField
 						label="Entity Name"
 						value={draft.entityNameText}
 						onChange={(v) => onPatch({ entityNameText: v })}
-						placeholder="Default"
+						placeholder="Defaults to the worker's username"
+						hint="The label shown for that entity."
 						mono
 					/>
 				</AdvancedDisclosure>
@@ -520,7 +534,8 @@ export function FormSubConfigs({
 						value={draft.taskId}
 						onChange={(v) => onPatch({ taskId: v })}
 						validate={idCheck("task")}
-						placeholder="Auto-generated"
+						placeholder="Auto-generated from the name"
+						hint="A stable id CommCare Connect stores this under. Leave blank and one is made from the name."
 						mono
 					/>
 				</AdvancedDisclosure>
