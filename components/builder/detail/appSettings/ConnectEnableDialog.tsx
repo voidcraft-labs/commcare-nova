@@ -14,6 +14,7 @@ import {
 	DEFAULT_ASSESSMENT_USER_SCORE,
 	DEFAULT_DELIVER_ENTITY_ID,
 	DEFAULT_DELIVER_ENTITY_NAME,
+	deriveConnectId,
 } from "@/lib/doc/connectConfig";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import {
@@ -42,7 +43,9 @@ import { CurrentFormScope } from "@/lib/references/ReferenceContext";
  * hashtag chips), each seeded with its actual wire default so the user SEES
  * what runs and can replace it; a slot left at the default is dropped on
  * commit so it stays absent and the single wire-emit default still applies.
- * Identifiers sit behind an "Advanced" disclosure and autofill when blank.
+ * Identifiers sit behind an "Advanced" disclosure, shown pre-filled with the
+ * id the commit would autofill (the derived value, editable) rather than a
+ * placeholder — a buffer left blank still autofills at commit.
  *
  * The dialog mounts through `Dialog.Portal` (the media picker's pattern) so
  * it escapes the app-settings popover's transformed positioner.
@@ -469,16 +472,34 @@ export function FormSubConfigs({
 	onPatch,
 	validateId,
 	formUuid,
+	moduleName,
+	formName,
 }: {
 	mode: ConnectType;
 	draft: BlockDraft;
 	onPatch: (patch: Partial<BlockDraft>) => void;
 	validateId: IdValidator;
 	formUuid: string;
+	moduleName: string;
+	formName: string;
 }) {
 	const idCheck = (kind: SubConfigKind) => (value: string) =>
 		value.trim() ? validateId(kind, value) : null;
 	const getLintContext = useConnectLintContext(asUuid(formUuid));
+
+	// The id a blank buffer would autofill to — shown as the field's actual
+	// value (not a placeholder) so the user sees the real id and can edit it.
+	// Same source/scope the commit autofill uses (`deriveConnectId`): module
+	// name for learn_module / deliver_unit, "<module> <form>" for the
+	// per-form assessment / task. An empty buffer still commits as autofill.
+	const appConnectIds = useAppConnectIds();
+	const derivedId = (kind: SubConfigKind): string =>
+		deriveConnectId(
+			kind === "assessment" || kind === "task"
+				? `${moduleName} ${formName}`
+				: moduleName,
+			connectIdsExcept(appConnectIds, asUuid(formUuid), kind),
+		);
 
 	const body =
 		mode === "learn" ? (
@@ -511,10 +532,9 @@ export function FormSubConfigs({
 					<AdvancedDisclosure>
 						<DraftField
 							label="Module ID"
-							value={draft.learnId}
+							value={draft.learnId || derivedId("learn_module")}
 							onChange={(v) => onPatch({ learnId: v })}
 							validate={idCheck("learn_module")}
-							placeholder="Auto-generated"
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -533,10 +553,9 @@ export function FormSubConfigs({
 					<AdvancedDisclosure>
 						<DraftField
 							label="Assessment ID"
-							value={draft.assessmentId}
+							value={draft.assessmentId || derivedId("assessment")}
 							onChange={(v) => onPatch({ assessmentId: v })}
 							validate={idCheck("assessment")}
-							placeholder="Auto-generated"
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -570,10 +589,9 @@ export function FormSubConfigs({
 					<AdvancedDisclosure>
 						<DraftField
 							label="Deliver Unit ID"
-							value={draft.deliverId}
+							value={draft.deliverId || derivedId("deliver_unit")}
 							onChange={(v) => onPatch({ deliverId: v })}
 							validate={idCheck("deliver_unit")}
-							placeholder="Auto-generated"
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -599,10 +617,9 @@ export function FormSubConfigs({
 					<AdvancedDisclosure>
 						<DraftField
 							label="Task ID"
-							value={draft.taskId}
+							value={draft.taskId || derivedId("task")}
 							onChange={(v) => onPatch({ taskId: v })}
 							validate={idCheck("task")}
-							placeholder="Auto-generated"
 							mono
 						/>
 					</AdvancedDisclosure>
@@ -810,6 +827,8 @@ function DialogBody({
 							onPatch={(patch) => patchDraft(t.formUuid, patch)}
 							validateId={idValidatorFor(t.formUuid)}
 							formUuid={t.formUuid}
+							moduleName={t.moduleName}
+							formName={t.formName}
 						/>
 					</div>
 				))}

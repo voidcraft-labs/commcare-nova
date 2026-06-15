@@ -342,6 +342,8 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 							onPatch={(patch) => patchDraft(f.formUuid, patch)}
 							validateId={idValidatorFor(f.formUuid)}
 							formUuid={f.formUuid}
+							moduleName={f.moduleName}
+							formName={f.formName}
 						/>
 					</div>
 				))}

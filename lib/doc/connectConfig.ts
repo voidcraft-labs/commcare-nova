@@ -36,6 +36,11 @@ export {
 	DEFAULT_DELIVER_ENTITY_NAME,
 } from "@/lib/commcare/connectDefaults";
 
+/** Re-export the id deriver so authoring surfaces can SHOW the actual
+ *  auto-generated id (the value the commit would autofill) instead of a
+ *  placeholder — same boundary-doorway reasoning as the defaults above. */
+export { deriveConnectId };
+
 /**
  * Validity of an explicitly-typed Connect id: legal element-name / slug
  * format, then uniqueness against `taken` (every other id in the app's
