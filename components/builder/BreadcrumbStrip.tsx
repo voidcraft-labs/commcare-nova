@@ -27,17 +27,16 @@ import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
-import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
-	type BreadcrumbItem,
-	useBreadcrumbs,
-	useLocation,
-	useNavigate,
-} from "@/lib/routing/hooks";
+	type PreviewBreadcrumbItem,
+	previewBreadcrumbTrail,
+} from "@/lib/routing/previewBreadcrumbs";
 import {
 	usePreviewCaseTarget,
 	usePreviewing,
 	usePreviewSelectedCase,
+	useSetPreviewCaseTarget,
 } from "@/lib/session/hooks";
 
 /** Stable no-op handler for breadcrumb items that don't navigate. */
@@ -59,14 +58,13 @@ export function BreadcrumbStrip() {
 	const breadcrumbs = useBreadcrumbs();
 	const appName = useAppName();
 
-	/* In preview the trail follows the RUNNING APP, not the editor. A
-	 * case-list URL is the case-selection step for a case-loading form, so
-	 * the trailing crumb names that FORM (never "Case List"/"Search"/"Case
-	 * Detail"), and the picked case appends after it. Home + module crumbs
-	 * are unchanged; edit mode keeps the URL-derived trail as-is. */
+	/* In preview the trail follows the RUNNING APP, not the editor (the
+	 * rewrite lives in the pure, tested `previewBreadcrumbTrail`). Home +
+	 * module crumbs are unchanged; edit mode keeps the URL-derived trail. */
 	const previewing = usePreviewing();
 	const previewCaseTarget = usePreviewCaseTarget();
 	const previewSelectedCase = usePreviewSelectedCase();
+	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const moduleUuid =
 		loc.kind === "module" ||
 		loc.kind === "cases" ||
@@ -77,69 +75,16 @@ export function BreadcrumbStrip() {
 			: undefined;
 	const moduleForms = useOrderedForms((moduleUuid ?? "") as Uuid);
 
-	const effectiveBreadcrumbs: BreadcrumbItem[] = useMemo(() => {
-		if (!previewing || !moduleUuid) return breadcrumbs;
-
-		const homeAndModule = breadcrumbs.filter(
-			(b) => b.location.kind === "home" || b.location.kind === "module",
-		);
-
-		if (loc.kind === "form") {
-			const form = moduleForms.find((f) => f.uuid === loc.formUuid);
-			const items: BreadcrumbItem[] = [
-				...homeAndModule,
-				{
-					key: `f:${loc.formUuid}`,
-					label: form?.name ?? "Form",
-					location: { kind: "form", moduleUuid, formUuid: loc.formUuid },
-				},
-			];
-			if (previewCaseTarget?.caseName) {
-				items.push({
-					key: `case:${previewCaseTarget.caseId ?? previewCaseTarget.caseName}`,
-					label: previewCaseTarget.caseName,
-					location: { kind: "form", moduleUuid, formUuid: loc.formUuid },
-				});
-			}
-			return items;
-		}
-
-		if (
-			loc.kind === "cases" ||
-			loc.kind === "search-config" ||
-			loc.kind === "detail-config"
-		) {
-			const items = [...homeAndModule];
-			/* Name the case-loading form this list feeds: the form tapped to
-			 * get here, else the module's sole case-loading form. With several
-			 * unchosen (a case-first module's form menu), there's no single
-			 * form yet, so the crumb is omitted until one is picked. */
-			const caseLoading = moduleForms.filter((f) =>
-				CASE_LOADING_FORM_TYPES.has(f.type),
-			);
-			const seeded = previewCaseTarget?.formUuid
-				? caseLoading.find((f) => f.uuid === previewCaseTarget.formUuid)
-				: undefined;
-			const targetForm =
-				seeded ?? (caseLoading.length === 1 ? caseLoading[0] : undefined);
-			if (targetForm) {
-				items.push({
-					key: `pf:${targetForm.uuid}`,
-					label: targetForm.name,
-					location: { kind: "cases", moduleUuid },
-				});
-			}
-			if (previewSelectedCase?.caseName) {
-				items.push({
-					key: `case:${previewSelectedCase.caseId}`,
-					label: previewSelectedCase.caseName,
-					location: { kind: "cases", moduleUuid },
-				});
-			}
-			return items;
-		}
-
-		return breadcrumbs;
+	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
+		if (!previewing) return breadcrumbs;
+		return previewBreadcrumbTrail({
+			loc,
+			baseBreadcrumbs: breadcrumbs,
+			moduleUuid,
+			moduleForms,
+			previewCaseTarget,
+			previewSelectedCase,
+		});
 	}, [
 		previewing,
 		moduleUuid,
@@ -150,13 +95,25 @@ export function BreadcrumbStrip() {
 		previewSelectedCase,
 	]);
 
-	/* Breadcrumb click handlers — navigate to each breadcrumb's location.
-	 * Memoized on navigation structure so CollapsibleBreadcrumb's memo()
-	 * skips re-renders when nothing changed. */
+	/* Breadcrumb click handlers, memoized on navigation structure so
+	 * CollapsibleBreadcrumb's memo() skips re-renders when nothing changed.
+	 * A case-loading form's crumb (`reselectCaseFor`) re-enters its
+	 * case-selection step — re-open the case list seeded with this form as
+	 * the continue target — instead of re-navigating to the form the user is
+	 * already on; every other crumb pushes its location. */
 	const breadcrumbHandlers = useMemo(
 		() =>
-			effectiveBreadcrumbs.map((item) => () => navigate.push(item.location)),
-		[effectiveBreadcrumbs, navigate],
+			effectiveBreadcrumbs.map((item) => {
+				const reselectFor = item.reselectCaseFor;
+				if (reselectFor && moduleUuid) {
+					return () => {
+						setPreviewCaseTarget({ formUuid: reselectFor });
+						navigate.openCaseList(moduleUuid);
+					};
+				}
+				return () => navigate.push(item.location);
+			}),
+		[effectiveBreadcrumbs, navigate, moduleUuid, setPreviewCaseTarget],
 	);
 
 	/* Assemble breadcrumb parts — memoized so CollapsibleBreadcrumb's memo

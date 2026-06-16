@@ -120,9 +120,6 @@ vi.mock("../screens/FormScreen", () => ({
 		</div>
 	),
 }));
-vi.mock("../PreviewHeader", () => ({
-	PreviewHeader: () => <div data-testid="header-stub">PreviewHeader</div>,
-}));
 
 import { PreviewShell } from "../PreviewShell";
 
@@ -162,7 +159,7 @@ function renderShell() {
 				fieldOrder: {},
 			}}
 		>
-			<PreviewShell hideHeader />
+			<PreviewShell />
 		</BlueprintDocProvider>,
 	);
 }
@@ -264,7 +261,7 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 					fieldOrder: {},
 				}}
 			>
-				<PreviewShell hideHeader />
+				<PreviewShell />
 			</BlueprintDocProvider>,
 		);
 		// Workspace is still mounted (Activity-hidden); legacy is

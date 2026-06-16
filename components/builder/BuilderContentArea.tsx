@@ -204,7 +204,7 @@ export function BuilderContentArea({
 							<ErrorBoundary>
 								{isReady && hasData ? (
 									<div className="flex-1 min-h-0">
-										<PreviewShell hideHeader onBack={() => navigate.back()} />
+										<PreviewShell onBack={() => navigate.back()} />
 									</div>
 								) : null}
 							</ErrorBoundary>

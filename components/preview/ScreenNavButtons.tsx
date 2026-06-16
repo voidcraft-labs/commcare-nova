@@ -8,14 +8,12 @@ interface ScreenNavButtonsProps {
 	canGoUp?: boolean;
 	onBack?: () => void;
 	onUp?: () => void;
-	/** Smaller variant for the standalone preview header bar (18px icons, p-1). Default is 20px/p-1.5. */
-	compact?: boolean;
 }
 
-/** Hover uses `bg-white/5` instead of a theme-specific color so buttons
- *  work in both the violet Tier 2 breadcrumb bar and the cyan PreviewHeader. */
-const btnClass = (enabled: boolean, compact: boolean) =>
-	`${compact ? "p-1 min-w-[44px] min-h-[44px]" : "p-1.5 min-w-[44px] min-h-[44px]"} flex items-center justify-center rounded-lg shrink-0 ${enabled ? "text-nova-text-muted hover:text-nova-text hover:bg-white/5 cursor-pointer" : "text-nova-text-muted/30 cursor-default"}`;
+/** Hover uses `bg-white/5` (not a theme color) so the buttons read correctly
+ *  on the breadcrumb bar's translucent surface. */
+const btnClass = (enabled: boolean) =>
+	`p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg shrink-0 ${enabled ? "text-nova-text-muted hover:text-nova-text hover:bg-white/5 cursor-pointer" : "text-nova-text-muted/30 cursor-default"}`;
 
 /**
  * Nav buttons (back + up) rendered in the breadcrumb bar. Back steps through
@@ -26,31 +24,26 @@ export function ScreenNavButtons({
 	canGoUp,
 	onBack,
 	onUp,
-	compact,
 }: ScreenNavButtonsProps) {
-	const iconSize = compact ? 18 : 20;
-
 	return (
-		<div
-			className={`flex items-center gap-0.5 ${compact ? "-ml-1" : "-ml-1.5"}`}
-		>
+		<div className="flex items-center gap-0.5 -ml-1.5">
 			<button
 				type="button"
 				onClick={onBack}
 				disabled={!canGoBack}
-				className={btnClass(canGoBack ?? false, !!compact)}
+				className={btnClass(canGoBack ?? false)}
 				aria-label="Go back"
 			>
-				<Icon icon={tablerArrowLeft} width={iconSize} height={iconSize} />
+				<Icon icon={tablerArrowLeft} width={20} height={20} />
 			</button>
 			<button
 				type="button"
 				onClick={onUp}
 				disabled={!canGoUp}
-				className={btnClass(canGoUp ?? false, !!compact)}
+				className={btnClass(canGoUp ?? false)}
 				aria-label="Go to parent"
 			>
-				<Icon icon={tablerArrowUp} width={iconSize} height={iconSize} />
+				<Icon icon={tablerArrowUp} width={20} height={20} />
 			</button>
 		</div>
 	);

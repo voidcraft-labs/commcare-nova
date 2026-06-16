@@ -45,17 +45,15 @@ import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { Location } from "@/lib/routing/types";
 import { useEditMode, usePreviewCaseTarget } from "@/lib/session/hooks";
-import { PreviewHeader } from "./PreviewHeader";
 import { CaseListScreen } from "./screens/CaseListScreen";
 import { FormScreen } from "./screens/FormScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { ModuleScreen } from "./screens/ModuleScreen";
 
 interface PreviewShellProps {
-	actions?: React.ReactNode;
-	hideHeader?: boolean;
 	/** Back handler override — used by BuilderLayout to sync selection on back navigation.
 	 *  Also used by FormScreen for post-submit navigation. */
 	onBack?: () => void;
@@ -98,11 +96,7 @@ function locationToScreen(
 	return { type: "form", moduleIndex, formIndex };
 }
 
-export function PreviewShell({
-	actions,
-	hideHeader,
-	onBack,
-}: PreviewShellProps) {
+export function PreviewShell({ onBack }: PreviewShellProps) {
 	/* ── Location → PreviewScreen adapter ─────────────────────────────
 	 * Read the URL location and translate to the legacy index-based screen
 	 * shape so the Activity boundaries and interact-mode pipeline keep working. */
@@ -126,11 +120,15 @@ export function PreviewShell({
 
 	const zustandScreen: PreviewScreen = useMemo(() => {
 		const screen = locationToScreen(loc, moduleOrder, formOrder);
+		/* Graft the bound case onto the form ONLY when the target binds THIS
+		 * form — `previewCaseTargetBindsLocation` is the same predicate the
+		 * breadcrumb gates its case crumb on, so the loaded case and the named
+		 * case can never disagree (a target carried over from another form is
+		 * ignored, so e.g. a register form loads no case). */
 		if (
 			screen.type === "form" &&
-			loc.kind === "form" &&
 			previewCaseTarget?.caseId !== undefined &&
-			previewCaseTarget.formUuid === loc.formUuid
+			previewCaseTargetBindsLocation(loc, previewCaseTarget)
 		) {
 			return { ...screen, caseId: previewCaseTarget.caseId };
 		}
@@ -253,8 +251,9 @@ export function PreviewShell({
 		<div
 			className={`preview-theme ${mode === "edit" ? "design-theme" : ""} h-full flex flex-col`}
 		>
-			{!hideHeader && <PreviewHeader actions={actions} />}
-
+			{/* No header here — wayfinding (back/up + breadcrumb trail) is the
+			 *  builder's own `BreadcrumbStrip`, mounted above the canvas column,
+			 *  so the trail has a single source of truth. */}
 			<div
 				ref={scrollContainerRef}
 				data-preview-scroll-container
