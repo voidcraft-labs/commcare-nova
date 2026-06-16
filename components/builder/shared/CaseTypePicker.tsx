@@ -138,7 +138,7 @@ export function CaseTypePickerContent({
 						data-1p-ignore
 						aria-label="New case type name"
 						aria-invalid={showError}
-						className={`flex-1 min-w-0 px-2.5 h-9 text-[13px] font-mono rounded-lg bg-nova-deep/50 border text-nova-text placeholder:text-nova-text-muted placeholder:font-sans focus:outline-none transition-colors ${
+						className={`flex-1 min-w-0 px-2.5 min-h-11 text-[13px] font-mono rounded-lg bg-nova-deep/50 border text-nova-text placeholder:text-nova-text-muted placeholder:font-sans focus:outline-none transition-colors ${
 							showError
 								? "border-nova-rose/50 focus:border-nova-rose"
 								: "border-white/[0.06] focus:border-nova-violet"
@@ -148,10 +148,10 @@ export function CaseTypePickerContent({
 						type="button"
 						onClick={commitNew}
 						disabled={!verdict.ok}
-						aria-label="Create case type"
-						className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-nova-violet/15 text-nova-violet-bright hover:bg-nova-violet/25 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="shrink-0 min-h-11 flex items-center gap-1 px-3 rounded-lg text-[13px] font-medium bg-nova-violet/15 text-nova-violet-bright hover:bg-nova-violet/25 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
 					>
-						<Icon icon={tablerPlus} width="16" height="16" />
+						<Icon icon={tablerPlus} width="15" height="15" />
+						Create
 					</button>
 				</div>
 				{showError && !verdict.ok && (

@@ -20,6 +20,7 @@ import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence } from "motion/react";
 import { useCallback, useDeferredValue, useState } from "react";
+import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
 import { ModuleInsertionPoint } from "@/components/builder/appTree/insertion/ModuleInsertionPoint";
 import { ModuleCard } from "@/components/builder/appTree/ModuleCard";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
@@ -133,35 +134,26 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 							{/* Insertion points interleave between modules so new
 							 *  modules can be added at any position — hidden while
 							 *  a search filter is active or the app is locked. */}
-							{!locked && !searchResult && (
-								<ModuleInsertionPoint key="module-ins-0" atIndex={0} />
-							)}
-							{moduleOrder.flatMap((_moduleId, mIdx) => {
-								if (
+							{interleaveInsertions(moduleOrder, {
+								suppress: locked || !!searchResult,
+								itemKey: (moduleId) => moduleId,
+								renderItem: (_moduleId, mIdx) =>
 									searchResult &&
-									!searchResult.visibleModuleIndices.has(mIdx)
-								)
-									return [];
-								const card = (
-									<ModuleCard
-										key={_moduleId}
-										moduleUuid={_moduleId}
-										moduleIndex={mIdx}
-										onSelect={handleSelect}
-										collapsed={collapsed}
-										toggle={toggle}
-										searchResult={searchResult}
-										locked={locked}
-									/>
-								);
-								if (locked || searchResult) return [card];
-								return [
-									card,
-									<ModuleInsertionPoint
-										key={`module-ins-after-${_moduleId}`}
-										atIndex={mIdx + 1}
-									/>,
-								];
+									!searchResult.visibleModuleIndices.has(mIdx) ? null : (
+										<ModuleCard
+											key={_moduleId}
+											moduleUuid={_moduleId}
+											moduleIndex={mIdx}
+											onSelect={handleSelect}
+											collapsed={collapsed}
+											toggle={toggle}
+											searchResult={searchResult}
+											locked={locked}
+										/>
+									),
+								renderInsertion: (atIndex, key) => (
+									<ModuleInsertionPoint key={key} atIndex={atIndex} />
+								),
 							})}
 						</AnimatePresence>
 					</div>

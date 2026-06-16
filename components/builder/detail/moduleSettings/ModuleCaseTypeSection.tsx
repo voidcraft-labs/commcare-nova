@@ -16,8 +16,9 @@ import { CaseTypePicker } from "@/components/builder/shared/CaseTypePicker";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
+import { caseTypeClearPatch, caseTypeSetPatch } from "@/lib/doc/scaffolds";
 import type { Uuid } from "@/lib/doc/types";
-import { asUuid, type Module, plainColumn } from "@/lib/domain";
+import type { Module } from "@/lib/domain";
 
 interface ModuleCaseTypeSectionProps {
 	moduleUuid: Uuid;
@@ -32,33 +33,13 @@ export function ModuleCaseTypeSection({
 	const [error, setError] = useState<string | null>(null);
 
 	if (!module) return null;
-	const uuid = asUuid(moduleUuid);
 
-	const hasForms = (formIds?.length ?? 0) > 0;
-	const hasColumns = (module.caseListConfig?.columns.length ?? 0) > 0;
-
+	// The set/clear patches (including the born-valid Name-column seed and the
+	// config drop on clear) live in `lib/doc/scaffolds` so the rule isn't
+	// re-encoded here; this component just supplies what it already has.
 	const apply = (patch: Partial<Omit<Module, "uuid">>) => {
-		const outcome = inline.updateModule(uuid, patch);
+		const outcome = inline.updateModule(moduleUuid, patch);
 		setError(outcome.ok ? null : outcome.messages.join(" "));
-	};
-
-	const handleChange = (caseType: string) => {
-		const patch: Partial<Omit<Module, "uuid">> = { caseType };
-		// A case-managing module with forms must carry at least one case-list
-		// column; seed a "Name" one when the module has none so setting a type
-		// on a form-bearing module doesn't introduce MISSING_CASE_LIST_COLUMNS.
-		if (hasForms && !hasColumns) {
-			patch.caseListConfig = {
-				columns: [
-					plainColumn(asUuid(crypto.randomUUID()), "case_name", "Name"),
-				],
-				searchInputs: module.caseListConfig?.searchInputs ?? [],
-				...(module.caseListConfig?.filter && {
-					filter: module.caseListConfig.filter,
-				}),
-			};
-		}
-		apply(patch);
 	};
 
 	return (
@@ -68,8 +49,10 @@ export function ModuleCaseTypeSection({
 			</span>
 			<CaseTypePicker
 				value={module.caseType}
-				onChange={handleChange}
-				onClear={() => apply({ caseType: undefined })}
+				onChange={(caseType) =>
+					apply(caseTypeSetPatch(module, (formIds?.length ?? 0) > 0, caseType))
+				}
+				onClear={() => apply(caseTypeClearPatch())}
 			/>
 			<p className="mt-1.5 text-[11px] text-nova-text-muted">
 				The type of case this module manages. Clearing it makes the module a

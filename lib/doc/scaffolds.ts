@@ -18,11 +18,12 @@
 import {
 	asUuid,
 	type BlueprintDoc,
-	type Field,
+	type CaseListConfig,
 	type Form,
 	type FormType,
 	type Module,
 	plainColumn,
+	type TextField,
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
@@ -32,6 +33,26 @@ import type { Mutation } from "./types";
  *  `case_name` is in CommCare's standard property set, so the column resolves
  *  even before any form writes a custom property (`columnReferences`). */
 const NAME_COLUMN_HEADER = "Name";
+
+/** The canonical starter case-list column — a plain `case_name`/"Name" column. */
+function nameColumn() {
+	return plainColumn(
+		asUuid(crypto.randomUUID()),
+		"case_name",
+		NAME_COLUMN_HEADER,
+	);
+}
+
+/** A case-list config carrying a `Name` column, preserving an existing
+ *  config's search inputs + filter. The single home of the "born with a Name
+ *  column" shape every creation/case-type path seeds. */
+function caseListConfigWithName(existing?: CaseListConfig): CaseListConfig {
+	return {
+		columns: [nameColumn()],
+		searchInputs: existing?.searchInputs ?? [],
+		...(existing?.filter && { filter: existing.filter }),
+	};
+}
 
 /** Friendly default form names per type — the user renames inline on the form
  *  screen after creation. */
@@ -71,47 +92,34 @@ function existingFormIds(doc: BlueprintDoc): Set<string> {
 	return ids;
 }
 
-/** A `case_name` text field that writes the case name to `caseType` — the
- *  field a registration form needs to satisfy `NO_CASE_NAME_FIELD`. */
-function caseNameField(caseType: string | undefined): Field {
+/** A text field. Typed as `TextField` (not cast to `Field`) so the per-kind
+ *  schema check still applies — a property the kind doesn't have won't compile,
+ *  the guarantee `newFieldDefaults.ts` was created to keep. */
+function textField(id: string, label: string, caseType?: string): TextField {
 	return {
 		kind: "text",
 		uuid: asUuid(crypto.randomUUID()),
-		id: "case_name",
-		label: "Name",
+		id,
+		label,
 		...(caseType !== undefined && { case_property_on: caseType }),
-	} as Field;
+	};
 }
 
-/** A starter data field that writes a real case property. `deriveCaseConfig`
- *  promotes the `case_name` field OUT of the case-property set (it's the name,
- *  not a property), so a registration form needs at least one more
- *  case-writing field to satisfy `REGISTRATION_NO_CASE_PROPS`. */
-function caseDataField(caseType: string | undefined): Field {
-	return {
-		kind: "text",
-		uuid: asUuid(crypto.randomUUID()),
-		id: "notes",
-		label: "Notes",
-		...(caseType !== undefined && { case_property_on: caseType }),
-	} as Field;
-}
-
-/** The fields a registration form is born with: the case name plus one data
- *  property (both required for a valid registration form). */
-function registrationFields(caseType: string | undefined): Field[] {
-	return [caseNameField(caseType), caseDataField(caseType)];
+/** The fields a registration form is born with: the `case_name` writer
+ *  (`NO_CASE_NAME_FIELD`) plus one data property. `deriveCaseConfig` promotes
+ *  `case_name` OUT of the case-property set (it's the name, not a property), so
+ *  the second field is what satisfies `REGISTRATION_NO_CASE_PROPS`. */
+function registrationFields(caseType: string | undefined): TextField[] {
+	return [
+		textField("case_name", "Name", caseType),
+		textField("notes", "Notes", caseType),
+	];
 }
 
 /** A plain text question — the default first field for a non-registration
  *  form, so the form isn't born empty (`EMPTY_FORM`). */
-function defaultQuestion(): Field {
-	return {
-		kind: "text",
-		uuid: asUuid(crypto.randomUUID()),
-		id: "question_1",
-		label: "Question 1",
-	} as Field;
+function defaultQuestion(): TextField {
+	return textField("question_1", "Question 1");
 }
 
 export interface CaseListModuleScaffold {
@@ -146,16 +154,7 @@ export function caseListModuleMutations(
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
 		name: moduleName,
 		caseType,
-		caseListConfig: {
-			columns: [
-				plainColumn(
-					asUuid(crypto.randomUUID()),
-					"case_name",
-					NAME_COLUMN_HEADER,
-				),
-			],
-			searchInputs: [],
-		},
+		caseListConfig: caseListConfigWithName(),
 	};
 
 	const formName = `Register ${humanizeCaseType(caseType).toLowerCase()}`;
@@ -243,19 +242,7 @@ export function formScaffoldMutations(
 	if (mod.caseListOnly) {
 		const patch: Partial<Omit<Module, "uuid">> = { caseListOnly: false };
 		if ((mod.caseListConfig?.columns.length ?? 0) === 0) {
-			patch.caseListConfig = {
-				columns: [
-					plainColumn(
-						asUuid(crypto.randomUUID()),
-						"case_name",
-						NAME_COLUMN_HEADER,
-					),
-				],
-				searchInputs: mod.caseListConfig?.searchInputs ?? [],
-				...(mod.caseListConfig?.filter && {
-					filter: mod.caseListConfig.filter,
-				}),
-			};
+			patch.caseListConfig = caseListConfigWithName(mod.caseListConfig);
 		}
 		mutations.push({ kind: "updateModule", uuid: moduleUuid, patch });
 	}
@@ -277,14 +264,35 @@ export function formScaffoldMutations(
 }
 
 /**
- * The form types that can be added to `mod` without introducing a finding.
- * Case-managing types (`registration`/`followup`/`close`) require a case type
- * (`NO_CASE_TYPE` / `CLOSE_FORM_NO_CASE_TYPE`); `survey` always applies. The
- * form menu offers every type but disables the ones not in this set, with a
- * reason — valid-by-construction "disabled, never hidden".
+ * The module patch that SETS a case type on an existing module. Seeds a `Name`
+ * case-list column when the module has forms but no columns — a form-bearing
+ * case module obliges one (`MISSING_CASE_LIST_COLUMNS`). Centralizing the
+ * born-valid decision here keeps the settings UI from re-encoding the rule;
+ * callers pass the module + whether it has forms (both already in hand from
+ * their entity hooks) rather than the whole doc.
  */
-export function allowedFormTypes(mod: Module): ReadonlySet<FormType> {
-	return mod.caseType
-		? new Set<FormType>(["registration", "followup", "close", "survey"])
-		: new Set<FormType>(["survey"]);
+export function caseTypeSetPatch(
+	mod: Module,
+	hasForms: boolean,
+	caseType: string,
+): Partial<Omit<Module, "uuid">> {
+	const hasColumns = (mod.caseListConfig?.columns.length ?? 0) > 0;
+	return hasForms && !hasColumns
+		? { caseType, caseListConfig: caseListConfigWithName(mod.caseListConfig) }
+		: { caseType };
+}
+
+/**
+ * The module patch that CLEARS a module's case type, turning it into a survey.
+ * Drops the now-meaningless case-list + case-search config in the same patch —
+ * a typeless module keeping its `caseSearchConfig` would trip
+ * `caseSearchConfigRequiresCaseType`, and orphaned columns would resurface on
+ * re-typing. (Clears travel as `undefined` per the `updateModule` convention.)
+ */
+export function caseTypeClearPatch(): Partial<Omit<Module, "uuid">> {
+	return {
+		caseType: undefined,
+		caseListConfig: undefined,
+		caseSearchConfig: undefined,
+	};
 }

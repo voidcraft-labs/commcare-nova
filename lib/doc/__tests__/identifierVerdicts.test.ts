@@ -25,6 +25,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	caseTypeNameVerdict,
 	fieldIdVerdict,
 	findRenameSiblingConflict,
 	renameFieldIdVerdict,
@@ -292,5 +293,52 @@ describe("findRenameSiblingConflict (the store-level backstop's scan)", () => {
 	it("returns undefined when the rename is conflict-free", () => {
 		expect(findRenameSiblingConflict(doc, AGE, "fresh_id")).toBeUndefined();
 		expect(findRenameSiblingConflict(doc, WEIGHT_F1, "bmi")).toBeUndefined();
+	});
+});
+
+describe("caseTypeNameVerdict", () => {
+	const existing = new Set(["patient", "household"]);
+
+	it("accepts a fresh, well-formed name", () => {
+		expect(caseTypeNameVerdict("visit", existing).ok).toBe(true);
+	});
+
+	it("rejects empty / blank", () => {
+		expect(caseTypeNameVerdict("   ", existing)).toMatchObject({
+			ok: false,
+			code: "empty",
+		});
+	});
+
+	it("rejects an illegal identifier (leading digit / spaces)", () => {
+		expect(caseTypeNameVerdict("1visit", existing).ok).toBe(false);
+		expect(caseTypeNameVerdict("home visit", existing)).toMatchObject({
+			ok: false,
+			code: "illegal_format",
+		});
+	});
+
+	it("rejects a reserved namespace, case-insensitively", () => {
+		expect(caseTypeNameVerdict("case", existing)).toMatchObject({
+			ok: false,
+			code: "reserved",
+		});
+		expect(caseTypeNameVerdict("Parent", existing)).toMatchObject({
+			ok: false,
+			code: "reserved",
+		});
+	});
+
+	it("rejects an EXACT duplicate of an existing type", () => {
+		expect(caseTypeNameVerdict("patient", existing)).toMatchObject({
+			ok: false,
+			code: "duplicate",
+		});
+	});
+
+	it("ACCEPTS a case-variant of an existing type (wire is case-sensitive)", () => {
+		// "Patient" and "patient" are distinct, wire-valid case types; the
+		// picker must not be stricter than the wire (no DUPLICATE_CASE_TYPE rule).
+		expect(caseTypeNameVerdict("Patient", existing).ok).toBe(true);
 	});
 });

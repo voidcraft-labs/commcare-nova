@@ -17,6 +17,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { memo } from "react";
 import { FormCard } from "@/components/builder/appTree/FormCard";
 import { FormInsertionPoint } from "@/components/builder/appTree/insertion/FormInsertionPoint";
+import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
 import {
 	CollapseChevron,
 	HighlightedText,
@@ -152,43 +153,35 @@ export const ModuleCard = memo(function ModuleCard({
 							{/* Form insertion points interleave between forms (and a
 							 *  leading one, so a form can be added to an empty module) —
 							 *  hidden while filtering or locked. */}
-							{!locked && !searchResult && (
-								<FormInsertionPoint
-									key="form-ins-0"
-									moduleUuid={moduleUuid}
-									hasCaseType={!!mod.caseType}
-									atIndex={0}
-								/>
-							)}
-							{formIds.flatMap((formId, fIdx) => {
-								if (searchResult && !searchResult.visibleFormIds.has(formId))
-									return [];
-								const card = (
-									<FormCard
-										key={formId}
-										formId={formId}
-										moduleUuid={moduleUuid}
-										moduleIndex={moduleIndex}
-										formIndex={fIdx}
-										onSelect={onSelect}
-										delay={fIdx * 0.08}
-										collapsed={collapsed}
-										toggle={toggle}
-										searchResult={searchResult}
-										connectType={connectType}
-										locked={locked}
-									/>
-								);
-								if (locked || searchResult) return [card];
-								return [
-									card,
+							{interleaveInsertions(formIds, {
+								suppress: !!locked || !!searchResult,
+								itemKey: (formId) => formId,
+								renderItem: (formId, fIdx) =>
+									searchResult &&
+									!searchResult.visibleFormIds.has(formId) ? null : (
+										<FormCard
+											key={formId}
+											formId={formId}
+											moduleUuid={moduleUuid}
+											moduleIndex={moduleIndex}
+											formIndex={fIdx}
+											onSelect={onSelect}
+											delay={fIdx * 0.08}
+											collapsed={collapsed}
+											toggle={toggle}
+											searchResult={searchResult}
+											connectType={connectType}
+											locked={locked}
+										/>
+									),
+								renderInsertion: (atIndex, key) => (
 									<FormInsertionPoint
-										key={`form-ins-after-${formId}`}
+										key={key}
 										moduleUuid={moduleUuid}
 										hasCaseType={!!mod.caseType}
-										atIndex={fIdx + 1}
-									/>,
-								];
+										atIndex={atIndex}
+									/>
+								),
 							})}
 						</AnimatePresence>
 					</div>

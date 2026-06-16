@@ -41,22 +41,32 @@ export function AddModulePopover({
 }: AddModulePopoverProps) {
 	const [step, setStep] = useState<"choose" | "caselist">("choose");
 	const [error, setError] = useState<string | null>(null);
-	const { createCaseListModule, createSurveyModule } = useBlueprintMutations();
+	// Inline flavor: a (rare) gate rejection surfaces in this popover's own
+	// error line, not as a toast — the popover owns the feedback.
+	const { inline } = useBlueprintMutations();
 	const { openModule } = useNavigate();
 
-	const close = () => onOpenChange(false);
+	// Reset transient state whenever the popover closes — by dismiss
+	// (Base UI calls `onOpenChange`) OR by a programmatic close after a
+	// successful create (which sets `open` directly, bypassing `onOpenChange`).
+	// Both routes go through here so the next open always starts at "choose".
+	const reset = () => {
+		setStep("choose");
+		setError(null);
+	};
+
+	const close = () => {
+		reset();
+		onOpenChange(false);
+	};
 
 	const handleOpenChange = (next: boolean) => {
 		onOpenChange(next);
-		if (!next) {
-			// Reset for the next open.
-			setStep("choose");
-			setError(null);
-		}
+		if (!next) reset();
 	};
 
 	const handleSurvey = () => {
-		const outcome = createSurveyModule({ index: atIndex });
+		const outcome = inline.createSurveyModule({ index: atIndex });
 		if (outcome.ok) {
 			openModule(outcome.uuid);
 			close();
@@ -66,7 +76,7 @@ export function AddModulePopover({
 	};
 
 	const handleCaseList = (caseType: string) => {
-		const outcome = createCaseListModule({ caseType, index: atIndex });
+		const outcome = inline.createCaseListModule({ caseType, index: atIndex });
 		if (outcome.ok) {
 			openModule(outcome.uuid);
 			close();

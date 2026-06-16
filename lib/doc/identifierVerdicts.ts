@@ -332,8 +332,12 @@ const CASE_TYPE_OK: CaseTypeNameVerdict = { ok: true };
  * app's existing types (a brand-new type can't reuse an existing name —
  * "create new" would otherwise silently target the existing one). `existing`
  * is the set of case-type names already in use (module case types and/or the
- * catalog). Case-insensitive on the reserved + duplicate checks, matching the
- * validator.
+ * catalog). The reserved check is case-insensitive (the wire resolver lowercases
+ * reserved namespaces); the DUPLICATE check is case-SENSITIVE — CommCare case
+ * types are case-sensitive and there's no `DUPLICATE_CASE_TYPE` validator rule,
+ * so "Patient" is a distinct, wire-valid type when only "patient" exists, and
+ * rejecting it would be stricter than the wire. Only an exact match means
+ * "pick it from the list instead".
  */
 export function caseTypeNameVerdict(
 	name: string,
@@ -365,15 +369,12 @@ export function caseTypeNameVerdict(
 			userMessage: `"${trimmed}" is reserved. Try something like "${trimmed}_record".`,
 		};
 	}
-	const lower = trimmed.toLowerCase();
-	for (const e of existing) {
-		if (e.toLowerCase() === lower) {
-			return {
-				ok: false,
-				code: "duplicate",
-				userMessage: `"${trimmed}" already exists — pick it from the list instead.`,
-			};
-		}
+	if (existing.has(trimmed)) {
+		return {
+			ok: false,
+			code: "duplicate",
+			userMessage: `"${trimmed}" already exists — pick it from the list instead.`,
+		};
 	}
 	return CASE_TYPE_OK;
 }

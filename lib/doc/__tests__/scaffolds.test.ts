@@ -9,12 +9,14 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { applyMutation } from "@/lib/doc/mutations";
 import {
 	caseListModuleMutations,
+	caseTypeClearPatch,
+	caseTypeSetPatch,
 	formScaffoldMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
-import type { Field, Form, Module } from "@/lib/domain";
+import { type Field, type Form, type Module, plainColumn } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
@@ -157,6 +159,55 @@ describe("formScaffoldMutations", () => {
 
 	it("returns null for an unknown module", () => {
 		expect(formScaffoldMutations(baseDoc(), M("nope"), "survey")).toBeNull();
+	});
+});
+
+describe("caseTypeSetPatch", () => {
+	const moduleWith = (caseListConfig?: Module["caseListConfig"]): Module =>
+		({
+			uuid: M("x"),
+			id: "x",
+			name: "X",
+			...(caseListConfig && { caseListConfig }),
+		}) as Module;
+
+	it("seeds a Name column when the module has forms but no columns", () => {
+		// MISSING_CASE_LIST_COLUMNS obliges a column once a case module has forms.
+		const patch = caseTypeSetPatch(moduleWith(), true, "thing");
+		expect(patch.caseType).toBe("thing");
+		expect(patch.caseListConfig?.columns).toHaveLength(1);
+		expect(patch.caseListConfig?.columns[0]).toMatchObject({
+			field: "case_name",
+			header: "Name",
+		});
+	});
+
+	it("does not seed a column when the module already has one", () => {
+		const existing = {
+			columns: [plainColumn(M("c"), "age", "Age")],
+			searchInputs: [],
+		};
+		expect(
+			caseTypeSetPatch(moduleWith(existing), true, "thing").caseListConfig,
+		).toBeUndefined();
+	});
+
+	it("does not seed a column when the module has no forms", () => {
+		expect(
+			caseTypeSetPatch(moduleWith(), false, "thing").caseListConfig,
+		).toBeUndefined();
+	});
+});
+
+describe("caseTypeClearPatch", () => {
+	it("clears the type AND drops the now-meaningless case-list + case-search config", () => {
+		// Dropping caseSearchConfig is load-bearing: a typeless module keeping it
+		// trips caseSearchConfigRequiresCaseType.
+		expect(caseTypeClearPatch()).toEqual({
+			caseType: undefined,
+			caseListConfig: undefined,
+			caseSearchConfig: undefined,
+		});
 	});
 });
 
