@@ -16,7 +16,7 @@ import tablerTable from "@iconify-icons/tabler/table";
 import { AnimatePresence, motion } from "motion/react";
 import { memo } from "react";
 import { FormCard } from "@/components/builder/appTree/FormCard";
-import { FormInsertionPoint } from "@/components/builder/appTree/insertion/FormInsertionPoint";
+import { AddFormMenu } from "@/components/builder/appTree/insertion/AddFormMenu";
 import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
 import {
 	CollapseChevron,
@@ -175,7 +175,7 @@ export const ModuleCard = memo(function ModuleCard({
 										/>
 									),
 								renderInsertion: (atIndex, key) => (
-									<FormInsertionPoint
+									<AddFormMenu
 										key={key}
 										moduleUuid={moduleUuid}
 										hasCaseType={!!mod.caseType}

@@ -14,7 +14,6 @@ import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerClipboardText from "@iconify-icons/tabler/clipboard-text";
-import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTable from "@iconify-icons/tabler/table";
 import { useState } from "react";
 import { CaseTypePickerContent } from "@/components/builder/shared/CaseTypePicker";
@@ -25,20 +24,18 @@ import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_ELEVATED_CLS,
 } from "@/lib/styles";
-import { INSERTION_TRIGGER_CLS } from "./TreeInsertionAffordance";
+import {
+	INSERTION_TRIGGER_CLS,
+	TreeInsertionLine,
+} from "./TreeInsertionAffordance";
 
 interface AddModulePopoverProps {
 	/** Insertion index in `moduleOrder`. */
 	readonly atIndex: number;
-	readonly open: boolean;
-	readonly onOpenChange: (open: boolean) => void;
 }
 
-export function AddModulePopover({
-	atIndex,
-	open,
-	onOpenChange,
-}: AddModulePopoverProps) {
+export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
+	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<"choose" | "caselist">("choose");
 	const [error, setError] = useState<string | null>(null);
 	// Inline flavor: a (rare) gate rejection surfaces in this popover's own
@@ -48,8 +45,8 @@ export function AddModulePopover({
 
 	// Reset transient state whenever the popover closes — by dismiss
 	// (Base UI calls `onOpenChange`) OR by a programmatic close after a
-	// successful create (which sets `open` directly, bypassing `onOpenChange`).
-	// Both routes go through here so the next open always starts at "choose".
+	// successful create (`close()`, which sets `open` directly). Both routes
+	// go through here so the next open always starts at "choose".
 	const reset = () => {
 		setStep("choose");
 		setError(null);
@@ -57,11 +54,11 @@ export function AddModulePopover({
 
 	const close = () => {
 		reset();
-		onOpenChange(false);
+		setOpen(false);
 	};
 
 	const handleOpenChange = (next: boolean) => {
-		onOpenChange(next);
+		setOpen(next);
 		if (!next) reset();
 	};
 
@@ -92,7 +89,7 @@ export function AddModulePopover({
 					className={INSERTION_TRIGGER_CLS}
 					aria-label="Add module"
 				>
-					<Icon icon={tablerPlus} width="12" height="12" />
+					<TreeInsertionLine />
 				</Popover.Trigger>
 			</Tooltip>
 			<Popover.Portal>

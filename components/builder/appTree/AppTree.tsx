@@ -20,8 +20,8 @@ import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence } from "motion/react";
 import { useCallback, useDeferredValue, useState } from "react";
+import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModulePopover";
 import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
-import { ModuleInsertionPoint } from "@/components/builder/appTree/insertion/ModuleInsertionPoint";
 import { ModuleCard } from "@/components/builder/appTree/ModuleCard";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
@@ -152,7 +152,7 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 										/>
 									),
 								renderInsertion: (atIndex, key) => (
-									<ModuleInsertionPoint key={key} atIndex={atIndex} />
+									<AddModulePopover key={key} atIndex={atIndex} />
 								),
 							})}
 						</AnimatePresence>

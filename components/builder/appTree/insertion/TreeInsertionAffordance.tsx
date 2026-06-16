@@ -1,47 +1,43 @@
 // components/builder/appTree/insertion/TreeInsertionAffordance.tsx
 //
-// The hover-reveal "+" gap between tree rows — the app-tree analog of the form
-// canvas's `InsertionPoint`. A thin gap that, on hover (or while its menu is
-// open), expands to show violet flanking lines around a "+" trigger. The
-// trigger itself (a Base UI `Menu.Trigger` / `Popover.Trigger`) is passed in by
-// the caller as `children`, so this stays a pure layout/visibility shell — no
-// menu logic, no virtualizer/cursor-speed machinery (the tree is a short,
-// non-virtualized list, unlike the form canvas).
+// The hover-reveal "+" affordance between app-tree rows — the tree analog of
+// the form canvas's `InsertionPoint`. The Base UI Menu/Popover TRIGGER itself
+// is the affordance: a full-width, click-anywhere strip that EXPANDS on hover
+// (or while its menu/popover is open) so the revealed "+" circle gets room and
+// never overlaps the rows above/below. Two exports the menu/popover hosts
+// compose:
+//   - INSERTION_TRIGGER_CLS — spread onto the `Menu.Trigger` / `Popover.Trigger`.
+//   - TreeInsertionLine     — the violet lines + "+" circle rendered inside it.
 
 "use client";
-import type { ReactNode } from "react";
+import { Icon } from "@iconify/react/offline";
+import tablerPlus from "@iconify-icons/tabler/plus";
 
-/** Shared circular "+" trigger styling — matches the form canvas insertion
- *  point so the two affordances read as one language. Callers spread this onto
- *  the Base UI trigger element. */
+/**
+ * The insertion trigger: a full-width, pointer-cursor strip (so the WHOLE line
+ * is clickable, not just the "+") that grows from a thin idle gap to ~32px on
+ * hover or while its popup is open — giving the 20px "+" circle clearance so it
+ * doesn't cut into adjacent rows (mirrors the form canvas's expand). `group` +
+ * `data-[popup-open]` drive `TreeInsertionLine`'s reveal.
+ */
 export const INSERTION_TRIGGER_CLS =
-	"w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0 outline-none";
+	"group relative block w-full cursor-pointer outline-none h-3.5 " +
+	"hover:h-8 data-[popup-open]:h-8 transition-[height] duration-150 ease-out";
 
-interface TreeInsertionAffordanceProps {
-	/** Keep the affordance revealed while its menu/popover is open (the gap
-	 *  loses hover once the pointer moves into the portal-rendered popup). */
-	readonly open?: boolean;
-	/** The Base UI trigger element (styled with `INSERTION_TRIGGER_CLS`). */
-	readonly children: ReactNode;
-}
-
-export function TreeInsertionAffordance({
-	open = false,
-	children,
-}: TreeInsertionAffordanceProps) {
+/**
+ * The violet flanking lines + centered "+" circle, faded in on hover/open. All
+ * inline (`<span>`) elements so the markup is valid inside the trigger's
+ * `<button>`, and `pointer-events-none` so clicks fall through to the trigger —
+ * the entire strip is the click target, not just the circle.
+ */
+export function TreeInsertionLine() {
 	return (
-		<div className="group relative h-3.5" data-tree-insertion>
-			<div
-				className={`absolute inset-x-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 transition-opacity duration-150 ${
-					open
-						? "opacity-100"
-						: "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
-				}`}
-			>
-				<div className="flex-1 h-px bg-nova-violet/40" />
-				{children}
-				<div className="flex-1 h-px bg-nova-violet/40" />
-			</div>
-		</div>
+		<span className="pointer-events-none absolute inset-x-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-data-[popup-open]:opacity-100">
+			<span className="h-px flex-1 bg-nova-violet/40" />
+			<span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-nova-violet/40 bg-nova-surface text-nova-violet">
+				<Icon icon={tablerPlus} width="12" height="12" />
+			</span>
+			<span className="h-px flex-1 bg-nova-violet/40" />
+		</span>
 	);
 }

@@ -10,7 +10,7 @@
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
-import tablerPlus from "@iconify-icons/tabler/plus";
+import { useState } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -28,7 +28,10 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
-import { INSERTION_TRIGGER_CLS } from "./TreeInsertionAffordance";
+import {
+	INSERTION_TRIGGER_CLS,
+	TreeInsertionLine,
+} from "./TreeInsertionAffordance";
 
 /** Menu-only one-line description per form type (label + icon + the
  *  needs-a-case-type gate all come from the domain — `formTypeLabels`,
@@ -46,17 +49,14 @@ interface AddFormMenuProps {
 	readonly hasCaseType: boolean;
 	/** Insertion index in the module's `formOrder`. */
 	readonly atIndex: number;
-	readonly open: boolean;
-	readonly onOpenChange: (open: boolean) => void;
 }
 
 export function AddFormMenu({
 	moduleUuid,
 	hasCaseType,
 	atIndex,
-	open,
-	onOpenChange,
 }: AddFormMenuProps) {
+	const [open, setOpen] = useState(false);
 	const { createForm } = useBlueprintMutations();
 	const { openForm } = useNavigate();
 
@@ -68,10 +68,10 @@ export function AddFormMenu({
 	};
 
 	return (
-		<Menu.Root open={open} onOpenChange={onOpenChange}>
+		<Menu.Root open={open} onOpenChange={setOpen}>
 			<Tooltip content="Add form">
 				<Menu.Trigger className={INSERTION_TRIGGER_CLS} aria-label="Add form">
-					<Icon icon={tablerPlus} width="12" height="12" />
+					<TreeInsertionLine />
 				</Menu.Trigger>
 			</Tooltip>
 			<Menu.Portal>
