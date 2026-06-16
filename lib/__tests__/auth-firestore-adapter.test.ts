@@ -1,6 +1,12 @@
+import type { Firestore as AdminFirestore } from "firebase-admin/firestore";
 import { Timestamp } from "firebase-admin/firestore";
-import { describe, expect, it } from "vitest";
-import { nextValues, rowMatchesWhere } from "../auth-firestore-increment";
+import { describe, expect, it, vi } from "vitest";
+import {
+	type AuthCollections,
+	nextValues,
+	rowMatchesWhere,
+	withCompleteFirestoreAdapter,
+} from "../auth-firestore-adapter";
 
 /**
  * The guard clauses below are the literal shapes Better Auth's database rate
@@ -137,5 +143,85 @@ describe("nextValues", () => {
 		expect(nextValues({ count: 7 }, { count: 1 }, { count: 99 })).toEqual({
 			count: 8,
 		});
+	});
+});
+
+/**
+ * The crux of the OAuth-token-exchange fix: a transaction callback must run
+ * against the complete adapter, not the community adapter's partial native
+ * transaction (create/update/findOne only). These assert the routing and the
+ * load-bearing wiring — `incrementOne` installed before the `transaction`
+ * closure captures `adapter`, so a method reached via `trx` is the same
+ * implementation as the direct call.
+ */
+describe("withCompleteFirestoreAdapter — transaction routing", () => {
+	const collections: AuthCollections = {
+		users: "auth_users",
+		sessions: "auth_sessions",
+		accounts: "auth_accounts",
+		verificationTokens: "auth_verifications",
+	};
+
+	/** A stand-in for `better-auth-firestore`: a native transaction that hands
+	 * back only create/update/findOne — the partial surface that 500s core's
+	 * transaction-scoped `findMany` / `deleteMany` / `consumeOne` calls. */
+	function buildPartialAdapter() {
+		const partialTx = { create: vi.fn(), update: vi.fn(), findOne: vi.fn() };
+		const nativeTransaction = vi.fn(async (cb: (trx: unknown) => unknown) =>
+			cb(partialTx),
+		);
+		const findMany = vi.fn(async () => [{ id: "code_abc", identifier: "x" }]);
+		const deleteMany = vi.fn(async () => 1);
+		const adapter = {
+			...partialTx,
+			findMany,
+			deleteMany,
+			transaction: nativeTransaction,
+			// biome-ignore lint/suspicious/noExplicitAny: minimal stand-in for the adapter surface under test
+		} as any;
+		return { adapter, nativeTransaction, findMany, deleteMany };
+	}
+
+	it("routes the callback to the complete adapter and bypasses the partial native transaction", async () => {
+		const {
+			adapter: base,
+			nativeTransaction,
+			findMany,
+		} = buildPartialAdapter();
+		const wrapped = withCompleteFirestoreAdapter(
+			() => base,
+			{} as AdminFirestore,
+			collections,
+		);
+		const adapter = wrapped({} as never);
+
+		// The OAuth code-consume shape: `findMany` inside a transaction — the call
+		// that threw `r.findMany is not a function` before the fix.
+		const rows = await adapter.transaction((trx) =>
+			trx.findMany({ model: "verification", where: [] }),
+		);
+
+		expect(rows).toEqual([{ id: "code_abc", identifier: "x" }]);
+		expect(findMany).toHaveBeenCalledOnce();
+		// The adapter's own (partial) native transaction must not be used.
+		expect(nativeTransaction).not.toHaveBeenCalled();
+	});
+
+	it("installs the native atomic incrementOne, reachable directly and via trx", async () => {
+		const { adapter: base } = buildPartialAdapter();
+		const wrapped = withCompleteFirestoreAdapter(
+			() => base,
+			{} as AdminFirestore,
+			collections,
+		);
+		const adapter = wrapped({} as never);
+
+		expect(typeof adapter.incrementOne).toBe("function");
+		// `trx` inside a transaction resolves to the same patched adapter, so the
+		// atomic counter primitive is the identical implementation either way.
+		const sameInstance = await adapter.transaction(
+			async (trx) => trx.incrementOne === adapter.incrementOne,
+		);
+		expect(sameInstance).toBe(true);
 	});
 });

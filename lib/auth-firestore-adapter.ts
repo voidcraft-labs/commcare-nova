@@ -1,33 +1,56 @@
 /**
- * Native atomic `incrementOne` for the Firestore auth adapter.
+ * Compatibility shims that make `better-auth-firestore` satisfy Better Auth
+ * core's full adapter contract — both for direct calls and for the calls core
+ * makes from inside `adapter.transaction(...)`.
  *
- * Better Auth's adapter contract includes `incrementOne` — a guarded atomic
- * compare-and-increment. Two subsystems depend on it: the database-backed
- * rate limiter bumps a per-(IP, path) counter (after the first request in a
- * window, which is a plain create), and the API-key plugin decrements request
- * quotas. When an adapter has no native `incrementOne`, Better Auth's core
- * synthesizes one by running `findMany` + `updateMany` inside
- * `adapter.transaction(...)`. The `better-auth-firestore` transaction layer
- * only exposes `create` / `update` / `findOne`, so that synthesized path
- * throws `trx.findMany is not a function`, 500-ing every repeat request from a
- * client within the rate-limit window. (The counter primitive is new in Better
- * Auth ≥1.6.15; the Firestore adapter — latest included — never implemented it.)
+ * The community `better-auth-firestore` adapter implements only a partial
+ * transaction surface: the object it hands to a transaction callback exposes
+ * `create` / `update` / `findOne` and nothing else. But Better Auth core (≥1.6)
+ * increasingly runs its write flows inside `adapter.transaction(cb)` and calls
+ * the full method set on the transaction-scoped adapter — `findMany`,
+ * `deleteMany`, `updateMany`, `count`, `consumeOne`, `incrementOne`. Any such
+ * call throws `r.<method> is not a function` and 500s the request. Two flows
+ * hit this in production:
+ *   - the database rate limiter's guarded counter bump (`incrementOne`, which
+ *     core synthesizes from `findMany` + `updateMany` in a transaction); and
+ *   - the OAuth 2.1 token exchange, which consumes the single-use authorization
+ *     code via `consumeVerificationValue` → `findMany` + `consumeOne` +
+ *     `deleteMany` in a transaction. This is the path that broke Claude Code's
+ *     MCP sign-in: `/oauth2/token` 500s with an empty body, surfacing client-
+ *     side as "Invalid OAuth error response".
  *
- * This supplies a real implementation backed by a Firestore transaction: read
- * the target row, evaluate the guard predicates, then write the set + the
- * incremented values. Firestore's optimistic concurrency makes the read-modify-
- * write atomic — concurrent callers can't lose an increment or push a guarded
- * counter past its bound — which is the property the `database` rate-limit
- * storage was chosen for in the first place. `withNativeIncrementOne` installs
- * it onto the adapter Better Auth builds from `firestoreAdapter`.
+ * Two shims, applied by `withCompleteFirestoreAdapter`, close the whole class
+ * rather than one missing method at a time:
  *
- * Field names pass through verbatim. The only models that use `incrementOne`
- * (`rateLimit`, `apikey`) carry no field the Firestore adapter remaps under the
- * default naming strategy, so the names Better Auth hands us here are already
- * the stored Firestore field names. Guards are evaluated in JS rather than
- * pushed into the query so a row matched on its identity field can carry two
- * range guards at once (e.g. `count < max` AND `lastRequest > windowStart`) —
- * Firestore forbids inequality filters on more than one field per query.
+ * 1. **Native atomic `incrementOne`.** The guarded compare-and-increment the
+ *    rate limiter (per-(IP, path) counter) and the API-key quota path depend
+ *    on. Backed by a Firestore transaction: read the row, evaluate the guard
+ *    predicates, write the set + incremented values. Firestore's optimistic
+ *    concurrency makes the read-modify-write atomic across Cloud Run instances
+ *    — the property the `database` rate-limit storage was chosen for, and one a
+ *    non-atomic fallback would silently lose under concurrent traffic.
+ *
+ *    Field names pass through verbatim. The only models that use `incrementOne`
+ *    (`rateLimit`, `apikey`) carry no field the Firestore adapter remaps under
+ *    the default naming strategy, so the names Better Auth hands us here are
+ *    already the stored Firestore field names. Guards are evaluated in JS rather
+ *    than pushed into the query so a row matched on its identity field can carry
+ *    two range guards at once (e.g. `count < max` AND `lastRequest > windowStart`)
+ *    — Firestore forbids inequality filters on more than one field per query.
+ *
+ * 2. **As-is transactions.** The adapter's native transaction can't serve the
+ *    full method set, so we route `adapter.transaction(cb)` through Better
+ *    Auth's own documented fallback shape — run `cb` against the complete base
+ *    adapter (which implements `findMany` / `deleteMany` / `updateMany` /
+ *    `count`, plus the native `incrementOne` above). Every method core reaches
+ *    for inside a transaction now resolves, and reads/writes use the adapter's
+ *    own model→collection resolution, so they stay consistent with how rows
+ *    were written. The cost is group-rollback atomicity for multi-write flows;
+ *    Nova's auth surface (Google OAuth + the OAuth provider + API keys) runs no
+ *    such flow — the OAuth provider and API-key plugins use no transactions,
+ *    and only core's email/password sign-up does, which Nova does not enable.
+ *    Single-use of authorization codes is preserved by Better Auth's in-process
+ *    verification-consume lock plus PKCE binding, not by transaction isolation.
  */
 
 import type { firestoreAdapter } from "better-auth-firestore";
@@ -219,11 +242,17 @@ function makeIncrementOne(
 }
 
 /**
- * Wraps a `firestoreAdapter` factory so the adapter Better Auth builds carries
- * a native, atomic `incrementOne` instead of core's transaction-based fallback
- * (which the Firestore adapter's transaction layer can't serve).
+ * Wraps a `firestoreAdapter` factory so the adapter Better Auth builds meets
+ * core's full method contract — see this module's header for the two shims.
+ *
+ * Ordering is load-bearing: `incrementOne` is installed first so the as-is
+ * `transaction` closure, which captures `adapter` by reference, hands the
+ * patched adapter (native atomic `incrementOne` included) to every transaction
+ * callback. `getCurrentAdapter()` resolves the same object, so a method called
+ * via `trx` inside a transaction is the identical implementation as the direct
+ * call.
  */
-export function withNativeIncrementOne(
+export function withCompleteFirestoreAdapter(
 	factory: AdapterFactory,
 	db: AdminFirestore,
 	collections: AuthCollections,
@@ -231,6 +260,14 @@ export function withNativeIncrementOne(
 	return (options) => {
 		const adapter = factory(options);
 		adapter.incrementOne = makeIncrementOne(db, collections);
+		/* Run transaction callbacks against the complete base adapter. The
+		 * adapter's native transaction exposes only create/update/findOne, so
+		 * core's transaction-scoped findMany/deleteMany/updateMany/count/
+		 * consumeOne calls would throw; this is Better Auth's documented
+		 * as-is fallback (`createAsIsTransaction`), made explicit because the
+		 * adapter advertises a transaction the framework would otherwise trust. */
+		adapter.transaction = ((run) =>
+			run(adapter)) as AdapterInstance["transaction"];
 		return adapter;
 	};
 }
