@@ -14,7 +14,7 @@
  *   - The `monitorForElements` registration that runs the full drag
  *     lifecycle (~280 lines: onDragStart, onDrag intent resolution +
  *     dedup + cycle/no-op suppression, onDrop mutation application).
- *   - Cursor-velocity tracking via mousemove + wheel listeners — feeds
+ *   - Cursor-velocity refs (via the shared `useCursorSpeed`) — feed
  *     InsertionPointRow's hover gating during drag.
  *
  * Implicit contract with the caller:
@@ -40,6 +40,7 @@ import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { useSelect } from "@/lib/routing/hooks";
+import { useCursorSpeed } from "@/lib/ui/hooks/useInsertionHover";
 import {
 	isDraggableFieldData,
 	isUuidInSubtree,
@@ -47,22 +48,6 @@ import {
 	targetContainerUuidFor,
 } from "./dragData";
 import type { FormRow } from "./rowModel";
-
-// ── Cursor-velocity tuning ────────────────────────────────────────────
-
-/**
- * EMA smoothing factor for cursor speed (px/ms). Small value biases toward
- * the long-running average so a single fast sample doesn't unlatch the
- * insertion-point hover.
- */
-const CURSOR_EMA_ALPHA = 0.01;
-
-/**
- * Gap beyond which the previous mousemove sample is treated as stale —
- * we reset the EMA to the current instantaneous speed rather than
- * folding a delta across a second of idle time.
- */
-const CURSOR_GAP_RESET_MS = 5000;
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -466,57 +451,9 @@ export function useDragIntent({
 		});
 	}, [docStore, moveField, select, baseRowsRef]);
 
-	// ── Cursor-velocity tracking (for InsertionPoint hover gating) ──
-
-	const cursorSpeedRef = useRef(0);
-	const lastCursorRef = useRef<{ x: number; y: number; t: number } | undefined>(
-		undefined,
-	);
-	useEffect(() => {
-		const speedRef = cursorSpeedRef;
-		const lastRef = lastCursorRef;
-		const onMouseMove = (e: MouseEvent) => {
-			const now = performance.now();
-			const last = lastRef.current;
-			if (last) {
-				const dt = now - last.t;
-				if (dt > 0) {
-					const dx = e.clientX - last.x;
-					const dy = e.clientY - last.y;
-					const speed = Math.sqrt(dx * dx + dy * dy) / dt;
-					speedRef.current =
-						dt > CURSOR_GAP_RESET_MS
-							? speed
-							: CURSOR_EMA_ALPHA * speed +
-								(1 - CURSOR_EMA_ALPHA) * speedRef.current;
-				}
-			}
-			lastRef.current = { x: e.clientX, y: e.clientY, t: now };
-		};
-		const onWheel = (e: WheelEvent) => {
-			const now = performance.now();
-			const last = lastRef.current;
-			if (last) {
-				const dt = now - last.t;
-				if (dt > 0) {
-					const pxDelta = Math.abs(e.deltaY) * (e.deltaMode === 1 ? 16 : 1);
-					const speed = pxDelta / dt;
-					speedRef.current =
-						dt > CURSOR_GAP_RESET_MS
-							? speed
-							: CURSOR_EMA_ALPHA * speed +
-								(1 - CURSOR_EMA_ALPHA) * speedRef.current;
-				}
-				last.t = now;
-			}
-		};
-		document.addEventListener("mousemove", onMouseMove);
-		document.addEventListener("wheel", onWheel, { passive: true });
-		return () => {
-			document.removeEventListener("mousemove", onMouseMove);
-			document.removeEventListener("wheel", onWheel);
-		};
-	}, []);
+	// Cursor velocity for the InsertionPoint hover gating — the same EMA
+	// tracker the app tree uses (lib/ui/hooks/useInsertionHover).
+	const { cursorSpeedRef, lastCursorRef } = useCursorSpeed();
 
 	return {
 		dragActive,

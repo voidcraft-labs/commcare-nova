@@ -32,16 +32,8 @@ import {
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { Uuid } from "@/lib/doc/types";
 import { useEditMode } from "@/lib/session/hooks";
+import { useInsertionHover } from "@/lib/ui/hooks/useInsertionHover";
 import { useFieldPicker } from "./FieldPickerContext";
-
-/** Speed threshold in px/ms. Above this = cursor is traversing, don't open. */
-const SPEED_THRESHOLD = 0.01;
-/** How often (ms) to re-check speed while waiting for cursor to slow down. */
-const POLL_INTERVAL = 16;
-/** Per-tick decay factor applied to EMA when cursor is stationary. */
-const POLL_DECAY = 0.15;
-/** Time (ms) with no mousemove events before the cursor is considered stationary. ~2 frames at 60fps. */
-const STALE_THRESHOLD = 32;
 
 interface InsertionPointProps {
 	atIndex: number;
@@ -96,112 +88,31 @@ function FullInsertionPoint({
 	lastCursorRef,
 }: InsertionPointProps) {
 	const pickerCtx = useFieldPicker();
-	const [hovered, setHovered] = useState(false);
-	const containerRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const pendingRef = useRef(false);
-	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-	/* Subscribe to menu close events from the shared Menu.Root so we can
-	 * collapse the hover line when the user finishes selecting a field kind
-	 * or clicks outside the popup. */
+	const {
+		revealed,
+		reset,
+		containerRef,
+		onMouseEnter,
+		onMouseMove,
+		onMouseLeave,
+	} = useInsertionHover<HTMLDivElement>({
+		cursorSpeedRef,
+		lastCursorRef,
+		/* Keep the insertion line visible while the shared menu is open — the
+		 * pointer may have moved into a portal-rendered submenu. subscribeClose
+		 * collapses it once the menu eventually closes. */
+		keepOpen: () => pickerCtx?.handle.isOpen ?? false,
+	});
+
+	/* The shared Menu.Root broadcasts close events (from whichever insertion
+	 * point opened it) so we collapse the hover line when the user finishes
+	 * selecting a field kind or clicks outside the popup. */
 	useEffect(() => {
 		if (!pickerCtx) return;
-		return pickerCtx.subscribeClose(() => {
-			setHovered(false);
-		});
-	}, [pickerCtx]);
-
-	const clearPoll = useCallback(() => {
-		if (pollRef.current) {
-			clearInterval(pollRef.current);
-			pollRef.current = null;
-		}
-	}, []);
-
-	/* Clean up the speed-gating poll interval on unmount. Without this,
-	 * starting a drag while the EMA polling loop is active (fast cursor
-	 * sweep + drag start) leaks the setInterval against an unmounted
-	 * component — FullInsertionPoint unmounts when `disabled` becomes true. */
-	useEffect(() => {
-		return () => clearPoll();
-	}, [clearPoll]);
-
-	const show = useCallback(() => {
-		clearPoll();
-		pendingRef.current = false;
-		setHovered(true);
-	}, [clearPoll]);
-
-	/** Start the EMA decay poll — used both at mount time (fast cursor
-	 *  detected inside) and on normal mouseenter. Polls until the EMA
-	 *  drops below SPEED_THRESHOLD, then calls `show()`. */
-	const startSpeedPoll = useCallback(() => {
-		pendingRef.current = true;
-		clearPoll();
-		pollRef.current = setInterval(() => {
-			/* If cursor hasn't moved in 2 frames, it's stationary — decay EMA toward 0. */
-			const lastT = lastCursorRef?.current?.t ?? 0;
-			if (performance.now() - lastT > STALE_THRESHOLD) {
-				if (cursorSpeedRef) cursorSpeedRef.current *= 1 - POLL_DECAY;
-			}
-			if ((cursorSpeedRef?.current ?? 0) <= SPEED_THRESHOLD) {
-				show();
-			}
-		}, POLL_INTERVAL);
-	}, [cursorSpeedRef, lastCursorRef, show, clearPoll]);
-
-	/* Mount-time cursor check: the lazy shell inflated on mouseenter, but
-	 * by the time React mounts this component the cursor may have already
-	 * left. The old element unmounted → this element mounted, so no
-	 * mouseleave fires on the new DOM node. Check whether the cursor is
-	 * actually over us; if not, stay hidden. When the cursor IS inside
-	 * but moving fast, start the same EMA decay poll as handleMouseEnter
-	 * so slowing down correctly reveals the insertion line. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: mount-only effect — reads RefObject.current values once at mount time; RefObjects are stable across renders
-	useEffect(() => {
-		const el = containerRef.current;
-		const pos = lastCursorRef?.current;
-		if (!el || !pos) return;
-		const rect = el.getBoundingClientRect();
-		const inside =
-			pos.x >= rect.left &&
-			pos.x <= rect.right &&
-			pos.y >= rect.top &&
-			pos.y <= rect.bottom;
-		if (inside) {
-			const fast = (cursorSpeedRef?.current ?? 0) > SPEED_THRESHOLD;
-			if (!fast) {
-				setHovered(true);
-			} else {
-				startSpeedPoll();
-			}
-		}
-	}, []);
-
-	const handleMouseEnter = useCallback(() => {
-		const fast = (cursorSpeedRef?.current ?? 0) > SPEED_THRESHOLD;
-		if (!fast) {
-			show();
-		} else {
-			startSpeedPoll();
-		}
-	}, [cursorSpeedRef, show, startSpeedPoll]);
-
-	const handleMouseMove = useCallback(() => {
-		if (!pendingRef.current) return;
-		const fast = (cursorSpeedRef?.current ?? 0) > SPEED_THRESHOLD;
-		if (!fast) show();
-	}, [cursorSpeedRef, show]);
-
-	const handleMouseLeave = useCallback(() => {
-		clearPoll();
-		pendingRef.current = false;
-		/* Keep the insertion line visible while the shared menu is open — the
-		 * user may have moved their pointer into a portal-rendered submenu. The
-		 * subscribeClose listener handles cleanup when the menu eventually closes. */
-		if (!pickerCtx?.handle.isOpen) setHovered(false);
-	}, [pickerCtx, clearPoll]);
+		return pickerCtx.subscribeClose(reset);
+	}, [pickerCtx, reset]);
 
 	/** Click anywhere in the gap → forward to the actual Menu.Trigger button.
 	 *  Since the trigger is a detached Menu.Trigger with the shared handle,
@@ -223,7 +134,7 @@ function FullInsertionPoint({
 
 	if (disabled) return null;
 
-	const isActive = hovered;
+	const isActive = revealed;
 
 	return (
 		<div
@@ -248,9 +159,9 @@ function FullInsertionPoint({
 				tabIndex={-1}
 				aria-hidden="true"
 				className="absolute inset-0 z-raised cursor-pointer bg-transparent border-none p-0"
-				onMouseEnter={handleMouseEnter}
-				onMouseMove={handleMouseMove}
-				onMouseLeave={handleMouseLeave}
+				onMouseEnter={onMouseEnter}
+				onMouseMove={onMouseMove}
+				onMouseLeave={onMouseLeave}
 				onMouseDown={handleDetectorMouseDown}
 				onClick={stopClick}
 			/>

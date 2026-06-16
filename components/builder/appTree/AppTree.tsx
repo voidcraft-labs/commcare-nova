@@ -29,6 +29,10 @@ import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { useBuilderPhase } from "@/lib/session/hooks";
+import {
+	CursorSpeedProvider,
+	useCursorSpeed,
+} from "@/lib/ui/hooks/useInsertionHover";
 
 interface AppTreeProps {
 	actions?: React.ReactNode;
@@ -61,6 +65,11 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	 * Only fires when the deferred query or entities change. */
 	const searchResult = useSearchFilter(deferredQuery);
 
+	/* One cursor-velocity tracker for the whole tree, shared by every
+	 * insertion affordance via context so they reveal with the same
+	 * cursor-speed gating as the form canvas (lib/ui/hooks/useInsertionHover). */
+	const cursorSpeed = useCursorSpeed();
+
 	if (!moduleOrder || moduleOrder.length === 0) {
 		return (
 			<div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
@@ -70,95 +79,97 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	}
 
 	return (
-		<div className="h-full flex flex-col">
-			{!hideHeader && (
-				<div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
-					<div className="flex items-center min-w-0">
-						<span className="text-sm font-medium text-nova-text truncate">
-							{appName}
-						</span>
-					</div>
-					{actions && (
-						<div className="flex items-center gap-2 shrink-0">{actions}</div>
-					)}
-				</div>
-			)}
-
-			{/* Search input */}
-			<div
-				className={`px-3 py-3 shrink-0 ${locked ? "pointer-events-none opacity-40" : ""}`}
-			>
-				<div className="relative">
-					<Icon
-						icon={tablerSearch}
-						width="14"
-						height="14"
-						className="absolute left-2.5 top-1/2 -translate-y-1/2 text-nova-text-muted pointer-events-none"
-					/>
-					<input
-						type="text"
-						value={searchQuery}
-						onChange={(e) => setSearchQuery(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Escape") {
-								if (searchQuery) setSearchQuery("");
-								else (e.target as HTMLInputElement).blur();
-							}
-						}}
-						placeholder="Filter fields..."
-						autoComplete="off"
-						data-1p-ignore
-						className="w-full pl-8 pr-7 py-1.5 text-xs bg-nova-surface border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors"
-					/>
-					{searchQuery && (
-						<button
-							type="button"
-							onClick={() => setSearchQuery("")}
-							className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-						>
-							<Icon icon={tablerX} width="12" height="12" />
-						</button>
-					)}
-				</div>
-			</div>
-
-			{/* Scrollable module cards */}
-			<div className="flex-1 overflow-auto">
-				{searchResult && searchResult.visibleModuleIndices.size === 0 ? (
-					<div className="flex items-center justify-center py-8 text-nova-text-muted text-xs">
-						No matches
-					</div>
-				) : (
-					<div>
-						<AnimatePresence mode="sync">
-							{/* Insertion points interleave between modules so new
-							 *  modules can be added at any position — hidden while
-							 *  a search filter is active or the app is locked. */}
-							{interleaveInsertions(moduleOrder, {
-								suppress: locked || !!searchResult,
-								itemKey: (moduleId) => moduleId,
-								renderItem: (_moduleId, mIdx) =>
-									searchResult &&
-									!searchResult.visibleModuleIndices.has(mIdx) ? null : (
-										<ModuleCard
-											key={_moduleId}
-											moduleUuid={_moduleId}
-											moduleIndex={mIdx}
-											onSelect={handleSelect}
-											collapsed={collapsed}
-											toggle={toggle}
-											searchResult={searchResult}
-											locked={locked}
-										/>
-									),
-								renderInsertion: (atIndex, key) => (
-									<AddModulePopover key={key} atIndex={atIndex} />
-								),
-							})}
-						</AnimatePresence>
+		<CursorSpeedProvider value={cursorSpeed}>
+			<div className="h-full flex flex-col">
+				{!hideHeader && (
+					<div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
+						<div className="flex items-center min-w-0">
+							<span className="text-sm font-medium text-nova-text truncate">
+								{appName}
+							</span>
+						</div>
+						{actions && (
+							<div className="flex items-center gap-2 shrink-0">{actions}</div>
+						)}
 					</div>
 				)}
+
+				{/* Search input */}
+				<div
+					className={`px-3 py-3 shrink-0 ${locked ? "pointer-events-none opacity-40" : ""}`}
+				>
+					<div className="relative">
+						<Icon
+							icon={tablerSearch}
+							width="14"
+							height="14"
+							className="absolute left-2.5 top-1/2 -translate-y-1/2 text-nova-text-muted pointer-events-none"
+						/>
+						<input
+							type="text"
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Escape") {
+									if (searchQuery) setSearchQuery("");
+									else (e.target as HTMLInputElement).blur();
+								}
+							}}
+							placeholder="Filter fields..."
+							autoComplete="off"
+							data-1p-ignore
+							className="w-full pl-8 pr-7 py-1.5 text-xs bg-nova-surface border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors"
+						/>
+						{searchQuery && (
+							<button
+								type="button"
+								onClick={() => setSearchQuery("")}
+								className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+							>
+								<Icon icon={tablerX} width="12" height="12" />
+							</button>
+						)}
+					</div>
+				</div>
+
+				{/* Scrollable module cards */}
+				<div className="flex-1 overflow-auto">
+					{searchResult && searchResult.visibleModuleIndices.size === 0 ? (
+						<div className="flex items-center justify-center py-8 text-nova-text-muted text-xs">
+							No matches
+						</div>
+					) : (
+						<div>
+							<AnimatePresence mode="sync">
+								{/* Insertion points interleave between modules so new
+								 *  modules can be added at any position — hidden while
+								 *  a search filter is active or the app is locked. */}
+								{interleaveInsertions(moduleOrder, {
+									suppress: locked || !!searchResult,
+									itemKey: (moduleId) => moduleId,
+									renderItem: (_moduleId, mIdx) =>
+										searchResult &&
+										!searchResult.visibleModuleIndices.has(mIdx) ? null : (
+											<ModuleCard
+												key={_moduleId}
+												moduleUuid={_moduleId}
+												moduleIndex={mIdx}
+												onSelect={handleSelect}
+												collapsed={collapsed}
+												toggle={toggle}
+												searchResult={searchResult}
+												locked={locked}
+											/>
+										),
+									renderInsertion: (atIndex, key) => (
+										<AddModulePopover key={key} atIndex={atIndex} />
+									),
+								})}
+							</AnimatePresence>
+						</div>
+					)}
+				</div>
 			</div>
-		</div>
+		</CursorSpeedProvider>
 	);
 }
