@@ -98,11 +98,18 @@ export function cleanStorageFormat(html: string): string {
 	text = text.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, "\n$1\n");
 	text = text.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, "\n```\n$1\n```\n");
 
-	// 13. Strip all remaining HTML tags
-	text = text.replace(/<[^>]+>/g, "");
+	// 13. Strip all remaining HTML tags. Repeat until the string stops
+	// changing so the strip is a fixpoint — no `<…>` can survive by having one
+	// tag's removal splice its neighbours into a fresh tag.
+	let prevTagStrip: string;
+	do {
+		prevTagStrip = text;
+		text = text.replace(/<[^>]+>/g, "");
+	} while (text !== prevTagStrip);
 
-	// 14. Decode HTML entities
-	text = text.replace(/&amp;/g, "&");
+	// 14. Decode HTML entities. Decode &amp; LAST so an already-escaped entity
+	// like `&amp;lt;` resolves to the literal text "&lt;" instead of being
+	// double-unescaped down to "<".
 	text = text.replace(/&lt;/g, "<");
 	text = text.replace(/&gt;/g, ">");
 	text = text.replace(/&quot;/g, '"');
@@ -111,6 +118,7 @@ export function cleanStorageFormat(html: string): string {
 	text = text.replace(/&#(\d+);/g, (_, code) =>
 		String.fromCharCode(parseInt(code, 10)),
 	);
+	text = text.replace(/&amp;/g, "&");
 
 	// 15. Restore code blocks
 	for (let i = 0; i < codeBlocks.length; i++) {

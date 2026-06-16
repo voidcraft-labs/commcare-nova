@@ -127,6 +127,26 @@ function stringifyLabels(
 	return result;
 }
 
+/**
+ * Dev-mode console output. The message is always passed as a `%s` argument,
+ * never as the format string itself, so a message that happens to contain `%`
+ * directives can't consume — or misformat — the structured context/error that
+ * follows it. `context` then `error` are appended in that order to match how
+ * each `log` method rendered them before this was factored out.
+ */
+function devConsole(
+	method: "log" | "warn" | "error",
+	message: string,
+	context?: LogContext,
+	error?: unknown,
+): void {
+	const extras: unknown[] = [];
+	if (context && Object.keys(context).length > 0) extras.push(context);
+	if (error !== undefined) extras.push(error);
+	if (extras.length > 0) console[method]("%s", message, ...extras);
+	else console[method](message);
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 export const log = {
@@ -136,9 +156,7 @@ export const log = {
 	 */
 	info(message: string, context?: LogContext): void {
 		if (!isProduction) {
-			if (context && Object.keys(context).length > 0)
-				console.log(message, context);
-			else console.log(message);
+			devConsole("log", message, context);
 			return;
 		}
 		emit({
@@ -157,9 +175,7 @@ export const log = {
 	 */
 	warn(message: string, context?: LogContext): void {
 		if (!isProduction) {
-			if (context && Object.keys(context).length > 0)
-				console.warn(message, context);
-			else console.warn(message);
+			devConsole("warn", message, context);
 			return;
 		}
 		emit({
@@ -192,15 +208,7 @@ export const log = {
 			captureToSentry("error", message, error, context);
 		}
 		if (!isProduction) {
-			if (error !== undefined) {
-				if (context && Object.keys(context).length > 0)
-					console.error(message, context, error);
-				else console.error(message, error);
-			} else {
-				if (context && Object.keys(context).length > 0)
-					console.error(message, context);
-				else console.error(message);
-			}
+			devConsole("error", message, context, error);
 			return;
 		}
 		emit({
@@ -221,16 +229,7 @@ export const log = {
 	critical(message: string, error?: unknown, context?: LogContext): void {
 		captureToSentry("fatal", message, error, context);
 		if (!isProduction) {
-			const prefixed = `[CRITICAL] ${message}`;
-			if (error !== undefined) {
-				if (context && Object.keys(context).length > 0)
-					console.error(prefixed, context, error);
-				else console.error(prefixed, error);
-			} else {
-				if (context && Object.keys(context).length > 0)
-					console.error(prefixed, context);
-				else console.error(prefixed);
-			}
+			devConsole("error", `[CRITICAL] ${message}`, context, error);
 			return;
 		}
 		emit({

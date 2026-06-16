@@ -92,12 +92,14 @@ const XPATH_FIELDS = [
  * parser chokes on `&amp;gt;`.
  */
 export function unescapeXPath(s: string): string {
+	// Decode &amp; LAST: an already-escaped entity like `&amp;gt;` must resolve
+	// to the literal text "&gt;", not be double-unescaped down to ">".
 	return s
-		.replace(/&amp;/g, "&")
 		.replace(/&gt;/g, ">")
 		.replace(/&lt;/g, "<")
 		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'");
+		.replace(/&apos;/g, "'")
+		.replace(/&amp;/g, "&");
 }
 
 // ── Flat input shape ─────────────────────────────────────────────────
