@@ -13,6 +13,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege for the GITHUB_TOKEN: every job here only reads the repo to
+# build and test it — none push, comment, or publish — so the default token
+# scope is narrowed to read-only across the whole workflow.
+permissions:
+  contents: read
+
 jobs:
   quality:
     name: Lint & type-check
