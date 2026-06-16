@@ -23,8 +23,10 @@ import {
 	HighlightedText,
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
+import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
 import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
@@ -33,6 +35,7 @@ import type { CaseListConfig, Uuid } from "@/lib/domain";
 import {
 	useIsCaseListSelected,
 	useIsModuleSelected,
+	useNavigate,
 } from "@/lib/routing/hooks";
 
 export const ModuleCard = memo(function ModuleCard({
@@ -68,6 +71,15 @@ export const ModuleCard = memo(function ModuleCard({
 	const isSelected = useIsModuleSelected(moduleUuid);
 	const isCaseListSelected = useIsCaseListSelected(moduleUuid);
 
+	const { removeModule } = useBlueprintMutations();
+	const navigate = useNavigate();
+	// Removing the module (cascades its forms/fields + retires an orphaned case
+	// type) is one gated, undoable batch; if it was the open module, fall back
+	// to the app home so the URL doesn't point at a now-deleted entity.
+	const handleDelete = () => {
+		if (removeModule(moduleUuid).ok && isSelected) navigate.goHome();
+	};
+
 	const collapseKey = `m${moduleIndex}`;
 	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
 		? false
@@ -84,10 +96,10 @@ export const ModuleCard = memo(function ModuleCard({
 			className={`transition-colors border-b border-nova-border last:border-b-0 ${isSelected ? "bg-nova-violet/[0.04]" : ""}`}
 		>
 			<TreeItemRow
-				className={`pl-3 pr-3 py-2.5 flex items-center justify-between ${locked ? "pointer-events-none" : "cursor-pointer"}`}
+				className={`group pl-3 pr-3 py-2.5 flex items-center justify-between gap-2 ${locked ? "pointer-events-none" : "cursor-pointer"}`}
 				onClick={() => onSelect({ kind: "module", moduleUuid })}
 			>
-				<div className="flex items-center gap-2">
+				<div className="flex items-center gap-2 min-w-0">
 					<CollapseChevron
 						isCollapsed={isCollapsed}
 						onClick={(e) => {
@@ -129,6 +141,9 @@ export const ModuleCard = memo(function ModuleCard({
 						)}
 					</div>
 				</div>
+				{!locked && (
+					<TreeRowDelete label="Delete module" onDelete={handleDelete} />
+				)}
 			</TreeItemRow>
 
 			{!isCollapsed && (

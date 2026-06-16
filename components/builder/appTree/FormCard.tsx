@@ -21,16 +21,18 @@ import {
 	HighlightedText,
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
+import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useFormDescendantCount } from "@/lib/doc/hooks/useFieldIconMap";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import type { Uuid } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
-import { useIsFormSelected } from "@/lib/routing/hooks";
+import { useIsFormSelected, useNavigate } from "@/lib/routing/hooks";
 
 export const FormCard = memo(function FormCard({
 	formId,
@@ -75,6 +77,14 @@ export const FormCard = memo(function FormCard({
 	 *  Only this form + the previously selected re-render on change. */
 	const isSelected = useIsFormSelected(formId);
 
+	const { removeForm } = useBlueprintMutations();
+	const navigate = useNavigate();
+	// Removing the form (cascades its fields) is one gated, undoable batch; if
+	// it was the open form, fall back to its module so the URL stays valid.
+	const handleDelete = () => {
+		if (removeForm(formId).ok && isSelected) navigate.openModule(moduleUuid);
+	};
+
 	const collapseKey = `f${moduleIndex}_${formIndex}`;
 	const isCollapsed = searchResult?.forceExpand?.has(collapseKey)
 		? false
@@ -96,7 +106,7 @@ export const FormCard = memo(function FormCard({
 			}`}
 		>
 			<TreeItemRow
-				className={`pl-5 pr-3 py-2.5 transition-colors flex items-center gap-2 ${locked ? "pointer-events-none" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
+				className={`group pl-5 pr-3 py-2.5 transition-colors flex items-center gap-2 ${locked ? "pointer-events-none" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
 				onClick={() =>
 					onSelect({
 						kind: "form",
@@ -154,6 +164,9 @@ export const FormCard = memo(function FormCard({
 					<span className="text-xs text-nova-text-muted shrink-0">
 						{count} {count === 1 ? "field" : "fields"}
 					</span>
+				)}
+				{!locked && (
+					<TreeRowDelete label="Delete form" onDelete={handleDelete} />
 				)}
 			</TreeItemRow>
 
