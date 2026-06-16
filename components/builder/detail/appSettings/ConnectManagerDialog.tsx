@@ -137,13 +137,18 @@ function seedDrafts(
 
 /** A normalized key for "would committing this mode change anything" — only
  *  the fields of ENABLED sub-configs count, so a residual id/name left in a
- *  toggled-OFF sub-config's buffer never reads as a change. */
+ *  toggled-OFF sub-config's buffer never reads as a change. A draft with NO
+ *  enabled sub-config is skipped entirely so it reads identically to an absent
+ *  one — otherwise a form added to the doc while the modal is open (present in
+ *  `drafts` but not the once-captured `seeded`) and toggled on→off would read
+ *  as permanently dirty. */
 function dirtyKey(
 	modeDrafts: Record<string, BlockDraft>,
 	mode: ConnectType,
 ): string {
 	const norm: Record<string, unknown> = {};
 	for (const [uuid, d] of Object.entries(modeDrafts)) {
+		if (!draftParticipates(d, mode)) continue;
 		norm[uuid] =
 			mode === "learn"
 				? [

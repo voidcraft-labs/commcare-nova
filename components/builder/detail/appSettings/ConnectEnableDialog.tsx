@@ -10,6 +10,7 @@ import { RejectionBody } from "@/components/builder/RejectionNotice";
 import { Toggle } from "@/components/ui/Toggle";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import {
+	assignConnectId,
 	connectIdValidity,
 	DEFAULT_ASSESSMENT_USER_SCORE,
 	DEFAULT_DELIVER_ENTITY_ID,
@@ -259,14 +260,15 @@ export function connectIdHelpers(
 	};
 }
 
-/** The id every participating sub-config of `mode` will carry, accumulated in
- *  the SAME order + rule the commit's `dedupeRestoredConnectIds` uses — a free
- *  explicit id kept verbatim, otherwise derived from the explicit value (a
- *  numeric suffix) or the entity name (a blank). Built from the manager's
- *  drafts so its id guard and seeding read the in-flight set, not just the
- *  live doc: two blank same-base blocks disambiguate here exactly as they will
- *  at commit (no display-vs-stored drift), and an explicit duplicate the user
- *  typed across two forms is caught inline. */
+/** The id every participating sub-config of `mode` will carry, accumulated via
+ *  the SHARED `assignConnectId` rule the commit's `dedupeRestoredConnectIds`
+ *  also uses (a free explicit id kept verbatim, otherwise derived from the
+ *  explicit value or the entity name) and in the same kind order — so the
+ *  preview lands the SAME ids the commit will. Built from the manager's drafts
+ *  so its id guard and seeding read the in-flight set, not just the live doc:
+ *  two blank same-base blocks disambiguate here exactly as they will at commit
+ *  (no display-vs-stored drift), and an explicit duplicate typed across two
+ *  forms is caught inline. */
 export function assignDraftConnectIds(
 	forms: readonly { formUuid: string; moduleName: string; formName: string }[],
 	modeDrafts: Record<string, BlockDraft>,
@@ -282,12 +284,7 @@ export function assignDraftConnectIds(
 		base: string,
 	) => {
 		if (!on) return;
-		const explicit = buffer.trim();
-		const id =
-			explicit && !taken.has(explicit)
-				? explicit
-				: deriveConnectId(explicit || base, taken);
-		taken.add(id);
+		const id = assignConnectId(buffer.trim() || undefined, base, taken);
 		out.push({ formUuid: asUuid(formUuid), kind, id });
 	};
 	for (const f of forms) {

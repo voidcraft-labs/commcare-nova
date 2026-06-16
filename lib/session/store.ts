@@ -71,11 +71,17 @@ function deepEqual(a: unknown, b: unknown): boolean {
 	const aKeys = Object.keys(a);
 	const bKeys = Object.keys(b);
 	if (aKeys.length !== bKeys.length) return false;
-	return aKeys.every((k) =>
-		deepEqual(
-			(a as Record<string, unknown>)[k],
-			(b as Record<string, unknown>)[k],
-		),
+	// Require each key to exist on BOTH sides — an equal length alone lets an
+	// `undefined`-valued key on one side align with a different key on the other
+	// (e.g. `{id: undefined}` vs `{x: 5}`), which would falsely read as equal and
+	// skip a real commit.
+	return aKeys.every(
+		(k) =>
+			Object.hasOwn(b, k) &&
+			deepEqual(
+				(a as Record<string, unknown>)[k],
+				(b as Record<string, unknown>)[k],
+			),
 	);
 }
 
@@ -768,6 +774,13 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						});
 					}
 
+					/* Blocks dropped by a SAME-mode apply (a form the manager removed
+					 * from participation) — stashed below so removal stays reversible,
+					 * the same guarantee the per-form toggle gives. A mode switch /
+					 * disable already stashed its outgoing blocks wholesale above, so
+					 * this only collects the same-mode case. */
+					const droppedBlocks: Record<string, ConnectConfig> = {};
+
 					if (resolved) {
 						/* Every incoming config routes through the shared
 						 * `dedupeRestoredConnectIds` under ONE accumulating id
@@ -814,6 +827,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										});
 									}
 								} else if (current !== undefined) {
+									/* Same-mode drop: preserve the block before clearing
+									 * so the user can get it back (the outgoing-stash above
+									 * only ran for a switch/disable). */
+									if (currentType === resolved && current) {
+										droppedBlocks[formUuid] = structuredClone(current);
+									}
 									mutations.push({
 										kind: "updateForm",
 										uuid: formUuid,
@@ -836,6 +855,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								}
 							}
 						}
+					}
+
+					/* Fold any same-mode drops into the outgoing mode's stash so a
+					 * removed form is restorable — per-form-toggle parity. */
+					if (currentType && Object.keys(droppedBlocks).length > 0) {
+						nextStash = {
+							...nextStash,
+							[currentType]: { ...nextStash[currentType], ...droppedBlocks },
+						};
 					}
 
 					/* Nothing to do — the doc already matches the request. Return
@@ -865,7 +893,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					docStoreRef.getState().commitDoc(verdict.nextDoc);
 					set({
 						connectStash: nextStash,
-						lastConnectType: currentType ?? s.lastConnectType,
+						// "Last active connect type" = the mode now in effect, or the
+						// one just left when turning off. Keying off `resolved` (not
+						// just the outgoing `currentType`) keeps it correct when
+						// enabling from OFF — otherwise it would point at a previously
+						// disabled mode and mis-resolve `switchConnectMode(undefined)`.
+						lastConnectType: resolved ?? currentType ?? s.lastConnectType,
 					});
 					return { ok: true };
 				},

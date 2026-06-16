@@ -387,8 +387,10 @@ describe("BuilderSession connect stash", () => {
 		const stash = session.getState().connectStash.learn;
 		expect(stash[formA]?.learn_module?.name).toBe("Form A");
 		expect(stash[formB]?.assessment).toBeDefined();
-		/* lastConnectType is the outgoing mode. */
-		expect(session.getState().lastConnectType).toBe("learn");
+		/* lastConnectType tracks the now-active mode (the field's documented
+		 * "last active connect type"), so a later turn-off / off-state default
+		 * returns to deliver, not the mode just left. */
+		expect(session.getState().lastConnectType).toBe("deliver");
 	});
 
 	it("3. switching deliver->learn restores the stashed learn configs onto the forms", () => {
@@ -575,6 +577,11 @@ describe("BuilderSession connect stash", () => {
 		expect(doc.getState().forms[formA]?.connect?.learn_module?.id).toBe(idA);
 		/* Form B was omitted from the desired set → auxiliary again. */
 		expect(doc.getState().forms[formB]?.connect).toBeUndefined();
+		/* …but its dropped block is stashed (same-mode drop stays reversible,
+		 * the per-form-toggle guarantee), so re-adding B restores its config. */
+		expect(
+			session.getState().connectStash.learn[formB]?.learn_module?.name,
+		).toBe("Form B");
 	});
 
 	it("11. an apply that already matches the doc commits nothing (no undo entry)", () => {
@@ -594,6 +601,25 @@ describe("BuilderSession connect stash", () => {
 
 		expect(outcome.ok).toBe(true);
 		expect(doc.temporal.getState().pastStates.length).toBe(before);
+	});
+
+	it("12. enabling a mode from OFF sets lastConnectType to THAT mode, not a stale prior", () => {
+		const { session, doc, formA, formB } = createConnectTestStores();
+		/* Use deliver, then turn off — lastConnectType remembers deliver. */
+		session
+			.getState()
+			.switchConnectMode("deliver", stagedDeliverBlocks(formA, formB));
+		session.getState().switchConnectMode(null);
+		expect(session.getState().lastConnectType).toBe("deliver");
+
+		/* Enabling learn FROM OFF must move lastConnectType to learn — otherwise
+		 * it stays pointing at the previously-disabled deliver and a later
+		 * `switchConnectMode(undefined)` would resolve to the wrong mode. */
+		session
+			.getState()
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+		expect(doc.getState().connectType).toBe("learn");
+		expect(session.getState().lastConnectType).toBe("learn");
 	});
 });
 

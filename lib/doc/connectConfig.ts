@@ -57,6 +57,28 @@ export function connectIdValidity(
 }
 
 /**
+ * Assign ONE Connect id against a running `taken` set — the single rule both
+ * the COMMIT (`dedupeRestoredConnectIds`) and the manager's id PREVIEW
+ * (`assignDraftConnectIds`) consume, so what the editor seeds / validates can
+ * never drift from what gets stored. A free explicit `id` is kept verbatim;
+ * otherwise a unique one is derived from the explicit id (a numeric suffix) or
+ * the `fallbackName` (a blank). Mutates `taken` by adding the assigned id.
+ */
+export function assignConnectId(
+	id: string | undefined,
+	fallbackName: string,
+	taken: Set<string>,
+): string {
+	if (id !== undefined && !taken.has(id)) {
+		taken.add(id);
+		return id;
+	}
+	const next = deriveConnectId(id ?? fallbackName, taken);
+	taken.add(next);
+	return next;
+}
+
+/**
  * Strip empty Connect sub-configs so absent data stays absent.
  *
  * Sub-configs that exist but contain only empty/default-sentinel values
@@ -158,9 +180,10 @@ export function dedupeRestoredConnectIds(
 	const out: ConnectConfig = { ...config };
 	const pairName = `${ctx.moduleName} ${ctx.formName}`;
 
-	// Keep a still-unique id; otherwise derive a fresh unique one, seeded
-	// from the existing id when present (minimal change) or the entity name
-	// when absent (autofill). Each committed id joins `taken` so two blocks
+	// Keep a still-unique id; otherwise derive a fresh unique one, seeded from
+	// the existing id when present (minimal change) or the entity name when
+	// absent (autofill) — the shared `assignConnectId` rule, so the manager's
+	// preview lands the SAME ids. Each committed id joins `taken` so two blocks
 	// in the same config can't land on the same slug.
 	const handle = <T extends { id?: string }>(
 		sub: T | undefined,
@@ -168,14 +191,8 @@ export function dedupeRestoredConnectIds(
 		assign: (next: T) => void,
 	): void => {
 		if (!sub) return;
-		if (sub.id !== undefined && !taken.has(sub.id)) {
-			taken.add(sub.id);
-			assign(sub);
-			return;
-		}
-		const id = deriveConnectId(sub.id ?? entityName, taken);
-		taken.add(id);
-		assign({ ...sub, id });
+		const id = assignConnectId(sub.id, entityName, taken);
+		assign(id === sub.id ? sub : { ...sub, id });
 	};
 
 	handle(out.learn_module, ctx.moduleName, (n) => {
