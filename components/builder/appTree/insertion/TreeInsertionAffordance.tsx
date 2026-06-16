@@ -19,6 +19,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { type CSSProperties, type RefObject, useEffect, useRef } from "react";
 import {
+	insertionRevealTransition,
 	useCursorSpeedContext,
 	useInsertionHover,
 } from "@/lib/ui/hooks/useInsertionHover";
@@ -54,10 +55,15 @@ export function useTreeInsertionHover(open: boolean): TreeInsertionHover {
 		keepOpen: () => openRef.current,
 	});
 
-	// Collapse when the popup closes (matches the form's subscribeClose reset).
+	// Collapse when the popup CLOSES (true→false) — the tree equivalent of the
+	// form's subscribeClose reset. Guarded against mount (open is false at mount)
+	// so it doesn't clobber useInsertionHover's mount-time cursor check, which
+	// reveals the strip if the cursor is already over it when it appears.
 	const { reset } = hover;
+	const wasOpenRef = useRef(false);
 	useEffect(() => {
-		if (!open) reset();
+		if (wasOpenRef.current && !open) reset();
+		wasOpenRef.current = open;
 	}, [open, reset]);
 
 	return {
@@ -80,16 +86,14 @@ export const INSERTION_TRIGGER_CLS =
 /**
  * The trigger's animated height: grows from a thin idle gap (14px) to 32px while
  * `revealed`, giving the 20px "+" circle clearance so it doesn't cut into
- * adjacent rows. Uses the SAME inline transition as the form canvas's
- * InsertionPoint — eased-and-delayed on expand, quick on collapse — so the two
- * surfaces animate identically (a Tailwind class swap chops instead of glides).
+ * adjacent rows. Shares `insertionRevealTransition` with the form canvas's
+ * InsertionPoint so the two surfaces animate identically (an inline transition,
+ * not a Tailwind class swap, which chops instead of glides).
  */
 export function insertionTriggerStyle(revealed: boolean): CSSProperties {
 	return {
 		height: revealed ? 32 : 14,
-		transition: revealed
-			? "height 200ms cubic-bezier(0.6, 0, 0.1, 1) 50ms"
-			: "height 50ms ease-in",
+		transition: insertionRevealTransition(revealed),
 	};
 }
 

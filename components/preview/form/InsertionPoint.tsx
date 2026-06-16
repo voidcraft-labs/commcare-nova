@@ -32,7 +32,10 @@ import {
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { Uuid } from "@/lib/doc/types";
 import { useEditMode } from "@/lib/session/hooks";
-import { useInsertionHover } from "@/lib/ui/hooks/useInsertionHover";
+import {
+	insertionRevealTransition,
+	useInsertionHover,
+} from "@/lib/ui/hooks/useInsertionHover";
 import { useFieldPicker } from "./FieldPickerContext";
 
 interface InsertionPointProps {
@@ -142,9 +145,7 @@ function FullInsertionPoint({
 			className="relative"
 			style={{
 				height: isActive ? 32 : 24,
-				transition: isActive
-					? "height 200ms cubic-bezier(0.6, 0, 0.1, 1) 50ms"
-					: "height 50ms ease-in",
+				transition: insertionRevealTransition(isActive),
 			}}
 			data-insertion-point
 		>

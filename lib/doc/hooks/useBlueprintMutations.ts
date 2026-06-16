@@ -299,11 +299,12 @@ export interface BlueprintMutations {
 
 	// ── Compound creators (atomic, born-valid) ───────────────────────────
 	/**
-	 * Create a functional case-management module in one gated batch: the
-	 * module (with a `Name` case-list column) + a starter registration form +
-	 * a `case_name` field writing to `caseType`. A brand-new `caseType`
-	 * auto-registers in `doc.caseTypes` (reducer `ensureCatalogProperty`).
-	 * Returns the new module's uuid for navigation.
+	 * Create a case-list module in one gated batch, born as a VIEWER: a
+	 * `caseListOnly` module with a `Name` case-list column and NO form. A new
+	 * `caseType` is declared in `doc.caseTypes` (empty properties) so the Name
+	 * column's standard property resolves; the user adds a registration form
+	 * afterward (which flips `caseListOnly` off). Returns the new module's uuid
+	 * for navigation.
 	 */
 	createCaseListModule: (args: {
 		caseType: string;

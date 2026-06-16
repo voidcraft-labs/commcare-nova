@@ -22,6 +22,7 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -102,7 +103,10 @@ export function useCursorSpeed(): CursorSpeedRefs {
 			document.removeEventListener("wheel", onWheel);
 		};
 	}, []);
-	return { cursorSpeedRef, lastCursorRef };
+	// Stable object identity — the refs themselves never change, so a
+	// CursorSpeedProvider value (or a prop) built from this doesn't churn every
+	// render and force every insertion affordance to re-render.
+	return useMemo(() => ({ cursorSpeedRef, lastCursorRef }), []);
 }
 
 /** Surface-wide cursor-speed refs for insertion points delivered via context
@@ -128,8 +132,6 @@ interface InsertionHoverOpts {
 export interface InsertionHover<T extends HTMLElement = HTMLDivElement> {
 	/** Whether the affordance should be shown/expanded right now. */
 	readonly revealed: boolean;
-	/** Force reveal (e.g. the popup just opened). */
-	readonly reveal: () => void;
 	/** Collapse (e.g. the popup closed). */
 	readonly reset: () => void;
 	/** Attach to the affordance element — drives the mount-time cursor check. */
@@ -228,11 +230,22 @@ export function useInsertionHover<T extends HTMLElement = HTMLDivElement>({
 
 	return {
 		revealed: hovered,
-		reveal,
 		reset,
 		containerRef,
 		onMouseEnter,
 		onMouseMove,
 		onMouseLeave,
 	};
+}
+
+/**
+ * The shared insertion-point height-reveal transition: the expand eases in over
+ * 200ms after a 50ms delay, the collapse is a quick 50ms. Both the form canvas's
+ * InsertionPoint and the app tree's insertion strip use it, so the two surfaces
+ * animate identically (only their idle/expanded heights differ).
+ */
+export function insertionRevealTransition(revealed: boolean): string {
+	return revealed
+		? "height 200ms cubic-bezier(0.6, 0, 0.1, 1) 50ms"
+		: "height 50ms ease-in";
 }

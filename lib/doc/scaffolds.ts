@@ -213,8 +213,8 @@ export function formScaffoldMutations(
 		name: formName,
 		type,
 	};
-	// A registration form needs the case name plus one data property; every
-	// other type just needs one field so it isn't empty.
+	// A registration form is born with just the `case_name` writer; every other
+	// type gets one text question so it isn't born empty (`EMPTY_FORM`).
 	const fields =
 		type === "registration"
 			? registrationFields(mod.caseType)

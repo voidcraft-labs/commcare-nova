@@ -23,7 +23,11 @@ export function TreeRowDelete({
 }: {
 	/** Accessible label, e.g. "Delete module" / "Delete form". */
 	readonly label: string;
-	readonly onDelete: () => void;
+	/** Runs the (gated) removal; returns whether it committed. A success
+	 *  unmounts this row with the deleted entity, so on `false` (the gate
+	 *  refused — e.g. a still-referenced case type can't be retired) we disarm
+	 *  rather than leave the row stuck in its "Delete?" state. */
+	readonly onDelete: () => boolean;
 }) {
 	const [armed, setArmed] = useState(false);
 
@@ -41,7 +45,7 @@ export function TreeRowDelete({
 					aria-label={`Confirm — ${label}`}
 					onClick={(e) => {
 						e.stopPropagation();
-						onDelete();
+						if (!onDelete()) setArmed(false);
 					}}
 					className="cursor-pointer rounded-md bg-nova-rose/15 px-2 py-1 text-[11px] font-medium text-nova-rose transition-colors hover:bg-nova-rose/25"
 				>

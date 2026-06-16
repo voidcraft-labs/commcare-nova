@@ -75,9 +75,12 @@ export const ModuleCard = memo(function ModuleCard({
 	const navigate = useNavigate();
 	// Removing the module (cascades its forms/fields + retires an orphaned case
 	// type) is one gated, undoable batch; if it was the open module, fall back
-	// to the app home so the URL doesn't point at a now-deleted entity.
+	// to the app home so the URL doesn't point at a now-deleted entity. Returns
+	// whether the gate committed so the row can disarm on a refusal.
 	const handleDelete = () => {
-		if (removeModule(moduleUuid).ok && isSelected) navigate.goHome();
+		const { ok } = removeModule(moduleUuid);
+		if (ok && isSelected) navigate.goHome();
+		return ok;
 	};
 
 	const collapseKey = `m${moduleIndex}`;

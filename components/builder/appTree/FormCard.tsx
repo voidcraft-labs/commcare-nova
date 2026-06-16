@@ -81,8 +81,11 @@ export const FormCard = memo(function FormCard({
 	const navigate = useNavigate();
 	// Removing the form (cascades its fields) is one gated, undoable batch; if
 	// it was the open form, fall back to its module so the URL stays valid.
+	// Returns whether the gate committed so the row can disarm on a refusal.
 	const handleDelete = () => {
-		if (removeForm(formId).ok && isSelected) navigate.openModule(moduleUuid);
+		const { ok } = removeForm(formId);
+		if (ok && isSelected) navigate.openModule(moduleUuid);
+		return ok;
 	};
 
 	const collapseKey = `f${moduleIndex}_${formIndex}`;
