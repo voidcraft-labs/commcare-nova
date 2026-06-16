@@ -40,7 +40,7 @@ Clients of the stream (the interactive builder) receive `data-mutations` events 
 
 Request-level `cacheControl: { type: 'ephemeral' }` in the provider options. Anthropic automatically places the breakpoint on the last cacheable block and advances it as the conversation grows — the system prompt stays cached across requests within a session.
 
-Cache TTL is 5 minutes. The route uses a client-reported timestamp to choose the message strategy: within the window, full history is sent; after expiry, only the last user message goes (one-shot edit). Edit-vs-build mode is a separate decision — see root CLAUDE.md.
+Cache TTL is 5 minutes. The route uses a client-reported timestamp to choose the message strategy: within the window, full history is sent; after expiry, only the last user message goes (one-shot edit). Edit-vs-build mode is an ORTHOGONAL decision: app-exists picks the prompt + tool set (edit mode excludes the planning tools — see "Two tool groups" below), while the cache window picks the message strategy. The two never collapse into one flag.
 
 ## Provider options shape
 
