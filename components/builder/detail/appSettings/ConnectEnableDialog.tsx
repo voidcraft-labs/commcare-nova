@@ -18,6 +18,7 @@ import {
 } from "@/lib/doc/connectConfig";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import {
+	type AppConnectId,
 	connectIdsExcept,
 	useAppConnectIds,
 } from "@/lib/doc/hooks/useAppConnectIds";
@@ -25,6 +26,8 @@ import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { ConnectConfig, ConnectType, XPathExpression } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { CurrentFormScope } from "@/lib/references/ReferenceContext";
+import { useStopEscape } from "@/lib/ui/hooks/useStopEscape";
+import { assertNever } from "@/lib/utils/assertNever";
 
 /**
  * The per-form Connect enable dialog (form settings) plus the shared
@@ -220,6 +223,93 @@ export function draftIdsValid(
 				check("task", draft.taskOn, draft.taskId);
 }
 
+/** The base name `deriveConnectId` builds a slot's id from: the module name
+ *  for the module-level kinds, "<module> <form>" for the per-form kinds. */
+function idBaseName(
+	kind: SubConfigKind,
+	moduleName: string,
+	formName: string,
+): string {
+	return kind === "assessment" || kind === "task"
+		? `${moduleName} ${formName}`
+		: moduleName;
+}
+
+/** Per-form id helpers — derive a blank slot's id, validate a typed one —
+ *  bound to a "taken" id universe. The app-wide manager passes its
+ *  DRAFT-derived universe (so sibling in-flight drafts AND the mode actually
+ *  being edited are in scope); the per-form dialog passes the live-doc
+ *  universe. One builder, so a typed id is judged and a blank one seeded
+ *  identically wherever the editor runs. */
+export function connectIdHelpers(
+	ids: readonly AppConnectId[],
+	formUuid: string,
+	moduleName: string,
+	formName: string,
+): { derivedId: (kind: SubConfigKind) => string; validateId: IdValidator } {
+	const takenFor = (kind: SubConfigKind) =>
+		connectIdsExcept(ids, asUuid(formUuid), kind);
+	return {
+		derivedId: (kind) =>
+			deriveConnectId(idBaseName(kind, moduleName, formName), takenFor(kind)),
+		validateId: (kind, value) => {
+			const id = value.trim();
+			return id ? connectIdValidity(id, takenFor(kind)) : null;
+		},
+	};
+}
+
+/** The id every participating sub-config of `mode` will carry, accumulated in
+ *  the SAME order + rule the commit's `dedupeRestoredConnectIds` uses — a free
+ *  explicit id kept verbatim, otherwise derived from the explicit value (a
+ *  numeric suffix) or the entity name (a blank). Built from the manager's
+ *  drafts so its id guard and seeding read the in-flight set, not just the
+ *  live doc: two blank same-base blocks disambiguate here exactly as they will
+ *  at commit (no display-vs-stored drift), and an explicit duplicate the user
+ *  typed across two forms is caught inline. */
+export function assignDraftConnectIds(
+	forms: readonly { formUuid: string; moduleName: string; formName: string }[],
+	modeDrafts: Record<string, BlockDraft>,
+	mode: ConnectType,
+): AppConnectId[] {
+	const taken = new Set<string>();
+	const out: AppConnectId[] = [];
+	const assign = (
+		formUuid: string,
+		kind: SubConfigKind,
+		on: boolean,
+		buffer: string,
+		base: string,
+	) => {
+		if (!on) return;
+		const explicit = buffer.trim();
+		const id =
+			explicit && !taken.has(explicit)
+				? explicit
+				: deriveConnectId(explicit || base, taken);
+		taken.add(id);
+		out.push({ formUuid: asUuid(formUuid), kind, id });
+	};
+	for (const f of forms) {
+		const d = modeDrafts[f.formUuid] ?? EMPTY_DRAFT;
+		const pair = `${f.moduleName} ${f.formName}`;
+		if (mode === "learn") {
+			assign(f.formUuid, "learn_module", d.learnOn, d.learnId, f.moduleName);
+			assign(f.formUuid, "assessment", d.assessmentOn, d.assessmentId, pair);
+		} else {
+			assign(
+				f.formUuid,
+				"deliver_unit",
+				d.deliverOn,
+				d.deliverId,
+				f.moduleName,
+			);
+			assign(f.formUuid, "task", d.taskOn, d.taskId, pair);
+		}
+	}
+	return out;
+}
+
 /** An XPath buffer counts as an OVERRIDE only when it's non-empty AND
  *  differs from the wire default. Otherwise the slot is left absent so the
  *  single wire-emit default applies (and a blank never trips
@@ -336,36 +426,22 @@ export function DraftField({
 }) {
 	const fieldId = useId();
 	const error = validate?.(value) ?? null;
+	// Escape exits the FIELD (blur), never the surrounding dialog — see hook.
+	const stopEscape = useStopEscape();
 
-	// Escape must exit the FIELD, not tear down the dialog. Base UI's dismiss
-	// listens for Escape on `document` (bubble phase), so React's delegated
-	// `onKeyDown` — which shares that target — can't reliably stop it. A native
-	// listener on the element halts the keydown before it ever reaches the
-	// document listener, then blurs (the field's own "exit"), exactly how
-	// `XPathField` keeps Escape from closing its surrounding popover. A second
-	// Escape, now outside any field, dismisses as usual.
-	const stopEscape = useCallback((node: HTMLElement | null) => {
-		if (!node) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Escape") return;
-			e.stopPropagation();
-			node.blur();
-		};
-		node.addEventListener("keydown", onKeyDown);
-		return () => node.removeEventListener("keydown", onKeyDown);
-	}, []);
-
+	// Tones match the form-settings `InlineField` exactly so the two share one
+	// visual language (this is a controlled field; that one blur-commits).
 	const base =
-		"w-full text-xs rounded-md border px-2.5 py-1.5 outline-none transition-colors placeholder:text-nova-text-muted/60";
+		"w-full text-xs rounded-md border px-2 py-1.5 outline-none transition-colors placeholder:text-nova-text-muted/60";
 	const tone = error
-		? "border-nova-rose/60 bg-nova-surface shadow-[0_0_0_1px_rgba(212,112,143,0.12)]"
-		: "border-white/[0.07] bg-nova-deep/50 hover:border-nova-violet/30 focus:border-nova-violet/50 focus:bg-nova-surface";
+		? "border-nova-rose/60 bg-nova-surface shadow-[0_0_0_1px_rgba(212,112,143,0.15)]"
+		: "border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 focus:border-nova-violet/50 focus:bg-nova-surface focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)]";
 	const text = mono ? "font-mono text-nova-violet-bright" : "text-nova-text";
 	return (
 		<div>
 			<label
 				htmlFor={fieldId}
-				className="mb-1 flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-nova-text-muted"
+				className="mb-0.5 flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-nova-text-muted"
 			>
 				{label}
 				{required && <span className="text-nova-rose">*</span>}
@@ -509,37 +585,23 @@ export function FormSubConfigs({
 	draft,
 	onPatch,
 	validateId,
+	derivedId,
 	formUuid,
-	moduleName,
-	formName,
 }: {
 	mode: ConnectType;
 	draft: BlockDraft;
 	onPatch: (patch: Partial<BlockDraft>) => void;
 	validateId: IdValidator;
+	/** The id a blank slot would autofill to, scoped by the parent (the
+	 *  manager's in-flight drafts, or the per-form dialog's live doc). Used to
+	 *  seed an id field on turn-on and to refill it on a blank blur — never a
+	 *  placeholder; what's shown is what the commit will store. */
+	derivedId: (kind: SubConfigKind) => string;
 	formUuid: string;
-	moduleName: string;
-	formName: string;
 }) {
 	const idCheck = (kind: SubConfigKind) => (value: string) =>
 		value.trim() ? validateId(kind, value) : null;
 	const getLintContext = useConnectLintContext(asUuid(formUuid));
-
-	// The id the commit would autofill — the SAME source/scope the autofill
-	// uses (`deriveConnectId`): module name for learn_module / deliver_unit,
-	// "<module> <form>" for the per-form assessment / task. Turning a sub-config
-	// ON seeds this into its id buffer (below) so the field shows the REAL id,
-	// editable — never a placeholder. Clearing it and leaving the field snaps
-	// it back to this default on blur (`blurResetId`), so an id is never left
-	// blank — the same blur-commit the XPath slots do.
-	const appConnectIds = useAppConnectIds();
-	const derivedId = (kind: SubConfigKind): string =>
-		deriveConnectId(
-			kind === "assessment" || kind === "task"
-				? `${moduleName} ${formName}`
-				: moduleName,
-			connectIdsExcept(appConnectIds, asUuid(formUuid), kind),
-		);
 
 	// Flip a sub-config. Turning it ON seeds the derived id into a still-blank
 	// buffer so its "Advanced → ID" field opens showing the real value; an id
@@ -590,6 +652,8 @@ export function FormSubConfigs({
 								...(draft.taskId.trim() ? {} : { taskId: derivedId("task") }),
 							},
 				);
+			default:
+				return assertNever(kind);
 		}
 	};
 
@@ -612,6 +676,8 @@ export function FormSubConfigs({
 			case "task":
 				if (!draft.taskId.trim()) onPatch({ taskId: derivedId(kind) });
 				return;
+			default:
+				return assertNever(kind);
 		}
 	};
 
@@ -753,25 +819,6 @@ export function FormSubConfigs({
 	return <CurrentFormScope formUuid={formUuid}>{body}</CurrentFormScope>;
 }
 
-/** Bind an {@link IdValidator} over the app's current connect ids — format
- *  legality plus uniqueness against every OTHER form's ids. Shared by the
- *  dialog and the manager so a typed id is judged the same everywhere. */
-export function useIdValidator(): (formUuid: string) => IdValidator {
-	const appConnectIds = useAppConnectIds();
-	return useCallback(
-		(formUuid: string): IdValidator =>
-			(kind, value) => {
-				const id = value.trim();
-				if (!id) return null;
-				return connectIdValidity(
-					id,
-					connectIdsExcept(appConnectIds, asUuid(formUuid), kind),
-				);
-			},
-		[appConnectIds],
-	);
-}
-
 /** Shared footer rejection block — the gate's findings, rendered inline so
  *  a bounce explains itself without relying on the toast. */
 export function RejectionNoticeBlock({
@@ -844,9 +891,20 @@ function DialogBody({
 }) {
 	const { mode, targets, restoredFormCount, rejectionMessages } = request;
 	const [drafts, setDrafts] = useState<Record<string, BlockDraft>>(() =>
-		Object.fromEntries(targets.map((t) => [t.formUuid, EMPTY_DRAFT])),
+		Object.fromEntries(targets.map((t) => [t.formUuid, { ...EMPTY_DRAFT }])),
 	);
-	const idValidatorFor = useIdValidator();
+	// One id scope for the dialog, built from the LIVE doc — the per-form setup
+	// edits the active mode against every other form's committed ids.
+	const appConnectIds = useAppConnectIds();
+	const idHelpers: Record<string, ReturnType<typeof connectIdHelpers>> = {};
+	for (const t of targets) {
+		idHelpers[t.formUuid] = connectIdHelpers(
+			appConnectIds,
+			t.formUuid,
+			t.moduleName,
+			t.formName,
+		);
+	}
 
 	const patchDraft = useCallback(
 		(formUuid: string, patch: Partial<BlockDraft>) => {
@@ -863,7 +921,7 @@ function DialogBody({
 		draftSectionsComplete(draftOf(t.formUuid), mode),
 	);
 	const idsValid = targets.every((t) =>
-		draftIdsValid(draftOf(t.formUuid), mode, idValidatorFor(t.formUuid)),
+		draftIdsValid(draftOf(t.formUuid), mode, idHelpers[t.formUuid].validateId),
 	);
 	const participatingCount =
 		restoredFormCount +
@@ -946,10 +1004,9 @@ function DialogBody({
 							mode={mode}
 							draft={draftOf(t.formUuid)}
 							onPatch={(patch) => patchDraft(t.formUuid, patch)}
-							validateId={idValidatorFor(t.formUuid)}
+							validateId={idHelpers[t.formUuid].validateId}
+							derivedId={idHelpers[t.formUuid].derivedId}
 							formUuid={t.formUuid}
-							moduleName={t.moduleName}
-							formName={t.formName}
 						/>
 					</div>
 				))}

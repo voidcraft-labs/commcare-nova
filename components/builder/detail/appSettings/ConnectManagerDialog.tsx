@@ -2,10 +2,12 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { parseXPathForForm, printXPathInDoc } from "@/lib/doc/expressionText";
+import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
 import type { BlueprintDoc, XPathExpression } from "@/lib/domain";
 import {
 	asUuid,
@@ -16,8 +18,10 @@ import {
 import { useLastConnectType, useSwitchConnectMode } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import {
+	assignDraftConnectIds,
 	type BlockDraft,
 	configToDraft,
+	connectIdHelpers,
 	draftIdsValid,
 	draftParticipates,
 	draftSectionsComplete,
@@ -25,7 +29,6 @@ import {
 	EMPTY_DRAFT,
 	FormSubConfigs,
 	RejectionNoticeBlock,
-	useIdValidator,
 } from "./ConnectEnableDialog";
 
 /**
@@ -63,24 +66,54 @@ interface FormRow {
 
 type ModeDrafts = Record<ConnectType, Record<string, BlockDraft>>;
 
-/** The app's forms in tree order — captured once on open. */
-function listForms(doc: BlueprintDoc): FormRow[] {
-	const forms: FormRow[] = [];
-	for (const moduleUuid of doc.moduleOrder) {
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			forms.push({
-				formUuid,
-				formName: doc.forms[formUuid]?.name ?? "",
-				moduleName: doc.modules[moduleUuid]?.name ?? "",
-			});
+/** The app's forms in tree order — subscribes to the live structure + name
+ *  maps so the manager tracks a concurrent edit (an agent adding, removing, or
+ *  renaming a form while the modal is open) instead of editing a stale
+ *  snapshot. Drafts stay keyed by uuid, so an added form is editable via the
+ *  `EMPTY_DRAFT` fallback and a removed one simply stops rendering. */
+function useFormRows(): FormRow[] {
+	const { moduleOrder, formOrder } = useAppStructure();
+	const { modules, forms } = useDocEntityMaps();
+	return useMemo(() => {
+		const out: FormRow[] = [];
+		for (const moduleUuid of moduleOrder) {
+			for (const formUuid of formOrder[moduleUuid] ?? []) {
+				out.push({
+					formUuid,
+					formName: forms[formUuid]?.name ?? "",
+					moduleName: modules[moduleUuid]?.name ?? "",
+				});
+			}
 		}
-	}
-	return forms;
+		return out;
+	}, [moduleOrder, formOrder, modules, forms]);
 }
 
-/** Seed a draft per form per mode: the ACTIVE mode from each form's live
- *  block, the other mode from the session stash. Existing XPath is printed
- *  to its buffer so it round-trips. */
+/** Seed one mode's draft per form: the form's live block when `mode` is the
+ *  app's active mode, the session stash otherwise. Existing XPath is printed
+ *  to its buffer so it round-trips. Each empty slot gets its OWN cloned
+ *  `EMPTY_DRAFT` — never the shared singleton — so a slot can never alias
+ *  another (or the dirty baseline). */
+function seedModeDrafts(
+	forms: FormRow[],
+	doc: BlueprintDoc,
+	stash: Record<ConnectType, Record<string, ConnectConfig>>,
+	mode: ConnectType,
+	currentType: ConnectType | undefined,
+	printExpr: (expr: XPathExpression) => string,
+): Record<string, BlockDraft> {
+	const out: Record<string, BlockDraft> = {};
+	for (const f of forms) {
+		const src =
+			currentType === mode
+				? doc.forms[f.formUuid]?.connect
+				: stash[mode]?.[f.formUuid];
+		out[f.formUuid] = src ? configToDraft(src, printExpr) : { ...EMPTY_DRAFT };
+	}
+	return out;
+}
+
+/** Seed both modes' drafts (open-time). */
 function seedDrafts(
 	forms: FormRow[],
 	doc: BlueprintDoc,
@@ -88,19 +121,51 @@ function seedDrafts(
 	currentType: ConnectType | undefined,
 	printExpr: (expr: XPathExpression) => string,
 ): ModeDrafts {
-	const drafts: ModeDrafts = { learn: {}, deliver: {} };
-	for (const f of forms) {
-		for (const mode of CONNECT_TYPES) {
-			const src =
-				currentType === mode
-					? doc.forms[f.formUuid]?.connect
-					: stash[mode]?.[f.formUuid];
-			drafts[mode][f.formUuid] = src
-				? configToDraft(src, printExpr)
-				: EMPTY_DRAFT;
-		}
+	const drafts = {} as ModeDrafts;
+	for (const mode of CONNECT_TYPES) {
+		drafts[mode] = seedModeDrafts(
+			forms,
+			doc,
+			stash,
+			mode,
+			currentType,
+			printExpr,
+		);
 	}
 	return drafts;
+}
+
+/** A normalized key for "would committing this mode change anything" — only
+ *  the fields of ENABLED sub-configs count, so a residual id/name left in a
+ *  toggled-OFF sub-config's buffer never reads as a change. */
+function dirtyKey(
+	modeDrafts: Record<string, BlockDraft>,
+	mode: ConnectType,
+): string {
+	const norm: Record<string, unknown> = {};
+	for (const [uuid, d] of Object.entries(modeDrafts)) {
+		norm[uuid] =
+			mode === "learn"
+				? [
+						d.learnOn && [
+							d.learnName,
+							d.learnDescription,
+							d.learnTimeEstimate,
+							d.learnId,
+						],
+						d.assessmentOn && [d.assessmentId, d.userScoreText],
+					]
+				: [
+						d.deliverOn && [
+							d.deliverName,
+							d.deliverId,
+							d.entityIdText,
+							d.entityNameText,
+						],
+						d.taskOn && [d.taskName, d.taskDescription, d.taskId],
+					];
+	}
+	return JSON.stringify(norm);
 }
 
 export function ConnectManagerDialog({
@@ -135,11 +200,10 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 	const switchMode = useSwitchConnectMode();
 	const docApi = useBlueprintDocApi();
 	const sessionApi = useBuilderSessionApi();
-	const idValidatorFor = useIdValidator();
 
 	const enabled = !!connectType;
 
-	const [forms] = useState<FormRow[]>(() => listForms(docApi.getState()));
+	const forms = useFormRows();
 	const initialDrafts = useState<ModeDrafts>(() => {
 		const doc = docApi.getState();
 		return seedDrafts(
@@ -163,6 +227,9 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 	const draftOf = (formUuid: string) => modeDrafts[formUuid] ?? EMPTY_DRAFT;
 
 	const patchDraft = (formUuid: string, patch: Partial<BlockDraft>) => {
+		// An edit invalidates any inline gate findings from a prior apply — clear
+		// them so a stale rejection can't describe a problem the user just fixed.
+		setRejectionMessages((m) => (m.length ? [] : m));
 		setDrafts((prev) => ({
 			...prev,
 			[selectedMode]: {
@@ -175,10 +242,27 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		}));
 	};
 
+	// Id uniqueness scoped to the IN-FLIGHT drafts of the mode being edited —
+	// NOT the live doc. So a duplicate id the user types across two forms is
+	// caught inline, a seeded id matches what the commit will store, and editing
+	// the mode the app isn't currently in validates against the right set. One
+	// helper per form (built from the same shared scope) drives both the seed
+	// and the inline check.
+	const assignedIds = assignDraftConnectIds(forms, modeDrafts, selectedMode);
+	const idHelpers: Record<string, ReturnType<typeof connectIdHelpers>> = {};
+	for (const f of forms) {
+		idHelpers[f.formUuid] = connectIdHelpers(
+			assignedIds,
+			f.formUuid,
+			f.moduleName,
+			f.formName,
+		);
+	}
+
 	const isCurrentMode = enabled && selectedMode === connectType;
 	const dirty =
-		JSON.stringify(drafts[selectedMode]) !==
-		JSON.stringify(seeded[selectedMode]);
+		dirtyKey(drafts[selectedMode], selectedMode) !==
+		dirtyKey(seeded[selectedMode], selectedMode);
 
 	const sectionsComplete = forms.every((f) =>
 		draftSectionsComplete(draftOf(f.formUuid), selectedMode),
@@ -187,7 +271,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		draftIdsValid(
 			draftOf(f.formUuid),
 			selectedMode,
-			idValidatorFor(f.formUuid),
+			idHelpers[f.formUuid].validateId,
 		),
 	);
 	const participatingCount = forms.filter((f) =>
@@ -223,30 +307,44 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 						: `Ready to switch to ${modeLabel(selectedMode)}.`;
 
 	const reseed = () => {
+		// Only the just-applied mode changed on the doc — rebuild ITS drafts +
+		// baseline and PRESERVE the other mode's in-progress work (reseeding both
+		// would silently discard uncommitted edits the user made to the mode they
+		// didn't apply).
 		const doc = docApi.getState();
-		const next = seedDrafts(
+		const fresh = seedModeDrafts(
 			forms,
 			doc,
 			sessionApi.getState().connectStash,
+			selectedMode,
 			(doc.connectType ?? undefined) as ConnectType | undefined,
 			(expr) => printXPathInDoc(doc, expr),
 		);
-		setDrafts(next);
-		setSeeded(next);
+		setDrafts((prev) => ({ ...prev, [selectedMode]: fresh }));
+		setSeeded((prev) => ({ ...prev, [selectedMode]: fresh }));
 	};
 
 	const apply = () => {
 		const doc = docApi.getState();
-		const blocks: Record<string, ConnectConfig> = Object.fromEntries(
-			forms
-				.filter((f) => draftParticipates(draftOf(f.formUuid), selectedMode))
-				.map((f) => [
-					f.formUuid,
-					draftToConfig(draftOf(f.formUuid), selectedMode, (text) =>
-						parseXPathForForm(doc, asUuid(f.formUuid), text),
-					),
-				]),
-		);
+		const blocks: Record<string, ConnectConfig> = {};
+		for (const f of forms) {
+			if (!draftParticipates(draftOf(f.formUuid), selectedMode)) continue;
+			// A same-mode participating form the user never touched (its draft is
+			// still the exact object we seeded) commits its STORED block verbatim,
+			// so re-deriving (which trims names + re-canonicalizes XPath) can't
+			// emit a redundant updateForm that bumps `updated_at` on an untouched
+			// form. A touched form, a switch, or an enable always re-derives.
+			const untouched =
+				isCurrentMode &&
+				drafts[selectedMode][f.formUuid] === seeded[selectedMode][f.formUuid];
+			const stored = doc.forms[f.formUuid]?.connect;
+			blocks[f.formUuid] =
+				untouched && stored
+					? stored
+					: draftToConfig(draftOf(f.formUuid), selectedMode, (text) =>
+							parseXPathForForm(doc, asUuid(f.formUuid), text),
+						);
+		}
 		const outcome = switchMode(selectedMode, blocks, { announce: false });
 		if (outcome.ok) {
 			reseed();
@@ -340,10 +438,9 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 							mode={selectedMode}
 							draft={draftOf(f.formUuid)}
 							onPatch={(patch) => patchDraft(f.formUuid, patch)}
-							validateId={idValidatorFor(f.formUuid)}
+							validateId={idHelpers[f.formUuid].validateId}
+							derivedId={idHelpers[f.formUuid].derivedId}
 							formUuid={f.formUuid}
-							moduleName={f.moduleName}
-							formName={f.formName}
 						/>
 					</div>
 				))}
