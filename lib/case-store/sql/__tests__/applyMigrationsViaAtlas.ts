@@ -22,6 +22,16 @@ export function applyMigrationsViaAtlas(
 	options: { stdio?: "inherit" | "pipe" } = {},
 ): void {
 	const stdio = options.stdio ?? "inherit";
+	// Atlas's Go (lib/pq) driver defaults to `sslmode=require`; the
+	// testcontainer / local Postgres has no SSL, so the connection fails
+	// ("SSL is not enabled on the server") on any atlas build whose default
+	// isn't `disable`. node-postgres (the worker connections) defaults SSL off
+	// and never tripped this, which is why it only surfaced under CI's atlas
+	// version. Make the intent explicit rather than depend on the binary's default.
+	const url = new URL(uri);
+	if (!url.searchParams.has("sslmode")) {
+		url.searchParams.set("sslmode", "disable");
+	}
 	const result = spawnSync(
 		"atlas",
 		[
@@ -30,7 +40,7 @@ export function applyMigrationsViaAtlas(
 			"--env",
 			"testcontainer",
 			"--url",
-			uri,
+			url.toString(),
 			"--allow-dirty",
 		],
 		stdio === "pipe"
