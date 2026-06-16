@@ -31,9 +31,10 @@ import {
 } from "@/lib/domain";
 import type { Mutation } from "./types";
 
-/** The first case-list column every new case-managing module is born with.
- *  `case_name` is in CommCare's standard property set, so the column resolves
- *  even before any form writes a custom property (`columnReferences`). */
+/** Header for the `Name` column a new case module is born with. `case_name` is
+ *  a CommCare standard property, so the column resolves (`columnReferences` →
+ *  `augmentCaseType`) once the case type is in the catalog — which is why the
+ *  viewer declares its type even when no form writes `case_name` yet. */
 const NAME_COLUMN_HEADER = "Name";
 
 /** The canonical starter case-list column — a plain `case_name`/"Name" column. */
@@ -89,15 +90,12 @@ function textField(id: string, label: string, caseType?: string): TextField {
 	};
 }
 
-/** The fields a registration form is born with: the `case_name` writer
- *  (`NO_CASE_NAME_FIELD`) plus one data property. `deriveCaseConfig` promotes
- *  `case_name` OUT of the case-property set (it's the name, not a property), so
- *  the second field is what satisfies `REGISTRATION_NO_CASE_PROPS`. */
+/** The field a registration form is born with: just the `case_name` writer
+ *  (`NO_CASE_NAME_FIELD`). A name-only case create is valid across the whole
+ *  wire (verified against commcare-hq / commcare-core / formplayer), so no
+ *  extra "saved property" field is forced. */
 function registrationFields(caseType: string | undefined): TextField[] {
-	return [
-		textField("case_name", "Name", caseType),
-		textField("notes", "Notes", caseType),
-	];
+	return [textField("case_name", "Name", caseType)];
 }
 
 /** A plain text question — the default first field for a non-registration
@@ -115,53 +113,53 @@ export interface CaseListModuleScaffold {
 	index?: number;
 }
 
+/** Declare `caseType` in the catalog (empty properties) when it's new — a no-op
+ *  for a type already present. The viewer below has no form to write
+ *  `case_name`, so the type must be in the catalog for the `Name` column's
+ *  standard-property to resolve (`augmentCaseType`). */
+function declareCaseTypeMutations(
+	doc: BlueprintDoc,
+	caseType: string,
+): Mutation[] {
+	const existing = doc.caseTypes ?? [];
+	if (existing.some((ct) => ct.name === caseType)) return [];
+	return [
+		{
+			kind: "setCaseTypes",
+			caseTypes: [...existing, { name: caseType, properties: [] }],
+		},
+	];
+}
+
 /**
- * A fully functional case-management module, born complete:
- *   - the module, with one `case_name`/"Name" case-list column
- *   - a starter `registration` form
- *   - a `case_name` text field writing to `caseType`
- *
- * The `case_name` field auto-registers `caseType` (and the `case_name`
- * property) in `doc.caseTypes` via the reducer's `ensureCatalogProperty`, so a
- * brand-new case type needs no separate `setCaseTypes`.
+ * A case-list module, born as a VIEWER (`caseListOnly`): the module + its case
+ * type + a `Name` case-list column, and NO forms. A formless case module must
+ * be `caseListOnly` (otherwise `NO_FORMS_OR_CASE_LIST`); the user adds a
+ * registration form afterward via the form affordance, which flips the flag off
+ * (`formScaffoldMutations`). The case type is declared in the catalog so the
+ * Name column resolves before any form writes `case_name`.
  */
 export function caseListModuleMutations(
 	doc: BlueprintDoc,
 	{ caseType, name, index }: CaseListModuleScaffold,
-): { mutations: Mutation[]; moduleUuid: Uuid; formUuid: Uuid } {
+): { mutations: Mutation[]; moduleUuid: Uuid } {
 	const moduleUuid = asUuid(crypto.randomUUID());
-	const formUuid = asUuid(crypto.randomUUID());
-
 	const moduleName = name ?? humanizeId(caseType);
 	const module: Module = {
 		uuid: moduleUuid,
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
 		name: moduleName,
 		caseType,
+		caseListOnly: true,
 		caseListConfig: caseListConfigWithName(),
 	};
-
-	const formName = `Register ${humanizeId(caseType).toLowerCase()}`;
-	const form: Form = {
-		uuid: formUuid,
-		id: uniqueSlug(formName, "form", existingFormIds(doc)),
-		name: formName,
-		type: "registration",
+	return {
+		mutations: [
+			...declareCaseTypeMutations(doc, caseType),
+			{ kind: "addModule", module, ...(index !== undefined && { index }) },
+		],
+		moduleUuid,
 	};
-
-	const mutations: Mutation[] = [
-		{ kind: "addModule", module, ...(index !== undefined && { index }) },
-		{ kind: "addForm", moduleUuid, form },
-		...registrationFields(caseType).map(
-			(field, i): Mutation => ({
-				kind: "addField",
-				parentUuid: formUuid,
-				field,
-				index: i,
-			}),
-		),
-	];
-	return { mutations, moduleUuid, formUuid };
 }
 
 /**

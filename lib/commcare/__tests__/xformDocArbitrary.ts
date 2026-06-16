@@ -1108,10 +1108,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 
 			const ctx: FieldBuildCtx = { minter, fields, fieldOrder };
 
-			// Case-bearing forms need a case_name field (NO_CASE_NAME_FIELD) AND
-			// at least one real case property (REGISTRATION_NO_CASE_PROPS — the
-			// name doesn't count as a saved property). Inject both first so every
-			// case-bearing form is valid regardless of what random fields follow.
+			// Case-bearing forms need a case_name field (NO_CASE_NAME_FIELD).
+			// Inject it (plus a saved property, for realistic case data) first so
+			// every case-bearing form is valid regardless of what random fields
+			// follow.
 			if (formSpec.type !== "survey") {
 				const caseNameUuid = minter.uuid("fld");
 				fieldOrder[formUuid].push(caseNameUuid);

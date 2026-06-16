@@ -298,7 +298,7 @@ const GUARD_COVERAGE = {
 				],
 			};
 		},
-		expectCodes: ["REGISTRATION_NO_CASE_PROPS", "MISSING_CASE_LIST_COLUMNS"],
+		expectCodes: ["NO_CASE_NAME_FIELD", "CASE_LIST_COLUMN_UNKNOWN_FIELD"],
 		fullScope: true,
 	},
 	setModuleMedia: {

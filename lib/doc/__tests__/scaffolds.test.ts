@@ -74,7 +74,7 @@ function baseDoc(): BlueprintDoc {
 }
 
 describe("caseListModuleMutations", () => {
-	it("commits a born-valid case-management module", () => {
+	it("commits a born-valid case-list viewer (caseListOnly, no forms)", () => {
 		const base = baseDoc();
 		const scaffold = caseListModuleMutations(base, { caseType: "patient" });
 		const verdict = mutationCommitVerdict(base, scaffold.mutations);
@@ -83,25 +83,17 @@ describe("caseListModuleMutations", () => {
 
 		const mod = verdict.nextDoc.modules[scaffold.moduleUuid];
 		expect(mod?.caseType).toBe("patient");
+		expect(mod?.caseListOnly).toBe(true);
 		expect(mod?.caseListConfig?.columns[0]).toMatchObject({
 			field: "case_name",
 			header: "Name",
 		});
 
-		const form = verdict.nextDoc.forms[scaffold.formUuid];
-		expect(form?.type).toBe("registration");
+		// A viewer is born with no forms — the user adds one later.
+		expect(verdict.nextDoc.formOrder[scaffold.moduleUuid]).toEqual([]);
 
-		// A `case_name` field writing to the module's case type exists.
-		const fieldUuids = verdict.nextDoc.fieldOrder[scaffold.formUuid] ?? [];
-		const caseName = fieldUuids
-			.map((u) => verdict.nextDoc.fields[u])
-			.find((f) => f?.id === "case_name");
-		expect(caseName).toBeTruthy();
-		expect((caseName as { case_property_on?: string }).case_property_on).toBe(
-			"patient",
-		);
-
-		// The new case type auto-registers in the catalog (ensureCatalogProperty).
+		// The case type is declared in the catalog so the Name column's
+		// standard `case_name` property resolves with no writer yet.
 		expect(verdict.nextDoc.caseTypes?.some((ct) => ct.name === "patient")).toBe(
 			true,
 		);
@@ -155,6 +147,21 @@ describe("formScaffoldMutations", () => {
 			const verdict = mutationCommitVerdict(doc, scaffold.mutations);
 			expect(verdict.ok, type).toBe(true);
 		}
+	});
+
+	it("a registration form is born with just a Name field (no Notes)", () => {
+		// A name-only case create is wire-valid (REGISTRATION_NO_CASE_PROPS was
+		// removed), so the registration scaffold carries exactly one field.
+		const base = baseDoc();
+		const cl = caseListModuleMutations(base, { caseType: "patient" });
+		const doc = mutationCommitVerdict(base, cl.mutations).nextDoc;
+		const scaffold = formScaffoldMutations(doc, cl.moduleUuid, "registration");
+		if (!scaffold) throw new Error("expected a registration-form scaffold");
+		const verdict = mutationCommitVerdict(doc, scaffold.mutations);
+		expect(verdict.ok).toBe(true);
+		const fieldUuids = verdict.nextDoc.fieldOrder[scaffold.formUuid] ?? [];
+		expect(fieldUuids).toHaveLength(1);
+		expect(verdict.nextDoc.fields[fieldUuids[0]]?.id).toBe("case_name");
 	});
 
 	it("returns null for an unknown module", () => {

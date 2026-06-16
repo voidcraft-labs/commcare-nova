@@ -1083,11 +1083,9 @@ async function growStandardPrelude(
 				{
 					name: "Register patient",
 					type: "registration",
-					/* The third writer is the standing removeField target: with
-					 * only the registration unit, removing `village` would
-					 * re-introduce REGISTRATION_NO_CASE_PROPS (the name writer
-					 * alone doesn't count as saving case data) and every
-					 * prelude-form removal would bounce. */
+					/* A spare writer as the standing removeField target — a removable
+					 * field whose removal leaves the registration form valid, so
+					 * prelude-form removals don't bounce. */
 					fields: [
 						...registrationUnitFields("patient"),
 						{

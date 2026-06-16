@@ -253,34 +253,6 @@ describe("form rules", () => {
 		).toBe(false);
 	});
 
-	it("catches registration form with no case properties", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Form",
-							type: "registration",
-							fields: [f({ kind: "text", id: "q", label: "Name" })],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
-			],
-		});
-		expect(
-			runValidation(doc).some((e) => e.code === "REGISTRATION_NO_CASE_PROPS"),
-		).toBe(true);
-	});
-
 	it("catches case property with bad format (leading digit)", () => {
 		const doc = buildDoc({
 			appName: "Test",
