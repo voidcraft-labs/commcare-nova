@@ -1,5 +1,13 @@
 # Builder Components
 
+## Builder state — three sources of truth
+
+The builder's state is split across three stores, each with a distinct lifecycle, and each reached ONLY through its named domain hooks (raw stores and selector-accepting hooks are lib-private; Biome enforces it):
+
+- **The URL** owns *where you are* and *what's selected* — `lib/routing` parses the path into a typed `Location`. Intra-builder navigation goes through the History API (`useNavigate`), never Next's router (a router call would force a server RSC re-render on every selection change).
+- **The doc store** (`lib/doc`) owns the blueprint and undo/redo. Every UI edit dispatches through `useBlueprintMutations`, which runs the commit gate — a rejected edit never reaches the store and its findings surface inline or via a toast.
+- **The session store** (`lib/session`) owns ephemeral run/UI lifecycle (preview mode, sidebars, the active run's event buffer, staged uploads). None of it is undoable or persisted, and every lifecycle signal is *derived* from a few base fields — never add a shadow flag.
+
 ## Edit vs preview mode
 
 Edit is a frozen, stateless view: inputs empty, validation suppressed, submit bar hidden, and ALL fields render regardless of relevant conditions (hidden ones as compact cards) so the full structure stays editable. Preview is a persistent sandbox: values survive round-trips through edit; validation resets on exit; blueprint mutations recreate the engine but restore only user-touched values, so edited defaults show immediately.
