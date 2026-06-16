@@ -66,7 +66,7 @@ Each module/form row carries a two-step inline delete (`appTree/TreeRowDelete.ts
 
 ## Settings popovers
 
-Module/form/app media each clears through its dedicated null-carrying mutation; the case-list appearance slots instead ride wholesale `updateModule({ caseListConfig })`, which cannot carry nulls (see `setOptionalSlot` below). The module-settings popover also hosts the Case Type section (`ModuleCaseTypeSection`), which sets/clears the type through the gated `updateModule` (seeding a `Name` column when a form-bearing module gains a type) — a change the gate refuses surfaces inline.
+Module/form/app media each clears through its dedicated null-carrying mutation; the case-list appearance slots instead ride wholesale `updateModule({ caseListConfig })`, which cannot carry nulls (see `setOptionalSlot` below). The module-settings popover also hosts the Case Type section (`ModuleCaseTypeSection`), which sets/clears the type through the gated `updateModule`. Setting seeds a `Name` column (and makes a formless module a `caseListOnly` viewer), and `updateModule` declares a brand-new type in the catalog so the column resolves; clearing drops the case-list/search config AND the `caseListOnly` flag (a typeless viewer is invalid). A change the gate refuses (e.g. clearing the type out from under case forms) surfaces inline.
 
 ## Inspector rail (right-rail properties panel)
 

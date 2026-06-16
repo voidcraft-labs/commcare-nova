@@ -29,6 +29,7 @@ import {
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
+import type { CaseTypeRetirement } from "./caseTypeRetirement";
 import type { Mutation } from "./types";
 
 /** Header for the `Name` column a new case module is born with. `case_name` is
@@ -129,6 +130,37 @@ export function declareCaseTypeMutations(
 			caseTypes: [...existing, { name: caseType, properties: [] }],
 		},
 	];
+}
+
+/**
+ * The SINGLE catalog write for a module case-type change, composing the
+ * retirement of the orphaned OLD type with the declaration of a brand-NEW one.
+ *
+ * Both are WHOLESALE `setCaseTypes`, so they MUST collapse to one mutation:
+ * emitting the declare and the retirement's own set separately lets the later
+ * wholesale write clobber the earlier — re-typing a viewer to a fresh type
+ * would drop the new type back out of the catalog, failing the seeded `Name`
+ * column (`CASE_LIST_COLUMN_UNKNOWN_FIELD`). Returns `[]` when neither applies
+ * (an existing type set on a still-owned module, or a non-case-type patch).
+ */
+export function caseTypeCatalogMutations(
+	doc: BlueprintDoc,
+	retirement: CaseTypeRetirement,
+	nextCaseType: string | undefined,
+): Mutation[] {
+	const existing = doc.caseTypes ?? [];
+	const isNew =
+		typeof nextCaseType === "string" &&
+		!existing.some((ct) => ct.name === nextCaseType);
+	if (retirement.kind !== "retire" && !isNew) return [];
+	let next = existing;
+	if (retirement.kind === "retire") {
+		next = next.filter((ct) => ct.name !== retirement.caseType);
+	}
+	if (isNew) {
+		next = [...next, { name: nextCaseType as string, properties: [] }];
+	}
+	return [{ kind: "setCaseTypes", caseTypes: next.length > 0 ? next : null }];
 }
 
 /**

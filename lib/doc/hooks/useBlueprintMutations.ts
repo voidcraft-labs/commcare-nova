@@ -55,7 +55,7 @@ import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	caseListModuleMutations,
-	declareCaseTypeMutations,
+	caseTypeCatalogMutations,
 	formScaffoldMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
@@ -894,21 +894,17 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						if (announce) notifyRejectedCommit([retirement.userMessage]);
 						return { ok: false, messages: [retirement.userMessage] };
 					}
-					/* Setting a BRAND-NEW case type must declare it in the catalog
-					 * first, or the seeded `Name` column references a property the
-					 * validator can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`):
-					 * `augmentCaseType` only injects standard properties for cataloged
-					 * types. A no-op for an existing type; never fires on a clear
-					 * (`patch.caseType` is undefined then). */
-					const declare =
-						typeof patch.caseType === "string"
-							? declareCaseTypeMutations(doc, patch.caseType)
-							: [];
+					/* ONE catalog write covers both the retirement of the orphaned
+					 * old type and the declaration of a brand-new one (re-typing a
+					 * viewer to a fresh type does both at once). A brand-new type
+					 * must be cataloged or the seeded `Name` column can't resolve
+					 * (`CASE_LIST_COLUMN_UNKNOWN_FIELD`); composing into one
+					 * `setCaseTypes` stops the two wholesale writes from clobbering
+					 * each other. */
 					return toOutcome(
 						guardedApply([
-							...declare,
+							...caseTypeCatalogMutations(doc, retirement, patch.caseType),
 							{ kind: "updateModule", uuid, patch },
-							...(retirement.kind === "retire" ? retirement.mutations : []),
 						]),
 					);
 				},

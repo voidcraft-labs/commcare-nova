@@ -5,10 +5,12 @@
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { applyMutation } from "@/lib/doc/mutations";
 import {
 	caseListModuleMutations,
+	caseTypeCatalogMutations,
 	caseTypeClearPatch,
 	caseTypeSetPatch,
 	declareCaseTypeMutations,
@@ -236,6 +238,36 @@ describe("caseTypeSetPatch", () => {
 		]);
 		expect(verdict.ok).toBe(true);
 		expect(verdict.nextDoc.modules[M("s")]?.caseListOnly).toBe(true);
+	});
+
+	it("re-typing a viewer to a brand-new type commits clean (one catalog write)", () => {
+		// The born viewer owns type "a" alone; re-typing to a brand-new "b" must
+		// retire "a" AND declare "b" in ONE setCaseTypes. Two separate wholesale
+		// writes (declare [a,b] then retire-of-a [] ) would clobber "b" back out,
+		// failing the seeded Name column (CASE_LIST_COLUMN_UNKNOWN_FIELD) — the
+		// re-type dead-end caseTypeCatalogMutations exists to prevent.
+		const { mutations, moduleUuid } = caseListModuleMutations(emptyDoc(), {
+			caseType: "a",
+		});
+		const doc = produce(emptyDoc(), (d) => {
+			for (const m of mutations) applyMutation(d, m);
+		});
+		const mod = doc.modules[moduleUuid];
+		if (!mod) throw new Error("expected module");
+		const retirement = planCaseTypeRetirementOnRetype(doc, moduleUuid, "b");
+		const verdict = mutationCommitVerdict(doc, [
+			...caseTypeCatalogMutations(doc, retirement, "b"),
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: caseTypeSetPatch(mod, false, "b"),
+			},
+		]);
+		expect(verdict.ok).toBe(true);
+		const names = (verdict.nextDoc.caseTypes ?? []).map((ct) => ct.name);
+		expect(names).toContain("b");
+		expect(names).not.toContain("a");
+		expect(verdict.nextDoc.modules[moduleUuid]?.caseType).toBe("b");
 	});
 });
 
