@@ -192,10 +192,33 @@ describe("caseTypeSetPatch", () => {
 		).toBeUndefined();
 	});
 
-	it("does not seed a column when the module has no forms", () => {
-		expect(
-			caseTypeSetPatch(moduleWith(), false, "thing").caseListConfig,
-		).toBeUndefined();
+	it("makes a formless module a case-list-only viewer (born valid, no column)", () => {
+		// A formless case module is invalid (NO_FORMS_OR_CASE_LIST); the viewer
+		// is the only valid formless+typed shape. No seeded column — a case_name
+		// column needs a writer, and caseListOnly is exempt from the column rule.
+		const patch = caseTypeSetPatch(moduleWith(), false, "thing");
+		expect(patch).toEqual({ caseType: "thing", caseListOnly: true });
+	});
+
+	it("set-on-formless commits clean through the gate", () => {
+		// Start from a bare survey module (no forms) and set a type via the patch.
+		const doc = produce(emptyDoc(), (d) => {
+			applyMutation(d, {
+				kind: "addModule",
+				module: { uuid: M("s"), id: "s", name: "S" } as Module,
+			});
+		});
+		const mod = doc.modules[M("s")];
+		if (!mod) throw new Error("expected module");
+		const verdict = mutationCommitVerdict(doc, [
+			{
+				kind: "updateModule",
+				uuid: M("s"),
+				patch: caseTypeSetPatch(mod, false, "thing"),
+			},
+		]);
+		expect(verdict.ok).toBe(true);
+		expect(verdict.nextDoc.modules[M("s")]?.caseListOnly).toBe(true);
 	});
 });
 

@@ -11,11 +11,23 @@
 import type { ReactNode } from "react";
 
 interface InterleaveOpts<T> {
-	/** Render rows only, no insertion points — locked app or active filter. */
+	/**
+	 * Render rows only, no insertion points — locked app or active filter.
+	 * Insertion points are emitted ONLY when this is false, so a filtering
+	 * `renderItem` (returning `null`) must pair with `suppress: true` — both
+	 * callers do (`suppress = locked || !!searchResult`). That pairing is what
+	 * keeps the visual placement honest: when suppressed there are no insertion
+	 * points to mis-place.
+	 */
 	readonly suppress: boolean;
-	/** Render a row; return `null` to omit it (e.g. filtered out by search). */
+	/** Render a row; return `null` to omit it (filtered out by search). */
 	readonly renderItem: (item: T, index: number) => ReactNode | null;
-	/** Render the insertion point that inserts at `atIndex`, under `key`. */
+	/**
+	 * Render the insertion point that inserts at `atIndex` — the index into the
+	 * FULL (unfiltered) order array, taken from the item's own position, so the
+	 * insert lands at the right `moduleOrder` / `formOrder` slot regardless of
+	 * filtering. `key` is unique within the list.
+	 */
 	readonly renderInsertion: (atIndex: number, key: string) => ReactNode;
 	/** Stable key fragment for the insertion AFTER `item` (never an array index). */
 	readonly itemKey: (item: T) => string;

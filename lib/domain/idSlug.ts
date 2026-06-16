@@ -11,6 +11,19 @@
 // don't have to be globally unique (no validator rule enforces it), so this
 // is a readability convenience, not a correctness gate.
 
+/**
+ * Turn an identifier into a person-facing label: separators to spaces, trimmed,
+ * first letter capitalized (`home_visit` → "Home visit"). The inverse-ish of
+ * `slugifyId` — a default display name derived from a slug/id. Falls back to the
+ * input when sanitizing leaves nothing.
+ */
+export function humanizeId(name: string): string {
+	const words = name.replace(/[_-]+/g, " ").trim();
+	return words.length > 0
+		? words.charAt(0).toUpperCase() + words.slice(1)
+		: name;
+}
+
 /** Slugify `name` into a semantic id; returns `fallback` if nothing survives. */
 export function slugifyId(name: string, fallback: string): string {
 	const slug = name

@@ -21,6 +21,8 @@ import {
 	type CaseListConfig,
 	type Form,
 	type FormType,
+	formTypeLabels,
+	humanizeId,
 	type Module,
 	plainColumn,
 	type TextField,
@@ -52,24 +54,6 @@ function caseListConfigWithName(existing?: CaseListConfig): CaseListConfig {
 		searchInputs: existing?.searchInputs ?? [],
 		...(existing?.filter && { filter: existing.filter }),
 	};
-}
-
-/** Friendly default form names per type — the user renames inline on the form
- *  screen after creation. */
-const FORM_TYPE_NAME: Record<FormType, string> = {
-	registration: "Registration",
-	followup: "Follow-up",
-	close: "Close case",
-	survey: "Survey",
-};
-
-/** Title-case a case-type slug for a default display name: `home_visit` →
- *  "Home visit". Just enough humanizing for a starting label; the user renames. */
-function humanizeCaseType(caseType: string): string {
-	const words = caseType.replace(/[_-]+/g, " ").trim();
-	return words.length > 0
-		? words.charAt(0).toUpperCase() + words.slice(1)
-		: caseType;
 }
 
 function existingModuleIds(doc: BlueprintDoc): Set<string> {
@@ -148,7 +132,7 @@ export function caseListModuleMutations(
 	const moduleUuid = asUuid(crypto.randomUUID());
 	const formUuid = asUuid(crypto.randomUUID());
 
-	const moduleName = name ?? humanizeCaseType(caseType);
+	const moduleName = name ?? humanizeId(caseType);
 	const module: Module = {
 		uuid: moduleUuid,
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
@@ -157,7 +141,7 @@ export function caseListModuleMutations(
 		caseListConfig: caseListConfigWithName(),
 	};
 
-	const formName = `Register ${humanizeCaseType(caseType).toLowerCase()}`;
+	const formName = `Register ${humanizeId(caseType).toLowerCase()}`;
 	const form: Form = {
 		uuid: formUuid,
 		id: uniqueSlug(formName, "form", existingFormIds(doc)),
@@ -224,7 +208,7 @@ export function formScaffoldMutations(
 	if (!mod) return null;
 
 	const formUuid = asUuid(crypto.randomUUID());
-	const formName = FORM_TYPE_NAME[type];
+	const formName = formTypeLabels[type];
 	const form: Form = {
 		uuid: formUuid,
 		id: uniqueSlug(formName, "form", existingFormIds(doc)),
@@ -264,22 +248,31 @@ export function formScaffoldMutations(
 }
 
 /**
- * The module patch that SETS a case type on an existing module. Seeds a `Name`
- * case-list column when the module has forms but no columns — a form-bearing
- * case module obliges one (`MISSING_CASE_LIST_COLUMNS`). Centralizing the
- * born-valid decision here keeps the settings UI from re-encoding the rule;
- * callers pass the module + whether it has forms (both already in hand from
- * their entity hooks) rather than the whole doc.
+ * The module patch that SETS a case type on an existing module, born valid:
+ *
+ *   - No forms → a case-list-only VIEWER (`caseListOnly: true`). A formless
+ *     case module is invalid (`NO_FORMS_OR_CASE_LIST`); the viewer is the only
+ *     valid formless+typed shape, and adding a form later flips the flag off
+ *     (`formScaffoldMutations`). (No seeded column: a `case_name` column needs
+ *     a writer, and `caseListOnly` modules are exempt from the column rule.)
+ *   - Has forms, no columns → seed a `Name` column (a form-bearing case module
+ *     obliges one, `MISSING_CASE_LIST_COLUMNS`).
+ *   - Has forms + columns → just the type.
+ *
+ * Centralizing the born-valid decision here keeps the settings UI from
+ * re-encoding the rule; callers pass the module + whether it has forms (both in
+ * hand from their entity hooks) rather than the whole doc.
  */
 export function caseTypeSetPatch(
 	mod: Module,
 	hasForms: boolean,
 	caseType: string,
 ): Partial<Omit<Module, "uuid">> {
+	if (!hasForms) return { caseType, caseListOnly: true };
 	const hasColumns = (mod.caseListConfig?.columns.length ?? 0) > 0;
-	return hasForms && !hasColumns
-		? { caseType, caseListConfig: caseListConfigWithName(mod.caseListConfig) }
-		: { caseType };
+	return hasColumns
+		? { caseType }
+		: { caseType, caseListConfig: caseListConfigWithName(mod.caseListConfig) };
 }
 
 /**

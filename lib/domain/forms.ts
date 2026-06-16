@@ -12,6 +12,19 @@ export const FORM_TYPES = [
 ] as const;
 export type FormType = (typeof FORM_TYPES)[number];
 
+/**
+ * Person-facing display label per form type — the single source the builder's
+ * add-form menu (the chooser) and the created form's default name both read, so
+ * the label a user picks is the name they get. Mirrors `formTypeIcons`: form
+ * types are a domain concept, so their display vocabulary lives here.
+ */
+export const formTypeLabels: Record<FormType, string> = {
+	registration: "Registration",
+	followup: "Follow-up",
+	close: "Close",
+	survey: "Survey",
+};
+
 export const CASE_FORM_TYPES: ReadonlySet<FormType> = new Set([
 	"registration",
 	"followup",

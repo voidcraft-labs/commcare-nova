@@ -9,15 +9,18 @@
 
 "use client";
 import { Menu } from "@base-ui/react/menu";
-import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerClipboardText from "@iconify-icons/tabler/clipboard-text";
-import tablerFilePencil from "@iconify-icons/tabler/file-pencil";
-import tablerFilePlus from "@iconify-icons/tabler/file-plus";
-import tablerFileX from "@iconify-icons/tabler/file-x";
+import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { FormType, Uuid } from "@/lib/domain";
+import {
+	CASE_FORM_TYPES,
+	FORM_TYPES,
+	type FormType,
+	formTypeLabels,
+	type Uuid,
+} from "@/lib/domain";
+import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	MENU_ITEM_CLS,
@@ -27,45 +30,15 @@ import {
 } from "@/lib/styles";
 import { INSERTION_TRIGGER_CLS } from "./TreeInsertionAffordance";
 
-interface FormTypeItem {
-	type: FormType;
-	label: string;
-	icon: IconifyIcon;
-	desc: string;
-	/** When true, the type needs the module to have a case type. */
-	needsCaseType: boolean;
-}
-
-const FORM_TYPE_ITEMS: readonly FormTypeItem[] = [
-	{
-		type: "registration",
-		label: "Registration",
-		icon: tablerFilePlus,
-		desc: "Creates a new case",
-		needsCaseType: true,
-	},
-	{
-		type: "followup",
-		label: "Follow-up",
-		icon: tablerFilePencil,
-		desc: "Updates a case",
-		needsCaseType: true,
-	},
-	{
-		type: "close",
-		label: "Close",
-		icon: tablerFileX,
-		desc: "Closes a case",
-		needsCaseType: true,
-	},
-	{
-		type: "survey",
-		label: "Survey",
-		icon: tablerClipboardText,
-		desc: "Collects data — no case",
-		needsCaseType: false,
-	},
-];
+/** Menu-only one-line description per form type (label + icon + the
+ *  needs-a-case-type gate all come from the domain — `formTypeLabels`,
+ *  `formTypeIcons`, `CASE_FORM_TYPES` — so this surface can't drift from them). */
+const FORM_TYPE_DESC: Record<FormType, string> = {
+	registration: "Creates a new case",
+	followup: "Updates a case",
+	close: "Closes a case",
+	survey: "Collects data — no case",
+};
 
 interface AddFormMenuProps {
 	readonly moduleUuid: Uuid;
@@ -109,25 +82,27 @@ export function AddFormMenu({
 					sideOffset={6}
 				>
 					<Menu.Popup className={MENU_POPUP_CLS} style={{ minWidth: 220 }}>
-						{FORM_TYPE_ITEMS.map((item) => {
-							const disabled = item.needsCaseType && !hasCaseType;
+						{FORM_TYPES.map((type) => {
+							// Case-managing types need a case type; survey never does —
+							// the domain's CASE_FORM_TYPES is the single source of that gate.
+							const disabled = CASE_FORM_TYPES.has(type) && !hasCaseType;
 							return (
 								<Menu.Item
-									key={item.type}
+									key={type}
 									disabled={disabled}
-									onClick={() => handleSelect(item.type)}
+									onClick={() => handleSelect(type)}
 									className={disabled ? MENU_ITEM_DISABLED_CLS : MENU_ITEM_CLS}
 								>
 									<Icon
-										icon={item.icon}
+										icon={formTypeIcons[type]}
 										width="16"
 										height="16"
 										className="text-nova-text-muted shrink-0"
 									/>
 									<span className="flex-1 min-w-0">
-										<span className="block">{item.label}</span>
+										<span className="block">{formTypeLabels[type]}</span>
 										<span className="block text-[10px] text-nova-text-muted">
-											{disabled ? "Needs a case type" : item.desc}
+											{disabled ? "Needs a case type" : FORM_TYPE_DESC[type]}
 										</span>
 									</span>
 								</Menu.Item>
