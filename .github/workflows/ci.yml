@@ -1,12 +1,16 @@
 name: CI
 
 # Runs the quality gate the local git hooks enforce, plus a production build,
-# on every pull request and on pushes to main. This is what actually verifies
-# Dependabot's dependency-bump PRs before anyone merges them.
+# on every pull request. This is what actually verifies Dependabot's
+# dependency-bump PRs before anyone merges them.
+#
+# No push:[main] trigger on purpose: the branch ruleset requires PRs to be up to
+# date with main before merging, so the PR run already verified the exact commit
+# that lands — a re-run on main would be redundant. It also couldn't gate the
+# deploy, since the Cloud Build trigger (cloudbuild.yaml) fires on the same push
+# independently and never waited on this workflow.
 on:
   pull_request:
-  push:
-    branches: [main]
 
 # A newer push to the same branch/PR cancels the in-flight run for it.
 concurrency:
