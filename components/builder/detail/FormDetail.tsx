@@ -6,7 +6,12 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Uuid } from "@/lib/doc/types";
-import { CASE_FORM_TYPES, type FormType } from "@/lib/domain";
+import {
+	CASE_FORM_TYPES,
+	FORM_TYPES,
+	type FormType,
+	formTypeLabels,
+} from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
 	MENU_ITEM_BASE,
@@ -16,12 +21,12 @@ import {
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
 
-const formTypeOptions: { value: FormType; label: string }[] = [
-	{ value: "registration", label: "Registration" },
-	{ value: "followup", label: "Followup" },
-	{ value: "close", label: "Close" },
-	{ value: "survey", label: "Survey" },
-];
+// Derived from the domain's single-source labels (lib/domain/forms.ts) so the
+// type-change dropdown reads the same vocabulary as the add-form chooser — e.g.
+// "Follow-up", not a divergent hand-rolled "Followup".
+const formTypeOptions: { value: FormType; label: string }[] = FORM_TYPES.map(
+	(value) => ({ value, label: formTypeLabels[value] }),
+);
 
 interface FormTypeButtonProps {
 	moduleUuid: Uuid;

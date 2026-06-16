@@ -3,12 +3,13 @@
 // Module-settings section for viewing and changing a module's case type. Picks
 // an existing type, creates a new one, or clears it — all through the gated
 // `updateModule` (the inline flavor, so a rejection renders beside the control
-// instead of only as a toast). The hook already runs the case-type retirement
-// cascade; this section adds one thing the SA's `updateModule` tool also does:
-// when a type is set on a module that has forms but no case-list columns, it
-// seeds a "Name" column in the same batch so the change stays valid
-// (`MISSING_CASE_LIST_COLUMNS`). A change the gate refuses (e.g. clearing the
-// type while case forms still need it) surfaces the validator's message inline.
+// instead of only as a toast). The born-valid shaping lives in the
+// `caseTypeSetPatch` / `caseTypeClearPatch` builders (`lib/doc/scaffolds`):
+// setting a type seeds a "Name" column (and makes a formless module a viewer),
+// clearing drops the case-list config AND the `caseListOnly` flag (so a viewer
+// becomes a survey). `updateModule` itself declares a brand-new type in the
+// catalog and runs the case-type retirement cascade. A change the gate refuses
+// (e.g. clearing the type while case forms still need it) surfaces inline.
 
 "use client";
 import { useState } from "react";

@@ -11,6 +11,7 @@ import {
 	caseListModuleMutations,
 	caseTypeClearPatch,
 	caseTypeSetPatch,
+	declareCaseTypeMutations,
 	formScaffoldMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
@@ -199,16 +200,24 @@ describe("caseTypeSetPatch", () => {
 		).toBeUndefined();
 	});
 
-	it("makes a formless module a case-list-only viewer (born valid, no column)", () => {
-		// A formless case module is invalid (NO_FORMS_OR_CASE_LIST); the viewer
-		// is the only valid formless+typed shape. No seeded column — a case_name
-		// column needs a writer, and caseListOnly is exempt from the column rule.
+	it("makes a formless module a case-list-only viewer with a Name column", () => {
+		// A formless case module is invalid (NO_FORMS_OR_CASE_LIST); the viewer is
+		// the only valid formless+typed shape, and it seeds a Name column like a
+		// born viewer. The caller (updateModule) declares the new type so the
+		// column resolves — see the gate round-trip below.
 		const patch = caseTypeSetPatch(moduleWith(), false, "thing");
-		expect(patch).toEqual({ caseType: "thing", caseListOnly: true });
+		expect(patch.caseType).toBe("thing");
+		expect(patch.caseListOnly).toBe(true);
+		expect(patch.caseListConfig?.columns[0]).toMatchObject({
+			field: "case_name",
+			header: "Name",
+		});
 	});
 
-	it("set-on-formless commits clean through the gate", () => {
-		// Start from a bare survey module (no forms) and set a type via the patch.
+	it("set-on-formless commits clean through the gate (new type declared)", () => {
+		// Mirror the hook: updateModule declares a brand-new type BEFORE the patch,
+		// so the seeded Name column resolves. Without the declaration this rejects
+		// (CASE_LIST_COLUMN_UNKNOWN_FIELD).
 		const doc = produce(emptyDoc(), (d) => {
 			applyMutation(d, {
 				kind: "addModule",
@@ -218,6 +227,7 @@ describe("caseTypeSetPatch", () => {
 		const mod = doc.modules[M("s")];
 		if (!mod) throw new Error("expected module");
 		const verdict = mutationCommitVerdict(doc, [
+			...declareCaseTypeMutations(doc, "thing"),
 			{
 				kind: "updateModule",
 				uuid: M("s"),
@@ -230,14 +240,34 @@ describe("caseTypeSetPatch", () => {
 });
 
 describe("caseTypeClearPatch", () => {
-	it("clears the type AND drops the now-meaningless case-list + case-search config", () => {
-		// Dropping caseSearchConfig is load-bearing: a typeless module keeping it
-		// trips caseSearchConfigRequiresCaseType.
+	it("clears the type, the caseListOnly flag, and the case-list + search config", () => {
+		// Dropping caseSearchConfig is load-bearing (a typeless module keeping it
+		// trips caseSearchConfigRequiresCaseType); dropping caseListOnly is too (a
+		// typeless viewer trips CASE_LIST_ONLY_NO_CASE_TYPE).
 		expect(caseTypeClearPatch()).toEqual({
 			caseType: undefined,
+			caseListOnly: undefined,
 			caseListConfig: undefined,
 			caseSearchConfig: undefined,
 		});
+	});
+
+	it("clearing a born viewer's type commits clean (becomes a survey)", () => {
+		// The born case-list module is caseListOnly:true; clearing its type must
+		// also drop the flag or it leaves an invalid typeless viewer
+		// (CASE_LIST_ONLY_NO_CASE_TYPE).
+		const { mutations, moduleUuid } = caseListModuleMutations(emptyDoc(), {
+			caseType: "thing",
+		});
+		const doc = produce(emptyDoc(), (d) => {
+			for (const m of mutations) applyMutation(d, m);
+		});
+		const verdict = mutationCommitVerdict(doc, [
+			{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() },
+		]);
+		expect(verdict.ok).toBe(true);
+		expect(verdict.nextDoc.modules[moduleUuid]?.caseListOnly).toBeFalsy();
+		expect(verdict.nextDoc.modules[moduleUuid]?.caseType).toBeUndefined();
 	});
 });
 

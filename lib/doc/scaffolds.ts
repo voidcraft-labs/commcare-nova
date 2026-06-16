@@ -114,10 +114,10 @@ export interface CaseListModuleScaffold {
 }
 
 /** Declare `caseType` in the catalog (empty properties) when it's new — a no-op
- *  for a type already present. The viewer below has no form to write
- *  `case_name`, so the type must be in the catalog for the `Name` column's
- *  standard-property to resolve (`augmentCaseType`). */
-function declareCaseTypeMutations(
+ *  for a type already present. A formless viewer (or a settings-set type) has no
+ *  form to write `case_name`, so the type must be in the catalog for the `Name`
+ *  column's standard property to resolve (`augmentCaseType`). */
+export function declareCaseTypeMutations(
 	doc: BlueprintDoc,
 	caseType: string,
 ): Mutation[] {
@@ -248,14 +248,18 @@ export function formScaffoldMutations(
 /**
  * The module patch that SETS a case type on an existing module, born valid:
  *
- *   - No forms → a case-list-only VIEWER (`caseListOnly: true`). A formless
+ *   - No forms → a case-list-only VIEWER (`caseListOnly: true`) with a `Name`
+ *     column, exactly like a born viewer (`caseListModuleMutations`). A formless
  *     case module is invalid (`NO_FORMS_OR_CASE_LIST`); the viewer is the only
  *     valid formless+typed shape, and adding a form later flips the flag off
- *     (`formScaffoldMutations`). (No seeded column: a `case_name` column needs
- *     a writer, and `caseListOnly` modules are exempt from the column rule.)
+ *     (`formScaffoldMutations`).
  *   - Has forms, no columns → seed a `Name` column (a form-bearing case module
  *     obliges one, `MISSING_CASE_LIST_COLUMNS`).
  *   - Has forms + columns → just the type.
+ *
+ * A brand-new `caseType` must ALSO be declared in the catalog so the `Name`
+ * column resolves — that's the caller's job (`updateModule` prepends
+ * `declareCaseTypeMutations`), not part of this module patch.
  *
  * Centralizing the born-valid decision here keeps the settings UI from
  * re-encoding the rule; callers pass the module + whether it has forms (both in
@@ -266,7 +270,12 @@ export function caseTypeSetPatch(
 	hasForms: boolean,
 	caseType: string,
 ): Partial<Omit<Module, "uuid">> {
-	if (!hasForms) return { caseType, caseListOnly: true };
+	if (!hasForms)
+		return {
+			caseType,
+			caseListOnly: true,
+			caseListConfig: caseListConfigWithName(mod.caseListConfig),
+		};
 	const hasColumns = (mod.caseListConfig?.columns.length ?? 0) > 0;
 	return hasColumns
 		? { caseType }
@@ -278,11 +287,16 @@ export function caseTypeSetPatch(
  * Drops the now-meaningless case-list + case-search config in the same patch —
  * a typeless module keeping its `caseSearchConfig` would trip
  * `caseSearchConfigRequiresCaseType`, and orphaned columns would resurface on
- * re-typing. (Clears travel as `undefined` per the `updateModule` convention.)
+ * re-typing. ALSO drops `caseListOnly`: a viewer (the born case-list shape) is
+ * `caseListOnly: true`, and clearing its type while keeping the flag leaves an
+ * invalid typeless viewer (`CASE_LIST_ONLY_NO_CASE_TYPE`) — a survey has the
+ * flag off. (Clears travel as `undefined` per the `updateModule` convention;
+ * the wholesale snapshot save strips them, so absence is the cleared state.)
  */
 export function caseTypeClearPatch(): Partial<Omit<Module, "uuid">> {
 	return {
 		caseType: undefined,
+		caseListOnly: undefined,
 		caseListConfig: undefined,
 		caseSearchConfig: undefined,
 	};

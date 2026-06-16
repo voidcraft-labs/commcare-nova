@@ -55,6 +55,7 @@ import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	caseListModuleMutations,
+	declareCaseTypeMutations,
 	formScaffoldMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
@@ -832,7 +833,29 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("removeForm", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(guardedApply([{ kind: "removeForm", uuid }]));
+					const mutations: Mutation[] = [{ kind: "removeForm", uuid }];
+					/* Removing the LAST form of a case-managing module would leave it
+					 * formless+typed (`NO_FORMS_OR_CASE_LIST`). Convert it to a
+					 * case-list viewer in the same batch — the inverse of
+					 * `formScaffoldMutations` flipping `caseListOnly` off when the
+					 * first form is added (a form-bearing case module already carries
+					 * the columns a viewer needs, `MISSING_CASE_LIST_COLUMNS`). */
+					const parentId = Object.keys(doc.formOrder).find((m) =>
+						doc.formOrder[m]?.includes(uuid),
+					);
+					const parent = parentId ? doc.modules[parentId] : undefined;
+					if (
+						parent?.caseType &&
+						!parent.caseListOnly &&
+						doc.formOrder[parentId as string]?.length === 1
+					) {
+						mutations.push({
+							kind: "updateModule",
+							uuid: asUuid(parentId as string),
+							patch: { caseListOnly: true },
+						});
+					}
+					return toOutcome(guardedApply(mutations));
 				},
 
 				addModule(module) {
@@ -871,8 +894,19 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						if (announce) notifyRejectedCommit([retirement.userMessage]);
 						return { ok: false, messages: [retirement.userMessage] };
 					}
+					/* Setting a BRAND-NEW case type must declare it in the catalog
+					 * first, or the seeded `Name` column references a property the
+					 * validator can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`):
+					 * `augmentCaseType` only injects standard properties for cataloged
+					 * types. A no-op for an existing type; never fires on a clear
+					 * (`patch.caseType` is undefined then). */
+					const declare =
+						typeof patch.caseType === "string"
+							? declareCaseTypeMutations(doc, patch.caseType)
+							: [];
 					return toOutcome(
 						guardedApply([
+							...declare,
 							{ kind: "updateModule", uuid, patch },
 							...(retirement.kind === "retire" ? retirement.mutations : []),
 						]),
