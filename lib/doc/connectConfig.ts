@@ -15,9 +15,68 @@
  * `entity_name` / `assessment.user_score` live at
  * `lib/commcare/connectDefaults.ts` and run at bind-emit time only.
  */
-import { deriveConnectId } from "@/lib/commcare/connectSlugs";
+import {
+	connectIdConflictError,
+	connectIdError,
+	deriveConnectId,
+} from "@/lib/commcare/connectSlugs";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
 import type { ConnectConfig, Uuid } from "@/lib/domain";
+
+/**
+ * Re-export the wire-emit default XPath expressions for the optional
+ * Connect slots so authoring surfaces can SHOW the user the actual default
+ * that runs when a slot is left blank — without reaching across the CommCare
+ * boundary themselves. The single source stays `lib/commcare/connectDefaults`;
+ * this is the doc-layer doorway to it.
+ */
+export {
+	DEFAULT_ASSESSMENT_USER_SCORE,
+	DEFAULT_DELIVER_ENTITY_ID,
+	DEFAULT_DELIVER_ENTITY_NAME,
+} from "@/lib/commcare/connectDefaults";
+
+/** Re-export the id deriver so authoring surfaces can SHOW the actual
+ *  auto-generated id (the value the commit would autofill) instead of a
+ *  placeholder — same boundary-doorway reasoning as the defaults above. */
+export { deriveConnectId };
+
+/**
+ * Validity of an explicitly-typed Connect id: legal element-name / slug
+ * format, then uniqueness against `taken` (every other id in the app's
+ * scope). Returns a human-readable reason, or `null` when it's fine. The
+ * one place the two wire-vocabulary checks compose, so UI surfaces that
+ * collect an id (the form-settings sub-toggles, the app-wide manager) judge
+ * a typed id identically without each reaching across the CommCare boundary.
+ */
+export function connectIdValidity(
+	id: string,
+	taken: Set<string>,
+): string | null {
+	return connectIdError(id) ?? connectIdConflictError(id, taken) ?? null;
+}
+
+/**
+ * Assign ONE Connect id against a running `taken` set — the single rule both
+ * the COMMIT (`dedupeRestoredConnectIds`) and the manager's id PREVIEW
+ * (`assignDraftConnectIds`) consume, so what the editor seeds / validates can
+ * never drift from what gets stored. A free explicit `id` is kept verbatim;
+ * otherwise a unique one is derived from the explicit id (a numeric suffix) or
+ * the `fallbackName` (a blank). Mutates `taken` by adding the assigned id.
+ */
+export function assignConnectId(
+	id: string | undefined,
+	fallbackName: string,
+	taken: Set<string>,
+): string {
+	if (id !== undefined && !taken.has(id)) {
+		taken.add(id);
+		return id;
+	}
+	const next = deriveConnectId(id ?? fallbackName, taken);
+	taken.add(next);
+	return next;
+}
 
 /**
  * Strip empty Connect sub-configs so absent data stays absent.
@@ -121,9 +180,10 @@ export function dedupeRestoredConnectIds(
 	const out: ConnectConfig = { ...config };
 	const pairName = `${ctx.moduleName} ${ctx.formName}`;
 
-	// Keep a still-unique id; otherwise derive a fresh unique one, seeded
-	// from the existing id when present (minimal change) or the entity name
-	// when absent (autofill). Each committed id joins `taken` so two blocks
+	// Keep a still-unique id; otherwise derive a fresh unique one, seeded from
+	// the existing id when present (minimal change) or the entity name when
+	// absent (autofill) — the shared `assignConnectId` rule, so the manager's
+	// preview lands the SAME ids. Each committed id joins `taken` so two blocks
 	// in the same config can't land on the same slug.
 	const handle = <T extends { id?: string }>(
 		sub: T | undefined,
@@ -131,14 +191,8 @@ export function dedupeRestoredConnectIds(
 		assign: (next: T) => void,
 	): void => {
 		if (!sub) return;
-		if (sub.id !== undefined && !taken.has(sub.id)) {
-			taken.add(sub.id);
-			assign(sub);
-			return;
-		}
-		const id = deriveConnectId(sub.id ?? entityName, taken);
-		taken.add(id);
-		assign({ ...sub, id });
+		const id = assignConnectId(sub.id, entityName, taken);
+		assign(id === sub.id ? sub : { ...sub, id });
 	};
 
 	handle(out.learn_module, ctx.moduleName, (n) => {

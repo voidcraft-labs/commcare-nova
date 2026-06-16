@@ -78,6 +78,27 @@ export function ReferenceProviderWrapper({
 	);
 }
 
+/**
+ * Override the current-form scope for a subtree, keeping the ambient
+ * `ReferenceProvider`. The provider resolves refs for ANY form, so a surface
+ * that edits several forms at once (the app-wide Connect manager) wraps each
+ * form's editor in its own scope for correct chip resolution / lint —
+ * `currentFormUuid` is per URL otherwise (`undefined` off a form route).
+ */
+export function CurrentFormScope({
+	formUuid,
+	children,
+}: {
+	formUuid: string;
+	children: React.ReactNode;
+}) {
+	return (
+		<CurrentFormUuidCtx.Provider value={formUuid}>
+			{children}
+		</CurrentFormUuidCtx.Provider>
+	);
+}
+
 /** Access the nearest ReferenceProvider. Returns null if outside a wrapper. */
 export function useReferenceProvider(): ReferenceProvider | null {
 	return useContext(ReferenceCtx);
