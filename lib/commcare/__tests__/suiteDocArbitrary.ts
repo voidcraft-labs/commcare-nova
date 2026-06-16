@@ -610,8 +610,8 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			...(moduleAudio ? { audioLabel: moduleAudio } : {}),
 		};
 
-		// Forms. Case-bearing forms inject `case_name` + a saved property so they
-		// satisfy NO_CASE_NAME_FIELD + REGISTRATION_NO_CASE_PROPS.
+		// Forms. Case-bearing forms inject `case_name` (+ a saved property, for
+		// realistic case data) so they satisfy NO_CASE_NAME_FIELD.
 		modSpec.forms.forEach((formSpec, fIdx) => {
 			const formUuid = minter.uuid("frm");
 			formOrder[moduleUuid].push(formUuid);

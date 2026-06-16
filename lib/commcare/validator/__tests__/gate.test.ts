@@ -44,9 +44,8 @@ function minDoc(): BlueprintDoc {
 								label: "Name",
 								case_property_on: "patient",
 							}),
-							// A second writer: `case_name` feeds the create block
-							// (`case_name_field`), so REGISTRATION_NO_CASE_PROPS
-							// needs at least one property-writing field besides it.
+							// A second case-writing field, for a realistic registration
+							// form (a name-only create is also valid — see form.ts).
 							f({
 								kind: "text",
 								id: "village",
@@ -139,7 +138,6 @@ describe("classification table", () => {
 				"EMPTY_FORM",
 				"MISSING_CASE_LIST_COLUMNS",
 				"NO_CASE_NAME_FIELD",
-				"REGISTRATION_NO_CASE_PROPS",
 				"CHILD_CASE_NO_NAME_FIELD",
 				"MISSING_CHILD_CASE_MODULE",
 				"CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE",
@@ -198,12 +196,12 @@ describe("classification table", () => {
 			"SELECT_NO_OPTIONS",
 			"VALIDATION_ON_NON_INPUT_KIND",
 		]);
-		expect(byClass.get("completeness")).toHaveLength(11);
+		expect(byClass.get("completeness")).toHaveLength(10);
 		expect(byClass.get("environment")).toHaveLength(4);
 		expect(byClass.get("oracle")).toHaveLength(95);
 		expect(byClass.get("shape")).toHaveLength(6);
 		expect(byClass.get("soundness")).toHaveLength(74);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(190);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(189);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {

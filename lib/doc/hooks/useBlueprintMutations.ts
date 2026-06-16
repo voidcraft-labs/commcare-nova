@@ -53,6 +53,12 @@ import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import {
+	caseListModuleMutations,
+	caseTypeCatalogMutations,
+	formScaffoldMutations,
+	surveyModuleMutations,
+} from "@/lib/doc/scaffolds";
 import type {
 	BlueprintDoc,
 	FieldRenameMeta,
@@ -73,6 +79,7 @@ import {
 	type FieldKind,
 	type FieldPatchFor,
 	type Form,
+	type FormType,
 	type Module,
 } from "@/lib/domain";
 
@@ -290,6 +297,38 @@ export interface BlueprintMutations {
 		media: { icon: AssetId | null; audioLabel: AssetId | null },
 	) => CommitOutcome;
 	removeModule: (uuid: Uuid) => CommitOutcome;
+
+	// ── Compound creators (atomic, born-valid) ───────────────────────────
+	/**
+	 * Create a case-list module in one gated batch, born as a VIEWER: a
+	 * `caseListOnly` module with a `Name` case-list column and NO form. A new
+	 * `caseType` is declared in `doc.caseTypes` (empty properties) so the Name
+	 * column's standard property resolves; the user adds a registration form
+	 * afterward (which flips `caseListOnly` off). Returns the new module's uuid
+	 * for navigation.
+	 */
+	createCaseListModule: (args: {
+		caseType: string;
+		name?: string;
+		index?: number;
+	}) => AddCommitOutcome;
+	/** Create a bare survey/menu module (no case type, no forms — a valid
+	 *  empty menu the user fills with survey forms). Returns the new uuid. */
+	createSurveyModule: (args?: {
+		name?: string;
+		index?: number;
+	}) => AddCommitOutcome;
+	/**
+	 * Create a new form of `type` in a module, born with a default first
+	 * field (a `case_name` writer for registration, else a text question), in
+	 * one gated batch. Flips a `caseListOnly` module to form-bearing as
+	 * needed. Returns the new form's uuid for navigation.
+	 */
+	createForm: (
+		moduleUuid: Uuid,
+		type: FormType,
+		index?: number,
+	) => AddCommitOutcome;
 
 	// ── App-level ─────────────────────────────────────────────────────────
 	/**
@@ -794,7 +833,29 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("removeForm", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(guardedApply([{ kind: "removeForm", uuid }]));
+					const mutations: Mutation[] = [{ kind: "removeForm", uuid }];
+					/* Removing the LAST form of a case-managing module would leave it
+					 * formless+typed (`NO_FORMS_OR_CASE_LIST`). Convert it to a
+					 * case-list viewer in the same batch — the inverse of
+					 * `formScaffoldMutations` flipping `caseListOnly` off when the
+					 * first form is added (a form-bearing case module already carries
+					 * the columns a viewer needs, `MISSING_CASE_LIST_COLUMNS`). */
+					const parentId = Object.keys(doc.formOrder).find((m) =>
+						doc.formOrder[m]?.includes(uuid),
+					);
+					const parent = parentId ? doc.modules[parentId] : undefined;
+					if (
+						parent?.caseType &&
+						!parent.caseListOnly &&
+						doc.formOrder[parentId as string]?.length === 1
+					) {
+						mutations.push({
+							kind: "updateModule",
+							uuid: asUuid(parentId as string),
+							patch: { caseListOnly: true },
+						});
+					}
+					return toOutcome(guardedApply(mutations));
 				},
 
 				addModule(module) {
@@ -833,10 +894,17 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						if (announce) notifyRejectedCommit([retirement.userMessage]);
 						return { ok: false, messages: [retirement.userMessage] };
 					}
+					/* ONE catalog write covers both the retirement of the orphaned
+					 * old type and the declaration of a brand-new one (re-typing a
+					 * viewer to a fresh type does both at once). A brand-new type
+					 * must be cataloged or the seeded `Name` column can't resolve
+					 * (`CASE_LIST_COLUMN_UNKNOWN_FIELD`); composing into one
+					 * `setCaseTypes` stops the two wholesale writes from clobbering
+					 * each other. */
 					return toOutcome(
 						guardedApply([
+							...caseTypeCatalogMutations(doc, retirement, patch.caseType),
 							{ kind: "updateModule", uuid, patch },
-							...(retirement.kind === "retire" ? retirement.mutations : []),
 						]),
 					);
 				},
@@ -880,6 +948,40 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 							...(retirement.kind === "retire" ? retirement.mutations : []),
 						]),
 					);
+				},
+
+				createCaseListModule({ caseType, name, index }) {
+					const { mutations, moduleUuid } = caseListModuleMutations(get(), {
+						caseType,
+						...(name !== undefined && { name }),
+						...(index !== undefined && { index }),
+					});
+					const applied = guardedApply(mutations);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid: moduleUuid };
+				},
+
+				createSurveyModule(args) {
+					const { mutations, moduleUuid } = surveyModuleMutations(
+						get(),
+						args ?? {},
+					);
+					const applied = guardedApply(mutations);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid: moduleUuid };
+				},
+
+				createForm(moduleUuid, type, index) {
+					const doc = get();
+					if (!doc.modules[moduleUuid]) {
+						warnUnresolved("createForm", { moduleUuid });
+						return NOOP_REJECTION;
+					}
+					const scaffold = formScaffoldMutations(doc, moduleUuid, type, index);
+					if (!scaffold) return NOOP_REJECTION;
+					const applied = guardedApply(scaffold.mutations);
+					if (!applied.ok) return applied;
+					return { ok: true, uuid: scaffold.formUuid };
 				},
 
 				updateApp(patch) {

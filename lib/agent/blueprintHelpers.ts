@@ -39,7 +39,7 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid, fieldKinds, isContainer } from "@/lib/domain";
+import { asUuid, fieldKinds, isContainer, slugifyId } from "@/lib/domain";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -798,28 +798,18 @@ export function updateFieldMutations<K extends FieldKind>(
 
 // ── Private helpers ─────────────────────────────────────────────────────
 
-/** Derive a module's semantic id slug from its display name. Lowercased,
- *  non-alphanumerics collapsed to `_`. Keeps us from having to surface a
- *  separate slug input at every creation site. */
+/** Derive a module's semantic id slug from its display name. Keeps us from
+ *  having to surface a separate slug input at every creation site. The slug
+ *  rule itself lives in `lib/domain/idSlug.ts` so the SA and the builder's
+ *  in-tree scaffolds derive ids identically. */
 function slugifyModuleId(name: string): string {
-	const slug = name
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "_")
-		.replace(/^_+|_+$/g, "");
-	return slug.length > 0 ? slug : "module";
+	return slugifyId(name, "module");
 }
 
-/** Derive a form's semantic id slug from its display name. Same rules
- *  as the module slug — we default to "form" if sanitizing strips
- *  everything. */
+/** Derive a form's semantic id slug from its display name. Same shared rule
+ *  as the module slug, defaulting to "form" if sanitizing strips everything. */
 function slugifyFormId(name: string): string {
-	const slug = name
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "_")
-		.replace(/^_+|_+$/g, "");
-	return slug.length > 0 ? slug : "form";
+	return slugifyId(name, "form");
 }
 
 // ── Re-exports for consumers that need type-level narrowing ─────────────

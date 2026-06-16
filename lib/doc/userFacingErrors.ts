@@ -212,8 +212,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))} loads a value into a reserved property name. Use a custom property instead.`,
 	DUPLICATE_CASE_PROPERTY: (e) =>
 		`In ${q(formName(e))}, two fields save to ${q(det(e, "property", "the same case property"))} and would overwrite each other. Rename one of them, or point it somewhere else.`,
-	REGISTRATION_NO_CASE_PROPS: (e) =>
-		`${q(formName(e))} creates cases but doesn't save anything to them. Set at least one field to save to the case.`,
 	CLOSE_CONDITION_WRONG_TYPE: (e) =>
 		`${q(formName(e))} has a close condition but isn't a close form. Make it a close form, or drop the condition.`,
 	CLOSE_FORM_NO_CASE_TYPE: (e) =>

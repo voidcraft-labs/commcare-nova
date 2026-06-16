@@ -74,7 +74,7 @@ export type ValidityClass =
  *
  *   - The completeness rows are the unfinished-content findings
  *     (NO_MODULES, EMPTY_FORM, MISSING_CASE_LIST_COLUMNS,
- *     NO_CASE_NAME_FIELD, REGISTRATION_NO_CASE_PROPS,
+ *     NO_CASE_NAME_FIELD,
  *     CHILD_CASE_NO_NAME_FIELD, MISSING_CHILD_CASE_MODULE,
  *     CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE, the Connect
  *     participation floor + per-block sub-config family).
@@ -148,7 +148,6 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_PRELOAD_MISSING_FIELD: "soundness",
 	CASE_PRELOAD_RESERVED: "soundness",
 	DUPLICATE_CASE_PROPERTY: "soundness",
-	REGISTRATION_NO_CASE_PROPS: "completeness",
 	CLOSE_CONDITION_WRONG_TYPE: "soundness",
 	CLOSE_FORM_NO_CASE_TYPE: "soundness",
 	CLOSE_CONDITION_INCOMPLETE: "soundness",

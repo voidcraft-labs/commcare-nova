@@ -278,7 +278,6 @@ export const REPAIR_JUDGMENTS: Readonly<
 	DUPLICATE_CASE_PROPERTY: owner(
 		"two fields claim one case property — the owner picks the writer",
 	),
-	REGISTRATION_NO_CASE_PROPS: owner("which answers to save is content"),
 	CLOSE_CONDITION_WRONG_TYPE: mechanical(
 		"drop the condition: the emitter reads closeCondition only on close forms, so on any other type it is dead config — zero wire change",
 	),

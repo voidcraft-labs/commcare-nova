@@ -315,26 +315,6 @@ function duplicateCasePropertyMapping(
 	return errors;
 }
 
-function registrationNoCaseProperties(
-	form: Form,
-	ctx: FormContext,
-	caseConfig: DerivedCaseConfig,
-	mod: Module,
-): ValidationError[] {
-	if (form.type !== "registration" || !mod.caseType) return [];
-	if (!caseConfig.case_properties || caseConfig.case_properties.length === 0) {
-		return [
-			validationError(
-				"REGISTRATION_NO_CASE_PROPS",
-				"form",
-				`"${ctx.formName}" is a registration form but none of its fields save data to the "${mod.caseType}" case. A registration form should capture information about the new case. Set \`case_property_on\` to "${mod.caseType}" on fields whose answers should be saved to the case.`,
-				baseLocation(ctx),
-			),
-		];
-	}
-	return [];
-}
-
 /**
  * Validate `closeCondition` on close forms.
  *
@@ -1235,7 +1215,6 @@ export function runFormRules(
 	errors.push(...casePreloadMissingField(doc, ctx, caseConfig));
 	errors.push(...casePreloadReserved(ctx, caseConfig));
 	errors.push(...duplicateCasePropertyMapping(ctx, caseConfig));
-	errors.push(...registrationNoCaseProperties(form, ctx, caseConfig, mod));
 	errors.push(...casePropertyBadFormat(ctx, caseConfig));
 	errors.push(...casePropertyTooLong(ctx, caseConfig));
 	errors.push(...postSubmitValidation(form, ctx, mod));
