@@ -24,11 +24,14 @@
  * call these: a degenerate historical event must still replay.
  */
 import {
+	CASE_TYPE_REGEX,
 	isReservedXFormNodeName,
 	MAX_CASE_PROPERTY_LENGTH,
+	MAX_CASE_TYPE_LENGTH,
 	RESERVED_XFORM_NODE_PREFIX,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare";
+import { RESERVED_CASE_TYPE_NAMES } from "@/lib/commcare/validator/reservedNamespaces";
 import { declarersOf } from "@/lib/doc/referenceIndex";
 import {
 	type BlueprintDoc,
@@ -297,4 +300,80 @@ export function renameFieldIdVerdict({
 		return siblingConflict(newId, where);
 	}
 	return OK;
+}
+
+// ── Case-type names ─────────────────────────────────────────────────
+//
+// A module's case type is a CommCare wire identifier too: it must match
+// `CASE_TYPE_REGEX`, stay within `MAX_CASE_TYPE_LENGTH`, and avoid the
+// reserved reference namespaces (`form`/`user`/`case`/`parent`) that would
+// collide with the hashtag system. The same constraints the validator's
+// `INVALID_CASE_TYPE_FORMAT` / `CASE_TYPE_TOO_LONG` (`rules/module.ts`) and
+// `RESERVED_CASE_TYPE_NAME` (`rules/app.ts`) rules enforce as backstops — this
+// verdict lets the create-new-case-type picker disable an illegal name inline
+// (valid-by-construction) instead of letting the commit gate reject it after.
+
+/** Why a proposed case-type name can't be used. */
+export type CaseTypeNameRejectionCode =
+	| "empty"
+	| "illegal_format"
+	| "reserved"
+	| "too_long"
+	| "duplicate";
+
+export type CaseTypeNameVerdict =
+	| { ok: true }
+	| { ok: false; code: CaseTypeNameRejectionCode; userMessage: string };
+
+const CASE_TYPE_OK: CaseTypeNameVerdict = { ok: true };
+
+/**
+ * Adjudicate a new case-type NAME against the wire's identifier rules plus the
+ * app's existing types (a brand-new type can't reuse an existing name —
+ * "create new" would otherwise silently target the existing one). `existing`
+ * is the set of case-type names already in use (module case types and/or the
+ * catalog). Case-insensitive on the reserved + duplicate checks, matching the
+ * validator.
+ */
+export function caseTypeNameVerdict(
+	name: string,
+	existing: ReadonlySet<string>,
+): CaseTypeNameVerdict {
+	const trimmed = name.trim();
+	if (trimmed.length === 0) {
+		return { ok: false, code: "empty", userMessage: "Enter a case type name." };
+	}
+	if (!CASE_TYPE_REGEX.test(trimmed)) {
+		return {
+			ok: false,
+			code: "illegal_format",
+			userMessage:
+				"Start with a letter; use only letters, digits, underscores, or hyphens.",
+		};
+	}
+	if (trimmed.length > MAX_CASE_TYPE_LENGTH) {
+		return {
+			ok: false,
+			code: "too_long",
+			userMessage: `Keep it to ${MAX_CASE_TYPE_LENGTH} characters or fewer.`,
+		};
+	}
+	if (RESERVED_CASE_TYPE_NAMES.has(trimmed.toLowerCase())) {
+		return {
+			ok: false,
+			code: "reserved",
+			userMessage: `"${trimmed}" is reserved. Try something like "${trimmed}_record".`,
+		};
+	}
+	const lower = trimmed.toLowerCase();
+	for (const e of existing) {
+		if (e.toLowerCase() === lower) {
+			return {
+				ok: false,
+				code: "duplicate",
+				userMessage: `"${trimmed}" already exists — pick it from the list instead.`,
+			};
+		}
+	}
+	return CASE_TYPE_OK;
 }

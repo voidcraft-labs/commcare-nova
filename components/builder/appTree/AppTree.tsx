@@ -20,6 +20,7 @@ import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence } from "motion/react";
 import { useCallback, useDeferredValue, useState } from "react";
+import { ModuleInsertionPoint } from "@/components/builder/appTree/insertion/ModuleInsertionPoint";
 import { ModuleCard } from "@/components/builder/appTree/ModuleCard";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
@@ -129,13 +130,19 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 				) : (
 					<div>
 						<AnimatePresence mode="sync">
-							{moduleOrder.map((_moduleId, mIdx) => {
+							{/* Insertion points interleave between modules so new
+							 *  modules can be added at any position — hidden while
+							 *  a search filter is active or the app is locked. */}
+							{!locked && !searchResult && (
+								<ModuleInsertionPoint key="module-ins-0" atIndex={0} />
+							)}
+							{moduleOrder.flatMap((_moduleId, mIdx) => {
 								if (
 									searchResult &&
 									!searchResult.visibleModuleIndices.has(mIdx)
 								)
-									return null;
-								return (
+									return [];
+								const card = (
 									<ModuleCard
 										key={_moduleId}
 										moduleUuid={_moduleId}
@@ -147,6 +154,14 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 										locked={locked}
 									/>
 								);
+								if (locked || searchResult) return [card];
+								return [
+									card,
+									<ModuleInsertionPoint
+										key={`module-ins-after-${_moduleId}`}
+										atIndex={mIdx + 1}
+									/>,
+								];
 							})}
 						</AnimatePresence>
 					</div>

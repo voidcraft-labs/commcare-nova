@@ -23,6 +23,7 @@ The public `Mutation` union is fine-grained. There is no `replaceForm`: wholesal
 Pure functions that read or produce a `BlueprintDoc` (or a subtree of one) live in this package alongside the store:
 
 - `fieldPath.ts` — path ↔ uuid resolution (`resolveFieldByPath`, `getFieldPath`). The doc stores fields by uuid; blueprint mutations and the agent tool surface operate in path strings.
+- `scaffolds.ts` — atomic born-valid `Mutation[]` builders for the builder's in-tree "add module / add form" affordances (`caseListModuleMutations` / `surveyModuleMutations` / `formScaffoldMutations`). The UI twin of the SA's `createModule` / `createForm`: each lands the entity TOGETHER with the minimal contents the validator requires (a case-list module's `Name` column + registration form with `case_name` + a data property; every form's default first field), so the whole batch passes the commit gate as one candidate. Dispatched through `useBlueprintMutations`' `createCaseListModule` / `createSurveyModule` / `createForm`. A new case type needs no `setCaseTypes` — the `case_name` field auto-registers it via the reducer's `ensureCatalogProperty`.
 - `fieldParent.ts` / `fieldWalk.ts` / `searchBlueprint.ts` / `predicates.ts` — reducer-shaped utilities the store and UI share.
 - `navigation.ts` — doc-aware `Location` resolution for the routing hooks.
 - `resetBuilder.ts` — tear-down of doc + session state for new-app scaffolding.

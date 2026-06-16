@@ -16,6 +16,7 @@ import tablerTable from "@iconify-icons/tabler/table";
 import { AnimatePresence, motion } from "motion/react";
 import { memo } from "react";
 import { FormCard } from "@/components/builder/appTree/FormCard";
+import { FormInsertionPoint } from "@/components/builder/appTree/insertion/FormInsertionPoint";
 import {
 	CollapseChevron,
 	HighlightedText,
@@ -148,10 +149,21 @@ export const ModuleCard = memo(function ModuleCard({
 
 					<div className="border-t border-nova-border">
 						<AnimatePresence mode="sync">
-							{formIds.map((formId, fIdx) => {
+							{/* Form insertion points interleave between forms (and a
+							 *  leading one, so a form can be added to an empty module) —
+							 *  hidden while filtering or locked. */}
+							{!locked && !searchResult && (
+								<FormInsertionPoint
+									key="form-ins-0"
+									moduleUuid={moduleUuid}
+									hasCaseType={!!mod.caseType}
+									atIndex={0}
+								/>
+							)}
+							{formIds.flatMap((formId, fIdx) => {
 								if (searchResult && !searchResult.visibleFormIds.has(formId))
-									return null;
-								return (
+									return [];
+								const card = (
 									<FormCard
 										key={formId}
 										formId={formId}
@@ -167,6 +179,16 @@ export const ModuleCard = memo(function ModuleCard({
 										locked={locked}
 									/>
 								);
+								if (locked || searchResult) return [card];
+								return [
+									card,
+									<FormInsertionPoint
+										key={`form-ins-after-${formId}`}
+										moduleUuid={moduleUuid}
+										hasCaseType={!!mod.caseType}
+										atIndex={fIdx + 1}
+									/>,
+								];
 							})}
 						</AnimatePresence>
 					</div>

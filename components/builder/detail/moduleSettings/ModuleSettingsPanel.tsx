@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import type { Uuid } from "@/lib/doc/types";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
+import { ModuleCaseTypeSection } from "./ModuleCaseTypeSection";
 
 /** Shell prop shape: the module being edited plus a dismiss callback
  *  wired from the popover trigger. */
@@ -40,7 +41,8 @@ export function ModuleSettingsPanel({
 			</div>
 
 			{/* Content */}
-			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
+			<div className="px-3.5 py-3 space-y-4 overflow-y-auto max-h-[480px]">
+				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
 			</div>
 		</div>
