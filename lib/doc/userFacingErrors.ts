@@ -123,7 +123,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} has forms that work with cases, but you haven't picked a case type for it yet. Choose the kind of case it manages, like "patient" or "household".`,
 	CASE_LIST_ONLY_HAS_FORMS: (e) =>
-		`${q(modName(e))} is set to just show a case list, but it still has forms. Either remove the forms, or turn off the list-only setting.`,
+		`${q(modName(e))} is set to show only a case list, but it still has forms attached. Remove the forms.`,
 	CASE_LIST_ONLY_NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} is set to show a case list, but you haven't said which case type to list. Pick one.`,
 	NO_FORMS_OR_CASE_LIST: (e) =>
@@ -183,9 +183,9 @@ const USER_MESSAGE_BY_CODE: Partial<
 
 	// ── Case-search config ───────────────────────────────────────────
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
-		`${q(modName(e))} has search turned on but no case type picked. Choose what kind of case the search should return, or turn search off.`,
+		`${q(modName(e))} has a search set up but no case type, so there's nothing for it to look through. Pick the kind of case it should find, like "patient" or "household".`,
 	CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE: (e) =>
-		`Search is on for ${q(modName(e))}, but there's nothing to search by yet. Add a search input or a default filter, or turn search off.`,
+		`The search screen for ${q(modName(e))} has nothing to search by yet. Add a search field, or a filter to narrow the list.`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: (e) =>
 		`The excluded-owners setting on ${q(modName(e))} isn't coming out as text. Check the formula, or clear it.`,
 	CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT: (e) =>
