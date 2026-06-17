@@ -9,6 +9,7 @@ import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import {
+	useIsBareCaseListModule,
 	useIsCaseFirstModule,
 	useOrderedForms,
 } from "@/lib/doc/hooks/useModuleIds";
@@ -55,7 +56,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	 * The home screen already routes both; this redirect covers landing on the
 	 * module URL directly (deep link, breadcrumb, flipping to preview). */
 	const isCaseFirst = useIsCaseFirstModule(moduleUuid);
-	const isBareCaseList = !!mod?.caseListOnly;
+	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
 	const redirectToCaseList =
 		!!moduleUuid && (isBareCaseList || (mode !== "edit" && isCaseFirst));
 	useEffect(() => {

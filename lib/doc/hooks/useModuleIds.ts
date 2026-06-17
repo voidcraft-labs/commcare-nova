@@ -76,6 +76,23 @@ export function useIsCaseFirstModule(moduleUuid: Uuid | undefined): boolean {
 }
 
 /**
+ * Whether a module is a bare case list — CommCare's "case list menu item": a
+ * `caseListOnly` viewer with a case type and no forms. Such a module has no
+ * form menu in any mode, so it lands on its case list everywhere (tree row,
+ * home tile, breadcrumb, module-URL redirect). `caseListOnly` is the
+ * gate-maintained truth — it holds iff the module has a case type and zero
+ * forms — so a one-flag read suffices. `undefined` uuid → false. Sibling to
+ * `useIsCaseFirstModule`; both answer "does entering this module land on the
+ * case list rather than a form menu?" (case-first only in the running app;
+ * a bare case list in every mode).
+ */
+export function useIsBareCaseListModule(moduleUuid: Uuid | undefined): boolean {
+	return useBlueprintDoc((s) =>
+		moduleUuid ? s.modules[moduleUuid]?.caseListOnly === true : false,
+	);
+}
+
+/**
  * The set of module uuids whose navigation is case-first — for surfaces
  * (e.g. the app home) that branch per module without a hook call each.
  * Recomputed only when the module/form maps change.

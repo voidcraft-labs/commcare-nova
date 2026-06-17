@@ -37,6 +37,7 @@ import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
@@ -233,9 +234,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 	 * its case list. Its module crumb points straight at the list, and the
 	 * intermediate "Case List" crumb is dropped (below) so the trail doesn't
 	 * restate the same destination twice. */
-	const moduleIsBareCaseList = useBlueprintDoc((s) =>
-		moduleUuid ? s.modules[moduleUuid]?.caseListOnly === true : false,
-	);
+	const moduleIsBareCaseList = useIsBareCaseListModule(moduleUuid);
 
 	return useMemo<BreadcrumbItem[]>(() => {
 		const items: BreadcrumbItem[] = [
