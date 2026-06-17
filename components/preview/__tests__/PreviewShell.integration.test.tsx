@@ -104,9 +104,6 @@ vi.mock("../screens/HomeScreen", () => ({
 vi.mock("../screens/FormScreen", () => ({
 	FormScreen: () => <div data-testid="form-stub">FormScreen</div>,
 }));
-vi.mock("../PreviewHeader", () => ({
-	PreviewHeader: () => <div data-testid="header-stub">PreviewHeader</div>,
-}));
 
 import { PreviewShell } from "../PreviewShell";
 
@@ -145,7 +142,7 @@ function renderShell() {
 				fieldOrder: {},
 			}}
 		>
-			<PreviewShell hideHeader />
+			<PreviewShell />
 		</BlueprintDocProvider>
 	);
 	return render(tree);
