@@ -1,11 +1,12 @@
 // components/builder/media/AssetPreviewDialog.tsx
 //
-// Previews one stored asset. For a document it has two tabs — "Document" (the
-// raw file) and "What Nova reads" (the requirements extract the Solutions
-// Architect actually sees) — so a user can confirm what made it into the
-// extract and never hit the "but it's right there in the doc!" surprise. For an
-// image / audio / video it just shows the media (those reach the model directly,
-// so there's no extract to compare).
+// Previews one stored asset. For a document it has two tabs, "What Nova reads"
+// first — the requirements extract the Solutions Architect actually sees (and the
+// only view office/text docs get, since the "Document" tab just offers a download
+// of the raw file) — so a user can confirm what made it into the extract and never
+// hit the "but it's right there in the doc!" surprise. For an image / audio / video
+// it just shows the media (those reach the model directly, so there's no extract
+// to compare).
 //
 // Raw-document rendering is native-where-it's-free + safe: a PDF renders in an
 // <iframe> (the browser's out-of-process viewer — a malicious PDF can't reach
@@ -34,6 +35,7 @@ import {
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
 import { type AssetKind, isDocumentKind } from "@/lib/domain/multimedia";
+import { ChatMarkdown } from "@/lib/markdown";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
 import {
@@ -163,22 +165,23 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 			)}
 
 			{isDocument ? (
-				<Tabs defaultValue="document" className="min-h-0 flex-1 gap-0 p-4 pt-3">
+				<Tabs defaultValue="extract" className="min-h-0 flex-1 gap-0 p-4 pt-3">
 					<TabsList variant="line" className="mb-3">
-						<TabsTrigger value="document">Document</TabsTrigger>
+						{/* "What Nova reads" leads — it's what the SA actually sees, and
+						 *  the only view office/text docs have (the Document tab just
+						 *  offers a download). The explainer sits beside the tab it
+						 *  describes, not in the picker header. */}
 						<TabsTrigger value="extract">What Nova reads</TabsTrigger>
-						{/* The "What Nova reads" explainer sits beside the tab it
-						 *  describes, not in the picker header — it's about the extract,
-						 *  which is what this tab shows. */}
-						<span className="ml-1 flex items-center">
+						<span className="flex items-center">
 							<ExtractionInfoPopover />
 						</span>
+						<TabsTrigger value="document">Document</TabsTrigger>
 					</TabsList>
-					<TabsContent value="document" className="min-h-0 overflow-auto">
-						<DocumentView target={target} />
-					</TabsContent>
 					<TabsContent value="extract" className="min-h-0 overflow-auto">
 						<ExtractView assetId={target.id} />
+					</TabsContent>
+					<TabsContent value="document" className="min-h-0 overflow-auto">
+						<DocumentView target={target} />
 					</TabsContent>
 				</Tabs>
 			) : (
@@ -368,9 +371,15 @@ function ExtractView({ assetId }: { assetId: string }) {
 			</p>
 		);
 	}
+	// Render the extract as markdown inside a quiet frame. The extract is built
+	// from untrusted document bytes piped through the summarizer, so we render it
+	// with `ChatMarkdown` — the same allowlist the SA's chat output uses: raw HTML
+	// is inert text (`disableParsingRawHTML`), links collapse to their text, and
+	// images to their alt text. That leaves headings, emphasis, lists, tables, and
+	// rules (what the extractor actually emits) with no script/link/image surface.
 	return (
-		<pre className="whitespace-pre-wrap break-words rounded-md bg-nova-surface p-3 font-mono text-xs leading-relaxed text-nova-text-secondary">
-			{extract.text}
-		</pre>
+		<div className="chat-markdown break-words rounded-md border border-nova-border bg-nova-surface p-4 text-sm text-nova-text-secondary">
+			<ChatMarkdown>{extract.text}</ChatMarkdown>
+		</div>
 	);
 }

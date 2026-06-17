@@ -48,6 +48,7 @@ import {
 	EXTRACT_MAX_BYTES,
 	extractDocument,
 } from "./documentExtraction";
+import { normalizeExtractText } from "./extractNormalization";
 
 /**
  * An `extracting` record older than this is presumed dead — a job whose process
@@ -114,10 +115,19 @@ export function decideExtractAction(
 	return "extract-now";
 }
 
-/** Build the `ready` result from already-fetched extract text. `charCount` is
- *  the text's own length (authoritative — the same bytes the SA receives). */
+/** Build the `ready` result from already-fetched extract text. Repairs a
+ *  double-escaped extract on the way out (`normalizeExtractText` — a no-op on a
+ *  clean one), so an extract stored before that repair existed is fixed for the SA
+ *  read path with no re-extraction. `charCount` is the repaired text's own length
+ *  (authoritative — the same bytes the SA receives). */
 function readyResult(text: string, truncated: boolean): StoredExtractResult {
-	return { status: "ready", text, truncated, charCount: text.length };
+	const extract = normalizeExtractText(text);
+	return {
+		status: "ready",
+		text: extract,
+		truncated,
+		charCount: extract.length,
+	};
 }
 
 /**
