@@ -71,7 +71,16 @@ export interface MediaPickerDialogProps {
 	 * Upload accepts any of them. Order is the carrier's canonical order.
 	 */
 	kinds: readonly AssetKind[];
-	onPick: (asset: MediaAssetView) => void;
+	/**
+	 * Pick handler — fires when a library item is chosen (or an inline upload
+	 * completes), after which the dialog closes. OMITTED by the standalone file
+	 * manager (the account-menu "Files" entry): with no carrier to pick into,
+	 * clicking a library item opens its preview instead, the Upload tab simply
+	 * lands the file in the library, and the dialog titles itself "Your files" and
+	 * opens on the Library tab. The carrier media slots and the chat composer pass
+	 * it.
+	 */
+	onPick?: (asset: MediaAssetView) => void;
 	/**
 	 * When provided, a validated file picked on the Upload tab is handed
 	 * OFF instead of uploaded inline: the dialog closes immediately and
@@ -117,6 +126,9 @@ export function MediaPickerDialog({
 	attachedAssetIds,
 	onAssetDeleted,
 }: MediaPickerDialogProps) {
+	// No `onPick` → this is the standalone file manager (see the prop doc): no
+	// carrier to pick into, so library clicks preview and Upload just lands files.
+	const manage = onPick === undefined;
 	// The data hooks (`useMediaLibrary`) live in `PickerBody`, which is
 	// a child of `Dialog.Popup` — Base UI only mounts the Popup's
 	// subtree while the dialog is open, so the library fetch fires when
@@ -130,9 +142,11 @@ export function MediaPickerDialog({
 				<Dialog.Backdrop className={BACKDROP_CLS} />
 				<Dialog.Popup className={POPUP_CLS}>
 					<PickerBody
+						manage={manage}
 						kinds={kinds}
 						onPick={(asset) => {
-							onPick(asset);
+							// Never called in manage mode — library clicks preview there.
+							onPick?.(asset);
 							onOpenChange(false);
 						}}
 						onUploadStart={
@@ -158,6 +172,7 @@ export function MediaPickerDialog({
 /** Mounted only while the dialog is open (child of `Dialog.Popup`). Owns
  *  the library fetch + tab/filter state so none of it runs until open. */
 function PickerBody({
+	manage,
 	kinds,
 	onPick,
 	onUploadStart,
@@ -165,6 +180,7 @@ function PickerBody({
 	attachedAssetIds,
 	onAssetDeleted,
 }: {
+	manage: boolean;
 	kinds: readonly AssetKind[];
 	onPick: (asset: MediaAssetView) => void;
 	onUploadStart?: (file: File, kind: AssetKind) => void;
@@ -172,16 +188,21 @@ function PickerBody({
 	attachedAssetIds?: readonly string[];
 	onAssetDeleted?: (assetId: string) => void;
 }) {
-	const [tab, setTab] = useState<Tab>("upload");
+	// The manager opens on the Library (your existing files); a picker opens on
+	// Upload (you came here to add something to a slot).
+	const [tab, setTab] = useState<Tab>(manage ? "library" : "upload");
 	// A multi-kind slot gets a browse filter (defaulting to "all"); a
 	// single-kind slot is pinned to its one kind with no filter UI.
 	const multiKind = kinds.length > 1;
-	// The dialog titles itself from its kinds — "Attach Image" when locked
-	// to one, "Attach Media" when it accepts several — so callers don't
-	// thread a title string (and can't drift it from what's offered).
-	const title = multiKind
-		? "Attach Media"
-		: `Attach ${ASSET_KIND_META[kinds[0]].label}`;
+	// The dialog titles itself: "Your files" as the standalone manager, otherwise
+	// from its kinds — "Attach Image" when locked to one, "Attach Media" when it
+	// accepts several — so callers don't thread a title string (and can't drift it
+	// from what's offered).
+	const title = manage
+		? "Your files"
+		: multiKind
+			? "Attach Media"
+			: `Attach ${ASSET_KIND_META[kinds[0]].label}`;
 	const [filter, setFilter] = useState<LibraryFilter>(
 		multiKind ? "all" : kinds[0],
 	);
@@ -223,6 +244,30 @@ function PickerBody({
 	const [previewTarget, setPreviewTarget] = useState<AssetPreviewTarget | null>(
 		null,
 	);
+
+	// Open an asset's preview without picking it — the eye affordance everywhere,
+	// and (in the manager, which has no carrier to pick into) the library item's
+	// own click target.
+	const openPreview = (asset: MediaAssetView) =>
+		setPreviewTarget({
+			id: asset.id,
+			kind: asset.kind,
+			filename: asset.displayName ?? asset.originalFilename,
+			title: asset.extract?.title,
+			summary: asset.extract?.summary,
+		});
+
+	// In the manager an inline upload has nowhere to pick to: land the asset in the
+	// library and switch to it so the user sees what they just added. Reset the
+	// type filter to "all" — the Upload tab accepts any kind, so a kind that
+	// doesn't match the active filter would be prepended into a kind-scoped list
+	// and then vanish on the next fetch; "all" keeps it in scope (and is the
+	// natural "here's everything you have" post-upload view).
+	const onManagedUpload = (asset: MediaAssetView) => {
+		addUploaded(asset);
+		setFilter("all");
+		setTab("library");
+	};
 
 	// Delete a library asset, with confirmation. `deleteTarget` holds the asset
 	// awaiting confirmation (`null` = no dialog); `deleting` disables the dialog's
@@ -288,7 +333,7 @@ function PickerBody({
 				{tab === "upload" ? (
 					<UploadTab
 						kinds={kinds}
-						onUploaded={commit}
+						onUploaded={manage ? onManagedUpload : commit}
 						onUploadStart={onUploadStart}
 					/>
 				) : (
@@ -298,16 +343,10 @@ function PickerBody({
 						error={error}
 						hasMore={hasMore}
 						loadMore={loadMore}
-						onPick={commit}
-						onPreview={(asset) =>
-							setPreviewTarget({
-								id: asset.id,
-								kind: asset.kind,
-								filename: asset.displayName ?? asset.originalFilename,
-								title: asset.extract?.title,
-								summary: asset.extract?.summary,
-							})
-						}
+						// In the manager a click previews (nothing to pick into); in a
+						// picker it commits the choice and closes.
+						onPick={manage ? openPreview : commit}
+						onPreview={openPreview}
 						onDelete={setDeleteTarget}
 						// Fold a freshly completed extract into the list so a preview
 						// opened right after upload shows its title/summary without
