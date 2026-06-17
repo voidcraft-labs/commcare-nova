@@ -73,7 +73,7 @@ export function ExtractionStatusBadgeView({
 					}
 				/>
 				<TooltipContent>
-					Reading this into Nova's extract — this can take up to a minute.
+					Reading this into Nova's extract — this can take up to a few minutes.
 				</TooltipContent>
 			</Tooltip>
 		);

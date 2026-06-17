@@ -34,6 +34,7 @@ import {
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
 import { type AssetKind, isDocumentKind } from "@/lib/domain/multimedia";
+import { ChatMarkdown } from "@/lib/markdown";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
 import {
@@ -368,9 +369,15 @@ function ExtractView({ assetId }: { assetId: string }) {
 			</p>
 		);
 	}
+	// Render the extract as markdown inside a quiet frame. The extract is built
+	// from untrusted document bytes piped through the summarizer, so we render it
+	// with `ChatMarkdown` — the same allowlist the SA's chat output uses: raw HTML
+	// is inert text (`disableParsingRawHTML`), links collapse to their text, and
+	// images to their alt text. That leaves headings, emphasis, lists, tables, and
+	// rules (what the extractor actually emits) with no script/link/image surface.
 	return (
-		<pre className="whitespace-pre-wrap break-words rounded-md bg-nova-surface p-3 font-mono text-xs leading-relaxed text-nova-text-secondary">
-			{extract.text}
-		</pre>
+		<div className="chat-markdown break-words rounded-md border border-nova-border bg-nova-surface p-4 text-sm text-nova-text-secondary">
+			<ChatMarkdown>{extract.text}</ChatMarkdown>
+		</div>
 	);
 }

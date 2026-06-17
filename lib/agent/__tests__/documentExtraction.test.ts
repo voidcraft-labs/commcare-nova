@@ -188,4 +188,24 @@ describe("extractDocument", () => {
 			}),
 		).rejects.toThrow(/no parseable result/);
 	});
+
+	it("repairs a double-escaped extract returned by the summarizer", async () => {
+		// The over-escape failure: the whole extract is one physical line where
+		// newlines are the literal characters `\` `n` and quotes are `\` `"`.
+		const { condenser } = recordingCondenser({
+			extract: '## Conflicts\\n* A \\"wildcard\\" rule.\\n* Second bullet.',
+			title: "T",
+			summary: "S.",
+		});
+		const result = await extractDocument({
+			bytes: Buffer.from("x"),
+			mimeType: "text/plain",
+			kind: "text",
+			filename: "big.xlsx",
+			condenser,
+		});
+		expect(result.extract).toBe(
+			'## Conflicts\n* A "wildcard" rule.\n* Second bullet.',
+		);
+	});
 });

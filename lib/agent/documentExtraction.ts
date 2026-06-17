@@ -26,6 +26,7 @@ import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 import type { DocumentKind } from "@/lib/domain/multimedia";
+import { normalizeExtractText } from "./extractNormalization";
 import {
 	type SubGenerationProviderOptions,
 	streamObjectWith,
@@ -637,7 +638,10 @@ export async function extractDocument(opts: {
 	}
 
 	return {
-		extract: result.object.extract,
+		// Repair a double-escaped extract before anyone stores or reads it — the
+		// summarizer over-escapes a large markdown body under structured generation
+		// (see `normalizeExtractText`); a clean extract passes through untouched.
+		extract: normalizeExtractText(result.object.extract),
 		title: result.object.title,
 		summary: result.object.summary,
 		// A parsed structured object is complete by construction (a truncated one is
