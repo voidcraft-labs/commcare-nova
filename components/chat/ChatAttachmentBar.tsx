@@ -60,14 +60,17 @@ function StagedChip({
 		extractionAbortSignal,
 	);
 	// A reading document persists to the library regardless of removal, so the ×
-	// is disabled (not a real "cancel") until extraction settles. ready / failed /
-	// non-document chips remove freely.
+	// is disabled (not a real "cancel") until extraction settles; and the preview
+	// is gated too, since its extract can't load until extraction finishes. ready /
+	// failed / non-document chips preview + remove freely.
 	const reading = status === "extracting";
 	return (
 		<AttachmentChip
 			kind={asset.kind}
 			filename={asset.displayName ?? asset.originalFilename}
 			onPreview={() => onPreview(asset)}
+			previewDisabled={reading}
+			previewDisabledTooltip="Still reading this in — the preview opens once it's done."
 			onRemove={() => onRemove(asset.id)}
 			removeDisabled={reading}
 			removeDisabledTooltip="Still reading this in — you can remove it once it's done."

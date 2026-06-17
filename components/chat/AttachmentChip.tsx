@@ -18,6 +18,12 @@ interface AttachmentChipProps {
 	filename: string;
 	/** Opens the preview. When set, the chip body is a button (keyboard-reachable). */
 	onPreview?: () => void;
+	/** Disable the preview (kept visible + hoverable, not removed) — used while the
+	 *  document is still reading, since the preview's extract can't load until
+	 *  extraction finishes. The tooltip explains the wait. */
+	previewDisabled?: boolean;
+	/** Tooltip shown on the disabled preview body in place of the filename. */
+	previewDisabledTooltip?: string;
 	/** Renders a trailing × that removes the chip (composer only). */
 	onRemove?: () => void;
 	/** Disable the remove × (kept visible, not hidden) — used while the document is
@@ -45,6 +51,8 @@ export function AttachmentChip({
 	kind,
 	filename,
 	onPreview,
+	previewDisabled,
+	previewDisabledTooltip,
 	onRemove,
 	removeDisabled,
 	removeDisabledTooltip,
@@ -69,19 +77,31 @@ export function AttachmentChip({
 	return (
 		<div className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md border border-nova-border bg-nova-surface py-1 pr-1 pl-2 text-xs text-nova-text-secondary">
 			{onPreview ? (
+				/* While the document is still reading, the preview body goes inert the
+				 * same way the × does: `aria-disabled` (not native `disabled`) and no
+				 * click handler, so it stays hoverable/focusable for the explanatory
+				 * tooltip a truly-disabled button would suppress. */
 				<Tooltip>
 					<TooltipTrigger
 						render={
 							<button
 								type="button"
-								onClick={onPreview}
-								className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+								onClick={previewDisabled ? undefined : onPreview}
+								aria-disabled={previewDisabled || undefined}
+								className={cn(
+									"flex min-w-0 items-center gap-1.5 rounded-sm focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
+									previewDisabled
+										? "cursor-default"
+										: "cursor-pointer transition-colors hover:text-nova-text",
+								)}
 							>
 								{label}
 							</button>
 						}
 					/>
-					<TooltipContent>{filename}</TooltipContent>
+					<TooltipContent>
+						{previewDisabled ? (previewDisabledTooltip ?? filename) : filename}
+					</TooltipContent>
 				</Tooltip>
 			) : (
 				<span className="flex min-w-0 items-center gap-1.5">{label}</span>
