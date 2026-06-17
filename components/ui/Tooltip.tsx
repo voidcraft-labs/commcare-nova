@@ -75,7 +75,7 @@ export function Tooltip({
 					collisionPadding={8}
 					className="z-tooltip"
 				>
-					<BaseTooltip.Popup className="max-w-xs px-2.5 py-1.5 rounded-lg bg-[rgba(20,20,44,0.95)] border border-white/[0.08] shadow-[0_4px_12px_rgba(0,0,0,0.4)] text-xs font-medium text-nova-text leading-snug pointer-events-none select-none origin-[var(--transform-origin)] transition-[transform,scale,opacity] duration-100 data-[starting-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.96]">
+					<BaseTooltip.Popup className="max-w-xs px-2.5 py-1.5 rounded-lg bg-nova-overlay border border-white/[0.08] shadow-[0_4px_12px_rgba(0,0,0,0.4)] text-xs font-medium text-nova-text leading-snug pointer-events-none select-none origin-[var(--transform-origin)] transition-[transform,scale,opacity] duration-100 data-[starting-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.96]">
 						{content}
 					</BaseTooltip.Popup>
 				</BaseTooltip.Positioner>

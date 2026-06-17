@@ -275,7 +275,7 @@ export function RepeatField({
 								<button
 									type="button"
 									onClick={() => controller.addRepeat(field.uuid)}
-									className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
+									className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent-bright hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
 								>
 									<Icon icon={tablerPlus} width="14" height="14" />
 									Add {addLabel}

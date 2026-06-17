@@ -163,7 +163,7 @@ function CommCareSetupPrompt({ onClose }: { onClose: () => void }) {
 					<Link
 						href="/settings"
 						onClick={onClose}
-						className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-nova-violet transition-colors"
+						className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-white transition-colors"
 					>
 						Set up
 						<Icon icon={tablerChevronRight} width="12" height="12" />

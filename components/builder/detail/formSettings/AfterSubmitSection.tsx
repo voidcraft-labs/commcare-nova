@@ -113,7 +113,7 @@ export function AfterSubmitSection({ formUuid }: FormSettingsSectionProps) {
 								<div
 									className={`text-xs leading-tight ${
 										isActive
-											? "text-nova-violet-bright/60"
+											? "text-nova-violet-bright"
 											: "text-nova-text-muted"
 									}`}
 								>

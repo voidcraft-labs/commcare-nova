@@ -155,7 +155,7 @@ export function PropertyPicker({
 							icon={tablerExclamationCircle}
 							width="14"
 							height="14"
-							className="text-nova-rose/80"
+							className="text-nova-rose"
 							aria-label="Property is not declared on this case type"
 						/>
 					)}
@@ -213,7 +213,7 @@ export function PropertyPicker({
 											<div
 												className={`text-[10px] uppercase tracking-wider ${
 													isActive
-														? "text-nova-violet-bright/60"
+														? "text-nova-violet-bright"
 														: "text-nova-text-muted"
 												}`}
 											>

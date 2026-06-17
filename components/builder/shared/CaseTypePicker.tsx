@@ -155,7 +155,7 @@ export function CaseTypePickerContent({
 					</button>
 				</div>
 				{showError && !verdict.ok && (
-					<p className="mt-1 px-0.5 text-[11px] text-nova-rose/90">
+					<p className="mt-1 px-0.5 text-[11px] text-nova-rose">
 						{verdict.userMessage}
 					</p>
 				)}

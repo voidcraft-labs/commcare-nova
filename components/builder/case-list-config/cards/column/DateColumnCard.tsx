@@ -95,7 +95,7 @@ export function DateColumnCard({
 				errors={errors}
 			/>
 			<div className="space-y-1.5">
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 					Pattern
 				</div>
 				<CustomDatePatternInput

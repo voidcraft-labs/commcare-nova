@@ -407,7 +407,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 										 * user's behalf. */
 										<div
 											role="alert"
-											className="px-2.5 py-1.5 rounded-md bg-[rgba(16,16,36,0.95)] shadow-lg max-w-xs border border-nova-violet/20"
+											className="px-2.5 py-1.5 rounded-md bg-nova-overlay shadow-lg max-w-xs border border-nova-violet/20"
 										>
 											<p className="text-xs font-mono leading-snug text-nova-violet-bright">
 												{idNotice?.message}
@@ -498,7 +498,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 												icon={tablerChevronRight}
 												width="14"
 												height="14"
-												className="text-nova-text-muted/50 shrink-0 -mr-0.5"
+												className="text-nova-text-muted shrink-0 -mr-0.5"
 											/>
 										</Menu.SubmenuTrigger>
 										<Menu.Portal>
@@ -586,7 +586,7 @@ function MenuItem({
 			/>
 			<span className="flex-1 text-left">{label}</span>
 			{shortcut && (
-				<kbd className="text-[10px] text-nova-text-muted/50 font-mono ml-4 shrink-0">
+				<kbd className="text-[10px] text-nova-text-muted font-mono ml-4 shrink-0">
 					{shortcut}
 				</kbd>
 			)}

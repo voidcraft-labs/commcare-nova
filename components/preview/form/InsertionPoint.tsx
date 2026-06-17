@@ -183,7 +183,7 @@ function FullInsertionPoint({
 						ref={triggerRef}
 						handle={pickerCtx?.handle}
 						payload={{ atIndex, parentUuid }}
-						className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0 outline-none"
+						className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet-bright hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0 outline-none"
 						aria-label="Insert field"
 						onClick={stopClick}
 					>

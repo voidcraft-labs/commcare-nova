@@ -24,4 +24,9 @@ Pages are Server Components; the server layout is the auth gate (`requireAuth` /
 
 ## Theme
 
-Dark "Violet Monochrome": violet is the single non-semantic accent; success / warning / error hues are reserved for semantic states, never decoration. Every color is a CSS custom property in `globals.css`; never hardcode one. Z-index is a semantic token scale — use the Tailwind classes that reference it.
+Dark "Violet Monochrome": violet is the single non-semantic accent; success / warning / error hues are reserved for semantic states, never decoration. Every color is a CSS custom property in `globals.css`; never hardcode one — if a one-off color appears, promote it to a token (reuse one, or add a new `--nova-*`). Z-index is a semantic token scale — use the Tailwind classes that reference it.
+
+**Contrast is calibrated into the tokens (WCAG 2.2 AA, 4.5:1 — the theme is dark-only, so every text token must clear it on every surface).** Two rules keep it that way:
+
+- **Violet has two roles.** `--nova-violet` is the *fill* (it's dark enough to carry white text — primary buttons, badges; hover lifts to `--nova-violet-hover`, still white-safe). `--nova-violet-bright` is the *text/link* color. Never swap them: violet-as-text must be `bright` (the fill is too dark to read on a dark surface), and white text must never sit on `violet-bright` (too light). The other accents (rose/emerald/amber/orchid) are all *light* — as a fill they carry **dark** text (`text-nova-void`), never white.
+- **Don't fade text with opacity.** `text-nova-*/NN` and `opacity-*` on a text element drop it below AA on dark surfaces — use a solid token (`text` → `secondary` → `muted`) for de-emphasis instead. Opacity dimming is only acceptable on genuinely inactive/disabled affordances (which WCAG exempts).

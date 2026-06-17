@@ -72,7 +72,7 @@ export function RejectionBody({
 /** The elevated-tier rejection surface (rose-accented variant of the
  *  L2 floating chrome in `lib/styles.ts`). */
 export const REJECTION_SURFACE_CLS =
-	"rounded-lg bg-[rgba(16,16,36,0.97)] border border-nova-rose/25 shadow-[inset_0_0_0_1px_rgba(255,200,220,0.06),0_8px_24px_rgba(0,0,0,0.5)]";
+	"rounded-lg bg-nova-overlay border border-nova-rose/25 shadow-[inset_0_0_0_1px_rgba(255,200,220,0.06),0_8px_24px_rgba(0,0,0,0.5)]";
 
 interface RejectionCalloutProps {
 	/** The finding to show; `null` renders nothing (exit animation). */
@@ -106,7 +106,7 @@ export function RejectionCallout({ message, label }: RejectionCalloutProps) {
 					 *  border so it reads as one shape. */}
 					<span
 						aria-hidden
-						className="absolute -top-[5px] left-4 size-2.5 rotate-45 rounded-[2px] border-l border-t border-nova-rose/25 bg-[rgba(16,16,36,0.97)]"
+						className="absolute -top-[5px] left-4 size-2.5 rotate-45 rounded-[2px] border-l border-t border-nova-rose/25 bg-nova-overlay"
 					/>
 					<RejectionBody message={message} label={label} />
 				</motion.div>

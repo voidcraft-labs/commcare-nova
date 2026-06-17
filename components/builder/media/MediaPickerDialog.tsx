@@ -566,7 +566,7 @@ function UploadTab({
 			    accepts; anything else is filtered out here and in the
 			    library. */}
 				<div className="flex flex-col gap-1 pt-1">
-					<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted/70">
+					<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted">
 						{kinds.length === 1 ? "Supported format" : "Supported formats"}
 					</span>
 					{kinds.map((kind) => {
@@ -902,7 +902,7 @@ function MediaDeleteConfirmDialog({
 							type="button"
 							onClick={onConfirm}
 							disabled={deleting}
-							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-50"
+							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-nova-void transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-50"
 						>
 							{deleting ? "Deleting…" : "Delete"}
 						</button>

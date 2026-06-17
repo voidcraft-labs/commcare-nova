@@ -283,7 +283,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 								href={docsLink("/mcp/api-keys")}
 								target="_blank"
 								rel="noopener noreferrer"
-								className="inline-flex items-center gap-0.5 text-nova-violet-bright transition-colors hover:text-nova-violet-bright/80 underline-offset-2 hover:underline"
+								className="inline-flex items-center gap-0.5 text-nova-violet-bright transition-colors hover:text-nova-violet-bright underline-offset-2 hover:underline"
 							>
 								Learn more
 								<Icon icon={tablerExternalLink} width="11" height="11" />
@@ -372,9 +372,9 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 						icon={tablerShieldLock}
 						width="14"
 						height="14"
-						className="mt-0.5 shrink-0 text-nova-violet/50"
+						className="mt-0.5 shrink-0 text-nova-violet-bright"
 					/>
-					<p className="text-xs text-nova-text-muted/70 leading-relaxed">
+					<p className="text-xs text-nova-text-muted leading-relaxed">
 						Keys are hashed at rest. Full values are shown once at creation, so
 						store them somewhere safe.
 					</p>
@@ -437,7 +437,7 @@ function Row({
 				<div className="flex items-center gap-2 min-w-0">
 					<p className="text-sm font-medium text-nova-text truncate">{name}</p>
 					{displayPrefix && (
-						<code className="shrink-0 text-[11px] font-mono text-nova-text-muted/70">
+						<code className="shrink-0 text-[11px] font-mono text-nova-text-muted">
 							{displayPrefix}…
 						</code>
 					)}
@@ -458,7 +458,7 @@ function Row({
 					 *  `RelativeTime`, which these can't reuse because they
 					 *  format through Intl with their own prefixes. */}
 					<span suppressHydrationWarning>{lastUsedLabel}</span>
-					<span className="text-nova-text-muted/40">·</span>
+					<span className="text-nova-text-muted">·</span>
 					<span suppressHydrationWarning>{expiryLabel}</span>
 				</div>
 				<AnimatePresence>
@@ -650,7 +650,7 @@ function RowActions({
 								icon={tablerTrash}
 								width="15"
 								height="15"
-								className="text-nova-rose/80"
+								className="text-nova-rose"
 							/>
 							Revoke
 						</Menu.Item>
@@ -670,11 +670,11 @@ function EmptyState() {
 				icon={tablerKey}
 				width="28"
 				height="28"
-				className="text-nova-text-muted/40"
+				className="text-nova-text-muted"
 			/>
 			<div className="space-y-1">
 				<p className="text-sm text-nova-text">No API keys yet</p>
-				<p className="max-w-xs text-xs text-nova-text-muted/70 leading-relaxed">
+				<p className="max-w-xs text-xs text-nova-text-muted leading-relaxed">
 					Mint one to connect a tool to Nova on your behalf.
 				</p>
 			</div>
@@ -974,14 +974,14 @@ function MintForm({
 						maxLength={32}
 						autoComplete="off"
 						data-1p-ignore
-						className="mt-1.5 w-full rounded-lg border border-nova-border bg-nova-deep px-3 py-2 text-sm text-nova-text placeholder:text-nova-text-muted/60 outline-none transition-all focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)]"
+						className="mt-1.5 w-full rounded-lg border border-nova-border bg-nova-deep px-3 py-2 text-sm text-nova-text placeholder:text-nova-text-muted outline-none transition-all focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)]"
 					/>
 				</Field.Root>
 
 				{/* Scopes */}
 				<fieldset className="space-y-2">
 					<legend className="text-xs font-medium text-nova-text">Scopes</legend>
-					<p className="-mt-1 text-[11px] text-nova-text-muted/70">
+					<p className="-mt-1 text-[11px] text-nova-text-muted">
 						Read and write are required. Add the HQ scopes if your tool needs to
 						upload finished apps to CommCare HQ.
 					</p>
@@ -1004,7 +1004,7 @@ function MintForm({
 					</Select.Label>
 					<Select.Trigger className="mt-1.5 flex w-full cursor-pointer items-center justify-between rounded-lg border border-nova-border bg-nova-deep px-3 py-2 text-sm text-nova-text outline-none transition-all focus-visible:border-nova-violet focus-visible:shadow-[var(--nova-glow-violet)] data-[popup-open]:border-nova-violet">
 						<Select.Value />
-						<Select.Icon className="text-nova-text-muted/70 transition-transform data-[popup-open]:rotate-180">
+						<Select.Icon className="text-nova-text-muted transition-transform data-[popup-open]:rotate-180">
 							<Icon icon={tablerChevronDown} width="14" height="14" />
 						</Select.Icon>
 					</Select.Trigger>

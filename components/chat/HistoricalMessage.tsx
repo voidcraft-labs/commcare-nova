@@ -4,8 +4,9 @@
  * Used inside HistoricalThread to display dead conversation messages.
  * All interactive elements are stripped: askQuestions renders as a static
  * completed AskQuestionsCard (same violet border card, check icons, Q&A pairs).
- * Visual treatment is muted — the parent wrapper applies opacity-60 so
- * everything reads as ghosted historical content.
+ * Visual treatment is muted — the body text uses the muted text token so it
+ * reads as ghosted historical content while staying legible (a blanket
+ * opacity dim would push this already-low-contrast text under WCAG AA).
  */
 
 import { Icon } from "@iconify/react/offline";
@@ -29,7 +30,7 @@ function HistoricalPart({ part }: { part: StoredMessagePart }) {
 	}
 
 	/* askQuestions — completed AskQuestionsCard visual: same violet border card
-	 * with check icons and Q&A pairs, ghosted by the parent's opacity-60. */
+	 * with check icons and Q&A pairs, ghosted by the muted text tokens. */
 	return (
 		<div className="rounded-xl border border-nova-violet/20 bg-nova-violet/5 overflow-hidden">
 			<div className="px-3.5 py-2.5 border-b border-nova-violet/10">
@@ -68,15 +69,13 @@ export function HistoricalMessage({ message }: HistoricalMessageProps) {
 	return (
 		<>
 			{message.attachments && message.attachments.length > 0 && (
-				<div className="opacity-60">
-					<MessageAttachments attachments={message.attachments} />
-				</div>
+				<MessageAttachments attachments={message.attachments} />
 			)}
 			{message.parts.map((part, idx) => (
 				<div
 					// biome-ignore lint/suspicious/noArrayIndexKey: parts lack unique IDs, append-only array
 					key={idx}
-					className={`rounded-xl px-3.5 py-2 text-sm leading-relaxed opacity-60 ${
+					className={`rounded-xl px-3.5 py-2 text-sm leading-relaxed ${
 						isUser
 							? "bg-nova-surface/40 text-nova-text-muted border border-nova-border/40"
 							: "bg-transparent"

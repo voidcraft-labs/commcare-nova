@@ -56,13 +56,13 @@ export function TodayCard(_props: TodayCardProps) {
 				icon={tablerCalendarEvent}
 				width="14"
 				height="14"
-				className="text-nova-violet-bright/70"
+				className="text-nova-violet-bright"
 			/>
 			<div className="text-xs">
 				<div className="text-nova-text">
 					Resolves to today's date at evaluation time.
 				</div>
-				<div className="text-[10px] text-nova-text-muted/70">
+				<div className="text-[10px] text-nova-text-muted">
 					Project-timezone ISO 8601 date (`YYYY-MM-DD`).
 				</div>
 			</div>
@@ -79,13 +79,13 @@ export function NowCard(_props: NowCardProps) {
 				icon={tablerClock}
 				width="14"
 				height="14"
-				className="text-nova-violet-bright/70"
+				className="text-nova-violet-bright"
 			/>
 			<div className="text-xs">
 				<div className="text-nova-text">
 					Resolves to the current datetime at evaluation time.
 				</div>
-				<div className="text-[10px] text-nova-text-muted/70">
+				<div className="text-[10px] text-nova-text-muted">
 					UTC ISO 8601 datetime (`YYYY-MM-DDTHH:MM:SSZ`).
 				</div>
 			</div>

@@ -59,7 +59,7 @@ export function ModuleCaseTypeSection({
 				The type of case this module manages. Clearing it makes the module a
 				survey (forms only, no cases).
 			</p>
-			{error && <p className="mt-1.5 text-[11px] text-nova-rose/90">{error}</p>}
+			{error && <p className="mt-1.5 text-[11px] text-nova-rose">{error}</p>}
 		</div>
 	);
 }

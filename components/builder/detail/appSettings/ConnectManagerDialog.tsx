@@ -458,7 +458,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 						<button
 							type="button"
 							onClick={turnOff}
-							className="cursor-pointer text-[11px] font-medium text-nova-rose/80 transition-colors hover:text-nova-rose"
+							className="cursor-pointer text-[11px] font-medium text-nova-rose transition-colors hover:text-nova-rose"
 						>
 							Turn off Connect
 						</button>

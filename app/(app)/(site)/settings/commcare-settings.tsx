@@ -334,7 +334,7 @@ export function CommCareSettings({
 							type="button"
 							onClick={handleSave}
 							disabled={!canSave || isVerifying}
-							className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-nova-violet px-5 py-2.5 text-sm font-medium text-white transition-all duration-200 hover:bg-nova-violet-bright disabled:cursor-not-allowed disabled:opacity-40"
+							className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-nova-violet px-5 py-2.5 text-sm font-medium text-white transition-all duration-200 hover:bg-nova-violet-hover disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							{isVerifying ? (
 								<>
@@ -386,9 +386,9 @@ export function CommCareSettings({
 					icon={tablerShieldLock}
 					width="14"
 					height="14"
-					className="shrink-0 text-nova-violet/50"
+					className="shrink-0 text-nova-violet-bright"
 				/>
-				<p className="text-xs text-nova-text-muted/70">
+				<p className="text-xs text-nova-text-muted">
 					Your credentials are encrypted in transit and at rest, stored
 					server-side.
 				</p>

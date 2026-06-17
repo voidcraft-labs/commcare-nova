@@ -42,7 +42,7 @@ export function GenerateSampleDataButton({
 				{running ? "Generating…" : "Generate Sample Data"}
 			</button>
 			{generate.status.kind === "error" && (
-				<p className="mt-3 text-xs text-nova-rose/90 whitespace-pre-line">
+				<p className="mt-3 text-xs text-nova-rose whitespace-pre-line">
 					{generate.status.message}
 				</p>
 			)}

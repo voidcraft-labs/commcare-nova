@@ -76,7 +76,7 @@ export function ScopesPopover({
 				>
 					<Popover.Popup className={`${POPOVER_POPUP_CLS} w-64`}>
 						<div className="px-4 pt-3.5 pb-4">
-							<p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-nova-text-muted/70">
+							<p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-nova-text-muted">
 								This {credentialLabel} can
 							</p>
 							<ul className="space-y-2">

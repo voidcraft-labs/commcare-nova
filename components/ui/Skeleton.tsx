@@ -21,7 +21,7 @@ interface SkeletonProps {
 /** Base gradient style — creates the horizontal shimmer sweep. */
 const SHIMMER_STYLE: React.CSSProperties = {
 	backgroundImage:
-		"linear-gradient(90deg, var(--nova-surface) 0%, rgba(139, 92, 246, 0.06) 40%, var(--nova-surface) 80%)",
+		"linear-gradient(90deg, var(--nova-surface) 0%, var(--nova-violet-wash) 40%, var(--nova-surface) 80%)",
 	backgroundSize: "200% 100%",
 };
 

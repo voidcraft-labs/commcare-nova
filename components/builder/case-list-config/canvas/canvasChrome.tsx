@@ -20,8 +20,8 @@ export type NoticeTone = "muted" | "warning" | "error";
 
 const NOTICE_TONE_CLS: Record<NoticeTone, string> = {
 	muted: "text-nova-text-muted",
-	warning: "text-nova-amber/90",
-	error: "text-nova-rose/90",
+	warning: "text-nova-amber",
+	error: "text-nova-rose",
 };
 
 /** Explanatory line rendered inside an artifact card (e.g. the table
@@ -164,7 +164,7 @@ export function ColumnDragPreview({
 				icon={tablerColumns}
 				width="14"
 				height="14"
-				className="text-nova-violet-bright/80"
+				className="text-nova-violet-bright"
 			/>
 			<span className="max-w-[240px] truncate">{label}</span>
 		</div>

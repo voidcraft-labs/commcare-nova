@@ -302,7 +302,7 @@ function AssetUnavailable({ kind }: { kind: AssetKind }) {
 		<div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-nova-border px-6 py-12 text-center">
 			<Icon
 				icon={ASSET_KIND_META[kind].icon}
-				className="size-10 text-nova-text-muted/60"
+				className="size-10 text-nova-text-muted"
 			/>
 			<p className="text-sm text-nova-text-secondary">
 				This file is no longer available — it may have been deleted from your

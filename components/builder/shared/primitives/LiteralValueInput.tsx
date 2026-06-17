@@ -166,7 +166,7 @@ export function LiteralValueInput({
 
 	if (propertyName === undefined && accepts === undefined) {
 		return (
-			<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+			<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 				Select a property first
 			</div>
 		);
@@ -270,7 +270,7 @@ export function LiteralValueInput({
 }
 
 const INPUT_BASE_CLS =
-	"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 transition-colors";
 const INPUT_VALID_CLS =
 	"border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30";
 const INPUT_INVALID_CLS =
@@ -489,10 +489,10 @@ function NullOnlyLiteral({ value }: { readonly value: Literal | undefined }) {
 	// supported by its role.
 	return (
 		<div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30">
-			<span className="font-mono text-nova-text-muted/80">
+			<span className="font-mono text-nova-text-muted">
 				{nonNull ? String(value.value) : "null"}
 			</span>
-			<span className="text-[11px] text-nova-text-muted/70">
+			<span className="text-[11px] text-nova-text-muted">
 				No typed value fits a place here — compare to a property instead.
 			</span>
 		</div>
@@ -532,7 +532,7 @@ function SelectOptionInput({
 
 	if (options.length === 0) {
 		return (
-			<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+			<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 				This property has no declared options
 			</div>
 		);
@@ -623,7 +623,7 @@ function SelectOptionInput({
 											<div
 												className={`text-[10px] font-mono truncate ${
 													isActive
-														? "text-nova-violet-bright/60"
+														? "text-nova-violet-bright"
 														: "text-nova-text-muted"
 												}`}
 											>

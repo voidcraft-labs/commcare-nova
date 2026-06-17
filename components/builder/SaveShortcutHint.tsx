@@ -28,7 +28,7 @@ export function SaveShortcutHint() {
  */
 export function ToolbarSaveHint() {
 	return (
-		<span className="text-[10px] text-nova-text-muted/60 px-1 flex items-center whitespace-nowrap select-none">
+		<span className="text-[10px] text-nova-text-muted px-1 flex items-center whitespace-nowrap select-none">
 			{MOD_SYMBOL}⏎ save
 		</span>
 	);

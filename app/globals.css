@@ -15,15 +15,39 @@
 	--nova-deep: #0a0a1a;
 	--nova-surface: #12122a;
 	--nova-elevated: #1a1a3e;
+	/* Near-opaque elevated floating surface — the tier that stacks above the
+	   frosted-glass popovers (tooltips, rejection notice, autocomplete, inline
+	   popovers). Consolidates several hand-written bg-[rgba(16,16,36,…)] /
+	   bg-[#0d0d24] one-offs into one token so the floating-surface fill lives
+	   in a single place. */
+	--nova-overlay: rgba(16, 16, 36, 0.97);
 	--nova-border: rgba(139, 92, 246, 0.15);
 	--nova-border-bright: rgba(139, 92, 246, 0.3);
 
 	--nova-text: #ededf4;
 	--nova-text-secondary: #9494b8;
-	--nova-text-muted: #6b6b8a;
+	/* Lightened from #6b6b8a so muted body text clears WCAG AA (4.5:1) on every
+	   surface in the stack — the old value only reached ~3.3:1 on the elevated
+	   surface, failing normal-size text everywhere. Still perceptibly dimmer
+	   than --nova-text-secondary, so the three-step text hierarchy holds. */
+	--nova-text-muted: #8888aa;
 
-	--nova-violet: #8b5cf6;
+	/* Filled-surface violet. Darkened from #8b5cf6 so white/light text on a
+	   solid violet fill (primary buttons, badges, pills) clears AA — the old
+	   value gave white only 4.23:1. Borders and glows keep the lighter brand
+	   rgba(139,92,246,...) since a low-alpha edge reads as a highlight, not a
+	   text-bearing surface. --nova-violet-bright stays light for violet *text*
+	   and links, where the contrast requirement runs the opposite direction. */
+	--nova-violet: #7c54de;
 	--nova-violet-bright: #a78bfa;
+	/* Hover fill for filled violet controls — lighter than the base fill for the
+	   lighten-on-hover affordance, but still dark enough that white text clears
+	   AA (4.65:1). Replaces hover:bg-nova-violet-bright, which lifted the fill to
+	   #a78bfa where white dropped to 2.72:1. */
+	--nova-violet-hover: #8259e6;
+	/* Faint violet wash for decorative fills (skeleton shimmer midpoint, editor
+	   active-line). Consolidates the repeated rgba(139,92,246,0.06) literals. */
+	--nova-violet-wash: rgba(139, 92, 246, 0.06);
 	--nova-emerald: #86cebc;
 	--nova-amber: #d4a76a;
 	--nova-rose: #d4708f;
@@ -90,6 +114,8 @@
 	--color-nova-deep: var(--nova-deep);
 	--color-nova-surface: var(--nova-surface);
 	--color-nova-elevated: var(--nova-elevated);
+	--color-nova-overlay: var(--nova-overlay);
+	--color-nova-violet-wash: var(--nova-violet-wash);
 	--color-nova-border: var(--nova-border);
 	--color-nova-border-bright: var(--nova-border-bright);
 	--color-nova-text: var(--nova-text);
@@ -97,6 +123,7 @@
 	--color-nova-text-muted: var(--nova-text-muted);
 	--color-nova-violet: var(--nova-violet);
 	--color-nova-violet-bright: var(--nova-violet-bright);
+	--color-nova-violet-hover: var(--nova-violet-hover);
 	--color-nova-emerald: var(--nova-emerald);
 	--color-nova-amber: var(--nova-amber);
 	--color-nova-rose: var(--nova-rose);
@@ -323,7 +350,10 @@ body {
 	font-size: 9px;
 	letter-spacing: 0.15em;
 	text-transform: uppercase;
-	color: rgba(140, 140, 175, 0.6);
+	/* Solid muted token (was rgba(140,140,175,0.6) ≈ 2.86:1) so the idle etched
+	   status label clears AA on the panel's dark surface; still reads as the dim,
+	   recessed state below the brighter data-active label. */
+	color: var(--nova-text-muted);
 	white-space: nowrap;
 	user-select: none;
 	transition: color 0.5s ease;
@@ -351,7 +381,10 @@ body {
 		0 0 5px rgba(212, 112, 143, 0.5);
 }
 .nova-panel[data-error] .nova-panel-etch {
-	color: rgba(212, 112, 143, 0.7);
+	/* 0.95 (was 0.7 ≈ 3.48:1) — rose is the darkest of the status hues, so it
+	   needs near-full opacity to clear AA on the panel surface; amber/emerald
+	   below already pass at 0.7. */
+	color: rgba(212, 112, 143, 0.95);
 }
 
 /* Done state — emerald LED and label */
@@ -635,12 +668,15 @@ body {
 	text-align: center;
 }
 .preview-markdown a {
-	color: var(--pv-accent);
+	/* Bright accent for link text — the base --pv-accent is the darkened fill
+	   violet (white-safe but ~4.2:1 as text), so links use the lighter variant
+	   to clear AA, brightening to white on hover. */
+	color: var(--pv-accent-bright);
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
 .preview-markdown a:hover {
-	color: var(--pv-accent-bright);
+	color: #ffffff;
 }
 .preview-markdown img {
 	max-width: 100%;

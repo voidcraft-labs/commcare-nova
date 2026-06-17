@@ -13,7 +13,7 @@ interface ScreenNavButtonsProps {
 /** Hover uses `bg-white/5` (not a theme color) so the buttons read correctly
  *  on the breadcrumb bar's translucent surface. */
 const btnClass = (enabled: boolean) =>
-	`p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg shrink-0 ${enabled ? "text-nova-text-muted hover:text-nova-text hover:bg-white/5 cursor-pointer" : "text-nova-text-muted/30 cursor-default"}`;
+	`p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg shrink-0 ${enabled ? "text-nova-text-muted hover:text-nova-text hover:bg-white/5 cursor-pointer" : "text-nova-text-muted cursor-default"}`;
 
 /**
  * Nav buttons (back + up) rendered in the breadcrumb bar. Back steps through

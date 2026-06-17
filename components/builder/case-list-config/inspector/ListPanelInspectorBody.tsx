@@ -203,18 +203,18 @@ function SampleDataControls({
 				</InspectorHint>
 			)}
 			{confirmingReset && (
-				<p className="text-[11px] text-nova-rose/80 leading-relaxed">
+				<p className="text-[11px] text-nova-rose leading-relaxed">
 					Reset deletes every case in this case type — including ones edited
 					through Preview — and writes fresh sample data.
 				</p>
 			)}
 			{generate.status.kind === "error" && (
-				<p className="text-[11px] text-nova-rose/90 whitespace-pre-line">
+				<p className="text-[11px] text-nova-rose whitespace-pre-line">
 					{generate.status.message}
 				</p>
 			)}
 			{reset.status.kind === "error" && (
-				<p className="text-[11px] text-nova-rose/90 whitespace-pre-line">
+				<p className="text-[11px] text-nova-rose whitespace-pre-line">
 					{reset.status.message}
 				</p>
 			)}

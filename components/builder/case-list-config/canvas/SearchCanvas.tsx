@@ -254,7 +254,7 @@ function InputRow({
 					ref={setHandleEl}
 					aria-label={`Drag to reorder ${input.label || input.name || "search field"}`}
 					onClick={(e) => e.stopPropagation()}
-					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-md cursor-grab text-nova-text-muted/0 group-hover/input:text-nova-text-muted/60 hover:!text-nova-text-muted transition-colors"
+					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-md cursor-grab text-nova-text-muted/0 group-hover/input:text-nova-text-muted hover:!text-nova-text-muted transition-colors"
 				>
 					<Icon icon={tablerGripVertical} width="14" height="14" />
 				</button>
@@ -276,7 +276,7 @@ function InputRow({
 								icon={tablerAlertCircle}
 								width="13"
 								height="13"
-								className="text-nova-rose/80"
+								className="text-nova-rose"
 							/>
 						</span>
 					</Tooltip>
@@ -410,7 +410,7 @@ function InputDragPreview({
 				icon={SEARCH_INPUT_TYPE_ICONS[input.type]}
 				width="14"
 				height="14"
-				className="text-nova-violet-bright/80"
+				className="text-nova-violet-bright"
 			/>
 			<span className="max-w-[240px] truncate">{label}</span>
 		</div>

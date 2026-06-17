@@ -167,18 +167,18 @@ function SortPriorityRowItem({
 					type="button"
 					ref={setHandleEl}
 					aria-label={`Drag to reorder the sort position of ${labelSource}`}
-					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-lg cursor-grab text-nova-violet-bright/50 hover:text-nova-violet-bright transition-colors"
+					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-lg cursor-grab text-nova-violet-bright hover:text-nova-violet-bright transition-colors"
 				>
 					<Icon icon={tablerGripVertical} width="14" height="14" />
 				</button>
 			</Tooltip>
-			<span className="font-mono text-[10px] text-nova-violet-bright/70 shrink-0">
+			<span className="font-mono text-[10px] text-nova-violet-bright shrink-0">
 				{position}
 			</span>
 			<span className="flex-1 min-w-0 truncate text-[13px] text-nova-text">
 				{labelSource}
 			</span>
-			<span className="inline-flex items-center gap-1 text-[11px] text-nova-violet-bright/80 shrink-0">
+			<span className="inline-flex items-center gap-1 text-[11px] text-nova-violet-bright shrink-0">
 				<Icon icon={directionIcon} width="13" height="13" aria-hidden="true" />
 				{directionLabel}
 			</span>
@@ -187,7 +187,7 @@ function SortPriorityRowItem({
 					type="button"
 					onClick={onRemove}
 					aria-label={`Stop sorting by ${labelSource}`}
-					className="w-10 self-stretch min-h-11 grid place-items-center rounded-r-lg text-nova-violet-bright/50 hover:text-nova-rose transition-colors cursor-pointer"
+					className="w-10 self-stretch min-h-11 grid place-items-center rounded-r-lg text-nova-violet-bright hover:text-nova-rose transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerX} width="14" height="14" />
 				</button>
@@ -207,7 +207,7 @@ function SortPriorityDragPreview({ column }: { readonly column: Column }) {
 				icon={tablerArrowsSort}
 				width="12"
 				height="12"
-				className="text-nova-violet-bright/80"
+				className="text-nova-violet-bright"
 			/>
 			<span className="max-w-[200px] truncate">{labelSource}</span>
 		</div>

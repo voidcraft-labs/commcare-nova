@@ -147,7 +147,7 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 								</>
 							)}
 							{error && (
-								<p className="mt-1 px-2.5 pb-1 text-[11px] text-nova-rose/90">
+								<p className="mt-1 px-2.5 pb-1 text-[11px] text-nova-rose">
 									{error}
 								</p>
 							)}

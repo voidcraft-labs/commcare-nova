@@ -126,7 +126,7 @@ export const ReferenceAutocomplete = forwardRef<
 
 	return (
 		<div
-			className="rounded-lg border border-nova-violet/20 bg-[#0d0d24] shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden font-mono text-xs"
+			className="rounded-lg border border-nova-violet/20 bg-nova-overlay shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden font-mono text-xs"
 			style={{ minWidth: 200, maxWidth: 320 }}
 		>
 			{/* ARIA listbox pattern: generic divs with roles, not ul/li which carry

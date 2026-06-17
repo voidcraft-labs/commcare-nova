@@ -18,7 +18,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
 		const variants = {
 			primary:
-				"bg-nova-violet text-white border-transparent hover:bg-nova-violet-bright shadow-[var(--nova-glow-violet)] hover:shadow-[0_0_60px_rgba(139,92,246,0.25)]",
+				"bg-nova-violet text-white border-transparent hover:bg-nova-violet-hover shadow-[var(--nova-glow-violet)] hover:shadow-[0_0_60px_rgba(139,92,246,0.25)]",
 			secondary:
 				"bg-nova-surface text-nova-text border-nova-border hover:border-nova-border-bright hover:bg-nova-elevated",
 			ghost:

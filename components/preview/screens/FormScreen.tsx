@@ -363,7 +363,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						<h3 className="text-sm font-medium text-nova-text">
 							Could not load case data
 						</h3>
-						<p className="text-sm text-red-300 max-w-xs">
+						<p className="text-sm text-nova-rose max-w-xs">
 							{caseDataState.message}
 						</p>
 					</div>
@@ -513,7 +513,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					{submitStatus.kind === "error" && (
 						<p
 							role="alert"
-							className="px-6 pb-3 text-sm text-red-300 whitespace-pre-line"
+							className="px-6 pb-3 text-sm text-nova-rose whitespace-pre-line"
 						>
 							{submitStatus.message}
 						</p>
@@ -521,7 +521,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					{noSampleCases && autoGenerate.status.kind === "error" && (
 						<p
 							role="alert"
-							className="px-6 pb-3 text-sm text-red-300 whitespace-pre-line"
+							className="px-6 pb-3 text-sm text-nova-rose whitespace-pre-line"
 						>
 							{autoGenerate.status.message}
 						</p>
