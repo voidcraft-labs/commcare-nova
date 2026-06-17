@@ -9,6 +9,7 @@ import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import {
+	useIsBareCaseListModule,
 	useIsCaseFirstModule,
 	useOrderedForms,
 } from "@/lib/doc/hooks/useModuleIds";
@@ -43,18 +44,26 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const forms = useOrderedForms((moduleUuid ?? "") as Uuid);
 
-	/* A case-first module's real landing is the case list, not this form
-	 * menu (the running app hoists the shared case selection). The home
-	 * screen already routes there; this redirect covers landing on the
-	 * module URL directly (e.g. flipping to preview while on /module). Edit
-	 * mode keeps the form menu — it's the authoring surface. */
+	/* Two reasons this form menu isn't the right landing:
+	 *  - A `caseListOnly` module is a bare case list — it has NO forms in any
+	 *    mode, so the menu is always empty. Its home is the case list, in both
+	 *    edit and preview. Replace history so {kind:"module"} never becomes a
+	 *    back-button stop for a formless module.
+	 *  - A case-first module (every form case-loading) lands on the case list
+	 *    in the running app (the shared case selection hoists). Edit mode keeps
+	 *    the form menu — it's the authoring surface — so this is preview-only,
+	 *    and pushes (the module is a real, reachable screen in edit).
+	 * The home screen already routes both; this redirect covers landing on the
+	 * module URL directly (deep link, breadcrumb, flipping to preview). */
 	const isCaseFirst = useIsCaseFirstModule(moduleUuid);
-	const redirectToCaseList = mode !== "edit" && isCaseFirst && !!moduleUuid;
+	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
+	const redirectToCaseList =
+		!!moduleUuid && (isBareCaseList || (mode !== "edit" && isCaseFirst));
 	useEffect(() => {
-		if (redirectToCaseList && moduleUuid) {
-			navigate.openCaseList(moduleUuid);
-		}
-	}, [redirectToCaseList, moduleUuid, navigate]);
+		if (!redirectToCaseList || !moduleUuid) return;
+		if (isBareCaseList) navigate.replace({ kind: "cases", moduleUuid });
+		else navigate.openCaseList(moduleUuid);
+	}, [redirectToCaseList, isBareCaseList, moduleUuid, navigate]);
 
 	/* Forward the gated dispatch's outcome — a rename the commit gate
 	 * refuses (e.g. duplicating another module's name) keeps the editor
