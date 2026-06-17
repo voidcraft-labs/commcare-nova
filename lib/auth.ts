@@ -28,7 +28,7 @@ import { firestoreAdapter } from "better-auth-firestore";
 import { Firestore as AdminFirestore } from "firebase-admin/firestore";
 import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
 import { SIGN_IN_ERROR } from "./auth-errors";
-import { withNativeIncrementOne } from "./auth-firestore-increment";
+import { withCompleteFirestoreAdapter } from "./auth-firestore-adapter";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
@@ -136,8 +136,8 @@ function getAuthDb(): AdminFirestore {
  * plugin-added fields (admin plugin's `role` on user, etc.).
  */
 function createAuth() {
-	/* Shared with `withNativeIncrementOne` below so the adapter and its
-	 * incrementOne extension resolve the same Firestore handle + collections. */
+	/* Shared with `withCompleteFirestoreAdapter` below so the adapter and its
+	 * shims resolve the same Firestore handle + collections. */
 	const authFirestore = getAuthDb();
 	const authCollections = {
 		users: "auth_users",
@@ -226,13 +226,15 @@ function createAuth() {
 		 * Collections are still in the same project/database and are prefixed
 		 * with `auth_` to namespace them away from application data.
 		 *
-		 * Wrapped in `withNativeIncrementOne` to supply the atomic counter
-		 * primitive the adapter lacks — without it, the database rate limiter's
-		 * guarded counter increment throws and 500s every repeat request from a
-		 * client within the rate-limit window. See
-		 * `lib/auth-firestore-increment.ts`.
+		 * Wrapped in `withCompleteFirestoreAdapter` to satisfy Better Auth core's
+		 * full adapter contract — both the atomic `incrementOne` the rate limiter
+		 * needs and the transaction-scoped method set the OAuth token exchange
+		 * needs (`findMany` / `consumeOne` / `deleteMany`). Without it those calls
+		 * throw `r.<method> is not a function` and 500 the request — the rate
+		 * limiter on every repeat request in a window, and `/oauth2/token` on
+		 * every MCP sign-in. See `lib/auth-firestore-adapter.ts`.
 		 */
-		database: withNativeIncrementOne(
+		database: withCompleteFirestoreAdapter(
 			firestoreAdapter({
 				firestore: authFirestore,
 				collections: authCollections,
