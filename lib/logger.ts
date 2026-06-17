@@ -76,6 +76,18 @@ function extractStack(error: unknown): string | undefined {
 }
 
 /**
+ * Render one context value as a string for the string-only boundaries this
+ * module emits to: GCP Cloud Logging labels and Sentry tags. Strings pass
+ * through; everything else is JSON-serialized so array/object context survives
+ * in a queryable form. Single-sourced so the label path (`stringifyLabels`)
+ * and the tag path (`sentryTagsFor`) can't drift in how they render a value —
+ * the logger test pins that equivalence.
+ */
+function coerceLabelValue(value: unknown): string {
+	return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/**
  * Emit a structured JSON log entry to the appropriate stream.
  * ERROR/CRITICAL go to stderr, everything else to stdout — matching
  * Cloud Logging's default severity mapping for Cloud Run.
@@ -125,10 +137,12 @@ function sentryComponentTag(message: string): string | undefined {
 /**
  * Build the indexed Sentry tag set for one log entry from its `[component]`
  * prefix plus the identity keys (`SENTRY_TAG_KEYS`) present in its context.
- * Values are coerced to strings the same way Cloud Logging labels are, and
- * `null` / `undefined` keys are skipped (call sites pass `userId: ctx ?? null`
- * freely). Returns `undefined` when nothing is promotable so the capture
- * omits an empty `tags` object. Exported for unit testing in isolation.
+ * Values are coerced to strings via `coerceLabelValue` (the same rendering
+ * Cloud Logging labels use). Absent (`null` / `undefined`) and empty-string
+ * keys are skipped — call sites pass `userId: ctx ?? null` freely, and a blank
+ * tag value is a misleading indexed facet, not a useful one. Returns
+ * `undefined` when nothing is promotable so the capture omits an empty `tags`
+ * object. Exported for unit testing in isolation.
  */
 export function sentryTagsFor(
 	message: string,
@@ -140,8 +154,8 @@ export function sentryTagsFor(
 	if (context) {
 		for (const key of SENTRY_TAG_KEYS) {
 			const value = context[key];
-			if (value === undefined || value === null) continue;
-			tags[key] = typeof value === "string" ? value : JSON.stringify(value);
+			if (value === undefined || value === null || value === "") continue;
+			tags[key] = coerceLabelValue(value);
 		}
 	}
 	return Object.keys(tags).length > 0 ? tags : undefined;
@@ -179,9 +193,9 @@ function captureToSentry(
 }
 
 /**
- * Coerce arbitrary context values into GCP-compatible string labels.
- * Strings pass through; everything else is JSON-serialized so array and
- * object context survives the label boundary in a queryable form.
+ * Coerce arbitrary context into GCP-compatible string labels, rendering each
+ * value via `coerceLabelValue`. Unlike the Sentry tag path, every key is kept
+ * (labels are free-form Cloud Logging metadata, not an indexed facet set).
  */
 function stringifyLabels(
 	context: LogContext,
@@ -190,7 +204,7 @@ function stringifyLabels(
 	if (entries.length === 0) return undefined;
 	const result: Record<string, string> = {};
 	for (const [key, value] of entries) {
-		result[key] = typeof value === "string" ? value : JSON.stringify(value);
+		result[key] = coerceLabelValue(value);
 	}
 	return result;
 }

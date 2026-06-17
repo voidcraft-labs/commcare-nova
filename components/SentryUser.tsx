@@ -21,9 +21,15 @@ import { useEffect } from "react";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 
 export function SentryUser() {
-	const { user } = useAuth();
+	const { user, isPending } = useAuth();
 
 	useEffect(() => {
+		/* Wait for a settled session before touching the scope. While the check
+		 * is in flight `user` is null-but-unknown, not signed-out — acting on it
+		 * would clear a still-valid identity during initial load. (The auth client
+		 * disables refetch-on-focus for the same reason; see components/CLAUDE.md.)
+		 * Once settled, a null user is a real sign-out and clears the scope. */
+		if (isPending) return;
 		if (!user) {
 			Sentry.setUser(null);
 			return;
@@ -33,7 +39,7 @@ export function SentryUser() {
 			email: user.email,
 			username: user.name,
 		});
-	}, [user]);
+	}, [user, isPending]);
 
 	/* Pure side effect — no UI output. */
 	return null;

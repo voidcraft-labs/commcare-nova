@@ -45,6 +45,13 @@ function identifySentryUser(session: Session): void {
 		email: session.user.email,
 		username: session.user.name,
 	});
+	/* During admin impersonation `session.user` is the impersonated target, so
+	 * the event is correctly attributed to whose data context it happened in —
+	 * but record the acting admin too, so an error in an impersonation session
+	 * is traceable to who actually triggered it. Absent on normal sessions. */
+	if (session.session.impersonatedBy) {
+		Sentry.setTag("impersonatedBy", session.session.impersonatedBy);
+	}
 }
 
 // ── Caller IP ───────────────────────────────────────────────────────

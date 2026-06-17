@@ -41,11 +41,14 @@ describe("sentryTagsFor", () => {
 		});
 	});
 
-	it("skips null / undefined identity values (call sites pass `ctx ?? null`)", () => {
+	it("skips null / undefined / empty-string identity values", () => {
+		// Call sites pass `userId: ctx ?? null`; an empty string would also be a
+		// misleading blank Sentry facet, so it's dropped rather than promoted.
 		expect(
 			sentryTagsFor("[mcp] cross-tenant access attempt", {
 				userId: null,
 				appId: undefined,
+				ownerId: "",
 			}),
 		).toEqual({ component: "mcp" });
 	});
