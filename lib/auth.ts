@@ -10,7 +10,9 @@
  * `auth_users` is the single source of truth for user identity. The app
  * extends it with `lastActiveAt` via `additionalFields` — no separate
  * user collection. Auth state lives in `auth_users`, `auth_sessions`,
- * `auth_accounts`, and `auth_verifications`.
+ * `auth_accounts`, and `verification` (only the first three carry the
+ * `auth_` prefix — see the `authCollections` note below for why the
+ * verification rows land in an unprefixed collection).
  *
  * Required env vars (at runtime, not build time):
  *   BETTER_AUTH_SECRET   — cookie signing secret (generate with `openssl rand -base64 32`)
@@ -143,6 +145,16 @@ function createAuth() {
 		users: "auth_users",
 		sessions: "auth_sessions",
 		accounts: "auth_accounts",
+		/* Only `users` / `sessions` / `accounts` actually take effect. The
+		 * Firestore adapter special-cases exactly those three model names when
+		 * resolving a collection; it maps this `verificationTokens` override to
+		 * the `verificationToken` model name, but Better Auth core's model is
+		 * `verification`, which the adapter leaves unmapped. Verification rows
+		 * therefore land in the default unprefixed `verification` collection,
+		 * not `auth_verifications` — the override here is inert, kept to document
+		 * the intended namespacing. Routing verification rows under `auth_`
+		 * would require the adapter itself to special-case the `verification`
+		 * model. */
 		verificationTokens: "auth_verifications",
 	};
 
