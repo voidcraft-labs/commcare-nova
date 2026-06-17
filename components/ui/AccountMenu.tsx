@@ -11,14 +11,17 @@
 "use client";
 import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
+import tablerFiles from "@iconify-icons/tabler/files";
 import tablerLogout from "@iconify-icons/tabler/logout";
 import tablerSettings from "@iconify-icons/tabler/settings";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { MediaPickerDialog } from "@/components/builder/media/MediaPickerDialog";
 import { CreditAmount } from "@/components/ui/CreditAmount";
 import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
+import { ASSET_KINDS } from "@/lib/domain/multimedia";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 /**
@@ -94,6 +97,10 @@ function UserAvatar({
 export function AccountMenu() {
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
 	const [open, setOpen] = useState(false);
+	/* File-manager dialog open state. The "Files" item opens the same media
+	 * dialog the chat composer uses, but with no pick target — a standalone
+	 * manager for browsing, uploading, previewing, and deleting your files. */
+	const [fileManagerOpen, setFileManagerOpen] = useState(false);
 
 	/* Credit summary via the shared hook. It owns the on-mount fetch — gated by
 	 * `isAuthenticated` so it doesn't fire a 401 before sign-in resolves — so the
@@ -131,103 +138,132 @@ export function AccountMenu() {
 		usage && total > 0 ? Math.min(Math.max(usage.balance / total, 0), 1) : 0;
 
 	return (
-		<Popover.Root open={open} onOpenChange={setOpen}>
-			{/* ── Trigger: avatar or initials ──────────────────────── */}
-			<Popover.Trigger
-				className="flex items-center justify-center w-9 h-9 rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
-				aria-label="Account menu"
-			>
-				<UserAvatar user={user} size="sm" />
-			</Popover.Trigger>
-
-			{/* ── Dropdown (portal) ────────────────────────────────── */}
-			<Popover.Portal>
-				<Popover.Positioner
-					side="bottom"
-					align="end"
-					sideOffset={6}
-					className={POPOVER_POSITIONER_GLASS_CLS}
+		<>
+			<Popover.Root open={open} onOpenChange={setOpen}>
+				{/* ── Trigger: avatar or initials ──────────────────────── */}
+				<Popover.Trigger
+					className="flex items-center justify-center w-9 h-9 rounded-full cursor-pointer transition-all duration-150 ring-1 ring-transparent hover:ring-nova-border-bright focus-visible:ring-nova-violet outline-none"
+					aria-label="Account menu"
 				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
-						<div className="w-64 overflow-hidden">
-							{/* ── Profile ────────────────────────────────────── */}
-							<div className="px-4 pt-4 pb-3 flex items-center gap-3">
-								<UserAvatar user={user} size="md" />
-								<div className="min-w-0">
-									<p className="text-sm font-medium text-nova-text truncate">
-										{user.name}
-									</p>
-									<p className="text-xs text-nova-text-muted truncate">
-										{user.email}
-									</p>
-								</div>
-							</div>
+					<UserAvatar user={user} size="sm" />
+				</Popover.Trigger>
 
-							{/* ── Credit bar ─────────────────────────────────── */}
-							{usage && (
-								<div className="px-4 pb-3">
-									<div className="flex items-baseline justify-between mb-1.5">
-										<span className="text-[11px] text-nova-text-muted">
-											Credits this month
-										</span>
-										{/* Just the remaining balance — no "/ total", no "credits" word. A
-										 * countdown to zero reads fine without the denominator, and dropping the
-										 * trailing text keeps this on one line beside the "Credits this month"
-										 * label instead of wrapping. The bar below still conveys the proportion
-										 * remaining. */}
-										<CreditAmount
-											value={usage.balance}
-											className="text-nova-text-secondary"
-										/>
-									</div>
-									<div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-										<div
-											className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(remainingRatio)} transition-all duration-500`}
-											style={{ width: `${remainingRatio * 100}%` }}
-										/>
+				{/* ── Dropdown (portal) ────────────────────────────────── */}
+				<Popover.Portal>
+					<Popover.Positioner
+						side="bottom"
+						align="end"
+						sideOffset={6}
+						className={POPOVER_POSITIONER_GLASS_CLS}
+					>
+						<Popover.Popup className={POPOVER_POPUP_CLS}>
+							<div className="w-64 overflow-hidden">
+								{/* ── Profile ────────────────────────────────────── */}
+								<div className="px-4 pt-4 pb-3 flex items-center gap-3">
+									<UserAvatar user={user} size="md" />
+									<div className="min-w-0">
+										<p className="text-sm font-medium text-nova-text truncate">
+											{user.name}
+										</p>
+										<p className="text-xs text-nova-text-muted truncate">
+											{user.email}
+										</p>
 									</div>
 								</div>
-							)}
 
-							{/* ── Divider ────────────────────────────────────── */}
-							<div className="border-t border-white/[0.06]" />
+								{/* ── Credit bar ─────────────────────────────────── */}
+								{usage && (
+									<div className="px-4 pb-3">
+										<div className="flex items-baseline justify-between mb-1.5">
+											<span className="text-[11px] text-nova-text-muted">
+												Credits this month
+											</span>
+											{/* Just the remaining balance — no "/ total", no "credits" word. A
+											 * countdown to zero reads fine without the denominator, and dropping the
+											 * trailing text keeps this on one line beside the "Credits this month"
+											 * label instead of wrapping. The bar below still conveys the proportion
+											 * remaining. */}
+											<CreditAmount
+												value={usage.balance}
+												className="text-nova-text-secondary"
+											/>
+										</div>
+										<div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+											<div
+												className={`h-full rounded-full bg-gradient-to-r ${getBarGradient(remainingRatio)} transition-all duration-500`}
+												style={{ width: `${remainingRatio * 100}%` }}
+											/>
+										</div>
+									</div>
+								)}
 
-							{/* ── Settings link ────────────────────────────── */}
-							<Link
-								href="/settings"
-								onClick={() => setOpen(false)}
-								className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
-							>
-								<Icon icon={tablerSettings} width="16" height="16" />
-								Settings
-							</Link>
+								{/* ── Divider ────────────────────────────────────── */}
+								<div className="border-t border-white/[0.06]" />
 
-							{/* ── Divider ────────────────────────────────────── */}
-							<div className="border-t border-white/[0.06]" />
-
-							{/* ── Sign out ──────────────────────────────────── */}
-							<div>
+								{/* ── Files (file manager) ─────────────────────── */}
+								{/* Opens the media dialog as a standalone manager — the only
+								 *  entry to it outside the chat composer's attach flow. Close
+								 *  the menu first, then open the dialog (a sibling of this
+								 *  Popover, so it outlives the menu). */}
 								<button
 									type="button"
 									onClick={() => {
-										signOut();
 										setOpen(false);
+										setFileManagerOpen(true);
 									}}
-									className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-rose hover:bg-nova-rose/[0.06] transition-colors cursor-pointer rounded-b-xl"
+									className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
 								>
-									<Icon
-										icon={tablerLogout}
-										width="16"
-										height="16"
-										className="transition-colors"
-									/>
-									Sign out
+									<Icon icon={tablerFiles} width="16" height="16" />
+									Files
 								</button>
+
+								{/* ── Settings link ────────────────────────────── */}
+								<Link
+									href="/settings"
+									onClick={() => setOpen(false)}
+									className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
+								>
+									<Icon icon={tablerSettings} width="16" height="16" />
+									Settings
+								</Link>
+
+								{/* ── Divider ────────────────────────────────────── */}
+								<div className="border-t border-white/[0.06]" />
+
+								{/* ── Sign out ──────────────────────────────────── */}
+								<div>
+									<button
+										type="button"
+										onClick={() => {
+											signOut();
+											setOpen(false);
+										}}
+										className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-nova-text-secondary hover:text-nova-rose hover:bg-nova-rose/[0.06] transition-colors cursor-pointer rounded-b-xl"
+									>
+										<Icon
+											icon={tablerLogout}
+											width="16"
+											height="16"
+											className="transition-colors"
+										/>
+										Sign out
+									</button>
+								</div>
 							</div>
-						</div>
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
+						</Popover.Popup>
+					</Popover.Positioner>
+				</Popover.Portal>
+			</Popover.Root>
+
+			{/* The file manager opens OUTSIDE the Popover (it portals to body
+			 *  anyway), so it outlives the menu closing on the click that opened it.
+			 *  Omitting onPick puts the dialog in manage mode — all asset kinds,
+			 *  browse / upload / preview / delete, with no carrier to pick into. */}
+			<MediaPickerDialog
+				open={fileManagerOpen}
+				onOpenChange={setFileManagerOpen}
+				kinds={ASSET_KINDS}
+			/>
+		</>
 	);
 }
