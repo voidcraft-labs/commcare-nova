@@ -31,6 +31,7 @@ import { Firestore as AdminFirestore } from "firebase-admin/firestore";
 import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
 import { SIGN_IN_ERROR } from "./auth-errors";
 import { withCompleteFirestoreAdapter } from "./auth-firestore-adapter";
+import { forwardBetterAuthLog } from "./auth-logger";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
@@ -161,6 +162,19 @@ function createAuth() {
 	return betterAuth({
 		secret: process.env.BETTER_AUTH_SECRET,
 		baseURL: process.env.BETTER_AUTH_URL,
+
+		/**
+		 * Route Better Auth's internal logger through Nova's logger so auth
+		 * errors reach Sentry. Better Auth catches `/api/auth/*` failures inside
+		 * its router and logs them via this handler instead of throwing, so
+		 * without the bridge neither Sentry's auto-instrumentation nor Nova's
+		 * `log.error` mirror ever sees them — the whole auth surface is a Sentry
+		 * blind spot. See `lib/auth-logger.ts` for the level mapping.
+		 */
+		logger: {
+			log: (level, message, ...args) =>
+				forwardBetterAuthLog(level, message, args),
+		},
 
 		/**
 		 * Block HTTP routes Better Auth would otherwise auto-mount from
