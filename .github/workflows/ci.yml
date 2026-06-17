@@ -64,6 +64,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          # `vitest --changed` diffs the working tree against the PR base to
+          # decide which tests to run; that needs the base commit present in
+          # local history, which the default depth-1 checkout omits.
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -71,8 +76,21 @@ jobs:
       - run: npm ci
       - name: Install Atlas
         uses: ariga/setup-atlas@master
-      - name: Test suite under the async-leak detector
-        run: npm run test:leaks
+      # Scope the leak sweep to what the PR touched. `vitest --changed <base>`
+      # runs only the test files whose module import graph reaches a changed
+      # file — including unchanged tests that import a changed source file, so
+      # a leak introduced in `lib/` is still caught by its existing test.
+      # Sound because the async-leak detector attributes each leaked resource
+      # to the single test file that created it (no cross-file leak), so an
+      # unchanged graph reproduces a byte-identical, already-green run; the
+      # full suite still ran at this PR's merge base. A change to a shared
+      # input outside every graph (config, setup, deps) re-sweeps everything
+      # via `forceRerunTriggers` in vitest.config.ts. `--passWithNoTests`
+      # makes a PR that touches no covered code a green no-op.
+      - name: Changed tests under the async-leak detector
+        run: npm run test:leaks -- --changed "$PR_BASE_SHA" --passWithNoTests
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
   build:
     name: Production build

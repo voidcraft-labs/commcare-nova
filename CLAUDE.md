@@ -33,7 +33,7 @@ The two centers of gravity are the **domain vocabulary** and the **doc that inst
 - **Multi-host routing.** One Cloud Run service serves three hostnames, split by `proxy.ts` on the `Host` header, with per-host allowlists in `lib/hostnames.ts`. **A new `/api/*` route needs an allowlist entry or the proxy 404s it in prod while localhost masks it** — the single most common deploy-time surprise.
 - **Deploy.** Merge to main auto-deploys to Cloud Run (us-central1); the default `*.run.app` URL is disabled. Schema migrations run as a separate Cloud Run Job per deploy, blocking the deploy on failure (mechanics in `lib/case-store`).
 - **Observability is two-channel.** Cloud Logging is the structured-JSON stream (`lib/logger.ts`); Sentry owns grouping / replay. `log.error` / `log.critical` mirror to Sentry; `log.warn` stays Cloud-Logging-only. Browser errors tunnel through `/api/monitoring`.
-- **Tests must not leak async resources.** CI runs the full suite under `--detect-async-leaks` and fails on any leak (`npm run test:leaks` reproduces locally). Fix at the source — clear timers in `afterEach`, await or cancel promises, let RTL auto-cleanup unmount; prefer testing state + pure transformations over mounting UI.
+- **Tests must not leak async resources.** CI runs `--detect-async-leaks` over the tests a PR touched — `vitest --changed` against the merge base, which is sound because the detector pins each leak to the one test file that created it (no cross-file leak), so a change to shared infra (config / setup / deps) re-sweeps everything via `forceRerunTriggers`. It fails on any leak (`npm run test:leaks` reproduces the full sweep locally). Fix at the source — clear timers in `afterEach`, await or cancel promises, let RTL auto-cleanup unmount; prefer testing state + pure transformations over mounting UI.
 - **Migrations are scan-then-migrate.** A one-off data migration ships as a read-only scan script plus a separate migrate script in `scripts/`; run them when deploying over old data.
 - **Docs move with behavior.** When a change alters what users see or do, update the public docs under `app/(docs)/`, and keep the nearest subtree `CLAUDE.md` honest — it is injected at the top of every session working in that area.
 
@@ -44,7 +44,7 @@ Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel A
 ```bash
 npm run dev          # boots local case-store Postgres (compose.yaml) + migrations, then Turbopack
 npm run build / lint / format / test
-npm run test:leaks   # full suite under the async-leak detector — what CI runs
+npm run test:leaks   # full suite under the async-leak detector (CI scopes it to PR-changed tests via --changed)
 npm run typecheck    # fumadocs-mdx + tsc --noEmit
 npm run db:diff / db:lint        # author / lint a case-store migration (Atlas)
 npx tsx scripts/test-schema.ts   # verify SA tool-input schemas are API-accepted
