@@ -21,6 +21,7 @@
  * not the docs feel.
  */
 import { ErrorReporter } from "@/components/ErrorReporter";
+import { SentryUser } from "@/components/SentryUser";
 import { ToastContainer } from "@/components/ui/ToastContainer";
 import { TooltipProvider } from "@/components/ui/TooltipProvider";
 
@@ -35,6 +36,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 				Skip to main content
 			</a>
 			<ErrorReporter />
+			<SentryUser />
 			<TooltipProvider>
 				{children}
 				<ToastContainer />

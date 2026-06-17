@@ -19,6 +19,7 @@
  * identity into every subsequent request.
  */
 
+import * as Sentry from "@sentry/nextjs";
 import { createMcpHandler } from "mcp-handler";
 import { registerNovaTools } from "@/lib/mcp/server";
 import type { ToolContext } from "@/lib/mcp/types";
@@ -57,6 +58,13 @@ export async function dispatchMcpTools(
 	req: Request,
 	ctx: ToolContext,
 ): Promise<Response> {
+	/* Attribute every Sentry event from this verified MCP request to its
+	 * caller. Both auth paths (JWT, API key) converge here with a verified
+	 * `ctx`, and the credential carries only the user id — the JWT `sub`
+	 * claim or the API-key row's `referenceId`, no email — so this is
+	 * id-only attribution; the first-party web surface sets the richer
+	 * name/email user in `lib/auth-utils.ts`. */
+	Sentry.setUser({ id: ctx.userId });
 	return createMcpHandler(
 		(server) => {
 			registerNovaTools(server, ctx);
