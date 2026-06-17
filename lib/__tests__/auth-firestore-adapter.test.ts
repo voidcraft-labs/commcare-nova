@@ -207,7 +207,7 @@ describe("withCompleteFirestoreAdapter — transaction routing", () => {
 		expect(nativeTransaction).not.toHaveBeenCalled();
 	});
 
-	it("installs the native atomic incrementOne, reachable directly and via trx", async () => {
+	it("installs the native atomic incrementOne and consumeOne, reachable directly and via trx", async () => {
 		const { adapter: base } = buildPartialAdapter();
 		const wrapped = withCompleteFirestoreAdapter(
 			() => base,
@@ -216,12 +216,19 @@ describe("withCompleteFirestoreAdapter — transaction routing", () => {
 		);
 		const adapter = wrapped({} as never);
 
+		// Both native primitives replace the partial adapter's surface. consumeOne
+		// is the OAuth single-use path; without it the adapter's synthesized
+		// fallback deletes by id (unsupported here) and returns null => "invalid
+		// code" at the token endpoint.
 		expect(typeof adapter.incrementOne).toBe("function");
-		// `trx` inside a transaction resolves to the same patched adapter, so the
-		// atomic counter primitive is the identical implementation either way.
-		const sameInstance = await adapter.transaction(
-			async (trx) => trx.incrementOne === adapter.incrementOne,
-		);
-		expect(sameInstance).toBe(true);
+		expect(typeof adapter.consumeOne).toBe("function");
+
+		// `trx` inside a transaction resolves to the same patched adapter, so each
+		// primitive is the identical implementation called directly or via trx.
+		const sameInstances = await adapter.transaction(async (trx) => ({
+			increment: trx.incrementOne === adapter.incrementOne,
+			consume: trx.consumeOne === adapter.consumeOne,
+		}));
+		expect(sameInstances).toEqual({ increment: true, consume: true });
 	});
 });
