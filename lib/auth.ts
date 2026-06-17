@@ -10,7 +10,9 @@
  * `auth_users` is the single source of truth for user identity. The app
  * extends it with `lastActiveAt` via `additionalFields` — no separate
  * user collection. Auth state lives in `auth_users`, `auth_sessions`,
- * `auth_accounts`, and `auth_verifications`.
+ * `auth_accounts`, and `verification` (only the first three carry the
+ * `auth_` prefix — see the `authCollections` note below for why the
+ * verification rows land in an unprefixed collection).
  *
  * Required env vars (at runtime, not build time):
  *   BETTER_AUTH_SECRET   — cookie signing secret (generate with `openssl rand -base64 32`)
@@ -28,7 +30,8 @@ import { firestoreAdapter } from "better-auth-firestore";
 import { Firestore as AdminFirestore } from "firebase-admin/firestore";
 import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
 import { SIGN_IN_ERROR } from "./auth-errors";
-import { withNativeIncrementOne } from "./auth-firestore-increment";
+import { withCompleteFirestoreAdapter } from "./auth-firestore-adapter";
+import { forwardBetterAuthLog } from "./auth-logger";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
@@ -136,19 +139,42 @@ function getAuthDb(): AdminFirestore {
  * plugin-added fields (admin plugin's `role` on user, etc.).
  */
 function createAuth() {
-	/* Shared with `withNativeIncrementOne` below so the adapter and its
-	 * incrementOne extension resolve the same Firestore handle + collections. */
+	/* Shared with `withCompleteFirestoreAdapter` below so the adapter and its
+	 * shims resolve the same Firestore handle + collections. */
 	const authFirestore = getAuthDb();
 	const authCollections = {
 		users: "auth_users",
 		sessions: "auth_sessions",
 		accounts: "auth_accounts",
+		/* Only `users` / `sessions` / `accounts` actually take effect. The
+		 * Firestore adapter special-cases exactly those three model names when
+		 * resolving a collection; it maps this `verificationTokens` override to
+		 * the `verificationToken` model name, but Better Auth core's model is
+		 * `verification`, which the adapter leaves unmapped. Verification rows
+		 * therefore land in the default unprefixed `verification` collection,
+		 * not `auth_verifications` — the override here is inert, kept to document
+		 * the intended namespacing. Routing verification rows under `auth_`
+		 * would require the adapter itself to special-case the `verification`
+		 * model. */
 		verificationTokens: "auth_verifications",
 	};
 
 	return betterAuth({
 		secret: process.env.BETTER_AUTH_SECRET,
 		baseURL: process.env.BETTER_AUTH_URL,
+
+		/**
+		 * Route Better Auth's internal logger through Nova's logger so auth
+		 * errors reach Sentry. Better Auth catches `/api/auth/*` failures inside
+		 * its router and logs them via this handler instead of throwing, so
+		 * without the bridge neither Sentry's auto-instrumentation nor Nova's
+		 * `log.error` mirror ever sees them — the whole auth surface is a Sentry
+		 * blind spot. See `lib/auth-logger.ts` for the level mapping.
+		 */
+		logger: {
+			log: (level, message, ...args) =>
+				forwardBetterAuthLog(level, message, args),
+		},
 
 		/**
 		 * Block HTTP routes Better Auth would otherwise auto-mount from
@@ -226,13 +252,15 @@ function createAuth() {
 		 * Collections are still in the same project/database and are prefixed
 		 * with `auth_` to namespace them away from application data.
 		 *
-		 * Wrapped in `withNativeIncrementOne` to supply the atomic counter
-		 * primitive the adapter lacks — without it, the database rate limiter's
-		 * guarded counter increment throws and 500s every repeat request from a
-		 * client within the rate-limit window. See
-		 * `lib/auth-firestore-increment.ts`.
+		 * Wrapped in `withCompleteFirestoreAdapter` to satisfy Better Auth core's
+		 * full adapter contract — both the atomic `incrementOne` the rate limiter
+		 * needs and the transaction-scoped method set the OAuth token exchange
+		 * needs (`findMany` / `consumeOne` / `deleteMany`). Without it those calls
+		 * throw `r.<method> is not a function` and 500 the request — the rate
+		 * limiter on every repeat request in a window, and `/oauth2/token` on
+		 * every MCP sign-in. See `lib/auth-firestore-adapter.ts`.
 		 */
-		database: withNativeIncrementOne(
+		database: withCompleteFirestoreAdapter(
 			firestoreAdapter({
 				firestore: authFirestore,
 				collections: authCollections,
