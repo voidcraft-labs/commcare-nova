@@ -43,7 +43,7 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 	// Inline flavor: a (rare) gate rejection surfaces in this popover's own
 	// error line, not as a toast — the popover owns the feedback.
 	const { inline } = useBlueprintMutations();
-	const { openModule } = useNavigate();
+	const { openModule, openCaseList } = useNavigate();
 	const { revealed, ref, hoverProps } = useTreeInsertionHover(open);
 
 	// Reset transient state whenever the popover closes — by dismiss
@@ -78,7 +78,9 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 	const handleCaseList = (caseType: string) => {
 		const outcome = inline.createCaseListModule({ caseType, index: atIndex });
 		if (outcome.ok) {
-			openModule(outcome.uuid);
+			// Born a `caseListOnly` viewer (no forms), so its home is the case
+			// list, not an empty form menu — land on the config directly.
+			openCaseList(outcome.uuid);
 			close();
 		} else {
 			setError(outcome.messages.join(" "));

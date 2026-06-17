@@ -26,8 +26,11 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerId from "@iconify-icons/tabler/id";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerSearch from "@iconify-icons/tabler/search";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
+import { EditableTitle } from "@/components/builder/EditableTitle";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
 import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -100,7 +103,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	const caseTypes = useCaseTypes();
 	const appId = useAppId() ?? "";
 	const navigate = useNavigate();
-	const { updateModule } = useBlueprintMutations();
+	const { updateModule, inline } = useBlueprintMutations();
 
 	const caseType = mod?.caseType;
 	const config = mod?.caseListConfig ?? EMPTY_CONFIG;
@@ -176,6 +179,15 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			updateModule(moduleUuid, { caseSearchConfig: next });
 		},
 		[updateModule, moduleUuid],
+	);
+
+	/* Rename — only surfaced for a `caseListOnly` module, where this
+	 * workspace IS the module's home (no module screen to carry the title).
+	 * Forward the gated outcome so a refused rename keeps the draft + finding
+	 * inline, exactly like the module screen's title. */
+	const saveModuleName = useCallback(
+		(name: string) => inline.updateModule(moduleUuid, { name }),
+		[inline, moduleUuid],
 	);
 
 	const ct = caseTypes.find((c) => c.name === caseType);
@@ -269,9 +281,22 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		(c) => c.visibleInDetail !== false,
 	).length;
 
+	/* A `caseListOnly` module has no module screen (it would be an empty form
+	 * menu), so this workspace is its only home — carry the module identity
+	 * (rename + settings: case type, menu appearance) in the sticky header,
+	 * reusing the same controls the module screen mounts. Form-bearing modules
+	 * keep their identity on the module screen, so no header here. */
+	const moduleHeader: ReactNode = mod.caseListOnly ? (
+		<div className="flex items-center gap-2 pb-2.5 mb-2.5 border-b border-nova-border/60">
+			<EditableTitle value={mod.name} onSave={saveModuleName} />
+			<ModuleSettingsButton moduleUuid={moduleUuid} />
+		</div>
+	) : null;
+
 	return (
 		<div className="case-list-workspace @container">
 			<WorkspaceTabs
+				header={moduleHeader}
 				tab={tab}
 				searchMeta={`${config.searchInputs.length} ${config.searchInputs.length === 1 ? "field" : "fields"}`}
 				listMeta={`${config.columns.length} ${config.columns.length === 1 ? "column" : "columns"}`}
@@ -485,6 +510,10 @@ interface WorkspaceTabsProps {
 	readonly detailMeta: string;
 	readonly errorAreas: CaseListConfigErrorAreas;
 	readonly onSelectTab: (next: CaseListWorkspaceTab) => void;
+	/** Optional module-identity row rendered above the tabs, inside the same
+	 *  sticky frame — present only when this workspace is the module's home
+	 *  (a `caseListOnly` module). */
+	readonly header?: ReactNode;
 }
 
 const TAB_DEFS: ReadonlyArray<{
@@ -509,6 +538,7 @@ function WorkspaceTabs({
 	detailMeta,
 	errorAreas,
 	onSelectTab,
+	header,
 }: WorkspaceTabsProps) {
 	const metas: Record<CaseListWorkspaceTab, string> = {
 		search: searchMeta,
@@ -524,81 +554,83 @@ function WorkspaceTabs({
 	 * run-through use, so every layer shares one left edge. */
 	return (
 		<div className="sticky top-0 z-raised py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
-			<ContentFrame
-				width="5xl"
-				className="px-6 flex items-center gap-1.5 @2xl:gap-2"
-			>
-				{TAB_DEFS.map(({ id, icon, label }) => {
-					const active = tab === id;
-					const hasErrors = errorAreas[id];
-					return (
-						<Tooltip
-							key={id}
-							content={
-								hasErrors
-									? `${label} needs attention — open it to see what's wrong`
-									: label
-							}
-							placement="bottom"
-						>
-							<button
-								type="button"
-								onClick={() => onSelectTab(id)}
-								className={`relative flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
-									active
-										? "bg-nova-violet/[0.13] border-nova-border-bright"
-										: "border-transparent hover:bg-white/[0.03]"
-								}`}
+			<ContentFrame width="5xl" className="px-6">
+				{header}
+				<div className="flex items-center gap-1.5 @2xl:gap-2">
+					{TAB_DEFS.map(({ id, icon, label }) => {
+						const active = tab === id;
+						const hasErrors = errorAreas[id];
+						return (
+							<Tooltip
+								key={id}
+								content={
+									hasErrors
+										? `${label} needs attention — open it to see what's wrong`
+										: label
+								}
+								placement="bottom"
 							>
-								{hasErrors && (
-									<span
-										className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
-										aria-hidden="true"
-									/>
-								)}
-								<Icon
-									icon={icon}
-									width="17"
-									height="17"
-									className={`shrink-0 ${
-										active ? "text-nova-violet-bright" : "text-nova-text-muted"
+								<button
+									type="button"
+									onClick={() => onSelectTab(id)}
+									className={`relative flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
+										active
+											? "bg-nova-violet/[0.13] border-nova-border-bright"
+											: "border-transparent hover:bg-white/[0.03]"
 									}`}
-								/>
-								{/* Flex column (not a plain block): a block wrapper carries
-								 *  the inherited 16px/24px line-height strut into the label's
-								 *  anonymous line box, which pads ~5px of dead space above the
-								 *  label and bottom-weights the whole text block. Flex children
-								 *  size to their own line-height, so label + meta center as a
-								 *  unit against the icon. */}
-								<span className="hidden @xl:flex flex-col gap-0.5">
-									{/* Grid stacks the visible label over an invisible bold
-									 *  ghost, so the slot is always as wide as the bold form —
-									 *  selecting a tab must never nudge its neighbors. */}
-									<span className="grid text-[13px] leading-tight">
+								>
+									{hasErrors && (
 										<span
-											className={`col-start-1 row-start-1 ${
-												active
-													? "font-semibold text-nova-text"
-													: "font-medium text-nova-text-secondary"
-											}`}
-										>
-											{label}
-										</span>
-										<span
+											className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
 											aria-hidden="true"
-											className="col-start-1 row-start-1 font-semibold invisible"
-										>
-											{label}
+										/>
+									)}
+									<Icon
+										icon={icon}
+										width="17"
+										height="17"
+										className={`shrink-0 ${
+											active
+												? "text-nova-violet-bright"
+												: "text-nova-text-muted"
+										}`}
+									/>
+									{/* Flex column (not a plain block): a block wrapper carries
+									 *  the inherited 16px/24px line-height strut into the label's
+									 *  anonymous line box, which pads ~5px of dead space above the
+									 *  label and bottom-weights the whole text block. Flex children
+									 *  size to their own line-height, so label + meta center as a
+									 *  unit against the icon. */}
+									<span className="hidden @xl:flex flex-col gap-0.5">
+										{/* Grid stacks the visible label over an invisible bold
+										 *  ghost, so the slot is always as wide as the bold form —
+										 *  selecting a tab must never nudge its neighbors. */}
+										<span className="grid text-[13px] leading-tight">
+											<span
+												className={`col-start-1 row-start-1 ${
+													active
+														? "font-semibold text-nova-text"
+														: "font-medium text-nova-text-secondary"
+												}`}
+											>
+												{label}
+											</span>
+											<span
+												aria-hidden="true"
+												className="col-start-1 row-start-1 font-semibold invisible"
+											>
+												{label}
+											</span>
+										</span>
+										<span className="hidden @min-[40rem]:block text-[10px] text-nova-text-muted leading-tight">
+											{metas[id]}
 										</span>
 									</span>
-									<span className="hidden @min-[40rem]:block text-[10px] text-nova-text-muted leading-tight">
-										{metas[id]}
-									</span>
-								</span>
-							</button>
-						</Tooltip>
-					);
-				})}
+								</button>
+							</Tooltip>
+						);
+					})}
+				</div>
 			</ContentFrame>
 		</div>
 	);

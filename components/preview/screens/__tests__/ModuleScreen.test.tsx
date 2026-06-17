@@ -63,36 +63,42 @@ const REG_FORM_UUID = asUuid("form-reg");
 const FOLLOWUP_FORM_UUID = asUuid("form-fup");
 
 function renderModuleScreen(
-	opts: { caseType?: string; caseFirst?: boolean } = {},
+	opts: { caseType?: string; caseFirst?: boolean; caseListOnly?: boolean } = {},
 ) {
 	/* caseFirst drops the registration form so every form is case-loading —
-	 * the shape that makes the running app hoist the case selection. */
-	const forms = opts.caseFirst
-		? {
-				[FOLLOWUP_FORM_UUID]: {
-					uuid: FOLLOWUP_FORM_UUID,
-					id: "followup_patient",
-					name: "Follow Up",
-					type: "followup" as const,
-				},
-			}
-		: {
-				[REG_FORM_UUID]: {
-					uuid: REG_FORM_UUID,
-					id: "register_patient",
-					name: "Register Patient",
-					type: "registration" as const,
-				},
-				[FOLLOWUP_FORM_UUID]: {
-					uuid: FOLLOWUP_FORM_UUID,
-					id: "followup_patient",
-					name: "Follow Up",
-					type: "followup" as const,
-				},
-			};
-	const order = opts.caseFirst
-		? [FOLLOWUP_FORM_UUID]
-		: [REG_FORM_UUID, FOLLOWUP_FORM_UUID];
+	 * the shape that makes the running app hoist the case selection.
+	 * caseListOnly drops every form — a bare case list (a "case list menu
+	 * item"), whose home is the case list, not this form menu. */
+	const forms = opts.caseListOnly
+		? {}
+		: opts.caseFirst
+			? {
+					[FOLLOWUP_FORM_UUID]: {
+						uuid: FOLLOWUP_FORM_UUID,
+						id: "followup_patient",
+						name: "Follow Up",
+						type: "followup" as const,
+					},
+				}
+			: {
+					[REG_FORM_UUID]: {
+						uuid: REG_FORM_UUID,
+						id: "register_patient",
+						name: "Register Patient",
+						type: "registration" as const,
+					},
+					[FOLLOWUP_FORM_UUID]: {
+						uuid: FOLLOWUP_FORM_UUID,
+						id: "followup_patient",
+						name: "Follow Up",
+						type: "followup" as const,
+					},
+				};
+	const order = opts.caseListOnly
+		? []
+		: opts.caseFirst
+			? [FOLLOWUP_FORM_UUID]
+			: [REG_FORM_UUID, FOLLOWUP_FORM_UUID];
 	return render(
 		<BlueprintDocProvider
 			appId="app-module-screen-test"
@@ -107,6 +113,7 @@ function renderModuleScreen(
 						id: "patient_module",
 						name: "Patient module",
 						caseType: opts.caseType,
+						...(opts.caseListOnly && { caseListOnly: true }),
 					},
 				},
 				forms,
@@ -178,5 +185,23 @@ describe("ModuleScreen", () => {
 		expect(navigateMock.openCaseList).not.toHaveBeenCalled();
 		// The form list still renders.
 		expect(screen.getByText("Follow Up")).toBeDefined();
+	});
+
+	it.each([
+		"edit",
+		"preview",
+	] as const)("redirects a caseListOnly module (no forms) to its case list in %s mode", (mode) => {
+		// A bare case list has no form menu in ANY mode — its home is the
+		// case list. Replace history so the empty module URL is never a
+		// back-button stop for a formless module.
+		editModeMock.mockReturnValue(mode);
+		navigateMock.replace.mockClear();
+		navigateMock.openCaseList.mockClear();
+		renderModuleScreen({ caseType: "village", caseListOnly: true });
+		expect(navigateMock.replace).toHaveBeenCalledWith({
+			kind: "cases",
+			moduleUuid: MODULE_UUID,
+		});
+		expect(navigateMock.openCaseList).not.toHaveBeenCalled();
 	});
 });

@@ -82,7 +82,11 @@ export function HomeScreen() {
 								ease: [0.16, 1, 0.3, 1],
 							}}
 							onClick={() =>
-								caseFirstModules.has(mod.uuid)
+								/* Case-first modules land on the case list (the running
+								 * app hoists the shared case selection); a caseListOnly
+								 * module has no form menu at all, so it too opens straight
+								 * to its case list. */
+								caseFirstModules.has(mod.uuid) || mod.caseListOnly
 									? navigate.openCaseList(mod.uuid)
 									: navigate.openModule(mod.uuid)
 							}
