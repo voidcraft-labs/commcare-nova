@@ -709,8 +709,8 @@ function parseFormXml(xml: string): ParsedFormXml {
  * convention, not a build artifact. CI runners + fresh contributor
  * clones don't have the directory. Without a skip guard the
  * `readFileSync` in `readCchqFixture` throws ENOENT during test
- * discovery and fails the entire suite — including the `pre-push`
- * async-leak gate that runs the full suite under `--detect-async-leaks`.
+ * discovery and fails the entire suite — including any run under the
+ * CI async-leak gate (`--detect-async-leaks`) that discovers this file.
  * `describe.skipIf(!HAS_CCHQ_FIXTURES)` keeps the contract local to
  * developers who maintain the parity tests; everyone else gets a
  * green run.
