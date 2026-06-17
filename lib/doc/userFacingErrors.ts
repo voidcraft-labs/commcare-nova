@@ -221,11 +221,11 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CLOSE_CONDITION_FIELD_NOT_FOUND: (e) =>
 		`${q(formName(e))}'s close condition points at a field that isn't in the form. Point it at one that is.`,
 	INVALID_POST_SUBMIT: (e) =>
-		`${q(formName(e))}'s after-submit spot isn't one of the options. Pick one.`,
+		`${q(formName(e))}'s After Submit setting isn't one of the options. Pick one.`,
 	POST_SUBMIT_PARENT_MODULE_UNSUPPORTED: (e) =>
 		`${q(formName(e))} is set to go to its parent module after submitting, but it doesn't have one. Pick a different spot to land.`,
 	POST_SUBMIT_MODULE_CASE_LIST_ONLY: (e) =>
-		`${q(formName(e))} is set to head back to its module after submitting, but that module has no form list to land on. Send people to "previous" or the app home instead.`,
+		`${q(formName(e))} is set to head back to its module after submitting, but that module has no form list to land on. Send people to "Previous Screen" or "App Home" instead.`,
 	FORM_LINK_EMPTY: (e) =>
 		`${q(formName(e))} has follow-on links turned on but none added. Add a link, or turn the setting off.`,
 	FORM_LINK_NO_FALLBACK: (e) =>
@@ -241,9 +241,9 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CONNECT_ID_INVALID_FORMAT: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} won't work. Use letters, numbers, and underscores, starting with a letter.`,
 	CONNECT_MISSING_LEARN: (e) =>
-		`${q(formName(e))} is set up for Connect but has no learn module or assessment turned on. Turn on at least one.`,
+		`${q(formName(e))} is set up for Connect but has no Learn Module or Assessment turned on. Turn on at least one.`,
 	CONNECT_MISSING_DELIVER: (e) =>
-		`${q(formName(e))} is set up for Connect but has no deliver unit or task turned on. Turn on at least one.`,
+		`${q(formName(e))} is set up for Connect but has no Deliver Unit or Task turned on. Turn on at least one.`,
 	CONNECT_EMPTY_XPATH: (e) =>
 		`A Connect setting on ${q(formName(e))} was left blank. Fill it in, or remove that piece.`,
 	CONNECT_UNQUOTED_XPATH: (e) =>
