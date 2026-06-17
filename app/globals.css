@@ -40,11 +40,13 @@
 	   and links, where the contrast requirement runs the opposite direction. */
 	--nova-violet: #7c54de;
 	--nova-violet-bright: #a78bfa;
-	/* Hover fill for filled violet controls — lighter than the base fill for the
-	   lighten-on-hover affordance, but still dark enough that white text clears
-	   AA (4.65:1). Replaces hover:bg-nova-violet-bright, which lifted the fill to
-	   #a78bfa where white dropped to 2.72:1. */
-	--nova-violet-hover: #8259e6;
+	/* Hover fill for filled violet controls — one clear step DARKER than the base
+	   fill (white text 6.36:1, ~1.26:1 lighter↔darker distance from the base so
+	   the state actually reads). The fill can't lighten meaningfully on hover and
+	   keep white legible — white only clears AA on violets up to ~#8558ec — so the
+	   hover deepens instead. Replaces hover:bg-nova-violet-bright, which lifted the
+	   fill to #a78bfa where white dropped to 2.72:1. */
+	--nova-violet-hover: #6b48bf;
 	/* Faint violet wash for decorative fills (skeleton shimmer midpoint, editor
 	   active-line). Consolidates the repeated rgba(139,92,246,0.06) literals. */
 	--nova-violet-wash: rgba(139, 92, 246, 0.06);
